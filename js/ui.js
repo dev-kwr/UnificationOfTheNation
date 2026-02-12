@@ -1108,72 +1108,187 @@ export function renderGameOverScreen(ctx, player, stageNumber) {
 }
 
 // ステージクリア画面
-export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked) {
+export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked, options = {}) {
     const time = Date.now();
-    
-    // 背景（勝利の光）
-    const grad = ctx.createRadialGradient(CANVAS_WIDTH/2, CANVAS_HEIGHT/2, 50, CANVAS_WIDTH/2, CANVAS_HEIGHT/2, CANVAS_WIDTH);
-    grad.addColorStop(0, 'rgba(0, 100, 0, 0.8)');
-    grad.addColorStop(1, 'rgba(0, 50, 0, 0.9)');
-    ctx.fillStyle = grad;
+    const menuIndex = Number.isFinite(options.menuIndex) ? options.menuIndex : 0;
+    const selectedWeaponName = options.selectedWeaponName || (player?.currentSubWeapon?.name || '未装備');
+    const stageKanji = toKanjiNumber(stageNumber);
+    const panelX = 56;
+    const panelY = 76;
+    const panelW = CANVAS_WIDTH - 112;
+    const panelH = CANVAS_HEIGHT - 152;
+    const menuItems = [
+        { title: '次の階層へ', desc: '現在の強化を維持して進行' },
+        { title: '既定武器', desc: selectedWeaponName },
+        { title: 'よろず屋', desc: '買い物後、この画面に戻る' }
+    ];
+
+    ctx.save();
+    const bg = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+    bg.addColorStop(0, 'rgba(10, 18, 45, 0.88)');
+    bg.addColorStop(1, 'rgba(7, 9, 24, 0.9)');
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    
-    // 紙吹雪
-    const confettiCount = 50;
-    for (let i = 0; i < confettiCount; i++) {
-        const cx = (Math.sin(time * 0.001 + i) + 1) * CANVAS_WIDTH / 2 + Math.cos(time * 0.002 + i) * 200;
-        const cy = (time * 0.1 + i * 50) % (CANVAS_HEIGHT + 100) - 50;
-        ctx.fillStyle = 'hsl(' + (i * 20) + ', 100%, 70%)';
-        ctx.fillRect(cx, cy, 8, 8);
+
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.26)';
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.strokeStyle = 'rgba(164, 193, 255, 0.32)';
+    ctx.lineWidth = 1.4;
+    ctx.strokeRect(panelX, panelY, panelW, panelH);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#f0f6ff';
+    ctx.font = '700 38px sans-serif';
+    ctx.fillText('階層攻略完了', panelX + 34, panelY + 58);
+    ctx.font = '600 24px sans-serif';
+    ctx.fillStyle = 'rgba(222, 234, 255, 0.9)';
+    ctx.fillText(`第${stageKanji}階層`, panelX + 36, panelY + 95);
+    if (weaponUnlocked) {
+        ctx.font = '600 18px sans-serif';
+        ctx.fillStyle = '#ffdc8c';
+        ctx.fillText(`新規獲得: ${weaponUnlocked}`, panelX + 36, panelY + 126);
     }
 
-    // STAGE CLEAR テキスト
-    ctx.save();
-    ctx.translate(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 80);
-    const scale = 1 + Math.sin(time / 300) * 0.05;
-    ctx.scale(scale, scale);
-    
-    ctx.shadowColor = '#ffaa00';
-    ctx.shadowBlur = 30;
-    ctx.fillStyle = '#ffff00';
-    ctx.font = 'bold 100px serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('勝 利', 0, -40);
-    
-    ctx.font = 'bold 40px serif';
-    ctx.fillStyle = '#dddd00';
-    ctx.shadowBlur = 0;
-    ctx.fillText('STAGE CLEAR!', 0, 20);
-    ctx.restore();
-    
-    // ステージ情報
-    ctx.font = '24px sans-serif';
-    ctx.fillStyle = '#fff';
-    ctx.textAlign = 'center';
-    const stageKanji = toKanjiNumber(stageNumber);
-    ctx.fillText('第 ' + stageKanji + ' 階層 突破', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
-    
-    if (weaponUnlocked) {
-        const blink = Math.sin(time / 100) > 0;
-        ctx.font = 'bold 32px sans-serif';
-        ctx.fillStyle = blink ? '#ffdd00' : '#ffffff';
-        ctx.shadowColor = '#ff0000';
-        ctx.shadowBlur = 10;
-        ctx.fillText('新武器獲得：' + weaponUnlocked, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 100);
-        ctx.shadowBlur = 0;
+    ctx.font = '600 18px sans-serif';
+    ctx.fillStyle = 'rgba(226, 236, 255, 0.88)';
+    ctx.fillText(`段位: ${toKanjiNumber(player.level)}段`, panelX + panelW - 290, panelY + 58);
+    ctx.fillText(`体力: ${player.hp} / ${player.maxHp}`, panelX + panelW - 290, panelY + 86);
+    ctx.fillText(`小判: ${player.money}`, panelX + panelW - 290, panelY + 114);
+    ctx.fillText(`通常連撃: ${player.getNormalComboMax()}段`, panelX + panelW - 290, panelY + 142);
+
+    // 大きめの自キャラプレビュー（軽く揺れながら装備モーション）
+    if (player && typeof player.renderModel === 'function') {
+        const previewX = panelX + 150;
+        const previewY = panelY + panelH - 330;
+        const sway = Math.sin(time * 0.0032) * 6;
+        const bob = Math.sin(time * 0.0046) * 4;
+        const prevTimer = player.subWeaponTimer;
+        const prevAction = player.subWeaponAction;
+        const prevAttacking = player.isAttacking;
+        const prevAttack = player.currentAttack;
+        const prevGround = player.isGrounded;
+        const prevVy = player.vy;
+        const prevVx = player.vx;
+
+        player.subWeaponTimer = 280 + (Math.sin(time * 0.004) + 1) * 140;
+        player.subWeaponAction = player.currentSubWeapon ? player.currentSubWeapon.name : null;
+        player.isAttacking = false;
+        player.currentAttack = null;
+        player.isGrounded = true;
+        player.vx = 0;
+        player.vy = 0;
+
+        ctx.save();
+        ctx.translate(previewX, previewY);
+        ctx.scale(2.45, 2.45);
+        player.renderModel(ctx, -player.width / 2 + sway * 0.15, -player.height + bob * 0.15, true, 0.96, true, { useLiveAccessories: true });
+        ctx.restore();
+
+        player.subWeaponTimer = prevTimer;
+        player.subWeaponAction = prevAction;
+        player.isAttacking = prevAttacking;
+        player.currentAttack = prevAttack;
+        player.isGrounded = prevGround;
+        player.vx = prevVx;
+        player.vy = prevVy;
     }
-    
-    // 続行メッセージ（英語に統一）
-    const blink = Math.floor(Date.now() / 500) % 2 === 0;
-    if (blink) {
-        ctx.font = 'bold 20px sans-serif';
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+
+    const cardW = 274;
+    const cardH = 132;
+    const cardGap = 26;
+    const startX = panelX + 38;
+    const cardY = panelY + panelH - cardH - 46;
+    menuItems.forEach((item, index) => {
+        const x = startX + index * (cardW + cardGap);
+        const selected = index === menuIndex;
+        ctx.fillStyle = selected ? 'rgba(78, 122, 220, 0.44)' : 'rgba(19, 27, 52, 0.62)';
+        ctx.fillRect(x, cardY, cardW, cardH);
+        ctx.strokeStyle = selected ? 'rgba(196, 219, 255, 0.9)' : 'rgba(136, 164, 222, 0.35)';
+        ctx.lineWidth = selected ? 2.2 : 1.2;
+        ctx.strokeRect(x, cardY, cardW, cardH);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = selected ? '700 24px sans-serif' : '700 22px sans-serif';
+        ctx.fillText(item.title, x + 18, cardY + 44);
+        ctx.font = '500 16px sans-serif';
+        ctx.fillStyle = 'rgba(225, 236, 255, 0.86)';
+        ctx.fillText(item.desc, x + 18, cardY + 82);
+        if (selected) {
+            ctx.fillStyle = 'rgba(255,255,255,0.24)';
+            ctx.fillRect(x, cardY, cardW, 18);
+        }
+    });
+
+    const guideBlink = Math.floor(time / 500) % 2 === 0;
+    if (guideBlink) {
         ctx.textAlign = 'center';
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-        ctx.shadowBlur = 4;
-        ctx.fillText('Press SPACE or Tap Screen to Continue', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 180);
-        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(236, 244, 255, 0.86)';
+        ctx.font = '600 18px sans-serif';
+        ctx.fillText('←→: 選択  /  Z・SPACE: 決定  /  既定武器は↑↓でも切替', CANVAS_WIDTH / 2, panelY + panelH - 12);
     }
+    ctx.restore();
+}
+
+export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 0, pendingCount = 1) {
+    const time = Date.now();
+    const pulse = (Math.sin(time * 0.006) + 1) * 0.5;
+    const cardWidth = 300;
+    const cardHeight = 260;
+    const gap = 36;
+    const list = Array.isArray(choices) ? choices : [];
+    const totalW = list.length * cardWidth + Math.max(0, list.length - 1) * gap;
+    const startX = CANVAS_WIDTH / 2 - totalW / 2;
+    const cardY = CANVAS_HEIGHT / 2 - 120;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(2, 6, 20, 0.66)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#f7fbff';
+    ctx.font = '700 46px sans-serif';
+    ctx.fillText('段位上昇', CANVAS_WIDTH / 2, 112);
+    ctx.font = '600 20px sans-serif';
+    ctx.fillStyle = 'rgba(220, 236, 255, 0.9)';
+    ctx.fillText(`強化をひとつ選択 (${Math.max(1, pendingCount)} 回)`, CANVAS_WIDTH / 2, 146);
+
+    list.forEach((choice, index) => {
+        const x = startX + index * (cardWidth + gap);
+        const selected = index === selectedIndex;
+        const level = choice.level || 0;
+        const maxLevel = choice.maxLevel || 3;
+
+        const bg = ctx.createLinearGradient(x, cardY, x, cardY + cardHeight);
+        bg.addColorStop(0, selected ? 'rgba(58, 91, 168, 0.92)' : 'rgba(26, 34, 66, 0.92)');
+        bg.addColorStop(1, selected ? 'rgba(30, 47, 92, 0.92)' : 'rgba(16, 22, 44, 0.9)');
+        ctx.fillStyle = bg;
+        ctx.fillRect(x, cardY, cardWidth, cardHeight);
+        ctx.strokeStyle = selected ? `rgba(218, 233, 255, ${0.7 + pulse * 0.3})` : 'rgba(145, 171, 223, 0.35)';
+        ctx.lineWidth = selected ? 2.4 : 1.2;
+        ctx.strokeRect(x, cardY, cardWidth, cardHeight);
+
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '700 28px sans-serif';
+        ctx.fillText(choice.title || '', x + 22, cardY + 54);
+        ctx.font = '500 18px sans-serif';
+        ctx.fillStyle = 'rgba(224, 236, 255, 0.9)';
+        ctx.fillText(choice.subtitle || '', x + 22, cardY + 96);
+
+        const pipsY = cardY + 134;
+        for (let pip = 0; pip < maxLevel; pip++) {
+            ctx.fillStyle = pip < level ? '#8ec8ff' : 'rgba(210, 225, 255, 0.22)';
+            ctx.fillRect(x + 22 + pip * 34, pipsY, 24, 9);
+        }
+        ctx.font = '600 16px sans-serif';
+        ctx.fillStyle = 'rgba(222, 236, 255, 0.84)';
+        ctx.fillText(`Lv ${level} / ${maxLevel}`, x + 22, pipsY + 34);
+    });
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(228, 240, 255, 0.84)';
+    ctx.font = '600 18px sans-serif';
+    ctx.fillText('←→で選択 / Z・SPACEで決定', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 70);
+    ctx.restore();
 }
 
 function renderWafuuCinematicBackdrop(ctx, timer, variant = 'opening') {

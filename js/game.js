@@ -236,10 +236,20 @@ class Game {
             // 現在の装備武器の復元
             const subWeaponId = saveData.player.currentSubWeapon;
             if (subWeaponId) {
-                this.player.currentSubWeapon = module.createSubWeapon(subWeaponId);
-                // インデックスの同期
-                this.player.subWeaponIndex = this.player.subWeapons.findIndex(w => w.name === subWeaponId);
-                if (this.player.subWeaponIndex === -1) this.player.subWeaponIndex = 0;
+                let index = this.player.subWeapons.findIndex(w => w.name === subWeaponId);
+                if (index === -1) {
+                    const weapon = module.createSubWeapon(subWeaponId);
+                    if (weapon) {
+                        this.player.subWeapons.push(weapon);
+                        index = this.player.subWeapons.length - 1;
+                    }
+                }
+                if (index !== -1) {
+                    this.player.subWeaponIndex = index;
+                    this.player.currentSubWeapon = this.player.subWeapons[index];
+                } else {
+                    this.player.subWeaponIndex = 0;
+                }
             }
             
             this.initStage(this.currentStageNumber);
@@ -499,6 +509,11 @@ class Game {
         this.currentStageNumber = this.debugStartStage || 1;
         this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
         this.player.unlockedWeapons = [];
+        this.pendingLevelUpChoices = 0;
+        this.levelUpChoiceIndex = 0;
+        this.stageClearMenuIndex = 0;
+        this.stageClearWeaponIndex = 0;
+        this.returnToStageClearAfterShop = false;
         this.bombs = [];
         this.shockwaves = [];
         this.expGems = [];
@@ -1740,6 +1755,8 @@ class Game {
         if (this.player && typeof this.player.clearSpecialState === 'function') {
             this.player.clearSpecialState(true);
         }
+        this.pendingLevelUpChoices = 0;
+        this.levelUpChoiceIndex = 0;
 
         // ボスの武器を獲得
         const stageInfo = STAGES[this.currentStageNumber - 1];
@@ -1943,6 +1960,16 @@ class Game {
             case GAME_STATE.PLAYING:
                 this.renderPlaying();
                 break;
+            case GAME_STATE.LEVEL_UP:
+                this.renderPlaying();
+                renderLevelUpChoiceScreen(
+                    this.ctx,
+                    this.player,
+                    this.getAvailableLevelUpChoices(),
+                    this.levelUpChoiceIndex,
+                    this.pendingLevelUpChoices
+                );
+                break;
             case GAME_STATE.PAUSED:
                 this.renderPlaying();
                 renderPauseScreen(this.ctx);
@@ -1955,7 +1982,11 @@ class Game {
                 renderGameOverScreen(this.ctx, this.player, this.currentStageNumber);
                 break;
             case GAME_STATE.STAGE_CLEAR:
-                renderStageClearScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon);
+                renderStageClearScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {
+                    menuIndex: this.stageClearMenuIndex,
+                    selectedWeaponName: this.player?.subWeapons?.[this.stageClearWeaponIndex]?.name || '',
+                    pendingLevelUpChoices: this.pendingLevelUpChoices
+                });
                 break;
             case GAME_STATE.GAME_CLEAR:
                 renderGameClearScreen(this.ctx, this.player);

@@ -118,6 +118,7 @@ export class Player {
         this.subWeapons = []; // 取得済みのサブ武器インスタンスを格納
         this.subWeaponIndex = 0;
         this.unlockedWeapons = [];
+        this.stageEquip = {};
         this.subWeaponCooldown = 0;
         this.subWeaponTimer = 0;
         this.subWeaponAction = null;
