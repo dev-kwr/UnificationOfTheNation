@@ -6,6 +6,7 @@ import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES } from
 import { createEnemy, Ashigaru, Samurai, Busho, Ninja } from './enemy.js';
 import { createBoss } from './boss.js';
 import { createObstacle } from './obstacle.js';
+import { audio } from './audio.js';
 
 // ステージクラス
 export class Stage {
@@ -32,6 +33,8 @@ export class Stage {
         this.boss = null;
         this.bossSpawned = false;
         this.bossDefeated = false;
+        this.bossDefeatLingerDuration = 700;
+        this.bossDefeatLingerTimer = 0;
         
         // 地面
         this.groundY = Math.round(CANVAS_HEIGHT * (2 / 3));
@@ -41,7 +44,9 @@ export class Stage {
         
         // ステージ固有の敵構成
         this.enemyWeights = this.getEnemyWeights();
+        this.maxActiveEnemies = this.getMaxActiveEnemies();
         this.stageTime = 0;
+        this.skyParticles = this.createSkyParticles(18);
         this.bossIntroDurationByStage = {
             1: 1300,
             2: 1400,
@@ -69,6 +74,40 @@ export class Stage {
             default:
                 return { ashigaru: 65, samurai: 30, busho: 0, ninja: 5 };
         }
+    }
+
+    getMaxActiveEnemies() {
+        switch (this.stageNumber) {
+            case 1: return 6;
+            case 2: return 7;
+            case 3: return 8;
+            case 4: return 9;
+            case 5: return 10;
+            default: return 8;
+        }
+    }
+
+    getActiveEnemyCount() {
+        let activeCount = 0;
+        for (const enemy of this.enemies) {
+            if (enemy && enemy.isAlive && !enemy.isDying) activeCount++;
+        }
+        return activeCount;
+    }
+
+    createSkyParticles(count = 18) {
+        const particles = [];
+        for (let i = 0; i < count; i++) {
+            const baseX = Math.abs((Math.sin(i * 12.989 + 2.1) * 43758.5453) % 1);
+            const baseY = Math.abs((Math.cos(i * 7.233 + 1.7) * 19642.349) % 1);
+            particles.push({
+                nx: baseX,
+                ny: baseY,
+                speed: 1.6 + i * 0.05,
+                phase: i * 1.3
+            });
+        }
+        return particles;
     }
     
     createBackgroundLayers() {
@@ -182,10 +221,15 @@ export class Stage {
         if (this.boss) {
             const shouldRemove = this.boss.update(deltaTime, player);
             if (shouldRemove || !this.boss.isAlive) {
-                if (!this.boss.isAlive) {
+                if (!this.boss.isAlive && !this.bossDefeated) {
                     this.bossDefeated = true;
+                    this.bossDefeatLingerTimer = this.bossDefeatLingerDuration;
                 }
             }
+        }
+
+        if (this.bossDefeatLingerTimer > 0) {
+            this.bossDefeatLingerTimer = Math.max(0, this.bossDefeatLingerTimer - deltaTime * 1000);
         }
         
         // 残りの雑魚敵も更新
@@ -195,18 +239,53 @@ export class Stage {
     
     updateEnemies(deltaTime, player, obstacles = []) {
         // 敵を更新し、削除すべきものをフィルタ
-        this.enemies = this.enemies.filter(enemy => {
+        // 置き去りになった敵は前方に再登場させ、走り抜け時の敵枯渇を防ぐ
+        const nextEnemies = [];
+        for (const enemy of this.enemies) {
             const shouldRemove = enemy.update(deltaTime, player, obstacles);
-            return !shouldRemove;
-        });
+            if (shouldRemove) continue;
+
+            if (this.shouldRecycleBehindEnemy(enemy)) {
+                const recycled = this.spawnRecycledEnemyAhead(enemy.type);
+                if (recycled) {
+                    nextEnemies.push(recycled);
+                    continue;
+                }
+            }
+
+            nextEnemies.push(enemy);
+        }
+        this.enemies = nextEnemies;
+    }
+
+    shouldRecycleBehindEnemy(enemy) {
+        if (!enemy || !enemy.isAlive || enemy.isDying) return false;
+        if (this.bossSpawned && !this.bossDefeated) return false;
+
+        const recycleDistance = 320;
+        const leftBound = this.progress - recycleDistance;
+        return (enemy.x + enemy.width) < leftBound;
+    }
+
+    spawnRecycledEnemyAhead(type) {
+        const spawnX = this.progress + CANVAS_WIDTH + 80 + Math.random() * 180;
+        const spawnY = this.groundY - 60;
+        const recycled = createEnemy(type || ENEMY_TYPES.ASHIGARU, spawnX, spawnY, this.groundY);
+        if (!recycled) return null;
+        recycled.facingRight = false;
+        return recycled;
     }
     
     spawnEnemy() {
+        const availableSlots = this.maxActiveEnemies - this.getActiveEnemyCount();
+        if (availableSlots <= 0) return;
+
         // 一度に湧く数 (30%の確率で複数体出現)
         // 終盤ほど複数出現しやすくしてもよいが、まずはランダムで
         const count = Math.random() < 0.3 ? (Math.random() < 0.5 ? 2 : 3) : 1;
+        const spawnCount = Math.min(count, availableSlots);
         
-        for (let i = 0; i < count; i++) {
+        for (let i = 0; i < spawnCount; i++) {
             // 出現確率に基づいて敵タイプを選択
             const roll = Math.random() * 100;
             let type = ENEMY_TYPES.ASHIGARU;
@@ -291,11 +370,10 @@ export class Stage {
         const y = this.groundY - 90;
         this.boss = createBoss(this.stageNumber, x, y, this.groundY);
         this.bossIntroTimer = this.bossIntroDuration;
+        this.bossDefeatLingerTimer = 0;
         
         // BGM切り替え
-        import('./audio.js').then(({ audio }) => {
-            audio.playBgm('boss', this.stageNumber);
-        });
+        audio.playBgm('boss', this.stageNumber);
     }
     
     render(ctx) {
@@ -745,13 +823,10 @@ export class Stage {
     renderSkyParticles(ctx, time) {
         // 夜系ステージのみ、控えめな瞬き粒子を追加
         if (this.stageNumber < 3) return;
-        const count = 18;
-        for (let i = 0; i < count; i++) {
-            const baseX = (Math.sin(i * 12.989 + 2.1) * 43758.5453) % 1;
-            const baseY = (Math.cos(i * 7.233 + 1.7) * 19642.349) % 1;
-            const x = Math.abs(baseX) * CANVAS_WIDTH;
-            const y = 20 + Math.abs(baseY) * (this.groundY * 0.55);
-            const twinkle = 0.3 + Math.sin(time * (1.6 + i * 0.05) + i * 1.3) * 0.2;
+        for (const particle of this.skyParticles) {
+            const x = particle.nx * CANVAS_WIDTH;
+            const y = 20 + particle.ny * (this.groundY * 0.55);
+            const twinkle = 0.3 + Math.sin(time * particle.speed + particle.phase) * 0.2;
             ctx.fillStyle = `rgba(255, 245, 210, ${Math.max(0.08, twinkle)})`;
             ctx.beginPath();
             ctx.arc(x, y, 1.2, 0, Math.PI * 2);
@@ -828,6 +903,6 @@ export class Stage {
     }
     
     isCleared() {
-        return this.bossSpawned && this.bossDefeated;
+        return this.bossSpawned && this.bossDefeated && this.bossDefeatLingerTimer <= 0;
     }
 }

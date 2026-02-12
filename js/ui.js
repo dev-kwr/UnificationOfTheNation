@@ -6,33 +6,25 @@ import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD } from './constants.js
 import { input } from './input.js';
 import { audio } from './audio.js';
 
-const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・スペース：ジャンプ | Z：攻撃 | X：忍具 | D：切り替え | S：奥義 | SHIFT：ダッシュ';
-const PAD_ICON_LIGATURES = {
-    attack: 'swords',
-    sub: 'bomb',
-    special: 'auto_awesome',
-    switch: 'swap_horiz'
+const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・スペース：ジャンプ | Z：攻撃 | X：忍具 | D：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
+const PAD_ICON_PATHS = {
+    attack: './icon/attack.svg',
+    sub: './icon/sub_weapon.svg',
+    special: './icon/special.svg',
+    switch: './icon/switch_weapon.svg',
+    pause: './icon/pause.svg'
 };
 const PAD_ICON_FALLBACK = {
-    attack: '⚔',
-    sub: '✹',
-    special: '✦',
-    switch: '⇄'
+    attack: 'Z',
+    sub: 'X',
+    special: 'S',
+    switch: 'D',
+    pause: 'Ⅱ'
 };
 const BGM_ICON_PATHS = {
-    unmuted: '../icon/volume-high-solid-full.svg',
-    muted: '../icon/volume-xmark-solid-full.svg'
+    unmuted: './icon/volume_on.svg',
+    muted: './icon/volume_off.svg'
 };
-
-function canUseMaterialIconFont() {
-    if (typeof document === 'undefined' || !document.fonts || typeof document.fonts.check !== 'function') {
-        return false;
-    }
-    return (
-        document.fonts.check('24px "Material Symbols Rounded"') ||
-        document.fonts.check('24px "Material Icons"')
-    );
-}
 
 const KANJI_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
@@ -103,8 +95,8 @@ function drawRichTitleLogo(ctx, timeMs) {
     const titleY = CANVAS_HEIGHT / 2 - 120;
     const pulse = (Math.sin(timeMs * 0.0023) + 1) * 0.5;
     const bob = Math.sin(timeMs * 0.0017) * 1.2;
-    const brushFamily = '"Rock Salt","Yusei Magic","Yuji Boku","Hiragino Mincho ProN","Yu Mincho",cursive';
-    const subtitleFamily = '"Yuji Syuku","Yuji Boku","Yusei Magic","Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif';
+    const brushFamily = '"Rock Salt","Yuji Boku","Yusei Magic","Hiragino Mincho ProN","Yu Mincho",cursive';
+    const subtitleFamily = '"Yuji Mai","Yuji Syuku","Yuji Boku","Yusei Magic","Hiragino Mincho ProN","Yu Mincho",cursive';
 
     ctx.save();
     ctx.textAlign = 'center';
@@ -151,25 +143,21 @@ function drawRichTitleLogo(ctx, timeMs) {
     ctx.lineWidth = 1.0;
     ctx.strokeText(titleText, titleX, titleRenderY - 1);
 
-    const subtitleY = titleY + 78 + bob * 0.2;
-    ctx.font = `700 62px ${subtitleFamily}`;
-    ctx.fillStyle = '#e3ecff';
-    ctx.shadowColor = 'rgba(88, 140, 255, 0.54)';
-    ctx.shadowBlur = 8;
-    for (let i = 0; i < 3; i++) {
-        const jitterX = Math.sin(timeMs * 0.003 + i * 2.1) * (1.2 - i * 0.25);
-        const jitterY = Math.cos(timeMs * 0.0024 + i * 1.2) * (0.85 - i * 0.18);
-        ctx.fillStyle = `rgba(30, 25, 44, ${0.15 - i * 0.04})`;
-        ctx.fillText('天下統一', titleX + jitterX, subtitleY + jitterY);
-    }
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = 'rgba(8, 10, 20, 0.55)';
-    ctx.strokeText('天下統一', titleX, subtitleY);
-    ctx.fillStyle = '#e3ecff';
-    ctx.fillText('天下統一', titleX, subtitleY);
+    const subtitleY = titleY + 76 + bob * 0.2;
+    const subtitleText = '天下統一';
+    ctx.font = `400 48px ${subtitleFamily}`;
+    ctx.lineJoin = 'bevel';
+    ctx.miterLimit = 1.4;
+    ctx.shadowColor = 'rgba(84, 130, 220, 0.28)';
+    ctx.shadowBlur = 3;
+    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = 'rgba(10, 12, 20, 0.72)';
+    ctx.strokeText(subtitleText, titleX, subtitleY);
+    ctx.fillStyle = '#d9e8ff';
+    ctx.fillText(subtitleText, titleX, subtitleY);
     ctx.shadowBlur = 0;
 
-    const ornamentY = subtitleY + 30;
+    const ornamentY = subtitleY + 40;
     const ornamentLen = 206;
     ctx.strokeStyle = 'rgba(229, 203, 142, 0.78)';
     ctx.lineWidth = 2.4;
@@ -223,6 +211,13 @@ function drawTitleMistLayers(ctx, timeMs) {
 export class UI {
     constructor() {
         this.hudPadding = 20;
+        this.padActionIcons = {
+            attack: this.createUiImage(PAD_ICON_PATHS.attack),
+            sub: this.createUiImage(PAD_ICON_PATHS.sub),
+            special: this.createUiImage(PAD_ICON_PATHS.special),
+            switch: this.createUiImage(PAD_ICON_PATHS.switch),
+            pause: this.createUiImage(PAD_ICON_PATHS.pause)
+        };
         this.bgmToggleIcons = {
             unmuted: this.createUiImage(BGM_ICON_PATHS.unmuted),
             muted: this.createUiImage(BGM_ICON_PATHS.muted)
@@ -237,104 +232,146 @@ export class UI {
     
     // HUD描画
     renderHUD(ctx, player, stage) {
-        // --- HP Bar (Modern Style) ---
+        const drawRoundedRectPath = (px, py, w, h, r) => {
+            const rr = Math.max(0, Math.min(r, Math.min(w, h) * 0.5));
+            ctx.beginPath();
+            ctx.moveTo(px + rr, py);
+            ctx.lineTo(px + w - rr, py);
+            ctx.arcTo(px + w, py, px + w, py + rr, rr);
+            ctx.lineTo(px + w, py + h - rr);
+            ctx.arcTo(px + w, py + h, px + w - rr, py + h, rr);
+            ctx.lineTo(px + rr, py + h);
+            ctx.arcTo(px, py + h, px, py + h - rr, rr);
+            ctx.lineTo(px, py + rr);
+            ctx.arcTo(px, py, px + rr, py, rr);
+            ctx.closePath();
+        };
+
+        const drawModernGauge = (gx, gy, gw, gh, ratio, colorStops, radius = Math.floor(gh / 2)) => {
+            const clamped = Math.max(0, Math.min(1, ratio));
+            const trackGrad = ctx.createLinearGradient(gx, gy, gx, gy + gh);
+            trackGrad.addColorStop(0, 'rgba(23, 30, 52, 0.88)');
+            trackGrad.addColorStop(1, 'rgba(11, 16, 30, 0.9)');
+            drawRoundedRectPath(gx, gy, gw, gh, radius);
+            ctx.fillStyle = trackGrad;
+            ctx.fill();
+
+            if (clamped > 0) {
+                const fillW = Math.max(2, gw * clamped);
+                const fillGrad = ctx.createLinearGradient(gx, gy, gx + fillW, gy);
+                for (const stop of colorStops) fillGrad.addColorStop(stop[0], stop[1]);
+                drawRoundedRectPath(gx + 1, gy + 1, Math.max(1, fillW - 2), gh - 2, Math.max(2, radius - 1));
+                ctx.fillStyle = fillGrad;
+                ctx.fill();
+            }
+
+            drawRoundedRectPath(gx + 1.5, gy + 1.5, gw - 3, Math.max(1, gh * 0.34), Math.max(2, radius - 2));
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+            ctx.fill();
+            drawRoundedRectPath(gx, gy, gw, gh, radius);
+            ctx.strokeStyle = 'rgba(180, 204, 255, 0.38)';
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+        };
+
+        // --- 左上HUD（刷新） ---
         const hpBarWidth = 300;
-        const hpBarHeight = 20;
-        const x = 40;
-        const y = 40;
-        
-        // バー背景（半透明黒）
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.fillRect(x, y, hpBarWidth, hpBarHeight);
-        
-        // HP残量（グラデーション）
+        const hpBarHeight = 18;
+        const panelPadding = 18;
+        const panelX = 26;
+        const panelY = 24;
+        const panelW = hpBarWidth + panelPadding * 2;
+        const panelH = 182;
+        const x = panelX + panelPadding;
+        const y = panelY + 36;
+
+        ctx.save();
+        const panelGrad = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelH);
+        panelGrad.addColorStop(0, 'rgba(25, 35, 64, 0.5)');
+        panelGrad.addColorStop(1, 'rgba(9, 13, 28, 0.56)');
+        drawRoundedRectPath(panelX, panelY, panelW, panelH, 15);
+        ctx.fillStyle = panelGrad;
+        ctx.fill();
+        drawRoundedRectPath(panelX, panelY, panelW, panelH, 15);
+        ctx.strokeStyle = 'rgba(170, 195, 255, 0.28)';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.restore();
+
         const hpRatio = Math.max(0, player.hp / player.maxHp);
-        const grad = ctx.createLinearGradient(x, y, x + hpBarWidth, y);
-        grad.addColorStop(0, '#ff3333');
-        grad.addColorStop(0.5, '#ffff33');
-        grad.addColorStop(1, '#33ff33');
-        
-        ctx.fillStyle = grad;
-        ctx.fillRect(x, y, hpBarWidth * hpRatio, hpBarHeight);
-        
-        // 体力ラベル (Wafuu)
+        drawModernGauge(x, y, hpBarWidth, hpBarHeight, hpRatio, [
+            [0, '#ff4a5b'],
+            [0.5, '#ffc955'],
+            [1, '#47e08d']
+        ]);
+
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 18px sans-serif';
+        ctx.font = '700 16px sans-serif';
         ctx.textAlign = 'left';
-        ctx.shadowColor = '#000';
-        ctx.shadowBlur = 4;
-        ctx.fillText(`体力：${player.hp} / ${player.maxHp}`, x, y - 5);
+        ctx.shadowColor = 'rgba(0,0,0,0.65)';
+        ctx.shadowBlur = 5;
+        ctx.fillText(`体力：${player.hp} / ${player.maxHp}`, x, y - 8);
         ctx.shadowBlur = 0;
-        
-        // 段位 (Level)
+
         const levelKanji = toKanjiNumber(player.level);
         ctx.textAlign = 'right';
-        ctx.fillText(`${levelKanji} 段`, x + hpBarWidth, y - 5);
-        ctx.textAlign = 'left'; 
+        ctx.fillText(`${levelKanji}段`, x + hpBarWidth, y - 8);
+        ctx.textAlign = 'left';
 
-        // --- Special Gauge (Modern) ---
         const spBarWidth = 250;
-        const spBarHeight = 20; 
-        const spY = y + 30; // ラベルを横にするので詰め直す
-        const barX = x + 50; // バーを右へ
-        
-        // 背景 (コントラスト向上のため不透明度アップ)
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(barX, spY, spBarWidth, spBarHeight);
-        
-        // ゲージ
+        const spBarHeight = 15;
+        const spY = y + 38;
+        const barX = x + 50;
         const spRatio = Math.max(0, player.specialGauge / player.maxSpecialGauge);
         const isSpReady = spRatio >= 1;
-        
-        // 色をより鮮やかに
-        ctx.fillStyle = isSpReady ? (Math.sin(Date.now() / 100) > 0 ? '#ffff00' : '#ffa500') : '#d4af37'; // 金色系
-        ctx.fillRect(barX, spY, spBarWidth * spRatio, spBarHeight);
-        
-        // Label (Wafuu) - バーの左に配置
-        ctx.font = 'bold 18px sans-serif';
+        drawModernGauge(
+            barX,
+            spY,
+            spBarWidth,
+            spBarHeight,
+            spRatio,
+            isSpReady
+                ? [[0, '#ffe177'], [0.55, '#ffd14e'], [1, '#ff9d3a']]
+                : [[0, '#dec06c'], [1, '#9d8644']]
+        );
+
+        ctx.font = '700 15px sans-serif';
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'left';
-        ctx.shadowColor = '#000';
-        ctx.shadowBlur = 4;
-        const spLabel = '奥義';
+        ctx.shadowColor = 'rgba(0,0,0,0.65)';
+        ctx.shadowBlur = 5;
         ctx.fillStyle = '#fff';
-        ctx.fillText(spLabel, x, spY + spBarHeight / 2);
+        ctx.fillText('奥義', x, spY + spBarHeight / 2);
         ctx.shadowBlur = 0;
 
-        // --- EXP Bar (Modern) ---
         const expBarWidth = 250;
-        const expBarHeight = 20; 
-        const expY = spY + 30; 
-        
-        // 背景
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(barX, expY, expBarWidth, expBarHeight);
-        
-        // ゲージ
+        const expBarHeight = 15;
+        const expY = spY + 30;
         const expRatio = Math.max(0, player.exp / player.expToNext);
-        ctx.fillStyle = '#32cd32'; // ライムグリーン
-        ctx.fillRect(barX, expY, expBarWidth * expRatio, expBarHeight);
-        
-        // Label (Wafuu) - バーの左に配置
-        ctx.font = 'bold 18px sans-serif';
+        drawModernGauge(barX, expY, expBarWidth, expBarHeight, expRatio, [
+            [0, '#53e87d'],
+            [0.58, '#41d0b8'],
+            [1, '#2f9dd9']
+        ]);
+
+        ctx.font = '700 15px sans-serif';
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'left';
-        ctx.shadowColor = '#000';
-        ctx.shadowBlur = 4;
-        const expLabel = '熟練';
+        ctx.shadowColor = 'rgba(0,0,0,0.65)';
+        ctx.shadowBlur = 5;
         ctx.fillStyle = '#fff';
-        ctx.fillText(expLabel, x, expY + expBarHeight / 2);
+        ctx.fillText('熟練', x, expY + expBarHeight / 2);
         ctx.shadowBlur = 0;
         
         // --- Stage Info + マネー（右上） ---
         const stageFloorKanji = toKanjiNumber(stage.stageNumber || 1);
-        const stageLabel = `第 ${stageFloorKanji} 階層`;
-        const stageFontPx = 18; // 奥義/熟練と同サイズ
-        const moneyFontPx = 18;
+        const stageLabel = `第${stageFloorKanji}階層`;
+        const stageFontPx = 16;
+        const moneyFontPx = 16;
         const bgmCenterX = CANVAS_WIDTH - VIRTUAL_PAD.BGM_BUTTON_MARGIN_RIGHT;
         const bgmCenterY = VIRTUAL_PAD.BGM_BUTTON_MARGIN_TOP;
         const bgmLeftX = bgmCenterX - VIRTUAL_PAD.BGM_BUTTON_RADIUS;
-        const stageRightX = bgmLeftX - 16; // BGMボタン左側に余白を確保
+        const stageRightX = bgmLeftX - 12; // BGMボタン左側に余白を確保
         const stageTextY = bgmCenterY;
         const displayMoney = Math.max(0, Math.min(9999, Math.floor(Number(player.money) || 0)));
         const moneyText = `${displayMoney}`;
@@ -349,35 +386,29 @@ export class UI {
         ctx.textAlign = 'right';
         ctx.font = `900 ${stageFontPx}px sans-serif`;
         ctx.fillText(stageLabel, stageRightX, stageTextY);
-
-        // 小判＋所持金（ステージ名の左）
-        const stageWidth = ctx.measureText(stageLabel).width;
-        const moneyRightX = stageRightX - stageWidth - 18;
-        ctx.fillStyle = COLORS.MONEY;
-        ctx.textAlign = 'right';
-        ctx.font = `900 ${moneyFontPx}px sans-serif`;
-        const moneyWidth = ctx.measureText(moneyText).width;
-        const coinGap = 9;
-        const coinHalfW = coinSize * 0.7;
-        const coinX = moneyRightX - moneyWidth - coinGap - coinHalfW;
-        this.drawKoban(ctx, coinX, stageTextY, coinSize);
-        ctx.fillText(moneyText, moneyRightX, stageTextY);
         ctx.shadowBlur = 0;
         
         // --- 装備中のサブ武器表示 (Icon Slot Style) ---
         if (player.currentSubWeapon) {
             const slotX = x;
-            const slotY = expY + 55; // 余白を増やす (35 -> 55)
-            const slotSize = 48;
+            const slotY = expY + 32;
+            const slotSize = 30;
             
             // 武器スロットの枠
             ctx.save();
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 1;
-            // 斜め変形を削除 (通常の矩形描画)
-            ctx.fillRect(slotX, slotY, slotSize, slotSize);
-            ctx.strokeRect(slotX, slotY, slotSize, slotSize);
+            const slotGrad = ctx.createLinearGradient(slotX, slotY, slotX, slotY + slotSize);
+            slotGrad.addColorStop(0, 'rgba(23, 30, 52, 0.88)');
+            slotGrad.addColorStop(1, 'rgba(11, 16, 30, 0.9)');
+            drawRoundedRectPath(slotX, slotY, slotSize, slotSize, 10);
+            ctx.fillStyle = slotGrad;
+            ctx.fill();
+            drawRoundedRectPath(slotX + 1.2, slotY + 1.2, slotSize - 2.4, Math.max(1, slotSize * 0.32), 8);
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+            ctx.fill();
+            drawRoundedRectPath(slotX, slotY, slotSize, slotSize, 10);
+            ctx.strokeStyle = 'rgba(180, 204, 255, 0.38)';
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
             
             // 武器アイコン（変形なしで描画）
             this.drawWeaponIcon(ctx, slotX + slotSize/2, slotY + slotSize/2, slotSize * 0.6, player.currentSubWeapon.name);
@@ -385,12 +416,29 @@ export class UI {
             
             // 武器名 (大きく)
             ctx.fillStyle = '#fff';
-            ctx.font = 'bold 20px sans-serif';
+            ctx.font = '700 15px sans-serif';
             ctx.textAlign = 'left';
             ctx.textBaseline = 'middle';
             ctx.fillText(player.currentSubWeapon.name, slotX + slotSize + 15, slotY + slotSize / 2);
+
+            // 小判＋所持金（サブ武器行の右端）
+            const panelRightX = panelX + panelW;
+            const moneyRightX = panelRightX - panelPadding;
+            ctx.fillStyle = COLORS.MONEY;
+            ctx.textAlign = 'right';
+            ctx.textBaseline = 'middle';
+            ctx.font = `900 ${moneyFontPx}px sans-serif`;
+            ctx.shadowColor = 'rgba(0,0,0,0.62)';
+            ctx.shadowBlur = 5;
+            const moneyWidth = ctx.measureText(moneyText).width;
+            const coinGap = 9;
+            const coinHalfW = coinSize * 0.7;
+            const coinX = moneyRightX - moneyWidth - coinGap - coinHalfW;
+            this.drawKoban(ctx, coinX, slotY + slotSize / 2, coinSize);
+            ctx.fillText(moneyText, moneyRightX, slotY + slotSize / 2);
+            ctx.shadowBlur = 0;
             
-            // [D] 武器切替 の表示は削除
+            // 武器切替ヒントの個別表示は廃止（下部マニュアルへ統一）
         }
         
         // 仮想パッド
@@ -507,22 +555,34 @@ export class UI {
             stickState.knobY,
             stickState.active
         );
+
+        // 左スティック右下：一時停止ボタン（小）
+        const pauseX = stickCenterX + (pad.PAUSE_BUTTON?.x || 0);
+        const pauseY = stickCenterY + (pad.PAUSE_BUTTON?.y || 0);
+        const pauseRadius = pad.PAUSE_BUTTON_RADIUS || 22;
+        this.drawActionCircleButton(
+            ctx, pauseX, pauseY, pauseRadius, 'pause', input.isAction('PAUSE')
+        );
         
         // --- 右側：アクションキー（ダイヤ配置・円ボタン） ---
         const rightX = CANVAS_WIDTH - pad.SAFE_MARGIN_X;
-        const radius = pad.BUTTON_SIZE;
+        const attackRadius = pad.ATTACK_BUTTON_RADIUS || pad.BUTTON_SIZE;
+        const auxRadius = pad.AUX_BUTTON_RADIUS || pad.BUTTON_SIZE;
+        const isSpecialReady = !!player && Number.isFinite(player.specialGauge) && Number.isFinite(player.maxSpecialGauge)
+            ? player.specialGauge >= player.maxSpecialGauge
+            : true;
 
         this.drawActionCircleButton(
-            ctx, rightX + pad.ATTACK.x, bottomY + pad.ATTACK.y, radius, 'attack', input.isAction('ATTACK')
+            ctx, rightX + pad.ATTACK.x, bottomY + pad.ATTACK.y, attackRadius, 'attack', input.isAction('ATTACK')
         );
         this.drawActionCircleButton(
-            ctx, rightX + pad.SUB_WEAPON.x, bottomY + pad.SUB_WEAPON.y, radius, 'sub', input.isAction('SUB_WEAPON')
+            ctx, rightX + pad.SUB_WEAPON.x, bottomY + pad.SUB_WEAPON.y, auxRadius, 'sub', input.isAction('SUB_WEAPON')
         );
         this.drawActionCircleButton(
-            ctx, rightX + pad.SPECIAL.x, bottomY + pad.SPECIAL.y, radius, 'special', input.isAction('SPECIAL')
+            ctx, rightX + pad.SPECIAL.x, bottomY + pad.SPECIAL.y, auxRadius, 'special', input.isAction('SPECIAL'), !isSpecialReady
         );
         this.drawActionCircleButton(
-            ctx, rightX + pad.SWITCH.x, bottomY + pad.SWITCH.y, radius, 'switch', input.isAction('SWITCH_WEAPON')
+            ctx, rightX + pad.SWITCH.x, bottomY + pad.SWITCH.y, auxRadius, 'switch', input.isAction('SWITCH_WEAPON')
         );
         
         ctx.restore();
@@ -551,18 +611,7 @@ export class UI {
         const iconY = y - iconSize / 2;
 
         if (icon && icon.complete && icon.naturalWidth > 0) {
-            const previousFilter = typeof ctx.filter === 'string' ? ctx.filter : 'none';
-            const previousAlpha = ctx.globalAlpha;
-            ctx.globalAlpha = isMuted ? 0.72 : 0.88; // 停止時は少し透過を強める
-            if (typeof ctx.filter === 'string') {
-                // 黒SVGを白へ変換
-                ctx.filter = 'brightness(0) invert(1)';
-            }
-            ctx.drawImage(icon, iconX, iconY, iconSize, iconSize);
-            if (typeof ctx.filter === 'string') {
-                ctx.filter = previousFilter;
-            }
-            ctx.globalAlpha = previousAlpha;
+            this.drawTintedIcon(ctx, icon, iconX, iconY, iconSize, isMuted ? 0.58 : 0.84);
             return;
         }
 
@@ -575,32 +624,55 @@ export class UI {
         ctx.fillText(isMuted ? '×' : '♪', x, y + 1);
     }
 
-    drawActionCircleButton(ctx, x, y, radius, iconType, isPressed) {
+    drawActionCircleButton(ctx, x, y, radius, iconType, isPressed, isDisabled = false) {
+        const isPauseMuted = iconType === 'pause' && typeof window !== 'undefined' && window.game && window.game.state === 'paused';
+        const activePressed = isPressed && !isDisabled;
         ctx.save();
         ctx.beginPath();
         ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.fillStyle = isPressed ? 'rgba(255, 255, 255, 0.38)' : 'rgba(0, 0, 0, 0.34)';
+        const fillAlpha = isDisabled ? 0.16 : (activePressed ? 0.24 : (isPauseMuted ? 0.24 : 0.34));
+        ctx.fillStyle = activePressed
+            ? `rgba(255, 255, 255, ${fillAlpha})`
+            : `rgba(0, 0, 0, ${fillAlpha})`;
         ctx.fill();
-        ctx.strokeStyle = isPressed ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.65)';
-        ctx.lineWidth = isPressed ? 3 : 2;
+        const strokeAlpha = isDisabled ? 0.32 : (activePressed ? 0.96 : (isPauseMuted ? 0.5 : 0.65));
+        ctx.strokeStyle = `rgba(255,255,255,${strokeAlpha})`;
+        ctx.lineWidth = activePressed ? 3 : 2;
         ctx.stroke();
 
-        this.drawPadActionIcon(ctx, x, y, radius, iconType, isPressed);
+        this.drawPadActionIcon(ctx, x, y, radius, iconType, activePressed, isDisabled);
         ctx.restore();
     }
 
-    drawPadActionIcon(ctx, x, y, radius, iconType, isPressed) {
-        const alpha = isPressed ? 1.0 : 0.92;
-        // iPad Safariでligature文字列がそのまま出るケースを避け、記号アイコンを常用する
-        const glyph = PAD_ICON_FALLBACK[iconType] || '?';
+    drawPadActionIcon(ctx, x, y, radius, iconType, isPressed, isDisabled = false) {
+        const isPauseMuted = iconType === 'pause' && typeof window !== 'undefined' && window.game && window.game.state === 'paused';
+        const alpha = isDisabled ? 0.34 : (isPauseMuted ? 0.58 : (isPressed ? 0.96 : 0.86));
+        const icon = this.padActionIcons[iconType];
+        const iconSize = Math.round(radius * 1.16);
+        const iconX = x - iconSize / 2;
+        const iconY = y - iconSize / 2;
 
+        if (icon && icon.complete && icon.naturalWidth > 0) {
+            this.drawTintedIcon(ctx, icon, iconX, iconY, iconSize, alpha);
+            return;
+        }
+
+        const glyph = PAD_ICON_FALLBACK[iconType] || '?';
         ctx.save();
         ctx.fillStyle = `rgba(255,255,255,${alpha})`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const iconSize = Math.round(radius * 0.86);
-        ctx.font = `700 ${iconSize}px "Segoe UI Symbol","Apple Symbols","Noto Sans Symbols","Apple Color Emoji","Noto Color Emoji",sans-serif`;
+        ctx.font = `700 ${Math.round(radius * 0.8)}px sans-serif`;
         ctx.fillText(glyph, x, y + 1);
+        ctx.restore();
+    }
+
+    drawTintedIcon(ctx, image, x, y, size, alpha = 0.88) {
+        ctx.save();
+        const previousAlpha = ctx.globalAlpha;
+        ctx.globalAlpha = alpha;
+        ctx.drawImage(image, x, y, size, size);
+        ctx.globalAlpha = previousAlpha;
         ctx.restore();
     }
 
@@ -739,7 +811,7 @@ export class UI {
                 ctx.closePath();
                 ctx.fill();
                 break;
-            case '二刀':
+            case '二刀流':
                 ctx.strokeStyle = '#e0e0e0';
                 ctx.lineWidth = 3;
                 // 1本目（右上から左下）

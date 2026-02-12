@@ -31,7 +31,8 @@ export class Enemy {
         this.speed = 2;
         this.isDying = false; 
         this.deathTimer = 0;
-        this.deathDuration = 800; 
+        this.deathDuration = 420;
+        this.deathRiseSpeed = 8;
         
         // 報酬
         this.expReward = 10;
@@ -74,7 +75,7 @@ export class Enemy {
         
         // 死亡演出用
         this.deathTimer = 0;
-        this.deathDuration = 800; // 0.8秒で素早く昇天
+        this.deathDuration = 420;
         
         this.init();
         
@@ -97,8 +98,8 @@ export class Enemy {
         if (!this.isAlive || this.isDying) {
             this.deathTimer += deltaTime * 1000;
             // 成仏演出：劇的に速く上昇
-            this.y -= 8;
-            if (this.deathTimer >= 400) {
+            this.y -= this.deathRiseSpeed;
+            if (this.deathTimer >= this.deathDuration) {
                 this.isAlive = false;
                 this.isDying = false;
                 return true; // 完全に消滅
@@ -498,29 +499,11 @@ export class Enemy {
             return;
         }
 
-        // 障害物回避AI（さらに手前から検知）
-        if (this.isGrounded && Math.abs(this.vx) > 0.1) {
-            const checkDist = 60; // 40 -> 60
-            const obstacles = window.game ? window.game.stage.obstacles : [];
-            const dir = this.vx > 0 ? 1 : -1;
-            const nextX = this.x + (dir * checkDist);
-            
-            for (const obs of obstacles) {
-                if (obs.type === 'rock' && !obs.isDestroyed) {
-                    const obsLeft = obs.x - 10; // 判定を少し広く
-                    const obsRight = obs.x + obs.width + 10;
-                    if (nextX + this.width > obsLeft && nextX < obsRight) {
-                        // 岩を発見、ジャンプ！
-                        this.jump(-12, 500);
-                        break;
-                    }
-                }
-            }
-        }
-        
         switch (this.state) {
             case 'idle':
-                desiredVX = 0;
+                // 待機中でもじわりと前進して、障害物手前で滞留しないようにする
+                desiredVX = this.speed * 0.32 * playerDirection;
+                this.facingRight = playerDirection > 0;
                 if (distanceToPlayer < this.detectionRange) {
                     this.state = 'chase';
                     this.stateTimer = 0;
@@ -587,6 +570,35 @@ export class Enemy {
                     this.stateTimer = 0;
                 }
                 break;
+        }
+
+        // 障害物回避AI（岩/スパイク両対応）
+        if (this.isGrounded) {
+            const checkDist = 64;
+            const obstacles = window.game ? window.game.stage.obstacles : [];
+            const moveIntent = Math.abs(desiredVX) > 0.08 ? desiredVX : this.vx;
+            const dir = moveIntent > 0 ? 1 : (moveIntent < 0 ? -1 : playerDirection);
+            const nextLeft = this.x + dir * checkDist;
+            const nextRight = this.x + this.width + dir * checkDist;
+            const feetY = this.y + this.height;
+
+            for (const obs of obstacles) {
+                if (obs.isDestroyed) continue;
+                if (obs.type !== 'rock' && obs.type !== 'spike') continue;
+
+                const obsLeft = obs.x - 10;
+                const obsRight = obs.x + obs.width + 10;
+                const intersectsForward =
+                    nextRight > obsLeft &&
+                    nextLeft < obsRight;
+                if (!intersectsForward) continue;
+
+                // 足元付近の障害物のみを対象にする
+                if (obs.y > feetY + 18 || obs.y + obs.height < this.y + this.height * 0.45) continue;
+
+                this.jump(-13, 460);
+                break;
+            }
         }
 
         // 共通：時々ジャンプして回避
@@ -1304,6 +1316,62 @@ export class Busho extends Enemy {
             this.vx = 0;
         }
     }
+
+    getAttackPatternDuration() {
+        if (this.attackPattern === 1) return 600;
+        if (this.attackPattern === 2) return 500;
+        return 400;
+    }
+
+    getAttackProgress() {
+        if (!this.isAttacking) return 0;
+        const duration = this.getAttackPatternDuration();
+        return Math.max(0, Math.min(1, 1 - (this.attackTimer / duration)));
+    }
+
+    getBladeAngleForProgress(attackProgress) {
+        const dir = this.facingRight ? 1 : -1;
+        let bladeAngle = (-0.9 + Math.sin(this.motionTime * 0.007) * 0.07) * dir;
+        if (!this.isAttacking) return bladeAngle;
+
+        if (this.attackPattern === 0) {
+            const wind = attackProgress < 0.34 ? attackProgress / 0.34 : 1;
+            const swing = attackProgress < 0.34 ? 0 : (attackProgress - 0.34) / 0.66;
+            bladeAngle = (-1.5 + wind * 0.5 + swing * 2.3) * dir;
+        } else if (this.attackPattern === 1) {
+            bladeAngle = (-0.35 + attackProgress * 0.25) * dir;
+        } else {
+            const wind = attackProgress < 0.2 ? attackProgress / 0.2 : 1;
+            const spin = attackProgress < 0.2 ? 0 : (attackProgress - 0.2) / 0.8;
+            bladeAngle = (-1.5 + wind * 0.36 + spin * Math.PI * 1.86) * dir;
+        }
+        return bladeAngle;
+    }
+
+    getWeaponPose(attackProgress = this.getAttackProgress()) {
+        const dir = this.facingRight ? 1 : -1;
+        const centerX = this.x + this.width * 0.5;
+        const shoulderX = centerX + dir * 3.6 + this.torsoLean * dir * 0.25;
+        const shoulderY = this.y + 30 + Math.abs(this.bob) * 0.2;
+        const bladeAngle = this.getBladeAngleForProgress(attackProgress);
+        const weaponAngle = bladeAngle + dir * 0.08;
+        const leadArmLen = this.isAttacking ? 23.5 : 18.6;
+        const handX = shoulderX + Math.cos(bladeAngle) * leadArmLen;
+        const handY = shoulderY + Math.sin(bladeAngle) * leadArmLen;
+        const bladeLen = this.attackPattern === 1 ? 64 : 58;
+        const tipDistance = bladeLen + 5.7;
+        return {
+            dir,
+            shoulderX,
+            shoulderY,
+            bladeAngle,
+            weaponAngle,
+            handX,
+            handY,
+            tipX: handX + Math.cos(weaponAngle) * tipDistance,
+            tipY: handY + Math.sin(weaponAngle) * tipDistance
+        };
+    }
     
     getAttackHitbox() {
         if (!this.isAttacking) return null;
@@ -1323,13 +1391,30 @@ export class Busho extends Enemy {
                     width: this.width,
                     height: this.height
                 };
-            case 2: // 回転斬り（周囲全体）
-                return {
-                    x: this.x - 30,
-                    y: this.y,
-                    width: this.width + 60,
-                    height: this.height
-                };
+            case 2: { // 回転斬り（剣先追従＋体幹）
+                const pose = this.getWeaponPose();
+                const tipRange = 24;
+                return [
+                    {
+                        x: pose.tipX - tipRange,
+                        y: pose.tipY - tipRange,
+                        width: tipRange * 2,
+                        height: tipRange * 2
+                    },
+                    {
+                        x: pose.handX - 15,
+                        y: pose.handY - 15,
+                        width: 30,
+                        height: 30
+                    },
+                    {
+                        x: this.x - 6,
+                        y: this.y + 8,
+                        width: this.width + 12,
+                        height: this.height - 12
+                    }
+                ];
+            }
         }
     }
     
@@ -1425,22 +1510,9 @@ export class Busho extends Enemy {
         ctx.fill();
 
         // 武器腕
-        const patternDuration = this.attackPattern === 1 ? 600 : (this.attackPattern === 2 ? 500 : 400);
-        const attackProgress = this.isAttacking ? Math.max(0, Math.min(1, 1 - (this.attackTimer / patternDuration))) : 0;
-        let bladeAngle = (-0.9 + Math.sin(this.motionTime * 0.007) * 0.07) * dir;
-        if (this.isAttacking) {
-            if (this.attackPattern === 0) {
-                const wind = attackProgress < 0.34 ? attackProgress / 0.34 : 1;
-                const swing = attackProgress < 0.34 ? 0 : (attackProgress - 0.34) / 0.66;
-                bladeAngle = (-1.5 + wind * 0.5 + swing * 2.3) * dir;
-            } else if (this.attackPattern === 1) {
-                bladeAngle = (-0.35 + attackProgress * 0.25) * dir;
-            } else {
-                const wind = attackProgress < 0.28 ? attackProgress / 0.28 : 1;
-                const sweep = attackProgress < 0.28 ? 0 : (attackProgress - 0.28) / 0.72;
-                bladeAngle = (-1.4 + wind * 0.46 + sweep * 2.14) * dir;
-            }
-        }
+        const attackProgress = this.getAttackProgress();
+        const pose = this.getWeaponPose(attackProgress);
+        const bladeAngle = pose.bladeAngle;
 
         const clampArmReach = (shoulderPosX, shoulderPosY, targetX, targetY, maxLen) => {
             const dx = targetX - shoulderPosX;
@@ -1454,10 +1526,10 @@ export class Busho extends Enemy {
             };
         };
 
-        const weaponAngle = bladeAngle + dir * 0.08;
+        const weaponAngle = pose.weaponAngle;
         const leadArmLen = this.isAttacking ? 23.5 : 18.6;
-        const leadTargetX = shoulderX + Math.cos(bladeAngle) * leadArmLen;
-        const leadTargetY = shoulderY + Math.sin(bladeAngle) * leadArmLen;
+        const leadTargetX = pose.handX;
+        const leadTargetY = pose.handY;
         const leadHand = clampArmReach(shoulderX, shoulderY, leadTargetX, leadTargetY, 24.8);
 
         const weaponDirX = Math.cos(weaponAngle);
@@ -1506,10 +1578,33 @@ export class Busho extends Enemy {
 
         if (this.isAttacking) {
             if (this.attackPattern === 2) {
-                ctx.strokeStyle = 'rgba(255, 140, 70, 0.55)';
+                const spin = attackProgress < 0.2 ? 0 : (attackProgress - 0.2) / 0.8;
+                const trailBack = 0.4 + Math.min(0.34, spin * 0.26);
+                const trailFront = 0.07;
+                ctx.strokeStyle = `rgba(255, 140, 70, ${0.42 + spin * 0.2})`;
                 ctx.lineWidth = 11;
+                ctx.lineCap = 'round';
                 ctx.beginPath();
-                ctx.arc(centerX, shoulderY + 2, 58, 0, Math.PI * 2);
+                ctx.arc(
+                    shoulderX + dir * 2,
+                    shoulderY + 2,
+                    52,
+                    bladeAngle - dir * trailBack,
+                    bladeAngle + dir * trailFront,
+                    dir < 0
+                );
+                ctx.stroke();
+                ctx.strokeStyle = `rgba(255, 229, 188, ${0.26 + spin * 0.2})`;
+                ctx.lineWidth = 4.4;
+                ctx.beginPath();
+                ctx.arc(
+                    shoulderX + dir * 2,
+                    shoulderY + 2,
+                    52,
+                    bladeAngle - dir * (trailBack - 0.08),
+                    bladeAngle + dir * 0.02,
+                    dir < 0
+                );
                 ctx.stroke();
             } else if (this.attackPattern === 1) {
                 const dashAlpha = 0.25 + attackProgress * 0.35;
@@ -1583,7 +1678,7 @@ export class Ninja extends Enemy {
         this.projectiles.push(new EnemyProjectile(
             this.x + (this.facingRight ? this.width : 0),
             this.y + 20,
-            direction * 10,
+            direction * 5.2,
             vy,
             this.damage
         ));
@@ -1753,9 +1848,13 @@ class EnemyProjectile {
                  this.y + 10 > attackBox.y) {
                  
                  this.isAlive = false;
-                 // キン！ (金属音)
-                 audio.playSfx(1500, 'square', 0.1, 0.05);
-                 audio.playNoiseSfx(0.3, 0.05, 5000);
+                 // キン！ (金属音) - 聞こえやすく専用SE
+                 if (typeof audio.playDeflect === 'function') {
+                     audio.playDeflect();
+                 } else {
+                     audio.playSfx(1550, 'square', 0.16, 0.07, 0.82);
+                     audio.playNoiseSfx(0.26, 0.06, 4600);
+                 }
                  return false;
              }
         }

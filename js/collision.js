@@ -42,7 +42,13 @@ export function checkPlayerAttackHit(player, enemy) {
         height: enemy.height
     };
     
-    return rectIntersects(attackHitbox, enemyRect);
+    const hitboxes = Array.isArray(attackHitbox) ? attackHitbox : [attackHitbox];
+    for (const hitbox of hitboxes) {
+        if (rectIntersects(hitbox, enemyRect)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // 必殺技と敵の当たり判定

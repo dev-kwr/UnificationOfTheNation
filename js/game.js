@@ -7,7 +7,7 @@ import { input } from './input.js';
 import { Player } from './player.js';
 import { createSubWeapon } from './weapon.js';
 import { Stage } from './stage.js';
-import { UI, renderTitleScreen, renderGameOverScreen, renderStageClearScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding } from './ui.js';
+import { UI, renderTitleScreen, renderGameOverScreen, renderStageClearScreen, renderLevelUpChoiceScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding } from './ui.js';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit, checkPlayerAttackHit, checkSpecialHit, checkExplosionHit } from './collision.js';
 import { saveManager } from './save.js';
 import { shop } from './shop.js';
@@ -26,6 +26,10 @@ class Game {
         this.stage = null;
         this.bombs = [];
         this.effects = [];
+        this.hitEffects = [];
+        this.maxHitEffects = 360;
+        this.expGems = [];
+        this.stageBossDefeatEffects = [];
         
         // 武器情報
         this.unlockedWeapons = [];
@@ -65,6 +69,12 @@ class Game {
         this.introTimer = 0; // 追加
         this.gameClearTimer = 0;
         this.endingTimer = 0;
+        this.lastAttackSignature = null;
+        this.pendingLevelUpChoices = 0;
+        this.levelUpChoiceIndex = 0;
+        this.stageClearMenuIndex = 0;
+        this.stageClearWeaponIndex = 0;
+        this.returnToStageClearAfterShop = false;
     }
     
     init(canvas) {
@@ -78,11 +88,9 @@ class Game {
         this.configureCanvasResolution();
 
         // 入力管理にキャンバスを渡す（タッチ座標用）
-        import('./input.js').then(({ input }) => {
-            input.setCanvas(canvas);
-            // 初期スケール設定
-            this.updateInputScale();
-        });
+        input.setCanvas(canvas);
+        // 初期スケール設定
+        this.updateInputScale();
         
         // リサイズイベント
         this.handleViewportResize = () => {
@@ -100,8 +108,6 @@ class Game {
         window.game = this;
 
         this.debugStartStage = this.getDebugStartStageFromUrl();
-        
-        console.log('Game initialized (DPR: ' + (window.devicePixelRatio || 1) + ')');
         
         // タイトルBGM再生
         audio.playBgm('title');
@@ -186,19 +192,22 @@ class Game {
     
     updateInputScale() {
         if (!this.canvas) return;
-        import('./input.js').then(({ input }) => {
-            const rect = this.canvas.getBoundingClientRect();
-            // input.js の getTouchAction は 1280x720 の内部座標を期待しているため、
-            // クライアント矩形の幅に対する内部座標の比率を渡す。
-            const scaleX = CANVAS_WIDTH / rect.width;
-            const scaleY = CANVAS_HEIGHT / rect.height;
-            input.setScale(scaleX, scaleY);
-        });
+        const rect = this.canvas.getBoundingClientRect();
+        // input.js の getTouchAction は 1280x720 の内部座標を期待しているため、
+        // クライアント矩形の幅に対する内部座標の比率を渡す。
+        const scaleX = CANVAS_WIDTH / rect.width;
+        const scaleY = CANVAS_HEIGHT / rect.height;
+        input.setScale(scaleX, scaleY);
     }
     
     startNewGame() {
         this.currentStageNumber = this.debugStartStage || 1;
         this.unlockedWeapons = [];
+        this.pendingLevelUpChoices = 0;
+        this.levelUpChoiceIndex = 0;
+        this.stageClearMenuIndex = 0;
+        this.stageClearWeaponIndex = 0;
+        this.returnToStageClearAfterShop = false;
         this.startStage();
     }
     
@@ -234,7 +243,12 @@ class Game {
             }
             
             this.initStage(this.currentStageNumber);
+            if (typeof this.player.refreshSubWeaponScaling === 'function') {
+                this.player.refreshSubWeaponScaling();
+            }
             this.scrollX = 0; // スクロール位置リセット
+            this.expGems = [];
+            this.stageBossDefeatEffects = [];
             
             // ステージごとの初期装備を適用
             if (this.player.stageEquip && this.player.stageEquip[this.currentStageNumber]) {
@@ -265,6 +279,9 @@ class Game {
             this.player.isAttacking = false;
             this.player.isDashing = false;
             this.player.isGrounded = true;
+            if (typeof this.player.clearSpecialState === 'function') {
+                this.player.clearSpecialState(true);
+            }
         }
 
         if (this.player && typeof this.player.resetVisualTrails === 'function') {
@@ -277,7 +294,13 @@ class Game {
         this.bombs = [];
         this.shockwaves = []; // 必殺衝撃波
         this.effects = [];
+        this.hitEffects = [];
         this.damageNumbers = [];
+        this.expGems = [];
+        this.stageBossDefeatEffects = [];
+        this.pendingLevelUpChoices = 0;
+        this.levelUpChoiceIndex = 0;
+        this.returnToStageClearAfterShop = false;
         this.collisionManager.reset();
         
         // スクロール位置初期化
@@ -285,7 +308,6 @@ class Game {
         
         this.state = GAME_STATE.PLAYING;
         audio.playBgm(this.stage.boss ? 'boss' : 'stage', this.currentStageNumber);
-        console.log(`Stage ${this.currentStageNumber} started`);
     }
     
     // メインループ
@@ -328,6 +350,9 @@ class Game {
                 break;
             case GAME_STATE.PLAYING:
                 this.updatePlaying();
+                break;
+            case GAME_STATE.LEVEL_UP:
+                this.updateLevelUpChoice();
                 break;
             case GAME_STATE.PAUSED:
                 this.updatePaused();
@@ -476,6 +501,8 @@ class Game {
         this.player.unlockedWeapons = [];
         this.bombs = [];
         this.shockwaves = [];
+        this.expGems = [];
+        this.stageBossDefeatEffects = [];
         this.scrollX = 0; // スクロール位置リセット
         this.gameClearTimer = 0;
         this.endingTimer = 0;
@@ -490,8 +517,8 @@ class Game {
     updateIntro() {
         this.introTimer += this.deltaTime * 1000;
         
-        // 10秒経過か、キー入力(SPACE)またはタップでプレイ開始
-        if (this.introTimer > 10000 || (this.introTimer > 500 && (input.isActionJustPressed('JUMP') || input.touchJustPressed))) {
+        // 操作入力でのみプレイ開始（自動遷移しない）
+        if (this.introTimer > 500 && (input.isActionJustPressed('JUMP') || input.touchJustPressed)) {
             this.state = GAME_STATE.PLAYING;
             audio.playBgm('stage', this.currentStageNumber);
         }
@@ -517,17 +544,17 @@ class Game {
                     }
                 }
             }
+            if (typeof this.player.refreshSubWeaponScaling === 'function') {
+                this.player.refreshSubWeaponScaling();
+            }
             
             // 装備は「前ステージで選んだ武器」を優先。未装備時のみ初期装備を使う。
-            if (!this.player.currentSubWeapon) {
-                const equipName = STAGE_DEFAULT_WEAPON[stageNum];
-                if (equipName) {
-                    const index = this.player.subWeapons.findIndex(w => w.name === equipName);
-                    if (index !== -1) {
-                        this.player.subWeaponIndex = index;
-                        this.player.currentSubWeapon = this.player.subWeapons[index];
-                        console.log(`初期装備セット: ${equipName}`);
-                    }
+            const equipName = this.player.stageEquip?.[stageNum] || STAGE_DEFAULT_WEAPON[stageNum];
+            if (equipName) {
+                const index = this.player.subWeapons.findIndex(w => w.name === equipName);
+                if (index !== -1) {
+                    this.player.subWeaponIndex = index;
+                    this.player.currentSubWeapon = this.player.subWeapons[index];
                 }
             }
         }
@@ -574,6 +601,9 @@ class Game {
         
         // ステージ更新
         this.stage.update(this.deltaTime, this.player);
+        if (this.stage.bossSpawned && !this.stage.bossDefeated && audio.bgmAudio && audio.bgmAudio.paused && !audio.isMuted) {
+            audio.playBgm('boss', this.currentStageNumber);
+        }
         
         // プレイヤーの移動制限（画面左端から出ない：戻りなしスクロールのため）
         if (this.player.x < this.scrollX) {
@@ -584,20 +614,25 @@ class Game {
             this.player.x = this.scrollX + CANVAS_WIDTH;
         }
 
+        const frameEnemies = this.stage.getAllEnemies();
+        const activeFrameEnemies = frameEnemies.filter((enemy) => enemy.isAlive && !enemy.isDying);
+        this.resolveFinisherLandingOverlap(activeFrameEnemies);
+
         // 爆弾更新
-        this.updateBombs();
+        this.updateBombs(activeFrameEnemies);
+        this.updateExpGems();
+        this.updateStageBossDefeatEffects();
         
         // 衝撃波更新
         if (this.shockwaves) {
-            const enemies = this.stage.getAllEnemies();
             const rocks = this.stage.obstacles.filter(o => !o.isDestroyed && o.type === OBSTACLE_TYPES.ROCK);
             this.shockwaves.forEach(sw => {
                 sw.update(this.deltaTime);
                 
                 // 衝撃波 vs 敵の当たり判定
                 const hitbox = sw.getHitbox();
-                for (const enemy of enemies) {
-                    if (enemy.isAlive && !enemy.isDying && !sw.hitEnemies.has(enemy)) {
+                for (const enemy of activeFrameEnemies) {
+                    if (!sw.hitEnemies.has(enemy)) {
                         // オブジェクトのプロパティを直接渡すかrectIntersectsを適切に使う
                         const enemyRect = { x: enemy.x, y: enemy.y, width: enemy.width, height: enemy.height };
                         if (this.rectIntersects(hitbox, enemyRect)) {
@@ -623,7 +658,10 @@ class Game {
         }
 
         // 当たり判定
-        this.checkCollisions();
+        this.checkCollisions(frameEnemies, activeFrameEnemies);
+
+        // ヒット演出更新
+        this.updateHitEffects();
         
         // ダメージ数値更新
         this.updateDamageNumbers();
@@ -640,9 +678,7 @@ class Game {
         }
     }
     
-    updateBombs() {
-        const enemies = this.stage.getAllEnemies();
-        
+    updateBombs(enemies = []) {
         this.bombs = this.bombs.filter((bomb, index) => {
             bomb.update(this.deltaTime, this.groundY, enemies);
             
@@ -666,31 +702,162 @@ class Game {
             return true;
         });
     }
+
+    buildSubWeaponAttackProfile(subWeapon, source = 'subweapon') {
+        const attackData = {
+            source,
+            weapon: subWeapon.name
+        };
+        let damage = subWeapon.damage;
+
+        if (subWeapon.name === '大太刀') {
+            attackData.isLaunch = true;
+            attackData.knockbackX = 10;
+            attackData.knockbackY = -14;
+        } else if (subWeapon.name === '大槍') {
+            attackData.knockbackX = 8;
+            attackData.knockbackY = -6;
+            const speedRatio = Math.min(1.4, Math.abs(this.player.vx) / Math.max(1, this.player.speed));
+            damage *= 1 + speedRatio * 0.18;
+        } else if (subWeapon.name === '鎖鎌') {
+            attackData.knockbackX = 7;
+            attackData.knockbackY = -5;
+            if (typeof subWeapon.getCurrentState === 'function') {
+                const state = subWeapon.getCurrentState(this.player);
+                if (state && state.phase === 'orbit') {
+                    damage *= 1.16;
+                    attackData.knockbackY = -7;
+                }
+            }
+        } else if (subWeapon.name === '二刀流') {
+            if (subWeapon.attackType === 'combined') {
+                damage *= 1.28;
+                attackData.knockbackX = 8;
+                attackData.knockbackY = -8;
+                attackData.isLaunch = true;
+            } else if (subWeapon.attackType === 'main') {
+                const comboIndex = Number.isFinite(subWeapon.comboIndex) ? subWeapon.comboIndex : 0;
+                const comboStep = comboIndex === 0
+                    ? 4
+                    : Math.max(0, Math.min(4, comboIndex));
+                damage *= 1 + comboStep * 0.09;
+            }
+        } else {
+            attackData.knockbackX = 6;
+            attackData.knockbackY = -4;
+        }
+
+        return { damage, attackData };
+    }
+
+    buildPlayerAttackDamage() {
+        const baseDamage = 10 + this.player.attackCombo * 2 + (this.player.attackPower || 0) * 3;
+        const attack = this.player.currentAttack;
+        if (attack && attack.comboStep === 5) {
+            return Math.round(baseDamage * 1.45);
+        }
+        return baseDamage;
+    }
+
+    resolveFinisherLandingOverlap(activeEnemies = []) {
+        const player = this.player;
+        if (
+            !player ||
+            !player.isGrounded ||
+            !(player.justLanded || player.finisherLandingSeparationTimer > 0)
+        ) {
+            return;
+        }
+
+        const playerRect = { x: player.x, y: player.y, width: player.width, height: player.height };
+        let moved = false;
+        for (const enemy of activeEnemies) {
+            const enemyRect = { x: enemy.x, y: enemy.y, width: enemy.width, height: enemy.height };
+            if (!this.rectIntersects(playerRect, enemyRect)) continue;
+
+            const overlapLeft = (playerRect.x + playerRect.width) - enemyRect.x;
+            const overlapRight = (enemyRect.x + enemyRect.width) - playerRect.x;
+            if (overlapLeft <= 0 || overlapRight <= 0) continue;
+
+            if (overlapLeft < overlapRight) {
+                player.x -= overlapLeft + 1;
+                player.vx = Math.min(player.vx, -Math.abs(player.speed * 0.35));
+            } else {
+                player.x += overlapRight + 1;
+                player.vx = Math.max(player.vx, Math.abs(player.speed * 0.35));
+            }
+            playerRect.x = player.x;
+            moved = true;
+        }
+
+        if (moved) {
+            const minX = this.scrollX;
+            const maxX = this.scrollX + CANVAS_WIDTH - player.width;
+            player.x = Math.max(minX, Math.min(maxX, player.x));
+        }
+    }
     
-    checkCollisions() {
-        const enemies = this.stage.getAllEnemies();
+    checkCollisions(enemies = null, aliveEnemies = null) {
+        const enemyList = enemies || this.stage.getAllEnemies();
+        const activeEnemies = aliveEnemies || enemyList.filter((enemy) => enemy.isAlive && !enemy.isDying);
+        const cloneOffsets = (this.player && typeof this.player.getSpecialCloneOffsets === 'function')
+            ? this.player.getSpecialCloneOffsets()
+            : [];
+        const cloneActive = cloneOffsets.length > 0;
+        const cloneBodyRects = cloneOffsets.map((clone) => ({
+            index: clone.index,
+            x: this.player.x + clone.dx + 5,
+            y: this.player.y + clone.dy + 5,
+            width: this.player.width - 10,
+            height: this.player.height - 10
+        }));
         
         // プレイヤー攻撃 vs 敵
         if (this.player.isAttacking) {
-            for (const enemy of enemies) {
-                if (enemy.isAlive && this.collisionManager.checkAndRegisterAttackHit(this.player, enemy)) {
-                    const damage = 10 + this.player.attackCombo * 2 + (this.player.attackPower || 0) * 3;
+            const currentAttack = this.player.currentAttack;
+            const attackSignature = currentAttack
+                ? `${currentAttack.source || 'main'}:${currentAttack.comboStep || 0}:${this.player.attackCombo || 0}:${this.player.subWeaponAction || ''}`
+                : 'main:0';
+            if (this.lastAttackSignature !== attackSignature) {
+                this.collisionManager.resetAttackHits();
+                this.lastAttackSignature = attackSignature;
+            }
+
+            for (const enemy of activeEnemies) {
+                if (this.collisionManager.checkAndRegisterAttackHit(this.player, enemy)) {
+                    const damage = this.buildPlayerAttackDamage();
                     this.damageEnemy(enemy, damage, this.player.currentAttack || { source: 'main' });
+                }
+            }
+
+            // 分身の通常攻撃判定（本体と同じ武器軌道）
+            const attackHitbox = this.player.getAttackHitbox ? this.player.getAttackHitbox() : null;
+            if (cloneActive && attackHitbox) {
+                const attackHitboxes = Array.isArray(attackHitbox) ? attackHitbox : [attackHitbox];
+                for (const clone of cloneOffsets) {
+                    const shiftedList = attackHitboxes.map((box) => ({
+                        x: box.x + clone.dx,
+                        y: box.y + clone.dy,
+                        width: box.width,
+                        height: box.height
+                    }));
+                    for (const enemy of activeEnemies) {
+                        if (shiftedList.some((shifted) => this.rectIntersects(shifted, enemy))) {
+                            const damage = this.buildPlayerAttackDamage();
+                            this.damageEnemy(enemy, damage, {
+                                ...(this.player.currentAttack || { source: 'main' }),
+                                source: 'special_shadow'
+                            });
+                        }
+                    }
                 }
             }
         } else {
             // 攻撃終了時にヒットリストをリセット
             this.collisionManager.resetAttackHits();
+            this.lastAttackSignature = null;
         }
         
-        // 必殺技 vs 敵 (旧判定) - Shockwave側で処理するようにしたので削除してもよいが互換性のため残す
-        // 必殺技 vs 敵 (旧判定) は削除
-        // if (this.player.isUsingSpecial) ... は Shockwave クラス側で処理されるため不要
-        // 古いロジックが残っていると player.getSpecialHitbox がない場合にエラーになる可能性があるため削除
-        
-        // 必殺技発動中の無敵処理などは player.update 内で行われるため、ここでの処理は不要
-
-
         // 障害物 (罠) vs プレイヤー
         for (const obs of this.stage.obstacles) {
             if (!obs.isDestroyed && this.rectIntersects(this.player, obs)) {
@@ -712,33 +879,42 @@ class Game {
             if (hitboxes) {
                 // 単一のオブジェクトなら配列に包む
                 if (!Array.isArray(hitboxes)) hitboxes = [hitboxes];
+                const baseSubProfile = this.buildSubWeaponAttackProfile(subWeapon, 'subweapon');
+                const cloneSubProfile = this.buildSubWeaponAttackProfile(subWeapon, 'special_shadow');
                 
                 for (const hitbox of hitboxes) {
-                    for (const enemy of enemies) {
-                        if (enemy.isAlive && !enemy.isDying && this.rectIntersects(hitbox, enemy)) {
-                            const subAttackData = {
-                                source: 'subweapon',
-                                weapon: subWeapon.name
-                            };
-                            if (subWeapon.name === '大太刀') {
-                                subAttackData.isLaunch = true;
-                                subAttackData.knockbackX = 10;
-                                subAttackData.knockbackY = -14;
-                            } else if (subWeapon.name === '大槍') {
-                                subAttackData.knockbackX = 8;
-                                subAttackData.knockbackY = -6;
-                            } else if (subWeapon.name === '鎖鎌') {
-                                subAttackData.knockbackX = 7;
-                                subAttackData.knockbackY = -5;
-                            } else {
-                                subAttackData.knockbackX = 6;
-                                subAttackData.knockbackY = -4;
-                            }
-                            this.damageEnemy(enemy, subWeapon.damage, subAttackData);
+                    for (const enemy of activeEnemies) {
+                        if (this.rectIntersects(hitbox, enemy)) {
+                            this.damageEnemy(
+                                enemy,
+                                baseSubProfile.damage,
+                                { ...baseSubProfile.attackData }
+                            );
                             
                             // 飛ぶ斬撃（移動物）の場合は、当たったら消える処理が必要な場合があるが、
                             // 現状の簡易実装では多段ヒットを許容するか、あるいはヒット済みフラグを管理。
                             // ここでは簡易的にダメージのみ。
+                        }
+                    }
+
+                    // 分身のサブ武器判定（本体と同じ武器）
+                    if (cloneActive) {
+                        for (const clone of cloneOffsets) {
+                            const shifted = {
+                                x: hitbox.x + clone.dx,
+                                y: hitbox.y + clone.dy,
+                                width: hitbox.width,
+                                height: hitbox.height
+                            };
+                            for (const enemy of activeEnemies) {
+                                if (this.rectIntersects(shifted, enemy)) {
+                                    this.damageEnemy(
+                                        enemy,
+                                        cloneSubProfile.damage,
+                                        { ...cloneSubProfile.attackData }
+                                    );
+                                }
+                            }
                         }
                     }
                 }
@@ -759,25 +935,57 @@ class Game {
 
 
         // 敵攻撃 vs プレイヤー
-        for (const enemy of enemies) {
-            if (enemy.isAlive && !enemy.isDying && checkEnemyAttackHit(enemy, this.player)) {
+        for (const enemy of activeEnemies) {
+            if (checkEnemyAttackHit(enemy, this.player)) {
                 if (this.handlePlayerDamage(enemy.damage, enemy.x + enemy.width / 2, {
                     knockbackX: 7,
                     knockbackY: -5
                 })) {
                     return;
                 }
+            } else if (cloneActive) {
+                const attackHitboxes = enemy.getAttackHitbox ? enemy.getAttackHitbox() : null;
+                if (attackHitboxes) {
+                    const hitboxList = Array.isArray(attackHitboxes) ? attackHitboxes : [attackHitboxes];
+                    for (const hitbox of hitboxList) {
+                        let consumed = false;
+                        for (const cloneRect of cloneBodyRects) {
+                            if (this.rectIntersects(hitbox, cloneRect)) {
+                                if (typeof this.player.consumeSpecialClone === 'function') {
+                                    const consumed = this.player.consumeSpecialClone(cloneRect.index);
+                                    if (consumed) this.queueHitFeedback(2.8, 46);
+                                    if (!consumed) continue;
+                                }
+                                consumed = true;
+                                break;
+                            }
+                        }
+                        if (consumed) break;
+                    }
+                }
             }
         }
         
         // 敵との接触ダメージ
-        for (const enemy of enemies) {
-            if (enemy.isAlive && !enemy.isDying && checkPlayerEnemyCollision(this.player, enemy)) {
+        for (const enemy of activeEnemies) {
+            if (checkPlayerEnemyCollision(this.player, enemy)) {
                 if (this.handlePlayerDamage(1, enemy.x + enemy.width / 2, {
                     knockbackX: 5,
                     knockbackY: -3
                 })) {
                     return;
+                }
+            } else if (cloneActive) {
+                const enemyRect = { x: enemy.x, y: enemy.y, width: enemy.width, height: enemy.height };
+                for (const cloneRect of cloneBodyRects) {
+                    if (this.rectIntersects(enemyRect, cloneRect)) {
+                        if (typeof this.player.consumeSpecialClone === 'function') {
+                            const consumed = this.player.consumeSpecialClone(cloneRect.index);
+                            if (consumed) this.queueHitFeedback(2.4, 40);
+                            if (!consumed) continue;
+                        }
+                        break;
+                    }
                 }
             }
         }
@@ -791,7 +999,8 @@ class Game {
             if (obs.type === OBSTACLE_TYPES.ROCK) {
                 if (this.player.isAttacking) {
                     const hitbox = this.player.getAttackHitbox();
-                    if (hitbox && this.rectIntersects(hitbox, obs)) {
+                    const hitboxes = Array.isArray(hitbox) ? hitbox : (hitbox ? [hitbox] : []);
+                    if (hitboxes.some((hb) => this.rectIntersects(hb, obs))) {
                         obs.takeDamage(2);
                     }
                 }
@@ -832,6 +1041,71 @@ class Game {
             }
         }
     }
+
+    isBossEnemy(enemy) {
+        if (!enemy) return false;
+        return enemy.maxHp >= 120 || (typeof enemy.maxPhase === 'number' && enemy.maxPhase > 1);
+    }
+
+    getUltimateTargets(player, desiredCount = 8) {
+        const enemies = this.stage.getAllEnemies().filter((enemy) => enemy.isAlive && !enemy.isDying);
+        if (enemies.length === 0) return [];
+
+        const visibleMinX = this.scrollX - 40;
+        const visibleMaxX = this.scrollX + CANVAS_WIDTH + 40;
+        const viewportTargets = enemies.filter((enemy) => {
+            const cx = enemy.x + enemy.width / 2;
+            return cx >= visibleMinX && cx <= visibleMaxX;
+        });
+        const pool = viewportTargets.length > 0 ? viewportTargets : enemies;
+
+        const playerCenterX = player.x + player.width / 2;
+        const playerCenterY = player.y + player.height * 0.5;
+        return pool
+            .slice()
+            .sort((a, b) => {
+                const aBoss = this.isBossEnemy(a) ? 1 : 0;
+                const bBoss = this.isBossEnemy(b) ? 1 : 0;
+                if (aBoss !== bBoss) return bBoss - aBoss;
+
+                const aThreat = (a.damage || 0) + (a.maxHp || 0) * 0.04;
+                const bThreat = (b.damage || 0) + (b.maxHp || 0) * 0.04;
+                if (aThreat !== bThreat) return bThreat - aThreat;
+
+                const adx = (a.x + a.width / 2) - playerCenterX;
+                const ady = (a.y + a.height * 0.5) - playerCenterY;
+                const bdx = (b.x + b.width / 2) - playerCenterX;
+                const bdy = (b.y + b.height * 0.5) - playerCenterY;
+                return (adx * adx + ady * ady) - (bdx * bdx + bdy * bdy);
+            })
+            .slice(0, Math.max(1, desiredCount));
+    }
+
+    executeUltimateStrike(player, target, options = {}) {
+        if (!target || !target.isAlive || target.isDying) return false;
+
+        const isFinisher = !!options.isFinisher;
+        const boss = this.isBossEnemy(target);
+        let damage;
+        if (boss) {
+            // ボスは固定割合+上限（上限超えを防ぎつつ最低保証）
+            const percentDamage = Math.max(12, target.hp * 0.18);
+            damage = Math.max(18, Math.min(140, percentDamage));
+        } else {
+            // 雑魚は確殺
+            damage = target.hp + Math.max(20, target.maxHp || 20);
+        }
+
+        this.damageEnemy(target, damage, {
+            source: 'special_shadow',
+            weapon: '奥義',
+            isLaunch: isFinisher,
+            knockbackX: isFinisher ? 12 : 7,
+            knockbackY: isFinisher ? -10 : -6
+        });
+        this.queueHitFeedback(isFinisher ? 9.5 : 6.2, isFinisher ? 108 : 72);
+        return true;
+    }
     
     rectIntersects(a, b) {
         return a.x < b.x + b.width &&
@@ -839,12 +1113,359 @@ class Game {
                a.y < b.y + b.height &&
                a.y + a.height > b.y;
     }
+
+    applyFinisherBlowAway(enemy, attackData = null) {
+        if (!enemy || !attackData) return;
+        if (attackData.comboStep !== 5) return;
+        if (attackData.source && attackData.source !== 'main') return;
+
+        const dir = this.player && this.player.facingRight ? 1 : -1;
+        const boss = this.isBossEnemy(enemy);
+        const pushDistance = boss ? 28 : 56;
+        const minPushVx = boss ? 7 : 12;
+        const liftVy = boss ? -2.4 : -4.4;
+
+        enemy.x += dir * pushDistance;
+        enemy.vx = dir * Math.max(minPushVx, Math.abs(enemy.vx || 0));
+        enemy.vy = Math.min(enemy.vy || 0, liftVy);
+        enemy.isGrounded = false;
+
+        const minX = this.scrollX - 180;
+        const maxX = this.scrollX + CANVAS_WIDTH + 180;
+        enemy.x = Math.max(minX, Math.min(maxX, enemy.x));
+    }
+
+    isStageBossEnemy(enemy) {
+        return !!(this.stage && this.stage.boss && enemy === this.stage.boss);
+    }
+
+    shouldDropBossGem(enemy) {
+        if (!enemy || (!enemy.isAlive && !enemy.isDying)) return false;
+        if (this.isStageBossEnemy(enemy)) return false;
+        return this.isBossEnemy(enemy) || enemy.type === 'busho';
+    }
+
+    spawnExpGem(enemy) {
+        if (!enemy) return;
+        const expValue = Math.max(0, Math.floor(enemy.expReward || 0));
+        if (expValue <= 0) return;
+        if (this.isStageBossEnemy(enemy)) return;
+
+        const isBossGem = this.shouldDropBossGem(enemy);
+        const gemExp = Math.max(1, Math.round(expValue * (isBossGem ? 1.8 : 1)));
+        this.expGems.push({
+            x: enemy.x + enemy.width * 0.5,
+            y: enemy.y + enemy.height * 0.42,
+            vx: (Math.random() - 0.5) * 1.6,
+            vy: -3.2 - Math.random() * 0.8,
+            size: isBossGem ? 13 : 9,
+            exp: gemExp,
+            kind: isBossGem ? 'boss' : 'normal',
+            lifeMs: 9000,
+            sparklePhase: Math.random() * Math.PI * 2
+        });
+    }
+
+    updateExpGems() {
+        if (!this.expGems || this.expGems.length === 0 || !this.player) return;
+
+        const playerCenterX = this.player.x + this.player.width * 0.5;
+        const playerCenterY = this.player.y + this.player.height * 0.5;
+        const pickupRadius = 26;
+        const magnetRadius = 120;
+        const groundLimit = this.groundY - 7;
+
+        this.expGems = this.expGems.filter((gem) => {
+            gem.lifeMs -= this.deltaTime * 1000;
+            if (gem.lifeMs <= 0) return false;
+
+            const dx = playerCenterX - gem.x;
+            const dy = playerCenterY - gem.y;
+            const distance = Math.hypot(dx, dy) || 1;
+
+            if (distance < magnetRadius) {
+                const pull = 0.42 + (magnetRadius - distance) * 0.006;
+                gem.vx += (dx / distance) * pull;
+                gem.vy += (dy / distance) * pull;
+            }
+
+            gem.vx *= 0.92;
+            gem.vy += 0.34;
+            gem.x += gem.vx;
+            gem.y += gem.vy;
+            gem.sparklePhase += this.deltaTime * 8.2;
+
+            if (gem.y > groundLimit) {
+                gem.y = groundLimit;
+                gem.vy *= -0.2;
+                gem.vx *= 0.82;
+                if (Math.abs(gem.vy) < 0.25) gem.vy = 0;
+            }
+
+            const pickupDx = playerCenterX - gem.x;
+            const pickupDy = playerCenterY - gem.y;
+            const pickupDistance = Math.hypot(pickupDx, pickupDy);
+            if (pickupDistance < pickupRadius) {
+                const leveled = this.player.addExp(gem.exp) || 0;
+                if (leveled > 0) this.queueLevelUpChoices(leveled);
+                audio.playMoney();
+                return false;
+            }
+
+            const outLeft = gem.x + gem.size < this.scrollX - 220;
+            const outRight = gem.x - gem.size > this.scrollX + CANVAS_WIDTH + 220;
+            const outBottom = gem.y - gem.size > CANVAS_HEIGHT + 60;
+            return !(outLeft || outRight || outBottom);
+        });
+    }
+
+    getAvailableLevelUpChoices() {
+        if (!this.player || !this.player.progression) return [];
+        const progression = this.player.progression;
+        const choices = [
+            {
+                id: 'normal_combo',
+                title: '通常連撃強化',
+                subtitle: `連撃段数 ${this.player.getNormalComboMax()} → ${Math.min(5, this.player.getNormalComboMax() + 1)}`,
+                level: progression.normalCombo || 0,
+                maxLevel: 3
+            },
+            {
+                id: 'sub_weapon',
+                title: '忍具強化',
+                subtitle: '連射・射程・手数を強化',
+                level: progression.subWeapon || 0,
+                maxLevel: 3
+            },
+            {
+                id: 'special_clone',
+                title: '奥義分身強化',
+                subtitle: `分身数 ${this.player.specialCloneSlots.length} → ${Math.min(8, this.player.specialCloneSlots.length + 2)}`,
+                level: progression.specialClone || 0,
+                maxLevel: 3
+            }
+        ];
+        return choices.filter((choice) => choice.level < choice.maxLevel);
+    }
+
+    queueLevelUpChoices(count = 1) {
+        const addCount = Math.max(0, Math.floor(count));
+        if (addCount <= 0) return;
+        this.pendingLevelUpChoices += addCount;
+        if (this.state === GAME_STATE.PLAYING) {
+            this.state = GAME_STATE.LEVEL_UP;
+            this.levelUpChoiceIndex = 0;
+            audio.playLevelUp();
+        }
+    }
+
+    applyLevelUpChoice(choiceId) {
+        if (!this.player || !choiceId) return;
+        const upgraded = this.player.applyProgressionChoice(choiceId);
+        if (!upgraded) return;
+        this.pendingLevelUpChoices = Math.max(0, this.pendingLevelUpChoices - 1);
+        this.levelUpChoiceIndex = 0;
+        audio.playPowerUp();
+        const nextChoices = this.getAvailableLevelUpChoices();
+        if (nextChoices.length === 0 || this.pendingLevelUpChoices <= 0) {
+            this.pendingLevelUpChoices = 0;
+            this.state = GAME_STATE.PLAYING;
+        }
+    }
+
+    updateLevelUpChoice() {
+        const choices = this.getAvailableLevelUpChoices();
+        if (choices.length === 0) {
+            this.pendingLevelUpChoices = 0;
+            this.state = GAME_STATE.PLAYING;
+            return;
+        }
+        this.levelUpChoiceIndex = Math.max(0, Math.min(choices.length - 1, this.levelUpChoiceIndex));
+
+        if (input.isActionJustPressed('LEFT')) {
+            this.levelUpChoiceIndex = (this.levelUpChoiceIndex - 1 + choices.length) % choices.length;
+            audio.playSelect();
+        }
+        if (input.isActionJustPressed('RIGHT')) {
+            this.levelUpChoiceIndex = (this.levelUpChoiceIndex + 1) % choices.length;
+            audio.playSelect();
+        }
+
+        if (input.touchJustPressed) {
+            const touchX = input.lastTouchX;
+            const cardWidth = 300;
+            const gap = 36;
+            const totalWidth = choices.length * cardWidth + (choices.length - 1) * gap;
+            const startX = CANVAS_WIDTH / 2 - totalWidth / 2;
+            const cardY = CANVAS_HEIGHT / 2 - 120;
+            for (let index = 0; index < choices.length; index++) {
+                const x = startX + index * (cardWidth + gap);
+                if (touchX >= x && touchX <= x + cardWidth && input.lastTouchY >= cardY && input.lastTouchY <= cardY + 260) {
+                    this.levelUpChoiceIndex = index;
+                    this.applyLevelUpChoice(choices[index].id);
+                    return;
+                }
+            }
+        }
+
+        if (input.isActionJustPressed('JUMP') || input.isActionJustPressed('ATTACK') || input.isActionJustPressed('SUB_WEAPON')) {
+            this.applyLevelUpChoice(choices[this.levelUpChoiceIndex].id);
+        }
+    }
+
+    spawnStageBossDefeatEffect(enemy) {
+        if (!enemy) return;
+        const centerX = enemy.x + enemy.width * 0.5;
+        const centerY = enemy.y + enemy.height * 0.5;
+        const shards = [];
+        for (let i = 0; i < 30; i++) {
+            const angle = (Math.PI * 2 * i) / 30 + (Math.random() - 0.5) * 0.3;
+            const speed = 2 + Math.random() * 5;
+            shards.push({
+                x: centerX,
+                y: centerY,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed - 1.2,
+                life: 600 + Math.random() * 500,
+                maxLife: 1100,
+                size: 2 + Math.random() * 3
+            });
+        }
+        this.stageBossDefeatEffects.push({
+            x: centerX,
+            y: centerY,
+            timer: 0,
+            duration: 1400,
+            shards
+        });
+    }
+
+    updateStageBossDefeatEffects() {
+        if (!this.stageBossDefeatEffects || this.stageBossDefeatEffects.length === 0) return;
+        this.stageBossDefeatEffects = this.stageBossDefeatEffects.filter((effect) => {
+            effect.timer += this.deltaTime * 1000;
+            for (const shard of effect.shards) {
+                shard.vy += 0.2;
+                shard.x += shard.vx;
+                shard.y += shard.vy;
+                shard.life -= this.deltaTime * 1000;
+            }
+            effect.shards = effect.shards.filter((shard) => shard.life > 0);
+            return effect.timer < effect.duration || effect.shards.length > 0;
+        });
+    }
+
+    renderExpGems(ctx) {
+        if (!this.expGems || this.expGems.length === 0) return;
+
+        for (const gem of this.expGems) {
+            const isBossGem = gem.kind === 'boss';
+            const glowColor = isBossGem ? '48, 122, 255' : '18, 168, 108';
+            const rim = isBossGem ? 'rgba(188, 222, 255, 0.42)' : 'rgba(178, 255, 214, 0.4)';
+            const blinkStartMs = 1300;
+            let alpha = 1;
+            if (gem.lifeMs <= blinkStartMs) {
+                alpha = Math.sin(gem.lifeMs * 0.035) > 0 ? 1 : 0.22;
+            }
+            const half = gem.size;
+            const outer = half;
+            const inner = half * 0.53;
+
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.translate(gem.x, gem.y);
+            ctx.rotate(Math.sin(gem.sparklePhase * 0.18) * 0.03);
+
+            const gemGradient = ctx.createLinearGradient(-half, -half, half, half);
+            if (isBossGem) {
+                gemGradient.addColorStop(0, '#82bcff');
+                gemGradient.addColorStop(0.5, '#1f66d9');
+                gemGradient.addColorStop(1, '#0e3b8f');
+            } else {
+                gemGradient.addColorStop(0, '#87f2c6');
+                gemGradient.addColorStop(0.5, '#18a86c');
+                gemGradient.addColorStop(1, '#0a6b45');
+            }
+
+            const pulse = 0.72 + 0.28 * Math.sin(gem.sparklePhase * 1.6);
+            ctx.shadowColor = `rgba(${glowColor}, ${0.5 + pulse * 0.32})`;
+            ctx.shadowBlur = (isBossGem ? 17 : 14) + pulse * 6;
+            ctx.fillStyle = gemGradient;
+            ctx.beginPath();
+            for (let i = 0; i < 8; i++) {
+                const angle = -Math.PI / 2 + i * (Math.PI / 4);
+                const radius = i % 2 === 0 ? outer : inner;
+                const px = Math.cos(angle) * radius;
+                const py = Math.sin(angle) * radius;
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.strokeStyle = rim;
+            ctx.lineWidth = 1.15;
+            ctx.stroke();
+
+            ctx.strokeStyle = 'rgba(255,255,255,0.33)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(-inner * 0.8, -inner * 0.25);
+            ctx.lineTo(inner * 0.7, inner * 0.55);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+
+    renderStageBossDefeatEffects(ctx) {
+        if (!this.stageBossDefeatEffects || this.stageBossDefeatEffects.length === 0) return;
+        for (const effect of this.stageBossDefeatEffects) {
+            const t = Math.max(0, Math.min(1, effect.timer / effect.duration));
+            const fade = 1 - t;
+            ctx.save();
+            ctx.globalAlpha = fade;
+            ctx.strokeStyle = `rgba(255, 228, 166, ${0.86 * fade})`;
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.arc(effect.x, effect.y, 18 + t * 120, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.strokeStyle = `rgba(255, 160, 102, ${0.62 * fade})`;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(effect.x, effect.y, 10 + t * 74, 0, Math.PI * 2);
+            ctx.stroke();
+
+            const flare = ctx.createRadialGradient(effect.x, effect.y, 0, effect.x, effect.y, 120);
+            flare.addColorStop(0, `rgba(255, 245, 215, ${0.36 * fade})`);
+            flare.addColorStop(0.5, `rgba(255, 188, 120, ${0.18 * fade})`);
+            flare.addColorStop(1, 'rgba(255, 120, 80, 0)');
+            ctx.fillStyle = flare;
+            ctx.beginPath();
+            ctx.arc(effect.x, effect.y, 120, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
+            for (const shard of effect.shards) {
+                const life = Math.max(0, shard.life / shard.maxLife);
+                ctx.save();
+                ctx.globalAlpha = life;
+                ctx.fillStyle = 'rgba(255, 220, 170, 0.92)';
+                ctx.beginPath();
+                ctx.arc(shard.x, shard.y, shard.size * (0.6 + life * 0.5), 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+    }
     
     damageEnemy(enemy, damage, attackData = null) {
         const damageResult = enemy.takeDamage(damage, this.player, attackData);
         if (damageResult === null) return;
+        this.applyFinisherBlowAway(enemy, attackData);
         const killed = damageResult;
         const isCritical = damage >= 50; // クリティカル判定閾値
+        const feedback = this.resolveHitFeedback(attackData, damage, killed, isCritical);
         
         // ダメージ数値エフェクト
         this.damageNumbers.push({
@@ -857,20 +1478,252 @@ class Game {
             vy: -3 - Math.random() * 3,   // 跳ね抑制
             gravity: 0.2                 // 重力軽減
         });
+
+        this.spawnHitEffects(
+            enemy.x + enemy.width / 2,
+            enemy.y + enemy.height * 0.46,
+            feedback
+        );
         
         if (killed) {
             // 報酬
-            this.player.addExp(enemy.expReward);
+            this.spawnExpGem(enemy);
+            if (this.isStageBossEnemy(enemy)) {
+                this.spawnStageBossDefeatEffect(enemy);
+            }
             this.player.addMoney(enemy.moneyReward);
             this.player.addSpecialGauge(enemy.specialGaugeReward);
             audio.playEnemyDeath();
             
-            // 演出：強烈な揺れとヒットストップ
-            this.queueHitFeedback(8, 150);
+            // 演出：攻撃種別に応じた揺れとヒットストップ
+            this.queueHitFeedback(feedback.shake, feedback.hitStopMs);
         } else {
+            // 非撃破ヒットにも武器種別に応じた奥義ゲージ蓄積を付与
+            const gaugeGain = this.resolveHitGaugeGain(attackData, damage);
+            if (gaugeGain > 0) this.player.addSpecialGauge(gaugeGain);
             audio.playDamage();
-            // 演出：ヒットの重みに応じて調整
-            this.queueHitFeedback(isCritical ? 5 : 2, isCritical ? 95 : 55);
+            this.queueHitFeedback(feedback.shake, feedback.hitStopMs);
+        }
+    }
+
+    resolveHitFeedback(attackData, damage, killed, isCritical) {
+        const source = attackData && attackData.source ? attackData.source : 'main';
+        const weapon = attackData && attackData.weapon ? attackData.weapon : null;
+        const heavyLaunch = !!(attackData && attackData.isLaunch);
+        const base = {
+            shake: 2.3,
+            hitStopMs: 52,
+            sparkCount: 6,
+            sparkSpeed: 2.9,
+            sparkColor: '180, 226, 255',
+            ringColor: '116, 196, 255',
+            ringBaseRadius: 12
+        };
+
+        if (source === 'bomb' || weapon === '火薬玉') {
+            base.shake = 6.2;
+            base.hitStopMs = 112;
+            base.sparkCount = 18;
+            base.sparkSpeed = 4.8;
+            base.sparkColor = '255, 176, 106';
+            base.ringColor = '255, 132, 72';
+            base.ringBaseRadius = 20;
+        } else if (source === 'shockwave') {
+            base.shake = 8.8;
+            base.hitStopMs = 148;
+            base.sparkCount = 24;
+            base.sparkSpeed = 5.4;
+            base.sparkColor = '255, 238, 164';
+            base.ringColor = '255, 210, 110';
+            base.ringBaseRadius = 26;
+        } else if (source === 'special_shadow') {
+            base.shake = 7.2;
+            base.hitStopMs = 96;
+            base.sparkCount = 20;
+            base.sparkSpeed = 4.9;
+            base.sparkColor = '174, 246, 255';
+            base.ringColor = '130, 220, 255';
+            base.ringBaseRadius = 23;
+        } else if (weapon === '大太刀') {
+            base.shake = 6.9;
+            base.hitStopMs = 128;
+            base.sparkCount = 20;
+            base.sparkSpeed = 4.6;
+            base.sparkColor = '255, 223, 160';
+            base.ringColor = '255, 182, 98';
+            base.ringBaseRadius = 24;
+        } else if (weapon === '鎖鎌') {
+            base.shake = 4.5;
+            base.hitStopMs = 84;
+            base.sparkCount = 12;
+            base.sparkSpeed = 3.7;
+            base.sparkColor = '190, 218, 232';
+            base.ringColor = '146, 188, 214';
+            base.ringBaseRadius = 17;
+        } else if (weapon === '大槍') {
+            base.shake = 4.2;
+            base.hitStopMs = 76;
+            base.sparkCount = 11;
+            base.sparkSpeed = 3.9;
+            base.sparkColor = '193, 233, 255';
+            base.ringColor = '129, 198, 255';
+            base.ringBaseRadius = 16;
+        } else if (weapon === '二刀流') {
+            base.shake = 3.6;
+            base.hitStopMs = 66;
+            base.sparkCount = 10;
+            base.sparkSpeed = 3.4;
+            base.sparkColor = '186, 232, 255';
+            base.ringColor = '120, 203, 255';
+            base.ringBaseRadius = 15;
+        } else if (source === 'main') {
+            base.shake = 3.0;
+            base.hitStopMs = 60;
+            base.sparkCount = 8;
+            base.sparkSpeed = 3.1;
+            base.sparkColor = '183, 227, 255';
+            base.ringColor = '113, 190, 255';
+            base.ringBaseRadius = 14;
+        }
+
+        if (heavyLaunch) {
+            base.shake += 0.9;
+            base.hitStopMs += 16;
+            base.sparkCount += 3;
+            base.ringBaseRadius += 3;
+        }
+        if (isCritical) {
+            base.shake += 1.1;
+            base.hitStopMs += 20;
+            base.sparkCount += 4;
+        }
+        if (killed) {
+            base.shake += 1.3;
+            base.hitStopMs += 26;
+            base.sparkCount += 6;
+        }
+
+        return base;
+    }
+
+    resolveHitGaugeGain(attackData, damage) {
+        const source = attackData && attackData.source ? attackData.source : 'main';
+        const weapon = attackData && attackData.weapon ? attackData.weapon : null;
+        let gain = 0;
+        if (source === 'shockwave') {
+            gain = 5;
+        } else if (source === 'special_shadow') {
+            gain = 0;
+        } else if (source === 'bomb' || weapon === '火薬玉') {
+            gain = 2.2;
+        } else if (weapon === '大太刀') {
+            gain = 3.0;
+        } else if (weapon === '二刀流') {
+            gain = 1.9;
+        } else if (weapon === '鎖鎌') {
+            gain = 2.5;
+        } else if (weapon === '大槍') {
+            gain = 2.1;
+        } else if (source === 'main') {
+            gain = 1.4;
+        }
+
+        const damageFactor = Math.max(0.65, Math.min(1.45, damage / 24));
+        return Math.max(0, Math.round(gain * damageFactor));
+    }
+
+    spawnHitEffects(x, y, feedback) {
+        const count = Math.max(4, Math.floor(feedback.sparkCount || 8));
+        const speed = feedback.sparkSpeed || 3;
+        const sparkColor = feedback.sparkColor || '180, 226, 255';
+        const ringColor = feedback.ringColor || '116, 196, 255';
+        const ringBaseRadius = feedback.ringBaseRadius || 14;
+
+        this.hitEffects.push({
+            kind: 'ring',
+            x,
+            y,
+            vx: 0,
+            vy: 0,
+            life: 180,
+            maxLife: 180,
+            radius: ringBaseRadius,
+            color: ringColor
+        });
+
+        for (let index = 0; index < count; index++) {
+            const angle = (index / count) * Math.PI * 2 + Math.random() * 0.35;
+            const burst = speed * (0.55 + Math.random() * 0.75);
+            this.hitEffects.push({
+                kind: 'spark',
+                x,
+                y,
+                vx: Math.cos(angle) * burst,
+                vy: Math.sin(angle) * burst - 1.1,
+                life: 170 + Math.random() * 80,
+                maxLife: 170 + Math.random() * 80,
+                size: 8 + Math.random() * 8,
+                color: sparkColor
+            });
+        }
+
+        if (this.hitEffects.length > this.maxHitEffects) {
+            const overflow = this.hitEffects.length - this.maxHitEffects;
+            this.hitEffects.splice(0, overflow);
+        }
+    }
+
+    updateHitEffects() {
+        if (!this.hitEffects || this.hitEffects.length === 0) return;
+        let writeIndex = 0;
+        for (let readIndex = 0; readIndex < this.hitEffects.length; readIndex++) {
+            const effect = this.hitEffects[readIndex];
+            effect.life -= this.deltaTime * 1000;
+            if (effect.life <= 0) continue;
+            if (effect.kind === 'spark') {
+                effect.vx *= 0.94;
+                effect.vy = effect.vy * 0.94 + 0.22;
+                effect.x += effect.vx;
+                effect.y += effect.vy;
+            } else if (effect.kind === 'ring') {
+                effect.radius += 0.85;
+            }
+            this.hitEffects[writeIndex++] = effect;
+        }
+        this.hitEffects.length = writeIndex;
+    }
+
+    renderHitEffects(ctx) {
+        if (!this.hitEffects || this.hitEffects.length === 0) return;
+        for (const effect of this.hitEffects) {
+            const lifeRatio = Math.max(0, Math.min(1, effect.life / effect.maxLife));
+            if (effect.kind === 'spark') {
+                const length = (effect.size || 10) * (0.55 + lifeRatio * 0.8);
+                const angle = Math.atan2(effect.vy || 0, effect.vx || 1);
+                const endX = effect.x + Math.cos(angle) * length;
+                const endY = effect.y + Math.sin(angle) * length;
+                ctx.save();
+                ctx.strokeStyle = `rgba(${effect.color}, ${0.18 + lifeRatio * 0.74})`;
+                ctx.lineWidth = 1.4 + lifeRatio * 1.6;
+                ctx.lineCap = 'round';
+                ctx.shadowColor = `rgba(${effect.color}, ${0.6 * lifeRatio})`;
+                ctx.shadowBlur = 10 * lifeRatio;
+                ctx.beginPath();
+                ctx.moveTo(effect.x, effect.y);
+                ctx.lineTo(endX, endY);
+                ctx.stroke();
+                ctx.restore();
+            } else {
+                ctx.save();
+                ctx.strokeStyle = `rgba(${effect.color}, ${0.15 + lifeRatio * 0.42})`;
+                ctx.lineWidth = 2.2 + lifeRatio * 2.4;
+                ctx.shadowColor = `rgba(${effect.color}, ${0.48 * lifeRatio})`;
+                ctx.shadowBlur = 12 * lifeRatio;
+                ctx.beginPath();
+                ctx.arc(effect.x, effect.y, effect.radius, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
         }
     }
     
@@ -883,6 +1736,11 @@ class Game {
     }
     
     onStageClear() {
+        // クリア時は奥義状態を解除（分身を残さない）
+        if (this.player && typeof this.player.clearSpecialState === 'function') {
+            this.player.clearSpecialState(true);
+        }
+
         // ボスの武器を獲得
         const stageInfo = STAGES[this.currentStageNumber - 1];
         const newWeaponName = stageInfo ? stageInfo.weapon : null;
@@ -906,6 +1764,9 @@ class Game {
                 this.player.subWeaponIndex = weaponIndex;
                 this.player.currentSubWeapon = this.player.subWeapons[weaponIndex];
             }
+            if (typeof this.player.refreshSubWeaponScaling === 'function') {
+                this.player.refreshSubWeaponScaling();
+            }
         } else {
             this.clearedWeapon = null;
         }
@@ -920,6 +1781,11 @@ class Game {
         }
         
         this.state = isFinalStage ? GAME_STATE.GAME_CLEAR : GAME_STATE.STAGE_CLEAR;
+        this.stageClearMenuIndex = 0;
+        this.stageClearWeaponIndex = Math.max(
+            0,
+            this.player.subWeapons.findIndex((weapon) => weapon === this.player.currentSubWeapon)
+        );
         if (isFinalStage) {
             this.gameClearTimer = 0;
             this.endingTimer = 0;
@@ -929,6 +1795,11 @@ class Game {
     }
     
     updatePaused() {
+        // ポーズ中でも武器切替は許可
+        if (this.player && input.isActionJustPressed('SWITCH_WEAPON')) {
+            this.player.switchSubWeapon();
+        }
+
         if (input.isActionJustPressed('PAUSE')) {
             this.state = GAME_STATE.PLAYING;
         }
@@ -938,10 +1809,13 @@ class Game {
         shop.update(this.deltaTime, this.player);
         
         if (!shop.isOpen) {
-            // ショップを閉じたら次のステージへ
+            if (this.returnToStageClearAfterShop) {
+                this.returnToStageClearAfterShop = false;
+                this.state = GAME_STATE.STAGE_CLEAR;
+                return;
+            }
             this.currentStageNumber++;
             if (this.currentStageNumber > STAGES.length) {
-                // ゲームクリア！
                 this.state = GAME_STATE.GAME_CLEAR;
             } else {
                 this.startStage();
@@ -970,23 +1844,65 @@ class Game {
     }
     
     updateStageClear() {
-        // スペースキーまたは画面タップ等で次へ
-        if (input.isActionJustPressed('JUMP') || input.touchJustPressed) {
-            // ショップへ
-            shop.open();
-            this.state = GAME_STATE.SHOP;
-            audio.playBgm('shop');
+        const menuCount = 3;
+        if (input.isActionJustPressed('LEFT')) {
+            this.stageClearMenuIndex = (this.stageClearMenuIndex - 1 + menuCount) % menuCount;
+            audio.playSelect();
         }
+        if (input.isActionJustPressed('RIGHT')) {
+            this.stageClearMenuIndex = (this.stageClearMenuIndex + 1) % menuCount;
+            audio.playSelect();
+        }
+        if (this.stageClearMenuIndex === 1) {
+            if (input.isActionJustPressed('UP')) this.cycleStageClearWeapon(-1);
+            if (input.isActionJustPressed('DOWN')) this.cycleStageClearWeapon(1);
+        }
+        if (input.isActionJustPressed('JUMP') || input.isActionJustPressed('ATTACK') || input.touchJustPressed) {
+            if (this.stageClearMenuIndex === 0) {
+                this.applyStageDefaultWeaponChoice();
+                this.currentStageNumber++;
+                if (this.currentStageNumber > STAGES.length) {
+                    this.state = GAME_STATE.GAME_CLEAR;
+                } else {
+                    this.startStage();
+                }
+            } else if (this.stageClearMenuIndex === 1) {
+                this.cycleStageClearWeapon(1);
+            } else if (this.stageClearMenuIndex === 2) {
+                shop.open();
+                this.returnToStageClearAfterShop = true;
+                this.state = GAME_STATE.SHOP;
+                audio.playBgm('shop');
+            }
+        }
+    }
+
+    cycleStageClearWeapon(direction = 1) {
+        if (!this.player || !Array.isArray(this.player.subWeapons) || this.player.subWeapons.length === 0) return;
+        const count = this.player.subWeapons.length;
+        const nextIndex = (this.stageClearWeaponIndex + direction + count) % count;
+        this.stageClearWeaponIndex = nextIndex;
+        this.player.subWeaponIndex = nextIndex;
+        this.player.currentSubWeapon = this.player.subWeapons[nextIndex];
+        audio.playSelect();
+    }
+
+    applyStageDefaultWeaponChoice() {
+        if (!this.player || !Array.isArray(this.player.subWeapons) || this.player.subWeapons.length === 0) return;
+        const selected = this.player.subWeapons[this.stageClearWeaponIndex];
+        if (!selected) return;
+        const nextStage = this.currentStageNumber + 1;
+        this.player.stageEquip = this.player.stageEquip || {};
+        this.player.stageEquip[nextStage] = selected.name;
     }
 
     updateGameClear() {
         this.gameClearTimer += this.deltaTime * 1000;
 
-        // クリア演出を見せたあと、入力または一定時間経過でエンディングへ
+        // クリア演出後、入力でのみエンディングへ遷移
         const canSkip = this.gameClearTimer > 700;
         const wantsProceed = canSkip && (input.isActionJustPressed('JUMP') || input.touchJustPressed);
-        const autoProceed = this.gameClearTimer > 6000;
-        if (wantsProceed || autoProceed) {
+        if (wantsProceed) {
             this.state = GAME_STATE.ENDING;
             this.endingTimer = 0;
             audio.playBgm('ending');
@@ -998,8 +1914,7 @@ class Game {
 
         const canSkip = this.endingTimer > 900;
         const wantsReturn = canSkip && (input.isActionJustPressed('JUMP') || input.touchJustPressed);
-        const autoReturn = this.endingTimer > 12000;
-        if (wantsReturn || autoReturn) {
+        if (wantsReturn) {
             saveManager.deleteSave();
             this.state = GAME_STATE.TITLE;
             this.titleMenuIndex = 0;
@@ -1106,6 +2021,12 @@ class Game {
 
         // 敵
         this.stage.renderEnemies(ctx);
+
+        // 熟練ジェム
+        this.renderExpGems(ctx);
+
+        // ステージボス撃破演出
+        this.renderStageBossDefeatEffects(ctx);
         
         // ボス（本体）
         if (this.stage.boss && this.stage.bossSpawned) {
@@ -1135,6 +2056,9 @@ class Game {
         ) {
             this.player.currentSubWeapon.render(ctx, this.player);
         }
+
+        // ヒット演出（世界座標）
+        this.renderHitEffects(ctx);
         
         // ダメージ数値
         for (const dn of this.damageNumbers) {

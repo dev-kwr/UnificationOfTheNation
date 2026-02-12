@@ -18,7 +18,7 @@ export const PLAYER = {
     JUMP_FORCE: -16,
     DOUBLE_JUMP_FORCE: -14,
     DASH_SPEED: 12,
-    MAX_HP: 10,
+    MAX_HP: 8,
     MONEY_MAX: 9999,
     ATTACK_COMBO_MAX: 5,
     ATTACK_COOLDOWN: 150,  // ミリ秒
@@ -51,6 +51,7 @@ export const GAME_STATE = {
     PLAYING: 'playing',
     PAUSED: 'paused',
     SHOP: 'shop',
+    LEVEL_UP: 'levelUp',
     STAGE_CLEAR: 'stageClear',
     GAME_CLEAR: 'gameClear',
     ENDING: 'ending',
@@ -73,18 +74,17 @@ export const KEYS = {
     DOWN: ['ArrowDown'],
     JUMP: [' ', 'ArrowUp'],  // Space or ↑ (SpaceをIDにするため先頭へ)
     ATTACK: ['z', 'Z'],
-    BOMB: ['x', 'X'], // 旧互換
     SUB_WEAPON: ['x', 'X'],
     SPECIAL: ['s', 'S'],
     SWITCH_WEAPON: ['d', 'D'],
     DASH: ['Shift'],
-    PAUSE: ['Escape', 'p', 'P'],
+    PAUSE: ['Escape'],
 };
 
 // ステージ情報
 export const STAGES = [
     { id: 1, name: '竹林', boss: '槍持ちの侍大将', weapon: '大槍' },
-    { id: 2, name: '山道', boss: '二刀流の剣豪', weapon: '二刀' },
+    { id: 2, name: '山道', boss: '二刀流の剣豪', weapon: '二刀流' },
     { id: 3, name: '城下町', boss: '鎖鎌使いの暗殺者', weapon: '鎖鎌' },
     { id: 4, name: '城内', boss: '大太刀の武将', weapon: '大太刀' },
     { id: 5, name: '天守閣', boss: '将軍', weapon: null },
@@ -131,7 +131,11 @@ export const COLORS = {
 
 // 仮想パッド配置
 export const VIRTUAL_PAD = {
-    BUTTON_SIZE: 40, // 円ボタン半径ベース（タップしやすく拡大）
+    BUTTON_SIZE: 40, // 互換用ベース半径
+    ATTACK_BUTTON_RADIUS: 48, // Z（主攻撃）は一回り大きく
+    AUX_BUTTON_RADIUS: 38, // 周辺3ボタン
+    PAUSE_BUTTON_RADIUS: 22, // 左スティック横の小サイズ
+    BUTTON_TOUCH_SCALE: 1.14, // タップ判定の拡張率
     SAFE_MARGIN_X: 150, // 右端が見切れないように十分なマージンを確保
     BOTTOM_MARGIN: 140,
     
@@ -143,26 +147,34 @@ export const VIRTUAL_PAD = {
     STICK_TOUCH_RADIUS: 110,
     STICK_DEADZONE: 0.22,
     STICK_HORIZONTAL_THRESHOLD: 0.28,
+    STICK_DASH_ENGAGE_THRESHOLD: 0.93,
+    STICK_DASH_RELEASE_THRESHOLD: 0.82,
     STICK_UP_THRESHOLD: -0.44,
     STICK_DOWN_THRESHOLD: 0.38,
+    PAUSE_BUTTON: { x: 104, y: 50 }, // 左スティック右下（下揃え）
 
     // 上部UIボタン（全画面共通・右上固定）
     BGM_BUTTON_MARGIN_TOP: 30,
     BGM_BUTTON_MARGIN_RIGHT: 30,
     BGM_BUTTON_RADIUS: 18,
     
-    // 右側：アクションキー（間隔を少し詰めたダイヤ配置）
-    ATTACK: { x: 0, y: 58 },         // A / 下 (Z)
-    SUB_WEAPON: { x: 66, y: 0 },     // B / 右 (X)
-    SPECIAL: { x: 0, y: -66 },       // Y / 上 (S)
-    SWITCH: { x: -66, y: 0 }         // X / 左 (D)
+    // 右側：Z基準の扇形（隣接余白を同値で統一）
+    // 条件:
+    // - ZとDは右揃え
+    // - ZとXは下揃え
+    // - SはXとDの間
+    // - 隣接余白(Z-X / Z-D / X-S / D-S) ≒ 16px
+    ATTACK: { x: 26, y: 58 },        // Z: 主攻撃（基準）
+    SUB_WEAPON: { x: -76, y: 68 },   // X: 左下
+    SPECIAL: { x: -53, y: -21 },     // S: 中間
+    SWITCH: { x: 36, y: -44 }        // D: 右上
 };
 
 // 各ステージの初期装備（デフォルト武器）
 export const STAGE_DEFAULT_WEAPON = {
     1: '火薬玉',
     2: '大槍',
-    3: '二刀',
+    3: '二刀流',
     4: '鎖鎌',
     5: '大太刀'
 };

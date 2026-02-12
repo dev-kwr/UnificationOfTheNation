@@ -136,6 +136,9 @@ export class SubWeapon {
         this.damage = damage;
         this.range = range;
         this.cooldown = cooldown;
+        this.baseDamage = damage;
+        this.baseRange = range;
+        this.baseCooldown = cooldown;
     }
     
     use(player) {
@@ -155,7 +158,8 @@ export class SubWeapon {
 // 火薬玉（爆弾を忍具として扱う）
 export class Firebomb extends SubWeapon {
     constructor() {
-        super('火薬玉', 30, 60, 260);
+        // 範囲制圧寄り: 爆風範囲を維持しつつ連投を抑制
+        super('火薬玉', 32, 72, 460);
     }
 
     use(player) {
@@ -173,13 +177,48 @@ export class Firebomb extends SubWeapon {
             bombY = player.y + player.height - 15;
         }
 
-        const bomb = new Bomb(
-            player.x + player.width / 2 + direction * 15,
-            bombY,
-            vx,
-            vy
-        );
-        g.bombs.push(bomb);
+        const tier = (player && typeof player.getSubWeaponEnhanceTier === 'function')
+            ? player.getSubWeaponEnhanceTier()
+            : 0;
+        const extraBombs = tier >= 3 ? 2 : (tier >= 2 ? 1 : 0);
+        const shotCount = 1 + extraBombs;
+        for (let shotIndex = 0; shotIndex < shotCount; shotIndex++) {
+            const spread = shotCount === 1 ? 0 : (shotIndex - (shotCount - 1) / 2) * 0.9;
+            const bomb = new Bomb(
+                player.x + player.width / 2 + direction * (15 + shotIndex * 4),
+                bombY - shotIndex * 1.5,
+                vx + spread,
+                vy - Math.abs(spread) * 0.2
+            );
+            bomb.damage = this.damage;
+            bomb.radius = 9;
+            bomb.explosionRadius = this.range;
+            bomb.explosionDuration = 340;
+            g.bombs.push(bomb);
+        }
+
+        // 奥義分身中は分身位置からも同時投擲
+        if (player && typeof player.getSpecialCloneOffsets === 'function') {
+            const cloneOffsets = player.getSpecialCloneOffsets();
+            if (Array.isArray(cloneOffsets) && cloneOffsets.length > 0) {
+                for (const clone of cloneOffsets) {
+                    for (let shotIndex = 0; shotIndex < shotCount; shotIndex++) {
+                        const spread = shotCount === 1 ? 0 : (shotIndex - (shotCount - 1) / 2) * 0.9;
+                        const cloneBomb = new Bomb(
+                            player.x + clone.dx + player.width / 2 + direction * (15 + shotIndex * 4),
+                            bombY + clone.dy - shotIndex * 1.5,
+                            vx + (clone.index % 2 === 0 ? 0.5 : -0.5) + spread,
+                            vy - Math.abs(spread) * 0.2
+                        );
+                        cloneBomb.damage = this.damage;
+                        cloneBomb.radius = 8.5;
+                        cloneBomb.explosionRadius = this.range;
+                        cloneBomb.explosionDuration = 320;
+                        g.bombs.push(cloneBomb);
+                    }
+                }
+            }
+        }
         audio.playDash();
     }
 }
@@ -187,7 +226,8 @@ export class Firebomb extends SubWeapon {
 // 大槍
 export class Spear extends SubWeapon {
     constructor() {
-        super('大槍', 25, 120, 400); // リーチを80から120へ
+        // 差し込み特化: 先端火力を高め、やや長射程に
+        super('大槍', 28, 132, 360);
         this.isAttacking = false;
         this.attackTimer = 0;
         this.thrustPulse = 0;
@@ -405,15 +445,31 @@ export class Spear extends SubWeapon {
 // 二刀
 export class DualBlades extends SubWeapon {
     constructor() {
-        super('二刀', 20, 60, 200);
+        // 手数特化: 一撃は軽め、連撃でDPSを出す
+        super('二刀流', 18, 64, 180);
         this.isAttacking = false;
         this.attackTimer = 0;
         this.attackType = 'combined'; // 'main', 'left', 'right', 'combined'
         this.projectiles = []; 
         this.comboIndex = 0; // 連撃パターン用
-        this.mainDuration = 190;
+        this.mainDuration = 204;
+        this.mainMotionSpeedScale = 1.7; // 通常Z連撃と近い体感速度に合わせる
         this.attackDirection = 1;
         this.pendingCombinedProjectile = null;
+        this.prevMainRightAngle = null;
+        this.prevMainLeftAngle = null;
+    }
+
+    getMainDurationByStep(step) {
+        let base = 220;
+        switch (step) {
+            case 1: base = 148; break; // 初段: 抜き打ち
+            case 2: base = 262; break; // 二段: 逆袈裟
+            case 3: base = 186; break; // 三段: クロスステップ薙ぎ
+            case 4: base = 304; break; // 四段: 二刀交叉
+            default: base = 358; break; // 五段(0): 落下断ち
+        }
+        return Math.round(base * this.mainMotionSpeedScale);
     }
 
     getLeftSwingArc() {
@@ -447,45 +503,87 @@ export class DualBlades extends SubWeapon {
         return Math.max(0, Math.min(1, 1 - (this.attackTimer / this.mainDuration)));
     }
 
+    remapMainSwingProgress(step, progress) {
+        const p = Math.max(0, Math.min(1, progress));
+        if (step === 1) {
+            // 初段: ほぼ即出しの抜き打ち
+            return p < 0.1
+                ? (p / 0.1) * 0.3
+                : 0.3 + ((p - 0.1) / 0.9) * 0.7;
+        }
+        if (step === 2) {
+            // 二段: 引きつけて一気に返す
+            return p < 0.38
+                ? (p / 0.38) * 0.08
+                : 0.08 + ((p - 0.38) / 0.62) * 0.92;
+        }
+        if (step === 3) {
+            // 三段: 踏み替えの間を挟んだ二拍子
+            if (p < 0.22) return (p / 0.22) * 0.42;
+            if (p < 0.4) return 0.42 + ((p - 0.22) / 0.18) * 0.1;
+            if (p < 0.84) return 0.52 + ((p - 0.4) / 0.44) * 0.4;
+            return 0.92 + ((p - 0.84) / 0.16) * 0.08;
+        }
+        if (step === 4) {
+            // 四段: ため上げ→空中交叉→叩き込み準備
+            if (p < 0.24) return (p / 0.24) * 0.12;
+            if (p < 0.7) return 0.12 + ((p - 0.24) / 0.46) * 0.66;
+            return 0.78 + ((p - 0.7) / 0.3) * 0.22;
+        }
+        // 五段目(0): 頭上で溜めて落下断ち
+        if (p < 0.34) return (p / 0.34) * 0.1;
+        if (p < 0.82) return 0.1 + ((p - 0.34) / 0.48) * 0.74;
+        return 0.84 + ((p - 0.82) / 0.18) * 0.16;
+    }
+
     getMainSwingArcs() {
         switch (this.comboIndex) {
             case 1:
                 return {
-                    rightStart: -1.08, rightEnd: 0.42,
-                    leftStart: 2.18, leftEnd: 0.82,
-                    effectRadius: 74,
-                    hit: 'upFront'
+                    rightStart: -2.36, rightEnd: -0.16,
+                    leftStart: 2.46, leftEnd: 1.1,
+                    effectRadius: 88,
+                    hit: 'drawDash'
                 };
             case 2:
                 return {
-                    rightStart: 0.18, rightEnd: 1.42,
-                    leftStart: -2.78, leftEnd: -1.32,
-                    effectRadius: 72,
-                    hit: 'rearSweep'
+                    rightStart: 0.84, rightEnd: 2.46,
+                    leftStart: -2.68, leftEnd: -0.26,
+                    effectRadius: 98,
+                    hit: 'reverseCounter'
                 };
             case 3:
                 return {
-                    rightStart: -0.1, rightEnd: Math.PI * 1.55,
-                    leftStart: 1.7, leftEnd: -Math.PI * 0.45,
-                    effectRadius: 82,
-                    hit: 'spin'
+                    rightStart: -0.22, rightEnd: 1.42,
+                    leftStart: 2.86, leftEnd: 1.2,
+                    effectRadius: 102,
+                    hit: 'crossStepSweep'
+                };
+            case 4:
+                return {
+                    rightStart: 1.68, rightEnd: -1.52,
+                    leftStart: -2.48, leftEnd: 0.96,
+                    effectRadius: 112,
+                    hit: 'risingX'
                 };
             default:
                 return {
-                    rightStart: -0.34, rightEnd: 0.92,
-                    leftStart: 2.44, leftEnd: 1.05,
-                    effectRadius: 70,
-                    hit: 'frontCross'
+                    rightStart: -1.82, rightEnd: 1.24,
+                    leftStart: -1.08, leftEnd: 1.98,
+                    effectRadius: 118,
+                    hit: 'fallingBreak'
                 };
         }
     }
 
     getMainSwingPose() {
         const progress = this.getMainSwingProgress();
-        const eased = progress * progress * (3 - 2 * progress);
+        const remapped = this.remapMainSwingProgress(this.comboIndex, progress);
+        const eased = remapped * remapped * (3 - 2 * remapped);
         const arcs = this.getMainSwingArcs();
         return {
             progress,
+            remapped,
             eased,
             comboIndex: this.comboIndex,
             arcs,
@@ -498,6 +596,8 @@ export class DualBlades extends SubWeapon {
         this.isAttacking = true;
         this.attackType = type;
         this.attackDirection = player.facingRight ? 1 : -1;
+        this.prevMainRightAngle = null;
+        this.prevMainLeftAngle = null;
         
         if (type === 'combined') {
             // X技は常に最新の1発のみを表示して剣筋の二重化を防ぐ
@@ -514,9 +614,10 @@ export class DualBlades extends SubWeapon {
             };
             audio.playSlash(2);
         } else if (type === 'main') {
+            // 5段ループの多方向コンボ
+            this.comboIndex = (this.comboIndex + 1) % 5;
+            this.mainDuration = this.getMainDurationByStep(this.comboIndex);
             this.attackTimer = this.mainDuration;
-            // 4段ループの多方向コンボ
-            this.comboIndex = (this.comboIndex + 1) % 4;
             audio.playSlash(this.comboIndex);
         } else if (type === 'left') {
             this.attackTimer = 150;
@@ -540,6 +641,8 @@ export class DualBlades extends SubWeapon {
             if (this.attackTimer <= 0) {
                 this.isAttacking = false;
                 this.pendingCombinedProjectile = null;
+                this.prevMainRightAngle = null;
+                this.prevMainLeftAngle = null;
             }
         }
         
@@ -565,52 +668,71 @@ export class DualBlades extends SubWeapon {
                 const frontX = player.x + (direction > 0 ? player.width : -this.range * 1.4);
                 const backX = player.x + (direction > 0 ? -this.range * 1.35 : player.width);
                 const coreW = this.range * 0.75;
-                if (arcs.hit === 'frontCross') {
+                if (arcs.hit === 'drawDash') {
                     hitboxes.push({
                         x: frontX,
-                        y: player.y - 18,
-                        width: this.range * 1.4,
-                        height: 76
+                        y: player.y - 24,
+                        width: this.range * 1.48,
+                        height: 86
                     });
                     hitboxes.push({
                         x: centerX - coreW * 0.5,
-                        y: centerY - 50,
-                        width: coreW,
-                        height: 98
+                        y: centerY - 54,
+                        width: coreW * 0.98,
+                        height: 106
                     });
-                } else if (arcs.hit === 'upFront') {
+                } else if (arcs.hit === 'reverseCounter') {
                     hitboxes.push({
-                        x: frontX,
-                        y: player.y - 52,
-                        width: this.range * 1.25,
-                        height: 98
-                    });
-                    hitboxes.push({
-                        x: centerX - this.range * 0.5,
-                        y: player.y - 70,
-                        width: this.range,
-                        height: 74
-                    });
-                } else if (arcs.hit === 'rearSweep') {
-                    hitboxes.push({
-                        x: backX,
-                        y: player.y - 20,
-                        width: this.range * 1.35,
-                        height: 78
+                        x: frontX - this.range * 0.16,
+                        y: player.y - 72,
+                        width: this.range * 1.4,
+                        height: 118
                     });
                     hitboxes.push({
-                        x: centerX - this.range * 0.45,
-                        y: centerY - 56,
-                        width: this.range * 0.9,
-                        height: 86
+                        x: centerX - this.range * 0.66,
+                        y: player.y - 84,
+                        width: this.range * 1.26,
+                        height: 92
+                    });
+                } else if (arcs.hit === 'crossStepSweep') {
+                    hitboxes.push({
+                        x: backX - this.range * 0.16,
+                        y: centerY - 30,
+                        width: this.range * 1.74,
+                        height: 66
+                    });
+                    hitboxes.push({
+                        x: centerX - this.range * 0.92,
+                        y: centerY - 22,
+                        width: this.range * 1.84,
+                        height: 56
+                    });
+                } else if (arcs.hit === 'risingX') {
+                    hitboxes.push({
+                        x: centerX - this.range * 1.1,
+                        y: centerY - this.range * 1.08,
+                        width: this.range * 2.2,
+                        height: this.range * 2.14
+                    });
+                    hitboxes.push({
+                        x: frontX - this.range * 0.24,
+                        y: player.y - 46,
+                        width: this.range * 1.62,
+                        height: 106
                     });
                 } else {
-                    const sRange = this.range * 1.55;
+                    const sRange = this.range * 1.82;
                     hitboxes.push({
                         x: centerX - sRange,
-                        y: centerY - sRange,
+                        y: centerY - sRange * 0.98,
                         width: sRange * 2,
-                        height: sRange * 2
+                        height: sRange * 2.14
+                    });
+                    hitboxes.push({
+                        x: centerX - this.range * 0.48,
+                        y: centerY + 4,
+                        width: this.range * 0.96,
+                        height: this.range * 1.24
                     });
                 }
             } else {
@@ -700,7 +822,11 @@ export class DualBlades extends SubWeapon {
             ctx.restore();
         }
 
-        if (!this.isAttacking) return;
+        if (!this.isAttacking) {
+            this.prevMainRightAngle = null;
+            this.prevMainLeftAngle = null;
+            return;
+        }
         
         const isMain = this.attackType === 'main';
         const isCombined = this.attackType === 'combined';
@@ -708,33 +834,116 @@ export class DualBlades extends SubWeapon {
             const centerX = player.x + player.width / 2;
             const centerY = player.y + player.height / 2;
             const pose = this.getMainSwingPose();
-            const alpha = 0.74 + (1 - pose.progress) * 0.22;
+            const alpha = Math.max(0.2, 1 - pose.progress * 0.74);
 
-            const drawArcSlash = (color, start, end, radius, width, yOffset = 0) => {
+            const normalizeAngleDelta = (current, previous) => {
+                let delta = current - previous;
+                const full = Math.PI * 2;
+                while (delta > Math.PI) delta -= full;
+                while (delta < -Math.PI) delta += full;
+                return delta;
+            };
+
+            const drawTrackedArcSlash = (
+                palette,
+                currentAngle,
+                swingDelta,
+                radius,
+                width,
+                yOffset = 0,
+                spanGain = 1
+            ) => {
+                const swingSpeed = Math.abs(swingDelta);
+                const motionProgress = Math.max(0, Math.min(1, pose.progress));
+                const visibilityPhase = Math.max(0, Math.sin(motionProgress * Math.PI));
+                if (swingSpeed < 0.004 && visibilityPhase < 0.28) return;
+
                 ctx.save();
                 ctx.translate(centerX, centerY + yOffset);
                 ctx.scale(direction, 1);
-                ctx.globalAlpha = alpha;
-                ctx.strokeStyle = color;
-                ctx.shadowColor = color;
-                ctx.shadowBlur = 16;
-                ctx.lineWidth = width;
                 ctx.lineCap = 'round';
+                const movingForward = swingDelta >= 0;
+                const dynamicSpan = swingSpeed * 14.6 * spanGain;
+                const lingerSpan = (0.18 + visibilityPhase * 0.28) * spanGain;
+                const backSpan = Math.min(1.28, Math.max(lingerSpan, dynamicSpan));
+                const leadSpan = Math.min(0.18, Math.max(0.018, backSpan * (0.16 + visibilityPhase * 0.08)));
+                const start = movingForward ? (currentAngle - backSpan) : (currentAngle - leadSpan);
+                const end = movingForward ? (currentAngle + leadSpan) : (currentAngle + backSpan);
+                const ccw = end < start;
+                const backAlpha = alpha * 0.42;
+                const frontAlpha = alpha;
+
+                // 1) 薄い残像（主弧の一歩後ろ）
+                const trailStart = movingForward
+                    ? (currentAngle - backSpan * 1.55)
+                    : (currentAngle + backSpan * 0.38);
+                const trailEnd = movingForward
+                    ? (currentAngle - backSpan * 0.42)
+                    : (currentAngle + backSpan * 1.52);
+                const ccwTrail = trailEnd < trailStart;
+                ctx.shadowBlur = 0;
+                ctx.strokeStyle = `rgba(${palette.back[0]}, ${palette.back[1]}, ${palette.back[2]}, ${backAlpha * 0.7})`;
+                ctx.lineWidth = width * 0.52;
                 ctx.beginPath();
-                ctx.arc(-5, 0, radius, start, end);
+                ctx.arc(-8.5, -2.8, radius * 0.9, trailStart, trailEnd, ccwTrail);
+                ctx.stroke();
+
+                // 2) 中間の弧
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = `rgba(${palette.front[0]}, ${palette.front[1]}, ${palette.front[2]}, ${frontAlpha * 0.45})`;
+                ctx.strokeStyle = `rgba(${palette.back[0]}, ${palette.back[1]}, ${palette.back[2]}, ${backAlpha})`;
+                ctx.lineWidth = width * 0.72;
+                ctx.beginPath();
+                ctx.arc(-6.8, -2.1, radius * 0.94, start + 0.06, end + 0.06, ccw);
+                ctx.stroke();
+
+                ctx.shadowBlur = 0;
+                ctx.strokeStyle = `rgba(${palette.front[0]}, ${palette.front[1]}, ${palette.front[2]}, ${frontAlpha})`;
+                ctx.lineWidth = width;
+                ctx.beginPath();
+                ctx.arc(-5, 0, radius, start, end, ccw);
+                ctx.stroke();
+
+                ctx.strokeStyle = `rgba(255, 255, 255, ${frontAlpha * 0.46})`;
+                ctx.lineWidth = Math.max(1.4, width * 0.18);
+                ctx.beginPath();
+                ctx.arc(-3.6, -1.2, Math.max(2, radius - 2.2), start + 0.03, end + 0.03, ccw);
                 ctx.stroke();
                 ctx.restore();
             };
 
-            const blue = 'rgba(80, 190, 255, 0.9)';
-            const red = 'rgba(255, 90, 90, 0.9)';
-            drawArcSlash(blue, pose.rightAngle - 0.58, pose.rightAngle + 0.58, pose.arcs.effectRadius + 8, 12, -3);
-            drawArcSlash(red, pose.leftAngle - 0.58, pose.leftAngle + 0.58, pose.arcs.effectRadius + 4, 12, 4);
+            const bluePalette = { front: [130, 234, 255], back: [76, 154, 226] };
+            const redPalette = { front: [255, 90, 90], back: [214, 74, 74] };
+            const sampleStep = 0.055;
+            const prevProgress = Math.max(0, pose.progress - sampleStep);
+            const prevRemapped = this.remapMainSwingProgress(pose.comboIndex, prevProgress);
+            const prevEased = prevRemapped * prevRemapped * (3 - 2 * prevRemapped);
+            const prevRightAngle = pose.arcs.rightStart + (pose.arcs.rightEnd - pose.arcs.rightStart) * prevEased;
+            const prevLeftAngle = pose.arcs.leftStart + (pose.arcs.leftEnd - pose.arcs.leftStart) * prevEased;
+            const rightDelta = normalizeAngleDelta(pose.rightAngle, prevRightAngle);
+            const leftDelta = normalizeAngleDelta(pose.leftAngle, prevLeftAngle);
+            if (pose.arcs.hit === 'drawDash') {
+                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, pose.arcs.effectRadius + 10, 13.8, -6, 0.82);
+                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, pose.arcs.effectRadius + 2, 10.8, 5, 0.74);
+            } else if (pose.arcs.hit === 'reverseCounter') {
+                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, pose.arcs.effectRadius + 14, 14.4, -9, 0.9);
+                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, pose.arcs.effectRadius + 7, 12.4, 7, 0.76);
+            } else if (pose.arcs.hit === 'crossStepSweep') {
+                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, pose.arcs.effectRadius + 18, 12.0, -3, 0.72);
+                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, pose.arcs.effectRadius + 16, 11.8, 4, 0.72);
+            } else if (pose.arcs.hit === 'risingX') {
+                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, pose.arcs.effectRadius + 18, 14.6, -5, 0.92);
+                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, pose.arcs.effectRadius + 14, 14.0, 6, 0.9);
+            } else {
+                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, pose.arcs.effectRadius + 16, 14.0, -5, 0.84);
+                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, pose.arcs.effectRadius + 12, 13.4, 5, 0.86);
+            }
             return;
         }
 
         // 合体攻撃(X)は飛翔斬撃のみ表示（手前の剣筋は描かない）
         if (isCombined) return;
+
         const progress = Math.max(0, this.attackTimer / (isCombined ? 300 : 150));
         const centerX = player.x + player.width / 2;
         const centerY = player.y + player.height / 2;
@@ -848,7 +1057,8 @@ export class DualBlades extends SubWeapon {
 // 鎖鎌
 export class Kusarigama extends SubWeapon {
     constructor() {
-        super('鎖鎌', 17, 225, 500);
+        // 制圧寄り: 間合い管理の武器として中火力を強化
+        super('鎖鎌', 20, 245, 480);
         this.isAttacking = false;
         this.attackTimer = 0;
         this.totalDuration = 560;
@@ -1129,7 +1339,8 @@ export class Kusarigama extends SubWeapon {
 // 大太刀
 export class Nodachi extends SubWeapon {
     constructor() {
-        super('大太刀', 40, 60, 700);
+        // 重撃特化: 遅いが高威力
+        super('大太刀', 46, 74, 760);
         this.isAttacking = false;
         this.attackTimer = 0;
         this.totalDuration = 760;
@@ -1139,6 +1350,7 @@ export class Nodachi extends SubWeapon {
         this.hasImpacted = false;
         this.impactFlashTimer = 0;
         this.groundWaves = [];
+        this.impactDebris = [];
         this.liftEnd = 0.32;
         this.stallEnd = 0.46;
         this.flipEnd = 0.58;
@@ -1153,6 +1365,7 @@ export class Nodachi extends SubWeapon {
         this.hasImpacted = false;
         this.impactFlashTimer = 0;
         this.groundWaves = [];
+        this.impactDebris = [];
         this.attackDirection = player.facingRight ? 1 : -1;
 
         player.vy = -26;
@@ -1256,9 +1469,27 @@ export class Nodachi extends SubWeapon {
 
     spawnImpactWaves() {
         this.groundWaves.push(
-            { x: this.impactX, y: this.impactY, dir: -1, life: 360, maxLife: 360, speed: 8.5 },
-            { x: this.impactX, y: this.impactY, dir: 1, life: 360, maxLife: 360, speed: 8.5 }
+            { x: this.impactX, y: this.impactY, dir: -1, life: 420, maxLife: 420, speed: 7.8, thickness: 28, core: 11 },
+            { x: this.impactX, y: this.impactY, dir: 1, life: 420, maxLife: 420, speed: 7.8, thickness: 28, core: 11 },
+            { x: this.impactX, y: this.impactY, dir: -1, life: 320, maxLife: 320, speed: 9.4, thickness: 20, core: 8 },
+            { x: this.impactX, y: this.impactY, dir: 1, life: 320, maxLife: 320, speed: 9.4, thickness: 20, core: 8 }
         );
+    }
+
+    spawnImpactDebris() {
+        for (let i = 0; i < 16; i++) {
+            const side = i % 2 === 0 ? -1 : 1;
+            const speed = 2.8 + Math.random() * 4.8;
+            this.impactDebris.push({
+                x: this.impactX,
+                y: this.impactY - 6,
+                vx: side * speed * (0.6 + Math.random() * 0.6),
+                vy: -2.8 - Math.random() * 4.2,
+                size: 1.8 + Math.random() * 2.8,
+                life: 320 + Math.random() * 220,
+                maxLife: 520
+            });
+        }
     }
     
     update(deltaTime) {
@@ -1277,15 +1508,28 @@ export class Nodachi extends SubWeapon {
             }
 
             const landed = this.owner && this.owner.isGrounded;
-            if (!this.hasImpacted && (progress >= this.impactStart || landed)) {
+            const pose = this.owner ? this.getPose(this.owner) : null;
+            const bladeGeom = pose ? this.getBladeGeometry(pose) : null;
+            const tipTouchedGround = !!(
+                this.owner &&
+                pose &&
+                bladeGeom &&
+                pose.phase === 'plunge' &&
+                bladeGeom.tipY >= this.owner.groundY - 1
+            );
+            if (!this.hasImpacted && (tipTouchedGround || landed || progress >= 0.98)) {
                 this.hasImpacted = true;
                 if (this.owner) {
                     this.impactX = this.owner.x + this.owner.width / 2;
                     this.impactY = this.owner.groundY;
                 }
-                this.impactFlashTimer = 120;
+                this.impactFlashTimer = 170;
                 this.spawnImpactWaves();
+                this.spawnImpactDebris();
                 audio.playExplosion();
+                if (window.game && typeof window.game.queueHitFeedback === 'function') {
+                    window.game.queueHitFeedback(8.8, 92);
+                }
             }
 
             this.attackTimer -= deltaTime * 1000;
@@ -1306,6 +1550,16 @@ export class Nodachi extends SubWeapon {
                 w.x += w.dir * speed;
                 w.life -= deltaTime * 1000;
                 return w.life > 0;
+            });
+        }
+
+        if (this.impactDebris.length > 0) {
+            this.impactDebris = this.impactDebris.filter((p) => {
+                p.vy += 0.42;
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= deltaTime * 1000;
+                return p.life > 0;
             });
         }
     }
@@ -1429,12 +1683,17 @@ export class Nodachi extends SubWeapon {
 
         // 着地インパクト
         if (this.impactFlashTimer > 0) {
-            const alpha = this.impactFlashTimer / 120;
+            const alpha = Math.max(0, this.impactFlashTimer / 170);
             ctx.save();
             ctx.strokeStyle = `rgba(255, 235, 180, ${alpha})`;
-            ctx.lineWidth = 4;
+            ctx.lineWidth = 5.6;
             ctx.beginPath();
-            ctx.arc(this.impactX, this.impactY - 4, 18 + (1 - alpha) * 28, 0, Math.PI * 2);
+            ctx.arc(this.impactX, this.impactY - 4, 16 + (1 - alpha) * 34, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.strokeStyle = `rgba(255, 214, 126, ${alpha * 0.8})`;
+            ctx.lineWidth = 3.2;
+            ctx.beginPath();
+            ctx.arc(this.impactX, this.impactY - 2, 10 + (1 - alpha) * 22, 0, Math.PI * 2);
             ctx.stroke();
             ctx.restore();
         }
@@ -1449,13 +1708,36 @@ export class Nodachi extends SubWeapon {
                 ctx.translate(px, py);
                 ctx.scale(sw.dir, 1);
                 ctx.globalAlpha = ratio;
-                ctx.shadowColor = 'rgba(255, 238, 185, 0.85)';
-                ctx.shadowBlur = 14;
-                ctx.fillStyle = 'rgba(255, 238, 185, 0.92)';
+                ctx.shadowColor = 'rgba(255, 228, 150, 0.88)';
+                ctx.shadowBlur = 16;
+                const body = sw.thickness || 24;
+                const core = sw.core || 10;
+                ctx.fillStyle = 'rgba(255, 224, 132, 0.82)';
                 ctx.beginPath();
                 ctx.moveTo(0, 0);
-                ctx.quadraticCurveTo(16, -16, 34, 0);
-                ctx.quadraticCurveTo(16, 8, 0, 2);
+                ctx.quadraticCurveTo(18, -body * 0.56, 42, 0);
+                ctx.quadraticCurveTo(20, body * 0.32, 0, 2);
+                ctx.fill();
+
+                ctx.shadowBlur = 8;
+                ctx.fillStyle = 'rgba(255, 245, 205, 0.86)';
+                ctx.beginPath();
+                ctx.moveTo(0, -0.5);
+                ctx.quadraticCurveTo(12, -core * 0.62, 28, -0.5);
+                ctx.quadraticCurveTo(12, core * 0.26, 0, 0.8);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        if (this.impactDebris.length > 0) {
+            for (const p of this.impactDebris) {
+                const life = Math.max(0, p.life / p.maxLife);
+                ctx.save();
+                ctx.globalAlpha = life;
+                ctx.fillStyle = 'rgba(198, 166, 116, 0.72)';
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size * (0.75 + life * 0.5), 0, Math.PI * 2);
                 ctx.fill();
                 ctx.restore();
             }
@@ -1583,7 +1865,7 @@ export function createSubWeapon(type) {
     switch (type) {
         case '火薬玉': return new Firebomb();
         case '大槍': return new Spear();
-        case '二刀': return new DualBlades();
+        case '二刀流': return new DualBlades();
         case '鎖鎌': return new Kusarigama();
         case '大太刀': return new Nodachi();
         default: return null;

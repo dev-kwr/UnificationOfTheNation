@@ -21,6 +21,8 @@ class Boss extends Enemy {
         this.expReward = 300;
         this.moneyReward = 200;
         this.specialGaugeReward = 100; // 50 -> 100
+        this.deathDuration = 1250;
+        this.deathRiseSpeed = 2.5;
         this.detectionRange = 500;
         this.attackRange = 80;
         
@@ -191,33 +193,17 @@ class Boss extends Enemy {
     }
     
     renderPhaseTransition(ctx) {
-        const centerX = this.x + this.width / 2;
-        const centerY = this.y + this.height / 2;
-        const duration = Math.max(1, this.phaseTransitionDuration);
-        const progress = 1 - Math.max(0, this.phaseTransitionTimer) / duration;
-        
-        // フェーズ移行エフェクト
-        const alpha = 0.22 + (1 - progress) * 0.55;
-        ctx.strokeStyle = `rgba(255, 72, 72, ${alpha})`;
-        ctx.lineWidth = 3.2;
-        for (let i = 0; i < 3; i++) {
-            ctx.beginPath();
-            ctx.arc(centerX, centerY, 38 + i * 18 + progress * 10, 0, Math.PI * 2);
-            ctx.stroke();
-        }
+        // ユーザー要望: フェーズ移行リングは表示しない
+        return;
     }
 
     renderPhaseAura(ctx, centerX, centerY, colorRgb, radius = 60, lineWidth = 10) {
-        if (this.phaseAuraTimer <= 0) return;
-        const duration = Math.max(1, this.phaseAuraDuration);
-        const remain = Math.max(0, this.phaseAuraTimer / duration);
-        const pulse = (Math.sin(this.motionTime * 0.011) + 1) * 0.5;
-        const alpha = (0.08 + remain * 0.24) * (0.8 + pulse * 0.2);
-        ctx.strokeStyle = `rgba(${colorRgb}, ${alpha})`;
-        ctx.lineWidth = lineWidth;
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, radius + (1 - remain) * 8, 0, Math.PI * 2);
-        ctx.stroke();
+        // ユーザー要望: 常時のリングオーラも表示しない
+        return;
+    }
+
+    renderPhaseBodyTint(ctx, inset = 8) {
+        return;
     }
 }
 
@@ -424,34 +410,34 @@ export class NitoryuKengo extends Boss {
     init() {
         super.init();
         this.bossName = '二刀流の剣豪';
-        this.weaponDrop = '二刀';
+        this.weaponDrop = '二刀流';
         this.hp = 200;    // 280から調整
         this.maxHp = 200;
         this.speed = 2.5;
         this.attackRange = 120;
         this.attackPatterns = ['left', 'right', 'combined'];
         this.dualAttackCycle = 0;
-        this.setupWeaponReplica('二刀');
+        this.dualPatternCycle = ['right', 'left', 'combined', 'left', 'right', 'combined'];
+        this.dualPatternIndex = 0;
+        this.setupWeaponReplica('二刀流');
     }
     
     startAttack() {
         this.dualAttackCycle++;
-        let pattern;
-        if (this.dualAttackCycle % 3 === 0) {
-            // 一定間隔で固有の交差斬撃を確実に使う
+        // シーケンス主体で読み合いを作り、フェーズ2で崩しを混ぜる
+        let pattern = this.dualPatternCycle[this.dualPatternIndex % this.dualPatternCycle.length];
+        this.dualPatternIndex++;
+        if (this.phase >= 2 && this.dualAttackCycle % 4 === 0) {
             pattern = 'combined';
-        } else {
-            const combinedChance = this.phase >= 2 ? 0.58 : 0.32;
-            if (Math.random() < combinedChance) {
-                pattern = 'combined';
-            } else {
-                pattern = Math.random() < 0.5 ? 'left' : 'right';
-            }
+        } else if (this.phase >= 2 && Math.random() < 0.18) {
+            pattern = Math.random() < 0.5 ? 'left' : 'right';
         }
         this.currentPattern = pattern;
 
         if (this.startWeaponReplicaAttack(pattern)) {
-            this.attackCooldown = pattern === 'combined' ? 760 : 340;
+            this.attackCooldown = pattern === 'combined'
+                ? (this.phase >= 2 ? 620 : 700)
+                : (this.phase >= 2 ? 260 : 320);
             return;
         }
         this.isAttacking = true;
@@ -550,8 +536,9 @@ export class NitoryuKengo extends Boss {
         let leftAngle = (-1.14 + Math.sin(this.motionTime * 0.008 + 1.4) * 0.08) * dir;
         if (dual && dual.isAttacking) {
             if (dual.attackType === 'left' && typeof dual.getLeftSwingAngle === 'function') {
-                leftAngle = dual.getLeftSwingAngle();
-                rightAngle = (-0.62 + Math.sin(this.motionTime * 0.012) * 0.06) * dir;
+                // 自キャラX攻撃に合わせ、前側の手が主動作になるように同期
+                rightAngle = dual.getLeftSwingAngle();
+                leftAngle = (-1.0 + Math.sin(this.motionTime * 0.008) * 0.06) * dir;
             } else if (dual.attackType === 'combined' && typeof dual.getCombinedSwingProgress === 'function') {
                 const p = dual.getCombinedSwingProgress();
                 rightAngle = (-1.02 + p * 2.08) * dir;
@@ -606,7 +593,7 @@ export class NitoryuKengo extends Boss {
             dual.render(ctx, this);
         }
 
-        this.renderPhaseAura(ctx, centerX, this.y + 52, '102, 205, 255', 62, 12);
+        this.renderPhaseBodyTint(ctx, 10);
     }
 }
 
@@ -776,7 +763,7 @@ export class KusarigamaAssassin extends Boss {
             ctx.restore();
         }
 
-        this.renderPhaseAura(ctx, centerX, this.y + 54, '158, 86, 205', 50, 10);
+        this.renderPhaseBodyTint(ctx, 9);
     }
 }
 
@@ -1038,7 +1025,7 @@ export class OdachiBusho extends Boss {
             ctx.restore();
         }
 
-        this.renderPhaseAura(ctx, centerX, this.y + 60, '255, 120, 70', 66, 13);
+        this.renderPhaseBodyTint(ctx, 10);
     }
 }
 
@@ -1065,9 +1052,14 @@ export class Shogun extends Boss {
             'double', 'dash',             // 二刀
             'throw',                      // 鎖鎌
             'heavy', 'shockwave',         // 大太刀
+            'shadow_step',                // 瞬歩
+            'sorcery_volley',             // 妖術連射
+            'arcane_rush',                // 妖術瞬閃
             'arcane_burst', 'void_pillars', // 妖術
             'ultimate'                    // 固有技
         ];
+        this.patternHistory = [];
+        this.phaseVisualPulse = 0;
     }
     
     onPhaseChange() {
@@ -1076,6 +1068,24 @@ export class Shogun extends Boss {
         if (this.phase === 3) {
             this.speed *= 1.3;
         }
+        this.phaseVisualPulse = 1.0;
+    }
+
+    pickPattern(availablePatterns) {
+        const recent = this.patternHistory.slice(-2);
+        let candidates = availablePatterns.filter(p => !recent.includes(p));
+        if (candidates.length === 0) candidates = availablePatterns.slice();
+
+        // 終盤は妖術の比率を引き上げる
+        const hpRatio = this.hp / this.maxHp;
+        if (this.phase >= 3 && hpRatio <= 0.35) {
+            candidates.push('arcane_rush', 'void_pillars', 'ultimate');
+        }
+
+        const pattern = candidates[Math.floor(Math.random() * candidates.length)];
+        this.patternHistory.push(pattern);
+        if (this.patternHistory.length > 6) this.patternHistory.shift();
+        return pattern;
     }
     
     startAttack() {
@@ -1088,16 +1098,16 @@ export class Shogun extends Boss {
         if (this.phase === 1) {
             availablePatterns = ['thrust', 'sweep', 'double', 'dash'];
         } else if (this.phase === 2) {
-            availablePatterns = ['thrust', 'double', 'dash', 'throw', 'heavy', 'shockwave', 'arcane_burst'];
+            availablePatterns = ['thrust', 'double', 'dash', 'throw', 'heavy', 'shockwave', 'arcane_burst', 'shadow_step', 'arcane_rush'];
         } else {
             availablePatterns = [
-                'thrust', 'double', 'dash', 'throw', 'heavy', 'shockwave',
-                'arcane_burst', 'arcane_burst', 'void_pillars', 'void_pillars',
+                'thrust', 'double', 'dash', 'throw', 'heavy', 'shockwave', 'shadow_step',
+                'arcane_burst', 'arcane_burst', 'sorcery_volley', 'void_pillars', 'void_pillars', 'arcane_rush',
                 'ultimate'
             ];
         }
         
-        const pattern = availablePatterns[Math.floor(Math.random() * availablePatterns.length)];
+        const pattern = this.pickPattern(availablePatterns);
         this.currentPattern = pattern;
         
         switch (pattern) {
@@ -1115,6 +1125,21 @@ export class Shogun extends Boss {
                 this.attackDuration = 1300;
                 this.attackTimer = this.attackDuration;
                 this.attackCooldown = 2000;
+                break;
+            case 'sorcery_volley':
+                this.attackDuration = 1500;
+                this.attackTimer = this.attackDuration;
+                this.attackCooldown = 1750;
+                break;
+            case 'shadow_step':
+                this.attackDuration = 900;
+                this.attackTimer = this.attackDuration;
+                this.attackCooldown = 1100;
+                break;
+            case 'arcane_rush':
+                this.attackDuration = 980;
+                this.attackTimer = this.attackDuration;
+                this.attackCooldown = 1220;
                 break;
             case 'dash':
                 this.attackDuration = 620;
@@ -1169,6 +1194,25 @@ export class Shogun extends Boss {
                     this.attackFlags.burstB = true;
                 }
                 break;
+            case 'sorcery_volley':
+                this.vx *= 0.64;
+                if (player && progress >= 0.18 && !this.attackFlags.volleyA) {
+                    this.spawnArcaneBurst(player, 2);
+                    this.attackFlags.volleyA = true;
+                }
+                if (player && progress >= 0.42 && !this.attackFlags.volleyB) {
+                    this.spawnArcaneBurst(player, 3);
+                    this.attackFlags.volleyB = true;
+                }
+                if (player && progress >= 0.66 && !this.attackFlags.volleyC) {
+                    this.spawnArcaneBurst(player, 4);
+                    this.attackFlags.volleyC = true;
+                }
+                if (player && progress >= 0.78 && !this.attackFlags.volleyPillar) {
+                    this.spawnVoidPillars(player, true);
+                    this.attackFlags.volleyPillar = true;
+                }
+                break;
             case 'void_pillars':
                 this.vx *= 0.66;
                 if (player && progress >= 0.24 && !this.attackFlags.pillarA) {
@@ -1193,6 +1237,48 @@ export class Shogun extends Boss {
                 if (player && progress >= 0.74 && !this.attackFlags.ultBurstB) {
                     this.spawnArcaneBurst(player, 4);
                     this.attackFlags.ultBurstB = true;
+                }
+                break;
+            case 'shadow_step':
+                this.vx *= 0.58;
+                if (player && progress >= 0.24 && !this.attackFlags.stepWarp) {
+                    const playerCenterX = player.x + player.width / 2;
+                    const warpDir = player.facingRight ? -1 : 1;
+                    this.x = playerCenterX + warpDir * 72 - this.width / 2;
+                    this.y = this.groundY - this.height;
+                    this.facingRight = warpDir < 0;
+                    this.attackFacingRight = this.facingRight;
+                    this.vx = (this.facingRight ? 1 : -1) * this.speed * 3.2;
+                    this.attackFlags.stepWarp = true;
+                } else if (this.attackFlags.stepWarp && progress > 0.38) {
+                    this.vx *= 0.78;
+                }
+                if (player && progress >= 0.58 && !this.attackFlags.stepBurst) {
+                    this.spawnArcaneBurst(player, this.phase >= 3 ? 3 : 2);
+                    this.attackFlags.stepBurst = true;
+                }
+                break;
+            case 'arcane_rush':
+                this.vx *= 0.62;
+                if (player && progress >= 0.2 && !this.attackFlags.rushWarp) {
+                    const playerCenterX = player.x + player.width / 2;
+                    const backDir = player.facingRight ? -1 : 1;
+                    this.x = playerCenterX + backDir * 84 - this.width / 2;
+                    this.y = this.groundY - this.height;
+                    this.facingRight = backDir < 0;
+                    this.attackFacingRight = this.facingRight;
+                    this.vx = (this.facingRight ? 1 : -1) * this.speed * 4.2;
+                    this.attackFlags.rushWarp = true;
+                } else if (this.attackFlags.rushWarp && progress > 0.42) {
+                    this.vx *= 0.82;
+                }
+                if (player && progress >= 0.36 && !this.attackFlags.rushBurstA) {
+                    this.spawnArcaneBurst(player, this.phase >= 3 ? 3 : 2);
+                    this.attackFlags.rushBurstA = true;
+                }
+                if (player && progress >= 0.7 && !this.attackFlags.rushBurstB) {
+                    this.spawnArcaneBurst(player, this.phase >= 3 ? 4 : 3);
+                    this.attackFlags.rushBurstB = true;
                 }
                 break;
             default:
@@ -1235,11 +1321,20 @@ export class Shogun extends Boss {
                     });
                     break;
                 case 'dash':
+                case 'shadow_step':
                     hitboxes.push({
                         x: this.x - 12,
                         y: this.y + 10,
                         width: this.width + 24,
                         height: this.height - 12
+                    });
+                    break;
+                case 'arcane_rush':
+                    hitboxes.push({
+                        x: this.x - 16,
+                        y: this.y + 8,
+                        width: this.width + 32,
+                        height: this.height - 10
                     });
                     break;
                 case 'throw':
@@ -1274,6 +1369,14 @@ export class Shogun extends Boss {
                         y: this.y - 28,
                         width: this.width + 156,
                         height: this.height + 72
+                    });
+                    break;
+                case 'sorcery_volley':
+                    hitboxes.push({
+                        x: this.x - 30,
+                        y: this.y - 16,
+                        width: this.width + 60,
+                        height: this.height + 20
                     });
                     break;
                 default:
@@ -1340,6 +1443,7 @@ export class Shogun extends Boss {
         const dir = this.facingRight ? 1 : -1;
         const centerX = this.x + this.width * 0.5;
         const footY = this.y + this.height;
+        this.phaseVisualPulse = Math.max(0, this.phaseVisualPulse - 0.012);
         const runBlend = Math.max(0, Math.min(1, Math.abs(this.vx) / Math.max(1.2, this.speed)));
         const gaitPhase = this.motionTime * 0.0095;
         const shoulderX = centerX + dir * 5.0 + this.torsoLean * dir * 0.22;
@@ -1394,6 +1498,18 @@ export class Shogun extends Boss {
         ctx.closePath();
         ctx.stroke();
 
+        if (this.phase >= 2) {
+            const pulse = 0.26 + Math.sin(this.motionTime * 0.012) * 0.1 + this.phaseVisualPulse * 0.28;
+            ctx.strokeStyle = `rgba(196, 122, 255, ${Math.max(0.18, pulse)})`;
+            ctx.lineWidth = 2.4;
+            ctx.beginPath();
+            ctx.moveTo(centerX - 21, this.y + 50);
+            ctx.lineTo(centerX + 21, this.y + 50);
+            ctx.moveTo(centerX - 24, this.y + 62);
+            ctx.lineTo(centerX + 24, this.y + 62);
+            ctx.stroke();
+        }
+
         ctx.strokeStyle = '#1a1a1a';
         ctx.lineWidth = 14;
         ctx.beginPath();
@@ -1416,6 +1532,18 @@ export class Shogun extends Boss {
         ctx.beginPath();
         ctx.arc(headX, headY - 27, 16, Math.PI * 0.2, Math.PI * 0.8);
         ctx.stroke();
+
+        if (this.phase >= 3) {
+            const auraAlpha = 0.2 + Math.sin(this.motionTime * 0.014) * 0.08 + this.phaseVisualPulse * 0.24;
+            ctx.fillStyle = `rgba(132, 90, 255, ${Math.max(0.12, auraAlpha)})`;
+            ctx.beginPath();
+            ctx.moveTo(centerX - 42, this.y + 52);
+            ctx.quadraticCurveTo(centerX - 58, this.y + 78, centerX - 34, footY - 6);
+            ctx.lineTo(centerX + 34, footY - 6);
+            ctx.quadraticCurveTo(centerX + 58, this.y + 78, centerX + 42, this.y + 52);
+            ctx.closePath();
+            ctx.fill();
+        }
         // 武器（覇王太刀）
         const duration = this.attackDuration || (this.currentPattern === 'ultimate' ? 1200 : 500);
         const progress = this.isAttacking ? Math.max(0, Math.min(1, 1 - (this.attackTimer / duration))) : 0;
@@ -1504,17 +1632,55 @@ export class Shogun extends Boss {
                 ctx.lineTo(centerX + Math.cos(angle) * 150 * progress, this.y + 64 + Math.sin(angle) * 150 * progress);
                 ctx.stroke();
             }
-        } else if (this.isAttacking && this.currentPattern !== 'arcane_burst' && this.currentPattern !== 'void_pillars') {
+        } else if (
+            this.isAttacking &&
+            this.currentPattern !== 'arcane_burst' &&
+            this.currentPattern !== 'void_pillars' &&
+            this.currentPattern !== 'arcane_rush'
+        ) {
             ctx.strokeStyle = `rgba(255, 178, 96, ${0.28 + progress * 0.35})`;
             ctx.lineWidth = 14;
             ctx.lineCap = 'round';
+            const trailRadius = 108;
             ctx.beginPath();
-            ctx.arc(shoulderX + dir * 5, shoulderY + 4, 90, bladeAngle - dir * 0.65, bladeAngle + dir * 0.35, dir < 0);
+            ctx.arc(
+                leadHand.x,
+                leadHand.y,
+                trailRadius,
+                weaponAngle - dir * 0.62,
+                weaponAngle + dir * 0.28,
+                dir < 0
+            );
+            ctx.stroke();
+        }
+
+        if (this.isAttacking && this.currentPattern === 'arcane_rush') {
+            const rushAlpha = 0.24 + (1 - progress) * 0.35;
+            ctx.strokeStyle = `rgba(147, 219, 255, ${rushAlpha})`;
+            ctx.lineWidth = 8;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(centerX - dir * 56, this.y + 60);
+            ctx.lineTo(centerX + dir * 72, this.y + 54);
+            ctx.stroke();
+            ctx.strokeStyle = `rgba(197, 138, 255, ${rushAlpha * 0.82})`;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(centerX - dir * 38, this.y + 72);
+            ctx.lineTo(centerX + dir * 62, this.y + 66);
             ctx.stroke();
         }
 
         // 妖術チャージ演出
-        if (this.isAttacking && (this.currentPattern === 'arcane_burst' || this.currentPattern === 'void_pillars' || this.currentPattern === 'ultimate')) {
+        if (
+            this.isAttacking &&
+            (
+                this.currentPattern === 'arcane_burst' ||
+                this.currentPattern === 'void_pillars' ||
+                this.currentPattern === 'ultimate' ||
+                this.currentPattern === 'arcane_rush'
+            )
+        ) {
             const sigilX = centerX + dir * 18;
             const sigilY = this.y + 54;
             const auraAlpha =
@@ -1539,9 +1705,7 @@ export class Shogun extends Boss {
             }
         }
 
-        const auraColorByPhase = ['255, 215, 120', '255, 156, 82', '255, 76, 62'];
-        const auraIndex = Math.max(0, Math.min(auraColorByPhase.length - 1, this.phase - 1));
-        this.renderPhaseAura(ctx, centerX, this.y + 66, auraColorByPhase[auraIndex], 70, 16);
+        this.renderPhaseBodyTint(ctx, 12);
     }
 }
 

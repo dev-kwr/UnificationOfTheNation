@@ -24,7 +24,7 @@ class InputManager {
             'd': 'SWITCH_WEAPON', 'D': 'SWITCH_WEAPON',
             's': 'SPECIAL', 'S': 'SPECIAL',
             'Shift': 'DASH',
-            'Escape': 'PAUSE', 'p': 'PAUSE', 'P': 'PAUSE'
+            'Escape': 'PAUSE'
         };
         this.codeMap = {
             'ArrowLeft': 'LEFT',
@@ -69,8 +69,12 @@ class InputManager {
             lastFlickDir: 0,
             strongLatched: false,
             dashUntil: 0,
-            engageThreshold: 0.72,
-            releaseThreshold: 0.54
+            engageThreshold: Number.isFinite(VIRTUAL_PAD.STICK_DASH_ENGAGE_THRESHOLD)
+                ? VIRTUAL_PAD.STICK_DASH_ENGAGE_THRESHOLD
+                : 0.93,
+            releaseThreshold: Number.isFinite(VIRTUAL_PAD.STICK_DASH_RELEASE_THRESHOLD)
+                ? VIRTUAL_PAD.STICK_DASH_RELEASE_THRESHOLD
+                : 0.82
         };
         this.lastKeyTimes = { LEFT: 0, RIGHT: 0 };
         this.doubleTapDash = {
@@ -230,8 +234,14 @@ class InputManager {
     getTouchActions(x, y, touchId = null) {
         const pad = VIRTUAL_PAD;
         const bottomY = CANVAS_HEIGHT - pad.BOTTOM_MARGIN;
+        const leftX = pad.SAFE_MARGIN_X;
         const rightX = CANVAS_WIDTH - pad.SAFE_MARGIN_X;
-        const buttonSize = pad.BUTTON_SIZE * 1.15;
+        const touchScale = pad.BUTTON_TOUCH_SCALE || 1.14;
+        const attackRadius = (pad.ATTACK_BUTTON_RADIUS || pad.BUTTON_SIZE) * touchScale;
+        const auxRadius = (pad.AUX_BUTTON_RADIUS || pad.BUTTON_SIZE) * touchScale;
+        const pauseRadius = (pad.PAUSE_BUTTON_RADIUS || 22) * touchScale;
+        const pauseX = leftX + (pad.STICK.x || 0) + (pad.PAUSE_BUTTON?.x || 0);
+        const pauseY = bottomY + (pad.STICK.y || 0) + (pad.PAUSE_BUTTON?.y || 0);
 
         // 左側：アナログスティック（同時入力あり）
         const stickState = this.getStickStateFromPoint(x, y);
@@ -257,13 +267,25 @@ class InputManager {
             this.stickDash.strongLatched = false;
         }
 
+        // 左スティック右下の一時停止ボタン
+        if (this.checkCircleHit(x, y, pauseX, pauseY, pauseRadius)) return ['PAUSE'];
+
         // --- 右側：アクション（円ボタン） ---
-        if (this.checkCircleHit(x, y, rightX + pad.ATTACK.x, bottomY + pad.ATTACK.y, buttonSize)) return ['ATTACK'];
-        if (this.checkCircleHit(x, y, rightX + pad.SUB_WEAPON.x, bottomY + pad.SUB_WEAPON.y, buttonSize)) return ['SUB_WEAPON'];
-        if (this.checkCircleHit(x, y, rightX + pad.SPECIAL.x, bottomY + pad.SPECIAL.y, buttonSize)) return ['SPECIAL'];
-        if (this.checkCircleHit(x, y, rightX + pad.SWITCH.x, bottomY + pad.SWITCH.y, buttonSize)) return ['SWITCH_WEAPON'];
+        if (this.checkCircleHit(x, y, rightX + pad.ATTACK.x, bottomY + pad.ATTACK.y, attackRadius)) return ['ATTACK'];
+        if (this.checkCircleHit(x, y, rightX + pad.SUB_WEAPON.x, bottomY + pad.SUB_WEAPON.y, auxRadius)) return ['SUB_WEAPON'];
+        if (this.checkCircleHit(x, y, rightX + pad.SPECIAL.x, bottomY + pad.SPECIAL.y, auxRadius)) {
+            return this.canTriggerSpecialFromTouch() ? ['SPECIAL'] : [];
+        }
+        if (this.checkCircleHit(x, y, rightX + pad.SWITCH.x, bottomY + pad.SWITCH.y, auxRadius)) return ['SWITCH_WEAPON'];
 
         return [];
+    }
+
+    canTriggerSpecialFromTouch() {
+        if (typeof window === 'undefined' || !window.game || !window.game.player) return true;
+        const player = window.game.player;
+        if (!Number.isFinite(player.specialGauge) || !Number.isFinite(player.maxSpecialGauge)) return true;
+        return player.specialGauge >= player.maxSpecialGauge;
     }
 
     getCanvasPosition(clientX, clientY) {
@@ -286,10 +308,11 @@ class InputManager {
 
     getBgmButtonHitArea() {
         const pad = VIRTUAL_PAD;
+        const hitRadius = pad.BGM_BUTTON_RADIUS + 10; // iPadでのタップ許容を広げる
         return [
             CANVAS_WIDTH - pad.BGM_BUTTON_MARGIN_RIGHT,
             pad.BGM_BUTTON_MARGIN_TOP,
-            pad.BGM_BUTTON_RADIUS
+            hitRadius
         ];
     }
 

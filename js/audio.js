@@ -13,6 +13,8 @@ class AudioManager {
         this.currentBgmType = null;
         this.bgmVolume = 0.3;
         this.isMuted = false;
+        this.bgmRetryRegistered = false;
+        this.bgmRetryHandler = null;
         
         // 初期ボリューム
         this.masterVolume = 0.6;
@@ -46,7 +48,7 @@ class AudioManager {
         }
         // HTMLAudioElementはContextと独立しているが、念のため
         if (this.bgmAudio && this.bgmAudio.paused && !this.isMuted) {
-            this.bgmAudio.play().catch(e => console.warn('BGM resume failed:', e));
+            this.tryPlayCurrentBgm(true);
         }
     }
     
@@ -131,6 +133,14 @@ class AudioManager {
         this.playNoiseSfx(0.2, 0.5, 500);
         this.playSfx(100, 'sawtooth', 0.15, 0.5, 0.5);
     }
+    playDeflect() {
+        this.init();
+        // 手裏剣などを叩き落とした時の金属的な「キン」
+        this.playSfx(2520, 'triangle', 0.2, 0.08, 0.97);
+        this.playSfx(1760, 'sine', 0.14, 0.11, 0.99);
+        this.playSfx(3360, 'sine', 0.1, 0.06, 1.0);
+        this.playNoiseSfx(0.07, 0.03, 5600);
+    }
     
     playBeamLaunch() {
         this.init();
@@ -150,28 +160,39 @@ class AudioManager {
 
     // === BGM制御（ファイル再生のみ） ===
     playBgm(type = 'stage', stageNum = 1) {
+        this.resume();
         let filePath = '';
+        let targetType = type;
         
         if (type === 'stage') {
             // ステージ番号ごとに専用BGMを再生
             const parsedStage = Number.isFinite(stageNum) ? Math.floor(stageNum) : 1;
             const normalizedStage = Math.max(1, Math.min(5, parsedStage));
-            const targetType = `stage_${normalizedStage}`;
+            targetType = `stage_${normalizedStage}`;
             
             // ステージ間移動で同じ曲なら再読み込みしない
-            if (this.currentBgmType === targetType) return;
+            if (this.currentBgmType === targetType) {
+                if (this.bgmAudio && this.bgmAudio.paused && !this.isMuted) this.tryPlayCurrentBgm(true);
+                return;
+            }
             
             this.currentBgmType = targetType;
             filePath = this.bgmFiles[targetType];
         } else if (type === 'boss') {
-            const targetType = stageNum === 5 ? 'lastboss' : 'boss';
-            if (this.currentBgmType === targetType) return;
+            targetType = stageNum === 5 ? 'lastboss' : 'boss';
+            if (this.currentBgmType === targetType) {
+                if (this.bgmAudio && this.bgmAudio.paused && !this.isMuted) this.tryPlayCurrentBgm(true);
+                return;
+            }
             this.currentBgmType = targetType;
             filePath = this.bgmFiles[targetType];
         } else {
-            if (this.currentBgmType === type) return;
-            this.currentBgmType = type;
-            filePath = this.bgmFiles[type];
+            if (this.currentBgmType === targetType) {
+                if (this.bgmAudio && this.bgmAudio.paused && !this.isMuted) this.tryPlayCurrentBgm(true);
+                return;
+            }
+            this.currentBgmType = targetType;
+            filePath = this.bgmFiles[targetType];
         }
         
         if (!filePath) {
@@ -184,6 +205,8 @@ class AudioManager {
         
         // 新規BGM再生
         this.bgmAudio = new Audio(filePath);
+        this.bgmAudio.preload = 'auto';
+        this.bgmAudio.playsInline = true;
         this.bgmAudio.loop = true; // ループ再生
         this.bgmAudio.volume = this.isMuted ? 0 : this.bgmVolume;
         
@@ -192,16 +215,50 @@ class AudioManager {
             console.error('BGM Load Error:', e);
         };
 
+        this.tryPlayCurrentBgm(true);
+    }
+
+    tryPlayCurrentBgm(registerRetry = false) {
+        if (!this.bgmAudio || this.isMuted) return;
         const playPromise = this.bgmAudio.play();
         if (playPromise !== undefined) {
-            playPromise.catch(error => {
-                console.warn("BGM Auto-play prevented:", error);
-                // ユーザー操作待ち
-            });
+            playPromise
+                .then(() => {
+                    this.unregisterBgmRetry();
+                })
+                .catch((error) => {
+                    console.warn('BGM Auto-play prevented:', error);
+                    if (registerRetry) this.registerBgmRetry();
+                });
         }
     }
 
+    registerBgmRetry() {
+        if (this.bgmRetryRegistered) return;
+        this.bgmRetryRegistered = true;
+        this.bgmRetryHandler = () => {
+            this.resume();
+            this.tryPlayCurrentBgm(false);
+            if (!this.bgmAudio || !this.bgmAudio.paused || this.isMuted) {
+                this.unregisterBgmRetry();
+            }
+        };
+        window.addEventListener('pointerdown', this.bgmRetryHandler, false);
+        window.addEventListener('touchstart', this.bgmRetryHandler, false);
+        window.addEventListener('keydown', this.bgmRetryHandler, false);
+    }
+
+    unregisterBgmRetry() {
+        if (!this.bgmRetryRegistered || !this.bgmRetryHandler) return;
+        window.removeEventListener('pointerdown', this.bgmRetryHandler, false);
+        window.removeEventListener('touchstart', this.bgmRetryHandler, false);
+        window.removeEventListener('keydown', this.bgmRetryHandler, false);
+        this.bgmRetryHandler = null;
+        this.bgmRetryRegistered = false;
+    }
+
     stopBgm() {
+        this.unregisterBgmRetry();
         if (this.bgmAudio) {
             this.bgmAudio.pause();
             this.bgmAudio.currentTime = 0;
@@ -265,6 +322,9 @@ class AudioManager {
         // BGMミュート（Audio要素）
         if (this.bgmAudio) {
             this.bgmAudio.volume = this.isMuted ? 0 : this.bgmVolume;
+            if (!this.isMuted && this.bgmAudio.paused) {
+                this.tryPlayCurrentBgm(true);
+            }
         }
         
         return this.isMuted;
