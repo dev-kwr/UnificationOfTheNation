@@ -159,8 +159,8 @@ export class Stage {
             this.bossIntroTimer = Math.max(0, this.bossIntroTimer - deltaTime * 1000);
         }
 
-        // ボス戦中はスクロールしない
-        if (this.bossSpawned && !this.bossDefeated) {
+        // ボス戦中〜撃破余韻中は専用更新
+        if (this.bossSpawned && (!this.bossDefeated || this.bossDefeatLingerTimer > 0)) {
             this.updateBossFight(deltaTime, player);
             return;
         }

@@ -75,6 +75,8 @@ class Game {
         this.stageClearMenuIndex = 0;
         this.stageClearWeaponIndex = 0;
         this.returnToStageClearAfterShop = false;
+        this.playerDefeatTimer = 0;
+        this.playerDefeatDuration = 980;
     }
     
     init(canvas) {
@@ -311,6 +313,7 @@ class Game {
         this.pendingLevelUpChoices = 0;
         this.levelUpChoiceIndex = 0;
         this.returnToStageClearAfterShop = false;
+        this.playerDefeatTimer = 0;
         this.collisionManager.reset();
         
         // スクロール位置初期化
@@ -360,6 +363,9 @@ class Game {
                 break;
             case GAME_STATE.PLAYING:
                 this.updatePlaying();
+                break;
+            case GAME_STATE.DEFEAT:
+                this.updateDefeat();
                 break;
             case GAME_STATE.LEVEL_UP:
                 this.updateLevelUpChoice();
@@ -521,6 +527,7 @@ class Game {
         this.scrollX = 0; // スクロール位置リセット
         this.gameClearTimer = 0;
         this.endingTimer = 0;
+        this.playerDefeatTimer = 0;
         
         this.initStage(this.currentStageNumber);
 
@@ -688,8 +695,7 @@ class Game {
         
         // ゲームオーバーチェック
         if (this.player.hp <= 0) {
-            this.state = GAME_STATE.GAME_OVER;
-            audio.playBgm('gameover');
+            this.beginPlayerDefeat();
         }
     }
     
@@ -877,9 +883,9 @@ class Game {
         for (const obs of this.stage.obstacles) {
             if (!obs.isDestroyed && this.rectIntersects(this.player, obs)) {
                 if (obs.damage > 0 && this.player.invincibleTimer <= 0) {
-                    if (this.handlePlayerDamage(obs.damage, obs.x + obs.width / 2, {
-                        knockbackX: 10,
-                        knockbackY: -12
+                    if (this.handleSpikeDamage(obs.damage, obs.x + obs.width / 2, {
+                        knockbackX: 7,
+                        knockbackY: -10
                     })) {
                         return;
                     }
@@ -1033,9 +1039,9 @@ class Game {
             if (this.rectIntersects(hitRect, obs)) {
                 if (obs.type === OBSTACLE_TYPES.SPIKE) {
                     // 棘：ダメージを与える
-                    if (this.handlePlayerDamage(obs.damage, obs.x + obs.width / 2, {
-                        knockbackX: 8,
-                        knockbackY: -8
+                    if (this.handleSpikeDamage(obs.damage, obs.x + obs.width / 2, {
+                        knockbackX: 6,
+                        knockbackY: -9
                     })) {
                         return;
                     }
@@ -1427,6 +1433,28 @@ class Game {
             ctx.beginPath();
             ctx.moveTo(-inner * 0.8, -inner * 0.25);
             ctx.lineTo(inner * 0.7, inner * 0.55);
+            ctx.stroke();
+
+            // ジェム自体のキラキラ（クルクル周回ではなく本体表面の瞬き）
+            const twinkleA = 0.32 + 0.36 * Math.sin(gem.sparklePhase * 3.2);
+            const twinkleB = 0.2 + 0.42 * Math.sin(gem.sparklePhase * 2.3 + 1.4);
+            const starLen = isBossGem ? 5.6 : 4.6;
+            ctx.rotate(Math.sin(gem.sparklePhase * 0.8) * 0.18);
+            ctx.strokeStyle = `rgba(255,255,255,${Math.max(0.08, twinkleA)})`;
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.moveTo(-starLen, 0);
+            ctx.lineTo(starLen, 0);
+            ctx.moveTo(0, -starLen);
+            ctx.lineTo(0, starLen);
+            ctx.stroke();
+            ctx.strokeStyle = `rgba(255,255,255,${Math.max(0.06, twinkleB)})`;
+            ctx.lineWidth = 0.9;
+            ctx.beginPath();
+            ctx.moveTo(-starLen * 0.7, -starLen * 0.7);
+            ctx.lineTo(starLen * 0.7, starLen * 0.7);
+            ctx.moveTo(starLen * 0.7, -starLen * 0.7);
+            ctx.lineTo(-starLen * 0.7, starLen * 0.7);
             ctx.stroke();
             ctx.restore();
         }
@@ -1821,6 +1849,26 @@ class Game {
             this.state = GAME_STATE.PLAYING;
         }
     }
+
+    updateDefeat() {
+        this.playerDefeatTimer -= this.deltaTime * 1000;
+        if (this.player) {
+            this.player.vx *= 0.86;
+            this.player.vy += 0.65;
+            if (this.player.y + this.player.height >= this.groundY) {
+                this.player.y = this.groundY - this.player.height;
+                this.player.vy = 0;
+                this.player.isGrounded = true;
+            } else {
+                this.player.isGrounded = false;
+            }
+            this.player.x += this.player.vx * this.deltaTime * 60;
+        }
+        if (this.playerDefeatTimer <= 0) {
+            this.state = GAME_STATE.GAME_OVER;
+            audio.playBgm('gameover');
+        }
+    }
     
     updateShop() {
         shop.update(this.deltaTime, this.player);
@@ -1960,6 +2008,10 @@ class Game {
             case GAME_STATE.PLAYING:
                 this.renderPlaying();
                 break;
+            case GAME_STATE.DEFEAT:
+                this.renderPlaying();
+                this.renderDefeatOverlay(this.ctx);
+                break;
             case GAME_STATE.LEVEL_UP:
                 this.renderPlaying();
                 renderLevelUpChoiceScreen(
@@ -2029,11 +2081,53 @@ class Game {
     handlePlayerDamage(amount, sourceX = null, options = {}) {
         const died = this.player.takeDamage(amount, { sourceX, ...options });
         if (died) {
-            this.state = GAME_STATE.GAME_OVER;
-            audio.playBgm('gameover');
+            this.beginPlayerDefeat();
             return true;
         }
         return false;
+    }
+
+    handleSpikeDamage(amount, sourceX = null, options = {}) {
+        const damage = Math.max(1, Math.round(amount || 2));
+        let died = false;
+        if (this.player && typeof this.player.takeTrapDamage === 'function') {
+            died = this.player.takeTrapDamage(damage, { sourceX, ...options });
+        } else {
+            died = this.player.takeDamage(damage, { sourceX, ...options });
+        }
+        if (died) {
+            this.beginPlayerDefeat();
+            return true;
+        }
+        return false;
+    }
+
+    beginPlayerDefeat() {
+        if (!this.player || this.state === GAME_STATE.DEFEAT || this.state === GAME_STATE.GAME_OVER) return;
+        this.playerDefeatTimer = this.playerDefeatDuration;
+        this.state = GAME_STATE.DEFEAT;
+        this.queueHitFeedback(10, 140);
+        if (this.player) {
+            this.player.isAttacking = false;
+            this.player.currentAttack = null;
+            this.player.subWeaponTimer = 0;
+            this.player.subWeaponAction = null;
+            this.player.vx *= 0.4;
+            this.player.vy = Math.min(this.player.vy, -7.5);
+        }
+    }
+
+    renderDefeatOverlay(ctx) {
+        const ratio = Math.max(0, Math.min(1, this.playerDefeatTimer / this.playerDefeatDuration));
+        ctx.save();
+        ctx.fillStyle = `rgba(18, 0, 0, ${0.26 + (1 - ratio) * 0.38})`;
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = `rgba(255, 236, 236, ${0.6 + (1 - ratio) * 0.3})`;
+        ctx.font = '700 48px sans-serif';
+        ctx.fillText('力尽きた…', CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.34);
+        ctx.restore();
     }
     
     renderPlaying() {

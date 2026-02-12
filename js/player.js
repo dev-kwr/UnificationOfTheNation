@@ -129,6 +129,7 @@ export class Player {
         // 無敵時間
         this.invincibleTimer = 0;
         this.damageFlashTimer = 0;
+        this.trapDamageCooldown = 0;
         
         // アニメーション
         this.animState = ANIM_STATE.IDLE;
@@ -183,6 +184,9 @@ export class Player {
         // 無敵時間更新
         if (this.invincibleTimer > 0) {
             this.invincibleTimer -= deltaTime * 1000;
+        }
+        if (this.trapDamageCooldown > 0) {
+            this.trapDamageCooldown -= deltaTime * 1000;
         }
         
         const isDualZAction = !!(
@@ -869,14 +873,14 @@ export class Player {
 
     getSpecialCloneAnchors() {
         const centerX = this.x + this.width / 2;
-        const centerY = this.y + this.height * 0.55;
+        const centerY = this.y + this.height * 0.62;
         const spacing = this.specialCloneSpacing || 180;
         return this.specialCloneSlots.map((unit, index) => ({
             x: centerX + unit * spacing,
-            y: centerY + (Math.abs(unit) - 1.5) * 4,
+            y: centerY + (Math.abs(unit) - 1.5) * 1.6 + 1.2,
             facingRight: this.facingRight,
             // 本体より少し透過（内側はやや濃く、外側はやや薄く）
-            alpha: this.specialCloneAlive[index] ? (0.88 - Math.abs(unit) * 0.025) : 0,
+            alpha: this.specialCloneAlive[index] ? (0.83 - Math.abs(unit) * 0.035) : 0,
             index
         }));
     }
@@ -891,10 +895,40 @@ export class Player {
             offsets.push({
                 index,
                 dx: unit * spacing,
-                dy: (Math.abs(unit) - 1.5) * 4
+                dy: (Math.abs(unit) - 1.5) * 1.6 + 1.2
             });
         }
         return offsets;
+    }
+
+    takeTrapDamage(amount, options = {}) {
+        if (this.trapDamageCooldown > 0) return false;
+        const sourceX = (typeof options.sourceX === 'number') ? options.sourceX : null;
+        const knockbackX = (typeof options.knockbackX === 'number') ? options.knockbackX : 4.5;
+        const knockbackY = (typeof options.knockbackY === 'number') ? options.knockbackY : -7.5;
+        const cooldownMs = (typeof options.cooldownMs === 'number') ? options.cooldownMs : 420;
+        const flashMs = (typeof options.flashMs === 'number') ? options.flashMs : 230;
+        const invincibleMs = (typeof options.invincibleMs === 'number') ? options.invincibleMs : 220;
+
+        this.hp -= amount;
+        this.trapDamageCooldown = cooldownMs;
+        this.damageFlashTimer = Math.max(this.damageFlashTimer, flashMs);
+        this.invincibleTimer = Math.max(this.invincibleTimer, invincibleMs);
+
+        const playerCenterX = this.x + this.width / 2;
+        const knockbackDir = (sourceX === null)
+            ? (this.facingRight ? -1 : 1)
+            : (playerCenterX < sourceX ? -1 : 1);
+        this.vx = knockbackDir * knockbackX;
+        this.vy = knockbackY;
+        this.isGrounded = false;
+        audio.playDamage();
+
+        if (this.hp <= 0) {
+            this.hp = 0;
+            return true;
+        }
+        return false;
     }
 
     consumeSpecialClone(index = null) {
@@ -1097,6 +1131,7 @@ export class Player {
     levelUp() {
         this.level++;
         this.expToNext = Math.floor(this.expToNext * 1.42);
+        this.hp = this.maxHp;
     }
     
     addSpecialGauge(amount) {
@@ -3016,11 +3051,20 @@ export class Player {
                 if (anchor.alpha <= 0.02) continue;
                 const wobble = Math.sin(this.motionTime * 0.006 + anchor.index * 1.1) * 0.26;
                 const x = anchor.x + wobble;
-                const y = anchor.y + Math.cos(this.motionTime * 0.005 + anchor.index * 1.0) * 0.2;
+                const y = anchor.y;
                 const invincible = (this.specialCloneInvincibleTimers[anchor.index] || 0) > 0;
                 const cloneAlpha = invincible && Math.floor(this.specialCloneInvincibleTimers[anchor.index] / 70) % 2 === 0
                     ? anchor.alpha * 0.7
                     : anchor.alpha;
+                ctx.save();
+                const mist = ctx.createRadialGradient(x, y - 14, 2, x, y - 14, 34);
+                mist.addColorStop(0, `rgba(180, 214, 246, ${cloneAlpha * 0.28})`);
+                mist.addColorStop(1, 'rgba(180, 214, 246, 0)');
+                ctx.fillStyle = mist;
+                ctx.beginPath();
+                ctx.arc(x, y - 14, 34, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
                 this.renderModel(
                     ctx,
                     x - this.width * 0.5,

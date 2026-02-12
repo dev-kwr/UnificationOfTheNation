@@ -49,6 +49,7 @@ export const OBSTACLE_SETTINGS = {
 export const GAME_STATE = {
     TITLE: 'title',
     PLAYING: 'playing',
+    DEFEAT: 'defeat',
     PAUSED: 'paused',
     SHOP: 'shop',
     LEVEL_UP: 'levelUp',
