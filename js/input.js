@@ -23,6 +23,7 @@ class InputManager {
             'x': 'SUB_WEAPON', 'X': 'SUB_WEAPON',
             'd': 'SWITCH_WEAPON', 'D': 'SWITCH_WEAPON',
             's': 'SPECIAL', 'S': 'SPECIAL',
+            'a': 'SPECIAL', 'A': 'SPECIAL',
             'Shift': 'DASH',
             'Escape': 'PAUSE'
         };
@@ -36,6 +37,7 @@ class InputManager {
             'KeyX': 'SUB_WEAPON',
             'KeyD': 'SWITCH_WEAPON',
             'KeyS': 'SPECIAL',
+            'KeyA': 'SPECIAL',
             'ShiftLeft': 'DASH',
             'ShiftRight': 'DASH',
             'Escape': 'PAUSE'

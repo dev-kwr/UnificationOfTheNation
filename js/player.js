@@ -96,6 +96,9 @@ export class Player {
         this.specialCloneSpacing = 180;
         this.specialCloneSpawnInvincibleMs = 680;
         this.specialCloneInvincibleTimers = [];
+        this.specialCloneAutoAiEnabled = false;
+        this.specialCloneAutoStrikeCooldownMs = 280;
+        this.specialCloneAutoCooldowns = [];
         this.specialCloneCombatStarted = false;
         this.progression = {
             normalCombo: 0,
@@ -802,7 +805,9 @@ export class Player {
     
     useSpecial() {
         if (this.specialGauge < this.maxSpecialGauge) return;
-        if (this.isUsingSpecial) return;
+        if (this.isUsingSpecial) {
+            this.clearSpecialState(true);
+        }
         
         this.resetVisualTrails();
         this.isUsingSpecial = true;
@@ -810,6 +815,7 @@ export class Player {
         this.specialCloneCombatStarted = false;
         this.specialCloneAlive = this.specialCloneSlots.map(() => true);
         this.specialCloneInvincibleTimers = this.specialCloneSlots.map(() => 0);
+        this.specialCloneAutoCooldowns = this.specialCloneSlots.map((_, index) => index * 40);
         this.spawnSpecialSmoke('appear');
         this.invincibleTimer = Math.max(this.invincibleTimer, 240);
         this.specialGauge = 0;
@@ -823,6 +829,7 @@ export class Player {
         this.specialCloneCombatStarted = false;
         this.specialCloneAlive = this.specialCloneSlots.map(() => false);
         this.specialCloneInvincibleTimers = this.specialCloneSlots.map(() => 0);
+        this.specialCloneAutoCooldowns = this.specialCloneSlots.map(() => 0);
         if (clearSmoke) this.specialSmoke = [];
     }
     
@@ -836,12 +843,14 @@ export class Player {
                 if (previousCastTimer > 0 && this.specialCastTimer <= 0 && !this.specialCloneCombatStarted) {
                     this.specialCloneCombatStarted = true;
                     this.specialCloneInvincibleTimers = this.specialCloneSlots.map(() => this.specialCloneSpawnInvincibleMs);
+                    this.specialCloneAutoCooldowns = this.specialCloneSlots.map((_, index) => index * 30);
                     this.spawnSpecialSmoke('appear');
                 }
             } else {
                 if (!this.specialCloneCombatStarted) {
                     this.specialCloneCombatStarted = true;
                     this.specialCloneInvincibleTimers = this.specialCloneSlots.map(() => this.specialCloneSpawnInvincibleMs);
+                    this.specialCloneAutoCooldowns = this.specialCloneSlots.map((_, index) => index * 30);
                     this.spawnSpecialSmoke('appear');
                 }
                 this.invincibleTimer = Math.max(this.invincibleTimer, 60);
@@ -849,6 +858,11 @@ export class Player {
             for (let index = 0; index < this.specialCloneInvincibleTimers.length; index++) {
                 if (this.specialCloneInvincibleTimers[index] > 0) {
                     this.specialCloneInvincibleTimers[index] = Math.max(0, this.specialCloneInvincibleTimers[index] - deltaMs);
+                }
+            }
+            for (let index = 0; index < this.specialCloneAutoCooldowns.length; index++) {
+                if (this.specialCloneAutoCooldowns[index] > 0) {
+                    this.specialCloneAutoCooldowns[index] = Math.max(0, this.specialCloneAutoCooldowns[index] - deltaMs);
                 }
             }
         }
@@ -1169,14 +1183,47 @@ export class Player {
         const tier = this.progression && Number.isFinite(this.progression.specialClone)
             ? Math.max(0, Math.min(3, this.progression.specialClone))
             : 0;
-        const count = 2 + tier * 2;
-        const half = Math.floor(count / 2);
-        this.specialCloneSlots = [];
-        for (let index = half; index >= 1; index--) this.specialCloneSlots.push(-index);
-        for (let index = 1; index <= half; index++) this.specialCloneSlots.push(index);
+        const count = this.getSpecialCloneCountByTier(tier);
+        this.specialCloneSlots = this.buildCloneSlotLayout(count);
         this.specialCloneSpacing = 172 + tier * 8;
+        this.specialCloneAutoAiEnabled = tier >= 3;
         this.specialCloneAlive = this.specialCloneSlots.map(() => false);
         this.specialCloneInvincibleTimers = this.specialCloneSlots.map(() => 0);
+        this.specialCloneAutoCooldowns = this.specialCloneSlots.map(() => 0);
+    }
+
+    getSpecialCloneCountByTier(tier) {
+        const clampedTier = Math.max(0, Math.min(3, tier));
+        if (clampedTier <= 0) return 1;
+        if (clampedTier === 1) return 2;
+        return 4;
+    }
+
+    getSpecialCloneCount() {
+        const tier = this.progression && Number.isFinite(this.progression.specialClone)
+            ? this.progression.specialClone
+            : 0;
+        return this.getSpecialCloneCountByTier(tier);
+    }
+
+    buildCloneSlotLayout(count) {
+        if (count <= 1) return [-1];
+        if (count === 2) return [-1, 1];
+        if (count === 3) return [-1, 1, -2];
+        return [-2, -1, 1, 2];
+    }
+
+    canCloneAutoStrike(index) {
+        if (!this.specialCloneAutoAiEnabled) return false;
+        if (!this.specialCloneAlive[index]) return false;
+        return (this.specialCloneAutoCooldowns[index] || 0) <= 0;
+    }
+
+    resetCloneAutoStrikeCooldown(index) {
+        if (!Number.isFinite(index)) return;
+        if (!Array.isArray(this.specialCloneAutoCooldowns)) return;
+        if (index < 0 || index >= this.specialCloneAutoCooldowns.length) return;
+        this.specialCloneAutoCooldowns[index] = this.specialCloneAutoStrikeCooldownMs;
     }
 
     refreshSubWeaponScaling() {

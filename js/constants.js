@@ -76,7 +76,7 @@ export const KEYS = {
     JUMP: [' ', 'ArrowUp'],  // Space or ↑ (SpaceをIDにするため先頭へ)
     ATTACK: ['z', 'Z'],
     SUB_WEAPON: ['x', 'X'],
-    SPECIAL: ['s', 'S'],
+    SPECIAL: ['s', 'S', 'a', 'A'],
     SWITCH_WEAPON: ['d', 'D'],
     DASH: ['Shift'],
     PAUSE: ['Escape'],

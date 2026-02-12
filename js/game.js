@@ -7,7 +7,7 @@ import { input } from './input.js';
 import { Player } from './player.js';
 import { createSubWeapon } from './weapon.js';
 import { Stage } from './stage.js';
-import { UI, renderTitleScreen, renderGameOverScreen, renderStageClearScreen, renderLevelUpChoiceScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding } from './ui.js';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStageClearScreen, renderLevelUpChoiceScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding } from './ui.js';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit, checkPlayerAttackHit, checkSpecialHit, checkExplosionHit } from './collision.js';
 import { saveManager } from './save.js';
 import { shop } from './shop.js';
@@ -72,11 +72,18 @@ class Game {
         this.lastAttackSignature = null;
         this.pendingLevelUpChoices = 0;
         this.levelUpChoiceIndex = 0;
+        this.levelUpInputLockMs = 0;
+        this.levelUpRequireRelease = false;
+        this.levelUpConfirmCooldownMs = 0;
         this.stageClearMenuIndex = 0;
         this.stageClearWeaponIndex = 0;
         this.returnToStageClearAfterShop = false;
         this.playerDefeatTimer = 0;
         this.playerDefeatDuration = 980;
+        this.titleDebugOpen = false;
+        this.titleDebugCursor = 0;
+        this.titleDebugApplyOnStart = false;
+        this.titleDebugConfig = this.createTitleDebugConfig();
     }
     
     init(canvas) {
@@ -191,6 +198,181 @@ class Game {
             return null;
         }
     }
+
+    createTitleDebugConfig() {
+        return {
+            stage: 1,
+            normalCombo: 0,
+            subWeapon: 0,
+            specialClone: 0,
+            money: 0,
+            startWeapon: '火薬玉',
+            ownedWeapons: {
+                '火薬玉': true,
+                '大槍': false,
+                '二刀流': false,
+                '鎖鎌': false,
+                '大太刀': false
+            },
+            items: {
+                triple_jump: false,
+                quad_jump: false,
+                speed_up: false
+            }
+        };
+    }
+
+    getTitleDebugWeaponNames() {
+        return ['火薬玉', '大槍', '二刀流', '鎖鎌', '大太刀'];
+    }
+
+    ensureTitleDebugStartWeapon() {
+        const owned = this.getTitleDebugWeaponNames().filter((weapon) => this.titleDebugConfig.ownedWeapons[weapon]);
+        if (owned.length === 0) {
+            this.titleDebugConfig.ownedWeapons['火薬玉'] = true;
+            this.titleDebugConfig.startWeapon = '火薬玉';
+            return;
+        }
+        if (!owned.includes(this.titleDebugConfig.startWeapon)) {
+            this.titleDebugConfig.startWeapon = owned[0];
+        }
+    }
+
+    getTitleDebugEntries() {
+        const cfg = this.titleDebugConfig;
+        const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+        const cycleEnum = (current, list, delta) => {
+            if (!list.length) return current;
+            const index = Math.max(0, list.indexOf(current));
+            const next = (index + delta + list.length) % list.length;
+            return list[next];
+        };
+
+        const entries = [
+            {
+                label: '開始階層',
+                getValue: () => `${cfg.stage}`,
+                change: (delta) => { cfg.stage = clamp(cfg.stage + delta, 1, STAGES.length); }
+            },
+            {
+                label: '通常連撃強化',
+                getValue: () => `Lv ${cfg.normalCombo}`,
+                change: (delta) => { cfg.normalCombo = clamp(cfg.normalCombo + delta, 0, 3); }
+            },
+            {
+                label: '忍具強化',
+                getValue: () => `Lv ${cfg.subWeapon}`,
+                change: (delta) => { cfg.subWeapon = clamp(cfg.subWeapon + delta, 0, 3); }
+            },
+            {
+                label: '奥義強化',
+                getValue: () => `Lv ${cfg.specialClone}`,
+                change: (delta) => { cfg.specialClone = clamp(cfg.specialClone + delta, 0, 3); }
+            },
+            {
+                label: '開始小判',
+                getValue: () => `${cfg.money}`,
+                change: (delta) => {
+                    const step = 100;
+                    cfg.money = clamp(cfg.money + delta * step, 0, 9999);
+                }
+            },
+            {
+                label: '開始装備',
+                getValue: () => cfg.startWeapon,
+                change: (delta) => {
+                    this.ensureTitleDebugStartWeapon();
+                    const owned = this.getTitleDebugWeaponNames().filter((weapon) => cfg.ownedWeapons[weapon]);
+                    cfg.startWeapon = cycleEnum(cfg.startWeapon, owned, delta);
+                }
+            }
+        ];
+
+        for (const weapon of this.getTitleDebugWeaponNames()) {
+            entries.push({
+                label: `武器所持:${weapon}`,
+                getValue: () => (cfg.ownedWeapons[weapon] ? 'ON' : 'OFF'),
+                change: () => {
+                    cfg.ownedWeapons[weapon] = !cfg.ownedWeapons[weapon];
+                    this.ensureTitleDebugStartWeapon();
+                }
+            });
+        }
+
+        entries.push(
+            {
+                label: 'アイテム:三段跳び',
+                getValue: () => (cfg.items.triple_jump ? '取得済' : '未取得'),
+                change: () => {
+                    cfg.items.triple_jump = !cfg.items.triple_jump;
+                    if (!cfg.items.triple_jump) cfg.items.quad_jump = false;
+                }
+            },
+            {
+                label: 'アイテム:四段跳び',
+                getValue: () => (cfg.items.quad_jump ? '取得済' : '未取得'),
+                change: () => {
+                    cfg.items.quad_jump = !cfg.items.quad_jump;
+                    if (cfg.items.quad_jump) cfg.items.triple_jump = true;
+                }
+            },
+            {
+                label: 'アイテム:韋駄天の術',
+                getValue: () => (cfg.items.speed_up ? '取得済' : '未取得'),
+                change: () => { cfg.items.speed_up = !cfg.items.speed_up; }
+            },
+            {
+                label: 'デバッグ設定で開始',
+                getValue: () => 'ENTER',
+                action: () => {
+                    this.titleDebugApplyOnStart = true;
+                    this.titleDebugOpen = false;
+                    this.startNewGame();
+                }
+            }
+        );
+
+        return entries;
+    }
+
+    applyTitleDebugSetupToNewGame() {
+        if (!this.player || !this.titleDebugApplyOnStart) return;
+        const cfg = this.titleDebugConfig;
+        this.player.progression.normalCombo = Math.max(0, Math.min(3, cfg.normalCombo || 0));
+        this.player.progression.subWeapon = Math.max(0, Math.min(3, cfg.subWeapon || 0));
+        this.player.progression.specialClone = Math.max(0, Math.min(3, cfg.specialClone || 0));
+        if (typeof this.player.rebuildSpecialCloneSlots === 'function') this.player.rebuildSpecialCloneSlots();
+        if (typeof this.player.refreshSubWeaponScaling === 'function') this.player.refreshSubWeaponScaling();
+        if (typeof this.player.setMoney === 'function') this.player.setMoney(cfg.money || 0);
+        else this.player.money = Math.max(0, Math.min(9999, Math.floor(cfg.money || 0)));
+
+        const ownedWeapons = this.getTitleDebugWeaponNames().filter((weapon) => cfg.ownedWeapons[weapon]);
+        const weaponPool = ownedWeapons.length > 0 ? ownedWeapons : ['火薬玉'];
+        this.player.subWeapons = weaponPool.map((name) => createSubWeapon(name)).filter(Boolean);
+        if (this.player.subWeapons.length === 0) {
+            const fallback = createSubWeapon('火薬玉');
+            if (fallback) this.player.subWeapons = [fallback];
+        }
+
+        this.ensureTitleDebugStartWeapon();
+        const startWeapon = weaponPool.includes(cfg.startWeapon) ? cfg.startWeapon : weaponPool[0];
+        let startIndex = this.player.subWeapons.findIndex((weapon) => weapon.name === startWeapon);
+        if (startIndex < 0) startIndex = 0;
+        this.player.subWeaponIndex = startIndex;
+        this.player.currentSubWeapon = this.player.subWeapons[startIndex] || null;
+
+        this.unlockedWeapons = [...weaponPool];
+        this.player.unlockedWeapons = [...weaponPool];
+        this.player.stageEquip[this.currentStageNumber] = this.player.currentSubWeapon ? this.player.currentSubWeapon.name : '火薬玉';
+
+        shop.purchasedSkills.clear();
+        if (cfg.items.triple_jump) shop.purchasedSkills.add('triple_jump');
+        if (cfg.items.quad_jump) shop.purchasedSkills.add('quad_jump');
+        if (cfg.items.speed_up) shop.purchasedSkills.add('speed_up');
+        this.player.maxJumps = cfg.items.quad_jump ? 4 : (cfg.items.triple_jump ? 3 : 2);
+        this.player.speed = PLAYER.SPEED + (cfg.items.speed_up ? 1.5 : 0);
+        this.titleDebugApplyOnStart = false;
+    }
     
     updateInputScale() {
         if (!this.canvas) return;
@@ -200,17 +382,6 @@ class Game {
         const scaleX = CANVAS_WIDTH / rect.width;
         const scaleY = CANVAS_HEIGHT / rect.height;
         input.setScale(scaleX, scaleY);
-    }
-    
-    startNewGame() {
-        this.currentStageNumber = this.debugStartStage || 1;
-        this.unlockedWeapons = [];
-        this.pendingLevelUpChoices = 0;
-        this.levelUpChoiceIndex = 0;
-        this.stageClearMenuIndex = 0;
-        this.stageClearWeaponIndex = 0;
-        this.returnToStageClearAfterShop = false;
-        this.startStage();
     }
     
     continueGame(saveData) {
@@ -312,6 +483,9 @@ class Game {
         this.stageBossDefeatEffects = [];
         this.pendingLevelUpChoices = 0;
         this.levelUpChoiceIndex = 0;
+        this.levelUpInputLockMs = 0;
+        this.levelUpRequireRelease = false;
+        this.levelUpConfirmCooldownMs = 0;
         this.returnToStageClearAfterShop = false;
         this.playerDefeatTimer = 0;
         this.collisionManager.reset();
@@ -396,6 +570,17 @@ class Game {
     
     updateTitle() {
         this.hasSave = saveManager.hasSave();
+        if (input.keysJustPressed?.KeyD) {
+            this.titleDebugOpen = !this.titleDebugOpen;
+            const count = this.getTitleDebugEntries().length;
+            this.titleDebugCursor = Math.max(0, Math.min(count - 1, this.titleDebugCursor));
+            audio.playSelect();
+            return;
+        }
+        if (this.titleDebugOpen) {
+            this.updateTitleDebug();
+            return;
+        }
 
         // 何らかのキーが押されたらオーディオを初期化（ブラウザ制限対策）
         if (Object.keys(input.keysJustPressed).length > 0) {
@@ -511,12 +696,54 @@ class Game {
         }
     }
 
+    updateTitleDebug() {
+        const entries = this.getTitleDebugEntries();
+        if (!entries.length) return;
+        this.titleDebugCursor = Math.max(0, Math.min(entries.length - 1, this.titleDebugCursor));
+
+        if (input.isActionJustPressed('UP')) {
+            this.titleDebugCursor = (this.titleDebugCursor - 1 + entries.length) % entries.length;
+            audio.playSelect();
+            return;
+        }
+        if (input.isActionJustPressed('DOWN')) {
+            this.titleDebugCursor = (this.titleDebugCursor + 1) % entries.length;
+            audio.playSelect();
+            return;
+        }
+        if (input.isActionJustPressed('LEFT')) {
+            entries[this.titleDebugCursor].change?.(-1);
+            audio.playSelect();
+            return;
+        }
+        if (input.isActionJustPressed('RIGHT')) {
+            entries[this.titleDebugCursor].change?.(1);
+            audio.playSelect();
+            return;
+        }
+        if (input.isActionJustPressed('JUMP') || input.isActionJustPressed('ATTACK')) {
+            const selected = entries[this.titleDebugCursor];
+            if (selected.action) selected.action();
+            else selected.change?.(1);
+            audio.playSelect();
+            return;
+        }
+        if (input.isActionJustPressed('PAUSE')) {
+            this.titleDebugOpen = false;
+            audio.playSelect();
+        }
+    }
+
     startNewGame() {
-        this.currentStageNumber = this.debugStartStage || 1;
+        const debugStage = this.titleDebugApplyOnStart ? this.titleDebugConfig.stage : null;
+        this.currentStageNumber = debugStage || this.debugStartStage || 1;
         this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
         this.player.unlockedWeapons = [];
         this.pendingLevelUpChoices = 0;
         this.levelUpChoiceIndex = 0;
+        this.levelUpInputLockMs = 0;
+        this.levelUpRequireRelease = false;
+        this.levelUpConfirmCooldownMs = 0;
         this.stageClearMenuIndex = 0;
         this.stageClearWeaponIndex = 0;
         this.returnToStageClearAfterShop = false;
@@ -530,6 +757,7 @@ class Game {
         this.playerDefeatTimer = 0;
         
         this.initStage(this.currentStageNumber);
+        this.applyTitleDebugSetupToNewGame();
 
         this.state = GAME_STATE.INTRO; // INTROから開始
         this.introTimer = 0;
@@ -638,6 +866,7 @@ class Game {
 
         const frameEnemies = this.stage.getAllEnemies();
         const activeFrameEnemies = frameEnemies.filter((enemy) => enemy.isAlive && !enemy.isDying);
+        this.updateSpecialCloneAutoCombat(activeFrameEnemies);
         this.resolveFinisherLandingOverlap(activeFrameEnemies);
 
         // 爆弾更新
@@ -1243,6 +1472,12 @@ class Game {
     getAvailableLevelUpChoices() {
         if (!this.player || !this.player.progression) return [];
         const progression = this.player.progression;
+        const specialTier = progression.specialClone || 0;
+        const specialCount = this.player.getSpecialCloneCountByTier(specialTier);
+        const nextSpecialCount = this.player.getSpecialCloneCountByTier(Math.min(3, specialTier + 1));
+        const specialSubtitle = specialTier >= 3
+            ? `分身 +${specialCount} / AI自動行動`
+            : `分身 +${specialCount} → +${nextSpecialCount}${specialTier === 2 ? ' + AI' : ''}`;
         const choices = [
             {
                 id: 'normal_combo',
@@ -1261,8 +1496,8 @@ class Game {
             {
                 id: 'special_clone',
                 title: '奥義分身強化',
-                subtitle: `分身数 ${this.player.specialCloneSlots.length} → ${Math.min(8, this.player.specialCloneSlots.length + 2)}`,
-                level: progression.specialClone || 0,
+                subtitle: specialSubtitle,
+                level: specialTier,
                 maxLevel: 3
             }
         ];
@@ -1276,6 +1511,13 @@ class Game {
         if (this.state === GAME_STATE.PLAYING) {
             this.state = GAME_STATE.LEVEL_UP;
             this.levelUpChoiceIndex = 0;
+            this.levelUpInputLockMs = 420;
+            this.levelUpConfirmCooldownMs = 0;
+            this.levelUpRequireRelease =
+                input.isAction('JUMP') ||
+                input.isAction('ATTACK') ||
+                input.isAction('SUB_WEAPON') ||
+                input.touchJustPressed;
             audio.playLevelUp();
         }
     }
@@ -1286,6 +1528,9 @@ class Game {
         if (!upgraded) return;
         this.pendingLevelUpChoices = Math.max(0, this.pendingLevelUpChoices - 1);
         this.levelUpChoiceIndex = 0;
+        this.levelUpInputLockMs = 220;
+        this.levelUpConfirmCooldownMs = 220;
+        this.levelUpRequireRelease = true;
         audio.playPowerUp();
         const nextChoices = this.getAvailableLevelUpChoices();
         if (nextChoices.length === 0 || this.pendingLevelUpChoices <= 0) {
@@ -1301,6 +1546,8 @@ class Game {
             this.state = GAME_STATE.PLAYING;
             return;
         }
+        this.levelUpInputLockMs = Math.max(0, this.levelUpInputLockMs - this.deltaTime * 1000);
+        this.levelUpConfirmCooldownMs = Math.max(0, this.levelUpConfirmCooldownMs - this.deltaTime * 1000);
         this.levelUpChoiceIndex = Math.max(0, Math.min(choices.length - 1, this.levelUpChoiceIndex));
 
         if (input.isActionJustPressed('LEFT')) {
@@ -1311,6 +1558,16 @@ class Game {
             this.levelUpChoiceIndex = (this.levelUpChoiceIndex + 1) % choices.length;
             audio.playSelect();
         }
+
+        const confirmHeld = input.isAction('JUMP') || input.isAction('ATTACK') || input.isAction('SUB_WEAPON');
+        if (this.levelUpRequireRelease) {
+            if (!confirmHeld && !input.touchJustPressed) {
+                this.levelUpRequireRelease = false;
+            }
+            return;
+        }
+        const canConfirm = this.levelUpInputLockMs <= 0 && this.levelUpConfirmCooldownMs <= 0;
+        if (!canConfirm) return;
 
         if (input.touchJustPressed) {
             const touchX = input.lastTouchX;
@@ -1331,6 +1588,43 @@ class Game {
 
         if (input.isActionJustPressed('JUMP') || input.isActionJustPressed('ATTACK') || input.isActionJustPressed('SUB_WEAPON')) {
             this.applyLevelUpChoice(choices[this.levelUpChoiceIndex].id);
+        }
+    }
+
+    updateSpecialCloneAutoCombat(activeEnemies = []) {
+        if (!this.player || !this.player.isSpecialCloneCombatActive || !this.player.isSpecialCloneCombatActive()) return;
+        if (!this.player.specialCloneAutoAiEnabled) return;
+        if (!Array.isArray(activeEnemies) || activeEnemies.length === 0) return;
+
+        const cloneOffsets = this.player.getSpecialCloneOffsets ? this.player.getSpecialCloneOffsets() : [];
+        if (!cloneOffsets.length) return;
+        const baseDamage = Math.max(10, Math.round(12 + (this.player.attackPower || 0) * 2));
+        for (const clone of cloneOffsets) {
+            if (!this.player.canCloneAutoStrike || !this.player.canCloneAutoStrike(clone.index)) continue;
+            const cloneCenterX = this.player.x + clone.dx + this.player.width * 0.5;
+            const cloneCenterY = this.player.y + clone.dy + this.player.height * 0.5;
+            let target = null;
+            let bestDistanceSq = Infinity;
+            for (const enemy of activeEnemies) {
+                const enemyCenterX = enemy.x + enemy.width * 0.5;
+                const enemyCenterY = enemy.y + enemy.height * 0.5;
+                const dx = enemyCenterX - cloneCenterX;
+                const dy = enemyCenterY - cloneCenterY;
+                const distSq = dx * dx + dy * dy;
+                if (distSq > 260 * 260) continue;
+                if (distSq < bestDistanceSq) {
+                    bestDistanceSq = distSq;
+                    target = enemy;
+                }
+            }
+            if (!target) continue;
+            this.damageEnemy(target, baseDamage, {
+                source: 'special_shadow',
+                weapon: this.player.currentSubWeapon ? this.player.currentSubWeapon.name : '奥義',
+                knockbackX: 6,
+                knockbackY: -5
+            });
+            this.player.resetCloneAutoStrikeCooldown(clone.index);
         }
     }
 
@@ -1834,6 +2128,8 @@ class Game {
         if (isFinalStage) {
             this.gameClearTimer = 0;
             this.endingTimer = 0;
+        } else {
+            audio.playBgm('shop');
         }
         // audio.stopBgm(); // ユーザーの要望によりクリア画面まで継続
         audio.playLevelUp(); // クリアジングル的に使う
@@ -2004,6 +2300,14 @@ class Game {
         switch (this.state) {
             case GAME_STATE.TITLE:
                 renderTitleScreen(this.ctx, this.difficulty, this.titleMenuIndex, this.hasSave);
+                if (this.titleDebugOpen) {
+                    const entries = this.getTitleDebugEntries().map((entry) => ({
+                        label: entry.label,
+                        value: entry.getValue ? entry.getValue() : '',
+                        isAction: !!entry.action
+                    }));
+                    renderTitleDebugWindow(this.ctx, entries, this.titleDebugCursor);
+                }
                 break;
             case GAME_STATE.PLAYING:
                 this.renderPlaying();

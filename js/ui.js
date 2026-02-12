@@ -1030,6 +1030,64 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     drawControlManualLine(ctx);
 }
 
+export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
+    if (!Array.isArray(entries) || entries.length === 0) return;
+    const panelW = 520;
+    const panelH = 560;
+    const panelX = CANVAS_WIDTH - panelW - 34;
+    const panelY = 70;
+    const rowH = 33;
+    const maxRows = Math.floor((panelH - 118) / rowH);
+    const clampedCursor = Math.max(0, Math.min(entries.length - 1, cursor));
+    const start = Math.max(0, Math.min(clampedCursor - Math.floor(maxRows / 2), Math.max(0, entries.length - maxRows)));
+    const end = Math.min(entries.length, start + maxRows);
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(2, 6, 18, 0.84)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    const bg = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelH);
+    bg.addColorStop(0, 'rgba(24, 38, 84, 0.95)');
+    bg.addColorStop(1, 'rgba(10, 18, 42, 0.95)');
+    ctx.fillStyle = bg;
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.strokeStyle = 'rgba(178, 205, 255, 0.55)';
+    ctx.lineWidth = 1.6;
+    ctx.strokeRect(panelX, panelY, panelW, panelH);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#f3f8ff';
+    ctx.font = '700 26px sans-serif';
+    ctx.fillText('DEBUG START CONFIG', panelX + 20, panelY + 40);
+    ctx.font = '500 14px sans-serif';
+    ctx.fillStyle = 'rgba(212, 228, 255, 0.9)';
+    ctx.fillText('↑↓:項目  ←→:変更  Z/SPACE:決定  D/ESC:閉じる', panelX + 20, panelY + 66);
+
+    for (let i = start; i < end; i++) {
+        const row = i - start;
+        const y = panelY + 92 + row * rowH;
+        const selected = i === clampedCursor;
+        if (selected) {
+            ctx.fillStyle = 'rgba(98, 142, 235, 0.38)';
+            ctx.fillRect(panelX + 14, y - 20, panelW - 28, rowH - 2);
+            ctx.strokeStyle = 'rgba(211, 228, 255, 0.86)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(panelX + 14, y - 20, panelW - 28, rowH - 2);
+        }
+        const entry = entries[i];
+        ctx.fillStyle = selected ? '#ffffff' : 'rgba(225, 236, 255, 0.95)';
+        ctx.font = selected ? '700 16px sans-serif' : '600 15px sans-serif';
+        ctx.fillText(entry.label || '', panelX + 26, y);
+
+        ctx.textAlign = 'right';
+        ctx.fillStyle = entry.isAction ? '#ffe08d' : (selected ? '#dff0ff' : 'rgba(198, 216, 246, 0.95)');
+        ctx.font = selected ? '700 16px sans-serif' : '600 15px sans-serif';
+        ctx.fillText(entry.value || '', panelX + panelW - 24, y);
+        ctx.textAlign = 'left';
+    }
+    ctx.restore();
+}
+
 // ゲームオーバー画面（リッチ化）
 export function renderGameOverScreen(ctx, player, stageNumber) {
     const time = Date.now();
@@ -1112,16 +1170,57 @@ export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked,
     const time = Date.now();
     const menuIndex = Number.isFinite(options.menuIndex) ? options.menuIndex : 0;
     const selectedWeaponName = options.selectedWeaponName || (player?.currentSubWeapon?.name || '未装備');
+    const progression = player?.progression || {};
+    const normalTier = Math.max(0, Math.min(3, Number(progression.normalCombo) || 0));
+    const subTier = Math.max(0, Math.min(3, Number(progression.subWeapon) || 0));
+    const specialTier = Math.max(0, Math.min(3, Number(progression.specialClone) || 0));
+    const specialCount = typeof player?.getSpecialCloneCount === 'function' ? player.getSpecialCloneCount() : 1;
     const stageKanji = toKanjiNumber(stageNumber);
     const panelX = 56;
     const panelY = 76;
     const panelW = CANVAS_WIDTH - 112;
     const panelH = CANVAS_HEIGHT - 152;
+    const topSectionY = panelY + 168;
+    const topSectionH = 292;
+    const leftColX = panelX + 42;
+    const leftColW = 420;
+    const rightColX = leftColX + leftColW + 32;
+    const rightColW = panelX + panelW - rightColX - 36;
     const menuItems = [
         { title: '次の階層へ', desc: '現在の強化を維持して進行' },
         { title: '既定武器', desc: selectedWeaponName },
         { title: 'よろず屋', desc: '買い物後、この画面に戻る' }
     ];
+    const progressionCards = [
+        { title: '通常連撃', level: normalTier, detail: `${player.getNormalComboMax()}段` },
+        { title: '忍具強化', level: subTier, detail: `Lv ${subTier}` },
+        { title: '奥義分身', level: specialTier, detail: `${specialCount}体${specialTier >= 3 ? '・自動行動' : ''}` }
+    ];
+    const drawMiniProgressCard = (x, y, w, h, card) => {
+        const cardGrad = ctx.createLinearGradient(x, y, x, y + h);
+        cardGrad.addColorStop(0, 'rgba(30, 44, 84, 0.72)');
+        cardGrad.addColorStop(1, 'rgba(16, 24, 50, 0.76)');
+        ctx.fillStyle = cardGrad;
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = 'rgba(144, 173, 238, 0.34)';
+        ctx.lineWidth = 1.1;
+        ctx.strokeRect(x, y, w, h);
+
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#e9f2ff';
+        ctx.font = '700 17px sans-serif';
+        ctx.fillText(card.title, x + 14, y + 26);
+        ctx.font = '600 14px sans-serif';
+        ctx.fillStyle = 'rgba(214, 229, 255, 0.92)';
+        ctx.fillText(card.detail, x + 14, y + 48);
+
+        for (let i = 0; i < 3; i++) {
+            const pipX = x + 14 + i * 21;
+            const pipY = y + h - 18;
+            ctx.fillStyle = i < card.level ? '#7ab5ff' : 'rgba(176, 199, 244, 0.24)';
+            ctx.fillRect(pipX, pipY, 15, 6);
+        }
+    };
 
     ctx.save();
     const bg = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
@@ -1149,19 +1248,33 @@ export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked,
         ctx.fillText(`新規獲得: ${weaponUnlocked}`, panelX + 36, panelY + 126);
     }
 
+    ctx.fillStyle = 'rgba(14, 24, 52, 0.58)';
+    ctx.fillRect(leftColX, topSectionY, leftColW, topSectionH);
+    ctx.strokeStyle = 'rgba(142, 176, 243, 0.3)';
+    ctx.lineWidth = 1.1;
+    ctx.strokeRect(leftColX, topSectionY, leftColW, topSectionH);
+
+    ctx.fillStyle = 'rgba(14, 24, 52, 0.58)';
+    ctx.fillRect(rightColX, topSectionY, rightColW, topSectionH);
+    ctx.strokeStyle = 'rgba(142, 176, 243, 0.3)';
+    ctx.lineWidth = 1.1;
+    ctx.strokeRect(rightColX, topSectionY, rightColW, topSectionH);
+
     ctx.font = '600 18px sans-serif';
-    ctx.fillStyle = 'rgba(226, 236, 255, 0.88)';
-    ctx.fillText(`段位: ${toKanjiNumber(player.level)}段`, panelX + panelW - 290, panelY + 58);
-    ctx.fillText(`体力: ${player.hp} / ${player.maxHp}`, panelX + panelW - 290, panelY + 86);
-    ctx.fillText(`小判: ${player.money}`, panelX + panelW - 290, panelY + 114);
-    ctx.fillText(`通常連撃: ${player.getNormalComboMax()}段`, panelX + panelW - 290, panelY + 142);
+    ctx.fillStyle = 'rgba(226, 236, 255, 0.9)';
+    const statX = rightColX + 20;
+    const statY = topSectionY + 34;
+    ctx.fillText(`段位: ${toKanjiNumber(player.level)}段`, statX, statY);
+    ctx.fillText(`体力: ${player.hp} / ${player.maxHp}`, statX, statY + 34);
+    ctx.fillText(`小判: ${player.money}`, statX, statY + 68);
+    ctx.fillText(`通常連撃: ${player.getNormalComboMax()}段`, statX, statY + 102);
 
     // 大きめの自キャラプレビュー（軽く揺れながら装備モーション）
     if (player && typeof player.renderModel === 'function') {
-        const previewX = panelX + 150;
-        const previewY = panelY + panelH - 330;
-        const sway = Math.sin(time * 0.0032) * 6;
-        const bob = Math.sin(time * 0.0046) * 4;
+        const previewX = leftColX + leftColW * 0.5;
+        const previewY = topSectionY + topSectionH - 54;
+        const sway = Math.sin(time * 0.0032) * 4;
+        const bob = Math.sin(time * 0.0046) * 3;
         const prevTimer = player.subWeaponTimer;
         const prevAction = player.subWeaponAction;
         const prevAttacking = player.isAttacking;
@@ -1169,19 +1282,45 @@ export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked,
         const prevGround = player.isGrounded;
         const prevVy = player.vy;
         const prevVx = player.vx;
+        const prevMotionTime = player.motionTime;
+        const prevLegPhase = player.legPhase;
+        const previewWeapon = player.currentSubWeapon ? player.currentSubWeapon.name : '';
+        const previewWave = (Math.sin(time * 0.005) + 1) * 0.5;
 
-        player.subWeaponTimer = 280 + (Math.sin(time * 0.004) + 1) * 140;
-        player.subWeaponAction = player.currentSubWeapon ? player.currentSubWeapon.name : null;
+        if (previewWeapon === '火薬玉') {
+            player.subWeaponAction = 'throw';
+            player.subWeaponTimer = 90 + previewWave * 90;
+        } else if (previewWeapon === '二刀流') {
+            player.subWeaponAction = '二刀_合体';
+            player.subWeaponTimer = 90 + previewWave * 120;
+        } else if (previewWeapon === '大太刀') {
+            player.subWeaponAction = '大太刀';
+            player.subWeaponTimer = 360 + previewWave * 260;
+        } else if (previewWeapon === '鎖鎌') {
+            player.subWeaponAction = '鎖鎌';
+            player.subWeaponTimer = 220 + previewWave * 240;
+        } else if (previewWeapon === '大槍') {
+            player.subWeaponAction = '大槍';
+            player.subWeaponTimer = 110 + previewWave * 120;
+        } else {
+            player.subWeaponAction = previewWeapon || null;
+            player.subWeaponTimer = 180 + previewWave * 120;
+        }
         player.isAttacking = false;
         player.currentAttack = null;
         player.isGrounded = true;
         player.vx = 0;
         player.vy = 0;
+        player.motionTime = time * 0.06;
+        player.legPhase = Math.sin(time * 0.006) * 0.42;
 
         ctx.save();
         ctx.translate(previewX, previewY);
-        ctx.scale(2.45, 2.45);
-        player.renderModel(ctx, -player.width / 2 + sway * 0.15, -player.height + bob * 0.15, true, 0.96, true, { useLiveAccessories: true });
+        ctx.scale(2.32, 2.32);
+        player.renderModel(ctx, -player.width / 2 + sway * 0.2, -player.height + bob * 0.18, true, 0.96, true, {
+            useLiveAccessories: false,
+            renderHeadbandTail: true
+        });
         ctx.restore();
 
         player.subWeaponTimer = prevTimer;
@@ -1191,7 +1330,18 @@ export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked,
         player.isGrounded = prevGround;
         player.vx = prevVx;
         player.vy = prevVy;
+        player.motionTime = prevMotionTime;
+        player.legPhase = prevLegPhase;
     }
+
+    const progAreaY = topSectionY + 156;
+    const progGap = 14;
+    const progCardW = (rightColW - 40 - progGap * 2) / 3;
+    const progCardH = 108;
+    progressionCards.forEach((card, index) => {
+        const x = rightColX + 20 + index * (progCardW + progGap);
+        drawMiniProgressCard(x, progAreaY, progCardW, progCardH, card);
+    });
 
     const cardW = 274;
     const cardH = 132;

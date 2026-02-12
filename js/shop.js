@@ -28,6 +28,14 @@ export class Shop {
         this.message = '';
         this.messageTimer = 0;
     }
+
+    getLayout() {
+        const shopW = 760;
+        const shopH = CANVAS_HEIGHT - 164;
+        const shopX = CANVAS_WIDTH / 2 - shopW / 2;
+        const shopY = 82;
+        return { shopX, shopY, shopW, shopH };
+    }
     
     open() {
         this.isOpen = true;
@@ -83,9 +91,7 @@ export class Shop {
             const tx = input.lastTouchX;
             const ty = input.lastTouchY;
 
-            const shopX = CANVAS_WIDTH / 2 - 250;
-            const shopY = 60;
-            const shopW = 500;
+            const { shopX, shopY, shopW, shopH } = this.getLayout();
 
             // 1. 各アイテムのタップ判定
             this.items.forEach((item, i) => {
@@ -104,7 +110,7 @@ export class Shop {
             });
 
             // 2. 下部ボタンのタップ判定
-            const footerY = shopY + (CANVAS_HEIGHT - 120) - 60;
+            const footerY = shopY + shopH - 60;
             // 購入ボタン (BUY)
             if (Math.abs(tx - (shopX + shopW/2 - 80)) < 70 && Math.abs(ty - footerY) < 25) {
                 this.purchase(player);
@@ -188,44 +194,38 @@ export class Shop {
         ctx.save();
         ctx.textBaseline = 'alphabetic';
         
-        ctx.fillStyle = 'rgba(0, 0, 0, 1.0)'; // ゲーム画面を完全に隠す
+        ctx.fillStyle = 'rgba(6, 10, 24, 0.96)';
         ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
         
-        const shopX = CANVAS_WIDTH / 2 - 250;
-        const shopY = 60;
-        const shopW = 500;
-        const shopH = CANVAS_HEIGHT - 120;
+        const { shopX, shopY, shopW, shopH } = this.getLayout();
         
         const grad = ctx.createLinearGradient(shopX, shopY, shopX + shopW, shopY + shopH);
-        grad.addColorStop(0, '#f5f5dc');
-        grad.addColorStop(1, '#e8e8c8');
+        grad.addColorStop(0, 'rgba(12, 22, 52, 0.9)');
+        grad.addColorStop(1, 'rgba(8, 12, 32, 0.92)');
         ctx.fillStyle = grad;
         ctx.fillRect(shopX, shopY, shopW, shopH);
         
-        ctx.strokeStyle = '#8b4513';
-        ctx.lineWidth = 8;
-        ctx.strokeRect(shopX + 4, shopY + 4, shopW - 8, shopH - 8);
-        
-        ctx.strokeStyle = '#d2691e';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(shopX + 12, shopY + 12, shopW - 24, shopH - 24);
+        ctx.strokeStyle = 'rgba(164, 193, 255, 0.32)';
+        ctx.lineWidth = 1.4;
+        ctx.strokeRect(shopX, shopY, shopW, shopH);
 
-        ctx.fillStyle = '#1a1a1a';
-        ctx.font = 'bold 36px serif';
+        ctx.fillStyle = '#f0f6ff';
+        ctx.font = '700 42px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('よろず屋', CANVAS_WIDTH / 2, shopY + 60);
+        ctx.fillText('よろず屋', CANVAS_WIDTH / 2, shopY + 62);
         
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 1.4;
+        ctx.strokeStyle = 'rgba(164, 193, 255, 0.3)';
         ctx.beginPath();
         ctx.moveTo(shopX + 50, shopY + 80);
         ctx.lineTo(shopX + shopW - 50, shopY + 80);
         ctx.stroke();
 
-        ctx.font = 'bold 20px serif';
+        ctx.font = '700 20px sans-serif';
         ctx.textAlign = 'right';
-        ctx.fillStyle = '#8b4513';
-        const moneyLabel = `金貨: ${player.money} 枚`;
-        ctx.fillText(moneyLabel, shopX + shopW - 40, shopY + 55);
+        ctx.fillStyle = '#ffd96b';
+        const moneyLabel = `小判: ${player.money}`;
+        ctx.fillText(moneyLabel, shopX + shopW - 32, shopY + 55);
 
         this.items.forEach((item, i) => {
             const y = shopY + 130 + i * 65;
@@ -233,40 +233,40 @@ export class Shop {
             const isPurchased = this.purchasedSkills.has(item.id);
             
             if (isSelected) {
-                ctx.fillStyle = 'rgba(210, 105, 30, 0.2)';
+                ctx.fillStyle = 'rgba(76, 122, 220, 0.38)';
                 ctx.fillRect(shopX + 30, y - 25, shopW - 60, 65);
-                ctx.strokeStyle = '#d2691e';
+                ctx.strokeStyle = 'rgba(196, 219, 255, 0.88)';
                 ctx.lineWidth = 2;
                 ctx.strokeRect(shopX + 30, y - 25, shopW - 60, 65);
-                ctx.fillStyle = '#d2691e';
-                ctx.font = '24px serif';
+                ctx.fillStyle = 'rgba(205, 228, 255, 0.95)';
+                ctx.font = '700 22px sans-serif';
                 ctx.textAlign = 'center';
-                ctx.fillText('◆', shopX + 55, y + 8);
+                ctx.fillText('◆', shopX + 55, y + 6);
             }
             
             ctx.textAlign = 'left';
-            ctx.fillStyle = isPurchased ? '#888' : (isSelected ? '#cc4400' : '#333');
-            ctx.font = 'bold 22px serif';
+            ctx.fillStyle = isPurchased ? 'rgba(155, 169, 198, 0.7)' : (isSelected ? '#ffffff' : 'rgba(232, 241, 255, 0.93)');
+            ctx.font = '700 22px sans-serif';
             ctx.fillText(item.name, shopX + 80, y + 8);
             
             ctx.textAlign = 'right';
-            ctx.fillStyle = isPurchased ? '#888' : '#8b0000';
-            ctx.font = 'bold 20px serif';
+            ctx.fillStyle = isPurchased ? 'rgba(155, 169, 198, 0.7)' : '#ffdb73';
+            ctx.font = '700 20px sans-serif';
             const priceText = isPurchased ? '済' : `${item.price} 枚`;
             ctx.fillText(priceText, shopX + shopW - 60, y + 8);
             
             ctx.textAlign = 'left';
-            ctx.fillStyle = isPurchased ? '#aaa' : '#666';
-            ctx.font = '14px serif';
+            ctx.fillStyle = isPurchased ? 'rgba(151, 164, 190, 0.7)' : 'rgba(200, 216, 247, 0.82)';
+            ctx.font = '500 14px sans-serif';
             ctx.fillText(item.description, shopX + 80, y + 30);
         });
         
         if (this.message) {
-            ctx.fillStyle = 'rgba(139, 0, 0, 0.9)';
+            ctx.fillStyle = 'rgba(27, 39, 75, 0.88)';
             const msgY = shopY + shopH - 120; // ボタンとかぶらないように上に移動
             ctx.fillRect(shopX + 50, msgY - 25, shopW - 100, 40);
-            ctx.fillStyle = '#fff';
-            ctx.font = 'bold 20px serif';
+            ctx.fillStyle = '#f0f6ff';
+            ctx.font = '700 20px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText(this.message, CANVAS_WIDTH / 2, msgY + 4);
         }
@@ -274,9 +274,9 @@ export class Shop {
         // タップ用ボタン群
         const footerY = shopY + shopH - 60;
         // 購入ボタン
-        drawFlatButton(ctx, shopX + shopW/2 - 80, footerY, 140, 50, 'Z: 購入', 'rgba(150, 50, 0, 0.6)');
-        // 進むボタン
-        drawFlatButton(ctx, shopX + shopW/2 + 80, footerY, 140, 50, 'X: 進む', 'rgba(50, 50, 50, 0.6)');
+        drawFlatButton(ctx, shopX + shopW/2 - 80, footerY, 140, 50, 'Z: 購入', 'rgba(68, 114, 206, 0.58)');
+        // 戻るボタン
+        drawFlatButton(ctx, shopX + shopW/2 + 80, footerY, 140, 50, 'X: 戻る', 'rgba(45, 57, 94, 0.65)');
         
         ctx.restore();
     }

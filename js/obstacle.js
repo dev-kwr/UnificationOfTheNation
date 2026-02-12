@@ -153,13 +153,13 @@ export class Rock extends Obstacle {
     
     renderBody(ctx) {
         const cx = this.x + this.width / 2;
-        const cy = this.y + this.height / 2;
+        const cy = this.y + this.height / 2 + 5;
         const r = this.width / 2;
 
         // 接地影
-        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.fillStyle = 'rgba(0,0,0,0.22)';
         ctx.beginPath();
-        ctx.ellipse(cx, this.y + this.height + 2, r * 0.7, 4, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx, this.y + this.height + 3, r * 0.72, 4.2, 0, 0, Math.PI * 2);
         ctx.fill();
 
         // 外形（多角形）
