@@ -2,8 +2,8 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { COLORS, GRAVITY } from './constants.js?v=41';
-import { audio } from './audio.js?v=41';
+import { COLORS, GRAVITY } from './constants.js?v=42';
+import { audio } from './audio.js?v=42';
 
 // 爆弾クラス
 export class Bomb {
@@ -374,7 +374,7 @@ export class Spear extends SubWeapon {
     }
     
     render(ctx, player) {
-        if (!this.isAttacking) return;
+        if (!this.isAttacking && (!player || !player.forceSubWeaponRender)) return;
 
         const st = this.getThrustState(player);
         const tasselSwing = Math.sin(st.progress * Math.PI * 3) * 5;
@@ -1273,7 +1273,7 @@ export class Kusarigama extends SubWeapon {
     }
     
     render(ctx, player) {
-        if (!this.isAttacking) return;
+        if (!this.isAttacking && (!player || !player.forceSubWeaponRender)) return;
 
         const st = this.getRenderState(player);
         if (st.radius < 4) return;

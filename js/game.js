@@ -2,16 +2,16 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON } from './constants.js?v=41';
-import { input } from './input.js?v=41';
-import { Player } from './player.js?v=41';
-import { createSubWeapon } from './weapon.js?v=41';
-import { Stage } from './stage.js?v=41';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding } from './ui.js?v=41';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit, checkPlayerAttackHit, checkSpecialHit, checkExplosionHit } from './collision.js?v=41';
-import { saveManager } from './save.js?v=41';
-import { shop } from './shop.js?v=41';
-import { audio } from './audio.js?v=41';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON } from './constants.js?v=42';
+import { input } from './input.js?v=42';
+import { Player } from './player.js?v=42';
+import { createSubWeapon } from './weapon.js?v=42';
+import { Stage } from './stage.js?v=42';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding } from './ui.js?v=42';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit, checkPlayerAttackHit, checkSpecialHit, checkExplosionHit } from './collision.js?v=42';
+import { saveManager } from './save.js?v=42';
+import { shop } from './shop.js?v=42';
+import { audio } from './audio.js?v=42';
 
 class Game {
     constructor() {

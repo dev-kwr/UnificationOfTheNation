@@ -2,10 +2,10 @@
 // Unification of the Nation - プレイヤークラス
 // ============================================
 
-import { PLAYER, GRAVITY, FRICTION, CANVAS_WIDTH, CANVAS_HEIGHT, COLORS } from './constants.js?v=41';
-import { input } from './input.js?v=41';
-import { audio } from './audio.js?v=41';
-import { game } from './game.js?v=41';
+import { PLAYER, GRAVITY, FRICTION, CANVAS_WIDTH, CANVAS_HEIGHT, COLORS } from './constants.js?v=42';
+import { input } from './input.js?v=42';
+import { audio } from './audio.js?v=42';
+import { game } from './game.js?v=42';
 
 // アニメーション状態
 const ANIM_STATE = {

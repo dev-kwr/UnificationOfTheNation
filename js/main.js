@@ -2,7 +2,7 @@
 // Unification of the Nation - メインエントリーポイント
 // ============================================
 
-import { game } from './game.js?v=41';
+import { game } from './game.js?v=42';
 
 // DOMロード後に初期化
 window.addEventListener('DOMContentLoaded', () => {
