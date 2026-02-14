@@ -2,8 +2,8 @@
 // Unification of the Nation - 入力管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, KEYS, VIRTUAL_PAD } from './constants.js?v=48';
-import { audio } from './audio.js?v=48';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, KEYS, VIRTUAL_PAD } from './constants.js?v=53';
+import { audio } from './audio.js?v=53';
 
 class InputManager {
     constructor() {

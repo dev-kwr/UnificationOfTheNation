@@ -2,8 +2,8 @@
 // Unification of the Nation - 障害物クラス
 // ============================================
 
-import { OBSTACLE_TYPES, OBSTACLE_SETTINGS, COLORS } from './constants.js?v=48';
-import { audio } from './audio.js?v=48';
+import { OBSTACLE_TYPES, OBSTACLE_SETTINGS, COLORS } from './constants.js?v=53';
+import { audio } from './audio.js?v=53';
 
 // 障害物基底クラス
 export class Obstacle {

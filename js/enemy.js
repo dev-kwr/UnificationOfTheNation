@@ -2,8 +2,8 @@
 // Unification of the Nation - 敵クラス
 // ============================================
 
-import { ENEMY_TYPES, COLORS, GRAVITY, CANVAS_WIDTH } from './constants.js?v=48';
-import { audio } from './audio.js?v=48';
+import { ENEMY_TYPES, COLORS, GRAVITY, CANVAS_WIDTH } from './constants.js?v=53';
+import { audio } from './audio.js?v=53';
 
 const ENEMY_HEADBAND_BASE = '#4f2f72';
 const ENEMY_HEADBAND_HIGHLIGHT = '#7e58a6';

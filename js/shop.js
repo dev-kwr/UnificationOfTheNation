@@ -2,10 +2,10 @@
 // Unification of the Nation - ショップ機能
 // ============================================
 
-import { COLORS, CANVAS_WIDTH, CANVAS_HEIGHT, PLAYER } from './constants.js?v=48';
-import { input } from './input.js?v=48';
-import { audio } from './audio.js?v=48';
-import { drawFlatButton } from './ui.js?v=48';
+import { COLORS, CANVAS_WIDTH, CANVAS_HEIGHT, PLAYER } from './constants.js?v=53';
+import { input } from './input.js?v=53';
+import { audio } from './audio.js?v=53';
+import { drawFlatButton } from './ui.js?v=53';
 
 // ショップアイテム
 const SHOP_ITEMS = [

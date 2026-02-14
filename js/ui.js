@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD } from './constants.js?v=54';
-import { input } from './input.js?v=54';
-import { audio } from './audio.js?v=54';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD } from './constants.js?v=53';
+import { input } from './input.js?v=53';
+import { audio } from './audio.js?v=53';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | D：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const PAD_ICON_PATHS = {
