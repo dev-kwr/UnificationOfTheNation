@@ -36,11 +36,11 @@ export class Obstacle {
     }
     
     takeDamage(amount) {
-        if (this.hp <= 0 || this.hitTimer > 0) return false; // 破壊不可・既に破壊済み・または無敵時間中
+        if (this.hp <= 0 || this.hitTimer > 0) return false;
         
-        this.hp -= amount;
-        this.hitTimer = 100;
-        audio.playDamage(); // 硬い音の方がいいが一旦これで
+        this.hp -= 1; // 常に 1 ダメージ（3回耐える）
+        this.hitTimer = 160; // ヒット時のフラッシュ時間を少し長く
+        audio.playDamage();
         
         if (this.hp <= 0) {
             this.kill();
@@ -152,28 +152,34 @@ export class Rock extends Obstacle {
     }
     
     renderBody(ctx) {
-        const cx = this.x + this.width / 2;
-        const cy = this.y + this.height / 2 + 5;
-        const r = this.width / 2;
+        const cx = this.x + this.width * 0.5;
+        const groundLevel = this.groundY; 
+        const r = this.width * 0.5;
+        const h = this.height * 0.92;
 
-        // 接地影
-        ctx.fillStyle = 'rgba(0,0,0,0.22)';
+        // 1. 接地影
+        ctx.fillStyle = 'rgba(0,0,0,0.38)';
         ctx.beginPath();
-        ctx.ellipse(cx, this.y + this.height + 3, r * 0.72, 4.2, 0, 0, Math.PI * 2);
+        ctx.ellipse(cx, groundLevel + 1.5, r * 1.1, 6, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // 外形（多角形）
-        const pts = [];
-        for (let i = 0; i < 9; i++) {
-            const angle = (i / 9) * Math.PI * 2;
-            const variance = 0.82 + (Math.sin(i * 2.13 + 0.7) * 0.16);
-            pts.push({
-                x: cx + Math.cos(angle) * r * variance,
-                y: cy + Math.sin(angle) * r * variance
-            });
-        }
+        // 2. 岩の形状（底面をフラットに、上部をランダムな多角形に）
+        const pts = [
+            { x: cx + r * 0.9, y: groundLevel },   // 右下
+            { x: cx - r * 0.9, y: groundLevel },   // 左下
+            { x: cx - r * 1.1, y: groundLevel - h * 0.35 }, // 左中
+            { x: cx - r * 0.6, y: groundLevel - h * 0.85 }, // 左上
+            { x: cx + r * 0.2, y: groundLevel - h * 0.98 }, // 真上
+            { x: cx + r * 0.8, y: groundLevel - h * 0.55 }, // 右中
+        ];
 
-        ctx.fillStyle = '#5f636a';
+        // グラデーション質感
+        const grad = ctx.createLinearGradient(cx - r, groundLevel - h, cx + r, groundLevel);
+        grad.addColorStop(0, '#808890');
+        grad.addColorStop(0.5, '#5a6068');
+        grad.addColorStop(1, '#3a4048');
+        ctx.fillStyle = grad;
+
         ctx.beginPath();
         ctx.moveTo(pts[0].x, pts[0].y);
         for (let i = 1; i < pts.length; i++) {
@@ -182,55 +188,50 @@ export class Rock extends Obstacle {
         ctx.closePath();
         ctx.fill();
 
-        // 面分け（2Dセル感）
-        ctx.fillStyle = '#4f535a';
+        // 3. 立体感：エッジハイライト
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+        ctx.lineWidth = 1.6;
         ctx.beginPath();
-        ctx.moveTo(cx - r * 0.55, cy - r * 0.1);
-        ctx.lineTo(cx - r * 0.1, cy - r * 0.5);
-        ctx.lineTo(cx + r * 0.32, cy - r * 0.1);
-        ctx.lineTo(cx - r * 0.05, cy + r * 0.22);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.fillStyle = '#757b84';
-        ctx.beginPath();
-        ctx.moveTo(cx - r * 0.15, cy - r * 0.58);
-        ctx.lineTo(cx + r * 0.4, cy - r * 0.32);
-        ctx.lineTo(cx + r * 0.1, cy - r * 0.02);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.strokeStyle = '#373b42';
-        ctx.lineWidth = 1.4;
-        ctx.beginPath();
-        ctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length; i++) {
-            ctx.lineTo(pts[i].x, pts[i].y);
-        }
-        ctx.closePath();
+        ctx.moveTo(pts[2].x, pts[2].y);
+        ctx.lineTo(pts[3].x, pts[3].y);
+        ctx.lineTo(pts[4].x, pts[4].y);
         ctx.stroke();
-        
-        // ひび割れ演出（HPの減少に応じて増える）
+
+        // 亀裂と陰影
+        ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(pts[4].x, pts[4].y);
+        ctx.lineTo(cx - r * 0.1, groundLevel - h * 0.45);
+        ctx.lineTo(pts[2].x, pts[2].y);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(cx - r * 0.1, groundLevel - h * 0.45);
+        ctx.lineTo(pts[5].x, pts[5].y);
+        ctx.stroke();
+
+        // ひび割れ演出（3段階）
         if (this.hp < this.maxHp) {
-            const damageRatio = 1 - (this.hp / this.maxHp);
-            ctx.strokeStyle = '#2b2f35';
-            ctx.lineWidth = 1.8;
+            ctx.strokeStyle = 'rgba(20,20,22,0.75)';
+            ctx.lineWidth = 1.6;
             ctx.beginPath();
             
-            // 1段階目のヒビ
-            if (damageRatio > 0.1) {
-                ctx.moveTo(cx - 14, cy - 10); ctx.lineTo(cx + 5, cy + 6);
-                ctx.moveTo(cx + 10, cy - 14); ctx.lineTo(cx - 4, cy + 9);
+            // 1発目：小さなヒビ
+            if (this.hp <= 2) {
+                ctx.moveTo(cx - 10, groundLevel - h * 0.7); 
+                ctx.lineTo(cx - 2, groundLevel - h * 0.55);
+                ctx.lineTo(cx - 8, groundLevel - h * 0.4);
             }
-            // 2段階目のヒビ
-            if (damageRatio > 0.4) {
-                ctx.moveTo(cx - 19, cy + 4); ctx.lineTo(cx - 5, cy - 4);
-                ctx.moveTo(cx + 14, cy + 10); ctx.lineTo(cx + 4, cy - 10);
-            }
-            // 3段階目のヒビ（ボロボロ）
-            if (damageRatio > 0.7) {
-                ctx.moveTo(cx - 10, cy + 15); ctx.lineTo(cx + 10, cy - 15);
-                ctx.moveTo(cx + 20, cy); ctx.lineTo(cx - 20, cy);
+            // 2発目：大きなヒビの追加
+            if (this.hp <= 1) {
+                ctx.moveTo(cx + 12, groundLevel - h * 0.82);
+                ctx.lineTo(cx + 3, groundLevel - h * 0.5);
+                ctx.lineTo(cx + 10, groundLevel - h * 0.25);
+                
+                // 真ん中を繋ぐヒビ
+                ctx.moveTo(cx - 2, groundLevel - h * 0.55);
+                ctx.lineTo(cx + 3, groundLevel - h * 0.5);
             }
             ctx.stroke();
         }

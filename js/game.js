@@ -7,7 +7,7 @@ import { input } from './input.js';
 import { Player } from './player.js';
 import { createSubWeapon } from './weapon.js';
 import { Stage } from './stage.js';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStageClearScreen, renderLevelUpChoiceScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding } from './ui.js';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStageClearScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding } from './ui.js';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit, checkPlayerAttackHit, checkSpecialHit, checkExplosionHit } from './collision.js';
 import { saveManager } from './save.js';
 import { shop } from './shop.js';
@@ -79,11 +79,14 @@ class Game {
         this.stageClearWeaponIndex = 0;
         this.returnToStageClearAfterShop = false;
         this.playerDefeatTimer = 0;
-        this.playerDefeatDuration = 980;
+        this.playerDefeatDuration = 3500; // 0.98s -> 3.5s に大幅延長
         this.titleDebugOpen = false;
         this.titleDebugCursor = 0;
         this.titleDebugApplyOnStart = false;
         this.titleDebugConfig = this.createTitleDebugConfig();
+        this.debugKeyRepeatTimer = 0;
+        this.stageClearPhase = 0; // 0: 演出(Announce), 1: 詳細ステータス
+        this.levelUpChoices = []; // 選択肢リストを明示的に初期化
     }
     
     init(canvas) {
@@ -217,7 +220,10 @@ class Game {
             items: {
                 triple_jump: false,
                 quad_jump: false,
-                speed_up: false
+                speed_up: false,
+                hp_boost: 0,
+                atk_boost: 0,
+                permanent_max_special: false
             }
         };
     }
@@ -270,14 +276,6 @@ class Game {
                 change: (delta) => { cfg.specialClone = clamp(cfg.specialClone + delta, 0, 3); }
             },
             {
-                label: '開始小判',
-                getValue: () => `${cfg.money}`,
-                change: (delta) => {
-                    const step = 100;
-                    cfg.money = clamp(cfg.money + delta * step, 0, 9999);
-                }
-            },
-            {
                 label: '開始装備',
                 getValue: () => cfg.startWeapon,
                 change: (delta) => {
@@ -322,6 +320,27 @@ class Game {
                 change: () => { cfg.items.speed_up = !cfg.items.speed_up; }
             },
             {
+                label: 'アイテム:体力増強',
+                getValue: () => `+ ${this.titleDebugConfig.items.hp_boost * 5}`,
+                change: (delta) => { 
+                    this.titleDebugConfig.items.hp_boost = Math.max(0, Math.min(8, (this.titleDebugConfig.items.hp_boost || 0) + delta)); 
+                }
+            },
+            {
+                label: 'アイテム:剛力の秘術',
+                getValue: () => `Lv ${this.titleDebugConfig.items.atk_boost}`,
+                change: (delta) => { 
+                    this.titleDebugConfig.items.atk_boost = Math.max(0, Math.min(3, (this.titleDebugConfig.items.atk_boost || 0) + delta)); 
+                }
+            },
+            {
+                label: '奥義常時MAX',
+                getValue: () => (this.titleDebugConfig.items.permanent_max_special ? '有効' : '無効'),
+                change: () => { 
+                    this.titleDebugConfig.items.permanent_max_special = !this.titleDebugConfig.items.permanent_max_special; 
+                }
+            },
+            {
                 label: 'デバッグ設定で開始',
                 getValue: () => 'ENTER',
                 action: () => {
@@ -343,8 +362,19 @@ class Game {
         this.player.progression.specialClone = Math.max(0, Math.min(3, cfg.specialClone || 0));
         if (typeof this.player.rebuildSpecialCloneSlots === 'function') this.player.rebuildSpecialCloneSlots();
         if (typeof this.player.refreshSubWeaponScaling === 'function') this.player.refreshSubWeaponScaling();
+        
+        // 追加ステータス反映
+        this.player.maxHp += (cfg.items.hp_boost || 0) * 5;
+        this.player.hp = this.player.maxHp;
+        
+        const atkMultipliers = [1.0, 1.2, 1.5, 2.0];
+        const atkIdx = Math.max(0, Math.min(3, cfg.items.atk_boost || 0));
+        this.player.baseAttackPower = 1; // 基準値
+        this.player.attackPower = this.player.baseAttackPower * atkMultipliers[atkIdx];
+        this.player.atkLv = atkIdx;
+
         if (typeof this.player.setMoney === 'function') this.player.setMoney(cfg.money || 0);
-        else this.player.money = Math.max(0, Math.min(9999, Math.floor(cfg.money || 0)));
+        else this.player.money = Math.max(0, Math.min(this.player.maxMoney || 9999, Math.floor(cfg.money || 0)));
 
         const ownedWeapons = this.getTitleDebugWeaponNames().filter((weapon) => cfg.ownedWeapons[weapon]);
         const weaponPool = ownedWeapons.length > 0 ? ownedWeapons : ['火薬玉'];
@@ -489,6 +519,8 @@ class Game {
         this.returnToStageClearAfterShop = false;
         this.playerDefeatTimer = 0;
         this.collisionManager.reset();
+        this.pendingStageClear = false;
+        this.stageClearTransitionTimer = 0;
         
         // スクロール位置初期化
         this.scrollX = 0;
@@ -507,6 +539,9 @@ class Game {
         if (this.hitStopTimer > 0) {
             this.hitStopTimer -= rawDeltaTime * 1000;
             this.deltaTime = 0; // 時間を止める
+        } else if (this.state === GAME_STATE.DEFEAT) {
+            // 敗北中はスローモーション (30% の速度)
+            this.deltaTime = rawDeltaTime * 0.3;
         } else {
             this.deltaTime = rawDeltaTime;
         }
@@ -570,13 +605,6 @@ class Game {
     
     updateTitle() {
         this.hasSave = saveManager.hasSave();
-        if (input.keysJustPressed?.KeyD) {
-            this.titleDebugOpen = !this.titleDebugOpen;
-            const count = this.getTitleDebugEntries().length;
-            this.titleDebugCursor = Math.max(0, Math.min(count - 1, this.titleDebugCursor));
-            audio.playSelect();
-            return;
-        }
         if (this.titleDebugOpen) {
             this.updateTitleDebug();
             return;
@@ -650,8 +678,18 @@ class Game {
                  audio.playBgm('title');
             }
 
+            const tX = input.lastTouchX;
             const tY = input.lastTouchY;
             const cy = CANVAS_HEIGHT / 2;
+
+            // 右下コーナータッチでデバッグウィンドウ開閉
+            if (tX > CANVAS_WIDTH - 120 && tY > CANVAS_HEIGHT - 100) {
+                this.titleDebugOpen = !this.titleDebugOpen;
+                const count = this.getTitleDebugEntries().length;
+                this.titleDebugCursor = Math.max(0, Math.min(count - 1, this.titleDebugCursor));
+                audio.playSelect();
+                return;
+            }
             
             // 難易度変更エリア判定
             const diffY = this.hasSave ? cy + 170 : cy + 120;
@@ -701,34 +739,100 @@ class Game {
         if (!entries.length) return;
         this.titleDebugCursor = Math.max(0, Math.min(entries.length - 1, this.titleDebugCursor));
 
-        if (input.isActionJustPressed('UP')) {
+        const actions = ['UP', 'DOWN', 'LEFT', 'RIGHT', 'JUMP', 'PAUSE'];
+        let activeAction = null;
+        for (const action of actions) {
+            if (input.isAction(action)) {
+                activeAction = action;
+                break;
+            }
+        }
+
+        if (activeAction) {
+            const isJustPressed = input.isActionJustPressed(activeAction);
+            const deltaMs = this.deltaTime * 1000;
+
+            if (isJustPressed) {
+                this.executeTitleDebugAction(activeAction, entries);
+                this.debugKeyRepeatTimer = 400; // 初回待機時間
+            } else {
+                this.debugKeyRepeatTimer -= deltaMs;
+                if (this.debugKeyRepeatTimer <= 0) {
+                    this.executeTitleDebugAction(activeAction, entries);
+                    this.debugKeyRepeatTimer = 60; // リピート間隔
+                }
+            }
+        } else {
+            this.debugKeyRepeatTimer = 0;
+        }
+
+        // タッチ操作対応
+        if (input.touchJustPressed) {
+            this.handleTitleDebugTouch(entries);
+        }
+    }
+
+    executeTitleDebugAction(action, entries) {
+        if (action === 'UP') {
             this.titleDebugCursor = (this.titleDebugCursor - 1 + entries.length) % entries.length;
             audio.playSelect();
-            return;
-        }
-        if (input.isActionJustPressed('DOWN')) {
+        } else if (action === 'DOWN') {
             this.titleDebugCursor = (this.titleDebugCursor + 1) % entries.length;
             audio.playSelect();
-            return;
-        }
-        if (input.isActionJustPressed('LEFT')) {
+        } else if (action === 'LEFT') {
             entries[this.titleDebugCursor].change?.(-1);
             audio.playSelect();
-            return;
-        }
-        if (input.isActionJustPressed('RIGHT')) {
+        } else if (action === 'RIGHT') {
             entries[this.titleDebugCursor].change?.(1);
             audio.playSelect();
-            return;
-        }
-        if (input.isActionJustPressed('JUMP') || input.isActionJustPressed('ATTACK')) {
+        } else if (action === 'JUMP') {
             const selected = entries[this.titleDebugCursor];
             if (selected.action) selected.action();
             else selected.change?.(1);
             audio.playSelect();
-            return;
+        } else if (action === 'PAUSE') {
+            this.titleDebugOpen = false;
+            audio.playSelect();
         }
-        if (input.isActionJustPressed('PAUSE')) {
+    }
+
+    handleTitleDebugTouch(entries) {
+        const tX = input.lastTouchX;
+        const tY = input.lastTouchY;
+
+        // ui.js (renderTitleDebugWindow) の定数と完全に同期させる
+        const panelW = 520;
+        const panelX = CANVAS_WIDTH - panelW - 34;
+        const panelY = 70;
+        const rowH = 34; 
+        const headerH = 100;
+        const listStartY = panelY + 120; // ui.js L1089 と同じ
+        const entriesCount = entries.length;
+        const panelH = headerH + 10 + entriesCount * rowH + 20; // ui.js L1053 と同じ
+
+        if (tX >= panelX && tX <= panelX + panelW && tY >= panelY && tY <= panelY + panelH) {
+            // リスト範囲内での判定
+            const relativeY = tY - listStartY;
+            const index = Math.floor((relativeY + rowH / 2) / rowH); // 中央基準でヒット判定
+
+            if (index >= 1 && index <= entries.length) { // 1-indexed的挙動だが0基点へ
+                const finalIndex = index - 1;
+                if (finalIndex >= 0 && finalIndex < entries.length) {
+                    this.titleDebugCursor = finalIndex;
+                    const selected = entries[finalIndex];
+                    
+                    // 行の右側タップで増加/アクション、左側タップで減少（アクション以外）
+                    const midX = panelX + panelW / 2;
+                    if (selected.action) {
+                        selected.action();
+                    } else {
+                        selected.change?.(tX >= midX ? 1 : -1);
+                    }
+                    audio.playSelect();
+                }
+            }
+        } else {
+            // パネル外クリックで閉じる
             this.titleDebugOpen = false;
             audio.playSelect();
         }
@@ -819,6 +923,7 @@ class Game {
         // ポーズ
         if (input.isActionJustPressed('PAUSE')) {
             this.state = GAME_STATE.PAUSED;
+            audio.pauseBgm();
             return;
         }
         
@@ -919,9 +1024,28 @@ class Game {
         
         // ステージクリアチェック
         if (this.stage.isCleared()) {
-            this.onStageClear();
+            if (!this.pendingStageClear) {
+                this.pendingStageClear = true;
+                this.stageClearTransitionTimer = 1.0; // 1秒かけて暗転
+            }
         }
         
+        if (this.pendingStageClear) {
+            this.stageClearTransitionTimer -= this.deltaTime;
+            if (this.stageClearTransitionTimer <= 0) {
+                // 完全に暗転したら遷移
+                this.onStageClear();
+                this.pendingStageClear = false;
+                // 次のシーンのフェードインを開始
+                this.startTransition(); 
+            }
+        }
+        
+        // 奥義常時MAX
+        if (this.titleDebugConfig.items.permanent_max_special && this.player) {
+            this.player.specialGauge = this.player.maxSpecialGauge;
+        }
+
         // ゲームオーバーチェック
         if (this.player.hp <= 0) {
             this.beginPlayerDefeat();
@@ -932,8 +1056,9 @@ class Game {
         this.bombs = this.bombs.filter((bomb, index) => {
             bomb.update(this.deltaTime, this.groundY, enemies);
             
-            // 爆発中の敵へのダメージ
+            // 爆発中の判定
             if (bomb.isExploding) {
+                // 敵へのダメージ
                 for (const enemy of enemies) {
                     if (this.collisionManager.checkAndRegisterBombHit(bomb, enemy, bomb.id)) {
                         this.damageEnemy(enemy, bomb.damage, {
@@ -941,6 +1066,23 @@ class Game {
                             knockbackX: 8,
                             knockbackY: -6
                         });
+                    }
+                }
+                
+                // 障害物へのダメージ（岩など）
+                const obstacles = this.stage.getObstacles();
+                for (const obs of obstacles) {
+                    if (obs.type === OBSTACLE_TYPES.ROCK && !obs.isDestroyed) {
+                        // 爆発の中心点と障害物の距離をチェック
+                        const dx = (obs.x + obs.width / 2) - bomb.x;
+                        const dy = (obs.y + obs.height / 2) - bomb.y;
+                        const distSq = dx * dx + dy * dy;
+                        const rangeSq = bomb.explosionRadius * bomb.explosionRadius;
+                        
+                        // 爆発範囲内かつ未登録（1回の爆発で多段ヒットしないよう管理が必要な場合もあるが、岩はHPが低いため簡易処理）
+                        if (distSq < rangeSq) {
+                            obs.takeDamage(1);
+                        }
                     }
                 }
             }
@@ -1080,24 +1222,45 @@ class Game {
                 }
             }
 
-            // 分身の通常攻撃判定（本体と同じ武器軌道）
-            const attackHitbox = this.player.getAttackHitbox ? this.player.getAttackHitbox() : null;
-            if (cloneActive && attackHitbox) {
-                const attackHitboxes = Array.isArray(attackHitbox) ? attackHitbox : [attackHitbox];
-                for (const clone of cloneOffsets) {
-                    const shiftedList = attackHitboxes.map((box) => ({
-                        x: box.x + clone.dx,
-                        y: box.y + clone.dy,
-                        width: box.width,
-                        height: box.height
-                    }));
-                    for (const enemy of activeEnemies) {
-                        if (shiftedList.some((shifted) => this.rectIntersects(shifted, enemy))) {
-                            const damage = this.buildPlayerAttackDamage();
-                            this.damageEnemy(enemy, damage, {
-                                ...(this.player.currentAttack || { source: 'main' }),
-                                source: 'special_shadow'
-                            });
+            // 分身の通常攻撃判定 (独立AI)
+            if (cloneActive) {
+                const anchors = this.player.calculateSpecialCloneAnchors(this.player.x + this.player.width / 2, this.player.y + this.player.height * 0.62);
+                
+                for (let i = 0; i < this.player.specialCloneSlots.length; i++) {
+                    if (!this.player.specialCloneAlive[i]) continue;
+                    
+                    const attackTimer = this.player.specialCloneAttackTimers[i] || 0;
+                    if (attackTimer <= 0) continue;
+
+                    const pos = this.player.specialClonePositions[i] || anchors[i];
+                    const facingRight = pos.facingRight;
+                    
+                    // 分身用の状態を作成
+                    const cloneState = {
+                        x: pos.x - this.player.width / 2,
+                        y: pos.y - this.player.height * 0.62,
+                        facingRight: facingRight,
+                        isAttacking: true,
+                        currentAttack: {
+                            comboStep: (this.player.specialCloneComboSteps[i] || 0) + 1,
+                            durationMs: 420,
+                            range: 90 // デフォルト範囲
+                        },
+                        attackTimer: attackTimer,
+                        isCrouching: false
+                    };
+
+                    const attackHitbox = this.player.getAttackHitbox({ state: cloneState });
+                    if (attackHitbox) {
+                        const attackHitboxes = Array.isArray(attackHitbox) ? attackHitbox : [attackHitbox];
+                        for (const enemy of activeEnemies) {
+                            if (attackHitboxes.some((box) => this.rectIntersects(box, enemy))) {
+                                const damage = this.buildPlayerAttackDamage(); // 基本ダメージ計算
+                                this.damageEnemy(enemy, damage, {
+                                    source: 'special_shadow',
+                                    comboStep: cloneState.currentAttack.comboStep
+                                });
+                            }
                         }
                     }
                 }
@@ -1108,19 +1271,7 @@ class Game {
             this.lastAttackSignature = null;
         }
         
-        // 障害物 (罠) vs プレイヤー
-        for (const obs of this.stage.obstacles) {
-            if (!obs.isDestroyed && this.rectIntersects(this.player, obs)) {
-                if (obs.damage > 0 && this.player.invincibleTimer <= 0) {
-                    if (this.handleSpikeDamage(obs.damage, obs.x + obs.width / 2, {
-                        knockbackX: 7,
-                        knockbackY: -10
-                    })) {
-                        return;
-                    }
-                }
-            }
-        }
+        // (以前ここにあった障害物判定は下部の統合セクションへ移動)
         
         // サブ武器 vs 敵
         const subWeapon = this.player.currentSubWeapon;
@@ -1132,22 +1283,31 @@ class Game {
                 const baseSubProfile = this.buildSubWeaponAttackProfile(subWeapon, 'subweapon');
                 const cloneSubProfile = this.buildSubWeaponAttackProfile(subWeapon, 'special_shadow');
                 
+                // 火薬玉の爆発チェック (subWeaponAction === 'bomb' かつ爆発判定が出ている場合)
+                // getHitboxが爆風を返している前提だが、念のため岩破壊力を高めに設定
+                const isBomb = this.player.subWeaponAction === 'bomb';
+                
                 for (const hitbox of hitboxes) {
+                    // 敵へのダメージ
                     for (const enemy of activeEnemies) {
                         if (this.rectIntersects(hitbox, enemy)) {
-                            this.damageEnemy(
-                                enemy,
-                                baseSubProfile.damage,
-                                { ...baseSubProfile.attackData }
-                            );
-                            
-                            // 飛ぶ斬撃（移動物）の場合は、当たったら消える処理が必要な場合があるが、
-                            // 現状の簡易実装では多段ヒットを許容するか、あるいはヒット済みフラグを管理。
-                            // ここでは簡易的にダメージのみ。
+                            this.damageEnemy(enemy, baseSubProfile.damage, { ...baseSubProfile.attackData });
                         }
                     }
 
-                    // 分身のサブ武器判定（本体と同じ武器）
+                    // 岩へのダメージ（判定を確実に行う）
+                    // 爆弾なら一撃で破壊できるようにダメージを大きく
+                    let rockDamage = Math.max(1, Math.floor(subWeapon.damage * 0.45) || 1);
+                    if (isBomb) rockDamage = 50; // 爆弾なら即破壊
+
+                    for (const obs of this.stage.obstacles) {
+                        if (obs.isDestroyed || obs.type !== OBSTACLE_TYPES.ROCK) continue;
+                        if (this.rectIntersects(hitbox, obs)) {
+                            obs.takeDamage(rockDamage);
+                        }
+                    }
+
+                    // 分身のサブ武器判定
                     if (cloneActive) {
                         for (const clone of cloneOffsets) {
                             const shifted = {
@@ -1158,24 +1318,16 @@ class Game {
                             };
                             for (const enemy of activeEnemies) {
                                 if (this.rectIntersects(shifted, enemy)) {
-                                    this.damageEnemy(
-                                        enemy,
-                                        cloneSubProfile.damage,
-                                        { ...cloneSubProfile.attackData }
-                                    );
+                                    this.damageEnemy(enemy, cloneSubProfile.damage, { ...cloneSubProfile.attackData });
                                 }
                             }
-                        }
-                    }
-                }
-
-                // サブ武器 vs 岩（武器ごとに少し重みをつける）
-                const rockDamage = Math.max(2, Math.floor(subWeapon.damage * 0.35));
-                for (const hitbox of hitboxes) {
-                    for (const obs of this.stage.obstacles) {
-                        if (obs.isDestroyed || obs.type !== OBSTACLE_TYPES.ROCK) continue;
-                        if (this.rectIntersects(hitbox, obs)) {
-                            obs.takeDamage(rockDamage);
+                            // 分身の攻撃でも岩を壊せるように
+                            for (const obs of this.stage.obstacles) {
+                                if (obs.isDestroyed || obs.type !== OBSTACLE_TYPES.ROCK) continue;
+                                if (this.rectIntersects(shifted, obs)) {
+                                    obs.takeDamage(rockDamage);
+                                }
+                            }
                         }
                     }
                 }
@@ -1241,56 +1393,40 @@ class Game {
         }
 
         
-        // 障害物判定
+        // 統合された障害物判定 (罠・岩)
         for (const obs of this.stage.obstacles) {
             if (obs.isDestroyed) continue;
 
-            // 攻撃ヒット (Rockのみ)
-            if (obs.type === OBSTACLE_TYPES.ROCK) {
-                if (this.player.isAttacking) {
-                    const hitbox = this.player.getAttackHitbox();
-                    const hitboxes = Array.isArray(hitbox) ? hitbox : (hitbox ? [hitbox] : []);
-                    if (hitboxes.some((hb) => this.rectIntersects(hb, obs))) {
-                        obs.takeDamage(2);
+            // プレイヤーとの衝突判定（棘ダメージ & 岩の押し戻し）
+            // 判定を広めるため、player オブジェクトそのものを渡す（マージンなし）
+            if (this.rectIntersects(this.player, obs)) {
+                if (obs.type === OBSTACLE_TYPES.SPIKE) {
+                    // 棘：無敵中でなければダメージ
+                    if (this.player.invincibleTimer <= 0) {
+                        if (this.handleSpikeDamage(obs.damage || 2, obs.x + obs.width / 2, {
+                            knockbackX: 7,
+                            knockbackY: -10
+                        })) {
+                            return;
+                        }
                     }
+                } else if (obs.type === OBSTACLE_TYPES.ROCK) {
+                    // 岩：物理的な壁として押し戻す
+                    p.vx = 0;
                 }
             }
 
-            // 接触判定
-            const p = this.player;
-            const hitRect = {
-                x: p.x + 5,
-                y: p.y + 5,
-                width: p.width - 10,
-                height: p.height - 10
-            };
-            
-            if (this.rectIntersects(hitRect, obs)) {
-                if (obs.type === OBSTACLE_TYPES.SPIKE) {
-                    // 棘：ダメージを与える
-                    if (this.handleSpikeDamage(obs.damage, obs.x + obs.width / 2, {
-                        knockbackX: 6,
-                        knockbackY: -9
-                    })) {
-                        return;
-                    }
-                } else if (obs.type === OBSTACLE_TYPES.ROCK) {
-                    // 岩：押し戻す（すり抜け防止）
-                    const playerCenter = p.x + p.width / 2;
-                    const obsCenter = obs.x + obs.width / 2;
-                    
-                    if (playerCenter < obsCenter) {
-                        // プレイヤーが左から来た場合、左に押し戻す
-                        p.x = obs.x - p.width - 1;
-                    } else {
-                        // プレイヤーが右から来た場合、右に押し戻す
-                        p.x = obs.x + obs.width + 1;
-                    }
-                    p.vx = 0;
+            // 岩への通常攻撃(Z)判定（サブ武器以外でも壊せるように）
+            if (obs.type === OBSTACLE_TYPES.ROCK && this.player.isAttacking) {
+                const atkBox = this.player.getAttackHitbox();
+                const boxes = Array.isArray(atkBox) ? atkBox : (atkBox ? [atkBox] : []);
+                if (boxes.some(box => this.rectIntersects(box, obs))) {
+                    obs.takeDamage(1);
                 }
             }
         }
     }
+
 
     isBossEnemy(enemy) {
         if (!enemy) return false;
@@ -1423,7 +1559,7 @@ class Game {
         const playerCenterY = this.player.y + this.player.height * 0.5;
         const pickupRadius = 26;
         const magnetRadius = 120;
-        const groundLimit = this.groundY - 7;
+        const groundLimit = this.groundY - 14;
 
         this.expGems = this.expGems.filter((gem) => {
             gem.lifeMs -= this.deltaTime * 1000;
@@ -1541,6 +1677,7 @@ class Game {
 
     updateLevelUpChoice() {
         const choices = this.getAvailableLevelUpChoices();
+        this.levelUpChoices = choices; // 描画側で確実に参照できるよう毎フレーム更新
         if (choices.length === 0) {
             this.pendingLevelUpChoices = 0;
             this.state = GAME_STATE.PLAYING;
@@ -1586,7 +1723,7 @@ class Game {
             }
         }
 
-        if (input.isActionJustPressed('JUMP') || input.isActionJustPressed('ATTACK') || input.isActionJustPressed('SUB_WEAPON')) {
+        if (input.isActionJustPressed('JUMP')) {
             this.applyLevelUpChoice(choices[this.levelUpChoiceIndex].id);
         }
     }
@@ -1601,17 +1738,27 @@ class Game {
         const baseDamage = Math.max(10, Math.round(12 + (this.player.attackPower || 0) * 2));
         for (const clone of cloneOffsets) {
             if (!this.player.canCloneAutoStrike || !this.player.canCloneAutoStrike(clone.index)) continue;
-            const cloneCenterX = this.player.x + clone.dx + this.player.width * 0.5;
-            const cloneCenterY = this.player.y + clone.dy + this.player.height * 0.5;
+            
+            // player.js側で管理されている分身の個別座標を使用
+            const pos = this.player.specialClonePositions[clone.index];
+            if (!pos) continue;
+            
+            const cloneCenterX = pos.x; 
+            const cloneCenterY = pos.y;
             let target = null;
             let bestDistanceSq = Infinity;
+            
             for (const enemy of activeEnemies) {
                 const enemyCenterX = enemy.x + enemy.width * 0.5;
                 const enemyCenterY = enemy.y + enemy.height * 0.5;
                 const dx = enemyCenterX - cloneCenterX;
                 const dy = enemyCenterY - cloneCenterY;
                 const distSq = dx * dx + dy * dy;
-                if (distSq > 260 * 260) continue;
+                
+                // AIによる移動があるため、攻撃範囲は少し広めに
+                const attackRange = 100; 
+                if (distSq > attackRange * attackRange) continue;
+                
                 if (distSq < bestDistanceSq) {
                     bestDistanceSq = distSq;
                     target = enemy;
@@ -1678,10 +1825,16 @@ class Game {
             const glowColor = isBossGem ? '48, 122, 255' : '18, 168, 108';
             const rim = isBossGem ? 'rgba(188, 222, 255, 0.42)' : 'rgba(178, 255, 214, 0.4)';
             const blinkStartMs = 1300;
-            let alpha = 1;
+            
+            // 基礎パルス：鼓動のようなゆったりとした「溜め」のある周期 (1.4秒周期)
+            const pulseBase = Math.sin(gem.sparklePhase * 1.4);
+            const pulse = 0.5 + 0.5 * (Math.pow(Math.abs(pulseBase), 0.8) * Math.sign(pulseBase));
+            
+            let alpha = 0.85 + 0.15 * pulse; // 0.7 〜 1.0 で呼吸するように
             if (gem.lifeMs <= blinkStartMs) {
-                alpha = Math.sin(gem.lifeMs * 0.035) > 0 ? 1 : 0.22;
+                alpha *= (Math.sin(gem.lifeMs * 0.035) > 0 ? 1 : 0.22);
             }
+            
             const half = gem.size;
             const outer = half;
             const inner = half * 0.53;
@@ -1689,6 +1842,7 @@ class Game {
             ctx.save();
             ctx.globalAlpha = alpha;
             ctx.translate(gem.x, gem.y);
+            // わずかな浮遊感を回転にも
             ctx.rotate(Math.sin(gem.sparklePhase * 0.18) * 0.03);
 
             const gemGradient = ctx.createLinearGradient(-half, -half, half, half);
@@ -1702,9 +1856,9 @@ class Game {
                 gemGradient.addColorStop(1, '#0a6b45');
             }
 
-            const pulse = 0.72 + 0.28 * Math.sin(gem.sparklePhase * 1.6);
-            ctx.shadowColor = `rgba(${glowColor}, ${0.5 + pulse * 0.32})`;
-            ctx.shadowBlur = (isBossGem ? 17 : 14) + pulse * 6;
+            // ほのかな発光：pulse に合わせて光の広がりを動かす
+            ctx.shadowColor = `rgba(${glowColor}, ${0.4 + 0.4 * pulse})`;
+            ctx.shadowBlur = (isBossGem ? 14 : 11) + pulse * 10;
             ctx.fillStyle = gemGradient;
             ctx.beginPath();
             for (let i = 0; i < 8; i++) {
@@ -1722,38 +1876,9 @@ class Game {
             ctx.lineWidth = 1.15;
             ctx.stroke();
 
-            ctx.strokeStyle = 'rgba(255,255,255,0.33)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(-inner * 0.8, -inner * 0.25);
-            ctx.lineTo(inner * 0.7, inner * 0.55);
-            ctx.stroke();
-
-            // ジェム自体のキラキラ（クルクル周回ではなく本体表面の瞬き）
-            const twinkleA = 0.32 + 0.36 * Math.sin(gem.sparklePhase * 3.2);
-            const twinkleB = 0.2 + 0.42 * Math.sin(gem.sparklePhase * 2.3 + 1.4);
-            const starLen = isBossGem ? 5.6 : 4.6;
-            ctx.rotate(Math.sin(gem.sparklePhase * 0.8) * 0.18);
-            ctx.strokeStyle = `rgba(255,255,255,${Math.max(0.08, twinkleA)})`;
-            ctx.lineWidth = 1.2;
-            ctx.beginPath();
-            ctx.moveTo(-starLen, 0);
-            ctx.lineTo(starLen, 0);
-            ctx.moveTo(0, -starLen);
-            ctx.lineTo(0, starLen);
-            ctx.stroke();
-            ctx.strokeStyle = `rgba(255,255,255,${Math.max(0.06, twinkleB)})`;
-            ctx.lineWidth = 0.9;
-            ctx.beginPath();
-            ctx.moveTo(-starLen * 0.7, -starLen * 0.7);
-            ctx.lineTo(starLen * 0.7, starLen * 0.7);
-            ctx.moveTo(starLen * 0.7, -starLen * 0.7);
-            ctx.lineTo(-starLen * 0.7, starLen * 0.7);
-            ctx.stroke();
             ctx.restore();
         }
     }
-
     renderStageBossDefeatEffects(ctx) {
         if (!this.stageBossDefeatEffects || this.stageBossDefeatEffects.length === 0) return;
         for (const effect of this.stageBossDefeatEffects) {
@@ -2120,6 +2245,7 @@ class Game {
         }
         
         this.state = isFinalStage ? GAME_STATE.GAME_CLEAR : GAME_STATE.STAGE_CLEAR;
+        this.stageClearPhase = 0; // 演出フェーズから開始
         this.stageClearMenuIndex = 0;
         this.stageClearWeaponIndex = Math.max(
             0,
@@ -2129,9 +2255,8 @@ class Game {
             this.gameClearTimer = 0;
             this.endingTimer = 0;
         } else {
-            audio.playBgm('shop');
+            // ここでオーディオを切り替えない（ボスBGM継続のため）
         }
-        // audio.stopBgm(); // ユーザーの要望によりクリア画面まで継続
         audio.playLevelUp(); // クリアジングル的に使う
     }
     
@@ -2143,26 +2268,31 @@ class Game {
 
         if (input.isActionJustPressed('PAUSE')) {
             this.state = GAME_STATE.PLAYING;
+            audio.resumeBgm();
         }
     }
 
     updateDefeat() {
-        this.playerDefeatTimer -= this.deltaTime * 1000;
-        if (this.player) {
-            this.player.vx *= 0.86;
-            this.player.vy += 0.65;
-            if (this.player.y + this.player.height >= this.groundY) {
-                this.player.y = this.groundY - this.player.height;
-                this.player.vy = 0;
-                this.player.isGrounded = true;
-            } else {
-                this.player.isGrounded = false;
+        // Red Fade & Timer Logic
+        if (this.playerDefeatTimer > 0) {
+            this.playerDefeatTimer -= this.deltaTime * 1000;
+            if (this.playerDefeatTimer <= 0) {
+                this.state = GAME_STATE.GAME_OVER;
+                this.gameOverWaitTimer = 400; // 1000ms -> 400ms に短縮してすぐに次の入力を受け付け
+                this.gameOverFadeInTimer = 0;
+                this.gameOverFadeDuration = 600; // 1000ms -> 600ms に短縮
+                audio.playBgm('gameover');
             }
-            this.player.x += this.player.vx * this.deltaTime * 60;
         }
-        if (this.playerDefeatTimer <= 0) {
-            this.state = GAME_STATE.GAME_OVER;
-            audio.playBgm('gameover');
+
+        if (this.player) {
+            // 昇天モーション削除：上昇処理をコメントアウト
+            // this.player.y -= 5; 
+            
+            // 鉢巻などの物理シミュレーション用時間更新
+            if (typeof this.player.motionTime === 'number') {
+                this.player.motionTime += this.deltaTime * 1000;
+            }
         }
     }
     
@@ -2205,6 +2335,18 @@ class Game {
     }
     
     updateStageClear() {
+        // 演出フェーズ (Phase 0)
+        if (this.stageClearPhase === 0) {
+            if (input.isActionJustPressed('JUMP') || input.touchJustPressed) {
+                this.stageClearPhase = 1; // ステータス画面へ
+                audio.playBgm('shop'); // ここでBGMをショップ（または落ち着いたもの）に切り替え
+                audio.playSelect();
+                input.consumeAction('JUMP');
+            }
+            return;
+        }
+
+        // 詳細ステータス画面フェーズ (Phase 1)
         const menuCount = 3;
         if (input.isActionJustPressed('LEFT')) {
             this.stageClearMenuIndex = (this.stageClearMenuIndex - 1 + menuCount) % menuCount;
@@ -2218,23 +2360,53 @@ class Game {
             if (input.isActionJustPressed('UP')) this.cycleStageClearWeapon(-1);
             if (input.isActionJustPressed('DOWN')) this.cycleStageClearWeapon(1);
         }
-        if (input.isActionJustPressed('JUMP') || input.isActionJustPressed('ATTACK') || input.touchJustPressed) {
-            if (this.stageClearMenuIndex === 0) {
-                this.applyStageDefaultWeaponChoice();
-                this.currentStageNumber++;
-                if (this.currentStageNumber > STAGES.length) {
-                    this.state = GAME_STATE.GAME_CLEAR;
-                } else {
-                    this.startStage();
+        if (input.isActionJustPressed('JUMP')) {
+            this.handleStageClearConfirm();
+        }
+
+        if (input.touchJustPressed) {
+            const tx = input.lastTouchX;
+            const ty = input.lastTouchY;
+
+            // ui.js の renderStageClearScreen と同じレイアウト計算
+            const padding = 60;
+            const panelX = padding;
+            const panelY = padding;
+            const panelW = CANVAS_WIDTH - padding * 2;
+            const panelH = CANVAS_HEIGHT - padding * 2;
+            const menuY = panelY + panelH - 110;
+            const menuW = (panelW - 80 - 40) / 3;
+            const menuH = 80;
+
+            for (let i = 0; i < menuCount; i++) {
+                const x = panelX + 40 + i * (menuW + 20);
+                // 判定を少し甘め（上下左右に10px余裕を持たせる）にしてズレ感を解消
+                if (tx >= x - 10 && tx <= x + menuW + 10 && ty >= menuY - 10 && ty <= menuY + menuH + 10) {
+                    this.stageClearMenuIndex = i;
+                    this.handleStageClearConfirm();
+                    audio.playSelect();
+                    return;
                 }
-            } else if (this.stageClearMenuIndex === 1) {
-                this.cycleStageClearWeapon(1);
-            } else if (this.stageClearMenuIndex === 2) {
-                shop.open();
-                this.returnToStageClearAfterShop = true;
-                this.state = GAME_STATE.SHOP;
-                audio.playBgm('shop');
             }
+        }
+    }
+
+    handleStageClearConfirm() {
+        if (this.stageClearMenuIndex === 0) {
+            this.applyStageDefaultWeaponChoice();
+            this.currentStageNumber++;
+            if (this.currentStageNumber > STAGES.length) {
+                this.state = GAME_STATE.GAME_CLEAR;
+            } else {
+                this.startStage();
+            }
+        } else if (this.stageClearMenuIndex === 1) {
+            this.cycleStageClearWeapon(1);
+        } else if (this.stageClearMenuIndex === 2) {
+            shop.open();
+            this.returnToStageClearAfterShop = true;
+            this.state = GAME_STATE.SHOP;
+            audio.playBgm('shop');
         }
     }
 
@@ -2309,47 +2481,120 @@ class Game {
                     renderTitleDebugWindow(this.ctx, entries, this.titleDebugCursor);
                 }
                 break;
+
             case GAME_STATE.PLAYING:
                 this.renderPlaying();
                 break;
-            case GAME_STATE.DEFEAT:
-                this.renderPlaying();
-                this.renderDefeatOverlay(this.ctx);
-                break;
-            case GAME_STATE.LEVEL_UP:
-                this.renderPlaying();
-                renderLevelUpChoiceScreen(
-                    this.ctx,
-                    this.player,
-                    this.getAvailableLevelUpChoices(),
-                    this.levelUpChoiceIndex,
-                    this.pendingLevelUpChoices
-                );
-                break;
+
             case GAME_STATE.PAUSED:
                 this.renderPlaying();
                 renderPauseScreen(this.ctx);
                 break;
+
+            case GAME_STATE.DEFEAT:
+            case GAME_STATE.GAME_OVER:
+                {
+                    const defeatDuration = this.playerDefeatDuration; // ウェイトをなくすため全体の尺を使用
+                    const isGameOver = (this.state === GAME_STATE.GAME_OVER);
+                    let progress = 0;
+                    if (!isGameOver) {
+                        progress = Math.max(0, Math.min(1.0, 1.0 - (this.playerDefeatTimer / defeatDuration)));
+                    } else {
+                        if (this.gameOverFadeInTimer === undefined) this.gameOverFadeInTimer = 0;
+                        this.gameOverFadeInTimer += this.deltaTime * 1000;
+                        progress = 1.0 + Math.min(1.0, this.gameOverFadeInTimer / 800);
+                    }
+                    this.renderPlaying(0.0, true);
+                    
+                    const playerX = this.player ? this.player.x + this.player.width / 2 : CANVAS_WIDTH / 2;
+                    const playerY = this.player ? this.player.y + this.player.height / 2 : CANVAS_HEIGHT / 2;
+                    
+                    if (this.state === GAME_STATE.DEFEAT) {
+                        // じわっと広がり、最後は全体を覆う
+                        const maxRadius = Math.max(CANVAS_WIDTH, CANVAS_HEIGHT) * 1.5;
+                        const currentRadius = Math.max(10, Math.pow(progress, 1.5) * maxRadius);
+                        
+                        const grad = this.ctx.createRadialGradient(
+                            playerX, playerY, 0,
+                            playerX, playerY, currentRadius
+                        );
+                        
+                        const alpha = Math.min(0.85, progress * 0.9);
+                        grad.addColorStop(0, `rgba(200, 0, 0, ${alpha})`);
+                        grad.addColorStop(0.8, `rgba(150, 0, 0, ${alpha * 0.7})`);
+                        grad.addColorStop(1, `rgba(100, 0, 0, 0)`);
+                        
+                        this.ctx.fillStyle = grad;
+                        this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                        
+                        // 画面全体が染まる前の「じわっ」とした端の方の塗りつぶし（補強）
+                        if (progress > 0.7) {
+                            const edgeAlpha = (progress - 0.7) / 0.3 * 0.6;
+                            this.ctx.fillStyle = `rgba(120, 0, 0, ${edgeAlpha})`;
+                            this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                        }
+                    } else if (this.state === GAME_STATE.GAME_OVER) {
+                        // 背景を赤黒い半透明で固定（演出の継続）
+                        const fadeOutAlpha = 0.75;
+                        this.ctx.fillStyle = `rgba(30, 0, 0, ${fadeOutAlpha})`;
+                        this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                        
+                        // さらに深い黒のグラデーションを重ねる
+                        const overlayGrad = this.ctx.createRadialGradient(
+                            CANVAS_WIDTH/2, CANVAS_HEIGHT/2, 0,
+                            CANVAS_WIDTH/2, CANVAS_HEIGHT/2, CANVAS_WIDTH * 0.8
+                        );
+                        overlayGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                        overlayGrad.addColorStop(1, 'rgba(0, 0, 0, 0.7)');
+                        this.ctx.fillStyle = overlayGrad;
+                        this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                    }
+                    if (isGameOver) {
+                        this.ctx.save();
+                        renderGameOverScreen(this.ctx, this.player, this.currentStageNumber, this.gameOverFadeInTimer);
+                        this.ctx.restore();
+                    }
+                }
+                break;
+
+            case GAME_STATE.LEVEL_UP:
+                this.renderPlaying();
+                if (this.levelUpChoices && this.levelUpChoices.length > 0) {
+                    renderLevelUpChoiceScreen(
+                        this.ctx, 
+                        this.player, 
+                        this.levelUpChoices, 
+                        this.levelUpChoiceIndex,
+                        this.pendingLevelUpChoices
+                    );
+                }
+                break;
+
             case GAME_STATE.SHOP:
                 this.renderPlaying();
                 shop.render(this.ctx, this.player);
                 break;
-            case GAME_STATE.GAME_OVER:
-                renderGameOverScreen(this.ctx, this.player, this.currentStageNumber);
-                break;
+
             case GAME_STATE.STAGE_CLEAR:
-                renderStageClearScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {
-                    menuIndex: this.stageClearMenuIndex,
-                    selectedWeaponName: this.player?.subWeapons?.[this.stageClearWeaponIndex]?.name || '',
-                    pendingLevelUpChoices: this.pendingLevelUpChoices
-                });
+                this.renderPlaying();
+                if (this.stageClearPhase === 0) {
+                    renderStageClearAnnouncement(this.ctx, this.currentStageNumber, this.clearedWeapon);
+                } else {
+                    renderStageClearScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {
+                        menuIndex: this.stageClearMenuIndex,
+                        selectedWeaponName: this.player?.currentSubWeapon?.name || '未装備'
+                    });
+                }
                 break;
+
             case GAME_STATE.GAME_CLEAR:
                 renderGameClearScreen(this.ctx, this.player);
                 break;
+
             case GAME_STATE.ENDING:
                 renderEnding(this.ctx, this.endingTimer);
                 break;
+
             case GAME_STATE.INTRO:
                 renderIntro(this.ctx, this.introTimer);
                 break;
@@ -2406,35 +2651,76 @@ class Game {
         return false;
     }
 
-    beginPlayerDefeat() {
+    beginPlayerDefeat(sourceX = null) {
         if (!this.player || this.state === GAME_STATE.DEFEAT || this.state === GAME_STATE.GAME_OVER) return;
-        this.playerDefeatTimer = this.playerDefeatDuration;
+        // 演出時間をさらに短縮 (1200ms -> 850ms)
+        this.playerDefeatTimer = 850;
         this.state = GAME_STATE.DEFEAT;
-        this.queueHitFeedback(10, 140);
+        
+        // 強めの画面振動とヒットストップ
+        this.queueHitFeedback(14, 220);
+
         if (this.player) {
+            const playerCenterX = this.player.x + this.player.width / 2;
             this.player.isAttacking = false;
             this.player.currentAttack = null;
             this.player.subWeaponTimer = 0;
             this.player.subWeaponAction = null;
-            this.player.vx *= 0.4;
-            this.player.vy = Math.min(this.player.vy, -7.5);
+            this.player.vx = (sourceX !== null && sourceX < playerCenterX) ? 8 : -8; // ダメージ元から遠ざかる
+            this.player.vy = -12; // 高く吹き飛ぶ
+            this.player.isGrounded = false;
+
+            // 血飛沫エフェクト (赤黒いパーティクル)
+            const px = this.player.x + this.player.width / 2;
+            const py = this.player.y + this.player.height / 2;
+            for (let i = 0; i < 24; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 1.5 + Math.random() * 4.5;
+                this.hitEffects.push({
+                    kind: 'spark',
+                    x: px,
+                    y: py,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed - 1.5,
+                    life: 600 + Math.random() * 600,
+                    size: 2.5 + Math.random() * 3.5,
+                    color: '160, 0, 0' // 赤黒い
+                });
+            }
         }
     }
 
     renderDefeatOverlay(ctx) {
         const ratio = Math.max(0, Math.min(1, this.playerDefeatTimer / this.playerDefeatDuration));
+        const progress = 1 - ratio; // 0 -> 1
+
         ctx.save();
-        ctx.fillStyle = `rgba(18, 0, 0, ${0.26 + (1 - ratio) * 0.38})`;
+        
+        // 1. 赤いフィルター（血の海・やられ演出）
+        ctx.fillStyle = `rgba(200, 0, 0, ${progress * 0.45})`;
         ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = `rgba(255, 236, 236, ${0.6 + (1 - ratio) * 0.3})`;
-        ctx.font = '700 48px sans-serif';
-        ctx.fillText('力尽きた…', CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.34);
+
+        // 2. 周辺減光（ヴィネット）：意識が狭まる演出
+        const grad = ctx.createRadialGradient(
+            CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 100,
+            CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH * 0.8
+        );
+        grad.addColorStop(0, `rgba(0, 0, 0, 0)`);
+        grad.addColorStop(1, `rgba(0, 0, 0, ${Math.min(0.9, progress * 1.5)})`);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+        // 3. 画面全体の暗転 (後半)
+        if (progress > 0.7) {
+            const fadeStart = (progress - 0.7) * (1 / 0.3);
+            ctx.fillStyle = `rgba(0, 0, 0, ${fadeStart})`;
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        }
+        
         ctx.restore();
     }
     
-    renderPlaying() {
+    renderPlaying(playerAlpha = 1.0, forceStanding = false) {
         const ctx = this.ctx;
         
         // 1. 背景と地面（カメラ固定・パララックスは内部で処理）
@@ -2474,16 +2760,24 @@ class Game {
             }
         }
         
-        // プレイヤー
-        this.player.render(ctx);
-        
-        // サブ武器エフェクト
-        if (
-            this.player.currentSubWeapon &&
-            !this.player.subWeaponRenderedInModel &&
-            typeof this.player.currentSubWeapon.render === 'function'
-        ) {
-            this.player.currentSubWeapon.render(ctx, this.player);
+        // プレイヤー (昇天・透明化対応)
+        // playerAlphaが0の場合は描画自体をスキップして「即時消去」を実現
+        if (playerAlpha > 0) {
+            ctx.save();
+            if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
+            this.player.render(ctx, { forceStanding: forceStanding });
+            
+            // サブ武器エフェクト（プレイヤー消失に同期）
+            if (
+                this.player.currentSubWeapon &&
+                !this.player.subWeaponRenderedInModel &&
+                typeof this.player.currentSubWeapon.render === 'function'
+            ) {
+                this.player.currentSubWeapon.render(ctx, this.player);
+            }
+            ctx.restore();
+        } else {
+            // プレイヤーを描画しない場合でも、必要な更新があればここで行う（現在はなし）
         }
 
         // ヒット演出（世界座標）
@@ -2509,7 +2803,7 @@ class Game {
         // 3. HUD（カメラ固定）
         
         // ボスUI（HPバーなど）
-        if (this.stage.boss && this.stage.bossSpawned) {
+        if (this.stage.boss) {
             this.stage.renderBossUI(ctx);
         }
         

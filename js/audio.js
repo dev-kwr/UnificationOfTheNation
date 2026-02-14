@@ -266,6 +266,18 @@ class AudioManager {
         }
     }
 
+    pauseBgm() {
+        if (this.bgmAudio && !this.bgmAudio.paused) {
+            this.bgmAudio.pause();
+        }
+    }
+
+    resumeBgm() {
+        if (this.bgmAudio && this.bgmAudio.paused && !this.isMuted) {
+            this.tryPlayCurrentBgm(true);
+        }
+    }
+
     // 汎用ヘルパー (SE用)
     // 汎用ヘルパー (SE用)
     playSfx(freq, type, gainValue, duration, dropFreq = 0.5) {

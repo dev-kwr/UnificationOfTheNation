@@ -97,8 +97,8 @@ export class Enemy {
     update(deltaTime, player, obstacles = []) {
         if (!this.isAlive || this.isDying) {
             this.deathTimer += deltaTime * 1000;
-            // 成仏演出：劇的に速く上昇
-            this.y -= this.deathRiseSpeed;
+            // 昇天モーション削除：上昇処理をコメントアウト
+            // this.y -= this.deathRiseSpeed;
             if (this.deathTimer >= this.deathDuration) {
                 this.isAlive = false;
                 this.isDying = false;

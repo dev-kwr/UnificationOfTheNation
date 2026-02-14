@@ -18,7 +18,7 @@ export const PLAYER = {
     JUMP_FORCE: -16,
     DOUBLE_JUMP_FORCE: -14,
     DASH_SPEED: 12,
-    MAX_HP: 8,
+    MAX_HP: 10,
     MONEY_MAX: 9999,
     ATTACK_COMBO_MAX: 5,
     ATTACK_COOLDOWN: 150,  // ミリ秒
@@ -42,7 +42,7 @@ export const OBSTACLE_TYPES = {
 // 障害物設定
 export const OBSTACLE_SETTINGS = {
     SPIKE: { WIDTH: 30, HEIGHT: 30, DAMAGE: 5 },
-    ROCK: { WIDTH: 50, HEIGHT: 50, HP: 6 }
+    ROCK: { WIDTH: 50, HEIGHT: 50, HP: 3 }
 };
 
 // ゲーム状態

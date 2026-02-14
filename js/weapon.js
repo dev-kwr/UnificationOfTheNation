@@ -499,8 +499,13 @@ export class DualBlades extends SubWeapon {
         return Math.max(0, Math.min(1, 1 - (this.attackTimer / 220)));
     }
 
-    getMainSwingProgress() {
-        return Math.max(0, Math.min(1, 1 - (this.attackTimer / this.mainDuration)));
+    getMainSwingProgress(options = {}) {
+        const timer = options.attackTimer !== undefined ? options.attackTimer : this.attackTimer;
+        let duration = this.mainDuration;
+        if (options.comboIndex !== undefined) {
+            duration = this.getMainDurationByStep(options.comboIndex);
+        }
+        return Math.max(0, Math.min(1, 1 - (timer / duration)));
     }
 
     remapMainSwingProgress(step, progress) {
@@ -536,8 +541,9 @@ export class DualBlades extends SubWeapon {
         return 0.84 + ((p - 0.82) / 0.18) * 0.16;
     }
 
-    getMainSwingArcs() {
-        switch (this.comboIndex) {
+    getMainSwingArcs(options = {}) {
+        const index = options.comboIndex !== undefined ? options.comboIndex : this.comboIndex;
+        switch (index) {
             case 1:
                 return {
                     rightStart: -2.36, rightEnd: -0.16,
@@ -576,16 +582,17 @@ export class DualBlades extends SubWeapon {
         }
     }
 
-    getMainSwingPose() {
-        const progress = this.getMainSwingProgress();
-        const remapped = this.remapMainSwingProgress(this.comboIndex, progress);
+    getMainSwingPose(options = {}) {
+        const progress = this.getMainSwingProgress(options);
+        const index = options.comboIndex !== undefined ? options.comboIndex : this.comboIndex;
+        const remapped = this.remapMainSwingProgress(index, progress);
         const eased = remapped * remapped * (3 - 2 * remapped);
-        const arcs = this.getMainSwingArcs();
+        const arcs = this.getMainSwingArcs(options);
         return {
             progress,
             remapped,
             eased,
-            comboIndex: this.comboIndex,
+            comboIndex: index,
             arcs,
             rightAngle: arcs.rightStart + (arcs.rightEnd - arcs.rightStart) * eased,
             leftAngle: arcs.leftStart + (arcs.leftEnd - arcs.leftStart) * eased
@@ -1021,7 +1028,14 @@ export class DualBlades extends SubWeapon {
             ctx.arc(-6, 0, this.range + 10, -0.72, 0.72);
             ctx.stroke();
             
-
+            // 内側の細いハイライト (白)
+            ctx.shadowBlur = 5;
+            ctx.shadowColor = 'white';
+            ctx.strokeStyle = `rgba(255, 255, 255, ${slashAlpha * 0.8})`;
+            ctx.lineWidth = 3.5;
+            ctx.beginPath();
+            ctx.arc(-3, 0, this.range + 8, -0.68, 0.68);
+            ctx.stroke();
             
             ctx.restore();
             
@@ -1050,9 +1064,8 @@ export class DualBlades extends SubWeapon {
             drawAttack('rgba(80, 190, 255, 0.9)', -Math.PI * 0.92, Math.PI * 0.2, false, false);
         }
     }
-
-
 }
+
 
 // 鎖鎌
 export class Kusarigama extends SubWeapon {

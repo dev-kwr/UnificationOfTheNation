@@ -35,6 +35,7 @@ export class Stage {
         this.bossDefeated = false;
         this.bossDefeatLingerDuration = 700;
         this.bossDefeatLingerTimer = 0;
+        this.bossDefeatColorFade = 0; // ボス撃破後の赤い空のフェードアウト用（1→0）
         
         // 地面
         this.groundY = Math.round(CANVAS_HEIGHT * (2 / 3));
@@ -232,6 +233,14 @@ export class Stage {
             this.bossDefeatLingerTimer = Math.max(0, this.bossDefeatLingerTimer - deltaTime * 1000);
         }
         
+        // ボス撃破後の背景色フェードアウト（2秒かけてスムーズに戻す）
+        if (this.bossDefeated) {
+            if (this.bossDefeatColorFade === 0) {
+                this.bossDefeatColorFade = 1.0; // 撃破直後に1.0から開始
+            }
+            this.bossDefeatColorFade = Math.max(0, this.bossDefeatColorFade - deltaTime * 0.5); // 2秒かけて0へ
+        }
+        
         // 残りの雑魚敵も更新
         const activeObstacles = this.obstacles.filter(o => !o.isDestroyed);
         this.updateEnemies(deltaTime, player, activeObstacles);
@@ -398,11 +407,14 @@ export class Stage {
             ? (this.bossIntroTimer / this.bossIntroDuration)
             : 0;
         
-        // ボス戦中は赤みがかった空に変化
+        // ボス戦中は赤みがかった空に変化（撃破後はフェードアウト）
         let skyColors = layers.sky;
-        if (this.bossSpawned && !this.bossDefeated) {
+        const bossColorActive = this.bossSpawned && !this.bossDefeated;
+        const bossColorFading = this.bossSpawned && this.bossDefeated && this.bossDefeatColorFade > 0;
+        if (bossColorActive || bossColorFading) {
+            const fadeIntensity = bossColorActive ? 1.0 : this.bossDefeatColorFade;
             // 赤みをパルスさせる
-            const pulse = 0.45 + Math.sin(this.stageTime * 0.003) * 0.08;
+            const pulse = (0.45 + Math.sin(this.stageTime * 0.003) * 0.08) * fadeIntensity;
             skyColors = [`rgba(80, 20, 20, ${pulse})`, `rgba(40, 10, 10, ${pulse})`];
         }
         
@@ -413,9 +425,10 @@ export class Stage {
         ctx.fillStyle = skyGradient;
         ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY);
 
-        if (this.bossSpawned && !this.bossDefeated) {
+        if (bossColorActive || bossColorFading) {
+            const fadeIntensity = bossColorActive ? 1.0 : this.bossDefeatColorFade;
             const pulse = 0.55 + Math.sin(this.stageTime * 0.003) * 0.12;
-            ctx.fillStyle = `rgba(56, 4, 12, ${0.18 + pulse * 0.14})`;
+            ctx.fillStyle = `rgba(56, 4, 12, ${(0.18 + pulse * 0.14) * fadeIntensity})`;
             ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY);
         }
 
@@ -428,9 +441,12 @@ export class Stage {
         ctx.fillStyle = haze;
         ctx.fillRect(0, this.groundY - 120, CANVAS_WIDTH, 150);
         
-        // ボス戦中は稲妻効果
-        if (this.bossSpawned && !this.bossDefeated && Math.sin(this.stageTime * 0.012) > 0.992) {
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        // ボス戦中は稲妻効果（撃破後はフェードアウト）
+        const lightningActive = this.bossSpawned && !this.bossDefeated;
+        const lightningFading = this.bossSpawned && this.bossDefeated && this.bossDefeatColorFade > 0.5;
+        if ((lightningActive || lightningFading) && Math.sin(this.stageTime * 0.012) > 0.992) {
+            const lIntensity = lightningActive ? 0.3 : (this.bossDefeatColorFade - 0.5) * 0.6;
+            ctx.fillStyle = `rgba(255, 255, 255, ${lIntensity})`;
             ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
         }
         

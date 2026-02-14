@@ -11,6 +11,7 @@ class InputManager {
         this.keysJustPressed = {};
         this.keysJustReleased = {};
         this.keySources = {}; // key -> Set(sourceId)
+        this.consumedActions = new Set();
         
         // キーマッピング
         this.keyMap = {
@@ -548,15 +549,16 @@ class InputManager {
         this.setKeySource(key, sourceId, false);
     }
     
-    // フレーム終了時に呼び出し（JustPressedをリセット、Gamepadの更新）
+    // フレーム終了時に呼び出し（JustPressedをリセット、Gamepadの更新、消費済みアクションのクリア）
     update() {
         this.keysJustPressed = {};
         this.keysJustReleased = {};
+        this.consumedActions.clear();
         this.touchJustPressed = false;
         
         this.pollGamepad();
     }
-    
+
     pollGamepad() {
         const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
         const gp = gamepads[0]; 
@@ -597,24 +599,19 @@ class InputManager {
         else this.releaseAction('ATTACK', 'gamepad');
 
         // 北ボタン (△ / Y): サブ武器 (SUB_WEAPON)
-        const subPressed = gp.buttons[3].pressed || gp.buttons[1].pressed;
-        if (subPressed) this.pressAction('SUB_WEAPON', 'gamepad');
+        if (gp.buttons[3].pressed) this.pressAction('SUB_WEAPON', 'gamepad');
         else this.releaseAction('SUB_WEAPON', 'gamepad');
-        
-        // R1: 武器切り替え (SWITCH_WEAPON)
-        if (gp.buttons[5].pressed) this.pressAction('SWITCH_WEAPON', 'gamepad');
-        else this.releaseAction('SWITCH_WEAPON', 'gamepad');
-        
-        // L1: 必殺技 (SPECIAL)
-        if (gp.buttons[4].pressed) this.pressAction('SPECIAL', 'gamepad');
+
+        // 東ボタン (○ / B): 奥義 (SPECIAL)
+        if (gp.buttons[1].pressed) this.pressAction('SPECIAL', 'gamepad');
         else this.releaseAction('SPECIAL', 'gamepad');
-        
-        // L2: ダッシュ (DASH)
-        if (gp.buttons[6].pressed) this.pressAction('DASH', 'gamepad');
+
+        // RB / R1: ダッシュ
+        if (gp.buttons[5].pressed) this.pressAction('DASH', 'gamepad');
         else this.releaseAction('DASH', 'gamepad');
-        
-        // Options / Menu / Start: ポーズ
-        if (gp.buttons[9].pressed || gp.buttons[8].pressed) this.pressAction('PAUSE', 'gamepad');
+
+        // Start: ポーズ
+        if (gp.buttons[9].pressed) this.pressAction('PAUSE', 'gamepad');
         else this.releaseAction('PAUSE', 'gamepad');
     }
     
@@ -683,6 +680,25 @@ class InputManager {
         const keyList = KEYS[action];
         if (!keyList) return false;
         return keyList.some(key => this.keysJustReleased[key]);
+    }
+
+    // アクションを消費し、このフレーム内での以降の判定を無効化する
+    consumeAction(action) {
+        this.consumedActions.add(action);
+        const keyList = KEYS[action];
+        if (keyList) {
+            keyList.forEach(key => {
+                this.keysJustPressed[key] = false;
+            });
+        }
+    }
+
+    // フレームごとのリセット処理
+    update() {
+        this.keysJustPressed = {};
+        this.keysJustReleased = {};
+        this.consumedActions.clear();
+        this.touchJustPressed = false;
     }
 }
 
