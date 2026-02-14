@@ -383,7 +383,7 @@ export class Stage {
         this.bossDefeatLingerTimer = 0;
         
         // BGM切り替え
-        audio.playBgm('boss', this.stageNumber);
+        audio.playBgm('boss', this.stageNumber, 1500, 0);
     }
     
     render(ctx) {

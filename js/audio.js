@@ -226,7 +226,7 @@ class AudioManager {
     playMoney() { this.init(); this.playSfx(900, 'sine', 0.15, 0.08, 1.3); }
 
     // === BGM制御（ファイル再生のみ） ===
-    playBgm(type = 'stage', stageNum = 1, fadeDuration = 1500) {
+    playBgm(type = 'stage', stageNum = 1, fadeDuration = 1500, fadeInDuration = fadeDuration) {
         this.resume();
         let filePath = '';
         let targetType = type;
@@ -269,7 +269,7 @@ class AudioManager {
         
         this.bgmAudio = newBgm;
         this.tryPlayCurrentBgm(true);
-        this.fadeInBgm(newBgm, fadeDuration);
+        this.fadeInBgm(newBgm, fadeInDuration);
     }
 
     fadeOutBgm(audioElement, duration) {

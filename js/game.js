@@ -1221,6 +1221,11 @@ class Game {
             width: this.player.width - 10,
             height: this.player.height - 10
         }));
+
+        const subWeaponCloneOffsets = (this.player && typeof this.player.getSubWeaponCloneOffsets === 'function')
+            ? this.player.getSubWeaponCloneOffsets()
+            : [];
+        const subWeaponCloneActive = subWeaponCloneOffsets.length > 0;
         
         // プレイヤー攻撃 vs 敵
         if (this.player.isAttacking) {
@@ -1240,15 +1245,35 @@ class Game {
                 }
             }
 
-            // 分身の通常攻撃判定 (独立AI)
+            // 分身の通常攻撃判定
             if (cloneActive) {
                 const anchors = this.player.calculateSpecialCloneAnchors(this.player.x + this.player.width / 2, this.player.y + this.player.height * 0.62);
                 
                 for (let i = 0; i < this.player.specialCloneSlots.length; i++) {
                     if (!this.player.specialCloneAlive[i]) continue;
                     
-                    const attackTimer = this.player.specialCloneAttackTimers[i] || 0;
-                    if (attackTimer <= 0) continue;
+                    // ★修正: Lv3はindependent timer、Lv0〜2は本体の攻撃状態を使用
+                    const isAutoAi = this.player.specialCloneAutoAiEnabled;
+                    let cloneIsAttacking;
+                    let cloneComboStep;
+                    let cloneAttackDurationMs;
+                    let cloneAttackTimer;
+                    
+                    if (isAutoAi) {
+                        // Lv3: 独立タイマー
+                        cloneAttackTimer = this.player.specialCloneAttackTimers[i] || 0;
+                        if (cloneAttackTimer <= 0) continue;
+                        cloneIsAttacking = true;
+                        cloneComboStep = (this.player.specialCloneComboSteps[i] || 0) + 1;
+                        cloneAttackDurationMs = 420;
+                    } else {
+                        // Lv0〜2: 本体の攻撃状態をコピー
+                        if (!this.player.isAttacking || !this.player.currentAttack) continue;
+                        cloneIsAttacking = true;
+                        cloneComboStep = this.player.currentAttack.comboStep || 1;
+                        cloneAttackDurationMs = this.player.currentAttack.durationMs || 420;
+                        cloneAttackTimer = this.player.attackTimer || 0;
+                    }
 
                     const pos = this.player.specialClonePositions[i] || anchors[i];
                     const facingRight = pos.facingRight;
@@ -1256,15 +1281,15 @@ class Game {
                     // 分身用の状態を作成
                     const cloneState = {
                         x: pos.x - this.player.width / 2,
-                        y: pos.y - this.player.height * 0.62,
+                        y: isAutoAi ? (pos.y - this.player.height * 0.62) : this.player.y,
                         facingRight: facingRight,
-                        isAttacking: true,
+                        isAttacking: cloneIsAttacking,
                         currentAttack: {
-                            comboStep: (this.player.specialCloneComboSteps[i] || 0) + 1,
-                            durationMs: 420,
-                            range: 90 // デフォルト範囲
+                            comboStep: cloneComboStep,
+                            durationMs: cloneAttackDurationMs,
+                            range: 90
                         },
-                        attackTimer: attackTimer,
+                        attackTimer: cloneAttackTimer,
                         isCrouching: false
                     };
 
@@ -1273,7 +1298,7 @@ class Game {
                         const attackHitboxes = Array.isArray(attackHitbox) ? attackHitbox : [attackHitbox];
                         for (const enemy of activeEnemies) {
                             if (attackHitboxes.some((box) => this.rectIntersects(box, enemy))) {
-                                const damage = this.buildPlayerAttackDamage(); // 基本ダメージ計算
+                                const damage = this.buildPlayerAttackDamage();
                                 this.damageEnemy(enemy, damage, {
                                     source: 'special_shadow',
                                     comboStep: cloneState.currentAttack.comboStep
@@ -1326,8 +1351,8 @@ class Game {
                     }
 
                     // 分身のサブ武器判定
-                    if (cloneActive) {
-                        for (const clone of cloneOffsets) {
+                    if (subWeaponCloneActive) {
+                        for (const clone of subWeaponCloneOffsets) {
                             const shifted = {
                                 x: hitbox.x + clone.dx,
                                 y: hitbox.y + clone.dy,
@@ -1416,10 +1441,8 @@ class Game {
             if (obs.isDestroyed) continue;
 
             // プレイヤーとの衝突判定（棘ダメージ & 岩の押し戻し）
-            // 判定を広めるため、player オブジェクトそのものを渡す（マージンなし）
             if (this.rectIntersects(this.player, obs)) {
                 if (obs.type === OBSTACLE_TYPES.SPIKE) {
-                    // 棘：無敵中でなければダメージ
                     if (this.player.invincibleTimer <= 0) {
                         if (this.handleSpikeDamage(obs.damage || 2, obs.x + obs.width / 2, {
                             knockbackX: 7,
@@ -1429,12 +1452,11 @@ class Game {
                         }
                     }
                 } else if (obs.type === OBSTACLE_TYPES.ROCK) {
-                    // 岩：物理的な壁として押し戻す
                     this.player.vx = 0;
                 }
             }
 
-            // 岩への通常攻撃(Z)判定（サブ武器以外でも壊せるように）
+            // 岩への通常攻撃(Z)判定
             if (obs.type === OBSTACLE_TYPES.ROCK && this.player.isAttacking) {
                 const atkBox = this.player.getAttackHitbox();
                 const boxes = Array.isArray(atkBox) ? atkBox : (atkBox ? [atkBox] : []);
@@ -1444,7 +1466,6 @@ class Game {
             }
         }
     }
-
 
     isBossEnemy(enemy) {
         if (!enemy) return false;

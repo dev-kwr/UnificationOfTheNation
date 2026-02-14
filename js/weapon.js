@@ -163,40 +163,8 @@ export class Firebomb extends SubWeapon {
     }
 
     render(ctx, player) {
-        // 火薬玉は常に持っているのではなく、投擲モーション中（あるいはプレビューでもそのアクション中）のみ描画
-        const isThrowAction = player.subWeaponAction === 'throw';
-        if (!isThrowAction) return;
-
-        // 手に持っている状態の描画（プレビューやモーション中）
-        const direction = player.facingRight ? 1 : -1;
-        
-        // プレビュー等で timer が 0 の場合でも強制的に「構え」の位置に移動させる
-        const isPreview = (player.forceSubWeaponRender);
-        const sourceTimer = (player.subWeaponAction === 'throw') ? player.subWeaponTimer : 0;
-        const progress = isPreview ? 0.15 : Math.max(0, Math.min(1, 1 - (sourceTimer / 150)));
-        
-        // 手の位置に合わせて座標計算（renderSubWeaponArmの腕の曲がりに合わせる）
-        const reach = 14 + Math.sin(progress * Math.PI) * 8;
-        const bombX = player.x + player.width / 2 + direction * reach;
-        const bombY = player.y + 24 - Math.cos(progress * Math.PI) * 4;
-        ctx.save();
-        ctx.translate(bombX, bombY);
-        
-        // 爆弾本体
-        ctx.fillStyle = '#1a1a1a';
-        ctx.beginPath();
-        ctx.arc(0, 0, 8, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // 導火線
-        ctx.strokeStyle = '#8B4513';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(0, -8);
-        ctx.quadraticCurveTo(4, -14, 2, -18);
-        ctx.stroke();
-        
-        ctx.restore();
+        // 投擲後は Bomb オブジェクトとして飛んでいくため、手元への描画は不要
+        return;
     }
     use(player) {
         const g = window.game;
@@ -216,8 +184,8 @@ export class Firebomb extends SubWeapon {
         const tier = (player && typeof player.getSubWeaponEnhanceTier === 'function')
             ? player.getSubWeaponEnhanceTier()
             : 0;
-        const extraBombs = tier >= 3 ? 2 : (tier >= 2 ? 1 : 0);
-        const shotCount = 1 + extraBombs;
+        const shotCount = tier >= 2 ? 3 : (tier >= 1 ? 2 : 1);
+        const sizeUp = tier >= 3; // Lv3でサイズアップ
         for (let shotIndex = 0; shotIndex < shotCount; shotIndex++) {
             const spread = shotCount === 1 ? 0 : (shotIndex - (shotCount - 1) / 2) * 0.9;
             const bomb = new Bomb(
@@ -226,16 +194,16 @@ export class Firebomb extends SubWeapon {
                 vx + spread,
                 vy - Math.abs(spread) * 0.2
             );
-            bomb.damage = this.damage;
-            bomb.radius = 9;
-            bomb.explosionRadius = this.range;
-            bomb.explosionDuration = 340;
+            bomb.damage = sizeUp ? Math.round(this.damage * 1.35) : this.damage;
+            bomb.radius = sizeUp ? 13 : 9;
+            bomb.explosionRadius = sizeUp ? Math.round(this.range * 1.4) : this.range;
+            bomb.explosionDuration = sizeUp ? 420 : 340;
             g.bombs.push(bomb);
         }
 
         // 奥義分身中は分身位置からも同時投擲
-        if (player && typeof player.getSpecialCloneOffsets === 'function') {
-            const cloneOffsets = player.getSpecialCloneOffsets();
+        if (player && typeof player.getSubWeaponCloneOffsets === 'function') {
+            const cloneOffsets = player.getSubWeaponCloneOffsets();
             if (Array.isArray(cloneOffsets) && cloneOffsets.length > 0) {
                 for (const clone of cloneOffsets) {
                     for (let shotIndex = 0; shotIndex < shotCount; shotIndex++) {
@@ -246,10 +214,10 @@ export class Firebomb extends SubWeapon {
                             vx + (clone.index % 2 === 0 ? 0.5 : -0.5) + spread,
                             vy - Math.abs(spread) * 0.2
                         );
-                        cloneBomb.damage = this.damage;
-                        cloneBomb.radius = 8.5;
-                        cloneBomb.explosionRadius = this.range;
-                        cloneBomb.explosionDuration = 320;
+                        cloneBomb.damage = sizeUp ? Math.round(this.damage * 1.35) : this.damage;
+                        cloneBomb.radius = sizeUp ? 12 : 8.5;
+                        cloneBomb.explosionRadius = sizeUp ? Math.round(this.range * 1.4) : this.range;
+                        cloneBomb.explosionDuration = sizeUp ? 400 : 320;
                         g.bombs.push(cloneBomb);
                     }
                 }

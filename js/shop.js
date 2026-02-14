@@ -69,6 +69,7 @@ export class Shop {
             this.selectedIndex = Math.max(0, this.selectedIndex - 1);
             audio.playSelect();
             input.consumeAction('UP');
+            input.consumeAction('JUMP');  // ArrowUp→JUMP の誤発火を防止
         }
         
         if (input.isActionJustPressed('DOWN')) {
