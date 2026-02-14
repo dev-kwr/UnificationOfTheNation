@@ -47,7 +47,7 @@ class AudioManager {
             this.audioContext.resume();
         }
         // HTMLAudioElementはContextと独立しているが、念のため
-        if (this.bgmAudio && this.bgmAudio.paused && !this.isMuted) {
+        if (this.bgmAudio && this.bgmAudio.paused && !this.isMuted && !this.bgmAudio._isFadingOut) {
             this.tryPlayCurrentBgm(true);
         }
     }
@@ -273,23 +273,19 @@ class AudioManager {
     }
 
     fadeOutBgm(audioElement, duration) {
-        // オーバーロード対応: fadeOutBgm(duration) の場合
         if (typeof audioElement === 'number' && duration === undefined) {
             duration = audioElement;
             audioElement = this.bgmAudio;
         }
-
         if (!audioElement) return;
-        
-        // durationが秒単位(例えば0.8)で渡されることが多いが、Date.now()計算はミリ秒
-        // 数値が小さい場合は秒とみなして1000倍する安全策
-        const durationMs = (duration < 100) ? duration * 1000 : duration;
 
-        // durationが0以下の場合は即座に音量を0にして終了
+        // 既にフェードアウト中であることを示すフラグをセット（多重実行防止）
+        if (audioElement._isFadingOut) return;
+        audioElement._isFadingOut = true;
+
+        const durationMs = (duration < 100) ? duration * 1000 : duration;
         if (durationMs <= 0) {
-            audioElement.volume = 0;
-            audioElement.pause();
-            audioElement.src = '';
+            this.forceStopAudio(audioElement);
             return;
         }
 
@@ -301,16 +297,37 @@ class AudioManager {
             const elapsed = now - startTime;
             const progress = Math.min(1, elapsed / durationMs);
             
-            audioElement.volume = startVolume * (1 - progress);
+            try {
+                audioElement.volume = startVolume * (1 - progress);
+            } catch (e) {
+                // ボリューム設定エラー対策
+            }
             
             if (progress < 1) {
                 requestAnimationFrame(fade);
             } else {
-                audioElement.pause();
-                audioElement.src = ''; // リソース解放
+                this.forceStopAudio(audioElement);
             }
         };
         fade();
+    }
+
+    forceStopAudio(audioElement) {
+        if (!audioElement) return;
+        try {
+            audioElement.pause();
+            audioElement.currentTime = 0;
+            audioElement.src = '';
+            audioElement.load(); // リソース解放の強制
+            audioElement._isFadingOut = false;
+            
+            if (this.bgmAudio === audioElement) {
+                this.bgmAudio = null;
+                this.currentBgmType = null;
+            }
+        } catch (e) {
+            console.warn('Audio stop error:', e);
+        }
     }
 
     fadeInBgm(audioElement, duration) {
@@ -407,12 +424,11 @@ class AudioManager {
     }
 
     resumeBgm() {
-        if (this.bgmAudio && this.bgmAudio.paused && !this.isMuted) {
+        if (this.bgmAudio && this.bgmAudio.paused && !this.isMuted && !this.bgmAudio._isFadingOut) {
             this.tryPlayCurrentBgm(true);
         }
     }
 
-    // 汎用ヘルパー (SE用)
     // 汎用ヘルパー (SE用)
     playSfx(freq, type, gainValue, duration, dropFreq = 0.5) {
         if (!this.audioContext || this.isMuted) return;

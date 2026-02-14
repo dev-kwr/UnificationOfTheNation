@@ -2,11 +2,11 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES } from './constants.js?v=41';
-import { createEnemy, Ashigaru, Samurai, Busho, Ninja } from './enemy.js?v=41';
-import { createBoss } from './boss.js?v=41';
-import { createObstacle } from './obstacle.js?v=41';
-import { audio } from './audio.js?v=41';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES } from './constants.js?v=48';
+import { createEnemy, Ashigaru, Samurai, Busho, Ninja } from './enemy.js?v=48';
+import { createBoss } from './boss.js?v=48';
+import { createObstacle } from './obstacle.js?v=48';
+import { audio } from './audio.js?v=48';
 
 // ステージクラス
 export class Stage {

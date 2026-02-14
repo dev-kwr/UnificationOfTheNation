@@ -2,11 +2,11 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD } from './constants.js?v=42';
-import { input } from './input.js?v=42';
-import { audio } from './audio.js?v=42';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD } from './constants.js?v=54';
+import { input } from './input.js?v=54';
+import { audio } from './audio.js?v=54';
 
-const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・スペース：ジャンプ | Z：攻撃 | X：忍具 | D：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
+const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | D：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const PAD_ICON_PATHS = {
     attack: './icon/attack.svg',
     sub: './icon/sub_weapon.svg',
@@ -1071,7 +1071,7 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
     ctx.fillRect(panelX, panelY, panelW, panelH);
     ctx.strokeStyle = 'rgba(178, 205, 255, 0.6)';
     ctx.lineWidth = 1.8;
-    ctx.strokeRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    // ctx.strokeRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); // 全画面ボーダー削除
 
     ctx.textAlign = 'left';
     ctx.fillStyle = '#f3f8ff';
@@ -1214,9 +1214,9 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
     const subWeaponLabel = '忍具強化';
 
     const progressionCards = [
-        { title: '通常連撃', level: normalTier, detail: `${player.getNormalComboMax()}段` },
+        { title: '連撃強化', level: normalTier, detail: `${player.getNormalComboMax()}段` },
         { title: subWeaponLabel, level: subTier, detail: `Lv ${subTier}` },
-        { title: '奥義分身', level: specialTier, detail: `${specialCount}体${specialTier >= 3 ? '・自律' : ''}` }
+        { title: '奥義強化', level: specialTier, detail: `${specialCount}体${specialTier >= 3 ? '・自律' : ''}` }
     ];
 
     ctx.save();
@@ -1247,11 +1247,11 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
     // 枠線（多重線で高級感を出す）
     ctx.strokeStyle = 'rgba(164, 193, 255, 0.35)';
     ctx.lineWidth = 2;
-    ctx.strokeRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    // ctx.strokeRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); // 全画面ボーダー削除
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
     ctx.lineWidth = 1;
     // 枠線を少し内側に引く（画面外へのはみ出し防止）
-    ctx.strokeRect(0.5, 0.5, CANVAS_WIDTH - 1, CANVAS_HEIGHT - 1);
+    // ctx.strokeRect(0.5, 0.5, CANVAS_WIDTH - 1, CANVAS_HEIGHT - 1); // 全画面ボーダー削除
     ctx.restore();
 
     // --- メインレイアウト構成 ---
@@ -1376,6 +1376,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
 
         // ラベル
         ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+        ctx.textAlign = 'left';
         ctx.font = '600 18px sans-serif';
         ctx.fillText(row.label, infoX + 10, rowY - 4);
         
@@ -1493,7 +1494,7 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
     ctx.textAlign = 'center';
     ctx.fillStyle = '#f7fbff';
     ctx.font = '700 46px sans-serif';
-    ctx.fillText('段位上昇', CANVAS_WIDTH / 2, 112);
+    ctx.fillText('昇段', CANVAS_WIDTH / 2, 112);
     ctx.font = '600 20px sans-serif';
     ctx.fillStyle = 'rgba(220, 236, 255, 0.9)';
     ctx.fillText('強化を選択', CANVAS_WIDTH / 2, 166);
@@ -1509,8 +1510,14 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
         bg.addColorStop(1, selected ? 'rgba(30, 47, 92, 0.92)' : 'rgba(16, 22, 44, 0.9)');
         ctx.fillStyle = bg;
         ctx.fillRect(x, cardY, cardWidth, cardHeight);
-        ctx.strokeStyle = selected ? `rgba(218, 233, 255, ${0.7 + pulse * 0.3})` : 'rgba(145, 171, 223, 0.35)';
-        ctx.lineWidth = selected ? 2.4 : 1.2;
+        if (selected) {
+            ctx.save();
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = 'rgba(100, 160, 255, 0.4)';
+            ctx.restore();
+        }
+        ctx.strokeStyle = selected ? `rgba(218, 233, 255, ${0.9 + pulse * 0.1})` : 'rgba(145, 171, 223, 0.35)';
+        ctx.lineWidth = selected ? 2.0 : 1.2;
         ctx.strokeRect(x, cardY, cardWidth, cardHeight);
 
         ctx.textAlign = 'left';

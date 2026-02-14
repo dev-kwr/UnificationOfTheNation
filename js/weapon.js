@@ -2,8 +2,8 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { COLORS, GRAVITY } from './constants.js?v=42';
-import { audio } from './audio.js?v=42';
+import { COLORS, GRAVITY } from './constants.js?v=48';
+import { audio } from './audio.js?v=48';
 
 // 爆弾クラス
 export class Bomb {

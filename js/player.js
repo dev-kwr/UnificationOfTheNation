@@ -2,10 +2,10 @@
 // Unification of the Nation - プレイヤークラス
 // ============================================
 
-import { PLAYER, GRAVITY, FRICTION, CANVAS_WIDTH, CANVAS_HEIGHT, COLORS } from './constants.js?v=42';
-import { input } from './input.js?v=42';
-import { audio } from './audio.js?v=42';
-import { game } from './game.js?v=42';
+import { PLAYER, GRAVITY, FRICTION, CANVAS_WIDTH, CANVAS_HEIGHT, COLORS } from './constants.js?v=53';
+import { input } from './input.js?v=53';
+import { audio } from './audio.js?v=53';
+import { game } from './game.js?v=53';
 
 // アニメーション状態
 const ANIM_STATE = {
@@ -1752,6 +1752,9 @@ export class Player {
         ctx.quadraticCurveTo(bladeLength - 14.0, 0.1, 2.2, 0.28);
         ctx.fill();
 
+
+
+
         ctx.restore();
     }
     
@@ -1918,7 +1921,13 @@ export class Player {
         const forceSubWeaponRender = options.forceSubWeaponRender || false;
         // 昇天中（forceStanding）は武器を表示しない（ただしforceSubWeaponRenderがある場合は一部許容する設計もあり得るが、現状はクリア画面優先）
         const renderSubWeaponVisuals = forceStanding ? false : renderSubWeaponVisualsInput;
-        this.forceSubWeaponRender = forceSubWeaponRender; // renderSubWeaponArm で手っ取り早く参照するため一時的に保持
+
+
+        const originalX = this.x;
+        const originalY = this.y;
+        this.x = x;
+        this.y = y;
+        this.forceSubWeaponRender = forceSubWeaponRender;
 
         // 変数定義
         const centerX = x + this.width / 2;
@@ -2570,7 +2579,8 @@ export class Player {
                 const tailTipX = tailRootX - dir * tailLen;
                 const tailTipY = tailRootY + tailWave * 0.8 + (isMoving ? -1.0 : 1.5);
 
-                ctx.fillStyle = accentColor;
+                ctx.strokeStyle = accentColor;
+                ctx.lineWidth = 4;
                 ctx.beginPath();
                 ctx.moveTo(tailRootX, tailRootY + 0.3);
                 ctx.quadraticCurveTo(
@@ -2586,8 +2596,7 @@ export class Player {
                     tailRootX,
                     tailRootY + 8.6
                 );
-                ctx.closePath();
-                ctx.fill();
+                ctx.stroke();
                 return;
             }
 
@@ -2800,6 +2809,8 @@ export class Player {
         // 長い帯(テール)を最前面寄りで描き、腕より手前に来るようにする
         drawHeadbandTail();
 
+        this.x = originalX;
+        this.y = originalY;
         ctx.restore();
     }
 
@@ -3145,6 +3156,9 @@ export class Player {
             drawSupportPose(centerX - dir * 8, pivotY + 12);
         }
         
+
+
+
         ctx.restore();
     }
 
@@ -3688,6 +3702,9 @@ export class Player {
             ctx.fill();
         }
 
+
+
+
         ctx.restore();
     }
 
@@ -3759,6 +3776,9 @@ export class Player {
 
         // 鉢巻テール（分身詠唱ポーズでも表示）
         this.renderHeadbandTail(ctx, centerX, headY, facingRight, { forceStanding: true });
+
+
+
 
         ctx.restore();
     }
@@ -3923,6 +3943,9 @@ export class Player {
         );
         ctx.closePath();
         ctx.fill();
+
+
+
 
         ctx.restore();
     }

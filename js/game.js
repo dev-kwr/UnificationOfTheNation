@@ -2,16 +2,16 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON } from './constants.js?v=42';
-import { input } from './input.js?v=42';
-import { Player } from './player.js?v=42';
-import { createSubWeapon } from './weapon.js?v=42';
-import { Stage } from './stage.js?v=42';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding } from './ui.js?v=42';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit, checkPlayerAttackHit, checkSpecialHit, checkExplosionHit } from './collision.js?v=42';
-import { saveManager } from './save.js?v=42';
-import { shop } from './shop.js?v=42';
-import { audio } from './audio.js?v=42';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON } from './constants.js?v=53';
+import { input } from './input.js?v=53';
+import { Player } from './player.js?v=53';
+import { createSubWeapon } from './weapon.js?v=53';
+import { Stage } from './stage.js?v=53';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding } from './ui.js?v=53';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit, checkPlayerAttackHit, checkSpecialHit, checkExplosionHit } from './collision.js?v=53';
+import { saveManager } from './save.js?v=53';
+import { shop } from './shop.js?v=53';
+import { audio } from './audio.js?v=53';
 
 class Game {
     constructor() {
@@ -71,7 +71,7 @@ class Game {
         this.endingTimer = 0;
         this.lastAttackSignature = null;
         this.pendingLevelUpChoices = 0;
-        this.levelUpChoiceIndex = 0;
+        // this.levelUpChoiceIndex = 0; // フェードアウト完了まで位置を維持
         this.levelUpInputLockMs = 0;
         this.levelUpRequireRelease = false;
         this.levelUpConfirmCooldownMs = 0;
@@ -266,7 +266,7 @@ class Game {
                 change: (delta) => { cfg.stage = clamp(cfg.stage + delta, 1, STAGES.length); }
             },
             {
-                label: '通常連撃強化',
+                label: '連撃強化',
                 getValue: () => `Lv ${cfg.normalCombo}`,
                 change: (delta) => { cfg.normalCombo = clamp(cfg.normalCombo + delta, 0, 3); }
             },
@@ -517,7 +517,7 @@ class Game {
         this.expGems = [];
         this.stageBossDefeatEffects = [];
         this.pendingLevelUpChoices = 0;
-        this.levelUpChoiceIndex = 0;
+        // this.levelUpChoiceIndex = 0; // フェードアウト完了まで位置を維持
         this.levelUpInputLockMs = 0;
         this.levelUpRequireRelease = false;
         this.levelUpConfirmCooldownMs = 0;
@@ -567,14 +567,19 @@ class Game {
             if (this.flashAlpha < 0) this.flashAlpha = 0;
         }
         
-        // 更新
-        this.update();
-        
-        // 描画
-        this.render();
-        
-        // 入力状態更新（JustPressedリセット）
-        input.update();
+                try {
+            // 更新
+            this.update();
+            
+            // 描画
+            this.render();
+        } catch (err) {
+            console.error('Game loop error:', err);
+        } finally {
+            // 入力状態更新（JustPressedリセット）
+            // 何らかのエラーで update/render が止まっても、入力の固着を防ぐために必ず実行
+            input.update();
+        }
         
         // 次フレーム
         requestAnimationFrame((t) => this.loop(t));
@@ -667,7 +672,7 @@ class Game {
             }
         }
         
-        // スペースで決定 (Zキーを除外)
+        // SPACEで決定 (Zキーを除外)
         if (input.isActionJustPressed('JUMP')) {
             if (this.hasSave) {
                 if (this.titleMenuIndex === 0) {
@@ -857,7 +862,7 @@ class Game {
         this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
         this.player.unlockedWeapons = [];
         this.pendingLevelUpChoices = 0;
-        this.levelUpChoiceIndex = 0;
+        // this.levelUpChoiceIndex = 0; // フェードアウト完了まで位置を維持
         this.levelUpInputLockMs = 0;
         this.levelUpRequireRelease = false;
         this.levelUpConfirmCooldownMs = 0;
@@ -1630,7 +1635,7 @@ class Game {
         const choices = [
             {
                 id: 'normal_combo',
-                title: '通常連撃強化',
+                title: '連撃強化',
                 subtitle: `連撃段数 ${this.player.getNormalComboMax()} → ${Math.min(5, this.player.getNormalComboMax() + 1)}`,
                 level: progression.normalCombo || 0,
                 maxLevel: 3
@@ -1644,7 +1649,7 @@ class Game {
             },
             {
                 id: 'special_clone',
-                title: '奥義分身強化',
+                title: '奥義強化',
                 subtitle: detail,
                 level: specialTier,
                 maxLevel: 3
@@ -1678,7 +1683,7 @@ class Game {
         const upgraded = this.player.applyProgressionChoice(choiceId);
         if (!upgraded) return;
         this.pendingLevelUpChoices = Math.max(0, this.pendingLevelUpChoices - 1);
-        this.levelUpChoiceIndex = 0;
+        // this.levelUpChoiceIndex = 0; // フェードアウト完了まで位置を維持
         this.levelUpInputLockMs = 220;
         this.levelUpConfirmCooldownMs = 220;
         this.levelUpRequireRelease = true;
@@ -1706,6 +1711,7 @@ class Game {
                 if (this.pendingLevelUpChoices > 0 && nextChoices.length > 0) {
                     this.levelUpChoices = nextChoices;
                     this.levelUpChoiceIndex = 0;
+                    // this.levelUpChoiceIndex = 0; // フェードアウト完了まで位置を維持
                     this.levelUpInputLockMs = 420;
                     this.levelUpConfirmCooldownMs = 0;
                     this.levelUpRequireRelease = true;
@@ -1770,14 +1776,14 @@ class Game {
                 if (touchX >= x && touchX <= x + cardWidth + 10 && input.lastTouchY >= cardY - 10 && input.lastTouchY <= cardY + 260 + 10) {
                     audio.playLevelUpSelect(); // 決定音
                     this.levelUpChoiceIndex = index;
-                    this.applyLevelUpChoice(choices[index].id);
+                    this.applyLevelUpChoice(choices[index].id || choices[index].type);
                     return;
                 }
             }
         }
 
         if (input.isActionJustPressed('JUMP')) {
-            this.applyLevelUpChoice(choices[this.levelUpChoiceIndex].id);
+            if (choices[this.levelUpChoiceIndex]) { this.applyLevelUpChoice(choices[this.levelUpChoiceIndex].id || choices[this.levelUpChoiceIndex].type); }
         }
     }
 
@@ -2280,7 +2286,7 @@ class Game {
             this.player.clearSpecialState(true);
         }
         this.pendingLevelUpChoices = 0;
-        this.levelUpChoiceIndex = 0;
+        // this.levelUpChoiceIndex = 0; // フェードアウト完了まで位置を維持
 
         // ボスの武器を獲得
         const stageInfo = STAGES[this.currentStageNumber - 1];
@@ -2334,7 +2340,8 @@ class Game {
         } else {
             // ここでオーディオを切り替えない（ボスBGM継続のため）
         }
-        audio.playLevelUp(); // クリアジングル的に使う
+        audio.fadeOutBgm(500);
+        audio.playLevelUp();
     }
     
     updatePaused() {
@@ -2403,7 +2410,7 @@ class Game {
             return;
         }
         
-        // スペースキーまたは画面タップでタイトルへ戻る
+        // SPACEキーまたは画面タップでタイトルへ戻る
         if (input.isActionJustPressed('JUMP') || input.touchJustPressed) {
             this.gameOverWaitTimer = undefined; // リセット
             this.state = GAME_STATE.TITLE;
