@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD } from './constants.js';
-import { input } from './input.js';
-import { audio } from './audio.js';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD } from './constants.js?v=41';
+import { input } from './input.js?v=41';
+import { audio } from './audio.js?v=41';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・スペース：ジャンプ | Z：攻撃 | X：忍具 | D：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const PAD_ICON_PATHS = {
@@ -350,7 +350,7 @@ export class UI {
         const isMaxed = player.isAllSkillsMaxed && player.isAllSkillsMaxed();
         const expRatio = isMaxed ? 1.0 : Math.max(0, player.exp / player.expToNext);
         const expColors = isMaxed 
-            ? [[0, '#ffe177'], [0.5, '#ffd14e'], [1, '#ff9d3a']] // 金色
+            ? [[0, '#5a5a6a'], [0.5, '#4a4a5a'], [1, '#3a3a4a']] // 非活性（灰色系）
             : [[0, '#53e87d'], [0.58, '#41d0b8'], [1, '#2f9dd9']]; // 通常（緑〜青）
 
         drawModernGauge(barX, expY, expBarWidth, expBarHeight, expRatio, expColors);
@@ -361,12 +361,21 @@ export class UI {
         ctx.shadowColor = 'rgba(0,0,0,0.65)';
         ctx.shadowBlur = 5;
         ctx.fillStyle = '#fff';
-        ctx.fillText(isMaxed ? '免許皆伝' : '熟練', x, expY + expBarHeight / 2);
+        // ラベルは常に「熟練」を表示
+        ctx.fillText('熟練', x, expY + expBarHeight / 2);
+        // MAX時はバー内に「免許皆伝」テキストを表示
+        if (isMaxed) {
+            ctx.textAlign = 'center';
+            ctx.font = '700 12px sans-serif';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.fillText('免許皆伝', barX + expBarWidth / 2, expY + expBarHeight / 2);
+            ctx.textAlign = 'left';
+        }
         ctx.shadowBlur = 0;
         
         // --- Stage Info + マネー（右上） ---
-        const stageFloorKanji = toKanjiNumber(stage.stageNumber || 1);
-        const stageLabel = `第${stageFloorKanji}階層`;
+        const stageFloorKanji = toKanjiNumber(stage?.stageNumber || 1);
+        const stageLabel = (stage && stage.name) ? stage.name : `第${stageFloorKanji}階層`;
         const stageFontPx = 16;
         const moneyFontPx = 16;
         const bgmCenterX = CANVAS_WIDTH - VIRTUAL_PAD.BGM_BUTTON_MARGIN_RIGHT;
@@ -1062,7 +1071,7 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
     ctx.fillRect(panelX, panelY, panelW, panelH);
     ctx.strokeStyle = 'rgba(178, 205, 255, 0.6)';
     ctx.lineWidth = 1.8;
-    ctx.strokeRect(panelX, panelY, panelW, panelH);
+    ctx.strokeRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     ctx.textAlign = 'left';
     ctx.fillStyle = '#f3f8ff';
@@ -1115,7 +1124,7 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
 }
 
 // ゲームオーバー画面（リッチ化）
-export function renderGameOverScreen(ctx, player, stageNumber, fadeTimer = 0) {
+export function renderGameOverScreen(ctx, player, stageNumber, fadeTimer = 0, stage) {
     // 表示開始からの経過時間を使用（ループさせない）
     const time = fadeTimer;
     
@@ -1146,24 +1155,14 @@ export function renderGameOverScreen(ctx, player, stageNumber, fadeTimer = 0) {
     ctx.textAlign = 'center';
     ctx.shadowColor = '#500';
     ctx.shadowBlur = 20;
-    ctx.fillText('無 念', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 100);
+    ctx.fillText('無 念', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 80);
     
     ctx.font = 'bold 40px serif';
     ctx.fillStyle = 'rgba(204, 0, 0, 1)';
     ctx.shadowBlur = 0;
-    ctx.fillText('GAME OVER', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 40);
+    ctx.fillText('GAME OVER', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
     
-    // 情報パネル
-    ctx.font = '20px serif';
-    ctx.fillStyle = '#ddd';
-    ctx.textAlign = 'center';
-    const stageKanji = (stageNumber === '?' || stageNumber == null) ? '?' : toKanjiNumber(stageNumber);
-    const levelKanji = toKanjiNumber(player.level);
-    ctx.fillText('到達した階層：第 ' + stageKanji + ' 階層', CANVAS_WIDTH/2, CANVAS_HEIGHT/2 + 80);
-    ctx.fillText('集めた金貨：' + player.money + ' 枚', CANVAS_WIDTH/2, CANVAS_HEIGHT/2 + 110);
-    ctx.fillText('到達した段位：' + levelKanji + ' 段', CANVAS_WIDTH/2, CANVAS_HEIGHT/2 + 140);
-    
-    // 続行メッセージ
+    // 続行メッセージ（画面中央寄りに配置）
     if (fadeProgress >= 1.0) {
         const blink = Math.floor(Date.now() / 500) % 2 === 0;
         if (blink) {
@@ -1172,18 +1171,18 @@ export function renderGameOverScreen(ctx, player, stageNumber, fadeTimer = 0) {
             ctx.textAlign = 'center';
             ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
             ctx.shadowBlur = 4;
-            ctx.fillText('Press SPACE or Tap Screen to Return to Title', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 240);
+            ctx.fillText('Press SPACE or Tap Screen to Return to Title', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 80);
             ctx.shadowBlur = 0;
         }
     }
     ctx.globalAlpha = 1.0;
 
     // タップ用ボタン
-    drawFlatButton(ctx, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 240, 400, 60, '', 'rgba(0, 0, 0, 0)');
+    drawFlatButton(ctx, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 80, 400, 60, '', 'rgba(0, 0, 0, 0)');
 }
 
 // ステージクリア画面（ステータス画面）
-export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked, options = {}) {
+export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, options = {}, stage) {
     const time = Date.now();
     const menuIndex = Number.isFinite(options.menuIndex) ? options.menuIndex : 0;
     const selectedWeaponName = options.selectedWeaponName || (player?.currentSubWeapon?.name || '未装備');
@@ -1194,20 +1193,21 @@ export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked,
     const specialCount = typeof player?.getSpecialCloneCount === 'function' ? player.getSpecialCloneCount() : 1;
     const stageKanji = toKanjiNumber(stageNumber);
 
-    // レイアウト定数
-    const padding = 45; // 60 -> 45
-    const panelX = (CANVAS_WIDTH - (CANVAS_WIDTH - 90)) / 2;
-    const panelY = padding;
-    const panelW = CANVAS_WIDTH - 90;
-    const panelH = CANVAS_HEIGHT - 90; // 630px
+    // レイアウト定数 (全画面化)
+    const padding = 0; 
+    const panelX = 0;
+    const panelY = 0;
+    const panelW = CANVAS_WIDTH;
+    const panelH = CANVAS_HEIGHT;
 
-    const leftColW = 460;
-    const rightColX = panelX + leftColW + 40;
-    const rightColW = panelX + panelW - rightColX - 20;
+    const leftColW = 400;
+    const previewAreaX = 40;
+    const rightColX = leftColW + 60;
+    const rightColW = panelW - rightColX - 40;
 
     const menuItems = [
-        { title: 'よろず屋' },
         { title: `忍具：${selectedWeaponName}` },
+        { title: 'よろず屋' },
         { title: '次の階層へ' }
     ];
 
@@ -1220,10 +1220,10 @@ export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked,
     ];
 
     ctx.save();
-    // 背景：深い紺色のグラデーション
+    // 背景：深い紺色の不透明グラデーション（全画面・透け防止）
     const bgGrad = ctx.createRadialGradient(CANVAS_WIDTH/2, CANVAS_HEIGHT/2, 0, CANVAS_WIDTH/2, CANVAS_HEIGHT/2, CANVAS_WIDTH);
-    bgGrad.addColorStop(0, 'rgba(10, 15, 35, 0.94)');
-    bgGrad.addColorStop(1, 'rgba(4, 6, 16, 0.98)');
+    bgGrad.addColorStop(0, '#0a0f23');
+    bgGrad.addColorStop(1, '#040610');
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
@@ -1247,34 +1247,41 @@ export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked,
     // 枠線（多重線で高級感を出す）
     ctx.strokeStyle = 'rgba(164, 193, 255, 0.35)';
     ctx.lineWidth = 2;
-    ctx.strokeRect(panelX, panelY, panelW, panelH);
+    ctx.strokeRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(panelX - 2, panelY - 2, panelW + 4, panelH + 4);
+    // 枠線を少し内側に引く（画面外へのはみ出し防止）
+    ctx.strokeRect(0.5, 0.5, CANVAS_WIDTH - 1, CANVAS_HEIGHT - 1);
     ctx.restore();
 
+    // --- メインレイアウト構成 ---
+    const topBarY = 100;
+
+    // タイトル削除（トルツメ）
+    // 詳細ステータスへ即座に目が行くように
+
     // --- 左側：自キャラプレビュー ---
-    const previewAreaX = panelX + 40;
-    const previewAreaY = panelY + 120;
-    const previewAreaW = leftColW - 20;
-    const previewAreaH = 360;
+    const previewX = previewAreaX;
+    const previewY = topBarY; // タイトル分を詰める (60 -> 0 offset)
+    const previewW = leftColW;
+    const previewH = 340;
 
     // プレビュー背景（和風の装飾的な背景）
     ctx.fillStyle = 'rgba(0, 5, 20, 0.4)';
-    ctx.fillRect(previewAreaX, previewAreaY, previewAreaW, previewAreaH);
+    ctx.fillRect(previewX, previewY, previewW, previewH);
     
     // 装飾的な角（和風のデザイン）
     const cornerSize = 20;
     ctx.strokeStyle = 'rgba(142, 176, 243, 0.5)';
     ctx.lineWidth = 2;
     // 左上
-    ctx.beginPath(); ctx.moveTo(previewAreaX, previewAreaY + cornerSize); ctx.lineTo(previewAreaX, previewAreaY); ctx.lineTo(previewAreaX + cornerSize, previewAreaY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(previewX, previewY + cornerSize); ctx.lineTo(previewX, previewY); ctx.lineTo(previewX + cornerSize, previewY); ctx.stroke();
     // 右下
-    ctx.beginPath(); ctx.moveTo(previewAreaX + previewAreaW, previewAreaY + previewAreaH - cornerSize); ctx.lineTo(previewAreaX + previewAreaW, previewAreaY + previewAreaH); ctx.lineTo(previewAreaX + previewAreaW - cornerSize, previewAreaY + previewAreaH); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(previewX + previewW, previewY + previewH - cornerSize); ctx.lineTo(previewX + previewW, previewY + previewH); ctx.lineTo(previewX + previewW - cornerSize, previewY + previewH); ctx.stroke();
 
     if (player && typeof player.renderModel === 'function') {
-        const previewX = previewAreaX + previewAreaW / 2;
-        const previewY = previewAreaY + previewAreaH - 60;
+        const charPreviewX = previewX + previewW / 2;
+        const charPreviewY = previewY + previewH - 60;
         
         const prevTimer = player.subWeaponTimer;
         const prevAction = player.subWeaponAction;
@@ -1313,7 +1320,7 @@ export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked,
         }
 
         ctx.save();
-        ctx.translate(previewX, previewY);
+        ctx.translate(charPreviewX, charPreviewY);
         ctx.scale(2.8, 2.8);
         
         player.renderModel(ctx, -player.width / 2, -player.height + (isAttackingPhase ? 0 : Math.sin(time * 0.002) * 2), true, 1.0, true, {
@@ -1333,15 +1340,21 @@ export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked,
 
     // --- 右側：ステータス情報 ---
     const infoX = rightColX;
-    const infoY = panelY + 120;
+    const infoY = topBarY; // タイトル分を詰める (60 -> 0 offset)
     
-    ctx.textAlign = 'left';
+    ctx.textAlign = 'right';
+    
+    // ステージ名（固有名称）は削除（トルツメ）
+    /*
+    const stageName = stage ? stage.name : `第${toKanjiNumber(stageNumber)}階層`;
+    ctx.font = '900 32px sans-serif';
+    
+    ctx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+    ctx.shadowBlur = 4;
     ctx.fillStyle = '#fff';
-    ctx.font = '700 24px sans-serif';
-    ctx.shadowColor = 'rgba(100, 150, 255, 0.5)';
-    ctx.shadowBlur = 8;
-    ctx.fillText('現在の能力', infoX, infoY - 10);
+    ctx.fillText(stageName, CANVAS_WIDTH - 90, 44);
     ctx.shadowBlur = 0;
+    */
 
     const statRows = [
         { label: '段位', value: `${toKanjiNumber(player.level)}段`, color: '#fff' },
@@ -1353,7 +1366,7 @@ export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked,
     ];
 
     statRows.forEach((row, i) => {
-        const rowY = infoY + 40 + i * 44;
+        const rowY = infoY + 50 + i * 44;
         
         // 行の背景（互い違いに薄く色を載せる）
         if (i % 2 === 0) {
@@ -1367,9 +1380,10 @@ export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked,
         ctx.fillText(row.label, infoX + 10, rowY - 4);
         
         ctx.textAlign = 'right';
-        ctx.fillStyle = row.color;
+        ctx.fillStyle = row.value === 'undefined段' ? '#fff' : row.color; // undefined対策
         ctx.font = '700 20px sans-serif';
-        ctx.fillText(row.value, panelX + panelW - 40, rowY - 4);
+        // Y座標を調整してラベルと高さを合わせる（以前は rowY - 4 だったが、フォントサイズ差でずれていた）
+        ctx.fillText(row.value, panelX + panelW - 40, rowY); 
         ctx.textAlign = 'left';
         
         // 区切り線
@@ -1381,7 +1395,7 @@ export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked,
     });
 
     // 強化状況カード
-    const cardY = infoY + 285;
+    const cardY = infoY + 280;
     const cardW = (rightColW - 32) / 3;
     const cardH = 95;
 
@@ -1419,9 +1433,9 @@ export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked,
     });
 
     // --- 下部：メニュー ---
-    const menuY = panelY + panelH - 110; // menuH=85 なので、下端付近に配置
-    const menuW = (panelW - 80 - 40) / 3;
-    const menuH = 85;
+    const menuY = CANVAS_HEIGHT - 160;
+    const menuW = (panelW - 120) / 3;
+    const menuH = 80;
 
     menuItems.forEach((item, i) => {
         const selected = i === menuIndex;
@@ -1445,11 +1459,11 @@ export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked,
         ctx.strokeRect(x, menuY, menuW, menuH);
 
         ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
         ctx.fillStyle = selected ? '#fff' : 'rgba(255, 255, 255, 0.8)';
         ctx.font = selected ? '700 22px sans-serif' : '600 20px sans-serif';
-        
-        // テキスト（アイコンは不要）
-        ctx.fillText(item.title, x + menuW / 2, menuY + 52);
+        // Y座標を修正して中央に配置
+        ctx.fillText(item.title, x + menuW / 2, menuY + menuH / 2);
     });
 
     // 操作説明
@@ -1881,7 +1895,7 @@ export function renderGameClearScreen(ctx, player) {
 /**
  * 階層クリア時の演出画面（緑色の明るいオーバーレイと大きな文字）
  */
-export function renderStageClearAnnouncement(ctx, stageNumber, weaponUnlocked) {
+export function renderStageClearAnnouncement(ctx, stageNumber, weaponUnlocked, stage) {
     const time = Date.now();
     const stageStr = Number.isFinite(stageNumber) ? toKanjiNumber(stageNumber) : stageNumber;
 
@@ -1906,12 +1920,14 @@ export function renderStageClearAnnouncement(ctx, stageNumber, weaponUnlocked) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     
-    // 「第〇階層」
+    // 「第〇階層」 -> 固有名称
+    const stageName = (stage && stage.name) ? stage.name : `第${stageStr}階層`;
+    
     ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
     ctx.shadowBlur = 10;
     ctx.fillStyle = '#ffffff';
     ctx.font = '700 42px serif'; // 明朝体系に統一
-    ctx.fillText(`第${stageStr}階層`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 90);
+    ctx.fillText(stageName, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 90);
     
     // 「突破」
     ctx.font = '700 110px serif'; // 明朝体系に統一

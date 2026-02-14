@@ -2,8 +2,8 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { COLORS, GRAVITY } from './constants.js';
-import { audio } from './audio.js';
+import { COLORS, GRAVITY } from './constants.js?v=41';
+import { audio } from './audio.js?v=41';
 
 // 爆弾クラス
 export class Bomb {
@@ -163,6 +163,10 @@ export class Firebomb extends SubWeapon {
     }
 
     render(ctx, player) {
+        // 火薬玉は常に持っているのではなく、投擲モーション中（あるいはプレビューでもそのアクション中）のみ描画
+        const isThrowAction = player.subWeaponAction === 'throw';
+        if (!isThrowAction) return;
+
         // 手に持っている状態の描画（プレビューやモーション中）
         const direction = player.facingRight ? 1 : -1;
         
@@ -172,10 +176,9 @@ export class Firebomb extends SubWeapon {
         const progress = isPreview ? 0.15 : Math.max(0, Math.min(1, 1 - (sourceTimer / 150)));
         
         // 手の位置に合わせて座標計算（renderSubWeaponArmの腕の曲がりに合わせる）
-        const reach = 10 + Math.sin(progress * Math.PI) * 12;
+        const reach = 14 + Math.sin(progress * Math.PI) * 8;
         const bombX = player.x + player.width / 2 + direction * reach;
-        const bombY = player.y + 18 - Math.cos(progress * Math.PI) * 4;
-
+        const bombY = player.y + 24 - Math.cos(progress * Math.PI) * 4;
         ctx.save();
         ctx.translate(bombX, bombY);
         

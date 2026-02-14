@@ -2,16 +2,16 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON } from './constants.js';
-import { input } from './input.js';
-import { Player } from './player.js';
-import { createSubWeapon } from './weapon.js';
-import { Stage } from './stage.js';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStageClearScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding } from './ui.js';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit, checkPlayerAttackHit, checkSpecialHit, checkExplosionHit } from './collision.js';
-import { saveManager } from './save.js';
-import { shop } from './shop.js';
-import { audio } from './audio.js';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON } from './constants.js?v=41';
+import { input } from './input.js?v=41';
+import { Player } from './player.js?v=41';
+import { createSubWeapon } from './weapon.js?v=41';
+import { Stage } from './stage.js?v=41';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding } from './ui.js?v=41';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit, checkPlayerAttackHit, checkSpecialHit, checkExplosionHit } from './collision.js?v=41';
+import { saveManager } from './save.js?v=41';
+import { shop } from './shop.js?v=41';
+import { audio } from './audio.js?v=41';
 
 class Game {
     constructor() {
@@ -86,7 +86,12 @@ class Game {
         this.titleDebugConfig = this.createTitleDebugConfig();
         this.debugKeyRepeatTimer = 0;
         this.stageClearPhase = 0; // 0: 演出(Announce), 1: 詳細ステータス
-        this.levelUpChoices = []; // 選択肢リストを明示的に初期化
+        this.levelUpChoices = [];
+        this.flashAlpha = 0;
+        this.levelUpAlpha = 0;
+        this.levelUpTransitionDir = 0;
+        this.stageTransitionTimer = 0;
+        this.stageTransitionPhase = 0; // 0: None, 1: FadeOut, 2: Wait, 3: FadeIn
     }
     
     init(canvas) {
@@ -481,7 +486,7 @@ class Game {
     startStage() {
         // プレイヤー初期化（初回のみ生成、以降はリセット）
         if (!this.player) {
-            this.player = new Player(100, this.groundY - 60, this.groundY);
+            this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
         } else {
             this.player.x = 100;
             this.player.y = this.groundY - 60;
@@ -520,13 +525,17 @@ class Game {
         this.playerDefeatTimer = 0;
         this.collisionManager.reset();
         this.pendingStageClear = false;
-        this.stageClearTransitionTimer = 0;
+        this.stageClearTransitionTimer = 0.6; // 1.0s -> 0.6s に短縮してテンポを改善
         
         // スクロール位置初期化
         this.scrollX = 0;
         
         this.state = GAME_STATE.PLAYING;
-        audio.playBgm(this.stage.boss ? 'boss' : 'stage', this.currentStageNumber);
+        // ステージ開始BGM：フェードインなしで即再生（fadeDuration = 0）
+        audio.playBgm(this.stage.boss ? 'boss' : 'stage', this.currentStageNumber, 0);
+        
+        // ステージ開始時の暗転フェードイン
+        this.startTransition();
     }
     
     // メインループ
@@ -550,6 +559,12 @@ class Game {
         if (this.shakeIntensity > 0) {
             this.shakeIntensity *= 0.9;
             if (this.shakeIntensity < 0.1) this.shakeIntensity = 0;
+        }
+
+        // ボス撃破フラッシュの更新
+        if (this.flashAlpha > 0) {
+            this.flashAlpha -= rawDeltaTime * 1.5; // 約0.66秒で消える
+            if (this.flashAlpha < 0) this.flashAlpha = 0;
         }
         
         // 更新
@@ -801,10 +816,10 @@ class Game {
         const tY = input.lastTouchY;
 
         // ui.js (renderTitleDebugWindow) の定数と完全に同期させる
-        const panelW = 520;
-        const panelX = CANVAS_WIDTH - panelW - 34;
-        const panelY = 70;
-        const rowH = 34; 
+        const panelW = 540;
+        const panelX = CANVAS_WIDTH - panelW - 40;
+        const panelY = 40;
+        const rowH = 27; 
         const headerH = 100;
         const listStartY = panelY + 120; // ui.js L1089 と同じ
         const entriesCount = entries.length;
@@ -815,21 +830,19 @@ class Game {
             const relativeY = tY - listStartY;
             const index = Math.floor((relativeY + rowH / 2) / rowH); // 中央基準でヒット判定
 
-            if (index >= 1 && index <= entries.length) { // 1-indexed的挙動だが0基点へ
-                const finalIndex = index - 1;
-                if (finalIndex >= 0 && finalIndex < entries.length) {
-                    this.titleDebugCursor = finalIndex;
-                    const selected = entries[finalIndex];
-                    
-                    // 行の右側タップで増加/アクション、左側タップで減少（アクション以外）
-                    const midX = panelX + panelW / 2;
-                    if (selected.action) {
-                        selected.action();
-                    } else {
-                        selected.change?.(tX >= midX ? 1 : -1);
-                    }
-                    audio.playSelect();
+            if (index >= 0 && index < entries.length) {
+                const finalIndex = index;
+                this.titleDebugCursor = finalIndex;
+                const selected = entries[finalIndex];
+                
+                // 行の右側タップで増加/アクション、左側タップで減少（アクション以外）
+                const midX = panelX + panelW / 2;
+                if (selected.action) {
+                    selected.action();
+                } else {
+                    selected.change?.(tX >= midX ? 1 : -1);
                 }
+                audio.playSelect();
             }
         } else {
             // パネル外クリックで閉じる
@@ -873,8 +886,8 @@ class Game {
         
         // 操作入力でのみプレイ開始（自動遷移しない）
         if (this.introTimer > 500 && (input.isActionJustPressed('JUMP') || input.touchJustPressed)) {
-            this.state = GAME_STATE.PLAYING;
-            audio.playBgm('stage', this.currentStageNumber);
+            // ゲーム開始（フェードイン含む）
+            this.startStage();
         }
     }
     
@@ -1026,7 +1039,7 @@ class Game {
         if (this.stage.isCleared()) {
             if (!this.pendingStageClear) {
                 this.pendingStageClear = true;
-                this.stageClearTransitionTimer = 0.6; // 1.0s -> 0.6s に短縮してテンポを改善
+                this.stageClearTransitionTimer = 0.0; // 即時遷移（ボス撃破演出の余韻はFlashで表現）
             }
         }
         
@@ -1412,7 +1425,7 @@ class Game {
                     }
                 } else if (obs.type === OBSTACLE_TYPES.ROCK) {
                     // 岩：物理的な壁として押し戻す
-                    p.vx = 0;
+                    this.player.vx = 0;
                 }
             }
 
@@ -1611,9 +1624,9 @@ class Game {
         const specialTier = progression.specialClone || 0;
         const specialCount = this.player.getSpecialCloneCountByTier(specialTier);
         const nextSpecialCount = this.player.getSpecialCloneCountByTier(Math.min(3, specialTier + 1));
-        const specialSubtitle = specialTier >= 3
-            ? `分身 +${specialCount} / AI自動行動`
-            : `分身 +${specialCount} → +${nextSpecialCount}${specialTier === 2 ? ' + AI' : ''}`;
+        const detail = nextSpecialCount === specialCount
+            ? `分身 +${specialCount} / 自動追尾行動`
+            : `分身 +${specialCount} → +${nextSpecialCount}${specialTier === 2 ? ' + 自動追尾' : ''}`;
         const choices = [
             {
                 id: 'normal_combo',
@@ -1632,7 +1645,7 @@ class Game {
             {
                 id: 'special_clone',
                 title: '奥義分身強化',
-                subtitle: specialSubtitle,
+                subtitle: detail,
                 level: specialTier,
                 maxLevel: 3
             }
@@ -1654,6 +1667,8 @@ class Game {
                 input.isAction('ATTACK') ||
                 input.isAction('SUB_WEAPON') ||
                 input.touchJustPressed;
+            this.levelUpAlpha = 0; // フェードイン開始
+            this.levelUpTransitionDir = 1;
             audio.playLevelUp();
         }
     }
@@ -1668,19 +1683,56 @@ class Game {
         this.levelUpConfirmCooldownMs = 220;
         this.levelUpRequireRelease = true;
         audio.playPowerUp();
-        const nextChoices = this.getAvailableLevelUpChoices();
-        if (nextChoices.length === 0 || this.pendingLevelUpChoices <= 0) {
-            this.pendingLevelUpChoices = 0;
-            this.state = GAME_STATE.PLAYING;
-        }
+        // 選択後は必ずフェードアウトを開始（選択した状態を維持したまま消える）
+        // フェードアウト完了時に次の選択肢があれば再フェードインする
+        this.levelUpTransitionDir = -1;
     }
 
     updateLevelUpChoice() {
-        const choices = this.getAvailableLevelUpChoices();
-        this.levelUpChoices = choices; // 描画側で確実に参照できるよう毎フレーム更新
+        // フェードイン/アウト処理
+        if (this.levelUpTransitionDir === 1) { // フェードイン
+            this.levelUpAlpha += this.deltaTime * 3.5;
+            if (this.levelUpAlpha >= 1.0) {
+                this.levelUpAlpha = 1.0;
+                this.levelUpTransitionDir = 0;
+            }
+        } else if (this.levelUpTransitionDir === -1) { // フェードアウト
+            this.levelUpAlpha -= this.deltaTime * 4.0;
+            if (this.levelUpAlpha <= 0) {
+                this.levelUpAlpha = 0;
+                this.levelUpTransitionDir = 0;
+                // フェードアウト完了時：次の選択肢があれば再フェードインで表示
+                const nextChoices = this.getAvailableLevelUpChoices();
+                if (this.pendingLevelUpChoices > 0 && nextChoices.length > 0) {
+                    this.levelUpChoices = nextChoices;
+                    this.levelUpChoiceIndex = 0;
+                    this.levelUpInputLockMs = 420;
+                    this.levelUpConfirmCooldownMs = 0;
+                    this.levelUpRequireRelease = true;
+                    this.levelUpTransitionDir = 1; // フェードイン開始
+                    return;
+                }
+                this.state = GAME_STATE.PLAYING;
+                // ショップから戻った後のステージクリア判定があれば遷移
+                if (this.pendingStageClear) {
+                    this.state = GAME_STATE.STAGE_CLEAR;
+                    this.stageClearPhase = 0;
+                }
+                return;
+            }
+        }
+
+        if (this.levelUpAlpha < 0.5) return; // ある程度表示されるまで入力を受け付けない
+
+        // フェードアウト中は選択した時の状態を維持（次の選択肢を見せない）
+        if (this.levelUpTransitionDir !== -1) {
+            const choices = this.getAvailableLevelUpChoices();
+            this.levelUpChoices = choices; // 描画側で確実に参照できるよう毎フレーム更新
+        }
+        const choices = this.levelUpChoices;
         if (choices.length === 0) {
             this.pendingLevelUpChoices = 0;
-            this.state = GAME_STATE.PLAYING;
+            this.levelUpTransitionDir = -1; // フェードアウト開始
             return;
         }
         this.levelUpInputLockMs = Math.max(0, this.levelUpInputLockMs - this.deltaTime * 1000);
@@ -1715,7 +1767,8 @@ class Game {
             const cardY = CANVAS_HEIGHT / 2 - 120;
             for (let index = 0; index < choices.length; index++) {
                 const x = startX + index * (cardWidth + gap);
-                if (touchX >= x && touchX <= x + cardWidth && input.lastTouchY >= cardY && input.lastTouchY <= cardY + 260) {
+                if (touchX >= x && touchX <= x + cardWidth + 10 && input.lastTouchY >= cardY - 10 && input.lastTouchY <= cardY + 260 + 10) {
+                    audio.playLevelUpSelect(); // 決定音
                     this.levelUpChoiceIndex = index;
                     this.applyLevelUpChoice(choices[index].id);
                     return;
@@ -1779,25 +1832,50 @@ class Game {
         if (!enemy) return;
         const centerX = enemy.x + enemy.width * 0.5;
         const centerY = enemy.y + enemy.height * 0.5;
+        
+        // ボス撃破専用SE
+        audio.playBossDeath();
+        
+        // 画面フラッシュ演出（ホワイトアウト）
+        this.flashAlpha = 1.0; 
+        
         const shards = [];
-        for (let i = 0; i < 30; i++) {
-            const angle = (Math.PI * 2 * i) / 30 + (Math.random() - 0.5) * 0.3;
-            const speed = 2 + Math.random() * 5;
+        // 破片の数を大幅に増量 (30 -> 80)
+        for (let i = 0; i < 80; i++) {
+            const angle = (Math.PI * 2 * i) / 80 + (Math.random() - 0.5) * 0.4;
+            const speed = 3 + Math.random() * 8;
             shards.push({
                 x: centerX,
                 y: centerY,
                 vx: Math.cos(angle) * speed,
-                vy: Math.sin(angle) * speed - 1.2,
-                life: 600 + Math.random() * 500,
-                maxLife: 1100,
-                size: 2 + Math.random() * 3
+                vy: Math.sin(angle) * speed - 2.0,
+                life: 800 + Math.random() * 800,
+                maxLife: 1600,
+                size: 3 + Math.random() * 5,
+                color: i % 2 === 0 ? '#ffeb3b' : '#ff5722' // 火花のようなグラデーション
             });
         }
+        
+        // 衝撃波（波紋）を多重に発生させる
+        for (let i = 0; i < 3; i++) {
+            setTimeout(() => {
+                this.hitEffects.push({
+                    kind: 'ring',
+                    x: centerX,
+                    y: centerY,
+                    life: 500,
+                    maxLife: 500,
+                    radius: 10,
+                    color: 'rgba(255, 255, 255, 0.8)'
+                });
+            }, i * 150);
+        }
+
         this.stageBossDefeatEffects.push({
             x: centerX,
             y: centerY,
             timer: 0,
-            duration: 1400,
+            duration: 2000,
             shards
         });
     }
@@ -1952,10 +2030,9 @@ class Game {
             this.spawnExpGem(enemy);
             if (this.isStageBossEnemy(enemy)) {
                 this.spawnStageBossDefeatEffect(enemy);
+            } else {
+                audio.playEnemyDeath();
             }
-            this.player.addMoney(enemy.moneyReward);
-            this.player.addSpecialGauge(enemy.specialGaugeReward);
-            audio.playEnemyDeath();
             
             // 演出：攻撃種別に応じた揺れとヒットストップ
             this.queueHitFeedback(feedback.shake, feedback.hitStopMs);
@@ -2335,9 +2412,18 @@ class Game {
     }
     
     updateStageClear() {
+        // ステージ遷移演出中はそちらを更新
+        if (this.stageTransitionPhase > 0) {
+            this.updateStageTransition();
+            return;
+        }
+
         // 演出フェーズ (Phase 0)
         if (this.stageClearPhase === 0) {
             if (input.isActionJustPressed('JUMP') || input.touchJustPressed) {
+                // 決定音
+                audio.playLevelUpSelect();
+                
                 this.stageClearPhase = 1; // ステータス画面へ
                 audio.playBgm('shop'); // ここでBGMをショップ（または落ち着いたもの）に切り替え
                 audio.playSelect();
@@ -2356,7 +2442,7 @@ class Game {
             this.stageClearMenuIndex = (this.stageClearMenuIndex + 1) % menuCount;
             audio.playSelect();
         }
-        if (this.stageClearMenuIndex === 1) {
+        if (this.stageClearMenuIndex === 0) { // UIの並び順: 0=忍具, 1=よろず屋, 2=次へ
             if (input.isActionJustPressed('UP')) this.cycleStageClearWeapon(-1);
             if (input.isActionJustPressed('DOWN')) this.cycleStageClearWeapon(1);
         }
@@ -2368,7 +2454,7 @@ class Game {
             const tx = input.lastTouchX;
             const ty = input.lastTouchY;
 
-            // ui.js の renderStageClearScreen と同じレイアウト計算
+            // ui.js の renderStatusScreen と同じレイアウト計算
             const padding = 60;
             const panelX = padding;
             const panelY = padding;
@@ -2391,18 +2477,46 @@ class Game {
         }
     }
 
+    startStageTransition() {
+        this.stageTransitionPhase = 1; // FadeOut
+        this.stageTransitionTimer = 0.8; // フェードアウト時間(秒)
+        audio.fadeOutBgm(0.8); // 0.8秒かけてBGMフェードアウト
+    }
+
+    updateStageTransition() {
+        if (this.stageTransitionPhase === 1) {
+            // フェードアウト中
+            this.stageTransitionTimer -= this.deltaTime;
+            if (this.stageTransitionTimer <= 0) {
+                this.stageTransitionPhase = 2; // Wait (無音・暗転)
+                this.stageTransitionTimer = 0.8; // 待機時間(秒) - ワンテンポ置く
+            }
+        } else if (this.stageTransitionPhase === 2) {
+            // 無音待機中
+            this.stageTransitionTimer -= this.deltaTime;
+            if (this.stageTransitionTimer <= 0) {
+                this.stageTransitionPhase = 0;
+                this.startStage(); // ステージ開始（ここでBGM再生 & シーン遷移）
+            }
+        }
+    }
+
     handleStageClearConfirm() {
-        if (this.stageClearMenuIndex === 0) {
+        // UIの並び順: 0=忍具(Weapon), 1=よろず屋(Shop), 2=次へ(Next)
+        if (this.stageClearMenuIndex === 2) {
+            // 次の階層へ
             this.applyStageDefaultWeaponChoice();
             this.currentStageNumber++;
             if (this.currentStageNumber > STAGES.length) {
                 this.state = GAME_STATE.GAME_CLEAR;
             } else {
-                this.startStage();
+                this.startStageTransition();
             }
-        } else if (this.stageClearMenuIndex === 1) {
+        } else if (this.stageClearMenuIndex === 0) {
+            // 忍具切り替え（決定ボタンでも切り替えできるようにする場合）
             this.cycleStageClearWeapon(1);
-        } else if (this.stageClearMenuIndex === 2) {
+        } else if (this.stageClearMenuIndex === 1) {
+            // よろず屋
             shop.open();
             this.returnToStageClearAfterShop = true;
             this.state = GAME_STATE.SHOP;
@@ -2511,27 +2625,28 @@ class Game {
                     
                     if (this.state === GAME_STATE.DEFEAT) {
                         // 上から下へ「血がつたう」ような垂直グラデーション
-                        // イージング（Ease-Out）を適用
-                        const easedProgress = Math.sin((progress * Math.PI) / 2);
-                        const fillHeight = easedProgress * CANVAS_HEIGHT * 1.3;
+                        // イージングを劇的にスムーズに（Math.pow 3.0 で出だしを極限まで遅く）
+                        const easedProgress = Math.pow(progress, 3.0);
+                        const fillHeight = easedProgress * CANVAS_HEIGHT * 2.5; 
                         const grad = this.ctx.createLinearGradient(0, 0, 0, fillHeight);
                         
-                        const alpha = progress * 0.9;
-                        grad.addColorStop(0, `rgba(180, 0, 0, ${alpha})`);
-                        grad.addColorStop(0.7, `rgba(140, 0, 0, ${alpha * 0.6})`);
-                        grad.addColorStop(1, 'rgba(100, 0, 0, 0)');
+                        // アルファ値の立ち上がりをさらに抑制（Math.pow 2.0）
+                        const alpha = Math.pow(progress, 2.0) * 0.95;
+                        grad.addColorStop(0, `rgba(140, 0, 0, ${alpha})`);
+                        grad.addColorStop(0.5, `rgba(100, 0, 0, ${alpha * 0.4})`);
+                        grad.addColorStop(1, 'rgba(60, 0, 0, 0)');
                         
                         this.ctx.fillStyle = grad;
                         this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
                         
-                        // 画面全体が染まる直前の補強（垂直方向への広がりを強調）
-                        if (progress > 0.5) {
-                            const overlayAlpha = (progress - 0.5) / 0.5 * 0.5;
-                            this.ctx.fillStyle = `rgba(100, 0, 0, ${overlayAlpha})`;
+                        // 画面全体が染まる補強をさらに後半（0.75以降）に限定し、二次曲線で繋ぐ
+                        if (progress > 0.75) {
+                            const overlayAlpha = Math.pow((progress - 0.75) / 0.25, 2) * 0.6;
+                            this.ctx.fillStyle = `rgba(60, 0, 0, ${overlayAlpha})`;
                             this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
                         }
                     } else if (this.state === GAME_STATE.GAME_OVER) {
-                        // DEFEAT の最終状態(赤)から黒へとスムーズに繋ぐ
+                        // DEFEAT の最終状態(赤) -> 黒(GAME_OVER)へ色を変化させる
                         const fadeProgress = Math.min(1, this.gameOverFadeInTimer / Math.max(1, this.gameOverFadeDuration));
                         
                         // 赤(DEFEAT末期) -> 黒(GAME_OVER)へ色を変化させる
@@ -2556,7 +2671,7 @@ class Game {
                     }
                     if (isGameOver) {
                         this.ctx.save();
-                        renderGameOverScreen(this.ctx, this.player, this.currentStageNumber, this.gameOverFadeInTimer);
+                        renderGameOverScreen(this.ctx, this.player, this.currentStageNumber, this.gameOverFadeInTimer, this.stage);
                         this.ctx.restore();
                     }
                 }
@@ -2565,6 +2680,8 @@ class Game {
             case GAME_STATE.LEVEL_UP:
                 this.renderPlaying();
                 if (this.levelUpChoices && this.levelUpChoices.length > 0) {
+                    this.ctx.save();
+                    this.ctx.globalAlpha = this.levelUpAlpha; // フェードイン/アウト適用
                     renderLevelUpChoiceScreen(
                         this.ctx, 
                         this.player, 
@@ -2572,6 +2689,7 @@ class Game {
                         this.levelUpChoiceIndex,
                         this.pendingLevelUpChoices
                     );
+                    this.ctx.restore();
                 }
                 break;
 
@@ -2583,12 +2701,25 @@ class Game {
             case GAME_STATE.STAGE_CLEAR:
                 this.renderPlaying();
                 if (this.stageClearPhase === 0) {
-                    renderStageClearAnnouncement(this.ctx, this.currentStageNumber, this.clearedWeapon);
+                    renderStageClearAnnouncement(this.ctx, this.currentStageNumber, this.clearedWeapon, this.stage);
                 } else {
-                    renderStageClearScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {
+                    renderStatusScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {
                         menuIndex: this.stageClearMenuIndex,
                         selectedWeaponName: this.player?.currentSubWeapon?.name || '未装備'
                     });
+                }
+                // 明示的なフェードアウト描画（STAGE_CLEAR状態のままフェードする場合）
+                if (this.stageTransitionPhase === 1) {
+                   this.ctx.save();
+                   const alpha = Math.min(1.0, 1.0 - (this.stageTransitionTimer / 0.8));
+                   this.ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+                   this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                   this.ctx.restore();
+                } else if (this.stageTransitionPhase === 2) {
+                   this.ctx.save();
+                   this.ctx.fillStyle = '#000000';
+                   this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                   this.ctx.restore();
                 }
                 break;
 
@@ -2619,6 +2750,16 @@ class Game {
             this.ctx.restore();
             
             this.transitionTimer -= this.deltaTime * 2; // フェードアウト速度
+        }
+
+        // ボス撃破ホワイトフラッシュ
+        if (this.flashAlpha > 0) {
+            this.ctx.save();
+            this.ctx.globalAlpha = Math.min(1.0, this.flashAlpha);
+            this.ctx.fillStyle = '#fff';
+            this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            this.ctx.restore();
+            this.flashAlpha -= this.deltaTime * 3.0; // フェードアウト速度
         }
     }
     
@@ -2658,6 +2799,10 @@ class Game {
 
     beginPlayerDefeat(sourceX = null) {
         if (!this.player || this.state === GAME_STATE.DEFEAT || this.state === GAME_STATE.GAME_OVER) return;
+        
+        // 死亡専用SEの再生
+        audio.playPlayerDeath();
+        
         // やられ演出で止まっている時間を大幅に短縮 (750ms -> 500ms)
         this.playerDefeatTimer = 500;
         this.state = GAME_STATE.DEFEAT;

@@ -2,9 +2,9 @@
 // Unification of the Nation - ボスクラス
 // ============================================
 
-import { COLORS, GRAVITY, CANVAS_WIDTH } from './constants.js';
-import { Enemy } from './enemy.js';
-import { createSubWeapon } from './weapon.js';
+import { COLORS, GRAVITY, CANVAS_WIDTH } from './constants.js?v=41';
+import { Enemy } from './enemy.js?v=41';
+import { createSubWeapon } from './weapon.js?v=41';
 
 const ENEMY_HEADBAND_BASE = '#4f2f72';
 const ENEMY_HEADBAND_HIGHLIGHT = '#7e58a6';

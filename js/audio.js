@@ -142,6 +142,73 @@ class AudioManager {
         this.playNoiseSfx(0.07, 0.03, 5600);
     }
     
+    playPlayerDeath() {
+        this.init();
+        if (!this.audioContext || this.isMuted) return;
+        
+        const now = this.audioContext.currentTime;
+        
+        // 1. 低音の重いインパクト（致命傷）
+        this.playSfx(80, 'sawtooth', 0.4, 0.6, 0.2); // 80Hzから劇的に下降
+        this.playSfx(60, 'sine', 0.5, 0.8, 0.5);     // 地鳴りのような低音
+        
+        // 2. 鈍い衝撃音（ノイズ）
+        this.playNoiseSfx(0.5, 0.6, 300); // ローパス気味の濁った音
+        
+        // 3. 不穏な高音の残響（耳鳴りのような）
+        const osc = this.audioContext.createOscillator();
+        const gain = this.audioContext.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(2200, now);
+        osc.frequency.exponentialRampToValueAtTime(1100, now + 1.2);
+        gain.gain.setValueAtTime(0.08, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+        osc.connect(gain);
+        gain.connect(this.sfxGain);
+        osc.start(now);
+        osc.stop(now + 1.2);
+    }
+
+    playBossDeath() {
+        this.init();
+        if (!this.audioContext || this.isMuted) return;
+        
+        const now = this.audioContext.currentTime;
+        
+        // 1. 巨大な爆発の核と余韻（より長く、重厚に）
+        this.playNoiseSfx(0.8, 2.2, 120); // 2.2秒の重低音ノイズ
+        this.playSfx(40, 'sawtooth', 0.7, 1.8, 0.05); // 地鳴りのような劇的な下降
+        
+        // 2. 金属的な破裂と飛散（ディレイをかけて多層的に）
+        [2200, 2000, 1800, 1500, 1200, 800].forEach((f, i) => {
+            setTimeout(() => this.playSfx(f, 'triangle', 0.2, 0.6, 0.7), i * 120);
+        });
+        
+        // 3. 勝利の凱歌（煌めく高音の連続）
+        for (let i = 0; i < 12; i++) {
+            const freq = 800 + (i % 4) * 400 + i * 100;
+            const osc = this.audioContext.createOscillator();
+            const g = this.audioContext.createGain();
+            const startTime = now + 0.2 + i * 0.12;
+            osc.frequency.setValueAtTime(freq, startTime);
+            osc.frequency.exponentialRampToValueAtTime(freq * 1.5, startTime + 0.5);
+            g.gain.setValueAtTime(0.12, startTime);
+            g.gain.exponentialRampToValueAtTime(0.001, startTime + 0.6);
+            osc.connect(g);
+            g.connect(this.sfxGain);
+            osc.start(startTime);
+            osc.stop(startTime + 0.6);
+        }
+    }
+
+    playLevelUpSelect() {
+        this.init();
+        // 爽快感のある「シャキーン」という決定音
+        this.playSfx(880, 'sine', 0.2, 0.4, 1.5);
+        this.playSfx(1760, 'sine', 0.15, 0.5, 1.2);
+        this.playNoiseSfx(0.15, 0.3, 4000);
+    }
+    
     playBeamLaunch() {
         this.init();
         // 突き抜けるようなビーム発射音
@@ -159,38 +226,25 @@ class AudioManager {
     playMoney() { this.init(); this.playSfx(900, 'sine', 0.15, 0.08, 1.3); }
 
     // === BGM制御（ファイル再生のみ） ===
-    playBgm(type = 'stage', stageNum = 1) {
+    playBgm(type = 'stage', stageNum = 1, fadeDuration = 1500) {
         this.resume();
         let filePath = '';
         let targetType = type;
         
         if (type === 'stage') {
-            // ステージ番号ごとに専用BGMを再生
             const parsedStage = Number.isFinite(stageNum) ? Math.floor(stageNum) : 1;
             const normalizedStage = Math.max(1, Math.min(5, parsedStage));
             targetType = `stage_${normalizedStage}`;
-            
-            // ステージ間移動で同じ曲なら再読み込みしない
-            if (this.currentBgmType === targetType) {
-                if (this.bgmAudio && this.bgmAudio.paused && !this.isMuted) this.tryPlayCurrentBgm(true);
-                return;
-            }
-            
+            if (this.currentBgmType === targetType) return;
             this.currentBgmType = targetType;
             filePath = this.bgmFiles[targetType];
         } else if (type === 'boss') {
             targetType = stageNum === 5 ? 'lastboss' : 'boss';
-            if (this.currentBgmType === targetType) {
-                if (this.bgmAudio && this.bgmAudio.paused && !this.isMuted) this.tryPlayCurrentBgm(true);
-                return;
-            }
+            if (this.currentBgmType === targetType) return;
             this.currentBgmType = targetType;
             filePath = this.bgmFiles[targetType];
         } else {
-            if (this.currentBgmType === targetType) {
-                if (this.bgmAudio && this.bgmAudio.paused && !this.isMuted) this.tryPlayCurrentBgm(true);
-                return;
-            }
+            if (this.currentBgmType === targetType) return;
             this.currentBgmType = targetType;
             filePath = this.bgmFiles[targetType];
         }
@@ -200,26 +254,99 @@ class AudioManager {
             return;
         }
 
-        // 既存BGM停止
-        this.stopBgm();
-        
-        // 新規BGM再生
-        this.bgmAudio = new Audio(filePath);
-        this.bgmAudio.preload = 'auto';
-        this.bgmAudio.playsInline = true;
-        this.bgmAudio.loop = true; // ループ再生
-        this.bgmAudio.volume = this.isMuted ? 0 : this.bgmVolume;
-        
-        // エラーハンドリング
-        this.bgmAudio.onerror = (e) => {
-            console.error('BGM Load Error:', e);
-        };
+        // --- クロスフェードロジック ---
+        const oldBgm = this.bgmAudio;
+        if (oldBgm) {
+            this.fadeOutBgm(oldBgm, fadeDuration);
+        }
 
+        // 新規BGM再生
+        const newBgm = new Audio(filePath);
+        newBgm.preload = 'auto';
+        newBgm.playsInline = true;
+        newBgm.loop = true;
+        newBgm.volume = 0; // フェードインのため 0 から開始
+        
+        this.bgmAudio = newBgm;
         this.tryPlayCurrentBgm(true);
+        this.fadeInBgm(newBgm, fadeDuration);
+    }
+
+    fadeOutBgm(audioElement, duration) {
+        // オーバーロード対応: fadeOutBgm(duration) の場合
+        if (typeof audioElement === 'number' && duration === undefined) {
+            duration = audioElement;
+            audioElement = this.bgmAudio;
+        }
+
+        if (!audioElement) return;
+        
+        // durationが秒単位(例えば0.8)で渡されることが多いが、Date.now()計算はミリ秒
+        // 数値が小さい場合は秒とみなして1000倍する安全策
+        const durationMs = (duration < 100) ? duration * 1000 : duration;
+
+        // durationが0以下の場合は即座に音量を0にして終了
+        if (durationMs <= 0) {
+            audioElement.volume = 0;
+            audioElement.pause();
+            audioElement.src = '';
+            return;
+        }
+
+        const startVolume = audioElement.volume;
+        const startTime = Date.now();
+        
+        const fade = () => {
+            const now = Date.now();
+            const elapsed = now - startTime;
+            const progress = Math.min(1, elapsed / durationMs);
+            
+            audioElement.volume = startVolume * (1 - progress);
+            
+            if (progress < 1) {
+                requestAnimationFrame(fade);
+            } else {
+                audioElement.pause();
+                audioElement.src = ''; // リソース解放
+            }
+        };
+        fade();
+    }
+
+    fadeInBgm(audioElement, duration) {
+        if (!audioElement) return;
+        
+        // durationが秒単位(例えば0.8)で渡されることが多いが、Date.now()計算はミリ秒
+        const durationMs = (duration < 100) ? duration * 1000 : duration;
+
+        const targetVolume = this.isMuted ? 0 : this.bgmVolume;
+        
+        // durationが0以下の場合は即座に目標音量にして終了
+        if (durationMs <= 0) {
+            audioElement.volume = targetVolume;
+            return;
+        }
+
+        const startTime = Date.now();
+        
+        const fade = () => {
+            if (this.bgmAudio !== audioElement) return; // 別のBGMが開始されたら中断
+            
+            const now = Date.now();
+            const elapsed = now - startTime;
+            const progress = Math.min(1, elapsed / durationMs);
+            
+            audioElement.volume = targetVolume * progress;
+            
+            if (progress < 1) {
+                requestAnimationFrame(fade);
+            }
+        };
+        fade();
     }
 
     tryPlayCurrentBgm(registerRetry = false) {
-        if (!this.bgmAudio || this.isMuted) return;
+        if (!this.bgmAudio) return;
         const playPromise = this.bgmAudio.play();
         if (playPromise !== undefined) {
             playPromise
@@ -239,7 +366,7 @@ class AudioManager {
         this.bgmRetryHandler = () => {
             this.resume();
             this.tryPlayCurrentBgm(false);
-            if (!this.bgmAudio || !this.bgmAudio.paused || this.isMuted) {
+            if (this.bgmAudio && !this.bgmAudio.paused) {
                 this.unregisterBgmRetry();
             }
         };
@@ -257,12 +384,19 @@ class AudioManager {
         this.bgmRetryRegistered = false;
     }
 
-    stopBgm() {
+    stopBgm(fadeDuration = 0) {
         this.unregisterBgmRetry();
         if (this.bgmAudio) {
-            this.bgmAudio.pause();
-            this.bgmAudio.currentTime = 0;
-            this.bgmAudio = null;
+            if (fadeDuration > 0) {
+                this.fadeOutBgm(this.bgmAudio, fadeDuration);
+                this.bgmAudio = null;
+                this.currentBgmType = null;
+            } else {
+                this.bgmAudio.pause();
+                this.bgmAudio.currentTime = 0;
+                this.bgmAudio = null;
+                this.currentBgmType = null;
+            }
         }
     }
 

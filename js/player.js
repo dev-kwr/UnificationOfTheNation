@@ -2,10 +2,10 @@
 // Unification of the Nation - プレイヤークラス
 // ============================================
 
-import { PLAYER, GRAVITY, FRICTION, CANVAS_WIDTH, CANVAS_HEIGHT, COLORS } from './constants.js';
-import { input } from './input.js';
-import { audio } from './audio.js';
-import { game } from './game.js';
+import { PLAYER, GRAVITY, FRICTION, CANVAS_WIDTH, CANVAS_HEIGHT, COLORS } from './constants.js?v=41';
+import { input } from './input.js?v=41';
+import { audio } from './audio.js?v=41';
+import { game } from './game.js?v=41';
 
 // アニメーション状態
 const ANIM_STATE = {
@@ -1890,15 +1890,21 @@ export class Player {
         ctx.beginPath();
         ctx.moveTo(hairBaseX, hairBaseY);
         
-        // より「ポニーテール」らしい流線型の描画（簡易版）
-        const wave = Math.sin(Date.now() * 0.005 + phase) * 3;
-        const tipX = hairBaseX - dir * 28;
-        const tipY = hairBaseY + 12 + wave;
-        const ctrlX = hairBaseX - dir * 15;
-        const ctrlY = hairBaseY - 5 + wave * 0.5;
+        // より高品質な「ポニーテール」の描画（流線型）
+        // 時間経過によるしなやかな揺れ
+        const time = Date.now();
+        const wave = Math.sin(time * 0.005 + phase) * 4;
+        const wave2 = Math.cos(time * 0.004 + phase) * 2;
         
-        ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY); // 上のライン
-        ctx.quadraticCurveTo(ctrlX, ctrlY + 12, hairBaseX, hairBaseY + 6); // 下のライン
+        const tipX = hairBaseX - dir * 32;
+        const tipY = hairBaseY + 16 + wave;
+        const ctrl1X = hairBaseX - dir * 18 + wave2;
+        const ctrl1Y = hairBaseY - 4 + wave * 0.5;
+        const ctrl2X = hairBaseX - dir * 24;
+        const ctrl2Y = hairBaseY + 22 + wave;
+        
+        ctx.quadraticCurveTo(ctrl1X, ctrl1Y, tipX, tipY); // 上のライン（しなり）
+        ctx.quadraticCurveTo(ctrl2X, ctrl2Y, hairBaseX, hairBaseY + 8); // 下のライン（ふくらみ）
         ctx.closePath();
         ctx.fill();
     }
@@ -2555,14 +2561,14 @@ export class Player {
                 }
                 
                 // 分身描画用: 帯の簡易形状（連結しない）
-                const tailLen = 28 + (isMoving ? 8 : 0);
-                const tailWave = Math.sin(time * 0.014 + (facingRight ? 0 : 1.7)) * (isMoving ? 3.0 : 1.8);
+                const tailLen = 32 + (isMoving ? 10 : 0);
+                const tailWave = Math.sin(time * 0.014 + (facingRight ? 0 : 1.7)) * (isMoving ? 4.0 : 2.4);
                 const tailRootX = knotX;
-                const tailRootY = knotY + 1.2;
-                const tailMidX = tailRootX - dir * (tailLen * 0.5);
-                const tailMidY = tailRootY + tailWave - 1.2;
+                const tailRootY = knotY + 1.5;
+                const tailMidX = tailRootX - dir * (tailLen * 0.45);
+                const tailMidY = tailRootY + tailWave - 2.0;
                 const tailTipX = tailRootX - dir * tailLen;
-                const tailTipY = tailRootY + tailWave * 0.6 + (isMoving ? -0.8 : 1.2);
+                const tailTipY = tailRootY + tailWave * 0.8 + (isMoving ? -1.0 : 1.5);
 
                 ctx.fillStyle = accentColor;
                 ctx.beginPath();
@@ -2723,7 +2729,7 @@ export class Player {
         const idleBackBladeAngle = isCrouchPose ? -0.42 : -0.55;
         const idleFrontBladeAngle = isCrouchPose ? -0.92 : -1.05;
 
-        if (!isActuallyAttacking) {
+        if (!isActuallyAttacking && !options.forceSubWeaponRender) {
             const isThrowing = effectiveSubWeaponTimer > 0 && subWeaponAction === 'throw';
             const hasDualSubWeapon = !forceStanding && this.currentSubWeapon && this.currentSubWeapon.name === '二刀流';
 
@@ -2859,7 +2865,7 @@ export class Player {
         };
 
         if (this.subWeaponAction === 'throw') {
-            // 手前手でボムを投げる。奥手の剣はrenderModel側で保持する。
+            // 手前手でボムを投げる。
             const armAngle = -Math.PI * 0.9 + progress * Math.PI * 0.78;
             const armLength = 19;
             const throwShoulderX = frontShoulderX;
@@ -2869,17 +2875,17 @@ export class Player {
             const throwHand = clampArmReach(throwShoulderX, throwShoulderY, throwTargetX, throwTargetY, 21);
             const armEndX = throwHand.x;
             const armEndY = throwHand.y;
-            ctx.strokeStyle = silhouetteColor; // シルエット色（COLORS.PLAYER）に統一
+            ctx.strokeStyle = silhouetteColor;
             drawArmSegment(throwShoulderX, throwShoulderY, armEndX, armEndY, 5.4);
-            // 1. 爆弾を先に描画
-            if (progress < 0.52) {
-                ctx.fillStyle = '#333';
-                ctx.beginPath();
-                ctx.arc(armEndX, armEndY, 6, 0, Math.PI * 2);
-                ctx.fill();
+            
+            // 爆弾本体（weapon.js の render を使用）
+            if (renderWeaponVisuals && this.currentSubWeapon && typeof this.currentSubWeapon.render === 'function') {
+                // ボムの座標を一時的に手に合わせる (Firebomb.render は player を参照して描画するため、player 側の座標や状態を同期させるか、直接 render を呼ぶ際に context を工夫する)
+                // 現状、Firebomb.render は内部で player の座標を使用しているため、ここで一時的に player の位置プロパティを調整して呼ぶ、もしくは renderSubWeaponVisualsInput フラグに基づいて Firebomb 側で適切な描画を行わせる。
+                // 既に js/weapon.js 側で player.forceSubWeaponRender を参照し、手に持っている状態を計算するよう修正済み。
+                this.currentSubWeapon.render(ctx, this);
+                this.subWeaponRenderedInModel = true;
             }
-
-            // 2. 手を爆弾の上に描画（シルエット色）
             drawHand(armEndX, armEndY, 5);
         } else if (this.subWeaponAction === '大槍') {
             // 突き: 奥手で押し込み、槍を挟んで手前手でガイド
@@ -3760,59 +3766,49 @@ export class Player {
     renderHeadbandTail(ctx, headX, headY, facingRight, options = {}) {
         const forceStanding = options.forceStanding || false;
         const dir = facingRight ? 1 : -1;
-        const knotX = headX + (facingRight ? -12.5 : 12.5);
-        const knotY = headY - 4;
-
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-
+        
+        ctx.fillStyle = '#1e90ff';
+        const knotX = headX + (facingRight ? -12 : 12);
+        const knotY = headY;
+        
         // 結び目
-        ctx.strokeStyle = '#00bfff';
-        ctx.lineWidth = 4;
         ctx.beginPath();
-        ctx.moveTo(knotX - 2, knotY);
-        ctx.lineTo(knotX + 2, knotY);
-        ctx.stroke();
-
-        ctx.fillStyle = '#00bfff'; // 鮮やかな青
+        ctx.arc(knotX, knotY, 3, 0, Math.PI * 2);
+        ctx.lineWidth = 2; ctx.stroke();
 
         if (forceStanding) {
-            // 昇天時: 重力に従って真下に垂らす（少し揺らす程度）
+            // プレビュー画面用：物理演算を使わず、風になびくような形状を固定描画
+            // これにより「変な方向に伸びる」「初期化直後の垂れ下がり」を防ぐ
+            const tailCount = 2;
+            const segmentCount = 10;
             const time = Date.now() * 0.002;
-            const sway = Math.sin(time) * 2.0;
             
-            ctx.beginPath();
-            ctx.moveTo(knotX, knotY);
-            // 帯1
-            ctx.quadraticCurveTo(
-                knotX - dir * 2 + sway * 0.5,
-                knotY + 14,
-                knotX - dir * 4 + sway,
-                knotY + 28
-            );
-            ctx.lineTo(knotX - dir * 1 + sway, knotY + 28);
-            ctx.quadraticCurveTo(
-                knotX + dir * 1 + sway * 0.5,
-                knotY + 14,
-                knotX,
-                knotY + 4
-            );
-            // 帯2（少し短く）
-            ctx.moveTo(knotX, knotY);
-            ctx.quadraticCurveTo(
-                knotX + dir * 1 - sway * 0.5,
-                knotY + 12,
-                knotX + dir * 2 - sway,
-                knotY + 24
-            );
-            ctx.lineTo(knotX + dir * 5 - sway, knotY + 24);
-            ctx.quadraticCurveTo(
-                knotX + dir * 4 - sway * 0.5,
-                knotY + 12,
-                knotX,
-                knotY + 4
-            );
-            ctx.fill();
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = '#1e90ff';
+
+            for (let t = 0; t < tailCount; t++) {
+                ctx.beginPath();
+                ctx.moveTo(knotX, knotY);
+                
+                let cx = knotX;
+                let cy = knotY;
+                
+                // 少し上向きに流れるように
+                const baseAngle = facingRight ? -Math.PI * 0.9 : -Math.PI * 0.1; 
+                const angleOffset = (t === 0 ? 0.1 : -0.2);
+                
+                for (let i = 0; i < segmentCount; i++) {
+                    const wave = Math.sin(time + i * 0.8 + t) * (i * 1.5);
+                    const flowX = Math.cos(baseAngle + angleOffset) * (i * 6);
+                    const flowY = Math.sin(baseAngle + angleOffset) * (i * 6) + (i * 1.5); // 重力
+                    
+                    cx = knotX + flowX + (facingRight ? -wave : wave);
+                    cy = knotY + flowY;
+                    ctx.lineTo(cx, cy);
+                }
+                ctx.stroke();
+            }
             return;
         }
 
