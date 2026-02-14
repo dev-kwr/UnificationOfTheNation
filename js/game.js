@@ -2034,13 +2034,22 @@ class Game {
         if (killed) {
             // 報酬
             this.spawnExpGem(enemy);
+            
+            // 奥義ゲージ増加（撃破時）
+            const gaugeGain = this.resolveHitGaugeGain(attackData, damage);
+            if (gaugeGain > 0) this.player.addSpecialGauge(gaugeGain);
+            
+            // 小判報酬（敵のmoneyRewardプロパティがあれば）
+            if (enemy.moneyReward && enemy.moneyReward > 0) {
+                this.player.addMoney(enemy.moneyReward);
+            }
+            
             if (this.isStageBossEnemy(enemy)) {
                 this.spawnStageBossDefeatEffect(enemy);
             } else {
                 audio.playEnemyDeath();
             }
             
-            // 演出：攻撃種別に応じた揺れとヒットストップ
             this.queueHitFeedback(feedback.shake, feedback.hitStopMs);
         } else {
             // 非撃破ヒットにも武器種別に応じた奥義ゲージ蓄積を付与
