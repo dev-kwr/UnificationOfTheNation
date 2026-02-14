@@ -2036,10 +2036,12 @@ class Game {
             this.spawnExpGem(enemy);
             
             // 奥義ゲージ増加（撃破時）
-            const gaugeGain = this.resolveHitGaugeGain(attackData, damage);
-            if (gaugeGain > 0) this.player.addSpecialGauge(gaugeGain);
+            const baseGaugeGain = this.resolveHitGaugeGain(attackData, damage);
+            const killBonus = 3.0;
+            const totalGaugeGain = Math.round(baseGaugeGain * killBonus);
+            if (totalGaugeGain > 0) this.player.addSpecialGauge(totalGaugeGain);
             
-            // 小判報酬（敵のmoneyRewardプロパティがあれば）
+            // 小判
             if (enemy.moneyReward && enemy.moneyReward > 0) {
                 this.player.addMoney(enemy.moneyReward);
             }
@@ -2349,7 +2351,6 @@ class Game {
         } else {
             // ここでオーディオを切り替えない（ボスBGM継続のため）
         }
-        audio.fadeOutBgm(500);
         audio.playLevelUp();
     }
     
