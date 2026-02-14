@@ -162,6 +162,39 @@ export class Firebomb extends SubWeapon {
         super('火薬玉', 32, 72, 460);
     }
 
+    render(ctx, player) {
+        // 手に持っている状態の描画（プレビューやモーション中）
+        const direction = player.facingRight ? 1 : -1;
+        
+        // プレビュー等で timer が 0 の場合でも強制的に「構え」の位置に移動させる
+        const isPreview = (player.forceSubWeaponRender);
+        const sourceTimer = (player.subWeaponAction === 'throw') ? player.subWeaponTimer : 0;
+        const progress = isPreview ? 0.15 : Math.max(0, Math.min(1, 1 - (sourceTimer / 150)));
+        
+        // 手の位置に合わせて座標計算（renderSubWeaponArmの腕の曲がりに合わせる）
+        const reach = 10 + Math.sin(progress * Math.PI) * 12;
+        const bombX = player.x + player.width / 2 + direction * reach;
+        const bombY = player.y + 18 - Math.cos(progress * Math.PI) * 4;
+
+        ctx.save();
+        ctx.translate(bombX, bombY);
+        
+        // 爆弾本体
+        ctx.fillStyle = '#1a1a1a';
+        ctx.beginPath();
+        ctx.arc(0, 0, 8, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 導火線
+        ctx.strokeStyle = '#8B4513';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, -8);
+        ctx.quadraticCurveTo(4, -14, 2, -18);
+        ctx.stroke();
+        
+        ctx.restore();
+    }
     use(player) {
         const g = window.game;
         if (!g) return;

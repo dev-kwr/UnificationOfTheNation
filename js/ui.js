@@ -1195,11 +1195,11 @@ export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked,
     const stageKanji = toKanjiNumber(stageNumber);
 
     // レイアウト定数
-    const padding = 60;
-    const panelX = padding;
+    const padding = 45; // 60 -> 45
+    const panelX = (CANVAS_WIDTH - (CANVAS_WIDTH - 90)) / 2;
     const panelY = padding;
-    const panelW = CANVAS_WIDTH - padding * 2;
-    const panelH = CANVAS_HEIGHT - padding * 2;
+    const panelW = CANVAS_WIDTH - 90;
+    const panelH = CANVAS_HEIGHT - 90; // 630px
 
     const leftColW = 460;
     const rightColX = panelX + leftColW + 40;
@@ -1289,10 +1289,16 @@ export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked,
         const currentWeaponName = player.currentSubWeapon?.name || '火薬玉';
         const subActionName = currentWeaponName === '火薬玉' ? 'throw' : currentWeaponName;
         
-        // 武器ごとの想定される再生時間（プレビュー用）
-        const subDuration = subActionName === 'throw' ? 150 : 300;
+        // 武器ごとの正確な再生時間（player.js の定義と同期）
+        const subDuration =
+            subActionName === 'throw' ? 150 :
+            (subActionName === '大槍') ? 250 :
+            (subActionName === '鎖鎌') ? 560 :
+            (subActionName === '二刀_Z') ? 204 :
+            (subActionName === '二刀_合体') ? 220 :
+            (subActionName === '大太刀') ? 760 : 300;
         
-        // モーションの再生（1.5s〜2.5sの間で攻撃）
+        // モーションの再生（1.5s〜ループ内）
         const isAttackingPhase = cycle > 1500 && cycle < (1500 + subDuration);
         
         player.subWeaponAction = subActionName;
@@ -1413,7 +1419,7 @@ export function renderStageClearScreen(ctx, stageNumber, player, weaponUnlocked,
     });
 
     // --- 下部：メニュー ---
-    const menuY = panelY + panelH - 120;
+    const menuY = panelY + panelH - 110; // menuH=85 なので、下端付近に配置
     const menuW = (panelW - 80 - 40) / 3;
     const menuH = 85;
 

@@ -1884,15 +1884,21 @@ export class Player {
         const knotY = headY - 2;
         
         ctx.fillStyle = silhouetteColor;
-        const tailBaseX = knotX - dir * 1.2;
-        const tailBaseY = knotY - 1.5;
-        ctx.beginPath();
-        ctx.moveTo(tailBaseX, tailBaseY);
+        const hairBaseX = knotX - dir * 2;
+        const hairBaseY = headY - 10;
         
-        // 簡易形状ながら、少し動き（wave）をつける
-        const wave = Math.sin(Date.now() * 0.005 + phase) * 2;
-        ctx.lineTo(tailBaseX - dir * 15, tailBaseY - 2.4 + wave);
-        ctx.lineTo(tailBaseX - dir * 9.5, tailBaseY + 5.2 + wave);
+        ctx.beginPath();
+        ctx.moveTo(hairBaseX, hairBaseY);
+        
+        // より「ポニーテール」らしい流線型の描画（簡易版）
+        const wave = Math.sin(Date.now() * 0.005 + phase) * 3;
+        const tipX = hairBaseX - dir * 28;
+        const tipY = hairBaseY + 12 + wave;
+        const ctrlX = hairBaseX - dir * 15;
+        const ctrlY = hairBaseY - 5 + wave * 0.5;
+        
+        ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY); // 上のライン
+        ctx.quadraticCurveTo(ctrlX, ctrlY + 12, hairBaseX, hairBaseY + 6); // 下のライン
         ctx.closePath();
         ctx.fill();
     }
@@ -1903,8 +1909,10 @@ export class Player {
         const useLiveAccessories = options.useLiveAccessories !== false;
         const renderHeadbandTail = options.renderHeadbandTail !== false;
         const forceStanding = options.forceStanding || false;
-        // 昇天中（forceStanding）は武器を表示しない
+        const forceSubWeaponRender = options.forceSubWeaponRender || false;
+        // 昇天中（forceStanding）は武器を表示しない（ただしforceSubWeaponRenderがある場合は一部許容する設計もあり得るが、現状はクリア画面優先）
         const renderSubWeaponVisuals = forceStanding ? false : renderSubWeaponVisualsInput;
+        this.forceSubWeaponRender = forceSubWeaponRender; // renderSubWeaponArm で手っ取り早く参照するため一時的に保持
 
         // 変数定義
         const centerX = x + this.width / 2;
@@ -2547,14 +2555,14 @@ export class Player {
                 }
                 
                 // 分身描画用: 帯の簡易形状（連結しない）
-                const tailLen = 21 + (isMoving ? 6 : 0);
-                const tailWave = Math.sin(time * 0.014 + (facingRight ? 0 : 1.7)) * (isMoving ? 2.2 : 1.2);
+                const tailLen = 28 + (isMoving ? 8 : 0);
+                const tailWave = Math.sin(time * 0.014 + (facingRight ? 0 : 1.7)) * (isMoving ? 3.0 : 1.8);
                 const tailRootX = knotX;
-                const tailRootY = knotY + 0.8;
-                const tailMidX = tailRootX - dir * (tailLen * 0.55);
-                const tailMidY = tailRootY + tailWave - 0.6;
+                const tailRootY = knotY + 1.2;
+                const tailMidX = tailRootX - dir * (tailLen * 0.5);
+                const tailMidY = tailRootY + tailWave - 1.2;
                 const tailTipX = tailRootX - dir * tailLen;
-                const tailTipY = tailRootY + tailWave * 0.5 + (isMoving ? -0.4 : 0.9);
+                const tailTipY = tailRootY + tailWave * 0.6 + (isMoving ? -0.8 : 1.2);
 
                 ctx.fillStyle = accentColor;
                 ctx.beginPath();
@@ -2668,7 +2676,10 @@ export class Player {
 
         // forceStanding(昇天)時は全攻撃・武器描画を無効化
         const effectiveIsAttacking = forceStanding ? false : (isAttacking);
-        const effectiveSubWeaponTimer = forceStanding ? 0 : (subWeaponTimer);
+        const dualBlade = (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') ? this.currentSubWeapon : null;
+        const effectiveSubWeaponTimer = (dualBlade && (this.subWeaponAction === '二刀_合体' || this.subWeaponAction === '二刀_Z'))
+            ? dualBlade.attackTimer
+            : this.subWeaponTimer;
         const isActuallyAttacking = effectiveIsAttacking || (effectiveSubWeaponTimer > 0 && subWeaponAction !== 'throw');
         const backShoulderX = torsoShoulderX;
         const backShoulderY = bodyTopY + (isCrouchPose ? 1 : 2);
@@ -2776,7 +2787,7 @@ export class Player {
         }
 
         // サブ武器（ボム、槍など）のアニメーション
-        if (effectiveSubWeaponTimer > 0 && !effectiveIsAttacking) {
+        if ((effectiveSubWeaponTimer > 0 || this.forceSubWeaponRender) && !effectiveIsAttacking) {
             this.renderSubWeaponArm(ctx, centerX, bodyTopY + 2, facingRight, renderSubWeaponVisuals);
         }
 

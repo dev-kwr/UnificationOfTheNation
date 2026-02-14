@@ -1026,7 +1026,7 @@ class Game {
         if (this.stage.isCleared()) {
             if (!this.pendingStageClear) {
                 this.pendingStageClear = true;
-                this.stageClearTransitionTimer = 1.0; // 1秒かけて暗転
+                this.stageClearTransitionTimer = 0.6; // 1.0s -> 0.6s に短縮してテンポを改善
             }
         }
         
@@ -1070,7 +1070,7 @@ class Game {
                 }
                 
                 // 障害物へのダメージ（岩など）
-                const obstacles = this.stage.getObstacles();
+                const obstacles = this.stage.obstacles || [];
                 for (const obs of obstacles) {
                     if (obs.type === OBSTACLE_TYPES.ROCK && !obs.isDestroyed) {
                         // 爆発の中心点と障害物の距離をチェック
@@ -2278,9 +2278,9 @@ class Game {
             this.playerDefeatTimer -= this.deltaTime * 1000;
             if (this.playerDefeatTimer <= 0) {
                 this.state = GAME_STATE.GAME_OVER;
-                this.gameOverWaitTimer = 400; // 1000ms -> 400ms に短縮してすぐに次の入力を受け付け
+                this.gameOverWaitTimer = 300; // 400ms -> 300ms
                 this.gameOverFadeInTimer = 0;
-                this.gameOverFadeDuration = 600; // 1000ms -> 600ms に短縮
+                this.gameOverFadeDuration = 400; // 600ms -> 400ms に高速化
                 audio.playBgm('gameover');
             }
         }
@@ -2510,43 +2510,48 @@ class Game {
                     const playerY = this.player ? this.player.y + this.player.height / 2 : CANVAS_HEIGHT / 2;
                     
                     if (this.state === GAME_STATE.DEFEAT) {
-                        // じわっと広がり、最後は全体を覆う
-                        const maxRadius = Math.max(CANVAS_WIDTH, CANVAS_HEIGHT) * 1.5;
-                        const currentRadius = Math.max(10, Math.pow(progress, 1.5) * maxRadius);
+                        // 上から下へ「血がつたう」ような垂直グラデーション
+                        // イージング（Ease-Out）を適用
+                        const easedProgress = Math.sin((progress * Math.PI) / 2);
+                        const fillHeight = easedProgress * CANVAS_HEIGHT * 1.3;
+                        const grad = this.ctx.createLinearGradient(0, 0, 0, fillHeight);
                         
-                        const grad = this.ctx.createRadialGradient(
-                            playerX, playerY, 0,
-                            playerX, playerY, currentRadius
-                        );
-                        
-                        const alpha = Math.min(0.85, progress * 0.9);
-                        grad.addColorStop(0, `rgba(200, 0, 0, ${alpha})`);
-                        grad.addColorStop(0.8, `rgba(150, 0, 0, ${alpha * 0.7})`);
-                        grad.addColorStop(1, `rgba(100, 0, 0, 0)`);
+                        const alpha = progress * 0.9;
+                        grad.addColorStop(0, `rgba(180, 0, 0, ${alpha})`);
+                        grad.addColorStop(0.7, `rgba(140, 0, 0, ${alpha * 0.6})`);
+                        grad.addColorStop(1, 'rgba(100, 0, 0, 0)');
                         
                         this.ctx.fillStyle = grad;
                         this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
                         
-                        // 画面全体が染まる前の「じわっ」とした端の方の塗りつぶし（補強）
-                        if (progress > 0.7) {
-                            const edgeAlpha = (progress - 0.7) / 0.3 * 0.6;
-                            this.ctx.fillStyle = `rgba(120, 0, 0, ${edgeAlpha})`;
+                        // 画面全体が染まる直前の補強（垂直方向への広がりを強調）
+                        if (progress > 0.5) {
+                            const overlayAlpha = (progress - 0.5) / 0.5 * 0.5;
+                            this.ctx.fillStyle = `rgba(100, 0, 0, ${overlayAlpha})`;
                             this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
                         }
                     } else if (this.state === GAME_STATE.GAME_OVER) {
-                        // 背景を赤黒い半透明で固定（演出の継続）
-                        const fadeOutAlpha = 0.75;
-                        this.ctx.fillStyle = `rgba(30, 0, 0, ${fadeOutAlpha})`;
+                        // DEFEAT の最終状態(赤)から黒へとスムーズに繋ぐ
+                        const fadeProgress = Math.min(1, this.gameOverFadeInTimer / Math.max(1, this.gameOverFadeDuration));
+                        
+                        // 赤(DEFEAT末期) -> 黒(GAME_OVER)へ色を変化させる
+                        // a は 0.85 程度で維持して背景を透過しすぎないようにする
+                        const r = Math.floor(100 * (1 - fadeProgress) + 10 * fadeProgress);
+                        const gCol = Math.floor(0 * (1 - fadeProgress) + 0 * fadeProgress);
+                        const bCol = Math.floor(0 * (1 - fadeProgress) + 0 * fadeProgress);
+                        const a = 0.85;
+                        
+                        this.ctx.fillStyle = `rgba(${r}, ${gCol}, ${bCol}, ${a})`;
                         this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
                         
-                        // さらに深い黒のグラデーションを重ねる
-                        const overlayGrad = this.ctx.createRadialGradient(
+                        // ビネット効果（端をより暗く）を徐々に強める
+                        const vignette = this.ctx.createRadialGradient(
                             CANVAS_WIDTH/2, CANVAS_HEIGHT/2, 0,
                             CANVAS_WIDTH/2, CANVAS_HEIGHT/2, CANVAS_WIDTH * 0.8
                         );
-                        overlayGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
-                        overlayGrad.addColorStop(1, 'rgba(0, 0, 0, 0.7)');
-                        this.ctx.fillStyle = overlayGrad;
+                        vignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                        vignette.addColorStop(1, `rgba(0, 0, 0, ${0.4 + fadeProgress * 0.4})`);
+                        this.ctx.fillStyle = vignette;
                         this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
                     }
                     if (isGameOver) {
@@ -2653,8 +2658,8 @@ class Game {
 
     beginPlayerDefeat(sourceX = null) {
         if (!this.player || this.state === GAME_STATE.DEFEAT || this.state === GAME_STATE.GAME_OVER) return;
-        // 演出時間をさらに短縮 (1200ms -> 850ms)
-        this.playerDefeatTimer = 850;
+        // やられ演出で止まっている時間を大幅に短縮 (750ms -> 500ms)
+        this.playerDefeatTimer = 500;
         this.state = GAME_STATE.DEFEAT;
         
         // 強めの画面振動とヒットストップ
