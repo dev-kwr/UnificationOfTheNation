@@ -2,10 +2,10 @@
 // Unification of the Nation - プレイヤークラス
 // ============================================
 
-import { PLAYER, GRAVITY, FRICTION, CANVAS_WIDTH, CANVAS_HEIGHT, COLORS } from './constants.js?v=53';
-import { input } from './input.js?v=53';
-import { audio } from './audio.js?v=53';
-import { game } from './game.js?v=53';
+import { PLAYER, GRAVITY, FRICTION, CANVAS_WIDTH, CANVAS_HEIGHT, COLORS } from './constants.js';
+import { input } from './input.js';
+import { audio } from './audio.js';
+import { game } from './game.js';
 
 // アニメーション状態
 const ANIM_STATE = {
@@ -162,6 +162,10 @@ export class Player {
         this.specialCloneHairNodes = [];
 
         this.rebuildSpecialCloneSlots();
+
+        // プレビュー画面専用のアクセサリ物理ノード
+        this.previewScarfNodes = [];
+        this.previewHairNodes = [];
     }
 
     calculateAccessoryAnchor(posX, groundY, height, motionTime, isMoving, isDashing, isCrouching, legPhase) {
@@ -214,7 +218,8 @@ export class Player {
         if (!scarfNodes || scarfNodes.length === 0 || !hairNodes || hairNodes.length === 0) return;
 
         const time = this.motionTime;
-        const dt = Math.min(deltaTime, 0.1);
+        // deltaTimeが大きすぎる（ラグ等）と物理演算が爆発するため、上限を厳しく設定
+        const dt = Math.min(deltaTime, 0.033);
         const subSteps = 2;
         const subDelta = dt / subSteps;
         const flutterSpeed = 0.02;
@@ -238,13 +243,20 @@ export class Player {
                 node.x += (wind + flutterH) * subDelta * 12;
                 node.y += (1.5 + flutterV) * subDelta * 15;
 
+                // 安全策：座標が異常値（Infinity/NaN）になったらリセット
+                if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) {
+                    node.x = prev.x;
+                    node.y = prev.y;
+                }
+
                 const dx = node.x - prev.x;
                 const dy = node.y - prev.y;
                 const dist = Math.sqrt(dx * dx + dy * dy);
                 const targetDist = 5.0;
                 if (dist > 0) {
                     const tension = isMoving ? 0.65 : 0.7;
-                    const correction = (dist - targetDist) * tension;
+                    // 補正量（correction）が距離を超えすぎないようクランプして発散を防ぐ
+                    const correction = Math.min(dist * 0.9, (dist - targetDist) * tension);
                     const angle = Math.atan2(dy, dx);
                     node.x -= Math.cos(angle) * correction;
                     node.y -= Math.sin(angle) * correction;
@@ -453,12 +465,13 @@ export class Player {
             } else {
                 this.useSubWeapon();
                 const weaponName = this.currentSubWeapon ? this.currentSubWeapon.name : '';
+                const isThrow = weaponName === '火薬玉' || weaponName === '手裏剣';
                 this.subWeaponTimer =
-                    weaponName === '火薬玉' ? 150 :
+                    isThrow ? 150 :
                     weaponName === '大槍' ? 250 :
                     (weaponName === '鎖鎌') ? 560 :
                     (weaponName === '大太刀') ? 760 : 300;
-                this.subWeaponAction = weaponName === '火薬玉' ? 'throw' : weaponName;
+                this.subWeaponAction = isThrow ? 'throw' : weaponName;
             }
         }
 
@@ -1834,7 +1847,11 @@ export class Player {
             let damageScale = 1 + tier * 0.08;
             let rangeScale = 1 + tier * 0.1;
             let cooldownScale = 1 - tier * 0.1;
-            if (weapon.name === '火薬玉') {
+            if (weapon.name === '手裏剣') {
+                damageScale = 1 + tier * 0.08;
+                rangeScale = 1 + tier * 0.12;
+                cooldownScale = 1 - tier * 0.10;
+            } else if (weapon.name === '火薬玉') {
                 damageScale = 1 + tier * 0.08;
                 rangeScale = 1 + tier * 0.08;
                 cooldownScale = 1 - tier * 0.12;
@@ -2974,8 +2991,9 @@ export class Player {
                 const node = this.scarfNodes[i];
                 const prev = this.scarfNodes[i - 1];
                 
-                // ★統一: 移動時7, 静止時10 を本体・分身共通で使用
-                const baseWidth = movingNow ? 7 : 10;
+                // ★統一: 移動時7, 静止時10 をベースに、スケーリング(preview)時は細く調整
+                const isPreview = options.useLiveAccessories && options.overrideScarfNodes;
+                const baseWidth = (movingNow ? 7 : 10) * (isPreview ? 0.35 : 1.0);
                 const waveSpeed = movingNow ? 0.008 : 0.004;
                 const wavePhase = i * (movingNow ? 0.5 : 0.6);
                 const wave = Math.sin(time * waveSpeed + wavePhase);
@@ -3188,6 +3206,7 @@ export class Player {
         const backShoulderX = centerX + dir * 4;
         const frontShoulderX = centerX - dir * 3;
         const shoulderY = pivotY;
+        const backShoulderY = shoulderY;
         
         ctx.save();
         ctx.strokeStyle = silhouetteColor;
@@ -3231,7 +3250,7 @@ export class Player {
         };
 
         if (this.subWeaponAction === 'throw') {
-            // 手前手でボムを投げる。
+            // 手前手で投げる。
             const armAngle = -Math.PI * 0.9 + progress * Math.PI * 0.78;
             const armLength = 19;
             const throwShoulderX = frontShoulderX;
@@ -3241,15 +3260,36 @@ export class Player {
             const throwHand = clampArmReach(throwShoulderX, throwShoulderY, throwTargetX, throwTargetY, 21);
             const armEndX = throwHand.x;
             const armEndY = throwHand.y;
+
             ctx.strokeStyle = silhouetteColor;
             drawArmSegment(throwShoulderX, throwShoulderY, armEndX, armEndY, 5.4);
             
-            // 爆弾本体（weapon.js の render を使用）
-            if (renderWeaponVisuals && this.currentSubWeapon && typeof this.currentSubWeapon.render === 'function') {
-                // ボムの座標を一時的に手に合わせる (Firebomb.render は player を参照して描画するため、player 側の座標や状態を同期させるか、直接 render を呼ぶ際に context を工夫する)
-                // 現状、Firebomb.render は内部で player の座標を使用しているため、ここで一時的に player の位置プロパティを調整して呼ぶ、もしくは renderSubWeaponVisualsInput フラグに基づいて Firebomb 側で適切な描画を行わせる。
-                // 既に js/weapon.js 側で player.forceSubWeaponRender を参照し、手に持っている状態を計算するよう修正済み。
-                this.currentSubWeapon.render(ctx, this);
+            // 武器の手に持った描画
+            if (renderWeaponVisuals && this.currentSubWeapon) {
+                if (this.currentSubWeapon.name === '手裏剣') {
+                    // 手裏剣を手に持たせる（projectile.renderのロジックを流用した簡易描画）
+                    ctx.save();
+                    ctx.translate(armEndX, armEndY);
+                    ctx.rotate(progress * 10); // 回転させる
+                    const r = 7;
+                    ctx.fillStyle = '#c0c8d4';
+                    ctx.beginPath();
+                    for (let i = 0; i < 4; i++) {
+                        const angle = (Math.PI / 2) * i;
+                        const cos = Math.cos(angle);
+                        const sin = Math.sin(angle);
+                        const cos45 = Math.cos(angle + Math.PI / 4);
+                        const sin45 = Math.sin(angle + Math.PI / 4);
+                        if (i === 0) ctx.moveTo(cos * r, sin * r);
+                        else ctx.lineTo(cos * r, sin * r);
+                        ctx.lineTo(cos45 * r * 0.35, sin45 * r * 0.35);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.restore();
+                } else if (typeof this.currentSubWeapon.render === 'function') {
+                    this.currentSubWeapon.render(ctx, this);
+                }
                 this.subWeaponRenderedInModel = true;
             }
             drawHand(armEndX, armEndY, 5);
@@ -3510,9 +3550,38 @@ export class Player {
             drawHand(armEndX, armEndY, 5);
             drawSupportPose(centerX - dir * 8, pivotY + 12);
         }
-        
 
-
+        // 追加: モーション中以外で武器を強制表示（プレビュー用）
+        if (this.forceSubWeaponRender && !this.subWeaponRenderedInModel && this.currentSubWeapon && renderWeaponVisuals) {
+            const weaponName = this.currentSubWeapon.name;
+            if (weaponName === '手裏剣' || weaponName === '火薬玉') {
+                // 背負っている位置に描画
+                ctx.save();
+                ctx.translate(centerX - dir * 10, pivotY + 2);
+                ctx.rotate(-0.3);
+                if (weaponName === '手裏剣') {
+                    ctx.fillStyle = '#c0c8d4';
+                    const rs = 7;
+                    ctx.beginPath();
+                    for (let i = 0; i < 4; i++) {
+                        const a = (Math.PI / 2) * i;
+                        const c = Math.cos(a) * rs;
+                        const s = Math.sin(a) * rs;
+                        const c2 = Math.cos(a + Math.PI/4) * rs * 0.35;
+                        const s2 = Math.sin(a + Math.PI/4) * rs * 0.35;
+                        if (i === 0) ctx.moveTo(c, s); else ctx.lineTo(c, s);
+                        ctx.lineTo(c2, s2);
+                    }
+                    ctx.closePath(); ctx.fill();
+                } else {
+                    ctx.fillStyle = '#2d2d2d';
+                    ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill();
+                }
+                ctx.restore();
+            } else if (typeof this.currentSubWeapon.render === 'function') {
+                this.currentSubWeapon.render(ctx, this);
+            }
+        }
 
         ctx.restore();
     }

@@ -2,16 +2,16 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON } from './constants.js?v=53';
-import { input } from './input.js?v=53';
-import { Player } from './player.js?v=53';
-import { createSubWeapon } from './weapon.js?v=53';
-import { Stage } from './stage.js?v=53';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding } from './ui.js?v=53';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit, checkPlayerAttackHit, checkSpecialHit, checkExplosionHit } from './collision.js?v=53';
-import { saveManager } from './save.js?v=53';
-import { shop } from './shop.js?v=53';
-import { audio } from './audio.js?v=53';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON } from './constants.js';
+import { input } from './input.js';
+import { Player } from './player.js';
+import { createSubWeapon } from './weapon.js';
+import { Stage } from './stage.js';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding } from './ui.js';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit, checkPlayerAttackHit, checkSpecialHit, checkExplosionHit } from './collision.js';
+import { saveManager } from './save.js';
+import { shop } from './shop.js';
+import { audio } from './audio.js';
 
 class Game {
     constructor() {
@@ -161,6 +161,10 @@ class Game {
         );
         const availableWidth = Math.max(containerWidth, viewportWidth, 1);
         const availableHeight = Math.max(containerHeight, viewportHeight, 1);
+        
+        // 極端に小さい（あるいはバグった）値を無視するための安全策
+        if (availableWidth < 100 || availableHeight < 100) return;
+
         const fitScale = Math.max(0.1, Math.min(
             availableWidth / CANVAS_WIDTH,
             availableHeight / CANVAS_HEIGHT
@@ -210,13 +214,15 @@ class Game {
     createTitleDebugConfig() {
         return {
             stage: 1,
+            fullMax: false, // 追加: 一括最強
             normalCombo: 0,
             subWeapon: 0,
             specialClone: 0,
             money: 0,
-            startWeapon: '火薬玉',
+            startWeapon: '手裏剣',
             ownedWeapons: {
-                '火薬玉': true,
+                '手裏剣': true,
+                '火薬玉': false,
                 '大槍': false,
                 '二刀流': false,
                 '鎖鎌': false,
@@ -234,14 +240,14 @@ class Game {
     }
 
     getTitleDebugWeaponNames() {
-        return ['火薬玉', '大槍', '二刀流', '鎖鎌', '大太刀'];
+        return ['手裏剣', '火薬玉', '大槍', '二刀流', '鎖鎌', '大太刀'];
     }
 
     ensureTitleDebugStartWeapon() {
         const owned = this.getTitleDebugWeaponNames().filter((weapon) => this.titleDebugConfig.ownedWeapons[weapon]);
         if (owned.length === 0) {
-            this.titleDebugConfig.ownedWeapons['火薬玉'] = true;
-            this.titleDebugConfig.startWeapon = '火薬玉';
+            this.titleDebugConfig.ownedWeapons['手裏剣'] = true;
+            this.titleDebugConfig.startWeapon = '手裏剣';
             return;
         }
         if (!owned.includes(this.titleDebugConfig.startWeapon)) {
@@ -259,11 +265,51 @@ class Game {
             return list[next];
         };
 
+        const resetToDefault = () => {
+            const def = this.createTitleDebugConfig();
+            cfg.normalCombo = def.normalCombo;
+            cfg.subWeapon = def.subWeapon;
+            cfg.specialClone = def.specialClone;
+            cfg.money = def.money;
+            cfg.items = { ...def.items };
+            for (const w in cfg.ownedWeapons) cfg.ownedWeapons[w] = def.ownedWeapons[w];
+            cfg.startWeapon = def.startWeapon;
+        };
+
         const entries = [
             {
                 label: '開始階層',
                 getValue: () => `${cfg.stage}`,
                 change: (delta) => { cfg.stage = clamp(cfg.stage + delta, 1, STAGES.length); }
+            },
+            {
+                label: '一括最強',
+                getValue: () => (cfg.fullMax ? 'ON' : 'OFF'),
+                change: () => { 
+                    cfg.fullMax = !cfg.fullMax; 
+                    if (cfg.fullMax) {
+                        cfg.normalCombo = 3;
+                        cfg.subWeapon = 3;
+                        cfg.specialClone = 3;
+                        cfg.money = 9999;
+                        cfg.items.hp_boost = 8;
+                        cfg.items.atk_boost = 3;
+                        cfg.items.triple_jump = true;
+                        cfg.items.quad_jump = true;
+                        cfg.items.speed_up = true;
+                        cfg.items.permanent_max_special = true;
+                        for (const w in cfg.ownedWeapons) cfg.ownedWeapons[w] = true;
+                    } else {
+                        resetToDefault();
+                    }
+                }
+            },
+            {
+                label: '奥義常時MAX',
+                getValue: () => (cfg.items.permanent_max_special ? 'ON' : 'OFF'),
+                change: () => { 
+                    cfg.items.permanent_max_special = !cfg.items.permanent_max_special; 
+                }
             },
             {
                 label: '連撃強化',
@@ -326,28 +372,42 @@ class Game {
             },
             {
                 label: 'アイテム:体力増強',
-                getValue: () => `+ ${this.titleDebugConfig.items.hp_boost * 5}`,
+                getValue: () => `+ ${cfg.items.hp_boost * 5}`,
                 change: (delta) => { 
-                    this.titleDebugConfig.items.hp_boost = Math.max(0, Math.min(8, (this.titleDebugConfig.items.hp_boost || 0) + delta)); 
+                    cfg.items.hp_boost = Math.max(0, Math.min(8, (cfg.items.hp_boost || 0) + delta)); 
                 }
             },
             {
                 label: 'アイテム:剛力の秘術',
-                getValue: () => `Lv ${this.titleDebugConfig.items.atk_boost}`,
+                getValue: () => `Lv ${cfg.items.atk_boost}`,
                 change: (delta) => { 
-                    this.titleDebugConfig.items.atk_boost = Math.max(0, Math.min(3, (this.titleDebugConfig.items.atk_boost || 0) + delta)); 
+                    cfg.items.atk_boost = Math.max(0, Math.min(3, (cfg.items.atk_boost || 0) + delta)); 
                 }
             },
             {
-                label: '奥義常時MAX',
-                getValue: () => (this.titleDebugConfig.items.permanent_max_special ? '有効' : '無効'),
-                change: () => { 
-                    this.titleDebugConfig.items.permanent_max_special = !this.titleDebugConfig.items.permanent_max_special; 
+                label: 'ステータス画面表示',
+                getValue: () => '実行',
+                action: () => {
+                    this.titleDebugApplyOnStart = true;
+                    this.startNewGame();
+                    this.state = GAME_STATE.STAGE_CLEAR;
+                    this.stageClearPhase = 1;
+                    this.titleDebugOpen = false;
+                }
+            },
+            {
+                label: 'エンディング表示',
+                getValue: () => '実行',
+                action: () => {
+                    this.state = GAME_STATE.ENDING;
+                    this.endingTimer = 0;
+                    audio.playBgm('ending');
+                    this.titleDebugOpen = false;
                 }
             },
             {
                 label: 'デバッグ設定で開始',
-                getValue: () => 'ENTER',
+                getValue: () => '実行',
                 action: () => {
                     this.titleDebugApplyOnStart = true;
                     this.titleDebugOpen = false;
@@ -362,6 +422,23 @@ class Game {
     applyTitleDebugSetupToNewGame() {
         if (!this.player || !this.titleDebugApplyOnStart) return;
         const cfg = this.titleDebugConfig;
+
+        // ★追加: 一括最強設定
+        if (cfg.fullMax) {
+            cfg.normalCombo = 3;
+            cfg.subWeapon = 3;
+            cfg.specialClone = 3;
+            cfg.money = 9999;
+            cfg.items.hp_boost = 8;
+            cfg.items.atk_boost = 3;
+            cfg.items.triple_jump = true;
+            cfg.items.quad_jump = true;
+            cfg.items.speed_up = true;
+            cfg.items.permanent_max_special = true;
+            // 全武器所持
+            for (const w in cfg.ownedWeapons) cfg.ownedWeapons[w] = true;
+        }
+
         this.player.progression.normalCombo = Math.max(0, Math.min(3, cfg.normalCombo || 0));
         this.player.progression.subWeapon = Math.max(0, Math.min(3, cfg.subWeapon || 0));
         this.player.progression.specialClone = Math.max(0, Math.min(3, cfg.specialClone || 0));
@@ -382,10 +459,10 @@ class Game {
         else this.player.money = Math.max(0, Math.min(this.player.maxMoney || 9999, Math.floor(cfg.money || 0)));
 
         const ownedWeapons = this.getTitleDebugWeaponNames().filter((weapon) => cfg.ownedWeapons[weapon]);
-        const weaponPool = ownedWeapons.length > 0 ? ownedWeapons : ['火薬玉'];
+        const weaponPool = ownedWeapons.length > 0 ? ownedWeapons : ['手裏剣'];
         this.player.subWeapons = weaponPool.map((name) => createSubWeapon(name)).filter(Boolean);
         if (this.player.subWeapons.length === 0) {
-            const fallback = createSubWeapon('火薬玉');
+            const fallback = createSubWeapon('手裏剣');
             if (fallback) this.player.subWeapons = [fallback];
         }
 
@@ -398,7 +475,7 @@ class Game {
 
         this.unlockedWeapons = [...weaponPool];
         this.player.unlockedWeapons = [...weaponPool];
-        this.player.stageEquip[this.currentStageNumber] = this.player.currentSubWeapon ? this.player.currentSubWeapon.name : '火薬玉';
+        this.player.stageEquip[this.currentStageNumber] = this.player.currentSubWeapon ? this.player.currentSubWeapon.name : '手裏剣';
 
         shop.purchasedSkills.clear();
         if (cfg.items.triple_jump) shop.purchasedSkills.add('triple_jump');
@@ -630,6 +707,17 @@ class Game {
             return;
         }
 
+        // 隠しコマンド: Qキーでデバッグメニュー開閉
+        if (input.isActionJustPressed('DEBUG_TOGGLE')) {
+            this.titleDebugOpen = !this.titleDebugOpen;
+            if (this.titleDebugOpen) {
+                const count = this.getTitleDebugEntries().length;
+                this.titleDebugCursor = Math.max(0, Math.min(count - 1, this.titleDebugCursor));
+            }
+            audio.playSelect();
+            return;
+        }
+
         // 何らかのキーが押されたらオーディオを初期化（ブラウザ制限対策）
         if (Object.keys(input.keysJustPressed).length > 0) {
             audio.init();
@@ -824,16 +912,16 @@ class Game {
         const panelW = 540;
         const panelX = CANVAS_WIDTH - panelW - 40;
         const panelY = 40;
-        const rowH = 27; 
-        const headerH = 100;
-        const listStartY = panelY + 120; // ui.js L1089 と同じ
+        const rowH = 26; 
+        const headerH = 40;
+        const listStartY = panelY + 65; 
         const entriesCount = entries.length;
-        const panelH = headerH + 10 + entriesCount * rowH + 20; // ui.js L1053 と同じ
+        const panelH = headerH + 10 + entriesCount * rowH + 10;
 
         if (tX >= panelX && tX <= panelX + panelW && tY >= panelY && tY <= panelY + panelH) {
             // リスト範囲内での判定
             const relativeY = tY - listStartY;
-            const index = Math.floor((relativeY + rowH / 2) / rowH); // 中央基準でヒット判定
+            const index = Math.floor(relativeY / rowH); // インデックス計算を正確に
 
             if (index >= 0 && index < entries.length) {
                 const finalIndex = index;
@@ -841,11 +929,11 @@ class Game {
                 const selected = entries[finalIndex];
                 
                 // 行の右側タップで増加/アクション、左側タップで減少（アクション以外）
-                const midX = panelX + panelW / 2;
+                const midX = panelX + (panelH > 400 ? 300 : panelW / 2); // ラベル長を考慮
                 if (selected.action) {
                     selected.action();
                 } else {
-                    selected.change?.(tX >= midX ? 1 : -1);
+                    selected.change?.(tX >= panelX + panelW - 100 ? 1 : -1); // 値の部分をタップで増加、それ以外で減少
                 }
                 audio.playSelect();
             }
@@ -994,6 +1082,16 @@ class Game {
 
         // 爆弾更新
         this.updateBombs(activeFrameEnemies);
+
+        // サブ武器のprojectile更新（手裏剣など）
+        if (this.player.subWeapons) {
+            for (const weapon of this.player.subWeapons) {
+                if (weapon && typeof weapon.update === 'function') {
+                    weapon.update(this.deltaTime, activeFrameEnemies);
+                }
+            }
+        }
+
         this.updateExpGems();
         this.updateStageBossDefeatEffects();
         
@@ -1086,6 +1184,19 @@ class Game {
                         });
                     }
                 }
+
+                // ボスの弾丸（火薬玉）の場合はプレイヤーへの当たり判定
+                if (bomb.isEnemyProjectile && this.player) {
+                    const playerRect = { x: this.player.x, y: this.player.y, width: this.player.width, height: this.player.height };
+                    const bombRect = bomb.getHitbox();
+                    if (this.rectIntersects(playerRect, bombRect)) {
+                        this.handlePlayerDamage(bomb.damage || 1, bomb.x, {
+                            knockbackX: 10,
+                            knockbackY: -6
+                        });
+                        bomb.isDead = true; // 命中したら消滅（爆発は継続中だが判定は1回）
+                    }
+                }
                 
                 // 障害物へのダメージ（岩など）
                 const obstacles = this.stage.obstacles || [];
@@ -1152,6 +1263,9 @@ class Game {
                     : Math.max(0, Math.min(4, comboIndex));
                 damage *= 1 + comboStep * 0.09;
             }
+        } else if (subWeapon.name === '手裏剣') {
+            attackData.knockbackX = 4;
+            attackData.knockbackY = -3;
         } else {
             attackData.knockbackX = 6;
             attackData.knockbackY = -4;
@@ -1331,10 +1445,31 @@ class Game {
                 const isBomb = this.player.subWeaponAction === 'bomb';
                 
                 for (const hitbox of hitboxes) {
+                    const proj = hitbox._sourceProjectile || null; 
                     // 敵へのダメージ
                     for (const enemy of activeEnemies) {
+                        // projectileの場合は多段ヒット防止（ただし手裏剣は一定時間で再ヒット可能にする）
+                        if (proj) {
+                            if (subWeapon.name === '手裏剣' && proj.lastHitMap) {
+                                const lastHit = proj.lastHitMap.get(enemy) || 0;
+                                const now = Date.now();
+                                if (now - lastHit < 200) continue; // 200ms間隔
+                            } else if (proj.hitEnemies && proj.hitEnemies.has(enemy)) {
+                                continue;
+                            }
+                        }
+
                         if (this.rectIntersects(hitbox, enemy)) {
                             this.damageEnemy(enemy, baseSubProfile.damage, { ...baseSubProfile.attackData });
+                            if (proj) {
+                                if (subWeapon.name === '手裏剣' && proj.lastHitMap) {
+                                    proj.lastHitMap.set(enemy, Date.now());
+                                } else if (proj.hitEnemies) {
+                                    proj.hitEnemies.add(enemy);
+                                }
+                                // 非貫通なら破壊
+                                if (!proj.pierce) proj.isDestroyed = true;
+                            }
                         }
                     }
 
@@ -2744,7 +2879,7 @@ class Game {
                     renderStatusScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {
                         menuIndex: this.stageClearMenuIndex,
                         selectedWeaponName: this.player?.currentSubWeapon?.name || '未装備'
-                    });
+                    }, this.stage, this.ui);
                 }
                 // 明示的なフェードアウト描画（STAGE_CLEAR状態のままフェードする場合）
                 if (this.stageTransitionPhase === 1) {
@@ -2910,6 +3045,13 @@ class Game {
     
     renderPlaying(playerAlpha = 1.0, forceStanding = false) {
         const ctx = this.ctx;
+        
+        // 描画バグ（半身バグ等）を防ぐため、スケーリング適用前に全画面を黒でクリア
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        ctx.restore();
         
         // 1. 背景と地面（カメラ固定・パララックスは内部で処理）
         this.stage.renderBackground(ctx);

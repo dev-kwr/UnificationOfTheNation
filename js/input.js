@@ -2,8 +2,8 @@
 // Unification of the Nation - 入力管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, KEYS, VIRTUAL_PAD } from './constants.js?v=53';
-import { audio } from './audio.js?v=53';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, KEYS, VIRTUAL_PAD } from './constants.js';
+import { audio } from './audio.js';
 
 class InputManager {
     constructor() {
@@ -26,7 +26,8 @@ class InputManager {
             's': 'SPECIAL', 'S': 'SPECIAL',
             'a': 'SPECIAL', 'A': 'SPECIAL',
             'Shift': 'DASH',
-            'Escape': 'PAUSE'
+            'Escape': 'PAUSE',
+            'q': 'DEBUG_TOGGLE', 'Q': 'DEBUG_TOGGLE'
         };
         this.codeMap = {
             'ArrowLeft': 'LEFT',
@@ -41,7 +42,9 @@ class InputManager {
             'KeyA': 'SPECIAL',
             'ShiftLeft': 'DASH',
             'ShiftRight': 'DASH',
-            'Escape': 'PAUSE'
+            'Escape': 'PAUSE',
+            'KeyQ': 'DEBUG_TOGGLE',
+            'Enter': 'JUMP'
         };
 
         // タッチ操作用

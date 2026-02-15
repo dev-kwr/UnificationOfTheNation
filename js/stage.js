@@ -2,11 +2,11 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES } from './constants.js?v=53';
-import { createEnemy, Ashigaru, Samurai, Busho, Ninja } from './enemy.js?v=53';
-import { createBoss } from './boss.js?v=53';
-import { createObstacle } from './obstacle.js?v=53';
-import { audio } from './audio.js?v=53';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES } from './constants.js';
+import { createEnemy, Ashigaru, Samurai, Busho, Ninja } from './enemy.js';
+import { createBoss } from './boss.js';
+import { createObstacle } from './obstacle.js';
+import { audio } from './audio.js';
 
 // ステージクラス
 export class Stage {
@@ -116,35 +116,42 @@ export class Stage {
         // ステージごとの背景設定（薄暗い夕方・和風の哀愁ある色調）
         const backgrounds = {
             1: { // 竹林（薄暮）
-                sky: ['#5F9EA0', '#2F4F4F'], // CadetBlue -> DarkSlateGray (夕暮れの竹林)
+                sky: ['#5F9EA0', '#2F4F4F'],
                 far: '#1a332a', 
                 mid: '#2b4d3b', 
                 near: '#3c664c', 
                 elements: 'bamboo'
             },
-            2: { // 山道（茜色の夕焼け）
-                sky: ['#B22222', '#2F0000'], // FireBrick -> DarkRed (深い赤〜黒)
-                far: '#2a0a0a', 
-                mid: '#3a1a1a', 
-                near: '#4a2a2a', 
+            2: { // 街道（昼 - より明るく）
+                sky: ['#ADD8E6', '#1E90FF'], 
+                far: '#2a4a6a', 
+                mid: '#3d6d8d', 
+                near: '#4d7da0', 
+                elements: 'kaido'
+            },
+            3: { // 山道（夕焼け - 旧Stage 2の設定をベースに調整）
+                sky: ['#DEB887', '#B22222'],
+                far: '#2a1a0a', 
+                mid: '#4a2a1a', 
+                near: '#5a3a2a', 
                 elements: 'mountain'
             },
-            3: { // 城下町（宵の口）
-                sky: ['#483D8B', '#191970'], // DarkSlateBlue -> MidnightBlue
+            4: { // 城下町
+                sky: ['#483D8B', '#191970'],
                 far: '#1a1a2a', 
                 mid: '#2a2a3a', 
                 near: '#3a3a4a', 
                 elements: 'town'
             },
-            4: { // 城内（夜）
-                sky: ['#000033', '#000000'], // 濃紺〜黒
+            5: { // 城内
+                sky: ['#000033', '#000000'],
                 far: '#202020', 
                 mid: '#303030',
                 near: '#404040', 
                 elements: 'castle'
             },
-            5: { // 天守閣（月夜）
-                sky: ['#000080', '#000020'], // Navy
+            6: { // 天守閣
+                sky: ['#000080', '#000020'],
                 far: '#101030',
                 mid: '#202040',
                 near: '#303050',
@@ -601,6 +608,36 @@ export class Stage {
                 ctx.globalAlpha = 1;
                 break;
                 
+            case 'kaido':
+                // 街道（松の木と石畳）
+                const kPara = 0.7;
+                const kSpacing = 400;
+                const kStartIdx = Math.floor((p * kPara - 200) / kSpacing);
+                const kEndIdx = Math.ceil((CANVAS_WIDTH + p * kPara + 200) / kSpacing);
+
+                for (let i = kStartIdx; i <= kEndIdx; i++) {
+                    const x = i * kSpacing - p * kPara;
+                    // 松の木
+                    ctx.fillStyle = '#2f4f2f';
+                    ctx.fillRect(x, this.groundY - 120, 15, 120);
+                    ctx.beginPath();
+                    ctx.moveTo(x - 40, this.groundY - 120);
+                    ctx.lineTo(x + 7.5, this.groundY - 180);
+                    ctx.lineTo(x + 55, this.groundY - 120);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.moveTo(x - 30, this.groundY - 150);
+                    ctx.lineTo(x + 7.5, this.groundY - 210);
+                    ctx.lineTo(x + 45, this.groundY - 150);
+                    ctx.fill();
+
+                    // 石畳
+                    ctx.fillStyle = '#4a4a4a';
+                    ctx.fillRect(x + 100, this.groundY - 5, 80, 5);
+                    ctx.fillRect(x + 250, this.groundY - 5, 60, 5);
+                }
+                break;
+
             case 'mountain':
                 // 遠くの山（ループ描画）
                 ctx.fillStyle = '#4a4a6a';
@@ -760,8 +797,8 @@ export class Stage {
 
         // 地面背景
         const groundGradient = ctx.createLinearGradient(0, this.groundY, 0, CANVAS_HEIGHT);
-        const stageGroundTop = ['#4a3a2a', '#5a3b2a', '#46372d', '#3d332f', '#2f2d35'];
-        const stageGroundBottom = ['#2a1a0a', '#2f1a10', '#2a1f1a', '#241f1c', '#1c1a22'];
+        const stageGroundTop = ['#4a3a2a', '#4d3322', '#5a3b2a', '#46372d', '#3d332f', '#2f2d35'];
+        const stageGroundBottom = ['#2a1a0a', '#241a10', '#2f1a10', '#2a1f1a', '#241f1c', '#1c1a22'];
         const groundIdx = Math.max(0, Math.min(stageGroundTop.length - 1, this.stageNumber - 1));
         groundGradient.addColorStop(0, stageGroundTop[groundIdx]);
         groundGradient.addColorStop(1, stageGroundBottom[groundIdx]);
@@ -890,24 +927,63 @@ export class Stage {
         ctx.textAlign = 'center';
         ctx.fillText(this.boss.bossName, CANVAS_WIDTH / 2, 50);
         
-        // HPバー
-        const barWidth = 400;
-        const barHeight = 12;
+        // HPバー (モダンデザイン)
+        const barWidth = 450;
+        const barHeight = 16;
         const x = (CANVAS_WIDTH - barWidth) / 2;
-        const y = 60;
+        const y = 64;
+        const radius = barHeight / 2;
         
-        ctx.fillStyle = '#400';
-        ctx.fillRect(x, y, barWidth, barHeight);
+        const bossHpRatio = Math.max(0, this.boss.hp / this.boss.maxHp);
         
-        ctx.fillStyle = '#f44';
-        ctx.fillRect(x, y, barWidth * (this.boss.hp / this.boss.maxHp), barHeight);
-        
-        // フェーズ表示
-        if (this.boss.phase > 1) {
-            ctx.fillStyle = '#ff0';
-            ctx.font = '14px sans-serif';
-            ctx.fillText(`Phase ${this.boss.phase}`, CANVAS_WIDTH / 2, y + 30);
+        // 背景（トラック）
+        ctx.save();
+        const drawRoundedRectPath = (px, py, w, h, r) => {
+            const rr = Math.max(0, Math.min(r, Math.min(w, h) * 0.5));
+            ctx.beginPath();
+            ctx.moveTo(px + rr, py);
+            ctx.lineTo(px + w - rr, py);
+            ctx.arcTo(px + w, py, px + w, py + rr, rr);
+            ctx.lineTo(px + w, py + h - rr);
+            ctx.arcTo(px + w, py + h, px + w - rr, py + h, rr);
+            ctx.lineTo(px + rr, py + h);
+            ctx.arcTo(px, py + h, px, py + h - rr, rr);
+            ctx.lineTo(px, py + rr);
+            ctx.arcTo(px, py, px + rr, py, rr);
+            ctx.closePath();
+        };
+
+        const trackGrad = ctx.createLinearGradient(x, y, x, y + barHeight);
+        trackGrad.addColorStop(0, 'rgba(23, 30, 52, 0.88)');
+        trackGrad.addColorStop(1, 'rgba(11, 16, 30, 0.9)');
+        drawRoundedRectPath(x, y, barWidth, barHeight, radius);
+        ctx.fillStyle = trackGrad;
+        ctx.fill();
+
+        // 中身（フィルのグラデーション：赤〜紫系でボス感を強調）
+        if (bossHpRatio > 0) {
+            const fillWidth = barWidth * bossHpRatio;
+            const fillGrad = ctx.createLinearGradient(x, y, x + fillWidth, y);
+            fillGrad.addColorStop(0, '#ff3344');
+            fillGrad.addColorStop(0.5, '#ff5566');
+            fillGrad.addColorStop(1, '#ff3344');
+            
+            drawRoundedRectPath(x + 1, y + 1, Math.max(1, fillWidth - 2), barHeight - 2, radius - 1);
+            ctx.fillStyle = fillGrad;
+            ctx.fill();
         }
+
+        // 光沢エフェクト
+        drawRoundedRectPath(x + 1.5, y + 1.5, barWidth - 3, Math.max(1, barHeight * 0.34), radius - 2);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+        ctx.fill();
+
+        // 外枠
+        drawRoundedRectPath(x, y, barWidth, barHeight, radius);
+        ctx.strokeStyle = 'rgba(255, 120, 120, 0.42)';
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+        ctx.restore();
     }
     
     // 全敵を取得

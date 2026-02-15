@@ -2,7 +2,7 @@
 // Unification of the Nation - セーブ/ロード機能
 // ============================================
 
-import { game } from './game.js?v=53';
+import { game } from './game.js';
 
 const SAVE_KEY = 'ninjaActionSave';
 const MAX_MONEY = 9999;

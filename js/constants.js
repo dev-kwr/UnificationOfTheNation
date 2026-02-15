@@ -80,15 +80,17 @@ export const KEYS = {
     SWITCH_WEAPON: ['d', 'D'],
     DASH: ['Shift'],
     PAUSE: ['Escape'],
+    DEBUG_TOGGLE: ['q', 'Q'],
 };
 
 // ステージ情報
 export const STAGES = [
-    { id: 1, name: '竹林', boss: '槍持ちの侍大将', weapon: '大槍' },
-    { id: 2, name: '山道', boss: '二刀流の剣豪', weapon: '二刀流' },
-    { id: 3, name: '城下町', boss: '鎖鎌使いの暗殺者', weapon: '鎖鎌' },
-    { id: 4, name: '城内', boss: '大太刀の武将', weapon: '大太刀' },
-    { id: 5, name: '天守閣', boss: '将軍', weapon: null },
+    { id: 1, name: '竹林', boss: '火薬玉の武将', weapon: '火薬玉' },
+    { id: 2, name: '街道', boss: '槍持ちの侍大将', weapon: '大槍' },
+    { id: 3, name: '山道', boss: '二刀流の剣豪', weapon: '二刀流' },
+    { id: 4, name: '城下町', boss: '鎖鎌使いの暗殺者', weapon: '鎖鎌' },
+    { id: 5, name: '城内', boss: '大太刀の武将', weapon: '大太刀' },
+    { id: 6, name: '天守閣', boss: '将軍', weapon: null },
 ];
 
 // 色定義（レトロ風パレット）
@@ -173,9 +175,10 @@ export const VIRTUAL_PAD = {
 
 // 各ステージの初期装備（デフォルト武器）
 export const STAGE_DEFAULT_WEAPON = {
-    1: '火薬玉',
-    2: '大槍',
-    3: '二刀流',
-    4: '鎖鎌',
-    5: '大太刀'
+    1: '手裏剣',
+    2: '火薬玉',
+    3: '大槍',
+    4: '二刀流',
+    5: '鎖鎌',
+    6: '大太刀'
 };

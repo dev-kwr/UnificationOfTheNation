@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD } from './constants.js?v=53';
-import { input } from './input.js?v=53';
-import { audio } from './audio.js?v=53';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD } from './constants.js';
+import { input } from './input.js';
+import { audio } from './audio.js';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | D：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const PAD_ICON_PATHS = {
@@ -778,6 +778,33 @@ export class UI {
         ctx.shadowBlur = 3;
         
         switch (name) {
+            case '手裏剣':
+                ctx.fillStyle = '#c0c8d4';
+                ctx.strokeStyle = '#606878';
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                for (let i = 0; i < 4; i++) {
+                    const angle = (Math.PI / 2) * i;
+                    const cos = Math.cos(angle);
+                    const sin = Math.sin(angle);
+                    const cos45 = Math.cos(angle + Math.PI / 4);
+                    const sin45 = Math.sin(angle + Math.PI / 4);
+                    if (i === 0) {
+                        ctx.moveTo(cos * half * 0.85, sin * half * 0.85);
+                    } else {
+                        ctx.lineTo(cos * half * 0.85, sin * half * 0.85);
+                    }
+                    ctx.lineTo(cos45 * half * 0.3, sin45 * half * 0.3);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                // 中心の穴
+                ctx.fillStyle = '#2a2a2a';
+                ctx.beginPath();
+                ctx.arc(0, 0, half * 0.15, 0, Math.PI * 2);
+                ctx.fill();
+                break;
             case '火薬玉':
                 ctx.fillStyle = '#2d2d2d';
                 ctx.beginPath();
@@ -1050,11 +1077,11 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
     const panelW = 540;
     const panelX = CANVAS_WIDTH - panelW - 40;
     const panelY = 40;
-    const rowH = 27; // さらに少し詰める
-    const headerH = 100;
+    const rowH = 26; // 少し詰める
+    const headerH = 40; // タイトル削除に伴い大幅に削減
     const spacingH = 10;
     const entriesCount = entries.length;
-    const panelH = headerH + spacingH + entriesCount * rowH + 20; // 項目数にぴったり合わせる
+    const panelH = headerH + spacingH + entriesCount * rowH + 10; // 項目数にぴったり合わせる
     const maxRows = entriesCount; 
     const clampedCursor = Math.max(0, Math.min(entries.length - 1, cursor));
     const start = Math.max(0, Math.min(clampedCursor - Math.floor(maxRows / 2), Math.max(0, entries.length - maxRows)));
@@ -1071,26 +1098,23 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
     ctx.fillRect(panelX, panelY, panelW, panelH);
     ctx.strokeStyle = 'rgba(178, 205, 255, 0.6)';
     ctx.lineWidth = 1.8;
-    // ctx.strokeRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT); // 全画面ボーダー削除
 
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#f3f8ff';
-    ctx.font = '700 24px sans-serif';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText('DEBUG START CONFIG', panelX + 24, panelY + 44);
     
-    ctx.font = '500 13px sans-serif';
+    // タイトルを削除し、操作説明のみを上部に小さく表示
+    ctx.font = '500 12px sans-serif';
     ctx.fillStyle = 'rgba(212, 228, 255, 0.85)';
-    ctx.fillText('↑↓：項目 | ←→：変更 | SPACE：決定 | ESC：閉じる', panelX + 24, panelY + 74);
+    ctx.fillText('↑↓：項目 | ←→：変更 | SPACE：決定 | ESC：閉じる', panelX + 24, panelY + 28);
 
     // 操作説明と最初の項目の間の境界線/余白
     ctx.strokeStyle = 'rgba(212, 228, 255, 0.15)';
     ctx.beginPath();
-    ctx.moveTo(panelX + 20, panelY + 94);
-    ctx.lineTo(panelX + panelW - 20, panelY + 94);
+    ctx.moveTo(panelX + 20, panelY + 40);
+    ctx.lineTo(panelX + panelW - 20, panelY + 40);
     ctx.stroke();
 
-    const listStartY = panelY + 120;
+    const listStartY = panelY + 65; // 余白をもう少し設ける
     const boxH = rowH - 4;
 
     ctx.textBaseline = 'middle';
@@ -1099,7 +1123,7 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
         const y = listStartY + row * rowH;
         const selected = i === clampedCursor;
         if (selected) {
-            // アクティブ枠（テキストに対して中央に来るように調整）
+            // アクティブ枠
             ctx.fillStyle = 'rgba(98, 142, 235, 0.42)';
             ctx.fillRect(panelX + 16, y - boxH / 2, panelW - 32, boxH);
             ctx.strokeStyle = 'rgba(211, 228, 255, 0.92)';
@@ -1110,16 +1134,17 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
         
         ctx.textAlign = 'left';
         ctx.fillStyle = selected ? '#ffffff' : 'rgba(225, 236, 255, 0.92)';
-        ctx.font = selected ? '700 15px sans-serif' : '500 14px sans-serif';
+        ctx.font = selected ? '700 14px sans-serif' : '500 13px sans-serif';
         ctx.fillText(entry.label || '', panelX + 30, y);
 
         ctx.textAlign = 'right';
-        ctx.fillStyle = entry.isAction ? '#ffe08d' : (selected ? '#dff0ff' : 'rgba(198, 216, 246, 0.92)');
-        ctx.font = selected ? '700 15px sans-serif' : '500 14px sans-serif';
-        ctx.fillText(entry.value || '', panelX + panelW - 30, y);
+        const valText = (typeof entry.getValue === 'function') ? entry.getValue() : (entry.value || '');
+        const isActionRow = entry.action || valText === '実行';
+        ctx.fillStyle = isActionRow ? '#ffe08d' : (selected ? '#dff0ff' : 'rgba(198, 216, 246, 0.92)');
+        ctx.font = selected ? '700 14px sans-serif' : '500 13px sans-serif';
+        ctx.fillText(valText, panelX + panelW - 30, y);
     }
 
-    // 下部余白の描画を省略（タイトにするため）
     ctx.restore();
 }
 
@@ -1182,7 +1207,7 @@ export function renderGameOverScreen(ctx, player, stageNumber, fadeTimer = 0, st
 }
 
 // ステージクリア画面（ステータス画面）
-export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, options = {}, stage) {
+export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, options = {}, stage, ui) {
     const time = Date.now();
     const menuIndex = Number.isFinite(options.menuIndex) ? options.menuIndex : 0;
     const selectedWeaponName = options.selectedWeaponName || (player?.currentSubWeapon?.name || '未装備');
@@ -1200,10 +1225,10 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
     const panelW = CANVAS_WIDTH;
     const panelH = CANVAS_HEIGHT;
 
-    const leftColW = 400;
+    const leftColW = 840; 
     const previewAreaX = 40;
-    const rightColX = leftColW + 60;
-    const rightColW = panelW - rightColX - 40;
+    const rightColX = 880; // 完璧な左右バランスのための固定位置
+    const rightColW = panelW - rightColX - 40; // 統一された右端マージン
 
     const menuItems = [
         { title: `忍具：${selectedWeaponName}` },
@@ -1220,12 +1245,13 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
     ];
 
     ctx.save();
-    // 背景：深い紺色の不透明グラデーション（全画面・透け防止）
-    const bgGrad = ctx.createRadialGradient(CANVAS_WIDTH/2, CANVAS_HEIGHT/2, 0, CANVAS_WIDTH/2, CANVAS_HEIGHT/2, CANVAS_WIDTH);
-    bgGrad.addColorStop(0, '#0a0f23');
-    bgGrad.addColorStop(1, '#040610');
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    try {
+        // 背景：深い紺色の不透明グラデーション（全画面・透け防止）
+        const bgGrad = ctx.createRadialGradient(CANVAS_WIDTH/2, CANVAS_HEIGHT/2, 0, CANVAS_WIDTH/2, CANVAS_HEIGHT/2, CANVAS_WIDTH);
+        bgGrad.addColorStop(0, '#0a0f23');
+        bgGrad.addColorStop(1, '#040610');
+        ctx.fillStyle = bgGrad;
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     // メインパネル：グラスモルフィズム（透け感と光沢）
     ctx.save();
@@ -1262,27 +1288,37 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
 
     // --- 左側：自キャラプレビュー ---
     const previewX = previewAreaX;
-    const previewY = topBarY; // タイトル分を詰める (60 -> 0 offset)
     const previewW = leftColW;
-    const previewH = 340;
+    const previewH = 460; // 480 -> 460 (下部ボタンへの干渉を確実に避ける)
+    const previewY = topBarY - 40; 
 
     // プレビュー背景（和風の装飾的な背景）
-    ctx.fillStyle = 'rgba(0, 5, 20, 0.4)';
-    ctx.fillRect(previewX, previewY, previewW, previewH);
+    // 背景枠を削除して全画面に馴染ませる
     
-    // 装飾的な角（和風のデザイン）
-    const cornerSize = 20;
-    ctx.strokeStyle = 'rgba(142, 176, 243, 0.5)';
-    ctx.lineWidth = 2;
-    // 左上
-    ctx.beginPath(); ctx.moveTo(previewX, previewY + cornerSize); ctx.lineTo(previewX, previewY); ctx.lineTo(previewX + cornerSize, previewY); ctx.stroke();
-    // 右下
-    ctx.beginPath(); ctx.moveTo(previewX + previewW, previewY + previewH - cornerSize); ctx.lineTo(previewX + previewW, previewY + previewH); ctx.lineTo(previewX + previewW - cornerSize, previewY + previewH); ctx.stroke();
-
     if (player && typeof player.renderModel === 'function') {
-        const charPreviewX = previewX + previewW / 2;
-        const charPreviewY = previewY + previewH - 60;
+        const charPreviewX = previewAreaX + previewW / 2;
+        const charPreviewY = previewY + previewH - 60; // 立ち位置を上げて、メニューボタンとの重なりを解消
         
+        // プレビュー専用ノードが未初期化なら初期化
+        if (!player.previewScarfNodes || player.previewScarfNodes.length === 0) {
+            const dir = 1;
+            const anchorX = 0;
+            const anchorY = 0;
+            player.previewScarfNodes = [];
+            player.previewHairNodes = [];
+            for (let i = 0; i < 9; i++) {
+                player.previewScarfNodes.push({ x: anchorX - dir * i * 4.2, y: anchorY + i * 1.0 }); // 物理ノードを少し詰めて重なりを制御
+                if (i < 8) player.previewHairNodes.push({ x: anchorX - dir * i * 3.0, y: anchorY - 8 + i * 0.7 });
+            }
+        }
+        
+        // プレビュー用の物理演算を回す
+        const lastT = player._lastPreviewTime || time;
+        const dt = Math.min(0.033, (time - lastT) / 1000); // 30fps上限でカクつきを防ぐ
+        player._lastPreviewTime = time;
+        
+        const anchor = player.calculateAccessoryAnchor(0, 0, player.height, time, false, false, false, 0);
+        player.updateAccessoryNodes(player.previewScarfNodes, player.previewHairNodes, 0, anchor.headY, 0, false, dt || 0.016);
         const prevTimer = player.subWeaponTimer;
         const prevAction = player.subWeaponAction;
         const prevAttacking = player.isAttacking;
@@ -1293,8 +1329,16 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         const cycle = time % loopDuration;
         
         // サブ武器に応じたアクション名の取得
-        const currentWeaponName = player.currentSubWeapon?.name || '火薬玉';
-        const subActionName = currentWeaponName === '火薬玉' ? 'throw' : currentWeaponName;
+        const currentWeaponName = selectedWeaponName === '未装備' ? '火薬玉' : selectedWeaponName;
+        const isThrow = currentWeaponName === '火薬玉' || currentWeaponName === '手裏剣';
+        const subActionName = isThrow ? 'throw' : currentWeaponName;
+        
+        // プレビュー用に選択中の武器を一時的にセット
+        const originalCurrentSub = player.currentSubWeapon;
+        if (selectedWeaponName !== '未装備') {
+            // モックの武器オブジェクトを作成
+            player.currentSubWeapon = { name: selectedWeaponName };
+        }
         
         // 武器ごとの正確な再生時間（player.js の定義と同期）
         const subDuration =
@@ -1321,16 +1365,20 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
 
         ctx.save();
         ctx.translate(charPreviewX, charPreviewY);
-        ctx.scale(2.8, 2.8);
+        ctx.scale(4.0, 4.0); // 4.2 -> 4.0 (巨大さを維持しつつ、上下の空間に余裕を持たせる)
         
         player.renderModel(ctx, -player.width / 2, -player.height + (isAttackingPhase ? 0 : Math.sin(time * 0.002) * 2), true, 1.0, true, {
-            useLiveAccessories: false, // プレビューでは物理ノードを使わず簡易描画
+            useLiveAccessories: true, // ライブアクセサリを有効化
+            overrideScarfNodes: player.previewScarfNodes, // プレビュー用ノードを渡す
+            overrideHairNodes: player.previewHairNodes,
             renderHeadbandTail: true,
             forceSubWeaponRender: true
         });
         
         ctx.restore();
-
+        
+        // 一時的に変えたプロパティを戻す
+        player.currentSubWeapon = originalCurrentSub;
         player.subWeaponTimer = prevTimer;
         player.subWeaponAction = prevAction;
         player.isAttacking = prevAttacking;
@@ -1360,48 +1408,50 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         { label: '段位', value: `${toKanjiNumber(player.level)}段`, color: '#fff' },
         { label: '体力', value: `${player.hp} / ${player.maxHp}`, color: '#ff7070' },
         { label: '小判', value: `${player.money} 枚`, color: '#ffd700' },
+        { label: '忍具', value: player.currentSubWeapon ? `${player.currentSubWeapon.name} (Lv ${player.progression.subWeapon || 0})` : 'なし', color: '#88ccff' },
         { label: '剛力', value: `Lv ${player.atkLv || 0} (${(player.attackPower || 1.0).toFixed(1)}倍)`, color: '#ffae70' },
         { label: '脚力', value: `${(player.speed || 0).toFixed(1)}`, color: '#7affae' },
         { label: '跳躍', value: `${player.maxJumps || 1}段`, color: '#7ab5ff' }
     ];
 
     statRows.forEach((row, i) => {
-        const rowY = infoY + 50 + i * 44;
+        const rowY = infoY + 45 + i * 40;
+        const boxH = 32;
+        const centerY = rowY - 20 + boxH / 2; // ボックスの中心座標
         
-        // 行の背景（互い違いに薄く色を載せる）
-        if (i % 2 === 0) {
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
-            ctx.fillRect(infoX - 10, rowY - 26, panelX + panelW - infoX - 10, 36);
-        }
+        // 行の背景（しましま）は削除
 
+        ctx.textBaseline = 'middle'; // 垂直中央揃えを強制
+        
         // ラベル
         ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
         ctx.textAlign = 'left';
-        ctx.font = '600 18px sans-serif';
-        ctx.fillText(row.label, infoX + 10, rowY - 4);
+        ctx.font = '600 17px sans-serif';
+        ctx.fillText(row.label, infoX + 10, centerY);
         
         ctx.textAlign = 'right';
-        ctx.fillStyle = row.value === 'undefined段' ? '#fff' : row.color; // undefined対策
-        ctx.font = '700 20px sans-serif';
-        // Y座標を調整してラベルと高さを合わせる（以前は rowY - 4 だったが、フォントサイズ差でずれていた）
-        ctx.fillText(row.value, panelX + panelW - 40, rowY); 
+        ctx.fillStyle = row.value === 'undefined段' ? '#fff' : row.color; 
+        ctx.font = '700 19px sans-serif';
+        ctx.fillText(row.value, rightColX + rightColW - 10, centerY); // rightColW 基準で右端を合わせる
         ctx.textAlign = 'left';
         
         // 区切り線
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
         ctx.beginPath();
-        ctx.moveTo(infoX, rowY + 10);
-        ctx.lineTo(panelX + panelW - 40, rowY + 10);
+        ctx.moveTo(infoX, rowY + 14);
+        ctx.lineTo(rightColX + rightColW - 10, rowY + 14);
         ctx.stroke();
     });
 
+    ctx.textBaseline = 'alphabetic'; // 元に戻す
+
     // 強化状況カード
-    const cardY = infoY + 280;
-    const cardW = (rightColW - 32) / 3;
+    const cardY = infoY + 340; 
+    const cardW = (rightColW - 32) / 3; // 余裕を持って配置
     const cardH = 95;
 
     progressionCards.forEach((card, i) => {
-        const x = infoX + i * (cardW + 16);
+        const x = infoX + i * (cardW + 16); 
         
         // カード：さらにプレミアム感（内側にグラデーション）
         const cardGrad = ctx.createLinearGradient(x, cardY, x, cardY + cardH);
@@ -1416,6 +1466,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         ctx.fillStyle = 'rgba(215, 230, 255, 0.95)';
         ctx.font = '700 15px sans-serif';
         ctx.fillText(card.title, x + 12, cardY + 28);
+        
         
         ctx.fillStyle = '#fff';
         ctx.font = '700 19px sans-serif';
@@ -1473,7 +1524,9 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
     ctx.font = '600 20px sans-serif';
     ctx.fillText('←→：選択 | SPACE：決定 | ↑↓：装備切替', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 35);
 
-    ctx.restore();
+    } finally {
+        ctx.restore();
+    }
 }
 
 export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 0, pendingCount = 1) {

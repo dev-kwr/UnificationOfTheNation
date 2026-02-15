@@ -2,9 +2,9 @@
 // Unification of the Nation - ボスクラス
 // ============================================
 
-import { COLORS, GRAVITY, CANVAS_WIDTH } from './constants.js?v=53';
-import { Enemy } from './enemy.js?v=53';
-import { createSubWeapon } from './weapon.js?v=53';
+import { COLORS, GRAVITY, CANVAS_WIDTH } from './constants.js';
+import { Enemy } from './enemy.js';
+import { createSubWeapon } from './weapon.js';
 
 const ENEMY_HEADBAND_BASE = '#4f2f72';
 const ENEMY_HEADBAND_HIGHLIGHT = '#7e58a6';
@@ -207,7 +207,308 @@ class Boss extends Enemy {
     }
 }
 
-// ステージ1ボス: 槍持ちの侍大将
+// ステージ1ボス: 火薬玉の武将
+export class KayakudamaTaisho extends Boss {
+    init() {
+        super.init();
+        this.bossName = '火薬玉の武将';
+        this.weaponDrop = '火薬玉';
+        this.hp = 120;
+        this.maxHp = 120;
+        this.attackRange = 200;
+        this.attackPatterns = ['throw'];
+        this.throwTimer = 0;
+        this.throwCount = 0;
+    }
+
+    startAttack() {
+        this.currentPattern = 'throw';
+        this.attackCooldown = this.phase >= 2 ? 700 : 900;
+        this.isAttacking = true;
+        this.attackTimer = 500;
+        this.attackFacingRight = this.facingRight;
+        this.throwCount = this.phase >= 2 ? 2 : 1;
+        this.throwTimer = 0;
+    }
+
+    updateAttack(deltaTime) {
+        const deltaMs = deltaTime * 1000;
+        this.attackTimer -= deltaMs;
+
+        // 投擲タイミング
+        if (this.throwCount > 0) {
+            this.throwTimer -= deltaMs;
+            if (this.throwTimer <= 0) {
+                this.throwBomb();
+                this.throwCount--;
+                this.throwTimer = 200; // 連投間隔
+            }
+        }
+
+        if (this.attackTimer <= 0) {
+            this.isAttacking = false;
+            this.throwCount = 0;
+        }
+    }
+
+    throwBomb() {
+        const g = window.game;
+        if (!g) return;
+        const { Bomb } = g.constructor.modules || {};
+        const direction = this.facingRight ? 1 : -1;
+        const startX = this.x + this.width / 2 + direction * 20;
+        const startY = this.y + 15;
+        const vx = direction * 6;
+        const vy = -7;
+
+        // 簡易的な火薬玉生成（Bombクラスがwindow.gameから利用可能な場合）
+        if (g.bombs && typeof g.bombs.push === 'function') {
+            // weapon.jsのBombクラスを動的にインポートせず、直接弾を生成
+            const bomb = {
+                x: startX, y: startY, vx, vy,
+                radius: 8, damage: this.damage,
+                explosionRadius: 60, explosionDuration: 300,
+                timer: 0, maxTimer: 800, isExploding: false,
+                isDead: false, groundY: this.groundY,
+                update(dt) {
+                    if (this.isDead || this.isExploding) {
+                        if (this.isExploding) {
+                            this.timer += dt * 1000;
+                            if (this.timer >= this.explosionDuration) this.isDead = true;
+                        }
+                        return this.isDead;
+                    }
+                    this.vy += 0.45;
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    this.timer += dt * 1000;
+                    if (this.y + this.radius >= this.groundY || this.timer >= this.maxTimer) {
+                        this.explode();
+                    }
+                    return false;
+                },
+                explode() {
+                    this.isExploding = true;
+                    this.timer = 0;
+                    this.vx = 0;
+                    this.vy = 0;
+                },
+                getHitbox() {
+                    if (this.isExploding) {
+                        return { x: this.x - this.explosionRadius, y: this.y - this.explosionRadius,
+                                 width: this.explosionRadius * 2, height: this.explosionRadius * 2 };
+                    }
+                    return { x: this.x - this.radius, y: this.y - this.radius,
+                             width: this.radius * 2, height: this.radius * 2 };
+                },
+                render(ctx) {
+                    if (this.isDead) return;
+                    ctx.save();
+                    if (this.isExploding) {
+                        const progress = this.timer / this.explosionDuration;
+                        const r = this.explosionRadius * Math.min(1, progress * 2);
+                        const alpha = 1 - progress;
+                        ctx.globalAlpha = alpha * 0.7;
+                        ctx.fillStyle = '#ff6b35';
+                        ctx.beginPath();
+                        ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.fillStyle = '#ffd700';
+                        ctx.beginPath();
+                        ctx.arc(this.x, this.y, r * 0.5, 0, Math.PI * 2);
+                        ctx.fill();
+                    } else {
+                        ctx.fillStyle = '#2d2d2d';
+                        ctx.beginPath();
+                        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.strokeStyle = '#767676';
+                        ctx.lineWidth = 1.2;
+                        ctx.stroke();
+                        // 導火線
+                        ctx.strokeStyle = '#b07a38';
+                        ctx.lineWidth = 1.5;
+                        ctx.beginPath();
+                        ctx.moveTo(this.x, this.y - this.radius);
+                        ctx.lineTo(this.x + 4, this.y - this.radius - 6);
+                        ctx.stroke();
+                        ctx.fillStyle = '#ffb347';
+                        ctx.beginPath();
+                        ctx.arc(this.x + 4, this.y - this.radius - 7, 2, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    ctx.restore();
+                },
+                isEnemyProjectile: true,
+                owner: this
+            };
+            g.bombs.push(bomb);
+        }
+    }
+
+    getAttackHitbox() {
+        return null; // 火薬玉は弾として処理
+    }
+
+    renderBody(ctx) {
+        const dir = this.facingRight ? 1 : -1;
+        const centerX = this.x + this.width * 0.5;
+        const footY = this.y + this.height;
+        const runBlend = Math.max(0, Math.min(1, Math.abs(this.vx) / Math.max(1.2, this.speed)));
+        const gaitPhase = this.motionTime * 0.010;
+        const shoulderX = centerX + dir * 3.0 + this.torsoLean * dir * 0.2;
+        const shoulderY = this.y + 34 + Math.abs(this.bob) * 0.15;
+        const hipX = centerX - dir * 1.5;
+        const hipY = this.y + 59;
+        const headX = shoulderX - dir * 0.5;
+        const headY = this.y + 22;
+
+        if (this.phaseTransitioning) {
+            this.renderPhaseTransition(ctx);
+        }
+
+        // 地面の影
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.beginPath();
+        ctx.ellipse(centerX, footY + 2, 18, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 袴（深い茶色）
+        ctx.fillStyle = '#1a2a1a';
+        ctx.beginPath();
+        ctx.moveTo(centerX - 15, this.y + 36);
+        ctx.lineTo(centerX + 15, this.y + 36);
+        ctx.lineTo(centerX + 22 + Math.sin(this.motionTime * 0.006) * 3, footY - 2);
+        ctx.lineTo(centerX - 22 + Math.cos(this.motionTime * 0.005) * 2, footY - 2);
+        ctx.closePath();
+        ctx.fill();
+
+        this.drawStylizedLegs(ctx, {
+            centerX, hipX, hipY, footY, dir,
+            gaitPhase, runBlend,
+            backColor: '#1a2418', frontColor: '#1a2418',
+            backWidth: 5.5, frontWidth: 6.5,
+            spread: 3.0, stepScale: 8.8, liftScale: 5.5
+        });
+
+        // 胴体（深緑の甲冑 — 火薬使いらしい渋い色合い）
+        ctx.fillStyle = '#2a3a1a';
+        ctx.beginPath();
+        ctx.moveTo(centerX - 19, hipY + 1);
+        ctx.lineTo(centerX + 19, hipY + 1);
+        ctx.lineTo(centerX + 22, this.y + 35);
+        ctx.lineTo(centerX - 22, this.y + 35);
+        ctx.closePath();
+        ctx.fill();
+        // 胸の火薬紋（ダイヤ型）
+        ctx.fillStyle = '#ff8c00';
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.moveTo(centerX, this.y + 38);
+        ctx.lineTo(centerX + 6, this.y + 44);
+        ctx.moveTo(centerX, this.y + 50);
+        ctx.lineTo(centerX - 6, this.y + 44);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        // 肩当て（深緑＋銅色の縁取り）
+        ctx.fillStyle = '#3a4a2a';
+        ctx.strokeStyle = '#a06030';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.ellipse(shoulderX + dir * 12, shoulderY - 2, 10, 6, dir * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.ellipse(shoulderX - dir * 12, shoulderY - 2, 10, 6, -dir * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // 体幹
+        ctx.strokeStyle = '#1a2a10';
+        ctx.lineWidth = 11;
+        ctx.beginPath();
+        ctx.moveTo(shoulderX, shoulderY);
+        ctx.lineTo(hipX, hipY);
+        ctx.stroke();
+
+        // 頭・兜（銅色の渋い兜）
+        ctx.fillStyle = '#1b1b1b';
+        ctx.beginPath();
+        ctx.arc(headX, headY, 17, 0, Math.PI * 2);
+        ctx.fill();
+        // 兜の鉢（銅色）
+        ctx.strokeStyle = '#a06030';
+        ctx.lineWidth = 3.5;
+        ctx.beginPath();
+        ctx.arc(headX, headY - 8, 20, Math.PI * 0.96, Math.PI * 0.04, true);
+        ctx.stroke();
+        // 前立て（火の意匠）
+        ctx.strokeStyle = '#ff6600';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(headX, headY - 28);
+        ctx.lineTo(headX - 5, headY - 18);
+        ctx.moveTo(headX, headY - 28);
+        ctx.lineTo(headX + 5, headY - 18);
+        ctx.stroke();
+        // 眼（オレンジの光）
+        ctx.fillStyle = '#ff8800';
+        ctx.beginPath();
+        ctx.arc(headX + dir * 5, headY + 2, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 腕・手に火薬玉を持った描画
+        const armAngle = this.isAttacking
+            ? (-0.5 + (this.attackTimer / 500) * 1.2) * dir
+            : (-0.4 + Math.sin(this.motionTime * 0.008) * 0.08) * dir;
+        const handX = shoulderX + Math.cos(armAngle) * 22;
+        const handY = shoulderY + Math.sin(armAngle) * 22;
+
+        ctx.strokeStyle = '#1a2418';
+        ctx.lineWidth = 5.5;
+        ctx.beginPath();
+        ctx.moveTo(shoulderX, shoulderY);
+        ctx.lineTo(handX, handY);
+        ctx.stroke();
+        ctx.fillStyle = '#2a2a1a';
+        ctx.beginPath();
+        ctx.arc(handX, handY, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 手に火薬玉
+        if (!this.isAttacking || this.throwCount > 0) {
+            ctx.fillStyle = '#2d2d2d';
+            ctx.beginPath();
+            ctx.arc(handX + dir * 6, handY - 4, 7, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#767676';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            // 導火線
+            ctx.strokeStyle = '#8b7355';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(handX + dir * 6, handY - 11);
+            ctx.quadraticCurveTo(handX + dir * 8, handY - 15, handX + dir * 4, handY - 17);
+            ctx.stroke();
+            // 導火線の火花（明るいオレンジ）
+            ctx.fillStyle = '#ffaa00';
+            ctx.beginPath();
+            ctx.arc(handX + dir * 4, handY - 17, 3, 0, Math.PI * 2);
+            ctx.fill();
+            // 火花のグロー
+            ctx.fillStyle = 'rgba(255, 170, 0, 0.3)';
+            ctx.beginPath();
+            ctx.arc(handX + dir * 4, handY - 17, 6, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        this.renderPhaseAura(ctx, centerX, this.y + 52, '255, 140, 30', 65, 11);
+    }
+}
+
+// ステージ2ボス: 槍持ちの侍大将
 export class YariTaisho extends Boss {
     init() {
         super.init();
@@ -405,7 +706,7 @@ export class YariTaisho extends Boss {
     }
 }
 
-// ステージ2ボス: 二刀流の剣豪
+// ステージ3ボス: 二刀流の剣豪
 export class NitoryuKengo extends Boss {
     init() {
         super.init();
@@ -597,7 +898,7 @@ export class NitoryuKengo extends Boss {
     }
 }
 
-// ステージ3ボス: 鎖鎌使いの暗殺者
+// ステージ4ボス: 鎖鎌使いの暗殺者
 export class KusarigamaAssassin extends Boss {
     init() {
         super.init();
@@ -767,7 +1068,7 @@ export class KusarigamaAssassin extends Boss {
     }
 }
 
-// ステージ4ボス: 大太刀の武将
+// ステージ5ボス: 大太刀の武将
 export class OdachiBusho extends Boss {
     init() {
         super.init();
@@ -1029,7 +1330,7 @@ export class OdachiBusho extends Boss {
     }
 }
 
-// ステージ5ボス: 将軍（ラスボス）
+// ステージ6ボス: 将軍（ラスボス）
 export class Shogun extends Boss {
     init() {
         super.init();
@@ -1843,11 +2144,12 @@ class ShogunVoidPillar {
 // ボスファクトリー
 export function createBoss(stageNumber, x, y, groundY) {
     switch (stageNumber) {
-        case 1: return new YariTaisho(x, y, 'boss', groundY);
-        case 2: return new NitoryuKengo(x, y, 'boss', groundY);
-        case 3: return new KusarigamaAssassin(x, y, 'boss', groundY);
-        case 4: return new OdachiBusho(x, y, 'boss', groundY);
-        case 5: return new Shogun(x, y, 'boss', groundY);
-        default: return new YariTaisho(x, y, 'boss', groundY);
+        case 1: return new KayakudamaTaisho(x, y, 'boss', groundY);
+        case 2: return new YariTaisho(x, y, 'boss', groundY);
+        case 3: return new NitoryuKengo(x, y, 'boss', groundY);
+        case 4: return new KusarigamaAssassin(x, y, 'boss', groundY);
+        case 5: return new OdachiBusho(x, y, 'boss', groundY);
+        case 6: return new Shogun(x, y, 'boss', groundY);
+        default: return new KayakudamaTaisho(x, y, 'boss', groundY);
     }
 }

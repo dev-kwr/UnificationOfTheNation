@@ -38,7 +38,8 @@ class AudioManager {
             stage_2: 'bgm/stage2.mp3',
             stage_3: 'bgm/stage3.mp3',
             stage_4: 'bgm/stage4.mp3',
-            stage_5: 'bgm/stage5.mp3'
+            stage_5: 'bgm/stage5.mp3',
+            stage_6: 'bgm/stage6.mp3'
         };
     }
     
@@ -233,13 +234,13 @@ class AudioManager {
         
         if (type === 'stage') {
             const parsedStage = Number.isFinite(stageNum) ? Math.floor(stageNum) : 1;
-            const normalizedStage = Math.max(1, Math.min(5, parsedStage));
+            const normalizedStage = Math.max(1, Math.min(6, parsedStage));
             targetType = `stage_${normalizedStage}`;
             if (this.currentBgmType === targetType) return;
             this.currentBgmType = targetType;
             filePath = this.bgmFiles[targetType];
         } else if (type === 'boss') {
-            targetType = stageNum === 5 ? 'lastboss' : 'boss';
+            targetType = stageNum === 6 ? 'lastboss' : 'boss';
             if (this.currentBgmType === targetType) return;
             this.currentBgmType = targetType;
             filePath = this.bgmFiles[targetType];

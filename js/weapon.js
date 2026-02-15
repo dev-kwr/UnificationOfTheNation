@@ -2,8 +2,8 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { COLORS, GRAVITY } from './constants.js?v=53';
-import { audio } from './audio.js?v=53';
+import { COLORS, GRAVITY } from './constants.js';
+import { audio } from './audio.js';
 
 // 爆弾クラス
 export class Bomb {
@@ -152,6 +152,277 @@ export class SubWeapon {
     getHitbox(player) {
         // 判定を持たない武器（例: 火薬玉）は null を返す
         return null;
+    }
+}
+
+// 手裏剣の飛翔体クラス
+export class ShurikenProjectile {
+    constructor(x, y, vx, vy, damage, pierce = false, homing = false, targetIndex = 0) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.damage = damage;
+        this.radius = homing ? 10.5 : 7; // Lv3 (homing) はサイズを1.5倍に拡大
+        this.rotation = 0;
+        this.rotationSpeed = 18; // rad/s
+        this.life = homing ? 2500 : 1200; // ms: 追尾時は大幅に延長
+        this.maxLife = this.life;
+        this.isDestroyed = false;
+        this.targetIndex = targetIndex; // 優先敵番号
+        this.pierce = pierce;
+        this.homing = homing;
+        this.hitEnemies = new Set();
+        this.lastHitMap = new Map(); // 再ヒット判定用: Map<enemy, lastHitTime>
+        this.id = Math.random().toString(36).substr(2, 9);
+    }
+
+    update(deltaTime, enemies = []) {
+        if (this.isDestroyed) return;
+        const dt = deltaTime; // 秒単位
+
+        // 追尾処理
+        if (this.homing && enemies.length > 0) {
+            // 有効な敵のみ抽出
+            const validEnemies = enemies.filter(e => e && !e.isDead);
+            
+            if (validEnemies.length > 0) {
+                // 原則として自分の targetIndex に対応する敵を優先
+                // 敵の数が足りなければループさせることで、敵が1体なら全員でその敵を狙う
+                let targetEnemy = validEnemies[this.targetIndex % validEnemies.length];
+                
+                // もし「最も近い敵」を優先したい場合も、targetIndex が異なれば別の敵を狙う確率が上がる
+                // ここではシンプルに index ベースで分散させる
+                
+                const dx = (targetEnemy.x + (targetEnemy.width || 30) / 2) - this.x;
+                const dy = (targetEnemy.y + (targetEnemy.height || 30) / 2) - this.y;
+                const targetAngle = Math.atan2(dy, dx);
+                const currentAngle = Math.atan2(this.vy, this.vx);
+                let angleDiff = targetAngle - currentAngle;
+                
+                // -PI ～ PI に正規化
+                while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+                while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+                
+                // 旋回性能強化: Lv3(homingあり) 追尾性能を最終強化 (6.0)
+                const baseTurnRate = 6.0;
+                let turnRate = baseTurnRate * dt;
+                
+                // ★修正: 「必ず上回りで追尾」
+                if (this.homing && angleDiff > 0.05) {
+                    angleDiff -= Math.PI * 2;
+                }
+                
+                const turn = Math.max(-turnRate, Math.min(turnRate, angleDiff));
+                const newAngle = currentAngle + turn;
+                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+                this.vx = Math.cos(newAngle) * speed;
+                this.vy = Math.sin(newAngle) * speed;
+            }
+        }
+
+        this.x += this.vx * dt * 60;
+        this.y += this.vy * dt * 60;
+        this.rotation += this.rotationSpeed * dt;
+        this.life -= dt * 1000;
+
+        // 地面判定
+        const groundY = (window.game && window.game.groundY) ? window.game.groundY : 480;
+        if (this.y >= groundY) {
+            this.isDestroyed = true;
+        }
+
+        if (this.life <= 0) {
+            this.isDestroyed = true;
+        }
+    }
+
+    getHitbox() {
+        return {
+            x: this.x - this.radius,
+            y: this.y - this.radius,
+            width: this.radius * 2,
+            height: this.radius * 2
+        };
+    }
+
+    render(ctx) {
+        if (this.isDestroyed) return;
+        const lifeRatio = this.life / this.maxLife;
+
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.rotation);
+        ctx.globalAlpha = Math.min(1, lifeRatio * 3);
+
+        // 手裏剣本体（十字型）
+        const r = this.radius;
+        ctx.fillStyle = '#c0c8d4';
+        ctx.strokeStyle = '#606878';
+        ctx.lineWidth = 0.8;
+
+        ctx.beginPath();
+        // 四方向の刃
+        for (let i = 0; i < 4; i++) {
+            const angle = (Math.PI / 2) * i;
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            const cos45 = Math.cos(angle + Math.PI / 4);
+            const sin45 = Math.sin(angle + Math.PI / 4);
+            if (i === 0) {
+                ctx.moveTo(cos * r, sin * r);
+            } else {
+                ctx.lineTo(cos * r, sin * r);
+            }
+            ctx.lineTo(cos45 * r * 0.35, sin45 * r * 0.35);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // 中心の穴
+        ctx.fillStyle = '#2a2a2a';
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.18, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 刃のハイライト
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.lineWidth = 0.6;
+        for (let i = 0; i < 4; i++) {
+            const angle = (Math.PI / 2) * i;
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(angle) * r * 0.3, Math.sin(angle) * r * 0.3);
+            ctx.lineTo(Math.cos(angle) * r * 0.85, Math.sin(angle) * r * 0.85);
+            ctx.stroke();
+        }
+
+        ctx.restore();
+
+        // 追尾エフェクト
+        if (this.homing && lifeRatio > 0.2) {
+            ctx.save();
+            ctx.globalAlpha = 0.3 * lifeRatio;
+            ctx.strokeStyle = '#88ccff';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.lineTo(this.x - this.vx * 0.5, this.y - this.vy * 0.5);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+}
+
+// 手裏剣
+export class Shuriken extends SubWeapon {
+    constructor() {
+        // 飛び道具特化: 低威力だが連射と射程が優秀
+        super('手裏剣', 12, 200, 300);
+        this.projectiles = [];
+        this.pendingShots = []; // 階段状発射用の予約リスト
+    }
+
+    use(player) {
+        const tier = (player && typeof player.getSubWeaponEnhanceTier === 'function')
+            ? player.getSubWeaponEnhanceTier()
+            : 0;
+
+        const pierce = tier >= 2;
+        const homing = tier >= 3;
+        const shotCount = tier >= 2 ? 3 : (tier >= 1 ? 2 : 1);
+        const direction = player.facingRight ? 1 : -1;
+        
+        // ★修正: 階段状(時差)発射の予約
+        // メインプレイヤーからの発射
+        for (let i = 0; i < shotCount; i++) {
+            this.pendingShots.push({
+                delay: i * 60, // 60ms間隔
+                index: i,
+                shotCount: shotCount,
+                pierce,
+                homing,
+                startX: player.x + player.width / 2 + direction * 12,
+                startY: player.y + 18,
+                direction: direction
+            });
+        }
+
+        // 奥義分身中は分身位置からも同時投擲予約
+        if (player && typeof player.getSubWeaponCloneOffsets === 'function') {
+            const cloneOffsets = player.getSubWeaponCloneOffsets();
+            if (Array.isArray(cloneOffsets) && cloneOffsets.length > 0) {
+                for (const clone of cloneOffsets) {
+                    for (let i = 0; i < shotCount; i++) {
+                        this.pendingShots.push({
+                            delay: i * 60,
+                            index: i,
+                            shotCount: shotCount,
+                            pierce,
+                            homing,
+                            startX: player.x + clone.dx + player.width / 2 + direction * 12,
+                            startY: player.y + clone.dy + 18,
+                            direction: direction
+                        });
+                    }
+                }
+            }
+        }
+        
+        // 描画モーションを火薬玉(throw)と統一
+        player.subWeaponAction = 'throw';
+
+        audio.playSlash(0);
+    }
+
+    update(deltaTime, enemies = []) {
+        // 予約された発射の処理
+        const dtMs = deltaTime * 1000;
+        for (let i = this.pendingShots.length - 1; i >= 0; i--) {
+            const shot = this.pendingShots[i];
+            shot.delay -= dtMs;
+            if (shot.delay <= 0) {
+                // 発射実行
+                const speed = 7.5;
+                // 階段状に位置と角度をわずかにずらす
+                // 正面に集中させつつ、上下に少し階段状に並ぶように
+                const offsetStep = 4;
+                const vx = shot.direction * speed;
+                const vy = (shot.index - (shot.shotCount - 1) / 2) * 0.45; // わずかな垂直速度で階段状に
+                
+                const proj = new ShurikenProjectile(
+                    shot.startX + shot.index * shot.direction * 5,
+                    shot.startY + (shot.index - (shot.shotCount - 1) / 2) * offsetStep,
+                    vx, vy, this.damage, shot.pierce, shot.homing, shot.index
+                );
+                this.projectiles.push(proj);
+                this.pendingShots.splice(i, 1);
+            }
+        }
+
+        for (const proj of this.projectiles) {
+            proj.update(deltaTime, enemies);
+        }
+        this.projectiles = this.projectiles.filter(p => !p.isDestroyed);
+    }
+
+    getHitbox(player) {
+        if (this.projectiles.length === 0) return null;
+        const hitboxes = [];
+        for (const proj of this.projectiles) {
+            if (!proj.isDestroyed) {
+                const hb = proj.getHitbox();
+                hb._sourceProjectile = proj; // game.js側で判定に使用
+                hitboxes.push(hb);
+            }
+        }
+        return hitboxes.length > 0 ? hitboxes : null;
+    }
+
+    render(ctx, player) {
+        for (const proj of this.projectiles) {
+            proj.render(ctx);
+        }
     }
 }
 
@@ -1880,6 +2151,7 @@ export class Shockwave {
 // 武器ファクトリー
 export function createSubWeapon(type) {
     switch (type) {
+        case '手裏剣': return new Shuriken();
         case '火薬玉': return new Firebomb();
         case '大槍': return new Spear();
         case '二刀流': return new DualBlades();
