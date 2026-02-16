@@ -44,7 +44,7 @@ class InputManager {
             'ShiftRight': 'DASH',
             'Escape': 'PAUSE',
             'KeyQ': 'DEBUG_TOGGLE',
-            'Enter': 'JUMP'
+            'Enter': 'DEBUG_START'
         };
 
         // タッチ操作用

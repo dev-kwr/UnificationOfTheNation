@@ -155,64 +155,121 @@ export class SubWeapon {
     }
 }
 
-// 手裏剣の飛翔体クラス
+// 手裏剣クラス
+/**
+ * 手裏剣の共通描画関数（手持ち・飛翔体・UIアイコンすべて統一）
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {number} cx - 中心X
+ * @param {number} cy - 中心Y
+ * @param {number} radius - 描画半径
+ * @param {number|null} rotation - 回転角（null なら回転しない）
+ */
+export function drawShurikenShape(ctx, cx, cy, radius, rotation) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    if (rotation !== undefined && rotation !== null) {
+        ctx.rotate(rotation);
+    }
+
+    const r = radius;
+
+    ctx.fillStyle = '#c0c8d4';
+    ctx.strokeStyle = '#606878';
+    ctx.lineWidth = Math.max(0.8, r * 0.1);
+    ctx.beginPath();
+    for (let i = 0; i < 4; i++) {
+        const angle = (Math.PI / 2) * i;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const cos45 = Math.cos(angle + Math.PI / 4);
+        const sin45 = Math.sin(angle + Math.PI / 4);
+        if (i === 0) ctx.moveTo(cos * r * 0.85, sin * r * 0.85);
+        else ctx.lineTo(cos * r * 0.85, sin * r * 0.85);
+        ctx.lineTo(cos45 * r * 0.3, sin45 * r * 0.3);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#2a2a2a';
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.lineWidth = Math.max(0.5, r * 0.07);
+    for (let i = 0; i < 4; i++) {
+        const angle = (Math.PI / 2) * i;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(angle) * r * 0.3, Math.sin(angle) * r * 0.3);
+        ctx.lineTo(Math.cos(angle) * r * 0.75, Math.sin(angle) * r * 0.75);
+        ctx.stroke();
+    }
+
+    ctx.restore();
+}
+
+// 手裏剣の飛翔体
 export class ShurikenProjectile {
-    constructor(x, y, vx, vy, damage, pierce = false, homing = false, targetIndex = 0) {
+    constructor(x, y, vx, vy, damage, radius, pierce = false, homing = false, targetIndex = 0) {
         this.x = x;
         this.y = y;
         this.vx = vx;
         this.vy = vy;
         this.damage = damage;
-        this.radius = homing ? 10.5 : 7; // Lv3 (homing) はサイズを1.5倍に拡大
+        this.radius = radius;
         this.rotation = 0;
-        this.rotationSpeed = 18; // rad/s
-        this.life = homing ? 2500 : 1200; // ms: 追尾時は大幅に延長
+        this.rotationSpeed = 18;
+        this.life = homing ? 2500 : 1200;
         this.maxLife = this.life;
         this.isDestroyed = false;
-        this.targetIndex = targetIndex; // 優先敵番号
+        this.targetIndex = targetIndex;
         this.pierce = pierce;
         this.homing = homing;
         this.hitEnemies = new Set();
-        this.lastHitMap = new Map(); // 再ヒット判定用: Map<enemy, lastHitTime>
+        this.lastHitMap = new Map();
         this.id = Math.random().toString(36).substr(2, 9);
+        this.initialDirection = Math.sign(vx) || 1; // ★修正: 発射時の向きを記憶
     }
 
     update(deltaTime, enemies = []) {
         if (this.isDestroyed) return;
-        const dt = deltaTime; // 秒単位
 
-        // 追尾処理
+        // ★二重更新ガードを完全撤廃
+        //   呼び出しは Shuriken.update() からの1回に統一する。
+        //   （外部から直接呼ばれても致命的な副作用はない）
+
+        const dt = deltaTime;
+
+        // --- 追尾 ---
         if (this.homing && enemies.length > 0) {
-            // 有効な敵のみ抽出
-            const validEnemies = enemies.filter(e => e && !e.isDead);
-            
+            const validEnemies = enemies.filter(e => {
+                if (!e || e.isDead) return false;
+                return true;           // ★フィルタなし – 生存敵すべてを候補にする
+            });
+
             if (validEnemies.length > 0) {
-                // 原則として自分の targetIndex に対応する敵を優先
-                // 敵の数が足りなければループさせることで、敵が1体なら全員でその敵を狙う
-                let targetEnemy = validEnemies[this.targetIndex % validEnemies.length];
-                
-                // もし「最も近い敵」を優先したい場合も、targetIndex が異なれば別の敵を狙う確率が上がる
-                // ここではシンプルに index ベースで分散させる
-                
-                const dx = (targetEnemy.x + (targetEnemy.width || 30) / 2) - this.x;
-                const dy = (targetEnemy.y + (targetEnemy.height || 30) / 2) - this.y;
+                // 最も近い敵を追尾
+                let closest = validEnemies[0];
+                let closestDist = Infinity;
+                for (const e of validEnemies) {
+                    const ex = (e.x + (e.width || 30) / 2) - this.x;
+                    const ey = (e.y + (e.height || 30) / 2) - this.y;
+                    const d = ex * ex + ey * ey;
+                    if (d < closestDist) {
+                        closestDist = d;
+                        closest = e;
+                    }
+                }
+                const dx = (closest.x + (closest.width || 30) / 2) - this.x;
+                const dy = (closest.y + (closest.height || 30) / 2) - this.y;
                 const targetAngle = Math.atan2(dy, dx);
                 const currentAngle = Math.atan2(this.vy, this.vx);
                 let angleDiff = targetAngle - currentAngle;
-                
-                // -PI ～ PI に正規化
                 while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
                 while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-                
-                // 旋回性能強化: Lv3(homingあり) 追尾性能を最終強化 (6.0)
-                const baseTurnRate = 6.0;
-                let turnRate = baseTurnRate * dt;
-                
-                // ★修正: 「必ず上回りで追尾」
-                if (this.homing && angleDiff > 0.05) {
-                    angleDiff -= Math.PI * 2;
-                }
-                
+
+                const turnRate = 6.0 * dt;
                 const turn = Math.max(-turnRate, Math.min(turnRate, angleDiff));
                 const newAngle = currentAngle + turn;
                 const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
@@ -221,20 +278,22 @@ export class ShurikenProjectile {
             }
         }
 
+        // --- 移動 ---
         this.x += this.vx * dt * 60;
         this.y += this.vy * dt * 60;
         this.rotation += this.rotationSpeed * dt;
         this.life -= dt * 1000;
 
-        // 地面判定
+        // --- 地面判定（少し余裕を持たせる） ---
         const groundY = (window.game && window.game.groundY) ? window.game.groundY : 480;
-        if (this.y >= groundY) {
-            this.isDestroyed = true;
+        if (this.y >= groundY + this.radius) this.isDestroyed = true;
+
+        // ★追尾中は地面スレスレで下向き速度を抑える（突き刺さり防止）
+        if (this.homing && (groundY - this.y) < 50 && this.vy > 0) {
+            this.vy *= 0.3;
         }
 
-        if (this.life <= 0) {
-            this.isDestroyed = true;
-        }
+        if (this.life <= 0) this.isDestroyed = true;
     }
 
     getHitbox() {
@@ -249,57 +308,12 @@ export class ShurikenProjectile {
     render(ctx) {
         if (this.isDestroyed) return;
         const lifeRatio = this.life / this.maxLife;
-
         ctx.save();
-        ctx.translate(this.x, this.y);
-        ctx.rotate(this.rotation);
         ctx.globalAlpha = Math.min(1, lifeRatio * 3);
-
-        // 手裏剣本体（十字型）
-        const r = this.radius;
-        ctx.fillStyle = '#c0c8d4';
-        ctx.strokeStyle = '#606878';
-        ctx.lineWidth = 0.8;
-
-        ctx.beginPath();
-        // 四方向の刃
-        for (let i = 0; i < 4; i++) {
-            const angle = (Math.PI / 2) * i;
-            const cos = Math.cos(angle);
-            const sin = Math.sin(angle);
-            const cos45 = Math.cos(angle + Math.PI / 4);
-            const sin45 = Math.sin(angle + Math.PI / 4);
-            if (i === 0) {
-                ctx.moveTo(cos * r, sin * r);
-            } else {
-                ctx.lineTo(cos * r, sin * r);
-            }
-            ctx.lineTo(cos45 * r * 0.35, sin45 * r * 0.35);
-        }
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        // 中心の穴
-        ctx.fillStyle = '#2a2a2a';
-        ctx.beginPath();
-        ctx.arc(0, 0, r * 0.18, 0, Math.PI * 2);
-        ctx.fill();
-
-        // 刃のハイライト
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-        ctx.lineWidth = 0.6;
-        for (let i = 0; i < 4; i++) {
-            const angle = (Math.PI / 2) * i;
-            ctx.beginPath();
-            ctx.moveTo(Math.cos(angle) * r * 0.3, Math.sin(angle) * r * 0.3);
-            ctx.lineTo(Math.cos(angle) * r * 0.85, Math.sin(angle) * r * 0.85);
-            ctx.stroke();
-        }
-
+        drawShurikenShape(ctx, this.x, this.y, this.radius, this.rotation);
         ctx.restore();
 
-        // 追尾エフェクト
+        // 追尾時の軌跡
         if (this.homing && lifeRatio > 0.2) {
             ctx.save();
             ctx.globalAlpha = 0.3 * lifeRatio;
@@ -314,13 +328,25 @@ export class ShurikenProjectile {
     }
 }
 
-// 手裏剣
+// 手裏剣サブ武器
 export class Shuriken extends SubWeapon {
     constructor() {
-        // 飛び道具特化: 低威力だが連射と射程が優秀
         super('手裏剣', 12, 200, 300);
         this.projectiles = [];
-        this.pendingShots = []; // 階段状発射用の予約リスト
+        this.pendingShots = [];
+        this.projectileRadius = 10;
+        this.projectileRadiusHoming = 14;
+        this.heldRotation = 0;
+    }
+
+    renderHeld(ctx, handX, handY, scale = 1.0) {
+        const r = this.projectileRadius * scale;
+        drawShurikenShape(ctx, handX, handY, r, this.heldRotation);
+    }
+
+    renderHeldLocal(ctx, localX, localY) {
+        const r = this.projectileRadius;
+        drawShurikenShape(ctx, localX, localY, r, this.heldRotation);
     }
 
     use(player) {
@@ -332,74 +358,105 @@ export class Shuriken extends SubWeapon {
         const homing = tier >= 3;
         const shotCount = tier >= 2 ? 3 : (tier >= 1 ? 2 : 1);
         const direction = player.facingRight ? 1 : -1;
-        
-        // ★修正: 階段状(時差)発射の予約
-        // メインプレイヤーからの発射
-        for (let i = 0; i < shotCount; i++) {
+
+        const baseX = player.x + player.width / 2;
+        const baseY = player.y;
+
+        // ★1発目は即時生成
+        this._spawnProjectile(baseX, baseY, direction, 0, shotCount, pierce, homing);
+
+        for (let i = 1; i < shotCount; i++) {
             this.pendingShots.push({
-                delay: i * 60, // 60ms間隔
+                delay: i * 60,
                 index: i,
-                shotCount: shotCount,
+                shotCount,
                 pierce,
                 homing,
-                startX: player.x + player.width / 2 + direction * 12,
-                startY: player.y + 18,
-                direction: direction
+                direction,
+                baseX,
+                baseY,
+                isClone: false
             });
         }
 
-        // 奥義分身中は分身位置からも同時投擲予約
+        // 奥義分身
         if (player && typeof player.getSubWeaponCloneOffsets === 'function') {
             const cloneOffsets = player.getSubWeaponCloneOffsets();
             if (Array.isArray(cloneOffsets) && cloneOffsets.length > 0) {
                 for (const clone of cloneOffsets) {
-                    for (let i = 0; i < shotCount; i++) {
+                    this._spawnProjectile(
+                        baseX + clone.dx, baseY + clone.dy,
+                        direction, 0, shotCount, pierce, homing
+                    );
+                    for (let i = 1; i < shotCount; i++) {
                         this.pendingShots.push({
                             delay: i * 60,
                             index: i,
-                            shotCount: shotCount,
+                            shotCount,
                             pierce,
                             homing,
-                            startX: player.x + clone.dx + player.width / 2 + direction * 12,
-                            startY: player.y + clone.dy + 18,
-                            direction: direction
+                            direction,
+                            baseX: baseX + clone.dx,
+                            baseY: baseY + clone.dy,
+                            isClone: true
                         });
                     }
                 }
             }
         }
-        
-        // 描画モーションを火薬玉(throw)と統一
-        player.subWeaponAction = 'throw';
 
-        audio.playSlash(0);
+        player.subWeaponAction = 'throw';
+        audio.playShuriken();
+    }
+    _spawnProjectile(baseX, baseY, direction, index, shotCount, pierce, homing) {
+        // ★修正: 出現位置を手元に近づける (15 → 4)
+        const spawnX = baseX + direction * 4;
+        // ★修正: スポーン高さを少し上げて地面衝突マージンを確保
+        const spawnY = baseY + 16;
+
+        const speed = 9; // ★修正: 速度を少し上げる (7.5 → 9)
+        const spreadIndex = index - (shotCount - 1) / 2;
+        const vy = spreadIndex * 0.3; // ★修正: 拡散の下向き成分を抑える (0.4 → 0.3)
+        const offsetY = spreadIndex * 3; // ★修正: 縦オフセットも少し詰める (4 → 3)
+
+        const r = homing ? this.projectileRadiusHoming : this.projectileRadius;
+
+        const proj = new ShurikenProjectile(
+            spawnX,
+            spawnY + offsetY,
+            direction * speed,
+            vy,
+            this.damage,
+            r,
+            pierce,
+            homing,
+            index
+        );
+        this.projectiles.push(proj);
     }
 
     update(deltaTime, enemies = []) {
-        // 予約された発射の処理
         const dtMs = deltaTime * 1000;
+
+        // ★二重更新ガードを撤廃（ゲームループから1回だけ呼ばれる前提）
+
+        this.heldRotation += 1.2 * deltaTime;
+
+        // 遅延発射
         for (let i = this.pendingShots.length - 1; i >= 0; i--) {
             const shot = this.pendingShots[i];
             shot.delay -= dtMs;
             if (shot.delay <= 0) {
-                // 発射実行
-                const speed = 7.5;
-                // 階段状に位置と角度をわずかにずらす
-                // 正面に集中させつつ、上下に少し階段状に並ぶように
-                const offsetStep = 4;
-                const vx = shot.direction * speed;
-                const vy = (shot.index - (shot.shotCount - 1) / 2) * 0.45; // わずかな垂直速度で階段状に
-                
-                const proj = new ShurikenProjectile(
-                    shot.startX + shot.index * shot.direction * 5,
-                    shot.startY + (shot.index - (shot.shotCount - 1) / 2) * offsetStep,
-                    vx, vy, this.damage, shot.pierce, shot.homing, shot.index
+                this._spawnProjectile(
+                    shot.baseX, shot.baseY,
+                    shot.direction, shot.index, shot.shotCount,
+                    shot.pierce, shot.homing
                 );
-                this.projectiles.push(proj);
                 this.pendingShots.splice(i, 1);
             }
         }
 
+        // ★projectile は必ずここからだけ更新（enemies を確実に渡す）
         for (const proj of this.projectiles) {
             proj.update(deltaTime, enemies);
         }
@@ -412,7 +469,7 @@ export class Shuriken extends SubWeapon {
         for (const proj of this.projectiles) {
             if (!proj.isDestroyed) {
                 const hb = proj.getHitbox();
-                hb._sourceProjectile = proj; // game.js側で判定に使用
+                hb._sourceProjectile = proj;
                 hitboxes.push(hb);
             }
         }
@@ -512,7 +569,7 @@ export class Spear extends SubWeapon {
         this.isAttacking = true;
         this.attackTimer = 250; 
         this.thrustPulse = 180;
-        audio.playSlash(2); 
+        audio.playSpear(); 
         
         // 踏み込み距離を大幅に強化 (45 -> 70: 画面端まで届くような突き)
         const direction = player.facingRight ? 1 : -1;
@@ -1373,8 +1430,8 @@ export class Kusarigama extends SubWeapon {
         const direction = this.attackDirection;
         const progress = Math.max(0, Math.min(1, 1 - (this.attackTimer / this.totalDuration)));
         const centerX = player.x + player.width / 2;
-        const shoulderX = centerX - direction * 1.5;
-        const shoulderY = player.y + 26;
+        const shoulderX = centerX - direction * 3; // player.js の frontShoulderX に合わせる
+        const shoulderY = player.y + 17; // player.js の pivotY (idle想定) に合わせる
 
         let radius = 0;
         let angle = 0;
@@ -1564,8 +1621,9 @@ export class Kusarigama extends SubWeapon {
         chainGradient.addColorStop(0, 'rgba(170, 176, 188, 0.95)');
         chainGradient.addColorStop(0.55, 'rgba(128, 136, 150, 0.98)');
         chainGradient.addColorStop(1, 'rgba(92, 102, 118, 0.95)');
+        ctx.lineDashOffset = -st.progress * 150; // 鎖が動いているような視覚効果
         ctx.strokeStyle = chainGradient;
-        ctx.lineWidth = 3.1;
+        ctx.lineWidth = 2.4; // ★修正: 鎖を少し細く (3.1 -> 2.4)
         ctx.setLineDash([5, 3]);
         ctx.beginPath();
         ctx.moveTo(st.handX, st.handY);
@@ -1586,16 +1644,17 @@ export class Kusarigama extends SubWeapon {
         ctx.rotate(sickle.rotation);
         ctx.fillStyle = '#d9dde2';
         ctx.strokeStyle = '#8b9299';
-        ctx.lineWidth = 1.2;
+        ctx.lineWidth = 1.0;
         ctx.beginPath();
         ctx.moveTo(0, 0);
-        ctx.quadraticCurveTo(20, -12, 30, -2);
-        ctx.quadraticCurveTo(18, 5, 3, 7);
+        // ★修正: 鎌の形状を少しシャープに
+        ctx.quadraticCurveTo(18, -10, 26, -2);
+        ctx.quadraticCurveTo(16, 4, 3, 6);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
         ctx.fillStyle = '#2b2b2b';
-        ctx.fillRect(-4, -2, 8, 4);
+        ctx.fillRect(-3, -1.5, 6, 3);
         ctx.restore();
 
         // 鎌先の風切り
@@ -1625,9 +1684,14 @@ export class Kusarigama extends SubWeapon {
 }
 
 // 大太刀
+// weapon.js の Nodachi クラスを以下のように修正
+
+// ============================================
+// 大太刀 (修正版)
+// ============================================
+
 export class Nodachi extends SubWeapon {
     constructor() {
-        // 重撃特化: 遅いが高威力
         super('大太刀', 46, 74, 760);
         this.isAttacking = false;
         this.attackTimer = 0;
@@ -1644,6 +1708,10 @@ export class Nodachi extends SubWeapon {
         this.flipEnd = 0.58;
         this.impactStart = 0.9;
         this.attackDirection = 1;
+        // 着地後の「刺さり演出」用タイマー
+        this.plantedTimer = 0;
+        this.plantedDuration = 320; // 衝撃波が消えるまで刀を地面に刺したまま見せる
+        this.impactSoundPlayed = false; // 着地爆発音の重複防止
     }
     
     use(player) {
@@ -1652,32 +1720,55 @@ export class Nodachi extends SubWeapon {
         this.attackTimer = this.totalDuration;
         this.hasImpacted = false;
         this.impactFlashTimer = 0;
+        this.plantedTimer = 0;
+        this.impactSoundPlayed = false;
         this.groundWaves = [];
         this.impactDebris = [];
         this.attackDirection = player.facingRight ? 1 : -1;
 
-        player.vy = -26;
+        player.vy = -30;
         player.isGrounded = false;
         player.vx *= 0.35;
 
-        audio.playSlash(4); // 低く重い音
+        audio.playSlash(4);
     }
 
     getProgress() {
         return Math.max(0, Math.min(1, 1 - (this.attackTimer / this.totalDuration)));
     }
 
+    // 着地後の「刺さり状態」かどうか
+    isPlanted() {
+        return this.hasImpacted && this.plantedTimer > 0;
+    }
+
     getPose(player) {
         const direction = this.isAttacking ? this.attackDirection : (player.facingRight ? 1 : -1);
         const progress = this.getProgress();
         const centerX = player.x + player.width / 2;
-        let rotation = -Math.PI * 0.5; // 上向き
+        let rotation = -Math.PI * 0.5;
         let phase = 'rise';
         let flipT = 0;
 
+        // 着地後は刺さりポーズ
+        if (this.hasImpacted) {
+            phase = 'planted';
+            rotation = Math.PI * 0.5; // 真下に刺さっている
+            const handX = centerX + direction * 13;
+            const handY = player.y + 7.5;
+            const bladeLen = this.range + 44;
+            // 地面貫通を抑える
+            const maxTipY = player.groundY + 8;
+            const tipY = handY + Math.sin(rotation) * bladeLen;
+            let adjustedHandY = handY;
+            if (tipY > maxTipY) {
+                adjustedHandY -= (tipY - maxTipY);
+            }
+            return { progress, phase, direction, rotation, handX, handY: adjustedHandY, bladeLen };
+        }
+
         if (progress < this.liftEnd) {
             phase = 'rise';
-            // 上昇中は常に上向き固定（左右向きで反転しないようにする）
             rotation = -Math.PI * 0.5;
         } else if (progress < this.stallEnd) {
             phase = 'stall';
@@ -1689,32 +1780,29 @@ export class Nodachi extends SubWeapon {
             const eased = t * t * (3 - 2 * t);
             flipT = t;
             const startRotation = -Math.PI * 0.5;
-            const targetRotation = Math.PI * 0.5; // 落下開始は常に真下
+            const targetRotation = Math.PI * 0.5;
             rotation = startRotation + (targetRotation - startRotation) * eased;
         } else {
             phase = 'plunge';
-            rotation = Math.PI * 0.5; // 真下
+            rotation = Math.PI * 0.5;
         }
         const bladeLen = this.range + 44;
         const phaseForwardOffset =
-            phase === 'rise' ? 11 :
-            phase === 'stall' ? 12 :
-            phase === 'flip' ? 10 :
-            13;
+            phase === 'rise' ? 12 :
+            phase === 'stall' ? 13 :
+            phase === 'flip' ? 11 : 14; 
         const phaseHeightOffset =
-            phase === 'plunge' ? 7.5 :
-            phase === 'flip' ? 6.2 : 6.8;
+            phase === 'plunge' ? 16 :
+            phase === 'flip' ? 15 : 17; // 肩の高さ (17) 付近に調整
         let handX = centerX + direction * phaseForwardOffset;
         let handY = player.y + phaseHeightOffset;
 
-        // 反転中のみ手元を少し前上へ逃がして、胴体との重なりを減らす
         if (phase === 'flip') {
             const lift = Math.sin(flipT * Math.PI);
             handX += direction * lift * 2.2;
             handY -= lift * 1.6;
         }
 
-        // 地面貫通を抑える（先端が深く入りすぎないように）
         const maxTipY = player.groundY + 8;
         const tipY = handY + Math.sin(rotation) * bladeLen;
         if (tipY > maxTipY) {
@@ -1726,7 +1814,7 @@ export class Nodachi extends SubWeapon {
 
     getHandAnchor(player) {
         const pose = this.getPose(player);
-        const gripOffset = pose.phase === 'plunge' ? -16 : -10;
+        const gripOffset = (pose.phase === 'plunge' || pose.phase === 'planted') ? -16 : -10;
         return {
             x: pose.handX + Math.cos(pose.rotation) * gripOffset,
             y: pose.handY + Math.sin(pose.rotation) * gripOffset,
@@ -1783,47 +1871,75 @@ export class Nodachi extends SubWeapon {
     update(deltaTime) {
         if (this.isAttacking) {
             const progress = this.getProgress();
-            if (this.owner) {
-                if (progress >= this.liftEnd && progress < this.stallEnd) {
-                    // 頂点付近で一瞬対空して見せる
-                    this.owner.vy *= 0.78;
-                    if (Math.abs(this.owner.vy) < 1.2) this.owner.vy = 0;
-                }
-                if (progress >= this.flipEnd && progress < this.impactStart && this.owner.vy < 18) {
-                    this.owner.vy = 24;
-                }
-                this.owner.vx *= 0.86;
-            }
 
-            const landed = this.owner && this.owner.isGrounded;
-            const pose = this.owner ? this.getPose(this.owner) : null;
-            const bladeGeom = pose ? this.getBladeGeometry(pose) : null;
-            const tipTouchedGround = !!(
-                this.owner &&
-                pose &&
-                bladeGeom &&
-                pose.phase === 'plunge' &&
-                bladeGeom.tipY >= this.owner.groundY - 1
-            );
-            if (!this.hasImpacted && (tipTouchedGround || landed || progress >= 0.98)) {
-                this.hasImpacted = true;
+            // 着地後は刺さり演出へ移行
+            if (this.hasImpacted) {
+                this.plantedTimer -= deltaTime * 1000;
+                // 刺さり演出が終わったら攻撃終了
+                if (this.plantedTimer <= 0) {
+                    this.isAttacking = false;
+                    this.plantedTimer = 0;
+                    this.attackDirection = this.owner && this.owner.facingRight ? 1 : -1;
+                }
+            } else {
                 if (this.owner) {
-                    this.impactX = this.owner.x + this.owner.width / 2;
-                    this.impactY = this.owner.groundY;
+                    if (progress >= this.liftEnd && progress < this.stallEnd) {
+                        this.owner.vy *= 0.78;
+                        if (Math.abs(this.owner.vy) < 1.2) this.owner.vy = 0;
+                    }
+                    if (progress >= this.flipEnd && progress < this.impactStart && this.owner.vy < 18) {
+                        this.owner.vy = 24;
+                    }
+                    this.owner.vx *= 0.86;
                 }
-                this.impactFlashTimer = 170;
-                this.spawnImpactWaves();
-                this.spawnImpactDebris();
-                audio.playExplosion();
-                if (window.game && typeof window.game.queueHitFeedback === 'function') {
-                    window.game.queueHitFeedback(8.8, 92);
-                }
-            }
 
-            this.attackTimer -= deltaTime * 1000;
-            if (this.attackTimer <= 0) {
-                this.isAttacking = false;
-                this.attackDirection = this.owner && this.owner.facingRight ? 1 : -1;
+                const landed = this.owner && this.owner.isGrounded;
+                const pose = this.owner ? this.getPose(this.owner) : null;
+                const bladeGeom = pose ? this.getBladeGeometry(pose) : null;
+                const tipTouchedGround = !!(
+                    this.owner &&
+                    pose &&
+                    bladeGeom &&
+                    pose.phase === 'plunge' &&
+                    bladeGeom.tipY >= this.owner.groundY - 1
+                );
+                if (!this.hasImpacted && (tipTouchedGround || landed || progress >= 0.98)) {
+                    this.hasImpacted = true;
+                    this.plantedTimer = this.plantedDuration;
+                    if (this.owner) {
+                        this.impactX = this.owner.x + this.owner.width / 2;
+                        this.impactY = this.owner.groundY;
+                    }
+                    this.impactFlashTimer = 170;
+                    this.spawnImpactWaves();
+                    this.spawnImpactDebris();
+                    // 着地音は1回だけ（重複防止）
+                    if (!this.impactSoundPlayed) {
+                        this.impactSoundPlayed = true;
+                        audio.playExplosion();
+                        if (window.game && typeof window.game.queueHitFeedback === 'function') {
+                            window.game.queueHitFeedback(8.8, 92);
+                        }
+                    }
+                }
+
+                this.attackTimer -= deltaTime * 1000;
+                if (this.attackTimer <= 0 && !this.hasImpacted) {
+                    // タイマー切れでも着地していなければ強制着地
+                    this.hasImpacted = true;
+                    this.plantedTimer = this.plantedDuration;
+                    if (this.owner) {
+                        this.impactX = this.owner.x + this.owner.width / 2;
+                        this.impactY = this.owner.groundY;
+                    }
+                    this.impactFlashTimer = 170;
+                    this.spawnImpactWaves();
+                    this.spawnImpactDebris();
+                    if (!this.impactSoundPlayed) {
+                        this.impactSoundPlayed = true;
+                        audio.playExplosion();
+                    }
+                }
             }
         }
 
@@ -1855,6 +1971,7 @@ export class Nodachi extends SubWeapon {
     getHitbox(player) {
         const hitboxes = [];
 
+        // 着地前の刀身判定
         if (this.isAttacking && !this.hasImpacted) {
             const pose = this.getPose(player);
             const blade = this.getBladeGeometry(pose);
@@ -1892,6 +2009,7 @@ export class Nodachi extends SubWeapon {
     }
     
     render(ctx, player) {
+        // 攻撃中 OR 刺さり中は刀身を描画
         if (this.isAttacking) {
             const pose = this.getPose(player);
             const blade = this.getBladeGeometry(pose);
@@ -1899,7 +2017,7 @@ export class Nodachi extends SubWeapon {
             ctx.translate(pose.handX, pose.handY);
             ctx.rotate(pose.rotation);
 
-            // 柄（巻き付き表現）
+            // 柄
             const handleBack = -32;
             const handleFront = 21;
             ctx.fillStyle = '#6d4520';
@@ -1928,42 +2046,44 @@ export class Nodachi extends SubWeapon {
             ctx.fillStyle = '#a98331';
             ctx.fillRect(13.2, -4.2, 2.4, 8.4);
 
-            // 青龍刀寄りの刀身（厚みはあるが包丁形にしない）
+            // 刀身
             const bladeStart = blade.bladeStart;
             const bladeEnd = blade.bladeEnd;
-            const bladeGrad = ctx.createLinearGradient(bladeStart, -2, bladeEnd, 3);
+            const bladeGrad = ctx.createLinearGradient(bladeStart, -5, bladeEnd, 5); // グラデ方向調整
             bladeGrad.addColorStop(0, '#cfd6de');
             bladeGrad.addColorStop(0.48, '#f1f6fc');
             bladeGrad.addColorStop(1, '#aeb8c5');
             ctx.fillStyle = bladeGrad;
             ctx.beginPath();
-            ctx.moveTo(bladeStart, -7.6);
-            ctx.quadraticCurveTo(bladeStart + 30, -15.5, bladeStart + 74, -11.6);
-            ctx.quadraticCurveTo(bladeEnd - 24, -8.8, bladeEnd + 5, -1.4);
-            ctx.quadraticCurveTo(bladeEnd - 10, 6.5, bladeEnd - 29, 9.2);
-            ctx.quadraticCurveTo(bladeStart + 42, 11.8, bladeStart + 8, 8.4);
-            ctx.quadraticCurveTo(bladeStart - 2, 4.5, bladeStart, -7.6);
+            // ★修正: 大太刀の形状バランスを調整 (厚みを少し抑えてシャープに)
+            ctx.moveTo(bladeStart, -5.2);
+            ctx.quadraticCurveTo(bladeStart + 28, -12.5, bladeStart + 68, -9.2);
+            ctx.quadraticCurveTo(bladeEnd - 20, -6.8, bladeEnd + 4, -0.8);
+            ctx.quadraticCurveTo(bladeEnd - 8, 4.5, bladeEnd - 24, 6.2);
+            ctx.quadraticCurveTo(bladeStart + 38, 8.4, bladeStart + 7, 5.8);
+            ctx.quadraticCurveTo(bladeStart - 2, 2.8, bladeStart, -5.2);
             ctx.closePath();
             ctx.fill();
             ctx.strokeStyle = '#8e9aa8';
-            ctx.lineWidth = 1.45;
+            ctx.lineWidth = 1.25;
             ctx.stroke();
 
             // 切先寄りの返し
+            const intBladeEnd_X = bladeEnd + 1.2;
             ctx.fillStyle = 'rgba(214, 226, 238, 0.9)';
             ctx.beginPath();
-            ctx.moveTo(bladeEnd - 23, -8.6);
-            ctx.quadraticCurveTo(bladeEnd - 10, -9.8, bladeEnd + 2.8, -2.5);
-            ctx.quadraticCurveTo(bladeEnd - 9.5, -4.5, bladeEnd - 20, -4.2);
+            ctx.moveTo(bladeEnd - 18, -6.4);
+            ctx.quadraticCurveTo(bladeEnd - 8, -7.5, intBladeEnd_X, -1.8);
+            ctx.quadraticCurveTo(bladeEnd - 7.5, -3.5, bladeEnd - 16, -3.2);
             ctx.closePath();
             ctx.fill();
 
-            // 峰ライン
+            // 峰ライン (より繊細に)
             ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-            ctx.lineWidth = 1.05;
+            ctx.lineWidth = 0.85;
             ctx.beginPath();
-            ctx.moveTo(bladeStart + 8, -2.9);
-            ctx.quadraticCurveTo(bladeStart + 58, -5.9, bladeEnd - 14, -1.3);
+            ctx.moveTo(bladeStart + 8, -2.2);
+            ctx.quadraticCurveTo(bladeStart + 58, -4.5, bladeEnd - 12, -1.0);
             ctx.stroke();
 
             ctx.restore();
@@ -1986,7 +2106,7 @@ export class Nodachi extends SubWeapon {
             ctx.restore();
         }
 
-        // 左右へ走る地震動の衝撃波
+        // 衝撃波
         if (this.groundWaves.length > 0) {
             for (const sw of this.groundWaves) {
                 const ratio = sw.life / sw.maxLife;
@@ -2030,121 +2150,6 @@ export class Nodachi extends SubWeapon {
                 ctx.restore();
             }
         }
-    }
-}
-
-// 必殺技用：衝撃波クラス（画面端まで届く極太ビーム）
-export class Shockwave {
-    constructor(x, y, direction) {
-        this.width = 1500; // 画面端まで届く長さ
-        this.height = 140; // 太さ
-        this.dir = direction;
-        
-        // 当たり判定の中心座標（プレイヤー位置から前方に伸ばす）
-        this.x = x + direction * (this.width / 2 - 50); 
-        this.y = y; // 高さはそのまま
-        
-        this.damage = 100; 
-        this.isDestroyed = false;
-        this.hitEnemies = new Set(); 
-        this.particles = [];
-        this.timer = 0;
-        this.maxLife = 0.4; // 0.4秒で消える（一瞬の閃光）
-        
-        audio.playSlash(4); 
-    }
-    
-    update(deltaTime) {
-        // 移動しない（設置型ビーム）
-        this.timer += deltaTime;
-        
-        // 寿命で消滅
-        if (this.timer > this.maxLife) {
-            this.isDestroyed = true;
-        }
-        
-        // パーティクル生成（ビームの中にキラキラ）
-        if (Math.random() < 0.8) {
-            const px = (this.x - this.width/2) + Math.random() * this.width;
-            const py = this.y + (Math.random() - 0.5) * this.height;
-            this.particles.push({
-                x: px,
-                y: py,
-                vx: this.dir * (Math.random() * 5 + 5),
-                vy: (Math.random() - 0.5) * 2,
-                life: 1.0
-            });
-        }
-        
-        this.particles.forEach(p => {
-            p.x += p.vx;
-            p.y += p.vy;
-            p.life -= 0.1;
-        });
-        this.particles = this.particles.filter(p => p.life > 0);
-    }
-    
-    getHitbox() {
-        return {
-            x: this.x - this.width / 2,
-            y: this.y - this.height / 2,
-            width: this.width,
-            height: this.height
-        };
-    }
-    
-    render(ctx) {
-        const remainingRatio = 1 - (this.timer / this.maxLife);
-        if (remainingRatio <= 0) return;
-        
-        ctx.save();
-        ctx.translate(this.x, this.y);
-        
-        // ビームの明滅
-        const flicker = Math.random() * 0.2 + 0.8;
-        const width = this.width;
-        const height = this.height * remainingRatio * flicker; // 徐々に細くなる
-        
-        // 1. アウターグロー（青）
-        ctx.shadowBlur = 40;
-        ctx.shadowColor = '#00ffff';
-        ctx.fillStyle = `rgba(0, 255, 255, ${0.5 * remainingRatio})`;
-        ctx.fillRect(-width/2, -height/2, width, height);
-        
-        // 2. インナーコア（白・高輝度）
-        ctx.shadowBlur = 20;
-        ctx.shadowColor = '#ffffff';
-        ctx.fillStyle = `rgba(255, 255, 255, ${0.9 * remainingRatio})`;
-        ctx.fillRect(-width/2, -height/4, width, height/2);
-        
-        // 3. 上下のエネルギーライン
-        ctx.strokeStyle = `rgba(100, 255, 255, ${remainingRatio})`;
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(-width/2, -height/2);
-        ctx.lineTo(width/2, -height/2);
-        ctx.moveTo(-width/2, height/2);
-        ctx.lineTo(width/2, height/2);
-        ctx.stroke();
-
-        ctx.restore();
-
-        // パーティクル
-        ctx.save();
-        this.particles.forEach(p => {
-            ctx.fillStyle = `rgba(200, 255, 255, ${p.life})`;
-            ctx.fillRect(p.x, p.y, 4, 4);
-        });
-        ctx.restore();
-    }
-    
-    getHitbox() {
-        return {
-            x: this.x - this.width / 2,
-            y: this.y - this.height / 2,
-            width: this.width,
-            height: this.height
-        };
     }
 }
 

@@ -79,7 +79,8 @@ class Game {
         this.stageClearWeaponIndex = 0;
         this.returnToStageClearAfterShop = false;
         this.playerDefeatTimer = 0;
-        this.playerDefeatDuration = 3500; // 0.98s -> 3.5s に大幅延長
+        this.defeatRedFlashAlpha = 0;
+        this.playerDefeatDuration = 1800;
         this.titleDebugOpen = false;
         this.titleDebugCursor = 0;
         this.titleDebugApplyOnStart = false;
@@ -556,7 +557,8 @@ class Game {
             }
 
             this.state = GAME_STATE.PLAYING;
-            audio.playBgm('stage', this.currentStageNumber);
+            audio.playBgm('stage', this.currentStageNumber, 0);
+            this.startTransition();
         });
     }
     
@@ -626,8 +628,8 @@ class Game {
             this.hitStopTimer -= rawDeltaTime * 1000;
             this.deltaTime = 0; // 時間を止める
         } else if (this.state === GAME_STATE.DEFEAT) {
-            // 敗北中はスローモーション (30% の速度)
-            this.deltaTime = rawDeltaTime * 0.3;
+            // 敗北中はスローモーション (50% の速度 — 破裂が見える程度に)
+            this.deltaTime = rawDeltaTime * 0.5;
         } else {
             this.deltaTime = rawDeltaTime;
         }
@@ -760,8 +762,28 @@ class Game {
             }
         }
         
+        // ENTERで開始 (デバッグメニューが開いている時はデバッグ適用、閉じている時は通常開始)
+        if (input.isActionJustPressed('DEBUG_START')) {
+            // メニューが閉じている時の Enter は通常開始とする（ユーザーの明示的意図がない限りデバッグ設定はオフ）
+            this.titleDebugApplyOnStart = false;
+            
+            if (this.hasSave) {
+                if (this.titleMenuIndex === 0) {
+                    this.continueGame(saveManager.load());
+                } else {
+                    saveManager.deleteSave();
+                    this.startNewGame();
+                }
+            } else {
+                this.startNewGame();
+            }
+            audio.playSelect();
+            return;
+        }
+
         // SPACEで決定 (Zキーを除外)
         if (input.isActionJustPressed('JUMP')) {
+            this.titleDebugApplyOnStart = false; // 通常開始時はデバッグOFF
             if (this.hasSave) {
                 if (this.titleMenuIndex === 0) {
                     this.continueGame(saveManager.load());
@@ -847,7 +869,7 @@ class Game {
         if (!entries.length) return;
         this.titleDebugCursor = Math.max(0, Math.min(entries.length - 1, this.titleDebugCursor));
 
-        const actions = ['UP', 'DOWN', 'LEFT', 'RIGHT', 'JUMP', 'PAUSE'];
+        const actions = ['UP', 'DOWN', 'LEFT', 'RIGHT', 'JUMP', 'PAUSE', 'DEBUG_START'];
         let activeAction = null;
         for (const action of actions) {
             if (input.isAction(action)) {
@@ -900,6 +922,20 @@ class Game {
             audio.playSelect();
         } else if (action === 'PAUSE') {
             this.titleDebugOpen = false;
+            audio.playSelect();
+        } else if (action === 'DEBUG_START') {
+            // デバッグメニューが開いている時のEnterはデバッグ設定を適用して開始
+            this.titleDebugApplyOnStart = true;
+            if (this.hasSave) {
+                if (this.titleMenuIndex === 0) {
+                    this.continueGame(saveManager.load());
+                } else {
+                    saveManager.deleteSave();
+                    this.startNewGame();
+                }
+            } else {
+                this.startNewGame();
+            }
             audio.playSelect();
         }
     }
@@ -2188,6 +2224,11 @@ class Game {
         );
         
         if (killed) {
+            // 撃破音を判定直後に鳴らす（タイミングを最速にする）
+            if (!this.isStageBossEnemy(enemy)) {
+                audio.playEnemyDeath();
+            }
+
             // 報酬
             this.spawnExpGem(enemy);
             
@@ -2204,8 +2245,6 @@ class Game {
             
             if (this.isStageBossEnemy(enemy)) {
                 this.spawnStageBossDefeatEffect(enemy);
-            } else {
-                audio.playEnemyDeath();
             }
             
             this.queueHitFeedback(feedback.shake, feedback.hitStopMs);
@@ -2394,7 +2433,14 @@ class Game {
             if (effect.life <= 0) continue;
             if (effect.kind === 'spark') {
                 effect.vx *= 0.94;
-                effect.vy = effect.vy * 0.94 + 0.22;
+                if (effect.fadeUp) {
+                    effect.vx *= 0.93;
+                    effect.vy *= 0.93;
+                } else if (effect.noGravity) {
+                    effect.vy *= 0.94;
+                } else {
+                    effect.vy = effect.vy * 0.94 + 0.22;
+                }
                 effect.x += effect.vx;
                 effect.y += effect.vy;
             } else if (effect.kind === 'ring') {
@@ -2523,27 +2569,19 @@ class Game {
     }
 
     updateDefeat() {
-        // Red Fade & Timer Logic
         if (this.playerDefeatTimer > 0) {
             this.playerDefeatTimer -= this.deltaTime * 1000;
             if (this.playerDefeatTimer <= 0) {
                 this.state = GAME_STATE.GAME_OVER;
-                this.gameOverWaitTimer = 300; // 400ms -> 300ms
+                this.gameOverWaitTimer = 300;
                 this.gameOverFadeInTimer = 0;
-                this.gameOverFadeDuration = 400; // 600ms -> 400ms に高速化
-                audio.playBgm('gameover');
+                this.gameOverFadeDuration = 400;
             }
         }
 
-        if (this.player) {
-            // 昇天モーション削除：上昇処理をコメントアウト
-            // this.player.y -= 5; 
-            
-            // 鉢巻などの物理シミュレーション用時間更新
-            if (typeof this.player.motionTime === 'number') {
-                this.player.motionTime += this.deltaTime * 1000;
-            }
-        }
+        // エフェクト更新継続
+        this.updateHitEffects();
+        this.updateDamageNumbers();
     }
     
     updateShop() {
@@ -2781,68 +2819,56 @@ class Game {
             case GAME_STATE.DEFEAT:
             case GAME_STATE.GAME_OVER:
                 {
-                    const defeatDuration = this.playerDefeatDuration; // ウェイトをなくすため全体の尺を使用
+                    const defeatDuration = this.playerDefeatDuration;
                     const isGameOver = (this.state === GAME_STATE.GAME_OVER);
-                    let progress = 0;
+
+                    let defeatProgress = 0;
                     if (!isGameOver) {
-                        progress = Math.max(0, Math.min(1.0, 1.0 - (this.playerDefeatTimer / defeatDuration)));
+                        defeatProgress = Math.max(0, Math.min(1.0, 1.0 - (this.playerDefeatTimer / defeatDuration)));
+                    } else {
+                        defeatProgress = 1.0;
+                    }
+
+                    const playerAlpha = (this.player && this.player.burstVanished) ? 0 : 1.0;
+                    this.renderPlaying(playerAlpha, false);
+
+                    // 赤オーバーレイ（じわじわ染まり、最終的にかなり暗く）
+                    let redAlpha = 0;
+                    if (!isGameOver) {
+                        redAlpha = Math.pow(defeatProgress, 1.3) * 0.7;
                     } else {
                         if (this.gameOverFadeInTimer === undefined) this.gameOverFadeInTimer = 0;
                         this.gameOverFadeInTimer += this.deltaTime * 1000;
-                        progress = 1.0 + Math.min(1.0, this.gameOverFadeInTimer / 800);
+                        const goProgress = Math.min(1, this.gameOverFadeInTimer / Math.max(1, this.gameOverFadeDuration));
+                        redAlpha = 0.7 + goProgress * 0.2;
                     }
-                    this.renderPlaying(0.0, true);
-                    
-                    const playerX = this.player ? this.player.x + this.player.width / 2 : CANVAS_WIDTH / 2;
-                    const playerY = this.player ? this.player.y + this.player.height / 2 : CANVAS_HEIGHT / 2;
-                    
-                    if (this.state === GAME_STATE.DEFEAT) {
-                        // 上から下へ「血がつたう」ような垂直グラデーション
-                        // イージングを劇的にスムーズに（Math.pow 3.0 で出だしを極限まで遅く）
-                        const easedProgress = Math.pow(progress, 3.0);
-                        const fillHeight = easedProgress * CANVAS_HEIGHT * 2.5; 
-                        const grad = this.ctx.createLinearGradient(0, 0, 0, fillHeight);
-                        
-                        // アルファ値の立ち上がりをさらに抑制（Math.pow 2.0）
-                        const alpha = Math.pow(progress, 2.0) * 0.95;
-                        grad.addColorStop(0, `rgba(140, 0, 0, ${alpha})`);
-                        grad.addColorStop(0.5, `rgba(100, 0, 0, ${alpha * 0.4})`);
-                        grad.addColorStop(1, 'rgba(60, 0, 0, 0)');
-                        
-                        this.ctx.fillStyle = grad;
-                        this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-                        
-                        // 画面全体が染まる補強をさらに後半（0.75以降）に限定し、二次曲線で繋ぐ
-                        if (progress > 0.75) {
-                            const overlayAlpha = Math.pow((progress - 0.75) / 0.25, 2) * 0.6;
-                            this.ctx.fillStyle = `rgba(60, 0, 0, ${overlayAlpha})`;
-                            this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-                        }
-                    } else if (this.state === GAME_STATE.GAME_OVER) {
-                        // DEFEAT の最終状態(赤) -> 黒(GAME_OVER)へ色を変化させる
-                        const fadeProgress = Math.min(1, this.gameOverFadeInTimer / Math.max(1, this.gameOverFadeDuration));
-                        
-                        // 赤(DEFEAT末期) -> 黒(GAME_OVER)へ色を変化させる
-                        // a は 0.85 程度で維持して背景を透過しすぎないようにする
-                        const r = Math.floor(100 * (1 - fadeProgress) + 10 * fadeProgress);
-                        const gCol = Math.floor(0 * (1 - fadeProgress) + 0 * fadeProgress);
-                        const bCol = Math.floor(0 * (1 - fadeProgress) + 0 * fadeProgress);
-                        const a = 0.85;
-                        
-                        this.ctx.fillStyle = `rgba(${r}, ${gCol}, ${bCol}, ${a})`;
-                        this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-                        
-                        // ビネット効果（端をより暗く）を徐々に強める
-                        const vignette = this.ctx.createRadialGradient(
-                            CANVAS_WIDTH/2, CANVAS_HEIGHT/2, 0,
-                            CANVAS_WIDTH/2, CANVAS_HEIGHT/2, CANVAS_WIDTH * 0.8
-                        );
-                        vignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
-                        vignette.addColorStop(1, `rgba(0, 0, 0, ${0.4 + fadeProgress * 0.4})`);
-                        this.ctx.fillStyle = vignette;
-                        this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-                    }
+
+                    const redGrad = this.ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+                    redGrad.addColorStop(0, `rgba(100, 0, 0, ${redAlpha})`);
+                    redGrad.addColorStop(0.5, `rgba(60, 0, 0, ${redAlpha * 0.95})`);
+                    redGrad.addColorStop(1, `rgba(30, 0, 0, ${redAlpha * 0.85})`);
+                    this.ctx.fillStyle = redGrad;
+                    this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+                    // ビネット
+                    const vignetteStrength = isGameOver
+                        ? 0.5 + Math.min(1, (this.gameOverFadeInTimer || 0) / 400) * 0.45
+                        : defeatProgress * 0.45;
+                    const vignette = this.ctx.createRadialGradient(
+                        CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH * 0.08,
+                        CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH * 0.62
+                    );
+                    vignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                    vignette.addColorStop(1, `rgba(0, 0, 0, ${vignetteStrength})`);
+                    this.ctx.fillStyle = vignette;
+                    this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+                    // 追加の暗転層
                     if (isGameOver) {
+                        const darkProgress = Math.min(1, (this.gameOverFadeInTimer || 0) / 500);
+                        this.ctx.fillStyle = `rgba(0, 0, 0, ${darkProgress * 0.45})`;
+                        this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
                         this.ctx.save();
                         renderGameOverScreen(this.ctx, this.player, this.currentStageNumber, this.gameOverFadeInTimer, this.stage);
                         this.ctx.restore();
@@ -2872,16 +2898,18 @@ class Game {
                 break;
 
             case GAME_STATE.STAGE_CLEAR:
-                this.renderPlaying();
                 if (this.stageClearPhase === 0) {
+                    // 演出フェーズ：ステージ背景を表示したまま突破演出
+                    this.renderPlaying();
                     renderStageClearAnnouncement(this.ctx, this.currentStageNumber, this.clearedWeapon, this.stage);
                 } else {
+                    // ステータス画面：完全独立画面（裏のステージは描画しない）
                     renderStatusScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {
                         menuIndex: this.stageClearMenuIndex,
                         selectedWeaponName: this.player?.currentSubWeapon?.name || '未装備'
                     }, this.stage, this.ui);
                 }
-                // 明示的なフェードアウト描画（STAGE_CLEAR状態のままフェードする場合）
+                // ステージ遷移フェード
                 if (this.stageTransitionPhase === 1) {
                    this.ctx.save();
                    const alpha = Math.min(1.0, 1.0 - (this.stageTransitionTimer / 0.8));
@@ -2973,74 +3001,77 @@ class Game {
     beginPlayerDefeat(sourceX = null) {
         if (!this.player || this.state === GAME_STATE.DEFEAT || this.state === GAME_STATE.GAME_OVER) return;
         
-        // 死亡専用SEの再生
         audio.playPlayerDeath();
+        audio.playBgm('gameover');
         
-        // やられ演出で止まっている時間を大幅に短縮 (750ms -> 500ms)
-        this.playerDefeatTimer = 500;
+        this.playerDefeatDuration = 600;
+        this.playerDefeatTimer = this.playerDefeatDuration;
         this.state = GAME_STATE.DEFEAT;
         
-        // 強めの画面振動とヒットストップ
-        this.queueHitFeedback(14, 220);
+        this.queueHitFeedback(14, 220); // より強い画面揺れとヒットストップ
 
         if (this.player) {
-            const playerCenterX = this.player.x + this.player.width / 2;
+            // 攻撃状態をすべて解除
             this.player.isAttacking = false;
             this.player.currentAttack = null;
             this.player.subWeaponTimer = 0;
             this.player.subWeaponAction = null;
-            this.player.vx = (sourceX !== null && sourceX < playerCenterX) ? 8 : -8; // ダメージ元から遠ざかる
-            this.player.vy = -12; // 高く吹き飛ぶ
-            this.player.isGrounded = false;
+            this.player.isDashing = false;
+            this.player.dashTimer = 0;
+            
+            this.player.vx = 0;
+            this.player.vy = 0;
+            
+            // 死亡フラグ
+            this.player.isDefeated = true;
+            this.player.defeatTimer = 0;
+            // 破裂消滅フラグ
+            this.player.burstVanished = true;
 
-            // 血飛沫エフェクト (赤黒いパーティクル)
+            // 赤フラッシュ（敵撃破のホワイトフラッシュの代わり）
+            this.defeatRedFlashAlpha = 0.8;
+
             const px = this.player.x + this.player.width / 2;
             const py = this.player.y + this.player.height / 2;
-            for (let i = 0; i < 24; i++) {
-                const angle = Math.random() * Math.PI * 2;
-                const speed = 1.5 + Math.random() * 4.5;
+            
+            // 破裂エフェクト（上方向の半円に飛散）
+            for (let i = 0; i < 60; i++) {
+                const angle = -Math.PI * Math.random(); // 0°〜-180°（上半円）
+                const speed = 2 + Math.random() * 5;
+                const colors = ['255, 51, 51', '255, 102, 68', '204, 34, 34', '255, 136, 102', '221, 68, 68', '255, 170, 119'];
                 this.hitEffects.push({
                     kind: 'spark',
-                    x: px,
-                    y: py,
+                    x: px + (Math.random() - 0.5) * 30,
+                    y: py + Math.random() * 10,
                     vx: Math.cos(angle) * speed,
-                    vy: Math.sin(angle) * speed - 1.5,
-                    life: 600 + Math.random() * 600,
-                    size: 2.5 + Math.random() * 3.5,
-                    color: '160, 0, 0' // 赤黒い
+                    vy: Math.sin(angle) * speed,
+                    life: 400 + Math.random() * 400,
+                    maxLife: 800,
+                    size: 4 + Math.random() * 8,
+                    color: colors[i % colors.length],
+                    noGravity: true,
+                    fadeUp: true
                 });
             }
+
+            // 衝撃波リング（赤系）
+            for (let i = 0; i < 3; i++) {
+                this.hitEffects.push({
+                    kind: 'ring',
+                    x: px,
+                    y: py,
+                    life: 400 - i * 80,
+                    maxLife: 400,
+                    radius: 8 + i * 6,
+                    color: '255, 80, 60'
+                });
+            }
+
+            // 鉢巻・髪ノードをリセット
+            if (typeof this.player.resetVisualTrails === 'function') {
+                this.player.resetVisualTrails();
+            }
         }
-    }
-
-    renderDefeatOverlay(ctx) {
-        const ratio = Math.max(0, Math.min(1, this.playerDefeatTimer / this.playerDefeatDuration));
-        const progress = 1 - ratio; // 0 -> 1
-
-        ctx.save();
-        
-        // 1. 赤いフィルター（血の海・やられ演出）
-        ctx.fillStyle = `rgba(200, 0, 0, ${progress * 0.45})`;
-        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-        // 2. 周辺減光（ヴィネット）：意識が狭まる演出
-        const grad = ctx.createRadialGradient(
-            CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 100,
-            CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH * 0.8
-        );
-        grad.addColorStop(0, `rgba(0, 0, 0, 0)`);
-        grad.addColorStop(1, `rgba(0, 0, 0, ${Math.min(0.9, progress * 1.5)})`);
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-        // 3. 画面全体の暗転 (後半)
-        if (progress > 0.7) {
-            const fadeStart = (progress - 0.7) * (1 / 0.3);
-            ctx.fillStyle = `rgba(0, 0, 0, ${fadeStart})`;
-            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-        }
-        
-        ctx.restore();
     }
     
     renderPlaying(playerAlpha = 1.0, forceStanding = false) {

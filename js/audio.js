@@ -25,7 +25,7 @@ class AudioManager {
         // 効果音重複防止用
         this.lastEnemyDeathTime = 0;
         this.enemyDeathCooldown = 50; // 50ms以内の重複を防ぐ
-        
+
         // BGMファイルパス定義
         this.bgmFiles = {
             title: 'bgm/opening.mp3',
@@ -41,6 +41,26 @@ class AudioManager {
             stage_5: 'bgm/stage5.mp3',
             stage_6: 'bgm/stage6.mp3'
         };
+
+        // 主要な SE のプリロード（タイミングの高速化）
+        this.sfxPool = {
+            death: new Audio('se/death.mp3'),
+            deflect: new Audio('se/deflect.mp3'),
+            landing: new Audio('se/landing.mp3'),
+            ooyari: new Audio('se/ooyari.mp3'),
+            shuriken: new Audio('se/shuriken.mp3'),
+            katana: new Audio('se/katana.mp3'),
+            jump: new Audio('se/jump.mp3'),
+            dash: new Audio('se/dash.mp3'),
+            knockdown: new Audio('se/knockdown.mp3'),
+            damage: new Audio('se/damage.mp3'),
+            special: new Audio('se/special.mp3')
+        };
+        // プリロード設定
+        Object.values(this.sfxPool).forEach(audio => {
+            audio.preload = 'auto';
+            audio.load();
+        });
     }
     
     resume() {
@@ -93,18 +113,60 @@ class AudioManager {
     }
     
     // === 効果音 ===
+    playFileSfx(filePath, volume = 1.0, playbackRate = 1.0, startTime = 0) {
+        if (this.isMuted) return;
+        
+        // プリロード済みプールにあるか確認（ファイル名だけで判定）
+        const fileName = filePath.split('/').pop().split('.')[0];
+        let sfx;
+        
+        if (this.sfxPool[fileName]) {
+            // 生成済みのものをクローン（同時再生を可能にするため）
+            sfx = this.sfxPool[fileName].cloneNode();
+        } else {
+            sfx = new Audio(filePath);
+        }
+
+        sfx.volume = this.sfxVolume * volume;
+        
+        // ピッチ補正を無効化（速度を上げると音も高くなるようにする）
+        if (typeof sfx.preservesPitch !== 'undefined') {
+            sfx.preservesPitch = false;
+        } else if (typeof sfx.mozPreservesPitch !== 'undefined') {
+            sfx.mozPreservesPitch = false;
+        } else if (typeof sfx.webkitPreservesPitch !== 'undefined') {
+            sfx.webkitPreservesPitch = false;
+        }
+
+        sfx.playbackRate = playbackRate;
+        if (startTime > 0) {
+            sfx.currentTime = startTime;
+        }
+        sfx.play().catch(e => console.warn("SFX play failed:", e));
+    }
+
     playSlash(comboNum = 0) {
         this.init();
-        // 高めの周波数で鋭い斬撃音
-        const freq = 400 + comboNum * 80;
-        this.playSfx(freq, 'triangle', 0.2, 0.08, 0.3);
-        // 「シュッ」という風切り音（高周波ノイズ）
-        this.playNoiseSfx(0.3, 0.08, 3000);
+        // 変化を 0.1 に強めて、よりはっきり音程が上がるように調整
+        const playbackRate = 1.0 + comboNum * 0.1;
+        this.playFileSfx('se/katana.mp3', 0.8, playbackRate, 0.02);
     }
     
-    playJump() { this.init(); this.playSfx(280, 'square', 0.2, 0.12, 2.5); }
-    playDash() { this.init(); this.playNoiseSfx(0.15, 0.15, 1000); }
-    playDamage() { this.init(); this.playSfx(120, 'square', 0.25, 0.25, 0.4); }
+    playJump() {
+        this.init();
+        // 立ち上がり（startTime）を 0.02秒飛ばし、速度を 1.4倍にしてキレを出す
+        this.playFileSfx('se/jump.mp3', 0.65, 1.4, 0.02);
+    }
+    playDash() {
+        this.init();
+        // 1.2倍速で鋭いダッシュ感を出す
+        this.playFileSfx('se/dash.mp3', 0.6, 1.2, 0.02);
+    }
+    playDamage() {
+        this.init();
+        // 撃破音と同じ 0.6 に調整
+        this.playFileSfx('se/damage.mp3', 0.6, 1.1, 0.02);
+    }
     playHeal() { this.init(); this.playSfx(523.25, 'sine', 0.2, 0.2, 1.2); } // ド
     playPowerUp() {
         this.init();
@@ -116,84 +178,91 @@ class AudioManager {
     }
     playExplosion() {
         this.init();
-        this.playNoiseSfx(0.35, 0.4, 400);
-        this.playSfx(60, 'sine', 0.25, 0.35, 0.5);
+        // ノイズの音量を下げ、持続を短くしてクリーンな爆発音に
+        this.playNoiseSfx(0.18, 0.2, 600);
+        this.playSfx(55, 'sine', 0.15, 0.2, 0.4);
     }
     playEnemyDeath() { 
         this.init(); 
-        // 重複防止（クールダウンを50msから100msに延長）
         const now = Date.now();
-        if (now - this.lastEnemyDeathTime < 100) return;
+        if (now - this.lastEnemyDeathTime < 60) return;
         this.lastEnemyDeathTime = now;
         
-        this.playSfx(350, 'square', 0.1, 0.25, 0.3); // ボリュームを0.12から0.1に少し下げ
+        // 音量は 0.6 に抑え、速度は 1.0 に戻す
+        this.playFileSfx('se/death.mp3', 0.6, 1.0, 0.02);
     }
     playSpecial() { 
         this.init(); 
         // 溜め音（より重厚に）
         this.playNoiseSfx(0.2, 0.5, 500);
         this.playSfx(100, 'sawtooth', 0.15, 0.5, 0.5);
+        // special.mp3 を重ねる (音量を抑えつつ高速再生でキレを出す)
+        this.playFileSfx('se/special.mp3', 0.4, 1.3, 0.02);
     }
     playDeflect() {
         this.init();
         // 手裏剣などを叩き落とした時の金属的な「キン」
-        this.playSfx(2520, 'triangle', 0.2, 0.08, 0.97);
-        this.playSfx(1760, 'sine', 0.14, 0.11, 0.99);
-        this.playSfx(3360, 'sine', 0.1, 0.06, 1.0);
-        this.playNoiseSfx(0.07, 0.03, 5600);
+        this.playFileSfx('se/deflect.mp3', 0.85, 1.0, 0.02);
+    }
+    
+    playLanding() {
+        this.init();
+        // わずかに再生速度を上げて立ち上がりを早くする
+        this.playFileSfx('se/landing.mp3', 0.6, 1.1, 0.02);
+    }
+
+    playSpear() {
+        this.init();
+        this.playFileSfx('se/ooyari.mp3', 0.8, 1.0, 0.02);
+    }
+
+    playShuriken() {
+        this.init();
+        this.playFileSfx('se/shuriken.mp3', 0.7, 1.0, 0.02);
     }
     
     playPlayerDeath() {
         this.init();
-        if (!this.audioContext || this.isMuted) return;
+        if (this.isMuted) return;
         
-        const now = this.audioContext.currentTime;
-        
-        // 1. 低音の重いインパクト（致命傷）
-        this.playSfx(80, 'sawtooth', 0.4, 0.6, 0.2); // 80Hzから劇的に下降
-        this.playSfx(60, 'sine', 0.5, 0.8, 0.5);     // 地鳴りのような低音
-        
-        // 2. 鈍い衝撃音（ノイズ）
-        this.playNoiseSfx(0.5, 0.6, 300); // ローパス気味の濁った音
-        
-        // 3. 不穏な高音の残響（耳鳴りのような）
-        const osc = this.audioContext.createOscillator();
-        const gain = this.audioContext.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(2200, now);
-        osc.frequency.exponentialRampToValueAtTime(1100, now + 1.2);
-        gain.gain.setValueAtTime(0.08, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
-        osc.connect(gain);
-        gain.connect(this.sfxGain);
-        osc.start(now);
-        osc.stop(now + 1.2);
+        // knockdown.mp3 をやまびこ状に再生 (0ms, 250ms, 500ms...)
+        const volumes = [1.0, 0.4, 0.15, 0.05];
+        volumes.forEach((v, i) => {
+            setTimeout(() => {
+                // 回を追うごとに少しずつピッチを下げる
+                this.playFileSfx('se/knockdown.mp3', v * 0.8, 1.0 - i * 0.05, 0.02);
+            }, i * 250);
+        });
     }
 
     playBossDeath() {
         this.init();
-        if (!this.audioContext || this.isMuted) return;
+        if (this.isMuted) return;
         
-        const now = this.audioContext.currentTime;
-        
-        // 1. 巨大な爆発の核と余韻（より長く、重厚に）
-        this.playNoiseSfx(0.8, 2.2, 120); // 2.2秒の重低音ノイズ
-        this.playSfx(40, 'sawtooth', 0.7, 1.8, 0.05); // 地鳴りのような劇的な下降
-        
-        // 2. 金属的な破裂と飛散（ディレイをかけて多層的に）
-        [2200, 2000, 1800, 1500, 1200, 800].forEach((f, i) => {
-            setTimeout(() => this.playSfx(f, 'triangle', 0.2, 0.6, 0.7), i * 120);
+        // ボスはより重厚で長いやまびこ
+        // playBossDeath 独自の演出（地鳴り）は残しつつ death.mp3 を核にする
+        this.playNoiseSfx(0.8, 2.5, 100); // 重低音ノイズ
+        this.playSfx(40, 'sawtooth', 0.8, 2.0, 0.05); // 地鳴り
+
+        const volumes = [1.2, 0.7, 0.4, 0.2, 0.1, 0.05];
+        volumes.forEach((v, i) => {
+            setTimeout(() => {
+                // 初回は 0.7倍速で巨大な咆哮のようにし、徐々にピッチを戻す（またはさらに下げる）
+                const rate = 0.7 - i * 0.02;
+                this.playFileSfx('se/knockdown.mp3', v, rate, 0.02);
+            }, i * 350);
         });
         
-        // 3. 勝利の凱歌（煌めく高音の連続）
+        // 勝利の凱歌（煌めく高音）はそのまま残す
+        const now = this.audioContext.currentTime;
         for (let i = 0; i < 12; i++) {
             const freq = 800 + (i % 4) * 400 + i * 100;
             const osc = this.audioContext.createOscillator();
             const g = this.audioContext.createGain();
-            const startTime = now + 0.2 + i * 0.12;
+            const startTime = now + 0.5 + i * 0.15;
             osc.frequency.setValueAtTime(freq, startTime);
             osc.frequency.exponentialRampToValueAtTime(freq * 1.5, startTime + 0.5);
-            g.gain.setValueAtTime(0.12, startTime);
+            g.gain.setValueAtTime(0.1, startTime);
             g.gain.exponentialRampToValueAtTime(0.001, startTime + 0.6);
             osc.connect(g);
             g.connect(this.sfxGain);

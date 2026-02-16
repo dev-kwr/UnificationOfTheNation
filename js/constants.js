@@ -81,6 +81,7 @@ export const KEYS = {
     DASH: ['Shift'],
     PAUSE: ['Escape'],
     DEBUG_TOGGLE: ['q', 'Q'],
+    DEBUG_START: ['Enter'],
 };
 
 // ステージ情報

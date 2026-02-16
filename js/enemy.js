@@ -611,13 +611,26 @@ export class Enemy {
     
     tryJump(chance, power = -22, cooldown = 700) {
         if (this.isGrounded && this.jumpCooldown <= 0 && Math.random() < chance) {
-            this.jump(power, cooldown);
+            let actualPower = power;
+            
+            // プレイヤーの位置をチェックしてジャンプ力を調整
+            if (window.game && window.game.player) {
+                const player = window.game.player;
+                // 自分より 50px 以上高い位置にプレイヤーがいないなら、ジャンプ力を抑える
+                const isPlayerHigh = player.y < (this.y - 50);
+                if (!isPlayerHigh) {
+                    // 最低限のジャンプ（障害物回避と同等かそれ以下）
+                    actualPower = Math.max(actualPower, -13); 
+                }
+            }
+            
+            this.jump(actualPower, cooldown);
             return true;
         }
         return false;
     }
 
-    jump(power = -22, cooldown = 700) {
+    jump(power = -13, cooldown = 700) {
         if (this.isGrounded) {
             this.vy = power;
             this.isGrounded = false;
