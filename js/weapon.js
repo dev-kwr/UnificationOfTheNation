@@ -409,16 +409,12 @@ export class Shuriken extends SubWeapon {
         audio.playShuriken();
     }
     _spawnProjectile(baseX, baseY, direction, index, shotCount, pierce, homing) {
-        // ★修正: 出現位置を手元に近づける (15 → 4)
-        const spawnX = baseX + direction * 4;
-        // ★修正: スポーン高さを少し上げて地面衝突マージンを確保
+        const spawnX = baseX + direction * 18;
         const spawnY = baseY + 16;
-
-        const speed = 9; // ★修正: 速度を少し上げる (7.5 → 9)
+        const speed = 9;
         const spreadIndex = index - (shotCount - 1) / 2;
-        const vy = spreadIndex * 0.3; // ★修正: 拡散の下向き成分を抑える (0.4 → 0.3)
-        const offsetY = spreadIndex * 3; // ★修正: 縦オフセットも少し詰める (4 → 3)
-
+        const vy = spreadIndex * 0.3;
+        const offsetY = spreadIndex * 3;
         const r = homing ? this.projectileRadiusHoming : this.projectileRadius;
 
         const proj = new ShurikenProjectile(

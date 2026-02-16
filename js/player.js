@@ -54,7 +54,7 @@ export class Player {
         this.isWallSliding = false;
         this.wallDirection = 0;  // -1: 左壁, 1: 右壁
         this.jumpCount = 0;
-        this.maxJumps = 2;  // 二段ジャンプ
+        this.maxJumps = 1;  // 一段ジャンプ（二段以上はショップで解禁）
         this.facingRight = true;
         
         // ダッシュ
@@ -64,6 +64,7 @@ export class Player {
         this.dashDuration = 140;
         this.dashSpeedMultiplier = 1.45;
         this.dashDirection = 1;
+        this.permanentDash = false;
         
         // しゃがみ
         this.isCrouching = false;
@@ -169,6 +170,7 @@ export class Player {
         // プレビュー画面専用のアクセサリ物理ノード
         this.previewScarfNodes = [];
         this.previewHairNodes = [];
+        this.previewMode = false;
     }
 
     calculateAccessoryAnchor(posX, groundY, height, motionTime, isMoving, isDashing, isCrouching, legPhase) {
@@ -427,6 +429,51 @@ export class Player {
         }
     }
     handleInput() {
+        // ========== プレビューモード：攻撃・忍具・武器切替のみ ==========
+        if (this.previewMode) {
+            if (input.isActionJustPressed('SWITCH_WEAPON')) {
+                this.switchSubWeapon();
+            }
+            if (input.isActionJustPressed('SUB_WEAPON')) {
+                if (this.subWeaponTimer > 0) return;
+                if (!this.currentSubWeapon) return;
+                if (this.currentSubWeapon.name === '二刀流') {
+                    if (this.currentSubWeapon.projectiles && this.currentSubWeapon.projectiles.length > 0) return;
+                    this.currentSubWeapon.use(this, 'combined');
+                    this.subWeaponTimer = 220;
+                    this.subWeaponAction = '二刀_合体';
+                    this.vx = 0;
+                } else {
+                    this.useSubWeapon();
+                    const weaponName = this.currentSubWeapon ? this.currentSubWeapon.name : '';
+                    const isThrow = weaponName === '火薬玉' || weaponName === '手裏剣';
+                    this.subWeaponTimer =
+                        isThrow ? 150 :
+                        weaponName === '大槍' ? 250 :
+                        weaponName === '鎖鎌' ? 560 :
+                        weaponName === '大太刀' ? 760 : 300;
+                    this.subWeaponAction = isThrow ? 'throw' : weaponName;
+                }
+            }
+            if (input.isActionJustPressed('ATTACK')) {
+                const lockZDuringSub =
+                    this.subWeaponTimer > 0 &&
+                    this.subWeaponAction &&
+                    this.subWeaponAction !== 'throw' &&
+                    this.currentSubWeapon &&
+                    this.currentSubWeapon.name !== '火薬玉' &&
+                    this.currentSubWeapon.name !== '二刀流';
+                if (!lockZDuringSub) {
+                    if (this.isAttacking) {
+                        this.bufferNextAttack();
+                    } else {
+                        this.attack();
+                    }
+                }
+            }
+            return; // 移動・ジャンプ・ダッシュ・奥義は無視
+        }
+
         // サブ武器切り替え（最優先）
         if (input.isActionJustPressed('SWITCH_WEAPON')) {
             this.switchSubWeapon();
@@ -477,7 +524,6 @@ export class Player {
                 this.subWeaponAction = isThrow ? 'throw' : weaponName;
             }
         }
-
         
         // 必殺技（攻撃中でも可能）
         if (input.isActionJustPressed('SPECIAL')) {
@@ -546,7 +592,14 @@ export class Player {
             this.vx = this.dashDirection * (this.speed * this.dashSpeedMultiplier);
             this.facingRight = this.dashDirection > 0;
         } else if (!odachiAttacking && moveDir !== 0) {
-            this.vx = moveDir * this.speed;
+            if (this.permanentDash) {
+                this.vx = moveDir * (this.speed * this.dashSpeedMultiplier);
+                this.isDashing = true;
+                this.dashDirection = moveDir >= 0 ? 1 : -1;
+                this.dashTimer = Math.max(this.dashTimer, this.dashDuration * 0.5);
+            } else {
+                this.vx = moveDir * this.speed;
+            }
             this.facingRight = moveDir > 0;
         } else if (odachiAttacking) {
             this.vx *= 0.9;
@@ -1599,6 +1652,28 @@ export class Player {
     }
     
     applyPhysics(walls) {
+        // ========== プレビューモード：縦物理のみ・壁判定なし ==========
+        if (this.previewMode) {
+            const wasGrounded = this.isGrounded;
+            if (!this.isGrounded) {
+                this.vy += GRAVITY;
+            }
+            this.height = this.isCrouching ? PLAYER.HEIGHT / 2 : PLAYER.HEIGHT;
+            this.vx *= 0.88;
+            this.x += this.vx;
+            this.y += this.vy;
+            if (this.y + this.height >= this.groundY) {
+                this.y = this.groundY - this.height;
+                this.vy = 0;
+                this.isGrounded = true;
+                this.jumpCount = 0;
+            } else {
+                this.isGrounded = false;
+            }
+            this.justLanded = !wasGrounded && this.isGrounded;
+            return;
+        }
+
         const wasGrounded = this.isGrounded;
 
         // 重力
@@ -2142,27 +2217,241 @@ export class Player {
         ctx.scale(scaleDir, 1);
         ctx.rotate(angle);
 
-        ctx.fillStyle = '#111';
-        ctx.fillRect(-1.2, -2.2, 3.0, 4.4);
+        const scale = 0.52;
+        ctx.scale(scale, scale);
+        const bl = bladeLength / scale;
 
+        const gripOffset = 10;
+
+        // === 柄（つか）===
+        const handleStart = -26;
+        const handleEnd = gripOffset - 1;
+        const handleLen = handleEnd - handleStart;
+        const handleHalfH = 2.6;
+
+        ctx.fillStyle = '#1a1a1a';
+        ctx.beginPath();
+        ctx.moveTo(handleStart, -handleHalfH);
+        ctx.lineTo(handleEnd, -handleHalfH + 0.3);
+        ctx.lineTo(handleEnd, handleHalfH - 0.3);
+        ctx.lineTo(handleStart, handleHalfH);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.lineWidth = 0.7;
+        const wrapSpacing = 4.2;
+        const wrapCount = Math.floor(handleLen / wrapSpacing);
+        for (let i = 0; i <= wrapCount; i++) {
+            const wx = handleStart + i * wrapSpacing;
+            ctx.beginPath();
+            ctx.moveTo(wx, -handleHalfH + 0.4);
+            ctx.lineTo(wx + wrapSpacing * 0.5, handleHalfH - 0.4);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(wx, handleHalfH - 0.4);
+            ctx.lineTo(wx + wrapSpacing * 0.5, -handleHalfH + 0.4);
+            ctx.stroke();
+        }
+
+        ctx.fillStyle = '#777';
+        ctx.beginPath();
+        ctx.ellipse(handleStart - 0.5, 0, 1.5, handleHalfH + 0.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+
+        // === 鍔（つば）===
+        const tsubaX = gripOffset;
+        const tsubaRX = 1.8;
+        const tsubaRY = 4.4;
+
+        ctx.fillStyle = '#1a1a1a';
+        ctx.beginPath();
+        ctx.ellipse(tsubaX + 0.2, 0.2, tsubaRX, tsubaRY, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        const tsubaGrad = ctx.createLinearGradient(tsubaX, -tsubaRY, tsubaX, tsubaRY);
+        tsubaGrad.addColorStop(0, '#555');
+        tsubaGrad.addColorStop(0.45, '#2a2a2a');
+        tsubaGrad.addColorStop(0.55, '#222');
+        tsubaGrad.addColorStop(1, '#444');
+        ctx.fillStyle = tsubaGrad;
+        ctx.beginPath();
+        ctx.ellipse(tsubaX, 0, tsubaRX, tsubaRY, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = '#666';
+        ctx.lineWidth = 0.6;
+        ctx.beginPath();
+        ctx.ellipse(tsubaX, 0, tsubaRX, tsubaRY, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // === はばき ===
+        const habakiX = tsubaX + tsubaRX + 0.4;
         ctx.fillStyle = '#c9a545';
-        ctx.fillRect(1.45, -1.7, 1.25, 3.4);
+        ctx.fillRect(habakiX, -1.8, 2.2, 3.6);
+        ctx.strokeStyle = '#a07828';
+        ctx.lineWidth = 0.4;
+        ctx.strokeRect(habakiX, -1.8, 2.2, 3.6);
 
-        // 日本刀: 上側は直線、下側を反らせる
-        ctx.fillStyle = '#fff';
+        // === 刀身 ===
+        const bladeStart = habakiX + 2.2;
+        const bladeEnd = bladeStart + bl;
+        const bladeLen = bladeEnd - bladeStart;
+
+        const halfThickRoot = 2.0;
+        const halfThickTip = 1.1;
+        const soriMax = bl * 0.04;
+
+        const kissakiLen = bladeLen * 0.11;
+        const kissakiStartX = bladeEnd - kissakiLen;
+
+        const seg = 32;
+
+        // 反り: 根元は直線、中間以降で上方向（Y負＝棟側）に反る
+        const getCenterY = (t) => -Math.pow(t, 2.5) * soriMax;
+        const getHalfThick = (t) => halfThickRoot + (halfThickTip - halfThickRoot) * t;
+        const getMuneY = (t) => getCenterY(t) - getHalfThick(t);
+        const getHaY = (t) => getCenterY(t) + getHalfThick(t);
+        const getTX = (t) => bladeStart + (kissakiStartX - bladeStart) * t;
+
+        const centerAtTip = getCenterY(1.0);
+        const muneAtTip = getMuneY(1.0);
+        const haAtTip = getHaY(1.0);
+
+        // 先端: 棟寄り
+        const tipX = bladeEnd + 2;
+        const tipY = muneAtTip + (haAtTip - muneAtTip) * 0.25;
+
+        // 刃文ライン
+        const getHamonY = (t) => {
+            const center = getCenterY(t);
+            const halfT = getHalfThick(t);
+            return center + halfT * 0.3
+                + Math.sin(t * Math.PI * 5.5 + 0.8) * 0.7
+                + Math.sin(t * Math.PI * 3.2) * 0.4;
+        };
+
+        // 点列を生成
+        const munePoints = [];
+        const haPoints = [];
+        const hamonPoints = [];
+        for (let i = 0; i <= seg; i++) {
+            const t = i / seg;
+            munePoints.push({ x: getTX(t), y: getMuneY(t) });
+            haPoints.push({ x: getTX(t), y: getHaY(t) });
+            hamonPoints.push({ x: getTX(t), y: getHamonY(t) });
+        }
+
+        // 切先の制御点
+        const kissakiMuneCtrlX = kissakiStartX + kissakiLen * 0.7;
+        const kissakiMuneCtrlY = muneAtTip - 0.3;
+        const fukuraCtrlX = kissakiStartX + kissakiLen * 0.5;
+        const fukuraCtrlY = haAtTip + 0.8;
+
+        // --- 棟側（地鉄＝暗い鋼色）---
+        const jiGrad = ctx.createLinearGradient(
+            bladeStart, -halfThickRoot - soriMax - 1,
+            bladeStart, 1
+        );
+        jiGrad.addColorStop(0, '#656d78');
+        jiGrad.addColorStop(0.3, '#77808b');
+        jiGrad.addColorStop(0.6, '#8a939e');
+        jiGrad.addColorStop(1, '#9ca5af');
+
+        ctx.fillStyle = jiGrad;
         ctx.beginPath();
-        ctx.moveTo(1.2, -1.2);
-        ctx.lineTo(bladeLength - 2.8, -1.2);
-        ctx.lineTo(bladeLength, 0);
-        ctx.quadraticCurveTo(bladeLength - 8.0, 1.65, 1.2, 1.0);
+        ctx.moveTo(munePoints[0].x, munePoints[0].y);
+        for (let i = 1; i <= seg; i++) ctx.lineTo(munePoints[i].x, munePoints[i].y);
+        ctx.quadraticCurveTo(kissakiMuneCtrlX, kissakiMuneCtrlY, tipX, tipY);
+        ctx.lineTo(hamonPoints[seg].x, hamonPoints[seg].y);
+        for (let i = seg - 1; i >= 0; i--) ctx.lineTo(hamonPoints[i].x, hamonPoints[i].y);
+        ctx.closePath();
         ctx.fill();
 
-        ctx.fillStyle = '#b7b7b7';
+        // --- 刃側（研ぎ出し＝白い領域）---
+        const haGrad = ctx.createLinearGradient(
+            bladeStart, -1,
+            bladeStart, halfThickRoot + 2
+        );
+        haGrad.addColorStop(0, '#d4d9e0');
+        haGrad.addColorStop(0.2, '#e8ecf0');
+        haGrad.addColorStop(0.45, '#f4f6f9');
+        haGrad.addColorStop(0.7, '#fafbfd');
+        haGrad.addColorStop(1, '#ffffff');
+
+        ctx.fillStyle = haGrad;
         ctx.beginPath();
-        ctx.moveTo(2.2, -0.45);
-        ctx.lineTo(bladeLength - 10.5, -0.45);
-        ctx.quadraticCurveTo(bladeLength - 14.0, 0.1, 2.2, 0.28);
+        ctx.moveTo(hamonPoints[0].x, hamonPoints[0].y);
+        for (let i = 1; i <= seg; i++) ctx.lineTo(hamonPoints[i].x, hamonPoints[i].y);
+        ctx.quadraticCurveTo(fukuraCtrlX, fukuraCtrlY, tipX, tipY);
+        ctx.quadraticCurveTo(fukuraCtrlX, haAtTip + 0.3, kissakiStartX, haAtTip);
+        for (let i = seg; i >= 0; i--) ctx.lineTo(haPoints[i].x, haPoints[i].y);
+        ctx.closePath();
         ctx.fill();
+
+        // --- 輪郭 ---
+        ctx.strokeStyle = '#5a626c';
+        ctx.lineWidth = 0.55;
+        ctx.beginPath();
+        ctx.moveTo(munePoints[0].x, munePoints[0].y);
+        for (let i = 1; i <= seg; i++) ctx.lineTo(munePoints[i].x, munePoints[i].y);
+        ctx.quadraticCurveTo(kissakiMuneCtrlX, kissakiMuneCtrlY, tipX, tipY);
+        ctx.quadraticCurveTo(fukuraCtrlX, haAtTip + 0.3, kissakiStartX, haAtTip);
+        for (let i = seg; i >= 0; i--) ctx.lineTo(haPoints[i].x, haPoints[i].y);
+        ctx.closePath();
+        ctx.stroke();
+
+        // --- 刃文ライン ---
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.lineWidth = 0.65;
+        ctx.beginPath();
+        ctx.moveTo(hamonPoints[0].x, hamonPoints[0].y);
+        for (let i = 1; i <= seg; i++) ctx.lineTo(hamonPoints[i].x, hamonPoints[i].y);
+        ctx.stroke();
+
+        // 横手筋
+        ctx.strokeStyle = 'rgba(120, 130, 145, 0.5)';
+        ctx.lineWidth = 0.45;
+        ctx.beginPath();
+        ctx.moveTo(kissakiStartX, muneAtTip + 0.3);
+        ctx.lineTo(kissakiStartX, haAtTip - 0.3);
+        ctx.stroke();
+
+        // 鎬筋
+        ctx.strokeStyle = 'rgba(140, 150, 165, 0.35)';
+        ctx.lineWidth = 0.4;
+        ctx.beginPath();
+        for (let i = 0; i <= seg; i++) {
+            const t = i / seg;
+            if (i === 0) ctx.moveTo(getTX(t), getMuneY(t) + 0.7);
+            else ctx.lineTo(getTX(t), getMuneY(t) + 0.7);
+        }
+        ctx.stroke();
+
+        // 棟ハイライト
+        ctx.strokeStyle = 'rgba(190, 200, 210, 0.25)';
+        ctx.lineWidth = 0.3;
+        ctx.beginPath();
+        for (let i = 1; i < seg - 1; i++) {
+            const t = i / seg;
+            if (i === 1) ctx.moveTo(getTX(t), getMuneY(t) + 0.2);
+            else ctx.lineTo(getTX(t), getMuneY(t) + 0.2);
+        }
+        ctx.stroke();
+
+        // 刃先ハイライト
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.lineWidth = 0.3;
+        ctx.beginPath();
+        for (let i = 1; i < seg - 1; i++) {
+            const t = i / seg;
+            if (i === 1) ctx.moveTo(getTX(t), getHaY(t) - 0.4);
+            else ctx.lineTo(getTX(t), getHaY(t) - 0.4);
+        }
+        ctx.stroke();
 
         ctx.restore();
     }
@@ -2684,8 +2973,8 @@ export class Player {
         const idleBackHandY = bodyTopY + (isCrouchPose ? 7.5 : 10) + Math.sin(this.motionTime * 0.01) * (isCrouchPose ? 1 : 2);
         const idleFrontHandX = centerX - dir * (isCrouchPose ? 5 : 8);
         const idleFrontHandY = bodyTopY + (isCrouchPose ? 9 : 12);
-        const idleBackBladeAngle = isCrouchPose ? -0.42 : -0.55;
-        const idleFrontBladeAngle = isCrouchPose ? -0.92 : -1.05;
+        const idleBackBladeAngle = isCrouchPose ? -0.32 : -0.65;
+        const idleFrontBladeAngle = isCrouchPose ? -0.82 : -1.1;
 
         const isIdleForceRender = forceSubWeaponRender && !subWeaponAction && subWeaponTimer <= 0;
         if (!isActuallyAttacking && (!forceSubWeaponRender || isIdleForceRender)) {
@@ -2820,8 +3109,9 @@ export class Player {
         };
 
         if (this.subWeaponAction === 'throw') {
-            // 手前手で投げる
-            const armAngle = -Math.PI * 0.9 + progress * Math.PI * 0.78;
+            // 手前手で投げる（手持ち武器は描画しない）
+            const easedProgress = Math.pow(progress, 0.55); // イージングで初速を速く
+            const armAngle = -Math.PI * 0.8 + easedProgress * Math.PI * 0.8;
             const armLength = 19;
             const throwShoulderX = frontShoulderX;
             const throwShoulderY = shoulderY + 1;
@@ -2833,39 +3123,6 @@ export class Player {
 
             ctx.strokeStyle = silhouetteColor;
             drawArmSegment(throwShoulderX, throwShoulderY, armEndX, armEndY, 5.4);
-
-            // ★手持ち武器の描画（投擲モーション前半のみ表示）
-            if (renderWeaponVisuals && this.currentSubWeapon) {
-                if (this.currentSubWeapon.name === '手裏剣') {
-                    // ★飛翔体と同一サイズ・同一グラフィックで描画
-                    const heldRadius = (this.currentSubWeapon.projectileRadius || 10);
-                    // 投擲前半は手に持っている、後半は手から離れている
-                    if (progress < 0.55) {
-                        drawShurikenShape(ctx, armEndX, armEndY, heldRadius, progress * 10);
-                    }
-                } else if (this.currentSubWeapon.name === '火薬玉') {
-                    if (progress < 0.55) {
-                        // 火薬玉の手持ち
-                        ctx.fillStyle = '#2d2d2d';
-                        ctx.beginPath();
-                        ctx.arc(armEndX, armEndY, 6, 0, Math.PI * 2);
-                        ctx.fill();
-                        ctx.strokeStyle = '#767676';
-                        ctx.lineWidth = 1.5;
-                        ctx.stroke();
-                        // 導火線
-                        ctx.strokeStyle = '#b07a38';
-                        ctx.lineWidth = 1.5;
-                        ctx.beginPath();
-                        ctx.moveTo(armEndX, armEndY - 6);
-                        ctx.quadraticCurveTo(armEndX + 4, armEndY - 10, armEndX + 2, armEndY - 13);
-                        ctx.stroke();
-                    }
-                } else if (typeof this.currentSubWeapon.render === 'function') {
-                    this.currentSubWeapon.render(ctx, this);
-                }
-                this.subWeaponRenderedInModel = true;
-            }
             drawHand(armEndX, armEndY, 5);
         } else if (this.subWeaponAction === '大槍') {
             // 突き: 奥手で押し込み、槍を挟んで手前手でガイド
@@ -3338,32 +3595,14 @@ export class Player {
             ctx.fill();
         }
 
-        // 剣を描画
+        // 剣を描画（共通メソッドで統一）
+        this.drawKatana(ctx, armEndX, armEndY, rot, facingRight ? 1 : -1, swordLen);
+
+        // 斬撃エフェクト（刀のローカル座標系で描画）
         ctx.save();
         ctx.translate(armEndX, armEndY);
-        ctx.scale(facingRight ? 1 : -1, 1); // 左右反転
+        ctx.scale(facingRight ? 1 : -1, 1);
         ctx.rotate(rot);
-        
-        // 刀身（通常時と同一の形状）
-        ctx.fillStyle = '#111';
-        ctx.fillRect(-1.2, -2.2, 3.0, 4.4);
-        ctx.fillStyle = '#c9a545';
-        ctx.fillRect(1.45, -1.7, 1.25, 3.4);
-
-        ctx.fillStyle = '#fff';
-        ctx.beginPath();
-        ctx.moveTo(1.2, -1.2);
-        ctx.lineTo(swordLen - 2.8, -1.2);
-        ctx.lineTo(swordLen, 0);
-        ctx.quadraticCurveTo(swordLen - 8.0, 1.65, 1.2, 1.0);
-        ctx.fill();
-
-        ctx.fillStyle = '#b7b7b7';
-        ctx.beginPath();
-        ctx.moveTo(2.2, -0.45);
-        ctx.lineTo(swordLen - 10.5, -0.45);
-        ctx.quadraticCurveTo(swordLen - 14.0, 0.1, 2.2, 0.28);
-        ctx.fill();
 
         // 斬撃エフェクト（大きく、派手に）
         

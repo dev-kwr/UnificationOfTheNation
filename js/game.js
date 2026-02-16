@@ -230,8 +230,8 @@ class Game {
                 '大太刀': false
             },
             items: {
+                double_jump: false,
                 triple_jump: false,
-                quad_jump: false,
                 speed_up: false,
                 hp_boost: 0,
                 atk_boost: 0,
@@ -295,8 +295,8 @@ class Game {
                         cfg.money = 9999;
                         cfg.items.hp_boost = 8;
                         cfg.items.atk_boost = 3;
+                        cfg.items.double_jump = true;
                         cfg.items.triple_jump = true;
-                        cfg.items.quad_jump = true;
                         cfg.items.speed_up = true;
                         cfg.items.permanent_max_special = true;
                         for (const w in cfg.ownedWeapons) cfg.ownedWeapons[w] = true;
@@ -351,38 +351,38 @@ class Game {
 
         entries.push(
             {
-                label: 'アイテム:三段跳び',
-                getValue: () => (cfg.items.triple_jump ? '取得済' : '未取得'),
-                change: () => {
-                    cfg.items.triple_jump = !cfg.items.triple_jump;
-                    if (!cfg.items.triple_jump) cfg.items.quad_jump = false;
-                }
-            },
-            {
-                label: 'アイテム:四段跳び',
-                getValue: () => (cfg.items.quad_jump ? '取得済' : '未取得'),
-                change: () => {
-                    cfg.items.quad_jump = !cfg.items.quad_jump;
-                    if (cfg.items.quad_jump) cfg.items.triple_jump = true;
-                }
-            },
-            {
-                label: 'アイテム:韋駄天の術',
-                getValue: () => (cfg.items.speed_up ? '取得済' : '未取得'),
-                change: () => { cfg.items.speed_up = !cfg.items.speed_up; }
-            },
-            {
-                label: 'アイテム:体力増強',
+                label: 'アイテム:活力の術',
                 getValue: () => `+ ${cfg.items.hp_boost * 5}`,
                 change: (delta) => { 
                     cfg.items.hp_boost = Math.max(0, Math.min(8, (cfg.items.hp_boost || 0) + delta)); 
                 }
             },
             {
-                label: 'アイテム:剛力の秘術',
+                label: 'アイテム:剛力の術',
                 getValue: () => `Lv ${cfg.items.atk_boost}`,
                 change: (delta) => { 
                     cfg.items.atk_boost = Math.max(0, Math.min(3, (cfg.items.atk_boost || 0) + delta)); 
+                }
+            },
+            {
+                label: 'アイテム:韋駄天の術',
+                getValue: () => (cfg.items.speed_up ? '習得済' : '未取得'),
+                change: () => { cfg.items.speed_up = !cfg.items.speed_up; }
+            },
+            {
+                label: 'アイテム:二段跳び',
+                getValue: () => (cfg.items.double_jump ? '習得済' : '未取得'),
+                change: () => {
+                    cfg.items.double_jump = !cfg.items.double_jump;
+                    if (!cfg.items.double_jump) cfg.items.triple_jump = false;
+                }
+            },
+            {
+                label: 'アイテム:三段跳び',
+                getValue: () => (cfg.items.triple_jump ? '習得済' : '未取得'),
+                change: () => {
+                    cfg.items.triple_jump = !cfg.items.triple_jump;
+                    if (cfg.items.triple_jump) cfg.items.double_jump = true;
                 }
             },
             {
@@ -394,6 +394,33 @@ class Game {
                     this.state = GAME_STATE.STAGE_CLEAR;
                     this.stageClearPhase = 1;
                     this.titleDebugOpen = false;
+                    
+                    // ★追加: プレビューモード初期化（通常はstageClearPhase 0→1遷移時に行われる）
+                    if (this.player) {
+                        this.player.previewMode = true;
+                        this.player.x = 100;
+                        this.player.y = this.groundY - this.player.height;
+                        this.player.vx = 0;
+                        this.player.vy = 0;
+                        this.player.isGrounded = true;
+                        this.player.facingRight = true;
+                        this.player.isAttacking = false;
+                        this.player.currentAttack = null;
+                        this.player.attackTimer = 0;
+                        this.player.attackCombo = 0;
+                        this.player.subWeaponTimer = 0;
+                        this.player.subWeaponAction = null;
+                        this.player.isDashing = false;
+                        this.player.isCrouching = false;
+                        this.bombs = [];
+                        this.shockwaves = [];
+                        for (const weapon of (this.player.subWeapons || [])) {
+                            if (weapon && weapon.projectiles) weapon.projectiles = [];
+                            if (weapon && weapon.pendingShots) weapon.pendingShots = [];
+                        }
+                        this.player.resetVisualTrails();
+                    }
+                    audio.playBgm('shop');
                 }
             },
             {
@@ -432,8 +459,8 @@ class Game {
             cfg.money = 9999;
             cfg.items.hp_boost = 8;
             cfg.items.atk_boost = 3;
+            cfg.items.double_jump = true;
             cfg.items.triple_jump = true;
-            cfg.items.quad_jump = true;
             cfg.items.speed_up = true;
             cfg.items.permanent_max_special = true;
             // 全武器所持
@@ -479,11 +506,17 @@ class Game {
         this.player.stageEquip[this.currentStageNumber] = this.player.currentSubWeapon ? this.player.currentSubWeapon.name : '手裏剣';
 
         shop.purchasedSkills.clear();
+        shop.purchasedSkills.clear();
+        if (cfg.items.double_jump) shop.purchasedSkills.add('double_jump');
         if (cfg.items.triple_jump) shop.purchasedSkills.add('triple_jump');
-        if (cfg.items.quad_jump) shop.purchasedSkills.add('quad_jump');
         if (cfg.items.speed_up) shop.purchasedSkills.add('speed_up');
-        this.player.maxJumps = cfg.items.quad_jump ? 4 : (cfg.items.triple_jump ? 3 : 2);
-        this.player.speed = PLAYER.SPEED + (cfg.items.speed_up ? 1.5 : 0);
+        shop.purchasedUpgrades.hp_up = cfg.items.hp_boost || 0;
+        shop.purchasedUpgrades.attack_up = cfg.items.atk_boost || 0;
+        
+        this.player.maxJumps = cfg.items.triple_jump ? 3 : (cfg.items.double_jump ? 2 : 1);
+        this.player.permanentDash = !!cfg.items.speed_up;
+        this.player.speed = PLAYER.SPEED;
+
         this.titleDebugApplyOnStart = false;
     }
     
@@ -567,6 +600,7 @@ class Game {
         if (!this.player) {
             this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
         } else {
+            this.player.previewMode = false;
             this.player.x = 100;
             this.player.y = this.groundY - 60;
             this.player.vx = 0;
@@ -2542,6 +2576,7 @@ class Game {
         
         this.state = isFinalStage ? GAME_STATE.GAME_CLEAR : GAME_STATE.STAGE_CLEAR;
         this.stageClearPhase = 0; // 演出フェーズから開始
+        this.stageClearAnnounceTimer = 0; // アナウンス演出用タイマー
         this.stageClearMenuIndex = 0;
         this.stageClearWeaponIndex = Math.max(
             0,
@@ -2591,6 +2626,7 @@ class Game {
             if (this.returnToStageClearAfterShop) {
                 this.returnToStageClearAfterShop = false;
                 this.state = GAME_STATE.STAGE_CLEAR;
+                if (this.player) this.player.previewMode = true;
                 return;
             }
             this.currentStageNumber++;
@@ -2629,21 +2665,84 @@ class Game {
             return;
         }
 
+        // アナウンスタイマー更新と効果音トリガー
+        if (this.stageClearPhase === 0) {
+            const prevTimer = this.stageClearAnnounceTimer || 0;
+            this.stageClearAnnounceTimer = prevTimer + this.deltaTime * 1000;
+            // 「突破」表示タイミングで効果音
+            if (prevTimer < 800 && this.stageClearAnnounceTimer >= 800) {
+                audio.playStageClear();
+            }
+        }
+
         // 演出フェーズ (Phase 0)
         if (this.stageClearPhase === 0) {
+            if (this.stageClearAnnounceTimer < 2400) return; // 演出完了前はスキップ不可
             if (input.isActionJustPressed('JUMP') || input.touchJustPressed) {
-                // 決定音
-                audio.playLevelUpSelect();
-                
-                this.stageClearPhase = 1; // ステータス画面へ
-                audio.playBgm('shop'); // ここでBGMをショップ（または落ち着いたもの）に切り替え
                 audio.playSelect();
+                this.stageClearPhase = 1;
+                audio.playBgm('shop');
                 input.consumeAction('JUMP');
+
+                // プレイヤーをプレビューモードに初期化
+                if (this.player) {
+                    this.player.previewMode = true;
+                    this.player.x = 100;
+                    this.player.y = this.groundY - this.player.height;
+                    this.player.vx = 0;
+                    this.player.vy = 0;
+                    this.player.isGrounded = true;
+                    this.player.facingRight = true;
+                    this.player.isAttacking = false;
+                    this.player.currentAttack = null;
+                    this.player.attackTimer = 0;
+                    this.player.attackCombo = 0;
+                    this.player.subWeaponTimer = 0;
+                    this.player.subWeaponAction = null;
+                    this.player.isDashing = false;
+                    this.player.isCrouching = false;
+                    this.bombs = [];
+                    this.shockwaves = [];
+                    // 飛翔体リセット
+                    for (const weapon of (this.player.subWeapons || [])) {
+                        if (weapon && weapon.projectiles) weapon.projectiles = [];
+                        if (weapon && weapon.pendingShots) weapon.pendingShots = [];
+                    }
+                    this.player.resetVisualTrails();
+                }
             }
             return;
         }
 
-        // 詳細ステータス画面フェーズ (Phase 1)
+        // ===== 詳細ステータス画面フェーズ (Phase 1) =====
+
+        // プレイヤー更新（プレビューモード：Z/X/D入力 + 物理 + アニメーション）
+        if (this.player && this.player.previewMode) {
+            this.player.update(this.deltaTime, []);
+            this.updateBombs([]);
+            if (this.shockwaves) {
+                this.shockwaves.forEach(sw => sw.update(this.deltaTime));
+                this.shockwaves = this.shockwaves.filter(sw => !sw.isDestroyed);
+            }
+            // 武器切替の同期
+            this.stageClearWeaponIndex = this.player.subWeaponIndex;
+        }
+
+        // 上下キー：忍具メニュー選択時のみ装備切替
+        if (input.isActionJustPressed('UP')) {
+            if (this.stageClearMenuIndex === 0) {
+                this.cycleStageClearWeapon(-1);
+            }
+            return; // UPキーがJUMP（決定）に伝播しないよう早期リターン
+        }
+        if (input.isActionJustPressed('DOWN')) {
+            if (this.stageClearMenuIndex === 0) {
+                this.cycleStageClearWeapon(1);
+            }
+            return;
+        }
+
+        // メニュー操作（左右キー）
         const menuCount = 3;
         if (input.isActionJustPressed('LEFT')) {
             this.stageClearMenuIndex = (this.stageClearMenuIndex - 1 + menuCount) % menuCount;
@@ -2653,10 +2752,8 @@ class Game {
             this.stageClearMenuIndex = (this.stageClearMenuIndex + 1) % menuCount;
             audio.playSelect();
         }
-        if (this.stageClearMenuIndex === 0) { // UIの並び順: 0=忍具, 1=よろず屋, 2=次へ
-            if (input.isActionJustPressed('UP')) this.cycleStageClearWeapon(-1);
-            if (input.isActionJustPressed('DOWN')) this.cycleStageClearWeapon(1);
-        }
+
+        // 決定：SPACEキーのみ（UPキー経由のJUMPを除外済み）
         if (input.isActionJustPressed('JUMP')) {
             this.handleStageClearConfirm();
         }
@@ -2664,20 +2761,13 @@ class Game {
         if (input.touchJustPressed) {
             const tx = input.lastTouchX;
             const ty = input.lastTouchY;
-
-            // ui.js の renderStatusScreen と同じレイアウト計算
-            const padding = 60;
-            const panelX = padding;
-            const panelY = padding;
-            const panelW = CANVAS_WIDTH - padding * 2;
-            const panelH = CANVAS_HEIGHT - padding * 2;
-            const menuY = panelY + panelH - 110;
-            const menuW = (panelW - 80 - 40) / 3;
+            const panelW = CANVAS_WIDTH;
+            const menuY = CANVAS_HEIGHT - 160;
+            const menuW = (panelW - 120) / 3;
             const menuH = 80;
 
             for (let i = 0; i < menuCount; i++) {
-                const x = panelX + 40 + i * (menuW + 20);
-                // 判定を少し甘め（上下左右に10px余裕を持たせる）にしてズレ感を解消
+                const x = 40 + i * (menuW + 20);
                 if (tx >= x - 10 && tx <= x + menuW + 10 && ty >= menuY - 10 && ty <= menuY + menuH + 10) {
                     this.stageClearMenuIndex = i;
                     this.handleStageClearConfirm();
@@ -2713,9 +2803,9 @@ class Game {
     }
 
     handleStageClearConfirm() {
-        // UIの並び順: 0=忍具(Weapon), 1=よろず屋(Shop), 2=次へ(Next)
         if (this.stageClearMenuIndex === 2) {
-            // 次の階層へ
+            // 準備完了
+            if (this.player) this.player.previewMode = false;
             this.applyStageDefaultWeaponChoice();
             this.currentStageNumber++;
             if (this.currentStageNumber > STAGES.length) {
@@ -2724,10 +2814,11 @@ class Game {
                 this.startStageTransition();
             }
         } else if (this.stageClearMenuIndex === 0) {
-            // 忍具切り替え（決定ボタンでも切り替えできるようにする場合）
+            // 忍具切り替え
             this.cycleStageClearWeapon(1);
         } else if (this.stageClearMenuIndex === 1) {
             // よろず屋
+            if (this.player) this.player.previewMode = false;
             shop.open();
             this.returnToStageClearAfterShop = true;
             this.state = GAME_STATE.SHOP;
@@ -2747,7 +2838,7 @@ class Game {
 
     applyStageDefaultWeaponChoice() {
         if (!this.player || !Array.isArray(this.player.subWeapons) || this.player.subWeapons.length === 0) return;
-        const selected = this.player.subWeapons[this.stageClearWeaponIndex];
+        const selected = this.player.subWeapons[this.player.subWeaponIndex];
         if (!selected) return;
         const nextStage = this.currentStageNumber + 1;
         this.player.stageEquip = this.player.stageEquip || {};
@@ -2897,32 +2988,32 @@ class Game {
                 shop.render(this.ctx, this.player);
                 break;
 
-            case GAME_STATE.STAGE_CLEAR:
-                if (this.stageClearPhase === 0) {
-                    // 演出フェーズ：ステージ背景を表示したまま突破演出
-                    this.renderPlaying();
-                    renderStageClearAnnouncement(this.ctx, this.currentStageNumber, this.clearedWeapon, this.stage);
-                } else {
-                    // ステータス画面：完全独立画面（裏のステージは描画しない）
-                    renderStatusScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {
-                        menuIndex: this.stageClearMenuIndex,
-                        selectedWeaponName: this.player?.currentSubWeapon?.name || '未装備'
-                    }, this.stage, this.ui);
-                }
-                // ステージ遷移フェード
-                if (this.stageTransitionPhase === 1) {
-                   this.ctx.save();
-                   const alpha = Math.min(1.0, 1.0 - (this.stageTransitionTimer / 0.8));
-                   this.ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
-                   this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-                   this.ctx.restore();
-                } else if (this.stageTransitionPhase === 2) {
-                   this.ctx.save();
-                   this.ctx.fillStyle = '#000000';
-                   this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-                   this.ctx.restore();
-                }
-                break;
+        case GAME_STATE.STAGE_CLEAR:
+            if (this.stageClearPhase === 0) {
+                this.renderPlaying();
+                renderStageClearAnnouncement(this.ctx, this.currentStageNumber, this.clearedWeapon, this.stage);
+            } else {
+                renderStatusScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {
+                    menuIndex: this.stageClearMenuIndex,
+                    selectedWeaponName: this.player?.currentSubWeapon?.name || '未装備'
+                }, this.stage, this.ui);
+                // キャラプレビューをUI上に重ねて描画
+                this.renderStatusCharPreview();
+            }
+            // ステージ遷移フェード
+            if (this.stageTransitionPhase === 1) {
+            this.ctx.save();
+            const alpha = Math.min(1.0, 1.0 - (this.stageTransitionTimer / 0.8));
+            this.ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+            this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            this.ctx.restore();
+            } else if (this.stageTransitionPhase === 2) {
+            this.ctx.save();
+            this.ctx.fillStyle = '#000000';
+            this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            this.ctx.restore();
+            }
+            break;
 
             case GAME_STATE.GAME_CLEAR:
                 renderGameClearScreen(this.ctx, this.player);
@@ -3121,7 +3212,7 @@ class Game {
             }
         }
         
-        // プレイヤー (昇天・透明化対応)
+        // プレイヤー (透明化対応)
         // playerAlphaが0の場合は描画自体をスキップして「即時消去」を実現
         if (playerAlpha > 0) {
             ctx.save();
@@ -3173,6 +3264,48 @@ class Game {
         
         // 操作説明
         this.ui.renderControls(ctx);
+    }
+
+    renderStatusCharPreview() {
+        const ctx = this.ctx;
+        const player = this.player;
+        if (!player) return;
+
+        const previewCenterX = 280;
+        const previewGroundScreenY = 440;
+        const scale = 3.5;
+
+        ctx.save();
+
+        ctx.beginPath();
+        ctx.rect(0, 40, 840, CANVAS_HEIGHT - 280);
+        ctx.clip();
+
+        ctx.translate(previewCenterX, previewGroundScreenY);
+        ctx.scale(scale, scale);
+        ctx.translate(-(player.x + player.width / 2), -player.groundY);
+
+        player.render(ctx);
+
+        if (
+            player.currentSubWeapon &&
+            !player.subWeaponRenderedInModel &&
+            typeof player.currentSubWeapon.render === 'function'
+        ) {
+            player.currentSubWeapon.render(ctx, player);
+        }
+
+        for (const bomb of this.bombs) {
+            bomb.render(ctx);
+        }
+
+        if (this.shockwaves) {
+            for (const sw of this.shockwaves) {
+                sw.render(ctx);
+            }
+        }
+
+        ctx.restore();
     }
 }
 

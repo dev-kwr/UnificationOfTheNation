@@ -10,13 +10,13 @@ import { drawFlatButton } from './ui.js';
 // ショップアイテム
 const SHOP_ITEMS = [
     // ステータス強化
-    { id: 'hp_up', name: '体力増強', description: '最大HPを+5（最大8回まで）', price: 100, type: 'upgrade', stat: 'maxHp', value: 5 },
-    { id: 'attack_up', name: '剛力の秘術', description: '攻撃力が段階的に上昇（最大3回: 1.2→1.5→2.0倍）', price: 150, type: 'upgrade', stat: 'attackPower', value: 1 },
-    { id: 'speed_up', name: '韋駄天の術', description: '移動速度が永久に上昇する', price: 150, type: 'upgrade', stat: 'speed', value: 1.5 },
+    { id: 'hp_up', name: '活力の術', description: '最大HPを+5（最大8回まで）', price: 100, type: 'upgrade', stat: 'maxHp', value: 5 },
+    { id: 'attack_up', name: '剛力の術', description: '攻撃力が段階的に上昇（最大3回: 1.2→1.5→2.0倍）', price: 150, type: 'upgrade', stat: 'attackPower', value: 1 },
+    { id: 'speed_up', name: '韋駄天の術', description: '常時ダッシュ状態で移動可能になる', price: 150, type: 'upgrade', stat: 'speed', value: 1.5 },
     
     // スキル
-    { id: 'triple_jump', name: '三段跳び', description: '空中跳躍が合計三回可能になる', price: 300, type: 'skill', skill: 'tripleJump' },
-    { id: 'quad_jump', name: '四段跳び', description: '究極の移動術。合計四回跳躍可能', price: 600, type: 'skill', skill: 'quadJump' },
+    { id: 'double_jump', name: '二段跳び', description: '空中で一回追加跳躍が可能になる', price: 200, type: 'skill', skill: 'doubleJump' },
+    { id: 'triple_jump', name: '三段跳び', description: '空中跳躍が合計三回可能になる', price: 500, type: 'skill', skill: 'tripleJump' },
 ];
 
 export class Shop {
@@ -46,7 +46,6 @@ export class Shop {
     }
     
     updateItemList(player) {
-        // 全アイテムを常に保持し、描画側で完売状態を判定する方針に変更
         this.items = [...SHOP_ITEMS];
     }
 
@@ -69,7 +68,7 @@ export class Shop {
             this.selectedIndex = Math.max(0, this.selectedIndex - 1);
             audio.playSelect();
             input.consumeAction('UP');
-            input.consumeAction('JUMP');  // ArrowUp→JUMP の誤発火を防止
+            input.consumeAction('JUMP');
         }
         
         if (input.isActionJustPressed('DOWN')) {
@@ -96,29 +95,22 @@ export class Shop {
 
             const { shopX, shopY, shopW, shopH } = this.getLayout();
 
-            // 1. 各アイテムのタップ判定
             this.items.forEach((item, i) => {
                 const itemY = shopY + 130 + i * 65;
-                // アイテム行全体をタップ判定
                 if (tx > shopX + 30 && tx < shopX + shopW - 30 && Math.abs(ty - itemY) < 30) {
                     if (this.selectedIndex === i) {
-                        // 既に選択中なら購入
                         this.purchase(player);
                     } else {
-                        // 未選択なら選択
                         this.selectedIndex = i;
                         audio.playSelect();
                     }
                 }
             });
 
-            // 2. 下部ボタンのタップ判定
             const footerY = shopY + shopH - 60;
-            // 購入ボタン (BUY)
             if (Math.abs(tx - (shopX + shopW/2 - 80)) < 70 && Math.abs(ty - footerY) < 25) {
                 this.purchase(player);
             }
-            // 戻るボタン (EXIT)
             if (Math.abs(tx - (shopX + shopW/2 + 80)) < 70 && Math.abs(ty - footerY) < 25) {
                 this.close();
                 audio.playSelect();
@@ -137,13 +129,13 @@ export class Shop {
         if (this.purchasedSkills.has(item.id)) isSoldOut = true;
 
         if (isSoldOut) {
-            this.showMessage('既に購入済みです');
+            this.showMessage('既に習得済みです');
             return;
         }
 
-        // スキルの前提条件チェック（四段跳びなど）
-        if (item.id === 'quad_jump' && !this.purchasedSkills.has('triple_jump')) {
-            this.showMessage('三段跳びの会得が必要です');
+        // スキルの前提条件チェック
+        if (item.id === 'triple_jump' && !this.purchasedSkills.has('double_jump')) {
+            this.showMessage('二段跳びの習得が必要です');
             return;
         }
         
@@ -173,22 +165,22 @@ export class Shop {
                     player.attackPower = (player.baseAttackPower || 1) * multiplier;
                     this.showMessage(`剛力が増した！ (段階:${this.purchasedUpgrades.attack_up}/3)`);
                 } else if (item.stat === 'speed') {
-                    player.speed = (player.speed || PLAYER.SPEED) + item.value;
-                    this.purchasedSkills.add(item.id); // 韋駄天は一回限り
-                    this.showMessage('足が速くなった！');
+                    player.permanentDash = true;
+                    this.purchasedSkills.add(item.id);
+                    this.showMessage('韋駄天の域に達した！');
                 }
+
                 break;
                 
             case 'skill':
                 this.purchasedSkills.add(item.id);
-                if (item.skill === 'tripleJump') {
+                if (item.skill === 'doubleJump') {
+                    player.maxJumps = 2;
+                    this.showMessage('二段跳びを習得！');
+                } else if (item.skill === 'tripleJump') {
                     player.maxJumps = 3;
-                    this.showMessage('三段跳びを会得！');
-                } else if (item.skill === 'quadJump') {
-                    player.maxJumps = 4;
-                    this.showMessage('四段跳びを会得！');
+                    this.showMessage('三段跳びを習得！');
                 }
-                break;
                 break;
         }
         
@@ -256,11 +248,10 @@ export class Shop {
             if (item.id === 'hp_up' && this.purchasedUpgrades.hp_up >= 8) isPurchased = true;
             if (item.id === 'attack_up' && this.purchasedUpgrades.attack_up >= 3) isPurchased = true;
 
-            // スキルの表示制限（三段跳びを持っていない時の四段跳びはグレーアウトまたは非表示検討だが、一旦グレーアウト）
-            const isLocked = item.id === 'quad_jump' && !this.purchasedSkills.has('triple_jump');
+            const isLocked = item.id === 'triple_jump' && !this.purchasedSkills.has('double_jump');
             
             if (isSelected) {
-                const rectY = y - 42; // 行の中央に合わせるように微調整
+                const rectY = y - 42;
                 ctx.fillStyle = 'rgba(76, 122, 220, 0.38)';
                 ctx.fillRect(shopX + 30, rectY, shopW - 60, 68);
                 ctx.strokeStyle = 'rgba(196, 219, 255, 0.88)';
@@ -281,20 +272,21 @@ export class Shop {
             ctx.fillStyle = (isPurchased || isLocked) ? 'rgba(155, 169, 198, 0.7)' : '#ffdb73';
             ctx.font = '700 20px sans-serif';
             let priceText = `${item.price} 枚`;
-            if (isPurchased) priceText = '購入済';
+            if (isPurchased) priceText = '習得済';
             else if (isLocked) priceText = '禁制';
             ctx.fillText(priceText, shopX + shopW - 60, y - 8);
             
+            // 説明文は常にオリジナルを表示（習得済・ロック時もそのまま）
             ctx.textAlign = 'left';
             ctx.fillStyle = (isPurchased || isLocked) ? 'rgba(151, 164, 190, 0.7)' : 'rgba(200, 216, 247, 0.82)';
             ctx.font = '500 14px sans-serif';
-            const desc = isPurchased ? '既に手に入れている' : (isLocked ? '前提となる術の会得が必要' : item.description);
+            const desc = isLocked ? '前提となる術の習得が必要' : item.description;
             ctx.fillText(desc, shopX + 85, y + 16);
         });
         
         if (this.message) {
             ctx.fillStyle = 'rgba(27, 39, 75, 0.88)';
-            const msgY = shopY + shopH - 120; // ボタンとかぶらないように上に移動
+            const msgY = shopY + shopH - 120;
             ctx.fillRect(shopX + 50, msgY - 25, shopW - 100, 40);
             ctx.fillStyle = '#f0f6ff';
             ctx.font = '700 20px sans-serif';
@@ -302,17 +294,14 @@ export class Shop {
             ctx.fillText(this.message, CANVAS_WIDTH / 2, msgY + 4);
         }
         
-        // タップ用ボタン群
         const footerY = shopY + shopH - 60;
-        // 購入ボタン
         drawFlatButton(ctx, shopX + shopW/2 - 80, footerY, 140, 50, '購入', 'rgba(68, 114, 206, 0.58)');
-        // 戻るボタン
         drawFlatButton(ctx, shopX + shopW/2 + 80, footerY, 140, 50, '戻る', 'rgba(45, 57, 94, 0.65)');
 
-        // 操作説明（和風モダンなスタイルに合わせて微調整）
         ctx.textAlign = 'center';
-        ctx.fillStyle = 'rgba(236, 244, 255, 0.85)';
-        ctx.font = '600 20px sans-serif';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillStyle = 'rgba(236, 244, 255, 0.75)';
+        ctx.font = '600 14px sans-serif';
         ctx.fillText('↑↓：選択 | SPACE：購入 | X・ESC：戻る', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 35);
         
         ctx.restore();

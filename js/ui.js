@@ -1238,7 +1238,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
     const menuItems = [
         { title: `忍具：${selectedWeaponName}` },
         { title: 'よろず屋' },
-        { title: '次の階層へ' }
+        { title: '準備完了' }
     ];
 
     const subWeaponLabel = '忍具強化';
@@ -1280,322 +1280,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         ctx.restore();
 
         // --- メインレイアウト構成 ---
-        const topBarY = 100;
-
-        // --- 左側：自キャラプレビュー ---
-        const previewX = previewAreaX;
-        const previewW = leftColW;
-        const previewH = 460;
-        const previewY = topBarY - 40;
-
-        // ★変更: キャラプレビュー - 左端配置 & 全忍具Xキーモーション再現
-        if (player && typeof player.renderModel === 'function') {
-            // ★キャラを左端寄りに配置（大槍等がはみ出さないように）
-            const charPreviewX = previewAreaX + 180;
-            const charPreviewY = previewY + previewH - 60;
-            const previewScale = 4.0;
-
-            // プレビュー用ノード初期化
-            if (!player.previewScarfNodes || player.previewScarfNodes.length === 0) {
-                player.previewScarfNodes = [];
-                player.previewHairNodes = [];
-                for (let i = 0; i < 9; i++) {
-                    player.previewScarfNodes.push({ x: -i * 4.2, y: i * 1.0 });
-                    if (i < 8) player.previewHairNodes.push({ x: -i * 3.0, y: -8 + i * 0.7 });
-                }
-            }
-
-            // 物理演算（ローカル座標系）
-            const lastT = player._lastPreviewTime || time;
-            const dt = Math.min(0.033, (time - lastT) / 1000);
-            player._lastPreviewTime = time;
-
-            const localDrawY = -player.height;
-            const idleBob = Math.sin(player.motionTime * 0.005) * 1.0;
-            const localHeadY = localDrawY + 15 + idleBob;
-            const anchorXLocal = -12;
-            const anchorYLocal = localHeadY - 2;
-
-            player.updateAccessoryNodes(
-                player.previewScarfNodes, player.previewHairNodes,
-                anchorXLocal, anchorYLocal, 0, false, dt || 0.016
-            );
-
-            // 本体状態を退避
-            const saved = {
-                subWeaponTimer: player.subWeaponTimer,
-                subWeaponAction: player.subWeaponAction,
-                isAttacking: player.isAttacking,
-                currentAttack: player.currentAttack,
-                attackTimer: player.attackTimer,
-                attackCombo: player.attackCombo,
-                isGrounded: player.isGrounded,
-                facingRight: player.facingRight,
-                vx: player.vx, vy: player.vy,
-                isCrouching: player.isCrouching,
-                isDashing: player.isDashing,
-                scarfNodes: player.scarfNodes,
-                hairNodes: player.hairNodes,
-                x: player.x, y: player.y,
-                currentSubWeapon: player.currentSubWeapon
-            };
-
-            // 選択中武器の実体を取得
-            const currentWeaponName = selectedWeaponName === '未装備' ? null : selectedWeaponName;
-            let weaponInstance = null;
-            if (currentWeaponName) {
-                weaponInstance = player.subWeapons.find(w => w && w.name === currentWeaponName);
-                player.currentSubWeapon = weaponInstance || { name: currentWeaponName };
-            } else {
-                player.currentSubWeapon = null;
-            }
-
-            // ★モーションサイクル設計（Xキー使用を再現）
-            // idle期間 → 忍具使用モーション → idle期間 のループ
-            const loopDuration = 3500;
-            const cycle = time % loopDuration;
-            const motionStart = 1800; // idle後にモーション開始
-
-            // 武器種別ごとのモーション時間とアクション名を決定
-            let effectiveAction = null;
-            let effectiveDuration = 0;
-
-            if (currentWeaponName) {
-                switch (currentWeaponName) {
-                    case '手裏剣':
-                        effectiveAction = 'throw';
-                        effectiveDuration = 300;
-                        break;
-                    case '火薬玉':
-                        effectiveAction = 'throw';
-                        effectiveDuration = 300;
-                        break;
-                    case '大槍':
-                        effectiveAction = '大槍';
-                        effectiveDuration = 250;
-                        break;
-                    case '二刀流':
-                        // Xキー = combined攻撃
-                        effectiveAction = '二刀_X';
-                        effectiveDuration = 220;
-                        break;
-                    case '鎖鎌':
-                        effectiveAction = '鎖鎌';
-                        effectiveDuration = 560;
-                        break;
-                    case '大太刀':
-                        effectiveAction = '大太刀';
-                        effectiveDuration = 760;
-                        break;
-                    default:
-                        effectiveAction = currentWeaponName;
-                        effectiveDuration = 300;
-                        break;
-                }
-            }
-
-            const isMotionPhase = effectiveAction && cycle > motionStart && cycle < (motionStart + effectiveDuration);
-
-            if (isMotionPhase) {
-                const elapsed = cycle - motionStart;
-                const remaining = Math.max(0, effectiveDuration - elapsed);
-
-                // 武器種別ごとに正確な内部状態をセット
-                switch (currentWeaponName) {
-                    case '手裏剣':
-                    case '火薬玉':
-                        player.subWeaponAction = 'throw';
-                        player.subWeaponTimer = remaining;
-                        break;
-
-                    case '大槍':
-                        player.subWeaponAction = '大槍';
-                        player.subWeaponTimer = remaining;
-                        // 大槍の内部状態も同期
-                        if (weaponInstance && weaponInstance.isAttacking !== undefined) {
-                            weaponInstance.isAttacking = true;
-                            weaponInstance.attackTimer = remaining;
-                            weaponInstance.thrustPulse = Math.max(0, remaining - 70);
-                        }
-                        break;
-
-                    case '二刀流':
-                        // Xキー（combined）のモーション再現
-                        player.subWeaponAction = '二刀_X';
-                        player.subWeaponTimer = remaining;
-                        if (weaponInstance) {
-                            weaponInstance.isAttacking = true;
-                            weaponInstance.attackTimer = remaining;
-                            weaponInstance.attackType = 'combined';
-                            weaponInstance.attackDirection = 1; // facingRight
-                        }
-                        break;
-
-                    case '鎖鎌':
-                        player.subWeaponAction = '鎖鎌';
-                        player.subWeaponTimer = remaining;
-                        if (weaponInstance) {
-                            weaponInstance.isAttacking = true;
-                            weaponInstance.attackTimer = remaining;
-                            weaponInstance.attackDirection = 1;
-                            weaponInstance.owner = player;
-                        }
-                        break;
-
-                    case '大太刀':
-                        player.subWeaponAction = '大太刀';
-                        player.subWeaponTimer = remaining;
-                        if (weaponInstance) {
-                            weaponInstance.isAttacking = true;
-                            weaponInstance.attackTimer = remaining;
-                            weaponInstance.attackDirection = 1;
-                            weaponInstance.owner = player;
-                            weaponInstance.hasImpacted = false;
-                        }
-                        break;
-
-                    default:
-                        player.subWeaponAction = currentWeaponName;
-                        player.subWeaponTimer = remaining;
-                        break;
-                }
-            } else {
-                player.subWeaponTimer = 0;
-                player.subWeaponAction = null;
-                // 武器の内部状態もリセット
-                if (weaponInstance) {
-                    if (weaponInstance.isAttacking !== undefined) weaponInstance.isAttacking = false;
-                    if (weaponInstance.attackTimer !== undefined) weaponInstance.attackTimer = 0;
-                    if (weaponInstance.owner !== undefined && currentWeaponName !== '鎖鎌') {
-                        // 鎖鎌はowner参照を維持（getRenderStateで使用）
-                    }
-                    // 大太刀の地面エフェクトリセット
-                    if (currentWeaponName === '大太刀') {
-                        weaponInstance.hasImpacted = false;
-                        weaponInstance.impactFlashTimer = 0;
-                        weaponInstance.groundWaves = [];
-                        weaponInstance.impactDebris = [];
-                    }
-                    // 二刀流のprojectileリセット
-                    if (currentWeaponName === '二刀流') {
-                        weaponInstance.projectiles = [];
-                        weaponInstance.pendingCombinedProjectile = null;
-                    }
-                }
-            }
-
-            player.isAttacking = false;
-            player.currentAttack = null;
-            player.attackTimer = 0;
-            player.attackCombo = 0;
-            player.isGrounded = true;
-            player.facingRight = true;
-            player.vx = 0; player.vy = 0;
-            player.isCrouching = false;
-            player.isDashing = false;
-
-            // ノード差し替え
-            player.scarfNodes = player.previewScarfNodes;
-            player.hairNodes = player.previewHairNodes;
-
-            // リセット処理
-            if (cycle < 16) {
-                for (let i = 0; i < player.previewScarfNodes.length; i++) {
-                    player.previewScarfNodes[i].x = anchorXLocal - i * 4.2;
-                    player.previewScarfNodes[i].y = anchorYLocal + i * 1.0;
-                }
-                for (let i = 0; i < player.previewHairNodes.length; i++) {
-                    player.previewHairNodes[i].x = anchorXLocal - i * 3.0;
-                    player.previewHairNodes[i].y = anchorYLocal - 8 + i * 0.7;
-                }
-            }
-
-            // 描画
-            ctx.save();
-            ctx.translate(charPreviewX, charPreviewY);
-            ctx.scale(previewScale, previewScale);
-
-            const modelY = localDrawY; // ふわふわ（ボビング）を削除して固定位置に修正
-
-            // ★大太刀の場合、モーション中はジャンプ表現（Y座標を上げる）
-            let motionYOffset = 0;
-            if (isMotionPhase && currentWeaponName === '大太刀' && weaponInstance) {
-                const progress = weaponInstance.getProgress();
-                if (progress < 0.46) {
-                    // 上昇フェーズ
-                    motionYOffset = -Math.sin(progress / 0.46 * Math.PI) * 25;
-                } else if (progress < 0.58) {
-                    // 滞空
-                    motionYOffset = -25 + (progress - 0.46) / 0.12 * 5;
-                } else {
-                    // 落下
-                    motionYOffset = -20 + (progress - 0.58) / 0.42 * 20;
-                }
-            }
-
-            player.renderModel(ctx, -player.width / 2, modelY + motionYOffset, true, 1.0, true, {
-                useLiveAccessories: true,
-                renderHeadbandTail: true,
-                forceSubWeaponRender: false  // ★常にfalse（アイドル時の変なポーズを防止）
-            });
-
-            // ★忍具のエフェクト描画（武器自体のrender呼び出し）
-            if (isMotionPhase && weaponInstance && typeof weaponInstance.render === 'function') {
-                // 武器のrender用に一時的にプレイヤー座標をローカル座標系に設定
-                const savedX = player.x;
-                const savedY = player.y;
-                const savedWidth = player.width;
-                const savedGroundY = player.groundY;
-
-                player.x = -player.width / 2;
-                player.y = modelY + motionYOffset + player.height;
-                player.groundY = 0; // スケール後の地面位置
-
-                // forceSubWeaponRender フラグを立てて描画
-                player.forceSubWeaponRender = true;
-                weaponInstance.render(ctx, player);
-                player.forceSubWeaponRender = false;
-
-                player.x = savedX;
-                player.y = savedY;
-                player.groundY = savedGroundY;
-            }
-
-            ctx.restore();
-
-            // 状態復元
-            player.scarfNodes = saved.scarfNodes;
-            player.hairNodes = saved.hairNodes;
-            player.currentSubWeapon = saved.currentSubWeapon;
-            player.subWeaponTimer = saved.subWeaponTimer;
-            player.subWeaponAction = saved.subWeaponAction;
-            player.isAttacking = saved.isAttacking;
-            player.currentAttack = saved.currentAttack;
-            player.attackTimer = saved.attackTimer;
-            player.attackCombo = saved.attackCombo;
-            player.isGrounded = saved.isGrounded;
-            player.facingRight = saved.facingRight;
-            player.vx = saved.vx; player.vy = saved.vy;
-            player.isCrouching = saved.isCrouching;
-            player.isDashing = saved.isDashing;
-            player.x = saved.x; player.y = saved.y;
-
-            // 武器の内部状態復元
-            if (weaponInstance) {
-                if (weaponInstance.isAttacking !== undefined) weaponInstance.isAttacking = false;
-                if (weaponInstance.attackTimer !== undefined) weaponInstance.attackTimer = 0;
-                if (currentWeaponName === '大太刀') {
-                    weaponInstance.hasImpacted = false;
-                    weaponInstance.impactFlashTimer = 0;
-                    weaponInstance.groundWaves = [];
-                    weaponInstance.impactDebris = [];
-                }
-                if (currentWeaponName === '二刀流') {
-                    weaponInstance.projectiles = [];
-                    weaponInstance.pendingCombinedProjectile = null;
-                }
-            }
-        }
+        const topBarY = 60;
 
         // --- 右側：ステータス情報 ---
         const infoX = rightColX;
@@ -1677,7 +1362,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         });
 
         // --- 下部：メニュー ---
-        const menuY = CANVAS_HEIGHT - 160;
+        const menuY = CANVAS_HEIGHT - 200;
         const menuW = (panelW - 120) / 3;
         const menuH = 80;
 
@@ -1712,7 +1397,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         ctx.textAlign = 'center';
         ctx.fillStyle = 'rgba(236, 244, 255, 0.75)';
         ctx.font = '600 20px sans-serif';
-        ctx.fillText('←→：選択 | SPACE：決定 | ↑↓：装備切替', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 35);
+        ctx.fillText('←→：選択 | SPACE：決定 | ↑↓：装備切替', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 42);
 
     } finally {
         ctx.restore();
@@ -2147,14 +1832,22 @@ export function renderGameClearScreen(ctx, player) {
  */
 export function renderStageClearAnnouncement(ctx, stageNumber, weaponUnlocked, stage) {
     const time = Date.now();
+    const g = (typeof window !== 'undefined' && window.game) ? window.game : null;
+    const timer = (g && Number.isFinite(g.stageClearAnnounceTimer)) ? g.stageClearAnnounceTimer : 9999;
     const stageStr = Number.isFinite(stageNumber) ? toKanjiNumber(stageNumber) : stageNumber;
 
+    // 各要素の表示タイミング（ms）
+    const stageNameDelay = 300;
+    const clearDelay = 800;
+    const weaponDelay = 1400;
+    const pressDelay = 2400;
+
     ctx.save();
-    
-    // 緑っぽく明るい背景（ユーザーの要望：ボスBGMのまま明るい背景）
+
+    // 緑っぽく明るい背景
     ctx.fillStyle = 'rgba(60, 180, 100, 0.25)';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    
+
     const grad = ctx.createRadialGradient(
         CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 0,
         CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH * 0.7
@@ -2165,37 +1858,46 @@ export function renderStageClearAnnouncement(ctx, stageNumber, weaponUnlocked, s
     ctx.globalCompositeOperation = 'screen';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // テキスト演出
     ctx.globalCompositeOperation = 'source-over';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    
-    // 「第〇階層」 -> 固有名称
-    const stageName = (stage && stage.name) ? stage.name : `第${stageStr}階層`;
-    
     ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
     ctx.shadowBlur = 10;
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '700 42px serif'; // 明朝体系に統一
-    ctx.fillText(stageName, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 90);
-    
-    // 「突破」
-    ctx.font = '700 110px serif'; // 明朝体系に統一
-    ctx.fillStyle = '#ffd700';
-    ctx.fillText('突 破', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
 
-    if (weaponUnlocked) {
-        ctx.font = '700 30px sans-serif';
-        ctx.fillStyle = '#ffeb3b';
-        ctx.fillText(`新忍具「${weaponUnlocked}」を獲得！`, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 80);
+    const centerY = CANVAS_HEIGHT / 2 - 40;
+
+    // ステージ名（バン！）
+    if (timer >= stageNameDelay) {
+        const stageName = (stage && stage.name) ? stage.name : `第${stageStr}階層`;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '700 42px serif';
+        ctx.fillText(stageName, CANVAS_WIDTH / 2, centerY - 100);
     }
 
-    // 続行メッセージ
-    const blink = Math.floor(time / 500) % 2 === 0;
-    if (blink) {
-        ctx.font = '600 20px sans-serif';
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-        ctx.fillText('Press SPACE or Tap to View Status', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 60);
+    // 「突破」（バン！）
+    if (timer >= clearDelay) {
+        ctx.font = '700 110px serif';
+        ctx.fillStyle = '#ffd700';
+        ctx.fillText('突 破', CANVAS_WIDTH / 2, centerY);
+    }
+
+    // 新忍具獲得テキスト（バン！）
+    if (weaponUnlocked && timer >= weaponDelay) {
+        ctx.font = '700 30px sans-serif';
+        ctx.fillStyle = '#ffeb3b';
+        ctx.fillText(`新忍具「${weaponUnlocked}」を獲得！`, CANVAS_WIDTH / 2, centerY + 120);
+    }
+
+    ctx.shadowBlur = 0;
+
+    // 続行メッセージ（演出完了後に表示）
+    if (timer >= pressDelay) {
+        const blink = Math.floor(time / 500) % 2 === 0;
+        if (blink) {
+            ctx.font = '600 20px sans-serif';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.fillText('Press SPACE or Tap to View Status', CANVAS_WIDTH / 2, centerY + 200);
+        }
     }
 
     ctx.restore();

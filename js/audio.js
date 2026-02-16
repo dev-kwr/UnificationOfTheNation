@@ -220,6 +220,11 @@ class AudioManager {
         this.init();
         this.playFileSfx('se/shuriken.mp3', 0.7, 1.0, 0.02);
     }
+
+    playStageClear() {
+        this.init();
+        this.playFileSfx('se/clear.mp3', 0.9, 1.0, 0);
+    }
     
     playPlayerDeath() {
         this.init();
@@ -296,7 +301,16 @@ class AudioManager {
     playMoney() { this.init(); this.playSfx(900, 'sine', 0.15, 0.08, 1.3); }
 
     // === BGM制御（ファイル再生のみ） ===
-    playBgm(type = 'stage', stageNum = 1, fadeDuration = 1500, fadeInDuration = fadeDuration) {
+    playBgm(type = 'stage', stageNum = 1, fadeDuration = 1500, fadeInDuration) {
+        // fadeInDurationが未指定の場合はfadeDurationを使う
+        if (fadeInDuration === undefined) fadeInDuration = fadeDuration;
+        
+        // ボス戦切り替えは高速フェードで緊迫感を出す
+        if (type === 'boss') {
+            fadeDuration = Math.min(fadeDuration, 300);
+            fadeInDuration = Math.min(fadeInDuration, 400);
+        }
+
         this.resume();
         let filePath = '';
         let targetType = type;
