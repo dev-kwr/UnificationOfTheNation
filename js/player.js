@@ -2361,7 +2361,8 @@ export class Player {
         const blackCtrl2Y = blackEdgeStart.y - blackBandWidth * 0.24;
 
         // --- 白刀身 ---
-        ctx.fillStyle = '#f2f6fb';
+        // 白を少し銀寄りに抑えて、和鋼の質感に近づける
+        ctx.fillStyle = '#e6ecf2';
         ctx.beginPath();
         ctx.moveTo(upperPoints[0].x, upperPoints[0].y);
         for (let i = 1; i <= seg; i++) ctx.lineTo(upperPoints[i].x, upperPoints[i].y);
@@ -2372,7 +2373,7 @@ export class Player {
         ctx.fill();
 
         // 峰側エッジの明るい隙間を消すために、黒で上縁をなぞる
-        ctx.strokeStyle = '#0e1117';
+        ctx.strokeStyle = '#1b2430';
         ctx.lineWidth = 0.85;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
@@ -2384,7 +2385,8 @@ export class Player {
         ctx.stroke();
 
         // --- 峰側の黒レイヤ ---
-        ctx.fillStyle = '#0e1117';
+        // 漆黒ではなく暗い鋼色
+        ctx.fillStyle = '#1b2430';
         ctx.beginPath();
         ctx.moveTo(upperPoints[0].x, upperPoints[0].y + blackTopShift);
         for (let i = 1; i <= blackTipIndex; i++) {
@@ -2398,8 +2400,9 @@ export class Player {
         ctx.fill();
 
         // --- 黒と白の境界にグレーのグラデーション ---
-        const seamWaveAmp = 0.28;
-        const seamWaveFreq = 20.0;
+        // 刃文を落ち着かせる（細かすぎる波を抑える）
+        const seamWaveAmp = 0.10;
+        const seamWaveFreq = 7.0;
         const seamBaseY = (i) => upperPoints[i].y + blackBandWidth + blackBottomOverlap;
         const seamWaveY = (i) => {
             if (blackEdgeStartIndex <= 0) return seamBaseY(i);
@@ -2411,11 +2414,11 @@ export class Player {
             bladeStart, getArcY(0) + blackBandWidth - 1.1,
             bladeStart, getArcY(0) + blackBandWidth + 0.9
         );
-        seamGrad.addColorStop(0, 'rgba(70, 78, 92, 0.95)');
-        seamGrad.addColorStop(0.45, 'rgba(155, 165, 178, 0.92)');
-        seamGrad.addColorStop(1, 'rgba(240, 245, 250, 0.75)');
+        seamGrad.addColorStop(0, 'rgba(70, 78, 92, 0.82)');
+        seamGrad.addColorStop(0.45, 'rgba(145, 155, 170, 0.78)');
+        seamGrad.addColorStop(1, 'rgba(225, 234, 244, 0.62)');
         ctx.strokeStyle = seamGrad;
-        ctx.lineWidth = 1.45;
+        ctx.lineWidth = 1.15;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.beginPath();
@@ -2428,6 +2431,18 @@ export class Player {
             blackCtrl1X, blackCtrl1Y - seamWaveAmp * 0.6,
             blackTip.x, blackTip.y
         );
+        ctx.stroke();
+
+        // 横手筋（切っ先境界）を薄く追加
+        const yokoteX = upperPoints[edgeStartIndex].x;
+        const yokoteTopY = upperPoints[edgeStartIndex].y + 0.1;
+        const yokoteBottomY = lowerPoints[edgeStartIndex].y - 0.2;
+        ctx.strokeStyle = 'rgba(210, 220, 230, 0.38)';
+        ctx.lineWidth = 0.42;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(yokoteX, yokoteTopY);
+        ctx.lineTo(yokoteX, yokoteBottomY);
         ctx.stroke();
 
         // 全周輪郭は暗めにして、峰側で白が見えないようにする
