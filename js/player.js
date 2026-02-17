@@ -2215,16 +2215,22 @@ export class Player {
         ctx.save();
         ctx.translate(x, y);
         ctx.scale(scaleDir, 1);
-        ctx.rotate(angle);
+        // 垂直方向(-90度)へ角度を寄せて、刀全体を立たせる
+        const uprightTarget = -Math.PI / 2;
+        const uprightBlend = 0.28;
+        const adjustedAngle = angle + (uprightTarget - angle) * uprightBlend;
+        ctx.rotate(adjustedAngle);
 
         const scale = 0.52;
         ctx.scale(scale, scale);
-        const bl = bladeLength / scale;
+        // 剣筋(エフェクト)基準より見た目の刀身だけ少し短くする
+        const visualBladeLength = Math.max(18, bladeLength - 5);
+        const bladeReach = visualBladeLength / scale;
 
         const gripOffset = 10;
 
         // === 柄（つか）===
-        const handleStart = -26;
+        const handleStart = -23.5;
         const handleEnd = gripOffset - 1;
         const handleLen = handleEnd - handleStart;
         const handleHalfH = 2.6;
@@ -2298,159 +2304,155 @@ export class Player {
 
         // === 刀身 ===
         const bladeStart = habakiX + 2.2;
-        const bladeEnd = bladeStart + bl;
-        const bladeLen = bladeEnd - bladeStart;
+        // 先端を剣筋発生位置(= bladeLength)に合わせる
+        const bladeEnd = Math.max(bladeStart + 10, bladeReach);
+        const bl = bladeEnd - bladeStart;
+        const seg = 56;
 
-        const halfThickRoot = 2.0;
-        const halfThickTip = 1.1;
-        const soriMax = bl * 0.04;
+        // シンプル刀身:
+        // - 白ベース（刀身全体は円弧）
+        // - 白の峰側に、幅1/2・少し短い黒レイヤーを重ねる
+        // - 先端は右下側のみ丸みを残して細くする
+        const getTX = (t) => bladeStart + (bladeEnd - bladeStart) * t;
+        const sori = bl * 0.18;
+        // 根本(t=0)は直線時と同じ位置・同じ入り方にする
+        const getArcY = (t) => -(Math.pow(t, 1.8) * sori) + 0.06;
 
-        const kissakiLen = bladeLen * 0.11;
-        const kissakiStartX = bladeEnd - kissakiLen;
+        const whiteHalf = 2.2;
+        const getWhiteUpperY = (t) => getArcY(t) - whiteHalf;
+        const getWhiteLowerY = (t) => getArcY(t) + whiteHalf;
 
-        const seg = 32;
+        const upperPoints = [];
+        const lowerPoints = [];
+        for (let i = 0; i <= seg; i++) {
+            const t = i / seg;
+            upperPoints.push({ x: getTX(t), y: getWhiteUpperY(t) });
+            lowerPoints.push({ x: getTX(t), y: getWhiteLowerY(t) });
+        }
 
-        // 反り: 根元は直線、中間以降で上方向（Y負＝棟側）に反る
-        const getCenterY = (t) => -Math.pow(t, 2.5) * soriMax;
-        const getHalfThick = (t) => halfThickRoot + (halfThickTip - halfThickRoot) * t;
-        const getMuneY = (t) => getCenterY(t) - getHalfThick(t);
-        const getHaY = (t) => getCenterY(t) + getHalfThick(t);
-        const getTX = (t) => bladeStart + (kissakiStartX - bladeStart) * t;
-
-        const centerAtTip = getCenterY(1.0);
-        const muneAtTip = getMuneY(1.0);
-        const haAtTip = getHaY(1.0);
-
-        // 先端: 棟寄り
-        const tipX = bladeEnd + 2;
-        const tipY = muneAtTip + (haAtTip - muneAtTip) * 0.25;
-
-        // 刃文ライン
-        const getHamonY = (t) => {
-            const center = getCenterY(t);
-            const halfT = getHalfThick(t);
-            return center + halfT * 0.3
-                + Math.sin(t * Math.PI * 5.5 + 0.8) * 0.7
-                + Math.sin(t * Math.PI * 3.2) * 0.4;
+        // 先端形状:
+        // 峰側(上)はそのまま終端まで伸ばし、刃側(下)だけ先端へ向かって絞る
+        const tipY = upperPoints[seg].y;
+        const edgeStartIndex = Math.floor(seg * 0.9);
+        const edgeStart = lowerPoints[edgeStartIndex];
+        const edgeSpanX = bladeEnd - edgeStart.x;
+        const edgeCtrl1X = bladeEnd - edgeSpanX * 0.16;
+        const edgeCtrl1Y = tipY + whiteHalf * 0.2;
+        const edgeCtrl2X = edgeStart.x + edgeSpanX * 0.38;
+        const edgeCtrl2Y = edgeStart.y - whiteHalf * 0.24;
+        // 黒レイヤーは少し太く・長くし、峰側の隙間を潰す
+        const blackBandWidth = whiteHalf * 1.18;
+        const blackTopShift = -0.34;
+        const blackBottomOverlap = 0.08;
+        const blackTipIndex = Math.min(seg - 1, Math.floor(seg * 0.965));
+        const blackTip = {
+            x: upperPoints[blackTipIndex].x,
+            y: upperPoints[blackTipIndex].y + blackTopShift
         };
+        const blackEdgeStartIndex = Math.max(1, Math.floor(blackTipIndex * 0.89));
+        const blackEdgeStart = {
+            x: upperPoints[blackEdgeStartIndex].x,
+            y: upperPoints[blackEdgeStartIndex].y + blackBandWidth + blackBottomOverlap
+        };
+        const blackEdgeSpanX = blackTip.x - blackEdgeStart.x;
+        const blackCtrl1X = blackTip.x - blackEdgeSpanX * 0.16;
+        const blackCtrl1Y = blackTip.y + blackBandWidth * 0.2;
+        const blackCtrl2X = blackEdgeStart.x + blackEdgeSpanX * 0.38;
+        const blackCtrl2Y = blackEdgeStart.y - blackBandWidth * 0.24;
 
-        // 点列を生成
-        const munePoints = [];
-        const haPoints = [];
-        const hamonPoints = [];
-        for (let i = 0; i <= seg; i++) {
-            const t = i / seg;
-            munePoints.push({ x: getTX(t), y: getMuneY(t) });
-            haPoints.push({ x: getTX(t), y: getHaY(t) });
-            hamonPoints.push({ x: getTX(t), y: getHamonY(t) });
-        }
-
-        // 切先の制御点
-        const kissakiMuneCtrlX = kissakiStartX + kissakiLen * 0.7;
-        const kissakiMuneCtrlY = muneAtTip - 0.3;
-        const fukuraCtrlX = kissakiStartX + kissakiLen * 0.5;
-        const fukuraCtrlY = haAtTip + 0.8;
-
-        // --- 棟側（地鉄＝暗い鋼色）---
-        const jiGrad = ctx.createLinearGradient(
-            bladeStart, -halfThickRoot - soriMax - 1,
-            bladeStart, 1
-        );
-        jiGrad.addColorStop(0, '#656d78');
-        jiGrad.addColorStop(0.3, '#77808b');
-        jiGrad.addColorStop(0.6, '#8a939e');
-        jiGrad.addColorStop(1, '#9ca5af');
-
-        ctx.fillStyle = jiGrad;
+        // --- 白刀身 ---
+        ctx.fillStyle = '#f2f6fb';
         ctx.beginPath();
-        ctx.moveTo(munePoints[0].x, munePoints[0].y);
-        for (let i = 1; i <= seg; i++) ctx.lineTo(munePoints[i].x, munePoints[i].y);
-        ctx.quadraticCurveTo(kissakiMuneCtrlX, kissakiMuneCtrlY, tipX, tipY);
-        ctx.lineTo(hamonPoints[seg].x, hamonPoints[seg].y);
-        for (let i = seg - 1; i >= 0; i--) ctx.lineTo(hamonPoints[i].x, hamonPoints[i].y);
+        ctx.moveTo(upperPoints[0].x, upperPoints[0].y);
+        for (let i = 1; i <= seg; i++) ctx.lineTo(upperPoints[i].x, upperPoints[i].y);
+        // 刃側だけを先端に向けて絞って尖らせる
+        ctx.bezierCurveTo(edgeCtrl1X, edgeCtrl1Y, edgeCtrl2X, edgeCtrl2Y, edgeStart.x, edgeStart.y);
+        for (let i = edgeStartIndex - 1; i >= 0; i--) ctx.lineTo(lowerPoints[i].x, lowerPoints[i].y);
         ctx.closePath();
         ctx.fill();
 
-        // --- 刃側（研ぎ出し＝白い領域）---
-        const haGrad = ctx.createLinearGradient(
-            bladeStart, -1,
-            bladeStart, halfThickRoot + 2
-        );
-        haGrad.addColorStop(0, '#d4d9e0');
-        haGrad.addColorStop(0.2, '#e8ecf0');
-        haGrad.addColorStop(0.45, '#f4f6f9');
-        haGrad.addColorStop(0.7, '#fafbfd');
-        haGrad.addColorStop(1, '#ffffff');
-
-        ctx.fillStyle = haGrad;
+        // 峰側エッジの明るい隙間を消すために、黒で上縁をなぞる
+        ctx.strokeStyle = '#0e1117';
+        ctx.lineWidth = 0.85;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         ctx.beginPath();
-        ctx.moveTo(hamonPoints[0].x, hamonPoints[0].y);
-        for (let i = 1; i <= seg; i++) ctx.lineTo(hamonPoints[i].x, hamonPoints[i].y);
-        ctx.quadraticCurveTo(fukuraCtrlX, fukuraCtrlY, tipX, tipY);
-        ctx.quadraticCurveTo(fukuraCtrlX, haAtTip + 0.3, kissakiStartX, haAtTip);
-        for (let i = seg; i >= 0; i--) ctx.lineTo(haPoints[i].x, haPoints[i].y);
+        ctx.moveTo(upperPoints[0].x, upperPoints[0].y);
+        for (let i = 1; i <= blackTipIndex; i++) {
+            ctx.lineTo(upperPoints[i].x, upperPoints[i].y);
+        }
+        ctx.stroke();
+
+        // --- 峰側の黒レイヤ ---
+        ctx.fillStyle = '#0e1117';
+        ctx.beginPath();
+        ctx.moveTo(upperPoints[0].x, upperPoints[0].y + blackTopShift);
+        for (let i = 1; i <= blackTipIndex; i++) {
+            ctx.lineTo(upperPoints[i].x, upperPoints[i].y + blackTopShift);
+        }
+        ctx.bezierCurveTo(blackCtrl1X, blackCtrl1Y, blackCtrl2X, blackCtrl2Y, blackEdgeStart.x, blackEdgeStart.y);
+        for (let i = blackEdgeStartIndex - 1; i >= 0; i--) {
+            ctx.lineTo(upperPoints[i].x, upperPoints[i].y + blackBandWidth + blackBottomOverlap);
+        }
         ctx.closePath();
         ctx.fill();
 
-        // --- 輪郭 ---
-        ctx.strokeStyle = '#5a626c';
-        ctx.lineWidth = 0.55;
+        // --- 黒と白の境界にグレーのグラデーション ---
+        const seamWaveAmp = 0.28;
+        const seamWaveFreq = 20.0;
+        const seamBaseY = (i) => upperPoints[i].y + blackBandWidth + blackBottomOverlap;
+        const seamWaveY = (i) => {
+            if (blackEdgeStartIndex <= 0) return seamBaseY(i);
+            const t = i / blackEdgeStartIndex;
+            const wave = Math.sin(t * Math.PI * seamWaveFreq) * seamWaveAmp;
+            return seamBaseY(i) + wave;
+        };
+        const seamGrad = ctx.createLinearGradient(
+            bladeStart, getArcY(0) + blackBandWidth - 1.1,
+            bladeStart, getArcY(0) + blackBandWidth + 0.9
+        );
+        seamGrad.addColorStop(0, 'rgba(70, 78, 92, 0.95)');
+        seamGrad.addColorStop(0.45, 'rgba(155, 165, 178, 0.92)');
+        seamGrad.addColorStop(1, 'rgba(240, 245, 250, 0.75)');
+        ctx.strokeStyle = seamGrad;
+        ctx.lineWidth = 1.45;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         ctx.beginPath();
-        ctx.moveTo(munePoints[0].x, munePoints[0].y);
-        for (let i = 1; i <= seg; i++) ctx.lineTo(munePoints[i].x, munePoints[i].y);
-        ctx.quadraticCurveTo(kissakiMuneCtrlX, kissakiMuneCtrlY, tipX, tipY);
-        ctx.quadraticCurveTo(fukuraCtrlX, haAtTip + 0.3, kissakiStartX, haAtTip);
-        for (let i = seg; i >= 0; i--) ctx.lineTo(haPoints[i].x, haPoints[i].y);
+        ctx.moveTo(upperPoints[0].x, seamWaveY(0));
+        for (let i = 1; i <= blackEdgeStartIndex; i++) {
+            ctx.lineTo(upperPoints[i].x, seamWaveY(i));
+        }
+        ctx.bezierCurveTo(
+            blackCtrl2X, blackCtrl2Y + seamWaveAmp * 0.8,
+            blackCtrl1X, blackCtrl1Y - seamWaveAmp * 0.6,
+            blackTip.x, blackTip.y
+        );
+        ctx.stroke();
+
+        // 全周輪郭は暗めにして、峰側で白が見えないようにする
+        ctx.strokeStyle = '#4e5867';
+        ctx.lineWidth = 0.52;
+        ctx.lineJoin = 'miter';
+        ctx.miterLimit = 6;
+        ctx.lineCap = 'butt';
+        ctx.beginPath();
+        ctx.moveTo(upperPoints[0].x, upperPoints[0].y);
+        for (let i = 1; i <= seg; i++) ctx.lineTo(upperPoints[i].x, upperPoints[i].y);
+        ctx.bezierCurveTo(edgeCtrl1X, edgeCtrl1Y, edgeCtrl2X, edgeCtrl2Y, edgeStart.x, edgeStart.y);
+        for (let i = edgeStartIndex - 1; i >= 0; i--) ctx.lineTo(lowerPoints[i].x, lowerPoints[i].y);
         ctx.closePath();
         ctx.stroke();
 
-        // --- 刃文ライン ---
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-        ctx.lineWidth = 0.65;
+        // 明るい縁は刃側だけに限定
+        ctx.strokeStyle = '#d6e0ea';
+        ctx.lineWidth = 0.42;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         ctx.beginPath();
-        ctx.moveTo(hamonPoints[0].x, hamonPoints[0].y);
-        for (let i = 1; i <= seg; i++) ctx.lineTo(hamonPoints[i].x, hamonPoints[i].y);
-        ctx.stroke();
-
-        // 横手筋
-        ctx.strokeStyle = 'rgba(120, 130, 145, 0.5)';
-        ctx.lineWidth = 0.45;
-        ctx.beginPath();
-        ctx.moveTo(kissakiStartX, muneAtTip + 0.3);
-        ctx.lineTo(kissakiStartX, haAtTip - 0.3);
-        ctx.stroke();
-
-        // 鎬筋
-        ctx.strokeStyle = 'rgba(140, 150, 165, 0.35)';
-        ctx.lineWidth = 0.4;
-        ctx.beginPath();
-        for (let i = 0; i <= seg; i++) {
-            const t = i / seg;
-            if (i === 0) ctx.moveTo(getTX(t), getMuneY(t) + 0.7);
-            else ctx.lineTo(getTX(t), getMuneY(t) + 0.7);
-        }
-        ctx.stroke();
-
-        // 棟ハイライト
-        ctx.strokeStyle = 'rgba(190, 200, 210, 0.25)';
-        ctx.lineWidth = 0.3;
-        ctx.beginPath();
-        for (let i = 1; i < seg - 1; i++) {
-            const t = i / seg;
-            if (i === 1) ctx.moveTo(getTX(t), getMuneY(t) + 0.2);
-            else ctx.lineTo(getTX(t), getMuneY(t) + 0.2);
-        }
-        ctx.stroke();
-
-        // 刃先ハイライト
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-        ctx.lineWidth = 0.3;
-        ctx.beginPath();
-        for (let i = 1; i < seg - 1; i++) {
-            const t = i / seg;
-            if (i === 1) ctx.moveTo(getTX(t), getHaY(t) - 0.4);
-            else ctx.lineTo(getTX(t), getHaY(t) - 0.4);
-        }
+        ctx.moveTo(lowerPoints[0].x, lowerPoints[0].y);
+        for (let i = 1; i <= edgeStartIndex; i++) ctx.lineTo(lowerPoints[i].x, lowerPoints[i].y);
+        ctx.bezierCurveTo(edgeCtrl2X, edgeCtrl2Y, edgeCtrl1X, edgeCtrl1Y, upperPoints[seg].x, upperPoints[seg].y);
         ctx.stroke();
 
         ctx.restore();
@@ -3680,6 +3682,8 @@ export class Player {
             const frontAlpha = swingAlpha * 0.88;
             const width = slash.width || 13;
             const trailLen = 52;
+            const tipX = swordLen;
+            const tipY = 0;
             ctx.save();
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
@@ -3689,7 +3693,7 @@ export class Player {
             ctx.lineWidth = width * 0.72;
             ctx.beginPath();
             ctx.moveTo(swordLen - trailLen, -7.5);
-            ctx.quadraticCurveTo(swordLen - trailLen * 0.44, -2.2, swordLen + 2, 1.2);
+            ctx.quadraticCurveTo(swordLen - trailLen * 0.44, -2.2, tipX, tipY);
             ctx.stroke();
 
             ctx.shadowBlur = 0;
@@ -3697,7 +3701,7 @@ export class Player {
             ctx.lineWidth = width;
             ctx.beginPath();
             ctx.moveTo(swordLen - trailLen * 0.88, -4.1);
-            ctx.quadraticCurveTo(swordLen - trailLen * 0.36, 0.5, swordLen + 6, 3.6);
+            ctx.quadraticCurveTo(swordLen - trailLen * 0.36, 0.5, tipX, tipY);
             ctx.stroke();
             ctx.restore();
         };
