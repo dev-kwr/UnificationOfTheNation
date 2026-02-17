@@ -81,12 +81,16 @@ export function drawFlatButton(ctx, x, y, width, height, label, color) {
 }
 
 function drawControlManualLine(ctx, y = CANVAS_HEIGHT - 20) {
+    drawScreenManualLine(ctx, CONTROL_MANUAL_TEXT, y);
+}
+
+export function drawScreenManualLine(ctx, text, y = CANVAS_HEIGHT - 20) {
     ctx.save();
     ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText(CONTROL_MANUAL_TEXT, CANVAS_WIDTH / 2, y);
+    ctx.fillText(text, CANVAS_WIDTH / 2, y);
     ctx.restore();
 }
 
@@ -1216,6 +1220,9 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
     const time = Date.now();
     const menuIndex = Number.isFinite(options.menuIndex) ? options.menuIndex : 0;
     const selectedWeaponName = options.selectedWeaponName || (player?.currentSubWeapon?.name || '未装備');
+    const layer = options.layer || 'full';
+    const drawBackground = layer !== 'ui';
+    const drawUi = layer !== 'background';
     const progression = player?.progression || {};
     const normalTier = Math.max(0, Math.min(3, Number(progression.normalCombo) || 0));
     const subTier = Math.max(0, Math.min(3, Number(progression.subWeapon) || 0));
@@ -1251,40 +1258,82 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
 
     ctx.save();
     try {
-        // ★変更: 背景を明るく（紺→藍寄りに）
-        const bgGrad = ctx.createRadialGradient(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 0, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH);
-        bgGrad.addColorStop(0, '#1a2540');
-        bgGrad.addColorStop(1, '#0c1528');
-        ctx.fillStyle = bgGrad;
-        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        if (drawBackground) {
+            // ★変更: 背景を明るく（紺→藍寄りに）
+            const bgGrad = ctx.createRadialGradient(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 0, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH);
+            bgGrad.addColorStop(0, '#1a2540');
+            bgGrad.addColorStop(1, '#0c1528');
+            ctx.fillStyle = bgGrad;
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-        // メインパネル：グラスモルフィズム
-        ctx.save();
-        ctx.shadowBlur = 30;
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+            // フラットな薄いオーバーレイ
+            ctx.fillStyle = 'rgba(130, 170, 255, 0.08)';
+            ctx.fillRect(panelX, panelY, panelW, panelH);
+        }
 
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
-        ctx.fillRect(panelX, panelY, panelW, panelH);
+        if (!drawUi) {
+            return;
+        }
 
-        const panelGrad = ctx.createLinearGradient(panelX, panelY, panelX + panelW, panelY + panelH);
-        panelGrad.addColorStop(0, 'rgba(80, 120, 255, 0.14)');
-        panelGrad.addColorStop(0.5, 'rgba(40, 60, 160, 0.06)');
-        panelGrad.addColorStop(1, 'rgba(80, 120, 255, 0.14)');
-        ctx.fillStyle = panelGrad;
-        ctx.fillRect(panelX, panelY, panelW, panelH);
+        const roundedRectPath = (x, y, w, h, r) => {
+            const rr = Math.max(0, Math.min(r, Math.min(w, h) * 0.5));
+            ctx.beginPath();
+            ctx.moveTo(x + rr, y);
+            ctx.lineTo(x + w - rr, y);
+            ctx.arcTo(x + w, y, x + w, y + rr, rr);
+            ctx.lineTo(x + w, y + h - rr);
+            ctx.arcTo(x + w, y + h, x + w - rr, y + h, rr);
+            ctx.lineTo(x + rr, y + h);
+            ctx.arcTo(x, y + h, x, y + h - rr, rr);
+            ctx.lineTo(x, y + rr);
+            ctx.arcTo(x, y, x + rr, y, rr);
+            ctx.closePath();
+        };
 
-        ctx.strokeStyle = 'rgba(164, 193, 255, 0.35)';
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
-        ctx.lineWidth = 1;
-        ctx.restore();
+        const snapshotCanvas = document.createElement('canvas');
+        snapshotCanvas.width = CANVAS_WIDTH;
+        snapshotCanvas.height = CANVAS_HEIGHT;
+        const snapshotCtx = snapshotCanvas.getContext('2d');
+        // DPR環境での拡大ゴーストを防ぐため、実バックバッファを論理解像度へ正規化して取得
+        snapshotCtx.drawImage(
+            ctx.canvas,
+            0, 0, ctx.canvas.width, ctx.canvas.height,
+            0, 0, CANVAS_WIDTH, CANVAS_HEIGHT
+        );
+
+        const drawFrostedPanel = (x, y, w, h, radius = 20, {
+            blur = 12,
+            tint = 'rgba(28, 46, 92, 0.42)',
+            stroke = 'rgba(190, 216, 255, 0.36)',
+            lineWidth = 1.2
+        } = {}) => {
+            ctx.save();
+            roundedRectPath(x, y, w, h, radius);
+            ctx.clip();
+            ctx.filter = `blur(${blur}px)`;
+            ctx.drawImage(snapshotCanvas, 0, 0);
+            ctx.filter = 'none';
+            ctx.fillStyle = tint;
+            ctx.fillRect(x, y, w, h);
+            ctx.restore();
+
+            roundedRectPath(x, y, w, h, radius);
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = lineWidth;
+            ctx.stroke();
+        };
 
         // --- メインレイアウト構成 ---
-        const topBarY = 60;
-
-        // --- 右側：ステータス情報 ---
-        const infoX = rightColX;
-        const infoY = topBarY;
+        const infoPanelX = rightColX - 18;
+        const infoPanelY = 46;
+        const infoPanelW = rightColW + 4;
+        const rowInset = 16;
+        const rowX = infoPanelX + rowInset;
+        const rowW = infoPanelW - rowInset * 2;
+        const rowStartY = infoPanelY + 24;
+        const rowH = 40;
+        const rowGap = 7;
+        const menuY = CANVAS_HEIGHT - 140;
 
         ctx.textAlign = 'right';
 
@@ -1298,93 +1347,89 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
             { label: '跳躍', value: `${player.maxJumps || 1}段`, color: '#7ab5ff' }
         ];
 
+        const statsBottomY = rowStartY + statRows.length * (rowH + rowGap) - rowGap;
+        const cardY = statsBottomY + 20;
+        const cardGap = 12;
+        const cardW = (rowW - cardGap * 2) / 3;
+        const cardH = 116;
+        const infoPanelBottom = Math.min(cardY + cardH + 18, menuY - 24);
+        const infoPanelH = infoPanelBottom - infoPanelY;
+
+        drawFrostedPanel(infoPanelX, infoPanelY, infoPanelW, infoPanelH, 22, {
+            blur: 14,
+            tint: 'rgba(24, 40, 86, 0.38)',
+            stroke: 'rgba(186, 214, 255, 0.34)',
+            lineWidth: 1.3
+        });
+
         statRows.forEach((row, i) => {
-            const rowY = infoY + 45 + i * 40;
-            const boxH = 32;
-            const centerY = rowY - 20 + boxH / 2;
+            const rowY = rowStartY + i * (rowH + rowGap);
+            const centerY = rowY + rowH / 2;
 
             ctx.textBaseline = 'middle';
+            drawFrostedPanel(rowX, rowY, rowW, rowH, 10, {
+                blur: 9,
+                tint: 'rgba(42, 62, 112, 0.3)',
+                stroke: 'rgba(168, 198, 246, 0.16)',
+                lineWidth: 1.0
+            });
 
             ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
             ctx.textAlign = 'left';
             ctx.font = '600 17px sans-serif';
-            ctx.fillText(row.label, infoX + 10, centerY);
+            ctx.fillText(row.label, rowX + 14, centerY);
 
             ctx.textAlign = 'right';
             ctx.fillStyle = row.value === 'undefined段' ? '#fff' : row.color;
             ctx.font = '700 19px sans-serif';
-            ctx.fillText(row.value, rightColX + rightColW - 10, centerY);
+            ctx.fillText(row.value, rowX + rowW - 14, centerY);
             ctx.textAlign = 'left';
-
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-            ctx.beginPath();
-            ctx.moveTo(infoX, rowY + 14);
-            ctx.lineTo(rightColX + rightColW - 10, rowY + 14);
-            ctx.stroke();
         });
 
         ctx.textBaseline = 'alphabetic';
 
         // 強化状況カード
-        const cardY = infoY + 340;
-        const cardW = (rightColW - 32) / 3;
-        const cardH = 95;
-
         progressionCards.forEach((card, i) => {
-            const x = infoX + i * (cardW + 16);
-
-            const cardGrad = ctx.createLinearGradient(x, cardY, x, cardY + cardH);
-            cardGrad.addColorStop(0, 'rgba(40, 65, 120, 0.6)');
-            cardGrad.addColorStop(1, 'rgba(20, 35, 70, 0.8)');
-            ctx.fillStyle = cardGrad;
-            ctx.fillRect(x, cardY, cardW, cardH);
-            ctx.strokeStyle = 'rgba(142, 176, 243, 0.4)';
-            ctx.lineWidth = 1.5;
-            ctx.strokeRect(x, cardY, cardW, cardH);
+            const x = rowX + i * (cardW + cardGap);
+            drawFrostedPanel(x, cardY, cardW, cardH, 12, {
+                blur: 10,
+                tint: 'rgba(30, 54, 108, 0.34)',
+                stroke: 'rgba(170, 202, 252, 0.3)',
+                lineWidth: 1.1
+            });
 
             ctx.fillStyle = 'rgba(215, 230, 255, 0.95)';
             ctx.font = '700 15px sans-serif';
-            ctx.fillText(card.title, x + 12, cardY + 28);
+            ctx.fillText(card.title, x + 12, cardY + 30);
 
             ctx.fillStyle = '#fff';
-            ctx.font = '700 19px sans-serif';
-            ctx.fillText(card.detail, x + 12, cardY + 56);
+            ctx.font = '700 18px sans-serif';
+            ctx.fillText(card.detail, x + 12, cardY + 64);
 
             for (let p = 0; p < 3; p++) {
                 const gx = x + 12 + p * 28;
-                const gy = cardY + 72;
+                const gy = cardY + 86;
                 ctx.fillStyle = p < card.level ? '#8ec8ff' : 'rgba(255, 255, 255, 0.12)';
-                ctx.shadowBlur = p < card.level ? 6 : 0;
-                ctx.shadowColor = '#7ab5ff';
                 ctx.fillRect(gx, gy, 22, 7);
-                ctx.shadowBlur = 0;
             }
         });
 
         // --- 下部：メニュー ---
-        const menuY = CANVAS_HEIGHT - 200;
-        const menuW = (panelW - 120) / 3;
+        const menuStartX = 40;
+        const menuRightX = infoPanelX + infoPanelW;
+        const menuGap = 20;
+        const menuW = (menuRightX - menuStartX - menuGap * 2) / 3;
         const menuH = 80;
 
         menuItems.forEach((item, i) => {
             const selected = i === menuIndex;
-            const x = panelX + 40 + i * (menuW + 20);
-
-            if (selected) {
-                ctx.save();
-                ctx.shadowBlur = 20;
-                ctx.shadowColor = 'rgba(120, 180, 255, 0.6)';
-                ctx.fillStyle = 'rgba(80, 130, 240, 0.6)';
-                ctx.fillRect(x, menuY, menuW, menuH);
-                ctx.restore();
-            } else {
-                ctx.fillStyle = 'rgba(20, 35, 75, 0.75)';
-                ctx.fillRect(x, menuY, menuW, menuH);
-            }
-
-            ctx.strokeStyle = selected ? '#e0f0ff' : 'rgba(142, 176, 243, 0.35)';
-            ctx.lineWidth = selected ? 3 : 1.5;
-            ctx.strokeRect(x, menuY, menuW, menuH);
+            const x = menuStartX + i * (menuW + menuGap);
+            drawFrostedPanel(x, menuY, menuW, menuH, 16, {
+                blur: 10,
+                tint: selected ? 'rgba(74, 122, 220, 0.52)' : 'rgba(30, 58, 116, 0.4)',
+                stroke: selected ? 'rgba(225, 239, 255, 0.92)' : 'rgba(163, 194, 244, 0.36)',
+                lineWidth: selected ? 2.0 : 1.3
+            });
 
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -1393,11 +1438,8 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
             ctx.fillText(item.title, x + menuW / 2, menuY + menuH / 2);
         });
 
-        // 操作説明
-        ctx.textAlign = 'center';
-        ctx.fillStyle = 'rgba(236, 244, 255, 0.75)';
-        ctx.font = '600 20px sans-serif';
-        ctx.fillText('←→：選択 | SPACE：決定 | ↑↓：装備切替', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 42);
+        // 操作説明はタイトル画面と同じ見た目・位置に統一
+        drawScreenManualLine(ctx, '←→：選択 | SPACE：決定 | ↑↓：装備切替');
 
     } finally {
         ctx.restore();

@@ -613,6 +613,11 @@ export class Player {
     }
     
     jump() {
+        // 2撃目の返し中は地を這う挙動を優先し、ジャンプ入力を受けない
+        if (this.isAttacking && this.currentAttack && this.currentAttack.comboStep === 2) {
+            return;
+        }
+
         // 壁蹴り
         if (this.isWallSliding) {
             this.vx = this.wallDirection * PLAYER.SPEED * 1.5;
@@ -765,9 +770,16 @@ export class Player {
             this.vy = Math.min(this.vy, -2.4);
             this.isGrounded = false;
         } else if (step === 2) {
-            this.vx = this.vx * 0.14 + direction * impulse;
-            this.vy = Math.min(this.vy, -4.6);
-            this.isGrounded = false;
+            // 二段目は後方へ返す斬り。ジャンプせず地上寄りで繋ぐ
+            const groundedAtStart = this.isGrounded;
+            this.vx = this.vx * 0.2 + direction * impulse * 0.94;
+            if (groundedAtStart) {
+                this.vy = 0;
+                this.isGrounded = true;
+            } else {
+                // 空中発動時も上方向へは伸びないようにする
+                this.vy = Math.max(this.vy, -0.8);
+            }
         } else if (step === 3) {
             this.vx = this.vx * 0.12 + direction * impulse;
             this.vy = Math.min(this.vy, -8.2);
@@ -803,7 +815,21 @@ export class Player {
         if (activeAttack && activeAttack.comboStep && this.isGrounded) {
             this.vx *= 0.965;
         }
-        if (activeAttack && activeAttack.comboStep === 4 && this.attackTimer > 0) {
+        if (activeAttack && activeAttack.comboStep === 2 && this.attackTimer > 0) {
+            const duration = Math.max(1, activeAttack.durationMs || PLAYER.ATTACK_COOLDOWN);
+            const progress = Math.max(0, Math.min(1, 1 - (this.attackTimer / duration)));
+            const direction = this.facingRight ? 1 : -1;
+            const wind = Math.max(0, Math.min(1, progress / 0.36));
+            const swing = Math.max(0, Math.min(1, (progress - 0.36) / 0.64));
+            const swingEase = swing * swing * (3 - 2 * swing);
+            const targetVx = -direction * this.speed * (0.56 + wind * 0.32 + swingEase * 0.74);
+            this.vx = this.vx * 0.72 + targetVx * 0.28;
+            if (this.isGrounded) {
+                this.vy = 0;
+            } else {
+                this.vy = Math.max(this.vy, 1.2);
+            }
+        } else if (activeAttack && activeAttack.comboStep === 4 && this.attackTimer > 0) {
             const duration = Math.max(1, activeAttack.durationMs || PLAYER.ATTACK_COOLDOWN);
             const progress = Math.max(0, Math.min(1, 1 - (this.attackTimer / duration)));
             const direction = this.facingRight ? 1 : -1;
@@ -2777,7 +2803,7 @@ export class Player {
             let backKneeX = backHipX + dir * 0.8, backKneeY = hipLocalY + 10.1, backFootX = centerX + dir * 2.6, backFootY = bottomY + 0.2 - airborneLift * 0.55;
             let frontKneeX = frontHipX + dir * 0.9, frontKneeY = hipLocalY + 9.5, frontFootX = centerX - dir * 3.0, frontFootY = bottomY - 0.2 - airborneLift * 0.52;
             if (comboStep === 1) { backKneeX = backHipX - dir * (1.2 + comboArc * 1.2); backKneeY = hipLocalY + 9.0 - comboArc * 1.0; backFootX = centerX - dir * (4.8 + comboArc * 2.8); backFootY = bottomY - 0.6 - airborneLift * 0.45; frontKneeX = frontHipX + dir * (2.8 + comboArc * 1.6); frontKneeY = hipLocalY + 8.5 - comboArc * 1.0; frontFootX = centerX + dir * (7.6 + comboArc * 3.4); frontFootY = bottomY - 1.3 - airborneLift * 0.45; }
-            else if (comboStep === 2) { backKneeX = backHipX + dir * (2.6 + comboArc * 1.0); backKneeY = hipLocalY + 8.8 - comboArc * 0.6; backFootX = centerX + dir * (6.4 + comboArc * 2.2); backFootY = bottomY - 0.8 - airborneLift * 0.5; frontKneeX = frontHipX - dir * (2.2 + comboArc * 1.5); frontKneeY = hipLocalY + 9.4 - comboArc * 0.6; frontFootX = centerX - dir * (7.0 + comboArc * 3.0); frontFootY = bottomY - 0.5 - airborneLift * 0.5; }
+            else if (comboStep === 2) { backKneeX = backHipX + dir * (3.4 + comboArc * 1.8); backKneeY = hipLocalY + 8.6 - comboArc * 0.4; backFootX = centerX + dir * (8.4 + comboArc * 2.4); backFootY = bottomY - 0.7 - airborneLift * 0.5; frontKneeX = frontHipX - dir * (1.2 + comboArc * 1.1); frontKneeY = hipLocalY + 9.2 + comboArc * 0.2; frontFootX = centerX - dir * (3.2 + comboArc * 1.6); frontFootY = bottomY - 0.3 - airborneLift * 0.46; }
             else if (comboStep === 3) { backKneeX = backHipX - dir * (2.6 - comboArc * 1.1); backKneeY = hipLocalY + 8.5 - comboArc * 1.4; backFootX = centerX - dir * (7.2 + comboArc * 2.0); backFootY = bottomY - 0.9 - airborneLift * 0.56; frontKneeX = frontHipX + dir * (2.9 - comboArc * 1.0); frontKneeY = hipLocalY + 8.2 - comboArc * 1.5; frontFootX = centerX + dir * (7.6 + comboArc * 2.2); frontFootY = bottomY - 1.2 - airborneLift * 0.56; }
             else if (comboStep === 4) { const rise = comboProgress; const flipT = Math.max(0, (rise - 0.42) / 0.58); backKneeX = backHipX - dir * (1.4 - rise * 0.6 + flipT * 2.8); backKneeY = hipLocalY + 8.6 - rise * 2.2 - flipT * 1.2; backFootX = centerX - dir * (5.4 - rise * 1.4 + flipT * 7.8); backFootY = bottomY - 1.0 - airborneLift * (0.54 + rise * 0.22) - flipT * 1.0; frontKneeX = frontHipX + dir * (2.3 + rise * 1.0 - flipT * 2.2); frontKneeY = hipLocalY + 8.0 - rise * 2.2 - flipT * 1.1; frontFootX = centerX + dir * (7.2 + rise * 1.8 - flipT * 7.2); frontFootY = bottomY - 1.2 - airborneLift * (0.58 + rise * 0.26) - flipT * 1.1; }
             else if (comboStep === 5) { if (comboProgress < 0.3) { const t = comboProgress / 0.3; backKneeX = backHipX - dir * (1.8 - t * 0.7); backKneeY = hipLocalY + 8.7 - t * 1.5; backFootX = centerX - dir * (5.6 - t * 2.2); backFootY = bottomY - 1.0 - airborneLift * 0.62; frontKneeX = frontHipX + dir * (2.5 - t * 1.2); frontKneeY = hipLocalY + 8.5 - t * 1.5; frontFootX = centerX + dir * (7.1 - t * 2.9); frontFootY = bottomY - 1.1 - airborneLift * 0.64; } else if (comboProgress < 0.78) { const t = (comboProgress - 0.3) / 0.48; backKneeX = backHipX - dir * (1.1 + t * 1.8); backKneeY = hipLocalY + 7.2 + t * 2.4; backFootX = centerX - dir * (3.4 + t * 2.8); backFootY = bottomY - 2.4 + t * 1.7 - airborneLift * 0.44; frontKneeX = frontHipX + dir * (1.3 + t * 1.2); frontKneeY = hipLocalY + 7.0 + t * 2.5; frontFootX = centerX + dir * (4.4 + t * 1.8); frontFootY = bottomY - 2.6 + t * 1.9 - airborneLift * 0.46; } else { const t = (comboProgress - 0.78) / 0.22; backKneeX = backHipX - dir * (2.9 - t * 1.6); backKneeY = hipLocalY + 9.6 - t * 1.4; backFootX = centerX - dir * (6.2 - t * 2.4); backFootY = bottomY - 0.6 - airborneLift * 0.22; frontKneeX = frontHipX + dir * (2.7 - t * 1.4); frontKneeY = hipLocalY + 9.3 - t * 1.3; frontFootX = centerX + dir * (6.0 - t * 2.2); frontFootY = bottomY - 0.7 - airborneLift * 0.22; } }
@@ -3465,14 +3491,48 @@ export class Player {
                     swordAngle = 2.6 - 2.56 * easeOut;
                     armEndX = centerX + dir * (6 + easeOut * 26);
                     armEndY = pivotY + 9 - easeOut * 5.2;
+                    // 終端だけアイドル構えへ寄せ、1撃目終了→待機の接続を自然にする
+                    {
+                        const settleT = Math.max(0, Math.min(1, (progress - 0.78) / 0.22));
+                        const settle = settleT * settleT * (3 - 2 * settleT);
+                        const idleAngle = this.isCrouching ? -0.32 : -0.65;
+                        const idleHandX = centerX + dir * (this.isCrouching ? 12 : 15);
+                        const idleHandY = pivotY + (this.isCrouching ? 5.5 : 8.0);
+                        swordAngle += (idleAngle - swordAngle) * settle;
+                        armEndX += (idleHandX - armEndX) * settle;
+                        armEndY += (idleHandY - armEndY) * settle;
+                    }
                     trail = { mode: 'arc', originX: -20, originY: 4, radius: 82, start: 2.36, end: -0.2, width: 14.8, front: [130, 234, 255], back: [76, 154, 226] };
                     break;
                 case 2:
-                    // 閃返し（腰を返して逆方向へ）
-                    swordAngle = 0.48 + 1.96 * easeInOut;
-                    armEndX = centerX + dir * (18 - easeInOut * 30);
-                    armEndY = pivotY - 1 + easeInOut * 13.4;
-                    trail = { mode: 'arc', originX: -4, originY: -3, radius: 92, start: 0.44, end: 2.38, width: 15.6, front: [112, 222, 255], back: [70, 132, 212] };
+                    // 閃返し（後方へ返す斬り）
+                    {
+                        const wind = Math.max(0, Math.min(1, progress / 0.36));
+                        const swing = Math.max(0, Math.min(1, (progress - 0.36) / 0.64));
+                        const swingEase = swing * swing * (3 - 2 * swing);
+                        swordAngle = 0.18 + wind * 0.82 + swingEase * 1.76;
+                        armEndX = centerX + dir * (15 - wind * 8.2 - swingEase * 29.5);
+                        armEndY = pivotY + 8.2 - wind * 5.4 + swingEase * 9.4;
+                        activeBackShoulderX = backShoulderX - dir * (1.0 + swingEase * 2.0);
+                        activeBackShoulderY = backShoulderY + swingEase * 0.8;
+                        activeFrontShoulderX = frontShoulderX - dir * (0.6 + swingEase * 1.5);
+                        activeFrontShoulderY = frontShoulderY + swingEase * 0.7;
+
+                        // 終端をアイドル構えに寄せ、2撃目後の接続を自然にする
+                        const settleT = Math.max(0, Math.min(1, (progress - 0.8) / 0.2));
+                        const settle = settleT * settleT * (3 - 2 * settleT);
+                        const idleAngle = this.isCrouching ? -0.32 : -0.65;
+                        const idleHandX = centerX + dir * (this.isCrouching ? 12 : 15);
+                        const idleHandY = pivotY + (this.isCrouching ? 5.5 : 8.0);
+                        swordAngle += (idleAngle - swordAngle) * settle;
+                        armEndX += (idleHandX - armEndX) * settle;
+                        armEndY += (idleHandY - armEndY) * settle;
+                        activeBackShoulderX += (backShoulderX - activeBackShoulderX) * settle;
+                        activeBackShoulderY += (backShoulderY - activeBackShoulderY) * settle;
+                        activeFrontShoulderX += (frontShoulderX - activeFrontShoulderX) * settle;
+                        activeFrontShoulderY += (frontShoulderY - activeFrontShoulderY) * settle;
+                    }
+                    trail = { mode: 'followSlash', width: 14.8, front: [118, 230, 255], back: [72, 138, 216] };
                     break;
                 case 3:
                     // 燕返横薙ぎ（奥行き付きの水平切り）
@@ -4452,9 +4512,22 @@ export class Player {
                     armEndY = pivotY + 9 - easeOut * 5.2;
                     break;
                 case 2:
-                    swordAngle = 0.48 + 1.96 * easeInOut;
-                    armEndX = centerX + dir * (18 - easeInOut * 30);
-                    armEndY = pivotY - 1 + easeInOut * 13.4;
+                    {
+                        const wind = Math.max(0, Math.min(1, eased / 0.36));
+                        const swing = Math.max(0, Math.min(1, (eased - 0.36) / 0.64));
+                        const swingEase = swing * swing * (3 - 2 * swing);
+                        swordAngle = 0.18 + wind * 0.82 + swingEase * 1.76;
+                        armEndX = centerX + dir * (15 - wind * 8.2 - swingEase * 29.5);
+                        armEndY = pivotY + 8.2 - wind * 5.4 + swingEase * 9.4;
+                        const settleT = Math.max(0, Math.min(1, (eased - 0.8) / 0.2));
+                        const settle = settleT * settleT * (3 - 2 * settleT);
+                        const idleAngle = isCrouching ? -0.32 : -0.65;
+                        const idleHandX = centerX + dir * (isCrouching ? 12 : 15);
+                        const idleHandY = pivotY + (isCrouching ? 5.5 : 8.0);
+                        swordAngle += (idleAngle - swordAngle) * settle;
+                        armEndX += (idleHandX - armEndX) * settle;
+                        armEndY += (idleHandY - armEndY) * settle;
+                    }
                     break;
                 case 3:
                     swordAngle = -0.22 + Math.sin(eased * Math.PI) * 0.34;

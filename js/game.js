@@ -2984,7 +2984,7 @@ class Game {
                 break;
 
             case GAME_STATE.SHOP:
-                this.renderPlaying();
+                // ショップは独立画面として描画し、ステージは背面に出さない
                 shop.render(this.ctx, this.player);
                 break;
 
@@ -2993,12 +2993,20 @@ class Game {
                 this.renderPlaying();
                 renderStageClearAnnouncement(this.ctx, this.currentStageNumber, this.clearedWeapon, this.stage);
             } else {
-                renderStatusScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {
+                const statusOptions = {
                     menuIndex: this.stageClearMenuIndex,
                     selectedWeaponName: this.player?.currentSubWeapon?.name || '未装備'
+                };
+                // 背景 → キャラ → UI の順で固定
+                renderStatusScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {
+                    ...statusOptions,
+                    layer: 'background'
                 }, this.stage, this.ui);
-                // キャラプレビューをUI上に重ねて描画
                 this.renderStatusCharPreview();
+                renderStatusScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {
+                    ...statusOptions,
+                    layer: 'ui'
+                }, this.stage, this.ui);
             }
             // ステージ遷移フェード
             if (this.stageTransitionPhase === 1) {
@@ -3276,11 +3284,6 @@ class Game {
         const scale = 3.5;
 
         ctx.save();
-
-        ctx.beginPath();
-        ctx.rect(0, 40, 840, CANVAS_HEIGHT - 280);
-        ctx.clip();
-
         ctx.translate(previewCenterX, previewGroundScreenY);
         ctx.scale(scale, scale);
         ctx.translate(-(player.x + player.width / 2), -player.groundY);
