@@ -1981,12 +1981,12 @@ export class Player {
 
     getXAttackHitboxScale() {
         if (!this.isXAttackBoostActive()) return 1.0;
-        return this.isXAttackActionActive() ? 1.72 : 1.0;
+        return this.isXAttackActionActive() ? 2.45 : 1.0;
     }
 
     getXAttackTrailWidthScale() {
         if (!this.isXAttackBoostActive()) return 1.0;
-        return this.isXAttackActionActive() ? 1.8 : 1.0;
+        return this.isXAttackActionActive() ? 2.6 : 1.0;
     }
 
     isGhostVeilActive() {
@@ -4715,59 +4715,76 @@ export class Player {
         const boostActive = trailWidthScale > 1.01 && this.isAttacking;
         const normalWidthScale = 1.42;
 
-        // 5点平均で滑らかにし、細かなブレを削る
-        const smoothPoints = [];
+        // 近すぎる点は統合してパスを単純化し、ギザつきを抑える
+        const simplified = [];
+        const minGap = 6.2;
         for (let i = 0; i < points.length; i++) {
-            const p0 = points[Math.max(0, i - 2)];
-            const p1 = points[Math.max(0, i - 1)];
-            const p2 = points[i];
-            const p3 = points[Math.min(points.length - 1, i + 1)];
-            const p4 = points[Math.min(points.length - 1, i + 2)];
-            smoothPoints.push({
-                x: p0.x * 0.08 + p1.x * 0.22 + p2.x * 0.4 + p3.x * 0.22 + p4.x * 0.08,
-                y: p0.y * 0.08 + p1.y * 0.22 + p2.y * 0.4 + p3.y * 0.22 + p4.y * 0.08,
-                age: p2.age || 0,
-                life: Math.max(1, p2.life || this.comboSlashTrailActiveLifeMs)
-            });
-        }
-        if (smoothPoints.length < 3) return;
-
-        // 点数を間引いて、過剰なうねりを抑える
-        const simplified = [smoothPoints[0]];
-        const minGap = 4.5;
-        for (let i = 1; i < smoothPoints.length - 1; i++) {
-            const prev = simplified[simplified.length - 1];
-            const curr = smoothPoints[i];
-            if (Math.hypot(curr.x - prev.x, curr.y - prev.y) >= minGap) {
-                simplified.push(curr);
+            const src = points[i];
+            const life = Math.max(1, src.life || this.comboSlashTrailActiveLifeMs);
+            if (simplified.length === 0) {
+                simplified.push({ x: src.x, y: src.y, age: src.age || 0, life });
+                continue;
+            }
+            const last = simplified[simplified.length - 1];
+            const dist = Math.hypot(src.x - last.x, src.y - last.y);
+            if (dist >= minGap) {
+                simplified.push({ x: src.x, y: src.y, age: src.age || 0, life });
+            } else {
+                // 直近点へ寄せる低域フィルタ
+                last.x = last.x * 0.72 + src.x * 0.28;
+                last.y = last.y * 0.72 + src.y * 0.28;
+                last.age = Math.min(last.age, src.age || 0);
+                last.life = Math.max(last.life, life);
             }
         }
-        const tail = smoothPoints[smoothPoints.length - 1];
-        const tailDist = Math.hypot(
-            tail.x - simplified[simplified.length - 1].x,
-            tail.y - simplified[simplified.length - 1].y
-        );
-        if (tailDist >= 1.8) simplified.push(tail);
         if (simplified.length < 3) return;
 
-        // ノードが多すぎると見た目がうるさくなるため上限をかける
-        let pathPoints = simplified;
-        const maxNodes = 42;
-        if (simplified.length > maxNodes) {
-            pathPoints = [];
+        // Chaikinで角を落としてなだらかな軌跡へ
+        const chaikinSmooth = (src, passes = 2) => {
+            let out = src;
+            for (let pass = 0; pass < passes; pass++) {
+                if (out.length < 3) break;
+                const next = [out[0]];
+                for (let i = 0; i < out.length - 1; i++) {
+                    const a = out[i];
+                    const b = out[i + 1];
+                    next.push({
+                        x: a.x * 0.75 + b.x * 0.25,
+                        y: a.y * 0.75 + b.y * 0.25,
+                        age: a.age * 0.75 + b.age * 0.25,
+                        life: a.life * 0.75 + b.life * 0.25
+                    });
+                    next.push({
+                        x: a.x * 0.25 + b.x * 0.75,
+                        y: a.y * 0.25 + b.y * 0.75,
+                        age: a.age * 0.25 + b.age * 0.75,
+                        life: a.life * 0.25 + b.life * 0.75
+                    });
+                }
+                next.push(out[out.length - 1]);
+                out = next;
+            }
+            return out;
+        };
+
+        let pathPoints = chaikinSmooth(simplified, 2);
+        const maxNodes = 38;
+        if (pathPoints.length > maxNodes) {
+            const reduced = [];
             for (let i = 0; i < maxNodes; i++) {
                 const t = i / (maxNodes - 1);
-                const idx = t * (simplified.length - 1);
+                const idx = t * (pathPoints.length - 1);
                 const i0 = Math.floor(idx);
-                const i1 = Math.min(simplified.length - 1, i0 + 1);
+                const i1 = Math.min(pathPoints.length - 1, i0 + 1);
                 const k = idx - i0;
-                pathPoints.push({
-                    x: simplified[i0].x + (simplified[i1].x - simplified[i0].x) * k,
-                    y: simplified[i0].y + (simplified[i1].y - simplified[i0].y) * k,
-                    age: simplified[i0].age + (simplified[i1].age - simplified[i0].age) * k,
-                    life: simplified[i0].life + (simplified[i1].life - simplified[i0].life) * k
+                reduced.push({
+                    x: pathPoints[i0].x + (pathPoints[i1].x - pathPoints[i0].x) * k,
+                    y: pathPoints[i0].y + (pathPoints[i1].y - pathPoints[i0].y) * k,
+                    age: pathPoints[i0].age + (pathPoints[i1].age - pathPoints[i0].age) * k,
+                    life: pathPoints[i0].life + (pathPoints[i1].life - pathPoints[i0].life) * k
                 });
             }
+            pathPoints = reduced;
         }
         if (pathPoints.length < 2) return;
 

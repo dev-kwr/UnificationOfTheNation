@@ -1058,7 +1058,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
             ctx.textBaseline = 'middle';
             ctx.shadowColor = 'black';
             ctx.shadowBlur = 4;
-            ctx.fillText('Press SPACE to Start', CANVAS_WIDTH / 2, startY);
+            ctx.fillText('Press SPACE or Tap Screen to Start', CANVAS_WIDTH / 2, startY);
             ctx.shadowBlur = 0;
          }
     } else {
