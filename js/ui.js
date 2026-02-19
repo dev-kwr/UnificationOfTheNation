@@ -1043,50 +1043,17 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     // hasSave時は +240 に配置して重なり回避
     const startY = hasSave ? CANVAS_HEIGHT / 2 + 240 : CANVAS_HEIGHT / 2 + 200; 
     
-    // PCの場合(タッチ非対応)はテキスト表示、タッチデバイスはボタン表示
-    // デスクトップでタッチ対応の場合(maxTouchPoints > 0)を除外するため、UserAgentチェックを追加
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    const isTouchDevice = isMobile && ((navigator.maxTouchPoints && navigator.maxTouchPoints > 0) || ('ontouchstart' in window));
-    
-    if (!isTouchDevice) {
-         // 点滅エフェクト (PC版の元のスタイル)
-         const blink = Math.sin(Date.now() / 150) > 0;
-         if (blink) {
-            ctx.font = 'bold 24px sans-serif';
-            ctx.fillStyle = 'white';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.shadowColor = 'black';
-            ctx.shadowBlur = 4;
-            ctx.fillText('Press SPACE or Tap Screen to Start', CANVAS_WIDTH / 2, startY);
-            ctx.shadowBlur = 0;
-         }
-    } else {
-        // タッチデバイス向け「START」ボタン
-        const btnW = 320;
-        const btnH = 60;
-        
-        ctx.save();
-        // ボタン背景 (点滅なし・固定)
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-        ctx.fillRect(CANVAS_WIDTH/2 - btnW/2, startY - btnH/2, btnW, btnH);
-        
-        // 枠線 (白で固定)
-        ctx.strokeStyle = '#ffffff'; 
-        ctx.lineWidth = 3;
-        ctx.strokeRect(CANVAS_WIDTH/2 - btnW/2, startY - btnH/2, btnW, btnH);
-        
-        // テキスト
+    // 開始文言はPC/タップで統一
+    const blink = Math.sin(Date.now() / 150) > 0;
+    if (blink) {
         ctx.font = 'bold 24px sans-serif';
         ctx.fillStyle = 'white';
-        // ... (Rest of existing code context match isn't strictly needed for inner replacement but fine)
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.shadowColor = 'black';
         ctx.shadowBlur = 4;
-        ctx.fillText('GAME START', CANVAS_WIDTH / 2, startY);
-        
-        ctx.restore();
+        ctx.fillText('Press SPACE or Tap Screen to Start', CANVAS_WIDTH / 2, startY);
+        ctx.shadowBlur = 0;
     }
     
     // 不要な描画コード削除
