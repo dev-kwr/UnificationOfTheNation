@@ -449,8 +449,8 @@ export class UI {
             return ms > 0 ? Math.ceil(ms / 1000) : 0;
         };
         const activeNinjutsu = [
-            { key: 'expMagnet', label: '磁気結界', color: '#8fd6ff' },
-            { key: 'xAttack', label: '連撃拡張', color: '#9ec7ff' },
+            { key: 'expMagnet', label: '吸い寄せ', color: '#8fd6ff' },
+            { key: 'xAttack', label: '連撃強化', color: '#9ec7ff' },
             { key: 'ghostVeil', label: '透明化', color: '#b7d5ff' }
         ]
             .map((row) => ({ ...row, sec: getRemainSec(row.key) }))

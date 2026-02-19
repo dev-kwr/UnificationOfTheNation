@@ -1981,12 +1981,12 @@ export class Player {
 
     getXAttackHitboxScale() {
         if (!this.isXAttackBoostActive()) return 1.0;
-        return this.isXAttackActionActive() ? 1.38 : 1.0;
+        return this.isXAttackActionActive() ? 1.72 : 1.0;
     }
 
     getXAttackTrailWidthScale() {
         if (!this.isXAttackBoostActive()) return 1.0;
-        return this.isXAttackActionActive() ? 1.42 : 1.0;
+        return this.isXAttackActionActive() ? 1.8 : 1.0;
     }
 
     isGhostVeilActive() {
@@ -1994,7 +1994,7 @@ export class Player {
     }
 
     getGhostVeilAlpha() {
-        return this.isGhostVeilActive() ? 0.5 : 1.0;
+        return this.isGhostVeilActive() ? 0.18 : 1.0;
     }
 
     getGhostVeilBounds() {
@@ -4712,6 +4712,8 @@ export class Player {
         const points = this.comboSlashTrailPoints;
         if (!points || points.length < 2) return;
         const trailWidthScale = this.getXAttackTrailWidthScale();
+        const boostActive = trailWidthScale > 1.01 && this.isAttacking;
+        const normalWidthScale = 1.42;
 
         // 5点平均で滑らかにし、細かなブレを削る
         const smoothPoints = [];
@@ -4826,21 +4828,21 @@ export class Player {
             const startMid = Math.floor(n * 0.35);
             const startHead = Math.floor(n * 0.62);
 
-            // 外側銀帯（後ろほど薄く、先端ほど強く）
-            drawSmoothStroke(pts, 0, 8.6 * trailWidthScale, `rgba(170, 184, 200, ${life * 0.10})`);
-            drawSmoothStroke(pts, startMid, 8.8 * trailWidthScale, `rgba(170, 184, 200, ${life * 0.18})`);
-            drawSmoothStroke(pts, startHead, 9.0 * trailWidthScale, `rgba(170, 184, 200, ${life * 0.28})`);
+            // 通常剣筋: 太めの水色
+            drawSmoothStroke(pts, 0, 8.6 * normalWidthScale, `rgba(118, 198, 255, ${life * 0.12})`);
+            drawSmoothStroke(pts, startMid, 8.8 * normalWidthScale, `rgba(118, 198, 255, ${life * 0.2})`);
+            drawSmoothStroke(pts, startHead, 9.0 * normalWidthScale, `rgba(118, 198, 255, ${life * 0.3})`);
 
-            // 内側ハイライト
-            drawSmoothStroke(pts, 0, 3.4 * trailWidthScale, `rgba(232, 238, 246, ${life * 0.07})`);
-            drawSmoothStroke(pts, startMid, 3.5 * trailWidthScale, `rgba(232, 238, 246, ${life * 0.14})`);
-            drawSmoothStroke(pts, startHead, 3.6 * trailWidthScale, `rgba(232, 238, 246, ${life * 0.22})`);
+            // 通常剣筋ハイライト
+            drawSmoothStroke(pts, 0, 3.4 * normalWidthScale, `rgba(225, 242, 255, ${life * 0.09})`);
+            drawSmoothStroke(pts, startMid, 3.5 * normalWidthScale, `rgba(225, 242, 255, ${life * 0.16})`);
+            drawSmoothStroke(pts, startHead, 3.6 * normalWidthScale, `rgba(225, 242, 255, ${life * 0.24})`);
 
-            // 連撃拡張中は、当たり判定側に離した帯を追加して範囲拡張を視認しやすくする
-            if (trailWidthScale > 1.01 && this.isAttacking) {
+            // 連撃拡張中は、当たり判定側に離した銀帯を追加して範囲拡張を視認しやすくする
+            if (boostActive) {
                 const centerX = this.x + this.width * 0.5;
                 const centerY = this.y + this.height * 0.5;
-                const off = 10 + (trailWidthScale - 1) * 22;
+                const off = 16 + (trailWidthScale - 1) * 34;
                 const expanded = pts.map((p) => {
                     const vx = p.x - centerX;
                     const vy = p.y - centerY;
@@ -4851,10 +4853,10 @@ export class Player {
                         y: p.y + (vy / len) * off
                     };
                 });
-                drawSmoothStroke(expanded, 0, 10.2 * trailWidthScale, `rgba(118, 198, 255, ${life * 0.12})`);
-                drawSmoothStroke(expanded, startMid, 10.6 * trailWidthScale, `rgba(118, 198, 255, ${life * 0.2})`);
-                drawSmoothStroke(expanded, startHead, 11.0 * trailWidthScale, `rgba(118, 198, 255, ${life * 0.28})`);
-                drawSmoothStroke(expanded, startHead, 4.2 * trailWidthScale, `rgba(225, 242, 255, ${life * 0.22})`);
+                drawSmoothStroke(expanded, 0, 10.6 * trailWidthScale, `rgba(170, 184, 200, ${life * 0.12})`);
+                drawSmoothStroke(expanded, startMid, 11.0 * trailWidthScale, `rgba(170, 184, 200, ${life * 0.22})`);
+                drawSmoothStroke(expanded, startHead, 11.4 * trailWidthScale, `rgba(170, 184, 200, ${life * 0.34})`);
+                drawSmoothStroke(expanded, startHead, 4.6 * trailWidthScale, `rgba(232, 238, 246, ${life * 0.24})`);
             }
         }
 
