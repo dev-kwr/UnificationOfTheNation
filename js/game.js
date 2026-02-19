@@ -1931,24 +1931,24 @@ class Game {
 
         const d = this.player.tempNinjutsuDurations || {};
         const tempChoices = [
-          {
-            id: "temp_exp_magnet",
-            title: "引き寄せの術",
-            subtitle: "遠くの熟練値を引き寄せる",
-            durationSec: Math.max(1, Math.round((d.expMagnet || 60000) / 1000)),
-          },
-          {
-            id: "temp_x_attack",
-            title: "遠薙ぎの術",
-            subtitle: "連撃の攻撃範囲を拡張",
-            durationSec: Math.max(1, Math.round((d.xAttack || 60000) / 1000)),
-          },
-          {
-            id: "temp_ghost_veil",
-            title: "隠れ身の術",
-            subtitle: "透明になり一定時間無敵",
-            durationSec: Math.max(1, Math.round((d.ghostVeil || 60000) / 1000)),
-          },
+            {
+                id: "temp_exp_magnet",
+                title: "引き寄せの術",
+                subtitle: "遠くの熟練値を引き寄せる",
+                durationSec: Math.max(1, Math.round((d.expMagnet || 60000) / 1000)),
+            },
+            {
+                id: "temp_x_attack",
+                title: "大薙ぎの術",
+                subtitle: "連撃の攻撃範囲を拡張",
+                durationSec: Math.max(1, Math.round((d.xAttack || 60000) / 1000)),
+            },
+            {
+                id: "temp_ghost_veil",
+                title: "隠れ身の術",
+                subtitle: "透明になり一定時間無敵",
+                durationSec: Math.max(1, Math.round((d.ghostVeil || 60000) / 1000)),
+            },
         ];
         return [...availableBaseChoices, ...tempChoices.slice(0, emptySlots)];
     }
