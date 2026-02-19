@@ -351,11 +351,8 @@ export class UI {
         const expBarWidth = 250;
         const expBarHeight = 15;
         const expY = spY + 30;
-        const isMaxed = player.isAllSkillsMaxed && player.isAllSkillsMaxed();
-        const expRatio = isMaxed ? 1.0 : Math.max(0, player.exp / player.expToNext);
-        const expColors = isMaxed 
-            ? [[0, '#5a5a6a'], [0.5, '#4a4a5a'], [1, '#3a3a4a']] // 非活性（灰色系）
-            : [[0, '#53e87d'], [0.58, '#41d0b8'], [1, '#2f9dd9']]; // 通常（緑〜青）
+        const expRatio = Math.max(0, player.exp / player.expToNext);
+        const expColors = [[0, '#53e87d'], [0.58, '#41d0b8'], [1, '#2f9dd9']];
 
         drawModernGauge(barX, expY, expBarWidth, expBarHeight, expRatio, expColors);
 
@@ -365,16 +362,7 @@ export class UI {
         ctx.shadowColor = 'rgba(0,0,0,0.65)';
         ctx.shadowBlur = 5;
         ctx.fillStyle = '#fff';
-        // ラベルは常に「熟練」を表示
         ctx.fillText('熟練', x, expY + expBarHeight / 2);
-        // MAX時はバー内に「免許皆伝」テキストを表示
-        if (isMaxed) {
-            ctx.textAlign = 'center';
-            ctx.font = '700 12px sans-serif';
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-            ctx.fillText('免許皆伝', barX + expBarWidth / 2, expY + expBarHeight / 2);
-            ctx.textAlign = 'left';
-        }
         ctx.shadowBlur = 0;
         
         // --- Stage Info + マネー（右上） ---
@@ -453,6 +441,49 @@ export class UI {
             ctx.shadowBlur = 0;
             
             // 武器切替ヒントの個別表示は廃止（下部マニュアルへ統一）
+        }
+
+        const getRemainSec = (key) => {
+            if (!player.getTempNinjutsuRemainingMs) return 0;
+            const ms = player.getTempNinjutsuRemainingMs(key);
+            return ms > 0 ? Math.ceil(ms / 1000) : 0;
+        };
+        const activeNinjutsu = [
+            { key: 'expMagnet', label: '磁気結界', color: '#8fd6ff' },
+            { key: 'xAttack', label: '連撃拡張', color: '#9ec7ff' },
+            { key: 'ghostVeil', label: '透明化', color: '#b7d5ff' }
+        ]
+            .map((row) => ({ ...row, sec: getRemainSec(row.key) }))
+            .filter((row) => row.sec > 0);
+        if (activeNinjutsu.length > 0) {
+            const boxX = panelX;
+            const boxY = panelY + panelH + 8;
+            const rowH = 16;
+            const insetX = 10;
+            const boxW = 132;
+            const boxH = 8 + activeNinjutsu.length * rowH + 4;
+            ctx.save();
+            drawRoundedRectPath(boxX, boxY, boxW, boxH, 10);
+            ctx.fillStyle = 'rgba(14, 24, 48, 0.78)';
+            ctx.fill();
+            drawRoundedRectPath(boxX, boxY, boxW, boxH, 10);
+            ctx.strokeStyle = 'rgba(170, 196, 238, 0.4)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            activeNinjutsu.forEach((row, i) => {
+                const yy = boxY + 6 + i * rowH + rowH * 0.5;
+                ctx.font = '700 12px sans-serif';
+                ctx.fillStyle = row.color;
+                ctx.fillText(row.label, boxX + insetX, yy);
+                ctx.font = '700 12px sans-serif';
+                ctx.fillStyle = 'rgba(235, 245, 255, 0.95)';
+                ctx.textAlign = 'right';
+                ctx.fillText(`${row.sec}s`, boxX + boxW - insetX, yy);
+                ctx.textAlign = 'left';
+            });
+            ctx.restore();
         }
         
         // 仮想パッド
@@ -1261,13 +1292,13 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         if (drawBackground) {
             // ★変更: 背景を明るく（紺→藍寄りに）
             const bgGrad = ctx.createRadialGradient(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 0, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH);
-            bgGrad.addColorStop(0, '#1a2540');
-            bgGrad.addColorStop(1, '#0c1528');
+            bgGrad.addColorStop(0, '#223055');
+            bgGrad.addColorStop(1, '#131f39');
             ctx.fillStyle = bgGrad;
             ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
             // フラットな薄いオーバーレイ
-            ctx.fillStyle = 'rgba(130, 170, 255, 0.08)';
+            ctx.fillStyle = 'rgba(130, 170, 255, 0.1)';
             ctx.fillRect(panelX, panelY, panelW, panelH);
         }
 
@@ -1456,6 +1487,25 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
     const totalW = list.length * cardWidth + Math.max(0, list.length - 1) * gap;
     const startX = CANVAS_WIDTH / 2 - totalW / 2;
     const cardY = CANVAS_HEIGHT / 2 - 120;
+    const wrapTextLines = (text, maxWidth, maxLines = 3) => {
+        const src = String(text || '').trim();
+        if (!src) return [];
+        const chars = [...src];
+        const lines = [];
+        let line = '';
+        for (const ch of chars) {
+            const test = line + ch;
+            if (ctx.measureText(test).width <= maxWidth) {
+                line = test;
+                continue;
+            }
+            if (line) lines.push(line);
+            line = ch;
+            if (lines.length >= maxLines) break;
+        }
+        if (lines.length < maxLines && line) lines.push(line);
+        return lines.slice(0, maxLines);
+    };
 
     ctx.save();
     ctx.fillStyle = 'rgba(2, 6, 20, 0.66)';
@@ -1494,18 +1544,30 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
         ctx.fillStyle = '#ffffff';
         ctx.font = '700 28px sans-serif';
         ctx.fillText(choice.title || '', x + 22, cardY + 54);
-        ctx.font = '500 18px sans-serif';
+        ctx.font = '500 15px sans-serif';
         ctx.fillStyle = 'rgba(224, 236, 255, 0.9)';
-        ctx.fillText(choice.subtitle || '', x + 22, cardY + 96);
+        const subtitleLines = wrapTextLines(choice.subtitle || '', cardWidth - 44, 4);
+        const subtitleStartY = cardY + 94;
+        subtitleLines.forEach((line, i) => {
+            ctx.fillText(line, x + 22, subtitleStartY + i * 20);
+        });
 
-        const pipsY = cardY + 134;
-        for (let pip = 0; pip < maxLevel; pip++) {
-            ctx.fillStyle = pip < level ? '#8ec8ff' : 'rgba(210, 225, 255, 0.22)';
-            ctx.fillRect(x + 22 + pip * 34, pipsY, 24, 9);
+        const isDurationChoice = Number.isFinite(choice.durationSec);
+        const subtitleBottomY = subtitleStartY + subtitleLines.length * 20;
+        const pipsY = Math.max(cardY + 164, subtitleBottomY + 10);
+        if (!isDurationChoice) {
+            for (let pip = 0; pip < maxLevel; pip++) {
+                ctx.fillStyle = pip < level ? '#8ec8ff' : 'rgba(210, 225, 255, 0.22)';
+                ctx.fillRect(x + 22 + pip * 34, pipsY, 24, 9);
+            }
+            ctx.font = '600 16px sans-serif';
+            ctx.fillStyle = 'rgba(222, 236, 255, 0.84)';
+            ctx.fillText(`Lv ${level} / ${maxLevel}`, x + 22, pipsY + 34);
+        } else {
+            ctx.font = '700 18px sans-serif';
+            ctx.fillStyle = 'rgba(196, 232, 255, 0.94)';
+            ctx.fillText(`効果時間 ${choice.durationSec}秒`, x + 22, pipsY + 26);
         }
-        ctx.font = '600 16px sans-serif';
-        ctx.fillStyle = 'rgba(222, 236, 255, 0.84)';
-        ctx.fillText(`Lv ${level} / ${maxLevel}`, x + 22, pipsY + 34);
     });
 
     ctx.textAlign = 'center';
@@ -1827,45 +1889,62 @@ export function renderPauseScreen(ctx) {
 
 // 全クリア画面
 export function renderGameClearScreen(ctx, player) {
-    // 豪華な背景
+    // GAME OVER画面の金色版トーン
     const gradient = ctx.createRadialGradient(
         CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 0,
-        CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH / 2
+        CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH * 0.62
     );
-    gradient.addColorStop(0, '#ffd700');
-    gradient.addColorStop(0.5, '#b8860b');
-    gradient.addColorStop(1, '#1a1a1a');
+    gradient.addColorStop(0, '#ffd84a');
+    gradient.addColorStop(0.55, '#9b6f12');
+    gradient.addColorStop(1, '#151515');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    
-    // CONGRATULATIONS
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 56px serif';
+
+    // 金粉パーティクル（GAME OVERの灰エフェクトと同じ構成）
+    const loopTime = Date.now();
+    for (let i = 0; i < 15; i++) {
+        const cycleDuration = 4000;
+        const offset = i * (cycleDuration / 15);
+        const cycleProgress = ((loopTime + offset) % cycleDuration) / cycleDuration;
+        const px = CANVAS_WIDTH / 2 + Math.sin(loopTime * 0.001 + i * 0.72) * 200;
+        const py = CANVAS_HEIGHT / 2 - 100 + Math.cos(loopTime * 0.0008 + i * 0.9) * 100 + cycleProgress * 120;
+        const size = 2 + Math.sin(i * 0.5) * 1.5;
+        const particleAlpha = Math.sin(cycleProgress * Math.PI) * 0.42;
+        ctx.fillStyle = `rgba(255, 214, 96, ${particleAlpha})`;
+        ctx.beginPath();
+        ctx.arc(px, py, size, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
     ctx.textAlign = 'center';
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 4;
-    ctx.strokeText('祝・天下統一！', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 80);
-    ctx.fillText('祝・天下統一！', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 80);
-    
-    ctx.font = '32px sans-serif';
-    ctx.fillStyle = '#fff';
-    ctx.fillText('GAME CLEAR', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
-    
-    // 最終スコア
-    ctx.font = '24px sans-serif';
-    ctx.fillText('Final Level：' + player.level + '  |  Total Money：' + player.money, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
-    
-    // THANKS
-    ctx.font = '18px sans-serif';
-    ctx.fillStyle = '#ddd';
-    ctx.fillText('Thank you for playing!', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 100);
-    
-    // 続行メッセージ
-    const blink = Math.sin(Date.now() / 300) > 0;
+    ctx.shadowBlur = 0;
+
+    // 見出し（GAME OVERと同サイズ）
+    ctx.fillStyle = 'rgba(255, 247, 224, 1)';
+    ctx.font = 'bold 80px serif';
+    ctx.strokeStyle = 'rgba(20, 14, 4, 0.98)';
+    ctx.lineWidth = 5;
+    ctx.strokeText('天下統一', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 80);
+    ctx.fillText('天下統一', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 80);
+
+    // サブ見出し（GAME OVERと同サイズ）
+    ctx.font = 'bold 40px serif';
+    ctx.fillStyle = 'rgba(255, 218, 108, 1)';
+    ctx.strokeStyle = 'rgba(36, 24, 6, 0.92)';
+    ctx.lineWidth = 3;
+    ctx.strokeText('GAME CLEAR', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
+    ctx.fillText('GAME CLEAR', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
+
+    // 続行メッセージ（GAME OVERと同じサイズ感）
+    const blink = Math.floor(Date.now() / 500) % 2 === 0;
     if (blink) {
-        ctx.font = '20px sans-serif';
-        ctx.fillStyle = '#aaa';
-        ctx.fillText('Press SPACE or Tap Screen for Ending', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 150);
+        ctx.font = 'bold 20px sans-serif';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.84)';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+        ctx.shadowBlur = 4;
+        ctx.fillText('Press SPACE or Tap Screen to Continue', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 80);
+        ctx.shadowBlur = 0;
     }
 }
 

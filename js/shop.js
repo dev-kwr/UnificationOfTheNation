@@ -23,7 +23,6 @@ export class Shop {
     constructor() {
         this.isOpen = false;
         this.selectedIndex = 0;
-        this.focusZone = 'list'; // 'list' | 'footer'
         this.footerButtonIndex = 0; // 0:購入, 1:戻る
         this.items = [...SHOP_ITEMS];
         this.purchasedSkills = new Set();
@@ -42,8 +41,8 @@ export class Shop {
 
     getItemRect(index) {
         const { shopX, shopY, shopW } = this.getLayout();
-        const listTop = shopY + 112;
-        const rowH = 62;
+        const listTop = shopY + 102;
+        const rowH = 54;
         const rowGap = 8;
         return {
             x: shopX + 30,
@@ -55,12 +54,12 @@ export class Shop {
 
     getFooterButtons() {
         const { shopX, shopY, shopW, shopH } = this.getLayout();
-        const h = 56;
-        const w = 170;
-        const gap = 24;
+        const h = 52;
+        const w = 154;
+        const gap = 20;
         const totalW = w * 2 + gap;
         const startX = shopX + (shopW - totalW) * 0.5;
-        const y = shopY + shopH - h - 26;
+        const y = shopY + shopH - h - 30;
         return {
             buy: { x: startX, y, w, h },
             back: { x: startX + w + gap, y, w, h }
@@ -71,7 +70,6 @@ export class Shop {
         this.isOpen = true;
         this.updateItemList(player);
         this.selectedIndex = 0;
-        this.focusZone = 'list';
         this.footerButtonIndex = 0;
         this.message = '';
     }
@@ -95,45 +93,37 @@ export class Shop {
         }
         
         // --- キーボード操作 ---
+        let movedSelectionThisFrame = false;
         if (input.isActionJustPressed('UP')) {
-            if (this.focusZone === 'footer') {
-                this.focusZone = 'list';
-            } else {
-                this.selectedIndex = Math.max(0, this.selectedIndex - 1);
-            }
+            this.selectedIndex = Math.max(0, this.selectedIndex - 1);
             audio.playSelect();
             input.consumeAction('UP');
+            // ArrowUpがJUMPと同時入力になるため、このフレームの決定入力は無効化
             input.consumeAction('JUMP');
+            movedSelectionThisFrame = true;
         }
         
         if (input.isActionJustPressed('DOWN')) {
-            if (this.focusZone === 'footer') {
-                // フッターフォーカス中は維持
-            } else if (this.selectedIndex >= this.items.length - 1) {
-                this.focusZone = 'footer';
-            } else {
-                this.selectedIndex = Math.min(this.items.length - 1, this.selectedIndex + 1);
-            }
+            this.selectedIndex = Math.min(this.items.length - 1, this.selectedIndex + 1);
             audio.playSelect();
             input.consumeAction('DOWN');
+            movedSelectionThisFrame = true;
         }
 
         if (input.isActionJustPressed('LEFT')) {
-            this.focusZone = 'footer';
-            this.footerButtonIndex = 0;
+            this.footerButtonIndex = Math.max(0, this.footerButtonIndex - 1);
             audio.playSelect();
             input.consumeAction('LEFT');
         }
 
         if (input.isActionJustPressed('RIGHT')) {
-            this.focusZone = 'footer';
-            this.footerButtonIndex = 1;
+            this.footerButtonIndex = Math.min(1, this.footerButtonIndex + 1);
             audio.playSelect();
             input.consumeAction('RIGHT');
         }
         
-        if (input.isActionJustPressed('JUMP')) {
-            if (this.focusZone === 'footer' && this.footerButtonIndex === 1) {
+        if (!movedSelectionThisFrame && input.isActionJustPressed('JUMP')) {
+            if (this.footerButtonIndex === 1) {
                 this.close();
             } else {
                 this.purchase(player);
@@ -155,7 +145,6 @@ export class Shop {
             this.items.forEach((item, i) => {
                 const rect = this.getItemRect(i);
                 if (tx > rect.x && tx < rect.x + rect.w && ty > rect.y && ty < rect.y + rect.h) {
-                    this.focusZone = 'list';
                     if (this.selectedIndex === i) {
                         this.purchase(player);
                     } else {
@@ -172,7 +161,6 @@ export class Shop {
                 ty > buttons.buy.y &&
                 ty < buttons.buy.y + buttons.buy.h
             ) {
-                this.focusZone = 'footer';
                 this.footerButtonIndex = 0;
                 this.purchase(player);
             }
@@ -183,7 +171,6 @@ export class Shop {
                 ty > buttons.back.y &&
                 ty < buttons.back.y + buttons.back.h
             ) {
-                this.focusZone = 'footer';
                 this.footerButtonIndex = 1;
                 this.close();
                 audio.playSelect();
@@ -257,11 +244,7 @@ export class Shop {
                 break;
         }
         
-        if (item.type === 'skill' || item.id === 'speed_up') {
-            audio.playPowerUp();
-        } else {
-            audio.playHeal();
-        }
+        audio.playItemPurchase();
         this.updateItemList();
         if (this.selectedIndex >= this.items.length) {
             this.selectedIndex = this.items.length - 1;
@@ -315,7 +298,7 @@ export class Shop {
             ctx.stroke();
         };
 
-        ctx.fillStyle = 'rgba(6, 10, 24, 0.96)';
+        ctx.fillStyle = 'rgba(10, 18, 34, 0.9)';
         ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
         
         const { shopX, shopY, shopW, shopH } = this.getLayout();
@@ -332,32 +315,32 @@ export class Shop {
         
         drawFrostedPanel(snapshotCanvas, shopX, shopY, shopW, shopH, 28, {
             blur: 14,
-            tint: 'rgba(15, 32, 74, 0.48)',
-            stroke: 'rgba(168, 198, 246, 0.44)',
+            tint: 'rgba(34, 56, 108, 0.36)',
+            stroke: 'rgba(186, 214, 255, 0.34)',
             lineWidth: 1.3
         });
  
         ctx.fillStyle = '#f0f6ff';
-        ctx.font = '700 30px sans-serif';
+        ctx.font = '700 24px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('よろず屋', CANVAS_WIDTH / 2, shopY + 72);
+        ctx.fillText('よろず屋', CANVAS_WIDTH / 2, shopY + 66);
         
         ctx.lineWidth = 1.4;
         ctx.strokeStyle = 'rgba(164, 193, 255, 0.26)';
         ctx.beginPath();
-        ctx.moveTo(shopX + 42, shopY + 92);
-        ctx.lineTo(shopX + shopW - 42, shopY + 92);
+        ctx.moveTo(shopX + 42, shopY + 86);
+        ctx.lineTo(shopX + shopW - 42, shopY + 86);
         ctx.stroke();
  
-        ctx.font = '700 16px sans-serif';
+        ctx.font = '700 14px sans-serif';
         ctx.textAlign = 'right';
         ctx.fillStyle = '#ffd96b';
         const moneyLabel = `小判: ${player.money}`;
-        ctx.fillText(moneyLabel, shopX + shopW - 32, shopY + 70);
+        ctx.fillText(moneyLabel, shopX + shopW - 32, shopY + 66);
  
         this.items.forEach((item, i) => {
             const rect = this.getItemRect(i);
-            const isSelected = this.focusZone === 'list' && i === this.selectedIndex;
+            const isSelected = i === this.selectedIndex;
             
             // 完売判定
             let isPurchased = this.purchasedSkills.has(item.id);
@@ -368,28 +351,34 @@ export class Shop {
             
             drawFrostedPanel(snapshotCanvas, rect.x, rect.y, rect.w, rect.h, 14, {
                 blur: 10,
-                tint: isSelected ? 'rgba(74, 122, 220, 0.42)' : 'rgba(28, 54, 112, 0.3)',
-                stroke: isSelected ? 'rgba(204, 225, 255, 0.88)' : 'rgba(158, 189, 240, 0.26)',
-                lineWidth: isSelected ? 1.8 : 1.0
+                tint: isSelected
+                    ? 'rgba(92, 140, 228, 0.42)'
+                    : 'rgba(46, 74, 136, 0.24)',
+                stroke: isSelected
+                    ? 'rgba(214, 232, 255, 0.92)'
+                    : 'rgba(158, 189, 240, 0.26)',
+                lineWidth: isSelected ? 1.9 : 1.0
             });
 
             if (isSelected) {
-                ctx.fillStyle = 'rgba(205, 228, 255, 0.95)';
-                ctx.font = '700 18px sans-serif';
+                ctx.fillStyle = 'rgba(212, 232, 255, 0.98)';
+                ctx.font = '700 16px sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText('◆', rect.x + 28, rect.y + rect.h / 2);
             }
             
-            const nameY = rect.y + 22;
-            const descY = rect.y + 45;
+            const nameY = rect.y + 19;
+            const descY = rect.y + 38;
             const priceY = rect.y + rect.h / 2;
 
             ctx.textAlign = 'left';
             ctx.textBaseline = 'middle';
-            ctx.fillStyle = (isPurchased || isLocked) ? 'rgba(155, 169, 198, 0.7)' : (isSelected ? '#ffffff' : 'rgba(232, 241, 255, 0.93)');
-            let titleSize = 20;
-            while (titleSize > 15) {
+            ctx.fillStyle = (isPurchased || isLocked)
+                ? 'rgba(155, 169, 198, 0.7)'
+                : (isSelected ? '#ffffff' : 'rgba(232, 241, 255, 0.93)');
+            let titleSize = 18;
+            while (titleSize > 14) {
                 ctx.font = `700 ${titleSize}px sans-serif`;
                 if (ctx.measureText(item.name).width <= rect.w - 228) break;
                 titleSize -= 1;
@@ -399,7 +388,7 @@ export class Shop {
             ctx.textAlign = 'right';
             ctx.textBaseline = 'middle';
             ctx.fillStyle = (isPurchased || isLocked) ? 'rgba(155, 169, 198, 0.7)' : '#ffdb73';
-            ctx.font = '700 16px sans-serif';
+            ctx.font = '700 15px sans-serif';
             let priceText = `${item.price} 枚`;
             if (isPurchased) priceText = '習得済';
             else if (isLocked) priceText = '禁制';
@@ -415,49 +404,66 @@ export class Shop {
         
         const buttons = this.getFooterButtons();
         if (this.message) {
-            const msgW = shopW - 140;
+            const msgW = shopW - 220;
             const msgX = shopX + (shopW - msgW) * 0.5;
-            const msgH = 36;
-            const msgY = shopY + 102;
+            const msgH = 34;
+            const lastRect = this.getItemRect(this.items.length - 1);
+            const topBound = lastRect.y + lastRect.h;
+            const bottomBound = buttons.buy.y;
+            const midY = (topBound + bottomBound) * 0.5;
+            const msgY = midY - msgH * 0.5;
             drawFrostedPanel(snapshotCanvas, msgX, msgY, msgW, msgH, 10, {
                 blur: 10,
-                tint: 'rgba(28, 50, 102, 0.42)',
-                stroke: 'rgba(183, 209, 255, 0.35)',
+                tint: 'rgba(44, 72, 132, 0.38)',
+                stroke: 'rgba(176, 204, 248, 0.34)',
                 lineWidth: 1.2
             });
             ctx.fillStyle = '#f0f6ff';
             ctx.textBaseline = 'middle';
-            ctx.font = '700 16px sans-serif';
+            let messageSize = 16;
+            while (messageSize > 12) {
+                ctx.font = `700 ${messageSize}px sans-serif`;
+                if (ctx.measureText(this.message).width <= msgW - 20) break;
+                messageSize -= 1;
+            }
             ctx.textAlign = 'center';
             ctx.fillText(this.message, msgX + msgW / 2, msgY + msgH / 2);
         }
         
-        const buySelected = this.focusZone === 'footer' && this.footerButtonIndex === 0;
-        const backSelected = this.focusZone === 'footer' && this.footerButtonIndex === 1;
+        const buySelected = this.footerButtonIndex === 0;
+        const backSelected = this.footerButtonIndex === 1;
         drawFrostedPanel(snapshotCanvas, buttons.buy.x, buttons.buy.y, buttons.buy.w, buttons.buy.h, 16, {
             blur: 10,
-            tint: buySelected ? 'rgba(74, 122, 220, 0.54)' : 'rgba(30, 58, 116, 0.42)',
-            stroke: buySelected ? 'rgba(230, 242, 255, 0.92)' : 'rgba(165, 194, 243, 0.38)',
+            tint: buySelected
+                ? 'rgba(98, 146, 232, 0.56)'
+                : 'rgba(46, 74, 136, 0.36)',
+            stroke: buySelected
+                ? 'rgba(242, 248, 255, 0.96)'
+                : 'rgba(165, 194, 243, 0.38)',
             lineWidth: buySelected ? 2.0 : 1.3
         });
         drawFrostedPanel(snapshotCanvas, buttons.back.x, buttons.back.y, buttons.back.w, buttons.back.h, 16, {
             blur: 10,
-            tint: backSelected ? 'rgba(74, 122, 220, 0.54)' : 'rgba(30, 58, 116, 0.42)',
-            stroke: backSelected ? 'rgba(230, 242, 255, 0.92)' : 'rgba(165, 194, 243, 0.38)',
+            tint: backSelected
+                ? 'rgba(98, 146, 232, 0.56)'
+                : 'rgba(46, 74, 136, 0.36)',
+            stroke: backSelected
+                ? 'rgba(242, 248, 255, 0.96)'
+                : 'rgba(165, 194, 243, 0.38)',
             lineWidth: backSelected ? 2.0 : 1.3
         });
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#fff';
-        let buyFont = 20;
-        while (buyFont > 16) {
+        let buyFont = 18;
+        while (buyFont > 14) {
             ctx.font = `700 ${buyFont}px sans-serif`;
             if (ctx.measureText('購入').width <= buttons.buy.w - 24) break;
             buyFont -= 1;
         }
         ctx.fillText('購入', buttons.buy.x + buttons.buy.w / 2, buttons.buy.y + buttons.buy.h / 2);
-        let backFont = 20;
-        while (backFont > 16) {
+        let backFont = 18;
+        while (backFont > 14) {
             ctx.font = `700 ${backFont}px sans-serif`;
             if (ctx.measureText('戻る').width <= buttons.back.w - 24) break;
             backFont -= 1;
@@ -465,7 +471,7 @@ export class Shop {
         ctx.fillText('戻る', buttons.back.x + buttons.back.w / 2, buttons.back.y + buttons.back.h / 2);
 
         // 操作説明はタイトル画面と同じ見た目・位置に統一
-        drawScreenManualLine(ctx, '↑↓：選択 | ←→：購入/戻る | SPACE：決定 | X・ESC：戻る');
+        drawScreenManualLine(ctx, '↑↓：術選択 | ←→：購入/戻る | SPACE：決定 | X・ESC：戻る');
         
         ctx.restore();
     }

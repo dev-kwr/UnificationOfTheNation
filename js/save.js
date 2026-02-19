@@ -33,7 +33,8 @@ export class SaveManager {
                 progression: {
                     normalCombo: player.progression?.normalCombo || 0,
                     subWeapon: player.progression?.subWeapon || 0,
-                    specialClone: player.progression?.specialClone || 0
+                    specialClone: player.progression?.specialClone || 0,
+                    ninjutsuUnlockStage: player.progression?.ninjutsuUnlockStage || 0
                 },
                 unlockedSkills: game.shop ? Array.from(game.shop.purchasedSkills) : [],
                 currentSubWeapon: player.currentSubWeapon ? player.currentSubWeapon.name : null
@@ -119,7 +120,8 @@ export class SaveManager {
             player.progression = {
                 normalCombo: Math.max(0, Math.min(3, saveData.player.progression.normalCombo || 0)),
                 subWeapon: Math.max(0, Math.min(3, saveData.player.progression.subWeapon || 0)),
-                specialClone: Math.max(0, Math.min(3, saveData.player.progression.specialClone || 0))
+                specialClone: Math.max(0, Math.min(3, saveData.player.progression.specialClone || 0)),
+                ninjutsuUnlockStage: Math.max(0, Math.min(3, saveData.player.progression.ninjutsuUnlockStage || 0))
             };
             if (typeof player.rebuildSpecialCloneSlots === 'function') player.rebuildSpecialCloneSlots();
             if (typeof player.refreshSubWeaponScaling === 'function') player.refreshSubWeaponScaling();

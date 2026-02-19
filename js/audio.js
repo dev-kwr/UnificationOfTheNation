@@ -7,6 +7,7 @@ class AudioManager {
         this.audioContext = null;
         this.masterGain = null;
         this.sfxGain = null;
+        this.muteStorageKey = 'uon_audio_muted';
         
         // BGM管理
         this.bgmAudio = null; // 現在再生中のAudio要素
@@ -15,6 +16,7 @@ class AudioManager {
         this.isMuted = false;
         this.bgmRetryRegistered = false;
         this.bgmRetryHandler = null;
+        this.bgmPausedByGame = false;
         
         // 初期ボリューム
         this.masterVolume = 0.6;
@@ -50,6 +52,13 @@ class AudioManager {
             ooyari: new Audio('se/ooyari.mp3'),
             shuriken: new Audio('se/shuriken.mp3'),
             katana: new Audio('se/katana.mp3'),
+            combined: new Audio('se/combined.mp3'),
+            exp: new Audio('se/exp.mp3'),
+            cursor: new Audio('se/cursor.mp3'),
+            gamestart: new Audio('se/gamestart.mp3'),
+            levelup: new Audio('se/levelup.mp3'),
+            skillup: new Audio('se/skillup.mp3'),
+            item: new Audio('se/item.mp3'),
             jump: new Audio('se/jump.mp3'),
             dash: new Audio('se/dash.mp3'),
             knockdown: new Audio('se/knockdown.mp3'),
@@ -61,6 +70,28 @@ class AudioManager {
             audio.preload = 'auto';
             audio.load();
         });
+
+        this.restoreMuteState();
+    }
+
+    restoreMuteState() {
+        try {
+            if (typeof window === 'undefined' || !window.localStorage) return;
+            const raw = window.localStorage.getItem(this.muteStorageKey);
+            if (raw === '1') this.isMuted = true;
+            if (raw === '0') this.isMuted = false;
+        } catch (e) {
+            // localStorage が使えない環境では無視
+        }
+    }
+
+    persistMuteState() {
+        try {
+            if (typeof window === 'undefined' || !window.localStorage) return;
+            window.localStorage.setItem(this.muteStorageKey, this.isMuted ? '1' : '0');
+        } catch (e) {
+            // 保存失敗は非致命
+        }
     }
     
     resume() {
@@ -68,7 +99,13 @@ class AudioManager {
             this.audioContext.resume();
         }
         // HTMLAudioElementはContextと独立しているが、念のため
-        if (this.bgmAudio && this.bgmAudio.paused && !this.isMuted && !this.bgmAudio._isFadingOut) {
+        if (
+            this.bgmAudio &&
+            this.bgmAudio.paused &&
+            !this.isMuted &&
+            !this.bgmAudio._isFadingOut &&
+            !this.bgmPausedByGame
+        ) {
             this.tryPlayCurrentBgm(true);
         }
     }
@@ -85,7 +122,7 @@ class AudioManager {
             
             // マスター出力
             this.masterGain = this.audioContext.createGain();
-            this.masterGain.gain.value = this.masterVolume;
+            this.masterGain.gain.value = this.isMuted ? 0 : this.masterVolume;
             this.masterGain.connect(this.audioContext.destination);
             
             // SFX 出力
@@ -113,7 +150,7 @@ class AudioManager {
     }
     
     // === 効果音 ===
-    playFileSfx(filePath, volume = 1.0, playbackRate = 1.0, startTime = 0) {
+    playFileSfx(filePath, volume = 1.0, playbackRate = 1.0, startTime = 0.02, preferPoolDirect = false) {
         if (this.isMuted) return;
         
         // プリロード済みプールにあるか確認（ファイル名だけで判定）
@@ -121,8 +158,14 @@ class AudioManager {
         let sfx;
         
         if (this.sfxPool[fileName]) {
-            // 生成済みのものをクローン（同時再生を可能にするため）
-            sfx = this.sfxPool[fileName].cloneNode();
+            const pooled = this.sfxPool[fileName];
+            if (preferPoolDirect && (pooled.paused || pooled.ended)) {
+                // 開始遅延を減らすため、空いている時はプール本体を直接使う
+                sfx = pooled;
+            } else {
+                // 同時再生が必要な場合はクローン
+                sfx = pooled.cloneNode();
+            }
         } else {
             sfx = new Audio(filePath);
         }
@@ -150,6 +193,43 @@ class AudioManager {
         // 変化を 0.1 に強めて、よりはっきり音程が上がるように調整
         const playbackRate = 1.0 + comboNum * 0.1;
         this.playFileSfx('se/katana.mp3', 0.8, playbackRate, 0.02);
+    }
+
+    playDualBladeCombined() {
+        this.init();
+        this.playFileSfx('se/combined.mp3', 0.82, 1.0, 0.02);
+    }
+
+    playExpGain() {
+        this.init();
+        this.playFileSfx('se/exp.mp3', 0.42, 1.0, 0.02);
+    }
+
+    playSkillUp() {
+        this.init();
+        this.playFileSfx('se/skillup.mp3', 0.9, 1.0, 0.02);
+    }
+
+    playItemPurchase() {
+        this.init();
+        // 立ち上がりを速くするため、先頭無音を少し飛ばして直接再生を優先
+        this.playFileSfx('se/item.mp3', 0.62, 1.03, 0.03, true);
+    }
+
+    playCursor() {
+        this.init();
+        this.playFileSfx('se/cursor.mp3', 0.84, 1.06, 0.03);
+    }
+
+    playGameStart() {
+        this.init();
+        // 立ち上がりを速める: 先頭無音を少し飛ばし、プール直再生で遅延を減らす
+        this.playFileSfx('se/gamestart.mp3', 0.82, 1.03, 0.03, true);
+    }
+
+    playLevelUpWindow() {
+        this.init();
+        this.playFileSfx('se/levelup.mp3', 0.78, 1.0, 0.02);
     }
     
     playJump() {
@@ -223,7 +303,7 @@ class AudioManager {
 
     playStageClear() {
         this.init();
-        this.playFileSfx('se/clear.mp3', 0.9, 1.0, 0);
+        this.playFileSfx('se/clear.mp3', 0.9, 1.0, 0.02);
     }
     
     playPlayerDeath() {
@@ -284,14 +364,7 @@ class AudioManager {
         this.playNoiseSfx(0.15, 0.3, 4000);
     }
     
-    playBeamLaunch() {
-        this.init();
-        // 突き抜けるようなビーム発射音
-        this.playNoiseSfx(0.4, 0.8, 200); // 爆発的なノイズ
-        this.playSfx(50, 'sawtooth', 0.3, 0.6, 4.0); // 重低音の上昇
-        this.playSfx(800, 'sine', 0.2, 0.4, 0.5); // 高音の煌めき
-    }
-    playSelect() { this.init(); this.playSfx(800, 'sine', 0.08, 0.08, 1.0); }
+    playSelect() { this.playCursor(); }
     playLevelUp() {
         this.init();
         [523, 659, 784, 1047].forEach((freq, i) => {
@@ -302,6 +375,7 @@ class AudioManager {
 
     // === BGM制御（ファイル再生のみ） ===
     playBgm(type = 'stage', stageNum = 1, fadeDuration = 1500, fadeInDuration) {
+        this.bgmPausedByGame = false;
         // fadeInDurationが未指定の場合はfadeDurationを使う
         if (fadeInDuration === undefined) fadeInDuration = fadeDuration;
         
@@ -487,6 +561,7 @@ class AudioManager {
 
     stopBgm(fadeDuration = 0) {
         this.unregisterBgmRetry();
+        this.bgmPausedByGame = false;
         if (this.bgmAudio) {
             if (fadeDuration > 0) {
                 this.fadeOutBgm(this.bgmAudio, fadeDuration);
@@ -503,11 +578,13 @@ class AudioManager {
 
     pauseBgm() {
         if (this.bgmAudio && !this.bgmAudio.paused) {
+            this.bgmPausedByGame = true;
             this.bgmAudio.pause();
         }
     }
 
     resumeBgm() {
+        this.bgmPausedByGame = false;
         if (this.bgmAudio && this.bgmAudio.paused && !this.isMuted && !this.bgmAudio._isFadingOut) {
             this.tryPlayCurrentBgm(true);
         }
@@ -561,6 +638,7 @@ class AudioManager {
     
     toggleMute() {
         this.isMuted = !this.isMuted;
+        this.persistMuteState();
         
         // SFXミュート
         if (this.masterGain) this.masterGain.gain.value = this.isMuted ? 0 : this.masterVolume;

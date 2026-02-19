@@ -947,7 +947,7 @@ export class DualBlades extends SubWeapon {
                 maxLife: 600,
                 direction: this.attackDirection
             };
-            audio.playSlash(2);
+            audio.playDualBladeCombined();
         } else if (type === 'main') {
             // 5段ループの多方向コンボ
             this.comboIndex = (this.comboIndex + 1) % 5;
@@ -1405,8 +1405,8 @@ export class Kusarigama extends SubWeapon {
         this.totalDuration = 560;
         this.owner = null;
         this.attackDirection = 1;
-        this.extendEnd = 0.24;
-        this.orbitEnd = 0.82;
+        this.extendEnd = 0.28;
+        this.orbitEnd = 0.9;
         this.tipX = null;
         this.tipY = null;
     }
@@ -1439,43 +1439,64 @@ export class Kusarigama extends SubWeapon {
             phaseT = progress / this.extendEnd;
             const easeOut = 1 - Math.pow(1 - phaseT, 2.2);
             radius = this.range * easeOut;
-            angle = -0.06 + phaseT * 0.12;
+            angle = -0.08 + phaseT * 0.16;
         } else if (progress < this.orbitEnd) {
             phase = 'orbit';
             phaseT = (progress - this.extendEnd) / (this.orbitEnd - this.extendEnd);
             radius = this.range;
             // 前方からキャラ斜め後ろ上へ、減速感のある円弧で旋回
             const eased = 0.5 - Math.cos(phaseT * Math.PI) * 0.5;
-            angle = -eased * (Math.PI * 1.02);
+            angle = -eased * (Math.PI * 1.1);
         } else {
             phase = 'retract';
             phaseT = (progress - this.orbitEnd) / (1 - this.orbitEnd);
             // 縮退も常に円弧上（角度と半径を同時補間）
             const eased = 0.5 - Math.cos(phaseT * Math.PI) * 0.5;
             radius = this.range * (1 - eased * 0.9);
-            const startAngle = -Math.PI * 1.02;
-            const endAngle = -Math.PI * 0.2;
+            const startAngle = -Math.PI * 1.1;
+            const endAngle = -Math.PI * 0.24;
             angle = startAngle + (endAngle - startAngle) * eased;
         }
 
         const chainDirX = direction * Math.cos(angle);
         const chainDirY = Math.sin(angle);
         const chainHeading = Math.atan2(chainDirY, chainDirX);
-        const wristBias =
-            phase === 'extend'
-                ? (-0.34 + phaseT * 0.12)
-                : (phase === 'orbit'
-                    ? (-0.40 + Math.sin(phaseT * Math.PI) * 0.16)
-                    : (0.06 - phaseT * 0.14));
-        const handLen =
-            phase === 'extend'
-                ? 15.2 + phaseT * 1.5
-                : (phase === 'orbit'
-                    ? 16.4 + Math.sin(phaseT * Math.PI * 0.7) * 1.2
-                    : (15.2 - phaseT * 0.8));
-        const handAngle = chainHeading + wristBias;
-        const handX = shoulderX + Math.cos(handAngle) * handLen;
-        const handY = shoulderY + Math.sin(handAngle) * handLen;
+        const headY = player.y + 15;
+        const headBackPivotX = centerX - direction * 8.5;
+        const headBackPivotY = headY - 2.4;
+
+        let handX = shoulderX;
+        let handY = shoulderY;
+        if (phase === 'extend') {
+            // 振りかぶり → 真っ直ぐ前へ伸ばす
+            const ease = phaseT * phaseT * (3 - 2 * phaseT);
+            const startLocalX = -18.0;
+            const startY = -16.0;
+            const endLocalX = 28.0;
+            const endY = -0.2;
+            const localX = startLocalX + (endLocalX - startLocalX) * ease;
+            handX = shoulderX + direction * localX;
+            handY = shoulderY + (startY + (endY - startY) * ease);
+        } else if (phase === 'orbit') {
+            // 伸ばしたまま、後頭部付近を大きく回す
+            const eased = 0.5 - Math.cos(phaseT * Math.PI) * 0.5;
+            const orbitStart = 0.02;
+            const orbitEnd = -Math.PI * 1.35;
+            const orbit = orbitStart + (orbitEnd - orbitStart) * eased;
+            const reach = 27.0;
+            handX = headBackPivotX + direction * (Math.cos(orbit) * reach);
+            handY = headBackPivotY + Math.sin(orbit) * reach;
+        } else {
+            // 回し終わりから収納へ戻す
+            const eased = 0.5 - Math.cos(phaseT * Math.PI) * 0.5;
+            const fromOrbit = -Math.PI * 1.35;
+            const fromX = headBackPivotX + direction * (Math.cos(fromOrbit) * 27.0);
+            const fromY = headBackPivotY + Math.sin(fromOrbit) * 27.0;
+            const toX = shoulderX + direction * 6.5;
+            const toY = shoulderY - 3.0;
+            handX = fromX + (toX - fromX) * eased;
+            handY = fromY + (toY - fromY) * eased;
+        }
         const tipX = handX + chainDirX * radius;
         const tipY = handY + chainDirY * radius;
 
