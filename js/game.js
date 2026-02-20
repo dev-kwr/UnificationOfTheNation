@@ -524,6 +524,9 @@ class Game {
         if (startIndex < 0) startIndex = 0;
         this.player.subWeaponIndex = startIndex;
         this.player.currentSubWeapon = this.player.subWeapons[startIndex] || null;
+        if (typeof this.player.refreshSubWeaponScaling === 'function') {
+            this.player.refreshSubWeaponScaling();
+        }
 
         this.unlockedWeapons = [...weaponPool];
         this.player.unlockedWeapons = [...weaponPool];
@@ -881,44 +884,28 @@ class Game {
             
             // 難易度変更エリア判定
             const diffY = this.hasSave ? cy + 170 : cy + 120;
-            // 判定エリアを拡大 (+/- 45)
-            if (tY > diffY - 45 && tY < diffY + 45) {
+            const diffCenterX = CANVAS_WIDTH / 2;
+            const diffHalfW = 140; // 描画幅220pxにタップ余白を追加
+            const diffHalfH = 34;  // 描画高40pxにタップ余白を追加
+            if (
+                Math.abs(tX - diffCenterX) <= diffHalfW &&
+                Math.abs(tY - diffY) <= diffHalfH
+            ) {
                 this.difficultyIndex = (this.difficultyIndex + 1) % this.difficultyKeys.length;
                 this.updateDifficulty();
                 audio.playSelect();
                 return;
             }
-            
+
+            // 難易度ボタン以外は共通でゲーム開始
+            this.titleDebugApplyOnStart = false;
             if (this.hasSave) {
-                // 続きから (CONTINUE) : Y = cy + 60
-                if (tY > cy + 40 && tY < cy + 80) {
-                    this.continueGame(saveManager.load());
-                    audio.playGameStart();
-                    return;
-                }
-                
-                // 最初から (NEW GAME) : Y = cy + 110
-                if (tY > cy + 90 && tY < cy + 130) {
-                    saveManager.deleteSave();
-                    this.startNewGame();
-                    audio.playGameStart();
-                    return;
-                }
-            } 
-            
-            // スタートボタン (セーブ有無に関わらず、一番下のボタンでStart)
-            const startY = this.hasSave ? cy + 240 : cy + 200;
-            // ボタン範囲判定用 (幅320, 高さ60 -> +/- 30 but allow margin)
-            if (tY > startY - 40 && tY < startY + 40) {
-                 if (this.hasSave) {
-                     // セーブデータがあるのにStartButtonを押した -> Continue扱いにする
-                     this.continueGame(saveManager.load());
-                 } else {
-                     this.startNewGame();
-                 }
-                 audio.playGameStart();
-                 return;
+                this.continueGame(saveManager.load());
+            } else {
+                this.startNewGame();
             }
+            audio.playGameStart();
+            return;
         }
     }
 
@@ -1319,9 +1306,13 @@ class Game {
     }
 
     buildSubWeaponAttackProfile(subWeapon, source = 'subweapon') {
+        const enhanceTier = Number.isFinite(subWeapon.enhanceTier)
+            ? Math.max(0, Math.min(3, Math.floor(subWeapon.enhanceTier)))
+            : 0;
         const attackData = {
             source,
-            weapon: subWeapon.name
+            weapon: subWeapon.name,
+            enhanceTier
         };
         let damage = subWeapon.damage;
 
@@ -1337,13 +1328,6 @@ class Game {
         } else if (subWeapon.name === '鎖鎌') {
             attackData.knockbackX = 7;
             attackData.knockbackY = -5;
-            if (typeof subWeapon.getCurrentState === 'function') {
-                const state = subWeapon.getCurrentState(this.player);
-                if (state && state.phase === 'orbit') {
-                    damage *= 1.16;
-                    attackData.knockbackY = -7;
-                }
-            }
         } else if (subWeapon.name === '二刀流') {
             if (subWeapon.attackType === 'combined') {
                 damage *= 1.28;
@@ -1465,6 +1449,7 @@ class Game {
                     let cloneIsAttacking;
                     let cloneComboStep;
                     let cloneAttackDurationMs;
+                    let cloneAttackRange;
                     let cloneAttackTimer;
                     
                     if (isAutoAi) {
@@ -1472,14 +1457,20 @@ class Game {
                         cloneAttackTimer = this.player.specialCloneAttackTimers[i] || 0;
                         if (cloneAttackTimer <= 0) continue;
                         cloneIsAttacking = true;
-                        cloneComboStep = (this.player.specialCloneComboSteps[i] || 0) + 1;
-                        cloneAttackDurationMs = 420;
+                        cloneComboStep = ((this.player.specialCloneComboSteps[i] || 0) % 5) + 1;
+                        const cloneAttackProfile = (typeof this.player.getComboAttackProfileByStep === 'function')
+                            ? this.player.getComboAttackProfileByStep(cloneComboStep)
+                            : { comboStep: cloneComboStep, durationMs: 420, range: 90 };
+                        cloneAttackDurationMs = cloneAttackProfile.durationMs;
+                        cloneAttackRange = cloneAttackProfile.range || 90;
+                        cloneComboStep = cloneAttackProfile.comboStep || cloneComboStep;
                     } else {
                         // Lv0〜2: 本体の攻撃状態をコピー
                         if (!this.player.isAttacking || !this.player.currentAttack) continue;
                         cloneIsAttacking = true;
                         cloneComboStep = this.player.currentAttack.comboStep || 1;
                         cloneAttackDurationMs = this.player.currentAttack.durationMs || 420;
+                        cloneAttackRange = this.player.currentAttack.range || 90;
                         cloneAttackTimer = this.player.attackTimer || 0;
                     }
 
@@ -1495,7 +1486,7 @@ class Game {
                         currentAttack: {
                             comboStep: cloneComboStep,
                             durationMs: cloneAttackDurationMs,
-                            range: 90
+                            range: cloneAttackRange || 90
                         },
                         attackTimer: cloneAttackTimer,
                         isCrouching: false
@@ -1531,18 +1522,109 @@ class Game {
             if (hitboxes) {
                 // 単一のオブジェクトなら配列に包む
                 if (!Array.isArray(hitboxes)) hitboxes = [hitboxes];
+                if (subWeapon.name === '大槍') {
+                    const priority = { tip: 3, shock: 2, shaft: 1 };
+                    hitboxes = hitboxes.slice().sort((a, b) => (priority[b && b.part] || 0) - (priority[a && a.part] || 0));
+                } else if (subWeapon.name === '鎖鎌') {
+                    const kusaTierForSort = Math.max(0, Math.min(3, Math.floor(subWeapon.enhanceTier || 0)));
+                    const priority = kusaTierForSort >= 2
+                        ? { tip: 3, echo: 2, chain: 1 }
+                        : { chain: 3, tip: 2, echo: 1 };
+                    hitboxes = hitboxes.slice().sort((a, b) => (priority[b && b.part] || 0) - (priority[a && a.part] || 0));
+                }
                 const baseSubProfile = this.buildSubWeaponAttackProfile(subWeapon, 'subweapon');
                 const cloneSubProfile = this.buildSubWeaponAttackProfile(subWeapon, 'special_shadow');
+                const spearTier = subWeapon.name === '大槍'
+                    ? Math.max(0, Math.min(3, Math.floor(subWeapon.enhanceTier || 0)))
+                    : 0;
+                const kusaTier = subWeapon.name === '鎖鎌'
+                    ? Math.max(0, Math.min(3, Math.floor(subWeapon.enhanceTier || 0)))
+                    : 0;
+                const kusaPullByTierChain = [0, 8, 15, 23];
+                const kusaPullByTierTip = [0, 10, 19, 30];
+                const kusaPullByTierEcho = [0, 0, 0, 26];
+                // 大槍は常時「貫通武器」として扱う（同一敵への多重ヒットは防止）
+                const spearMaxHits = subWeapon.name === '大槍' ? Number.POSITIVE_INFINITY : 0;
+                const spearHitEnemies = subWeapon.name === '大槍'
+                    ? (subWeapon.hitEnemies instanceof Set ? subWeapon.hitEnemies : (subWeapon.hitEnemies = new Set()))
+                    : null;
+                const kusaEchoHitEnemies = subWeapon.name === '鎖鎌'
+                    ? (subWeapon.echoHitEnemies instanceof Set ? subWeapon.echoHitEnemies : (subWeapon.echoHitEnemies = new Set()))
+                    : null;
+                const orderedEnemies = subWeapon.name === '大槍'
+                    ? activeEnemies.slice().sort((a, b) => {
+                        const dir = this.player.facingRight ? 1 : -1;
+                        const playerCenterX = this.player.x + this.player.width * 0.5;
+                        const ax = (a.x + a.width * 0.5 - playerCenterX) * dir;
+                        const bx = (b.x + b.width * 0.5 - playerCenterX) * dir;
+                        const aScore = ax >= 0 ? ax : 100000 + Math.abs(ax);
+                        const bScore = bx >= 0 ? bx : 100000 + Math.abs(bx);
+                        return aScore - bScore;
+                    })
+                    : activeEnemies;
+                const resolveHitboxProfile = (baseProfile, hitbox) => {
+                    const attackData = { ...baseProfile.attackData };
+                    let damage = baseProfile.damage;
+                    if (subWeapon.name === '大槍') {
+                        if (hitbox && hitbox.part === 'tip' && spearTier >= 1) {
+                            damage *= 1.4;
+                            attackData.spearTipCritical = true;
+                            attackData.isLaunch = true;
+                            attackData.knockbackX = Math.max(10, attackData.knockbackX || 0);
+                            attackData.knockbackY = Math.min(-9, attackData.knockbackY || 0);
+                        } else if (hitbox && hitbox.part === 'shock' && spearTier >= 3) {
+                            damage *= 0.62;
+                            attackData.knockbackX = Math.max(6, attackData.knockbackX || 0);
+                            attackData.knockbackY = Math.min(-3, attackData.knockbackY || 0);
+                        }
+                    } else if (subWeapon.name === '鎖鎌') {
+                        if (hitbox && hitbox.part === 'chain' && kusaTier >= 1) {
+                            // Lv1: 鎖ヒットで25%スロウ (1.2秒)
+                            attackData.slowMultiplier = 0.75;
+                            attackData.slowDurationMs = 1200;
+                            // Lvごとに引き寄せを強化
+                            attackData.pullTowardPlayerStrength = kusaPullByTierChain[kusaTier] || 0;
+                            attackData.knockbackX = 3;
+                        } else if (hitbox && (hitbox.part === 'tip' || hitbox.part === 'tip_multi')) {
+                            // 鎌先は鎖より強く、Lvごとに段階強化
+                            attackData.pullTowardPlayerStrength = kusaPullByTierTip[kusaTier] || 0;
+                            attackData.knockbackX = 2;
+                            attackData.knockbackY = Math.min(-2, attackData.knockbackY || 0);
+                            if (hitbox && hitbox.part === 'tip_multi') {
+                                damage *= 0.58;
+                                attackData.kusarigamaMulti = true;
+                            }
+                        } else if (hitbox && hitbox.part === 'echo' && kusaTier >= 3) {
+                            // Lv3: 軌道終盤の追加多段判定
+                            damage *= 0.72;
+                            attackData.slowMultiplier = 0.82;
+                            attackData.slowDurationMs = 650;
+                            attackData.pullTowardPlayerStrength = kusaPullByTierEcho[kusaTier] || 0;
+                            attackData.kusarigamaEcho = true;
+                        }
+                    }
+                    return { damage, attackData };
+                };
                 
                 // 火薬玉の爆発チェック (subWeaponAction === 'bomb' かつ爆発判定が出ている場合)
                 // getHitboxが爆風を返している前提だが、念のため岩破壊力を高めに設定
                 const isBomb = this.player.subWeaponAction === 'bomb';
+                const cloneSpearHitEnemies = subWeapon.name === '大槍' ? new Map() : null;
+                const cloneKusaEchoHitEnemies = subWeapon.name === '鎖鎌' ? new Map() : null;
                 
                 for (const hitbox of hitboxes) {
                     const effectiveHitbox = hitbox;
                     const proj = hitbox._sourceProjectile || null; 
+                    const hitboxProfile = resolveHitboxProfile(baseSubProfile, effectiveHitbox);
                     // 敵へのダメージ
-                    for (const enemy of activeEnemies) {
+                    for (const enemy of orderedEnemies) {
+                        if (spearHitEnemies) {
+                            if (spearHitEnemies.has(enemy)) continue;
+                            if (spearHitEnemies.size >= spearMaxHits) continue;
+                        }
+                        if (kusaEchoHitEnemies && effectiveHitbox && effectiveHitbox.part === 'echo' && kusaEchoHitEnemies.has(enemy)) {
+                            continue;
+                        }
                         // projectileの場合は多段ヒット防止（ただし手裏剣は一定時間で再ヒット可能にする）
                         if (proj) {
                             if (subWeapon.name === '手裏剣' && proj.lastHitMap) {
@@ -1555,7 +1637,11 @@ class Game {
                         }
 
                         if (this.rectIntersects(effectiveHitbox, enemy)) {
-                            this.damageEnemy(enemy, baseSubProfile.damage, { ...baseSubProfile.attackData });
+                            this.damageEnemy(enemy, hitboxProfile.damage, { ...hitboxProfile.attackData });
+                            if (spearHitEnemies) spearHitEnemies.add(enemy);
+                            if (kusaEchoHitEnemies && effectiveHitbox && effectiveHitbox.part === 'echo') {
+                                kusaEchoHitEnemies.add(enemy);
+                            }
                             if (proj) {
                                 if (subWeapon.name === '手裏剣' && proj.lastHitMap) {
                                     proj.lastHitMap.set(enemy, Date.now());
@@ -1583,15 +1669,32 @@ class Game {
                     // 分身のサブ武器判定
                     if (subWeaponCloneActive) {
                         for (const clone of subWeaponCloneOffsets) {
+                            const cloneHitboxProfile = resolveHitboxProfile(cloneSubProfile, effectiveHitbox);
                             const shifted = {
                                 x: effectiveHitbox.x + clone.dx,
                                 y: effectiveHitbox.y + clone.dy,
                                 width: effectiveHitbox.width,
-                                height: effectiveHitbox.height
+                                height: effectiveHitbox.height,
+                                part: effectiveHitbox.part
                             };
-                            for (const enemy of activeEnemies) {
+                            if (cloneSpearHitEnemies && !cloneSpearHitEnemies.has(clone.index)) {
+                                cloneSpearHitEnemies.set(clone.index, new Set());
+                            }
+                            if (cloneKusaEchoHitEnemies && !cloneKusaEchoHitEnemies.has(clone.index)) {
+                                cloneKusaEchoHitEnemies.set(clone.index, new Set());
+                            }
+                            const cloneHitSet = cloneSpearHitEnemies ? cloneSpearHitEnemies.get(clone.index) : null;
+                            const cloneKusaEchoSet = cloneKusaEchoHitEnemies ? cloneKusaEchoHitEnemies.get(clone.index) : null;
+                            for (const enemy of orderedEnemies) {
+                                if (cloneHitSet) {
+                                    if (cloneHitSet.has(enemy)) continue;
+                                    if (cloneHitSet.size >= spearMaxHits) continue;
+                                }
+                                if (cloneKusaEchoSet && effectiveHitbox && effectiveHitbox.part === 'echo' && cloneKusaEchoSet.has(enemy)) continue;
                                 if (this.rectIntersects(shifted, enemy)) {
-                                    this.damageEnemy(enemy, cloneSubProfile.damage, { ...cloneSubProfile.attackData });
+                                    this.damageEnemy(enemy, cloneHitboxProfile.damage, { ...cloneHitboxProfile.attackData });
+                                    if (cloneHitSet) cloneHitSet.add(enemy);
+                                    if (cloneKusaEchoSet && effectiveHitbox && effectiveHitbox.part === 'echo') cloneKusaEchoSet.add(enemy);
                                 }
                             }
                             // 分身の攻撃でも岩を壊せるように
@@ -1602,6 +1705,46 @@ class Game {
                                 }
                             }
                         }
+                    }
+                }
+
+                // 鎖鎌Lv3: 高速自動追尾で近傍の敵を連続追撃
+                if (
+                    subWeapon.name === '鎖鎌' &&
+                    kusaTier >= 3 &&
+                    subWeapon.isAttacking &&
+                    orderedEnemies.length > 0
+                ) {
+                    const now = Date.now();
+                    if (!Number.isFinite(subWeapon.nextAutoTrackTime) || now >= subWeapon.nextAutoTrackTime) {
+                        const playerCenterX = this.player.x + this.player.width * 0.5;
+                        const playerCenterY = this.player.y + this.player.height * 0.5;
+                        const strikeCount = 2 + Math.min(2, kusaTier - 1);
+                        const autoTargets = orderedEnemies
+                            .slice()
+                            .sort((a, b) => {
+                                const ax = (a.x + a.width * 0.5) - playerCenterX;
+                                const ay = (a.y + a.height * 0.5) - playerCenterY;
+                                const bx = (b.x + b.width * 0.5) - playerCenterX;
+                                const by = (b.y + b.height * 0.5) - playerCenterY;
+                                return (ax * ax + ay * ay) - (bx * bx + by * by);
+                            })
+                            .slice(0, strikeCount);
+                        for (const enemy of autoTargets) {
+                            const attackData = {
+                                source: 'subweapon',
+                                weapon: subWeapon.name,
+                                enhanceTier: kusaTier,
+                                knockbackX: 2,
+                                knockbackY: -2,
+                                slowMultiplier: 0.72,
+                                slowDurationMs: 900,
+                                pullTowardPlayerStrength: 30,
+                                kusarigamaAutoTrack: true
+                            };
+                            this.damageEnemy(enemy, baseSubProfile.damage * 0.62, attackData);
+                        }
+                        subWeapon.nextAutoTrackTime = now + (subWeapon.autoTrackCooldownMs || 95);
                     }
                 }
             }
@@ -1644,7 +1787,10 @@ class Game {
         // 敵との接触ダメージ
         for (const enemy of activeEnemies) {
             if (checkPlayerEnemyCollision(this.player, enemy)) {
-                if (this.handlePlayerDamage(1, enemy.x + enemy.width / 2, {
+                const contactDamage = this.isBossEnemy(enemy)
+                    ? Math.max(1, Math.round((enemy.damage || 2) * 0.35))
+                    : 1;
+                if (this.handlePlayerDamage(contactDamage, enemy.x + enemy.width / 2, {
                     knockbackX: 5,
                     knockbackY: -3
                 })) {
@@ -1699,7 +1845,7 @@ class Game {
 
     isBossEnemy(enemy) {
         if (!enemy) return false;
-        return enemy.maxHp >= 120 || (typeof enemy.maxPhase === 'number' && enemy.maxPhase > 1);
+        return enemy.maxHp >= 120 || enemy.type === 'boss';
     }
 
     getUltimateTargets(player, desiredCount = 8) {
@@ -1827,10 +1973,11 @@ class Game {
         const playerCenterX = this.player.x + this.player.width * 0.5;
         const playerCenterY = this.player.y + this.player.height * 0.5;
         const pickupRadius = 26;
+        const normalMagnetRadius = 120;
         const magnetBoostActive = !!(this.player.isExpMagnetBoostActive && this.player.isExpMagnetBoostActive());
         const magnetRadius = magnetBoostActive
             ? Math.hypot(CANVAS_WIDTH, CANVAS_HEIGHT) * 1.2
-            : 120;
+            : normalMagnetRadius;
         const groundLimit = this.groundY - 14;
 
         this.expGems = this.expGems.filter((gem) => {
@@ -1842,21 +1989,24 @@ class Game {
             const distance = Math.hypot(dx, dy) || 1;
 
             if (distance < magnetRadius) {
-                let pull;
-                if (magnetBoostActive) {
-                    // 近距離は通常寄り、遠距離でもしっかり引き寄せる
-                    const proximity = 1 - Math.min(1, distance / magnetRadius);
-                    pull = 0.36 + Math.pow(proximity, 1.1) * 0.74; // 0.36 ~ 1.10
-                } else {
-                    pull = 0.42 + (magnetRadius - distance) * 0.006;
+                let pull = 0.42 + (normalMagnetRadius - Math.min(distance, normalMagnetRadius)) * 0.006;
+                let maxSpeed = Infinity;
+
+                if (magnetBoostActive && distance > normalMagnetRadius) {
+                    // ブースト時の遠距離のみ強く吸引して、画面全域から素早く回収
+                    const farRatio = (distance - normalMagnetRadius) / Math.max(1, magnetRadius - normalMagnetRadius);
+                    pull = 0.85 + Math.min(1, farRatio) * 1.35; // 0.85 ~ 2.20
+                    maxSpeed = 14.8;
+                } else if (magnetBoostActive) {
+                    // 通常吸引域に入ったら通常寄りの速度まで落とす
+                    maxSpeed = 8.0;
                 }
                 gem.vx += (dx / distance) * pull;
                 gem.vy += (dy / distance) * pull;
-                if (magnetBoostActive) {
+                if (Number.isFinite(maxSpeed)) {
                     const speed = Math.hypot(gem.vx, gem.vy);
-                    const maxMagnetSpeed = 12.2;
-                    if (speed > maxMagnetSpeed) {
-                        const scale = maxMagnetSpeed / speed;
+                    if (speed > maxSpeed) {
+                        const scale = maxSpeed / speed;
                         gem.vx *= scale;
                         gem.vy *= scale;
                     }
@@ -2075,7 +2225,6 @@ class Game {
             for (let index = 0; index < choices.length; index++) {
                 const x = startX + index * (cardWidth + gap);
                 if (touchX >= x && touchX <= x + cardWidth + 10 && input.lastTouchY >= cardY - 10 && input.lastTouchY <= cardY + 260 + 10) {
-                    audio.playLevelUpSelect(); // 決定音
                     this.levelUpChoiceIndex = index;
                     this.applyLevelUpChoice(choices[index].id || choices[index].type);
                     return;
@@ -2370,6 +2519,7 @@ class Game {
         const source = attackData && attackData.source ? attackData.source : 'main';
         const weapon = attackData && attackData.weapon ? attackData.weapon : null;
         const heavyLaunch = !!(attackData && attackData.isLaunch);
+        const spearTipCritical = !!(attackData && attackData.spearTipCritical);
         const base = {
             shake: 2.3,
             hitStopMs: 52,
@@ -2450,6 +2600,13 @@ class Game {
             base.shake += 0.9;
             base.hitStopMs += 16;
             base.sparkCount += 3;
+            base.ringBaseRadius += 3;
+        }
+        if (spearTipCritical) {
+            base.shake += 1.4;
+            base.hitStopMs += 18;
+            base.sparkCount += 4;
+            base.sparkSpeed += 0.9;
             base.ringBaseRadius += 3;
         }
         if (isCritical) {
@@ -2649,7 +2806,11 @@ class Game {
             saveManager.save(this.player, this.currentStageNumber + 1, this.unlockedWeapons);
         }
         
-        this.state = isFinalStage ? GAME_STATE.GAME_CLEAR : GAME_STATE.STAGE_CLEAR;
+        if (isFinalStage) {
+            this.enterGameClearState();
+        } else {
+            this.state = GAME_STATE.STAGE_CLEAR;
+        }
         this.stageClearPhase = 0; // 演出フェーズから開始
         this.stageClearAnnounceTimer = 0; // アナウンス演出用タイマー
         this.resetStageClearAutoSubWeaponTimer(false);
@@ -2658,10 +2819,7 @@ class Game {
             0,
             this.player.subWeapons.findIndex((weapon) => weapon === this.player.currentSubWeapon)
         );
-        if (isFinalStage) {
-            this.gameClearTimer = 0;
-            this.endingTimer = 0;
-        } else {
+        if (!isFinalStage) {
             // ここでオーディオを切り替えない（ボスBGM継続のため）
         }
         audio.playLevelUp();
@@ -2708,7 +2866,7 @@ class Game {
             }
             this.currentStageNumber++;
             if (this.currentStageNumber > STAGES.length) {
-                this.state = GAME_STATE.GAME_CLEAR;
+                this.enterGameClearState();
             } else {
                 this.startStage();
             }
@@ -2910,7 +3068,7 @@ class Game {
             this.applyStageDefaultWeaponChoice();
             this.currentStageNumber++;
             if (this.currentStageNumber > STAGES.length) {
-                this.state = GAME_STATE.GAME_CLEAR;
+                this.enterGameClearState();
             } else {
                 this.startStageTransition();
             }
@@ -2945,6 +3103,15 @@ class Game {
         const nextStage = this.currentStageNumber + 1;
         this.player.stageEquip = this.player.stageEquip || {};
         this.player.stageEquip[nextStage] = selected.name;
+    }
+
+    enterGameClearState() {
+        this.state = GAME_STATE.GAME_CLEAR;
+        this.gameClearTimer = 0;
+        this.endingTimer = 0;
+        if (this.player && typeof this.player.resetTemporaryNinjutsuTimers === 'function') {
+            this.player.resetTemporaryNinjutsuTimers();
+        }
     }
 
     resetStageClearAutoSubWeaponTimer(isPhaseOne = false) {

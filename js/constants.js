@@ -63,8 +63,8 @@ export const GAME_STATE = {
 // 難易度
 export const DIFFICULTY = {
     EASY: { id: 'easy', name: '易', damageMult: 0.5, hpMult: 0.8 },
-    NORMAL: { id: 'normal', name: '普', damageMult: 1.0, hpMult: 1.0 },
-    HARD: { id: 'hard', name: '難', damageMult: 1.5, hpMult: 1.2 },
+    NORMAL: { id: 'normal', name: '普', damageMult: 1.1, hpMult: 1.15 },
+    HARD: { id: 'hard', name: '難', damageMult: 2.0, hpMult: 1.8 },
 };
 
 // キーマッピング

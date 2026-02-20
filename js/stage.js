@@ -23,7 +23,8 @@ export class Stage {
         // 敵管理
         this.enemies = [];
         this.spawnTimer = 1500;  // 2000ms間隔に対し最初から1.5s進めておく
-        this.spawnInterval = 2000;  // 2秒ごとに敵出現
+        this.balanceProfile = this.getBalanceProfile();
+        this.spawnInterval = this.balanceProfile.spawnStart;  // ステージごとの初期間隔
         
         // 障害物管理
         this.obstacles = [];
@@ -34,6 +35,7 @@ export class Stage {
         this.boss = null;
         this.bossSpawned = false;
         this.bossDefeated = false;
+        this.midBossSpawned = false;
         this.bossDefeatLingerDuration = 700;
         this.bossDefeatLingerTimer = 0;
         this.bossDefeatColorFade = 0; // ボス撃破後の赤い空のフェードアウト用（1→0）
@@ -59,20 +61,100 @@ export class Stage {
         this.bossIntroDuration = this.bossIntroDurationByStage[this.stageNumber] || 1500;
         this.bossIntroTimer = 0;
     }
+
+    getBalanceProfile() {
+        const profiles = {
+            1: {
+                spawnStart: 1760,
+                spawnMin: 980,
+                spawnJitter: 320,
+                multiSpawnBase: 0.16,
+                multiSpawnPeak: 0.24,
+                leftSpawnBase: 0.14,
+                leftSpawnPeak: 0.22,
+                obstacleChance: 0.18,
+                obstacleIntervalMin: 2600,
+                obstacleIntervalMax: 4200
+            },
+            2: {
+                spawnStart: 1650,
+                spawnMin: 900,
+                spawnJitter: 360,
+                multiSpawnBase: 0.2,
+                multiSpawnPeak: 0.28,
+                leftSpawnBase: 0.17,
+                leftSpawnPeak: 0.25,
+                obstacleChance: 0.22,
+                obstacleIntervalMin: 2400,
+                obstacleIntervalMax: 3900
+            },
+            3: {
+                spawnStart: 1550,
+                spawnMin: 820,
+                spawnJitter: 390,
+                multiSpawnBase: 0.24,
+                multiSpawnPeak: 0.32,
+                leftSpawnBase: 0.2,
+                leftSpawnPeak: 0.28,
+                obstacleChance: 0.25,
+                obstacleIntervalMin: 2200,
+                obstacleIntervalMax: 3600
+            },
+            4: {
+                spawnStart: 1450,
+                spawnMin: 740,
+                spawnJitter: 420,
+                multiSpawnBase: 0.28,
+                multiSpawnPeak: 0.36,
+                leftSpawnBase: 0.22,
+                leftSpawnPeak: 0.3,
+                obstacleChance: 0.27,
+                obstacleIntervalMin: 2000,
+                obstacleIntervalMax: 3400
+            },
+            5: {
+                spawnStart: 1360,
+                spawnMin: 670,
+                spawnJitter: 450,
+                multiSpawnBase: 0.32,
+                multiSpawnPeak: 0.4,
+                leftSpawnBase: 0.24,
+                leftSpawnPeak: 0.32,
+                obstacleChance: 0.3,
+                obstacleIntervalMin: 1900,
+                obstacleIntervalMax: 3200
+            },
+            6: {
+                spawnStart: 1300,
+                spawnMin: 620,
+                spawnJitter: 470,
+                multiSpawnBase: 0.34,
+                multiSpawnPeak: 0.42,
+                leftSpawnBase: 0.25,
+                leftSpawnPeak: 0.34,
+                obstacleChance: 0.32,
+                obstacleIntervalMin: 1800,
+                obstacleIntervalMax: 3000
+            }
+        };
+        return profiles[this.stageNumber] || profiles[3];
+    }
     
     getEnemyWeights() {
         // ステージごとに敵の出現確率を変える
         switch (this.stageNumber) {
             case 1:
-                return { ashigaru: 80, samurai: 20, busho: 0, ninja: 0 };
+                return { ashigaru: 85, samurai: 15, busho: 0, ninja: 0 };
             case 2:
-                return { ashigaru: 60, samurai: 35, busho: 5, ninja: 0 };
+                return { ashigaru: 68, samurai: 28, busho: 4, ninja: 0 };
             case 3:
-                return { ashigaru: 40, samurai: 40, busho: 10, ninja: 10 };
+                return { ashigaru: 48, samurai: 34, busho: 8, ninja: 10 };
             case 4:
-                return { ashigaru: 35, samurai: 35, busho: 15, ninja: 15 };
+                return { ashigaru: 34, samurai: 32, busho: 14, ninja: 20 };
             case 5:
-                return { ashigaru: 20, samurai: 40, busho: 20, ninja: 20 };
+                return { ashigaru: 20, samurai: 34, busho: 22, ninja: 24 };
+            case 6:
+                return { ashigaru: 12, samurai: 30, busho: 28, ninja: 30 };
             default:
                 return { ashigaru: 65, samurai: 30, busho: 0, ninja: 5 };
         }
@@ -80,11 +162,12 @@ export class Stage {
 
     getMaxActiveEnemies() {
         switch (this.stageNumber) {
-            case 1: return 6;
-            case 2: return 7;
-            case 3: return 8;
+            case 1: return 5;
+            case 2: return 6;
+            case 3: return 7;
             case 4: return 9;
             case 5: return 10;
+            case 6: return 11;
             default: return 8;
         }
     }
@@ -180,18 +263,19 @@ export class Stage {
             this.spawnEnemy();
             this.spawnTimer = 0;
             
-            // 進行に応じて出現間隔を短く (基本1500ms -> 終盤600ms)
-            // ランダム要素を追加して単調さをなくす
+            // 進行に応じて出現間隔を短くしつつ、ステージごとに密度曲線を調整
             const progressRatio = this.progress / this.maxProgress;
-            const baseInterval = 1500 - (progressRatio * 900); 
-            this.spawnInterval = baseInterval + Math.random() * 500;
+            const spawnStart = this.balanceProfile.spawnStart;
+            const spawnMin = this.balanceProfile.spawnMin;
+            const baseInterval = spawnStart - (spawnStart - spawnMin) * progressRatio;
+            this.spawnInterval = baseInterval + Math.random() * this.balanceProfile.spawnJitter;
         }
         
         // 中ボス出現（進行50%地点）
-        if (this.progress >= this.maxProgress * 0.5 && 
-            this.progress < this.maxProgress * 0.55 &&
-            !this.enemies.some(e => e.type === ENEMY_TYPES.BUSHO)) {
+        if (this.progress >= this.maxProgress * 0.5 &&
+            !this.midBossSpawned) {
             this.spawnMidBoss();
+            this.midBossSpawned = true;
         }
         
         // ボス出現
@@ -204,7 +288,9 @@ export class Stage {
         if (this.obstacleTimer >= this.obstacleInterval && this.progress < this.maxProgress * 0.98) {
              this.spawnObstacle();
              this.obstacleTimer = 0;
-             this.obstacleInterval = 2000 + Math.random() * 2000; // 2~4秒間隔
+             const minInterval = this.balanceProfile.obstacleIntervalMin;
+             const maxInterval = this.balanceProfile.obstacleIntervalMax;
+             this.obstacleInterval = minInterval + Math.random() * Math.max(1, (maxInterval - minInterval));
         }
         
         // 敵更新
@@ -297,9 +383,14 @@ export class Stage {
         const availableSlots = this.maxActiveEnemies - this.getActiveEnemyCount();
         if (availableSlots <= 0) return;
 
-        // 一度に湧く数 (30%の確率で複数体出現)
-        // 終盤ほど複数出現しやすくしてもよいが、まずはランダムで
-        const count = Math.random() < 0.3 ? (Math.random() < 0.5 ? 2 : 3) : 1;
+        const progressRatio = Math.max(0, Math.min(1, this.progress / this.maxProgress));
+        const multiChance = this.balanceProfile.multiSpawnBase +
+            (this.balanceProfile.multiSpawnPeak - this.balanceProfile.multiSpawnBase) * progressRatio;
+        let count = 1;
+        if (Math.random() < multiChance) {
+            const tripleChance = 0.14 + progressRatio * 0.2;
+            count = Math.random() < tripleChance ? 3 : 2;
+        }
         const spawnCount = Math.min(count, availableSlots);
         
         for (let i = 0; i < spawnCount; i++) {
@@ -322,8 +413,10 @@ export class Stage {
             const variance = i * 40; 
             
             // スクロール位置(this.progress)を考慮したワールド座標で出現させる
-            // 30%の確率で左（背後）から出現
-            const comeFromLeft = Math.random() < 0.3;
+            // 進行に応じて背後湧きを少し増やす（序盤は抑えめ）
+            const leftChance = this.balanceProfile.leftSpawnBase +
+                (this.balanceProfile.leftSpawnPeak - this.balanceProfile.leftSpawnBase) * progressRatio;
+            const comeFromLeft = Math.random() < leftChance;
             let spawnBaseX;
             let facingRight;
             
@@ -352,14 +445,14 @@ export class Stage {
         const x = this.progress + CANVAS_WIDTH + 50;
         const y = this.groundY - 75;
         const midBoss = createEnemy(ENEMY_TYPES.BUSHO, x, y, this.groundY);
-        midBoss.hp *= 1.5;
-        midBoss.maxHp *= 1.5;
+        midBoss.hp = Math.round(midBoss.hp * 1.38);
+        midBoss.maxHp = Math.round(midBoss.maxHp * 1.38);
         this.enemies.push(midBoss);
     }
 
     spawnObstacle() {
-        // 30%の確率で出現
-        if (Math.random() > 0.3) return;
+        // ステージごとの発生率で調整
+        if (Math.random() > this.balanceProfile.obstacleChance) return;
         
         const type = Math.random() < 0.5 ? OBSTACLE_TYPES.SPIKE : OBSTACLE_TYPES.ROCK;
         

@@ -101,6 +101,9 @@ export class Player {
         this.specialCloneAutoAiEnabled = false;
         this.specialCloneAutoStrikeCooldownMs = 280;
         this.specialCloneAutoCooldowns = [];
+        this.specialCloneDurability = [];
+        this.specialCloneDurabilityLv3 = 3;
+        this.specialCloneHitInvincibleMs = 260;
         this.specialCloneCombatStarted = false;
         this.progression = {
             normalCombo: 0,
@@ -116,7 +119,7 @@ export class Player {
         this.tempNinjutsuDurations = {
             expMagnet: 60000,
             xAttack: 60000,
-            ghostVeil: 60000
+            ghostVeil: 30000
         };
         
         // ステータス
@@ -166,9 +169,11 @@ export class Player {
         this.subWeaponRenderedInModel = false;
         this.comboSlashTrailPoints = [];
         this.comboSlashTrailSampleTimer = 0;
+        this.specialCloneSlashTrailPoints = [];
+        this.specialCloneSlashTrailSampleTimers = [];
         this.comboSlashTrailSampleIntervalMs = 14;
-        this.comboSlashTrailActiveLifeMs = 620;
-        this.comboSlashTrailFadeLifeMs = 380;
+        this.comboSlashTrailActiveLifeMs = 520;
+        this.comboSlashTrailFadeLifeMs = 300;
         this.ghostVeilCanvas = null;
         this.ghostVeilCtx = null;
         
@@ -494,7 +499,7 @@ export class Player {
                     const isThrow = weaponName === '火薬玉' || weaponName === '手裏剣';
                     this.subWeaponTimer =
                         isThrow ? 150 :
-                        weaponName === '大槍' ? 250 :
+                        weaponName === '大槍' ? 270 :
                         weaponName === '鎖鎌' ? 560 :
                         weaponName === '大太刀' ? 760 : 300;
                     this.subWeaponAction = isThrow ? 'throw' : weaponName;
@@ -563,7 +568,7 @@ export class Player {
                 const isThrow = weaponName === '火薬玉' || weaponName === '手裏剣';
                 this.subWeaponTimer =
                     isThrow ? 150 :
-                    weaponName === '大槍' ? 250 :
+                    weaponName === '大槍' ? 270 :
                     (weaponName === '鎖鎌') ? 560 :
                     (weaponName === '大太刀') ? 760 : 300;
                 this.subWeaponAction = isThrow ? 'throw' : weaponName;
@@ -721,6 +726,12 @@ export class Player {
             durationMs,
             chainWindowMs
         };
+    }
+
+    getComboAttackProfileByStep(step) {
+        const clampedStep = Math.max(1, Math.min(COMBO_ATTACKS.length, Math.floor(step) || 1));
+        const comboProfile = COMBO_ATTACKS[clampedStep - 1] || COMBO_ATTACKS[0];
+        return this.buildAttackProfile(comboProfile, { comboStep: clampedStep, source: 'main' });
     }
     
     attack({ fromBuffer = false } = {}) {
@@ -1073,6 +1084,10 @@ export class Player {
         this.specialCloneAlive = this.specialCloneSlots.map(() => true);
         this.specialCloneInvincibleTimers = this.specialCloneSlots.map(() => this.specialCastDurationMs + this.specialCloneSpawnInvincibleMs);
         this.specialCloneAutoCooldowns = this.specialCloneSlots.map((_, index) => index * 40);
+        const cloneDurability = this.getSpecialCloneDurabilityPerUnit();
+        this.specialCloneDurability = this.specialCloneSlots.map(() => cloneDurability);
+        this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
+        this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
 
         // groundBasedYを廃止、本体位置基準
         const cloneAnchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.y + this.height * 0.62);
@@ -1098,6 +1113,9 @@ export class Player {
         this.specialCloneAlive = this.specialCloneSlots.map(() => false);
         this.specialCloneInvincibleTimers = this.specialCloneSlots.map(() => 0);
         this.specialCloneAutoCooldowns = this.specialCloneSlots.map(() => 0);
+        this.specialCloneDurability = this.specialCloneSlots.map(() => 0);
+        this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
+        this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
         if (clearSmoke) this.specialSmoke = [];
     }
     
@@ -1208,6 +1226,10 @@ export class Player {
             }
         }
 
+        if (this.isUsingSpecial) {
+            this.updateSpecialCloneSlashTrails(deltaMs);
+        }
+
         for (const puff of this.specialSmoke) {
             puff.life -= deltaMs;
             puff.x += puff.vx;
@@ -1219,9 +1241,12 @@ export class Player {
     }
 
     triggerCloneAttack(index) {
-    if (this.specialCloneAttackTimers[index] <= 0 && this.specialCloneSubWeaponTimers[index] <= 0) {
-        this.specialCloneAttackTimers[index] = 320;
-        this.specialCloneComboSteps[index] = (this.specialCloneComboSteps[index] + 1) % 5;
+        if (this.specialCloneAttackTimers[index] <= 0 && this.specialCloneSubWeaponTimers[index] <= 0) {
+            const nextIndex = ((this.specialCloneComboSteps[index] || 0) + 1) % COMBO_ATTACKS.length;
+            const nextStep = nextIndex + 1;
+            const profile = this.getComboAttackProfileByStep(nextStep);
+            this.specialCloneAttackTimers[index] = profile.durationMs;
+            this.specialCloneComboSteps[index] = nextIndex;
         }
     }
 
@@ -1234,7 +1259,7 @@ export class Player {
         const weaponName = this.currentSubWeapon.name;
         this.specialCloneSubWeaponTimers[index] = 
             weaponName === '火薬玉' ? 150 :
-            weaponName === '大槍' ? 250 :
+            weaponName === '大槍' ? 270 :
             weaponName === '鎖鎌' ? 560 :
             weaponName === '大太刀' ? 760 : 300;
         this.specialCloneSubWeaponActions[index] = weaponName === '火薬玉' ? 'throw' : weaponName;
@@ -1266,6 +1291,8 @@ export class Player {
         this.specialCloneAttackTimers = this.specialCloneSlots.map(() => 0);
         this.specialCloneSubWeaponTimers = this.specialCloneSlots.map(() => 0);
         this.specialCloneSubWeaponActions = this.specialCloneSlots.map(() => null);
+        this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
+        this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
 
         const smokeAnchors = anchors.map(a => ({ x: a.x, y: a.y }));
         this.spawnSpecialSmoke('appear', smokeAnchors);
@@ -1543,6 +1570,13 @@ export class Player {
         return this.specialCloneAlive.reduce((acc, alive) => acc + (alive ? 1 : 0), 0);
     }
 
+    getSpecialCloneDurabilityPerUnit() {
+        const tier = this.progression && Number.isFinite(this.progression.specialClone)
+            ? Math.max(0, Math.min(3, this.progression.specialClone))
+            : 0;
+        return tier >= 3 ? this.specialCloneDurabilityLv3 : 1;
+    }
+
     getSpecialCloneAnchors() {
         if (!this.specialCloneCombatStarted) {
             return this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.y + this.height * 0.62);
@@ -1684,8 +1718,22 @@ export class Player {
         }
         if ((this.specialCloneInvincibleTimers[consumeIndex] || 0) > 0) return false;
 
+        const baseDurability = this.getSpecialCloneDurabilityPerUnit();
+        if (!Array.isArray(this.specialCloneDurability) || this.specialCloneDurability.length !== this.specialCloneSlots.length) {
+            this.specialCloneDurability = this.specialCloneSlots.map(() => baseDurability);
+        }
+        const currentDurability = Math.max(1, Number(this.specialCloneDurability[consumeIndex]) || baseDurability);
+        const nextDurability = currentDurability - 1;
+        if (nextDurability > 0) {
+            this.specialCloneDurability[consumeIndex] = nextDurability;
+            // 多段接触で即蒸発しないよう、被弾後の短い無敵を付与
+            this.specialCloneInvincibleTimers[consumeIndex] = this.specialCloneHitInvincibleMs;
+            return true;
+        }
+
         this.specialCloneAlive[consumeIndex] = false;
         this.specialCloneInvincibleTimers[consumeIndex] = 0;
+        this.specialCloneDurability[consumeIndex] = 0;
         const pos = this.specialClonePositions[consumeIndex];
         this.spawnSpecialSmoke('vanish', pos ? [{ x: pos.x, y: pos.y }] : null);
         if (this.getActiveSpecialCloneCount() <= 0) {
@@ -1958,6 +2006,13 @@ export class Player {
         this.tempNinjutsuTimers.ghostVeil = Math.max(0, (this.tempNinjutsuTimers.ghostVeil || 0) - deltaMs);
     }
 
+    resetTemporaryNinjutsuTimers() {
+        if (!this.tempNinjutsuTimers) return;
+        Object.keys(this.tempNinjutsuTimers).forEach((key) => {
+            this.tempNinjutsuTimers[key] = 0;
+        });
+    }
+
     getTempNinjutsuRemainingMs(key) {
         if (!this.tempNinjutsuTimers) return 0;
         return Math.max(0, this.tempNinjutsuTimers[key] || 0);
@@ -1986,7 +2041,7 @@ export class Player {
 
     getXAttackTrailWidthScale() {
         if (!this.isXAttackBoostActive()) return 1.0;
-        return this.isXAttackActionActive() ? 2.6 : 1.0;
+        return this.isXAttackActionActive() ? 2.35 : 1.0;
     }
 
     isGhostVeilActive() {
@@ -2134,6 +2189,9 @@ export class Player {
         this.specialCloneAlive = this.specialCloneSlots.map(() => false);
         this.specialCloneInvincibleTimers = this.specialCloneSlots.map(() => 0);
         this.specialCloneAutoCooldowns = this.specialCloneSlots.map(() => 0);
+        this.specialCloneDurability = this.specialCloneSlots.map(() => 0);
+        this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
+        this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
     }
 
     getSpecialCloneCountByTier(tier) {
@@ -2175,43 +2233,42 @@ export class Player {
         const tier = this.getSubWeaponEnhanceTier();
         for (const weapon of this.subWeapons) {
             if (!weapon) continue;
+            // 大槍/鎖鎌などのLv別挙動は enhanceTier 側で分岐するため先に同期する
+            if (typeof weapon.applyEnhanceTier === 'function') {
+                weapon.applyEnhanceTier(tier);
+            } else if (Object.prototype.hasOwnProperty.call(weapon, 'enhanceTier')) {
+                weapon.enhanceTier = tier;
+            }
             const baseDamage = Number.isFinite(weapon.baseDamage) ? weapon.baseDamage : weapon.damage;
             const baseRange = Number.isFinite(weapon.baseRange) ? weapon.baseRange : weapon.range;
             const baseCooldown = Number.isFinite(weapon.baseCooldown) ? weapon.baseCooldown : weapon.cooldown;
             let damageScale = 1 + tier * 0.08;
             let rangeScale = 1 + tier * 0.1;
-            let cooldownScale = 1 - tier * 0.1;
             if (weapon.name === '手裏剣') {
                 damageScale = 1 + tier * 0.08;
                 rangeScale = 1 + tier * 0.12;
-                cooldownScale = 1 - tier * 0.10;
             } else if (weapon.name === '火薬玉') {
                 damageScale = 1 + tier * 0.08;
                 rangeScale = 1 + tier * 0.08;
-                cooldownScale = 1 - tier * 0.12;
             } else if (weapon.name === '大槍') {
                 damageScale = 1 + tier * 0.12;
                 rangeScale = 1 + tier * 0.2;
-                cooldownScale = 1 - tier * 0.12;
             } else if (weapon.name === '鎖鎌') {
                 damageScale = 1 + tier * 0.12;
                 rangeScale = 1 + tier * 0.18;
-                cooldownScale = 1 - tier * 0.1;
             } else if (weapon.name === '大太刀') {
                 damageScale = 1 + tier * 0.15;
                 rangeScale = 1 + tier * 0.1;
-                cooldownScale = 1 - tier * 0.08;
             } else if (weapon.name === '二刀流') {
                 damageScale = 1 + tier * 0.09;
                 rangeScale = 1 + tier * 0.08;
-                cooldownScale = 1 - tier * 0.1;
                 if (typeof weapon.mainMotionSpeedScale === 'number') {
                     weapon.mainMotionSpeedScale = Math.max(1.05, (this.attackMotionScale || 1.7) - tier * 0.08);
                 }
             }
             weapon.damage = Math.max(1, Math.round(baseDamage * damageScale));
             weapon.range = Math.max(24, Math.round(baseRange * rangeScale));
-            weapon.cooldown = Math.max(70, Math.round(baseCooldown * cooldownScale));
+            weapon.cooldown = Math.max(70, Math.round(baseCooldown));
         }
     }
 
@@ -2832,7 +2889,7 @@ export class Player {
 
         const isCrouchPose = isCrouching;
         const isSpearThrustPose = subWeaponTimer > 0 && subWeaponAction === '大槍' && !isAttacking;
-        const spearPoseProgress = isSpearThrustPose ? Math.max(0, Math.min(1, 1 - (subWeaponTimer / 250))) : 0;
+        const spearPoseProgress = isSpearThrustPose ? Math.max(0, Math.min(1, 1 - (subWeaponTimer / 270))) : 0;
         const spearDrive = isSpearThrustPose ? Math.sin(spearPoseProgress * Math.PI) : 0;
         const comboAttackingPose = !!(isAttacking && currentAttack && currentAttack.comboStep);
         const isDualZComboPose = !!(
@@ -3566,7 +3623,7 @@ export class Player {
         const dualBlade = (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') ? this.currentSubWeapon : null;
         const subDuration =
             this.subWeaponAction === 'throw' ? 150 :
-            (this.subWeaponAction === '大槍') ? 250 :
+            (this.subWeaponAction === '大槍') ? 270 :
             (this.subWeaponAction === '鎖鎌') ? 560 :
             (this.subWeaponAction === '二刀_Z') ? Math.max(1, (dualBlade && dualBlade.mainDuration) ? dualBlade.mainDuration : 204) :
             (this.subWeaponAction === '二刀_合体') ? 220 :
@@ -3603,23 +3660,6 @@ export class Player {
 
         const drawSubWeaponKatana = (handX, handY, bladeAngle = -1.0, bladeScaleDir = dir) => {
             this.drawKatana(ctx, handX, handY, bladeAngle, bladeScaleDir);
-            const trailScale = this.getXAttackTrailWidthScale();
-            if (trailScale <= 1.01) return;
-            const bladeLen = this.getKatanaBladeLength();
-            const tipX = handX + Math.cos(bladeAngle) * bladeScaleDir * bladeLen;
-            const tipY = handY + Math.sin(bladeAngle) * bladeLen;
-            const baseX = handX + Math.cos(bladeAngle) * bladeScaleDir * 6.5;
-            const baseY = handY + Math.sin(bladeAngle) * 6.5;
-            ctx.save();
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.strokeStyle = 'rgba(200, 214, 232, 0.14)';
-            ctx.lineWidth = 3.8 * trailScale;
-            ctx.beginPath();
-            ctx.moveTo(baseX, baseY);
-            ctx.lineTo(tipX, tipY);
-            ctx.stroke();
-            ctx.restore();
         };
 
         const drawSupportPose = (handX, handY, withBlade = false, bladeAngle = -1.0, bladeScaleDir = dir, fromBackShoulder = false) => {
@@ -4013,7 +4053,15 @@ export class Player {
                         armEndX += (idleHandX - armEndX) * settle;
                         armEndY += (idleHandY - armEndY) * settle;
                     }
-                    trail = null;
+                    trail = {
+                        mode: 'followSlash',
+                        front: [214, 246, 255],
+                        back: [104, 182, 242],
+                        width: 13.6,
+                        trailLen: 62,
+                        edgeSpread: 4.2,
+                        minAlpha: 0.3
+                    };
                     break;
                 case 1:
                     // 閃返し（後方へ返す斬り）
@@ -4058,7 +4106,15 @@ export class Player {
                         activeFrontShoulderX += (frontShoulderX - activeFrontShoulderX) * settle;
                         activeFrontShoulderY += (frontShoulderY - activeFrontShoulderY) * settle;
                     }
-                    trail = null;
+                    trail = {
+                        mode: 'followSlash',
+                        front: [225, 249, 255],
+                        back: [116, 194, 248],
+                        width: 14.6,
+                        trailLen: 72,
+                        edgeSpread: 4.8,
+                        minAlpha: 0.38
+                    };
                     break;
                 case 3:
                     // 燕返横薙ぎ（奥行き付きの水平切り）
@@ -4076,7 +4132,17 @@ export class Player {
                         armEndX = idleHandX + (armEndX - idleHandX) * prepEase;
                         armEndY = idleHandY + (armEndY - idleHandY) * prepEase;
                     }
-                    trail = null;
+                    trail = {
+                        mode: 'tipArc',
+                        front: [222, 248, 255],
+                        back: [102, 177, 238],
+                        width: 13.8,
+                        radius: 46,
+                        startAngle: 2.45,
+                        endAngle: -0.08,
+                        revealStart: 0.08,
+                        revealEnd: 0.94
+                    };
                     break;
                 case 4:
                     // 四ノ太刀: 天穿斬り上げ（真上へ上昇→後方バク転）
@@ -4103,7 +4169,15 @@ export class Player {
                         armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
                         armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
                     }
-                    trail = null;
+                    trail = {
+                        mode: 'depthSlice',
+                        front: [228, 250, 255],
+                        back: [112, 186, 244],
+                        width: 14.2,
+                        length: 112,
+                        spread: 13,
+                        lift: 15
+                    };
                     break;
                 case 5:
                     // 五ノ太刀: 頭上から水平へ叩きつける落下
@@ -4134,7 +4208,15 @@ export class Player {
                         armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
                         armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
                     }
-                    trail = null;
+                    trail = {
+                        mode: 'followSlash',
+                        front: [232, 252, 255],
+                        back: [124, 198, 248],
+                        width: 14.6,
+                        trailLen: 74,
+                        edgeSpread: 5.0,
+                        minAlpha: 0.4
+                    };
                     break;
                 default:
                     break;
@@ -4224,28 +4306,7 @@ export class Player {
         // 剣を描画（共通メソッドで統一）
         // 攻撃時は立たせ補正を切って、切っ先・剣筋・当たり判定を一致させる
         this.drawKatana(ctx, armEndX, armEndY, rot, facingRight ? 1 : -1, swordLen, 0);
-        const zTrailScale = this.getXAttackTrailWidthScale();
-        if (zTrailScale > 1.01 && this.isAttacking) {
-            const dirMul = facingRight ? 1 : -1;
-            const tipX = armEndX + Math.cos(rot) * dirMul * swordLen * 1.12;
-            const tipY = armEndY + Math.sin(rot) * swordLen * 1.12;
-            ctx.save();
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.strokeStyle = 'rgba(130, 200, 255, 0.26)';
-            ctx.lineWidth = 6.4 * zTrailScale;
-            ctx.beginPath();
-            ctx.moveTo(armEndX, armEndY);
-            ctx.lineTo(tipX, tipY);
-            ctx.stroke();
-            ctx.strokeStyle = 'rgba(220, 236, 255, 0.2)';
-            ctx.lineWidth = 2.8 * zTrailScale;
-            ctx.beginPath();
-            ctx.moveTo(armEndX, armEndY);
-            ctx.lineTo(tipX, tipY);
-            ctx.stroke();
-            ctx.restore();
-        }
+        const suppressBaseSlashForXBoost = this.isXAttackBoostActive() && this.isXAttackActionActive();
 
         // 手前手は剣の後に描画して、握っている見た目を作る
         if (supportHand) {
@@ -4274,13 +4335,12 @@ export class Player {
         const colorRgba = (rgb, alpha) => `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
         const drawDepthArc = (arc) => {
             const backAlpha = swingAlpha * 0.28;
-            const frontAlpha = swingAlpha * 0.86;
+            const frontAlpha = swingAlpha * 0.82;
             const counterClockwise = arc.end < arc.start;
             ctx.save();
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
-            ctx.shadowBlur = 12;
-            ctx.shadowColor = colorRgba(arc.front, frontAlpha * 0.5);
+            ctx.shadowBlur = 0;
 
             ctx.strokeStyle = colorRgba(arc.back, backAlpha);
             ctx.lineWidth = arc.width * 0.72;
@@ -4295,16 +4355,16 @@ export class Player {
             ctx.arc(arc.originX, arc.originY, arc.radius, arc.start, arc.end, counterClockwise);
             ctx.stroke();
 
-            ctx.strokeStyle = `rgba(255, 255, 255, ${frontAlpha * 0.48})`;
-            ctx.lineWidth = Math.max(1.6, arc.width * 0.2);
+            ctx.strokeStyle = `rgba(245, 252, 255, ${frontAlpha * 0.58})`;
+            ctx.lineWidth = Math.max(1.1, arc.width * 0.14);
             ctx.beginPath();
-            ctx.arc(arc.originX + 1.4, arc.originY - 1.2, arc.radius - 2.5, arc.start + 0.05, arc.end + 0.04, counterClockwise);
+            ctx.arc(arc.originX + 1.1, arc.originY - 0.9, arc.radius - 2.0, arc.start + 0.04, arc.end + 0.04, counterClockwise);
             ctx.stroke();
             ctx.restore();
         };
         const drawDepthSlice = (slice) => {
-            const backAlpha = swingAlpha * 0.32;
-            const frontAlpha = swingAlpha * 0.9;
+            const backAlpha = swingAlpha * 0.28;
+            const frontAlpha = swingAlpha * 0.82;
             const length = slice.length || 108;
             const spread = slice.spread || 12;
             const lift = slice.lift || 12;
@@ -4323,27 +4383,25 @@ export class Player {
 
             ctx.strokeStyle = colorRgba(slice.front, frontAlpha);
             ctx.lineWidth = width;
-            ctx.shadowBlur = 12;
-            ctx.shadowColor = colorRgba(slice.front, frontAlpha * 0.5);
+            ctx.shadowBlur = 0;
             ctx.beginPath();
             ctx.moveTo(-length * 0.2, spread * 0.95);
             ctx.quadraticCurveTo(length * 0.28, lift * 1.05, length * 0.98, -spread * 0.2);
             ctx.stroke();
 
-            ctx.shadowBlur = 0;
-            ctx.strokeStyle = `rgba(255, 255, 255, ${frontAlpha * 0.5})`;
-            ctx.lineWidth = Math.max(1.6, width * 0.2);
+            ctx.strokeStyle = `rgba(245, 252, 255, ${frontAlpha * 0.56})`;
+            ctx.lineWidth = Math.max(1.0, width * 0.14);
             ctx.beginPath();
-            ctx.moveTo(-length * 0.16, spread * 0.55);
-            ctx.quadraticCurveTo(length * 0.24, lift * 0.72, length * 0.92, -spread * 0.14);
+            ctx.moveTo(-length * 0.16, spread * 0.58);
+            ctx.quadraticCurveTo(length * 0.24, lift * 0.72, length * 0.9, -spread * 0.12);
             ctx.stroke();
             ctx.restore();
         };
         const drawFollowSlash = (slash) => {
             const alphaFloor = Math.max(0, Math.min(1, slash.minAlpha || 0));
             const alphaBase = Math.max(swingAlpha, alphaFloor);
-            const backAlpha = alphaBase * 0.32;
-            const frontAlpha = alphaBase * 0.88;
+            const backAlpha = alphaBase * 0.28;
+            const frontAlpha = alphaBase * 0.82;
             const width = slash.width || 13;
             const trailLen = slash.trailLen || 52;
             const edgeSpread = slash.edgeSpread || 3.6;
@@ -4352,8 +4410,7 @@ export class Player {
             ctx.save();
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
-            ctx.shadowBlur = 12;
-            ctx.shadowColor = colorRgba(slash.front, frontAlpha * 0.52);
+            ctx.shadowBlur = 0;
             ctx.strokeStyle = colorRgba(slash.back, backAlpha);
             ctx.lineWidth = width * 0.72;
             ctx.beginPath();
@@ -4368,11 +4425,18 @@ export class Player {
             ctx.moveTo(tipX - trailLen * 0.88, edgeSpread * 0.25);
             ctx.quadraticCurveTo(tipX - trailLen * 0.32, edgeSpread * 0.08, tipX, tipY);
             ctx.stroke();
+
+            ctx.strokeStyle = `rgba(246, 252, 255, ${frontAlpha * 0.56})`;
+            ctx.lineWidth = Math.max(1.0, width * 0.14);
+            ctx.beginPath();
+            ctx.moveTo(tipX - trailLen * 0.74, edgeSpread * 0.14);
+            ctx.quadraticCurveTo(tipX - trailLen * 0.28, edgeSpread * 0.04, tipX, tipY);
+            ctx.stroke();
             ctx.restore();
         };
         const drawTipArc = (slash) => {
-            const backAlpha = swingAlpha * 0.32;
-            const frontAlpha = swingAlpha * 0.88;
+            const backAlpha = swingAlpha * 0.28;
+            const frontAlpha = swingAlpha * 0.82;
             const width = slash.width || 13;
             const tipX = swordLen;
             const tipY = 0;
@@ -4395,8 +4459,7 @@ export class Player {
             ctx.save();
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
-            ctx.shadowBlur = 12;
-            ctx.shadowColor = colorRgba(slash.front, frontAlpha * 0.52);
+            ctx.shadowBlur = 0;
 
             ctx.strokeStyle = colorRgba(slash.back, backAlpha);
             ctx.lineWidth = width * 0.72;
@@ -4411,78 +4474,78 @@ export class Player {
             ctx.arc(centerX, centerY, radius, visibleStart, end, counterClockwise);
             ctx.stroke();
 
-            // 中央ハイライトは終点を必ず切っ先に一致させる
-            const hiRadius = Math.max(4, radius - 2.2);
+            const hiRadius = Math.max(4, radius - 2.0);
             const hiCenterX = tipX - hiRadius * Math.cos(end);
             const hiCenterY = tipY - hiRadius * Math.sin(end);
-            ctx.strokeStyle = `rgba(255, 255, 255, ${frontAlpha * 0.5})`;
-            ctx.lineWidth = Math.max(1.6, width * 0.24);
+            ctx.strokeStyle = `rgba(246, 252, 255, ${frontAlpha * 0.56})`;
+            ctx.lineWidth = Math.max(1.0, width * 0.14);
             ctx.beginPath();
             ctx.arc(hiCenterX, hiCenterY, hiRadius, visibleStart, end, counterClockwise);
             ctx.stroke();
             ctx.restore();
         };
 
-        if (trail && trail.mode === 'arc') {
-            drawDepthArc(trail);
-        } else if (trail && trail.mode === 'depthSlice') {
-            drawDepthSlice(trail);
-        } else if (trail && trail.mode === 'followSlash') {
-            drawFollowSlash(trail);
-        } else if (trail && trail.mode === 'tipArc') {
-            drawTipArc(trail);
-        } else if (trail && trail.mode === 'thrust') {
-            const alpha = swingAlpha * 0.95;
-            ctx.save();
-            ctx.shadowBlur = 12;
-            ctx.shadowColor = colorRgba(trail.front, alpha * 0.58);
-            ctx.fillStyle = colorRgba(trail.back, alpha * 0.38);
-            ctx.beginPath();
-            ctx.moveTo(swordLen - 2, -14);
-            ctx.lineTo(swordLen + 34, -5.5);
-            ctx.lineTo(swordLen + 34, 5.5);
-            ctx.lineTo(swordLen - 2, 14);
-            ctx.lineTo(swordLen + 6, 0);
-            ctx.closePath();
-            ctx.fill();
+        const isComboAttack = !!attack.comboStep;
+        // コンボ中はローカル白斬撃を重ねず、軌跡側だけを表示して刀身の白発光を防ぐ
+        if (!suppressBaseSlashForXBoost && !isComboAttack) {
+            if (trail && trail.mode === 'arc') {
+                drawDepthArc(trail);
+            } else if (trail && trail.mode === 'depthSlice') {
+                drawDepthSlice(trail);
+            } else if (trail && trail.mode === 'followSlash') {
+                drawFollowSlash(trail);
+            } else if (trail && trail.mode === 'tipArc') {
+                drawTipArc(trail);
+            } else if (trail && trail.mode === 'thrust') {
+                const alpha = swingAlpha * 0.72;
+                ctx.save();
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = colorRgba(trail.back, alpha * 0.3);
+                ctx.beginPath();
+                ctx.moveTo(swordLen - 2, -14);
+                ctx.lineTo(swordLen + 34, -5.5);
+                ctx.lineTo(swordLen + 34, 5.5);
+                ctx.lineTo(swordLen - 2, 14);
+                ctx.lineTo(swordLen + 6, 0);
+                ctx.closePath();
+                ctx.fill();
 
-            ctx.shadowBlur = 0;
-            ctx.fillStyle = colorRgba(trail.front, alpha);
-            ctx.beginPath();
-            ctx.moveTo(swordLen + 1, -9.5);
-            ctx.lineTo(swordLen + 42, -2.6);
-            ctx.lineTo(swordLen + 42, 2.6);
-            ctx.lineTo(swordLen + 1, 9.5);
-            ctx.lineTo(swordLen + 10, 0);
-            ctx.closePath();
-            ctx.fill();
-            ctx.restore();
-        } else if (!attack.comboStep && attack.type === ANIM_STATE.ATTACK_THRUST) {
-            const alpha = swingAlpha;
-            ctx.save();
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = `rgba(100, 255, 255, ${alpha})`;
-            ctx.fillStyle = `rgba(100, 255, 255, ${alpha})`;
-            ctx.beginPath();
-            ctx.moveTo(swordLen, -25);
-            ctx.bezierCurveTo(swordLen + 20, -10, swordLen + 20, 10, swordLen, 25);
-            ctx.bezierCurveTo(swordLen + 10, 10, swordLen + 10, -10, swordLen, -25);
-            ctx.fill();
-            ctx.restore();
-        } else if (!attack.comboStep) {
-            ctx.strokeStyle = `rgba(100, 200, 255, ${0.8 * swingAlpha})`;
-            ctx.lineWidth = 15;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            const normalSlashRadius = 80;
-            if (attack.type === ANIM_STATE.ATTACK_SPIN) {
-                ctx.arc(0, 0, normalSlashRadius, 0, Math.PI * 2);
-            } else if (attack.isLaunch) {
-                ctx.arc(-20, 0, normalSlashRadius, -Math.PI * 0.4, Math.PI * 0.4, true);
+                ctx.fillStyle = colorRgba(trail.front, alpha);
+                ctx.beginPath();
+                ctx.moveTo(swordLen + 1, -9.5);
+                ctx.lineTo(swordLen + 42, -2.6);
+                ctx.lineTo(swordLen + 42, 2.6);
+                ctx.lineTo(swordLen + 1, 9.5);
+                ctx.lineTo(swordLen + 10, 0);
+                ctx.closePath();
+                ctx.fill();
+                ctx.restore();
+            } else if (attack.type === ANIM_STATE.ATTACK_THRUST) {
+                const alpha = swingAlpha * 0.72;
+                ctx.save();
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = `rgba(100, 255, 255, ${alpha})`;
+                ctx.beginPath();
+                ctx.moveTo(swordLen, -25);
+                ctx.bezierCurveTo(swordLen + 20, -10, swordLen + 20, 10, swordLen, 25);
+                ctx.bezierCurveTo(swordLen + 10, 10, swordLen + 10, -10, swordLen, -25);
+                ctx.fill();
+                ctx.restore();
             } else {
-                ctx.arc(-10, 0, normalSlashRadius, -0.8, 0.8);
+                ctx.strokeStyle = `rgba(100, 200, 255, ${0.8 * swingAlpha})`;
+                ctx.lineWidth = 15;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                const normalSlashRadius = 80;
+                if (attack.type === ANIM_STATE.ATTACK_SPIN) {
+                    ctx.arc(0, 0, normalSlashRadius, 0, Math.PI * 2);
+                } else if (attack.isLaunch) {
+                    ctx.arc(-20, 0, normalSlashRadius, -Math.PI * 0.4, Math.PI * 0.4, true);
+                } else {
+                    ctx.arc(-10, 0, normalSlashRadius, -0.8, 0.8);
+                }
+                ctx.stroke();
             }
-            ctx.stroke();
         }
 
         ctx.restore();
@@ -4532,24 +4595,38 @@ export class Player {
         }
     }
 
-    getComboSwordPoseForTrail() {
-        const attack = this.currentAttack;
-        if (!this.isAttacking || !attack || !attack.comboStep) return null;
+    getComboSwordPoseForTrail(state = null) {
+        const baseState = state || {
+            isAttacking: this.isAttacking,
+            currentAttack: this.currentAttack,
+            attackTimer: this.attackTimer,
+            facingRight: this.facingRight,
+            x: this.x,
+            y: this.y,
+            isCrouching: this.isCrouching
+        };
+        return this.getComboSwordPoseForTrailState(baseState);
+    }
 
-        const dir = this.facingRight ? 1 : -1;
-        const centerX = this.x + this.width / 2;
-        const pivotY = this.y + (this.isCrouching ? this.height * 0.58 : this.height * 0.43);
+    getComboSwordPoseForTrailState(state) {
+        if (!state) return null;
+        const attack = state.currentAttack;
+        if (!state.isAttacking || !attack || !attack.comboStep) return null;
+
+        const dir = state.facingRight ? 1 : -1;
+        const centerX = state.x + this.width / 2;
+        const pivotY = state.y + (state.isCrouching ? this.height * 0.58 : this.height * 0.43);
         const attackDuration = Math.max(1, attack.durationMs || PLAYER.ATTACK_COOLDOWN);
-        const rawProgress = Math.max(0, Math.min(1, 1 - (this.attackTimer / attackDuration)));
+        const rawProgress = Math.max(0, Math.min(1, 1 - (state.attackTimer / attackDuration)));
         const progress = this.getAttackMotionProgress(attack, rawProgress);
         const easeOut = 1 - Math.pow(1 - progress, 2);
         const easeInOut = progress < 0.5
             ? 2 * progress * progress
             : 1 - Math.pow(-2 * progress + 2, 2) / 2;
 
-        const idleAngle = this.isCrouching ? -0.32 : -0.65;
-        const idleHandX = centerX + dir * (this.isCrouching ? 12 : 15);
-        const idleHandY = pivotY + (this.isCrouching ? 5.5 : 8.0);
+        const idleAngle = state.isCrouching ? -0.32 : -0.65;
+        const idleHandX = centerX + dir * (state.isCrouching ? 12 : 15);
+        const idleHandY = pivotY + (state.isCrouching ? 5.5 : 8.0);
 
         let swordAngle = idleAngle;
         let armEndX = idleHandX;
@@ -4667,19 +4744,34 @@ export class Player {
     }
 
     updateComboSlashTrail(deltaMs) {
-        const points = this.comboSlashTrailPoints;
+        this.comboSlashTrailSampleTimer = this.updateSlashTrailBuffer(
+            this.comboSlashTrailPoints,
+            this.comboSlashTrailSampleTimer,
+            this.getComboSwordPoseForTrail(),
+            deltaMs
+        );
+    }
+
+    updateSlashTrailBuffer(points, sampleTimer, pose, deltaMs) {
+        if (!Array.isArray(points)) return 0;
         for (let i = 0; i < points.length; i++) {
             points[i].age += deltaMs;
         }
 
-        this.comboSlashTrailSampleTimer = Math.max(0, this.comboSlashTrailSampleTimer - deltaMs);
+        let nextSampleTimer = Math.max(0, (sampleTimer || 0) - deltaMs);
 
-        const pose = this.getComboSwordPoseForTrail();
         if (pose) {
             const now = { x: pose.tipX, y: pose.tipY };
-            const last = points.length > 0 ? points[points.length - 1] : null;
-            const dist = last ? Math.hypot(now.x - last.x, now.y - last.y) : Infinity;
-            if (!last || dist >= 2.6 || this.comboSlashTrailSampleTimer <= 0) {
+            const jumpCutDist = 140;
+            let last = points.length > 0 ? points[points.length - 1] : null;
+            let dist = last ? Math.hypot(now.x - last.x, now.y - last.y) : Infinity;
+            // 不自然な遠距離接続だけを切る（通常の連続軌跡は維持）
+            if (last && dist > jumpCutDist) {
+                points.length = 0;
+                last = null;
+                dist = Infinity;
+            }
+            if (!last || dist >= 2.6 || nextSampleTimer <= 0) {
                 points.push({
                     x: now.x,
                     y: now.y,
@@ -4688,7 +4780,7 @@ export class Player {
                     life: this.comboSlashTrailActiveLifeMs,
                     seed: Math.random() * Math.PI * 2
                 });
-                this.comboSlashTrailSampleTimer = this.comboSlashTrailSampleIntervalMs;
+                nextSampleTimer = this.comboSlashTrailSampleIntervalMs;
             } else {
                 last.x = now.x;
                 last.y = now.y;
@@ -4706,69 +4798,117 @@ export class Player {
         if (points.length > 180) {
             points.splice(0, points.length - 180);
         }
+
+        return nextSampleTimer;
     }
 
-    renderComboSlashTrail(ctx) {
-        const points = this.comboSlashTrailPoints;
+    updateSpecialCloneSlashTrails(deltaMs) {
+        const count = this.specialCloneSlots ? this.specialCloneSlots.length : 0;
+        if (count <= 0) return;
+        if (!Array.isArray(this.specialCloneSlashTrailPoints)) {
+            this.specialCloneSlashTrailPoints = [];
+        }
+        if (!Array.isArray(this.specialCloneSlashTrailSampleTimers)) {
+            this.specialCloneSlashTrailSampleTimers = [];
+        }
+
+        for (let i = 0; i < count; i++) {
+            if (!Array.isArray(this.specialCloneSlashTrailPoints[i])) {
+                this.specialCloneSlashTrailPoints[i] = [];
+            }
+            if (!Number.isFinite(this.specialCloneSlashTrailSampleTimers[i])) {
+                this.specialCloneSlashTrailSampleTimers[i] = 0;
+            }
+
+            const pos = this.specialClonePositions[i];
+            const isAlive = this.specialCloneAlive && this.specialCloneAlive[i];
+            let pose = null;
+
+            if (isAlive && pos) {
+                const isAutoAi = !!this.specialCloneAutoAiEnabled;
+                const isAttacking = isAutoAi
+                    ? ((this.specialCloneAttackTimers[i] || 0) > 0)
+                    : !!this.isAttacking;
+                if (isAttacking) {
+                    const comboStep = isAutoAi
+                        ? ((this.specialCloneComboSteps[i] || 0) % COMBO_ATTACKS.length) + 1
+                        : (this.currentAttack ? this.currentAttack.comboStep || 1 : 1);
+                    const attackProfile = isAutoAi
+                        ? this.getComboAttackProfileByStep(comboStep)
+                        : this.currentAttack;
+                    const attackTimer = isAutoAi
+                        ? (this.specialCloneAttackTimers[i] || 0)
+                        : this.attackTimer;
+                    const cloneDrawY = isAutoAi
+                        ? (pos.y - this.height * 0.62)
+                        : this.y;
+                    pose = this.getComboSwordPoseForTrail({
+                        isAttacking: true,
+                        currentAttack: attackProfile,
+                        attackTimer,
+                        facingRight: pos.facingRight,
+                        x: pos.x - this.width * 0.5,
+                        y: cloneDrawY,
+                        isCrouching: false
+                    });
+                }
+            }
+
+            this.specialCloneSlashTrailSampleTimers[i] = this.updateSlashTrailBuffer(
+                this.specialCloneSlashTrailPoints[i],
+                this.specialCloneSlashTrailSampleTimers[i],
+                pose,
+                deltaMs
+            );
+        }
+    }
+
+    renderComboSlashTrail(ctx, options = {}) {
+        const points = Array.isArray(options.points) ? options.points : this.comboSlashTrailPoints;
         if (!points || points.length < 2) return;
-        const trailWidthScale = this.getXAttackTrailWidthScale();
-        const boostActive = trailWidthScale > 1.01 && this.isAttacking;
-        const normalWidthScale = 1.42;
+        const trailWidthScale = Number.isFinite(options.trailWidthScale)
+            ? options.trailWidthScale
+            : this.getXAttackTrailWidthScale();
+        const boostActive = options.boostActive !== undefined
+            ? !!options.boostActive
+            : (trailWidthScale > 1.01 && this.isAttacking);
+        const trailCenterX = Number.isFinite(options.centerX)
+            ? options.centerX
+            : (this.x + this.width * 0.5);
+        const trailCenterY = Number.isFinite(options.centerY)
+            ? options.centerY
+            : (this.y + this.height * 0.5);
+        const normalWidthScale = 1.34;
+        const clamp01 = (v) => Math.max(0, Math.min(1, v));
+        const colorRgba = (rgb, alpha) => `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${clamp01(alpha)})`;
 
         // 近すぎる点は統合してパスを単純化し、ギザつきを抑える
         const simplified = [];
-        const minGap = 6.2;
+        const minGap = 4.2;
         for (let i = 0; i < points.length; i++) {
             const src = points[i];
             const life = Math.max(1, src.life || this.comboSlashTrailActiveLifeMs);
             if (simplified.length === 0) {
-                simplified.push({ x: src.x, y: src.y, age: src.age || 0, life });
+                simplified.push({ x: src.x, y: src.y, age: src.age || 0, life, step: src.step || 0 });
                 continue;
             }
             const last = simplified[simplified.length - 1];
             const dist = Math.hypot(src.x - last.x, src.y - last.y);
             if (dist >= minGap) {
-                simplified.push({ x: src.x, y: src.y, age: src.age || 0, life });
+                simplified.push({ x: src.x, y: src.y, age: src.age || 0, life, step: src.step || 0 });
             } else {
-                // 直近点へ寄せる低域フィルタ
-                last.x = last.x * 0.72 + src.x * 0.28;
-                last.y = last.y * 0.72 + src.y * 0.28;
-                last.age = Math.min(last.age, src.age || 0);
-                last.life = Math.max(last.life, life);
+                // 近接点は統合しつつ、最新位置へ寄せて弧の連続性を保つ
+                last.x = src.x;
+                last.y = src.y;
+                last.age = src.age || 0;
+                last.life = life;
+                last.step = src.step || last.step || 0;
             }
         }
-        if (simplified.length < 3) return;
+        if (simplified.length < 2) return;
 
-        // Chaikinで角を落としてなだらかな軌跡へ
-        const chaikinSmooth = (src, passes = 2) => {
-            let out = src;
-            for (let pass = 0; pass < passes; pass++) {
-                if (out.length < 3) break;
-                const next = [out[0]];
-                for (let i = 0; i < out.length - 1; i++) {
-                    const a = out[i];
-                    const b = out[i + 1];
-                    next.push({
-                        x: a.x * 0.75 + b.x * 0.25,
-                        y: a.y * 0.75 + b.y * 0.25,
-                        age: a.age * 0.75 + b.age * 0.25,
-                        life: a.life * 0.75 + b.life * 0.25
-                    });
-                    next.push({
-                        x: a.x * 0.25 + b.x * 0.75,
-                        y: a.y * 0.25 + b.y * 0.75,
-                        age: a.age * 0.25 + b.age * 0.75,
-                        life: a.life * 0.25 + b.life * 0.75
-                    });
-                }
-                next.push(out[out.length - 1]);
-                out = next;
-            }
-            return out;
-        };
-
-        let pathPoints = chaikinSmooth(simplified, 2);
-        const maxNodes = 38;
+        let pathPoints = simplified;
+        const maxNodes = 42;
         if (pathPoints.length > maxNodes) {
             const reduced = [];
             for (let i = 0; i < maxNodes; i++) {
@@ -4781,99 +4921,129 @@ export class Player {
                     x: pathPoints[i0].x + (pathPoints[i1].x - pathPoints[i0].x) * k,
                     y: pathPoints[i0].y + (pathPoints[i1].y - pathPoints[i0].y) * k,
                     age: pathPoints[i0].age + (pathPoints[i1].age - pathPoints[i0].age) * k,
-                    life: pathPoints[i0].life + (pathPoints[i1].life - pathPoints[i0].life) * k
+                    life: pathPoints[i0].life + (pathPoints[i1].life - pathPoints[i0].life) * k,
+                    step: Math.round(pathPoints[i0].step + (pathPoints[i1].step - pathPoints[i0].step) * k)
                 });
             }
             pathPoints = reduced;
         }
         if (pathPoints.length < 2) return;
 
-        // 連続剣筋として描画しつつ、大ジャンプのみ分割（不自然なうねり防止）
-        const strips = [];
-        let strip = [pathPoints[0]];
-        for (let i = 1; i < pathPoints.length; i++) {
-            const prev = pathPoints[i - 1];
-            const curr = pathPoints[i];
-            const jump = Math.hypot(curr.x - prev.x, curr.y - prev.y);
-            if (jump > 120) {
-                if (strip.length >= 2) strips.push(strip);
-                strip = [curr];
-            } else {
-                strip.push(curr);
-            }
-        }
-        if (strip.length >= 2) strips.push(strip);
-        if (strips.length === 0) return;
-
         ctx.save();
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.shadowBlur = 0;
 
-        const clamp01 = (v) => Math.max(0, Math.min(1, v));
-        const drawSmoothStroke = (pts, startIndex, width, rgba) => {
-            const start = Math.max(0, Math.min(pts.length - 2, startIndex));
-            const sub = pts.slice(start);
-            if (sub.length < 2) return;
-            ctx.strokeStyle = rgba;
-            ctx.lineWidth = width;
-            ctx.beginPath();
-            ctx.moveTo(sub[0].x, sub[0].y);
-            if (sub.length === 2) {
-                ctx.lineTo(sub[1].x, sub[1].y);
-            } else {
-                for (let i = 1; i < sub.length - 1; i++) {
-                    const c = sub[i];
-                    const n = sub[i + 1];
-                    const mx = (c.x + n.x) * 0.5;
-                    const my = (c.y + n.y) * 0.5;
-                    ctx.quadraticCurveTo(c.x, c.y, mx, my);
-                }
-                const last = sub[sub.length - 1];
-                ctx.lineTo(last.x, last.y);
+        const strips = [pathPoints];
+
+        const buildProjected = (pts, projectFn = null) => {
+            if (!projectFn) return pts;
+            const mapped = [];
+            for (let i = 0; i < pts.length; i++) {
+                const src = pts[i];
+                const p = projectFn(src);
+                mapped.push({
+                    x: p.x,
+                    y: p.y,
+                    age: src.age,
+                    life: src.life
+                });
             }
-            ctx.stroke();
+            return mapped;
         };
 
-        for (const pts of strips) {
-            const n = pts.length;
-            const tailLife = clamp01(1 - (pts[0].age / Math.max(1, pts[0].life)));
-            const headLife = clamp01(1 - (pts[n - 1].age / Math.max(1, pts[n - 1].life)));
-            const life = Math.max(tailLife, headLife);
-            if (life <= 0.01) continue;
-
-            const startMid = Math.floor(n * 0.35);
-            const startHead = Math.floor(n * 0.62);
-
-            // 通常剣筋: 太めの水色
-            drawSmoothStroke(pts, 0, 8.6 * normalWidthScale, `rgba(118, 198, 255, ${life * 0.12})`);
-            drawSmoothStroke(pts, startMid, 8.8 * normalWidthScale, `rgba(118, 198, 255, ${life * 0.2})`);
-            drawSmoothStroke(pts, startHead, 9.0 * normalWidthScale, `rgba(118, 198, 255, ${life * 0.3})`);
-
-            // 通常剣筋ハイライト
-            drawSmoothStroke(pts, 0, 3.4 * normalWidthScale, `rgba(225, 242, 255, ${life * 0.09})`);
-            drawSmoothStroke(pts, startMid, 3.5 * normalWidthScale, `rgba(225, 242, 255, ${life * 0.16})`);
-            drawSmoothStroke(pts, startHead, 3.6 * normalWidthScale, `rgba(225, 242, 255, ${life * 0.24})`);
-
-            // 連撃拡張中は、当たり判定側に離した銀帯を追加して範囲拡張を視認しやすくする
-            if (boostActive) {
-                const centerX = this.x + this.width * 0.5;
-                const centerY = this.y + this.height * 0.5;
-                const off = 16 + (trailWidthScale - 1) * 34;
-                const expanded = pts.map((p) => {
-                    const vx = p.x - centerX;
-                    const vy = p.y - centerY;
-                    const len = Math.max(0.001, Math.hypot(vx, vy));
-                    return {
-                        ...p,
-                        x: p.x + (vx / len) * off,
-                        y: p.y + (vy / len) * off
-                    };
+        const smoothPathPoints = (pts) => {
+            if (!pts || pts.length < 3) return pts;
+            const smoothed = [{ ...pts[0] }];
+            const smoothWeight = 0.22;
+            for (let i = 1; i < pts.length - 1; i++) {
+                const prev = pts[i - 1];
+                const cur = pts[i];
+                const next = pts[i + 1];
+                const avgX = (prev.x + next.x) * 0.5;
+                const avgY = (prev.y + next.y) * 0.5;
+                smoothed.push({
+                    ...cur,
+                    x: cur.x + (avgX - cur.x) * smoothWeight,
+                    y: cur.y + (avgY - cur.y) * smoothWeight
                 });
-                drawSmoothStroke(expanded, 0, 10.6 * trailWidthScale, `rgba(170, 184, 200, ${life * 0.12})`);
-                drawSmoothStroke(expanded, startMid, 11.0 * trailWidthScale, `rgba(170, 184, 200, ${life * 0.22})`);
-                drawSmoothStroke(expanded, startHead, 11.4 * trailWidthScale, `rgba(170, 184, 200, ${life * 0.34})`);
-                drawSmoothStroke(expanded, startHead, 4.6 * trailWidthScale, `rgba(232, 238, 246, ${life * 0.24})`);
+            }
+            smoothed.push({ ...pts[pts.length - 1] });
+            return smoothed;
+        };
+
+        const drawTrailPath = (pts) => {
+            if (!pts || pts.length < 2) return false;
+            const curvePts = smoothPathPoints(pts);
+            if (!curvePts || curvePts.length < 2) return false;
+            ctx.beginPath();
+            ctx.moveTo(curvePts[0].x, curvePts[0].y);
+            if (curvePts.length === 2) {
+                ctx.lineTo(curvePts[1].x, curvePts[1].y);
+                return true;
+            }
+            for (let i = 1; i < curvePts.length - 1; i++) {
+                const next = curvePts[i + 1];
+                const midX = (curvePts[i].x + next.x) * 0.5;
+                const midY = (curvePts[i].y + next.y) * 0.5;
+                ctx.quadraticCurveTo(curvePts[i].x, curvePts[i].y, midX, midY);
+            }
+            const endCtrl = curvePts[curvePts.length - 2];
+            const end = curvePts[curvePts.length - 1];
+            ctx.quadraticCurveTo(endCtrl.x, endCtrl.y, end.x, end.y);
+            return true;
+        };
+
+        const drawGradientTrail = (pts, width, rgb, oldestScale, newestScale, projectFn = null) => {
+            const mapped = buildProjected(pts, projectFn);
+            if (!mapped || mapped.length < 2) return;
+            const oldestSrc = pts[0];
+            const newestSrc = pts[pts.length - 1];
+            const oldestLife = Math.max(1, oldestSrc.life || this.comboSlashTrailActiveLifeMs);
+            const newestLife = Math.max(1, newestSrc.life || this.comboSlashTrailActiveLifeMs);
+            const oldestFade = clamp01(1 - ((oldestSrc.age || 0) / oldestLife));
+            const newestFade = clamp01(1 - ((newestSrc.age || 0) / newestLife));
+            const oldestAlpha = oldestFade * oldestScale;
+            const newestAlpha = newestFade * newestScale;
+            if (newestAlpha <= 0.01) return;
+
+            const start = mapped[0];
+            const end = mapped[mapped.length - 1];
+            const grad = ctx.createLinearGradient(start.x, start.y, end.x, end.y);
+            grad.addColorStop(0, colorRgba(rgb, oldestAlpha));
+            grad.addColorStop(0.52, colorRgba(rgb, oldestAlpha + (newestAlpha - oldestAlpha) * 0.58));
+            grad.addColorStop(1, colorRgba(rgb, newestAlpha));
+
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = width;
+            if (drawTrailPath(mapped)) {
+                ctx.stroke();
+            }
+        };
+
+        if (!boostActive) {
+            // 古い軌跡(根元側)から新しい切っ先側に向かって濃くなる
+            for (const strip of strips) {
+                drawGradientTrail(strip, 8.6 * normalWidthScale, [108, 196, 248], 0.08, 0.5);
+                drawGradientTrail(strip, 2.2 * normalWidthScale, [236, 246, 255], 0.06, 0.44);
+            }
+        }
+
+        // 連撃拡張中は、当たり判定側に離した銀帯を追加して範囲拡張を視認しやすくする
+        if (boostActive) {
+            const off = 10 + (trailWidthScale - 1) * 24;
+            const projectOut = (p) => {
+                const vx = p.x - trailCenterX;
+                const vy = p.y - trailCenterY;
+                const len = Math.max(0.001, Math.hypot(vx, vy));
+                return {
+                    x: p.x + (vx / len) * off,
+                    y: p.y + (vy / len) * off
+                };
+            };
+            for (const strip of strips) {
+                drawGradientTrail(strip, 8.0 * trailWidthScale, [156, 174, 194], 0.06, 0.3, projectOut);
+                drawGradientTrail(strip, 3.3 * trailWidthScale, [206, 218, 232], 0.05, 0.2, projectOut);
             }
         }
 
@@ -4928,10 +5098,13 @@ export class Player {
                     ? (this.specialCloneAttackTimers[i] || 0)
                     : this.attackTimer;
                 const cloneComboStep = this.specialCloneAutoAiEnabled
-                    ? ((this.specialCloneComboSteps[i] || 0) % 3) + 1
+                    ? ((this.specialCloneComboSteps[i] || 0) % COMBO_ATTACKS.length) + 1
                     : (this.currentAttack ? this.currentAttack.comboStep || 1 : 1);
+                const cloneAttackProfile = this.specialCloneAutoAiEnabled
+                    ? this.getComboAttackProfileByStep(cloneComboStep)
+                    : null;
                 const cloneAttackDurationMs = this.specialCloneAutoAiEnabled
-                    ? 320
+                    ? cloneAttackProfile.durationMs
                     : (this.currentAttack ? this.currentAttack.durationMs || 320 : 320);
 
                 // 本体の状態を退避
@@ -4992,14 +5165,8 @@ export class Player {
                     if (this.specialCloneAutoAiEnabled) {
                         // Lv3: 独自の攻撃プロファイル
                         this.currentAttack = {
-                            comboStep: cloneComboStep,
-                            durationMs: cloneAttackDurationMs,
-                            range: 90,
-                            type: ANIM_STATE.ATTACK_SLASH,
-                            source: 'main',
-                            impulse: 0,
-                            cooldownScale: 0.5,
-                            chainWindowMs: 0
+                            ...cloneAttackProfile,
+                            comboStep: cloneComboStep
                         };
                     } else {
                         // Lv0〜2: 本体の攻撃をそのままコピー
@@ -5014,6 +5181,20 @@ export class Player {
 
                 ctx.save();
                 ctx.globalAlpha = cloneAlpha;
+
+                const cloneTrailPoints = Array.isArray(this.specialCloneSlashTrailPoints)
+                    ? this.specialCloneSlashTrailPoints[i]
+                    : null;
+                if (cloneTrailPoints && cloneTrailPoints.length > 1) {
+                    const trailScale = this.getXAttackTrailWidthScale();
+                    this.renderComboSlashTrail(ctx, {
+                        points: cloneTrailPoints,
+                        centerX: pos.x,
+                        centerY: cloneDrawY + this.height * 0.5,
+                        trailWidthScale: trailScale,
+                        boostActive: trailScale > 1.01 && isCloneAttacking
+                    });
+                }
 
                 // 全レベル共通で根元を正しい位置にセット
                 const savedScarf = this.scarfNodes;

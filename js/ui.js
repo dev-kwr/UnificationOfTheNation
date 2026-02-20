@@ -1768,7 +1768,7 @@ export function renderIntro(ctx, timer) {
         '亡き主君の遺志を継ぎ、天下を平らげるため、',
         '彼女は難攻不落の城へと向かう。',
         '',
-        '立ちふさがるは、五人の侍大将。',
+        '立ちふさがるは、六人の強者達。',
         'すべての刃を折り、日の本を一つにせよ。'
     ];
 
@@ -1861,9 +1861,9 @@ export function renderGameClearScreen(ctx, player) {
         CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 0,
         CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH * 0.62
     );
-    gradient.addColorStop(0, '#ffd84a');
-    gradient.addColorStop(0.55, '#9b6f12');
-    gradient.addColorStop(1, '#151515');
+    gradient.addColorStop(0, '#c79a2f');
+    gradient.addColorStop(0.58, '#6f4d0d');
+    gradient.addColorStop(1, '#0b0906');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
@@ -1876,8 +1876,8 @@ export function renderGameClearScreen(ctx, player) {
         const px = CANVAS_WIDTH / 2 + Math.sin(loopTime * 0.001 + i * 0.72) * 200;
         const py = CANVAS_HEIGHT / 2 - 100 + Math.cos(loopTime * 0.0008 + i * 0.9) * 100 + cycleProgress * 120;
         const size = 2 + Math.sin(i * 0.5) * 1.5;
-        const particleAlpha = Math.sin(cycleProgress * Math.PI) * 0.42;
-        ctx.fillStyle = `rgba(255, 214, 96, ${particleAlpha})`;
+        const particleAlpha = Math.sin(cycleProgress * Math.PI) * 0.34;
+        ctx.fillStyle = `rgba(238, 190, 78, ${particleAlpha})`;
         ctx.beginPath();
         ctx.arc(px, py, size, 0, Math.PI * 2);
         ctx.fill();
@@ -1889,17 +1889,11 @@ export function renderGameClearScreen(ctx, player) {
     // 見出し（GAME OVERと同サイズ）
     ctx.fillStyle = 'rgba(255, 247, 224, 1)';
     ctx.font = 'bold 80px serif';
-    ctx.strokeStyle = 'rgba(20, 14, 4, 0.98)';
-    ctx.lineWidth = 5;
-    ctx.strokeText('天下統一', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 80);
     ctx.fillText('天下統一', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 80);
 
     // サブ見出し（GAME OVERと同サイズ）
     ctx.font = 'bold 40px serif';
     ctx.fillStyle = 'rgba(255, 218, 108, 1)';
-    ctx.strokeStyle = 'rgba(36, 24, 6, 0.92)';
-    ctx.lineWidth = 3;
-    ctx.strokeText('GAME CLEAR', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
     ctx.fillText('GAME CLEAR', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
 
     // 続行メッセージ（GAME OVERと同じサイズ感）

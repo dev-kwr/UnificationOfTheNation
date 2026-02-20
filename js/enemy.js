@@ -29,6 +29,9 @@ export class Enemy {
         this.maxHp = 10;
         this.damage = 1;
         this.speed = 2;
+        this.speedVarianceRange = 0.16;
+        this.speedVarianceBias = 0;
+        this.movementTempo = 1;
         this.isDying = false; 
         this.deathTimer = 0;
         this.deathDuration = 420;
@@ -42,6 +45,8 @@ export class Enemy {
         // 飛び道具
         this.projectiles = [];
         this.hitTimer = 0; // 追加
+        this.slowTimer = 0;
+        this.slowMultiplier = 1;
         
         // 状態
         this.isGrounded = true;
@@ -81,6 +86,7 @@ export class Enemy {
         
         // 難易度によるステータス補正
         this.applyDifficultyScaling();
+        this.applySpawnSpeedVariance();
     }
     
     applyDifficultyScaling() {
@@ -89,6 +95,15 @@ export class Enemy {
         this.damage = Math.max(1, Math.floor(this.damage * difficulty.damageMult));
         this.maxHp = Math.max(1, Math.floor(this.maxHp * difficulty.hpMult));
         this.hp = this.maxHp;
+    }
+
+    applySpawnSpeedVariance() {
+        const variance = Number.isFinite(this.speedVarianceRange) ? this.speedVarianceRange : 0;
+        const bias = Number.isFinite(this.speedVarianceBias) ? this.speedVarianceBias : 0;
+        const roll = (Math.random() * 2 - 1) * variance;
+        const tempo = Math.max(0.72, Math.min(1.5, 1 + bias + roll));
+        this.movementTempo = tempo;
+        this.speed = Math.max(0.6, this.speed * tempo);
     }
     
     init() {
@@ -110,6 +125,14 @@ export class Enemy {
         this.motionTime += deltaTime * 1000;
         if (this.jumpCooldown > 0) {
             this.jumpCooldown -= deltaTime * 1000;
+        }
+
+        if (this.slowTimer > 0) {
+            this.slowTimer -= deltaTime * 1000;
+            if (this.slowTimer <= 0) {
+                this.slowTimer = 0;
+                this.slowMultiplier = 1;
+            }
         }
         
         // ヒットエフェクト
@@ -466,9 +489,11 @@ export class Enemy {
     }
 
     applyDesiredVx(targetVx, responsiveness = 0.22) {
+        const speedScale = this.slowTimer > 0 ? Math.max(0.35, Math.min(1, this.slowMultiplier || 1)) : 1;
+        const scaledTargetVx = targetVx * speedScale;
         const blend = Math.max(0, Math.min(1, responsiveness));
-        this.vx += (targetVx - this.vx) * blend;
-        if (Math.abs(targetVx) < 0.05 && Math.abs(this.vx) < 0.05) {
+        this.vx += (scaledTargetVx - this.vx) * blend;
+        if (Math.abs(scaledTargetVx) < 0.05 && Math.abs(this.vx) < 0.05) {
             this.vx = 0;
         }
     }
@@ -647,6 +672,24 @@ export class Enemy {
     startAttack() {
         this.isAttacking = true;
         this.attackTimer = 300;
+        this.playAttackSfx();
+    }
+
+    playAttackSfx() {
+        switch (this.type) {
+            case ENEMY_TYPES.ASHIGARU:
+                audio.playSpear();
+                break;
+            case ENEMY_TYPES.BUSHO:
+                audio.playSlash(3);
+                break;
+            case ENEMY_TYPES.NINJA:
+                audio.playShuriken();
+                break;
+            default:
+                audio.playSlash(1);
+                break;
+        }
     }
     
     updateAttack(deltaTime) {
@@ -723,6 +766,14 @@ export class Enemy {
         this.hp -= damage;
         this.hitTimer = 140; // ヒットエフェクト
         this.invincibleTimer = attackData && attackData.isLaunch ? 120 : 80;
+
+        if (attackData && Number.isFinite(attackData.slowDurationMs) && attackData.slowDurationMs > 0) {
+            const nextSlow = Number.isFinite(attackData.slowMultiplier)
+                ? Math.max(0.35, Math.min(1, attackData.slowMultiplier))
+                : 0.7;
+            this.slowMultiplier = Math.min(this.slowMultiplier || 1, nextSlow);
+            this.slowTimer = Math.max(this.slowTimer || 0, attackData.slowDurationMs);
+        }
         
         // プレイヤーの位置に基づいたノックバック
         if (player) {
@@ -737,6 +788,17 @@ export class Enemy {
                 this.isGrounded = false;
             } else if (this.isGrounded) {
                 this.vy = knockbackY;
+                this.isGrounded = false;
+            }
+
+            if (attackData && Number.isFinite(attackData.pullTowardPlayerStrength) && attackData.pullTowardPlayerStrength > 0) {
+                const playerCenterX = player.x + player.width * 0.5;
+                const selfCenterX = this.x + this.width * 0.5;
+                const pullDir = playerCenterX >= selfCenterX ? 1 : -1;
+                const bossLike = this.maxHp >= 120;
+                const pullStrength = attackData.pullTowardPlayerStrength * (bossLike ? 0.55 : 1.0);
+                this.vx = pullDir * Math.max(Math.abs(this.vx || 0), pullStrength);
+                this.vy = Math.min(this.vy || 0, -2.2);
                 this.isGrounded = false;
             }
         }
@@ -923,11 +985,13 @@ export class Ashigaru extends Enemy {
         this.hp = 8;      // 一撃で倒せるよう調整
         this.maxHp = 8;
         this.damage = 1;
-        this.speed = 3.0; // 1.5 -> 3.0 倍速
+        this.speed = 2.65;
+        this.speedVarianceRange = 0.24;
+        this.speedVarianceBias = -0.02;
         this.expReward = 10;
         this.moneyReward = 5;
         this.specialGaugeReward = 5; // 3 -> 5
-        this.detectionRange = 800; // 画面端から気づく
+        this.detectionRange = 680;
         this.attackRange = 40;
     }
     
@@ -1051,14 +1115,16 @@ export class Samurai extends Enemy {
     init() {
         this.width = 40;
         this.height = 60;
-        this.hp = 30;
-        this.maxHp = 30;
+        this.hp = 28;
+        this.maxHp = 28;
         this.damage = 2;
-        this.speed = 4.0; // 2.0 -> 4.0 高速移動
+        this.speed = 3.45;
+        this.speedVarianceRange = 0.2;
+        this.speedVarianceBias = 0.04;
         this.expReward = 25;
         this.moneyReward = 15;
         this.specialGaugeReward = 12; // 8 -> 12
-        this.detectionRange = 900; // 画面外からでも気づく
+        this.detectionRange = 760;
         this.attackRange = 50;
         
         // 侍専用
@@ -1075,6 +1141,7 @@ export class Samurai extends Enemy {
         this.isAttacking = true;
         this.attackTimer = 250;
         this.comboCount++;
+        this.playAttackSfx();
         
         if (this.comboCount >= this.maxCombo) {
             this.attackCooldown = 800;
@@ -1204,14 +1271,16 @@ export class Busho extends Enemy {
     init() {
         this.width = 50;
         this.height = 75;
-        this.hp = 60;
-        this.maxHp = 60;
+        this.hp = 58;
+        this.maxHp = 58;
         this.damage = 3;
-        this.speed = 1.5;
+        this.speed = 2.1;
+        this.speedVarianceRange = 0.18;
+        this.speedVarianceBias = 0.06;
         this.expReward = 100;
         this.moneyReward = 50;
         this.specialGaugeReward = 40; // 20 -> 40
-        this.detectionRange = 600;
+        this.detectionRange = 620;
         this.attackRange = 80;
         
         this.attackPattern = 0;
@@ -1244,7 +1313,7 @@ export class Busho extends Enemy {
             this.facingRight = directionToPlayer > 0;
             
             // 攻撃の意思決定
-            const attackInterval = this.isEnraged ? 600 : 1200;
+            const attackInterval = this.isEnraged ? 500 : 860;
             if (this.actionTimer > attackInterval) {
                 if (dist < this.attackRange) {
                     this.startAttack();
@@ -1264,15 +1333,15 @@ export class Busho extends Enemy {
                 if (rand < 0.5) this.moveType = 'normal';
                 else if (rand < 0.7) this.moveType = 'retreat';
                 else this.moveType = 'dash';
-                this.moveTimer = 800 + Math.random() * 1200; // タイマーを短くして俊敏に
+                this.moveTimer = 560 + Math.random() * 780;
             }
 
             if (this.moveType === 'retreat' && dist < 120) {
                 // 距離を取る（少し速く）
-                desiredVX = -this.speed * 1.2 * directionToPlayer;
+                desiredVX = -this.speed * 1.38 * directionToPlayer;
             } else if (this.moveType === 'dash') {
                 // 素早く近づく
-                desiredVX = this.speed * 1.8 * directionToPlayer;
+                desiredVX = this.speed * 2.28 * directionToPlayer;
             } else if (dist > 50) {
                 desiredVX = this.speed * directionToPlayer;
             } else {
@@ -1282,7 +1351,7 @@ export class Busho extends Enemy {
             }
             
             // 時々ジャンプ（プレイヤーがジャンプ中なら頻度アップ）
-            const jumpChance = (!player.isGrounded) ? 0.03 : 0.01;
+            const jumpChance = (!player.isGrounded) ? 0.05 : 0.018;
             this.tryJump(jumpChance, -22, 650);
             
         } else {
@@ -1299,16 +1368,20 @@ export class Busho extends Enemy {
         
         switch (this.attackPattern) {
             case 0: // 通常斬り
-                this.attackTimer = 400;
-                this.attackCooldown = 600;
+                this.attackTimer = 320;
+                this.attackCooldown = 460;
+                audio.playSlash(2);
                 break;
             case 1: // 突進
-                this.attackTimer = 600;
-                this.attackCooldown = 1000;
+                this.attackTimer = 480;
+                this.attackCooldown = 760;
+                audio.playDash();
+                audio.playSlash(2);
                 break;
             case 2: // 回転斬り
-                this.attackTimer = 500;
-                this.attackCooldown = 800;
+                this.attackTimer = 390;
+                this.attackCooldown = 620;
+                audio.playSlash(4);
                 break;
         }
     }
@@ -1318,7 +1391,7 @@ export class Busho extends Enemy {
         
         // 突進パターンは移動を伴う
         if (this.attackPattern === 1 && this.attackTimer > 200) {
-            this.vx = (this.facingRight ? 1 : -1) * this.speed * 3;
+            this.vx = (this.facingRight ? 1 : -1) * this.speed * 4.2;
         }
         
         if (this.attackTimer <= 0) {
@@ -1345,15 +1418,17 @@ export class Busho extends Enemy {
         if (!this.isAttacking) return bladeAngle;
 
         if (this.attackPattern === 0) {
-            const wind = attackProgress < 0.34 ? attackProgress / 0.34 : 1;
-            const swing = attackProgress < 0.34 ? 0 : (attackProgress - 0.34) / 0.66;
-            bladeAngle = (-1.5 + wind * 0.5 + swing * 2.3) * dir;
+            const wind = attackProgress < 0.2 ? attackProgress / 0.2 : 1;
+            const swing = attackProgress < 0.2 ? 0 : (attackProgress - 0.2) / 0.8;
+            const quickSwing = 1 - Math.pow(1 - swing, 2.25);
+            bladeAngle = (-1.56 + wind * 0.56 + quickSwing * 2.52) * dir;
         } else if (this.attackPattern === 1) {
             bladeAngle = (-0.35 + attackProgress * 0.25) * dir;
         } else {
-            const wind = attackProgress < 0.2 ? attackProgress / 0.2 : 1;
-            const spin = attackProgress < 0.2 ? 0 : (attackProgress - 0.2) / 0.8;
-            bladeAngle = (-1.5 + wind * 0.36 + spin * Math.PI * 1.86) * dir;
+            const wind = attackProgress < 0.16 ? attackProgress / 0.16 : 1;
+            const spin = attackProgress < 0.16 ? 0 : (attackProgress - 0.16) / 0.84;
+            const quickArc = 1 - Math.pow(1 - spin, 2.0);
+            bladeAngle = (-1.46 + wind * 0.42 + quickArc * Math.PI * 1.34) * dir;
         }
         return bladeAngle;
     }
@@ -1589,30 +1664,42 @@ export class Busho extends Enemy {
         if (this.isAttacking) {
             if (this.attackPattern === 2) {
                 const spin = attackProgress < 0.2 ? 0 : (attackProgress - 0.2) / 0.8;
-                const trailBack = 0.4 + Math.min(0.34, spin * 0.26);
-                const trailFront = 0.07;
-                ctx.strokeStyle = `rgba(255, 140, 70, ${0.42 + spin * 0.2})`;
-                ctx.lineWidth = 11;
+                const trailBack = 0.5 + Math.min(0.52, spin * 0.44);
+                const trailFront = 0.12;
+                ctx.strokeStyle = `rgba(255, 156, 92, ${0.5 + spin * 0.28})`;
+                ctx.lineWidth = 14;
                 ctx.lineCap = 'round';
                 ctx.beginPath();
                 ctx.arc(
                     shoulderX + dir * 2,
                     shoulderY + 2,
-                    52,
+                    58,
                     bladeAngle - dir * trailBack,
                     bladeAngle + dir * trailFront,
                     dir < 0
                 );
                 ctx.stroke();
-                ctx.strokeStyle = `rgba(255, 229, 188, ${0.26 + spin * 0.2})`;
-                ctx.lineWidth = 4.4;
+                ctx.strokeStyle = `rgba(255, 239, 206, ${0.34 + spin * 0.2})`;
+                ctx.lineWidth = 5.2;
                 ctx.beginPath();
                 ctx.arc(
                     shoulderX + dir * 2,
                     shoulderY + 2,
-                    52,
+                    58,
                     bladeAngle - dir * (trailBack - 0.08),
-                    bladeAngle + dir * 0.02,
+                    bladeAngle + dir * 0.03,
+                    dir < 0
+                );
+                ctx.stroke();
+                ctx.strokeStyle = `rgba(255, 186, 120, ${0.3 + spin * 0.24})`;
+                ctx.lineWidth = 3.4;
+                ctx.beginPath();
+                ctx.arc(
+                    shoulderX + dir * 2,
+                    shoulderY + 2,
+                    64,
+                    bladeAngle - dir * (trailBack - 0.2),
+                    bladeAngle + dir * 0.01,
                     dir < 0
                 );
                 ctx.stroke();
@@ -1627,11 +1714,16 @@ export class Busho extends Enemy {
             } else {
                 const swing = attackProgress < 0.34 ? 0 : (attackProgress - 0.34) / 0.66;
                 if (swing > 0) {
-                    ctx.strokeStyle = `rgba(255, 96, 62, ${0.25 + swing * 0.45})`;
-                    ctx.lineWidth = 12;
+                    ctx.strokeStyle = `rgba(255, 110, 72, ${0.32 + swing * 0.5})`;
+                    ctx.lineWidth = 14;
                     ctx.lineCap = 'round';
                     ctx.beginPath();
-                    ctx.arc(shoulderX + dir * 2, shoulderY + 2, 52, bladeAngle - dir * 0.8, bladeAngle + dir * 0.48, dir < 0);
+                    ctx.arc(shoulderX + dir * 2, shoulderY + 2, 56, bladeAngle - dir * 0.88, bladeAngle + dir * 0.52, dir < 0);
+                    ctx.stroke();
+                    ctx.strokeStyle = `rgba(255, 233, 204, ${0.24 + swing * 0.32})`;
+                    ctx.lineWidth = 4.8;
+                    ctx.beginPath();
+                    ctx.arc(shoulderX + dir * 2, shoulderY + 2, 56, bladeAngle - dir * 0.74, bladeAngle + dir * 0.34, dir < 0);
                     ctx.stroke();
                 }
             }
@@ -1648,12 +1740,14 @@ export class Ninja extends Enemy {
         this.hp = 20;
         this.maxHp = 20;
         this.damage = 1;
-        this.speed = 3; // 足が速い
+        this.speed = 3.15;
+        this.speedVarianceRange = 0.28;
+        this.speedVarianceBias = 0.03;
         this.expReward = 20;
         this.moneyReward = 10;
         this.specialGaugeReward = 15; // 10 -> 15
-        this.detectionRange = 600; // 索敵範囲拡大
-        this.attackRange = 400;    // 遠距離攻撃範囲を大幅に拡大
+        this.detectionRange = 660;
+        this.attackRange = 340;
     }
 
     updateAI(deltaTime, player) {
@@ -1692,7 +1786,7 @@ export class Ninja extends Enemy {
             vy,
             this.damage
         ));
-        audio.playNoiseSfx(0.1, 0.05, 4000);
+        audio.playShuriken();
     }
 
     renderBody(ctx) {

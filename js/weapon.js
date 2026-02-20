@@ -2,8 +2,24 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { COLORS, GRAVITY } from './constants.js';
+import { COLORS, GRAVITY, CANVAS_WIDTH } from './constants.js';
 import { audio } from './audio.js';
+
+function clampEnhanceTier(tier) {
+    const value = Number.isFinite(tier) ? tier : Number(tier);
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(0, Math.min(3, Math.floor(value)));
+}
+
+function resolveSubWeaponEnhanceTier(owner, fallbackTier = 0) {
+    if (owner && typeof owner.getSubWeaponEnhanceTier === 'function') {
+        return clampEnhanceTier(owner.getSubWeaponEnhanceTier());
+    }
+    if (owner && owner.progression) {
+        return clampEnhanceTier(owner.progression.subWeapon);
+    }
+    return clampEnhanceTier(fallbackTier);
+}
 
 // 爆弾クラス
 export class Bomb {
@@ -139,6 +155,11 @@ export class SubWeapon {
         this.baseDamage = damage;
         this.baseRange = range;
         this.baseCooldown = cooldown;
+        this.enhanceTier = 0;
+    }
+
+    applyEnhanceTier(tier) {
+        this.enhanceTier = clampEnhanceTier(tier);
     }
     
     use(player) {
@@ -519,8 +540,8 @@ export class Firebomb extends SubWeapon {
                 vy - Math.abs(spread) * 0.2
             );
             bomb.damage = sizeUp ? Math.round(this.damage * 1.35) : this.damage;
-            bomb.radius = sizeUp ? 13 : 9;
-            bomb.explosionRadius = sizeUp ? Math.round(this.range * 1.4) : this.range;
+            bomb.radius = sizeUp ? 11.5 : 9;
+            bomb.explosionRadius = sizeUp ? Math.round(this.range * 1.28) : this.range;
             bomb.explosionDuration = sizeUp ? 420 : 340;
             g.bombs.push(bomb);
         }
@@ -539,8 +560,8 @@ export class Firebomb extends SubWeapon {
                             vy - Math.abs(spread) * 0.2
                         );
                         cloneBomb.damage = sizeUp ? Math.round(this.damage * 1.35) : this.damage;
-                        cloneBomb.radius = sizeUp ? 12 : 8.5;
-                        cloneBomb.explosionRadius = sizeUp ? Math.round(this.range * 1.4) : this.range;
+                        cloneBomb.radius = sizeUp ? 10.5 : 8.5;
+                        cloneBomb.explosionRadius = sizeUp ? Math.round(this.range * 1.28) : this.range;
                         cloneBomb.explosionDuration = sizeUp ? 400 : 320;
                         g.bombs.push(cloneBomb);
                     }
@@ -558,18 +579,33 @@ export class Spear extends SubWeapon {
         super('大槍', 28, 132, 360);
         this.isAttacking = false;
         this.attackTimer = 0;
+        this.baseAttackDuration = 270;
+        this.attackDuration = this.baseAttackDuration;
+        this.baseDashBoost = 76;
+        this.dashBoost = this.baseDashBoost;
+        this.attackDirection = 1;
         this.thrustPulse = 0;
+        this.hitEnemies = new Set();
+    }
+
+    applyEnhanceTier(tier) {
+        super.applyEnhanceTier(tier);
+        this.attackDuration = this.baseAttackDuration;
+        // Lv1〜Lv2: 主変化は踏み込み距離。Lv3はさらに大きく伸ばす。
+        const dashByTier = [76, 106, 138, 176];
+        this.dashBoost = dashByTier[this.enhanceTier] || dashByTier[0];
     }
     
     use(player) {
         this.isAttacking = true;
-        this.attackTimer = 250; 
+        this.attackTimer = this.attackDuration;
         this.thrustPulse = 180;
+        this.hitEnemies.clear();
+        this.attackDirection = player.facingRight ? 1 : -1;
         audio.playSpear(); 
         
-        // 踏み込み距離を大幅に強化 (45 -> 70: 画面端まで届くような突き)
-        const direction = player.facingRight ? 1 : -1;
-        player.vx += direction * 70;
+        // Lvごとの横っ飛び差を強く出す
+        player.vx += this.attackDirection * this.dashBoost;
     }
     
     update(deltaTime) {
@@ -577,6 +613,7 @@ export class Spear extends SubWeapon {
             this.attackTimer -= deltaTime * 1000;
             if (this.attackTimer <= 0) {
                 this.isAttacking = false;
+                this.hitEnemies.clear();
             }
         }
         if (this.thrustPulse > 0) {
@@ -585,8 +622,11 @@ export class Spear extends SubWeapon {
     }
 
     getThrustState(player) {
-        const direction = player.facingRight ? 1 : -1;
-        const progress = Math.max(0, Math.min(1, 1 - (this.attackTimer / 250)));
+        const direction = this.isAttacking
+            ? (this.attackDirection || (player.facingRight ? 1 : -1))
+            : (player.facingRight ? 1 : -1);
+        const duration = Math.max(1, this.attackDuration || 250);
+        const progress = Math.max(0, Math.min(1, 1 - (this.attackTimer / duration)));
         const centerX = player.x + player.width / 2 + direction * 12;
         const y = player.y + 33;
         const thrust = this.range * (0.72 + 0.28 * Math.sin(progress * Math.PI));
@@ -646,23 +686,41 @@ export class Spear extends SubWeapon {
         if (!this.isAttacking) return null;
 
         const st = this.getThrustState(player);
-        const shaftThickness = 12;
+        const shaftThickness = 16;
         const shaftMinX = Math.min(st.shaftStartX, st.shaftEndX) - shaftThickness * 0.5;
         const shaftMinY = Math.min(st.shaftStartY, st.shaftEndY) - shaftThickness * 0.5;
         const mainHitbox = {
             x: shaftMinX,
             y: shaftMinY,
             width: Math.max(10, Math.abs(st.shaftEndX - st.shaftStartX) + shaftThickness),
-            height: Math.max(10, Math.abs(st.shaftEndY - st.shaftStartY) + shaftThickness)
+            height: Math.max(10, Math.abs(st.shaftEndY - st.shaftStartY) + shaftThickness),
+            part: 'shaft'
         };
-        const tipPadding = 5;
+        const tipPadding = 8;
         const tipHitbox = {
             x: Math.min(st.spearEnd, st.tipBaseX, st.tipBackX) - tipPadding,
             y: st.y - st.tipWidth - tipPadding,
             width: Math.max(st.tipLen + 9, Math.abs(st.spearEnd - st.tipBackX) + tipPadding * 2),
-            height: st.tipWidth * 2 + tipPadding * 2
+            height: st.tipWidth * 2 + tipPadding * 2,
+            part: 'tip'
         };
-        return [mainHitbox, tipHitbox];
+        const hitboxes = [mainHitbox, tipHitbox];
+        if (this.enhanceTier >= 3 && st.progress >= 0.74 && st.progress <= 0.98) {
+            const scrollX = window.game ? window.game.scrollX : 0;
+            const screenLeft = scrollX;
+            const screenRight = scrollX + CANVAS_WIDTH;
+            const shockHalfH = 8;
+            const shockStartX = st.spearEnd + st.direction * 2;
+            const shockEndX = st.direction > 0 ? screenRight + 6 : screenLeft - 6;
+            hitboxes.push({
+                x: Math.min(shockStartX, shockEndX),
+                y: st.y - shockHalfH,
+                width: Math.abs(shockEndX - shockStartX),
+                height: shockHalfH * 2,
+                part: 'shock'
+            });
+        }
+        return hitboxes;
     }
     
     render(ctx, player) {
@@ -728,29 +786,34 @@ export class Spear extends SubWeapon {
         ctx.globalAlpha = 1.0;
 
         // 6. 突きのエフェクト (衝撃波・風切り)
-        const remain = this.attackTimer / 250;
+        const duration = Math.max(1, this.attackDuration || 250);
+        const remain = this.attackTimer / duration;
         if (st.progress > 0) {
             ctx.save();
             ctx.translate(st.spearEnd, st.y);
             ctx.scale(st.direction, 1); // 常に右向きとして描画し、directionで反転
             
             const alpha = Math.sin(remain * Math.PI); // ふわっと消える
+            const tier = this.enhanceTier || 0;
+            const coneReach = tier >= 2 ? 110 + (tier - 2) * 16 : 84;
+            const lineReach = tier >= 2 ? 152 + (tier - 2) * 32 : 108;
+            const mainLineWidth = tier >= 2 ? 4.6 : 2.2;
             
             // 鋭い衝撃波 (三角形・コーン状)
             ctx.fillStyle = `rgba(200, 255, 255, ${alpha * 0.8})`;
             ctx.beginPath();
             ctx.moveTo(0, 0);
             ctx.lineTo(60 + remain * 20, -15 * remain); // 上へ広がる
-            ctx.lineTo(80 + remain * 40, 0); // 先端 (遠くへ)
+            ctx.lineTo(coneReach + remain * 32, 0); // 先端 (遠くへ)
             ctx.lineTo(60 + remain * 20, 15 * remain); // 下へ広がる
             ctx.fill();
             
             // 芯のライン (白く鋭く)
             ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-            ctx.lineWidth = 2;
+            ctx.lineWidth = mainLineWidth;
             ctx.beginPath();
             ctx.moveTo(0, 0);
-            ctx.lineTo(100, 0); // 貫通するような長い線
+            ctx.lineTo(lineReach, 0);
             ctx.stroke();
             
             // 上下の風切り線
@@ -758,10 +821,25 @@ export class Spear extends SubWeapon {
             ctx.lineWidth = 1;
             ctx.beginPath();
             ctx.moveTo(10, -5);
-            ctx.lineTo(70, -20);
+            ctx.lineTo(74 + Math.max(0, tier - 1) * 8, -22);
             ctx.moveTo(10, 5);
-            ctx.lineTo(70, 20);
+            ctx.lineTo(74 + Math.max(0, tier - 1) * 8, 22);
             ctx.stroke();
+
+            // Lv3: 突き終わりに短い衝撃線を追加
+            if (tier >= 3 && st.progress > 0.74 && st.progress < 0.98) {
+                const shockAlpha = alpha * 0.72;
+                ctx.strokeStyle = `rgba(216, 246, 255, ${shockAlpha})`;
+                ctx.lineWidth = 4.8;
+                ctx.lineCap = 'round';
+                const far = CANVAS_WIDTH + 120;
+                ctx.beginPath();
+                ctx.moveTo(8, -6.4);
+                ctx.lineTo(far, -6.4);
+                ctx.moveTo(8, 6.4);
+                ctx.lineTo(far, 6.4);
+                ctx.stroke();
+            }
             
             ctx.restore();
         }
@@ -781,11 +859,34 @@ export class DualBlades extends SubWeapon {
         this.projectiles = []; 
         this.comboIndex = 0; // 連撃パターン用
         this.mainDuration = 204;
-        this.mainMotionSpeedScale = 1.7; // 通常Z連撃と近い体感速度に合わせる
+        this.baseMainMotionSpeedScale = 1.7;
+        this.mainMotionSpeedScale = this.baseMainMotionSpeedScale; // 通常Z連撃と近い体感速度に合わせる
+        this.baseCombinedDuration = 220;
+        this.baseSideDuration = 150;
+        this.combinedDuration = this.baseCombinedDuration;
+        this.sideDuration = this.baseSideDuration;
         this.attackDirection = 1;
         this.pendingCombinedProjectile = null;
         this.prevMainRightAngle = null;
         this.prevMainLeftAngle = null;
+        this.activeSideDuration = this.sideDuration;
+        this.activeCombinedDuration = this.combinedDuration;
+    }
+
+    applyEnhanceTier(tier) {
+        super.applyEnhanceTier(tier);
+        this.mainMotionSpeedScale = Math.max(
+            1.05,
+            this.baseMainMotionSpeedScale - this.enhanceTier * 0.11
+        );
+        this.combinedDuration = Math.max(
+            136,
+            Math.round(this.baseCombinedDuration * (1 - this.enhanceTier * 0.1))
+        );
+        this.sideDuration = Math.max(
+            96,
+            Math.round(this.baseSideDuration * (1 - this.enhanceTier * 0.11))
+        );
     }
 
     getMainDurationByStep(step) {
@@ -814,7 +915,8 @@ export class DualBlades extends SubWeapon {
     }
 
     getLeftSwingProgress() {
-        return Math.max(0, Math.min(1, this.attackTimer / 150));
+        const duration = Math.max(1, this.activeSideDuration || this.sideDuration || 150);
+        return Math.max(0, Math.min(1, this.attackTimer / duration));
     }
 
     getLeftSwingAngle() {
@@ -824,7 +926,8 @@ export class DualBlades extends SubWeapon {
     }
 
     getCombinedSwingProgress() {
-        return Math.max(0, Math.min(1, 1 - (this.attackTimer / 220)));
+        const duration = Math.max(1, this.activeCombinedDuration || this.combinedDuration || 220);
+        return Math.max(0, Math.min(1, 1 - (this.attackTimer / duration)));
     }
 
     getMainSwingProgress(options = {}) {
@@ -933,34 +1036,40 @@ export class DualBlades extends SubWeapon {
         this.attackDirection = player.facingRight ? 1 : -1;
         this.prevMainRightAngle = null;
         this.prevMainLeftAngle = null;
+        const enemyTempoScale = player && player.isEnemy ? 0.76 : 1.0;
+        this.activeSideDuration = Math.max(78, Math.round(this.sideDuration * enemyTempoScale));
+        this.activeCombinedDuration = Math.max(124, Math.round(this.combinedDuration * enemyTempoScale));
         
         if (type === 'combined') {
             // X技は常に最新の1発のみを表示して剣筋の二重化を防ぐ
             this.projectiles = [];
-            this.attackTimer = 220;
+            this.attackTimer = this.activeCombinedDuration;
             // 振り下ろしタイミングで発射するため、一旦保留
             this.pendingCombinedProjectile = {
                 x: player.x + player.width / 2,
                 y: player.y + player.height / 2,
-                vx: this.attackDirection * 10,
-                life: 600, // 寿命を延ばす (400 -> 600) で射程維持
-                maxLife: 600,
+                vx: this.attackDirection * (10 + this.enhanceTier * 0.8),
+                life: 600 + this.enhanceTier * 60, // Lvが高いほど飛翔時間を延長
+                maxLife: 600 + this.enhanceTier * 60,
                 direction: this.attackDirection
             };
             audio.playDualBladeCombined();
         } else if (type === 'main') {
             // 5段ループの多方向コンボ
             this.comboIndex = (this.comboIndex + 1) % 5;
-            this.mainDuration = this.getMainDurationByStep(this.comboIndex);
+            this.mainDuration = Math.max(
+                112,
+                Math.round(this.getMainDurationByStep(this.comboIndex) * enemyTempoScale)
+            );
             this.attackTimer = this.mainDuration;
             audio.playSlash(this.comboIndex);
         } else if (type === 'left') {
-            this.attackTimer = 150;
+            this.attackTimer = this.activeSideDuration;
             // 4段コンボのループ (0 -> 1 -> 2 -> 3 -> 0)
             this.comboIndex = (this.comboIndex + 1) % 4;
             audio.playSlash(1);
         } else {
-            this.attackTimer = 150;
+            this.attackTimer = this.activeSideDuration;
             audio.playSlash(0);
         }
     }
@@ -978,6 +1087,8 @@ export class DualBlades extends SubWeapon {
                 this.pendingCombinedProjectile = null;
                 this.prevMainRightAngle = null;
                 this.prevMainLeftAngle = null;
+                this.activeSideDuration = this.sideDuration;
+                this.activeCombinedDuration = this.combinedDuration;
             }
         }
         
@@ -1122,6 +1233,7 @@ export class DualBlades extends SubWeapon {
     
     render(ctx, player) {
         const direction = this.isAttacking ? this.attackDirection : (player.facingRight ? 1 : -1);
+        const enemyTrailBoost = player && player.type === 'boss' ? 1.2 : 1;
         
         // 1. 飛翔する交差斬撃（高輝度の三日月クロス）
         for (const p of this.projectiles) {
@@ -1258,20 +1370,20 @@ export class DualBlades extends SubWeapon {
             const rightDelta = normalizeAngleDelta(pose.rightAngle, prevRightAngle);
             const leftDelta = normalizeAngleDelta(pose.leftAngle, prevLeftAngle);
             if (pose.arcs.hit === 'drawDash') {
-                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, pose.arcs.effectRadius + 10, 13.8, -6, 0.82);
-                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, pose.arcs.effectRadius + 2, 10.8, 5, 0.74);
+                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, (pose.arcs.effectRadius + 10) * enemyTrailBoost, 13.8 * enemyTrailBoost, -6, 0.82);
+                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, (pose.arcs.effectRadius + 2) * enemyTrailBoost, 10.8 * enemyTrailBoost, 5, 0.74);
             } else if (pose.arcs.hit === 'reverseCounter') {
-                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, pose.arcs.effectRadius + 14, 14.4, -9, 0.9);
-                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, pose.arcs.effectRadius + 7, 12.4, 7, 0.76);
+                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, (pose.arcs.effectRadius + 14) * enemyTrailBoost, 14.4 * enemyTrailBoost, -9, 0.9);
+                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, (pose.arcs.effectRadius + 7) * enemyTrailBoost, 12.4 * enemyTrailBoost, 7, 0.76);
             } else if (pose.arcs.hit === 'crossStepSweep') {
-                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, pose.arcs.effectRadius + 18, 12.0, -3, 0.72);
-                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, pose.arcs.effectRadius + 16, 11.8, 4, 0.72);
+                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, (pose.arcs.effectRadius + 18) * enemyTrailBoost, 12.0 * enemyTrailBoost, -3, 0.72);
+                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, (pose.arcs.effectRadius + 16) * enemyTrailBoost, 11.8 * enemyTrailBoost, 4, 0.72);
             } else if (pose.arcs.hit === 'risingX') {
-                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, pose.arcs.effectRadius + 18, 14.6, -5, 0.92);
-                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, pose.arcs.effectRadius + 14, 14.0, 6, 0.9);
+                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, (pose.arcs.effectRadius + 18) * enemyTrailBoost, 14.6 * enemyTrailBoost, -5, 0.92);
+                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, (pose.arcs.effectRadius + 14) * enemyTrailBoost, 14.0 * enemyTrailBoost, 6, 0.9);
             } else {
-                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, pose.arcs.effectRadius + 16, 14.0, -5, 0.84);
-                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, pose.arcs.effectRadius + 12, 13.4, 5, 0.86);
+                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, (pose.arcs.effectRadius + 16) * enemyTrailBoost, 14.0 * enemyTrailBoost, -5, 0.84);
+                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, (pose.arcs.effectRadius + 12) * enemyTrailBoost, 13.4 * enemyTrailBoost, 5, 0.86);
             }
             return;
         }
@@ -1279,7 +1391,7 @@ export class DualBlades extends SubWeapon {
         // 合体攻撃(X)は飛翔斬撃のみ表示（手前の剣筋は描かない）
         if (isCombined) return;
 
-        const progress = Math.max(0, this.attackTimer / (isCombined ? 300 : 150));
+        const progress = Math.max(0, this.attackTimer / Math.max(1, this.sideDuration || 150));
         const centerX = player.x + player.width / 2;
         const centerY = player.y + player.height / 2;
         
@@ -1402,13 +1514,37 @@ export class Kusarigama extends SubWeapon {
         super('鎖鎌', 20, 245, 480);
         this.isAttacking = false;
         this.attackTimer = 0;
-        this.totalDuration = 560;
+        this.baseTotalDuration = 560;
+        this.totalDuration = this.baseTotalDuration;
         this.owner = null;
         this.attackDirection = 1;
-        this.extendEnd = 0.28;
-        this.orbitEnd = 0.9;
+        this.baseExtendEnd = 0.28;
+        this.baseOrbitEnd = 0.9;
+        this.extendEnd = this.baseExtendEnd;
+        this.orbitEnd = this.baseOrbitEnd;
+        this.rangeScale = 1.0;
+        this.multiHitCount = 1;
         this.tipX = null;
         this.tipY = null;
+        this.echoHitEnemies = new Set();
+        this.autoTrackCooldownMs = 95;
+        this.nextAutoTrackTime = 0;
+    }
+
+    applyEnhanceTier(tier) {
+        super.applyEnhanceTier(tier);
+        const tierMap = [
+            { total: 560, rangeScale: 1.0, multi: 1, extend: 0.28, orbit: 0.9 },
+            { total: 520, rangeScale: 1.16, multi: 2, extend: 0.25, orbit: 0.9 },
+            { total: 490, rangeScale: 1.34, multi: 3, extend: 0.23, orbit: 0.91 },
+            { total: 450, rangeScale: 1.56, multi: 4, extend: 0.2, orbit: 0.92 }
+        ];
+        const conf = tierMap[this.enhanceTier] || tierMap[0];
+        this.totalDuration = conf.total;
+        this.rangeScale = conf.rangeScale;
+        this.multiHitCount = conf.multi;
+        this.extendEnd = conf.extend;
+        this.orbitEnd = conf.orbit;
     }
     
     use(player) {
@@ -1416,6 +1552,8 @@ export class Kusarigama extends SubWeapon {
         this.owner = player;
         this.attackDirection = player.facingRight ? 1 : -1;
         this.attackTimer = this.totalDuration;
+        this.echoHitEnemies.clear();
+        this.nextAutoTrackTime = 0;
         const init = this.getMotionState(player);
         this.tipX = init.tipX;
         this.tipY = init.tipY;
@@ -1438,23 +1576,23 @@ export class Kusarigama extends SubWeapon {
             phase = 'extend';
             phaseT = progress / this.extendEnd;
             const easeOut = 1 - Math.pow(1 - phaseT, 2.2);
-            radius = this.range * easeOut;
+            radius = this.range * this.rangeScale * easeOut;
             angle = -0.08 + phaseT * 0.16;
         } else if (progress < this.orbitEnd) {
             phase = 'orbit';
             phaseT = (progress - this.extendEnd) / (this.orbitEnd - this.extendEnd);
-            radius = this.range;
-            // 前方からキャラ斜め後ろ上へ、減速感のある円弧で旋回
+            radius = this.range * this.rangeScale;
+            // 前方 -> 真後ろ上までの180度弧で旋回（地面めり込み防止）
             const eased = 0.5 - Math.cos(phaseT * Math.PI) * 0.5;
-            angle = -eased * (Math.PI * 1.1);
+            angle = -eased * Math.PI;
         } else {
             phase = 'retract';
             phaseT = (progress - this.orbitEnd) / (1 - this.orbitEnd);
             // 縮退も常に円弧上（角度と半径を同時補間）
             const eased = 0.5 - Math.cos(phaseT * Math.PI) * 0.5;
-            radius = this.range * (1 - eased * 0.9);
-            const startAngle = -Math.PI * 1.1;
-            const endAngle = -Math.PI * 0.24;
+            radius = this.range * this.rangeScale * (1 - eased * 0.9);
+            const startAngle = -Math.PI;
+            const endAngle = -Math.PI * 0.18;
             angle = startAngle + (endAngle - startAngle) * eased;
         }
 
@@ -1481,7 +1619,7 @@ export class Kusarigama extends SubWeapon {
             // 伸ばしたまま、後頭部付近を大きく回す
             const eased = 0.5 - Math.cos(phaseT * Math.PI) * 0.5;
             const orbitStart = 0.02;
-            const orbitEnd = -Math.PI * 1.35;
+            const orbitEnd = -Math.PI;
             const orbit = orbitStart + (orbitEnd - orbitStart) * eased;
             const reach = 27.0;
             handX = headBackPivotX + direction * (Math.cos(orbit) * reach);
@@ -1489,7 +1627,7 @@ export class Kusarigama extends SubWeapon {
         } else {
             // 回し終わりから収納へ戻す
             const eased = 0.5 - Math.cos(phaseT * Math.PI) * 0.5;
-            const fromOrbit = -Math.PI * 1.35;
+            const fromOrbit = -Math.PI;
             const fromX = headBackPivotX + direction * (Math.cos(fromOrbit) * 27.0);
             const fromY = headBackPivotY + Math.sin(fromOrbit) * 27.0;
             const toX = shoulderX + direction * 6.5;
@@ -1533,6 +1671,10 @@ export class Kusarigama extends SubWeapon {
         return this.getMotionState(player);
     }
 
+    getCurrentState(player) {
+        return this.getMotionState(player);
+    }
+
     getSickleGeometry(state) {
         const travelHeading = state.phase === 'orbit'
             ? (state.chainHeading - state.direction * Math.PI * 0.5)
@@ -1556,6 +1698,7 @@ export class Kusarigama extends SubWeapon {
                 this.isAttacking = false;
                 this.tipX = null;
                 this.tipY = null;
+                this.echoHitEnemies.clear();
             }
         }
     }
@@ -1572,7 +1715,7 @@ export class Kusarigama extends SubWeapon {
         const minY = Math.min(st.handY, st.tipY) - chainThickness * 0.5;
         const width = Math.max(8, Math.abs(st.tipX - st.handX) + chainThickness);
         const height = Math.max(8, Math.abs(st.tipY - st.handY) + chainThickness);
-        const chainHitbox = { x: minX, y: minY, width, height };
+        const chainHitbox = { x: minX, y: minY, width, height, part: 'chain' };
         const sickleTipX = st.tipX + Math.cos(sickle.rotation) * sickle.reach;
         const sickleTipY = st.tipY + Math.sin(sickle.rotation) * sickle.reach;
         const tipRadius = 15;
@@ -1580,9 +1723,37 @@ export class Kusarigama extends SubWeapon {
             x: Math.min(st.tipX, sickleTipX) - tipRadius,
             y: Math.min(st.tipY, sickleTipY) - tipRadius,
             width: Math.max(22, Math.abs(sickleTipX - st.tipX) + tipRadius * 2),
-            height: Math.max(22, Math.abs(sickleTipY - st.tipY) + tipRadius * 2)
+            height: Math.max(22, Math.abs(sickleTipY - st.tipY) + tipRadius * 2),
+            part: 'tip'
         };
-        return [chainHitbox, tipHitbox];
+        const hitboxes = [chainHitbox, tipHitbox];
+        // Lvが上がるほど鎌先まわりの追撃判定を増やして制圧力を上げる
+        if (this.multiHitCount > 1) {
+            const tipReach = 18;
+            const normalX = -Math.sin(st.chainHeading) * tipReach;
+            const normalY = Math.cos(st.chainHeading) * tipReach;
+            for (let i = 1; i < this.multiHitCount; i++) {
+                const offset = (i - (this.multiHitCount - 1) * 0.5) * 10;
+                hitboxes.push({
+                    x: tipHitbox.x + normalX * 0.4 + offset * st.direction * 0.15,
+                    y: tipHitbox.y + normalY * 0.4 + offset * 0.18,
+                    width: tipHitbox.width,
+                    height: tipHitbox.height,
+                    part: 'tip_multi'
+                });
+            }
+        }
+        if (this.enhanceTier >= 3 && st.phase === 'retract' && st.phaseT >= 0.38) {
+            const echoRadius = 18;
+            hitboxes.push({
+                x: st.tipX - echoRadius,
+                y: st.tipY - echoRadius,
+                width: echoRadius * 2,
+                height: echoRadius * 2,
+                part: 'echo'
+            });
+        }
+        return hitboxes;
     }
     
     render(ctx, player) {
@@ -1627,10 +1798,17 @@ export class Kusarigama extends SubWeapon {
                     y: st.handY + Math.sin(a) * st.radius
                 });
             }
+            const tier = this.enhanceTier || 0;
             const baseAlpha = st.phase === 'orbit' ? 0.42 : 0.28;
-            drawSmoothTrail(points, 10, `rgba(130, 225, 255, ${baseAlpha})`);
-            drawSmoothTrail(points, 4.5, `rgba(210, 250, 255, ${baseAlpha * 0.92})`);
-            drawSmoothTrail(points, 2, `rgba(255, 255, 255, ${baseAlpha * 0.7})`);
+            const baseColor = tier >= 3 ? '255, 194, 142' : '130, 225, 255';
+            const edgeColor = tier >= 3 ? '255, 236, 206' : '210, 250, 255';
+            drawSmoothTrail(points, 10, `rgba(${baseColor}, ${baseAlpha})`);
+            drawSmoothTrail(points, 4.5, `rgba(${edgeColor}, ${baseAlpha * 0.92})`);
+            if (tier >= 2) {
+                // Lv2+: 軌跡を1本追加
+                drawSmoothTrail(points, 2.2, `rgba(${edgeColor}, ${baseAlpha * 0.8})`);
+                drawSmoothTrail(points, 1.4, `rgba(${edgeColor}, ${baseAlpha * 0.62})`);
+            }
         }
 
         // 鎖
@@ -1712,7 +1890,8 @@ export class Nodachi extends SubWeapon {
         super('大太刀', 46, 74, 760);
         this.isAttacking = false;
         this.attackTimer = 0;
-        this.totalDuration = 760;
+        this.baseTotalDuration = 760;
+        this.totalDuration = this.baseTotalDuration;
         this.owner = null;
         this.impactX = 0;
         this.impactY = 0;
@@ -1723,12 +1902,24 @@ export class Nodachi extends SubWeapon {
         this.liftEnd = 0.32;
         this.stallEnd = 0.46;
         this.flipEnd = 0.58;
-        this.impactStart = 0.9;
+        this.baseImpactStart = 0.9;
+        this.impactStart = this.baseImpactStart;
         this.attackDirection = 1;
         // 着地後の「刺さり演出」用タイマー
         this.plantedTimer = 0;
-        this.plantedDuration = 320; // 衝撃波が消えるまで刀を地面に刺したまま見せる
+        this.basePlantedDuration = 320;
+        this.plantedDuration = this.basePlantedDuration; // 衝撃波が消えるまで刀を地面に刺したまま見せる
         this.impactSoundPlayed = false; // 着地爆発音の重複防止
+    }
+
+    applyEnhanceTier(tier) {
+        super.applyEnhanceTier(tier);
+        this.totalDuration = Math.max(
+            520,
+            Math.round(this.baseTotalDuration * (1 - this.enhanceTier * 0.08))
+        );
+        this.impactStart = Math.max(0.72, this.baseImpactStart - this.enhanceTier * 0.045);
+        this.plantedDuration = Math.round(this.basePlantedDuration * (1 + this.enhanceTier * 0.12));
     }
     
     use(player) {
@@ -1861,11 +2052,22 @@ export class Nodachi extends SubWeapon {
     }
 
     spawnImpactWaves() {
+        const baseRange = Math.max(1, this.baseRange || this.range || 74);
+        const rangeScale = Math.max(1, this.range / baseRange);
+        const subWeaponTier = resolveSubWeaponEnhanceTier(this.owner, this.enhanceTier);
+        const tierLifeScale = [1.0, 1.25, 1.6, 2.9][subWeaponTier];
+        const tierSpeedScale = [1.0, 1.08, 1.2, 1.5][subWeaponTier];
+        const speedScale = 1 + (rangeScale - 1) * 0.9;
+        const lifeScale = 1 + (rangeScale - 1) * 1.25;
+        const mainLife = Math.round(420 * lifeScale * tierLifeScale);
+        const subLife = Math.round(320 * lifeScale * tierLifeScale);
+        const mainSpeed = 7.8 * speedScale * tierSpeedScale;
+        const subSpeed = 9.4 * speedScale * tierSpeedScale;
         this.groundWaves.push(
-            { x: this.impactX, y: this.impactY, dir: -1, life: 420, maxLife: 420, speed: 7.8, thickness: 28, core: 11 },
-            { x: this.impactX, y: this.impactY, dir: 1, life: 420, maxLife: 420, speed: 7.8, thickness: 28, core: 11 },
-            { x: this.impactX, y: this.impactY, dir: -1, life: 320, maxLife: 320, speed: 9.4, thickness: 20, core: 8 },
-            { x: this.impactX, y: this.impactY, dir: 1, life: 320, maxLife: 320, speed: 9.4, thickness: 20, core: 8 }
+            { x: this.impactX, y: this.impactY, dir: -1, life: mainLife, maxLife: mainLife, speed: mainSpeed, thickness: 28, core: 11 },
+            { x: this.impactX, y: this.impactY, dir: 1, life: mainLife, maxLife: mainLife, speed: mainSpeed, thickness: 28, core: 11 },
+            { x: this.impactX, y: this.impactY, dir: -1, life: subLife, maxLife: subLife, speed: subSpeed, thickness: 20, core: 8 },
+            { x: this.impactX, y: this.impactY, dir: 1, life: subLife, maxLife: subLife, speed: subSpeed, thickness: 20, core: 8 }
         );
     }
 
