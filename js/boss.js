@@ -55,6 +55,21 @@ class Boss extends Enemy {
         this.feintTimerMs = 220 + Math.random() * 240;
         this.feintDir = Math.random() < 0.5 ? -1 : 1;
     }
+
+    applyDifficultyScaling() {
+        super.applyDifficultyScaling();
+        const difficultyId = window.game && window.game.difficulty
+            ? window.game.difficulty.id
+            : 'normal';
+        // 難易度差は維持しつつ、ボスの与ダメだけ極端にならないよう圧縮
+        const bossDamageScaleByDifficulty = {
+            easy: 0.9,
+            normal: 0.76,
+            hard: 0.62
+        };
+        const scale = bossDamageScaleByDifficulty[difficultyId] || bossDamageScaleByDifficulty.normal;
+        this.damage = Math.max(1, Math.round(this.damage * scale));
+    }
     
     update(deltaTime, player) {
         this.targetPlayer = player || null;
@@ -298,15 +313,15 @@ export class KayakudamaTaisho extends Boss {
 
     startAttack() {
         const toolTier = this.getSubWeaponEnhanceTier();
-        const baseCooldown = 270;
-        const baseThrowCount = 4;
+        const baseCooldown = 980;
+        const baseThrowCount = 2;
         this.currentPattern = 'throw';
-        this.attackCooldown = Math.max(140, baseCooldown - toolTier * 30);
+        this.attackCooldown = Math.max(720, baseCooldown - toolTier * 70);
         this.isAttacking = true;
-        this.attackTimer = 420;
         this.attackFacingRight = this.facingRight;
-        this.throwCount = baseThrowCount + Math.max(1, toolTier);
-        this.throwInterval = Math.max(74, 128 - toolTier * 14);
+        this.throwCount = baseThrowCount + (toolTier >= 2 ? 1 : 0);
+        this.throwInterval = Math.max(170, 280 - toolTier * 25);
+        this.attackTimer = Math.max(680, this.throwCount * this.throwInterval + 260);
         this.throwTimer = 0;
         audio.playSpecial();
     }
@@ -334,6 +349,10 @@ export class KayakudamaTaisho extends Boss {
     throwBomb() {
         const g = window.game;
         if (!g) return;
+        const activeEnemyBombs = Array.isArray(g.bombs)
+            ? g.bombs.filter((bomb) => bomb && bomb.isEnemyProjectile && !bomb.isDead).length
+            : 0;
+        if (activeEnemyBombs >= 4) return;
         const { Bomb } = g.constructor.modules || {};
         const toolTier = this.getSubWeaponEnhanceTier();
         const direction = this.facingRight ? 1 : -1;

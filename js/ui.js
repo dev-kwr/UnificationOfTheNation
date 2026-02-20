@@ -7,6 +7,7 @@ import { input } from './input.js';
 import { audio } from './audio.js';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | D：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
+const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE・ENTER：決定';
 const PAD_ICON_PATHS = {
     attack: './icon/attack.svg',
     sub: './icon/sub_weapon.svg',
@@ -77,6 +78,48 @@ export function drawFlatButton(ctx, x, y, width, height, label, color) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, x, y);
+    ctx.restore();
+}
+
+function drawRoundedRectPath(ctx, x, y, width, height, radius) {
+    const r = Math.max(0, Math.min(radius, Math.min(width, height) * 0.5));
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + width - r, y);
+    ctx.arcTo(x + width, y, x + width, y + r, r);
+    ctx.lineTo(x + width, y + height - r);
+    ctx.arcTo(x + width, y + height, x + width - r, y + height, r);
+    ctx.lineTo(x + r, y + height);
+    ctx.arcTo(x, y + height, x, y + height - r, r);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.closePath();
+}
+
+function drawRoundedFlatTitleButton(ctx, x, y, width, height, label, options = {}) {
+    const fill = options.fill || 'rgba(30, 34, 46, 0.84)';
+    const border = options.border || 'rgba(220, 230, 255, 0.32)';
+    const textColor = options.textColor || '#f3f7ff';
+    const radius = Number.isFinite(options.radius) ? options.radius : 14;
+    const font = options.font || '700 20px sans-serif';
+
+    const left = x - width * 0.5;
+    const top = y - height * 0.5;
+    ctx.save();
+    drawRoundedRectPath(ctx, left, top, width, height, radius);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    drawRoundedRectPath(ctx, left, top, width, height, radius);
+    ctx.strokeStyle = border;
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    if (label) {
+        ctx.fillStyle = textColor;
+        ctx.font = font;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, x, y);
+    }
     ctx.restore();
 }
 
@@ -210,6 +253,22 @@ function drawTitleMistLayers(ctx, timeMs) {
         }
     }
     ctx.restore();
+}
+
+export function getTitleScreenLayout(hasSave = false) {
+    const centerX = CANVAS_WIDTH / 2;
+    const diffY = CANVAS_HEIGHT / 2 + 64;
+    const startY = diffY + 108;
+    const buttonGap = 64;
+    return {
+        centerX,
+        diffY,
+        startY,
+        newGameY: startY + buttonGap,
+        singleStartY: startY + buttonGap * 0.5,
+        diffButton: { width: 230, height: 44 },
+        actionButton: { width: 280, height: 48 }
+    };
 }
 
 export class UI {
@@ -1016,44 +1075,80 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     // タイトルロゴ
     drawRichTitleLogo(ctx, time);
     
-    // メインメニュー (ボタン化)
-    if (hasSave) {
-        // 続きから (少し上に)
-        drawFlatButton(ctx, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60, 300, 40, '続きから (CONTINUE)', titleMenuIndex === 0 ? 'rgba(50, 50, 200, 0.8)' : 'rgba(50, 50, 50, 0.6)');
-        
-        // 最初から
-        drawFlatButton(ctx, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 110, 300, 40, '最初から (NEW GAME)', titleMenuIndex === 1 ? 'rgba(200, 50, 50, 0.8)' : 'rgba(50, 50, 50, 0.6)');
-    }
-
-    // 難易度選択 (ボタン化)
-    // hasSave時は +170 に配置、通常時は +120
-    const diffY = hasSave ? CANVAS_HEIGHT / 2 + 170 : CANVAS_HEIGHT / 2 + 120; 
+    // 難易度選択
+    const layout = getTitleScreenLayout(hasSave);
+    const diffY = layout.diffY;
     
     // 左右の矢印 (削除済み)
 
     
     // 現在の難易度ボタン
+    const titleActionFill = 'rgba(74, 122, 220, 0.52)';
+    const titleActionStroke = 'rgba(225, 239, 255, 0.92)';
     let diffColor = '#ddaa00'; // Normal
     if (currentDifficulty && currentDifficulty.id === 'easy') diffColor = '#44aa44';
     if (currentDifficulty && currentDifficulty.id === 'hard') diffColor = '#aa4444';
-    
-    drawFlatButton(ctx, CANVAS_WIDTH / 2, diffY, 220, 40, currentDifficulty ? currentDifficulty.name : '普 (NORMAL)', diffColor);
+    drawRoundedFlatTitleButton(
+        ctx,
+        layout.centerX,
+        diffY,
+        layout.diffButton.width,
+        layout.diffButton.height,
+        currentDifficulty ? currentDifficulty.name : '普 (NORMAL)',
+        {
+            fill: diffColor,
+            border: 'rgba(245, 246, 255, 0.5)',
+            font: '700 21px sans-serif'
+        }
+    );
 
-    // 開始ボタンエリア (余白を広げて配置)
-    // hasSave時は +240 に配置して重なり回避
-    const startY = hasSave ? CANVAS_HEIGHT / 2 + 240 : CANVAS_HEIGHT / 2 + 200; 
-    
-    // 開始文言はPC/タップで統一
-    const blink = Math.sin(Date.now() / 150) > 0;
-    if (blink) {
-        ctx.font = 'bold 24px sans-serif';
-        ctx.fillStyle = 'white';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.shadowColor = 'black';
-        ctx.shadowBlur = 4;
-        ctx.fillText('Press SPACE or Tap Screen to Start', CANVAS_WIDTH / 2, startY);
-        ctx.shadowBlur = 0;
+    // 開始ボタン（続きから / 最初から）
+    const startY = layout.startY;
+    const actionW = layout.actionButton.width;
+    const actionH = layout.actionButton.height;
+    const focusedFill = 'rgba(116, 166, 255, 0.78)';
+    const focusedBorder = 'rgba(238, 246, 255, 0.98)';
+    if (hasSave) {
+        drawRoundedFlatTitleButton(
+            ctx,
+            layout.centerX,
+            startY,
+            actionW,
+            actionH,
+            '続きから',
+            {
+                fill: titleMenuIndex === 0 ? focusedFill : titleActionFill,
+                border: titleMenuIndex === 0 ? focusedBorder : titleActionStroke,
+                font: '700 22px sans-serif'
+            }
+        );
+        drawRoundedFlatTitleButton(
+            ctx,
+            layout.centerX,
+            layout.newGameY,
+            actionW,
+            actionH,
+            '最初から',
+            {
+                fill: titleMenuIndex === 1 ? focusedFill : titleActionFill,
+                border: titleMenuIndex === 1 ? focusedBorder : titleActionStroke,
+                font: '700 22px sans-serif'
+            }
+        );
+    } else {
+        drawRoundedFlatTitleButton(
+            ctx,
+            layout.centerX,
+            layout.singleStartY,
+            actionW,
+            actionH,
+            '出陣',
+            {
+                fill: focusedFill,
+                border: focusedBorder,
+                font: '700 22px sans-serif'
+            }
+        );
     }
     
     // 不要な描画コード削除
@@ -1070,8 +1165,8 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     ctx.fillText('⚙', CANVAS_WIDTH - 18, CANVAS_HEIGHT - 14);
     ctx.restore();
 
-    // 操作説明（ステージ画面と同じ書式）
-    drawControlManualLine(ctx);
+    // タイトル画面用の操作説明
+    drawScreenManualLine(ctx, TITLE_MANUAL_TEXT);
 }
 
 export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
@@ -1432,7 +1527,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillStyle = selected ? '#fff' : 'rgba(255, 255, 255, 0.8)';
-            ctx.font = selected ? '700 22px sans-serif' : '600 20px sans-serif';
+            ctx.font = selected ? '700 22px sans-serif' : '600 22px sans-serif';
             ctx.fillText(item.title, x + menuW / 2, menuY + menuH / 2);
         });
 

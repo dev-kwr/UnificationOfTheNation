@@ -47,6 +47,8 @@ export class Enemy {
         this.hitTimer = 0; // 追加
         this.slowTimer = 0;
         this.slowMultiplier = 1;
+        this.pullStopTimer = 0;
+        this.pullStopDistance = 0;
         
         // 状態
         this.isGrounded = true;
@@ -160,6 +162,7 @@ export class Enemy {
         
         // 物理演算（障害物判定を含む）
         this.applyPhysics(obstacles);
+        this.applyPullStopConstraint(player, deltaTime * 1000);
         
         // 飛び道具更新
         if (this.projectiles) {
@@ -757,6 +760,27 @@ export class Enemy {
                this.y < rect.y + rect.height &&
                this.y + this.height > rect.y;
     }
+
+    applyPullStopConstraint(player, deltaMs = 0) {
+        if (!player || this.pullStopTimer <= 0) return;
+        const playerCenterX = player.x + player.width * 0.5;
+        const selfCenterX = this.x + this.width * 0.5;
+        const dx = selfCenterX - playerCenterX;
+        const absDx = Math.abs(dx);
+        const stopDistance = Math.max(
+            6,
+            Number.isFinite(this.pullStopDistance)
+                ? this.pullStopDistance
+                : (player.width + this.width) * 0.5 + 8
+        );
+        if (absDx < stopDistance) {
+            const dir = dx >= 0 ? 1 : -1;
+            const targetCenterX = playerCenterX + dir * stopDistance;
+            this.x = targetCenterX - this.width * 0.5;
+            if (this.vx * dir < 0) this.vx = 0;
+        }
+        this.pullStopTimer = Math.max(0, this.pullStopTimer - deltaMs);
+    }
     
     // ダメージを受ける
     takeDamage(damage, player, attackData) {
@@ -800,6 +824,13 @@ export class Enemy {
                 this.vx = pullDir * Math.max(Math.abs(this.vx || 0), pullStrength);
                 this.vy = Math.min(this.vy || 0, -2.2);
                 this.isGrounded = false;
+                this.pullStopDistance = Number.isFinite(attackData.pullStopDistance)
+                    ? attackData.pullStopDistance
+                    : ((player.width + this.width) * 0.5 + 8);
+                this.pullStopTimer = Math.max(
+                    this.pullStopTimer || 0,
+                    Number.isFinite(attackData.pullStopTimerMs) ? attackData.pullStopTimerMs : 260
+                );
             }
         }
         
@@ -1273,7 +1304,7 @@ export class Busho extends Enemy {
         this.height = 75;
         this.hp = 58;
         this.maxHp = 58;
-        this.damage = 3;
+        this.damage = 2;
         this.speed = 2.1;
         this.speedVarianceRange = 0.18;
         this.speedVarianceBias = 0.06;

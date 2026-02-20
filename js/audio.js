@@ -55,6 +55,7 @@ class AudioManager {
             combined: new Audio('se/combined.mp3'),
             exp: new Audio('se/exp.mp3'),
             cursor: new Audio('se/cursor.mp3'),
+            change: new Audio('se/change.mp3'),
             gamestart: new Audio('se/gamestart.mp3'),
             levelup: new Audio('se/levelup.mp3'),
             skillup: new Audio('se/skillup.mp3'),
@@ -219,6 +220,12 @@ class AudioManager {
     playCursor() {
         this.init();
         this.playFileSfx('se/cursor.mp3', 0.84, 1.06, 0.03);
+    }
+
+    playWeaponSwitch() {
+        this.init();
+        // Dキー切替: 立ち上がり優先、1.5倍速/高めピッチ、音量はやや控えめ
+        this.playFileSfx('se/change.mp3', 0.68, 1.5, 0.045, true);
     }
 
     playGameStart() {

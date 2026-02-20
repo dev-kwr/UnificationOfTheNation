@@ -167,6 +167,7 @@ export class Player {
         this.afterImages = [];
         this.odachiAfterimageTimer = 0;
         this.subWeaponRenderedInModel = false;
+        this.subWeaponPoseOverride = null;
         this.comboSlashTrailPoints = [];
         this.comboSlashTrailSampleTimer = 0;
         this.specialCloneSlashTrailPoints = [];
@@ -1242,6 +1243,20 @@ export class Player {
 
     triggerCloneAttack(index) {
         if (this.specialCloneAttackTimers[index] <= 0 && this.specialCloneSubWeaponTimers[index] <= 0) {
+            if (
+                this.specialCloneAutoAiEnabled &&
+                this.currentSubWeapon &&
+                this.currentSubWeapon.name === '二刀流' &&
+                typeof this.currentSubWeapon.getMainDurationByStep === 'function'
+            ) {
+                const nextComboIndex = ((this.specialCloneComboSteps[index] || 0) + 1) % 5;
+                const dualDuration = Math.max(1, this.currentSubWeapon.getMainDurationByStep(nextComboIndex));
+                this.specialCloneComboSteps[index] = nextComboIndex;
+                this.specialCloneAttackTimers[index] = dualDuration;
+                this.specialCloneSubWeaponTimers[index] = dualDuration;
+                this.specialCloneSubWeaponActions[index] = '二刀_Z';
+                return;
+            }
             const nextIndex = ((this.specialCloneComboSteps[index] || 0) + 1) % COMBO_ATTACKS.length;
             const nextStep = nextIndex + 1;
             const profile = this.getComboAttackProfileByStep(nextStep);
@@ -1353,9 +1368,6 @@ export class Player {
             const prevY = pos.y;
 
             const frameStartX = pos.x;
-
-            this.specialCloneSubWeaponTimers[i] = 0;
-            this.specialCloneSubWeaponActions[i] = null;
 
             let target = this.specialCloneTargets[i];
 
@@ -1514,6 +1526,13 @@ export class Player {
 
             if (this.specialCloneAttackTimers[i] > 0) {
                 this.specialCloneAttackTimers[i] -= deltaMs;
+            }
+            if (this.specialCloneSubWeaponTimers[i] > 0) {
+                this.specialCloneSubWeaponTimers[i] -= deltaMs;
+                if (this.specialCloneSubWeaponTimers[i] <= 0) {
+                    this.specialCloneSubWeaponTimers[i] = 0;
+                    this.specialCloneSubWeaponActions[i] = null;
+                }
             }
 
             if (!this.specialCloneScarfNodes[i]) this.initCloneAccessoryNodes(i);
@@ -2031,7 +2050,21 @@ export class Player {
     }
 
     isXAttackActionActive() {
-        return !!(this.isAttacking && this.currentAttack);
+        const dualZActive = !!(
+            this.currentSubWeapon &&
+            this.currentSubWeapon.name === '二刀流' &&
+            this.subWeaponAction === '二刀_Z' &&
+            this.subWeaponTimer > 0
+        );
+        const cloneDualZActive = !!(
+            this.specialCloneAutoAiEnabled &&
+            Array.isArray(this.specialCloneSubWeaponActions) &&
+            Array.isArray(this.specialCloneSubWeaponTimers) &&
+            this.specialCloneSubWeaponActions.some((action, index) =>
+                action === '二刀_Z' && (this.specialCloneSubWeaponTimers[index] || 0) > 0
+            )
+        );
+        return !!((this.isAttacking && this.currentAttack) || dualZActive || cloneDualZActive);
     }
 
     getXAttackHitboxScale() {
@@ -2901,7 +2934,13 @@ export class Player {
             typeof this.currentSubWeapon.getMainSwingPose === 'function'
         );
 
-        const dualZPose = isDualZComboPose ? this.currentSubWeapon.getMainSwingPose() : null;
+        const dualZPoseOptions = (
+            this.subWeaponPoseOverride &&
+            subWeaponAction === '二刀_Z'
+        ) ? this.subWeaponPoseOverride : undefined;
+        const dualZPose = isDualZComboPose
+            ? this.currentSubWeapon.getMainSwingPose(dualZPoseOptions || {})
+            : null;
         const speedAbs = Math.abs(this.vx);
         const comboStepPose = comboAttackingPose && currentAttack ? (currentAttack.comboStep || 0) : 0;
         const comboPoseProgress = comboStepPose
@@ -3516,8 +3555,14 @@ export class Player {
         // 腕と剣
         const effectiveIsAttacking = isAttacking;
         const dualBlade = (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') ? this.currentSubWeapon : null;
+        const dualPoseOverride = (
+            this.subWeaponPoseOverride &&
+            this.subWeaponAction === '二刀_Z'
+        ) ? this.subWeaponPoseOverride : null;
         const effectiveSubWeaponTimer = (dualBlade && (this.subWeaponAction === '二刀_合体' || this.subWeaponAction === '二刀_Z'))
-            ? dualBlade.attackTimer
+            ? (dualPoseOverride && Number.isFinite(dualPoseOverride.attackTimer)
+                ? dualPoseOverride.attackTimer
+                : dualBlade.attackTimer)
             : this.subWeaponTimer;
         const isActuallyAttacking = effectiveIsAttacking || (effectiveSubWeaponTimer > 0 && subWeaponAction !== 'throw');
         const backShoulderX = torsoShoulderX;
@@ -3621,6 +3666,10 @@ export class Player {
     renderSubWeaponArm(ctx, centerX, pivotY, facingRight, renderWeaponVisuals = true) {
         const dir = facingRight ? 1 : -1;
         const dualBlade = (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') ? this.currentSubWeapon : null;
+        const dualPoseOverride = (
+            this.subWeaponPoseOverride &&
+            this.subWeaponAction === '二刀_Z'
+        ) ? this.subWeaponPoseOverride : null;
         const subDuration =
             this.subWeaponAction === 'throw' ? 150 :
             (this.subWeaponAction === '大槍') ? 270 :
@@ -3630,7 +3679,9 @@ export class Player {
             (this.subWeaponAction === '大太刀') ? 760 : 300;
         const sourceTimer =
             (dualBlade && (this.subWeaponAction === '二刀_合体' || this.subWeaponAction === '二刀_Z'))
-                ? dualBlade.attackTimer
+                ? ((dualPoseOverride && Number.isFinite(dualPoseOverride.attackTimer))
+                    ? dualPoseOverride.attackTimer
+                    : dualBlade.attackTimer)
                 : this.subWeaponTimer;
         const progress = Math.max(0, Math.min(1, 1 - (sourceTimer / subDuration)));
         const silhouetteColor = COLORS.PLAYER;
@@ -3734,7 +3785,7 @@ export class Player {
             // 二刀の通常連撃（Z）：二本の刀で多方向へ連続斬り
             const blade = dualBlade;
             const pose = (blade && typeof blade.getMainSwingPose === 'function')
-                ? blade.getMainSwingPose()
+                ? blade.getMainSwingPose(dualPoseOverride || {})
                 : { comboIndex: 0, progress, rightAngle: -0.32, leftAngle: 2.2 };
             const comboStep = pose.comboIndex || 0;
             const comboProgress = pose.progress || 0;
@@ -4805,6 +4856,11 @@ export class Player {
     updateSpecialCloneSlashTrails(deltaMs) {
         const count = this.specialCloneSlots ? this.specialCloneSlots.length : 0;
         if (count <= 0) return;
+        const dualBlade = (
+            this.currentSubWeapon &&
+            this.currentSubWeapon.name === '二刀流' &&
+            typeof this.currentSubWeapon.getMainSwingPose === 'function'
+        ) ? this.currentSubWeapon : null;
         if (!Array.isArray(this.specialCloneSlashTrailPoints)) {
             this.specialCloneSlashTrailPoints = [];
         }
@@ -4826,10 +4882,43 @@ export class Player {
 
             if (isAlive && pos) {
                 const isAutoAi = !!this.specialCloneAutoAiEnabled;
-                const isAttacking = isAutoAi
-                    ? ((this.specialCloneAttackTimers[i] || 0) > 0)
-                    : !!this.isAttacking;
-                if (isAttacking) {
+                const cloneDrawY = isAutoAi
+                    ? (pos.y - this.height * 0.62)
+                    : this.y;
+                const dualTimer = isAutoAi
+                    ? (this.specialCloneSubWeaponTimers[i] || 0)
+                    : this.subWeaponTimer;
+                const dualActionActive = !!(
+                    dualBlade &&
+                    dualTimer > 0 &&
+                    (
+                        isAutoAi
+                            ? (this.specialCloneSubWeaponActions[i] === '二刀_Z')
+                            : (this.subWeaponAction === '二刀_Z')
+                    )
+                );
+                if (dualActionActive) {
+                    // 二刀流分身は本体と同じDualBlades側の剣筋を使うため、ここでは軌跡点を生成しない
+                    this.specialCloneSlashTrailSampleTimers[i] = this.updateSlashTrailBuffer(
+                        this.specialCloneSlashTrailPoints[i],
+                        this.specialCloneSlashTrailSampleTimers[i],
+                        null,
+                        deltaMs
+                    );
+                    continue;
+                } else {
+                    const isAttacking = isAutoAi
+                        ? ((this.specialCloneAttackTimers[i] || 0) > 0)
+                        : !!this.isAttacking;
+                    if (!isAttacking) {
+                        this.specialCloneSlashTrailSampleTimers[i] = this.updateSlashTrailBuffer(
+                            this.specialCloneSlashTrailPoints[i],
+                            this.specialCloneSlashTrailSampleTimers[i],
+                            null,
+                            deltaMs
+                        );
+                        continue;
+                    }
                     const comboStep = isAutoAi
                         ? ((this.specialCloneComboSteps[i] || 0) % COMBO_ATTACKS.length) + 1
                         : (this.currentAttack ? this.currentAttack.comboStep || 1 : 1);
@@ -4839,9 +4928,6 @@ export class Player {
                     const attackTimer = isAutoAi
                         ? (this.specialCloneAttackTimers[i] || 0)
                         : this.attackTimer;
-                    const cloneDrawY = isAutoAi
-                        ? (pos.y - this.height * 0.62)
-                        : this.y;
                     pose = this.getComboSwordPoseForTrail({
                         isAttacking: true,
                         currentAttack: attackProfile,
@@ -5042,8 +5128,9 @@ export class Player {
                 };
             };
             for (const strip of strips) {
-                drawGradientTrail(strip, 8.0 * trailWidthScale, [156, 174, 194], 0.06, 0.3, projectOut);
-                drawGradientTrail(strip, 3.3 * trailWidthScale, [206, 218, 232], 0.05, 0.2, projectOut);
+                // 大薙ぎ中でも通常剣筋と同じ透明度レンジに揃える
+                drawGradientTrail(strip, 8.0 * trailWidthScale, [156, 174, 194], 0.08, 0.5, projectOut);
+                drawGradientTrail(strip, 3.3 * trailWidthScale, [206, 218, 232], 0.06, 0.44, projectOut);
             }
         }
 
@@ -5091,8 +5178,20 @@ export class Player {
                 ctx.restore();
 
                 // Lv0〜2は本体の攻撃状態に同期、Lv3は独自タイマー
+                const cloneUsesDualZ = !!(
+                    this.currentSubWeapon &&
+                    this.currentSubWeapon.name === '二刀流' &&
+                    (
+                        this.specialCloneAutoAiEnabled
+                            ? (
+                                this.specialCloneSubWeaponActions[i] === '二刀_Z' &&
+                                (this.specialCloneSubWeaponTimers[i] || 0) > 0
+                            )
+                            : (this.subWeaponAction === '二刀_Z' && (this.subWeaponTimer || 0) > 0)
+                    )
+                );
                 const isCloneAttacking = this.specialCloneAutoAiEnabled
-                    ? (this.specialCloneAttackTimers[i] > 0)
+                    ? ((this.specialCloneAttackTimers[i] > 0) && !cloneUsesDualZ)
                     : this.isAttacking;
                 const cloneAttackTimer = this.specialCloneAutoAiEnabled
                     ? (this.specialCloneAttackTimers[i] || 0)
@@ -5123,7 +5222,8 @@ export class Player {
                     isGrounded: this.isGrounded,
                     isCrouching: this.isCrouching,
                     isDashing: this.isDashing,
-                    motionTime: this.motionTime
+                    motionTime: this.motionTime,
+                    subWeaponPoseOverride: this.subWeaponPoseOverride
                 };
 
                 // ★savedの後にcloneDrawYを定義
@@ -5147,6 +5247,12 @@ export class Player {
                     this.isDashing = false;
                     this.subWeaponTimer = this.specialCloneSubWeaponTimers[i] || 0;
                     this.subWeaponAction = this.specialCloneSubWeaponActions[i] || null;
+                    this.subWeaponPoseOverride = cloneUsesDualZ
+                        ? {
+                            comboIndex: this.specialCloneComboSteps[i] || 0,
+                            attackTimer: this.specialCloneSubWeaponTimers[i] || 0
+                        }
+                        : null;
                 } else {
                     // Lv0〜2: 本体の状態をコピー（ジャンプ含む）
                     this.vx = saved.vx;
@@ -5156,6 +5262,7 @@ export class Player {
                     this.isDashing = saved.isDashing;
                     this.subWeaponTimer = saved.subWeaponTimer;
                     this.subWeaponAction = saved.subWeaponAction;
+                    this.subWeaponPoseOverride = null;
                 }
 
                 // ★修正: 攻撃状態のセット
@@ -5187,13 +5294,15 @@ export class Player {
                     : null;
                 if (cloneTrailPoints && cloneTrailPoints.length > 1) {
                     const trailScale = this.getXAttackTrailWidthScale();
-                    this.renderComboSlashTrail(ctx, {
-                        points: cloneTrailPoints,
-                        centerX: pos.x,
-                        centerY: cloneDrawY + this.height * 0.5,
-                        trailWidthScale: trailScale,
-                        boostActive: trailScale > 1.01 && isCloneAttacking
-                    });
+                    if (!cloneUsesDualZ) {
+                        this.renderComboSlashTrail(ctx, {
+                            points: cloneTrailPoints,
+                            centerX: pos.x,
+                            centerY: cloneDrawY + this.height * 0.5,
+                            trailWidthScale: trailScale,
+                            boostActive: trailScale > 1.01 && isCloneAttacking
+                        });
+                    }
                 }
 
                 // 全レベル共通で根元を正しい位置にセット
@@ -5234,6 +5343,42 @@ export class Player {
                     useLiveAccessories: true,
                     renderHeadbandTail: true
                 });
+                if (
+                    cloneUsesDualZ &&
+                    this.currentSubWeapon &&
+                    this.currentSubWeapon.name === '二刀流' &&
+                    typeof this.currentSubWeapon.render === 'function'
+                ) {
+                    const dualBlade = this.currentSubWeapon;
+                    const dualSaved = {
+                        isAttacking: dualBlade.isAttacking,
+                        attackType: dualBlade.attackType,
+                        attackTimer: dualBlade.attackTimer,
+                        attackDirection: dualBlade.attackDirection,
+                        comboIndex: dualBlade.comboIndex,
+                        projectiles: dualBlade.projectiles
+                    };
+                    const dualComboIndex = this.specialCloneAutoAiEnabled
+                        ? (this.specialCloneComboSteps[i] || 0)
+                        : (dualBlade.comboIndex || 0);
+                    const dualAttackTimer = this.specialCloneAutoAiEnabled
+                        ? (this.specialCloneSubWeaponTimers[i] || 0)
+                        : (this.subWeaponTimer || dualBlade.attackTimer || 0);
+                    dualBlade.isAttacking = true;
+                    dualBlade.attackType = 'main';
+                    dualBlade.attackDirection = this.facingRight ? 1 : -1;
+                    dualBlade.comboIndex = dualComboIndex;
+                    dualBlade.attackTimer = dualAttackTimer;
+                    // 分身描画では飛翔弾を重ねない
+                    dualBlade.projectiles = [];
+                    dualBlade.render(ctx, this);
+                    dualBlade.isAttacking = dualSaved.isAttacking;
+                    dualBlade.attackType = dualSaved.attackType;
+                    dualBlade.attackTimer = dualSaved.attackTimer;
+                    dualBlade.attackDirection = dualSaved.attackDirection;
+                    dualBlade.comboIndex = dualSaved.comboIndex;
+                    dualBlade.projectiles = dualSaved.projectiles;
+                }
 
                 this.scarfNodes = savedScarf;
                 this.hairNodes = savedHair;
@@ -5247,6 +5392,7 @@ export class Player {
                 this.attackCombo = saved.attackCombo;
                 this.subWeaponTimer = saved.subWeaponTimer;
                 this.subWeaponAction = saved.subWeaponAction;
+                this.subWeaponPoseOverride = saved.subWeaponPoseOverride;
                 this.facingRight = saved.facingRight;
                 this.x = saved.x;
                 this.y = saved.y;
@@ -5906,6 +6052,10 @@ export class Player {
         }
 
         // 切り替え音
-        audio.playSelect();
+        if (audio && typeof audio.playWeaponSwitch === 'function') {
+            audio.playWeaponSwitch();
+        } else {
+            audio.playSelect();
+        }
     }
 }

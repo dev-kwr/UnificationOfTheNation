@@ -7,7 +7,7 @@ import { input } from './input.js';
 import { Player } from './player.js';
 import { createSubWeapon } from './weapon.js';
 import { Stage } from './stage.js';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding } from './ui.js';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout } from './ui.js';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit, checkPlayerAttackHit, checkSpecialHit, checkExplosionHit } from './collision.js';
 import { saveManager } from './save.js';
 import { shop } from './shop.js';
@@ -765,6 +765,8 @@ class Game {
     
     updateTitle() {
         this.hasSave = saveManager.hasSave();
+        const titleOptionCount = this.hasSave ? 2 : 1;
+        this.titleMenuIndex = Math.max(0, Math.min(titleOptionCount - 1, this.titleMenuIndex));
         if (this.titleDebugOpen) {
             this.updateTitleDebug();
             return;
@@ -790,15 +792,17 @@ class Game {
         // 先に判定のみ行い、returnはしない（JUMP同時押しの可能性への配慮だが、ArrowUpはJUMPと被るのでreturnすべき）
         // ArrowUpは UP と JUMP 両方のフラグを立てる仕様なので、ここでUPを処理したらJUMP処理（スタート）に行かないように return する
         // メニュー選択（上下キー）
-        if (input.isActionJustPressed('UP')) {
-            this.titleMenuIndex = (this.titleMenuIndex - 1 + 2) % 2;
-            audio.playSelect();
-            return;
-        }
-        if (input.isActionJustPressed('DOWN')) {
-            this.titleMenuIndex = (this.titleMenuIndex + 1) % 2;
-            audio.playSelect();
-            return;
+        if (titleOptionCount > 1) {
+            if (input.isActionJustPressed('UP')) {
+                this.titleMenuIndex = (this.titleMenuIndex - 1 + titleOptionCount) % titleOptionCount;
+                audio.playSelect();
+                return;
+            }
+            if (input.isActionJustPressed('DOWN')) {
+                this.titleMenuIndex = (this.titleMenuIndex + 1) % titleOptionCount;
+                audio.playSelect();
+                return;
+            }
         }
 
         // 難易度選択（左右キー）
@@ -871,7 +875,8 @@ class Game {
 
             const tX = input.lastTouchX;
             const tY = input.lastTouchY;
-            const cy = CANVAS_HEIGHT / 2;
+            const layout = getTitleScreenLayout(this.hasSave);
+            const centerX = layout.centerX;
 
             // 右下コーナータッチでデバッグウィンドウ開閉
             if (tX > CANVAS_WIDTH - 120 && tY > CANVAS_HEIGHT - 100) {
@@ -881,14 +886,13 @@ class Game {
                 audio.playSelect();
                 return;
             }
-            
+
             // 難易度変更エリア判定
-            const diffY = this.hasSave ? cy + 170 : cy + 120;
-            const diffCenterX = CANVAS_WIDTH / 2;
-            const diffHalfW = 140; // 描画幅220pxにタップ余白を追加
-            const diffHalfH = 34;  // 描画高40pxにタップ余白を追加
+            const diffY = layout.diffY;
+            const diffHalfW = layout.diffButton.width * 0.5 + 17;
+            const diffHalfH = layout.diffButton.height * 0.5 + 10;
             if (
-                Math.abs(tX - diffCenterX) <= diffHalfW &&
+                Math.abs(tX - centerX) <= diffHalfW &&
                 Math.abs(tY - diffY) <= diffHalfH
             ) {
                 this.difficultyIndex = (this.difficultyIndex + 1) % this.difficultyKeys.length;
@@ -897,14 +901,37 @@ class Game {
                 return;
             }
 
-            // 難易度ボタン以外は共通でゲーム開始
-            this.titleDebugApplyOnStart = false;
+            // 開始ボタン押下時のみ開始
+            const startY = layout.startY;
+            const startHalfW = layout.actionButton.width * 0.5 + 12;
+            const startHalfH = layout.actionButton.height * 0.5 + 10;
             if (this.hasSave) {
-                this.continueGame(saveManager.load());
-            } else {
+                const continueY = startY;
+                const newGameY = layout.newGameY;
+                if (Math.abs(tX - centerX) <= startHalfW && Math.abs(tY - continueY) <= startHalfH) {
+                    this.titleMenuIndex = 0;
+                    this.titleDebugApplyOnStart = false;
+                    this.continueGame(saveManager.load());
+                    audio.playGameStart();
+                    return;
+                }
+                if (Math.abs(tX - centerX) <= startHalfW && Math.abs(tY - newGameY) <= startHalfH) {
+                    this.titleMenuIndex = 1;
+                    this.titleDebugApplyOnStart = false;
+                    saveManager.deleteSave();
+                    this.startNewGame();
+                    audio.playGameStart();
+                    return;
+                }
+            } else if (
+                Math.abs(tX - centerX) <= startHalfW &&
+                Math.abs(tY - layout.singleStartY) <= startHalfH
+            ) {
+                this.titleDebugApplyOnStart = false;
                 this.startNewGame();
+                audio.playGameStart();
+                return;
             }
-            audio.playGameStart();
             return;
         }
     }
@@ -2245,13 +2272,126 @@ class Game {
         const cloneOffsets = this.player.getSpecialCloneOffsets ? this.player.getSpecialCloneOffsets() : [];
         if (!cloneOffsets.length) return;
         const baseDamage = Math.max(10, Math.round(12 + (this.player.attackPower || 0) * 2));
+        const subWeapon = this.player.currentSubWeapon || null;
+        const weaponName = subWeapon ? subWeapon.name : '奥義';
+        const buildDualCloneMainHitboxes = (clonePos, comboIndex, facingRight, scale = 1) => {
+            if (!subWeapon || subWeapon.name !== '二刀流' || typeof subWeapon.getMainSwingArcs !== 'function') return [];
+            const range = Number.isFinite(subWeapon.range) ? subWeapon.range : 64;
+            const direction = facingRight ? 1 : -1;
+            const cloneX = clonePos.x - this.player.width * 0.5;
+            const cloneY = clonePos.y - this.player.height * 0.62;
+            const centerX = cloneX + this.player.width * 0.5;
+            const centerY = cloneY + this.player.height * 0.5;
+            const frontX = cloneX + (direction > 0 ? this.player.width : -range * 1.4);
+            const backX = cloneX + (direction > 0 ? -range * 1.35 : this.player.width);
+            const coreW = range * 0.75;
+            const hitboxes = [];
+            const arcs = subWeapon.getMainSwingArcs({ comboIndex });
+            if (arcs.hit === 'drawDash') {
+                hitboxes.push({ x: frontX, y: cloneY - 24, width: range * 1.48, height: 86 });
+                hitboxes.push({ x: centerX - coreW * 0.5, y: centerY - 54, width: coreW * 0.98, height: 106 });
+            } else if (arcs.hit === 'reverseCounter') {
+                hitboxes.push({ x: frontX - range * 0.16, y: cloneY - 72, width: range * 1.4, height: 118 });
+                hitboxes.push({ x: centerX - range * 0.66, y: cloneY - 84, width: range * 1.26, height: 92 });
+            } else if (arcs.hit === 'crossStepSweep') {
+                hitboxes.push({ x: backX - range * 0.16, y: centerY - 30, width: range * 1.74, height: 66 });
+                hitboxes.push({ x: centerX - range * 0.92, y: centerY - 22, width: range * 1.84, height: 56 });
+            } else if (arcs.hit === 'risingX') {
+                hitboxes.push({
+                    x: centerX - range * 1.1,
+                    y: centerY - range * 1.08,
+                    width: range * 2.2,
+                    height: range * 2.14
+                });
+                hitboxes.push({
+                    x: frontX - range * 0.24,
+                    y: cloneY - 46,
+                    width: range * 1.62,
+                    height: 106
+                });
+            } else {
+                const sRange = range * 1.82;
+                hitboxes.push({
+                    x: centerX - sRange,
+                    y: centerY - sRange * 0.98,
+                    width: sRange * 2,
+                    height: sRange * 2.14
+                });
+                hitboxes.push({
+                    x: centerX - range * 0.48,
+                    y: centerY + 4,
+                    width: range * 0.96,
+                    height: range * 1.24
+                });
+            }
+            if (scale > 1.001) {
+                return hitboxes.map((hb) => {
+                    const cx = hb.x + hb.width * 0.5;
+                    const cy = hb.y + hb.height * 0.5;
+                    const w = hb.width * scale;
+                    const h = hb.height * scale;
+                    return { x: cx - w * 0.5, y: cy - h * 0.5, width: w, height: h };
+                });
+            }
+            return hitboxes;
+        };
         for (const clone of cloneOffsets) {
             if (!this.player.canCloneAutoStrike || !this.player.canCloneAutoStrike(clone.index)) continue;
             
             // player.js側で管理されている分身の個別座標を使用
             const pos = this.player.specialClonePositions[clone.index];
             if (!pos) continue;
-            
+
+            const comboIndex = (this.player.specialCloneComboSteps && Number.isFinite(this.player.specialCloneComboSteps[clone.index]))
+                ? (this.player.specialCloneComboSteps[clone.index] || 0)
+                : 0;
+            const dualCloneSwinging = weaponName === '二刀流' &&
+                this.player.specialCloneSubWeaponActions &&
+                this.player.specialCloneSubWeaponActions[clone.index] === '二刀_Z' &&
+                this.player.specialCloneSubWeaponTimers &&
+                (this.player.specialCloneSubWeaponTimers[clone.index] || 0) > 0;
+            if (weaponName === '二刀流' && !dualCloneSwinging) continue;
+
+            const dualRangeByStep = [156, 118, 126, 136, 146];
+            const dualDamageByStep = [1.26, 0.94, 1.0, 1.08, 1.16];
+            const dualKnockbackXByStep = [8, 6, 6.5, 7, 7.5];
+            const dualKnockbackYByStep = [-7, -5, -5, -6, -6.5];
+            const xAttackScale = (
+                typeof this.player.isXAttackBoostActive === 'function' &&
+                this.player.isXAttackBoostActive() &&
+                typeof this.player.getXAttackHitboxScale === 'function'
+            ) ? Math.max(1, this.player.getXAttackHitboxScale()) : 1;
+            const attackRange = dualCloneSwinging
+                ? dualRangeByStep[comboIndex] * (xAttackScale > 1.001 ? (1 + (xAttackScale - 1) * 0.82) : 1)
+                : 100;
+            const strikeDamage = dualCloneSwinging
+                ? Math.round(baseDamage * dualDamageByStep[comboIndex])
+                : baseDamage;
+            const strikeKnockbackX = dualCloneSwinging ? dualKnockbackXByStep[comboIndex] : 6;
+            const strikeKnockbackY = dualCloneSwinging ? dualKnockbackYByStep[comboIndex] : -5;
+
+            if (dualCloneSwinging) {
+                const dualHitboxes = buildDualCloneMainHitboxes(pos, comboIndex, pos.facingRight, xAttackScale);
+                let didHit = false;
+                for (const enemy of activeEnemies) {
+                    if (!enemy || !enemy.isAlive || enemy.isDying) continue;
+                    if (!dualHitboxes.some((hb) => this.rectIntersects(hb, enemy))) continue;
+                    didHit = true;
+                    this.damageEnemy(enemy, strikeDamage, {
+                        source: 'special_shadow',
+                        weapon: weaponName,
+                        knockbackX: strikeKnockbackX,
+                        knockbackY: strikeKnockbackY
+                    });
+                }
+                // 二刀流分身は「1コンボ1回」の当たり判定評価に寄せる
+                this.player.resetCloneAutoStrikeCooldown(clone.index);
+                if (Array.isArray(this.player.specialCloneAutoCooldowns)) {
+                    this.player.specialCloneAutoCooldowns[clone.index] = didHit ? 170 : 150;
+                }
+                continue;
+            }
+
             const cloneCenterX = pos.x; 
             const cloneCenterY = pos.y;
             let target = null;
@@ -2264,8 +2404,7 @@ class Game {
                 const dy = enemyCenterY - cloneCenterY;
                 const distSq = dx * dx + dy * dy;
                 
-                // AIによる移動があるため、攻撃範囲は少し広めに
-                const attackRange = 100; 
+                // AIによる移動があるため、攻撃範囲は少し広め
                 if (distSq > attackRange * attackRange) continue;
                 
                 if (distSq < bestDistanceSq) {
@@ -2274,11 +2413,11 @@ class Game {
                 }
             }
             if (!target) continue;
-            this.damageEnemy(target, baseDamage, {
+            this.damageEnemy(target, strikeDamage, {
                 source: 'special_shadow',
-                weapon: this.player.currentSubWeapon ? this.player.currentSubWeapon.name : '奥義',
-                knockbackX: 6,
-                knockbackY: -5
+                weapon: weaponName,
+                knockbackX: strikeKnockbackX,
+                knockbackY: strikeKnockbackY
             });
             this.player.resetCloneAutoStrikeCooldown(clone.index);
         }
@@ -2633,6 +2772,8 @@ class Game {
             gain = 0;
         } else if (source === 'bomb' || weapon === '火薬玉') {
             gain = 2.2;
+        } else if (weapon === '手裏剣') {
+            gain = 1.8;
         } else if (weapon === '大太刀') {
             gain = 3.0;
         } else if (weapon === '二刀流') {
@@ -2641,6 +2782,8 @@ class Game {
             gain = 2.5;
         } else if (weapon === '大槍') {
             gain = 2.1;
+        } else if (source === 'subweapon') {
+            gain = 1.8;
         } else if (source === 'main') {
             gain = 1.4;
         }
@@ -2763,6 +2906,10 @@ class Game {
         // クリア時は奥義状態を解除（分身を残さない）
         if (this.player && typeof this.player.clearSpecialState === 'function') {
             this.player.clearSpecialState(true);
+        }
+        // 追加スキルの一時効果はクリア時点で全解除
+        if (this.player && typeof this.player.resetTemporaryNinjutsuTimers === 'function') {
+            this.player.resetTemporaryNinjutsuTimers();
         }
         this.pendingLevelUpChoices = 0;
         // this.levelUpChoiceIndex = 0; // フェードアウト完了まで位置を維持

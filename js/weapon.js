@@ -97,50 +97,115 @@ export class Bomb {
     
     render(ctx) {
         if (this.isExploding) {
-            // 爆発エフェクト
+            // リッチな多層爆炎エフェクト
             const progress = this.explosionTimer / this.explosionDuration;
-            const currentRadius = this.explosionRadius * (0.5 + progress * 0.5);
+            const currentRadius = this.explosionRadius * Math.pow(progress, 0.4); // 急速に広がり、ゆっくり消える
+            const alpha = 1 - Math.pow(progress, 1.5);
             
-            // 外側のオレンジ
-            ctx.fillStyle = `rgba(255, 102, 0, ${1 - progress})`;
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+
+            // 外側の熱波（ダークオレンジ～黒）
+            const outerGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, currentRadius * 1.2);
+            outerGrad.addColorStop(0.3, `rgba(255, 80, 0, ${alpha * 0.7})`);
+            outerGrad.addColorStop(0.8, `rgba(150, 20, 0, ${alpha * 0.4})`);
+            outerGrad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = outerGrad;
             ctx.beginPath();
-            ctx.arc(this.x, this.y, currentRadius, 0, Math.PI * 2);
+            ctx.arc(this.x, this.y, currentRadius * 1.2, 0, Math.PI * 2);
             ctx.fill();
             
-            // 内側の黄色
-            ctx.fillStyle = `rgba(255, 255, 0, ${1 - progress})`;
+            // 内側の爆発のコア（白～黄～強烈なオレンジ）
+            const innerGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, currentRadius);
+            innerGrad.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+            innerGrad.addColorStop(0.2, `rgba(255, 255, 150, ${alpha})`);
+            innerGrad.addColorStop(0.6, `rgba(255, 120, 0, ${alpha * 0.9})`);
+            innerGrad.addColorStop(1, 'rgba(255, 50, 0, 0)');
+            ctx.fillStyle = innerGrad;
+
+            // 星型のギザギザした爆発ポリゴンをつくる
             ctx.beginPath();
-            ctx.arc(this.x, this.y, currentRadius * 0.6, 0, Math.PI * 2);
+            const spikes = 12 + Math.floor(Math.random() * 6);
+            for (let i = 0; i < spikes * 2; i++) {
+                const angle = (Math.PI * 2 / (spikes * 2)) * i + progress;
+                const r = (i % 2 === 0) ? currentRadius : currentRadius * (0.4 + Math.random() * 0.3);
+                const px = this.x + Math.cos(angle) * r;
+                const py = this.y + Math.sin(angle) * r;
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
             ctx.fill();
+
+            // 飛び散る火花（ランダムパーティクル）
+            if (progress < 0.6) {
+                ctx.fillStyle = `rgba(255, 200, 100, ${alpha})`;
+                for(let i=0; i<8; i++) {
+                    const sparkDist = currentRadius * (0.5 + Math.random());
+                    const sparkAngle = Math.random() * Math.PI * 2;
+                    ctx.beginPath();
+                    ctx.arc(this.x + Math.cos(sparkAngle)*sparkDist, this.y + Math.sin(sparkAngle)*sparkDist, 1.5 + Math.random()*2, 0, Math.PI*2);
+                    ctx.fill();
+                }
+            }
             
-            // 中心の白
-            ctx.fillStyle = `rgba(255, 255, 255, ${1 - progress})`;
-            ctx.beginPath();
-            ctx.arc(this.x, this.y, currentRadius * 0.3, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.restore();
+
         } else {
-            // 爆弾本体
-            ctx.fillStyle = '#333';
+            ctx.save();
+            
+            // 立体的な爆弾本体（球体グラデーション）
+            const bodyGrad = ctx.createRadialGradient(
+                this.x - this.radius * 0.3, this.y - this.radius * 0.3, this.radius * 0.1,
+                this.x, this.y, this.radius
+            );
+            bodyGrad.addColorStop(0, '#555555'); // ハイライト
+            bodyGrad.addColorStop(0.4, '#242424'); // 基本色
+            bodyGrad.addColorStop(1, '#0a0a0a'); // 影
+            
+            ctx.fillStyle = bodyGrad;
             ctx.beginPath();
             ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
             ctx.fill();
             
+            // 金属のリング（口金部分）
+            ctx.fillStyle = '#6b7075';
+            ctx.fillRect(this.x - 3, this.y - this.radius - 2, 6, 3);
+            ctx.fillStyle = '#42454a';
+            ctx.fillRect(this.x - 3, this.y - this.radius - 0.5, 6, 1.5);
+            
             // 導火線
-            ctx.strokeStyle = '#8B4513';
-            ctx.lineWidth = 2;
+            const fuseLen = 14;
+            const fuseWiggle = Math.sin(this.lifeTime || performance.now() * 0.01) * 3;
+            const fuseEndX = this.x + 4 + fuseWiggle;
+            const fuseEndY = this.y - this.radius - fuseLen;
+            
+            ctx.strokeStyle = '#8B5A2B';
+            ctx.lineWidth = 2.5;
+            ctx.lineCap = 'round';
             ctx.beginPath();
-            ctx.moveTo(this.x, this.y - this.radius);
-            ctx.quadraticCurveTo(
-                this.x + 5, this.y - this.radius - 8,
-                this.x + 3, this.y - this.radius - 12
-            );
+            ctx.moveTo(this.x, this.y - this.radius - 2);
+            ctx.quadraticCurveTo(this.x + 8, this.y - this.radius - 6, fuseEndX, fuseEndY);
             ctx.stroke();
             
-            // 火花
-            ctx.fillStyle = '#FF6600';
+            // 燃え盛る火花（ランダムなパーティクル）
+            const time = performance.now();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.fillStyle = '#ffaa00';
             ctx.beginPath();
-            ctx.arc(this.x + 3, this.y - this.radius - 12, 3, 0, Math.PI * 2);
+            ctx.arc(fuseEndX, fuseEndY, 3 + Math.sin(time*0.05)*1, 0, Math.PI*2);
             ctx.fill();
+            
+            ctx.fillStyle = '#ff3300';
+            for(let i=0; i<3; i++) {
+                const ox = (Math.random()-0.5)*6;
+                const oy = (Math.random()-0.5)*6;
+                ctx.beginPath();
+                ctx.arc(fuseEndX + ox, fuseEndY - 2 + oy, 1 + Math.random()*1.5, 0, Math.PI*2);
+                ctx.fill();
+            }
+            
+            ctx.restore();
         }
     }
 }
@@ -194,8 +259,14 @@ export function drawShurikenShape(ctx, cx, cy, radius, rotation) {
 
     const r = radius;
 
-    ctx.fillStyle = '#c0c8d4';
-    ctx.strokeStyle = '#606878';
+    // 金属的なグラデーションを追加
+    const bladeGrad = ctx.createLinearGradient(-r, -r, r, r);
+    bladeGrad.addColorStop(0, '#e0e5ec'); // 明るい反射
+    bladeGrad.addColorStop(0.5, '#7a8599'); // 基本色
+    bladeGrad.addColorStop(1, '#3d485c'); // 暗い影
+    
+    ctx.fillStyle = bladeGrad;
+    ctx.strokeStyle = '#2a3441';
     ctx.lineWidth = Math.max(0.8, r * 0.1);
     ctx.beginPath();
     for (let i = 0; i < 4; i++) {
@@ -212,17 +283,18 @@ export function drawShurikenShape(ctx, cx, cy, radius, rotation) {
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle = '#2a2a2a';
+    ctx.fillStyle = '#1a1a1a';
     ctx.beginPath();
     ctx.arc(0, 0, r * 0.15, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.lineWidth = Math.max(0.5, r * 0.07);
+    // 鋭いハイライトエッジ
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.lineWidth = Math.max(0.5, r * 0.08);
     for (let i = 0; i < 4; i++) {
         const angle = (Math.PI / 2) * i;
         ctx.beginPath();
-        ctx.moveTo(Math.cos(angle) * r * 0.3, Math.sin(angle) * r * 0.3);
+        ctx.moveTo(Math.cos(angle) * r * 0.25, Math.sin(angle) * r * 0.25);
         ctx.lineTo(Math.cos(angle) * r * 0.75, Math.sin(angle) * r * 0.75);
         ctx.stroke();
     }
@@ -329,20 +401,42 @@ export class ShurikenProjectile {
     render(ctx) {
         if (this.isDestroyed) return;
         const lifeRatio = this.life / this.maxLife;
+        const speed = Math.hypot(this.vx, this.vy);
+        
+        // モーションブラー（残像エフェクト）
+        if (speed > 2 && lifeRatio > 0.1) {
+            ctx.save();
+            const blurSteps = 3;
+            for (let i = 1; i <= blurSteps; i++) {
+                const alpha = (1 - (i / blurSteps)) * 0.4 * Math.min(1, lifeRatio * 2);
+                ctx.globalAlpha = alpha;
+                const pastX = this.x - this.vx * (i * 0.5);
+                const pastY = this.y - this.vy * (i * 0.5);
+                const pastRot = this.rotation - (Math.sign(this.vx) * 0.3 * i);
+                drawShurikenShape(ctx, pastX, pastY, this.radius * 0.9, pastRot);
+            }
+            ctx.restore();
+        }
+
         ctx.save();
         ctx.globalAlpha = Math.min(1, lifeRatio * 3);
         drawShurikenShape(ctx, this.x, this.y, this.radius, this.rotation);
         ctx.restore();
 
-        // 追尾時の軌跡
-        if (this.homing && lifeRatio > 0.2) {
+        // 追尾時の軌跡（よりシャープに）
+        if (this.homing && lifeRatio > 0.1) {
             ctx.save();
-            ctx.globalAlpha = 0.3 * lifeRatio;
-            ctx.strokeStyle = '#88ccff';
-            ctx.lineWidth = 1.5;
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalAlpha = 0.5 * lifeRatio;
+            const trailGrad = ctx.createLinearGradient(this.x, this.y, this.x - this.vx * 1.5, this.y - this.vy * 1.5);
+            trailGrad.addColorStop(0, 'rgba(120, 220, 255, 1)');
+            trailGrad.addColorStop(1, 'rgba(0, 100, 255, 0)');
+            ctx.strokeStyle = trailGrad;
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
             ctx.beginPath();
             ctx.moveTo(this.x, this.y);
-            ctx.lineTo(this.x - this.vx * 0.5, this.y - this.vy * 0.5);
+            ctx.lineTo(this.x - this.vx * 1.5, this.y - this.vy * 1.5);
             ctx.stroke();
             ctx.restore();
         }
@@ -1221,11 +1315,38 @@ export class DualBlades extends SubWeapon {
                     }
                 }
             }
+
+            const dualZBoostScale = (
+                this.attackType === 'main' &&
+                player &&
+                typeof player.isXAttackBoostActive === 'function' &&
+                player.isXAttackBoostActive() &&
+                player.subWeaponAction === '二刀_Z' &&
+                typeof player.getXAttackHitboxScale === 'function'
+            ) ? Math.max(1, player.getXAttackHitboxScale()) : 1;
+            if (dualZBoostScale > 1.001 && this.attackType === 'main' && hitboxes.length > 0) {
+                for (let i = 0; i < hitboxes.length; i++) {
+                    const hb = hitboxes[i];
+                    if (!hb) continue;
+                    const cx = hb.x + hb.width * 0.5;
+                    const cy = hb.y + hb.height * 0.5;
+                    const nextW = hb.width * dualZBoostScale;
+                    const nextH = hb.height * dualZBoostScale;
+                    hitboxes[i] = {
+                        ...hb,
+                        x: cx - nextW * 0.5,
+                        y: cy - nextH * 0.5,
+                        width: nextW,
+                        height: nextH
+                    };
+                }
+            }
         }
         for (const p of this.projectiles) {
             hitboxes.push({
                 x: p.x - 40, y: p.y - 40,
-                width: 80, height: 80
+                width: 80, height: 80,
+                part: 'projectile'
             });
         }
         return hitboxes.length > 0 ? hitboxes : null;
@@ -1234,6 +1355,14 @@ export class DualBlades extends SubWeapon {
     render(ctx, player) {
         const direction = this.isAttacking ? this.attackDirection : (player.facingRight ? 1 : -1);
         const enemyTrailBoost = player && player.type === 'boss' ? 1.2 : 1;
+        const xTrailBoost = (
+            player &&
+            typeof player.isXAttackBoostActive === 'function' &&
+            player.isXAttackBoostActive() &&
+            player.subWeaponAction === '二刀_Z' &&
+            typeof player.getXAttackTrailWidthScale === 'function'
+        ) ? Math.max(1, player.getXAttackTrailWidthScale()) : 1;
+        const trailScale = enemyTrailBoost * xTrailBoost;
         
         // 1. 飛翔する交差斬撃（高輝度の三日月クロス）
         for (const p of this.projectiles) {
@@ -1280,7 +1409,12 @@ export class DualBlades extends SubWeapon {
         if (isMain) {
             const centerX = player.x + player.width / 2;
             const centerY = player.y + player.height / 2;
-            const pose = this.getMainSwingPose();
+            const poseOptions = (
+                player &&
+                player.subWeaponAction === '二刀_Z' &&
+                player.subWeaponPoseOverride
+            ) ? player.subWeaponPoseOverride : undefined;
+            const pose = this.getMainSwingPose(poseOptions || {});
             const alpha = Math.max(0.2, 1 - pose.progress * 0.74);
 
             const normalizeAngleDelta = (current, previous) => {
@@ -1370,20 +1504,20 @@ export class DualBlades extends SubWeapon {
             const rightDelta = normalizeAngleDelta(pose.rightAngle, prevRightAngle);
             const leftDelta = normalizeAngleDelta(pose.leftAngle, prevLeftAngle);
             if (pose.arcs.hit === 'drawDash') {
-                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, (pose.arcs.effectRadius + 10) * enemyTrailBoost, 13.8 * enemyTrailBoost, -6, 0.82);
-                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, (pose.arcs.effectRadius + 2) * enemyTrailBoost, 10.8 * enemyTrailBoost, 5, 0.74);
+                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, (pose.arcs.effectRadius + 10) * trailScale, 13.8 * trailScale, -6, 0.82);
+                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, (pose.arcs.effectRadius + 2) * trailScale, 10.8 * trailScale, 5, 0.74);
             } else if (pose.arcs.hit === 'reverseCounter') {
-                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, (pose.arcs.effectRadius + 14) * enemyTrailBoost, 14.4 * enemyTrailBoost, -9, 0.9);
-                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, (pose.arcs.effectRadius + 7) * enemyTrailBoost, 12.4 * enemyTrailBoost, 7, 0.76);
+                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, (pose.arcs.effectRadius + 14) * trailScale, 14.4 * trailScale, -9, 0.9);
+                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, (pose.arcs.effectRadius + 7) * trailScale, 12.4 * trailScale, 7, 0.76);
             } else if (pose.arcs.hit === 'crossStepSweep') {
-                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, (pose.arcs.effectRadius + 18) * enemyTrailBoost, 12.0 * enemyTrailBoost, -3, 0.72);
-                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, (pose.arcs.effectRadius + 16) * enemyTrailBoost, 11.8 * enemyTrailBoost, 4, 0.72);
+                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, (pose.arcs.effectRadius + 18) * trailScale, 12.0 * trailScale, -3, 0.72);
+                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, (pose.arcs.effectRadius + 16) * trailScale, 11.8 * trailScale, 4, 0.72);
             } else if (pose.arcs.hit === 'risingX') {
-                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, (pose.arcs.effectRadius + 18) * enemyTrailBoost, 14.6 * enemyTrailBoost, -5, 0.92);
-                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, (pose.arcs.effectRadius + 14) * enemyTrailBoost, 14.0 * enemyTrailBoost, 6, 0.9);
+                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, (pose.arcs.effectRadius + 18) * trailScale, 14.6 * trailScale, -5, 0.92);
+                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, (pose.arcs.effectRadius + 14) * trailScale, 14.0 * trailScale, 6, 0.9);
             } else {
-                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, (pose.arcs.effectRadius + 16) * enemyTrailBoost, 14.0 * enemyTrailBoost, -5, 0.84);
-                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, (pose.arcs.effectRadius + 12) * enemyTrailBoost, 13.4 * enemyTrailBoost, 5, 0.86);
+                drawTrackedArcSlash(bluePalette, pose.rightAngle, rightDelta, (pose.arcs.effectRadius + 16) * trailScale, 14.0 * trailScale, -5, 0.84);
+                drawTrackedArcSlash(redPalette, pose.leftAngle, leftDelta, (pose.arcs.effectRadius + 12) * trailScale, 13.4 * trailScale, 5, 0.86);
             }
             return;
         }
