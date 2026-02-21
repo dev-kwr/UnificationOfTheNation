@@ -606,119 +606,35 @@ export class Stage {
 
         const dtMs = deltaTime * 1000;
         const dtScale = deltaTime * 60;
-        // 生成数を抑える (max 90 -> 50, interval 76 -> 120)
-        const maxLeaves = 50;
-        const spawnInterval = 120;
+        const maxLeaves = 90;
+        const spawnInterval = 76;
         this.bambooLeafSpawnTimer += dtMs;
 
         while (this.bambooLeafSpawnTimer >= spawnInterval) {
             this.bambooLeafSpawnTimer -= spawnInterval;
             if (this.bambooFallingLeaves.length >= maxLeaves) break;
             const depth = 0.45 + Math.random() * 0.55;
-            const screenX = -60 + Math.random() * (CANVAS_WIDTH + 120);
             this.bambooFallingLeaves.push({
-                worldX: screenX + this.progress, // ワールド座標で管理
+                x: -60 + Math.random() * (CANVAS_WIDTH + 120),
                 y: -30 - Math.random() * 180,
                 vx: (-0.22 - Math.random() * 0.5) * depth,
                 vy: (0.88 + Math.random() * 1.28) * (0.82 + depth * 0.55),
                 rot: Math.random() * Math.PI * 2,
                 rotV: (Math.random() - 0.5) * 0.06,
                 size: 6 + Math.random() * 9,
-                depth,
-                state: 'falling', // falling, grounded, flying
-                groundLife: 5000 + Math.random() * 4000, // 地面に留まる時間(ms)
-                maxGroundLife: 9000 // フェード用
+                depth
             });
         }
 
-        const playerX = this.playerProbe ? (this.playerProbe.x + this.playerProbe.width * 0.5 - this.progress) : -9999;
-        const playerVX = this.playerProbe ? (this.playerProbe.vx || 0) : 0;
-        const playerNearGround = !!(this.playerProbe && this.playerProbe.y + this.playerProbe.height >= this.groundY - 10);
-
         for (let i = this.bambooFallingLeaves.length - 1; i >= 0; i--) {
             const leaf = this.bambooFallingLeaves[i];
-            
-            if (leaf.state === 'falling') {
-                leaf.worldX += leaf.vx * dtScale;
-                leaf.y += leaf.vy * dtScale;
-                leaf.rot += leaf.rotV * dtScale + Math.sin((this.stageTime + i * 37) * 0.0038) * 0.003;
-                
-                const targetY = this.groundY + 12 * leaf.depth;
-                if (leaf.y >= targetY) {
-                    leaf.y = targetY;
-                    leaf.state = 'grounded';
-                    leaf.vx *= 0.3;
-                    leaf.vy = 0;
-                    leaf.rotV *= 0.2;
-                    leaf.rot += (Math.random() - 0.5) * 0.2;
-                    leaf.maxGroundLife = leaf.groundLife; // フェード開始基準
-                }
-            } else if (leaf.state === 'grounded') {
-                leaf.groundLife -= dtMs;
-                
-                if (Math.abs(leaf.vx) > 0.01) {
-                    leaf.worldX += leaf.vx * dtScale;
-                    leaf.vx *= 0.85;
-                }
-                
-                const screenX = leaf.worldX - this.progress;
-                if (playerNearGround) {
-                    const dx = screenX - playerX;
-                    const dist = Math.abs(dx);
-                    if (dist < 45) {
-                        const power = 0.4 + Math.abs(playerVX) * 0.15;
-                        leaf.state = 'flying';
-                        leaf.vy = - (1.2 + Math.random() * 1.5) * power;
-                        leaf.vx = (dx > 0 ? 1 : -1) * (0.5 + Math.random() * 1.5) * power;
-                        leaf.rotV = (Math.random() - 0.5) * 0.4;
-                    }
-                }
-
-                if (leaf.groundLife <= 0) {
-                    this.bambooFallingLeaves.splice(i, 1);
-                    continue;
-                }
-            } else if (leaf.state === 'flying') {
-                leaf.worldX += leaf.vx * dtScale;
-                leaf.y += leaf.vy * dtScale;
-                leaf.vy += 0.08 * dtScale;
-                leaf.rot += leaf.rotV * dtScale;
-                
-                if (leaf.y >= this.groundY + 14 * leaf.depth && leaf.vy > 0) {
-                    leaf.y = this.groundY + 14 * leaf.depth;
-                    leaf.state = 'grounded';
-                    leaf.vx = 0;
-                    leaf.vy = 0;
-                    leaf.rotV = 0;
-                }
-            }
-
-            const screenX = leaf.worldX - this.progress;
-            if (screenX < -200 || screenX > CANVAS_WIDTH + 200 || leaf.y > CANVAS_HEIGHT + 50) {
+            leaf.x += leaf.vx * dtScale - progressDelta * (0.14 + leaf.depth * 0.28);
+            leaf.y += leaf.vy * dtScale;
+            leaf.rot += leaf.rotV * dtScale + Math.sin((this.stageTime + i * 37) * 0.0038) * 0.003;
+            if (leaf.y > this.groundY + 28 || leaf.x < -100 || leaf.x > CANVAS_WIDTH + 100) {
                 this.bambooFallingLeaves.splice(i, 1);
             }
         }
-    }
-
-    drawBambooLeaf(ctx, x, y, size, rot, color, alpha) {
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(rot);
-        ctx.fillStyle = color.includes('rgba') ? color : color.replace('rgb(', 'rgba(').replace(')', `, ${alpha.toFixed(3)})`);
-        ctx.beginPath();
-        ctx.moveTo(-size * 0.54, 0);
-        ctx.quadraticCurveTo(-size * 0.1, -size * 0.42, size * 0.62, -size * 0.1);
-        ctx.quadraticCurveTo(size * 0.1, size * 0.36, -size * 0.54, 0);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.strokeStyle = `rgba(236, 248, 220, ${(alpha * 0.48).toFixed(3)})`;
-        ctx.lineWidth = 0.8;
-        ctx.beginPath();
-        ctx.moveTo(-size * 0.32, 0);
-        ctx.lineTo(size * 0.5, -size * 0.03);
-        ctx.stroke();
-        ctx.restore();
     }
 
     renderBambooFallingLeaves(ctx) {
@@ -726,17 +642,26 @@ export class Stage {
 
         ctx.save();
         for (const leaf of this.bambooFallingLeaves) {
-            const screenX = leaf.worldX - this.progress;
-            // 落下中または舞い上がり中
-            if (leaf.state !== 'grounded') {
-                const tint = this.interpolateColor('#9fbc76', '#4a6a3f', 1 - leaf.depth * 0.75);
-                this.drawBambooLeaf(ctx, screenX, leaf.y, leaf.size, leaf.rot, tint, 0.5 + leaf.depth * 0.4);
-            } else {
-                // 接地中（フェードアウト考慮）
-                const lifeAlpha = leaf.groundLife < 1000 ? (leaf.groundLife / 1000) : 1.0;
-                const tint = this.interpolateColor('#9fbc76', '#4a6a3f', 1 - leaf.depth * 0.75);
-                this.drawBambooLeaf(ctx, screenX, leaf.y, leaf.size, leaf.rot, tint, (0.4 + leaf.depth * 0.3) * lifeAlpha);
-            }
+            ctx.save();
+            const alpha = 0.26 + leaf.depth * 0.36;
+            const tint = this.interpolateColor('#9fbc76', '#4a6a3f', 1 - leaf.depth * 0.75);
+            ctx.translate(leaf.x, leaf.y);
+            ctx.rotate(leaf.rot);
+            ctx.fillStyle = tint.replace('rgb(', 'rgba(').replace(')', `, ${alpha.toFixed(3)})`);
+            ctx.beginPath();
+            ctx.moveTo(-leaf.size * 0.54, 0);
+            ctx.quadraticCurveTo(-leaf.size * 0.1, -leaf.size * 0.42, leaf.size * 0.62, -leaf.size * 0.1);
+            ctx.quadraticCurveTo(leaf.size * 0.1, leaf.size * 0.36, -leaf.size * 0.54, 0);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.strokeStyle = `rgba(236, 248, 220, ${(alpha * 0.48).toFixed(3)})`;
+            ctx.lineWidth = 0.8;
+            ctx.beginPath();
+            ctx.moveTo(-leaf.size * 0.32, 0);
+            ctx.lineTo(leaf.size * 0.5, -leaf.size * 0.03);
+            ctx.stroke();
+            ctx.restore();
         }
         ctx.restore();
     }
@@ -1335,6 +1260,7 @@ export class Stage {
                     ctx.fill();
                 }
                 ctx.restore();
+                this.renderBambooFallingLeaves(ctx);
                 break;
             }
                 
@@ -2001,12 +1927,47 @@ export class Stage {
     
     renderGround(ctx) {
         const renderProgress = this.progress;
+
+        // 地面背景
+        const groundGradient = ctx.createLinearGradient(0, this.groundY, 0, CANVAS_HEIGHT);
+        const stageGroundTop = ['#5d4a2f', '#6d5739', '#69513a', '#4d4b54', '#3a3026', '#39414f'];
+        const stageGroundBottom = ['#2e200f', '#2f2518', '#35251a', '#25232c', '#1f1712', '#1b1f27'];
+        const groundIdx = Math.max(0, Math.min(stageGroundTop.length - 1, this.stageNumber - 1));
+        
         const p = Math.max(0, Math.min(1, this.progress / this.maxProgress));
+        let topColor = stageGroundTop[groundIdx];
+        let bottomColor = stageGroundBottom[groundIdx];
+
         // グローバルな進行度に基づく環境光の強さ（暗さ）を計算し、地面の色に反映
         const globalProgress = (this.stageNumber - 1 + p) / STAGES.length;
+        // 日中(0) 〜 嵐の夜(1) にかけて最大75%暗くする
+        // 序盤はあまり暗くならず、中盤以降で本格的に暗くなるカーブ(1.5乗)
         const darken = Math.pow(globalProgress, 1.5) * 0.75;
         
-        // 各ステージ独自の地面描画メソッドを呼び出し、路面・断面・パースを完結させる
+        topColor = this.interpolateColor(topColor, '#000000', darken);
+        bottomColor = this.interpolateColor(bottomColor, '#000000', darken);
+
+        groundGradient.addColorStop(0, topColor);
+        groundGradient.addColorStop(0.18, this.interpolateColor(topColor, bottomColor, 0.28));
+        groundGradient.addColorStop(1, bottomColor);
+        ctx.fillStyle = groundGradient;
+        ctx.fillRect(0, this.groundY, CANVAS_WIDTH, CANVAS_HEIGHT - this.groundY);
+        
+        // 地面の境界エッジ
+        const edgeGrad = ctx.createLinearGradient(0, this.groundY, 0, this.groundY + 18);
+        edgeGrad.addColorStop(0, this.interpolateColor(topColor, '#ffffff', 0.3));
+        edgeGrad.addColorStop(0.14, this.interpolateColor(topColor, '#ffffff', 0.08));
+        edgeGrad.addColorStop(0.4, topColor);
+        edgeGrad.addColorStop(1, this.interpolateColor(topColor, '#000000', 0.58));
+        ctx.fillStyle = edgeGrad;
+        ctx.fillRect(0, this.groundY, CANVAS_WIDTH, 18);
+        
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.fillRect(0, this.groundY, CANVAS_WIDTH, 2);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+        ctx.fillRect(0, this.groundY + 2, CANVAS_WIDTH, 2);
+
+        // ステージごとに地面ディテールを切り替える
         switch (this.stageNumber) {
             case 1:
                 this.renderGroundBamboo(ctx, renderProgress, darken);
@@ -2031,10 +1992,18 @@ export class Stage {
                 break;
         }
 
-        // 竹林の動的な葉の降下エフェクト（地面描画の後に重ねる）
-        if (this.stageNumber === 1) {
-            this.renderBambooFallingLeaves(ctx);
-        }
+        // 操作マニュアル行の可読性を確保するため、最下部の模様密度を抑える
+        this.renderGroundManualSafeBand(ctx, topColor, bottomColor, darken);
+        
+        // 地面の境界線
+        const edgeByStage = ['#6b5a48', '#6d5a48', '#6a5b4d', '#59586a', '#4f3d2f', '#4f5a72'];
+        const edgeBase = edgeByStage[Math.max(0, Math.min(edgeByStage.length - 1, this.stageNumber - 1))];
+        ctx.strokeStyle = this.interpolateColor(edgeBase, '#0a0a0a', darken);
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, this.groundY);
+        ctx.lineTo(CANVAS_WIDTH, this.groundY);
+        ctx.stroke();
     }
 
     renderGroundManualSafeBand(ctx, topColor, bottomColor, darken) {
@@ -2063,215 +2032,318 @@ export class Stage {
     }
 
     renderGroundBamboo(ctx, renderProgress, darken) {
-        const horizonY = this.groundY;
-        const bottomY = CANVAS_HEIGHT;
-
-        // 1. 路面（全画面パース）
-        const roadGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
-        roadGrad.addColorStop(0, this.interpolateColor('#4a5735', '#1a2212', darken * 0.7));
-        roadGrad.addColorStop(0.6, this.interpolateColor('#6d8252', '#2a361a', darken * 0.5));
-        roadGrad.addColorStop(1, this.interpolateColor('#3d4a2d', '#0d1208', darken * 0.8)); // 手前を暗くして没入感を出す
-        ctx.fillStyle = roadGrad;
-        ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
-
-        // 2. 落ち葉（パース付き）
-        const spacing = 42;
+        const spacing = 62;
         const scroll = renderProgress * 1.02;
         const start = Math.floor((scroll - 240) / spacing);
         const end = Math.ceil((scroll + CANVAS_WIDTH + 240) / spacing);
-        const leafColor = this.interpolateColor('#7a8c5f', '#1d2617', darken);
-        const playerScreenX = this.playerProbe ? (this.playerProbe.x + this.playerProbe.width * 0.5 - this.progress) : -9999;
-        const playerNearGround = !!(this.playerProbe && this.playerProbe.isGrounded);
+        const leafColor = this.interpolateColor('#6d8252', '#1d2617', darken);
+        const playerScreenX = this.playerProbe
+            ? (this.playerProbe.x + this.playerProbe.width * 0.5 - this.progress)
+            : -9999;
+        const playerNearGround = !!(this.playerProbe && this.playerProbe.isGrounded && this.playerProbe.y + this.playerProbe.height >= this.groundY - 4);
         const stompSpeed = this.playerProbe ? Math.min(1, Math.abs(this.playerProbe.vx || 0) / 6) : 0;
 
         for (let i = start; i <= end; i++) {
             const seed = i * 7.41;
-            const leafCount = 8 + Math.floor(this.noise1D(seed + 3.7) * 14);
-            for (let l = 0; l < leafCount; l++) {
-                const ls = seed + l * 2.37;
-                const leafDepth = this.noise1D(ls + 9.2); // 0 (奥) ~ 1 (手前)
-                const lx = i * spacing - scroll + this.noiseSigned(ls + 1.1) * 22;
-                const ly = horizonY + leafDepth * (bottomY - horizonY);
-                
-                const dir = this.noise1D(ls + 4.8) > 0.5 ? 1 : -1;
-                const len = 7 + leafDepth * 6; // 落下葉っぱとサイズ感を統一
-                const playerDist = Math.abs(lx - playerScreenX);
-                const stomp = playerNearGround ? this.clamp01(1 - playerDist / 60) * (0.08 + stompSpeed * 0.15) : 0;
-                const sway = Math.sin(this.stageTime * 0.01 + ls) * (0.5 + stomp * 2);
-                const rot = Math.atan2(-4 + stomp * 0.8, dir * len + sway);
-                
-                const tintBase = this.interpolateColor('#8fac56', '#3e522d', 1 - leafDepth * 0.6);
-                const varColor = this.interpolateColor(tintBase, '#4a6a3f', this.noise1D(ls + 5.1) * 0.3);
-                
-                // 落下葉っぱと同じ描画メソッドを使用
-                this.drawBambooLeaf(ctx, lx, ly, len, rot, varColor, (0.35 + (1 - darken) * 0.15) * (0.8 - leafDepth * 0.3));
+            const x = i * spacing - scroll + this.noiseSigned(seed + 0.7) * 26;
+            const y = this.groundY + 16 + this.noise1D(seed + 1.6) * 28;
+            if (this.noise1D(seed + 2.3) > 0.18) {
+                const leafCount = 6 + Math.floor(this.noise1D(seed + 3.7) * 8);
+                ctx.fillStyle = leafColor;
+                for (let l = 0; l < leafCount; l++) {
+                    const ls = seed + l * 1.9;
+                    const dir = this.noise1D(ls + 4.8) > 0.5 ? 1 : -1;
+                    const len = 10 + this.noise1D(ls + 5.6) * 22;
+                    const leafBaseX = x + this.noiseSigned(ls + 1.1) * 10;
+                    const playerDist = Math.abs(leafBaseX - playerScreenX);
+                    const stomp = playerNearGround
+                        ? this.clamp01(1 - playerDist / 74) * (0.28 + stompSpeed * 0.72)
+                        : 0;
+                    const sway = Math.sin(this.stageTime * 0.011 + ls * 1.37) * (1.2 + stomp * 5.8);
+                    const tipX = leafBaseX + dir * len + sway;
+                    const tipY = y - 8 + stomp * 2.3;
+                    ctx.beginPath();
+                    ctx.moveTo(leafBaseX, y);
+                    ctx.quadraticCurveTo(leafBaseX + dir * len * 0.4 + sway * 0.45, y - 3 - stomp, tipX, tipY);
+                    ctx.quadraticCurveTo(
+                        leafBaseX + dir * len * 0.58 + sway * 0.28,
+                        y - 5 + stomp * 1.2,
+                        leafBaseX + dir * len * 0.2,
+                        y + 1 + stomp * 0.8
+                    );
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            }
+            if (this.noise1D(seed + 3.2) > 0.42) {
+                const twigLen = 12 + this.noise1D(seed + 5.4) * 18;
+                ctx.strokeStyle = 'rgba(56, 44, 28, 0.2)';
+                ctx.lineWidth = 1.1;
+                ctx.beginPath();
+                ctx.moveTo(x - twigLen * 0.4, y + 3);
+                ctx.lineTo(x + twigLen * 0.6, y - 2);
+                ctx.stroke();
+            }
+            if (this.noise1D(seed + 6.2) > 0.62) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.16)';
+                ctx.beginPath();
+                ctx.ellipse(x + 8, y + 4, 18 + this.noise1D(seed + 7.1) * 24, 5.5, this.noiseSigned(seed + 8.3) * 0.6, 0, Math.PI * 2);
+                ctx.fill();
             }
         }
-
-        // (落下した葉っぱの描画はStage.render()内のrenderBambooFallingLeavesで行うため、ここでは削除)
-
-        // 境界の影（壁との接地面）
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
-        ctx.fillRect(0, horizonY, CANVAS_WIDTH, 4);
     }
 
     renderGroundKaido(ctx, renderProgress, darken) {
-        const horizonY = this.groundY;
+        const topY = this.groundY + 4;
         const bottomY = CANVAS_HEIGHT;
 
-        const roadGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
-        roadGrad.addColorStop(0, this.interpolateColor('#9a826a', '#3d2d1d', darken * 0.6));
-        roadGrad.addColorStop(0.5, this.interpolateColor('#c6ad8f', '#5e4832', darken * 0.45));
-        roadGrad.addColorStop(1, this.interpolateColor('#7d6b58', '#2a1f14', darken * 0.8));
-        ctx.fillStyle = roadGrad;
-        ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
+        // 横方向に流れる街道（左→右に進むため、模様は右→左へ流れる）
+        const dirtGrad = ctx.createLinearGradient(0, topY, 0, bottomY);
+        dirtGrad.addColorStop(0, this.interpolateColor('#a2825f', '#4b3725', darken * 0.82));
+        dirtGrad.addColorStop(1, this.interpolateColor('#74573d', '#2d2218', darken));
+        ctx.fillStyle = dirtGrad;
+        ctx.fillRect(0, topY, CANVAS_WIDTH, bottomY - topY);
 
-        ctx.save();
-        const noiseSeedBase = Math.floor(renderProgress / 110);
-        for (let j = 0; j < 8; j++) {
-            const leafDepth = j / 8;
-            const rowY = horizonY + leafDepth * (bottomY - horizonY);
-            ctx.fillStyle = `rgba(0, 0, 0, ${0.15 * (0.4 + leafDepth * 0.6)})`;
-            const rowSpeed = 0.95 + (leafDepth * 0.1);
-            for (let i = 0; i < 15; i++) {
-                const seed = noiseSeedBase + i * 14.2 + j * 9.7;
-                const x = (i * 95 + seed * 1050 - renderProgress * rowSpeed) % (CANVAS_WIDTH + 180) - 90;
-                ctx.fillRect(x, rowY + this.noise1D(seed + 1) * 3, 25 + this.noise1D(seed) * 55, 1.2);
+        // 踏み固められた路面帯
+        const roadGrad = ctx.createLinearGradient(0, topY + 10, 0, bottomY);
+        roadGrad.addColorStop(0, this.interpolateColor('#bea37f', '#6a5138', darken * 0.72));
+        roadGrad.addColorStop(1, this.interpolateColor('#a38763', '#4f3b2a', darken * 0.78));
+        ctx.fillStyle = roadGrad;
+        ctx.fillRect(0, topY + 8, CANVAS_WIDTH, bottomY - topY - 8);
+
+        // 人馬で踏み固められた中心帯
+        const centerBandY = topY + 30;
+        const centerBandH = Math.max(46, bottomY - topY - 62);
+        const centerBandGrad = ctx.createLinearGradient(0, centerBandY, 0, centerBandY + centerBandH);
+        centerBandGrad.addColorStop(0, this.interpolateColor('#c8ae8a', '#75583d', darken * 0.68));
+        centerBandGrad.addColorStop(1, this.interpolateColor('#b29370', '#543e2b', darken * 0.74));
+        ctx.fillStyle = centerBandGrad;
+        ctx.fillRect(0, centerBandY, CANVAS_WIDTH, centerBandH);
+
+        // 轍（連続線だが周期を崩して繰り返し感を抑える）
+        const trackBase = [topY + 56, topY + 96, topY + 138];
+        for (let r = 0; r < trackBase.length; r++) {
+            const yBase = trackBase[r];
+            const d = this.clamp01(darken);
+            const rr = Math.round(112 + (48 - 112) * d);
+            const gg = Math.round(86 + (34 - 86) * d);
+            const bb = Math.round(58 + (24 - 58) * d);
+            const aa = 0.52 + (0.5 - 0.52) * d;
+            ctx.strokeStyle = `rgba(${rr}, ${gg}, ${bb}, ${aa.toFixed(3)})`;
+            ctx.lineWidth = 3.2 - r * 0.4;
+            ctx.beginPath();
+            for (let x = 0; x <= CANVAS_WIDTH; x += 10) {
+                const ny = yBase
+                    + Math.sin((x + renderProgress * (0.68 + r * 0.04)) * 0.018 + r * 1.4) * (1.3 + r * 0.28)
+                    + Math.sin((x + renderProgress * 0.27) * 0.043 + r * 0.6) * 0.6;
+                if (x === 0) ctx.moveTo(x, ny);
+                else ctx.lineTo(x, ny);
+            }
+            ctx.stroke();
+        }
+
+        // 砂利・土塊（行ごとの間隔と密度を揺らして均一感を回避）
+        const pebbleRows = 7;
+        for (let row = 0; row < pebbleRows; row++) {
+            const rowWave = Math.sin((row + 1) * 0.83) * 5;
+            const y = topY + 14 + row * 24 + rowWave;
+            const spacing = 40 + row * 5 + ((row % 2) ? 7 : 0);
+            const scroll = renderProgress * (0.96 + row * 0.05);
+            const start = Math.floor((scroll - 220) / spacing);
+            const end = Math.ceil((scroll + CANVAS_WIDTH + 220) / spacing);
+            for (let i = start; i <= end; i++) {
+                const seed = i * 8.9 + row * 4.3;
+                if (this.noise1D(seed + 0.7) < 0.38) continue;
+                const x = i * spacing - scroll + this.noiseSigned(seed + 1.3) * 14;
+                const w = 6 + this.noise1D(seed + 2.4) * (13 + row * 1.2);
+                const h = 2 + this.noise1D(seed + 3.2) * 4;
+                ctx.fillStyle = this.interpolateColor('#d8c29d', '#5a442f', 0.42 + darken * 0.45);
+                ctx.beginPath();
+                ctx.ellipse(x, y + this.noiseSigned(seed + 4.1) * 3, w, h, this.noiseSigned(seed + 5.4) * 0.8, 0, Math.PI * 2);
+                ctx.fill();
             }
         }
-        ctx.restore();
 
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-        ctx.fillRect(0, horizonY, CANVAS_WIDTH, 3);
+        // 土の細線（同じ繰り返し感を崩す）
+        ctx.strokeStyle = 'rgba(242, 226, 194, 0.08)';
+        ctx.lineWidth = 1.2;
+        const groundDetailMaxY = CANVAS_HEIGHT - 60; // マニュアル領域を避ける
+        for (let y = topY + 20; y < groundDetailMaxY; y += 22) {
+            ctx.beginPath();
+            for (let x = 0; x <= CANVAS_WIDTH; x += 18) {
+                const wave = Math.sin((x + renderProgress * 0.58) * 0.024 + y * 0.065) * 1.2;
+                if (x === 0) ctx.moveTo(x, y + wave);
+                else ctx.lineTo(x, y + wave);
+            }
+            ctx.stroke();
+        }
+
+        // 進行方向を感じる斜めの刷毛筋
+        ctx.strokeStyle = 'rgba(86, 62, 40, 0.2)';
+        ctx.lineWidth = 1.8;
+        const dragSpacing = 58;
+        const dragScroll = renderProgress * 1.12;
+        const dragStart = Math.floor((dragScroll - 260) / dragSpacing);
+        const dragEnd = Math.ceil((dragScroll + CANVAS_WIDTH + 260) / dragSpacing);
+        for (let i = dragStart; i <= dragEnd; i++) {
+            const seed = i * 6.77;
+            if (this.noise1D(seed + 0.9) < 0.42) continue;
+            const x = i * dragSpacing - dragScroll + this.noiseSigned(seed + 1.5) * 20;
+            const y = topY + 26 + this.noise1D(seed + 2.1) * (bottomY - topY - 42);
+            const len = 12 + this.noise1D(seed + 2.9) * 24;
+            ctx.beginPath();
+            ctx.moveTo(x - len * 0.6, y - len * 0.22);
+            ctx.lineTo(x + len * 0.6, y + len * 0.22);
+            ctx.stroke();
+        }
+
+        // 路肩石と濃い轍を追加し、街道の厚みを強化
+        const shoulderColor = this.interpolateColor('#8c7658', '#3b2e22', 0.5 + darken * 0.45);
+        const shoulderOffset = (renderProgress * 0.93) % 40;
+        for (let side = 0; side < 2; side++) {
+            const yBase = side === 0 ? topY + 24 : Math.min(bottomY - 24, CANVAS_HEIGHT - 64);
+            for (let x = -40; x < CANVAS_WIDTH + 60; x += 34) {
+                const seed = x * 0.12 + side * 8.4;
+                const px = x - shoulderOffset + this.noiseSigned(seed + 1.1) * 4;
+                const w = 10 + this.noise1D(seed + 2.4) * 14;
+                const h = 2 + this.noise1D(seed + 3.9) * 4;
+                ctx.fillStyle = shoulderColor;
+                ctx.beginPath();
+                ctx.ellipse(px, yBase + this.noiseSigned(seed + 4.1) * 2, w, h, this.noiseSigned(seed + 5.2) * 0.7, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        ctx.strokeStyle = `rgba(86, 62, 40, ${(0.28 + (1 - darken) * 0.12).toFixed(3)})`;
+        ctx.lineWidth = 2.8;
+        for (let lane = 0; lane < 2; lane++) {
+            const laneY = topY + 70 + lane * 42;
+            ctx.beginPath();
+            for (let x = 0; x <= CANVAS_WIDTH; x += 10) {
+                const ny = laneY + Math.sin((x + renderProgress * 0.78) * 0.018 + lane * 1.8) * 1.8;
+                if (x === 0) ctx.moveTo(x, ny);
+                else ctx.lineTo(x, ny);
+            }
+            ctx.stroke();
+        }
     }
 
     renderGroundMountain(ctx, renderProgress, darken) {
-        const horizonY = this.groundY;
-        const bottomY = CANVAS_HEIGHT;
-
-        const roadGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
-        roadGrad.addColorStop(0, this.interpolateColor('#5d5146', '#1a1815', darken * 0.6));
-        roadGrad.addColorStop(0.5, this.interpolateColor('#7e6a59', '#3a332d', darken * 0.45));
-        roadGrad.addColorStop(1, this.interpolateColor('#4a3f35', '#15120f', darken * 0.85));
-        ctx.fillStyle = roadGrad;
-        ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
-
         const gravelSpacing = 62;
         const scroll = renderProgress * 1.04;
         const start = Math.floor((scroll - 180) / gravelSpacing);
         const end = Math.ceil((scroll + CANVAS_WIDTH + 180) / gravelSpacing);
         for (let i = start; i <= end; i++) {
             const seed = i * 11.27;
-            const depth = this.noise1D(seed + 5.5);
-            const gx = i * gravelSpacing - scroll + this.noiseSigned(seed + 0.5) * 16;
-            const gy = horizonY + depth * (bottomY - horizonY);
-            const r = (1.5 + depth * 6) * (1 + this.noise1D(seed + 2.6) * 0.5);
-            ctx.fillStyle = this.interpolateColor('#8c7e70', '#25201c', darken * 0.8 + depth * 0.2);
-            ctx.beginPath(); ctx.ellipse(gx, gy, r * 1.3, r * 0.7, this.noiseSigned(seed + 3.8) * 0.5, 0, Math.PI * 2); ctx.fill();
+            const x = i * gravelSpacing - scroll + this.noiseSigned(seed + 0.5) * 16;
+            const y = this.groundY + 18 + this.noise1D(seed + 1.3) * 36;
+            const r = 2 + this.noise1D(seed + 2.6) * 4.4;
+            ctx.fillStyle = this.interpolateColor('#7e6a59', '#25201c', darken);
+            ctx.beginPath();
+            ctx.ellipse(x, y, r * 1.2, r * 0.78, this.noiseSigned(seed + 3.8) * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.14)';
+        for (let row = 0; row < 4; row++) {
+            const y = this.groundY + 12 + row * 20;
+            for (let i = start; i <= end; i++) {
+                const seed = i * 6.17 + row * 12.8;
+                if (this.noise1D(seed + 0.9) < 0.52) continue;
+                const x = i * gravelSpacing - scroll + this.noiseSigned(seed + 2.2) * 24;
+                const w = 18 + this.noise1D(seed + 3.1) * 52;
+                const h = 3 + this.noise1D(seed + 4.4) * 5;
+                ctx.fillRect(x, y, w, h);
+            }
         }
     }
 
     renderGroundTown(ctx, renderProgress, darken) {
-        const horizonY = this.groundY;
-        const bottomY = CANVAS_HEIGHT;
-
-        const roadGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
-        roadGrad.addColorStop(0, this.interpolateColor('#7a7a7a', '#222222', darken * 0.6));
-        roadGrad.addColorStop(0.6, this.interpolateColor('#9e9e9e', '#444444', darken * 0.45));
-        roadGrad.addColorStop(1, this.interpolateColor('#555555', '#111111', darken * 0.8));
-        ctx.fillStyle = roadGrad;
-        ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
-
-        const tileSize = 64;
-        const scroll = renderProgress * 1.1;
-        const tileStart = Math.floor((scroll - 128) / tileSize);
-        const tileEnd = Math.ceil((scroll + CANVAS_WIDTH + 128) / tileSize);
-        ctx.strokeStyle = `rgba(0, 0, 0, ${0.1 + darken * 0.1})`;
-        ctx.lineWidth = 1.2;
-        for (let i = tileStart; i <= tileEnd; i++) {
-            const tx = i * tileSize - scroll;
-            // 垂直ラインのパース（手前に広がる）
-            const topX = tx;
-            const bottomX = tx - 40;
-            ctx.beginPath(); ctx.moveTo(topX, horizonY); ctx.lineTo(bottomX, bottomY); ctx.stroke();
-        }
-        // 水平ライン（手前ほど間隔を広げる）
-        for (let j = 0; j < 5; j++) {
-            const hDepth = Math.pow(j / 5, 1.5);
-            const hy = horizonY + hDepth * (bottomY - horizonY);
-            ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(CANVAS_WIDTH, hy); ctx.stroke();
+        const cellW = 78;
+        const rowH = 18;
+        const scroll = renderProgress * 0.92;
+        for (let row = 0; row < 6; row++) {
+            const y = this.groundY + 6 + row * rowH;
+            const offset = (row % 2) * (cellW * 0.5);
+            const start = Math.floor((scroll - 180 - offset) / cellW);
+            const end = Math.ceil((scroll + CANVAS_WIDTH + 180 - offset) / cellW);
+            for (let i = start; i <= end; i++) {
+                const seed = i * 4.83 + row * 8.2;
+                const x = i * cellW - scroll + offset + this.noiseSigned(seed + 0.7) * 6;
+                const w = 50 + this.noise1D(seed + 1.9) * 22;
+                const h = 14 + this.noise1D(seed + 2.8) * 5;
+                ctx.fillStyle = this.interpolateColor('#6f6e7a', '#22242f', darken);
+                ctx.fillRect(x, y, w, h);
+                ctx.strokeStyle = 'rgba(12, 14, 20, 0.34)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(x, y, w, h);
+            }
         }
     }
 
     renderGroundCastle(ctx, renderProgress, darken) {
-        const horizonY = this.groundY;
-        const bottomY = CANVAS_HEIGHT;
+        // 漆塗りの床板
+        ctx.fillStyle = this.interpolateColor('#2e2419', '#120f0b', darken);
+        ctx.fillRect(0, this.groundY + 8, CANVAS_WIDTH, CANVAS_HEIGHT - this.groundY - 8);
 
-        const roadGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
-        roadGrad.addColorStop(0, this.interpolateColor('#c5b489', '#3a3324', darken * 0.7));
-        roadGrad.addColorStop(0.5, this.interpolateColor('#dccd9a', '#544b36', darken * 0.5));
-        roadGrad.addColorStop(1, this.interpolateColor('#a5966d', '#28231a', darken * 0.9));
-        ctx.fillStyle = roadGrad;
-        ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
-
-        const tatamiWidth = 200;
-        const scroll = renderProgress * 0.95;
-        const start = Math.floor((scroll - 250) / tatamiWidth);
-        const end = Math.ceil((scroll + CANVAS_WIDTH + 250) / tatamiWidth);
-        ctx.strokeStyle = this.interpolateColor('#2d3a24', '#0a1005', darken * 0.82);
-        ctx.lineWidth = 5;
+        const plankW = 74;
+        const scroll = renderProgress * 1.02;
+        const start = Math.floor((scroll - 160) / plankW);
+        const end = Math.ceil((scroll + CANVAS_WIDTH + 160) / plankW);
         for (let i = start; i <= end; i++) {
-            const tx = i * tatamiWidth - scroll;
-            const bottomX = tx - 100;
-            ctx.beginPath(); ctx.moveTo(tx, horizonY); ctx.lineTo(bottomX, bottomY); ctx.stroke();
+            const seed = i * 5.19;
+            const x = i * plankW - scroll + this.noiseSigned(seed + 1.1) * 4;
+            const w = plankW + this.noiseSigned(seed + 2.6) * 8;
+            ctx.fillStyle = `rgba(255, 225, 165, ${0.035 + this.noise1D(seed + 3.9) * 0.03})`;
+            ctx.fillRect(x + 2, this.groundY + 12, Math.max(8, w - 6), 1.3);
+            ctx.fillStyle = 'rgba(16, 10, 6, 0.48)';
+            ctx.fillRect(x, this.groundY + 12, 1.6, CANVAS_HEIGHT - this.groundY - 18);
         }
-        
-        // 畳の目
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.05)';
-        ctx.lineWidth = 1;
-        for (let j = 0; j < 12; j++) {
-            const hy = horizonY + (j / 12) * (bottomY - horizonY);
-            ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(CANVAS_WIDTH, hy); ctx.stroke();
+
+        // 畳敷きの名残りライン
+        ctx.strokeStyle = 'rgba(90, 72, 48, 0.2)';
+        ctx.lineWidth = 1.4;
+        const castleDetailMaxY = CANVAS_HEIGHT - 60; // マニュアル領域を避ける
+        for (let y = this.groundY + 34; y < castleDetailMaxY; y += 28) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(CANVAS_WIDTH, y);
+            ctx.stroke();
         }
     }
 
     renderGroundTenshu(ctx, renderProgress, darken) {
-        const horizonY = this.groundY;
-        const bottomY = CANVAS_HEIGHT;
-
-        // 漆塗りの床（反射を強調）
-        const roadGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
-        roadGrad.addColorStop(0, this.interpolateColor('#1a0805', '#050201', darken));
-        roadGrad.addColorStop(0.35, this.interpolateColor('#3a1510', '#150a08', darken));
-        roadGrad.addColorStop(1, this.interpolateColor('#100402', '#000000', darken * 1.2));
-        ctx.fillStyle = roadGrad;
-        ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
-
-        // 装飾目地（金）
-        const decoWidth = 140;
-        const scroll = renderProgress * 1.05;
-        const start = Math.floor((scroll - 200) / decoWidth);
-        const end = Math.ceil((scroll + CANVAS_WIDTH + 200) / decoWidth);
-        for (let i = start; i <= end; i++) {
-            const tx = i * decoWidth - scroll;
-            const bottomX = tx - 80;
-            const goldGrad = ctx.createLinearGradient(tx, horizonY, bottomX, bottomY);
-            goldGrad.addColorStop(0, this.interpolateColor('#ffd700', '#4a3c00', darken * 0.7));
-            goldGrad.addColorStop(1, this.interpolateColor('#b8860b', '#2a1a00', darken * 0.9));
-            ctx.strokeStyle = goldGrad;
-            ctx.lineWidth = 2.5;
-            ctx.beginPath(); ctx.moveTo(tx, horizonY); ctx.lineTo(bottomX, bottomY); ctx.stroke();
+        // 石瓦屋根の連なり
+        const tileW = 66;
+        const rowH = 16;
+        const scroll = renderProgress * 1.08;
+        for (let row = 0; row < 7; row++) {
+            const y = this.groundY + 4 + row * rowH;
+            const offset = (row % 2) * (tileW * 0.5);
+            const start = Math.floor((scroll - 220 - offset) / tileW);
+            const end = Math.ceil((scroll + CANVAS_WIDTH + 220 - offset) / tileW);
+            for (let i = start; i <= end; i++) {
+                const seed = i * 6.31 + row * 4.7;
+                const x = i * tileW - scroll + offset + this.noiseSigned(seed + 0.8) * 3;
+                ctx.fillStyle = this.interpolateColor('#7f8aa3', '#242a36', darken);
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                ctx.quadraticCurveTo(x + tileW * 0.5, y - 8 - this.noise1D(seed + 1.9) * 2, x + tileW, y);
+                ctx.lineTo(x + tileW, y + 11);
+                ctx.quadraticCurveTo(x + tileW * 0.5, y + 18, x, y + 11);
+                ctx.closePath();
+                ctx.fill();
+            }
         }
 
-        // 漆の反射のような横ライン
-        ctx.globalAlpha = 0.2 - darken * 0.1;
-        const shineGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
-        shineGrad.addColorStop(0, 'rgba(255, 215, 0, 0)');
-        shineGrad.addColorStop(0.4, 'rgba(255, 215, 0, 0.2)');
-        shineGrad.addColorStop(1, 'rgba(255, 215, 0, 0)');
-        ctx.fillStyle = shineGrad;
-        ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
-        ctx.globalAlpha = 1.0;
+        ctx.strokeStyle = 'rgba(205, 220, 246, 0.12)';
+        ctx.lineWidth = 1;
+        for (let y = this.groundY + 10; y < this.groundY + 95; y += 16) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(CANVAS_WIDTH, y);
+            ctx.stroke();
+        }
     }
 
     renderSkyParticles(ctx, time) {

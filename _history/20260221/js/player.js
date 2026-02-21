@@ -1819,8 +1819,8 @@ export class Player {
             this.vx *= 0.88;
             this.x += this.vx;
             this.y += this.vy;
-            if (this.y + this.height >= this.groundY + 24) {
-                this.y = this.groundY + 24 - this.height;
+            if (this.y + this.height >= this.groundY) {
+                this.y = this.groundY - this.height;
                 this.vy = 0;
                 this.isGrounded = true;
                 this.jumpCount = 0;
@@ -1946,8 +1946,8 @@ export class Player {
             this.isGrounded = true;
             this.jumpCount = 0;
             this.isWallSliding = false;
-        } else if (this.y + this.height >= this.groundY + 64) {
-            this.y = this.groundY + 64 - this.height;
+        } else if (this.y + this.height >= this.groundY) {
+            this.y = this.groundY - this.height;
             this.vy = 0;
             this.isGrounded = true;
             this.jumpCount = 0;
@@ -6189,23 +6189,5 @@ export class Player {
         } else {
             audio.playSelect();
         }
-    }
-
-    // ========== ShadowCaster Interface ==========
-    getFootX() {
-        return this.x + this.width / 2;
-    }
-
-    getFootY() {
-        return this.groundY + 64; // 固定レーンの中心に合わせる
-    }
-
-    getHeightAboveGround() {
-        // 足元の座標 (y + height) と固定レーンの差分
-        return Math.max(0, (this.groundY + 64) - (this.y + this.height));
-    }
-
-    getShadowBaseRadius() {
-        return this.width * 0.76;
     }
 }

@@ -12,7 +12,6 @@ import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit, check
 import { saveManager } from './save.js';
 import { shop } from './shop.js';
 import { audio } from './audio.js';
-import { ShadowRenderer } from './shadow.js';
 
 class Game {
     constructor() {
@@ -97,9 +96,6 @@ class Game {
         this.levelUpTransitionDir = 0;
         this.stageTransitionTimer = 0;
         this.stageTransitionPhase = 0; // 0: None, 1: FadeOut, 2: Wait, 3: FadeIn
-        
-        // 影レンダー
-        this.shadowRenderer = new ShadowRenderer();
     }
     
     init(canvas) {
@@ -2085,7 +2081,7 @@ class Game {
         const magnetRadius = magnetBoostActive
             ? Math.hypot(CANVAS_WIDTH, CANVAS_HEIGHT) * 1.2
             : normalMagnetRadius;
-        const groundLimit = this.stage.groundY + 24; // 接地位置をキャラクターの足元に合わせる
+        const groundLimit = this.groundY - 14;
 
         this.expGems = this.expGems.filter((gem) => {
             gem.lifeMs -= this.deltaTime * 1000;
@@ -3836,11 +3832,6 @@ class Game {
         // 1. 背景と地面（カメラ固定・パララックスは内部で処理）
         this.stage.renderBackground(ctx);
         this.stage.renderGround(ctx);
-        
-        // 1.5 影（地面とオブジェクトの間）
-        if (this.shadowRenderer) {
-            this.shadowRenderer.render(ctx, this.stage, this.player, this.stage.enemies, this.scrollX);
-        }
         
         // 2. ワールドオブジェクト（スクロール適用）
         ctx.save();

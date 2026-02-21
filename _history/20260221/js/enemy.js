@@ -763,7 +763,18 @@ export class Enemy {
         const legLift = (config.legLiftScale || 5.2) * (0.76 + this.height / 120);
         const legSpread = (config.legSpread || 2.8) * (0.72 + this.width / 58);
 
-        // Ground shadow removed (handled by ShadowRenderer)
+        ctx.fillStyle = palette.shadow;
+        ctx.beginPath();
+        ctx.ellipse(
+            centerX,
+            footY + Math.max(1.2, this.height * 0.02),
+            this.width * 0.38,
+            Math.max(3, this.height * 0.06),
+            0,
+            0,
+            Math.PI * 2
+        );
+        ctx.fill();
 
         if (config.backCape) {
             const capeTopY = shoulderY + this.height * 0.018;
@@ -1998,8 +2009,8 @@ export class Enemy {
         }
         
         // 地面判定
-        if (this.y + this.height >= this.groundY + 64) {
-            this.y = this.groundY + 64 - this.height;
+        if (this.y + this.height >= this.groundY) {
+            this.y = this.groundY - this.height;
             this.vy = 0;
             this.isGrounded = true;
         }
@@ -2273,24 +2284,6 @@ export class Enemy {
         ctx.beginPath();
         ctx.arc(centerX, centerY, 40, 0, Math.PI * 2);
         ctx.fill();
-    }
-
-    // ========== ShadowCaster Interface ==========
-    getFootX() {
-        return this.x + this.width / 2;
-    }
-
-    getFootY() {
-        return this.groundY + 64; // 固定レーンの中心
-    }
-
-    getHeightAboveGround() {
-        if (this.isDying) return 0;
-        return Math.max(0, (this.groundY + 64) - (this.y + this.height));
-    }
-
-    getShadowBaseRadius() {
-        return this.width * 0.8;
     }
 }
 
