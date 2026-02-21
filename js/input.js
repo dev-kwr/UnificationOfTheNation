@@ -695,14 +695,6 @@ class InputManager {
             });
         }
     }
-
-    // フレームごとのリセット処理
-    update() {
-        this.keysJustPressed = {};
-        this.keysJustReleased = {};
-        this.consumedActions.clear();
-        this.touchJustPressed = false;
-    }
 }
 
 // シングルトンとしてエクスポート

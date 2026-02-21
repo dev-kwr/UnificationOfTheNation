@@ -2,7 +2,7 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { COLORS, GRAVITY, CANVAS_WIDTH } from './constants.js';
+import { COLORS, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js';
 import { audio } from './audio.js';
 
 function clampEnhanceTier(tier) {
@@ -53,7 +53,7 @@ export class Bomb {
         this.y += this.vy;
         
         // 地面に当たったら爆発
-        if (this.y + this.radius >= groundY) {
+        if (this.y + this.radius >= groundY + LANE_OFFSET) {
             this.explode();
         }
         
@@ -379,7 +379,7 @@ export class ShurikenProjectile {
 
         // --- 地面判定（少し余裕を持たせる） ---
         const groundY = (window.game && window.game.groundY) ? window.game.groundY : 480;
-        if (this.y >= groundY + this.radius) this.isDestroyed = true;
+        if (this.y >= groundY + LANE_OFFSET) this.isDestroyed = true;
 
         // ★追尾中は地面スレスレで下向き速度を抑える（突き刺さり防止）
         if (this.homing && (groundY - this.y) < 50 && this.vy > 0) {
@@ -428,15 +428,19 @@ export class ShurikenProjectile {
             ctx.save();
             ctx.globalCompositeOperation = 'lighter';
             ctx.globalAlpha = 0.5 * lifeRatio;
-            const trailGrad = ctx.createLinearGradient(this.x, this.y, this.x - this.vx * 1.5, this.y - this.vy * 1.5);
+            
+            // 速度に応じたグラデーションを毎フレーム生成
+            const trailGrad = ctx.createLinearGradient(0, 0, -this.vx * 1.5, -this.vy * 1.5);
             trailGrad.addColorStop(0, 'rgba(120, 220, 255, 1)');
             trailGrad.addColorStop(1, 'rgba(0, 100, 255, 0)');
+            
+            ctx.translate(this.x, this.y); // 原点を描画位置に合わせる
             ctx.strokeStyle = trailGrad;
             ctx.lineWidth = 3;
             ctx.lineCap = 'round';
             ctx.beginPath();
-            ctx.moveTo(this.x, this.y);
-            ctx.lineTo(this.x - this.vx * 1.5, this.y - this.vy * 1.5);
+            ctx.moveTo(0, 0);
+            ctx.lineTo(-this.vx * 1.5, -this.vy * 1.5);
             ctx.stroke();
             ctx.restore();
         }
@@ -499,6 +503,7 @@ export class Shuriken extends SubWeapon {
             const cloneOffsets = player.getSubWeaponCloneOffsets();
             if (Array.isArray(cloneOffsets) && cloneOffsets.length > 0) {
                 for (const clone of cloneOffsets) {
+                    player.triggerCloneSubWeapon(clone.index); // アニメーション誘発
                     this._spawnProjectile(
                         baseX + clone.dx, baseY + clone.dy,
                         direction, 0, shotCount, pierce, homing
@@ -645,6 +650,7 @@ export class Firebomb extends SubWeapon {
             const cloneOffsets = player.getSubWeaponCloneOffsets();
             if (Array.isArray(cloneOffsets) && cloneOffsets.length > 0) {
                 for (const clone of cloneOffsets) {
+                    player.triggerCloneSubWeapon(clone.index); // アニメーション誘発
                     for (let shotIndex = 0; shotIndex < shotCount; shotIndex++) {
                         const spread = shotCount === 1 ? 0 : (shotIndex - (shotCount - 1) / 2) * 0.9;
                         const cloneBomb = new Bomb(
@@ -680,6 +686,7 @@ export class Spear extends SubWeapon {
         this.attackDirection = 1;
         this.thrustPulse = 0;
         this.hitEnemies = new Set();
+        this._cachedTipGrad = null; // キャッシュ用
     }
 
     applyEnhanceTier(tier) {
@@ -700,6 +707,11 @@ export class Spear extends SubWeapon {
         
         // Lvごとの横っ飛び差を強く出す
         player.vx += this.attackDirection * this.dashBoost;
+
+        // 分身連動
+        if (player && typeof player.getSubWeaponCloneOffsets === 'function') {
+            player.getSubWeaponCloneOffsets().forEach(c => player.triggerCloneSubWeapon(c.index));
+        }
     }
     
     update(deltaTime) {
@@ -847,19 +859,36 @@ export class Spear extends SubWeapon {
         ctx.fill();
         
         // 3. 穂先（鋼の鋭い先端）
-        const tipGrad = ctx.createLinearGradient(st.tipBaseX, st.y - st.tipWidth, st.spearEnd, st.y);
-        tipGrad.addColorStop(0, '#c0c5ce');
-        tipGrad.addColorStop(0.4, '#f4f7fb');
-        tipGrad.addColorStop(1, '#8a95a5');
-        ctx.fillStyle = tipGrad;
+        if (!this._cachedTipGrad) {
+            // パラメータが固定なら、基準座標(0,0)からの相対配置で作りたいため、
+            // 描画時にtranslateで合わせる方が汎用性が高いが、ここでは一旦描画時に生成したものをキャッシュする簡易アプローチをとる
+            // (座標依存の場合はそのままにはできないので、translateを使った描画に切り替える)
+        }
+        
+        ctx.save();
+        ctx.translate(st.tipBaseX, st.y);
+        
+        if (!this._cachedTipGrad) {
+            // ローカル座標でグラデーションを作成 (-tipWidth ～ +tipWidth)
+            this._cachedTipGrad = ctx.createLinearGradient(0, -st.tipWidth, st.tipLen, 0);
+            this._cachedTipGrad.addColorStop(0, '#c0c5ce');
+            this._cachedTipGrad.addColorStop(0.4, '#f4f7fb');
+            this._cachedTipGrad.addColorStop(1, '#8a95a5');
+        }
+        
+        ctx.fillStyle = this._cachedTipGrad;
         ctx.strokeStyle = '#788290';
         ctx.lineWidth = 1;
         
         ctx.beginPath();
-        ctx.moveTo(st.spearEnd, st.y); // 先端
-        ctx.lineTo(st.tipBaseX, st.y - st.tipWidth);
-        ctx.lineTo(st.tipBackX, st.y);
-        ctx.lineTo(st.tipBaseX, st.y + st.tipWidth);
+        // 原点を st.tipBaseX, st.y としたローカル座標で描画
+        const localSpearEnd = st.spearEnd - st.tipBaseX;
+        const localTipBackX = st.tipBackX - st.tipBaseX;
+        
+        ctx.moveTo(localSpearEnd, 0); // 先端
+        ctx.lineTo(0, -st.tipWidth);
+        ctx.lineTo(localTipBackX, 0);
+        ctx.lineTo(0, st.tipWidth);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
@@ -868,9 +897,11 @@ export class Spear extends SubWeapon {
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(st.tipBackX, st.y);
-        ctx.lineTo(st.spearEnd, st.y);
+        ctx.moveTo(localTipBackX, 0);
+        ctx.lineTo(localSpearEnd, 0);
         ctx.stroke();
+        
+        ctx.restore();
 
         // 4. 柄の芯線で密度を追加
         ctx.strokeStyle = 'rgba(255, 240, 210, 0.6)';
@@ -906,16 +937,22 @@ export class Spear extends SubWeapon {
             const mainLineWidth = tier >= 2 ? 4.6 : 2.2;
             
             // 鋭い衝撃波 (三角形・コーン状)
-            const shockGrad = ctx.createLinearGradient(0, 0, coneReach, 0);
-            shockGrad.addColorStop(0, `rgba(220, 255, 255, ${alpha * 0.9})`);
-            shockGrad.addColorStop(1, 'rgba(100, 200, 255, 0)');
-            ctx.fillStyle = shockGrad;
+            if (!this._cachedShockGrad) {
+                this._cachedShockGrad = ctx.createLinearGradient(0, 0, coneReach, 0);
+                this._cachedShockGrad.addColorStop(0, `rgba(220, 255, 255, 0.9)`); // アルファは描画時に全体にかける
+                this._cachedShockGrad.addColorStop(1, 'rgba(100, 200, 255, 0)');
+            }
+            
+            ctx.save();
+            ctx.globalAlpha = alpha; // 全体の透明度で制御
+            ctx.fillStyle = this._cachedShockGrad;
             ctx.beginPath();
             ctx.moveTo(0, 0);
             ctx.lineTo(60 + remain * 20, -15 * remain); // 上へ広がる
             ctx.lineTo(coneReach + remain * 32, 0); // 先端 (遠くへ)
             ctx.lineTo(60 + remain * 20, 15 * remain); // 下へ広がる
             ctx.fill();
+            ctx.restore();
             
             // 芯のライン (白く鋭く)
             ctx.globalCompositeOperation = 'lighter';
@@ -1183,6 +1220,11 @@ export class DualBlades extends SubWeapon {
             this.attackTimer = this.activeSideDuration;
             audio.playSlash(0);
         }
+
+        // 分身連動
+        if (player && typeof player.getSubWeaponCloneOffsets === 'function') {
+            player.getSubWeaponCloneOffsets().forEach(c => player.triggerCloneSubWeapon(c.index));
+        }
     }
     
     update(deltaTime) {
@@ -1395,8 +1437,8 @@ export class DualBlades extends SubWeapon {
                 ctx.translate(forward, 0);
                 ctx.rotate(angle);
                 ctx.globalAlpha = alpha;
-                ctx.shadowColor = color;
-                ctx.shadowBlur = 20;
+                // ctx.shadowColor = color;
+                // ctx.shadowBlur = 20;
                 ctx.fillStyle = color;
 
                 ctx.beginPath();
@@ -1479,7 +1521,7 @@ export class DualBlades extends SubWeapon {
                     ? (currentAngle - backSpan * 0.42)
                     : (currentAngle + backSpan * 1.52);
                 const ccwTrail = trailEnd < trailStart;
-                ctx.shadowBlur = 0;
+                // ctx.shadowBlur = 0;
                 ctx.strokeStyle = `rgba(${palette.back[0]}, ${palette.back[1]}, ${palette.back[2]}, ${backAlpha * 0.7})`;
                 ctx.lineWidth = width * 0.52;
                 ctx.beginPath();
@@ -1487,15 +1529,15 @@ export class DualBlades extends SubWeapon {
                 ctx.stroke();
 
                 // 2) 中間の弧
-                ctx.shadowBlur = 12;
-                ctx.shadowColor = `rgba(${palette.front[0]}, ${palette.front[1]}, ${palette.front[2]}, ${frontAlpha * 0.45})`;
+                // ctx.shadowBlur = 12;
+                // ctx.shadowColor = `rgba(${palette.front[0]}, ${palette.front[1]}, ${palette.front[2]}, ${frontAlpha * 0.45})`;
                 ctx.strokeStyle = `rgba(${palette.back[0]}, ${palette.back[1]}, ${palette.back[2]}, ${backAlpha})`;
                 ctx.lineWidth = width * 0.72;
                 ctx.beginPath();
                 ctx.arc(-6.8, -2.1, radius * 0.94, start + 0.06, end + 0.06, ccw);
                 ctx.stroke();
 
-                ctx.shadowBlur = 0;
+                // ctx.shadowBlur = 0;
                 ctx.strokeStyle = `rgba(${palette.front[0]}, ${palette.front[1]}, ${palette.front[2]}, ${frontAlpha})`;
                 ctx.lineWidth = width;
                 ctx.beginPath();
@@ -1575,7 +1617,7 @@ export class DualBlades extends SubWeapon {
                 ctx.fillRect(12.7, -1.9, 1.6, 3.8);
                 
                 // 刀身（日本刀: 上側は直線、下側は反り）
-                ctx.shadowBlur = 0;
+                // ctx.shadowBlur = 0;
                 ctx.fillStyle = '#fff';
                 ctx.beginPath();
                 ctx.moveTo(14, -1.35);
@@ -1607,8 +1649,8 @@ export class DualBlades extends SubWeapon {
             const baseColorPrefix = slashColor.substring(0, slashColor.lastIndexOf(','));
             const finalColor = `${baseColorPrefix}, ${slashAlpha})`;
             
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = finalColor;
+            // ctx.shadowBlur = 10;
+            // ctx.shadowColor = finalColor;
             
             // 外側の太いライン (色付き)
             ctx.strokeStyle = finalColor;
@@ -1620,8 +1662,8 @@ export class DualBlades extends SubWeapon {
             ctx.stroke();
             
             // 内側の細いハイライト (白)
-            ctx.shadowBlur = 5;
-            ctx.shadowColor = 'white';
+            // ctx.shadowBlur = 5;
+            // ctx.shadowColor = 'white';
             ctx.strokeStyle = `rgba(255, 255, 255, ${slashAlpha * 0.8})`;
             ctx.lineWidth = 3.5;
             ctx.beginPath();
@@ -1709,6 +1751,11 @@ export class Kusarigama extends SubWeapon {
         this.tipX = init.tipX;
         this.tipY = init.tipY;
         audio.playDash(); // 鎖のシュルシュル音代用
+
+        // 分身連動
+        if (player && typeof player.getSubWeaponCloneOffsets === 'function') {
+            player.getSubWeaponCloneOffsets().forEach(c => player.triggerCloneSubWeapon(c.index));
+        }
     }
 
     getMotionState(player) {
@@ -1962,11 +2009,12 @@ export class Kusarigama extends SubWeapon {
             }
         }
 
-        // 鎖
-        const chainGradient = ctx.createLinearGradient(st.handX, st.handY, st.tipX, st.tipY);
-        chainGradient.addColorStop(0, 'rgba(170, 176, 188, 0.95)');
-        chainGradient.addColorStop(0.55, 'rgba(128, 136, 150, 0.98)');
-        chainGradient.addColorStop(1, 'rgba(92, 102, 118, 0.95)');
+        // 鎖 (ローカルグラデーションキャッシュ: 長さが一定でないため、ここではそのままか、簡易な距離ベースに)
+    // 鎖は毎フレームの描画としては妥当なラインなので、ここだけは残すか計算を省く程度にする
+    const chainGradient = ctx.createLinearGradient(st.handX, st.handY, st.tipX, st.tipY);
+    chainGradient.addColorStop(0, 'rgba(170, 176, 188, 0.95)');
+    chainGradient.addColorStop(0.55, 'rgba(128, 136, 150, 0.98)');
+    chainGradient.addColorStop(1, 'rgba(92, 102, 118, 0.95)');
         ctx.lineDashOffset = -st.progress * 150; // 鎖が動いているような視覚効果
         ctx.strokeStyle = chainGradient;
         ctx.lineWidth = 2.4; // ★修正: 鎖を少し細く (3.1 -> 2.4)
@@ -1995,13 +2043,14 @@ export class Kusarigama extends SubWeapon {
         ctx.arc(-4, 0, 3, 0, Math.PI * 2);
         ctx.fill();
         
-        // 刃の金属グラデーション
-        const sickleGrad = ctx.createLinearGradient(0, -10, 26, 6);
-        sickleGrad.addColorStop(0, '#f0f4f8');
-        sickleGrad.addColorStop(0.5, '#a5b0bd');
-        sickleGrad.addColorStop(1, '#56616e');
-        
-        ctx.fillStyle = sickleGrad;
+        // 刃の金属グラデーション（キャッシュ）
+        if (!this._cachedSickleGrad) {
+            this._cachedSickleGrad = ctx.createLinearGradient(0, -10, 26, 6);
+            this._cachedSickleGrad.addColorStop(0, '#f0f4f8');
+            this._cachedSickleGrad.addColorStop(0.5, '#a5b0bd');
+            this._cachedSickleGrad.addColorStop(1, '#56616e');
+        }
+        ctx.fillStyle = this._cachedSickleGrad;
         ctx.strokeStyle = '#3b434c';
         ctx.lineWidth = 1.0;
         ctx.beginPath();
@@ -2084,6 +2133,8 @@ export class Nodachi extends SubWeapon {
         this.basePlantedDuration = 320;
         this.plantedDuration = this.basePlantedDuration; // 衝撃波が消えるまで刀を地面に刺したまま見せる
         this.impactSoundPlayed = false; // 着地爆発音の重複防止
+        this._cachedBladeGrad = null; // キャッシュ用
+        this._cachedWaveGrad = null; // キャッシュ用
     }
 
     applyEnhanceTier(tier) {
@@ -2094,6 +2145,9 @@ export class Nodachi extends SubWeapon {
         );
         this.impactStart = Math.max(0.72, this.baseImpactStart - this.enhanceTier * 0.045);
         this.plantedDuration = Math.round(this.basePlantedDuration * (1 + this.enhanceTier * 0.12));
+        // 強化ティアが変わる可能性があるので、グラデーションキャッシュをクリア
+        this._cachedBladeGrad = null;
+        this._cachedWaveGrad = null;
     }
     
     use(player) {
@@ -2108,11 +2162,21 @@ export class Nodachi extends SubWeapon {
         this.impactDebris = [];
         this.attackDirection = player.facingRight ? 1 : -1;
 
-        player.vy = -30;
+        // ボス（敵）の場合は跳躍力を抑える
+        if (player.isEnemy) {
+            player.vy = -16.5;
+        } else {
+            player.vy = -30;
+        }
         player.isGrounded = false;
         player.vx *= 0.35;
 
         audio.playSlash(4);
+
+        // 分身連動
+        if (player && typeof player.getSubWeaponCloneOffsets === 'function') {
+            player.getSubWeaponCloneOffsets().forEach(c => player.triggerCloneSubWeapon(c.index));
+        }
     }
 
     getProgress() {
@@ -2126,24 +2190,43 @@ export class Nodachi extends SubWeapon {
 
     getPose(player) {
         const direction = this.isAttacking ? this.attackDirection : (player.facingRight ? 1 : -1);
-        const progress = this.getProgress();
+        const progress = this.isAttacking ? this.getProgress() : 0;
         const centerX = player.x + player.width / 2;
         let rotation = -Math.PI * 0.5;
         let phase = 'rise';
         let flipT = 0;
 
-        // 刀身の長さ（ここでサイズダウンを調整: `+44` -> `+18` にしてスリム化）
+        // 刀身の長さ
         const bladeLen = this.range + 18;
+        const bladeEnd = bladeLen + 8; // getBladeGeometry と完全に同期
+
+        // --- 地面判定の基準 ---
+        const baseGroundY = (player.previewMode && typeof player.groundY === 'number') ? player.groundY : player.groundY;
+        const maxTipY = baseGroundY + LANE_OFFSET;
+
+        // 非攻撃時は「構え」ポーズ
+        if (!this.isAttacking) {
+            phase = 'ready';
+            // プレイヤーやボスのIdle時に合わせた、少し斜め前の構え
+            rotation = (-0.15 + Math.sin(player.motionTime * 0.0078) * 0.045) * direction;
+            if (direction === -1) rotation = Math.PI - rotation;
+            
+            const handX = centerX + direction * (player.width * 0.1);
+            const handY = player.y + player.height * 0.45 + (player.bob || 0) * 0.8;
+            
+            return { progress, phase, direction, rotation, handX, handY, bladeLen };
+        }
 
         // 着地後は刺さりポーズ
         if (this.hasImpacted) {
             phase = 'planted';
-            rotation = Math.PI * 0.5; // 真下に刺さっている
-            const handX = centerX + direction * 13;
-            const handY = player.y + 7.5;
-            // 地面貫通を抑える
-            const maxTipY = player.groundY + 8;
-            const tipY = handY + Math.sin(rotation) * bladeLen;
+            rotation = Math.PI * 0.5;
+            const handX = centerX + direction * (player.width * 0.325);
+            // 身長比率に基づいて手の高さを計算 (プレイヤー 60px に対し 7.5px = 0.125)
+            const handY = player.y + player.height * 0.125;
+            
+            // 地面固定：剣の先端（bladeEnd）を地面（maxTipY）に揃える
+            const tipY = handY + Math.sin(rotation) * bladeEnd;
             let adjustedHandY = handY;
             if (tipY > maxTipY) {
                 adjustedHandY -= (tipY - maxTipY);
@@ -2175,11 +2258,14 @@ export class Nodachi extends SubWeapon {
             phase === 'rise' ? 12 :
             phase === 'stall' ? 13 :
             phase === 'flip' ? 11 : 14; 
-        const phaseHeightOffset =
-            phase === 'plunge' ? 16 :
-            phase === 'flip' ? 15 : 17; // 肩の高さ (17) 付近に調整
-        let handX = centerX + direction * phaseForwardOffset;
-        let handY = player.y + phaseHeightOffset;
+        
+        // 振り上げフェーズでの上昇は物理(update)で行うため、描画オフセットは安定させる
+        // サイズ比率に基づいて手の位置を計算
+        const forwardOffset = player.width * (phase === 'rise' ? 0.3 : (phase === 'stall' ? 0.325 : (phase === 'flip' ? 0.275 : 0.35)));
+        let heightOffset = player.height * (phase === 'plunge' ? 0.266 : 0.283);
+
+        let handX = centerX + direction * forwardOffset;
+        let handY = player.y + heightOffset;
 
         if (phase === 'flip') {
             const lift = Math.sin(flipT * Math.PI);
@@ -2187,8 +2273,8 @@ export class Nodachi extends SubWeapon {
             handY -= lift * 1.6;
         }
 
-        const maxTipY = player.groundY + 8;
-        const tipY = handY + Math.sin(rotation) * bladeLen;
+        // 接地判定制限：剣の先端が地面を絶対に突き抜けないように
+        const tipY = handY + Math.sin(rotation) * bladeEnd;
         if (tipY > maxTipY) {
             handY -= (tipY - maxTipY);
         }
@@ -2198,7 +2284,8 @@ export class Nodachi extends SubWeapon {
 
     getHandAnchor(player) {
         const pose = this.getPose(player);
-        const gripOffset = (pose.phase === 'plunge' || pose.phase === 'planted') ? -16 : -10;
+        // 刃の部分にかからないよう、柄の端方向（負の方向）へオフセットを拡大
+        const gripOffset = (pose.phase === 'plunge' || pose.phase === 'planted') ? -26 : -18;
         return {
             x: pose.handX + Math.cos(pose.rotation) * gripOffset,
             y: pose.handY + Math.sin(pose.rotation) * gripOffset,
@@ -2266,11 +2353,26 @@ export class Nodachi extends SubWeapon {
     update(deltaTime) {
         if (this.isAttacking) {
             const progress = this.getProgress();
+            const subWeaponTier = (typeof resolveSubWeaponEnhanceTier === 'function') 
+                ? resolveSubWeaponEnhanceTier(this.owner, this.enhanceTier) 
+                : 0;
 
             // 着地後は刺さり演出へ移行
             if (this.hasImpacted) {
                 this.plantedTimer -= deltaTime * 1000;
-                // 刺さり演出が終わったら攻撃終了
+                
+                // 接地中はオーナーを「ぶら下がり位置」で空中に固定
+                if (this.owner && this.plantedTimer > 0) {
+                    const bladeEnd = (this.range + 18) + 8;
+                    const maxTipY = this.owner.groundY + LANE_OFFSET;
+                    // オーナーのy = 地面 - 剣の長さ - 肩までのオフセット(比率計算)
+                    const offsetRate = this.owner.isEnemy ? 0.125 : 0.125; // 共通化
+                    const targetY = maxTipY - bladeEnd - (this.owner.height * offsetRate);
+                    this.owner.y = targetY;
+                    this.owner.vy = 0;
+                    this.owner.isGrounded = false; // 足元は浮いている
+                }
+
                 if (this.plantedTimer <= 0) {
                     this.isAttacking = false;
                     this.plantedTimer = 0;
@@ -2278,54 +2380,81 @@ export class Nodachi extends SubWeapon {
                 }
             } else {
                 if (this.owner) {
-                    if (progress >= this.liftEnd && progress < this.stallEnd) {
+                    // 1. 上昇時 (rise フェーズ): Lv に応じて物理的に上昇
+                    if (progress < this.liftEnd) {
+                        const liftPower = -12 - (subWeaponTier * 8.5); // Lv3 で最大上昇力
+                        // 最初の一撃で勢いをつけ、残りは維持
+                        if (progress < 0.1) {
+                            this.owner.vy = liftPower;
+                        } else {
+                            this.owner.vy = Math.min(this.owner.vy, liftPower * 0.4);
+                        }
+                    } else if (progress < this.stallEnd) {
+                        // 滞空 (stall)
                         this.owner.vy *= 0.78;
-                        if (Math.abs(this.owner.vy) < 1.2) this.owner.vy = 0;
+                        if (Math.abs(this.owner.vy) < 1.0) this.owner.vy = 0;
                     }
+                    
+                    // 2. 下降時 (flipEnd 以降)
                     if (progress >= this.flipEnd && progress < this.impactStart && this.owner.vy < 18) {
                         this.owner.vy = 24;
                     }
                     this.owner.vx *= 0.86;
+
+                    // 接地判定の精密計算
+                    const pose = this.getPose(this.owner);
+                    const bladeEnd = pose.bladeLen + 8;
+                    const maxTipY = this.owner.groundY + LANE_OFFSET;
+                    const tipY = pose.handY + Math.sin(pose.rotation) * bladeEnd;
+
+                    if (tipY >= maxTipY - 2) {
+                        // 接地した瞬間に「ぶら下がり高度」で停止
+                        const targetY = maxTipY - bladeEnd - (pose.phase === 'plunge' ? 16 : 7.5);
+                        if (this.owner.y > targetY) {
+                            this.owner.y = targetY;
+                            this.owner.vy = 0;
+                            this.hasImpacted = true;
+                            this.plantedTimer = this.plantedDuration;
+                            this.impactX = this.owner.x + this.owner.width / 2;
+                            this.impactY = maxTipY;
+                            this.impactFlashTimer = 170;
+                            this.spawnImpactWaves();
+                            this.spawnImpactDebris();
+                            if (!this.impactSoundPlayed) {
+                                this.impactSoundPlayed = true;
+                                audio.playExplosion();
+                                if (window.game && typeof window.game.queueHitFeedback === 'function') {
+                                    window.game.queueHitFeedback(8.8, 92);
+                                }
+                            }
+                        }
+                    }
                 }
 
                 const landed = this.owner && this.owner.isGrounded;
-                const pose = this.owner ? this.getPose(this.owner) : null;
-                const bladeGeom = pose ? this.getBladeGeometry(pose) : null;
-                const tipTouchedGround = !!(
-                    this.owner &&
-                    pose &&
-                    bladeGeom &&
-                    pose.phase === 'plunge' &&
-                    bladeGeom.tipY >= this.owner.groundY - 1
-                );
-                if (!this.hasImpacted && (tipTouchedGround || landed || progress >= 0.98)) {
+                if (!this.hasImpacted && (landed || progress >= 0.98)) {
                     this.hasImpacted = true;
                     this.plantedTimer = this.plantedDuration;
                     if (this.owner) {
                         this.impactX = this.owner.x + this.owner.width / 2;
-                        this.impactY = this.owner.groundY;
+                        this.impactY = this.owner.groundY + LANE_OFFSET;
                     }
                     this.impactFlashTimer = 170;
                     this.spawnImpactWaves();
                     this.spawnImpactDebris();
-                    // 着地音は1回だけ（重複防止）
                     if (!this.impactSoundPlayed) {
                         this.impactSoundPlayed = true;
                         audio.playExplosion();
-                        if (window.game && typeof window.game.queueHitFeedback === 'function') {
-                            window.game.queueHitFeedback(8.8, 92);
-                        }
                     }
                 }
 
                 this.attackTimer -= deltaTime * 1000;
                 if (this.attackTimer <= 0 && !this.hasImpacted) {
-                    // タイマー切れでも着地していなければ強制着地
                     this.hasImpacted = true;
                     this.plantedTimer = this.plantedDuration;
                     if (this.owner) {
                         this.impactX = this.owner.x + this.owner.width / 2;
-                        this.impactY = this.owner.groundY;
+                        this.impactY = this.owner.groundY + LANE_OFFSET;
                     }
                     this.impactFlashTimer = 170;
                     this.spawnImpactWaves();
@@ -2404,86 +2533,142 @@ export class Nodachi extends SubWeapon {
     }
     
     render(ctx, player) {
-        // 攻撃中 OR 刺さり中は刀身を描画
-        if (this.isAttacking) {
+        // 攻撃中 OR 刺さり中 OR 強制描画指定時は刀身を描画
+        if (this.isAttacking || (player && player.forceSubWeaponRender)) {
             const pose = this.getPose(player);
             const blade = this.getBladeGeometry(pose);
             ctx.save();
             ctx.translate(pose.handX, pose.handY);
             ctx.rotate(pose.rotation);
 
-            // 柄
-            const handleBack = -32;
+            // 柄（色を濃く、重厚に）
+            const handleBack = -34;
             const handleFront = 21;
-            ctx.fillStyle = '#6d4520';
+            // ベースの色を暗い褐色に
+            ctx.fillStyle = '#3d2310';
             ctx.beginPath();
-            ctx.rect(handleBack, -4.3, handleFront - handleBack, 8.6);
+            ctx.rect(handleBack, -4.5, handleFront - handleBack, 9);
             ctx.fill();
-            ctx.strokeStyle = '#3d2310';
-            ctx.lineWidth = 1.2;
-            ctx.beginPath();
-            ctx.moveTo(handleBack + 5, -3.5);
-            ctx.lineTo(handleBack + 5, 3.5);
-            ctx.moveTo(handleBack + 15, -3.5);
-            ctx.lineTo(handleBack + 15, 3.5);
-            ctx.moveTo(handleBack + 25, -3.5);
-            ctx.lineTo(handleBack + 25, 3.5);
-            ctx.stroke();
 
-            // 鍔
-            ctx.fillStyle = '#d4b260';
+            // 柄の巻紐表現（ひし形の重なり）
+            ctx.fillStyle = '#221105';
+            for (let x = handleBack + 4; x < handleFront - 4; x += 8) {
+                ctx.beginPath();
+                ctx.moveTo(x, -4.5);
+                ctx.lineTo(x + 4, 0);
+                ctx.lineTo(x, 4.5);
+                ctx.lineTo(x - 4, 0);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // 柄の縁取り
+            ctx.strokeStyle = '#1a0d04';
+            ctx.lineWidth = 0.8;
+            ctx.strokeRect(handleBack, -4.5, handleFront - handleBack, 9);
+
+            // 鍔（少し使い込まれた金の色）
+            ctx.fillStyle = '#b59345'; // くすんだ金
             ctx.beginPath();
-            ctx.moveTo(16.5, -5.4);
-            ctx.quadraticCurveTo(20.8, -7.2, 23.6, -1.1);
-            ctx.quadraticCurveTo(21.2, 4.8, 16.2, 4.6);
+            ctx.moveTo(16.5, -5.8);
+            ctx.quadraticCurveTo(21.5, -8.0, 24.5, -1.1);
+            ctx.quadraticCurveTo(21.5, 5.8, 16.2, 5.2);
             ctx.closePath();
             ctx.fill();
-            ctx.fillStyle = '#a98331';
-            ctx.fillRect(13.2, -4.2, 2.4, 8.4);
+            
+            // 鍔の厚み表現
+            ctx.fillStyle = '#8c6b2a';
+            ctx.fillRect(13.2, -4.8, 3.2, 9.6);
 
-            // 刀身
+            // 刀身（コントラストを強めたメタリックなグラデーション）
             const bladeStart = blade.bladeStart;
             const bladeEnd = blade.bladeEnd;
             const bladeGrad = ctx.createLinearGradient(bladeStart, -6, bladeEnd, 6);
-            bladeGrad.addColorStop(0, '#f8f9fa'); // 強い反射
-            bladeGrad.addColorStop(0.2, '#cdd6e0');
-            bladeGrad.addColorStop(0.5, '#ffffff'); // スペキュラ
-            bladeGrad.addColorStop(0.8, '#8590a0');
-            bladeGrad.addColorStop(1, '#4a5563'); // 深い影
+            bladeGrad.addColorStop(0, '#e5e7eb'); // 根本は明るく
+            bladeGrad.addColorStop(0.15, '#9ca3af');
+            bladeGrad.addColorStop(0.4, '#ffffff'); // 強い反射光
+            bladeGrad.addColorStop(0.7, '#4b5563'); // 中間の影
+            bladeGrad.addColorStop(1, '#1f2937'); // 切先は重く暗い影
+            
             ctx.fillStyle = bladeGrad;
             ctx.beginPath();
-            // 大太刀の形状バランスをシャープに
-            ctx.moveTo(bladeStart, -5.2);
-            ctx.quadraticCurveTo(bladeStart + 28, -12.5, bladeStart + 68, -9.2);
-            ctx.quadraticCurveTo(bladeEnd - 20, -6.8, bladeEnd + 4, -0.8);
-            ctx.quadraticCurveTo(bladeEnd - 8, 4.5, bladeEnd - 24, 6.2);
-            ctx.quadraticCurveTo(bladeStart + 38, 8.4, bladeStart + 7, 5.8);
-            ctx.quadraticCurveTo(bladeStart - 2, 2.8, bladeStart, -5.2);
+            ctx.moveTo(blade.bladeStart, -5.2);
+            ctx.quadraticCurveTo(blade.bladeStart + 28, -12.5, blade.bladeStart + 68, -9.2);
+            ctx.quadraticCurveTo(blade.bladeEnd - 20, -6.8, blade.bladeEnd + 4, -0.8);
+            ctx.quadraticCurveTo(blade.bladeEnd - 8, 4.5, blade.bladeEnd - 24, 6.2);
+            ctx.quadraticCurveTo(blade.bladeStart + 38, 8.4, blade.bladeStart + 7, 5.8);
+            ctx.quadraticCurveTo(blade.bladeStart - 2, 2.8, blade.bladeStart, -5.2);
             ctx.closePath();
             ctx.fill();
-            ctx.strokeStyle = '#627083';
-            ctx.lineWidth = 1.25;
+            
+            // 刀身の縁取り（より鋭利に）
+            ctx.strokeStyle = '#374151';
+            ctx.lineWidth = 1.0;
             ctx.stroke();
 
-            // 切先寄りの返し (よりメタリックに)
-            const intBladeEnd_X = bladeEnd + 1.2;
-            ctx.fillStyle = 'rgba(230, 240, 255, 0.9)';
+            // 切先の返しハイライト
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
             ctx.beginPath();
-            ctx.moveTo(bladeEnd - 18, -6.4);
-            ctx.quadraticCurveTo(bladeEnd - 8, -7.5, intBladeEnd_X, -1.8);
-            ctx.quadraticCurveTo(bladeEnd - 7.5, -3.5, bladeEnd - 16, -3.2);
+            ctx.moveTo(blade.bladeEnd - 15, -6.0);
+            ctx.lineTo(blade.bladeEnd + 2, -1.0);
+            ctx.lineTo(blade.bladeEnd - 12, -2.5);
             ctx.closePath();
             ctx.fill();
 
-            // 峰ライン (強いハイライト)
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-            ctx.lineWidth = 1.2;
+            // 峰のハイライト
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.lineWidth = 0.8;
             ctx.beginPath();
-            ctx.moveTo(bladeStart + 8, -2.2);
-            ctx.quadraticCurveTo(bladeStart + 58, -4.5, bladeEnd - 12, -1.0);
+            ctx.moveTo(blade.bladeStart + 10, -2.5);
+            ctx.quadraticCurveTo(blade.bladeStart + 60, -5.0, blade.bladeEnd - 15, -1.5);
             ctx.stroke();
 
             ctx.restore();
+
+            // --- 空中斬撃エフェクト (Air Slash) ---
+            // 振り下ろし（flip）開始から着地（impact）まで描画
+            if (this.isAttacking && !this.hasImpacted && pose.progress > this.stallEnd) {
+                const slashPhase = clamp01((pose.progress - this.stallEnd) / (this.impactStart - this.stallEnd));
+                const slashAlpha = Math.sin(slashPhase * Math.PI) * 0.85;
+                
+                if (slashAlpha > 0.01) {
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'lighter';
+                    
+                    // 軌道の中心を手の位置に合わせる
+                    ctx.translate(pose.handX, pose.handY);
+                    
+                    const arcRadius = pose.bladeLen + 6;
+                // 刀身の向き（rotation）を基準に、後ろから前への弧を描く
+                const arcBack = 1.35;
+                const arcFront = 0.25;
+                const startAngle = pose.rotation - pose.direction * arcBack;
+                const endAngle = pose.rotation + pose.direction * arcFront;
+                
+                // 外側の発光
+                ctx.strokeStyle = `rgba(255, 210, 160, ${slashAlpha * 0.3})`;
+                ctx.lineWidth = 22;
+                ctx.beginPath();
+                ctx.arc(0, 0, arcRadius, startAngle, endAngle, pose.direction < 0);
+                ctx.stroke();
+                
+                // メインの鋭い光
+                ctx.strokeStyle = `rgba(255, 250, 230, ${slashAlpha * 0.85})`;
+                ctx.lineWidth = 6;
+                ctx.beginPath();
+                ctx.arc(0, 0, arcRadius, startAngle + pose.direction * 0.15, endAngle, pose.direction < 0);
+                ctx.stroke();
+                
+                // 芯のハイライト
+                ctx.strokeStyle = `rgba(255, 255, 255, ${slashAlpha})`;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(0, 0, arcRadius, startAngle + pose.direction * 0.3, endAngle - pose.direction * 0.05, pose.direction < 0);
+                ctx.stroke();
+                
+                ctx.restore();
+            }
+        }
         }
 
         // 着地インパクト (より激しく)
@@ -2518,14 +2703,14 @@ export class Nodachi extends SubWeapon {
                 ctx.globalAlpha = Math.min(1, ratio * 1.5);
                 ctx.globalCompositeOperation = 'lighter';
                 
-                const body = sw.thickness || 24;
-                const core = sw.core || 10;
-                
+                // 波グラデーション
                 const waveGrad = ctx.createLinearGradient(0, -body, 0, body);
                 waveGrad.addColorStop(0, 'rgba(255, 200, 50, 0)');
-                waveGrad.addColorStop(0.5, 'rgba(255, 230, 150, 0.9)');
-                waveGrad.addColorStop(1, 'rgba(255, 100, 0, 0)');
-                
+                waveGrad.addColorStop(0.5, 'rgba(255, 255, 200, 1)');
+                waveGrad.addColorStop(1, 'rgba(255, 200, 50, 0)');
+            
+                // 描画時に全体の透明度で制御
+                ctx.globalAlpha *= ratio * 1.5;
                 ctx.fillStyle = waveGrad;
                 ctx.beginPath();
                 ctx.moveTo(0, 0);
@@ -2540,6 +2725,7 @@ export class Nodachi extends SubWeapon {
                 ctx.quadraticCurveTo(15, -core * 0.5, 35, -0.5);
                 ctx.quadraticCurveTo(15, core * 0.2, 0, 0.8);
                 ctx.fill();
+                
                 ctx.restore();
             }
         }

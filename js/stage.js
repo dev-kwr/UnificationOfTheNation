@@ -2,7 +2,7 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES } from './constants.js';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET } from './constants.js';
 import { createEnemy, Ashigaru, Samurai, Busho, Ninja } from './enemy.js';
 import { createBoss } from './boss.js';
 import { createObstacle } from './obstacle.js';
@@ -71,6 +71,35 @@ export class Stage {
         };
         this.bossIntroDuration = this.bossIntroDurationByStage[this.stageNumber] || 1500;
         this.bossIntroTimer = 0;
+        
+        // --- 竹林ステージの初期落ち葉配置 ---
+        if (this.stageNumber === 1) {
+            this.initBambooLeaves();
+        }
+    }
+
+    initBambooLeaves() {
+        const initialCount = 45;
+        const cliffY = this.groundY + 120; // 拡張された路面幅
+        for (let i = 0; i < initialCount; i++) {
+            const depth = 0.45 + Math.random() * 0.55;
+            const screenX = Math.random() * CANVAS_WIDTH;
+            const targetY = this.groundY + depth * (cliffY - this.groundY);
+            
+            this.bambooFallingLeaves.push({
+                worldX: screenX + this.progress,
+                y: targetY,
+                vx: 0,
+                vy: 0,
+                rot: Math.random() * Math.PI * 2,
+                rotV: 0,
+                size: 6 + Math.random() * 9,
+                depth,
+                state: 'grounded',
+                groundLife: 4000 + Math.random() * 8000,
+                maxGroundLife: 12000
+            });
+        }
     }
 
     getBalanceProfile() {
@@ -301,9 +330,10 @@ export class Stage {
             this.spawnBoss();
         }
         
-        // 障害物出現
+        // 障害物出現（ボス戦中・撃破後・中ボス戦中は出現させない）
+        const noObstaclePhase = (this.bossSpawned || this.midBossSpawned);
         this.obstacleTimer += deltaTime * 1000;
-        if (this.obstacleTimer >= this.obstacleInterval && this.progress < this.maxProgress * 0.98) {
+        if (this.obstacleTimer >= this.obstacleInterval && this.progress < this.maxProgress * 0.98 && !noObstaclePhase) {
              this.spawnObstacle();
              this.obstacleTimer = 0;
              const minInterval = this.balanceProfile.obstacleIntervalMin;
@@ -463,7 +493,8 @@ export class Stage {
     
     spawnMidBoss() {
         const x = this.progress + CANVAS_WIDTH + 50;
-        const y = this.groundY - 75;
+        // 地面に直接配置 (LANE_OFFSET考慮)
+        const y = this.groundY + LANE_OFFSET - 66; // 足元がLANE_OFFSETに来るように高さ分引く
         const midBoss = createEnemy(ENEMY_TYPES.BUSHO, x, y, this.groundY);
         midBoss.hp = Math.round(midBoss.hp * 1.38);
         midBoss.maxHp = Math.round(midBoss.maxHp * 1.38);
@@ -512,11 +543,32 @@ export class Stage {
         this.bossSpawned = true;
         // スクロール位置を考慮してボスを配置
         const x = this.progress + CANVAS_WIDTH - 150;
-        const y = this.groundY - 90;
-        this.boss = createBoss(this.stageNumber, x, y, this.groundY);
+        // 地面に直接配置 (LANE_OFFSET考慮)
+        // 仮のYで生成し、その直後に正しいheightを用いて再設定。LANE_OFFSET(32)分だけ手前レーンに接地させる
+        const tempY = this.groundY + LANE_OFFSET - 90;
+        this.boss = createBoss(this.stageNumber, x, tempY, this.groundY);
+        // ボスの実際のサイズに基づいて足元を地面に合わせる
+        this.boss.y = this.groundY + LANE_OFFSET - this.boss.height;
         this.bossIntroTimer = this.bossIntroDuration;
         this.bossDefeatLingerTimer = 0;
-        
+
+        // ボス部屋の障害物を排除
+        this.obstacles = [];
+        this.obstacleTimer = 0;
+    
+        // 画面外の雑魚敵を消去
+        const scrollX = (window.game && window.game.scrollX) || 0;
+        this.enemies = this.enemies.filter(enemy => {
+            const ex = enemy.x + enemy.width / 2;
+            const isOnScreen = ex >= scrollX - 50 && ex <= scrollX + CANVAS_WIDTH + 50;
+            if (!isOnScreen) {
+                enemy.isAlive = false;
+                enemy.isDying = true;
+                return false;
+            }
+            return true;
+        });
+
         // BGM切り替え
         audio.playBgm('boss', this.stageNumber, 1500, 0);
     }
@@ -606,9 +658,13 @@ export class Stage {
 
         const dtMs = deltaTime * 1000;
         const dtScale = deltaTime * 60;
-        // 生成数を抑える (max 90 -> 50, interval 76 -> 120)
-        const maxLeaves = 50;
-        const spawnInterval = 120;
+        this.updateBambooFallingLeaves(dtMs, dtScale);
+    }
+
+    updateBambooFallingLeaves(dtMs, dtScale) {
+
+        const maxLeaves = 80; // 最大数を少し拡大
+        const spawnInterval = 140;
         this.bambooLeafSpawnTimer += dtMs;
 
         while (this.bambooLeafSpawnTimer >= spawnInterval) {
@@ -617,7 +673,7 @@ export class Stage {
             const depth = 0.45 + Math.random() * 0.55;
             const screenX = -60 + Math.random() * (CANVAS_WIDTH + 120);
             this.bambooFallingLeaves.push({
-                worldX: screenX + this.progress, // ワールド座標で管理
+                worldX: screenX + this.progress,
                 y: -30 - Math.random() * 180,
                 vx: (-0.22 - Math.random() * 0.5) * depth,
                 vy: (0.88 + Math.random() * 1.28) * (0.82 + depth * 0.55),
@@ -625,53 +681,60 @@ export class Stage {
                 rotV: (Math.random() - 0.5) * 0.06,
                 size: 6 + Math.random() * 9,
                 depth,
-                state: 'falling', // falling, grounded, flying
-                groundLife: 5000 + Math.random() * 4000, // 地面に留まる時間(ms)
-                maxGroundLife: 9000 // フェード用
+                state: 'falling',
+                groundLife: 6000 + Math.random() * 6000,
+                maxGroundLife: 12000
             });
         }
 
         const playerX = this.playerProbe ? (this.playerProbe.x + this.playerProbe.width * 0.5 - this.progress) : -9999;
+        const playerY = this.playerProbe ? (this.playerProbe.y + this.playerProbe.height) : 9999;
         const playerVX = this.playerProbe ? (this.playerProbe.vx || 0) : 0;
-        const playerNearGround = !!(this.playerProbe && this.playerProbe.y + this.playerProbe.height >= this.groundY - 10);
+        const isDashing = !!(this.playerProbe && this.playerProbe.isDashing); // ダッシュ判定
+
+        const cliffY = this.groundY + 120; // 路面パースに合わせて接地範囲を拡大
 
         for (let i = this.bambooFallingLeaves.length - 1; i >= 0; i--) {
             const leaf = this.bambooFallingLeaves[i];
+            const targetY = this.groundY + LANE_OFFSET + (leaf.depth - 0.5) * 16;
             
             if (leaf.state === 'falling') {
                 leaf.worldX += leaf.vx * dtScale;
                 leaf.y += leaf.vy * dtScale;
                 leaf.rot += leaf.rotV * dtScale + Math.sin((this.stageTime + i * 37) * 0.0038) * 0.003;
                 
-                const targetY = this.groundY + 12 * leaf.depth;
                 if (leaf.y >= targetY) {
                     leaf.y = targetY;
                     leaf.state = 'grounded';
-                    leaf.vx *= 0.3;
+                    leaf.vx *= 0.25;
                     leaf.vy = 0;
-                    leaf.rotV *= 0.2;
-                    leaf.rot += (Math.random() - 0.5) * 0.2;
-                    leaf.maxGroundLife = leaf.groundLife; // フェード開始基準
+                    leaf.rotV *= 0.15;
+                    leaf.maxGroundLife = leaf.groundLife;
                 }
             } else if (leaf.state === 'grounded') {
                 leaf.groundLife -= dtMs;
                 
                 if (Math.abs(leaf.vx) > 0.01) {
                     leaf.worldX += leaf.vx * dtScale;
-                    leaf.vx *= 0.85;
+                    leaf.vx *= 0.88;
                 }
                 
                 const screenX = leaf.worldX - this.progress;
-                if (playerNearGround) {
-                    const dx = screenX - playerX;
-                    const dist = Math.abs(dx);
-                    if (dist < 45) {
-                        const power = 0.4 + Math.abs(playerVX) * 0.15;
-                        leaf.state = 'flying';
-                        leaf.vy = - (1.2 + Math.random() * 1.5) * power;
-                        leaf.vx = (dx > 0 ? 1 : -1) * (0.5 + Math.random() * 1.5) * power;
-                        leaf.rotV = (Math.random() - 0.5) * 0.4;
-                    }
+                const dx = screenX - playerX;
+                const dy = leaf.y - playerY;
+                const distH = Math.abs(dx);
+                const distV = Math.abs(dy);
+
+                // 風圧による舞い上がり（ダッシュ中は範囲拡大）
+                const triggerDistH = isDashing ? 75 : 48;
+                const triggerDistV = isDashing ? 40 : 25;
+
+                if (distH < triggerDistH && distV < triggerDistV) {
+                    const power = (isDashing ? 1.4 : 0.6) + Math.abs(playerVX) * 0.18;
+                    leaf.state = 'flying';
+                    leaf.vy = - (1.3 + Math.random() * 1.8) * power;
+                    leaf.vx = (dx > 0 ? 1 : -1) * (0.6 + Math.random() * 2.0) * power + playerVX * 0.22;
+                    leaf.rotV = (Math.random() - 0.5) * 0.5;
                 }
 
                 if (leaf.groundLife <= 0) {
@@ -681,20 +744,20 @@ export class Stage {
             } else if (leaf.state === 'flying') {
                 leaf.worldX += leaf.vx * dtScale;
                 leaf.y += leaf.vy * dtScale;
-                leaf.vy += 0.08 * dtScale;
+                leaf.vy += 0.09 * dtScale; // 重力
                 leaf.rot += leaf.rotV * dtScale;
                 
-                if (leaf.y >= this.groundY + 14 * leaf.depth && leaf.vy > 0) {
-                    leaf.y = this.groundY + 14 * leaf.depth;
+                if (leaf.y >= targetY && leaf.vy > 0) {
+                    leaf.y = targetY;
                     leaf.state = 'grounded';
-                    leaf.vx = 0;
+                    leaf.vx *= 0.4;
                     leaf.vy = 0;
-                    leaf.rotV = 0;
+                    leaf.rotV *= 0.2;
                 }
             }
 
             const screenX = leaf.worldX - this.progress;
-            if (screenX < -200 || screenX > CANVAS_WIDTH + 200 || leaf.y > CANVAS_HEIGHT + 50) {
+            if (screenX < -250 || screenX > CANVAS_WIDTH + 250 || leaf.y > CANVAS_HEIGHT + 100) {
                 this.bambooFallingLeaves.splice(i, 1);
             }
         }
@@ -868,9 +931,15 @@ export class Stage {
         const bossColorFading = this.bossSpawned && this.bossDefeated && this.bossDefeatColorFade > 0;
         if (bossColorActive || bossColorFading) {
             const fadeIntensity = bossColorActive ? bossEncounterBlend : this.bossDefeatColorFade;
-            // 赤みをパルスさせる
-            const pulse = (0.45 + Math.sin(this.stageTime * 0.003) * 0.08) * fadeIntensity;
-            skyColors = [`rgba(80, 20, 20, ${pulse})`, `rgba(40, 10, 10, ${pulse})`];
+            // ステージ6（天守閣）は眩しくする、それ以外は赤黒く
+            if (this.stageNumber === 6) {
+                // 最終ボス戦：神々しく眩しい朝焼け（オレンジ〜黄金色）
+                const pulse = (0.9 + Math.sin(this.stageTime * 0.004) * 0.1) * fadeIntensity;
+                skyColors = [`rgba(255, 210, 100, ${(pulse * 0.95).toFixed(3)})`, `rgba(255, 140, 50, ${(pulse * 0.85).toFixed(3)})`];
+            } else {
+                const pulse = (0.45 + Math.sin(this.stageTime * 0.003) * 0.08) * fadeIntensity;
+                skyColors = [`rgba(80, 20, 20, ${pulse})`, `rgba(40, 10, 10, ${pulse})`];
+            }
         }
         
         // 空グラデーション
@@ -1150,7 +1219,7 @@ export class Stage {
             ctx.lineWidth = 1;
             ctx.stroke();
 
-            if (parallax > 0.35 && this.bgLayers.elements !== 'kaido' && this.bgLayers.elements !== 'bamboo') {
+            if (parallax > 0.35 && this.bgLayers.elements !== 'kaido' && this.bgLayers.elements !== 'bamboo' && this.bgLayers.elements !== 'mountain') {
                 const decoRoll = this.noise1D(seed + 9.17);
                 const flatColor = this.interpolateColor(
                     color,
@@ -1167,7 +1236,6 @@ export class Stage {
                     ctx.fillRect(tx, ridgeTopY + 10, 9, -postH1);
                     ctx.fillRect(tx + 30, ridgeTopY + 10, 9, -postH2);
                     ctx.fillRect(tx - 8, ridgeTopY - postH2 + 6, 55, -7);
-                    // 倒れた梁の追加で質感を上げる
                     ctx.beginPath();
                     ctx.moveTo(tx + 32, ridgeTopY - 4);
                     ctx.lineTo(tx + 62, ridgeTopY - 16);
@@ -1259,7 +1327,7 @@ export class Stage {
                 const fog = ctx.createLinearGradient(0, this.groundY - 260, 0, this.groundY + 20);
                 fog.addColorStop(0, 'rgba(166, 205, 178, 0)');
                 fog.addColorStop(0.45, 'rgba(132, 176, 140, 0.14)');
-                fog.addColorStop(1, 'rgba(96, 136, 102, 0.18)');
+                fog.addColorStop(1, 'rgba(56, 80, 60, 0.28)'); // 下に向かって暗く統一感を出し、横線っぽさをなくす
                 ctx.fillStyle = fog;
                 ctx.fillRect(0, this.groundY - 260, CANVAS_WIDTH, 300);
 
@@ -1277,30 +1345,64 @@ export class Stage {
                         const stalkW = layer.widthMin + this.noise1D(seed + 1.9) * layer.widthVar;
                         const h = layer.hMin + this.noise1D(seed + 2.6) * layer.hVar;
                         const sway = Math.sin(this.stageTime * 0.0015 + seed * 0.9) * (layer.sway + this.noise1D(seed + 3.4) * 1.8);
-                        const stalkX = x + sway * 0.4;
                         const topY = this.groundY - h;
 
-                        const stalkShade = ctx.createLinearGradient(stalkX - stalkW * 0.7, 0, stalkX + stalkW * 1.1, 0);
+                        // 根本のX座標と上部のX座標（上にいくほど揺れる）
+                        const bottomX = x;
+                        const topX = x + sway * 0.6; // 揺れ幅を少し調整
+
+                        // y座標に応じた竹のX座標を計算する関数 (二次曲線でしなりを表現)
+                        const getStalkX = (y) => {
+                            const t = 1 - Math.max(0, Math.min(1, (y - topY) / h)); // 0: 根本, 1: トップ
+                            return bottomX + (topX - bottomX) * (t * t);
+                        };
+
+                        const avgX = (topX + bottomX) * 0.5;
+                        const stalkShade = ctx.createLinearGradient(avgX - stalkW * 0.7, 0, avgX + stalkW * 1.1, 0);
                         stalkShade.addColorStop(0, this.interpolateColor('#4f6f43', '#0f1b11', 0.36));
                         stalkShade.addColorStop(0.45, this.interpolateColor('#94be73', '#304c2f', 0.3));
                         stalkShade.addColorStop(1, this.interpolateColor('#385536', '#08100a', 0.44));
                         ctx.fillStyle = stalkShade;
-                        ctx.fillRect(stalkX, topY, stalkW, h + 3);
+
+                        // ポリゴンで竹本体を描画（根本を固定）
+                        ctx.beginPath();
+                        ctx.moveTo(bottomX, this.groundY + 3);
+                        ctx.lineTo(bottomX + stalkW, this.groundY + 3);
+                        // 右側の縁を上に向かって描画
+                        for (let dy = this.groundY; dy >= topY; dy -= 20) {
+                            ctx.lineTo(getStalkX(dy) + stalkW, dy);
+                        }
+                        ctx.lineTo(topX + stalkW, topY);
+                        ctx.lineTo(topX, topY);
+                        // 左側の縁を下に向かって描画
+                        for (let dy = topY; dy <= this.groundY; dy += 20) {
+                            ctx.lineTo(getStalkX(dy), dy);
+                        }
+                        ctx.closePath();
+                        ctx.fill();
 
                         const nodeCount = 5 + Math.floor(this.noise1D(seed + 4.1) * 5);
                         ctx.fillStyle = this.interpolateColor('#3b5d31', '#101a0f', 0.45);
                         for (let n = 1; n <= nodeCount; n++) {
                             const ny = topY + (h * n) / (nodeCount + 1);
+                            const nx = getStalkX(ny);
                             const nodeH = 1.6 + this.noise1D(seed + 5.2 + n) * 1.6;
-                            ctx.fillRect(stalkX - stalkW * 0.12, ny, stalkW * 1.22, nodeH);
+                            // 節の描画
+                            ctx.beginPath();
+                            ctx.moveTo(nx - stalkW * 0.12, ny);
+                            ctx.lineTo(nx + stalkW * 1.1, ny);
+                            ctx.lineTo(nx + stalkW * 1.1, ny + nodeH);
+                            ctx.lineTo(nx - stalkW * 0.12, ny + nodeH);
+                            ctx.fill();
                         }
 
                         if (this.noise1D(seed + 6.4) > 0.22) {
                             const branchCount = 2 + Math.floor(this.noise1D(seed + 6.6) * 3);
                             for (let b = 0; b < branchCount; b++) {
                                 const by = topY + h * (0.18 + this.noise1D(seed + 7.1 + b) * 0.68);
+                                const bx = getStalkX(by);
                                 const offset = sway * (0.22 + b * 0.14);
-                                drawLeafCluster(stalkX + stalkW * 0.5 + offset, by, seed + 9.3 + b * 2.4, 0.54 + layer.parallax * 0.48, 0.44);
+                                drawLeafCluster(bx + stalkW * 0.5 + offset, by, seed + 9.3 + b * 2.4, 0.54 + layer.parallax * 0.48, 0.44);
                             }
                         }
                     }
@@ -1335,6 +1437,27 @@ export class Stage {
                     ctx.fill();
                 }
                 ctx.restore();
+
+                // ボス戦中：次のステージ（街道）の松を遠くに表示
+                if (this.bossSpawned && !this.bossDefeated) {
+                    ctx.save();
+                    ctx.globalAlpha = 0.22;
+                    const nextPara = 0.15;
+                    const nextScroll = p * nextPara;
+                    for (let i = 0; i < 5; i++) {
+                        const tx = CANVAS_WIDTH * 0.6 + i * 140 - (nextScroll % 200);
+                        const ty = this.groundY - 2;
+                        // 既に定義されているdrawPineと同等の簡易描画
+                        ctx.fillStyle = this.interpolateColor(currentPalette.far, '#2a3f2e', 0.4);
+                        ctx.fillRect(tx, ty - 60, 6, 60);
+                        ctx.beginPath();
+                        ctx.moveTo(tx - 25, ty - 50);
+                        ctx.lineTo(tx + 3, ty - 85);
+                        ctx.lineTo(tx + 31, ty - 50);
+                        ctx.fill();
+                    }
+                    ctx.restore();
+                }
                 break;
             }
                 
@@ -1574,6 +1697,21 @@ export class Stage {
                     ctx.closePath();
                     ctx.fill();
                 }
+
+                // ボス戦中：次のステージ（山道）の山並みシルエットを遠くに表示
+                if (this.bossSpawned && !this.bossDefeated) {
+                    ctx.save();
+                    ctx.globalAlpha = 0.28;
+                    const nx = CANVAS_WIDTH * 0.6;
+                    const nw = 460;
+                    const nh = 130;
+                    ctx.fillStyle = this.interpolateColor(currentPalette.far, '#2d3d4b', 0.4);
+                    ctx.beginPath();
+                    ctx.moveTo(nx - 80, this.groundY);
+                    ctx.bezierCurveTo(nx + nw * 0.2, this.groundY - nh, nx + nw * 0.6, this.groundY - nh * 0.8, nx + nw + 80, this.groundY);
+                    ctx.fill();
+                    ctx.restore();
+                }
                 break;
             }
 
@@ -1624,23 +1762,82 @@ export class Stage {
                 ctx.fillStyle = mist;
                 ctx.fillRect(0, this.groundY - 190, CANVAS_WIDTH, 180);
 
-                // 針葉樹の群れ
-                const pinePara = 0.5;
-                const pineSpan = 92;
-                const pineScroll = p * pinePara;
-                const pineStart = Math.floor((pineScroll - pineSpan * 3) / pineSpan);
-                const pineEnd = Math.ceil((pineScroll + CANVAS_WIDTH + pineSpan * 3) / pineSpan);
-                ctx.fillStyle = this.interpolateColor(currentPalette.near, '#0d1014', 0.42);
-                for (let i = pineStart; i <= pineEnd; i++) {
+                // 道沿いの岩・低木・苔むした石
+                const rockPara = 0.58;
+                const rockSpan = 130;
+                const rockScroll = p * rockPara;
+                const rockStart = Math.floor((rockScroll - rockSpan * 3) / rockSpan);
+                const rockEnd = Math.ceil((rockScroll + CANVAS_WIDTH + rockSpan * 3) / rockSpan);
+                for (let i = rockStart; i <= rockEnd; i++) {
                     const seed = i * 5.43;
-                    if (this.noise1D(seed + 0.9) < 0.35) continue;
-                    const x = i * pineSpan - pineScroll + this.noiseSigned(seed + 1.4) * 12;
-                    const h = 20 + this.noise1D(seed + 2.7) * 34;
+                    if (this.noise1D(seed + 0.9) < 0.28) continue;
+                    const x = i * rockSpan - rockScroll + this.noiseSigned(seed + 1.4) * 18;
+                    const roll = this.noise1D(seed + 6.2);
+
+                    if (roll > 0.62) {
+                        // 苔むした岩
+                        const rw = 18 + this.noise1D(seed + 2.1) * 28;
+                        const rh = 10 + this.noise1D(seed + 2.7) * 18;
+                        const rockGrad = ctx.createLinearGradient(x, this.groundY - rh, x, this.groundY);
+                        rockGrad.addColorStop(0, this.interpolateColor(currentPalette.near, '#3a4438', 0.52));
+                        rockGrad.addColorStop(1, this.interpolateColor(currentPalette.near, '#1a1e18', 0.62));
+                        ctx.fillStyle = rockGrad;
+                        ctx.beginPath();
+                        ctx.moveTo(x - 4, this.groundY);
+                        ctx.quadraticCurveTo(x + rw * 0.15, this.groundY - rh * 0.92, x + rw * 0.4, this.groundY - rh);
+                        ctx.quadraticCurveTo(x + rw * 0.7, this.groundY - rh * 0.88, x + rw + 4, this.groundY);
+                        ctx.closePath();
+                        ctx.fill();
+                        // 苔のハイライト
+                        ctx.fillStyle = `rgba(86, 112, 72, ${0.18 + this.noise1D(seed + 3.4) * 0.12})`;
+                        ctx.beginPath();
+                        ctx.ellipse(x + rw * 0.45, this.groundY - rh * 0.72, rw * 0.28, rh * 0.22, 0, 0, Math.PI * 2);
+                        ctx.fill();
+                    } else if (roll > 0.3) {
+                        // 低木（丸みのある自然なシルエット）
+                        const bw = 14 + this.noise1D(seed + 3.1) * 16;
+                        const bh = 12 + this.noise1D(seed + 3.6) * 14;
+                        const bushColor = this.interpolateColor(currentPalette.near, '#1a2818', 0.48);
+                        ctx.fillStyle = bushColor;
+                        ctx.beginPath();
+                        ctx.ellipse(x + bw * 0.5, this.groundY - bh * 0.5, bw * 0.56, bh * 0.56, 0, 0, Math.PI * 2);
+                        ctx.fill();
+                        // 横に小さい塊を2つ追加して自然に
+                        if (this.noise1D(seed + 4.2) > 0.4) {
+                            ctx.beginPath();
+                            ctx.ellipse(x + bw * 0.9, this.groundY - bh * 0.3, bw * 0.32, bh * 0.36, 0.2, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
+                    } else {
+                        // 小石の集まり
+                        const stoneCount = 2 + Math.floor(this.noise1D(seed + 5.1) * 3);
+                        ctx.fillStyle = this.interpolateColor(currentPalette.near, '#2a2824', 0.56);
+                        for (let s = 0; s < stoneCount; s++) {
+                            const sx = x + s * (6 + this.noise1D(seed + 5.5 + s) * 8);
+                            const sr = 3 + this.noise1D(seed + 5.8 + s) * 5;
+                            ctx.beginPath();
+                            ctx.ellipse(sx, this.groundY - sr * 0.4, sr, sr * 0.6, 0, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
+                    }
+                }
+
+                // ボス戦中：次のステージ（城下町）の瓦屋根シルエットを表示
+                if (this.bossSpawned && !this.bossDefeated) {
+                    ctx.save();
+                    ctx.globalAlpha = 0.25;
+                    const nextPara = 0.22;
+                    const nextScroll = p * nextPara;
+                    const nx = CANVAS_WIDTH * 0.65 - (nextScroll % 100);
+                    const ny = this.groundY - 10;
+                    ctx.fillStyle = this.interpolateColor(currentPalette.far, '#2d323e', 0.5);
                     ctx.beginPath();
-                    ctx.moveTo(x, this.groundY - 2);
-                    ctx.lineTo(x + 6, this.groundY - h);
-                    ctx.lineTo(x + 12, this.groundY - 2);
+                    ctx.moveTo(nx - 50, ny);
+                    ctx.quadraticCurveTo(nx + 40, ny - 45, nx + 130, ny);
+                    ctx.lineTo(nx + 120, ny + 8);
+                    ctx.quadraticCurveTo(nx + 40, ny - 30, nx - 40, ny + 8);
                     ctx.fill();
+                    ctx.restore();
                 }
                 break;
             }
@@ -1790,6 +1987,19 @@ export class Stage {
 
                     drawKawaraRoof(x, wallY, w, 34 + this.noise1D(seed + 15.3) * 22, this.interpolateColor('#6f7382', '#2c313f', 0.52), 0.18);
                 }
+
+                // ボス戦中：次のステージ（城内）の巨大な門のシルエットを表示
+                if (this.bossSpawned && !this.bossDefeated) {
+                    ctx.save();
+                    ctx.globalAlpha = 0.3;
+                    const nx = CANVAS_WIDTH * 0.7;
+                    const ny = this.groundY;
+                    ctx.fillStyle = this.interpolateColor(currentPalette.far, '#3d1c16', 0.6);
+                    ctx.fillRect(nx, ny - 180, 15, 180);
+                    ctx.fillRect(nx + 160, ny - 180, 15, 180);
+                    ctx.fillRect(nx - 20, ny - 190, 215, 25);
+                    ctx.restore();
+                }
                 break;
             }
 
@@ -1902,6 +2112,25 @@ export class Stage {
                     ctx.ellipse(lx, ly, r, r * 1.35, 0, 0, Math.PI * 2);
                     ctx.fill();
                 }
+
+                // ボス戦中：次のステージ（天守閣）へと続く階段のシルエットを表示
+                if (this.bossSpawned && !this.bossDefeated) {
+                    ctx.save();
+                    ctx.globalAlpha = 0.25;
+                    const nx = CANVAS_WIDTH * 0.7;
+                    const ny = this.groundY;
+                    ctx.fillStyle = '#1a0d0a';
+                    // 階段のシルエット
+                    const steps = 6;
+                    const sw = 45;
+                    const sh = 18;
+                    for (let i = 0; i < steps; i++) {
+                        ctx.fillRect(nx + i * sw, ny - (i + 1) * sh, sw + 10, (i + 1) * sh);
+                    }
+                    // 奥へと続く踊り場
+                    ctx.fillRect(nx + steps * sw, ny - steps * sh, 200, steps * sh);
+                    ctx.restore();
+                }
                 break;
             }
 
@@ -1948,6 +2177,17 @@ export class Stage {
                     ctx.fillStyle = 'rgba(188, 204, 232, 0.15)';
                     ctx.fillRect(x + 10, this.groundY - 72, 36, 2);
                     ctx.fillStyle = this.interpolateColor(currentPalette.near, '#111217', 0.34);
+                }
+
+                // ボス戦中：最終ステージなので次のステージはないが、夜明け（クリア後の朝焼け）を予感させる光を遠くに表示
+                if (this.bossSpawned && !this.bossDefeated) {
+                    ctx.save();
+                    const glow = ctx.createRadialGradient(CANVAS_WIDTH * 0.5, this.groundY - 120, 0, CANVAS_WIDTH * 0.5, this.groundY - 120, 300);
+                    glow.addColorStop(0, 'rgba(255, 150, 50, 0.15)');
+                    glow.addColorStop(1, 'rgba(255, 100, 50, 0)');
+                    ctx.fillStyle = glow;
+                    ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY);
+                    ctx.restore();
                 }
 
                 // 屋根瓦列
@@ -2066,11 +2306,11 @@ export class Stage {
         const horizonY = this.groundY;
         const bottomY = CANVAS_HEIGHT;
 
-        // 1. 路面（全画面パース）
+        // 1. 路面（天面）- 他ステージと同じく全面路面に変更し、彩度を抑えた苔や土の色に変更
         const roadGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
-        roadGrad.addColorStop(0, this.interpolateColor('#4a5735', '#1a2212', darken * 0.7));
-        roadGrad.addColorStop(0.6, this.interpolateColor('#6d8252', '#2a361a', darken * 0.5));
-        roadGrad.addColorStop(1, this.interpolateColor('#3d4a2d', '#0d1208', darken * 0.8)); // 手前を暗くして没入感を出す
+        roadGrad.addColorStop(0, this.interpolateColor('#354026', '#141a0e', darken * 0.65));
+        roadGrad.addColorStop(0.6, this.interpolateColor('#445232', '#1a2212', darken * 0.5));
+        roadGrad.addColorStop(1, this.interpolateColor('#303a22', '#10150a', darken * 0.65));
         ctx.fillStyle = roadGrad;
         ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
 
@@ -2084,29 +2324,46 @@ export class Stage {
         const playerNearGround = !!(this.playerProbe && this.playerProbe.isGrounded);
         const stompSpeed = this.playerProbe ? Math.min(1, Math.abs(this.playerProbe.vx || 0) / 6) : 0;
 
+        // 背景描画（大量の半透明ポリゴン描画は重いため、globalAlphaで一括設定する最適化）
+        ctx.save();
         for (let i = start; i <= end; i++) {
             const seed = i * 7.41;
-            const leafCount = 8 + Math.floor(this.noise1D(seed + 3.7) * 14);
+            const leafCount = 45 + Math.floor(this.noise1D(seed + 3.7) * 45); // 奥から手前まで均等に撒くため数を確保
             for (let l = 0; l < leafCount; l++) {
                 const ls = seed + l * 2.37;
-                const leafDepth = this.noise1D(ls + 9.2); // 0 (奥) ~ 1 (手前)
-                const lx = i * spacing - scroll + this.noiseSigned(ls + 1.1) * 22;
+                
+                // 平方根をやめ、純粋なノイズ（0〜1）で線形に分布させることで奥（0）にも手前（1）にも均等に敷き詰める
+                const leafDepth = this.noise1D(ls + 9.2);
+                const lx = i * spacing - scroll + this.noiseSigned(ls + 1.1) * 32;
+
+                if (lx < -40 || lx > CANVAS_WIDTH + 40) continue;
+
                 const ly = horizonY + leafDepth * (bottomY - horizonY);
                 
                 const dir = this.noise1D(ls + 4.8) > 0.5 ? 1 : -1;
-                const len = 7 + leafDepth * 6; // 落下葉っぱとサイズ感を統一
+                const len = 7 + leafDepth * 6;
+                
                 const playerDist = Math.abs(lx - playerScreenX);
                 const stomp = playerNearGround ? this.clamp01(1 - playerDist / 60) * (0.08 + stompSpeed * 0.15) : 0;
                 const sway = Math.sin(this.stageTime * 0.01 + ls) * (0.5 + stomp * 2);
-                const rot = Math.atan2(-4 + stomp * 0.8, dir * len + sway);
+                const baseRot = this.noise1D(ls + 8.1) * Math.PI * 2;
+                const rot = baseRot + sway * 0.2;
                 
-                const tintBase = this.interpolateColor('#8fac56', '#3e522d', 1 - leafDepth * 0.6);
-                const varColor = this.interpolateColor(tintBase, '#4a6a3f', this.noise1D(ls + 5.1) * 0.3);
+                // 落下葉っぱに近い、鮮やかな色味を使用（暗くしすぎると地面と同化しないが、地面に紛れるほどの彩度にする）
+                const tintBase = this.interpolateColor('#8fac56', '#5e723d', 1 - leafDepth * 0.6);
+                const varColor = this.interpolateColor(tintBase, '#6a8a4f', this.noise1D(ls + 5.1) * 0.4);
                 
-                // 落下葉っぱと同じ描画メソッドを使用
-                this.drawBambooLeaf(ctx, lx, ly, len, rot, varColor, (0.35 + (1 - darken) * 0.15) * (0.8 - leafDepth * 0.3));
+                // 完全な落下葉と同じ描画メソッド。
+                // 画面下部（leafDepthが1に近い）に行くほど薄くなるようグラデーション（フェードアウト）をかける
+                const edgeFade = 1.0 - Math.pow(Math.max(0, leafDepth - 0.5) * 2, 2); // 0.5以降から下部に向かって減衰
+                const alpha = Math.max(0, (0.5 + (1 - darken) * 0.2) * (0.8 - leafDepth * 0.2) * edgeFade);
+                
+                if (alpha > 0.05) { // ほぼ透明なものは描画スキップ
+                    this.drawBambooLeaf(ctx, lx, ly, len, rot, varColor, alpha);
+                }
             }
         }
+        ctx.restore();
 
         // (落下した葉っぱの描画はStage.render()内のrenderBambooFallingLeavesで行うため、ここでは削除)
 
@@ -2274,7 +2531,7 @@ export class Stage {
         ctx.globalAlpha = 1.0;
     }
 
-    renderSkyParticles(ctx, time) {
+    renderSkyParticles(ctx, time, bossEncounterBlend = 0) {
         const p = Math.max(0, Math.min(1, this.progress / this.maxProgress));
         let intensity = 0;
         if (this.stageNumber === 3) {
@@ -2286,11 +2543,19 @@ export class Stage {
         }
         if (intensity <= 0) return;
 
+        // 最終ステージ（朝焼け）の時は星をフェードアウトさせる
+        let starAlphaMultiplier = 1;
+        if (this.stageNumber === 6 && bossEncounterBlend > 0) {
+            // 朝焼け（太陽）が登るにつれて星を消す
+            starAlphaMultiplier = 1 - this.clamp01(bossEncounterBlend * 1.5);
+        }
+        if (starAlphaMultiplier <= 0) return; // 全てフェードアウトしたら描画スキップ
+
         for (const particle of this.skyParticles) {
             const x = particle.nx * CANVAS_WIDTH;
             const y = 20 + particle.ny * (this.groundY * 0.55);
             const twinkle = 0.5 + Math.sin(time * particle.speed + particle.phase) * 0.5;
-            const alpha = Math.max(0.08, twinkle) * intensity;
+            const alpha = Math.max(0.08, twinkle) * intensity * starAlphaMultiplier;
 
             ctx.fillStyle = `rgba(255, 255, 230, ${alpha})`;
             ctx.beginPath();
@@ -2314,11 +2579,14 @@ export class Stage {
         const p = Math.max(0, Math.min(1, this.progress / this.maxProgress));
         const stageP = this.smoothstep(0, 1, p);
         const isTenshuStage = this.stageNumber === 6;
-        const orbitRadiusX = CANVAS_WIDTH * (isTenshuStage ? 0.48 : 0.5);
-        const orbitRadiusY = this.groundY * (isTenshuStage ? 0.76 : 0.68);
-        const orbitCenterY = this.groundY + (isTenshuStage ? 24 : 20);
-        const orbitUpperClampY = isTenshuStage ? -16 : -8;
-        const orbitLowerClampY = this.groundY + (isTenshuStage ? 60 : 46);
+        
+        // 軌道をより画面中央寄りに狭め、画面外にはみ出しにくくする
+        const orbitRadiusX = CANVAS_WIDTH * (isTenshuStage ? 0.3 : 0.4); // 狭める
+        const orbitRadiusY = this.groundY * (isTenshuStage ? 0.58 : 0.45); // 狭める
+        // 中心を下げて、起動の頂点と底を調整
+        const orbitCenterY = this.groundY * (isTenshuStage ? 0.5 : 0.4); // 中心を調整
+        const orbitUpperClampY = isTenshuStage ? 30 : 40; // 上限を調整
+        const orbitLowerClampY = this.groundY - (isTenshuStage ? 20 : 10); // 下限を調整
         const parallaxDrift = (this.progress * 0.02) % (CANVAS_WIDTH * 1.5);
 
         const drawBody = (cx, cy, r, alpha, coreTop, coreBottom, glowColor, isMoon = false) => {
@@ -2330,13 +2598,14 @@ export class Stage {
             ctx.translate(px, cy);
             ctx.globalAlpha = alpha;
 
-            const glow = ctx.createRadialGradient(0, 0, r * 0.4, 0, 0, r * 3.2);
-            glow.addColorStop(0, `${glowColor.replace('ALPHA', (0.46 * alpha).toFixed(3))}`);
-            glow.addColorStop(0.55, `${glowColor.replace('ALPHA', (0.18 * alpha).toFixed(3))}`);
+            // 眩しいグロー（サイズをより大きく）
+            const glow = ctx.createRadialGradient(0, 0, r * 0.4, 0, 0, r * (isTenshuStage ? 4.5 : 3.8)); // 最終ステージはさらに大きく
+            glow.addColorStop(0, `${glowColor.replace('ALPHA', (0.6 * alpha).toFixed(3))}`);
+            glow.addColorStop(0.4, `${glowColor.replace('ALPHA', (0.25 * alpha).toFixed(3))}`);
             glow.addColorStop(1, `${glowColor.replace('ALPHA', '0')}`);
             ctx.fillStyle = glow;
             ctx.beginPath();
-            ctx.arc(0, 0, r * 3.2, 0, Math.PI * 2);
+            ctx.arc(0, 0, r * (isTenshuStage ? 4.5 : 3.8), 0, Math.PI * 2); // 最終ステージはさらに大きく
             ctx.fill();
 
             const coreGrad = ctx.createLinearGradient(0, -r, 0, r);
@@ -2371,35 +2640,34 @@ export class Stage {
 
         switch (this.stageNumber) {
             case 1:
-                // 月は「ほぼ見えない」状態で始まり、中盤以降は朝焼け主体へ
                 sunTheta = Math.PI * (-0.34 + stageP * 0.58);
                 moonTheta = Math.PI * (0.72 + stageP * 0.52);
                 moonVisibilityScale = 0.08 * (1 - this.smoothstep(0.12, 0.72, stageP));
                 break;
             case 2:
-                // 昼時
                 sunTheta = Math.PI * (0.56 - stageP * 0.14);
                 moonTheta = sunTheta + Math.PI * 1.08;
                 moonVisibilityScale = 0;
                 break;
             case 3:
-                // 夕暮れ
                 sunTheta = Math.PI * (0.34 - stageP * 0.42);
                 moonTheta = Math.PI * (-0.36 + stageP * 0.54);
                 moonVisibilityScale = this.smoothstep(0.5, 1, stageP) * 0.72;
                 break;
             case 4:
-                // 夕方から星が見え出すまで
                 sunTheta = Math.PI * (0.06 - stageP * 0.38);
                 moonTheta = Math.PI * (-0.22 + stageP * 0.56);
                 moonVisibilityScale = 0.36 + this.smoothstep(0.34, 1, stageP) * 0.64;
                 break;
             case 6:
-                // 開始時は月がほぼ真上・中央。終盤で朝焼けへ。
-                moonTheta = Math.PI * (0.5 + stageP * 0.94);
-                sunTheta = Math.PI * (-0.56 + stageP * 0.7);
-                moonVisibilityScale = 1 - this.smoothstep(0.56, 1, stageP) * 0.88;
-                sunVisibilityScale = 0.82 + this.smoothstep(0.56, 1, stageP) * 0.38;
+                // 月は中盤すぎ(75%)まで残り、そこからゆっくり地平線に沈む（沈む前に消えない）
+                moonTheta = Math.PI * (0.5 + stageP * 0.45);
+                // 太陽は50%から準備し、終盤に左下(Theta ≈ 0.1π)へ昇る調整
+                sunTheta = Math.PI * (-0.45 + stageP * 0.55);
+                
+                // 月: 75%からフェードアウト、太陽: 50%からフェードイン（重なる時間を長く）
+                moonVisibilityScale = 1 - this.smoothstep(0.75, 1.0, stageP);
+                sunVisibilityScale = this.smoothstep(0.5, 1.0, stageP);
                 break;
             default:
                 sunTheta = Math.PI * (0.24 - stageP * 0.24);
@@ -2410,8 +2678,8 @@ export class Stage {
         const sunAltitude = Math.sin(sunTheta);
         const moonAltitude = Math.sin(moonTheta);
 
-        const sunVisible = this.smoothstep(-0.22, 0.2, sunAltitude) * sunVisibilityScale;
-        const moonVisible = this.smoothstep(-0.22, 0.2, moonAltitude) * moonVisibilityScale;
+        const sunVisible = this.smoothstep(-0.28, 0.2, sunAltitude) * sunVisibilityScale;
+        const moonVisible = this.smoothstep(-0.28, 0.2, moonAltitude) * moonVisibilityScale;
         const warmFactor = 1 - this.smoothstep(0.08, 0.78, sunAltitude);
 
         const sunX = CANVAS_WIDTH * 0.5 - Math.cos(sunTheta) * orbitRadiusX + parallaxDrift;
@@ -2421,19 +2689,21 @@ export class Stage {
         const sunY = Math.max(orbitUpperClampY, Math.min(orbitLowerClampY, sunYRaw));
         const moonY = Math.max(orbitUpperClampY, Math.min(orbitLowerClampY, moonYRaw));
 
-        const sunRadius = (isTenshuStage ? 76 : 45) * (1 + warmFactor * 0.1);
-        const moonRadius = isTenshuStage ? 108 : (this.stageNumber === 1 ? 34 : 40);
+        // 最終ステージは太陽も月も同じ超特大サイズにする
+        const celestialRadius = isTenshuStage ? 140 : 45; // 共通の大きな値に変更
+        const sunRadius = celestialRadius * (1 + warmFactor * 0.1);
+        const moonRadius = isTenshuStage ? celestialRadius : (this.stageNumber === 1 ? 34 : 40);
 
         let sunTop = this.interpolateColor('#fff7dc', '#ffd194', warmFactor);
         let sunBottom = this.interpolateColor('#fff0c8', '#ffba74', warmFactor);
         let sunGlow = `rgba(255, 198, 118, ALPHA)`;
-        if (this.stageNumber === 1) {
-            // 昇り始めはより朝焼けらしい橙色へ寄せる
+        if (this.stageNumber === 1 || isTenshuStage) {
+            // 昇り始めはより朝焼けらしい橙色へ寄せる（最終ステージも適応して眩しく）
             const dawnSun = this.clamp01(1 - this.smoothstep(0.14, 0.66, sunAltitude));
-            sunTop = this.interpolateColor(sunTop, '#ffd9b4', dawnSun * 0.78);
-            sunBottom = this.interpolateColor(sunBottom, '#ff8f4e', dawnSun * 0.96);
-            const glowG = Math.round(198 - dawnSun * 44);
-            const glowB = Math.round(118 - dawnSun * 36);
+            sunTop = this.interpolateColor(sunTop, '#ffd9b4', dawnSun * 0.85);
+            sunBottom = this.interpolateColor(sunBottom, '#ff7a33', dawnSun * 1.0); // より鮮やかなオレンジ
+            const glowG = Math.round(180 - dawnSun * 40);
+            const glowB = Math.round(100 - dawnSun * 40);
             sunGlow = `rgba(255, ${glowG}, ${glowB}, ALPHA)`;
         }
 
@@ -2445,17 +2715,19 @@ export class Stage {
             sunTop,
             sunBottom,
             sunGlow,
-            false
+            false // 太陽
         );
+
+        // 月のグローも環境光に負けないように明るい白銀にする
         drawBody(
             moonX,
             moonY,
             moonRadius,
             moonVisible,
-            '#f3f6ff',
-            '#dde6f5',
-            `rgba(192, 216, 255, ALPHA)`,
-            true
+            '#f8f9fa',
+            '#ced4da',
+            `rgba(240, 248, 255, ALPHA)`,
+            true // 月
         );
     }
     

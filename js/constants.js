@@ -10,6 +10,10 @@ export const CANVAS_HEIGHT = 720;
 export const GRAVITY = 0.8;
 export const FRICTION = 0.85;
 
+// レーンY軸オフセット（groundY からの相対値）
+// プレイヤー・敵・影・分身・ジェム・障害物等の標準接地レーン
+export const LANE_OFFSET = 32;
+
 // プレイヤー定数
 export const PLAYER = {
     WIDTH: 40,

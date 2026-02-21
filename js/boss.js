@@ -2,10 +2,11 @@
 // Unification of the Nation - ボスクラス
 // ============================================
 
-import { COLORS, GRAVITY, CANVAS_WIDTH } from './constants.js';
+import { COLORS, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js';
 import { Enemy } from './enemy.js';
 import { createSubWeapon } from './weapon.js';
 import { audio } from './audio.js';
+import { Player, ANIM_STATE } from './player.js';
 
 const ENEMY_HEADBAND_BASE = '#4f2f72';
 const ENEMY_HEADBAND_HIGHLIGHT = '#7e58a6';
@@ -108,7 +109,7 @@ class Boss extends Enemy {
         const absX = Math.abs(diffX);
         const dirToPlayer = diffX >= 0 ? 1 : -1;
 
-        if (!this.isAttacking && absX > 16) {
+        if (!this.isAttacking && this.hitTimer <= 0 && absX > 16) {
             this.facingRight = dirToPlayer > 0;
         }
 
@@ -386,7 +387,7 @@ export class KayakudamaTaisho extends Boss {
                     this.x += this.vx;
                     this.y += this.vy;
                     this.timer += dt * 1000;
-                    if (this.y + this.radius >= this.groundY || this.timer >= this.maxTimer) {
+                    if (this.y + this.radius >= this.groundY + LANE_OFFSET || this.timer >= this.maxTimer) {
                         this.explode();
                     }
                     return false;
@@ -1407,15 +1408,42 @@ export class OdachiBusho extends Boss {
         this.speed = 3.2;
         this.width = 70;
         this.height = 100;
-        this.attackRange = 120;
+        this.attackRange = 180; // リーチ拡大
         this.attackPatterns = ['odachi'];
         this.setupWeaponReplica('大太刀');
+        if (this.weaponReplica) {
+            this.weaponReplica.range = 100; // 巨大化 (デフォルト74)
+        }
+        this.forceSubWeaponRender = true;
     }
     
     startAttack() {
-        this.currentPattern = 'odachi';
         const toolTier = this.getSubWeaponEnhanceTier();
         this.attackCooldown = Math.max(240, 420 - toolTier * 24);
+
+        // プレイヤーまでの距離と確率によって特殊攻撃（Xスキル＝上昇斬り＋衝撃波）を使用
+        let useSpecial = false;
+        if (this.targetPlayer && this.weaponReplica) {
+            const dist = Math.abs((this.targetPlayer.x + this.targetPlayer.width/2) - (this.x + this.width/2));
+            // 距離が近すぎず遠すぎない、かつ25%の確率で特殊攻撃
+            if (dist > 40 && dist < 160 && Math.random() < 0.25) {
+                useSpecial = true;
+            }
+        }
+
+        if (useSpecial) {
+            this.currentPattern = 'odachi_special';
+            // 武器の .use() を直接呼び出し、Nodachi特有の特殊攻撃を発動
+            this.applyWeaponReplicaEnhancement();
+            this.weaponReplica.use(this);
+            this.isAttacking = true;
+            this.attackTimer = this.weaponReplica.attackTimer || this.weaponReplica.totalDuration || 0;
+            // Xスキルの後は隙を大きくする
+            this.attackCooldown += 400; 
+            return;
+        }
+
+        this.currentPattern = 'odachi';
         if (this.startWeaponReplicaAttack()) return;
         this.isAttacking = true;
         this.attackTimer = 680;
@@ -1432,30 +1460,59 @@ export class OdachiBusho extends Boss {
     }
     
     renderBody(ctx) {
+        // 現在の攻撃パターンが Xスキルの場合は、専用の weaponMode を指定する
+        const isSpecial = this.currentPattern === 'odachi_special';
+        const currentWeaponMode = isSpecial ? 'odachi_special' : 'odachi';
+        // Xスキル時はNodachiの攻撃時間を使用、通常時は680ms
+        const currentAttackDuration = isSpecial && this.weaponReplica
+            ? (this.weaponReplica.totalDuration || 680)
+            : 680;
+        
+        // プレイヤーと同じ大太刀の見た目・サイズ・エフェクトを実現するため、
+        // 共通モデル描画では武器を抑制し、実物の Nodachi クラスに描画を委ねる
+        // 武器の実体から正確な手の位置（pose）を取得
+        const handPose = this.weaponReplica ? this.weaponReplica.getPose(this) : null;
+
         this.renderUnifiedEnemyModel(ctx, {
-            weaponMode: 'odachi',
+            weaponMode: currentWeaponMode,
+            suppressWeaponDraw: true, 
             headStyle: 'kabuto',
-            armorRows: 4,
-            headRatio: 0.185,
-            armScale: 1.18,
-            torsoLeanScale: 1.14,
-            attackDurationMs: 680,
-            weaponScale: 1.28,
+            crestVariant: 'mikazuki_major', 
+            handPose: handPose, // 正確な座標を渡す
+            crestLengthScale: 0.95, // 少し控えめに
+            crestArcHeightScale: 0.9,
+            armorRows: 5,
+            headRatio: 0.175,
+            armScale: 1.2,
+            torsoLeanScale: 1.15,
+            attackDurationMs: currentAttackDuration,
+            weaponScale: 1.2, 
+            backCape: true, 
+// ... (palette remains same)
             palette: {
                 legBack: '#111',
-                legFront: '#171717',
-                robe: '#34272d',
-                robeShade: '#291f25',
-                torsoCore: '#161515',
-                armorA: '#5a4a50',
-                armorB: '#43373c',
-                armorEdge: '#c48f5f',
-                shoulder: '#6b5a62',
-                helmTop: '#302621',
-                helmBottom: '#1d1713',
-                crest: '#ae5c46'
+                legFront: '#1a1a1a',
+                robe: '#2b1f1f',
+                robeShade: '#1f1616',
+                torsoCore: '#151515',
+                armorA: '#222',         // 漆黒の鎧
+                armorB: '#111',
+                armorEdge: '#d4af37',   // 純金の縁取り
+                shoulder: '#333',
+                helmTop: '#1a1a1a',
+                helmBottom: '#0a0a0a',
+                crest: '#ffcc00',       // 黄金の前立て
+                accent: '#ef4c4c',
+                capeTop: '#4e0b0b',     // 深緋色のマント
+                capeMid: '#3a0808',
+                capeBottom: '#1a0404'
             }
         });
+
+        // 大太刀実体を描画（これでプレイヤーと完全に同じ見た目・エフェクトになる）
+        if (this.weaponReplica) {
+            this.weaponReplica.render(ctx, this);
+        }
         return;
         const dir = this.facingRight ? 1 : -1;
         const centerX = this.x + this.width * 0.5;
@@ -1695,995 +1752,597 @@ export class Shogun extends Boss {
     init() {
         super.init();
         this.bossName = '将軍';
-        this.weaponDrop = null;
-        this.hp = 1520;
-        this.maxHp = 1520;
-        this.incomingDamageScale = 0.61;
-        this.damage = 5;
-        this.speed = 4.25;
-        this.width = 80;
-        this.height = 110;
-        this.attackRange = 146;
-        this.maxPhase = 1;
-        this.attackDuration = 500;
-        this.attackFlags = Object.create(null);
-        this.weaponTrailPulse = 0;
+        this.hp = 3000;
+        this.maxHp = 3000;
         
-        // 全ボスの技を使用可能
-        this.attackPatterns = [
-            'thrust', 'sweep',           // 槍
-            'double', 'dash',             // 二刀
-            'throw',                      // 鎖鎌
-            'heavy', 'shockwave',         // 大太刀
-            'shadow_step',                // 瞬歩
-            'sorcery_volley',             // 妖術連射
-            'arcane_rush',                // 妖術瞬閃
-            'arcane_burst', 'void_pillars', // 妖術
-            'ultimate'                    // 固有技
-        ];
-        this.patternHistory = [];
-    }
-
-    pickPattern(availablePatterns) {
-        const recent = this.patternHistory.slice(-2);
-        let candidates = availablePatterns.filter(p => !recent.includes(p));
-        if (candidates.length === 0) candidates = availablePatterns.slice();
-        candidates.push('dash', 'shadow_step', 'arcane_rush');
-
-        const pattern = candidates[Math.floor(Math.random() * candidates.length)];
-        this.patternHistory.push(pattern);
-        if (this.patternHistory.length > 6) this.patternHistory.shift();
-        return pattern;
-    }
-
-    playPatternStartSfx(pattern) {
-        switch (pattern) {
-            case 'thrust':
-            case 'heavy':
-            case 'shockwave':
-            case 'double':
-            case 'sweep':
-                audio.playSlash(3);
-                break;
-            case 'dash':
-            case 'shadow_step':
-            case 'arcane_rush':
-                audio.playDash();
-                break;
-            case 'arcane_burst':
-            case 'sorcery_volley':
-            case 'void_pillars':
-                audio.playSpecial();
-                break;
-            case 'ultimate':
-                audio.playSpecial();
-                audio.playDash();
-                break;
-            default:
-                audio.playSlash(2);
-                break;
+        // プレイヤー側で強化した大太刀を装備
+        this.weaponReplica = createSubWeapon('大太刀');
+        if (this.weaponReplica) {
+            this.weaponReplica.isBossWeapon = true;
+            this.weaponReplica.scale = 1.6; 
         }
+        
+        // 攻撃パターン (Zコンボの頻度を上げる)
+        this.attackPatterns = [
+            'z_combo', 'z_combo', 'z_combo', 'z_combo', // 高確率でZコンボ
+            'shuriken', 'bomb', 'spear', 'shuriken'
+        ];
+        
+        // 忍具用の武器インスタンスキャッシュ（描画用）
+        this.subWeaponInstances = {
+            'shuriken': createSubWeapon('手裏剣'),
+            'bomb': createSubWeapon('火薬玉'),
+            'spear': createSubWeapon('大槍'),
+            'kunai': createSubWeapon('手裏剣'), // クナイは手裏剣モデルで代用
+            'kusarigama': createSubWeapon('鎖鎌')
+        };
+        for (const key in this.subWeaponInstances) {
+            const inst = this.subWeaponInstances[key];
+            if (inst) {
+                inst.scale = 3.2; // 将軍スケールに合わせる
+                inst.isBossWeapon = true;
+            }
+        }
+
+        // --- 独自のアニメーション管理 (Actor) ---
+        this.actor = new Player(0, 0, this.groundY);
+        this.actor.width = 40;  // 内部的には標準サイズ
+        this.actor.height = 60;
+        
+        // 攻撃パターン: Z連撃と各種忍具
+        this.attackPatterns = ['z_combo', 'shuriken', 'bomb', 'spear', 'kunai', 'kusarigama'];
+        this.comboStep = 0;
+        this.subWeaponAction = '';
     }
-    
+
+    update(deltaTime, player) {
+        const shouldRemove = super.update(deltaTime, player);
+        if (shouldRemove) return true;
+
+        // internal actor の状態を同期
+        this.actor.x = this.x;
+        this.actor.y = this.y;
+        this.actor.vx = this.vx;
+        this.actor.vy = this.vy;
+        this.actor.facingRight = this.facingRight;
+        this.actor.isGrounded = this.isGrounded;
+        this.actor.motionTime = this.motionTime;
+        this.actor.targetPlayer = player;
+        
+        return false;
+    }
+
     startAttack() {
         this.isAttacking = true;
-        this.attackFlags = Object.create(null);
         this.attackFacingRight = this.facingRight;
-        this.weaponTrailPulse = 280;
+        this.attackFlags = Object.create(null);
         
-        const availablePatterns = [
-            'thrust', 'double', 'dash', 'throw', 'heavy', 'shockwave', 'shadow_step',
-            'arcane_burst', 'arcane_burst', 'sorcery_volley', 'void_pillars', 'void_pillars', 'arcane_rush',
-            'ultimate'
-        ];
-        
-        const pattern = this.pickPattern(availablePatterns);
+        // パターン選択
+        const pattern = this.attackPatterns[Math.floor(Math.random() * this.attackPatterns.length)];
         this.currentPattern = pattern;
-        this.playPatternStartSfx(pattern);
-        
-        switch (pattern) {
-            case 'arcane_burst':
-                this.attackDuration = 540;
-                this.attackTimer = this.attackDuration;
-                this.attackCooldown = 360;
-                break;
-            case 'void_pillars':
-                this.attackDuration = 610;
-                this.attackTimer = this.attackDuration;
-                this.attackCooldown = 410;
-                break;
-            case 'ultimate':
-                this.attackDuration = 680;
-                this.attackTimer = this.attackDuration;
-                this.attackCooldown = 500;
-                break;
-            case 'sorcery_volley':
-                this.attackDuration = 650;
-                this.attackTimer = this.attackDuration;
-                this.attackCooldown = 430;
-                break;
-            case 'shadow_step':
-                this.attackDuration = 430;
-                this.attackTimer = this.attackDuration;
-                this.attackCooldown = 280;
-                break;
-            case 'arcane_rush':
-                this.attackDuration = 450;
-                this.attackTimer = this.attackDuration;
-                this.attackCooldown = 300;
-                break;
-            case 'dash':
-                this.attackDuration = 270;
-                this.attackTimer = this.attackDuration;
-                this.attackCooldown = 210;
-                break;
-            case 'shockwave':
-                this.attackDuration = 340;
-                this.attackTimer = this.attackDuration;
-                this.attackCooldown = 240;
-                break;
-            default:
-                this.attackDuration = 230;
-                this.attackTimer = this.attackDuration;
-                this.attackCooldown = 190;
+
+        if (pattern === 'z_combo') {
+            this.comboStep = 1;
+            this.startComboStep(1);
+        } else {
+            // 忍具
+            const subWeaponNameMap = {
+                'shuriken': '手裏剣', 'bomb': '火薬玉', 'spear': '大槍', 'kunai': 'クナイ', 'kusarigama': '鎖鎌'
+            };
+            this.subWeaponAction = subWeaponNameMap[pattern] || '手裏剣';
+            this.attackDuration = 450;
+            this.attackTimer = this.attackDuration;
+            this.attackCooldown = 550;
+            audio.playSlash(2);
         }
+    }
+
+    startComboStep(step) {
+        this.comboStep = step;
+        // 段数に応じたアニメーション時間
+        const durations = [0, 180, 180, 240, 280, 360];
+        this.attackDuration = durations[step] || 200;
+        this.attackTimer = this.attackDuration;
+        this.attackFlags = Object.create(null);
+        audio.playSlash(Math.min(4, step));
     }
 
     updateAttack(deltaTime) {
         const player = this.targetPlayer;
-        const progress = Math.max(0, Math.min(1, 1 - (this.attackTimer / Math.max(1, this.attackDuration))));
-        this.weaponTrailPulse = Math.max(0, this.weaponTrailPulse - deltaTime * 1000);
-
-        // 攻撃中の向きを固定してブルブルを抑える
-        this.facingRight = !!this.attackFacingRight;
+        const progress = 1 - (this.attackTimer / Math.max(1, this.attackDuration));
         const dir = this.facingRight ? 1 : -1;
 
-        switch (this.currentPattern) {
-            case 'thrust':
-                if (!this.attackFlags.thrustDash) {
-                    this.vx = dir * this.speed * 4.2;
-                    this.attackFlags.thrustDash = true;
-                } else if (progress > 0.34) {
-                    this.vx *= 0.86;
-                }
-                if (progress >= 0.22 && !this.attackFlags.thrustSwingSfx) {
-                    audio.playSpear();
-                    if (window.game && typeof window.game.queueHitFeedback === 'function') {
-                        window.game.queueHitFeedback(5.8, 72);
-                    }
-                    this.attackFlags.thrustSwingSfx = true;
-                }
-                break;
-            case 'dash':
-                if (!this.attackFlags.highDash) {
-                    this.vx = dir * this.speed * 5.8;
-                    this.attackFlags.highDash = true;
-                } else if (progress > 0.5) {
-                    this.vx *= 0.82;
-                }
-                if (progress >= 0.28 && !this.attackFlags.dashSwingSfx) {
-                    audio.playSlash(4);
-                    if (window.game && typeof window.game.queueHitFeedback === 'function') {
-                        window.game.queueHitFeedback(6.6, 84);
-                    }
-                    this.attackFlags.dashSwingSfx = true;
-                }
-                break;
-            case 'arcane_burst':
-                this.vx *= 0.72;
-                if (player && progress >= 0.22 && !this.attackFlags.burstA) {
-                    this.spawnArcaneBurst(player, 1);
-                    audio.playSpecial();
-                    this.attackFlags.burstA = true;
-                }
-                if (player && progress >= 0.48 && !this.attackFlags.burstB) {
-                    this.spawnArcaneBurst(player, 2);
-                    audio.playSpecial();
-                    this.attackFlags.burstB = true;
-                }
-                break;
-            case 'sorcery_volley':
-                this.vx *= 0.64;
-                if (player && progress >= 0.14 && !this.attackFlags.volleyA) {
-                    this.spawnArcaneBurst(player, 2);
-                    audio.playSpecial();
-                    this.attackFlags.volleyA = true;
-                }
-                if (player && progress >= 0.33 && !this.attackFlags.volleyB) {
-                    this.spawnArcaneBurst(player, 3);
-                    audio.playSpecial();
-                    this.attackFlags.volleyB = true;
-                }
-                if (player && progress >= 0.55 && !this.attackFlags.volleyC) {
-                    this.spawnArcaneBurst(player, 4);
-                    audio.playSpecial();
-                    this.attackFlags.volleyC = true;
-                }
-                if (player && progress >= 0.7 && !this.attackFlags.volleyPillar) {
-                    this.spawnVoidPillars(player, true);
-                    audio.playExplosion();
-                    this.attackFlags.volleyPillar = true;
-                }
-                break;
-            case 'void_pillars':
-                this.vx *= 0.66;
-                if (player && progress >= 0.2 && !this.attackFlags.pillarA) {
-                    this.spawnVoidPillars(player, false);
-                    audio.playExplosion();
-                    this.attackFlags.pillarA = true;
-                }
-                if (player && progress >= 0.5 && !this.attackFlags.pillarB) {
-                    this.spawnVoidPillars(player, true);
-                    audio.playExplosion();
-                    this.attackFlags.pillarB = true;
-                }
-                break;
-            case 'ultimate':
-                this.vx *= 0.52;
-                if (player && progress >= 0.14 && !this.attackFlags.ultBurstA) {
-                    this.spawnArcaneBurst(player, 3);
-                    audio.playSpecial();
-                    this.attackFlags.ultBurstA = true;
-                }
-                if (player && progress >= 0.4 && !this.attackFlags.ultPillar) {
-                    this.spawnVoidPillars(player, true);
-                    audio.playExplosion();
-                    this.attackFlags.ultPillar = true;
-                }
-                if (player && progress >= 0.64 && !this.attackFlags.ultBurstB) {
-                    this.spawnArcaneBurst(player, 4);
-                    audio.playSpecial();
-                    this.attackFlags.ultBurstB = true;
-                }
-                break;
-            case 'shadow_step':
-                this.vx *= 0.58;
-                if (player && progress >= 0.16 && !this.attackFlags.stepWarp) {
-                    const playerCenterX = player.x + player.width / 2;
-                    const warpDir = player.facingRight ? -1 : 1;
-                    this.x = playerCenterX + warpDir * 72 - this.width / 2;
-                    this.y = this.groundY - this.height;
-                    this.facingRight = warpDir < 0;
-                    this.attackFacingRight = this.facingRight;
-                    this.vx = (this.facingRight ? 1 : -1) * this.speed * 4.7;
-                    audio.playDash();
-                    this.attackFlags.stepWarp = true;
-                } else if (this.attackFlags.stepWarp && progress > 0.3) {
-                    this.vx *= 0.82;
-                }
-                if (player && progress >= 0.44 && !this.attackFlags.stepBurst) {
-                    this.spawnArcaneBurst(player, 2);
-                    audio.playSpecial();
-                    this.attackFlags.stepBurst = true;
-                }
-                break;
-            case 'arcane_rush':
-                this.vx *= 0.62;
-                if (player && progress >= 0.14 && !this.attackFlags.rushWarp) {
-                    const playerCenterX = player.x + player.width / 2;
-                    const backDir = player.facingRight ? -1 : 1;
-                    this.x = playerCenterX + backDir * 84 - this.width / 2;
-                    this.y = this.groundY - this.height;
-                    this.facingRight = backDir < 0;
-                    this.attackFacingRight = this.facingRight;
-                    this.vx = (this.facingRight ? 1 : -1) * this.speed * 5.8;
-                    audio.playDash();
-                    this.attackFlags.rushWarp = true;
-                } else if (this.attackFlags.rushWarp && progress > 0.32) {
-                    this.vx *= 0.86;
-                }
-                if (player && progress >= 0.28 && !this.attackFlags.rushBurstA) {
-                    this.spawnArcaneBurst(player, 2);
-                    audio.playSpecial();
-                    this.attackFlags.rushBurstA = true;
-                }
-                if (player && progress >= 0.56 && !this.attackFlags.rushBurstB) {
-                    this.spawnArcaneBurst(player, 3);
-                    audio.playSpecial();
-                    this.attackFlags.rushBurstB = true;
-                }
-                break;
-            default:
-                this.vx *= 0.82;
-                if (progress >= 0.3 && !this.attackFlags.defaultSwingSfx) {
-                    audio.playSlash(3);
-                    this.attackFlags.defaultSwingSfx = true;
-                }
-                break;
-        }
+        if (this.currentPattern === 'z_combo') {
+            // 踏み込み
+            if (progress < 0.3) {
+                this.vx = dir * this.speed * (2.8 + this.comboStep * 0.4);
+            } else {
+                this.vx *= 0.88;
+            }
 
-        this.attackTimer -= deltaTime * 1000;
-        if (this.attackTimer <= 0) {
-            this.isAttacking = false;
-            this.attackTimer = 0;
-            this.vx *= 0.55;
+            // 次の段へ
+            this.attackTimer -= deltaTime * 1000;
+            if (this.attackTimer <= 0) {
+                if (this.comboStep < 5 && player && Math.abs(player.x - this.x) < this.attackRange * 1.5) {
+                    this.startComboStep(this.comboStep + 1);
+                } else {
+                    this.isAttacking = false;
+                    this.attackCooldown = 400;
+                }
+            }
+        } else {
+            // 忍具
+            this.vx *= 0.92;
+            if (progress > 0.4 && !this.attackFlags.fired) {
+                this.fireSubWeapon(this.currentPattern);
+                this.attackFlags.fired = true;
+            }
+            this.attackTimer -= deltaTime * 1000;
+            if (this.attackTimer <= 0) {
+                this.isAttacking = false;
+            }
         }
+    }
+
+    fireSubWeapon(type) {
+        const dir = this.facingRight ? 1 : -1;
+        const speed = type === 'shuriken' ? 14 : (type === 'spear' ? 18 : 8);
+        const vx = dir * speed;
+        const vy = type === 'bomb' ? -6 : 0;
+        const damage = this.damage * (type === 'bomb' ? 3 : 1.5); // ボーナスダメージ
+        
+        // 将軍のサイズ（3.2倍）に合わせた調整
+        // Player互換の高解像度忍具をスポーン
+        const proj = new ShogunProjectile(this.x + this.width / 2 + dir * 60, this.y + this.height * 0.4, vx, vy, damage, type);
+        // Playerの武器クラスへの参照を持たせて描画を委譲する
+        proj.weaponInstance = this.subWeaponInstances[type]; 
+        
+        this.projectiles.push(proj);
+        audio.playSlash(2);
     }
 
     getAttackHitbox() {
-        const hitboxes = [];
+        if (!this.isAttacking || this.currentPattern !== 'z_combo') return null;
         const dir = this.facingRight ? 1 : -1;
-        const progress = this.isAttacking
-            ? Math.max(0, Math.min(1, 1 - (this.attackTimer / Math.max(1, this.attackDuration))))
-            : 0;
-
-        if (this.isAttacking) {
-            switch (this.currentPattern) {
-                case 'thrust':
-                    hitboxes.push({
-                        x: this.x + (dir > 0 ? this.width - 4 : -90),
-                        y: this.y + 24,
-                        width: 90,
-                        height: 34
-                    });
-                    break;
-                case 'sweep':
-                case 'double':
-                    hitboxes.push({
-                        x: this.x - 34,
-                        y: this.y + 16,
-                        width: this.width + 68,
-                        height: this.height - 24
-                    });
-                    break;
-                case 'dash':
-                case 'shadow_step':
-                    hitboxes.push({
-                        x: this.x - 12,
-                        y: this.y + 10,
-                        width: this.width + 24,
-                        height: this.height - 12
-                    });
-                    break;
-                case 'arcane_rush':
-                    hitboxes.push({
-                        x: this.x - 16,
-                        y: this.y + 8,
-                        width: this.width + 32,
-                        height: this.height - 10
-                    });
-                    break;
-                case 'throw':
-                    hitboxes.push({
-                        x: this.x + (dir > 0 ? this.width - 12 : -68),
-                        y: this.y + 14,
-                        width: 68,
-                        height: this.height - 26
-                    });
-                    break;
-                case 'heavy':
-                    hitboxes.push({
-                        x: this.x + (dir > 0 ? this.width - 18 : -102),
-                        y: this.y + 4,
-                        width: 102,
-                        height: this.height - 12
-                    });
-                    break;
-                case 'shockwave':
-                    if (progress > 0.44) {
-                        hitboxes.push({
-                            x: this.x - 180,
-                            y: this.groundY - 30,
-                            width: this.width + 360,
-                            height: 34
-                        });
-                    }
-                    break;
-                case 'ultimate':
-                    hitboxes.push({
-                        x: this.x - 78,
-                        y: this.y - 28,
-                        width: this.width + 156,
-                        height: this.height + 72
-                    });
-                    break;
-                case 'sorcery_volley':
-                    hitboxes.push({
-                        x: this.x - 30,
-                        y: this.y - 16,
-                        width: this.width + 60,
-                        height: this.height + 20
-                    });
-                    break;
-                default:
-                    break;
-            }
-        }
-
-        for (const projectile of this.projectiles) {
-            if (!projectile || typeof projectile.getHitbox !== 'function') continue;
-            const hb = projectile.getHitbox();
-            if (!hb) continue;
-            if (Array.isArray(hb)) hitboxes.push(...hb);
-            else hitboxes.push(hb);
-        }
-
-        return hitboxes.length > 0 ? hitboxes : null;
+        // 3倍スケールのヒットボックス
+        return [{
+            x: this.x + (dir > 0 ? this.width * 0.4 : -this.width * 1.2),
+            y: this.y + this.height * 0.1,
+            width: this.width * 1.8,
+            height: this.height * 0.8
+        }];
     }
 
-    spawnArcaneBurst(player, wave = 1) {
-        const originX = this.x + this.width / 2 + (this.facingRight ? 22 : -22);
-        const originY = this.y + 36;
-        const playerX = player.x + player.width / 2;
-        const playerY = player.y + player.height * 0.45;
-        const count = 2 + wave;
-
-        for (let i = 0; i < count; i++) {
-            const spread = (i - (count - 1) / 2) * (0.16 + wave * 0.02);
-            const targetX = playerX + spread * 120;
-            const targetY = playerY - Math.abs(spread) * 36;
-            const dx = targetX - originX;
-            const dy = targetY - originY;
-            const len = Math.hypot(dx, dy) || 1;
-            const speed = 8.8 + wave * 0.5;
-            this.projectiles.push(new ShogunArcaneBolt(
-                originX,
-                originY,
-                (dx / len) * speed,
-                (dy / len) * speed,
-                this.damage + wave + 1
-            ));
-        }
-    }
-
-    spawnVoidPillars(player, wide = false) {
-        const playerX = player.x + player.width / 2;
-        const baseOffsets = wide ? [-165, -82, 0, 82, 165] : [-110, 0, 110];
-        const spawnDelay = wide ? 210 : 260;
-        const damage = this.damage + (wide ? 3 : 2);
-
-        for (let i = 0; i < baseOffsets.length; i++) {
-            const jitter = (Math.random() - 0.5) * 20;
-            const x = playerX + baseOffsets[i] + jitter;
-            this.projectiles.push(new ShogunVoidPillar(
-                x,
-                this.groundY,
-                damage,
-                spawnDelay + i * 70,
-                wide ? 420 : 340
-            ));
-        }
-    }
-    
     renderBody(ctx) {
-        this.renderUnifiedEnemyModel(ctx, {
-            weaponMode: 'odachi',
-            headStyle: 'kabuto',
-            armorRows: 5,
-            headRatio: 0.18,
-            armScale: 1.22,
-            torsoLeanScale: 1.18,
-            attackDurationMs: this.attackDuration || 500,
-            weaponScale: 1.36,
-            palette: {
-                legBack: '#111',
-                legFront: '#191919',
-                robe: '#40362d',
-                robeShade: '#312a23',
-                torsoCore: '#161514',
-                armorA: '#655649',
-                armorB: '#4a3f35',
-                armorEdge: '#d2ac57',
-                shoulder: '#7a6655',
-                helmTop: '#3a3128',
-                helmBottom: '#201b16',
-                crest: '#ffd76a',
-                accent: '#8b66e0'
-            }
-        });
-        return;
-        const dir = this.facingRight ? 1 : -1;
-        const centerX = this.x + this.width * 0.5;
-        const footY = this.y + this.height;
-        const runBlend = Math.max(0, Math.min(1, Math.abs(this.vx) / Math.max(1.2, this.speed)));
-        const gaitPhase = this.motionTime * 0.0095;
-        const shoulderX = centerX + dir * 7.2 + this.torsoLean * dir * 0.62;
-        const shoulderY = this.y + 40 + Math.abs(this.bob) * 0.18;
-        const hipX = centerX - dir * 2.2;
-        const hipY = this.y + 73;
-        const headX = shoulderX - dir * 0.8;
-        const headY = this.y + 29;
-
-        ctx.fillStyle = 'rgba(0,0,0,0.34)';
-        ctx.beginPath();
-        ctx.ellipse(centerX, footY + 3, 26, 7, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        this.drawStylizedLegs(ctx, {
-            centerX,
-            hipX,
-            hipY,
-            footY,
-            dir,
-            gaitPhase,
-            runBlend,
-            backColor: '#111111', frontColor: '#171717',
-            backWidth: 8,
-            frontWidth: 9,
-            spread: 3.8,
-            stepScale: 11.2,
-            liftScale: 6.8
-        });
-
-        // 胴体（将軍鎧）
-        ctx.fillStyle = '#3a3128';
-        ctx.beginPath();
-        ctx.moveTo(centerX - 30, hipY + 1);
-        ctx.lineTo(centerX + 30, hipY + 1);
-        ctx.lineTo(centerX + 34, this.y + 45);
-        ctx.lineTo(centerX - 34, this.y + 45);
-        ctx.closePath();
-        ctx.fill();
-        
-        ctx.strokeStyle = '#c29b3f';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(centerX - 24, this.y + 56);
-        ctx.lineTo(centerX + 24, this.y + 56);
-        ctx.lineTo(centerX + 21, this.y + 69);
-        ctx.lineTo(centerX - 21, this.y + 69);
-        ctx.closePath();
-        ctx.stroke();
-
-        const pulse = 0.22 + Math.sin(this.motionTime * 0.012) * 0.08;
-        ctx.strokeStyle = `rgba(196, 122, 255, ${Math.max(0.14, pulse)})`;
-        ctx.lineWidth = 2.0;
-        ctx.beginPath();
-        ctx.moveTo(centerX - 21, this.y + 50);
-        ctx.lineTo(centerX + 21, this.y + 50);
-        ctx.moveTo(centerX - 24, this.y + 62);
-        ctx.lineTo(centerX + 24, this.y + 62);
-        ctx.stroke();
-
-        ctx.strokeStyle = '#1a1a1a';
-        ctx.lineWidth = 24;
-        ctx.beginPath();
-        ctx.moveTo(shoulderX, shoulderY);
-        ctx.lineTo(hipX, hipY);
-        ctx.stroke();
-
-        // 頭・兜
-        ctx.fillStyle = '#1a1a1a';
-        ctx.beginPath();
-        ctx.arc(headX, headY, 22.5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(0,0,0,0.7)';
-        ctx.beginPath();
-        ctx.arc(headX, headY, 22.5, 0.4, Math.PI * 2-0.4);
-        ctx.fill();
-        
-        // 兜本体
-        ctx.fillStyle = '#2e2720'; ctx.strokeStyle = '#2e2720';
-        ctx.beginPath();
-        ctx.arc(headX, headY - 8, 20.5, Math.PI, 0);
-        ctx.fill();
-
-        ctx.strokeStyle = '#2e2720';
-        ctx.lineWidth = 6;
-        ctx.beginPath();
-        ctx.arc(headX, headY - 11, 25, Math.PI * 0.95, Math.PI * 0.05, true);
-        ctx.stroke();
-        
-        // 飾り
-        ctx.strokeStyle = '#ffd76a';
-        ctx.lineWidth = 5;
-        ctx.beginPath();
-        ctx.arc(headX, headY - 27, 16, Math.PI * 0.2, Math.PI * 0.8);
-        ctx.stroke();
-        
-        
-        
-        
-
-        const auraAlpha = 0.16 + Math.sin(this.motionTime * 0.014) * 0.06;
-        ctx.fillStyle = `rgba(132, 90, 255, ${Math.max(0.1, auraAlpha)})`;
-        ctx.beginPath();
-        ctx.moveTo(centerX - 42, this.y + 52);
-        ctx.quadraticCurveTo(centerX - 58, this.y + 78, centerX - 34, footY - 6);
-        ctx.lineTo(centerX + 34, footY - 6);
-        ctx.quadraticCurveTo(centerX + 58, this.y + 78, centerX + 42, this.y + 52);
-        ctx.closePath();
-        ctx.fill();
-        // 武器（覇王太刀）
-        const duration = this.attackDuration || (this.currentPattern === 'ultimate' ? 1200 : 500);
-        const progress = this.isAttacking ? Math.max(0, Math.min(1, 1 - (this.attackTimer / duration))) : 0;
-        let rawBladeAngle = -0.72 + Math.sin(this.motionTime * 0.007) * 0.05;
-        if (this.isAttacking) {
-            if (this.currentPattern === 'ultimate') {
-                rawBladeAngle = progress * Math.PI * 2.7;
-            } else if (this.currentPattern === 'arcane_burst') {
-                rawBladeAngle = -Math.PI * 0.53 + Math.sin(progress * Math.PI * 4) * 0.17;
-            } else if (this.currentPattern === 'void_pillars') {
-                rawBladeAngle = -Math.PI * 0.28 + Math.sin(progress * Math.PI * 3.2) * 0.13;
-            } else {
-                const wind = progress < 0.14 ? progress / 0.14 : 1;
-                const swing = progress < 0.14 ? 0 : (progress - 0.14) / 0.86;
-                const quickSwing = 1 - Math.pow(1 - swing, 2.35);
-                rawBladeAngle = -1.62 + wind * 0.76 + quickSwing * 2.62;
-            }
-        }
-        const bladeAngle = dir === 1 ? rawBladeAngle : Math.PI - rawBladeAngle;
-
-        const leadShoulderX = shoulderX + dir * 0.9;
-        const leadShoulderY = shoulderY + 0.4;
-        const leadTargetX = shoulderX + Math.cos(bladeAngle) * 29.5;
-        const leadTargetY = shoulderY + Math.sin(bladeAngle) * 29.5;
-        const leadArm = this.drawJointedArm(ctx, {
-            shoulderX: leadShoulderX,
-            shoulderY: leadShoulderY,
-            handX: leadTargetX,
-            handY: leadTargetY,
-            upperLen: 14.8,
-            foreLen: 15.2,
-            bendSign: -dir * 0.82,
-            upperWidth: 6.8,
-            foreWidth: 5.8,
-            jointRadius: 3.8,
-            baseColor: '#1a1a1a',
-            handColor: '#322b23',
-            highlightColor: 'rgba(255,230,186,0.12)'
-        });
-        const leadHandX = leadArm.handX;
-        const leadHandY = leadArm.handY;
-
-        const weaponAngle = dir === 1 ? (rawBladeAngle + 0.07) : Math.PI - (rawBladeAngle + 0.07);
-        const weaponDirX = Math.cos(weaponAngle);
-        const weaponDirY = Math.sin(weaponAngle);
-        const supportShoulderX = shoulderX - dir * 5.2;
-        const supportShoulderY = shoulderY + 3.3;
-        const supportTargetX = leadHandX - weaponDirX * 15.2 - weaponDirY * 1.8;
-        const supportTargetY = leadHandY - weaponDirY * 15.2 + weaponDirX * 1.8;
-        const supportArm = this.drawJointedArm(ctx, {
-            shoulderX: supportShoulderX,
-            shoulderY: supportShoulderY,
-            handX: supportTargetX,
-            handY: supportTargetY,
-            upperLen: 13.0,
-            foreLen: 13.8,
-            bendSign: dir * 0.88,
-            upperWidth: 6.0,
-            foreWidth: 5.1,
-            jointRadius: 3.4,
-            baseColor: '#171717',
-            handColor: '#2c271f',
-            highlightColor: 'rgba(236,210,166,0.1)'
-        });
-        ctx.fillStyle = '#2c271f';
-        ctx.beginPath();
-        ctx.arc(supportArm.handX, supportArm.handY, 5.3, 0, Math.PI * 2);
-        ctx.fill();
-
-        const bladeLength = 132;
-        const bladeTipX = leadHandX + weaponDirX * bladeLength;
-        const bladeTipY = leadHandY + weaponDirY * bladeLength;
         ctx.save();
-        ctx.translate(leadHandX, leadHandY);
-        ctx.rotate(weaponAngle);
+        
+        // 将軍は最大・最凶のボス。スケールを微調整。
+        const scale = 3.2;
+        const drawX = this.x / scale;
+        const drawY = this.y / scale;
 
-        const hiltBack = -35;
-        const guardX = -8;
-        ctx.fillStyle = '#5f3a1e';
-        ctx.fillRect(hiltBack, -4.8, guardX - hiltBack, 9.6);
-        ctx.strokeStyle = '#342013';
-        ctx.lineWidth = 1.2;
-        for (let x = hiltBack + 4; x < guardX - 2; x += 7) {
-            ctx.beginPath();
-            ctx.moveTo(x, -3.8);
-            ctx.lineTo(x, 3.8);
-            ctx.stroke();
+        ctx.scale(scale, scale);
+        
+        // 将軍用のポーズ取得
+        const handPose = this.weaponReplica ? this.weaponReplica.getPose(this) : null;
+        
+        // 武器モードをアクションに応じて動的に決定
+        let currentWeaponMode = 'odachi';
+        const actionName = this.subWeaponAction || this.currentPattern || '';
+        if (actionName.includes('naginata') || actionName.includes('薙刀')) {
+            currentWeaponMode = 'naginata';
+        } else if (actionName.includes('spear') || actionName.includes('大槍')) {
+            currentWeaponMode = 'spear';
         }
 
-        const guardGrad = ctx.createLinearGradient(guardX - 1, -7, guardX + 1, 7);
-        guardGrad.addColorStop(0, '#f2d995');
-        guardGrad.addColorStop(1, '#8b6630');
-        ctx.fillStyle = guardGrad;
-        ctx.beginPath();
-        ctx.moveTo(guardX - 1.6, -7.0);
-        ctx.lineTo(guardX + 2.0, -4.2);
-        ctx.lineTo(guardX + 2.0, 4.2);
-        ctx.lineTo(guardX - 1.6, 7.0);
-        ctx.closePath();
-        ctx.fill();
+        const renderOptions = {
+            weaponMode: currentWeaponMode, 
+            suppressWeaponDraw: true,
+            headStyle: 'kabuto',
+            crestVariant: 'shogun',
+            renderHair: false, // 完全に描画されないようにブロック
+            renderHeadband: false, // バンド部分もブロック
+            renderHeadbandTail: false, // テール部分もブロック
+            headScale: 0.85, // 少し頭を小さくして頭身を高く見せる（ユーザー要望）
+            handPose: handPose, // 座標を同期
+            crestLengthScale: 0.95,
+            armorRows: 6,
+            backCape: true,
+            weaponScale: 1.1,
+// ... (palette remains same)
+            palette: {
+                silhouette: '#000',     // 漆黒
+                accent: '#ffd700',      // 黄金
+                legBack: '#080808',
+                legFront: '#121212',
+                robe: '#2b1b1b',
+                armorA: '#1a1a1a', 
+                armorB: '#0a0a0a',
+                armorEdge: '#ffd700',   // 黄金
+                crest: '#ffd700',
+                capeTop: '#4e1212',
+                capeMid: '#3a0d0d',
+                capeBottom: '#1a0606'
+            },
+            state: {
+                vx: this.vx / scale,
+                vy: this.vy / scale,
+                isGrounded: this.isGrounded,
+                isAttacking: this.isAttacking,
+                currentAttack: this.isAttacking ? {
+                    comboStep: this.comboStep || 3,
+                    durationMs: this.attackDuration,
+                    type: ANIM_STATE.ATTACK_DOWN
+                } : null,
+                attackTimer: this.attackTimer,
+                subWeaponTimer: this.isAttacking && this.currentPattern !== 'z_combo' ? this.attackTimer : 0,
+                subWeaponAction: this.subWeaponAction,
+                motionTime: this.actor.motionTime
+            }
+        };
 
-        const bladeStart = guardX + 2.2;
-        const bladeEnd = bladeLength;
-        const bladeGrad = ctx.createLinearGradient(bladeStart, -2, bladeEnd, 3);
-        bladeGrad.addColorStop(0, '#cbd5e2');
-        bladeGrad.addColorStop(0.52, '#f8fbff');
-        bladeGrad.addColorStop(1, '#afbaca');
-        ctx.fillStyle = bladeGrad;
-        ctx.beginPath();
-        ctx.moveTo(bladeStart, -7.8);
-        ctx.quadraticCurveTo(bladeStart + 34, -15.8, bladeStart + 84, -11.8);
-        ctx.quadraticCurveTo(bladeEnd - 22, -8.8, bladeEnd + 5.2, -1.2);
-        ctx.quadraticCurveTo(bladeEnd - 12, 6.8, bladeEnd - 30, 9.2);
-        ctx.quadraticCurveTo(bladeStart + 44, 12.0, bladeStart + 8.5, 8.2);
-        ctx.quadraticCurveTo(bladeStart - 1.5, 4.3, bladeStart, -7.8);
-        ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = '#8996a7';
-        ctx.lineWidth = 1.45;
-        ctx.stroke();
-
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.78)';
-        ctx.lineWidth = 1.0;
-        ctx.beginPath();
-        ctx.moveTo(bladeStart + 8, -2.8);
-        ctx.quadraticCurveTo(bladeStart + 64, -6.1, bladeEnd - 14, -1.2);
-        ctx.stroke();
+        // プレイヤー互換の高度な描画 (renderModel 内部で renderUnifiedEnemyModel と同等の処理が走る場合も想定)
+        this.actor.renderModel(ctx, drawX, drawY, this.facingRight, 1.0, true, renderOptions);
+        
         ctx.restore();
 
-        ctx.fillStyle = '#322b23';
+        // 大太刀実体を描画
+        if (this.weaponReplica) {
+            this.weaponReplica.render(ctx, this);
+        }
+    }
+
+    renderShogunCape(ctx, dx, dy, scale) {
+        const dir = this.facingRight ? 1 : -1;
+        const time = this.actor.motionTime * 0.002;
+        const wave = Math.sin(time) * 2;
+        
+        ctx.save();
+        ctx.translate(dx + 20, dy + 20);
+        ctx.globalCompositeOperation = 'destination-over'; // 背中側
+        
+        ctx.fillStyle = '#4e0b0b'; // 深緋色
         ctx.beginPath();
-        ctx.arc(leadHandX, leadHandY, 6.1, 0, Math.PI * 2);
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(-dir * 25 + wave, 10, -dir * 30 + wave, 60);
+        ctx.lineTo(dir * 5 + wave, 65);
+        ctx.quadraticCurveTo(dir * 10 + wave, 30, 0, 0);
         ctx.fill();
-
-        if (this.isAttacking && this.currentPattern === 'ultimate') {
-            const spinAlpha = 0.58 * (1 - progress);
-            ctx.strokeStyle = `rgba(255, 214, 106, ${spinAlpha})`;
-            ctx.lineWidth = 8;
-            for (let i = 0; i < 12; i++) {
-                const angle = i * (Math.PI * 2 / 12) + progress * Math.PI;
-                ctx.beginPath();
-                ctx.moveTo(centerX, this.y + 64);
-                ctx.lineTo(centerX + Math.cos(angle) * 150 * progress, this.y + 64 + Math.sin(angle) * 150 * progress);
-                ctx.stroke();
-            }
-        } else if (
-            this.isAttacking &&
-            this.currentPattern !== 'arcane_burst' &&
-            this.currentPattern !== 'void_pillars' &&
-            this.currentPattern !== 'arcane_rush'
-        ) {
-            const pulseBoost = (this.weaponTrailPulse || 0) / 220;
-            const mainAlpha = 0.34 + progress * 0.5 + pulseBoost * 0.24;
-            const trailRadius = 126 + pulseBoost * 10;
-            ctx.strokeStyle = `rgba(255, 168, 102, ${mainAlpha})`;
-            ctx.lineWidth = 22;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            ctx.arc(
-                leadHandX,
-                leadHandY,
-                trailRadius,
-                weaponAngle - dir * 0.94,
-                weaponAngle + dir * 0.38,
-                dir < 0
-            );
-            ctx.stroke();
-
-            ctx.strokeStyle = `rgba(255, 234, 190, ${mainAlpha * 0.7})`;
-            ctx.lineWidth = 9;
-            ctx.beginPath();
-            ctx.arc(
-                leadHandX,
-                leadHandY,
-                trailRadius - 8,
-                weaponAngle - dir * 0.78,
-                weaponAngle + dir * 0.24,
-                dir < 0
-            );
-            ctx.stroke();
-
-            ctx.strokeStyle = `rgba(255, 176, 124, ${mainAlpha * 0.54})`;
-            ctx.lineWidth = 6;
-            for (let i = 0; i < 4; i++) {
-                const lag = 14 + i * 11;
-                const sx = bladeTipX - weaponDirX * lag - weaponDirY * (i - 1) * 4;
-                const sy = bladeTipY - weaponDirY * lag + weaponDirX * (i - 1) * 4;
-                const ex = sx - weaponDirX * (30 + i * 7);
-                const ey = sy - weaponDirY * (30 + i * 7);
-                ctx.beginPath();
-                ctx.moveTo(sx, sy);
-                ctx.lineTo(ex, ey);
-                ctx.stroke();
-            }
-        }
-
-        if (this.isAttacking && this.currentPattern === 'arcane_rush') {
-            const rushAlpha = 0.32 + (1 - progress) * 0.4;
-            ctx.strokeStyle = `rgba(147, 219, 255, ${rushAlpha})`;
-            ctx.lineWidth = 18;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            ctx.moveTo(centerX - dir * 66, this.y + 60);
-            ctx.lineTo(centerX + dir * 84, this.y + 54);
-            ctx.stroke();
-            ctx.strokeStyle = `rgba(197, 138, 255, ${rushAlpha * 0.82})`;
-            ctx.lineWidth = 6;
-            ctx.beginPath();
-            ctx.moveTo(centerX - dir * 48, this.y + 72);
-            ctx.lineTo(centerX + dir * 74, this.y + 66);
-            ctx.stroke();
-        }
-
-        if (this.isAttacking && this.currentPattern !== 'arcane_burst' && this.currentPattern !== 'void_pillars') {
-            const tipPulse = 0.22 + Math.sin(this.motionTime * 0.038) * 0.1 + (this.weaponTrailPulse || 0) / 440;
-            const flare = ctx.createRadialGradient(bladeTipX, bladeTipY, 0, bladeTipX, bladeTipY, 20);
-            flare.addColorStop(0, `rgba(255, 244, 206, ${tipPulse * 0.86})`);
-            flare.addColorStop(0.55, `rgba(255, 188, 116, ${tipPulse * 0.44})`);
-            flare.addColorStop(1, 'rgba(255, 130, 90, 0)');
-            ctx.fillStyle = flare;
-            ctx.beginPath();
-            ctx.arc(bladeTipX, bladeTipY, 20, 0, Math.PI * 2);
-            ctx.fill();
-        }
-
-        // 妖術チャージ演出
-        if (
-            this.isAttacking &&
-            (
-                this.currentPattern === 'arcane_burst' ||
-                this.currentPattern === 'void_pillars' ||
-                this.currentPattern === 'ultimate' ||
-                this.currentPattern === 'arcane_rush'
-            )
-        ) {
-            const sigilX = centerX + dir * 18;
-            const sigilY = this.y + 54;
-            const auraAlpha =
-                this.currentPattern === 'ultimate' ? (0.28 + progress * 0.24) :
-                this.currentPattern === 'void_pillars' ? (0.22 + progress * 0.2) :
-                (0.2 + progress * 0.18);
-
-            ctx.strokeStyle = `rgba(135, 194, 255, ${auraAlpha})`;
-            ctx.lineWidth = 3.6;
-            ctx.beginPath();
-            ctx.arc(sigilX, sigilY, 18 + progress * 14, 0, Math.PI * 2);
-            ctx.stroke();
-
-            ctx.strokeStyle = `rgba(201, 128, 255, ${auraAlpha * 0.9})`;
-            ctx.lineWidth = 2.4;
-            for (let i = 0; i < 6; i++) {
-                const a = i * (Math.PI * 2 / 6) + this.motionTime * 0.003;
-                ctx.beginPath();
-                ctx.moveTo(sigilX + Math.cos(a) * 12, sigilY + Math.sin(a) * 12);
-                ctx.lineTo(sigilX + Math.cos(a) * (30 + progress * 12), sigilY + Math.sin(a) * (30 + progress * 12));
-                ctx.stroke();
-            }
-        }
-
-        this.renderPhaseBodyTint(ctx, 12);
+        
+        ctx.strokeStyle = '#1a0505';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        
+        ctx.restore();
     }
 }
 
-class ShogunArcaneBolt {
+// 妖術関連の古いプロジェクタイルクラスを削除し、プレイヤー互換の忍具クラスを実装しました。
+
+class ShogunProjectile {
+    constructor(x, y, vx, vy, damage, type = 'spear') {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.damage = damage;
+        this.type = type;
+        this.radius = type === 'shuriken' ? 30 : 45; // 大きい当たり判定
+        this.isAlive = true;
+        this.angle = 0;
+        this.life = 3000;
+        this.weaponInstance = null; // boss.js側でセットされる
+    }
+
+    update(deltaTime, player) {
+        this.x += this.vx;
+        this.y += this.vy;
+        
+        // 回転アニメーション（手裏剣など）
+        if (this.type === 'shuriken') {
+            this.angle += (this.vx > 0 ? 0.35 : -0.35);
+        } else if (this.type === 'bomb') {
+            this.vy += GRAVITY * deltaTime * 1000; // 重力
+            this.angle += (this.vx > 0 ? 0.1 : -0.1);
+        } else {
+            // スピアなどは進行方向に向く
+            this.angle = Math.atan2(this.vy, this.vx);
+        }
+
+        this.life -= deltaTime * 1000;
+        if (this.life <= 0) return false;
+
+        // プレイヤー衝突判定
+        const dx = (player.x + player.width / 2) - this.x;
+        const dy = (player.y + player.height / 2) - this.y;
+        if (Math.hypot(dx, dy) < this.radius + 15) {
+            player.takeDamage(this.damage);
+            return false;
+        }
+        return true;
+    }
+
+    render(ctx) {
+        if (!this.weaponInstance) return;
+
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        // 手裏剣以外は角度・向きを適用。手裏剣はweaponManager内で回る想定だが、手動でも回す
+        if (this.type !== 'shuriken') {
+            ctx.rotate(this.angle);
+            if (this.vx < 0) ctx.scale(1, -1);
+        }
+        
+        // プロジェクタイル専用の状態をダミーのプレイヤー構造として渡す
+        const dummyAttacker = {
+            facingRight: this.type === 'shuriken' ? true : this.vx > 0, // スピアなどはrotateで処理済み
+            animState: 'attack',
+            x: 0, 
+            y: 0,
+            width: 0,
+            height: 0
+        };
+        
+        // 描画
+        if (this.type === 'shuriken') {
+            // 回転を適用
+            ctx.rotate(this.angle);
+            this.weaponInstance.render(ctx, dummyAttacker);
+        } else if (this.type === 'bomb') {
+            this.weaponInstance.render(ctx, dummyAttacker);
+        } else if (this.type === 'spear') {
+            // 槍は柄の端ではなく、真ん中あたりで描画されるようオフセット
+            ctx.translate(-50, 0);
+            this.weaponInstance.render(ctx, dummyAttacker);
+        } else {
+            this.weaponInstance.render(ctx, dummyAttacker);
+        }
+
+        ctx.restore();
+    }
+}
+
+class SpearProjectile {
+    constructor(x, y, vx, vy, damage, type = 'spear') {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.damage = damage;
+        this.type = type;
+        this.radius = type === 'shuriken' ? 12 : 18;
+        this.isAlive = true;
+        this.angle = 0;
+        this.life = 3000;
+    }
+
+    update(deltaTime, player) {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.angle += 0.25;
+        this.life -= deltaTime * 1000;
+
+        if (this.life <= 0) return false;
+
+        // プレイヤー衝突判定
+        const dx = (player.x + player.width / 2) - this.x;
+        const dy = (player.y + player.height / 2) - this.y;
+        if (Math.hypot(dx, dy) < this.radius + 15) {
+            player.takeDamage(this.damage);
+            return false;
+        }
+        return true;
+    }
+
+    render(ctx) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.scale(this.vx > 0 ? 1 : -1, 1);
+        ctx.rotate(this.angle);
+
+        if (this.type === 'shuriken') {
+            // 手裏剣描画 (黒金)
+            ctx.fillStyle = '#0a0a0a';
+            ctx.strokeStyle = '#d4af37';
+            ctx.lineWidth = 1.5;
+            for (let i = 0; i < 4; i++) {
+                ctx.rotate(Math.PI / 2);
+                ctx.beginPath();
+                ctx.moveTo(0, -this.radius);
+                ctx.lineTo(this.radius * 0.3, 0);
+                ctx.lineTo(0, this.radius * 0.3);
+                ctx.lineTo(-this.radius * 0.3, 0);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+            }
+        } else {
+            // 槍描画 (黒金)
+            ctx.strokeStyle = '#3d2b1f';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(-20, 0);
+            ctx.lineTo(20, 0);
+            ctx.stroke();
+            ctx.fillStyle = '#d4af37';
+            ctx.beginPath();
+            ctx.moveTo(20, -6);
+            ctx.lineTo(35, 0);
+            ctx.lineTo(20, 6);
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+}
+
+class BombProjectile {
     constructor(x, y, vx, vy, damage) {
         this.x = x;
         this.y = y;
         this.vx = vx;
         this.vy = vy;
         this.damage = damage;
-        this.life = 900;
-        this.maxLife = 900;
-        this.radius = 12;
-        this.tail = [];
+        this.radius = 10;
+        this.isAlive = true;
+        this.timer = 0;
+        this.isExploding = false;
+        this.explosionTimer = 0;
+        this.explosionRadius = 70;
     }
 
-    update(deltaTime) {
-        this.life -= deltaTime * 1000;
-        this.tail.unshift({ x: this.x, y: this.y });
-        if (this.tail.length > 7) this.tail.pop();
+    update(deltaTime, player) {
+        if (this.isExploding) {
+            this.explosionTimer += deltaTime * 1000;
+            if (this.explosionTimer > 400) return false;
+            
+            // 爆発ダメージ判定 (一度だけ)
+            if (this.explosionTimer < 50) {
+                const dx = (player.x + player.width / 2) - this.x;
+                const dy = (player.y + player.height / 2) - this.y;
+                if (Math.hypot(dx, dy) < this.explosionRadius) {
+                    player.takeDamage(this.damage);
+                }
+            }
+            return true;
+        }
 
+        this.vy += 0.45;
         this.x += this.vx;
         this.y += this.vy;
-        this.vx *= 0.998;
-        this.vy *= 0.998;
+        this.timer += deltaTime * 1000;
 
-        const scrollX = window.game ? window.game.scrollX : 0;
-        const outOfBounds =
-            this.x < scrollX - 160 || this.x > scrollX + CANVAS_WIDTH + 160 ||
-            this.y < -120 || this.y > 1000;
-        return this.life > 0 && !outOfBounds;
-    }
-
-    getHitbox() {
-        if (this.life <= 0) return null;
-        return {
-            x: this.x - this.radius,
-            y: this.y - this.radius,
-            width: this.radius * 2,
-            height: this.radius * 2
-        };
+        if (this.timer > 1500) {
+            this.isExploding = true;
+            audio.playExplosion();
+        }
+        return true;
     }
 
     render(ctx) {
-        const alpha = Math.max(0, this.life / this.maxLife);
-
-        ctx.strokeStyle = `rgba(134, 196, 255, ${0.24 * alpha})`;
-        ctx.lineWidth = 5;
-        for (let i = 1; i < this.tail.length; i++) {
-            const from = this.tail[i - 1];
-            const to = this.tail[i];
+        if (this.isExploding) {
+            const p = this.explosionTimer / 400;
+            ctx.save();
             ctx.beginPath();
-            ctx.moveTo(from.x, from.y);
-            ctx.lineTo(to.x, to.y);
-            ctx.stroke();
+            ctx.arc(this.x, this.y, this.explosionRadius * Math.sin(p * Math.PI), 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255, 100, 0, ${1 - p})`;
+            ctx.fill();
+            ctx.restore();
+            return;
         }
-
-        const glowGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.radius * 1.5);
-        glowGrad.addColorStop(0, `rgba(255, 255, 255, ${0.9 * alpha})`);
-        glowGrad.addColorStop(0.3, `rgba(140, 200, 255, ${0.6 * alpha})`);
-        glowGrad.addColorStop(1, `rgba(80, 130, 255, 0)`);
-        ctx.fillStyle = glowGrad;
+        ctx.save();
+        ctx.fillStyle = '#0a0a0a';
         ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius * 1.5, 0, Math.PI * 2);
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
         ctx.fill();
-
-        ctx.fillStyle = `rgba(214, 238, 255, ${0.9 * alpha})`;
-        ctx.strokeStyle = `rgba(104, 150, 255, ${0.86 * alpha})`;
-        ctx.lineWidth = 1.7;
-        ctx.beginPath();
-        ctx.moveTo(this.x + 11, this.y);
-        ctx.lineTo(this.x, this.y - 9);
-        ctx.lineTo(this.x - 9, this.y);
-        ctx.lineTo(this.x, this.y + 9);
-        ctx.closePath();
-        ctx.fill();
+        ctx.strokeStyle = '#d4af37';
+        ctx.lineWidth = 2;
         ctx.stroke();
+        ctx.restore();
     }
 }
 
-class ShogunVoidPillar {
-    constructor(x, groundY, damage, delay = 260, activeDuration = 340) {
+class KunaiProjectile {
+    constructor(x, y, vx, vy, damage) {
         this.x = x;
-        this.groundY = groundY;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
         this.damage = damage;
-        this.delay = delay;
-        this.activeDuration = activeDuration;
-        this.fadeDuration = 160;
-        this.timer = 0;
+        this.radius = 8;
+        this.angle = Math.atan2(vy, vx);
+        this.isAlive = true;
     }
 
-    update(deltaTime) {
-        this.timer += deltaTime * 1000;
-        return this.timer <= this.delay + this.activeDuration + this.fadeDuration;
-    }
-
-    getHitbox() {
-        if (this.timer < this.delay || this.timer > this.delay + this.activeDuration) {
-            return null;
+    update(deltaTime, player) {
+        this.x += this.vx;
+        this.y += this.vy;
+        
+        const dx = (player.x + player.width / 2) - this.x;
+        const dy = (player.y + player.height / 2) - this.y;
+        if (Math.hypot(dx, dy) < this.radius + 15) {
+            player.takeDamage(this.damage);
+            return false;
         }
-        return {
-            x: this.x - 24,
-            y: this.groundY - 172,
-            width: 48,
-            height: 176
-        };
+        return this.x > -100 && this.x < 5000; // 適当な範囲
     }
 
     render(ctx) {
-        if (this.timer < this.delay) {
-            const t = this.timer / Math.max(1, this.delay);
-            ctx.strokeStyle = `rgba(138, 219, 255, ${0.24 + t * 0.22})`;
-            ctx.lineWidth = 2.6;
-            ctx.beginPath();
-            ctx.ellipse(this.x, this.groundY - 2, 22 + t * 10, 6 + t * 2, 0, 0, Math.PI * 2);
-            ctx.stroke();
-            return;
-        }
-
-        const activeEnd = this.delay + this.activeDuration;
-        const alpha =
-            this.timer <= activeEnd
-                ? 1
-                : Math.max(0, 1 - (this.timer - activeEnd) / this.fadeDuration);
-
-        ctx.fillStyle = `rgba(186, 238, 255, ${0.42 * alpha})`;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.angle);
+        ctx.fillStyle = '#0a0a0a';
+        ctx.strokeStyle = '#d4af37';
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(this.x - 16, this.groundY - 172);
-        ctx.lineTo(this.x + 16, this.groundY - 172);
-        ctx.lineTo(this.x + 26, this.groundY);
-        ctx.lineTo(this.x - 26, this.groundY);
+        ctx.moveTo(-10, -3);
+        ctx.lineTo(10, 0);
+        ctx.lineTo(-10, 3);
         ctx.closePath();
         ctx.fill();
-
-        ctx.strokeStyle = `rgba(126, 178, 255, ${0.68 * alpha})`;
-        ctx.lineWidth = 3.2;
-        ctx.beginPath();
-        ctx.moveTo(this.x, this.groundY - 172);
-        ctx.lineTo(this.x, this.groundY - 2);
         ctx.stroke();
+        ctx.restore();
+    }
+}
+
+class KusarigamaProjectile {
+    constructor(x, y, vx, vy, damage, owner) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.damage = damage;
+        this.owner = owner;
+        this.radius = 15;
+        this.isReturning = false;
+        this.timer = 0;
+    }
+
+    update(deltaTime, player) {
+        this.timer += deltaTime * 1000;
+        if (!this.isReturning) {
+            this.x += this.vx;
+            this.y += this.vy;
+            if (this.timer > 400) this.isReturning = true;
+        } else {
+            const dx = (this.owner.x + this.owner.width / 2) - this.x;
+            const dy = (this.owner.y + this.owner.height / 2) - this.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 30) return false;
+            this.x += (dx / dist) * 15;
+            this.y += (dy / dist) * 15;
+        }
+
+        const dx = (player.x + player.width / 2) - this.x;
+        const dy = (player.y + player.height / 2) - this.y;
+        if (Math.hypot(dx, dy) < this.radius + 15) {
+            player.takeDamage(this.damage);
+        }
+        return true;
+    }
+
+    render(ctx) {
+        ctx.save();
+        // 鎖
+        ctx.strokeStyle = '#666';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y);
+        ctx.lineTo(this.owner.x + this.owner.width / 2, this.owner.y + this.owner.height / 2);
+        ctx.stroke();
+        
+        // 鎌
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.timer * 0.02);
+        ctx.fillStyle = '#0a0a0a';
+        ctx.strokeStyle = '#d4af37';
+        ctx.beginPath();
+        ctx.arc(0, 0, this.radius, 0, Math.PI, true);
+        ctx.lineTo(0, -this.radius);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
     }
 }
 

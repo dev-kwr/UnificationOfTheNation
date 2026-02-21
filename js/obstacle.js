@@ -2,7 +2,7 @@
 // Unification of the Nation - 障害物クラス
 // ============================================
 
-import { OBSTACLE_TYPES, OBSTACLE_SETTINGS, COLORS } from './constants.js';
+import { OBSTACLE_TYPES, OBSTACLE_SETTINGS, COLORS, LANE_OFFSET } from './constants.js';
 import { audio } from './audio.js';
 
 // 障害物基底クラス
@@ -15,7 +15,7 @@ export class Obstacle {
         const settings = OBSTACLE_SETTINGS[type.toUpperCase()];
         this.width = settings.WIDTH;
         this.height = settings.HEIGHT;
-        this.y = groundY + 64 - this.height; // 固定レーン接地
+        this.y = groundY + LANE_OFFSET - this.height; // 固定レーン接地
         
         this.isDestroyed = false;
         
@@ -114,7 +114,7 @@ export class Spike extends Obstacle {
             + Math.max(0, this.spikeCount - 1) * this.spikeGap
         );
         this.height = Math.max(30, Math.round(maxSpikeHeight + 8));
-        this.y = groundY + 64 - this.height; // 固定レーン接地
+        this.y = groundY + LANE_OFFSET - this.height; // 固定レーン接地
 
         const countScale = 1 + Math.min(0.42, Math.max(0, this.spikeCount - 7) * 0.032 + stageFactor * 0.08);
         this.damage = Math.max(2, Math.round((this.damage || 2) * countScale));
@@ -226,7 +226,7 @@ export class Rock extends Obstacle {
         this.shapeSeed = (Math.abs(Math.sin((x + groundY) * 0.0197) * 43758.5453)) % 1;
         this.variant = this.selectVariant();
         this.applyVariantSize();
-        this.y = groundY + 64 - this.height; // 固定レーン接地
+        this.y = groundY + LANE_OFFSET - this.height; // 固定レーン接地
         this.profile = this.createProfile();
         this.crackLines = this.createCrackLines();
     }
@@ -383,7 +383,7 @@ export class Rock extends Obstacle {
         // 接地影
         ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
         ctx.beginPath();
-        const shadowY = this.groundY + 66; // 固定レーン付近に影を置く
+        const shadowY = this.groundY + LANE_OFFSET + 2; // 固定レーン付近に影を置く
         ctx.ellipse(cx, shadowY, shadowW * 0.56, 5.0, 0, 0, Math.PI * 2); // 縦を少し潰す
         ctx.fill();
 

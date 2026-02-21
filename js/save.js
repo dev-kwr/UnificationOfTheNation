@@ -37,6 +37,7 @@ export class SaveManager {
                     ninjutsuUnlockStage: player.progression?.ninjutsuUnlockStage || 0
                 },
                 unlockedSkills: game.shop ? Array.from(game.shop.purchasedSkills) : [],
+                purchasedUpgrades: game.shop ? { ...game.shop.purchasedUpgrades } : { hp_up: 0, attack_up: 0 },
                 currentSubWeapon: player.currentSubWeapon ? player.currentSubWeapon.name : null
             },
             progress: {
@@ -128,6 +129,9 @@ export class SaveManager {
         }
         if (saveData.player.unlockedSkills) {
             saveData.player.unlockedSkills.forEach(skillId => game.shop.purchasedSkills.add(skillId));
+        }
+        if (saveData.player.purchasedUpgrades && game.shop) {
+            game.shop.purchasedUpgrades = { ...saveData.player.purchasedUpgrades };
         }
 
         // サブ武器の復元

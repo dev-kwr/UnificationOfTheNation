@@ -2,14 +2,14 @@
 // Unification of the Nation - プレイヤークラス
 // ============================================
 
-import { PLAYER, GRAVITY, FRICTION, CANVAS_WIDTH, CANVAS_HEIGHT, COLORS } from './constants.js';
+import { PLAYER, GRAVITY, FRICTION, CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, LANE_OFFSET } from './constants.js';
 import { input } from './input.js';
 import { audio } from './audio.js';
 import { game } from './game.js';
 import { drawShurikenShape } from './weapon.js';
 
 // アニメーション状態
-const ANIM_STATE = {
+export const ANIM_STATE = {
     IDLE: 'idle',
     RUN: 'run',
     JUMP: 'jump',
@@ -1094,8 +1094,9 @@ export class Player {
         this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
 
-        // groundBasedYを廃止、本体位置基準
-        const cloneAnchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.y + this.height * 0.62);
+        // groundBasedYを廃止、接地ベース基準 (プレイヤーのジャンプに同期させない)
+        const stableGroundY = this.groundY + LANE_OFFSET;
+        const cloneAnchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - this.height * 0.38);
         this.specialClonePositions = cloneAnchors.map(a => ({ x: a.x, y: a.y, facingRight: this.facingRight, prevX: a.x }));
         this.specialCloneScarfNodes = this.specialCloneSlots.map(() => null);
         this.specialCloneHairNodes = this.specialCloneSlots.map(() => null);
@@ -1140,7 +1141,8 @@ export class Player {
                     const pos = this.specialClonePositions[i];
                     if (!pos) continue;
 
-                    const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.y + this.height * 0.62);
+                    const stableGroundY = this.groundY + LANE_OFFSET;
+                    const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - this.height * 0.38);
                     pos.x = anchors[i].x;
                     pos.y = anchors[i].y;
                     pos.facingRight = anchors[i].facingRight;
@@ -1194,7 +1196,8 @@ export class Player {
                 this.updateSpecialCloneAi(deltaTime);
             } else if (this.specialCloneCombatStarted) {
                 // Lv1〜2: 本体に追従
-                const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.y + this.height * 0.62);
+                const stableGroundY = this.groundY + LANE_OFFSET;
+                const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - this.height * 0.38);
                 for (let i = 0; i < this.specialCloneSlots.length; i++) {
                     if (this.specialClonePositions[i]) {
                         this.specialClonePositions[i].x = anchors[i].x;
@@ -1289,7 +1292,8 @@ export class Player {
         this.specialCloneInvincibleTimers = this.specialCloneSlots.map(() => this.specialCloneSpawnInvincibleMs);
         this.specialCloneAutoCooldowns = this.specialCloneSlots.map((_, index) => index * 30);
         
-        const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.y + this.height * 0.62);
+        const stableGroundY = this.groundY + LANE_OFFSET;
+        const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - this.height * 0.38);
         this.specialClonePositions = anchors.map(a => ({
             x: a.x,
             y: a.y,
@@ -1361,8 +1365,9 @@ export class Player {
             }) 
             : [];
             
-        const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.y + this.height * 0.62);
-        const cloneRestY = this.groundY - this.height * 0.38;
+        const stableGroundY = this.groundY + LANE_OFFSET;
+        const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - PLAYER.HEIGHT * 0.38);
+        const cloneRestY = stableGroundY - PLAYER.HEIGHT * 0.38;
 
         for (let i = 0; i < this.specialCloneSlots.length; i++) {
             if (!this.specialCloneAlive[i]) continue;
@@ -1602,7 +1607,7 @@ export class Player {
 
     getSpecialCloneAnchors() {
         if (!this.specialCloneCombatStarted) {
-            return this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.y + this.height * 0.62);
+            return this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getFootY() - this.height * 0.38);
         }
 
         // 戦闘開始後は、AIによって更新された個別座標を返す
@@ -1677,6 +1682,7 @@ export class Player {
             : ((sourceX === null)
                 ? (this.facingRight ? -1 : 1)
                 : (playerCenterX < sourceX ? -1 : 1));
+
         this.vx = knockbackDir * knockbackX;
         this.vy = knockbackY;
         this.isGrounded = false;
@@ -1698,7 +1704,7 @@ export class Player {
             if (!pos) continue;
 
             const isAttacking = (this.specialCloneAttackTimers[i] > 0);
-            const attackProgress = isAttacking ? (1 - this.specialCloneAttackTimers[i] / 420) : 0;
+            const isSubWeapon = (this.specialCloneSubWeaponTimers[i] > 0);
             
             ctx.save();
             ctx.globalAlpha = 1.0; // 分身は完全に不透明
@@ -1708,30 +1714,46 @@ export class Player {
                 useLiveAccessories: false
             };
 
+            const drawX = pos.x - this.width / 2;
+            const drawY = pos.y - this.height * 0.62;
+
             if (isAttacking) {
-                const comboStep = (this.specialCloneComboSteps[i] % 3) + 1;
+                const comboStep = (this.specialCloneComboSteps[i] % 5) + 1;
                 const attackDurationMs = 320;
-                const originalAttacking = this.isAttacking;
-                const originalAttack = this.currentAttack;
-                const originalAttackTimer = this.attackTimer;
                 
-                this.isAttacking = true;
-                this.currentAttack = {
-                    comboStep,
-                    durationMs: attackDurationMs,
-                    range: 90,
-                    type: ANIM_STATE.ATTACK_SLASH,
-                    source: 'main'
+                // クローン専用のダミー状態を作成して渡す
+                renderOptions.state = {
+                    isAttacking: true,
+                    currentAttack: {
+                        comboStep,
+                        durationMs: attackDurationMs,
+                        range: 90,
+                        type: ANIM_STATE.ATTACK_SLASH,
+                        source: 'main'
+                    },
+                    attackTimer: this.specialCloneAttackTimers[i] || 0,
+                    vx: 0,
+                    vy: 0,
+                    isGrounded: true,
+                    isCrouching: false,
+                    motionTime: this.motionTime
                 };
-                this.attackTimer = this.specialCloneAttackTimers[i] || 0;
                 
-                this.renderModel(ctx, pos.x, pos.y, pos.facingRight, 1.0, true, renderOptions);
-                
-                this.isAttacking = originalAttacking;
-                this.currentAttack = originalAttack;
-                this.attackTimer = originalAttackTimer;
+                this.renderModel(ctx, drawX, drawY, pos.facingRight, 1.0, true, renderOptions);
+            } else if (isSubWeapon) {
+                // サブ武器状態を同期
+                renderOptions.state = {
+                    subWeaponTimer: this.specialCloneSubWeaponTimers[i],
+                    subWeaponAction: this.specialCloneSubWeaponActions[i],
+                    vx: 0,
+                    vy: 0,
+                    isGrounded: true,
+                    isCrouching: false,
+                    motionTime: this.motionTime
+                };
+                this.renderModel(ctx, drawX, drawY, pos.facingRight, 1.0, true, renderOptions);
             } else {
-                this.renderModel(ctx, pos.x, pos.y, pos.facingRight, 1.0, true, renderOptions);
+                this.renderModel(ctx, drawX, drawY, pos.facingRight, 1.0, true, renderOptions);
             }
             ctx.restore();
         }
@@ -1805,7 +1827,7 @@ export class Player {
             return true;
         }
         const pose = odachi.getPose(this);
-        return pose.phase === 'plunge' || pose.phase === 'planted';
+        return pose.phase === 'planted';
     }
     
     applyPhysics(walls) {
@@ -1819,8 +1841,8 @@ export class Player {
             this.vx *= 0.88;
             this.x += this.vx;
             this.y += this.vy;
-            if (this.y + this.height >= this.groundY + 24) {
-                this.y = this.groundY + 24 - this.height;
+            if (this.y + this.height >= this.groundY + LANE_OFFSET) {
+                this.y = this.groundY + LANE_OFFSET - this.height;
                 this.vy = 0;
                 this.isGrounded = true;
                 this.jumpCount = 0;
@@ -1931,7 +1953,7 @@ export class Player {
         // 地面判定
         if (hangingOnOdachi) {
             const hangClearance = 30;
-            const hangY = this.groundY - this.height - hangClearance;
+            const hangY = this.groundY + LANE_OFFSET - this.height - hangClearance;
             // 刺さっている間は常に同じ吊り位置を維持する
             this.y = hangY;
             if (this.vy > 0) {
@@ -1946,8 +1968,8 @@ export class Player {
             this.isGrounded = true;
             this.jumpCount = 0;
             this.isWallSliding = false;
-        } else if (this.y + this.height >= this.groundY + 64) {
-            this.y = this.groundY + 64 - this.height;
+        } else if (this.y + this.height >= this.groundY + LANE_OFFSET) {
+            this.y = this.groundY + LANE_OFFSET - this.height;
             this.vy = 0;
             this.isGrounded = true;
             this.jumpCount = 0;
@@ -2145,7 +2167,7 @@ export class Player {
 
     getXAttackTrailWidthScale() {
         if (!this.isXAttackBoostActive()) return 1.0;
-        return this.isXAttackActionActive() ? 2.35 : 1.0;
+        return this.isXAttackActionActive() ? 2.6 : 1.0;
     }
 
     isGhostVeilActive() {
@@ -2966,6 +2988,14 @@ export class Player {
     }
 
     renderModel(ctx, x, y, facingRight, alpha = 1.0, renderSubWeaponVisualsInput = true, options = {}) {
+        // 無敵時間中の点滅
+        if (this.invincibleTimer > 0) {
+            // 約60fps想定で、2フレームごとに1フレーム非表示にする（高速点滅）
+            if (Math.floor(this.motionTime / 32) % 2 === 0) {
+                return;
+            }
+        }
+
         ctx.save();
         if (alpha !== 1.0) ctx.globalAlpha *= alpha;
         const useLiveAccessories = options.useLiveAccessories !== false;
@@ -2997,9 +3027,10 @@ export class Player {
         const isCrouching = state.isCrouching !== undefined ? state.isCrouching : this.isCrouching;
 
         const isMoving = Math.abs(vx) > 0.1 || !isGrounded;
-
-        const silhouetteColor = '#1a1a1a';
-        const accentColor = '#00bfff';
+// ---
+        const silhouetteColor = (options.palette && options.palette.silhouette) || '#1a1a1a';
+        const accentColor = (options.palette && options.palette.accent) || '#00bfff';
+// ---
 
         const isCrouchPose = isCrouching;
         const isSpearThrustPose = subWeaponTimer > 0 && subWeaponAction === '大槍' && !isAttacking;
@@ -3724,7 +3755,7 @@ export class Player {
                 centerX, pivotY: bodyTopY + 2, facingRight,
                 backShoulderX, backShoulderY, frontShoulderX, frontShoulderY,
                 supportFrontHand: !(this.currentSubWeapon && this.currentSubWeapon.name === '二刀流')
-            });
+            }, options);
             if (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
                 drawArmSegment(frontShoulderX, frontShoulderY, idleFrontHandX, idleFrontHandY, 5);
                 drawHand(idleFrontHandX, idleFrontHandY, 4.5);
@@ -3734,7 +3765,7 @@ export class Player {
 
         // サブ武器アーム描画
         if ((effectiveSubWeaponTimer > 0 || (forceSubWeaponRender && subWeaponAction)) && !effectiveIsAttacking) {
-            this.renderSubWeaponArm(ctx, centerX, bodyTopY + 2, facingRight, renderSubWeaponVisuals);
+            this.renderSubWeaponArm(ctx, centerX, bodyTopY + 2, facingRight, renderSubWeaponVisuals, options);
         }
 
         drawHeadbandTail();
@@ -3744,7 +3775,7 @@ export class Player {
         ctx.restore();
     }
 
-    renderSubWeaponArm(ctx, centerX, pivotY, facingRight, renderWeaponVisuals = true) {
+    renderSubWeaponArm(ctx, centerX, pivotY, facingRight, renderWeaponVisuals = true, options = {}) {
         const dir = facingRight ? 1 : -1;
         const dualBlade = (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') ? this.currentSubWeapon : null;
         const dualPoseOverride = (
@@ -3765,7 +3796,8 @@ export class Player {
                     : dualBlade.attackTimer)
                 : this.subWeaponTimer;
         const progress = Math.max(0, Math.min(1, 1 - (sourceTimer / subDuration)));
-        const silhouetteColor = COLORS.PLAYER;
+        const silhouetteColor = (options.palette && options.palette.silhouette) || COLORS.PLAYER;
+        const accentColor = (options.palette && options.palette.accent) || '#00bfff';
         const backShoulderX = centerX + dir * 4;
         const frontShoulderX = centerX - dir * 3;
         const shoulderY = pivotY;
@@ -4130,7 +4162,9 @@ export class Player {
         frontShoulderX = centerX,
         frontShoulderY = pivotY + 1,
         supportFrontHand = true
-    }) {
+    }, options = {}) {
+        const silhouetteColor = (options.palette && options.palette.silhouette) || COLORS.PLAYER;
+        const accentColor = (options.palette && options.palette.accent) || '#00bfff';
         const attack = this.currentAttack;
         if (!attack) {
             return;
@@ -4386,7 +4420,7 @@ export class Player {
         }
 
         // 奥手（主動作）: 付け根を固定して描画
-        ctx.strokeStyle = COLORS.PLAYER;
+        ctx.strokeStyle = silhouetteColor;
         ctx.lineWidth = 6;
         ctx.lineCap = 'round';
         ctx.beginPath();
@@ -4395,7 +4429,7 @@ export class Player {
         ctx.stroke();
 
         // 手を上書きで描画
-        ctx.fillStyle = COLORS.PLAYER; // COLORS.PLAYER_GI から修正
+        ctx.fillStyle = silhouetteColor; // COLORS.PLAYER_GI から修正
         ctx.beginPath();
         ctx.arc(armEndX, armEndY, 6, 0, Math.PI * 2);
         ctx.fill();
@@ -4442,14 +4476,14 @@ export class Player {
 
         // 手前手は剣の後に描画して、握っている見た目を作る
         if (supportHand) {
-            ctx.strokeStyle = COLORS.PLAYER;
+            ctx.strokeStyle = silhouetteColor;
             ctx.lineWidth = 5.1;
             ctx.beginPath();
             ctx.moveTo(activeFrontShoulderX, activeFrontShoulderY);
             ctx.lineTo(supportHand.x, supportHand.y);
             ctx.stroke();
 
-            ctx.fillStyle = COLORS.PLAYER;
+            ctx.fillStyle = silhouetteColor;
             ctx.beginPath();
             ctx.arc(supportHand.x, supportHand.y, 4.8, 0, Math.PI * 2);
             ctx.fill();
@@ -5233,21 +5267,26 @@ export class Player {
 
         // 連撃拡張中は、当たり判定側へ剣筋を押し出して範囲拡張を視認しやすくする
         if (boostActive) {
-            const off = 10 + (trailWidthScale - 1) * 24;
+            // 半径（リーチ）のスケーリング: 倍率に合わせて外側へ大幅に押し出す
+            // trailWidthScaleが2.6の場合、元の半径から適切に外側へ拡張されるように調整
+            const off = (trailWidthScale - 1) * 82; 
             const projectOut = (p) => {
                 const vx = p.x - trailCenterX;
                 const vy = p.y - trailCenterY;
-                const len = Math.max(0.001, Math.hypot(vx, vy));
+                const len = Math.hypot(vx, vy);
+                if (len < 0.001) return { x: p.x, y: p.y };
+                
+                // 元の点からベクトルの向きにoff分だけ押し出す
                 return {
                     x: p.x + (vx / len) * off,
                     y: p.y + (vy / len) * off
                 };
             };
             for (const strip of strips) {
-                // 通常剣筋と同じ装飾・色系に統一
+                // 通常より太さを強化して、拡大時も密度を保つ
                 drawGradientTrail(
                     strip,
-                    8.6 * trailWidthScale * finisherTrailWidthScale,
+                    12.4 * trailWidthScale * finisherTrailWidthScale,
                     [108, 196, 248],
                     outerOldestAlpha,
                     outerNewestAlpha,
@@ -5255,7 +5294,7 @@ export class Player {
                 );
                 drawGradientTrail(
                     strip,
-                    3.0 * trailWidthScale * finisherCoreWidthScale,
+                    3.2 * trailWidthScale * finisherCoreWidthScale,
                     [236, 246, 255],
                     coreOldestAlpha,
                     coreNewestAlpha,
@@ -5355,7 +5394,8 @@ export class Player {
                     isCrouching: this.isCrouching,
                     isDashing: this.isDashing,
                     motionTime: this.motionTime,
-                    subWeaponPoseOverride: this.subWeaponPoseOverride
+                    subWeaponPoseOverride: this.subWeaponPoseOverride,
+                    height: this.height
                 };
 
                 // ★savedの後にcloneDrawYを定義
@@ -5367,6 +5407,7 @@ export class Player {
                 // 分身の状態をセット
                 this.x = cloneDrawX;
                 this.y = cloneDrawY;
+                this.height = PLAYER.HEIGHT;
                 this.facingRight = pos.facingRight;
                 this.motionTime = saved.motionTime + i * 400;
 
@@ -5514,6 +5555,7 @@ export class Player {
 
                 this.scarfNodes = savedScarf;
                 this.hairNodes = savedHair;
+                this.height = saved.height;
 
                 ctx.restore();
 
@@ -6197,15 +6239,16 @@ export class Player {
     }
 
     getFootY() {
-        return this.groundY + 64; // 固定レーンの中心に合わせる
+        // スプライトの実際の足元位置を返す
+        return this.y + this.height; 
     }
 
     getHeightAboveGround() {
-        // 足元の座標 (y + height) と固定レーンの差分
-        return Math.max(0, (this.groundY + 64) - (this.y + this.height));
+        // キャラが本来着地するレーンとの差分（奥のレーンなら +24）
+        return Math.max(0, (this.groundY + LANE_OFFSET) - (this.y + this.height));
     }
 
     getShadowBaseRadius() {
-        return this.width * 0.76;
+        return this.width * 0.45;
     }
 }

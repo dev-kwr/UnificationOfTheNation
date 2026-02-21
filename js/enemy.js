@@ -2,7 +2,7 @@
 // Unification of the Nation - 敵クラス
 // ============================================
 
-import { ENEMY_TYPES, COLORS, GRAVITY, CANVAS_WIDTH } from './constants.js';
+import { ENEMY_TYPES, COLORS, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js';
 import { audio } from './audio.js';
 
 const ENEMY_HEADBAND_BASE = '#4f2f72';
@@ -166,13 +166,14 @@ export class Enemy {
         this.applyPullStopConstraint(player, deltaTime * 1000);
 
         // 2.5Dで進行方向を向けるため、攻撃中以外は移動方向に向きを合わせる
-        if (!this.isAttacking && Math.abs(this.vx) > 0.18) {
+        // ダメージを受けている間は向きを固定
+        if (!this.isAttacking && Math.abs(this.vx) > 0.18 && this.hitTimer <= 0) {
             this.facingRight = this.vx > 0;
         }
         
         // 飛び道具更新
         if (this.projectiles) {
-            this.projectiles = this.projectiles.filter(p => p.update(deltaTime, player));
+            this.projectiles = this.projectiles.filter(p => p.update(deltaTime, player, obstacles));
         }
         
         // アニメーション更新
@@ -622,71 +623,86 @@ export class Enemy {
         ctx.scale(1, profileFlipY < 0 ? -1 : 1);
 
         const gripBack = -gripLen - 2;
-        ctx.fillStyle = '#3a2a1f';
-        ctx.fillRect(gripBack, -3.2, gripLen + 2, 6.4);
-        ctx.strokeStyle = '#725437';
-        ctx.lineWidth = 1.2;
-        for (let i = 1; i <= 3; i++) {
-            const tx = gripBack + i * ((gripLen + 1) / 4);
+        // 柄（色を濃く、重厚に）
+        ctx.fillStyle = '#3d2310';
+        ctx.beginPath();
+        // weapon.js に合わせて幅を少し調整 (9px相当)
+        ctx.rect(gripBack, -4.5, gripLen + 2, 9);
+        ctx.fill();
+
+        // 柄の巻紐表現（ひし形の重なり）- weapon.js と同期
+        ctx.fillStyle = '#221105';
+        for (let x = gripBack + 4; x < gripBack + gripLen - 2; x += 8) {
             ctx.beginPath();
-            ctx.moveTo(tx, -2.9);
-            ctx.lineTo(tx, 2.9);
-            ctx.stroke();
+            ctx.moveTo(x, -4.5);
+            ctx.lineTo(x + 4, 0);
+            ctx.lineTo(x, 4.5);
+            ctx.lineTo(x - 4, 0);
+            ctx.closePath();
+            ctx.fill();
         }
 
-        ctx.fillStyle = '#c8a756';
+        // 柄の縁取り
+        ctx.strokeStyle = '#1a0d04';
+        ctx.lineWidth = 0.8;
+        ctx.strokeRect(gripBack, -4.5, gripLen + 2, 9);
+
+        // 鍔（少し使い込まれた金の色）- weapon.js と同期
+        ctx.fillStyle = '#b59345';
         ctx.beginPath();
-        ctx.moveTo(0, -4.6);
-        ctx.lineTo(4.4, -2.9);
-        ctx.lineTo(4.4, 2.9);
-        ctx.lineTo(0, 4.6);
-        ctx.lineTo(-1.6, 0);
+        // 鍔の位置オフセットを調整（weapon.js の 16.5 を基準に柄の先へ）
+        ctx.moveTo(1.2, -5.8);
+        ctx.quadraticCurveTo(6.2, -8.0, 9.2, -1.1);
+        ctx.quadraticCurveTo(6.2, 5.8, 0.9, 5.2);
         ctx.closePath();
         ctx.fill();
+        
+        // 鍔の厚み表現
+        ctx.fillStyle = '#8c6b2a';
+        ctx.fillRect(-2.1, -4.8, 3.2, 9.6);
 
-        const bladeEnd = length + 4.5;
-        ctx.fillStyle = '#aeb8c5';
-        ctx.strokeStyle = '#414d5c';
-        ctx.lineWidth = 1.4;
+        const bladeStart = 1.8;
+        const bladeEnd = length + 8;
+        
+        // 刀身（コントラストを強めたメタリックなグラデーション）- weapon.js と同期
+        const bladeGrad = ctx.createLinearGradient(bladeStart, -6, bladeEnd, 6);
+        bladeGrad.addColorStop(0, '#e5e7eb'); // 根本は明るく
+        bladeGrad.addColorStop(0.15, '#9ca3af');
+        bladeGrad.addColorStop(0.4, '#ffffff'); // 強い反射光
+        bladeGrad.addColorStop(0.7, '#4b5563'); // 中間の影
+        bladeGrad.addColorStop(1, '#1f2937'); // 切先は重く暗い影
+        
+        ctx.fillStyle = bladeGrad;
+        ctx.strokeStyle = '#627083';
+        ctx.lineWidth = 1.25;
         ctx.beginPath();
-        ctx.moveTo(1.2, -4.2);
-        ctx.quadraticCurveTo(length * 0.36, -8.8, length * 0.78, -6.2);
-        ctx.quadraticCurveTo(bladeEnd - 5, -4.8, bladeEnd + 2.2, -0.8);
-        ctx.quadraticCurveTo(bladeEnd - 6, 4.6, length * 0.8, 6.4);
-        ctx.quadraticCurveTo(length * 0.36, 7.6, 1.2, 4.4);
+        // プレイヤーのNodachiと完全に同期したシャープな形状
+        ctx.moveTo(bladeStart, -5.2);
+        ctx.quadraticCurveTo(bladeStart + length * 0.35, -12.5, bladeStart + length * 0.75, -9.2);
+        ctx.quadraticCurveTo(bladeEnd - 18, -6.8, bladeEnd + 4, -0.8);
+        ctx.quadraticCurveTo(bladeEnd - 8, 4.5, bladeEnd - 24, 6.2);
+        ctx.quadraticCurveTo(bladeStart + length * 0.45, 8.4, bladeStart + 7, 5.8);
+        ctx.quadraticCurveTo(bladeStart - 2, 2.8, bladeStart, -5.2);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
 
-        ctx.strokeStyle = 'rgba(255,255,255,0.68)';
-        ctx.lineWidth = 1.05;
+        // 峰ライン (強いハイライト)
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.lineWidth = 1.1;
         ctx.beginPath();
-        ctx.moveTo(4.2, -1.1);
-        ctx.quadraticCurveTo(length * 0.56, -3.9, bladeEnd - 8, -0.8);
+        ctx.moveTo(bladeStart + 8, -2.2);
+        ctx.quadraticCurveTo(bladeStart + length * 0.6, -4.5, bladeEnd - 12, -1.0);
         ctx.stroke();
 
-        // 大剣の荒々しい刃文（Hamon）
-        ctx.strokeStyle = 'rgba(230, 240, 255, 0.45)';
-        ctx.lineWidth = 1.2;
+        // 切先寄りの返し (よりメタリックに) - weapon.js と同期
+        const intBladeEnd_X = bladeEnd + 1.2;
+        ctx.fillStyle = 'rgba(230, 240, 255, 0.9)';
         ctx.beginPath();
-        let firstHamon = true;
-        for (let bx = 6; bx < bladeEnd - 4; bx += 3.5) {
-            const waveA = Math.sin((bx + length * 0.28) * 0.27) * 1.05;
-            const waveB = Math.sin((bx + length * 0.07) * 0.68) * 0.62;
-            const by = 2.5 + waveA + waveB;
-            if (firstHamon) {
-                ctx.moveTo(bx, by);
-                firstHamon = false;
-            } else {
-                ctx.lineTo(bx, by);
-            }
-        }
-        ctx.stroke();
-
-        // 強い環境光の反射ピーク
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.beginPath();
-        ctx.ellipse(length * 0.45, -2, 4, 1.2, -0.1, 0, Math.PI * 2);
+        ctx.moveTo(bladeEnd - 18, -6.4);
+        ctx.quadraticCurveTo(bladeEnd - 8, -7.5, intBladeEnd_X, -1.8);
+        ctx.quadraticCurveTo(bladeEnd - 7.5, -3.5, bladeEnd - 16, -3.2);
+        ctx.closePath();
         ctx.fill();
 
         ctx.restore();
@@ -695,6 +711,106 @@ export class Enemy {
             tipY: handY + Math.sin(angle) * (bladeEnd + 1.2)
         };
     }
+
+    drawDetailedNaginata(ctx, {
+        handX,
+        handY,
+        angle,
+        length = 85,
+        gripLen = 65,
+        profileFlipY = 1
+    }) {
+        ctx.save();
+        ctx.translate(handX, handY);
+        ctx.rotate(angle);
+        ctx.scale(1, profileFlipY < 0 ? -1 : 1);
+
+        // なぎなたは柄（え）の中央からやや前寄りを持つ
+        // 0,0 が手元になるよう、武器全体を前方にオフセットする
+        const weaponOffset = gripLen * 0.52; 
+        ctx.translate(weaponOffset, 0);
+
+        const gripBack = -gripLen;
+        const totalLen = length;
+        
+        // 柄 (長い木製の柄)
+        const shaftGrad = ctx.createLinearGradient(gripBack, 0, 0, 0);
+        shaftGrad.addColorStop(0, '#1a1005');
+        shaftGrad.addColorStop(0.5, '#3d2612');
+        shaftGrad.addColorStop(1, '#251508');
+        ctx.fillStyle = shaftGrad;
+        ctx.beginPath();
+        ctx.rect(gripBack, -2.8, gripLen, 5.6);
+        ctx.fill();
+
+        // 石突 (柄の端の金属パーツ)
+        const ishizukiGrad = ctx.createLinearGradient(gripBack, -3, gripBack + 8, 3);
+        ishizukiGrad.addColorStop(0, '#9ca3af');
+        ishizukiGrad.addColorStop(0.5, '#374151');
+        ishizukiGrad.addColorStop(1, '#1f2937');
+        ctx.fillStyle = ishizukiGrad;
+        ctx.beginPath();
+        ctx.moveTo(gripBack, -3);
+        ctx.lineTo(gripBack - 4, 0);
+        ctx.lineTo(gripBack, 3);
+        ctx.lineTo(gripBack + 6, 2.5);
+        ctx.lineTo(gripBack + 6, -2.5);
+        ctx.closePath();
+        ctx.fill();
+
+        // 鍔 (なぎなたは少し小さめの鍔)
+        ctx.fillStyle = '#b59345';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 3, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#8c6b2a';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        const bladeLen = (totalLen - gripLen) * 0.45 + 32;
+        const bladeStart = 1.6;
+        const bladeEnd = bladeLen;
+
+        // 刀身 (薙刀特有のしなやかな湾曲)
+        const bladeGrad = ctx.createLinearGradient(bladeStart, -4, bladeEnd, 4);
+        bladeGrad.addColorStop(0, '#f3f4f6');
+        bladeGrad.addColorStop(0.2, '#9ca3af');
+        bladeGrad.addColorStop(0.5, '#ffffff'); // 反射光
+        bladeGrad.addColorStop(0.8, '#4b5563');
+        bladeGrad.addColorStop(1, '#111827');
+        
+        ctx.fillStyle = bladeGrad;
+        ctx.strokeStyle = '#64748b';
+        ctx.lineWidth = 1.1;
+        ctx.beginPath();
+        // なぎなたらしい形状: 根本は細く、先端に向けて少し膨らみ、鋭く曲がる
+        ctx.moveTo(bladeStart, -2.5);
+        ctx.quadraticCurveTo(bladeStart + bladeLen * 0.4, -3.5, bladeStart + bladeLen * 0.7, -9.5); // 強い湾曲
+        ctx.quadraticCurveTo(bladeEnd - 5, -12, bladeEnd + 2, -1.5); // 切先
+        ctx.quadraticCurveTo(bladeEnd - 8, 2.5, bladeEnd - 18, 3.2);  // 刃先の下側
+        ctx.quadraticCurveTo(bladeStart + bladeLen * 0.5, 4.2, bladeStart + 6, 2.8);
+        ctx.quadraticCurveTo(bladeStart - 1, 1.5, bladeStart, -2.5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        // 刃の波紋 (刃文)
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+        ctx.lineWidth = 0.8;
+        ctx.setLineDash([3, 2]);
+        ctx.beginPath();
+        ctx.moveTo(bladeStart + 10, 1.2);
+        ctx.quadraticCurveTo(bladeStart + bladeLen * 0.5, 2.5, bladeEnd - 12, -1.0);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.restore();
+        return {
+            tipX: handX + Math.cos(angle) * (weaponOffset + bladeEnd + 1.5),
+            tipY: handY + Math.sin(angle) * (weaponOffset + bladeEnd + 1.5)
+        };
+    }
+
 
     getUnifiedAttackProgress(defaultDurationMs = 320, progressResolver = null) {
         if (!this.isAttacking) return 0;
@@ -737,6 +853,8 @@ export class Enemy {
             accent: '#6f5ba2'
         };
         const palette = { ...basePalette, ...(config.palette || {}) };
+        const handPose = config.handPose || null; // 外部（武器の実体）から渡されるポーズ
+        const isImpacted = this.weaponReplica && this.weaponReplica.hasImpacted;
 
         const attackProgress = this.getUnifiedAttackProgress(
             Number.isFinite(config.attackDurationMs) ? config.attackDurationMs : 320,
@@ -1013,6 +1131,70 @@ export class Enemy {
                     ctx.stroke();
 
                     ctx.restore();
+                } else if (crestVariant === 'mikazuki') {
+                    // 中ボス用: 本格的な三日月（額に着ける鋭い装飾）
+                    const moonWidth = headRadius * 1.55 * crestLengthScale;
+                    const moonHeight = headRadius * 0.55 * crestArcHeightScale;
+                    const moonX = crestRootX + dir * headRadius * 0.42;
+                    const moonY = headY - headRadius * 1.05; // 少し上げる
+
+                    ctx.save();
+                    ctx.translate(moonX, moonY);
+                    ctx.scale(dir, 1);
+                    ctx.rotate(0.08); // 逆回転
+
+                    ctx.fillStyle = palette.crest;
+                    ctx.beginPath();
+                    // 上を向いた優美な三日月型 (伊達政宗公の弦月をイメージ)
+                    ctx.moveTo(-moonWidth * 0.48, -moonHeight * 0.2);
+                    ctx.quadraticCurveTo(0, moonHeight * 1.6, moonWidth * 0.48, -moonHeight * 0.2);
+                    ctx.quadraticCurveTo(0, moonHeight * 0.8, -moonWidth * 0.48, -moonHeight * 0.2);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // 縁取り
+                    ctx.strokeStyle = '#85641c';
+                    ctx.lineWidth = 1.1;
+                    ctx.stroke();
+
+                    // 鋭い頂点にハイライト
+                    ctx.strokeStyle = 'rgba(255, 248, 220, 0.7)';
+                    ctx.lineWidth = 1.4;
+                    ctx.beginPath();
+                    ctx.moveTo(-moonWidth * 0.35, moonHeight * 0.35);
+                    ctx.quadraticCurveTo(0, moonHeight * 0.85, moonWidth * 0.35, moonHeight * 0.35);
+                    ctx.stroke();
+
+                    ctx.restore();
+                } else if (crestVariant === 'mikazuki_major') {
+                    // 将軍用: 高貴で洗練された黄金の三日月 (一般的かつ荘厳なサイズへ)
+                    const moonWidth = headRadius * 1.85 * crestLengthScale;
+                    const moonHeight = headRadius * 0.55 * crestArcHeightScale;
+                    const moonX = crestRootX + dir * headRadius * 0.42;
+                    const moonY = headY - headRadius * 1.2; // 少し上げる
+
+                    ctx.save();
+                    ctx.translate(moonX, moonY);
+                    ctx.scale(dir, 1);
+                    ctx.rotate(0.06); // 逆回転
+
+                    // 鋭く洗練されたシルエット (上向き)
+                    ctx.fillStyle = palette.crest || '#ffd700';
+                    ctx.beginPath();
+                    ctx.moveTo(-moonWidth * 0.52, -moonHeight * 0.4);
+                    ctx.quadraticCurveTo(0, moonHeight * 1.3, moonWidth * 0.52, -moonHeight * 0.4);
+                    ctx.quadraticCurveTo(0, moonHeight * 0.18, -moonWidth * 0.52, -moonHeight * 0.4);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // 繊細な縁取り
+                    ctx.strokeStyle = '#8b6508';
+                    ctx.lineWidth = 1.1;
+                    ctx.stroke();
+
+                    // 宝玉はユーザー要望により削除
+
+                    ctx.restore();
                 } else if (crestVariant === 'fork') {
                     // 中ボス用: 二股の上向き前立て
                     const baseX = crestRootX + dir * headRadius * 0.18;
@@ -1053,6 +1235,62 @@ export class Enemy {
                     ctx.moveTo(baseX + dir * headRadius * 0.04, baseY - headRadius * 0.03);
                     ctx.lineTo(mainTipX - dir * headRadius * 0.2, mainTipY + headRadius * 0.08);
                     ctx.stroke();
+                } else if (crestVariant === 'shogun') {
+                    // 将軍専用: 禍々しくも巨大な黄金の鍬形（大角）
+                    const baseX = crestRootX + dir * headRadius * 0.1;
+                    const baseY = crestRootY - headRadius * 0.1;
+                    const hornSpan = headRadius * 0.8; // 非常に横に広い
+                    const hornHeight = headRadius * 1.5; // 非常に高い
+                    
+                    // ベースフレーム（影・縁取り）
+                    ctx.strokeStyle = '#85641c';
+                    ctx.lineWidth = Math.max(2.5, this.width * 0.04);
+                    DrawShogunHorn(ctx, baseX, baseY, hornSpan, hornHeight, dir);
+                    
+                    // 中心の黄金部分
+                    ctx.strokeStyle = palette.crest || '#ffd76a';
+                    ctx.lineWidth = Math.max(1.5, this.width * 0.025);
+                    DrawShogunHorn(ctx, baseX, baseY, hornSpan * 0.95, hornHeight * 0.95, dir);
+
+                    // ハイライト
+                    ctx.strokeStyle = 'rgba(255, 248, 220, 0.7)';
+                    ctx.lineWidth = Math.max(1.0, this.width * 0.015);
+                    ctx.beginPath();
+                    ctx.moveTo(baseX, baseY - hornHeight * 0.1);
+                    ctx.quadraticCurveTo(
+                        baseX + dir * hornSpan * 0.4,
+                        baseY - hornHeight * 0.3,
+                        baseX + dir * hornSpan * 0.9,
+                        baseY - hornHeight * 0.85
+                    );
+                    ctx.stroke();
+
+                    // 中央の宝玉/紋章
+                    ctx.fillStyle = palette.accent || '#8b66e0';
+                    ctx.beginPath();
+                    ctx.arc(baseX, baseY, headRadius * 0.25, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                    ctx.beginPath();
+                    ctx.arc(baseX - dir * headRadius * 0.05, baseY - headRadius * 0.05, headRadius * 0.08, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // ヘルパー関数: 巨大な角を描画
+                    function DrawShogunHorn(ctx, bx, by, span, h, d) {
+                        ctx.beginPath();
+                        // 左角（奥側）
+                        ctx.moveTo(bx, by);
+                        ctx.quadraticCurveTo(bx - d * span * 0.2, by - h * 0.5, bx - d * span * 0.8, by - h * 0.9);
+                        ctx.quadraticCurveTo(bx - d * span * 0.4, by - h * 0.2, bx - d * span * 0.1, by + headRadius * 0.1);
+                        ctx.stroke();
+                        // 右角（手前側）
+                        ctx.beginPath();
+                        ctx.moveTo(bx, by);
+                        ctx.quadraticCurveTo(bx + d * span * 0.5, by - h * 0.4, bx + d * span * 1.0, by - h * 1.0);
+                        ctx.quadraticCurveTo(bx + d * span * 0.6, by - h * 0.1, bx + d * span * 0.1, by + headRadius * 0.15);
+                        ctx.stroke();
+                    }
+
                 } else {
                     // 標準: 上向きに反った前立て
                     ctx.beginPath();
@@ -1081,15 +1319,20 @@ export class Enemy {
 
         if (config.headStyle === 'ninja') {
             // 目玉のように見える点は描かない（覆面＋鉢金だけ）
-            ctx.save();
-            ctx.strokeStyle = palette.accent;
-            ctx.lineWidth = Math.max(2.2, this.width * 0.062);
-            ctx.lineCap = 'butt';
-            ctx.beginPath();
-            ctx.moveTo(headX - headRadius * 0.76, headY - headRadius * 0.3);
-            ctx.quadraticCurveTo(headX, headY - headRadius * 0.48, headX + headRadius * 0.78, headY - headRadius * 0.24);
-            ctx.stroke();
-            ctx.restore();
+            const renderHeadband = config.renderHeadband !== false;
+            const renderHair = config.renderHair !== false;
+
+            if (renderHeadband) {
+                ctx.save();
+                ctx.strokeStyle = ENEMY_HEADBAND_BASE;
+                ctx.lineWidth = Math.max(2.4, this.width * 0.068);
+                ctx.lineCap = 'butt';
+                ctx.beginPath();
+                ctx.moveTo(headX - headRadius * 0.8, headY + headRadius * 0.1);
+                ctx.quadraticCurveTo(headX, headY - headRadius * 0.05, headX + headRadius * 0.8, headY + headRadius * 0.1);
+                ctx.stroke();
+                ctx.restore();
+            }
         }
 
         const shoulderFrontY = shoulderY + this.height * 0.03;
@@ -1163,6 +1406,35 @@ export class Enemy {
                         { t: 1.0, v: 0.03, ease: 'outCubic' }
                     ]
                 },
+                naginata: {
+                    angle: [
+                        // 上段構え -> 豪快な振り下ろし
+                        { t: 0.0, v: -1.2 },
+                        { t: 0.28, v: -2.35, ease: 'outCubic' }, // 最大上段
+                        { t: 0.65, v: 0.95, ease: 'outExpo' },  // 振り下ろしきり
+                        { t: 0.85, v: 0.45, ease: 'inOutCubic' },
+                        { t: 1.0, v: -1.2, ease: 'outCubic' }
+                    ],
+                    reach: [
+                        { t: 0.0, v: 0.85 },
+                        { t: 0.28, v: 0.76, ease: 'outCubic' },
+                        { t: 0.65, v: 1.28, ease: 'outExpo' },
+                        { t: 0.85, v: 1.08, ease: 'inOutCubic' },
+                        { t: 1.0, v: 0.85, ease: 'outCubic' }
+                    ],
+                    bodyDrive: [
+                        { t: 0.0, v: 0.0 },
+                        { t: 0.28, v: -0.18, ease: 'outCubic' },
+                        { t: 0.65, v: 0.58, ease: 'outExpo' },
+                        { t: 1.0, v: 0.15, ease: 'outCubic' }
+                    ],
+                    bodyLift: [
+                        { t: 0.0, v: 0.0 },
+                        { t: 0.28, v: -0.15, ease: 'outCubic' },
+                        { t: 0.65, v: 0.12, ease: 'outExpo' },
+                        { t: 1.0, v: 0.04, ease: 'outCubic' }
+                    ]
+                },
                 heavy: {
                     angle: [
                         // 下段構え -> 振り上げ
@@ -1219,8 +1491,41 @@ export class Enemy {
                         { t: 0.72, v: 0.19, ease: 'outExpo' },
                         { t: 1.0, v: 0.07, ease: 'outCubic' }
                     ]
+                },
+                odachi_special: {
+                    angle: [
+                        // 振り上げ (rise/stall) -> 叩きつけ (plunge) を表現
+                        { t: 0.0, v: 0.66 }, // 下段構え
+                        { t: 0.15, v: -1.5, ease: 'outCubic' }, // 急激な振り上げ
+                        { t: 0.5, v: -2.3, ease: 'inOutCubic' }, // 滞空タメ
+                        { t: 0.65, v: 1.2, ease: 'outExpo' }, // 叩きつけ
+                        { t: 0.85, v: 0.8, ease: 'inOutCubic' },
+                        { t: 1.0, v: 0.4, ease: 'outCubic' }
+                    ],
+                    reach: [
+                        { t: 0.0, v: 0.84 },
+                        { t: 0.15, v: 1.1 }, // 振り上げ時の伸び
+                        { t: 0.5, v: 1.2 }, 
+                        { t: 0.65, v: 1.35, ease: 'outExpo' }, // 打撃時の伸び
+                        { t: 1.0, v: 0.9, ease: 'outCubic' }
+                    ],
+                    bodyDrive: [
+                        { t: 0.0, v: 0.0 },
+                        { t: 0.15, v: -0.1 },
+                        { t: 0.5, v: 0.0 },
+                        { t: 0.65, v: 0.6, ease: 'outExpo' }, // 踏み込み
+                        { t: 1.0, v: 0.2 }
+                    ],
+                    bodyLift: [
+                        { t: 0.0, v: 0.0 },
+                        { t: 0.15, v: -0.22, ease: 'outCubic' }, // 体の伸び上がり
+                        { t: 0.5, v: -0.24 },
+                        { t: 0.65, v: 0.18, ease: 'outExpo' }, // 沈み込み
+                        { t: 1.0, v: 0.05 }
+                    ]
                 }
             };
+
             const tpl = templates[profile] || templates.samurai;
             return {
                 rawAngle: sampleTimeline(phase, tpl.angle),
@@ -1230,7 +1535,7 @@ export class Enemy {
             };
         };
         const drawKatanaSlash = (pivotX, pivotY, slash = {}) => {
-            if (!this.isAttacking) return;
+            if (!this.isAttacking || isImpacted) return; // 地面に刺さっている間はエフェクトを出さない
             const alpha = Number.isFinite(slash.alpha) ? slash.alpha : (0.3 + swing * 0.34);
             if (alpha <= 0.01) return;
             const bladeAngle = Number.isFinite(slash.bladeAngle) ? slash.bladeAngle : 0;
@@ -1239,19 +1544,51 @@ export class Enemy {
             const arcBack = Number.isFinite(slash.arcBack) ? slash.arcBack : 1.0;
             const arcFront = Number.isFinite(slash.arcFront) ? slash.arcFront : 0.58;
             const widthScale = Number.isFinite(slash.widthScale) ? slash.widthScale : 1;
+            
             ctx.save();
             ctx.globalCompositeOperation = 'lighter';
             const arcRadius = fixedRadius !== null
                 ? fixedRadius
                 : (this.width * (0.95 + swing * 0.42) * radiusScale);
-            const arcStart = bladeAngle - dir * arcBack;
-            const arcEnd = bladeAngle + dir * arcFront;
-            ctx.strokeStyle = `rgba(255, 188, 158, ${alpha})`;
-            ctx.lineWidth = Math.max(4, this.width * 0.14) * widthScale;
-            ctx.lineCap = 'round';
+            
+            // 進行に応じて軌跡が伸びるようにする（切っ先より先には描画しない）
+            const trailLength = arcBack * Math.min(1, swing * 1.8);
+            const currentArcFront = 0.04; // 刃先を僅かに覆う程度に留め、先行させない
+            
+            const arcStart = bladeAngle - dir * trailLength;
+            const arcEnd = bladeAngle + dir * currentArcFront;
+            const isNaginata = config.weaponMode === 'naginata';
+            
+            // 履歴風のフェード効果（トレイル）をシミュレート
+            const segments = 5;
+            for (let i = 0; i < segments; i++) {
+                const sAlpha = alpha * (1 - i / segments);
+                const sTrailLength = trailLength * (1 - i * 0.15);
+                const sStart = bladeAngle - dir * sTrailLength;
+                const sEnd = arcEnd;
+                
+                // 外側の光
+                ctx.strokeStyle = isNaginata ? `rgba(255, 180, 120, ${sAlpha * 0.28})` : `rgba(255, 200, 160, ${sAlpha * 0.24})`;
+                ctx.lineWidth = Math.max(14, this.width * 0.32) * widthScale * (1 - i * 0.1);
+                ctx.beginPath();
+                ctx.arc(pivotX, pivotY, arcRadius, sStart, sEnd, dir < 0);
+                ctx.stroke();
+
+                // メイン
+                ctx.strokeStyle = isNaginata ? `rgba(255, 220, 180, ${sAlpha * 0.76})` : `rgba(255, 240, 220, ${sAlpha * 0.7})`;
+                ctx.lineWidth = Math.max(6, this.width * 0.14) * widthScale * (1 - i * 0.04);
+                ctx.beginPath();
+                ctx.arc(pivotX, pivotY, arcRadius, sStart + dir * 0.02, sEnd, dir < 0);
+                ctx.stroke();
+            }
+
+            // 芯のハイライト（常に一番手前）
+            ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.9})`;
+            ctx.lineWidth = Math.max(1.8, this.width * 0.04) * widthScale;
             ctx.beginPath();
-            ctx.arc(pivotX, pivotY, arcRadius, arcStart, arcEnd, dir < 0);
+            ctx.arc(pivotX, pivotY, arcRadius, bladeAngle - dir * 0.1, arcEnd, dir < 0);
             ctx.stroke();
+
             ctx.restore();
         };
 
@@ -1580,13 +1917,17 @@ export class Enemy {
             ctx.fill();
             ctx.restore();
         } else {
-            const isHeavy = weaponMode === 'heavy' || weaponMode === 'odachi';
-            const heavyFactor = isHeavy ? 1.25 : 1;
-            const kataProfile = weaponMode === 'odachi' ? 'odachi' : (isHeavy ? 'heavy' : 'samurai');
+            const isHeavy = weaponMode === 'heavy' || weaponMode === 'odachi' || weaponMode === 'odachi_special' || weaponMode === 'naginata';
+            const heavyFactor = (isHeavy || weaponMode === 'naginata') ? 1.25 : 1;
+            const kataProfile = (weaponMode === 'odachi_special' || weaponMode === 'odachi' || weaponMode === 'naginata') 
+                ? weaponMode 
+                : (isHeavy ? 'heavy' : 'samurai');
             const idlePoseByProfile = {
                 samurai: { rawAngle: -0.98, reachScale: 0.82, bodyDrive: -0.08, bodyLift: -0.08 },
                 heavy: { rawAngle: 0.62, reachScale: 0.84, bodyDrive: -0.1, bodyLift: 0.04 },
-                odachi: { rawAngle: 0.5, reachScale: 0.96, bodyDrive: -0.1, bodyLift: -0.04 }
+                naginata: { rawAngle: -1.2, reachScale: 0.85, bodyDrive: -0.12, bodyLift: 0.05 },
+                odachi: { rawAngle: -0.15, reachScale: 0.94, bodyDrive: -0.1, bodyLift: -0.04 },
+                odachi_special: { rawAngle: -0.15, reachScale: 0.94, bodyDrive: -0.1, bodyLift: -0.04 }
             };
             const idleBase = idlePoseByProfile[kataProfile] || idlePoseByProfile.samurai;
             const idleKataPose = {
@@ -1610,8 +1951,16 @@ export class Enemy {
             const idleGuardDown = this.isAttacking
                 ? 0
                 : this.height * (kataProfile === 'odachi' ? 0.14 : (isHeavy ? 0.11 : 0.12));
-            const leadTargetX = shoulderFrontX + driveX + Math.cos(bladeAngle) * reach + dir * idleGuardForward;
-            const leadTargetY = shoulderFrontY + driveY + Math.sin(bladeAngle) * reach + idleGuardDown;
+            // 利き手 (Lead Hand)
+            let leadTargetX = shoulderFrontX + driveX + Math.cos(bladeAngle) * reach + dir * idleGuardForward;
+            let leadTargetY = shoulderFrontY + driveY + Math.sin(bladeAngle) * reach + idleGuardDown;
+
+            // 武器ポーズが渡されている場合はそちらを100%信頼する
+            if (handPose) {
+                leadTargetX = handPose.handX;
+                leadTargetY = handPose.handY;
+            }
+
             leadHand = this.drawJointedArm(ctx, {
                 shoulderX: shoulderFrontX,
                 shoulderY: shoulderFrontY,
@@ -1626,14 +1975,18 @@ export class Enemy {
                 baseColor: palette.torsoCore,
                 handColor: palette.legFront
             });
-            const weaponAngle = this.isAttacking
+
+            // 添え手 (Support Hand) - 柄（中心寄り）を確実に掴む
+            const weaponAngle = handPose ? handPose.rotation : (this.isAttacking
                 ? bladeAngle + dir * 0.08
-                : bladeAngle - dir * (kataProfile === 'odachi' ? 0.08 : 0.05);
+                : bladeAngle - dir * (kataProfile === 'odachi' ? 0.12 : (kataProfile === 'naginata' ? -0.05 : 0.08)));
+            
             const weaponDirX = Math.cos(weaponAngle);
             const weaponDirY = Math.sin(weaponAngle);
-            const gripSpacing = this.width * (kataProfile === 'odachi' ? 0.36 : (isHeavy ? 0.3 : 0.24));
-            const supportTargetX = leadHand.handX - weaponDirX * gripSpacing - weaponDirY * 1.2;
-            const supportTargetY = leadHand.handY - weaponDirY * gripSpacing + weaponDirX * 1.2;
+            const gripSpacing = this.width * (kataProfile === 'odachi' || kataProfile === 'odachi_special' ? 0.38 : (isHeavy ? 0.3 : 0.24));
+            const supportTargetX = leadHand.handX - weaponDirX * gripSpacing;
+            const supportTargetY = leadHand.handY - weaponDirY * gripSpacing;
+
             supportHand = this.drawJointedArm(ctx, {
                 shoulderX: shoulderBackX,
                 shoulderY: shoulderBackY,
@@ -1654,11 +2007,32 @@ export class Enemy {
             const slashPivotXOffset = Number.isFinite(config.slashPivotXOffset) ? config.slashPivotXOffset : 0;
             const slashPivotYOffset = Number.isFinite(config.slashPivotYOffset) ? config.slashPivotYOffset : 0;
             const slashWidthScale = Number.isFinite(config.slashWidthScale) ? config.slashWidthScale : 1;
+            const suppressWeaponDraw = config.suppressWeaponDraw || false;
             let drawnWeaponAngle = weaponAngle;
             let slashBladeAngle = weaponAngle;
             let slashRadius = Math.max(24, this.width * 0.98);
-            if (isHeavy) {
-                const heavyLen = Math.max(56, this.width * (1.56 + (weaponMode === 'odachi' ? 0.5 : 0.22)) * weaponScale) * heavyBladeLengthScale;
+            if (suppressWeaponDraw) {
+                // 何もしない（外部から weaponReplica.render を呼ぶため）
+            } else if (weaponMode === 'naginata') {
+                const naginataLen = Math.max(76, this.width * 2.0 * weaponScale);
+                const gripLen = Math.max(54, this.width * 1.35) * heavyGripScale;
+                const weaponOffset = gripLen * 0.52; // drawDetailedNaginata での translate
+                ctx.save();
+                this.drawDetailedNaginata(ctx, {
+                    handX: leadHand.handX,
+                    handY: leadHand.handY,
+                    angle: weaponAngle,
+                    length: naginataLen,
+                    gripLen: gripLen,
+                    profileFlipY: bladeProfileFlipY
+                });
+                ctx.restore();
+                slashBladeAngle = weaponAngle;
+                // 薙刀の tip 位置を正確に計算: weaponOffset + bladeLen + 1.5
+                const bladeLen = (naginataLen - gripLen) * 0.45 + 32;
+                slashRadius = weaponOffset + bladeLen + 1.5;
+            } else if (isHeavy && !suppressWeaponDraw) {
+                const heavyLen = Math.max(56, this.width * (1.56 + ((weaponMode === 'odachi' || weaponMode === 'odachi_special') ? 0.5 : 0.22)) * weaponScale) * heavyBladeLengthScale;
                 if (config.preventGroundPenetration) {
                     const groundLimitY = footY - 1.2;
                     const probeTipY = leadHand.handY + Math.sin(drawnWeaponAngle) * (heavyLen + 5.5);
@@ -1674,12 +2048,12 @@ export class Enemy {
                     handY: leadHand.handY,
                     angle: drawnWeaponAngle,
                     length: heavyLen,
-                    gripLen: Math.max(11, this.width * (weaponMode === 'odachi' ? 0.34 : 0.3)) * heavyGripScale,
+                    gripLen: Math.max(11, this.width * ((weaponMode === 'odachi' || weaponMode === 'odachi_special') ? 0.34 : 0.3)) * heavyGripScale,
                     profileFlipY: bladeProfileFlipY
                 });
                 slashBladeAngle = drawnWeaponAngle;
                 slashRadius = Math.max(36, heavyLen + 2.8);
-            } else {
+            } else if (!suppressWeaponDraw) {
                 const katanaLen = Math.max(40, this.width * 1.38 * weaponScale);
                 this.drawDetailedKatana(ctx, {
                     handX: leadHand.handX,
@@ -1693,19 +2067,26 @@ export class Enemy {
                 });
                 slashRadius = Math.max(28, katanaLen + 3.8);
             }
+            const isOdachiLike = weaponMode === 'odachi' || weaponMode === 'odachi_special';
             const slashPhase = isHeavy
-                ? clamp01((attackProgress - (weaponMode === 'odachi' ? 0.34 : 0.36)) / (weaponMode === 'odachi' ? 0.46 : 0.42))
+                ? clamp01((attackProgress - (isOdachiLike ? 0.34 : 0.36)) / (isOdachiLike ? 0.46 : 0.42))
                 : clamp01((attackProgress - 0.28) / 0.38);
             const slashAlpha = this.isAttacking ? Math.max(0, Math.sin(slashPhase * Math.PI)) * (isHeavy ? 0.72 : 0.62) : 0;
-            drawKatanaSlash(leadHand.handX + dir * slashPivotXOffset, leadHand.handY + slashPivotYOffset, {
-                bladeAngle: slashBladeAngle,
-                alpha: slashAlpha,
-                radiusScale: weaponMode === 'odachi' ? 1.28 : (isHeavy ? 1.18 : 1.0),
-                arcBack: weaponMode === 'odachi' ? 1.3 : (isHeavy ? 1.2 : 1.04),
-                arcFront: weaponMode === 'odachi' ? 0.68 : (isHeavy ? 0.62 : 0.54),
-                radius: slashRadius,
-                widthScale: (isHeavy ? 1.24 : 1.02) * slashWidthScale
-            });
+            
+            // ボスの大太刀などの場合は武器クラス側で正確な軌道を描画するため、ここではスキップ
+            const skipGenericSlash = suppressWeaponDraw && isOdachiLike;
+            
+            if (!skipGenericSlash) {
+                drawKatanaSlash(leadHand.handX + dir * slashPivotXOffset, leadHand.handY + slashPivotYOffset, {
+                    bladeAngle: slashBladeAngle,
+                    alpha: slashAlpha,
+                    radiusScale: isOdachiLike ? 1.28 : (isHeavy ? 1.18 : 1.0),
+                    arcBack: isOdachiLike ? 1.3 : (isHeavy ? 1.2 : 1.04),
+                    arcFront: isOdachiLike ? 0.68 : (isHeavy ? 0.62 : 0.54),
+                    radius: slashRadius,
+                    widthScale: (isHeavy ? 1.24 : 1.02) * slashWidthScale
+                });
+            }
         }
 
         if (supportHand) {
@@ -1756,7 +2137,7 @@ export class Enemy {
         // 攻撃中または攻撃クールダウン中は移動しない
         if (this.isAttacking || this.attackCooldown > 0) {
             desiredVX = 0;
-            this.facingRight = playerDirection > 0;
+            if (this.hitTimer <= 0) this.facingRight = playerDirection > 0;
             this.applyDesiredVx(desiredVX, 0.4);
             return;
         }
@@ -1765,7 +2146,10 @@ export class Enemy {
             case 'idle':
                 // 待機中でもじわりと前進して、障害物手前で滞留しないようにする
                 desiredVX = this.speed * 0.32 * playerDirection;
-                this.facingRight = playerDirection > 0;
+                // 攻撃中やダメージ中は勝手に向きを変えない
+                if (this.hitTimer <= 0 && !this.isAttacking) {
+                    this.facingRight = playerDirection > 0;
+                }
                 if (distanceToPlayer < this.detectionRange) {
                     this.state = 'chase';
                     this.stateTimer = 0;
@@ -1777,10 +2161,12 @@ export class Enemy {
                 
             case 'patrol':
                 desiredVX = this.speed * 0.5 * this.patrolDirection;
-                this.facingRight = this.patrolDirection > 0;
+                if (this.hitTimer <= 0) this.facingRight = this.patrolDirection > 0;
                 
-                // 画面端で反転
-                if (this.x <= 50 || this.x + this.width >= CANVAS_WIDTH - 50) {
+                // 画面端で反転（スクロールを考慮）
+                const screenLeft = window.game ? window.game.scrollX : 0;
+                const screenRight = screenLeft + CANVAS_WIDTH;
+                if (this.x <= screenLeft + 50 || this.x + this.width >= screenRight - 50) {
                     this.patrolDirection *= -1;
                 }
                 
@@ -1796,7 +2182,7 @@ export class Enemy {
                 break;
                 
             case 'chase':
-                this.facingRight = playerDirection > 0;
+                if (this.hitTimer <= 0) this.facingRight = playerDirection > 0;
                 
                 // 攻撃範囲内に入ったら停止して攻撃準備
                 const inAttackRangeLoose = this.isPlayerInAttackRange(player, 1.18);
@@ -1819,7 +2205,7 @@ export class Enemy {
                 
             case 'attack':
                 desiredVX = 0;
-                this.facingRight = playerDirection > 0;
+                if (this.hitTimer <= 0) this.facingRight = playerDirection > 0;
                 
                 // 予備動作（少し溜め）後に攻撃
                 if (this.stateTimer > this.attackWindupMs && canStartAttack && this.isPlayerInAttackRange(player, 1.12)) {
@@ -1858,22 +2244,26 @@ export class Enemy {
                 if (!intersectsForward) continue;
 
                 // 足元付近の障害物のみを対象にする
-                if (obs.y > feetY + 18 || obs.y + obs.height < this.y + this.height * 0.45) continue;
+                // Y軸が +LANE_OFFSET(24) に統一されため、障害物の高さと足元の関係で判定
+                // (obs.y は feetY - obs.height の位置にある)
+                if (obs.y > feetY || obs.y + obs.height < feetY - 20) continue;
 
-                this.jump(-13, 460);
+                if (Math.random() < 0.15 * deltaTime * 60) {
+                    this.jump(-14, 460);
+                }
                 break;
             }
         }
 
         // 共通：時々ジャンプして回避
         if (distanceToPlayer < 200) {
-            this.tryJump(0.005, -22, 700);
+            this.tryJump(0.005, -15.5, 700);
         }
 
         this.applyDesiredVx(desiredVX);
     }
     
-    tryJump(chance, power = -22, cooldown = 700) {
+    tryJump(chance, power = -15.5, cooldown = 700) {
         if (this.isGrounded && this.jumpCooldown <= 0 && Math.random() < chance) {
             let actualPower = power;
             
@@ -1998,8 +2388,8 @@ export class Enemy {
         }
         
         // 地面判定
-        if (this.y + this.height >= this.groundY + 64) {
-            this.y = this.groundY + 64 - this.height;
+        if (this.y + this.height >= this.groundY + LANE_OFFSET) {
+            this.y = this.groundY + LANE_OFFSET - this.height;
             this.vy = 0;
             this.isGrounded = true;
         }
@@ -2143,13 +2533,13 @@ export class Enemy {
             ctx.globalAlpha *= 0.75;
         }
 
-        // 接地影（全敵共通）
+        // 接地影（全敵共通） - フィルタ適用前に描画
         ctx.fillStyle = 'rgba(0,0,0,0.18)';
         ctx.beginPath();
         ctx.ellipse(
             this.x + this.width / 2,
             this.y + this.height + 2,
-            Math.max(8, this.width * 0.32),
+            Math.max(10, this.width * 0.38),
             4,
             0,
             0,
@@ -2179,8 +2569,8 @@ export class Enemy {
             this.renderAscensionEffect(ctx);
         }
         
-        // HPバー
-        if (this.isAlive && !this.isDying) { // 死亡演出中はHPバー非表示
+        // HPバー (ボスの場合は画面上に巨大なゲージがあるため非表示)
+        if (this.isAlive && !this.isDying && this.maxHp < 100) { 
             this.renderHpBar(ctx);
         }
         
@@ -2188,7 +2578,10 @@ export class Enemy {
         if (this.projectiles) {
             for (const p of this.projectiles) p.render(ctx);
         }
-        
+
+        // キャンバス状態の復元とフィルタのリセット（スタック漏れ対策）
+        ctx.filter = 'none';
+        ctx.globalCompositeOperation = 'source-over';
         ctx.restore();
     }
     
@@ -2233,17 +2626,16 @@ export class Enemy {
     }
     
     renderHpBar(ctx) {
-        const barWidth = this.width;
-        const barHeight = 4;
-        const barY = this.y - 10;
-        
-        // 背景
-        ctx.fillStyle = '#400';
-        ctx.fillRect(this.x, barY, barWidth, barHeight);
-        
-        // HP
-        ctx.fillStyle = '#f44';
-        ctx.fillRect(this.x, barY, barWidth * (this.hp / this.maxHp), barHeight);
+        // HPバー (頭上少し高い位置へ)
+        const headRadius = Math.max(10, this.width * 0.28);
+        const headY = this.y + headRadius; 
+        const barY = headY - headRadius * 1.85 - 22; // 被り回避のためさらに高く
+        const barWidth = this.width * 0.85;
+        const barHeight = 4.2;
+        ctx.fillStyle = 'rgba(0,0,0,0.58)';
+        ctx.fillRect(this.x + (this.width - barWidth) * 0.5, barY, barWidth, barHeight); // Centering the bar
+        ctx.fillStyle = '#ef3333';
+        ctx.fillRect(this.x + (this.width - barWidth) * 0.5, barY, barWidth * (this.hp / this.maxHp), barHeight);
     }
     
     renderAscensionEffect(ctx) {
@@ -2281,16 +2673,18 @@ export class Enemy {
     }
 
     getFootY() {
-        return this.groundY + 64; // 固定レーンの中心
+        // スプライトの実際の足元位置を返す
+        return this.y + this.height; 
     }
 
     getHeightAboveGround() {
         if (this.isDying) return 0;
-        return Math.max(0, (this.groundY + 64) - (this.y + this.height));
+        // 敵が本来着地するレーンとの差分（手前のレーンなら +64）
+        return Math.max(0, (this.groundY + LANE_OFFSET) - (this.y + this.height));
     }
 
     getShadowBaseRadius() {
-        return this.width * 0.8;
+        return this.width * 0.45;
     }
 }
 
@@ -2805,13 +3199,14 @@ export class Busho extends Enemy {
         this.attackRange = 80;
         
         this.attackPattern = 0;
-        this.maxPatterns = 3;
+        this.maxPatterns = 4; // 0:斬り, 1:突進, 2:回転, 3:ジャンプ叩きつけ
         
         // ボス用ステータス
         this.actionTimer = 0;
         this.isEnraged = false;
         this.moveType = 'normal'; // normal, dash, retreat
         this.moveTimer = 0;
+        this.hasImpacted = false;
     }
 
     updateAI(deltaTime, player) {
@@ -2841,8 +3236,9 @@ export class Busho extends Enemy {
                     this.actionTimer = 0;
                     this.moveType = Math.random() < 0.4 ? 'retreat' : 'normal';
                     this.moveTimer = 1000;
-                } else if (dist < 350 && Math.random() < 0.4) {
-                    this.startAttack(); // 突進
+                } else if (dist < 400 && Math.random() < 0.45) {
+                    // 距離がある場合は突進かジャンプ攻撃
+                    this.startAttack();
                     this.actionTimer = 0;
                 }
             }
@@ -2873,7 +3269,7 @@ export class Busho extends Enemy {
             
             // 時々ジャンプ（プレイヤーがジャンプ中なら頻度アップ）
             const jumpChance = (!player.isGrounded) ? 0.05 : 0.018;
-            this.tryJump(jumpChance, -22, 650);
+            this.tryJump(jumpChance, -15.5, 650);
             
         } else {
             // 突進以外は停止、突進中は updateAttack が設定した速度を維持
@@ -2904,17 +3300,42 @@ export class Busho extends Enemy {
                 this.attackCooldown = 620;
                 audio.playSlash(4);
                 break;
+            case 3: // ジャンプ叩きつけ
+                this.attackTimer = 1100;
+                this.attackCooldown = 1300;
+                this.vy = -18; // 中ボスのジャンプ叩きつけ（元-32は異常に高すぎた）
+                this.isGrounded = false;
+                this.hasImpacted = false; // パターン内フラグ
+                audio.playSlash(4);
+                break;
         }
     }
     
     updateAttack(deltaTime) {
         this.attackTimer -= deltaTime * 1000;
         
-        // 突進パターンは移動を伴う
+        // 突進パターン
         if (this.attackPattern === 1 && this.attackTimer > 200) {
             this.vx = (this.facingRight ? 1 : -1) * this.speed * 4.2;
         }
         
+        // ジャンプ叩きつけ：着地で衝撃波
+        if (this.attackPattern === 3) {
+            if (this.vy > 0 && this.isGrounded && !this.hasImpacted) {
+                this.hasImpacted = true;
+                this.vx = 0;
+                if (window.game) {
+                    window.game.shakeCamera(16, 280);
+                    // 着地時に周囲のプレイヤーにダメージ（簡易）
+                    const dist = Math.abs(window.game.player.x - this.x);
+                    if (dist < 160 && window.game.player.isGrounded) {
+                        window.game.player.takeDamage(this.damage * 1.5);
+                    }
+                }
+                audio.playSlash(3); // 衝撃音代用
+            }
+        }
+
         if (this.attackTimer <= 0) {
             this.isAttacking = false;
             this.vx = 0;
@@ -2924,10 +3345,10 @@ export class Busho extends Enemy {
     getAttackPatternDuration() {
         if (this.attackPattern === 1) return 600;
         if (this.attackPattern === 2) return 500;
+        if (this.attackPattern === 3) return 1100;
         return 400;
     }
-
-    getAttackProgress() {
+     getAttackProgress() {
         if (!this.isAttacking) return 0;
         const duration = this.getAttackPatternDuration();
         return Math.max(0, Math.min(1, 1 - (this.attackTimer / duration)));
@@ -2943,6 +3364,13 @@ export class Busho extends Enemy {
             bladeAngle = -1.56 + wind * 0.56 + quickSwing * 2.52;
         } else if (this.attackPattern === 1) {
             bladeAngle = -0.35 + attackProgress * 0.25;
+        } else if (this.attackPattern === 3) {
+            // ジャンプ叩きつけ：上昇中は上に、下降・着地は下に
+            if (attackProgress < 0.4) {
+                bladeAngle = -1.8; // 上段
+            } else {
+                bladeAngle = 0.8; // 下に叩きつけ
+            }
         } else {
             const wind = attackProgress < 0.16 ? attackProgress / 0.16 : 1;
             const spin = attackProgress < 0.16 ? 0 : (attackProgress - 0.16) / 0.84;
@@ -3020,35 +3448,42 @@ export class Busho extends Enemy {
                     }
                 ];
             }
+            case 3: // ジャンプ叩きつけ
+                return {
+                    x: this.x - 80,
+                    y: this.y + this.height - 40,
+                    width: 160 + this.width,
+                    height: 60
+                };
         }
     }
     
     renderBody(ctx) {
         this.renderUnifiedEnemyModel(ctx, {
-            weaponMode: 'heavy',
+            weaponMode: 'naginata',
             headStyle: 'kabuto',
             shoulderPads: false,
             noFrontArmor: true,
             backCape: true,
-            crestVariant: 'sweep',
-            crestLengthScale: 0.92,
-            crestArcHeightScale: 0.68,
+            crestVariant: 'mikazuki',
+            crestLengthScale: 1.15,
+            crestArcHeightScale: 0.9,
             crestTipRiseScale: 0.52,
-            crestForwardOffsetScale: 0.96,
-            crestRootLiftScale: 0.98,
+            crestForwardOffsetScale: 1.2,
+            crestRootLiftScale: 1.05,
             armorRows: 4,
             headRatio: 0.185,
             armScale: 1.14,
             torsoLeanScale: 1.12,
             attackDurationMs: this.getAttackPatternDuration(),
             attackProgressResolver: () => this.getAttackProgress(),
-            weaponScale: 0.92,
-            heavyBladeLengthScale: 0.88,
-            heavyGripScale: 0.92,
+            weaponScale: 1.1,
+            heavyGripScale: 1.1,         // naginata モードなので適宜
             preventGroundPenetration: true,
-            slashPivotXOffset: 5.5,
-            slashPivotYOffset: this.height * 0.08,
-            slashWidthScale: 1.12,
+            slashPivotXOffset: 0,        // 体の中心寄りから振る
+            slashPivotYOffset: -this.height * 0.12, // より高い位置から振り下ろす
+            slashWidthScale: 1.35,
+            slashRadiusScale: 2.15,      // 刃先まで届くよう大幅に拡大
             palette: {
                 legBack: '#141414',
                 legFront: '#1b1b1b',
@@ -3438,7 +3873,7 @@ export class Ninja extends Enemy {
                 helmTop: '#2a2e37',
                 helmBottom: '#171a20',
                 crest: '#8d9fcc',
-                accent: '#ef4c4c'
+                accent: '#7e58a6'
             }
         });
         return;
@@ -3626,10 +4061,23 @@ class EnemyProjectile {
         this.angle = 0;
     }
 
-    update(deltaTime, player) {
+    update(deltaTime, player, obstacles = []) {
         this.x += this.vx;
         this.y += this.vy;
         this.angle += 0.5;
+
+        // 障害物との衝突
+        for (const obs of obstacles) {
+            if (obs.isDestroyed) continue;
+            const ox = obs.x;
+            const oy = obs.y;
+            const ow = obs.width;
+            const oh = obs.height;
+            if (this.x > ox && this.x < ox + ow && this.y > oy && this.y < oy + oh) {
+                this.isAlive = false;
+                return false;
+            }
+        }
 
         // プレイヤーとの衝突
         const dx = (player.x + player.width / 2) - this.x;
@@ -3695,8 +4143,8 @@ class EnemyProjectile {
         ctx.rotate(this.angle);
         
         // 残像・発光エフェクト（視認性向上）
-        ctx.shadowColor = 'rgba(100, 200, 255, 0.6)';
-        ctx.shadowBlur = 8;
+        // ctx.shadowColor = 'rgba(100, 200, 255, 0.6)';
+        // ctx.shadowBlur = 8;
         
         const shuriGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, 10);
         shuriGrad.addColorStop(0, '#ffffff');
@@ -3722,7 +4170,7 @@ class EnemyProjectile {
         }
         
         // 中心穴
-        ctx.shadowBlur = 0;
+        // ctx.shadowBlur = 0;
         ctx.fillStyle = '#111';
         ctx.beginPath();
         ctx.arc(0, 0, 2.5, 0, Math.PI * 2);

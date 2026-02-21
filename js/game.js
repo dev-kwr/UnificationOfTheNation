@@ -2,7 +2,7 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON } from './constants.js';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET } from './constants.js';
 import { input } from './input.js';
 import { Player } from './player.js';
 import { createSubWeapon } from './weapon.js';
@@ -311,7 +311,7 @@ class Game {
                         cfg.specialClone = 3;
                         cfg.moneyMax = true;
                         cfg.money = 9999;
-                        cfg.items.hp_boost = 8;
+                        cfg.items.hp_boost = 18;
                         cfg.items.atk_boost = 3;
                         cfg.items.double_jump = true;
                         cfg.items.triple_jump = true;
@@ -380,7 +380,7 @@ class Game {
                 label: 'アイテム:活力の術',
                 getValue: () => `+ ${cfg.items.hp_boost * 5}`,
                 change: (delta) => { 
-                    cfg.items.hp_boost = Math.max(0, Math.min(8, (cfg.items.hp_boost || 0) + delta)); 
+                    cfg.items.hp_boost = Math.max(0, Math.min(18, (cfg.items.hp_boost || 0) + delta)); 
                 }
             },
             {
@@ -422,14 +422,18 @@ class Game {
                     this.resetStageClearAutoSubWeaponTimer(true);
                     this.titleDebugOpen = false;
                     
-                    // ★追加: プレビューモード初期化（通常はstageClearPhase 0→1遷移時に行われる）
                     if (this.player) {
+                        this.groundY = Math.round(CANVAS_HEIGHT * 0.08); // ステータス画面用の高い地面（画面最上部付近）
+                        if (this.stage) this.stage.groundY = this.groundY;
                         this.player.previewMode = true;
+                        this.player.groundY = this.groundY;
                         this.player.x = 100;
-                        this.player.y = this.groundY - this.player.height;
+                        this.player.y = this.groundY + LANE_OFFSET - this.player.height;
                         this.player.vx = 0;
                         this.player.vy = 0;
-                        this.player.isGrounded = true;
+                        this.player.isGrounded = true; 
+                        this.player.yVelocity = 0;
+                        this.player.jumpCount = 0;
                         this.player.facingRight = true;
                         this.player.isAttacking = false;
                         this.player.currentAttack = null;
@@ -485,7 +489,7 @@ class Game {
             cfg.specialClone = 3;
             cfg.moneyMax = true;
             cfg.money = 9999;
-            cfg.items.hp_boost = 8;
+            cfg.items.hp_boost = 18;
             cfg.items.atk_boost = 3;
             cfg.items.double_jump = true;
             cfg.items.triple_jump = true;
@@ -627,13 +631,17 @@ class Game {
     }
     
     startStage() {
+        // 地面の高さを本来のゲーム位置にリセット
+        this.groundY = Math.round(CANVAS_HEIGHT * (2 / 3));
+
         // プレイヤー初期化（初回のみ生成、以降はリセット）
         if (!this.player) {
-            this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
+            this.player = new Player(100, this.groundY + LANE_OFFSET - PLAYER.HEIGHT, this.groundY);
         } else {
             this.player.previewMode = false;
+            this.player.groundY = this.groundY; // 地面基準を同期
             this.player.x = 100;
-            this.player.y = this.groundY - 60;
+            this.player.y = this.groundY + LANE_OFFSET - this.player.height;
             this.player.vx = 0;
             this.player.vy = 0;
             this.player.hp = this.player.maxHp; // ステージ開始時にHP全回復（任意、必要なら残す）
@@ -905,13 +913,16 @@ class Game {
                 return;
             }
 
-            // 開始ボタン押下時のみ開始
+            // 開始ボタン押下時のみ開始 (判定を広めに)
             const startY = layout.startY;
-            const startHalfW = layout.actionButton.width * 0.5 + 12;
-            const startHalfH = layout.actionButton.height * 0.5 + 10;
+            const startHalfW = layout.actionButton.width * 0.6 + 15;
+            const startHalfH = layout.actionButton.height * 0.6 + 15;
+
             if (this.hasSave) {
                 const continueY = startY;
                 const newGameY = layout.newGameY;
+                
+                // 続きから
                 if (Math.abs(tX - centerX) <= startHalfW && Math.abs(tY - continueY) <= startHalfH) {
                     this.titleMenuIndex = 0;
                     this.titleDebugApplyOnStart = false;
@@ -919,6 +930,7 @@ class Game {
                     audio.playGameStart();
                     return;
                 }
+                // 最初から
                 if (Math.abs(tX - centerX) <= startHalfW && Math.abs(tY - newGameY) <= startHalfH) {
                     this.titleMenuIndex = 1;
                     this.titleDebugApplyOnStart = false;
@@ -927,14 +939,14 @@ class Game {
                     audio.playGameStart();
                     return;
                 }
-            } else if (
-                Math.abs(tX - centerX) <= startHalfW &&
-                Math.abs(tY - layout.singleStartY) <= startHalfH
-            ) {
-                this.titleDebugApplyOnStart = false;
-                this.startNewGame();
-                audio.playGameStart();
-                return;
+            } else {
+                // セーブなし：出陣
+                if (Math.abs(tX - centerX) <= startHalfW && Math.abs(tY - layout.singleStartY) <= startHalfH) {
+                    this.titleDebugApplyOnStart = false;
+                    this.startNewGame();
+                    audio.playGameStart();
+                    return;
+                }
             }
             return;
         }
@@ -1020,7 +1032,6 @@ class Game {
         const tX = input.lastTouchX;
         const tY = input.lastTouchY;
 
-        // ui.js (renderTitleDebugWindow) の定数と完全に同期させる
         const panelW = 540;
         const panelX = CANVAS_WIDTH - panelW - 40;
         const panelY = 40;
@@ -1030,33 +1041,36 @@ class Game {
         const entriesCount = entries.length;
         const panelH = headerH + 10 + entriesCount * rowH + 10;
 
-        if (tX >= panelX && tX <= panelX + panelW && tY >= panelY && tY <= panelY + panelH) {
-            // リスト範囲内での判定
-            const relativeY = tY - listStartY;
-            const index = Math.floor(relativeY / rowH); // インデックス計算を正確に
+        // パネル範囲内かチェック
+        if (tX >= panelX && tX <= panelX + panelW && tY >= panelY && tY <= panelY + panelH + 20) {
+            // パネル内タップ：リスト内相対Yを計算
+            const relativeYFromStart = tY - listStartY;
+            
+            // 各行の判定（中心座標 y = listStartY + row * rowH に基づく）
+            const index = Math.round(relativeYFromStart / rowH);
 
             if (index >= 0 && index < entries.length) {
-                const finalIndex = index;
-                this.titleDebugCursor = finalIndex;
-                const selected = entries[finalIndex];
+                this.titleDebugCursor = index;
+                const selected = entries[index];
                 
-                // 行の右側タップで増加/アクション、左側タップで減少（アクション以外）
-                const midX = panelX + (panelH > 400 ? 300 : panelW / 2); // ラベル長を考慮
                 if (selected.action) {
                     selected.action();
-                } else {
-                    selected.change?.(tX >= panelX + panelW - 100 ? 1 : -1); // 値の部分をタップで増加、それ以外で減少
+                } else if (selected.change) {
+                    // 右半分で加算、左半分（ラベル側）で減算
+                    const itemMidX = panelX + panelW * 0.5;
+                    selected.change(tX >= itemMidX ? 1 : -1);
                 }
                 audio.playSelect();
             }
         } else {
-            // パネル外クリックで閉じる
+            // パネル外をタップしたら閉じる
             this.titleDebugOpen = false;
             audio.playSelect();
         }
     }
 
     startNewGame() {
+        shop.reset();
         const debugStage = this.titleDebugApplyOnStart ? this.titleDebugConfig.stage : null;
         this.currentStageNumber = debugStage || this.debugStartStage || 1;
         this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
@@ -1712,7 +1726,8 @@ class Game {
                     }
 
                     // 分身のサブ武器判定
-                    if (subWeaponCloneActive) {
+                    // 発射体系（ShurikenProjectileなど）は既に正しい世界座標に生成されているため、ここでのシフト判定はスキップする
+                    if (subWeaponCloneActive && !hitbox._sourceProjectile) {
                         for (const clone of subWeaponCloneOffsets) {
                             const cloneHitboxProfile = resolveHitboxProfile(cloneSubProfile, effectiveHitbox);
                             const shifted = {
@@ -1889,6 +1904,11 @@ class Game {
                         const knockbackX = hardLanding ? 8 : 6;
                         const knockbackY = hardLanding ? -14 : -10;
                         const hitSourceX = obs.x + obs.width / 2;
+
+                        if (!hardLanding && !fromAbove) {
+                            // 横からの接触は歩行阻害のみ（ダメージなし）
+                            return;
+                        }
 
                         if (hardLanding) {
                             this.queueHitFeedback(5.2, 68);
@@ -2085,27 +2105,53 @@ class Game {
         const magnetRadius = magnetBoostActive
             ? Math.hypot(CANVAS_WIDTH, CANVAS_HEIGHT) * 1.2
             : normalMagnetRadius;
-        const groundLimit = this.stage.groundY + 24; // 接地位置をキャラクターの足元に合わせる
+        
+        // プレイヤーのジャンプに関わらず、ジェムは固定のレーンを地面として扱う
+        const groundLimit = this.stage.groundY + LANE_OFFSET;
 
         this.expGems = this.expGems.filter((gem) => {
             gem.lifeMs -= this.deltaTime * 1000;
             if (gem.lifeMs <= 0) return false;
 
-            const dx = playerCenterX - gem.x;
-            const dy = playerCenterY - gem.y;
-            const distance = Math.hypot(dx, dy) || 1;
+            // 回収ターゲット（本体＋生きている分身）のリストを作成
+            const targets = [
+                { x: this.player.x + this.player.width * 0.5, y: this.player.y + this.player.height * 0.5 }
+            ];
+            // 分身の座標を追加
+            if (this.player.specialCloneAlive && this.player.specialClonePositions) {
+                for (let i = 0; i < this.player.specialCloneSlots.length; i++) {
+                    if (this.player.specialCloneAlive[i]) {
+                        const pos = this.player.specialClonePositions[i];
+                        targets.push({ x: pos.x, y: pos.y }); // 分身のyはすでに足元より少し上になっている
+                    }
+                }
+            }
+
+            // 最も近いターゲットを探す
+            let closestTarget = targets[0];
+            let minDistance = Math.hypot(closestTarget.x - gem.x, closestTarget.y - gem.y);
+            
+            for (let i = 1; i < targets.length; i++) {
+                const d = Math.hypot(targets[i].x - gem.x, targets[i].y - gem.y);
+                if (d < minDistance) {
+                    minDistance = d;
+                    closestTarget = targets[i];
+                }
+            }
+
+            const dx = closestTarget.x - gem.x;
+            const dy = closestTarget.y - gem.y;
+            const distance = minDistance || 1;
 
             if (distance < magnetRadius) {
                 let pull = 0.42 + (normalMagnetRadius - Math.min(distance, normalMagnetRadius)) * 0.006;
                 let maxSpeed = Infinity;
 
                 if (magnetBoostActive && distance > normalMagnetRadius) {
-                    // ブースト時の遠距離のみ強く吸引して、画面全域から素早く回収
                     const farRatio = (distance - normalMagnetRadius) / Math.max(1, magnetRadius - normalMagnetRadius);
-                    pull = 0.85 + Math.min(1, farRatio) * 1.35; // 0.85 ~ 2.20
+                    pull = 0.85 + Math.min(1, farRatio) * 1.35;
                     maxSpeed = 14.8;
                 } else if (magnetBoostActive) {
-                    // 通常吸引域に入ったら通常寄りの速度まで落とす
                     maxSpeed = 8.0;
                 }
                 gem.vx += (dx / distance) * pull;
@@ -2126,17 +2172,15 @@ class Game {
             gem.y += gem.vy;
             gem.sparklePhase += this.deltaTime * 8.2;
 
-            if (gem.y > groundLimit) {
-                gem.y = groundLimit;
+            if (gem.y > groundLimit - gem.size) {
+                gem.y = groundLimit - gem.size;
                 gem.vy *= -0.2;
                 gem.vx *= 0.82;
                 if (Math.abs(gem.vy) < 0.25) gem.vy = 0;
             }
 
-            const pickupDx = playerCenterX - gem.x;
-            const pickupDy = playerCenterY - gem.y;
-            const pickupDistance = Math.hypot(pickupDx, pickupDy);
-            if (pickupDistance < pickupRadius) {
+            // 回収判定（いずれかのターゲットに接触したか）
+            if (distance < pickupRadius) {
                 const leveled = this.player.addExp(gem.exp) || 0;
                 if (leveled > 0) this.queueLevelUpChoices(leveled);
                 audio.playExpGain();
@@ -2595,6 +2639,24 @@ class Game {
             ctx.save();
             ctx.globalAlpha = alpha;
             ctx.translate(gem.x, gem.y);
+
+            // 接地感のための影（足元の楕円）
+            // ジェムが地面に近い時だけ濃く描画
+            const currentGroundY = (this.stage && this.stage.groundY) || (this.player && this.player.groundY) || 0;
+            const groundLimit = currentGroundY + LANE_OFFSET;
+            const distToGround = Math.max(0, groundLimit - gem.y);
+            const shadowAlpha = Math.max(0, 0.3 - (distToGround * 0.015));
+            if (shadowAlpha > 0) {
+                ctx.save();
+                ctx.translate(0, gem.size);
+                ctx.scale(1.0, 0.4);
+                ctx.beginPath();
+                ctx.arc(0, 0, gem.size * 0.8, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(0, 0, 0, ${shadowAlpha})`;
+                ctx.fill();
+                ctx.restore();
+            }
+
             // わずかな浮遊感を回転にも
             ctx.rotate(Math.sin(gem.sparklePhase * 0.18) * 0.03);
 
@@ -3259,12 +3321,17 @@ class Game {
 
                 // プレイヤーをプレビューモードに初期化
                 if (this.player) {
+                    this.groundY = Math.round(CANVAS_HEIGHT * 0.08); // ステータス画面用の高い地面（画面最上部付近）
+                    if (this.stage) this.stage.groundY = this.groundY;
                     this.player.previewMode = true;
+                    this.player.groundY = this.groundY;
                     this.player.x = 100;
-                    this.player.y = this.groundY - this.player.height;
+                    this.player.y = this.groundY + LANE_OFFSET - this.player.height;
                     this.player.vx = 0;
                     this.player.vy = 0;
-                    this.player.isGrounded = true;
+                    this.player.isGrounded = true; 
+                    this.player.yVelocity = 0;
+                    this.player.jumpCount = 0;
                     this.player.facingRight = true;
                     this.player.isAttacking = false;
                     this.player.currentAttack = null;
@@ -3935,7 +4002,7 @@ class Game {
         if (!player) return;
 
         const previewCenterX = 280;
-        const previewGroundScreenY = 440;
+        const previewGroundScreenY = 360; // キャラが切れず、かつ見栄えの良い高さに固定
         const scale = 3.5;
 
         ctx.save();
