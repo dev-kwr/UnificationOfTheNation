@@ -1339,7 +1339,8 @@ export class Enemy {
         const shoulderBackY = shoulderY + this.height * 0.055;
         const upperLen = (this.height * 0.18) * armScale;
         const foreLen = (this.height * 0.19) * armScale;
-        const weaponMode = config.weaponMode || 'katana';
+        const weaponMode = config.weaponMode === 'none' ? 'none' : (config.weaponMode || 'katana');
+        if (weaponMode === 'none') return;
         const weaponScale = Number.isFinite(config.weaponScale) ? config.weaponScale : 1;
         const bladeProfileFlipY = Number.isFinite(config.bladeProfileFlipY)
             ? (config.bladeProfileFlipY >= 0 ? 1 : -1)
@@ -2144,13 +2145,15 @@ export class Enemy {
 
         switch (this.state) {
             case 'idle':
-                // 待機中でもじわりと前進して、障害物手前で滞留しないようにする
-                desiredVX = this.speed * 0.32 * playerDirection;
-                // 攻撃中やダメージ中は勝手に向きを変えない
+                // 待機中でもプレイヤーの方へじわりと進む（速度を向上 0.32 -> 0.5）
+                desiredVX = this.speed * 0.5 * playerDirection;
                 if (this.hitTimer <= 0 && !this.isAttacking) {
                     this.facingRight = playerDirection > 0;
                 }
-                if (distanceToPlayer < this.detectionRange) {
+                
+                // 画面内にプレイヤーがいれば強制的に chase 状態へ（索敵範囲を実質無視）
+                const isPlayerOnScreen = horizontalDistance < CANVAS_WIDTH * 0.8;
+                if (distanceToPlayer < this.detectionRange || isPlayerOnScreen) {
                     this.state = 'chase';
                     this.stateTimer = 0;
                 } else if (this.stateTimer > 2000) {
@@ -2163,20 +2166,21 @@ export class Enemy {
                 desiredVX = this.speed * 0.5 * this.patrolDirection;
                 if (this.hitTimer <= 0) this.facingRight = this.patrolDirection > 0;
                 
+                // 画面内にプレイヤーがいれば巡回をやめて追跡
+                if (distanceToPlayer < this.detectionRange || horizontalDistance < CANVAS_WIDTH * 0.7) {
+                    this.state = 'chase';
+                    this.stateTimer = 0;
+                }
+
                 // 画面端で反転（スクロールを考慮）
                 const screenLeft = window.game ? window.game.scrollX : 0;
-                const screenRight = screenLeft + CANVAS_WIDTH;
-                if (this.x <= screenLeft + 50 || this.x + this.width >= screenRight - 50) {
+                const screenRightBound = screenLeft + CANVAS_WIDTH;
+                if (this.x <= screenLeft + 50 || this.x + this.width >= screenRightBound - 50) {
                     this.patrolDirection *= -1;
                 }
                 
                 if (this.stateTimer > 3000) {
                     this.patrolDirection *= -1;
-                    this.stateTimer = 0;
-                }
-                
-                if (distanceToPlayer < this.detectionRange) {
-                    this.state = 'chase';
                     this.stateTimer = 0;
                 }
                 break;
@@ -2192,12 +2196,12 @@ export class Enemy {
                     this.state = 'chase';
                     this.stateTimer = 0;
                 } else {
-                    // まだ遠いので追いかける
+                    // 追いかける（プレイヤーが全く動かない場合でも、一定距離まで近づく）
                     desiredVX = this.speed * playerDirection;
                 }
                 
-                // 見失ったら idle に戻る
-                if (distanceToPlayer > this.detectionRange * 1.5) {
+                // 見失っても画面内にいれば chase を維持
+                if (distanceToPlayer > this.detectionRange * 1.5 && horizontalDistance > CANVAS_WIDTH * 0.9) {
                     this.state = 'idle';
                     this.stateTimer = 0;
                 }
@@ -2215,7 +2219,7 @@ export class Enemy {
                 }
                 
                 // プレイヤーが離れたら追いかける
-                if (!inAttackRange && horizontalDistance > this.attackRange * 1.5) {
+                if (!inAttackRange && horizontalDistance > this.attackRange * 1.3) {
                     this.state = 'chase';
                     this.stateTimer = 0;
                 }

@@ -1893,7 +1893,7 @@ class Game {
                         const fromAbove = descending && prevBottom <= spikeTop + 8;
                         const hardLanding = fromAbove || (descending && (playerBottom - spikeTop) < obs.height * 0.42);
                         const trapDamage = hardLanding
-                            ? Math.max(2, Math.ceil((obs.damage || 2) * 1.1))
+                            ? Math.max(1, Math.ceil(this.player.maxHp * 0.1))
                             : (obs.damage || 2);
                         const moveDir = Math.abs(this.player.vx) > 0.4
                             ? Math.sign(this.player.vx)
@@ -1906,8 +1906,15 @@ class Game {
                         const hitSourceX = obs.x + obs.width / 2;
 
                         if (!hardLanding && !fromAbove) {
-                            // 横からの接触は歩行阻害のみ（ダメージなし）
-                            return;
+                            // 横からの接触も軽微なダメージとノックバックを発生させてすり抜けを防止
+                            const knockbackDir = (this.player.x + this.player.width / 2 < obs.x + obs.width / 2) ? -1 : 1;
+                            if (this.handleSpikeDamage(1, hitSourceX, {
+                                knockbackX: 4,
+                                knockbackY: -4,
+                                knockbackDir: knockbackDir
+                            })) {
+                                continue;
+                            }
                         }
 
                         if (hardLanding) {

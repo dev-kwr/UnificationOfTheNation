@@ -314,7 +314,9 @@ class InputManager {
 
     getBgmButtonHitArea() {
         const pad = VIRTUAL_PAD;
-        const hitRadius = pad.BGM_BUTTON_RADIUS + 10; // iPadでのタップ許容を広げる
+        // スマホでのタップしやすさを考慮し、描画サイズよりも意図的にヒットエリアを広げる
+        const isTouch = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) || ('ontouchstart' in window);
+        const hitRadius = pad.BGM_BUTTON_RADIUS + (isTouch ? 24 : 12); 
         return [
             CANVAS_WIDTH - pad.BGM_BUTTON_MARGIN_RIGHT,
             pad.BGM_BUTTON_MARGIN_TOP,

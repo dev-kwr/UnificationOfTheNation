@@ -197,6 +197,15 @@ export class Player {
         this.previewMode = false;
     }
 
+    getHitbox() {
+        return {
+            x: this.x,
+            y: this.y,
+            width: this.width,
+            height: this.height
+        };
+    }
+
     calculateAccessoryAnchor(posX, groundY, height, motionTime, isMoving, isDashing, isCrouching, legPhase) {
         const bottomY = groundY;
         const drawY = groundY - height;

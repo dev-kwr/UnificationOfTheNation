@@ -507,7 +507,9 @@ export class Stage {
 
         const spikeChanceByStage = [0, 0.12, 0.28, 0.42, 0.56, 0.7];
         const spikeChance = spikeChanceByStage[Math.max(0, Math.min(spikeChanceByStage.length - 1, this.stageNumber - 1))];
-        const type = Math.random() < spikeChance ? OBSTACLE_TYPES.SPIKE : OBSTACLE_TYPES.ROCK;
+        const type = (this.stageNumber >= 5) 
+            ? OBSTACLE_TYPES.SPIKE 
+            : (Math.random() < spikeChance ? OBSTACLE_TYPES.SPIKE : OBSTACLE_TYPES.ROCK);
         
         // 画面外（右側）から出現
         const x = this.progress + CANVAS_WIDTH + 50 + Math.random() * 100;
@@ -658,13 +660,18 @@ export class Stage {
 
         const dtMs = deltaTime * 1000;
         const dtScale = deltaTime * 60;
-        this.updateBambooFallingLeaves(dtMs, dtScale);
+        
+        // ボス戦中は木の葉の舞いを激しくする（殺気の演出）
+        const bossActive = this.bossSpawned && !this.bossDefeated;
+        const spawnMultiplier = bossActive ? 4.5 : 1.0;
+        
+        this.updateBambooFallingLeaves(dtMs, dtScale, spawnMultiplier);
     }
 
-    updateBambooFallingLeaves(dtMs, dtScale) {
+    updateBambooFallingLeaves(dtMs, dtScale, spawnMultiplier = 1.0) {
 
-        const maxLeaves = 80; // 最大数を少し拡大
-        const spawnInterval = 140;
+        const maxLeaves = Math.floor(30 * spawnMultiplier);
+        const spawnInterval = 400 / spawnMultiplier;
         this.bambooLeafSpawnTimer += dtMs;
 
         while (this.bambooLeafSpawnTimer >= spawnInterval) {
@@ -682,8 +689,8 @@ export class Stage {
                 size: 6 + Math.random() * 9,
                 depth,
                 state: 'falling',
-                groundLife: 6000 + Math.random() * 6000,
-                maxGroundLife: 12000
+                groundLife: 400 + Math.random() * 400, // 接地後の生存時間をさらに短縮（1-2s -> 0.4-0.8s）
+                maxGroundLife: 800
             });
         }
 
@@ -706,55 +713,23 @@ export class Stage {
                 if (leaf.y >= targetY) {
                     leaf.y = targetY;
                     leaf.state = 'grounded';
-                    leaf.vx *= 0.25;
+                    leaf.vx = 0; // 接地時に即停止
                     leaf.vy = 0;
-                    leaf.rotV *= 0.15;
+                    leaf.rotV = 0;
                     leaf.maxGroundLife = leaf.groundLife;
                 }
             } else if (leaf.state === 'grounded') {
                 leaf.groundLife -= dtMs;
                 
-                if (Math.abs(leaf.vx) > 0.01) {
-                    leaf.worldX += leaf.vx * dtScale;
-                    leaf.vx *= 0.88;
-                }
-                
-                const screenX = leaf.worldX - this.progress;
-                const dx = screenX - playerX;
-                const dy = leaf.y - playerY;
-                const distH = Math.abs(dx);
-                const distV = Math.abs(dy);
-
-                // 風圧による舞い上がり（ダッシュ中は範囲拡大）
-                const triggerDistH = isDashing ? 75 : 48;
-                const triggerDistV = isDashing ? 40 : 25;
-
-                if (distH < triggerDistH && distV < triggerDistV) {
-                    const power = (isDashing ? 1.4 : 0.6) + Math.abs(playerVX) * 0.18;
-                    leaf.state = 'flying';
-                    leaf.vy = - (1.3 + Math.random() * 1.8) * power;
-                    leaf.vx = (dx > 0 ? 1 : -1) * (0.6 + Math.random() * 2.0) * power + playerVX * 0.22;
-                    leaf.rotV = (Math.random() - 0.5) * 0.5;
-                }
+                // プレイヤーとの干渉（舞い上がり）処理は完全に削除。
+                // 接地した葉は一定時間で消えるだけの演出用オブジェクトとする。
 
                 if (leaf.groundLife <= 0) {
                     this.bambooFallingLeaves.splice(i, 1);
                     continue;
                 }
-            } else if (leaf.state === 'flying') {
-                leaf.worldX += leaf.vx * dtScale;
-                leaf.y += leaf.vy * dtScale;
-                leaf.vy += 0.09 * dtScale; // 重力
-                leaf.rot += leaf.rotV * dtScale;
-                
-                if (leaf.y >= targetY && leaf.vy > 0) {
-                    leaf.y = targetY;
-                    leaf.state = 'grounded';
-                    leaf.vx *= 0.4;
-                    leaf.vy = 0;
-                    leaf.rotV *= 0.2;
-                }
             }
+            // leaf.state === 'flying' のブロックも不要になったため削除
 
             const screenX = leaf.worldX - this.progress;
             if (screenX < -250 || screenX > CANVAS_WIDTH + 250 || leaf.y > CANVAS_HEIGHT + 100) {
@@ -796,7 +771,8 @@ export class Stage {
                 this.drawBambooLeaf(ctx, screenX, leaf.y, leaf.size, leaf.rot, tint, 0.5 + leaf.depth * 0.4);
             } else {
                 // 接地中（フェードアウト考慮）
-                const lifeAlpha = leaf.groundLife < 1000 ? (leaf.groundLife / 1000) : 1.0;
+                // 常にフェードアウトするように調整 (groundLife / maxGroundLife)
+                const lifeAlpha = Math.max(0, Math.min(1, leaf.groundLife / leaf.maxGroundLife));
                 const tint = this.interpolateColor('#9fbc76', '#4a6a3f', 1 - leaf.depth * 0.75);
                 this.drawBambooLeaf(ctx, screenX, leaf.y, leaf.size, leaf.rot, tint, (0.4 + leaf.depth * 0.3) * lifeAlpha);
             }
@@ -914,6 +890,11 @@ export class Stage {
                 ? this.smoothstep(0, 1, 1 - bossIntroRatio)
                 : 1.0)
             : 0;
+
+        // ボス戦時の陽炎効果（Stage 2）
+        if (this.stageNumber === 2 && bossEncounterBlend > 0) {
+            this.renderHeatHaze(ctx, time, bossEncounterBlend);
+        }
         
         // ボス戦中は赤みがかった空に変化（撃破後はフェードアウト）
         let skyColors = currentPalette.sky;
@@ -927,20 +908,7 @@ export class Stage {
                 this.interpolateColor(skyColors[1], dawnBottom, 0.92)
             ];
         }
-        const bossColorActive = this.bossSpawned && !this.bossDefeated;
-        const bossColorFading = this.bossSpawned && this.bossDefeated && this.bossDefeatColorFade > 0;
-        if (bossColorActive || bossColorFading) {
-            const fadeIntensity = bossColorActive ? bossEncounterBlend : this.bossDefeatColorFade;
-            // ステージ6（天守閣）は眩しくする、それ以外は赤黒く
-            if (this.stageNumber === 6) {
-                // 最終ボス戦：神々しく眩しい朝焼け（オレンジ〜黄金色）
-                const pulse = (0.9 + Math.sin(this.stageTime * 0.004) * 0.1) * fadeIntensity;
-                skyColors = [`rgba(255, 210, 100, ${(pulse * 0.95).toFixed(3)})`, `rgba(255, 140, 50, ${(pulse * 0.85).toFixed(3)})`];
-            } else {
-                const pulse = (0.45 + Math.sin(this.stageTime * 0.003) * 0.08) * fadeIntensity;
-                skyColors = [`rgba(80, 20, 20, ${pulse})`, `rgba(40, 10, 10, ${pulse})`];
-            }
-        }
+        // ボス戦時の空の色変化を廃止
         
         // 空グラデーション
         const skyGradient = ctx.createLinearGradient(0, 0, 0, this.groundY);
@@ -979,11 +947,20 @@ export class Stage {
             }
         }
 
+        const bossColorActive = this.bossSpawned && !this.bossDefeated;
+        const bossColorFading = this.bossSpawned && this.bossDefeated && this.bossDefeatColorFade > 0;
+        
         if (bossColorActive || bossColorFading) {
             const fadeIntensity = bossColorActive ? bossEncounterBlend : this.bossDefeatColorFade;
-            const pulse = 0.55 + Math.sin(this.stageTime * 0.003) * 0.12;
-            ctx.fillStyle = `rgba(56, 4, 12, ${(0.18 + pulse * 0.14) * fadeIntensity})`;
-            ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY);
+            
+            // ステージ6（天守）のボス戦時は全体を神々しい朝焼け色で染める
+            if (this.stageNumber === 6) {
+                const pulse = 0.55 + Math.sin(this.stageTime * 0.004) * 0.15;
+                ctx.fillStyle = `rgba(255, 140, 50, ${(0.15 + pulse * 0.1) * fadeIntensity})`;
+                ctx.globalCompositeOperation = 'hard-light';
+                ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                ctx.globalCompositeOperation = 'source-over';
+            }
         }
 
         if (!isCastleInterior) {
@@ -1021,7 +998,8 @@ export class Stage {
                     density: 0.7,
                     trail: 130
                 });
-            } else {
+            } else if (this.stageNumber !== 6) {
+                // ステージ6以外の通常の雲
                 this.renderFlowingCloudLayer(ctx, {
                     time,
                     color: 'rgba(206, 220, 245, 0.14)',
@@ -1338,8 +1316,9 @@ export class Stage {
                     ctx.save();
                     ctx.globalAlpha = layer.alpha;
                     for (let i = start; i <= end; i++) {
-                        const seed = i * 11.73 + layer.parallax * 40;
-                        const x = i * layer.spacing - scroll + this.noiseSigned(seed + 0.8) * 10;
+                        const seed = i * 7.31;
+                        const x = i * layer.spacing - scroll + this.noiseSigned(seed) * 18;
+                        // ボス戦時でも急激にカットせず、自然に描き切る
                         if (x < -80 || x > CANVAS_WIDTH + 80) continue;
 
                         const stalkW = layer.widthMin + this.noise1D(seed + 1.9) * layer.widthVar;
@@ -1426,6 +1405,10 @@ export class Stage {
                 for (let i = topLeafStart; i <= topLeafEnd; i++) {
                     const seed = i * 3.77;
                     const x = i * topLeafSpan - topLeafScroll + this.noiseSigned(seed + 0.8) * 9;
+                    
+                    // 自然に配置
+                    if (x < -100 || x > CANVAS_WIDTH + 100) continue;
+                    
                     const y = 14 + this.noise1D(seed + 1.4) * 54;
                     const len = 26 + this.noise1D(seed + 2.3) * 24;
                     const dir = this.noise1D(seed + 3.1) > 0.5 ? 1 : -1;
@@ -1438,24 +1421,52 @@ export class Stage {
                 }
                 ctx.restore();
 
-                // ボス戦中：次のステージ（街道）の松を遠くに表示
+                // ボス戦中：次のステージ（街道）を画面右側に表示（物理的な接続）
                 if (this.bossSpawned && !this.bossDefeated) {
                     ctx.save();
-                    ctx.globalAlpha = 0.22;
-                    const nextPara = 0.15;
-                    const nextScroll = p * nextPara;
-                    for (let i = 0; i < 5; i++) {
-                        const tx = CANVAS_WIDTH * 0.6 + i * 140 - (nextScroll % 200);
-                        const ty = this.groundY - 2;
-                        // 既に定義されているdrawPineと同等の簡易描画
-                        ctx.fillStyle = this.interpolateColor(currentPalette.far, '#2a3f2e', 0.4);
-                        ctx.fillRect(tx, ty - 60, 6, 60);
+                    const nx = CANVAS_WIDTH * 0.75;
+                    
+                    // 境界に道標（みちしるべ）を配置
+                    const markerX = nx;
+                    const markerY = this.groundY - 2;
+                    ctx.fillStyle = '#4a4035';
+                    ctx.fillRect(markerX - 4, markerY - 45, 8, 45);
+                    ctx.fillStyle = '#6b5d4d';
+                    ctx.fillRect(markerX - 10, markerY - 45, 20, 12);
+                    // 道標の文字的な意匠
+                    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                    ctx.fillRect(markerX - 6, markerY - 41, 12, 1);
+                    ctx.fillRect(markerX - 6, markerY - 38, 8, 1);
+
+                    // 境界を越えた右側に街道の松を配置
+                    const nextP = p * 0.5;
+                    const drawPineMini = (bx, by) => {
+                        ctx.fillStyle = '#2b2015';
+                        ctx.fillRect(bx, by - 50, 4, 50);
+                        ctx.fillStyle = '#2d4a35';
                         ctx.beginPath();
-                        ctx.moveTo(tx - 25, ty - 50);
-                        ctx.lineTo(tx + 3, ty - 85);
-                        ctx.lineTo(tx + 31, ty - 50);
+                        ctx.moveTo(bx - 20, by - 40);
+                        ctx.lineTo(bx + 2, by - 65);
+                        ctx.lineTo(bx + 24, by - 40);
                         ctx.fill();
+                    };
+
+                    for (let i = 0; i < 3; i++) {
+                        const px = markerX + 60 + i * 130 - (nextP % 390);
+                        if (px > markerX + 5) {
+                            drawPineMini(px, this.groundY - 2);
+                        }
                     }
+                    
+                    // 遠景の丘陵を右側に配置して奥行きを出す
+                    ctx.globalAlpha = 0.3;
+                    ctx.fillStyle = '#2d3d4b';
+                    ctx.beginPath();
+                    ctx.moveTo(markerX + 20, this.groundY);
+                    ctx.quadraticCurveTo(markerX + 150, this.groundY - 80, CANVAS_WIDTH, this.groundY - 40);
+                    ctx.lineTo(CANVAS_WIDTH, this.groundY);
+                    ctx.fill();
+
                     ctx.restore();
                 }
                 break;
@@ -1628,6 +1639,10 @@ export class Stage {
                 for (let i = kStartIdx; i <= kEndIdx; i++) {
                     const seed = i * 9.21;
                     const x = i * kCellSize - p * kPara + this.noiseSigned(seed + 0.7) * 36;
+                    
+                    // 自然に配置
+                    if (x < -200 || x > CANVAS_WIDTH + 200) continue;
+                    
                     const y = this.groundY - 2;
                     const roll = this.noise1D(seed + 1.6);
 
@@ -1681,6 +1696,10 @@ export class Stage {
                     const seed = i * 6.29;
                     if (this.noise1D(seed + 0.9) < 0.58) continue;
                     const x = i * travelerSpan - travelerScroll + this.noiseSigned(seed + 1.7) * 18;
+                    
+                    // 自然に配置
+                    if (x < -50 || x > CANVAS_WIDTH + 50) continue;
+                    
                     const y = this.groundY - 5;
                     const h = 24 + this.noise1D(seed + 2.6) * 14;
                     const dir = this.noise1D(seed + 3.2) > 0.5 ? 1 : -1;
@@ -1698,18 +1717,48 @@ export class Stage {
                     ctx.fill();
                 }
 
-                // ボス戦中：次のステージ（山道）の山並みシルエットを遠くに表示
+                // ボス戦中：次のステージ（山道）の情景を物理的に接続
                 if (this.bossSpawned && !this.bossDefeated) {
                     ctx.save();
-                    ctx.globalAlpha = 0.28;
-                    const nx = CANVAS_WIDTH * 0.6;
-                    const nw = 460;
-                    const nh = 130;
-                    ctx.fillStyle = this.interpolateColor(currentPalette.far, '#2d3d4b', 0.4);
+                    const nx = CANVAS_WIDTH * 0.75;
+                    
+                    // 山道の入り口を示す大きな岩を配置
+                    const rockX = nx;
+                    const rockY = this.groundY;
+                    const rw = 80, rh = 120;
+                    
+                    ctx.fillStyle = '#3a4438';
                     ctx.beginPath();
-                    ctx.moveTo(nx - 80, this.groundY);
-                    ctx.bezierCurveTo(nx + nw * 0.2, this.groundY - nh, nx + nw * 0.6, this.groundY - nh * 0.8, nx + nw + 80, this.groundY);
+                    ctx.moveTo(rockX - 30, rockY);
+                    ctx.lineTo(rockX + 10, rockY - rh);
+                    ctx.lineTo(rockX + rw, rockY - rh * 0.6);
+                    ctx.lineTo(rockX + rw + 40, rockY);
                     ctx.fill();
+                    
+                    // 岩のハイライト
+                    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+                    ctx.beginPath();
+                    ctx.moveTo(rockX - 10, rockY - rh * 0.3);
+                    ctx.lineTo(rockX + 10, rockY - rh + 5);
+                    ctx.lineTo(rockX + 40, rockY - rh * 0.5);
+                    ctx.fill();
+
+                    // 山のシルエット（右側）
+                    ctx.globalAlpha = 0.4;
+                    const nextPara = 0.2;
+                    const nextP = p * nextPara;
+                    const drawMnt = (bx, by, w, h, c) => {
+                        ctx.fillStyle = c;
+                        ctx.beginPath();
+                        ctx.moveTo(bx - 30, by);
+                        ctx.lineTo(bx + w * 0.4, by - h);
+                        ctx.lineTo(bx + w * 0.6, by - h * 0.8);
+                        ctx.lineTo(bx + w + 30, by);
+                        ctx.fill();
+                    };
+
+                    drawMnt(rockX + 50 - (nextP % 300), this.groundY, 320, 140, '#2d3d4b');
+                    
                     ctx.restore();
                 }
                 break;
@@ -1730,6 +1779,10 @@ export class Stage {
                         const seed = worldIndex * (6.41 + parallax * 7.2);
                         const ridgeW = spanBase * (0.85 + this.noise1D(seed + 0.7) * 0.9);
                         const x = i * spanBase - offset + this.noiseSigned(seed + 1.9) * 80;
+                        
+                        // 描画範囲を制限せず、自然に配置
+                        if (x < -100 || x > CANVAS_WIDTH + 100) continue;
+                        
                         const peakA = peakBase + this.noise1D(seed + 2.4) * (peakBase * 0.65);
                         const peakB = peakBase * 0.72 + this.noise1D(seed + 3.6) * (peakBase * 0.5);
                         const shoulder = peakBase * 0.45 + this.noise1D(seed + 4.8) * (peakBase * 0.35);
@@ -1772,6 +1825,10 @@ export class Stage {
                     const seed = i * 5.43;
                     if (this.noise1D(seed + 0.9) < 0.28) continue;
                     const x = i * rockSpan - rockScroll + this.noiseSigned(seed + 1.4) * 18;
+                    
+                    // 自然に配置
+                    if (x < -100 || x > CANVAS_WIDTH + 100) continue;
+                    
                     const roll = this.noise1D(seed + 6.2);
 
                     if (roll > 0.62) {
@@ -1822,21 +1879,39 @@ export class Stage {
                     }
                 }
 
-                // ボス戦中：次のステージ（城下町）の瓦屋根シルエットを表示
+                // ボス戦中：次のステージ（城下町）へ物理的に接続
                 if (this.bossSpawned && !this.bossDefeated) {
                     ctx.save();
-                    ctx.globalAlpha = 0.25;
-                    const nextPara = 0.22;
-                    const nextScroll = p * nextPara;
-                    const nx = CANVAS_WIDTH * 0.65 - (nextScroll % 100);
-                    const ny = this.groundY - 10;
-                    ctx.fillStyle = this.interpolateColor(currentPalette.far, '#2d323e', 0.5);
+                    const nx = CANVAS_WIDTH * 0.75;
+                    
+                    // 城下町の外郭としての石垣を描画
+                    ctx.fillStyle = '#3a3a3a';
                     ctx.beginPath();
-                    ctx.moveTo(nx - 50, ny);
-                    ctx.quadraticCurveTo(nx + 40, ny - 45, nx + 130, ny);
-                    ctx.lineTo(nx + 120, ny + 8);
-                    ctx.quadraticCurveTo(nx + 40, ny - 30, nx - 40, ny + 8);
+                    ctx.moveTo(nx - 20, this.groundY);
+                    ctx.lineTo(nx + 10, this.groundY - 80);
+                    ctx.lineTo(CANVAS_WIDTH, this.groundY - 95);
+                    ctx.lineTo(CANVAS_WIDTH, this.groundY);
                     ctx.fill();
+                    
+                    // 石垣の上の塀
+                    ctx.fillStyle = '#1a1a1a';
+                    ctx.fillRect(nx + 10, this.groundY - 95, CANVAS_WIDTH - nx, 15);
+                    
+                    // 遠景の瓦屋根シルエットを少し覗かせる
+                    ctx.globalAlpha = 0.35;
+                    ctx.fillStyle = '#2b2f3d';
+                    const nextP = p * 0.4;
+                    for (let i = 0; i < 3; i++) {
+                        const rx = nx + 60 + i * 120 - (nextP % 360);
+                        if (rx > nx + 10) {
+                            ctx.beginPath();
+                            ctx.moveTo(rx, this.groundY - 95);
+                            ctx.lineTo(rx + 40, this.groundY - 130);
+                            ctx.lineTo(rx + 80, this.groundY - 95);
+                            ctx.fill();
+                        }
+                    }
+                    
                     ctx.restore();
                 }
                 break;
@@ -1890,10 +1965,14 @@ export class Stage {
                 for (let i = -2; i < CANVAS_WIDTH / tSpacingFar + 4; i++) {
                     const worldIndex = i + Math.floor((p * tParaFar) / tSpacingFar);
                     const seed = worldIndex * 6.13;
-                    const x = i * tSpacingFar - tOffsetFar + this.noiseSigned(seed + 0.7) * 18;
-                    const w = 128 + this.noise1D(seed + 1.6) * 78;
-                    const h = 74 + this.noise1D(seed + 2.8) * 56;
                     const baseY = this.groundY - 12;
+                    const x = i * tSpacingFar - tOffsetFar + this.noiseSigned(seed + 0.7) * 18;
+                    
+                    // 自然に配置
+                    if (x < -200 || x > CANVAS_WIDTH + 200) continue;
+                    
+                    const w = 120 + this.noise1D(seed + 1.2) * 80;
+                    const h = 74 + this.noise1D(seed + 2.8) * 56;
                     const wallY = baseY - h;
 
                     ctx.fillStyle = this.interpolateColor('#4b4654', '#20212a', 0.32);
@@ -1918,6 +1997,10 @@ export class Stage {
                     const worldIndex = i + Math.floor((p * tParaMid) / tSpacingMid);
                     const seed = worldIndex * 7.41;
                     const x = i * tSpacingMid - tOffsetMid + this.noiseSigned(seed + 0.9) * 22;
+                    
+                    // 自然に配置
+                    if (x < -300 || x > CANVAS_WIDTH + 300) continue;
+                    
                     const w = 164 + this.noise1D(seed + 1.8) * 96;
                     const h = 128 + this.noise1D(seed + 2.5) * 98;
                     const baseY = this.groundY - 2;
@@ -1988,16 +2071,40 @@ export class Stage {
                     drawKawaraRoof(x, wallY, w, 34 + this.noise1D(seed + 15.3) * 22, this.interpolateColor('#6f7382', '#2c313f', 0.52), 0.18);
                 }
 
-                // ボス戦中：次のステージ（城内）の巨大な門のシルエットを表示
+                // ボス戦中：街の背後に巨大な城を配置（威圧感の演出）
                 if (this.bossSpawned && !this.bossDefeated) {
                     ctx.save();
-                    ctx.globalAlpha = 0.3;
-                    const nx = CANVAS_WIDTH * 0.7;
-                    const ny = this.groundY;
-                    ctx.fillStyle = this.interpolateColor(currentPalette.far, '#3d1c16', 0.6);
-                    ctx.fillRect(nx, ny - 180, 15, 180);
-                    ctx.fillRect(nx + 160, ny - 180, 15, 180);
-                    ctx.fillRect(nx - 20, ny - 190, 215, 25);
+                    // 全体的に少し暗くして巨大感を出す
+                    ctx.globalAlpha = 0.8;
+                    
+                    // 巨大な石垣（画面全体の下部を覆う）
+                    ctx.fillStyle = '#2a2a2a';
+                    ctx.beginPath();
+                    ctx.moveTo(0, this.groundY);
+                    ctx.lineTo(CANVAS_WIDTH * 0.2, this.groundY - 120);
+                    ctx.lineTo(CANVAS_WIDTH * 0.8, this.groundY - 140);
+                    ctx.lineTo(CANVAS_WIDTH, this.groundY - 100);
+                    ctx.lineTo(CANVAS_WIDTH, this.groundY);
+                    ctx.fill();
+                    
+                    // 城の白壁（低層階の巨大な広がり）
+                    ctx.fillStyle = '#dcdcdc'; // 月明かりに照らされる白壁
+                    ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY - 140);
+                    
+                    // 壁のディテール（細長い窓/狭間）
+                    ctx.fillStyle = '#1a1a1a';
+                    for (let wx = 60; wx < CANVAS_WIDTH; wx += 120) {
+                        ctx.fillRect(wx, 150, 8, 24);
+                        ctx.fillRect(wx + 40, 220, 12, 12); // 四角い狭間
+                    }
+                    
+                    // 境界の自然な重なりを出すための微かな影
+                    const shadow = ctx.createLinearGradient(0, this.groundY - 160, 0, this.groundY - 120);
+                    shadow.addColorStop(0, 'rgba(0,0,0,0)');
+                    shadow.addColorStop(1, 'rgba(0,0,0,0.4)');
+                    ctx.fillStyle = shadow;
+                    ctx.fillRect(0, this.groundY - 160, CANVAS_WIDTH, 40);
+
                     ctx.restore();
                 }
                 break;
@@ -2033,6 +2140,10 @@ export class Stage {
                 const panelEnd = Math.ceil((panelScroll + CANVAS_WIDTH + panelSpan * 3) / panelSpan);
                 for (let i = panelStart; i <= panelEnd; i++) {
                     const panelX = i * panelSpan - panelScroll;
+                    
+                    // 自然に配置
+                    if (panelX < -panelSpan || panelX > CANVAS_WIDTH + panelSpan) continue;
+                    
                     const seed = i * 9.17;
 
                     // 柱
@@ -2113,22 +2224,46 @@ export class Stage {
                     ctx.fill();
                 }
 
-                // ボス戦中：次のステージ（天守閣）へと続く階段のシルエットを表示
+                // ボス戦中：天守閣へと続く大階段を物理的に接続
                 if (this.bossSpawned && !this.bossDefeated) {
                     ctx.save();
-                    ctx.globalAlpha = 0.25;
-                    const nx = CANVAS_WIDTH * 0.7;
+                    const nx = CANVAS_WIDTH * 0.75;
                     const ny = this.groundY;
+                    
+                    // 階段の側面の壁
+                    ctx.fillStyle = '#2a1a15';
+                    ctx.beginPath();
+                    ctx.moveTo(nx, ny);
+                    ctx.lineTo(nx, ny - 150);
+                    ctx.lineTo(CANVAS_WIDTH, ny - 250);
+                    ctx.lineTo(CANVAS_WIDTH, ny);
+                    ctx.fill();
+
+                    // 階段本体
                     ctx.fillStyle = '#1a0d0a';
-                    // 階段のシルエット
-                    const steps = 6;
-                    const sw = 45;
+                    const steps = 10;
+                    const sw = 35;
                     const sh = 18;
                     for (let i = 0; i < steps; i++) {
-                        ctx.fillRect(nx + i * sw, ny - (i + 1) * sh, sw + 10, (i + 1) * sh);
+                        const sx = nx + i * sw;
+                        const sy = ny - (i + 1) * sh;
+                        ctx.fillRect(sx, sy, sw + 20, (i + 1) * sh);
+                        // 段のハイライト（木目の反射）
+                        ctx.fillStyle = 'rgba(255, 200, 100, 0.08)';
+                        ctx.fillRect(sx, sy, sw + 20, 3);
+                        ctx.fillStyle = '#1a0d0a';
                     }
-                    // 奥へと続く踊り場
+                    
+                    // 階段の上部（踊り場・天守閣への予感）
                     ctx.fillRect(nx + steps * sw, ny - steps * sh, 200, steps * sh);
+                    
+                    // 階段周りの不気味な赤い光
+                    const stairGlow = ctx.createLinearGradient(nx, ny, nx + 200, ny - 200);
+                    stairGlow.addColorStop(0, 'rgba(156, 46, 28, 0)');
+                    stairGlow.addColorStop(1, 'rgba(156, 46, 28, 0.25)');
+                    ctx.fillStyle = stairGlow;
+                    ctx.fillRect(nx, 0, CANVAS_WIDTH - nx, this.groundY);
+                    
                     ctx.restore();
                 }
                 break;
@@ -2314,52 +2449,40 @@ export class Stage {
         ctx.fillStyle = roadGrad;
         ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
 
-        // 2. 落ち葉（パース付き）
-        const spacing = 42;
+        // 2. 落ち葉（パース付き） - 静的な装飾。奥に向かって密度を高める。
+        const spacing = 64; // 間隔を広げて負荷軽減
         const scroll = renderProgress * 1.02;
-        const start = Math.floor((scroll - 240) / spacing);
-        const end = Math.ceil((scroll + CANVAS_WIDTH + 240) / spacing);
-        const leafColor = this.interpolateColor('#7a8c5f', '#1d2617', darken);
-        const playerScreenX = this.playerProbe ? (this.playerProbe.x + this.playerProbe.width * 0.5 - this.progress) : -9999;
-        const playerNearGround = !!(this.playerProbe && this.playerProbe.isGrounded);
-        const stompSpeed = this.playerProbe ? Math.min(1, Math.abs(this.playerProbe.vx || 0) / 6) : 0;
+        const start = Math.floor((scroll - 100) / spacing);
+        const end = Math.ceil((scroll + CANVAS_WIDTH + 100) / spacing);
 
-        // 背景描画（大量の半透明ポリゴン描画は重いため、globalAlphaで一括設定する最適化）
         ctx.save();
         for (let i = start; i <= end; i++) {
             const seed = i * 7.41;
-            const leafCount = 45 + Math.floor(this.noise1D(seed + 3.7) * 45); // 奥から手前まで均等に撒くため数を確保
+            // 1セクションあたりの枚数を抑える (45-90 -> 15-30)
+            const leafCount = 15 + Math.floor(this.noise1D(seed + 3.7) * 15);
             for (let l = 0; l < leafCount; l++) {
                 const ls = seed + l * 2.37;
                 
-                // 平方根をやめ、純粋なノイズ（0〜1）で線形に分布させることで奥（0）にも手前（1）にも均等に敷き詰める
-                const leafDepth = this.noise1D(ls + 9.2);
-                const lx = i * spacing - scroll + this.noiseSigned(ls + 1.1) * 32;
+                // 密度勾配: 乱数の累乗などで奥（0）に偏らせる
+                // noise1D を 0.5 乗（平方根）することで 0 寄りの分布にする
+                const leafDepth = Math.pow(this.noise1D(ls + 9.2), 1.6); // 1.6乗することで奥(yが小さい方)に密度を集中させる
+                const lx = i * spacing - scroll + this.noiseSigned(ls + 1.1) * 40;
 
                 if (lx < -40 || lx > CANVAS_WIDTH + 40) continue;
 
                 const ly = horizonY + leafDepth * (bottomY - horizonY);
+                const len = 6 + leafDepth * 6; // 手前ほど大きく
+                const rot = this.noise1D(ls + 8.1) * Math.PI * 2;
                 
-                const dir = this.noise1D(ls + 4.8) > 0.5 ? 1 : -1;
-                const len = 7 + leafDepth * 6;
+                // 色味と透明度の調整。奥(leafDepthが小さい)ほど暗く、密度感を出す。
+                // 手前(leafDepthが大きい)はまばらで、かつ地面の色に馴染むように。
+                const tint = this.interpolateColor('#7ea464', '#1f3422', 1 - leafDepth * 0.5);
                 
-                const playerDist = Math.abs(lx - playerScreenX);
-                const stomp = playerNearGround ? this.clamp01(1 - playerDist / 60) * (0.08 + stompSpeed * 0.15) : 0;
-                const sway = Math.sin(this.stageTime * 0.01 + ls) * (0.5 + stomp * 2);
-                const baseRot = this.noise1D(ls + 8.1) * Math.PI * 2;
-                const rot = baseRot + sway * 0.2;
+                // 密度が高い奥の方は少し重なりを許容し、手前は薄くする
+                const alpha = (0.2 + (1 - leafDepth) * 0.4) * (1.0 - darken * 0.5);
                 
-                // 落下葉っぱに近い、鮮やかな色味を使用（暗くしすぎると地面と同化しないが、地面に紛れるほどの彩度にする）
-                const tintBase = this.interpolateColor('#8fac56', '#5e723d', 1 - leafDepth * 0.6);
-                const varColor = this.interpolateColor(tintBase, '#6a8a4f', this.noise1D(ls + 5.1) * 0.4);
-                
-                // 完全な落下葉と同じ描画メソッド。
-                // 画面下部（leafDepthが1に近い）に行くほど薄くなるようグラデーション（フェードアウト）をかける
-                const edgeFade = 1.0 - Math.pow(Math.max(0, leafDepth - 0.5) * 2, 2); // 0.5以降から下部に向かって減衰
-                const alpha = Math.max(0, (0.5 + (1 - darken) * 0.2) * (0.8 - leafDepth * 0.2) * edgeFade);
-                
-                if (alpha > 0.05) { // ほぼ透明なものは描画スキップ
-                    this.drawBambooLeaf(ctx, lx, ly, len, rot, varColor, alpha);
+                if (alpha > 0.05) {
+                    this.drawBambooLeaf(ctx, lx, ly, len, rot, tint, alpha);
                 }
             }
         }
@@ -2528,13 +2651,124 @@ export class Stage {
         shineGrad.addColorStop(1, 'rgba(255, 215, 0, 0)');
         ctx.fillStyle = shineGrad;
         ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
-        ctx.globalAlpha = 1.0;
+        // ボス戦時のヴィネット効果（集中力と緊張感を高める）
+        this.renderBossVignette(ctx, bossEncounterBlend);
+    }
+
+    renderBossVignette(ctx, blend) {
+        if (blend <= 0) return;
+        
+        ctx.save();
+        const gradient = ctx.createRadialGradient(
+            CANVAS_WIDTH / 2, this.groundY / 2, CANVAS_WIDTH * 0.3,
+            CANVAS_WIDTH / 2, this.groundY / 2, CANVAS_WIDTH * 0.7
+        );
+        
+        let color;
+        switch(this.stageNumber) {
+            case 1: color = '14, 46, 22'; break;  // 竹林: 深緑
+            case 2: color = '56, 42, 28'; break;  // 街道: 土埃の茶色
+            case 3: color = '38, 32, 64'; break;  // 山道: 霊的な紫
+            case 4: color = '74, 18, 12'; break;  // 城下町: 火の赤
+            case 5: color = '48, 12, 12'; break;  // 城内: 漆黒の赤
+            case 6: color = '96, 64, 24'; break;  // 天守: 黄金色
+            default: color = '0, 0, 0';
+        }
+        
+        const alpha = 0.35 * blend;
+        gradient.addColorStop(0, `rgba(${color}, 0)`);
+        gradient.addColorStop(1, `rgba(${color}, ${alpha})`);
+        
+        ctx.fillStyle = gradient;
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY);
+        ctx.restore();
+    }
+
+    renderHeatHaze(ctx, time, blend) {
+        if (blend <= 0) return;
+        const amp = 1.5 * blend;
+        const speed = 0.004;
+        
+        ctx.save();
+        const offset = Math.sin(time * speed) * amp;
+        ctx.translate(0, offset);
+    }
+
+    renderBossParticles(ctx, time, blend) {
+        if (blend <= 0) return;
+        
+        ctx.save();
+        ctx.globalCompositeOperation = 'screen';
+        
+        const pMod = time * 0.001;
+        
+        switch (this.stageNumber) {
+            case 3: { // 山道: 沸き立つ霊霧と雲の隙間からの光（天使の梯子）
+                // 光の筋
+                ctx.globalAlpha = 0.15 * blend * (0.8 + Math.sin(pMod * 2) * 0.2);
+                ctx.fillStyle = '#dcdcee';
+                ctx.beginPath();
+                ctx.moveTo(CANVAS_WIDTH * 0.3, -50);
+                ctx.lineTo(CANVAS_WIDTH * 0.7, -50);
+                ctx.lineTo(CANVAS_WIDTH * 0.9, this.groundY);
+                ctx.lineTo(CANVAS_WIDTH * 0.1, this.groundY);
+                ctx.fill();
+                
+                // 上昇する霧の粒
+                ctx.globalAlpha = 0.4 * blend;
+                for (let i = 0; i < 20; i++) {
+                    const seed = i * 7.13;
+                    const x = (seed * 111 + pMod * 20) % CANVAS_WIDTH;
+                    const y = this.groundY - ((seed * 53 + pMod * 60) % (this.groundY + 50));
+                    const r = 4 + (seed % 6);
+                    ctx.fillStyle = `rgba(200, 200, 230, ${0.1 + Math.sin(pMod * 3 + seed) * 0.1})`;
+                    ctx.beginPath();
+                    ctx.arc(x, y, r, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                break;
+            }
+            case 4: { // 城下町: 舞い散る火の粉
+                ctx.globalAlpha = blend;
+                for (let i = 0; i < 30; i++) {
+                    const seed = i * 13.7;
+                    // 斜めに降るような動き
+                    const x = (seed * 87 - pMod * 120 + CANVAS_WIDTH * 2) % (CANVAS_WIDTH * 1.5) - CANVAS_WIDTH * 0.2;
+                    const y = (seed * 43 + pMod * 80) % CANVAS_HEIGHT;
+                    const r = 1 + (seed % 2.5);
+                    const twinkle = 0.5 + Math.sin(pMod * 8 + seed) * 0.5;
+                    ctx.fillStyle = `rgba(255, ${100 + twinkle * 100}, 20, ${twinkle})`;
+                    ctx.fillRect(x, y, r, r);
+                    if (twinkle > 0.8) {
+                        ctx.fillStyle = `rgba(255, 150, 50, ${twinkle * 0.5})`;
+                        ctx.fillRect(x - 1, y - 1, r + 2, r + 2);
+                    }
+                }
+                break;
+            }
+            case 5: { // 城内: 浮遊する塵と空気の微振動
+                ctx.globalAlpha = 0.6 * blend;
+                for (let i = 0; i < 40; i++) {
+                    const seed = i * 19.3;
+                    const x = (seed * 97 + Math.sin(pMod + seed) * 30 + CANVAS_WIDTH) % CANVAS_WIDTH;
+                    const y = (seed * 61 - pMod * 15 + CANVAS_HEIGHT) % CANVAS_HEIGHT;
+                    const twinkle = Math.max(0, Math.sin(pMod * 3 + seed));
+                    ctx.fillStyle = `rgba(220, 200, 150, ${twinkle * 0.8})`;
+                    ctx.fillRect(x, y, 1.5, 1.5);
+                }
+                break;
+            }
+        }
+        ctx.restore();
     }
 
     renderSkyParticles(ctx, time, bossEncounterBlend = 0) {
         const p = Math.max(0, Math.min(1, this.progress / this.maxProgress));
         let intensity = 0;
-        if (this.stageNumber === 3) {
+        if (this.stageNumber === 1) {
+            intensity = 1 - this.smoothstep(0.15, 0.45, p); // 6時(p=0.27)付近で星が消えていく
+        } else if (this.stageNumber === 3) {
             intensity = this.smoothstep(0.64, 1, p) * 0.5;
         } else if (this.stageNumber === 4) {
             intensity = this.smoothstep(0.22, 0.96, p) * 0.92;
@@ -2576,36 +2810,45 @@ export class Stage {
     }
     
     renderCelestialBodies(ctx) {
-        const p = Math.max(0, Math.min(1, this.progress / this.maxProgress));
-        const stageP = this.smoothstep(0, 1, p);
-        const isTenshuStage = this.stageNumber === 6;
+        // ステージ番号に応じた表示設定
+        // 1：5〜10時(明け方〜朝)
+        // 2：11〜15時(昼)
+        // 3：16〜17時(夕暮れ)
+        // 4：18〜20時(夜)
+        // 5：室内なので非表示
+        // 6：開始時に月が画面中央(3倍)〜直前で日の出(3倍)、ボス戦中は太陽2/3
         
-        // 軌道をより画面中央寄りに狭め、画面外にはみ出しにくくする
-        const orbitRadiusX = CANVAS_WIDTH * (isTenshuStage ? 0.3 : 0.4); // 狭める
-        const orbitRadiusY = this.groundY * (isTenshuStage ? 0.58 : 0.45); // 狭める
-        // 中心を下げて、起動の頂点と底を調整
-        const orbitCenterY = this.groundY * (isTenshuStage ? 0.5 : 0.4); // 中心を調整
-        const orbitUpperClampY = isTenshuStage ? 30 : 40; // 上限を調整
-        const orbitLowerClampY = this.groundY - (isTenshuStage ? 20 : 10); // 下限を調整
-        const parallaxDrift = (this.progress * 0.02) % (CANVAS_WIDTH * 1.5);
+        if (this.stageNumber === 5) return;
+
+        // stageNumberを数値として確実に扱う
+        const sn = parseInt(this.stageNumber);
+        // 進行度を 0.0 〜 1.0 に厳密にクランプ
+        const progress = Math.max(0, Math.min(1, this.progress / this.maxProgress));
+        const isTenshuStage = sn === 6;
+        
+        // 物理的な軌道パラメータ
+        const orbitRadiusX = CANVAS_WIDTH * (isTenshuStage ? 0.35 : 0.42);
+        const orbitRadiusY = this.groundY * (isTenshuStage ? 0.6 : 0.5);
+        const orbitCenterX = CANVAS_WIDTH * 0.5;
+        const orbitCenterY = this.groundY * 0.95;
+
+        const getX = (theta) => orbitCenterX - Math.cos(theta) * orbitRadiusX;
+        const getY = (theta) => orbitCenterY - Math.sin(theta) * orbitRadiusY;
 
         const drawBody = (cx, cy, r, alpha, coreTop, coreBottom, glowColor, isMoon = false) => {
             if (alpha <= 0.001) return;
-            const px = cx - parallaxDrift;
-            if (px < -r * 3 || px > CANVAS_WIDTH + r * 3) return;
-
             ctx.save();
-            ctx.translate(px, cy);
+            ctx.translate(cx, cy);
             ctx.globalAlpha = alpha;
 
-            // 眩しいグロー（サイズをより大きく）
-            const glow = ctx.createRadialGradient(0, 0, r * 0.4, 0, 0, r * (isTenshuStage ? 4.5 : 3.8)); // 最終ステージはさらに大きく
+            const glowR = r * (isTenshuStage ? 4.8 : 4.0);
+            const glow = ctx.createRadialGradient(0, 0, r * 0.4, 0, 0, glowR);
             glow.addColorStop(0, `${glowColor.replace('ALPHA', (0.6 * alpha).toFixed(3))}`);
-            glow.addColorStop(0.4, `${glowColor.replace('ALPHA', (0.25 * alpha).toFixed(3))}`);
+            glow.addColorStop(0.4, `${glowColor.replace('ALPHA', (0.28 * alpha).toFixed(3))}`);
             glow.addColorStop(1, `${glowColor.replace('ALPHA', '0')}`);
             ctx.fillStyle = glow;
             ctx.beginPath();
-            ctx.arc(0, 0, r * (isTenshuStage ? 4.5 : 3.8), 0, Math.PI * 2); // 最終ステージはさらに大きく
+            ctx.arc(0, 0, glowR, 0, Math.PI * 2);
             ctx.fill();
 
             const coreGrad = ctx.createLinearGradient(0, -r, 0, r);
@@ -2615,120 +2858,116 @@ export class Stage {
             ctx.beginPath();
             ctx.arc(0, 0, r, 0, Math.PI * 2);
             ctx.fill();
-
-            if (isMoon && (this.bossSpawned && !this.bossDefeated || (this.bossDefeated && this.bossDefeatColorFade > 0))) {
-                const bossAlpha = this.bossSpawned && !this.bossDefeated ? 0.68 : this.bossDefeatColorFade * 0.68;
-                const bMoonGrad = ctx.createLinearGradient(0, -r, 0, r);
-                bMoonGrad.addColorStop(0, '#501014');
-                bMoonGrad.addColorStop(1, '#c44338');
-                ctx.globalAlpha = bossAlpha * alpha;
-                ctx.fillStyle = bMoonGrad;
-                ctx.globalCompositeOperation = 'multiply';
-                ctx.beginPath();
-                ctx.arc(0, 0, r, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.globalCompositeOperation = 'source-over';
-            }
-
             ctx.restore();
         };
 
-        let sunTheta;
-        let moonTheta;
-        let sunVisibilityScale = 1;
-        let moonVisibilityScale = 1;
+        // 24時間表記を角度(theta)に変換するヘルパー
+        // 太陽用：6時(0/左) -> 12時(PI/2/上) -> 18時(PI/右)
+        // 月用：18時(0/左) -> 24時(PI/2/上) -> 6時(PI/右)
+        const hourToTheta = (hour, isSun) => {
+            if (isSun) {
+                return ((hour - 6) / 12) * Math.PI;
+            } else {
+                // 夜の18時を0、翌朝6時をPIとする
+                let h = hour;
+                if (h < 6) h += 24; // 0-6時を24-30時として扱う
+                return ((h - 18) / 12) * Math.PI;
+            }
+        };
 
-        switch (this.stageNumber) {
-            case 1:
-                sunTheta = Math.PI * (-0.34 + stageP * 0.58);
-                moonTheta = Math.PI * (0.72 + stageP * 0.52);
-                moonVisibilityScale = 0.08 * (1 - this.smoothstep(0.12, 0.72, stageP));
-                break;
-            case 2:
-                sunTheta = Math.PI * (0.56 - stageP * 0.14);
-                moonTheta = sunTheta + Math.PI * 1.08;
-                moonVisibilityScale = 0;
-                break;
-            case 3:
-                sunTheta = Math.PI * (0.34 - stageP * 0.42);
-                moonTheta = Math.PI * (-0.36 + stageP * 0.54);
-                moonVisibilityScale = this.smoothstep(0.5, 1, stageP) * 0.72;
-                break;
-            case 4:
-                sunTheta = Math.PI * (0.06 - stageP * 0.38);
-                moonTheta = Math.PI * (-0.22 + stageP * 0.56);
-                moonVisibilityScale = 0.36 + this.smoothstep(0.34, 1, stageP) * 0.64;
-                break;
-            case 6:
-                // 月は中盤すぎ(75%)まで残り、そこからゆっくり地平線に沈む（沈む前に消えない）
-                moonTheta = Math.PI * (0.5 + stageP * 0.45);
-                // 太陽は50%から準備し、終盤に左下(Theta ≈ 0.1π)へ昇る調整
-                sunTheta = Math.PI * (-0.45 + stageP * 0.55);
+        if (sn <= 4) {
+            let startHour, endHour, isSun = true;
+            switch(sn) {
+                case 1: startHour = 4.5; endHour = 10; break;
+                case 2: startHour = 11; endHour = 15; break;
+                case 3: startHour = 16; endHour = 17; break;
+                case 4: startHour = 18; endHour = 20; isSun = false; break;
+                default: startHour = 12; endHour = 12; break; // 安全策
+            }
+
+            let currentHour;
+            // ボス戦中は10時(endHour)に固定
+            if (this.bossSpawned && sn === 1) {
+                currentHour = 10.0;
+            } else if (sn === 1) {
+                if (progress < 0.45) {
+                    currentHour = 4.5 + (1.5 / 0.45) * progress;
+                } else {
+                    currentHour = 6.0 + (4.0 / 0.55) * (progress - 0.45);
+                }
+            } else {
+                currentHour = startHour + (endHour - startHour) * progress;
+            }
+            
+            // 異常な時間経過を防止
+            currentHour = Math.max(startHour, Math.min(endHour, currentHour));
+
+            const theta = hourToTheta(currentHour, isSun);
+            
+            if (isSun) {
+                // 物理的に地平線(theta=0/6時)より上がってから描画
+                if (currentHour < 6.0) return; 
+
+                const bodyX = getX(theta);
+                const bodyY = getY(theta);
+                const sunAltitude = Math.sin(theta);
                 
-                // 月: 75%からフェードアウト、太陽: 50%からフェードイン（重なる時間を長く）
-                moonVisibilityScale = 1 - this.smoothstep(0.75, 1.0, stageP);
-                sunVisibilityScale = this.smoothstep(0.5, 1.0, stageP);
-                break;
-            default:
-                sunTheta = Math.PI * (0.24 - stageP * 0.24);
-                moonTheta = sunTheta + Math.PI;
-                break;
+                // 10時なら theta=PI/3。cos(PI/3)=0.5 なので 640 - 0.5*R = 左側。
+                // もしこれで右に行くなら getX の式自体が反転している可能性があるが、
+                // 現状の式で「左から右」であることを再三確認。
+                
+                const warmFactor = 1 - this.smoothstep(0.08, 0.78, sunAltitude);
+                const sunRadius = 45 * (1 + warmFactor * 0.1);
+                
+                let sunTop = this.interpolateColor('#fff7dc', '#ffd194', warmFactor);
+                let sunBottom = this.interpolateColor('#fff0c8', '#ffba74', warmFactor);
+                
+                const dawnSun = this.clamp01(1 - this.smoothstep(0.14, 0.66, Math.max(0, sunAltitude)));
+                sunTop = this.interpolateColor(sunTop, '#ffd9b4', dawnSun * 0.85);
+                sunBottom = this.interpolateColor(sunBottom, '#ff7a33', dawnSun * 1.0);
+                
+                const glowG = Math.round(180 - dawnSun * 40);
+                const glowB = Math.round(100 - dawnSun * 40);
+                const sunGlow = `rgba(255, ${glowG}, ${glowB}, ALPHA)`;
+                
+                const appearAlpha = (sn === 1) ? this.smoothstep(6.0, 6.3, currentHour) : 1;
+                drawBody(bodyX, bodyY, sunRadius, appearAlpha, sunTop, sunBottom, sunGlow, false);
+            } else {
+                const bodyX = getX(theta);
+                const bodyY = getY(theta);
+                drawBody(bodyX, bodyY, 40, 1, '#f8f9fa', '#ced4da', `rgba(240, 248, 255, ALPHA)`, true);
+            }
+        } else if (sn === 6) {
+            // ステージ6: 月(中央〜沈む) -> 仄暗い朝 -> 太陽(日の出〜固定)
+            const moonRadius = 140; // 3倍
+            const sunRadius = 135;  // 3倍 (140だと少し大きすぎるかもしれないので微調整)
+
+            if (this.bossSpawned) {
+                // ボス戦中: 太陽を 2/3 程度表示される位置に固定 (theta = 0.2 くらい)
+                const theta = 0.2;
+                const sx = getX(theta);
+                const sy = getY(theta);
+                drawBody(sx, sy, sunRadius, 1, '#ffd9b4', '#ff7a33', `rgba(255, 160, 80, ALPHA)`, false);
+            } else {
+                // 進行度を3分割する (0-0.4:月, 0.4-0.6:朝, 0.6-1.0:太陽)
+                if (progress < 0.4) {
+                    const localP = progress / 0.4;
+                    const theta = Math.PI / 2 + (localP * (Math.PI / 2 + 0.2)); // 中央から沈む
+                    const mx = getX(theta);
+                    const my = getY(theta);
+                    const alpha = 1 - this.smoothstep(0.8, 1.0, localP);
+                    drawBody(mx, my, moonRadius, alpha, '#f8f9fa', '#ced4da', `rgba(240, 248, 255, ALPHA)`, true);
+                } else if (progress > 0.6) {
+                    const localP = (progress - 0.6) / 0.4;
+                    const theta = -0.2 + localP * 0.4; // 地平線下から昇り、指定位置へ
+                    const sx = getX(theta);
+                    const sy = getY(theta);
+                    const alpha = this.smoothstep(0, 0.3, localP);
+                    drawBody(sx, sy, sunRadius, alpha, '#ffd9b4', '#ff7a33', `rgba(255, 160, 80, ALPHA)`, false);
+                }
+                // 0.4 - 0.6 の間は何もない「仄暗い朝」
+            }
         }
-
-        const sunAltitude = Math.sin(sunTheta);
-        const moonAltitude = Math.sin(moonTheta);
-
-        const sunVisible = this.smoothstep(-0.28, 0.2, sunAltitude) * sunVisibilityScale;
-        const moonVisible = this.smoothstep(-0.28, 0.2, moonAltitude) * moonVisibilityScale;
-        const warmFactor = 1 - this.smoothstep(0.08, 0.78, sunAltitude);
-
-        const sunX = CANVAS_WIDTH * 0.5 - Math.cos(sunTheta) * orbitRadiusX + parallaxDrift;
-        const sunYRaw = orbitCenterY - sunAltitude * orbitRadiusY;
-        const moonX = CANVAS_WIDTH * 0.5 - Math.cos(moonTheta) * orbitRadiusX + parallaxDrift;
-        const moonYRaw = orbitCenterY - moonAltitude * orbitRadiusY;
-        const sunY = Math.max(orbitUpperClampY, Math.min(orbitLowerClampY, sunYRaw));
-        const moonY = Math.max(orbitUpperClampY, Math.min(orbitLowerClampY, moonYRaw));
-
-        // 最終ステージは太陽も月も同じ超特大サイズにする
-        const celestialRadius = isTenshuStage ? 140 : 45; // 共通の大きな値に変更
-        const sunRadius = celestialRadius * (1 + warmFactor * 0.1);
-        const moonRadius = isTenshuStage ? celestialRadius : (this.stageNumber === 1 ? 34 : 40);
-
-        let sunTop = this.interpolateColor('#fff7dc', '#ffd194', warmFactor);
-        let sunBottom = this.interpolateColor('#fff0c8', '#ffba74', warmFactor);
-        let sunGlow = `rgba(255, 198, 118, ALPHA)`;
-        if (this.stageNumber === 1 || isTenshuStage) {
-            // 昇り始めはより朝焼けらしい橙色へ寄せる（最終ステージも適応して眩しく）
-            const dawnSun = this.clamp01(1 - this.smoothstep(0.14, 0.66, sunAltitude));
-            sunTop = this.interpolateColor(sunTop, '#ffd9b4', dawnSun * 0.85);
-            sunBottom = this.interpolateColor(sunBottom, '#ff7a33', dawnSun * 1.0); // より鮮やかなオレンジ
-            const glowG = Math.round(180 - dawnSun * 40);
-            const glowB = Math.round(100 - dawnSun * 40);
-            sunGlow = `rgba(255, ${glowG}, ${glowB}, ALPHA)`;
-        }
-
-        drawBody(
-            sunX,
-            sunY,
-            sunRadius,
-            sunVisible,
-            sunTop,
-            sunBottom,
-            sunGlow,
-            false // 太陽
-        );
-
-        // 月のグローも環境光に負けないように明るい白銀にする
-        drawBody(
-            moonX,
-            moonY,
-            moonRadius,
-            moonVisible,
-            '#f8f9fa',
-            '#ced4da',
-            `rgba(240, 248, 255, ALPHA)`,
-            true // 月
-        );
     }
     
     renderEnemies(ctx) {

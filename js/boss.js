@@ -55,6 +55,9 @@ class Boss extends Enemy {
         this.evasionJumped = false;
         this.feintTimerMs = 220 + Math.random() * 240;
         this.feintDir = Math.random() < 0.5 ? -1 : 1;
+
+        // ボスは右側から現れるため、初期方向をプレイヤー側（左）にする
+        this.facingRight = false;
     }
 
     applyDifficultyScaling() {
@@ -373,7 +376,7 @@ export class KayakudamaTaisho extends Boss {
                 x: startX, y: startY, vx, vy,
                 radius: bombRadius, damage: bombDamage,
                 explosionRadius, explosionDuration: 300,
-                timer: 0, maxTimer: 800, isExploding: false,
+                timer: 0, maxTimer: 2500, isExploding: false,
                 isDead: false, groundY: this.groundY,
                 update(dt) {
                     if (this.isDead || this.isExploding) {
@@ -387,6 +390,23 @@ export class KayakudamaTaisho extends Boss {
                     this.x += this.vx;
                     this.y += this.vy;
                     this.timer += dt * 1000;
+
+                    // プレイヤーとの当たり判定（プロパティ直接参照のみ）
+                    const player = window.game ? window.game.player : null;
+                    if (player && !player.isInvincible && player.width && player.height) {
+                        const hb = this.getHitbox();
+                        const px = player.x;
+                        const py = player.y;
+                        const pw = player.width;
+                        const ph = player.height;
+                        
+                        if (hb.x < px + pw && hb.x + hb.width > px &&
+                            hb.y < py + ph && hb.y + hb.height > py) {
+                            this.explode();
+                            return false;
+                        }
+                    }
+
                     if (this.y + this.radius >= this.groundY + LANE_OFFSET || this.timer >= this.maxTimer) {
                         this.explode();
                     }
@@ -944,22 +964,34 @@ export class NitoryuKengo extends Boss {
     startAttack() {
         const toolTier = this.getSubWeaponEnhanceTier();
         this.dualAttackCycle++;
-        // シーケンス主体で読み合いを作り、ランダム混ぜで対応を崩す
-        let pattern = this.dualPatternCycle[this.dualPatternIndex % this.dualPatternCycle.length];
-        this.dualPatternIndex++;
-        if (this.dualAttackCycle % 3 === 0) {
-            pattern = 'combined';
-        } else if (Math.random() < (0.14 + toolTier * 0.05)) {
-            pattern = Math.random() < 0.5 ? 'left' : 'right';
+        
+        // プレイヤーの二刀流と同じロジックを使うために、適切な攻撃タイプ（main, combined, left, right）を選択
+        let type = 'main';
+        
+        // コンボ、単発、合体攻撃を織り交ぜる
+        const rand = Math.random();
+        if (this.dualAttackCycle % 4 === 0 || (rand < 0.2 + toolTier * 0.05)) {
+            type = 'combined';
+        } else if (rand < 0.45) {
+            type = 'main'; // コンボ（5段ループ）
+        } else {
+            type = rand < 0.72 ? 'left' : 'right';
         }
-        this.currentPattern = pattern;
+        
+        this.currentPattern = type;
 
-        if (this.startWeaponReplicaAttack(pattern)) {
-            this.attackCooldown = pattern === 'combined'
-                ? Math.max(138, 270 - toolTier * 28)
-                : Math.max(78, 124 - toolTier * 12);
+        if (this.startWeaponReplicaAttack(type)) {
+            // クールダウン調整
+            if (type === 'combined') {
+                this.attackCooldown = Math.max(130, 260 - toolTier * 30);
+            } else if (type === 'main') {
+                this.attackCooldown = Math.max(65, 110 - toolTier * 15);
+            } else {
+                this.attackCooldown = Math.max(55, 95 - toolTier * 12);
+            }
             return;
         }
+
         this.isAttacking = true;
         this.attackTimer = 260;
         this.attackCooldown = 180;
@@ -976,15 +1008,14 @@ export class NitoryuKengo extends Boss {
     }
     
     renderBody(ctx) {
+        // 本体描画（武器は weaponMode: null にしてここでは描かない）
         this.renderUnifiedEnemyModel(ctx, {
-            weaponMode: 'dual',
+            weaponMode: 'none', 
             headStyle: 'kabuto',
             armorRows: 3,
             headRatio: 0.188,
             armScale: 1.13,
             torsoLeanScale: 1.1,
-            attackDurationMs: 260,
-            weaponScale: 1.16,
             palette: {
                 legBack: '#121212',
                 legFront: '#191919',
@@ -1001,183 +1032,130 @@ export class NitoryuKengo extends Boss {
                 accent: '#8c78c4'
             }
         });
-        return;
+
+        // 二刀流忍具の描画を直接呼び出す（これで形状とエフェクトが完全に統一される）
+        if (this.weaponReplica && typeof this.weaponReplica.render === 'function') {
+            this.weaponReplica.render(ctx, this);
+        }
+
+        // 腕の描画が weaponMode: null で消えるため、二刀流用の腕だけ再描画する
+        const dual = this.weaponReplica;
+        if (!dual) return;
+
         const dir = this.facingRight ? 1 : -1;
         const centerX = this.x + this.width * 0.5;
-        const footY = this.y + this.height;
-        const runBlend = Math.max(0, Math.min(1, Math.abs(this.vx) / Math.max(1.2, this.speed)));
-        const gaitPhase = this.motionTime * 0.012;
-        const shoulderX = centerX + dir * 4.9 + this.torsoLean * dir * 0.56;
-        const shoulderY = this.y + 32 + Math.abs(this.bob) * 0.16;
-        const hipX = centerX - dir * 1.5;
-        const hipY = this.y + 57;
-        const headX = shoulderX - dir * 0.5;
-        const headY = this.y + 20;
+        const shoulderY = this.y + this.height * 0.38 + Math.abs(this.bob) * 0.14;
+        const leanBase = (1.2 + this.torsoLean * 0.55 + (this.isAttacking ? 0.9 : 0)) * 1.1; // torsoLeanScale: 1.1
+        const facingLead = dir * this.width * 0.035;
+        const shoulderCenterX = centerX + dir * leanBase + facingLead;
+        const bodyScreenTilt = dir * this.width * 0.038;
+        const shoulderFrontX = shoulderCenterX + dir * (this.width * 0.12 + bodyScreenTilt * 0.3);
+        const shoulderBackX = shoulderCenterX - dir * (this.width * 0.1 - bodyScreenTilt * 0.18);
+        
+        // 腕の長さ
+        const upperLen = this.height * 0.18 * 1.13; // armScale: 1.13
+        const foreLen = this.height * 0.18 * 1.13;
 
-        ctx.fillStyle = 'rgba(0,0,0,0.26)';
-        ctx.beginPath();
-        ctx.ellipse(centerX, footY + 2, 18, 5, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // 帯
-        const scarfWave = Math.sin(this.motionTime * 0.012) * 8;
-        ctx.fillStyle = '#4f2f72';
-        ctx.beginPath();
-        ctx.moveTo(headX - dir * 8, headY + 2);
-        ctx.lineTo(headX - dir * 34, headY - 2 + scarfWave * 0.15);
-        ctx.lineTo(headX - dir * 30, headY + 8 + scarfWave * 0.15);
-        ctx.closePath();
-        ctx.fill();
-
-        this.drawStylizedLegs(ctx, {
-            centerX,
-            hipX,
-            hipY,
-            footY,
-            dir,
-            gaitPhase,
-            runBlend,
-            backColor: '#141414',
-            frontColor: '#141414',
-            backWidth: 5.4,
-            frontWidth: 6.4,
-            spread: 2.9,
-            stepScale: 8.8,
-            liftScale: 5.2
-        });
-
-        // 胴体
-        ctx.strokeStyle = '#111';
-        ctx.lineWidth = 18;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(shoulderX, shoulderY);
-        ctx.lineTo(hipX, hipY);
-        ctx.stroke();
-
-        ctx.fillStyle = '#1f2730';
-        ctx.beginPath();
-        ctx.moveTo(centerX - 18, hipY + 1);
-        ctx.lineTo(centerX + 18, hipY + 1);
-        ctx.lineTo(centerX + 15, this.y + 35);
-        ctx.lineTo(centerX - 16, this.y + 35);
-        ctx.closePath();
-        ctx.fill();
-
-        // 頭
-        ctx.fillStyle = '#1a1a1a';
-        ctx.beginPath();
-        ctx.arc(headX, headY, 16, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        ctx.beginPath();
-        ctx.arc(headX, headY, 16, 0.3, Math.PI * 2 - 0.3);
-        ctx.fill();
-
-        ctx.fillStyle = '#222'; // 髪
-        ctx.beginPath();
-        ctx.arc(headX, headY - 6, 16.5, Math.PI, 0);
-        ctx.fill();
-
-        ctx.strokeStyle = ENEMY_HEADBAND_HIGHLIGHT;
-        ctx.lineWidth = 5;
-        ctx.beginPath();
-        ctx.moveTo(headX - 16, headY - 3);
-        ctx.quadraticCurveTo(headX, headY - 7, headX + 16, headY - 1);
-        ctx.stroke();
-        // 二刀（プレイヤーが取得する二刀と同一描画）
-        const dual = this.weaponReplica;
-        let rawRight = -0.72 + Math.sin(this.motionTime * 0.008) * 0.08;
-        let rawLeft = -1.14 + Math.sin(this.motionTime * 0.008 + 1.4) * 0.08;
-        let rightAngle = 0;
-        let keepWorldRightAngle = false;
-        if (dual && dual.isAttacking) {
-            if (dual.attackType === 'left' && typeof dual.getLeftSwingAngle === 'function') {
-                rightAngle = dual.getLeftSwingAngle();
-                keepWorldRightAngle = true;
-                rawLeft = -1.0 + Math.sin(this.motionTime * 0.008) * 0.06;
-            } else if (dual.attackType === 'combined' && typeof dual.getCombinedSwingProgress === 'function') {
-                const p = dual.getCombinedSwingProgress();
-                rawRight = -1.02 + p * 2.08;
-                rawLeft = 1.06 - p * 2.1;
-            } else if (dual.attackType === 'right') {
-                const p = Math.max(0, Math.min(1, dual.attackTimer / 150));
-                const start = -Math.PI * 0.75;
-                const end = Math.PI * 0.22;
-                rawRight = start + (end - start) * (1 - p);
-                rawLeft = -1.0 + Math.sin(this.motionTime * 0.008) * 0.06;
+        // DualBlades のポーズから角度を取得
+        let rightAngle, leftAngle;
+        if (dual.isAttacking) {
+            if (dual.attackType === 'combined') {
+                const prog = dual.getCombinedSwingProgress();
+                // 合体攻撃ポーズを再現
+                rightAngle = -Math.PI * 1.0 + prog * Math.PI * 0.8;
+                leftAngle = -Math.PI * 1.0 + prog * Math.PI * 0.8;
+            } else if (dual.attackType === 'main') {
+                const pose = dual.getMainSwingPose();
+                rightAngle = pose.rightAngle;
+                leftAngle = pose.leftAngle;
+            } else {
+                // left / right
+                rightAngle = -0.78 + Math.sin(this.motionTime * 0.008) * 0.08;
+                leftAngle = dual.getLeftSwingAngle();
             }
+        } else {
+            rightAngle = -0.78 + Math.sin(this.motionTime * 0.008) * 0.08;
+            leftAngle = -1.08 + Math.sin(this.motionTime * 0.007 + 1.2) * 0.05;
         }
-        if (!keepWorldRightAngle) {
-            rightAngle = dir === 1 ? rawRight : Math.PI - rawRight;
+
+        if (dir === -1) {
+            rightAngle = Math.PI - rightAngle;
+            leftAngle = Math.PI - leftAngle;
         }
-        let leftAngle = dir === 1 ? rawLeft : Math.PI - rawLeft;
 
-        const rightShoulderX = shoulderX + dir * 2.2;
-        const rightShoulderY = shoulderY + 1.5;
-        const leftShoulderX = shoulderX - dir * 1.7;
-        const leftShoulderY = shoulderY + 2.2;
-        const rightTargetX = rightShoulderX + Math.cos(rightAngle) * 23.0;
-        const rightTargetY = rightShoulderY + Math.sin(rightAngle) * 23.0;
-        const leftTargetX = leftShoulderX + Math.cos(leftAngle) * 21.0;
-        const leftTargetY = leftShoulderY + Math.sin(leftAngle) * 21.0;
+        const rightReach = this.width * 0.58;
+        const leftReach = this.width * 0.54;
 
-        const rightArm = this.drawJointedArm(ctx, {
-            shoulderX: rightShoulderX,
-            shoulderY: rightShoulderY,
-            handX: rightTargetX,
-            handY: rightTargetY,
-            upperLen: 12.2,
-            foreLen: 13.0,
-            bendSign: -dir * 0.84,
-            upperWidth: 5.8,
-            foreWidth: 4.9,
-            jointRadius: 3.2,
-            baseColor: '#171717',
-            handColor: '#212832',
-            highlightColor: 'rgba(220,230,248,0.12)'
-        });
-        const leftArm = this.drawJointedArm(ctx, {
-            shoulderX: leftShoulderX,
-            shoulderY: leftShoulderY,
-            handX: leftTargetX,
-            handY: leftTargetY,
-            upperLen: 11.4,
-            foreLen: 12.0,
-            bendSign: dir * 0.88,
-            upperWidth: 5.0,
-            foreWidth: 4.2,
-            jointRadius: 3.0,
-            baseColor: '#141419',
-            handColor: '#1e2430',
-            highlightColor: 'rgba(202,216,240,0.1)'
-        });
-
-        const drawBlade = (handX, handY, angle, len) => {
-            const tipX = handX + Math.cos(angle + dir * 0.1) * len;
-            const tipY = handY + Math.sin(angle + dir * 0.1) * len;
-            ctx.strokeStyle = '#dce2ea';
-            ctx.lineWidth = 3.7;
+        // 刀身の描画（プレイヤーの日本刀形状と完全に一致させる）
+        const drawHeldBlade = (handPos, angle, isSupport = false) => {
+            ctx.save();
+            ctx.translate(handPos.handX, handPos.handY);
+            ctx.rotate(angle);
+            
+            const swordLen = isSupport ? 46 : 50; 
+            
+            // 鍔
+            ctx.fillStyle = '#111';
+            ctx.fillRect(1, -2.2, 3.2, 4.4);
+            // はばき
+            ctx.fillStyle = '#c9a545';
+            ctx.fillRect(3.7, -1.9, 1.6, 3.8);
+            
+            // 刀身
+            ctx.fillStyle = '#fff';
             ctx.beginPath();
-            ctx.moveTo(handX, handY);
-            ctx.lineTo(tipX, tipY);
-            ctx.stroke();
-            return { tipX, tipY };
+            ctx.moveTo(5, -1.35);
+            ctx.lineTo(swordLen - 2.2, -1.35);
+            ctx.lineTo(swordLen + 0.8, 0);
+            ctx.quadraticCurveTo(swordLen - 8.5, 1.95, 5, 1.25);
+            ctx.fill();
+            
+            // 峰
+            ctx.fillStyle = '#aaa';
+            ctx.beginPath();
+            ctx.moveTo(5, -0.55);
+            ctx.lineTo(swordLen - 4.8, -0.55);
+            ctx.quadraticCurveTo(swordLen - 8.5, 0.15, 5, 0.35);
+            ctx.fill();
+            
+            ctx.restore();
         };
-        drawBlade(rightArm.handX, rightArm.handY, rightAngle, 49);
-        drawBlade(leftArm.handX, leftArm.handY, leftAngle, 45);
 
-        ctx.fillStyle = '#212832';
-        ctx.beginPath();
-        ctx.arc(rightArm.handX, rightArm.handY, 4.8, 0, Math.PI * 2);
-        ctx.arc(leftArm.handX, leftArm.handY, 4.4, 0, Math.PI * 2);
-        ctx.fill();
+        // 合体攻撃(combined)時は DualBlades.render が刀身を自分で描画するため、ここでは描画しない
+        const skipModelDraw = dual.isAttacking && dual.attackType === 'combined';
 
-        if (dual && dual.isAttacking && typeof dual.render === 'function') {
-            dual.render(ctx, this);
-        }
+        // 右腕（手前）
+        const rHand = this.drawJointedArm(ctx, {
+            shoulderX: shoulderFrontX,
+            shoulderY: shoulderY,
+            handX: shoulderFrontX + Math.cos(rightAngle) * rightReach,
+            handY: shoulderY + Math.sin(rightAngle) * rightReach,
+            upperLen, foreLen,
+            bendSign: -dir * 0.82,
+            upperWidth: this.width * 0.12,
+            foreWidth: this.width * 0.108,
+            jointRadius: this.width * 0.078,
+            baseColor: '#131418', // torsoCore
+            handColor: '#191919'  // legFront
+        });
+        if (!skipModelDraw) drawHeldBlade(rHand, rightAngle + dir * 0.08);
 
-        this.renderPhaseBodyTint(ctx, 10);
+        // 左腕（奥）
+        const lHand = this.drawJointedArm(ctx, {
+            shoulderX: shoulderBackX,
+            shoulderY: shoulderY,
+            handX: shoulderBackX + Math.cos(leftAngle) * leftReach,
+            handY: shoulderY + Math.sin(leftAngle) * leftReach,
+            upperLen: upperLen * 0.95,
+            foreLen: foreLen * 0.95,
+            bendSign: dir * 0.9,
+            upperWidth: this.width * 0.108,
+            foreWidth: this.width * 0.1,
+            jointRadius: this.width * 0.074,
+            baseColor: '#131418',
+            handColor: '#191919'
+        });
+        if (!skipModelDraw) drawHeldBlade(lHand, leftAngle + dir * 0.06, true);
     }
 }
 
@@ -1218,15 +1196,14 @@ export class KusarigamaAssassin extends Boss {
     }
     
     renderBody(ctx) {
+        // 本体描画（武器は weaponMode: 'none' にしてここでは描かない）
         this.renderUnifiedEnemyModel(ctx, {
-            weaponMode: 'kusa',
+            weaponMode: 'none', 
             headStyle: 'ninja',
             armorRows: 3,
             headRatio: 0.19,
             armScale: 1.12,
             torsoLeanScale: 1.12,
-            attackDurationMs: 500,
-            weaponScale: 1.04,
             palette: {
                 legBack: '#131313',
                 legFront: '#1a1a1a',
@@ -1243,154 +1220,59 @@ export class KusarigamaAssassin extends Boss {
                 accent: '#ef4d4d'
             }
         });
-        return;
+
+        const kusa = this.weaponReplica;
+        if (!kusa) return;
+
+        // 鎖鎌忍具の描画を直接呼び出す（これで形状とエフェクトが完全に統一される）
+        if (typeof kusa.render === 'function') {
+            kusa.render(ctx, this);
+        }
+
         const dir = this.facingRight ? 1 : -1;
         const centerX = this.x + this.width * 0.5;
-        const footY = this.y + this.height;
-        const runBlend = Math.max(0, Math.min(1, Math.abs(this.vx) / Math.max(1.2, this.speed)));
-        const gaitPhase = this.motionTime * 0.014;
-        const shoulderX = centerX + dir * 3.1 + this.torsoLean * dir * 0.36;
-        const shoulderY = this.y + 31;
-        const hipX = centerX - dir * 1.2;
-        const hipY = this.y + 56;
-        const headX = shoulderX - dir * 0.2;
-        const headY = this.y + 20;
-
-        ctx.fillStyle = 'rgba(0,0,0,0.23)';
-        ctx.beginPath();
-        ctx.ellipse(centerX, footY + 1.5, 16, 4.6, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        this.drawStylizedLegs(ctx, {
-            centerX,
-            hipX,
-            hipY,
-            footY,
-            dir,
-            gaitPhase,
-            runBlend,
-            backColor: '#151515',
-            frontColor: '#151515',
-            backWidth: 5,
-            frontWidth: 5.8,
-            spread: 2.6,
-            stepScale: 8.1,
-            liftScale: 5.1
-        });
-
-        // 胴体
-        ctx.strokeStyle = '#111';
-        ctx.lineWidth = 18;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(shoulderX, shoulderY);
-        ctx.lineTo(hipX, hipY);
-        ctx.stroke();
-
-        ctx.fillStyle = '#191a21';
-        ctx.beginPath();
-        ctx.moveTo(centerX - 17, hipY + 0.4);
-        ctx.lineTo(centerX + 17, hipY + 0.4);
-        ctx.lineTo(centerX + 14, this.y + 34);
-        ctx.lineTo(centerX - 14, this.y + 34);
-        ctx.closePath();
-        ctx.fill();
-
-        // 頭・面頬
-        ctx.fillStyle = '#1a1a1a';
-        ctx.beginPath();
-        ctx.arc(headX, headY, 15.2, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.fillStyle = '#1b1c21';
-        ctx.beginPath();
-        ctx.arc(headX, headY, 15.6, 0.2, Math.PI*2 - 0.2);
-        ctx.fill();
+        const shoulderY = this.y + this.height * 0.38 + Math.abs(this.bob) * 0.14;
+        const leanBase = (1.2 + this.torsoLean * 0.55 + (this.isAttacking ? 0.9 : 0)) * 1.12; // torsoLeanScale: 1.12
+        const facingLead = dir * this.width * 0.035;
+        const shoulderCenterX = centerX + dir * leanBase + facingLead;
+        const bodyScreenTilt = dir * this.width * 0.038;
+        const shoulderFrontX = shoulderCenterX + dir * (this.width * 0.12 + bodyScreenTilt * 0.3);
         
-        ctx.fillStyle = '#f53333';
-        ctx.beginPath();
-        ctx.arc(headX + dir * 6, headY - 1, 2.5, 0, Math.PI * 2);
-        ctx.fill();
-        // 鎖鎌（プレイヤーが取得する鎖鎌と同一描画）
-        const kusa = this.weaponReplica;
-        let kusaAngleRaw = -0.58 + Math.sin(this.motionTime * 0.01) * 0.08;
-        let kusaAngle = dir === 1 ? kusaAngleRaw : Math.PI - kusaAngleRaw;
-        let handX = shoulderX + Math.cos(kusaAngle) * 23.2;
-        let handY = shoulderY + Math.sin(kusaAngle) * 23.2;
-        if (kusa && kusa.isAttacking && typeof kusa.getHandAnchor === 'function') {
-            const handAnchor = kusa.getHandAnchor(this);
-            handX = handAnchor.x;
-            handY = handAnchor.y;
+        // 忍具の「手元」位置を取得
+        let handX, handY;
+        if (kusa.isAttacking && typeof kusa.getHandAnchor === 'function') {
+            const anchor = kusa.getHandAnchor(this);
+            handX = anchor.x;
+            handY = anchor.y;
+        } else {
+            // アイドル時の角度
+            const idleAngleRaw = -0.58 + Math.sin(this.motionTime * 0.01) * 0.08;
+            const idleAngle = dir === 1 ? idleAngleRaw : Math.PI - idleAngleRaw;
+            handX = shoulderFrontX + Math.cos(idleAngle) * 23.2;
+            handY = shoulderY + Math.sin(idleAngle) * 23.2;
         }
-        const kusaArm = this.drawJointedArm(ctx, {
-            shoulderX,
-            shoulderY,
-            handX,
-            handY,
-            upperLen: 12.0,
-            foreLen: 13.3,
+
+        // 腕の描画
+        this.drawJointedArm(ctx, {
+            shoulderX: shoulderFrontX,
+            shoulderY: shoulderY,
+            handX: handX,
+            handY: handY,
+            upperLen: this.height * 0.18 * 1.12, // armScale: 1.12
+            foreLen: this.height * 0.18 * 1.12,
             bendSign: -dir * 0.82,
-            upperWidth: 5.4,
-            foreWidth: 4.6,
-            jointRadius: 3.1,
-            baseColor: '#17171b',
-            handColor: '#212126',
-            highlightColor: 'rgba(210,220,236,0.1)'
+            upperWidth: this.width * 0.12,
+            foreWidth: this.width * 0.108,
+            jointRadius: this.width * 0.078,
+            baseColor: '#131318', // torsoCore
+            handColor: '#1a1a1a'  // legFront
         });
-        handX = kusaArm.handX;
-        handY = kusaArm.handY;
-        ctx.fillStyle = '#212126';
+
+        // 拳の描画
+        ctx.fillStyle = '#1a1a1a';
         ctx.beginPath();
         ctx.arc(handX, handY, 4.8, 0, Math.PI * 2);
         ctx.fill();
-
-        if (kusa && kusa.isAttacking && typeof kusa.render === 'function') {
-            kusa.render(ctx, this);
-        } else {
-            const rawIdle = -0.4 + Math.sin(this.motionTime * 0.01) * 0.05;
-            const idleAngle = dir === 1 ? rawIdle : Math.PI - rawIdle;
-            const tipX = handX + Math.cos(idleAngle) * 30;
-            const tipY = handY + Math.sin(idleAngle) * 30;
-            const chainDirX = Math.cos(idleAngle);
-            const chainDirY = Math.sin(idleAngle);
-
-            const chainGradient = ctx.createLinearGradient(handX, handY, tipX, tipY);
-            chainGradient.addColorStop(0, 'rgba(170, 176, 188, 0.95)');
-            chainGradient.addColorStop(0.55, 'rgba(128, 136, 150, 0.98)');
-            chainGradient.addColorStop(1, 'rgba(92, 102, 118, 0.95)');
-            ctx.strokeStyle = chainGradient;
-            ctx.lineWidth = 3.1;
-            ctx.setLineDash([5, 3]);
-            ctx.beginPath();
-            ctx.moveTo(handX, handY);
-            ctx.lineTo(tipX, tipY);
-            ctx.stroke();
-            ctx.setLineDash([]);
-            ctx.strokeStyle = 'rgba(230, 245, 255, 0.35)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(handX + chainDirY * 1.2, handY - chainDirX * 1.2);
-            ctx.lineTo(tipX + chainDirY * 1.2, tipY - chainDirX * 1.2);
-            ctx.stroke();
-
-            ctx.save();
-            ctx.translate(tipX, tipY);
-            ctx.rotate(idleAngle + dir * Math.PI * 0.28);
-            ctx.fillStyle = '#d9dde2';
-            ctx.strokeStyle = '#8b9299';
-            ctx.lineWidth = 1.2;
-            ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.quadraticCurveTo(20, -12, 30, -2);
-            ctx.quadraticCurveTo(18, 5, 3, 7);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-            ctx.fillStyle = '#2b2b2b';
-            ctx.fillRect(-4, -2, 8, 4);
-            ctx.restore();
-        }
-
         this.renderPhaseBodyTint(ctx, 9);
     }
 }
@@ -1462,24 +1344,19 @@ export class OdachiBusho extends Boss {
     renderBody(ctx) {
         // 現在の攻撃パターンが Xスキルの場合は、専用の weaponMode を指定する
         const isSpecial = this.currentPattern === 'odachi_special';
-        const currentWeaponMode = isSpecial ? 'odachi_special' : 'odachi';
-        // Xスキル時はNodachiの攻撃時間を使用、通常時は680ms
         const currentAttackDuration = isSpecial && this.weaponReplica
             ? (this.weaponReplica.totalDuration || 680)
             : 680;
         
-        // プレイヤーと同じ大太刀の見た目・サイズ・エフェクトを実現するため、
-        // 共通モデル描画では武器を抑制し、実物の Nodachi クラスに描画を委ねる
-        // 武器の実体から正確な手の位置（pose）を取得
+        // 大太刀実体から手の位置（pose）を正確に取得し、モデルに伝える
         const handPose = this.weaponReplica ? this.weaponReplica.getPose(this) : null;
 
         this.renderUnifiedEnemyModel(ctx, {
-            weaponMode: currentWeaponMode,
-            suppressWeaponDraw: true, 
+            weaponMode: 'none', // 腕と武器は手動で同期描画するため 'none'
             headStyle: 'kabuto',
             crestVariant: 'mikazuki_major', 
-            handPose: handPose, // 正確な座標を渡す
-            crestLengthScale: 0.95, // 少し控えめに
+            handPose: handPose, 
+            crestLengthScale: 0.95, 
             crestArcHeightScale: 0.9,
             armorRows: 5,
             headRatio: 0.175,
@@ -1488,7 +1365,6 @@ export class OdachiBusho extends Boss {
             attackDurationMs: currentAttackDuration,
             weaponScale: 1.2, 
             backCape: true, 
-// ... (palette remains same)
             palette: {
                 legBack: '#111',
                 legFront: '#1a1a1a',
@@ -1509,241 +1385,72 @@ export class OdachiBusho extends Boss {
             }
         });
 
-        // 大太刀実体を描画（これでプレイヤーと完全に同じ見た目・エフェクトになる）
         if (this.weaponReplica) {
             this.weaponReplica.render(ctx, this);
         }
-        return;
+
         const dir = this.facingRight ? 1 : -1;
         const centerX = this.x + this.width * 0.5;
-        const footY = this.y + this.height;
-        const runBlend = Math.max(0, Math.min(1, Math.abs(this.vx) / Math.max(1.2, this.speed)));
-        const gaitPhase = this.motionTime * 0.01;
-        const shoulderX = centerX + dir * 5.3 + this.torsoLean * dir * 0.38;
-        const shoulderY = this.y + 37;
-        const hipX = centerX - dir * 2.0;
-        const hipY = this.y + 68;
-        const headX = shoulderX - dir * 0.7;
-        const headY = this.y + 26;
-
-        ctx.fillStyle = 'rgba(0,0,0,0.31)';
-        ctx.beginPath();
-        ctx.ellipse(centerX, footY + 2.5, 23, 6.2, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        this.drawStylizedLegs(ctx, {
-            centerX,
-            hipX,
-            hipY,
-            footY,
-            dir,
-            gaitPhase,
-            runBlend,
-            backColor: '#111111', frontColor: '#171717',
-            backWidth: 7.2,
-            frontWidth: 8.4,
-            spread: 3.5,
-            stepScale: 10.2,
-            liftScale: 6.2
-        });
-
-        // 胴体
-        ctx.fillStyle = '#2b1f23';
-        ctx.beginPath();
-        ctx.moveTo(centerX - 25, hipY + 1);
-        ctx.lineTo(centerX + 25, hipY + 1);
-        ctx.lineTo(centerX + 28, this.y + 40);
-        ctx.lineTo(centerX - 28, this.y + 40);
-        ctx.closePath();
-        ctx.fill();
+        const shoulderY = this.y + this.height * 0.38 + Math.abs(this.bob) * 0.14;
+        const leanBase = (1.2 + this.torsoLean * 0.55 + (this.isAttacking ? 0.9 : 0)) * 1.15; // torsoLeanScale: 1.15
+        const facingLead = dir * this.width * 0.035;
+        const shoulderCenterX = centerX + dir * leanBase + facingLead;
+        const bodyScreenTilt = dir * this.width * 0.038;
+        const shoulderX = shoulderCenterX + dir * (this.width * 0.12 + bodyScreenTilt * 0.3);
         
-        ctx.strokeStyle = '#8d5a3a';
-        ctx.lineWidth = 2.8;
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(centerX - 16, this.y + 50);
-        ctx.lineTo(centerX + 16, this.y + 50);
-        ctx.lineTo(centerX + 14, this.y + 64);
-        ctx.lineTo(centerX - 14, this.y + 64);
-        ctx.closePath();
-        ctx.stroke();
-
-        // 体幹
-        ctx.strokeStyle = '#1a1a1a';
-        ctx.lineWidth = 13;
-        ctx.beginPath();
-        ctx.moveTo(shoulderX, shoulderY);
-        ctx.lineTo(hipX, hipY);
-        ctx.stroke();
-
-        // 頭・兜
-        ctx.fillStyle = '#1a1a1a';
-        ctx.beginPath();
-        ctx.arc(headX, headY, 20, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        ctx.beginPath();
-        ctx.arc(headX, headY, 20, 0.4, Math.PI * 2 - 0.4);
-        ctx.fill();
-
-        ctx.fillStyle = '#261e1a';
-        ctx.beginPath();
-        ctx.arc(headX, headY - 8, 19, Math.PI, 0);
-        ctx.fill();
-
-        ctx.strokeStyle = '#261e1a';
-        ctx.lineWidth = 4.8;
-        ctx.beginPath();
-        ctx.arc(headX, headY - 10, 23, Math.PI * 0.95, Math.PI * 0.05, true);
-        ctx.stroke();
-        ctx.fillStyle = '#7f3d2a';
-        ctx.beginPath();
-        ctx.moveTo(headX - 13, headY - 26);
-        ctx.lineTo(headX - 28, headY - 45);
-        ctx.lineTo(headX - 11, headY - 37);
-        ctx.closePath();
-        ctx.fill();
-        ctx.beginPath();
-        ctx.moveTo(headX + 10, headY - 25);
-        ctx.lineTo(headX + 27, headY - 43);
-        ctx.lineTo(headX + 11, headY - 36);
-        ctx.closePath();
-        ctx.fill();
         const odachi = this.weaponReplica;
-        let gripRotation = (-0.9 + Math.sin(this.motionTime * 0.007) * 0.05) * dir;
-        let handX = shoulderX + Math.cos((-0.85 + Math.sin(this.motionTime * 0.007) * 0.06) * dir) * 26.8;
-        let handY = shoulderY + Math.sin((-0.85 + Math.sin(this.motionTime * 0.007) * 0.06) * dir) * 26.8;
-        if (odachi && odachi.isAttacking && typeof odachi.getHandAnchor === 'function') {
+        let handX, handY, gripRotation;
+        if (odachi && typeof odachi.getHandAnchor === 'function') {
             const anchor = odachi.getHandAnchor(this);
             handX = anchor.x;
             handY = anchor.y;
-            if (typeof anchor.rotation === 'number') {
-                gripRotation = anchor.rotation;
-            }
+            gripRotation = anchor.rotation;
+        } else {
+            gripRotation = (-0.9 + Math.sin(this.motionTime * 0.007) * 0.05) * dir;
+            handX = shoulderX + Math.cos((-0.85 + Math.sin(this.motionTime * 0.007) * 0.06) * dir) * 26.8;
+            handY = shoulderY + Math.sin((-0.85 + Math.sin(this.motionTime * 0.007) * 0.06) * dir) * 26.8;
         }
 
-        const leadArm = this.drawJointedArm(ctx, {
+        // 利き腕（手前）
+        this.drawJointedArm(ctx, {
             shoulderX,
             shoulderY,
             handX,
             handY,
-            upperLen: 14.0,
-            foreLen: 15.6,
-            bendSign: -dir * 0.8,
-            upperWidth: 6.6,
-            foreWidth: 5.5,
+            upperLen: 14.0 * 1.2, // armScale: 1.2
+            foreLen: 15.6 * 1.2,
+            bendSign: -dir * 0.82,
+            upperWidth: 6.2,
+            foreWidth: 5.4,
             jointRadius: 3.8,
-            baseColor: '#1b1b1b',
-            handColor: '#272129',
-            highlightColor: 'rgba(228,214,236,0.12)'
+            baseColor: '#151515',
+            handColor: '#1a1a1a'
         });
-        handX = leadArm.handX;
-        handY = leadArm.handY;
 
+        // 添え手（奥）
         const supportShoulderX = shoulderX - dir * 4.8;
         const supportShoulderY = shoulderY + 2.8;
         const weaponDirX = Math.cos(gripRotation);
         const weaponDirY = Math.sin(gripRotation);
         const supportTargetX = handX - weaponDirX * 12.5 - weaponDirY * 1.4;
         const supportTargetY = handY - weaponDirY * 12.5 + weaponDirX * 1.4;
-        const supportArm = this.drawJointedArm(ctx, {
+        
+        this.drawJointedArm(ctx, {
             shoulderX: supportShoulderX,
             shoulderY: supportShoulderY,
             handX: supportTargetX,
             handY: supportTargetY,
-            upperLen: 12.7,
-            foreLen: 13.2,
+            upperLen: 12.7 * 1.2,
+            foreLen: 13.2 * 1.2,
             bendSign: dir * 0.86,
             upperWidth: 5.9,
             foreWidth: 5.0,
             jointRadius: 3.3,
             baseColor: '#171617',
-            handColor: '#231f24',
-            highlightColor: 'rgba(198,182,210,0.1)'
+            handColor: '#231f24'
         });
-        ctx.fillStyle = '#231f24';
-        ctx.beginPath();
-        ctx.arc(supportArm.handX, supportArm.handY, 5.4, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#272129';
-        ctx.beginPath();
-        ctx.arc(handX, handY, 5.9, 0, Math.PI * 2);
-        ctx.fill();
 
-        if (odachi && odachi.isAttacking && typeof odachi.render === 'function') {
-            odachi.render(ctx, this);
-        } else {
-            ctx.save();
-            ctx.translate(handX, handY);
-            ctx.rotate(gripRotation);
-
-            const handleBack = -32;
-            const handleFront = 21;
-            ctx.fillStyle = '#6d4520';
-            ctx.beginPath();
-            ctx.rect(handleBack, -4.3, handleFront - handleBack, 8.6);
-            ctx.fill();
-            ctx.strokeStyle = '#3d2310';
-            ctx.lineWidth = 1.2;
-            ctx.beginPath();
-            ctx.moveTo(handleBack + 5, -3.5);
-            ctx.lineTo(handleBack + 5, 3.5);
-            ctx.moveTo(handleBack + 15, -3.5);
-            ctx.lineTo(handleBack + 15, 3.5);
-            ctx.moveTo(handleBack + 25, -3.5);
-            ctx.lineTo(handleBack + 25, 3.5);
-            ctx.stroke();
-
-            ctx.fillStyle = '#d4b260';
-            ctx.beginPath();
-            ctx.moveTo(16.5, -5.4);
-            ctx.quadraticCurveTo(20.8, -7.2, 23.6, -1.1);
-            ctx.quadraticCurveTo(21.2, 4.8, 16.2, 4.6);
-            ctx.closePath();
-            ctx.fill();
-            ctx.fillStyle = '#a98331';
-            ctx.fillRect(13.2, -4.2, 2.4, 8.4);
-
-            const bladeStart = 22;
-            const bladeEnd = 112;
-            const bladeGrad = ctx.createLinearGradient(bladeStart, -2, bladeEnd, 3);
-            bladeGrad.addColorStop(0, '#cfd6de');
-            bladeGrad.addColorStop(0.48, '#f1f6fc');
-            bladeGrad.addColorStop(1, '#aeb8c5');
-            ctx.fillStyle = bladeGrad;
-            ctx.beginPath();
-            ctx.moveTo(bladeStart, -7.6);
-            ctx.quadraticCurveTo(bladeStart + 30, -15.5, bladeStart + 74, -11.6);
-            ctx.quadraticCurveTo(bladeEnd - 24, -8.8, bladeEnd + 5, -1.4);
-            ctx.quadraticCurveTo(bladeEnd - 10, 6.5, bladeEnd - 29, 9.2);
-            ctx.quadraticCurveTo(bladeStart + 42, 11.8, bladeStart + 8, 8.4);
-            ctx.quadraticCurveTo(bladeStart - 2, 4.5, bladeStart, -7.6);
-            ctx.closePath();
-            ctx.fill();
-            ctx.strokeStyle = '#8e9aa8';
-            ctx.lineWidth = 1.45;
-            ctx.stroke();
-
-            ctx.fillStyle = 'rgba(214, 226, 238, 0.9)';
-            ctx.beginPath();
-            ctx.moveTo(bladeEnd - 23, -8.6);
-            ctx.quadraticCurveTo(bladeEnd - 10, -9.8, bladeEnd + 2.8, -2.5);
-            ctx.quadraticCurveTo(bladeEnd - 9.5, -4.5, bladeEnd - 20, -4.2);
-            ctx.closePath();
-            ctx.fill();
-
-            ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-            ctx.lineWidth = 1.05;
-            ctx.beginPath();
-            ctx.moveTo(bladeStart + 8, -2.9);
-            ctx.quadraticCurveTo(bladeStart + 58, -5.9, bladeEnd - 14, -1.3);
-            ctx.stroke();
-
-            ctx.restore();
-        }
-
-        this.renderPhaseBodyTint(ctx, 10);
+        this.renderPhaseBodyTint(ctx, 9);
     }
 }
 

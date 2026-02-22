@@ -2628,7 +2628,7 @@ export class Nodachi extends SubWeapon {
             // --- 空中斬撃エフェクト (Air Slash) ---
             // 振り下ろし（flip）開始から着地（impact）まで描画
             if (this.isAttacking && !this.hasImpacted && pose.progress > this.stallEnd) {
-                const slashPhase = clamp01((pose.progress - this.stallEnd) / (this.impactStart - this.stallEnd));
+                const slashPhase = Math.max(0, Math.min(1, (pose.progress - this.stallEnd) / (this.impactStart - this.stallEnd)));
                 const slashAlpha = Math.sin(slashPhase * Math.PI) * 0.85;
                 
                 if (slashAlpha > 0.01) {
@@ -2692,38 +2692,43 @@ export class Nodachi extends SubWeapon {
         }
 
         // 衝撃波 (グラデーションとシャドウでリッチに)
-        if (this.groundWaves.length > 0) {
-            for (const sw of this.groundWaves) {
-                const ratio = sw.life / sw.maxLife;
+        if (this.groundWaves && this.groundWaves.length > 0) {
+            for (let i = 0; i < this.groundWaves.length; i++) {
+                const sw = this.groundWaves[i];
+                if (!sw) continue;
+
+                const ratio = Math.max(0, Math.min(1, sw.life / sw.maxLife));
                 const px = sw.x;
                 const py = sw.y - 3;
+                
                 ctx.save();
                 ctx.translate(px, py);
-                ctx.scale(sw.dir, 1);
-                ctx.globalAlpha = Math.min(1, ratio * 1.5);
+                ctx.scale(sw.dir || 1, 1);
+                ctx.globalAlpha = ratio * 1.5;
                 ctx.globalCompositeOperation = 'lighter';
                 
                 // 波グラデーション
-                const waveGrad = ctx.createLinearGradient(0, -body, 0, body);
+                // sw.thickness が存在しない場合のフォールバックを追加
+                const thickness = sw.thickness || 8;
+                const waveGrad = ctx.createLinearGradient(0, -thickness, 0, thickness);
                 waveGrad.addColorStop(0, 'rgba(255, 200, 50, 0)');
                 waveGrad.addColorStop(0.5, 'rgba(255, 255, 200, 1)');
                 waveGrad.addColorStop(1, 'rgba(255, 200, 50, 0)');
             
-                // 描画時に全体の透明度で制御
-                ctx.globalAlpha *= ratio * 1.5;
                 ctx.fillStyle = waveGrad;
                 ctx.beginPath();
                 ctx.moveTo(0, 0);
-                ctx.quadraticCurveTo(24, -body * 0.6, 50, 0);
-                ctx.quadraticCurveTo(24, body * 0.4, 0, 2);
+                ctx.quadraticCurveTo(24, -thickness * 0.6, 50, 0);
+                ctx.quadraticCurveTo(24, thickness * 0.4, 0, 2);
                 ctx.fill();
 
                 // コアの鋭い光
+                const coreValue = sw.core || 4;
                 ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
                 ctx.beginPath();
                 ctx.moveTo(0, -0.5);
-                ctx.quadraticCurveTo(15, -core * 0.5, 35, -0.5);
-                ctx.quadraticCurveTo(15, core * 0.2, 0, 0.8);
+                ctx.quadraticCurveTo(15, -coreValue * 0.5, 35, -0.5);
+                ctx.quadraticCurveTo(15, coreValue * 0.2, 0, 0.8);
                 ctx.fill();
                 
                 ctx.restore();

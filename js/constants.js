@@ -162,9 +162,9 @@ export const VIRTUAL_PAD = {
     PAUSE_BUTTON: { x: 104, y: 50 }, // 左スティック右下（下揃え）
 
     // 上部UIボタン（全画面共通・右上固定）
-    BGM_BUTTON_MARGIN_TOP: 30,
-    BGM_BUTTON_MARGIN_RIGHT: 30,
-    BGM_BUTTON_RADIUS: 18,
+    BGM_BUTTON_MARGIN_TOP: 40,
+    BGM_BUTTON_MARGIN_RIGHT: 40,
+    BGM_BUTTON_RADIUS: 22,
     
     // 右側：Z基準の扇形（隣接余白を同値で統一）
     // 条件:
