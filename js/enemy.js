@@ -481,11 +481,13 @@ export class Enemy {
         ctx.rotate(angle);
         ctx.scale(1, profileFlipY < 0 ? -1 : 1);
 
-        const gripBack = -gripLen - 1.8;
-        const gripFront = -0.4;
+        // 柄を手の位置(0,0)を中心に配置：後ろ60%、前40%が手から延びる
+        const gripBack = -gripLen * 0.62;
+        const gripFront = gripLen * 0.42;
         const gripHeight = 3.7;
         const handleLen = gripFront - gripBack;
 
+        // 柄（つか）本体
         ctx.fillStyle = '#1b1b1d';
         ctx.beginPath();
         ctx.moveTo(gripBack, -gripHeight * 0.52);
@@ -495,6 +497,7 @@ export class Enemy {
         ctx.closePath();
         ctx.fill();
 
+        // 柄巻（ひし形の組紐）
         ctx.strokeStyle = 'rgba(224, 224, 228, 0.32)';
         ctx.lineWidth = 0.8;
         for (let i = 0; i <= 4; i++) {
@@ -508,24 +511,37 @@ export class Enemy {
             ctx.lineTo(tx + 2.1, -gripHeight * 0.46);
             ctx.stroke();
         }
+
+        // 手が柄を握っている表現：指の影を重ねる
+        ctx.fillStyle = 'rgba(0,0,0,0.28)';
+        for (let i = 0; i < 3; i++) {
+            const fx = gripBack + handleLen * (0.18 + i * 0.26);
+            ctx.beginPath();
+            ctx.ellipse(fx, 0, gripHeight * 0.38, gripHeight * 0.62, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // 柄頭（ポメル）
         ctx.fillStyle = '#6d6d70';
         ctx.beginPath();
         ctx.ellipse(gripBack - 0.8, 0, 1.4, gripHeight * 0.58, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        const guardGrad = ctx.createLinearGradient(0, -guardSize, 0, guardSize);
+        // 鍔（つば）- 柄の前端
+        const guardX = gripFront + 0.8;
+        const guardGrad = ctx.createLinearGradient(guardX, -guardSize, guardX, guardSize);
         guardGrad.addColorStop(0, '#d3b36a');
         guardGrad.addColorStop(0.45, '#b38943');
         guardGrad.addColorStop(1, '#7b5b2a');
         ctx.fillStyle = guardGrad;
         ctx.beginPath();
-        ctx.ellipse(0.25, 0, guardSize, guardSize * 0.88, 0, 0, Math.PI * 2);
+        ctx.ellipse(guardX + 0.25, 0, guardSize, guardSize * 0.88, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.strokeStyle = '#5a4220';
         ctx.lineWidth = 0.9;
         ctx.stroke();
 
-        const habakiX = guardSize * 0.95 + 0.6;
+        const habakiX = guardX + guardSize * 0.95 + 0.6;
         ctx.fillStyle = '#cfac53';
         ctx.fillRect(habakiX, -bladeWidth * 0.68, 2.4, bladeWidth * 1.36);
         ctx.strokeStyle = '#9e782d';
@@ -533,9 +549,12 @@ export class Enemy {
         ctx.strokeRect(habakiX, -bladeWidth * 0.68, 2.4, bladeWidth * 1.36);
 
         const bladeStart = habakiX + 2.2;
-        const bladeEnd = Math.max(bladeStart + 16, length + 2.2);
+        // length は刀身の長さとして扱う（bladeStartからの長さ）
+        const bladeEnd = Math.max(bladeStart + 16, bladeStart + length);
         const tipX = bladeEnd + 2.2;
         const soriLift = Math.max(1.2, (bladeEnd - bladeStart) * 0.085);
+
+        // 刀身（刃側＋棟側）
         const bladeGrad = ctx.createLinearGradient(bladeStart, -bladeWidth, bladeEnd, bladeWidth);
         bladeGrad.addColorStop(0, '#d7e0ec');
         bladeGrad.addColorStop(0.45, '#f8fbff');
@@ -560,6 +579,32 @@ export class Enemy {
         );
         ctx.closePath();
         ctx.fill();
+        ctx.stroke();
+
+        // 峰（棟/みね）- 刀の背に沿った太い暗い線
+        ctx.strokeStyle = 'rgba(60, 70, 85, 0.9)';
+        ctx.lineWidth = bladeWidth * 0.55;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(bladeStart, -bladeWidth * 0.56);
+        ctx.quadraticCurveTo(
+            bladeStart + (bladeEnd - bladeStart) * 0.5,
+            -bladeWidth * 0.92 - soriLift,
+            bladeEnd - 2.8,
+            -bladeWidth * 0.46
+        );
+        ctx.stroke();
+        // 峰のハイライト（金属の光沢）
+        ctx.strokeStyle = 'rgba(160, 180, 200, 0.55)';
+        ctx.lineWidth = bladeWidth * 0.18;
+        ctx.beginPath();
+        ctx.moveTo(bladeStart + 3, -bladeWidth * 0.5);
+        ctx.quadraticCurveTo(
+            bladeStart + (bladeEnd - bladeStart) * 0.5,
+            -bladeWidth * 0.88 - soriLift,
+            bladeEnd - 5,
+            -bladeWidth * 0.38
+        );
         ctx.stroke();
 
         ctx.strokeStyle = 'rgba(255,255,255,0.78)';
@@ -1705,7 +1750,7 @@ export class Enemy {
                     { t: 0.72, v: 0.22, ease: 'inOutCubic' },
                     { t: 1.0, v: -0.58, ease: 'outCubic' }
                 ])
-                : (-0.78 + Math.sin(this.motionTime * 0.008) * 0.08);
+                : (0.38 + Math.sin(this.motionTime * 0.008) * 0.06);
             const leftRaw = this.isAttacking
                 ? sampleTimeline(dualPhase, [
                     { t: 0.0, v: -1.1 },
@@ -1714,7 +1759,7 @@ export class Enemy {
                     { t: 0.9, v: 0.96, ease: 'outExpo' },
                     { t: 1.0, v: -0.42, ease: 'outCubic' }
                 ])
-                : (-1.08 + Math.sin(this.motionTime * 0.007 + 1.2) * 0.05);
+                : (0.58 + Math.sin(this.motionTime * 0.007 + 1.2) * 0.05);
             const rightAngle = dir === 1 ? rightRaw : Math.PI - rightRaw;
             const leftAngle = dir === 1 ? leftRaw : Math.PI - leftRaw;
             const rightReach = this.width * (this.isAttacking ? sampleTimeline(dualPhase, [
@@ -1781,24 +1826,26 @@ export class Enemy {
                 guardSize: Math.max(1.9, this.width * 0.055),
                 profileFlipY: bladeProfileFlipY
             });
-            const rightSlashAlpha = this.isAttacking ? Math.max(0, Math.sin(clamp01((dualPhase - 0.22) / 0.42) * Math.PI)) * 0.62 : 0;
-            const leftSlashAlpha = this.isAttacking ? Math.max(0, Math.sin(clamp01((dualPhase - 0.58) / 0.34) * Math.PI)) * 0.54 : 0;
-            drawKatanaSlash(shoulderCenterX + dir * this.width * 0.1, shoulderY, {
-                bladeAngle: rightAngle,
-                alpha: rightSlashAlpha,
-                radiusScale: 1.05,
-                arcBack: 1.08,
-                arcFront: 0.52,
-                widthScale: 1.04
-            });
-            drawKatanaSlash(shoulderCenterX - dir * this.width * 0.04, shoulderY + this.height * 0.02, {
-                bladeAngle: leftAngle,
-                alpha: leftSlashAlpha,
-                radiusScale: 0.96,
-                arcBack: 1.0,
-                arcFront: 0.48,
-                widthScale: 0.94
-            });
+            if (!config.suppressSlashEffect) {
+                const rightSlashAlpha = this.isAttacking ? Math.max(0, Math.sin(clamp01((dualPhase - 0.22) / 0.42) * Math.PI)) * 0.62 : 0;
+                const leftSlashAlpha = this.isAttacking ? Math.max(0, Math.sin(clamp01((dualPhase - 0.58) / 0.34) * Math.PI)) * 0.54 : 0;
+                drawKatanaSlash(shoulderCenterX + dir * this.width * 0.1, shoulderY, {
+                    bladeAngle: rightAngle,
+                    alpha: rightSlashAlpha,
+                    radiusScale: 1.05,
+                    arcBack: 1.08,
+                    arcFront: 0.52,
+                    widthScale: 1.04
+                });
+                drawKatanaSlash(shoulderCenterX - dir * this.width * 0.04, shoulderY + this.height * 0.02, {
+                    bladeAngle: leftAngle,
+                    alpha: leftSlashAlpha,
+                    radiusScale: 0.96,
+                    arcBack: 1.0,
+                    arcFront: 0.48,
+                    widthScale: 0.94
+                });
+            }
         } else if (weaponMode === 'kusa') {
             const armRaw = this.isAttacking ? (-1.06 + windup * 0.35 + swing * 2.0) : (-0.56 + Math.sin(this.motionTime * 0.01) * 0.08);
             const armAngle = dir === 1 ? armRaw : Math.PI - armRaw;

@@ -1328,6 +1328,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
     const specialTier = Math.max(0, Math.min(3, Number(progression.specialClone) || 0));
     const specialCount = typeof player?.getSpecialCloneCount === 'function' ? player.getSpecialCloneCount() : 1;
     const stageKanji = toKanjiNumber(stageNumber);
+    const tierLabel = (tier) => ['初級', '中級', '上級', '特級'][Math.max(0, Math.min(3, tier))];
 
     // レイアウト定数 (全画面化)
     const padding = 0;
@@ -1350,9 +1351,9 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
     const subWeaponLabel = '忍具強化';
 
     const progressionCards = [
-        { title: '連撃強化', level: normalTier, detail: `${player.getNormalComboMax()}段` },
-        { title: subWeaponLabel, level: subTier, detail: `Lv ${subTier}` },
-        { title: '奥義強化', level: specialTier, detail: `${specialCount}体${specialTier >= 3 ? '・自律' : ''}` }
+        { title: '連撃強化', level: normalTier, detail: tierLabel(normalTier) },
+        { title: subWeaponLabel, level: subTier, detail: tierLabel(subTier) },
+        { title: '奥義強化', level: specialTier, detail: tierLabel(specialTier) }
     ];
 
     ctx.save();
@@ -1424,7 +1425,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
 
         // --- メインレイアウト構成 ---
         const infoPanelX = rightColX - 18;
-        const infoPanelY = 46;
+        const infoPanelY = 90;
         const infoPanelW = rightColW + 4;
         const rowInset = 16;
         const rowX = infoPanelX + rowInset;
@@ -1438,11 +1439,10 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
 
         const statRows = [
             { label: '段位', value: `${toKanjiNumber(player.level)}段`, color: '#fff' },
-            { label: '体力', value: `${player.hp} / ${player.maxHp}`, color: '#ff7070' },
+            { label: '体力', value: `${player.maxHp}`, color: '#ff7070' },
             { label: '小判', value: `${player.money} 枚`, color: '#ffd700' },
-            { label: '忍具', value: player.currentSubWeapon ? `${player.currentSubWeapon.name} (Lv ${player.progression.subWeapon || 0})` : 'なし', color: '#88ccff' },
-            { label: '剛力', value: `Lv ${player.atkLv || 0} (${(player.attackPower || 1.0).toFixed(1)}倍)`, color: '#ffae70' },
-            { label: '脚力', value: `${(player.speed || 0).toFixed(1)}`, color: '#7affae' },
+            { label: '剛力', value: `${(player.attackPower || 1.0).toFixed(1)}倍`, color: '#ffae70' },
+            { label: '韋駄天', value: player.permanentDash ? '習得済' : '未習得', color: '#7affae' },
             { label: '跳躍', value: `${player.maxJumps || 1}段`, color: '#7ab5ff' }
         ];
 
@@ -1630,7 +1630,10 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
             }
             ctx.font = '600 16px sans-serif';
             ctx.fillStyle = 'rgba(222, 236, 255, 0.84)';
-            ctx.fillText(`Lv ${level} / ${maxLevel}`, x + 22, pipsY + 34);
+            const tierLabels = ['初級', '中級', '上級', '特級'];
+            const currentLabel = tierLabels[Math.min(level, 3)];
+            const nextLabel = tierLabels[Math.min(level + 1, 3)];
+            ctx.fillText(`${currentLabel} → ${nextLabel}`, x + 22, pipsY + 34);
         } else {
             ctx.font = '700 18px sans-serif';
             ctx.fillStyle = 'rgba(196, 232, 255, 0.94)';

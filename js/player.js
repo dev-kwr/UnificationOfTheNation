@@ -223,8 +223,9 @@ export class Player {
             modelBob = Math.sin(motionTime * 0.005) * 1.2;
         }
 
+        // しゃがみ時のheadYはrenderModelと同じ式で計算（PLAYER.HEIGHT基準）
         const modelHeadY = isCrouching
-            ? (bottomY - 2 - 32 + modelBob)
+            ? (bottomY - 2 - PLAYER.HEIGHT * (14 * 2 / 60) * 0.5 * 2.2 + modelBob)
             : (drawY + 15 + modelBob);
 
         return { headY: modelHeadY, bob: modelBob };
@@ -552,8 +553,7 @@ export class Player {
                 // 高さが半分になるので、足元を合わせるためにyを下げる
                 this.y += PLAYER.HEIGHT / 2;
             }
-            // しゃがみ歩きは遅めにする
-            this.vx *= 0.8;
+            // しゃがみ歩き速度制限は移動コード側で適用（下記参照）
         } else if (this.isCrouching) {
             this.isCrouching = false;
             // 高さが戻るので、足元を合わせるためにyを上げる
@@ -662,7 +662,8 @@ export class Player {
                 this.dashDirection = moveDir >= 0 ? 1 : -1;
                 this.dashTimer = Math.max(this.dashTimer, this.dashDuration * 0.5);
             } else {
-                this.vx = moveDir * this.speed;
+                // しゃがみ中は65%速度でゆっくり移動
+                this.vx = moveDir * this.speed * (this.isCrouching ? 0.65 : 1.0);
             }
             this.facingRight = moveDir > 0;
         } else if (odachiAttacking) {
@@ -1105,7 +1106,7 @@ export class Player {
 
         // groundBasedYを廃止、接地ベース基準 (プレイヤーのジャンプに同期させない)
         const stableGroundY = this.groundY + LANE_OFFSET;
-        const cloneAnchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - this.height * 0.38);
+        const cloneAnchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - PLAYER.HEIGHT * 0.38);
         this.specialClonePositions = cloneAnchors.map(a => ({ x: a.x, y: a.y, facingRight: this.facingRight, prevX: a.x }));
         this.specialCloneScarfNodes = this.specialCloneSlots.map(() => null);
         this.specialCloneHairNodes = this.specialCloneSlots.map(() => null);
@@ -1151,7 +1152,7 @@ export class Player {
                     if (!pos) continue;
 
                     const stableGroundY = this.groundY + LANE_OFFSET;
-                    const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - this.height * 0.38);
+                    const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - PLAYER.HEIGHT * 0.38);
                     pos.x = anchors[i].x;
                     pos.y = anchors[i].y;
                     pos.facingRight = anchors[i].facingRight;
@@ -1206,7 +1207,7 @@ export class Player {
             } else if (this.specialCloneCombatStarted) {
                 // Lv1〜2: 本体に追従
                 const stableGroundY = this.groundY + LANE_OFFSET;
-                const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - this.height * 0.38);
+                const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - PLAYER.HEIGHT * 0.38);
                 for (let i = 0; i < this.specialCloneSlots.length; i++) {
                     if (this.specialClonePositions[i]) {
                         this.specialClonePositions[i].x = anchors[i].x;
@@ -1302,7 +1303,7 @@ export class Player {
         this.specialCloneAutoCooldowns = this.specialCloneSlots.map((_, index) => index * 30);
         
         const stableGroundY = this.groundY + LANE_OFFSET;
-        const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - this.height * 0.38);
+        const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - PLAYER.HEIGHT * 0.38);
         this.specialClonePositions = anchors.map(a => ({
             x: a.x,
             y: a.y,
@@ -1333,11 +1334,16 @@ export class Player {
     initCloneAccessoryNodes(index) {
         const pos = this.specialClonePositions[index];
         if (!pos) return;
-        const dir = pos.facingRight ? 1 : -1;
-        const cloneMotionTime = this.motionTime + index * 400;
 
-        // 全レベル共通、pos.yを体の中心と見なして頭部位置を推定
-        const headY = pos.y - this.height * 0.25;
+        // 詠唱中（specialCastTimer > 0）はLv3も本体に追従するため、本体の足元基準で初期化する。
+        // 戦闘開始後のLv3はpos.yが地面基準固定値なのでそちらから算出。
+        // Lv0〜2はthis.yがしゃがみ時にheight=HEIGHT/2分ずれるため、足元(this.y+this.height)から逆算。
+        const isCastPhase = this.specialCastTimer > 0;
+        const footY = (this.specialCloneAutoAiEnabled && !isCastPhase)
+            ? (pos.y + PLAYER.HEIGHT * 0.38)  // Lv3戦闘中: pos.yは体中心なので足元を算出
+            : (this.y + this.height);           // 詠唱中 or Lv0〜2: 本体の足元を使用
+        const baseDrawY = footY - PLAYER.HEIGHT;
+        const headY = baseDrawY + 16; // renderModel / renderSpecialCastPose の headY に合わせる
 
         const knotOffsetX = pos.facingRight ? -12 : 12;
         const anchorX = pos.x + knotOffsetX;
@@ -1346,15 +1352,10 @@ export class Player {
         const scarfNodes = [];
         const hairNodes = [];
         for (let i = 0; i < 9; i++) {
-            scarfNodes.push({
-                x: anchorX - dir * i * 5,
-                y: anchorY + i * 1.2
-            });
+            // 全ノードをアンカー位置で束ねて初期化（初フレームに地面へ飛ばないよう）
+            scarfNodes.push({ x: anchorX, y: anchorY });
             if (i < 8) {
-                hairNodes.push({
-                    x: anchorX - dir * i * 3.2,
-                    y: anchorY - 8 + i * 0.8
-                });
+                hairNodes.push({ x: anchorX, y: anchorY - 8 });
             }
         }
         this.specialCloneScarfNodes[index] = scarfNodes;
@@ -1365,6 +1366,13 @@ export class Player {
         const deltaMs = deltaTime * 1000;
         const scrollX = (window.game && window.game.scrollX) || 0;
         const screenWidth = 1280;
+
+        // スクロール速度を算出（カメラが動いた分だけ分身も見かけ上移動している）
+        // this.vxはピクセル/フレーム単位なので、scrollDeltaをフレーム換算(÷deltaTime÷60)して合わせる
+        const prevScrollX = (this._prevScrollX !== undefined) ? this._prevScrollX : scrollX;
+        const scrollDeltaPx = scrollX - prevScrollX; // 今フレームのスクロール量（ピクセル）
+        const scrollVxPerFrame = (deltaTime > 0) ? scrollDeltaPx / (deltaTime * 60) : 0;
+        this._prevScrollX = scrollX;
         
         const enemies = (window.game && window.game.stage) 
             ? window.game.stage.getAllEnemies().filter(e => {
@@ -1481,7 +1489,7 @@ export class Player {
 
                     if (!isAhead) continue;
 
-                    const cloneFootY = pos.y + this.height * 0.38;
+                    const cloneFootY = pos.y + PLAYER.HEIGHT * 0.38;
                     if (hTop < cloneFootY) {
                         shouldJump = true;
                         break;
@@ -1517,7 +1525,7 @@ export class Player {
                     const cloneHalfW = this.width * 0.4;
                     const cloneLeft = pos.x - cloneHalfW;
                     const cloneRight = pos.x + cloneHalfW;
-                    const cloneDrawY = pos.y - this.height * 0.62;
+                    const cloneDrawY = pos.y - PLAYER.HEIGHT * 0.62;
                     const cloneBottom = cloneDrawY + this.height;
                     const cloneTop = cloneDrawY;
 
@@ -1540,7 +1548,32 @@ export class Player {
             }
 
             const frameDeltaX = pos.x - frameStartX;
-            pos.renderVx = frameDeltaX / Math.max(0.016, deltaTime);
+            // スクロール速度を加算：ワールドX座標が変わらなくても画面上では動いて見えるため
+            // renderVxをピクセル/フレーム単位に変換して scrollVxPerFrame を足す
+            pos.renderVx = frameDeltaX / Math.max(0.016, deltaTime * 60) + scrollVxPerFrame;
+
+            // 分身独自のlegPhase/legAngleを毎フレーム更新（本体とは独立して足アニメを管理）
+            if (pos.legPhase === undefined) { pos.legPhase = 0; pos.legAngle = 0; }
+            const cloneHSpeed = Math.abs(pos.renderVx);
+            const cloneIsAttacking = (this.specialCloneAttackTimers[i] || 0) > 0;
+            const cloneOnGround = !pos.jumping;
+            if (cloneIsAttacking) {
+                pos.legPhase = 0;
+                pos.legAngle += (0 - pos.legAngle) * 0.34;
+            } else if (cloneOnGround && cloneHSpeed > 0.85) {
+                const baseFreq = 0.018;
+                const speedScale = Math.min(1.25, cloneHSpeed / Math.max(1, this.speed));
+                pos.legPhase += deltaMs * baseFreq * (0.72 + speedScale * 0.68);
+                pos.legAngle += (Math.sin(pos.legPhase) * 0.86 - pos.legAngle) * 0.52;
+            } else if (cloneOnGround) {
+                pos.legPhase = 0;
+                pos.legAngle += (0 - pos.legAngle) * 0.24;
+            } else {
+                const airborneTarget = (pos.cloneVy || 0) < -1.8
+                    ? -0.24 - Math.min(0.22, Math.abs(pos.cloneVy || 0) * 0.012)
+                    : 0.28 + Math.min(0.36, Math.max(0, pos.cloneVy || 0) * 0.016);
+                pos.legAngle += (airborneTarget - pos.legAngle) * 0.2;
+            }
 
             if (this.specialCloneAttackTimers[i] > 0) {
                 this.specialCloneAttackTimers[i] -= deltaMs;
@@ -1555,12 +1588,15 @@ export class Player {
 
             if (!this.specialCloneScarfNodes[i]) this.initCloneAccessoryNodes(i);
             if (this.specialCloneScarfNodes[i] && this.specialCloneHairNodes[i]) {
-                const cloneVx = Math.max(-this.speed * 2.5, Math.min(this.speed * 2.5, pos.renderVx));
+                const rawRenderVx = pos.renderVx || 0;
+                // スクロール時にrenderVxが0になる場合は本体のvxを代わりに使う
+                const effectiveVx = Math.abs(rawRenderVx) >= Math.abs(this.vx) ? rawRenderVx : this.vx;
+                const cloneVx = Math.max(-this.speed * 2.5, Math.min(this.speed * 2.5, effectiveVx));
                 pos.prevX = pos.x;
 
                 const cloneMotionTime = this.motionTime + i * 400;
                 const cloneIsMoving = Math.abs(cloneVx) > 0.5;
-                const cloneDrawY = pos.y - this.height * 0.62;
+                const cloneDrawY = pos.y - PLAYER.HEIGHT * 0.62;
                 const cloneFootY = cloneDrawY + this.height;
                 
                 const anchorCalc = this.calculateAccessoryAnchor(
@@ -1611,12 +1647,12 @@ export class Player {
         const tier = this.progression && Number.isFinite(this.progression.specialClone)
             ? Math.max(0, Math.min(3, this.progression.specialClone))
             : 0;
-        return tier >= 3 ? this.specialCloneDurabilityLv3 : 1;
+        return tier >= 3 ? this.specialCloneDurabilityLv3 : 2;
     }
 
     getSpecialCloneAnchors() {
         if (!this.specialCloneCombatStarted) {
-            return this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getFootY() - this.height * 0.38);
+            return this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getFootY() - PLAYER.HEIGHT * 0.38);
         }
 
         // 戦闘開始後は、AIによって更新された個別座標を返す
@@ -1724,7 +1760,7 @@ export class Player {
             };
 
             const drawX = pos.x - this.width / 2;
-            const drawY = pos.y - this.height * 0.62;
+            const drawY = pos.y - PLAYER.HEIGHT * 0.62;
 
             if (isAttacking) {
                 const comboStep = (this.specialCloneComboSteps[i] % 5) + 1;
@@ -1762,6 +1798,14 @@ export class Player {
                 };
                 this.renderModel(ctx, drawX, drawY, pos.facingRight, 1.0, true, renderOptions);
             } else {
+                // 待機中もしゃがみは引き継がない
+                renderOptions.state = {
+                    isCrouching: false,
+                    vx: 0,
+                    vy: 0,
+                    isGrounded: true,
+                    motionTime: this.motionTime
+                };
                 this.renderModel(ctx, drawX, drawY, pos.facingRight, 1.0, true, renderOptions);
             }
             ctx.restore();
@@ -2031,7 +2075,12 @@ export class Player {
         const knockbackY = (typeof options.knockbackY === 'number') ? options.knockbackY : -3;
         const invincibleMs = (typeof options.invincibleMs === 'number') ? options.invincibleMs : 1000;
         const flashMs = (typeof options.flashMs === 'number') ? options.flashMs : 300;
-        
+
+        // しゃがみ中はダメージ半減
+        if (this.isCrouching) {
+            amount = Math.max(1, Math.floor(amount * 0.5));
+        }
+
         this.hp -= amount;
         this.invincibleTimer = invincibleMs;
         this.damageFlashTimer = flashMs;
@@ -2428,8 +2477,15 @@ export class Player {
         }
         if (choiceId === 'special_clone') {
             if (this.progression.specialClone >= 3) return false;
+            const wasActive = this.isUsingSpecial;
             this.progression.specialClone++;
             this.rebuildSpecialCloneSlots();
+            // 発動中なら新しいLvで即再発動
+            if (wasActive) {
+                this.clearSpecialState(true);
+                this.specialGauge = this.maxSpecialGauge;
+                this.useSpecial();
+            }
             return true;
         }
         return false;
@@ -2470,10 +2526,10 @@ export class Player {
             this.legPhase = 0;
             this.legAngle += (0 - this.legAngle) * 0.34;
         } else if (isGroundMoving) {
-            const baseFreq = this.isDashing ? 0.027 : (this.isCrouching ? 0.014 : 0.018);
+            const baseFreq = this.isDashing ? 0.027 : (this.isCrouching ? 0.017 : 0.018);
             const speedScale = this.isDashing ? 1.0 : Math.min(1.25, horizontalSpeed / Math.max(1, this.speed));
             this.legPhase += deltaTime * 1000 * baseFreq * (0.72 + speedScale * 0.68);
-            const amplitude = this.isDashing ? 1.08 : (this.isCrouching ? 0.52 : 0.86);
+            const amplitude = this.isDashing ? 1.08 : (this.isCrouching ? 0.62 : 0.86);
             const targetAngle = Math.sin(this.legPhase) * amplitude;
             this.legAngle += (targetAngle - this.legAngle) * 0.52;
         } else if (this.isGrounded) {
@@ -2520,8 +2576,11 @@ export class Player {
         }
 
         const modelBottomY = this.y + this.height - 2;
+        // しゃがみ中のheadYはrenderModel内の算出式と合わせる
+        // headRadius_crouch = PLAYER.HEIGHT * headRatio * 0.5
+        // headY = bottomY - headRadius_crouch * 2.2
         const modelHeadY = this.isCrouching
-            ? (modelBottomY - 32 + modelBob)
+            ? (modelBottomY - PLAYER.HEIGHT * (14 * 2 / 60) * 0.5 * 2.2 + modelBob)
             : (this.y + 15 + modelBob);
 
         const knotOffsetX = this.facingRight ? -12 : 12;
@@ -2611,32 +2670,6 @@ export class Player {
     getKatanaBladeLength() {
         // 剣筋の弧に刃先が届く長さで統一
         return 66;
-    }
-
-    drawPonytail(ctx, headCenterX, headY, alpha, facingRight, bob, phase) {
-        const dir = facingRight ? 1 : -1;
-        const silhouetteColor = '#1a1a1a';
-        const tailLength = 22;
-        const wave = Math.sin((this.motionTime || 0) * 0.008 + phase) * 2.5;
-
-        ctx.save();
-        ctx.fillStyle = silhouetteColor;
-        ctx.beginPath();
-
-        const baseX = headCenterX - dir * 4;
-        const baseY = headY - 12;
-        const tipX = baseX - dir * tailLength;
-        const tipY = baseY + 8 + wave;
-        const cpX = baseX - dir * (tailLength * 0.5);
-        const cpY = baseY - 4 + wave * 0.5;
-
-        ctx.moveTo(baseX, baseY);
-        ctx.quadraticCurveTo(cpX, cpY - 5, tipX, tipY - 2);
-        ctx.lineTo(tipX + dir * 1, tipY + 2);
-        ctx.quadraticCurveTo(cpX, cpY + 8, baseX, baseY + 6);
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
     }
 
     drawKatana(ctx, x, y, angle, scaleDir = 1, bladeLength = this.getKatanaBladeLength(), uprightBlend = 0.28) {
@@ -3091,14 +3124,21 @@ export class Player {
             bob = Math.sin(this.motionTime * 0.005) * 1.0;
         }
 
+        const headRatio = options.headRatio || (14 * 2 / 60); // デフォルトは約2.1頭身（チビキャラ）
+        const headScale = options.headScale || 1.0;
+        // しゃがみ中はthis.heightが半分になるため、PLAYER.HEIGHTを基準にして
+        // 頭が極端に小さくならないよう0.80倍でほどよい大きさにする
+        const baseHeightForHead = isCrouching ? PLAYER.HEIGHT : this.height; // しゃがみ時も頭サイズを変えない
+        const headRadius = (baseHeightForHead * headRatio * 0.5) * headScale;
+        
         let headY = isCrouchPose
-            ? (bottomY - 32 + bob)
-            : (y + 15 + bob - (isSpearThrustPose ? spearDrive * 2.0 : 0));
-        const headRadius = 14;
-        let bodyTopY = headY + (isCrouchPose ? 7.8 : 8);
+            ? (bottomY - headRadius * 2.2 + bob)
+            : (y + headRadius * 1.1 + bob - (isSpearThrustPose ? spearDrive * 2.0 : 0));
+            
+        let bodyTopY = headY + (isCrouchPose ? headRadius * 0.56 : headRadius * 0.57);
         let hipY = isCrouchPose
-            ? (bottomY - 13.2 + bob * 0.45)
-            : (bottomY - 20 - (isSpearThrustPose ? spearDrive * 3.2 : 0));
+            ? (bottomY - headRadius * 0.95 + bob * 0.45)
+            : (bottomY - headRadius * 1.43 - (isSpearThrustPose ? spearDrive * 3.2 : 0));
 
         let currentTorsoLean = isDashLike ? dir * 2.4 : (isRunLike ? dir * 1.6 : dir * 0.45);
         if (comboStepPose === 1) currentTorsoLean = dir * 0.24;
@@ -3499,11 +3539,16 @@ export class Player {
             drawJointedLeg(backHipX, hipLocalY + 0.35, backKneeX, backKneeY, backFootX, backFootY, false, 1.12);
             drawJointedLeg(frontHipX, hipLocalY + 0.12, frontKneeX, frontKneeY, frontFootX, frontFootY, true, 1.06);
         } else if (isCrouchPose) {
-            const crouchStride = crouchWalkPhase * 2.8; const crouchLift = Math.abs(crouchWalkPhase) * 1.3;
+            const crouchStride = crouchWalkPhase * 3.4;
+            const crouchLift = Math.abs(crouchWalkPhase) * 1.8;
             const backHipX = torsoHipX + dir * 1.15; const frontHipX = torsoHipX - dir * 1.35;
             const backHipYL = hipY + 0.4; const frontHipYL = hipY + 0.2;
-            drawJointedLeg(backHipX, backHipYL, backHipX + dir * (3.2 + crouchStride * 0.5), hipY + 7.4 + Math.max(0, -crouchWalkPhase) * 1.4, centerX + dir * (7.0 + crouchStride), bottomY - 0.6 + crouchLift * 0.2, false, 1.0);
-            drawJointedLeg(frontHipX, frontHipYL, frontHipX - dir * (3.9 - crouchStride * 0.5), hipY + 7.8 + Math.max(0, crouchWalkPhase) * 1.4, centerX - dir * (7.8 - crouchStride), bottomY - 0.2, true, 1.02);
+            // 膝はhipYからbottomYの範囲に収まるよう clamp する
+            const kneeYMax = bottomY - 4;
+            const backKneeY  = Math.min(kneeYMax, hipY + 6.0 + Math.max(0, -crouchWalkPhase) * 1.2);
+            const frontKneeY = Math.min(kneeYMax, hipY + 6.4 + Math.max(0,  crouchWalkPhase) * 1.2);
+            drawJointedLeg(backHipX,  backHipYL,  backHipX  + dir * (3.0 + crouchStride * 0.5), backKneeY,  centerX + dir * (6.5 + crouchStride), bottomY - 0.6 + crouchLift * 0.15, false, 1.0);
+            drawJointedLeg(frontHipX, frontHipYL, frontHipX - dir * (3.6 - crouchStride * 0.5), frontKneeY, centerX - dir * (7.2 - crouchStride), bottomY - 0.2,                     true,  1.02);
         } else if (isSpearThrustPose) {
             const rearHipX = torsoHipX + dir * 0.9; const frontHipX2 = torsoHipX - dir * 0.9;
             const rearFootX = torsoHipX - dir * (12.8 + spearDrive * 6.2); const rearFootY = bottomY - 1.2 + spearDrive * 0.8;
@@ -3586,37 +3631,37 @@ export class Player {
         }
 
         // ポニーテール描画
-        if (useLiveAccessories && this.hairNodes && this.hairNodes.length > 1) {
-            ctx.fillStyle = silhouetteColor;
-            ctx.beginPath();
-            const hairBaseX = headCenterX - dir * 4;
-            const hairBaseY = headY - 12;
-            ctx.moveTo(hairBaseX, hairBaseY);
-            for (let i = 1; i < this.hairNodes.length; i++) {
-                const node = this.hairNodes[i]; const prev = this.hairNodes[i-1];
-                ctx.quadraticCurveTo(prev.x, prev.y, (node.x + prev.x) / 2, (node.y + prev.y) / 2);
+        const renderHair = options.renderHair !== false;
+        if (renderHair) {
+            if (useLiveAccessories && this.hairNodes && this.hairNodes.length > 1) {
+                ctx.fillStyle = silhouetteColor;
+                ctx.beginPath();
+                const hairBaseX = headCenterX - dir * 4;
+                const hairBaseY = headY - 12;
+                ctx.moveTo(hairBaseX, hairBaseY);
+                for (let i = 1; i < this.hairNodes.length; i++) {
+                    const node = this.hairNodes[i]; const prev = this.hairNodes[i-1];
+                    ctx.quadraticCurveTo(prev.x, prev.y, (node.x + prev.x) / 2, (node.y + prev.y) / 2);
+                }
+                for (let i = this.hairNodes.length - 1; i >= 1; i--) {
+                    const node = this.hairNodes[i]; const prev = this.hairNodes[i-1];
+                    const tProgress = i / (this.hairNodes.length - 1);
+                    const thickness = (1 - tProgress) * 12 + 1;
+                    const sideShift = Math.sin(time * 0.005 + i * 0.5) * (isMoving ? 1.0 : 1.5);
+                    ctx.quadraticCurveTo(node.x + sideShift, node.y + thickness, (node.x + prev.x) / 2 + sideShift, (node.y + prev.y) / 2 + thickness);
+                }
+                ctx.lineTo(hairBaseX, hairBaseY);
+                ctx.closePath();
+                ctx.fill();
             }
-            for (let i = this.hairNodes.length - 1; i >= 1; i--) {
-                const node = this.hairNodes[i]; const prev = this.hairNodes[i-1];
-                const tProgress = i / (this.hairNodes.length - 1);
-                const thickness = (1 - tProgress) * 12 + 1;
-                const sideShift = Math.sin(time * 0.005 + i * 0.5) * (isMoving ? 1.0 : 1.5);
-                ctx.quadraticCurveTo(node.x + sideShift, node.y + thickness, (node.x + prev.x) / 2 + sideShift, (node.y + prev.y) / 2 + thickness);
-            }
-            ctx.lineTo(hairBaseX, hairBaseY);
-            ctx.closePath();
-            ctx.fill();
-        } else {
-            this.drawPonytail(ctx, headCenterX, headY, alpha, facingRight, bob, 0);
         }
 
         // 鉢巻テール描画関数
         const drawHeadbandTail = () => {
-            if (!renderHeadbandTail) return;
+            const renderHeadband = options.renderHeadband !== false;
+            if (!renderHeadbandTail || !renderHeadband) return;
             if (!useLiveAccessories || !this.scarfNodes || this.scarfNodes.length === 0) {
-                if (typeof this.drawPonytail === 'function') {
-                    this.drawPonytail(ctx, headCenterX, headY, alpha, facingRight, bob, 0);
-                }
+                // ポニーテール（髪）はこの関数より前で描画済み。ここでは鉢巻テールのみ描く
                 const tailLen = 20 + (isMoving ? 6 : 0);
                 const tailWave = Math.sin(time * 0.014 + (facingRight ? 0 : 1.7)) * (isMoving ? 2.8 : 1.6);
                 const tailRootX = knotX; const tailRootY = knotY + 1.5;
@@ -3661,17 +3706,20 @@ export class Player {
         };
 
         // 鉢巻バンド
-        ctx.strokeStyle = accentColor;
-        ctx.lineWidth = 4;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        const frontY = headY - 6;
-        const frontX = headCenterX + (facingRight ? 14 : -14);
-        const ctrl1X = headCenterX + (facingRight ? -4 : 4); const ctrl1Y = headY - 4;
-        const ctrl2X = headCenterX + (facingRight ? 8 : -8); const ctrl2Y = headY - 8;
-        ctx.moveTo(knotX, knotY);
-        ctx.bezierCurveTo(ctrl1X, ctrl1Y, ctrl2X, ctrl2Y, frontX, frontY);
-        ctx.stroke();
+        const renderHeadband = options.renderHeadband !== false;
+        if (renderHeadband) {
+            ctx.strokeStyle = accentColor;
+            ctx.lineWidth = 4;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            const frontY = headY - 6;
+            const frontX = headCenterX + (facingRight ? 14 : -14);
+            const ctrl1X = headCenterX + (facingRight ? -4 : 4); const ctrl1Y = headY - 4;
+            const ctrl2X = headCenterX + (facingRight ? 8 : -8); const ctrl2Y = headY - 8;
+            ctx.moveTo(knotX, knotY);
+            ctx.bezierCurveTo(ctrl1X, ctrl1Y, ctrl2X, ctrl2Y, frontX, frontY);
+            ctx.stroke();
+        }
         
         // 腕と剣
         const effectiveIsAttacking = isAttacking;
@@ -5022,7 +5070,7 @@ export class Player {
             if (isAlive && pos) {
                 const isAutoAi = !!this.specialCloneAutoAiEnabled;
                 const cloneDrawY = isAutoAi
-                    ? (pos.y - this.height * 0.62)
+                    ? (pos.y - PLAYER.HEIGHT * 0.62)
                     : this.y;
                 const dualTimer = isAutoAi
                     ? (this.specialCloneSubWeaponTimers[i] || 0)
@@ -5404,14 +5452,18 @@ export class Player {
                     isDashing: this.isDashing,
                     motionTime: this.motionTime,
                     subWeaponPoseOverride: this.subWeaponPoseOverride,
-                    height: this.height
+                    height: this.height,
+                    legPhase: this.legPhase,
+                    legAngle: this.legAngle
                 };
 
                 // ★savedの後にcloneDrawYを定義
                 const cloneDrawX = pos.x - this.width * 0.5;
+                // Lv0〜2: saved.yはしゃがみ時にheight=HEIGHT/2基準にずれているため、
+                // 足元(saved.y + saved.height)からPLAYER.HEIGHT分上を描画起点とする
                 const cloneDrawY = this.specialCloneAutoAiEnabled
-                    ? (pos.y - this.height * 0.62)
-                    : saved.y;
+                    ? (pos.y - PLAYER.HEIGHT * 0.62)
+                    : (saved.y + saved.height - PLAYER.HEIGHT);
 
                 // 分身の状態をセット
                 this.x = cloneDrawX;
@@ -5422,11 +5474,17 @@ export class Player {
 
                 if (this.specialCloneAutoAiEnabled) {
                     // Lv3: 独自の状態
-                    this.vx = pos.renderVx || 0;
+                    // renderVxは分身自身のワールド移動量だが、スクロール時はプレイヤーのワールドX座標が
+                    // 変わらずrenderVx=0になる場合があるため、本体vxも考慮して大きい方を採用する
+                    const rawRenderVx = pos.renderVx || 0;
+                    this.vx = Math.abs(rawRenderVx) >= Math.abs(saved.vx) ? rawRenderVx : saved.vx;
                     this.vy = pos.cloneVy || 0;
                     this.isGrounded = !(pos.jumping);
                     this.isCrouching = false;
                     this.isDashing = false;
+                    // 分身独自のlegPhase/legAngleをセット（本体のジャンプ状態に引きずられないよう）
+                    this.legPhase = pos.legPhase || 0;
+                    this.legAngle = pos.legAngle || 0;
                     this.subWeaponTimer = this.specialCloneSubWeaponTimers[i] || 0;
                     this.subWeaponAction = this.specialCloneSubWeaponActions[i] || null;
                     this.subWeaponPoseOverride = cloneUsesDualZ
@@ -5585,6 +5643,8 @@ export class Player {
                 this.isCrouching = saved.isCrouching;
                 this.isDashing = saved.isDashing;
                 this.motionTime = saved.motionTime;
+                this.legPhase = saved.legPhase;
+                this.legAngle = saved.legAngle;
             }
         }
 
@@ -5796,172 +5856,7 @@ export class Player {
         }
     }
 
-    renderHeadbandTail(ctx, headX, headY, facingRight, options = {}) {
-        const forceStanding = options.forceStanding || false;
-        const dir = facingRight ? 1 : -1;
-        
-        ctx.fillStyle = '#1e90ff';
-        const knotX = headX + (facingRight ? -12 : 12);
-        const knotY = headY;
-        
-        // 結び目
-        ctx.beginPath();
-        ctx.arc(knotX, knotY, 3, 0, Math.PI * 2);
-        ctx.lineWidth = 2; ctx.stroke();
 
-        if (forceStanding) {
-            // プレビュー画面用：物理演算を使わず、風になびくような形状を固定描画
-            // これにより「変な方向に伸びる」「初期化直後の垂れ下がり」を防ぐ
-            const tailCount = 2;
-            const segmentCount = 10;
-            const time = Date.now() * 0.002;
-            
-            ctx.lineWidth = 3;
-            ctx.lineCap = 'round';
-            ctx.strokeStyle = '#1e90ff';
-
-            for (let t = 0; t < tailCount; t++) {
-                ctx.beginPath();
-                ctx.moveTo(knotX, knotY);
-                
-                let cx = knotX;
-                let cy = knotY;
-                
-                // 少し上向きに流れるように
-                const baseAngle = facingRight ? -Math.PI * 0.9 : -Math.PI * 0.1; 
-                const angleOffset = (t === 0 ? 0.1 : -0.2);
-                
-                for (let i = 0; i < segmentCount; i++) {
-                    const wave = Math.sin(time + i * 0.8 + t) * (i * 1.5);
-                    const flowX = Math.cos(baseAngle + angleOffset) * (i * 6);
-                    const flowY = Math.sin(baseAngle + angleOffset) * (i * 6) + (i * 1.5); // 重力
-                    
-                    cx = knotX + flowX + (facingRight ? -wave : wave);
-                    cy = knotY + flowY;
-                    ctx.lineTo(cx, cy);
-                }
-                ctx.stroke();
-            }
-            return;
-        }
-
-        // 通常時（物理シミュレーション）
-        if (!this.headbandNodes || this.headbandNodes.length === 0) {
-            // 初期化
-            this.headbandNodes = [];
-            const numNodes = 6;
-            const segmentLength = 4;
-            for (let i = 0; i < numNodes; i++) {
-                this.headbandNodes.push({
-                    x: knotX - dir * i * segmentLength,
-                    y: knotY + i * 0.5,
-                    oldX: knotX - dir * i * segmentLength,
-                    oldY: knotY + i * 0.5,
-                    pinX: i === 0 ? knotX : null,
-                    pinY: i === 0 ? knotY : null
-                });
-            }
-        }
-
-        // 物理シミュレーションの更新
-        const gravity = 0.1;
-        const friction = 0.98;
-        const stiffness = 0.5; // 紐の硬さ
-        const segmentLength = 4;
-
-        for (let i = 0; i < this.headbandNodes.length; i++) {
-            const node = this.headbandNodes[i];
-            if (node.pinX !== null && node.pinY !== null) {
-                node.x = knotX; // knotX, knotY は renderHeadbandTail のローカル変数
-                node.y = knotY;
-                node.oldX = knotX;
-                node.oldY = knotY;
-                continue;
-            }
-
-            const vx = (node.x - node.oldX) * friction;
-            const vy = (node.y - node.oldY) * friction;
-            node.oldX = node.x;
-            node.oldY = node.y;
-            node.x += vx;
-            node.y += vy;
-            node.y += gravity; // 重力
-        }
-
-        // 拘束条件の適用 (棒の長さ)
-        for (let iter = 0; iter < 5; iter++) { // 複数回繰り返して安定させる
-            for (let i = 0; i < this.headbandNodes.length - 1; i++) {
-                const node1 = this.headbandNodes[i];
-                const node2 = this.headbandNodes[i + 1];
-
-                const dist = Math.sqrt(Math.pow(node1.x - node2.x, 2) + Math.pow(node1.y - node2.y, 2));
-                const diff = segmentLength - dist;
-                const percent = diff / dist / 2 * stiffness;
-
-                const offsetX = (node1.x - node2.x) * percent;
-                const offsetY = (node1.y - node2.y) * percent;
-
-                if (node1.pinX === null) {
-                    node1.x += offsetX;
-                    node1.y += offsetY;
-                }
-                if (node2.pinX === null) {
-                    node2.x -= offsetX;
-                    node2.y -= offsetY;
-                }
-            }
-        }
-
-        // 描画
-        ctx.beginPath();
-        ctx.moveTo(knotX, knotY);
-        for (let i = 0; i < this.headbandNodes.length - 1; i++) {
-            const node1 = this.headbandNodes[i];
-            const node2 = this.headbandNodes[i + 1];
-            const midX = (node1.x + node2.x) / 2;
-            const midY = (node1.y + node2.y) / 2;
-            if (i === 0) {
-                ctx.lineTo(node1.x, node1.y);
-            }
-            ctx.quadraticCurveTo(node1.x, node1.y, midX, midY);
-        }
-        const lastNode = this.headbandNodes[this.headbandNodes.length - 1];
-        ctx.lineTo(lastNode.x, lastNode.y);
-        ctx.stroke(); // 輪郭線として描画
-
-        // 塗りつぶし
-        ctx.beginPath();
-        ctx.moveTo(knotX, knotY + 0.3); // 結び目の少し下から開始
-        const tailLen = 19; // 元のコードのtailLenを参考に
-        const tailWave = Math.sin(this.motionTime * 0.012 + (facingRight ? 0 : 1.2)) * 1.35; // motionTimeはthisから取得
-        const tailMidX = knotX - dir * (tailLen * 0.54);
-        const tailMidY = knotY + tailWave - 0.4;
-        const tailTipX = knotX - dir * tailLen;
-        const tailTipY = knotY + tailWave * 0.6 + 0.8;
-        ctx.fillStyle = accent;
-        ctx.beginPath();
-        ctx.moveTo(knotX, knotY + 0.3);
-        ctx.quadraticCurveTo(
-            tailMidX + dir * 1.9,
-            tailMidY - 2.2,
-            tailTipX,
-            tailTipY - 1.1
-        );
-        ctx.lineTo(tailTipX + dir * 0.7, tailTipY + 1.2);
-        ctx.quadraticCurveTo(
-            tailMidX + dir * 1.4,
-            tailMidY + 2.9,
-            knotX,
-            knotY + 7.7
-        );
-        ctx.closePath();
-        ctx.fill();
-
-
-
-
-        ctx.restore();
-    }
     
     // 攻撃判定の取得（当たり判定用）
     getAttackHitbox(options = {}) {

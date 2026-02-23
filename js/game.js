@@ -86,6 +86,7 @@ class Game {
         this.titleDebugCursor = 0;
         this.titleDebugApplyOnStart = false;
         this.titleDebugConfig = this.createTitleDebugConfig();
+        this.debugBossRoomStart = false; // デバッグ用：ボス部屋から開始するフラグ
         this.debugKeyRepeatTimer = 0;
         this.stageClearPhase = 0; // 0: 演出(Announce), 1: 詳細ステータス
         this.stageClearAutoSubWeaponIntervalMs = 3000;
@@ -230,6 +231,7 @@ class Game {
     createTitleDebugConfig() {
         return {
             stage: 1,
+            bossRoom: false, // デバッグ用：ボス部屋からスタート
             fullMax: false, // 追加: 一括最強
             moneyMax: false,
             normalCombo: 0,
@@ -289,6 +291,7 @@ class Game {
             cfg.specialClone = def.specialClone;
             cfg.moneyMax = def.moneyMax;
             cfg.money = def.money;
+            cfg.bossRoom = def.bossRoom;
             cfg.items = { ...def.items };
             for (const w in cfg.ownedWeapons) cfg.ownedWeapons[w] = def.ownedWeapons[w];
             cfg.startWeapon = def.startWeapon;
@@ -299,6 +302,11 @@ class Game {
                 label: '開始階層',
                 getValue: () => `${cfg.stage}`,
                 change: (delta) => { cfg.stage = clamp(cfg.stage + delta, 1, STAGES.length); }
+            },
+            {
+                label: 'ボス部屋から開始',
+                getValue: () => (cfg.bossRoom ? 'ON' : 'OFF'),
+                change: () => { cfg.bossRoom = !cfg.bossRoom; }
             },
             {
                 label: '一括最強',
@@ -682,6 +690,20 @@ class Game {
         // スクロール位置初期化
         this.scrollX = 0;
         
+        // ─── デバッグ：ボス部屋からスタート ───────────────────────────
+        if (this.debugBossRoomStart) {
+            this.debugBossRoomStart = false;
+            // スクロールをステージ末端まで飛ばしてボス出現条件を満たす
+            this.scrollX = this.stage.maxProgress;
+            this.stage.progress = this.stage.maxProgress;
+            this.stage.lastProgress = this.stage.maxProgress;
+            this.stage.midBossSpawned = true; // 中ボスをスキップ
+            this.stage.enemies = [];          // 雑魚敵をクリア
+            this.stage.obstacles = [];        // 障害物をクリア
+            this.stage.spawnBoss();           // ボス即スポーン
+        }
+        // ─────────────────────────────────────────────────────────────
+        
         this.state = GAME_STATE.PLAYING;
         // ステージ開始BGM：フェードインなしで即再生（fadeDuration = 0）
         audio.playBgm(this.stage.boss ? 'boss' : 'stage', this.currentStageNumber, 0);
@@ -1012,19 +1034,20 @@ class Game {
             this.titleDebugOpen = false;
             audio.playSelect();
         } else if (action === 'DEBUG_START') {
-            // デバッグメニューが開いている時のEnterはデバッグ設定を適用して開始
-            this.titleDebugApplyOnStart = true;
-            if (this.hasSave) {
-                if (this.titleMenuIndex === 0) {
-                    this.continueGame(saveManager.load());
-                } else {
-                    saveManager.deleteSave();
-                    this.startNewGame();
-                }
+            // ステータス画面表示・エンディング表示にフォーカスしている時はそのactionを実行
+            // それ以外はデバッグ設定（開始階層・ボス部屋含む）を適用して新規開始
+            // ※continueGameはセーブデータのステージで上書きするためデバッグ設定が反映されない。
+            //   常にstartNewGame()を使うことで titleDebugConfig が確実に効く。
+            const selected = entries[this.titleDebugCursor];
+            const isPreviewEntry = selected.label === 'ステータス画面表示' || selected.label === 'エンディング表示';
+            if (isPreviewEntry && selected.action) {
+                selected.action();
+                audio.playSelect();
             } else {
+                this.titleDebugApplyOnStart = true;
                 this.startNewGame();
+                audio.playGameStart();
             }
-            audio.playGameStart();
         }
     }
 
@@ -1073,6 +1096,8 @@ class Game {
         shop.reset();
         const debugStage = this.titleDebugApplyOnStart ? this.titleDebugConfig.stage : null;
         this.currentStageNumber = debugStage || this.debugStartStage || 1;
+        // デバッグ用：ボス部屋スタートフラグを保持（applyTitleDebugSetupToNewGame より前に確定）
+        this.debugBossRoomStart = !!(this.titleDebugApplyOnStart && this.titleDebugConfig.bossRoom);
         this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
         this.player.unlockedWeapons = [];
         this.pendingLevelUpChoices = 0;
