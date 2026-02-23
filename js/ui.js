@@ -1237,14 +1237,14 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
         
         ctx.textAlign = 'left';
         ctx.fillStyle = selected ? '#ffffff' : 'rgba(225, 236, 255, 0.92)';
-        ctx.font = selected ? '700 14px sans-serif' : '500 13px sans-serif';
+        ctx.font = selected ? '700 13px sans-serif' : '500 13px sans-serif';
         ctx.fillText(entry.label || '', panelX + 30, y);
 
         ctx.textAlign = 'right';
         const valText = (typeof entry.getValue === 'function') ? entry.getValue() : (entry.value || '');
         const isActionRow = entry.action || valText === '実行';
         ctx.fillStyle = isActionRow ? '#ffe08d' : (selected ? '#dff0ff' : 'rgba(198, 216, 246, 0.92)');
-        ctx.font = selected ? '700 14px sans-serif' : '500 13px sans-serif';
+        ctx.font = selected ? '700 13px sans-serif' : '500 13px sans-serif';
         ctx.fillText(valText, panelX + panelW - 30, y);
     }
 

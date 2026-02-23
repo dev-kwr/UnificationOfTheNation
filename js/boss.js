@@ -174,7 +174,7 @@ class Boss extends Enemy {
         }
 
         if (absX > this.attackRange * 1.08) {
-            this.tryJump(0.022, -25, 400);
+            this.tryJump(0.022, -15, 400);
         }
     }
 
@@ -1331,7 +1331,7 @@ export class Shogun extends Boss {
 
     init() {
         super.init();
-        this.bossName = '真・将軍';
+        this.bossName = '将軍';
         this.hp = 4500;
         this.maxHp = 4500;
         this.damage = 6;
@@ -1372,6 +1372,7 @@ export class Shogun extends Boss {
         this._attackTimer      = 0;    // Zコンボ残り時間
         this._comboStep        = 0;    // 次回コンボのインデックス（0-4）
         this._currentComboStep = 1;    // 現在攻撃中のコンボ段（1-5、renderBody参照用）
+        this._comboPendingSteps = [];  // 残り連続コンボ段キュー
         this._subTimer         = 0;    // 忍具アニメーション残り時間
         this._subAction        = null; // 忍具アクション文字列
         this._subWeaponKey     = null; // 現在使用中の忍具キー ('shuriken','bomb',etc.)
@@ -1384,6 +1385,18 @@ export class Shogun extends Boss {
             kusarigama: createSubWeapon('鎖鎌'),
             odachi:     createSubWeapon('大太刀'),
         };
+
+        // 武器の use()/update() が Player を期待するため、Shogun 自身に
+        // 必要な Player 互換プロパティをスタブとして追加する
+        this.isCrouching  = false;
+        this.progression  = { subWeapon: 3, normalCombo: 3 };
+        this.subWeaponAction  = null;
+        this.subWeaponTimer   = 0;
+        this.currentSubWeapon = null;
+        this.getSubWeaponEnhanceTier  = () => 3;
+        this.getSubWeaponCloneOffsets = () => [];
+        this.triggerCloneSubWeapon    = () => {};
+        this.getFootY = () => this.y + this.height;
     }
 
     // ---- Boss.update() から呼ばれる ----
@@ -1412,6 +1425,12 @@ export class Shogun extends Boss {
         this.actor.width      = this.width;
         this.actor.height     = this.height;
 
+        // slashTrail の dualActionActive 判定に currentSubWeapon が必要なため同期する
+        // （二刀流Z技中は dualInst をセット、それ以外は null）
+        this.actor.currentSubWeapon = (this._subWeaponKey === 'dual' && this._subAction === '二刀_Z')
+            ? this._subWeaponInstances['dual']
+            : null;
+
         // slashTrail 更新（actorのメソッドをそのまま借用）
         this.actor.updateSpecialCloneSlashTrails(deltaMs);
 
@@ -1419,7 +1438,19 @@ export class Shogun extends Boss {
         if (this._subTimer > 0 && this._subWeaponKey) {
             const subInst = this._subWeaponInstances[this._subWeaponKey];
             if (subInst && typeof subInst.update === 'function') {
-                subInst.update(deltaTime);
+                const targetPlayer = this.targetPlayer;
+                const enemyArg = targetPlayer ? [targetPlayer] : [];
+                if (this._subWeaponKey === 'shuriken') {
+                    subInst.update(deltaTime, enemyArg);
+                    // _subTimer 中もprojectiles同期（発射直後の最初の150msも描画・当たり判定させる）
+                    for (const p of subInst.projectiles) {
+                        if (!this.projectiles.includes(p)) {
+                            this.projectiles.push(p);
+                        }
+                    }
+                } else {
+                    subInst.update(deltaTime);
+                }
                 // 鎖鎌・大太刀は武器側の終了を検知して即座にタイマーをリセット
                 if (
                     (this._subWeaponKey === 'kusarigama' || this._subWeaponKey === 'odachi') &&
@@ -1430,6 +1461,29 @@ export class Shogun extends Boss {
                     this._subWeaponKey = null;
                 }
             }
+        }
+
+        // 手裏剣は _subTimer=150ms が切れた後もprojectileが飛び続けるため
+        // _subTimer と切り離して毎フレーム独立してupdateする。
+        // （_subTimer=0 になると _subWeaponKey が null になりupdateが止まる問題を解消）
+        {
+            const shurikenInst = this._subWeaponInstances['shuriken'];
+            if (shurikenInst && Array.isArray(shurikenInst.projectiles) && shurikenInst.projectiles.length > 0) {
+                const targetPlayer = this.targetPlayer;
+                const enemyArg = targetPlayer ? [targetPlayer] : [];
+                // _subTimer 中は二重呼び出しになるため、_subWeaponKey=shuriken のときはスキップ
+                if (this._subWeaponKey !== 'shuriken') {
+                    shurikenInst.update(deltaTime, enemyArg);
+                }
+                // projectilesをShogunのprojectilesに同期（描画用）
+                for (const p of shurikenInst.projectiles) {
+                    if (!this.projectiles.includes(p)) {
+                        this.projectiles.push(p);
+                    }
+                }
+            }
+            // 死んだprojectilesをShogun側からも除去
+            this.projectiles = this.projectiles.filter(p => !p.isDestroyed);
         }
 
         return false;
@@ -1444,39 +1498,76 @@ export class Shogun extends Boss {
 
         const roll = Math.random();
         if (roll < 0.40) {
-            // Zコンボ：5段フル（Lv3分身と同じ % COMBO_ATTACKS.length）
-            const COMBO_LEN = 5;
-            const comboStep  = (this._comboStep % COMBO_LEN) + 1; // 1-based
-            const profile    = this.actor.getComboAttackProfileByStep(comboStep);
-            this._currentComboStep = comboStep; // 現在攻撃中のステップ（renderBody参照用）
-            this._comboStep  = comboStep % COMBO_LEN; // 次ステップへ
-            this._attackTimer = profile.durationMs;
-            this.attackTimer  = profile.durationMs;
-            this.attackCooldown = Math.max(180, profile.durationMs * 0.55);
-            audio.playSlash(Math.min(4, comboStep));
+            // Zコンボ：5段連続発動。_comboPendingSteps に残りの段を積んで
+            // updateAttack() が1段終わるたびに次段を自動発動する。
+            this._comboPendingSteps = [1, 2, 3, 4, 5];
+            this._startNextComboStep();
         } else {
             // X攻撃：プレイヤーと同じduration（player.js L516-519参照）
-            const weapons   = ['shuriken', 'bomb', 'spear', 'dual', 'kusarigama', 'odachi'];
+            const weapons   = ['shuriken', 'bomb', 'spear', 'dual', 'dual_z', 'kusarigama', 'odachi'];
             const type      = weapons[Math.floor(Math.random() * weapons.length)];
             const actionMap = {
                 shuriken: 'throw', bomb: 'throw',
                 spear: '大槍', kusarigama: '鎖鎌',
-                odachi: '大太刀', dual: '二刀_合体',
+                odachi: '大太刀', dual: '二刀_合体', dual_z: '二刀_Z',
+            };
+            // 各武器の実際のアニメーション時間をインスタンスから取得する。
+            // 固定値で管理すると武器の totalDuration（tier反映後）とズレて
+            // isAttacking=false になった後もタイマーが残り描画が壊れるため。
+            const getDuration = (key) => {
+                const inst = this._subWeaponInstances[key];
+                if (!inst) return 300;
+                // Nodachi は totalDuration + plantedDuration が実際の表示時間
+                if (inst.totalDuration && inst.plantedDuration) {
+                    return inst.totalDuration + inst.plantedDuration + 60;
+                }
+                if (inst.totalDuration) return inst.totalDuration + 60;
+                if (inst.attackDuration) return inst.attackDuration + 60;
+                return 300;
             };
             const durationMap = {
                 shuriken: 150, bomb: 150,
-                spear:    270, kusarigama: 560,
-                odachi:   760, dual: 220,
+                spear:    getDuration('spear'),
+                kusarigama: getDuration('kusarigama'),
+                odachi:     getDuration('odachi'),
+                dual: 220,
+                dual_z: this._subWeaponInstances.dual
+                    ? (this._subWeaponInstances.dual.mainDuration || 204)
+                    : 204,
             };
+            // dual_z は dual インスタンスを使う
+            const weaponKey = type === 'dual_z' ? 'dual' : type;
             const duration     = durationMap[type] || 300;
             this._subAction    = actionMap[type];
-            this._subWeaponKey = type;
+            this._subWeaponKey = weaponKey;
             this._subTimer     = duration;
             this.attackTimer   = duration;
             this.attackCooldown = 400;
             this._fireSubWeapon(type);
             audio.playSlash(2);
         }
+    }
+
+    // ---- 1コンボ段を開始するヘルパー ----
+    _startNextComboStep() {
+        const step = this._comboPendingSteps.shift();
+        if (step == null) {
+            // 全段終了
+            this._attackTimer = 0;
+            this.isAttacking  = false;
+            this.attackCooldown = 480;
+            return;
+        }
+        // attackMotionScale=1 で素のdurationを使う（actorの1.7倍引き伸ばしを回避）
+        const COMBO_DURATIONS = [182, 138, 208, 248, 336]; // COMBO_ATTACKSと同期
+        const dur = COMBO_DURATIONS[step - 1] || 200;
+        this._currentComboStep = step;
+        this._comboStep = step % 5;
+        this._attackTimer = dur;
+        this.attackTimer  = dur;
+        this.isAttacking  = true;
+        this.attackCooldown = Math.max(100, dur * 0.5);
+        audio.playSlash(Math.min(4, step));
     }
 
     // ---- 攻撃アニメーション更新 ----
@@ -1497,8 +1588,13 @@ export class Shogun extends Boss {
             this._attackTimer -= deltaMs;
             if (this._attackTimer <= 0) {
                 this._attackTimer = 0;
-                this.isAttacking  = false;
-                this.attackCooldown = Math.max(this.attackCooldown, 180);
+                // 次の段があれば連続発動、なければ終了
+                if (this._comboPendingSteps && this._comboPendingSteps.length > 0) {
+                    this._startNextComboStep();
+                } else {
+                    this.isAttacking  = false;
+                    this.attackCooldown = Math.max(this.attackCooldown, 480);
+                }
             }
         } else if (this._subTimer > 0) {
             this.vx *= 0.92;
@@ -1516,7 +1612,9 @@ export class Shogun extends Boss {
     }
 
     _fireSubWeapon(type) {
-        const subInst = this._subWeaponInstances[type];
+        // dual_z は dual インスタンスを使う
+        const resolvedKey = type === 'dual_z' ? 'dual' : type;
+        const subInst = this._subWeaponInstances[resolvedKey];
         if (!subInst) return;
         // apply enhance tier before firing（プレイヤーと同じtier=3）
         if (typeof subInst.applyEnhanceTier === 'function') {
@@ -1524,31 +1622,31 @@ export class Shogun extends Boss {
         } else {
             subInst.enhanceTier = 3;
         }
-        const tempPlayer = {
-            x: this.x, y: this.y,
-            vx: this.vx, vy: this.vy,
-            width: this.width, height: this.height,
-            facingRight: this.facingRight,
-            isGrounded: this.isGrounded,
-            isCrouching: false,
-            projectiles: this.projectiles,
-            subWeapons: Object.values(this._subWeaponInstances),
-            currentSubWeapon: subInst,
-            isBoss: true,
-            groundY: this.groundY,
-            speed: this.speed,
-            progression: { subWeapon: 3, normalCombo: 3 },
-            takeDamage: () => {},
-            getFootY: () => this.y + this.height,
-            getSubWeaponEnhanceTier: () => 3,
-            getSubWeaponCloneOffsets: () => [],
-            triggerCloneSubWeapon: () => {},
-            // 二刀流combined発動時に必要
-            attackCombo: this._comboStep,
-        };
-        // 二刀流のみcombinedモードで発動（プレイヤーと同じ）
-        const useMode = type === 'dual' ? 'combined' : undefined;
-        subInst.use(tempPlayer, useMode);
+        // Shogun 自身を player として渡す（vx/vy/x/y が直接反映される）
+        // currentSubWeapon・attackCombo を一時設定して use() 後に戻す
+        const prevSubWeapon  = this.currentSubWeapon;
+        const prevAttackCombo = this.attackCombo;
+        this.currentSubWeapon = subInst;
+        this.attackCombo      = this._comboStep;
+
+        // 大槍は use() 内で player.vx += dashBoost(tier3=176) を加算する。
+        // Shogun に直接適用すると画面外まで吹っ飛ぶため use 前の vx を保存し、
+        // use 後に適切な突進速度（direction * speed * 3.5）に置き換える。
+        const prevVx = this.vx;
+        const isSpear = (resolvedKey === 'spear');
+
+        // 二刀流のみ type に応じてモードを切り替え（combined=合体技, main=Z連撃）
+        const useMode = type === 'dual' ? 'combined' : (type === 'dual_z' ? 'main' : undefined);
+        subInst.use(this, useMode);
+
+        if (isSpear) {
+            // dashBoost の加算をキャンセルし、Shogun 用の突進速度に上書き
+            const dir = this.facingRight ? 1 : -1;
+            this.vx = prevVx + dir * this.speed * 3.5;
+        }
+
+        this.currentSubWeapon = prevSubWeapon;
+        this.attackCombo      = prevAttackCombo;
     }
 
     // ---- ヒットボックス（Zコンボ＋X攻撃） ----
@@ -1595,23 +1693,24 @@ export class Shogun extends Boss {
 
         // actor の状態を一時退避（分身renderSpecialのsaved/restoreパターンと同じ）
         const saved = {
-            isAttacking:      this.actor.isAttacking,
-            currentAttack:    this.actor.currentAttack,
-            attackTimer:      this.actor.attackTimer,
-            attackCombo:      this.actor.attackCombo,
-            subWeaponTimer:   this.actor.subWeaponTimer,
-            subWeaponAction:  this.actor.subWeaponAction,
-            currentSubWeapon: this.actor.currentSubWeapon,
-            facingRight:      this.actor.facingRight,
-            x:                this.actor.x,
-            y:                this.actor.y,
-            vx:               this.actor.vx,
-            vy:               this.actor.vy,
-            isGrounded:       this.actor.isGrounded,
-            isCrouching:      this.actor.isCrouching,
-            isDashing:        this.actor.isDashing,
-            motionTime:       this.actor.motionTime,
-            height:           this.actor.height,
+            isAttacking:          this.actor.isAttacking,
+            currentAttack:        this.actor.currentAttack,
+            attackTimer:          this.actor.attackTimer,
+            attackCombo:          this.actor.attackCombo,
+            subWeaponTimer:       this.actor.subWeaponTimer,
+            subWeaponAction:      this.actor.subWeaponAction,
+            currentSubWeapon:     this.actor.currentSubWeapon,
+            facingRight:          this.actor.facingRight,
+            x:                    this.actor.x,
+            y:                    this.actor.y,
+            vx:                   this.actor.vx,
+            vy:                   this.actor.vy,
+            isGrounded:           this.actor.isGrounded,
+            isCrouching:          this.actor.isCrouching,
+            isDashing:            this.actor.isDashing,
+            motionTime:           this.actor.motionTime,
+            height:               this.actor.height,
+            forceSubWeaponRender: this.actor.forceSubWeaponRender,
         };
 
         // 描画位置・物理状態を注入
@@ -1630,6 +1729,7 @@ export class Shogun extends Boss {
             renderHeadbandTail: false,
             renderHeadband:     false,
             useLiveAccessories: false,
+            forceSubWeaponRender: (this._subTimer > 0 && this._subAction != null),
         };
 
         if (this._attackTimer > 0) {
@@ -1661,6 +1761,26 @@ export class Shogun extends Boss {
             this.actor.subWeaponAction = this._subAction;
             this.actor.currentSubWeapon = subInst || null;
 
+            // 武器インスタンス側の同期処理
+            if (subInst) {
+                // DualBlades: attackTimer を _subTimer に同期
+                // （effectiveSubWeaponTimer が dualBlade.attackTimer を使うため）
+                // 鎖鎌・大太刀は自前の attackTimer/totalDuration で動くので上書きしない
+                const isDualBlade = subInst.name === '二刀流';
+                if (isDualBlade && typeof subInst.attackTimer !== 'undefined') {
+                    if (!subInst.isAttacking || subInst.attackTimer <= 0) {
+                        subInst.attackTimer = this._subTimer;
+                    }
+                }
+                // 描画中だけ isAttacking=true にして render 内チェックをパス
+                if (!subInst.isAttacking) {
+                    subInst._renderForceActive = true;
+                    subInst.isAttacking = true;
+                }
+            }
+            // 鎖鎌・大太刀など forceSubWeaponRender フラグを必要とする武器向け
+            this.actor.forceSubWeaponRender = true;
+
         } else {
             // 待機・移動
             this.actor.isAttacking     = false;
@@ -1671,26 +1791,84 @@ export class Shogun extends Boss {
             this.actor.currentSubWeapon = null;
         }
 
-        this.actor.renderModel(ctx, this.x, this.y, this.facingRight, 1.0, true, renderOpts);
+        // Enemy.render() は renderBody を呼ぶ前に yawSkew + scale(0.982,1) を
+        // ctx に適用する（2.5D奥行き感演出）。この変換は棒人間シルエットには
+        // 自然だが、大太刀などの縦長武器の形状を歪める。
+        // 逆変換（yawSkewとscaleを打ち消す）を適用してから renderModel を呼ぶ。
+        // yawSkew と pivotX/Y は Enemy.render() 内の計算と同じ値を再現する。
+        {
+            const dir2d = this.facingRight ? 1 : -1;
+            const pivotX = this.x + this.width * 0.5;
+            const pivotY = this.y + this.height * 0.62;
+            const moveBias = Math.min(0.024, Math.abs(this.vx || 0) * 0.0038);
+            const attackBias = this.isAttacking ? 0.013 : 0;
+            const yawSkew = dir2d * (0.046 + moveBias + attackBias);
+            // 逆変換を積む：scale(1/0.982) → shear(-yawSkew)
+            ctx.save();
+            ctx.translate(pivotX, pivotY);
+            ctx.transform(1, 0, -yawSkew / 0.982, 1, 0, 0); // shear逆
+            ctx.scale(1 / 0.982, 1);                          // scale逆
+            ctx.translate(-pivotX, -pivotY);
+            this.actor.renderModel(ctx, this.x, this.y, this.facingRight, 1.0, true, renderOpts);
+            ctx.restore();
+        }
+
+        // DualBladesの飛翔斬撃は renderSubWeaponArm では描画されないため直接呼ぶ。
+        // 大太刀・鎖鎌・大槍は renderModel 内ですでに render() が呼ばれるため
+        // ここに追加すると二重描画になる。dual のみ。
+        if (this._subTimer > 0 && this._subWeaponKey === 'dual') {
+            const dualInst = this._subWeaponInstances['dual'];
+            if (dualInst && typeof dualInst.render === 'function') {
+                const wasAttacking = dualInst.isAttacking;
+                if (!wasAttacking) dualInst.isAttacking = true;
+                // yawSkew（Enemy.render の 2.5D 変換）を逆変換して打ち消す
+                {
+                    const dir2d = this.facingRight ? 1 : -1;
+                    const pivotX = this.x + this.width * 0.5;
+                    const pivotY = this.y + this.height * 0.62;
+                    const moveBias = Math.min(0.024, Math.abs(this.vx || 0) * 0.0038);
+                    const attackBias = this.isAttacking ? 0.013 : 0;
+                    const yawSkew = dir2d * (0.046 + moveBias + attackBias);
+                    ctx.save();
+                    ctx.translate(pivotX, pivotY);
+                    ctx.transform(1, 0, -yawSkew / 0.982, 1, 0, 0);
+                    ctx.scale(1 / 0.982, 1);
+                    ctx.translate(-pivotX, -pivotY);
+                    dualInst.render(ctx, this.actor);
+                    ctx.restore();
+                }
+                if (!wasAttacking) dualInst.isAttacking = false;
+            }
+        }
+
+        // 描画用に一時的に isAttacking=true にした武器インスタンスを元に戻す
+        if (this._subWeaponKey) {
+            const subInstForRestore = this._subWeaponInstances[this._subWeaponKey];
+            if (subInstForRestore && subInstForRestore._renderForceActive) {
+                subInstForRestore.isAttacking = false;
+                delete subInstForRestore._renderForceActive;
+            }
+        }
 
         // actor の状態を復元
-        this.actor.isAttacking     = saved.isAttacking;
-        this.actor.currentAttack   = saved.currentAttack;
-        this.actor.attackTimer     = saved.attackTimer;
-        this.actor.attackCombo     = saved.attackCombo;
-        this.actor.subWeaponTimer  = saved.subWeaponTimer;
-        this.actor.subWeaponAction = saved.subWeaponAction;
-        this.actor.currentSubWeapon = saved.currentSubWeapon;
-        this.actor.facingRight     = saved.facingRight;
-        this.actor.x               = saved.x;
-        this.actor.y               = saved.y;
-        this.actor.vx              = saved.vx;
-        this.actor.vy              = saved.vy;
-        this.actor.isGrounded      = saved.isGrounded;
-        this.actor.isCrouching     = saved.isCrouching;
-        this.actor.isDashing       = saved.isDashing;
-        this.actor.motionTime      = saved.motionTime;
-        this.actor.height          = saved.height;
+        this.actor.isAttacking          = saved.isAttacking;
+        this.actor.currentAttack        = saved.currentAttack;
+        this.actor.attackTimer          = saved.attackTimer;
+        this.actor.attackCombo          = saved.attackCombo;
+        this.actor.subWeaponTimer       = saved.subWeaponTimer;
+        this.actor.subWeaponAction      = saved.subWeaponAction;
+        this.actor.currentSubWeapon     = saved.currentSubWeapon;
+        this.actor.facingRight          = saved.facingRight;
+        this.actor.x                    = saved.x;
+        this.actor.y                    = saved.y;
+        this.actor.vx                   = saved.vx;
+        this.actor.vy                   = saved.vy;
+        this.actor.isGrounded           = saved.isGrounded;
+        this.actor.isCrouching          = saved.isCrouching;
+        this.actor.isDashing            = saved.isDashing;
+        this.actor.motionTime           = saved.motionTime;
+        this.actor.height               = saved.height;
+        this.actor.forceSubWeaponRender = saved.forceSubWeaponRender;
     }
 }
 

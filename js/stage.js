@@ -35,7 +35,7 @@ export class Stage {
         this.boss = null;
         this.bossSpawned = false;
         this.bossDefeated = false;
-        this.midBossSpawned = false;
+        this.midBossSpawned = true; // 中ボスは出現させない
         this.bossDefeatLingerDuration = 700;
         this.bossDefeatLingerTimer = 0;
         this.bossDefeatColorFade = 0; // ボス撃破後の赤い空のフェードアウト用（1→0）
@@ -449,13 +449,6 @@ export class Stage {
             const spawnMin = this.balanceProfile.spawnMin;
             const baseInterval = spawnStart - (spawnStart - spawnMin) * progressRatio;
             this.spawnInterval = baseInterval + Math.random() * this.balanceProfile.spawnJitter;
-        }
-        
-        // 中ボス出現（進行50%地点）
-        if (this.progress >= this.maxProgress * 0.5 &&
-            !this.midBossSpawned) {
-            this.spawnMidBoss();
-            this.midBossSpawned = true;
         }
         
         // ボス出現

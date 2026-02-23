@@ -1689,28 +1689,60 @@ export class Enemy {
                 showTassel: true
             });
         } else if (weaponMode === 'bomb') {
-            const raise = this.isAttacking ? attackProgress : 0;
-            const bombTargetX = shoulderFrontX + dir * (this.width * (0.32 + raise * 0.42));
-            const bombTargetY = shoulderFrontY + this.height * (0.12 - raise * 0.36);
+            // 投擲モーション:
+            //  0.00〜0.35: 振りかぶり（腕を後方・頭上へ引く）
+            //  0.35〜0.65: リリース（頭上から前方へ一気に振り出す）
+            //  0.65〜1.00: フォロースルー（前方下へ流れる）
+            // 待機時は腕を自然な下げ持ち姿勢
+            const p = this.isAttacking ? attackProgress : 0;
+            const windupT  = clamp01(p / 0.35);
+            const releaseT = clamp01((p - 0.35) / 0.30);
+            const followT  = clamp01((p - 0.65) / 0.35);
+
+            let throwHandX, throwHandY;
+            if (!this.isAttacking) {
+                // 待機: 体の斜め前に爆弾を自然に持つ
+                throwHandX = shoulderFrontX + dir * this.width * 0.38;
+                throwHandY = shoulderFrontY + this.height * 0.22;
+            } else if (p < 0.35) {
+                // 振りかぶり: 後方・頭上へ引く
+                const ease = 1 - Math.pow(1 - windupT, 2);
+                throwHandX = shoulderFrontX - dir * this.width * (0.10 + ease * 0.28);
+                throwHandY = shoulderFrontY - this.height * (0.04 + ease * 0.38);
+            } else if (p < 0.65) {
+                // リリース: 頭上から前方へ一気に振り出す
+                const ease = 1 - Math.pow(1 - releaseT, 3);
+                throwHandX = shoulderFrontX + dir * this.width * (0.18 + ease * 0.62);
+                throwHandY = shoulderFrontY - this.height * (0.42 - ease * 0.55);
+            } else {
+                // フォロースルー: 前方下へ流れる
+                const ease = followT * followT;
+                throwHandX = shoulderFrontX + dir * this.width * (0.80 - ease * 0.28);
+                throwHandY = shoulderFrontY - this.height * (-0.13 + ease * 0.12);
+            }
+
             leadHand = this.drawJointedArm(ctx, {
                 shoulderX: shoulderFrontX,
                 shoulderY: shoulderFrontY,
-                handX: bombTargetX,
-                handY: bombTargetY,
+                handX: throwHandX,
+                handY: throwHandY,
                 upperLen,
                 foreLen,
-                bendSign: -dir * 0.78,
+                bendSign: -dir * 0.7,
                 upperWidth: Math.max(4.5, this.width * 0.12),
                 foreWidth: Math.max(3.9, this.width * 0.11),
                 jointRadius: Math.max(2.8, this.width * 0.078),
                 baseColor: palette.torsoCore,
                 handColor: palette.legFront
             });
+
+            // 支え手: 待機〜振りかぶりは爆弾を支え、リリース後は自然に下げる
+            const supportRaise = this.isAttacking ? clamp01(1 - p / 0.55) : 0;
             supportHand = this.drawJointedArm(ctx, {
                 shoulderX: shoulderBackX,
                 shoulderY: shoulderBackY,
-                handX: shoulderBackX + dir * this.width * 0.12,
-                handY: shoulderBackY + this.height * 0.17,
+                handX: shoulderBackX + dir * this.width * (0.18 + supportRaise * 0.18),
+                handY: shoulderBackY + this.height * (0.18 - supportRaise * 0.28),
                 upperLen: upperLen * 0.92,
                 foreLen: foreLen * 0.88,
                 bendSign: dir * 0.84,
@@ -1720,26 +1752,30 @@ export class Enemy {
                 baseColor: palette.torsoCore,
                 handColor: palette.legFront
             });
-            const bombX = leadHand.handX + dir * this.width * 0.16;
-            const bombY = leadHand.handY - this.height * 0.1;
-            const bombR = Math.max(6, this.width * 0.16);
-            const bombGrad = ctx.createRadialGradient(bombX - bombR * 0.3, bombY - bombR * 0.3, bombR * 0.2, bombX, bombY, bombR);
-            bombGrad.addColorStop(0, '#787878');
-            bombGrad.addColorStop(0.45, '#343434');
-            bombGrad.addColorStop(1, '#111');
-            ctx.fillStyle = bombGrad;
-            ctx.beginPath();
-            ctx.arc(bombX, bombY, bombR, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-            ctx.lineWidth = 1.2;
-            ctx.stroke();
-            ctx.strokeStyle = '#9a6f36';
-            ctx.lineWidth = 1.4;
-            ctx.beginPath();
-            ctx.moveTo(bombX, bombY - bombR);
-            ctx.lineTo(bombX + dir * bombR * 0.6, bombY - bombR * 1.72);
-            ctx.stroke();
+
+            // 爆弾: リリース前(p<0.58)は手先に追従、それ以降は飛翔体に切り替わるため非表示
+            if (p < 0.58 || !this.isAttacking) {
+                const bombX = leadHand.handX + dir * this.width * 0.10;
+                const bombY = leadHand.handY - this.height * 0.06;
+                const bombR = Math.max(6, this.width * 0.16);
+                const bombGrad = ctx.createRadialGradient(bombX - bombR * 0.3, bombY - bombR * 0.3, bombR * 0.2, bombX, bombY, bombR);
+                bombGrad.addColorStop(0, '#787878');
+                bombGrad.addColorStop(0.45, '#343434');
+                bombGrad.addColorStop(1, '#111');
+                ctx.fillStyle = bombGrad;
+                ctx.beginPath();
+                ctx.arc(bombX, bombY, bombR, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+                ctx.lineWidth = 1.2;
+                ctx.stroke();
+                ctx.strokeStyle = '#9a6f36';
+                ctx.lineWidth = 1.4;
+                ctx.beginPath();
+                ctx.moveTo(bombX, bombY - bombR);
+                ctx.lineTo(bombX + dir * bombR * 0.6, bombY - bombR * 1.72);
+                ctx.stroke();
+            }
         } else if (weaponMode === 'dual') {
             const dualPhase = this.isAttacking ? attackProgress : 0;
             const rightRaw = this.isAttacking
@@ -2318,8 +2354,9 @@ export class Enemy {
         if (this.isGrounded && this.jumpCooldown <= 0 && Math.random() < chance) {
             let actualPower = power;
             
-            // プレイヤーの位置をチェックしてジャンプ力を調整
-            if (window.game && window.game.player) {
+            // ボスクラス（bossName を持つ）はジャンプ力を制限しない
+            const isBossClass = !!this.bossName;
+            if (!isBossClass && window.game && window.game.player) {
                 const player = window.game.player;
                 // 自分より 50px 以上高い位置にプレイヤーがいないなら、ジャンプ力を抑える
                 const isPlayerHigh = player.y < (this.y - 50);

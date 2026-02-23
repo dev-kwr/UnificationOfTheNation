@@ -291,7 +291,7 @@ class Game {
             cfg.specialClone = def.specialClone;
             cfg.moneyMax = def.moneyMax;
             cfg.money = def.money;
-            cfg.bossRoom = def.bossRoom;
+            // cfg.bossRoom はリセットしない（一括最強のOFF時に影響しないようにする）
             cfg.items = { ...def.items };
             for (const w in cfg.ownedWeapons) cfg.ownedWeapons[w] = def.ownedWeapons[w];
             cfg.startWeapon = def.startWeapon;
@@ -304,7 +304,7 @@ class Game {
                 change: (delta) => { cfg.stage = clamp(cfg.stage + delta, 1, STAGES.length); }
             },
             {
-                label: 'ボス部屋から開始',
+                label: 'ボスから開始',
                 getValue: () => (cfg.bossRoom ? 'ON' : 'OFF'),
                 change: () => { cfg.bossRoom = !cfg.bossRoom; }
             },
@@ -3938,7 +3938,8 @@ class Game {
         
         // 1.5 影（地面とオブジェクトの間）
         if (this.shadowRenderer) {
-            this.shadowRenderer.render(ctx, this.stage, this.player, this.stage.enemies, this.scrollX);
+            // stage.enemies にはボスが含まれないため getAllEnemies() を使う
+            this.shadowRenderer.render(ctx, this.stage, this.player, this.stage.getAllEnemies(), this.scrollX);
         }
         
         // 2. ワールドオブジェクト（スクロール適用）
