@@ -2620,20 +2620,6 @@ export class Enemy {
         if (this.invincibleTimer > 0 && Math.floor(this.invincibleTimer / 70) % 2 === 0) {
             ctx.globalAlpha *= 0.75;
         }
-
-        // 接地影（全敵共通） - フィルタ適用前に描画
-        ctx.fillStyle = 'rgba(0,0,0,0.18)';
-        ctx.beginPath();
-        ctx.ellipse(
-            this.x + this.width / 2,
-            this.y + this.height + 2,
-            Math.max(10, this.width * 0.38),
-            4,
-            0,
-            0,
-            Math.PI * 2
-        );
-        ctx.fill();
         
         // 2.5Dの奥行き感を共通付与（真横シルエットを避ける）
         {
