@@ -2,7 +2,7 @@
 // Unification of the Nation - プレイヤークラス
 // ============================================
 
-import { PLAYER, GRAVITY, FRICTION, CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, LANE_OFFSET } from './constants.js';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js';
 import { input } from './input.js';
 import { audio } from './audio.js';
 import { game } from './game.js';
@@ -1740,78 +1740,6 @@ export class Player {
         return false;
     }
 
-    renderSpecial(ctx) {
-        if (!this.specialCloneAlive) return;
-
-        for (let i = 0; i < this.specialCloneSlots.length; i++) {
-            if (!this.specialCloneAlive[i]) continue;
-            const pos = this.specialClonePositions[i];
-            if (!pos) continue;
-
-            const isAttacking = (this.specialCloneAttackTimers[i] > 0);
-            const isSubWeapon = (this.specialCloneSubWeaponTimers[i] > 0);
-            
-            ctx.save();
-            ctx.globalAlpha = 1.0; // 分身は完全に不透明
-
-            const renderOptions = {
-                renderHeadbandTail: false,
-                useLiveAccessories: false
-            };
-
-            const drawX = pos.x - this.width / 2;
-            const drawY = pos.y - PLAYER.HEIGHT * 0.62;
-
-            if (isAttacking) {
-                const comboStep = (this.specialCloneComboSteps[i] % 5) + 1;
-                const attackDurationMs = 320;
-                
-                // クローン専用のダミー状態を作成して渡す
-                renderOptions.state = {
-                    isAttacking: true,
-                    currentAttack: {
-                        comboStep,
-                        durationMs: attackDurationMs,
-                        range: 90,
-                        type: ANIM_STATE.ATTACK_SLASH,
-                        source: 'main'
-                    },
-                    attackTimer: this.specialCloneAttackTimers[i] || 0,
-                    vx: 0,
-                    vy: 0,
-                    isGrounded: true,
-                    isCrouching: false,
-                    motionTime: this.motionTime
-                };
-                
-                this.renderModel(ctx, drawX, drawY, pos.facingRight, 1.0, true, renderOptions);
-            } else if (isSubWeapon) {
-                // サブ武器状態を同期
-                renderOptions.state = {
-                    subWeaponTimer: this.specialCloneSubWeaponTimers[i],
-                    subWeaponAction: this.specialCloneSubWeaponActions[i],
-                    vx: 0,
-                    vy: 0,
-                    isGrounded: true,
-                    isCrouching: false,
-                    motionTime: this.motionTime
-                };
-                this.renderModel(ctx, drawX, drawY, pos.facingRight, 1.0, true, renderOptions);
-            } else {
-                // 待機中もしゃがみは引き継がない
-                renderOptions.state = {
-                    isCrouching: false,
-                    vx: 0,
-                    vy: 0,
-                    isGrounded: true,
-                    motionTime: this.motionTime
-                };
-                this.renderModel(ctx, drawX, drawY, pos.facingRight, 1.0, true, renderOptions);
-            }
-            ctx.restore();
-        }
-    }
-
     consumeSpecialClone(index = null) {
         if (!this.isUsingSpecial) return false;
         let consumeIndex = index;
@@ -2977,11 +2905,19 @@ export class Player {
                 if (!img) continue;
                 const depthFade = (1 - i / this.afterImages.length);
                 if (isOdachiJumping) {
-                    this.renderModel(ctx, img.x, img.y, img.facingRight, 0.16 + 0.56 * depthFade, false);
+                    this.renderModel(ctx, img.x, img.y, img.facingRight, 0.16 + 0.56 * depthFade, false, {
+                        useLiveAccessories: false,
+                        renderHeadbandTail: false,
+                        renderHair: false
+                    });
                 } else {
                     const isSpecialShadow = img.type === 'special_shadow';
                     const alpha = isSpecialShadow ? 1.0 : (0.3 * depthFade);
-                    this.renderModel(ctx, img.x, img.y, img.facingRight, alpha);
+                    this.renderModel(ctx, img.x, img.y, img.facingRight, alpha, false, {
+                        useLiveAccessories: false,
+                        renderHeadbandTail: false,
+                        renderHair: false
+                    });
                 }
             }
         }
@@ -5394,14 +5330,43 @@ export class Player {
                 const cloneAlpha = invincible && Math.floor(this.specialCloneInvincibleTimers[i] / 70) % 2 === 0
                     ? 0.7 : 1.0;
 
-                // 霧エフェクト
+                // 本体の状態を退避（霧座標の計算に saved.y が必要なため先に定義）
+                const saved = {
+                    isAttacking: this.isAttacking,
+                    currentAttack: this.currentAttack,
+                    attackTimer: this.attackTimer,
+                    attackCombo: this.attackCombo,
+                    subWeaponTimer: this.subWeaponTimer,
+                    subWeaponAction: this.subWeaponAction,
+                    facingRight: this.facingRight,
+                    x: this.x,
+                    y: this.y,
+                    vx: this.vx,
+                    vy: this.vy,
+                    isGrounded: this.isGrounded,
+                    isCrouching: this.isCrouching,
+                    isDashing: this.isDashing,
+                    motionTime: this.motionTime,
+                    subWeaponPoseOverride: this.subWeaponPoseOverride,
+                    height: this.height,
+                    legPhase: this.legPhase,
+                    legAngle: this.legAngle
+                };
+
+                const cloneDrawX = pos.x - this.width * 0.5;
+                const cloneDrawY = this.specialCloneAutoAiEnabled
+                    ? (pos.y - PLAYER.HEIGHT * 0.62)
+                    : (saved.y + saved.height - PLAYER.HEIGHT);
+
+                // 霧エフェクト（描画座標に追従）
+                const mistCenterY = cloneDrawY + PLAYER.HEIGHT * 0.45;
                 ctx.save();
-                const mist = ctx.createRadialGradient(pos.x, pos.y - 14, 2, pos.x, pos.y - 14, 34);
+                const mist = ctx.createRadialGradient(pos.x, mistCenterY, 2, pos.x, mistCenterY, 34);
                 mist.addColorStop(0, `rgba(180, 214, 246, ${cloneAlpha * 0.28})`);
                 mist.addColorStop(1, 'rgba(180, 214, 246, 0)');
                 ctx.fillStyle = mist;
                 ctx.beginPath();
-                ctx.arc(pos.x, pos.y - 14, 34, 0, Math.PI * 2);
+                ctx.arc(pos.x, mistCenterY, 34, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.restore();
 
@@ -5434,37 +5399,6 @@ export class Player {
                     ? cloneAttackProfile.durationMs
                     : (this.currentAttack ? this.currentAttack.durationMs || 320 : 320);
 
-                // 本体の状態を退避
-                const saved = {
-                    isAttacking: this.isAttacking,
-                    currentAttack: this.currentAttack,
-                    attackTimer: this.attackTimer,
-                    attackCombo: this.attackCombo,
-                    subWeaponTimer: this.subWeaponTimer,
-                    subWeaponAction: this.subWeaponAction,
-                    facingRight: this.facingRight,
-                    x: this.x,
-                    y: this.y,
-                    vx: this.vx,
-                    vy: this.vy,
-                    isGrounded: this.isGrounded,
-                    isCrouching: this.isCrouching,
-                    isDashing: this.isDashing,
-                    motionTime: this.motionTime,
-                    subWeaponPoseOverride: this.subWeaponPoseOverride,
-                    height: this.height,
-                    legPhase: this.legPhase,
-                    legAngle: this.legAngle
-                };
-
-                // ★savedの後にcloneDrawYを定義
-                const cloneDrawX = pos.x - this.width * 0.5;
-                // Lv0〜2: saved.yはしゃがみ時にheight=HEIGHT/2基準にずれているため、
-                // 足元(saved.y + saved.height)からPLAYER.HEIGHT分上を描画起点とする
-                const cloneDrawY = this.specialCloneAutoAiEnabled
-                    ? (pos.y - PLAYER.HEIGHT * 0.62)
-                    : (saved.y + saved.height - PLAYER.HEIGHT);
-
                 // 分身の状態をセット
                 this.x = cloneDrawX;
                 this.y = cloneDrawY;
@@ -5473,16 +5407,12 @@ export class Player {
                 this.motionTime = saved.motionTime + i * 400;
 
                 if (this.specialCloneAutoAiEnabled) {
-                    // Lv3: 独自の状態
-                    // renderVxは分身自身のワールド移動量だが、スクロール時はプレイヤーのワールドX座標が
-                    // 変わらずrenderVx=0になる場合があるため、本体vxも考慮して大きい方を採用する
                     const rawRenderVx = pos.renderVx || 0;
                     this.vx = Math.abs(rawRenderVx) >= Math.abs(saved.vx) ? rawRenderVx : saved.vx;
                     this.vy = pos.cloneVy || 0;
                     this.isGrounded = !(pos.jumping);
                     this.isCrouching = false;
                     this.isDashing = false;
-                    // 分身独自のlegPhase/legAngleをセット（本体のジャンプ状態に引きずられないよう）
                     this.legPhase = pos.legPhase || 0;
                     this.legAngle = pos.legAngle || 0;
                     this.subWeaponTimer = this.specialCloneSubWeaponTimers[i] || 0;
@@ -5494,7 +5424,6 @@ export class Player {
                         }
                         : null;
                 } else {
-                    // Lv0〜2: 本体の状態をコピー（ジャンプ含む）
                     this.vx = saved.vx;
                     this.vy = saved.vy;
                     this.isGrounded = saved.isGrounded;
@@ -5505,18 +5434,15 @@ export class Player {
                     this.subWeaponPoseOverride = null;
                 }
 
-                // ★修正: 攻撃状態のセット
                 if (isCloneAttacking) {
                     this.isAttacking = true;
                     this.attackCombo = cloneComboStep;
                     if (this.specialCloneAutoAiEnabled) {
-                        // Lv3: 独自の攻撃プロファイル
                         this.currentAttack = {
                             ...cloneAttackProfile,
                             comboStep: cloneComboStep
                         };
                     } else {
-                        // Lv0〜2: 本体の攻撃をそのままコピー
                         this.currentAttack = saved.currentAttack;
                     }
                     this.attackTimer = cloneAttackTimer;
@@ -5545,7 +5471,6 @@ export class Player {
                     }
                 }
 
-                // 全レベル共通で根元を正しい位置にセット
                 const savedScarf = this.scarfNodes;
                 const savedHair = this.hairNodes;
 
@@ -5609,7 +5534,6 @@ export class Player {
                     dualBlade.attackDirection = this.facingRight ? 1 : -1;
                     dualBlade.comboIndex = dualComboIndex;
                     dualBlade.attackTimer = dualAttackTimer;
-                    // 分身描画では飛翔弾を重ねない
                     dualBlade.projectiles = [];
                     dualBlade.render(ctx, this);
                     dualBlade.isAttacking = dualSaved.isAttacking;

@@ -2124,8 +2124,8 @@ export class Nodachi extends SubWeapon {
         this.impactDebris = [];
         this.liftEnd = 0.32;
         this.stallEnd = 0.46;
-        this.flipEnd = 0.58;
-        this.baseImpactStart = 0.9;
+        this.flipEnd = 0.78;
+        this.baseImpactStart = 0.92;
         this.impactStart = this.baseImpactStart;
         this.attackDirection = 1;
         // 着地後の「刺さり演出」用タイマー
@@ -2139,13 +2139,14 @@ export class Nodachi extends SubWeapon {
 
     applyEnhanceTier(tier) {
         super.applyEnhanceTier(tier);
+        // totalDuration の短縮を緩やかにする（0.08 → 0.035 per tier）
         this.totalDuration = Math.max(
-            520,
-            Math.round(this.baseTotalDuration * (1 - this.enhanceTier * 0.08))
+            620,
+            Math.round(this.baseTotalDuration * (1 - this.enhanceTier * 0.035))
         );
-        this.impactStart = Math.max(0.72, this.baseImpactStart - this.enhanceTier * 0.045);
+        // impactStart の短縮も緩やかに（0.045 → 0.025 per tier）
+        this.impactStart = Math.max(0.78, this.baseImpactStart - this.enhanceTier * 0.025);
         this.plantedDuration = Math.round(this.basePlantedDuration * (1 + this.enhanceTier * 0.12));
-        // 強化ティアが変わる可能性があるので、グラデーションキャッシュをクリア
         this._cachedBladeGrad = null;
         this._cachedWaveGrad = null;
     }
@@ -2393,6 +2394,10 @@ export class Nodachi extends SubWeapon {
                         // 滞空 (stall)
                         this.owner.vy *= 0.78;
                         if (Math.abs(this.owner.vy) < 1.0) this.owner.vy = 0;
+                    } else if (progress < this.flipEnd) {
+                        // 回転中 (flip) — 空中に留まる
+                        this.owner.vy *= 0.7;
+                        if (Math.abs(this.owner.vy) < 1.5) this.owner.vy = 0;
                     }
                     
                     // 2. 下降時 (flipEnd 以降)
@@ -2539,12 +2544,12 @@ export class Nodachi extends SubWeapon {
             const blade = this.getBladeGeometry(pose);
             ctx.save();
             ctx.translate(pose.handX, pose.handY);
+            ctx.scale(pose.direction, 1);
             ctx.rotate(pose.rotation);
 
             // 柄（色を濃く、重厚に）
             const handleBack = -34;
             const handleFront = 21;
-            // ベースの色を暗い褐色に
             ctx.fillStyle = '#3d2310';
             ctx.beginPath();
             ctx.rect(handleBack, -4.5, handleFront - handleBack, 9);
@@ -2568,7 +2573,7 @@ export class Nodachi extends SubWeapon {
             ctx.strokeRect(handleBack, -4.5, handleFront - handleBack, 9);
 
             // 鍔（少し使い込まれた金の色）
-            ctx.fillStyle = '#b59345'; // くすんだ金
+            ctx.fillStyle = '#b59345';
             ctx.beginPath();
             ctx.moveTo(16.5, -5.8);
             ctx.quadraticCurveTo(21.5, -8.0, 24.5, -1.1);
@@ -2580,15 +2585,15 @@ export class Nodachi extends SubWeapon {
             ctx.fillStyle = '#8c6b2a';
             ctx.fillRect(13.2, -4.8, 3.2, 9.6);
 
-            // 刀身（コントラストを強めたメタリックなグラデーション）
+            // 刀身
             const bladeStart = blade.bladeStart;
             const bladeEnd = blade.bladeEnd;
             const bladeGrad = ctx.createLinearGradient(bladeStart, -6, bladeEnd, 6);
-            bladeGrad.addColorStop(0, '#e5e7eb'); // 根本は明るく
+            bladeGrad.addColorStop(0, '#e5e7eb');
             bladeGrad.addColorStop(0.15, '#9ca3af');
-            bladeGrad.addColorStop(0.4, '#ffffff'); // 強い反射光
-            bladeGrad.addColorStop(0.7, '#4b5563'); // 中間の影
-            bladeGrad.addColorStop(1, '#1f2937'); // 切先は重く暗い影
+            bladeGrad.addColorStop(0.4, '#ffffff');
+            bladeGrad.addColorStop(0.7, '#4b5563');
+            bladeGrad.addColorStop(1, '#1f2937');
             
             ctx.fillStyle = bladeGrad;
             ctx.beginPath();
@@ -2601,7 +2606,6 @@ export class Nodachi extends SubWeapon {
             ctx.closePath();
             ctx.fill();
             
-            // 刀身の縁取り（より鋭利に）
             ctx.strokeStyle = '#374151';
             ctx.lineWidth = 1.0;
             ctx.stroke();
@@ -2626,7 +2630,6 @@ export class Nodachi extends SubWeapon {
             ctx.restore();
 
             // --- 空中斬撃エフェクト (Air Slash) ---
-            // 振り下ろし（flip）開始から着地（impact）まで描画
             if (this.isAttacking && !this.hasImpacted && pose.progress > this.stallEnd) {
                 const slashPhase = Math.max(0, Math.min(1, (pose.progress - this.stallEnd) / (this.impactStart - this.stallEnd)));
                 const slashAlpha = Math.sin(slashPhase * Math.PI) * 0.85;
@@ -2635,43 +2638,51 @@ export class Nodachi extends SubWeapon {
                     ctx.save();
                     ctx.globalCompositeOperation = 'lighter';
                     
-                    // 軌道の中心を手の位置に合わせる
                     ctx.translate(pose.handX, pose.handY);
-                    
+                    ctx.scale(pose.direction, 1);
+
                     const arcRadius = pose.bladeLen + 6;
-                // 刀身の向き（rotation）を基準に、後ろから前への弧を描く
-                const arcBack = 1.35;
-                const arcFront = 0.25;
-                const startAngle = pose.rotation - pose.direction * arcBack;
-                const endAngle = pose.rotation + pose.direction * arcFront;
-                
-                // 外側の発光
-                ctx.strokeStyle = `rgba(255, 210, 160, ${slashAlpha * 0.3})`;
-                ctx.lineWidth = 22;
-                ctx.beginPath();
-                ctx.arc(0, 0, arcRadius, startAngle, endAngle, pose.direction < 0);
-                ctx.stroke();
-                
-                // メインの鋭い光
-                ctx.strokeStyle = `rgba(255, 250, 230, ${slashAlpha * 0.85})`;
-                ctx.lineWidth = 6;
-                ctx.beginPath();
-                ctx.arc(0, 0, arcRadius, startAngle + pose.direction * 0.15, endAngle, pose.direction < 0);
-                ctx.stroke();
-                
-                // 芯のハイライト
-                ctx.strokeStyle = `rgba(255, 255, 255, ${slashAlpha})`;
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(0, 0, arcRadius, startAngle + pose.direction * 0.3, endAngle - pose.direction * 0.05, pose.direction < 0);
-                ctx.stroke();
-                
-                ctx.restore();
+                    
+                    // 剣は真上(-PI/2)から真下(PI/2)へ振り下ろす
+                    // 剣筋の起点は常に真上（振り始めの位置）に固定
+                    const swingOrigin = -Math.PI * 0.5;
+                    const arcLead = 0.15;
+                    
+                    const startAngle = swingOrigin;
+                    const endAngle = pose.rotation + arcLead;
+                    
+                    const arcSpan = endAngle - startAngle;
+                    if (arcSpan > 0.05) {
+                        // 外側の発光
+                        ctx.strokeStyle = `rgba(255, 210, 160, ${slashAlpha * 0.3})`;
+                        ctx.lineWidth = 22;
+                        ctx.beginPath();
+                        ctx.arc(0, 0, arcRadius, startAngle, endAngle, false);
+                        ctx.stroke();
+                        
+                        // メインの鋭い光（尾側30%をフェード）
+                        const fadeStart = startAngle + arcSpan * 0.3;
+                        ctx.strokeStyle = `rgba(255, 250, 230, ${slashAlpha * 0.85})`;
+                        ctx.lineWidth = 6;
+                        ctx.beginPath();
+                        ctx.arc(0, 0, arcRadius, fadeStart, endAngle, false);
+                        ctx.stroke();
+                        
+                        // 芯のハイライト（先端50%のみ）
+                        const coreStart = startAngle + arcSpan * 0.5;
+                        ctx.strokeStyle = `rgba(255, 255, 255, ${slashAlpha})`;
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.arc(0, 0, arcRadius, coreStart, endAngle - 0.05, false);
+                        ctx.stroke();
+                    }
+                    
+                    ctx.restore();
+                }
             }
         }
-        }
 
-        // 着地インパクト (より激しく)
+        // 着地インパクト
         if (this.impactFlashTimer > 0) {
             const alpha = Math.max(0, this.impactFlashTimer / 170);
             ctx.save();
@@ -2691,7 +2702,7 @@ export class Nodachi extends SubWeapon {
             ctx.restore();
         }
 
-        // 衝撃波 (グラデーションとシャドウでリッチに)
+        // 衝撃波
         if (this.groundWaves && this.groundWaves.length > 0) {
             for (let i = 0; i < this.groundWaves.length; i++) {
                 const sw = this.groundWaves[i];
@@ -2707,8 +2718,6 @@ export class Nodachi extends SubWeapon {
                 ctx.globalAlpha = ratio * 1.5;
                 ctx.globalCompositeOperation = 'lighter';
                 
-                // 波グラデーション
-                // sw.thickness が存在しない場合のフォールバックを追加
                 const thickness = sw.thickness || 8;
                 const waveGrad = ctx.createLinearGradient(0, -thickness, 0, thickness);
                 waveGrad.addColorStop(0, 'rgba(255, 200, 50, 0)');
@@ -2722,7 +2731,6 @@ export class Nodachi extends SubWeapon {
                 ctx.quadraticCurveTo(24, thickness * 0.4, 0, 2);
                 ctx.fill();
 
-                // コアの鋭い光
                 const coreValue = sw.core || 4;
                 ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
                 ctx.beginPath();
