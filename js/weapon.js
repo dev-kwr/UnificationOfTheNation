@@ -2208,12 +2208,14 @@ export class Nodachi extends SubWeapon {
         // 非攻撃時は「構え」ポーズ
         if (!this.isAttacking) {
             phase = 'ready';
-            // プレイヤーやボスのIdle時に合わせた、少し斜め前の構え
-            rotation = (-0.15 + Math.sin(player.motionTime * 0.0078) * 0.045) * direction;
-            if (direction === -1) rotation = Math.PI - rotation;
+            // 刃を下・峰を上にして前方斜め上に構える（約-60度＝右斜め上方向）
+            // ctx.scale(direction, 1) が水平反転を担うため、左右ともに同じ angle を使う
+            // ほぼ水平のやや上向き＋前方に構える
+            const baseAngle = -Math.PI * 0.10 + Math.sin(player.motionTime * 0.0078) * 0.03;
+            rotation = baseAngle;
             
-            const handX = centerX + direction * (player.width * 0.1);
-            const handY = player.y + player.height * 0.45 + (player.bob || 0) * 0.8;
+            const handX = centerX + direction * (player.width * 0.48);
+            const handY = player.y + player.height * 0.40 + (player.bob || 0) * 0.8;
             
             return { progress, phase, direction, rotation, handX, handY, bladeLen };
         }
@@ -2286,7 +2288,10 @@ export class Nodachi extends SubWeapon {
     getHandAnchor(player) {
         const pose = this.getPose(player);
         // 刃の部分にかからないよう、柄の端方向（負の方向）へオフセットを拡大
-        const gripOffset = (pose.phase === 'plunge' || pose.phase === 'planted') ? -26 : -18;
+        // ready（構え）時は柄の中央寄りをしっかり握る
+        const gripOffset = (pose.phase === 'plunge' || pose.phase === 'planted') ? -26
+                         : (pose.phase === 'ready') ? -10
+                         : -18;
         return {
             x: pose.handX + Math.cos(pose.rotation) * gripOffset,
             y: pose.handY + Math.sin(pose.rotation) * gripOffset,

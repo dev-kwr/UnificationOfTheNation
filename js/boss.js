@@ -888,8 +888,10 @@ export class OdachiBusho extends Boss {
         const supportShoulderY = shoulderY + 2.8;
         const weaponDirX = Math.cos(gripRotation);
         const weaponDirY = Math.sin(gripRotation);
-        const supportTargetX = handX - weaponDirX * 12.5 - weaponDirY * 1.4;
-        const supportTargetY = handY - weaponDirY * 12.5 + weaponDirX * 1.4;
+        // 副手は主手より柄尻側（約22px後方）をしっかり握る
+        const supportGripBack = odachi && !odachi.isAttacking ? 22 : 12.5;
+        const supportTargetX = handX - weaponDirX * supportGripBack - weaponDirY * 1.4;
+        const supportTargetY = handY - weaponDirY * supportGripBack + weaponDirX * 1.4;
         
         this.drawJointedArm(ctx, {
             shoulderX: supportShoulderX,
