@@ -8,6 +8,9 @@ import { createSubWeapon } from './weapon.js';
 import { audio } from './audio.js';
 import { Player, ANIM_STATE } from './player.js';
 
+// ラスボス（将軍）の全体スケール。ここだけ変更すれば倍率調整できる。
+const SHOGUN_SCALE = 2.0;
+
 // ボスベースクラス
 class Boss extends Enemy {
     init() {
@@ -1087,20 +1090,23 @@ export class Shogun extends Boss {
     init() {
         super.init();
         this.bossName = '将軍';
+        this.scaleMultiplier = SHOGUN_SCALE;
         this.hp = 4500;
         this.maxHp = 4500;
         this.damage = 6;
         this.speed = 3.8;
-        this.attackRange = 120;
+        this.attackRange = Math.round(120 * this.scaleMultiplier);
         this.incomingDamageScale = 0.55;
         this.weaponReplica = null;
 
-        this.width  = 40;
-        this.height = 60;
+        this.actorBaseWidth = 40;
+        this.actorBaseHeight = 60;
+        this.width  = Math.round(this.actorBaseWidth * this.scaleMultiplier);
+        this.height = Math.round(this.actorBaseHeight * this.scaleMultiplier);
 
         this.actor = new Player(0, 0, this.groundY);
-        this.actor.width  = this.width;
-        this.actor.height = this.height;
+        this.actor.width  = this.actorBaseWidth;
+        this.actor.height = this.actorBaseHeight;
         this.actor.progression = {
             normalCombo: 3,
             subWeapon:   3,
@@ -1136,6 +1142,7 @@ export class Shogun extends Boss {
             kusarigama: createSubWeapon('鎖鎌'),
             odachi:     createSubWeapon('大太刀'),
         };
+        this.applyScaleToSubWeapons();
 
         this.isCrouching  = false;
         this.progression  = { subWeapon: 3, normalCombo: 3 };
@@ -1146,6 +1153,28 @@ export class Shogun extends Boss {
         this.getSubWeaponCloneOffsets = () => [];
         this.triggerCloneSubWeapon    = () => {};
         this.getFootY = () => this.y + this.height;
+    }
+
+    applyScaleToSubWeapons() {
+        const scale = Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1;
+        if (Math.abs(scale - 1) < 0.001 || !this._subWeaponInstances) return;
+
+        const scaleNum = (obj, key) => {
+            if (!obj || !Number.isFinite(obj[key])) return;
+            obj[key] *= scale;
+        };
+
+        for (const inst of Object.values(this._subWeaponInstances)) {
+            if (!inst) continue;
+            scaleNum(inst, 'range');
+            scaleNum(inst, 'baseRange');
+        }
+
+        const shuriken = this._subWeaponInstances.shuriken;
+        if (shuriken) {
+            scaleNum(shuriken, 'projectileRadius');
+            scaleNum(shuriken, 'projectileRadiusHoming');
+        }
     }
 
     updateAI(deltaTime, player) {
@@ -1236,8 +1265,8 @@ export class Shogun extends Boss {
         this.actor.specialCloneSubWeaponActions[0] = this._subAction;
         this.actor.motionTime = this.motionTime;
         this.actor.speed      = this.speed;
-        this.actor.width      = this.width;
-        this.actor.height     = this.height;
+        this.actor.width      = this.actorBaseWidth;
+        this.actor.height     = this.actorBaseHeight;
 
         this.actor.currentSubWeapon = (this._subWeaponKey === 'dual')
             ? this._subWeaponInstances['dual']
@@ -1600,6 +1629,10 @@ export class Shogun extends Boss {
             for (let bi = bombsBefore; bi < window.game.bombs.length; bi++) {
                 const b = window.game.bombs[bi];
                 if (!b) continue;
+                if (Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 1) {
+                    if (Number.isFinite(b.radius)) b.radius *= this.scaleMultiplier;
+                    if (Number.isFinite(b.explosionRadius)) b.explosionRadius *= this.scaleMultiplier;
+                }
                 b.isEnemyProjectile = true;
                 b.owner = owner;
                 // game.jsがisEnemyProjectile===trueのbombに呼ぶgetHitbox()を追加
@@ -1651,25 +1684,12 @@ export class Shogun extends Boss {
     renderBody(ctx) {
         const i = 0;
 
-        const trailPoints = this.actor.specialCloneSlashTrailPoints[i];
-        if (trailPoints && trailPoints.length > 1) {
-            const trailScale = typeof this.actor.getXAttackTrailWidthScale === 'function'
-                ? this.actor.getXAttackTrailWidthScale()
-                : 1.0;
-            this.actor.renderComboSlashTrail(ctx, {
-                points: trailPoints,
-                centerX: this.x + this.width * 0.5,
-                centerY: this.y + this.height * 0.5,
-                trailWidthScale: trailScale,
-                boostActive: trailScale > 1.01 && this._attackTimer > 0,
-            });
-        }
-
         const saved = {
             isAttacking:          this.actor.isAttacking,
             currentAttack:        this.actor.currentAttack,
             attackTimer:          this.actor.attackTimer,
             attackCombo:          this.actor.attackCombo,
+            width:                this.actor.width,
             subWeaponTimer:       this.actor.subWeaponTimer,
             subWeaponAction:      this.actor.subWeaponAction,
             currentSubWeapon:     this.actor.currentSubWeapon,
@@ -1686,15 +1706,25 @@ export class Shogun extends Boss {
             forceSubWeaponRender: this.actor.forceSubWeaponRender,
         };
 
-        this.actor.x           = this.x;
-        this.actor.y           = this.y;
+        const renderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
+            ? this.scaleMultiplier
+            : 1;
+        const actorRenderW = this.actorBaseWidth || Math.max(1, Math.round(this.width / renderScale));
+        const actorRenderH = this.actorBaseHeight || Math.max(1, Math.round(this.height / renderScale));
+        // 2Dモデルを等比拡大した後も足元が地面に合うよう、元モデル座標を補正
+        const actorRenderX = this.x + (this.width - actorRenderW) * 0.5;
+        const actorRenderY = this.y + (this.height - actorRenderH) * 0.62;
+
+        this.actor.x           = actorRenderX;
+        this.actor.y           = actorRenderY;
         this.actor.vx          = this.vx;
         this.actor.vy          = this.vy;
         this.actor.isGrounded  = this.isGrounded;
         this.actor.isCrouching = false;
         this.actor.isDashing   = false;
         this.actor.motionTime  = this.motionTime;
-        this.actor.height      = this.height;
+        this.actor.width       = actorRenderW;
+        this.actor.height      = actorRenderH;
         this.actor.facingRight = this.facingRight;
 
         const renderOpts = {
@@ -1704,6 +1734,17 @@ export class Shogun extends Boss {
             // throw時は通常のプレイヤー投擲姿勢（奥手の刀＋手前手投擲）を使う
             forceSubWeaponRender: (this._subTimer > 0 && this._subAction != null && this._subAction !== 'throw'),
         };
+
+        // 将軍は戦闘判定レンジを拡大しているため、
+        // 描画時だけ逆補正しないと槍/鎖鎌/大太刀の見た目が過剰に伸びる。
+        const scaledRangeBackups = [];
+        if (Math.abs(renderScale - 1) > 0.001 && this._subWeaponInstances) {
+            for (const inst of Object.values(this._subWeaponInstances)) {
+                if (!inst || !Number.isFinite(inst.range)) continue;
+                scaledRangeBackups.push([inst, inst.range]);
+                inst.range = inst.range / renderScale;
+            }
+        }
 
         if (this._attackTimer > 0) {
             const comboStep = this._currentComboStep || ((this._comboStep % 5) + 1);
@@ -1758,7 +1799,7 @@ export class Shogun extends Boss {
             this.actor.currentSubWeapon = null;
         }
 
-        {
+        const renderWithShogunTransform = (drawFn) => {
             const dir2d = this.facingRight ? 1 : -1;
             const pivotX = this.x + this.width * 0.5;
             const pivotY = this.y + this.height * 0.62;
@@ -1770,30 +1811,43 @@ export class Shogun extends Boss {
             ctx.transform(1, 0, -yawSkew / 0.982, 1, 0, 0);
             ctx.scale(1 / 0.982, 1);
             ctx.translate(-pivotX, -pivotY);
-            this.actor.renderModel(ctx, this.x, this.y, this.facingRight, 1.0, true, renderOpts);
+            if (Math.abs(renderScale - 1) > 0.001) {
+                ctx.translate(pivotX, pivotY);
+                ctx.scale(renderScale, renderScale);
+                ctx.translate(-pivotX, -pivotY);
+            }
+            drawFn();
             ctx.restore();
+        };
+
+        const trailPoints = this.actor.specialCloneSlashTrailPoints[i];
+        if (trailPoints && trailPoints.length > 1) {
+            const trailScale = typeof this.actor.getXAttackTrailWidthScale === 'function'
+                ? this.actor.getXAttackTrailWidthScale()
+                : 1.0;
+            renderWithShogunTransform(() => {
+                this.actor.renderComboSlashTrail(ctx, {
+                    points: trailPoints,
+                    centerX: this.x + this.width * 0.5,
+                    centerY: this.y + this.height * 0.5,
+                    trailWidthScale: trailScale,
+                    boostActive: trailScale > 1.01 && this._attackTimer > 0,
+                });
+            });
         }
+
+        renderWithShogunTransform(() => {
+            this.actor.renderModel(ctx, actorRenderX, actorRenderY, this.facingRight, 1.0, true, renderOpts);
+        });
 
         if (this._subTimer > 0 && this._subWeaponKey === 'kusarigama') {
             const kusaInst = this._subWeaponInstances['kusarigama'];
             if (kusaInst && typeof kusaInst.render === 'function') {
                 const wasAttacking = kusaInst.isAttacking;
                 if (!wasAttacking) kusaInst.isAttacking = true;
-                {
-                    const dir2d = this.facingRight ? 1 : -1;
-                    const pivotX = this.x + this.width * 0.5;
-                    const pivotY = this.y + this.height * 0.62;
-                    const moveBias = Math.min(0.024, Math.abs(this.vx || 0) * 0.0038);
-                    const attackBias = this.isAttacking ? 0.013 : 0;
-                    const yawSkew = dir2d * (0.046 + moveBias + attackBias);
-                    ctx.save();
-                    ctx.translate(pivotX, pivotY);
-                    ctx.transform(1, 0, -yawSkew / 0.982, 1, 0, 0);
-                    ctx.scale(1 / 0.982, 1);
-                    ctx.translate(-pivotX, -pivotY);
+                renderWithShogunTransform(() => {
                     kusaInst.render(ctx, this.actor);
-                    ctx.restore();
-                }
+                });
                 if (!wasAttacking) kusaInst.isAttacking = false;
             }
         }
@@ -1811,21 +1865,9 @@ export class Shogun extends Boss {
             if (dualInst && typeof dualInst.render === 'function') {
                 const wasAttacking = dualInst.isAttacking;
                 if (!wasAttacking) dualInst.isAttacking = true;
-                {
-                    const dir2d = this.facingRight ? 1 : -1;
-                    const pivotX = this.x + this.width * 0.5;
-                    const pivotY = this.y + this.height * 0.62;
-                    const moveBias = Math.min(0.024, Math.abs(this.vx || 0) * 0.0038);
-                    const attackBias = this.isAttacking ? 0.013 : 0;
-                    const yawSkew = dir2d * (0.046 + moveBias + attackBias);
-                    ctx.save();
-                    ctx.translate(pivotX, pivotY);
-                    ctx.transform(1, 0, -yawSkew / 0.982, 1, 0, 0);
-                    ctx.scale(1 / 0.982, 1);
-                    ctx.translate(-pivotX, -pivotY);
+                renderWithShogunTransform(() => {
                     dualInst.render(ctx, this.actor);
-                    ctx.restore();
-                }
+                });
                 if (!wasAttacking) dualInst.isAttacking = false;
             }
         }
@@ -1839,10 +1881,17 @@ export class Shogun extends Boss {
             }
         }
 
+        if (scaledRangeBackups.length > 0) {
+            for (const [inst, rangeValue] of scaledRangeBackups) {
+                inst.range = rangeValue;
+            }
+        }
+
         this.actor.isAttacking          = saved.isAttacking;
         this.actor.currentAttack        = saved.currentAttack;
         this.actor.attackTimer          = saved.attackTimer;
         this.actor.attackCombo          = saved.attackCombo;
+        this.actor.width                = saved.width;
         this.actor.subWeaponTimer       = saved.subWeaponTimer;
         this.actor.subWeaponAction      = saved.subWeaponAction;
         this.actor.currentSubWeapon     = saved.currentSubWeapon;

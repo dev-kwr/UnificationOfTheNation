@@ -2602,10 +2602,14 @@ export class Nodachi extends SubWeapon {
             
             ctx.fillStyle = bladeGrad;
             ctx.beginPath();
+            const tipX = blade.bladeEnd + 4.8;
+            const tipY = -0.7;
             ctx.moveTo(blade.bladeStart, -5.2);
-            ctx.quadraticCurveTo(blade.bladeStart + 28, -12.5, blade.bladeStart + 68, -9.2);
-            ctx.quadraticCurveTo(blade.bladeEnd - 20, -6.8, blade.bladeEnd + 4, -0.8);
-            ctx.quadraticCurveTo(blade.bladeEnd - 8, 4.5, blade.bladeEnd - 24, 6.2);
+            ctx.quadraticCurveTo(blade.bladeStart + 30, -12.3, blade.bladeStart + 72, -9.3);
+            ctx.quadraticCurveTo(blade.bladeEnd - 18, -6.9, blade.bladeEnd - 3.5, -3.8);
+            // 切先を単一点にして先割れに見える破綻を防ぐ
+            ctx.lineTo(tipX, tipY);
+            ctx.quadraticCurveTo(blade.bladeEnd - 7.8, 4.8, blade.bladeEnd - 24, 6.3);
             ctx.quadraticCurveTo(blade.bladeStart + 38, 8.4, blade.bladeStart + 7, 5.8);
             ctx.quadraticCurveTo(blade.bladeStart - 2, 2.8, blade.bladeStart, -5.2);
             ctx.closePath();
@@ -2613,6 +2617,10 @@ export class Nodachi extends SubWeapon {
             
             ctx.strokeStyle = '#374151';
             ctx.lineWidth = 1.0;
+            // 拡大時に切先の鋭角でミタージョインが飛び出し、
+            // 「先割れ」のように見えるのを防ぐ。
+            ctx.lineJoin = 'round';
+            ctx.miterLimit = 2;
             ctx.stroke();
 
             // 切先の返しハイライト
