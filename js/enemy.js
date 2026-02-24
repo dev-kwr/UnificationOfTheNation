@@ -2599,11 +2599,10 @@ export class Enemy {
         
         ctx.save();
         
-        // 死亡演出中（幽体化）
+        // 死亡演出中
         if (this.isDying) {
             const progress = this.deathTimer / this.deathDuration;
             ctx.globalAlpha = 0.7 * (1 - progress);
-            // 黒い棒人間シルエットは残像感が強いため廃止し、粒子のみ残す
             this.renderAscensionEffect(ctx);
             ctx.restore();
             return;

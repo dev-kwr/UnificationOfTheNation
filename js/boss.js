@@ -80,6 +80,18 @@ class Boss extends Enemy {
         }
 
         const shouldRemove = super.update(deltaTime, player);
+        if (!shouldRemove && !this.isEntering && this.isAlive && !this.isDying) {
+            const scrollX = window.game ? window.game.scrollX : 0;
+            const minX = scrollX;
+            const maxX = scrollX + CANVAS_WIDTH - this.width;
+            if (this.x < minX) {
+                this.x = minX;
+                if (this.vx < 0) this.vx = 0;
+            } else if (this.x > maxX) {
+                this.x = maxX;
+                if (this.vx > 0) this.vx = 0;
+            }
+        }
         const shouldKeepReplicaEffects = this.weaponReplica &&
             typeof this.weaponReplica.update === 'function' &&
             !this.isAttacking;
@@ -268,6 +280,153 @@ class Boss extends Enemy {
     
     renderBody(ctx) {
         // サブクラスでオーバーライド
+    }
+
+    /**
+     * ボス専用の撃破エフェクト。
+     * 通常敵の白粒子ではなく、衝撃波リング・炎粒子・光の爆発で演出する。
+     */
+    renderAscensionEffect(ctx) {
+        const cx = this.x + this.width / 2;
+        const cy = this.y + this.height / 2;
+        const t  = this.deathTimer;
+        const p  = Math.min(1, t / this.deathDuration);
+        const invP = 1 - p;
+
+        ctx.save();
+        ctx.globalAlpha = 1.0;
+
+        // ─── 1. 衝撃波リング（複数段）───
+        ctx.globalCompositeOperation = 'lighter';
+
+        const waveParams = [
+            { delay: 0.00, maxR:  80, baseWidth: 12, color: [255, 245, 120], alphaScale: 1.00 },
+            { delay: 0.18, maxR: 128, baseWidth:  8, color: [255, 190,  40], alphaScale: 0.78 },
+            { delay: 0.34, maxR: 176, baseWidth:  6, color: [255, 120,  10], alphaScale: 0.58 },
+            { delay: 0.50, maxR: 230, baseWidth:  4, color: [255,  60,   0], alphaScale: 0.40 },
+        ];
+
+        // radialGradientでリングを描画（アンチエイリアシングの黒アーティファクトを回避）
+        const drawGlowRing = (centerX, centerY, radius, halfWidth, r, g, b, alpha) => {
+            if (radius <= 0 || halfWidth <= 0 || alpha < 0.005) return;
+            const innerR = Math.max(0, radius - halfWidth);
+            const outerR = radius + halfWidth;
+            const peakPos = halfWidth > 0 ? (radius - innerR) / (outerR - innerR) : 0.5;
+            const grd = ctx.createRadialGradient(centerX, centerY, innerR, centerX, centerY, outerR);
+            grd.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0)`);
+            grd.addColorStop(Math.max(0.01, peakPos * 0.5), `rgba(${r}, ${g}, ${b}, ${alpha * 0.4})`);
+            grd.addColorStop(peakPos, `rgba(${r}, ${g}, ${b}, ${alpha})`);
+            grd.addColorStop(Math.min(0.99, peakPos + (1 - peakPos) * 0.5), `rgba(${r}, ${g}, ${b}, ${alpha * 0.4})`);
+            grd.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+            ctx.fillStyle = grd;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, outerR, 0, Math.PI * 2);
+            ctx.fill();
+        };
+
+        for (const wp of waveParams) {
+            const waveP = Math.max(0, Math.min(1, (p - wp.delay) / (1 - wp.delay)));
+            if (waveP <= 0) continue;
+
+            const r = waveP * wp.maxR;
+            if (r < 1) continue;
+            const alpha = Math.pow(1 - waveP, 1.3) * wp.alphaScale;
+            if (alpha < 0.01) continue;
+            const lw = Math.max(0.5, wp.baseWidth * (1 - waveP * 0.7));
+            const [cr, cg, cb] = wp.color;
+
+            // 外グロー
+            drawGlowRing(cx, cy, r, lw * 2.5, cr, cg, cb, alpha * 0.25);
+
+            // 中グロー
+            drawGlowRing(cx, cy, r, lw * 1.25, cr, cg, cb, alpha * 0.50);
+
+            // コア
+            drawGlowRing(cx, cy, r, lw * 0.4,
+                255, 255, Math.min(255, cb + 80), alpha * 0.95);
+        }
+
+        // ─── 2. 中心フラッシュ（序盤だけ強く光る）───
+        if (p < 0.45) {
+            const flashP = 1 - p / 0.45;
+            const flashR = 55 + (1 - flashP) * 30;
+            const flashGrd = ctx.createRadialGradient(cx, cy, 0, cx, cy, flashR);
+            flashGrd.addColorStop(0, `rgba(255, 255, 220, ${0.9 * flashP})`);
+            flashGrd.addColorStop(0.35, `rgba(255, 200, 80, ${0.6 * flashP})`);
+            flashGrd.addColorStop(1, `rgba(255, 100, 0, 0)`);
+            ctx.fillStyle = flashGrd;
+            ctx.beginPath();
+            ctx.arc(cx, cy, flashR, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // ─── 3. 炎のスパーク粒子（上昇しながら拡散）───
+        const sparkCount = 20;
+        for (let i = 0; i < sparkCount; i++) {
+            const seed1 = Math.sin(i * 127.1) * 43758.5453;
+            const seed2 = Math.sin(i * 311.7 + 9.1) * 21943.2;
+            const rndX  = (seed1 - Math.floor(seed1)) * 2 - 1;
+            const rndY  = (seed2 - Math.floor(seed2));
+
+            const lifespan  = 0.45 + rndY * 0.55;
+            const born      = (i / sparkCount) * 0.4;
+            const localP    = Math.max(0, Math.min(1, (p - born) / lifespan));
+            if (localP <= 0 || localP >= 1) continue;
+
+            const spread   = 50 + rndY * 45;
+            const px       = cx + rndX * spread * localP;
+            const py       = cy - localP * (60 + rndY * 50);
+            const size     = (2.5 + rndY * 3.5) * (1 - localP);
+            const sparkAlpha = (1 - localP) * 0.9;
+
+            const pGrd = ctx.createRadialGradient(px, py, 0, px, py, size * 2.2);
+            pGrd.addColorStop(0,   `rgba(255, 255, 200, ${sparkAlpha})`);
+            pGrd.addColorStop(0.4, `rgba(255, 160, 30,  ${sparkAlpha * 0.8})`);
+            pGrd.addColorStop(1,   `rgba(255, 40,  0,   0)`);
+
+            ctx.fillStyle = pGrd;
+            ctx.beginPath();
+            ctx.arc(px, py, size * 2.2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // ─── 4. 残光オーラ（ボス全体を包む発光）───
+        if (p < 0.7) {
+            const auraAlpha = invP * 0.35;
+            const auraR     = this.height * 0.65 + (1 - invP) * 12;
+            const auraGrd   = ctx.createRadialGradient(cx, cy, 0, cx, cy, auraR);
+            auraGrd.addColorStop(0,   `rgba(255, 230, 100, ${auraAlpha})`);
+            auraGrd.addColorStop(0.6, `rgba(255, 120, 20,  ${auraAlpha * 0.5})`);
+            auraGrd.addColorStop(1,   `rgba(255, 60,  0,   0)`);
+            ctx.fillStyle = auraGrd;
+            ctx.beginPath();
+            ctx.arc(cx, cy, auraR, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // ─── 5. 灰燼パーティクル（後半に浮遊する黒い灰）───
+        if (p > 0.3) {
+            ctx.globalCompositeOperation = 'source-over';
+            const ashCount = 12;
+            for (let i = 0; i < ashCount; i++) {
+                const s1   = Math.sin(i * 91.3 + 3.7) * 58312.4;
+                const s2   = Math.sin(i * 47.1 + 1.1) * 34821.6;
+                const rX   = (s1 - Math.floor(s1)) * 2 - 1;
+                const rY   = (s2 - Math.floor(s2));
+                const ashP = Math.max(0, (p - 0.3) / 0.7);
+                const drift = ashP * (30 + rY * 30);
+                const px    = cx + rX * (35 + rY * 25) + Math.sin(t * 0.002 + i) * 4;
+                const py    = cy - drift;
+                const sz    = (1.2 + rY * 1.8) * (1 - ashP);
+                const ashAlpha = (1 - ashP) * 0.55;
+                ctx.fillStyle = `rgba(60, 50, 40, ${ashAlpha})`;
+                ctx.beginPath();
+                ctx.arc(px, py, sz, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        ctx.restore();
     }
 }
 
@@ -844,7 +1003,20 @@ export class OdachiBusho extends Boss {
         });
 
         if (this.weaponReplica) {
+            // enemy.render()で適用されたyawSkew変換を逆算してキャンセルし、剣が垂直に描画されるようにする
+            const dir = this.facingRight ? 1 : -1;
+            const moveBias = Math.min(0.024, Math.abs(this.vx || 0) * 0.0038);
+            const attackBias = this.isAttacking ? 0.013 : 0;
+            const yawSkew = dir * (0.046 + moveBias + attackBias);
+            const pivotX = this.x + this.width * 0.5;
+            const pivotY = this.y + this.height * 0.62;
+            ctx.save();
+            ctx.translate(pivotX, pivotY);
+            ctx.scale(1 / 0.982, 1);
+            ctx.transform(1, 0, -yawSkew, 1, 0, 0);
+            ctx.translate(-pivotX, -pivotY);
             this.weaponReplica.render(ctx, this);
+            ctx.restore();
         }
 
         const dir = this.facingRight ? 1 : -1;
@@ -954,6 +1126,7 @@ export class Shogun extends Boss {
         this._subTimer         = 0;
         this._subAction        = null;
         this._subWeaponKey     = null;
+        this._shurikenVisualTimer = 0;
 
         this._subWeaponInstances = {
             shuriken:   createSubWeapon('手裏剣'),
@@ -975,11 +1148,78 @@ export class Shogun extends Boss {
         this.getFootY = () => this.y + this.height;
     }
 
+    updateAI(deltaTime, player) {
+        if (!player) return;
+        const scrollX = window.game ? window.game.scrollX : 0;
+        const screenRight = scrollX + CANVAS_WIDTH;
+        const selfCX = this.x + this.width / 2;
+        const playerCX = player.x + player.width / 2;
+        const diffX = playerCX - selfCX;
+        const absX = Math.abs(diffX);
+        const dir = diffX >= 0 ? 1 : -1;
+
+        if (!this.isAttacking && this.hitTimer <= 0 && absX > 16) {
+            this.facingRight = dir > 0;
+        }
+        if (this.x > screenRight - 16) {
+            this.facingRight = false;
+            this.applyDesiredVx(-Math.max(2.1, this.speed * 1.22), 0.58);
+            return;
+        }
+        if (!this.isAttacking && this.evasionCooldownMs <= 0 &&
+            absX <= this.attackRange * 1.55 &&
+            (player.isAttacking || (player.subWeaponTimer || 0) > 0) &&
+            Math.random() < 1.25 * deltaTime) {
+            this.startEvasionManeuver(dir, absX);
+        }
+        if (this.evasionTimerMs > 0) {
+            const evadeSpeed = this.speed * (1.52 + Math.min(0.72, absX / Math.max(1, this.attackRange * 3.5)));
+            this.applyDesiredVx(this.evasionDir * evadeSpeed, 0.64);
+            if (!this.evasionJumped && this.isGrounded && absX < this.attackRange * 1.05 && Math.random() < 0.22) {
+                this.vy = -16.5; this.isGrounded = false; this.evasionJumped = true;
+            }
+            return;
+        }
+        if (this.isAttacking) {
+            if (typeof this.attackFacingRight === 'boolean') this.facingRight = this.attackFacingRight;
+            if (Math.abs(this.vx) < this.speed * 1.8) this.applyDesiredVx(0, 0.34);
+            return;
+        }
+        // クールダウン終了 → 距離に関係なく攻撃（技選択はstartAttack内で距離判定）
+        if (this.attackCooldown <= 0) {
+            this.attackFacingRight = this.facingRight;
+            this.startAttack();
+            return;
+        }
+        // 遠距離(>300)ではフェイントのみ、中近距離では接近
+        let desiredVX = 0;
+        if (absX > 300) {
+            desiredVX = this.feintDir * this.speed * 0.35;
+        } else if (absX > this.attackRange * 1.05) {
+            desiredVX = this.speed * 1.14 * dir;
+        } else if (absX > this.attackRange * 0.55) {
+            desiredVX = this.speed * 0.92 * dir;
+        }
+        if (absX <= this.attackRange * 2.0) desiredVX += this.feintDir * this.speed * 0.44;
+        desiredVX = Math.max(-this.speed * 1.42, Math.min(this.speed * 1.42, desiredVX));
+        this.applyDesiredVx(desiredVX, 0.46);
+        if (absX > this.attackRange * 1.08 && absX <= 300) this.tryJump(0.022, -15, 400);
+    }
+
     update(deltaTime, player) {
+        // サブ技タイマーが残っている間は必ず攻撃更新を継続する
+        // （isAttackingが先にfalseになると_subTimerが減らず行動停止するため）
+        if (this._attackTimer > 0 || this._subTimer > 0) {
+            this.isAttacking = true;
+        }
+
         const shouldRemove = super.update(deltaTime, player);
         if (shouldRemove) return true;
 
         const deltaMs = deltaTime * 1000;
+        if (this._shurikenVisualTimer > 0) {
+            this._shurikenVisualTimer = Math.max(0, this._shurikenVisualTimer - deltaMs);
+        }
 
         this.actor.specialClonePositions[0] = {
             x: this.x + this.width * 0.5,
@@ -999,7 +1239,7 @@ export class Shogun extends Boss {
         this.actor.width      = this.width;
         this.actor.height     = this.height;
 
-        this.actor.currentSubWeapon = (this._subWeaponKey === 'dual' && this._subAction === '二刀_Z')
+        this.actor.currentSubWeapon = (this._subWeaponKey === 'dual')
             ? this._subWeaponInstances['dual']
             : null;
 
@@ -1008,15 +1248,10 @@ export class Shogun extends Boss {
         if (this._subTimer > 0 && this._subWeaponKey) {
             const subInst = this._subWeaponInstances[this._subWeaponKey];
             if (subInst && typeof subInst.update === 'function') {
-                const targetPlayer = this.targetPlayer;
-                const enemyArg = targetPlayer ? [targetPlayer] : [];
                 if (this._subWeaponKey === 'shuriken') {
+                    // enemies引数にプレイヤーを渡してhomingさせる（当たり判定は別途自前処理）
+                    const enemyArg = this.targetPlayer ? [this.targetPlayer] : [];
                     subInst.update(deltaTime, enemyArg);
-                    for (const p of subInst.projectiles) {
-                        if (!this.projectiles.includes(p)) {
-                            this.projectiles.push(p);
-                        }
-                    }
                 } else {
                     subInst.update(deltaTime);
                 }
@@ -1031,21 +1266,62 @@ export class Shogun extends Boss {
             }
         }
 
+        // 手裏剣: projectilesの当たり判定（ShurikenProjectileはdamageを与えないため自前実装）
         {
             const shurikenInst = this._subWeaponInstances['shuriken'];
-            if (shurikenInst && Array.isArray(shurikenInst.projectiles) && shurikenInst.projectiles.length > 0) {
-                const targetPlayer = this.targetPlayer;
-                const enemyArg = targetPlayer ? [targetPlayer] : [];
-                if (this._subWeaponKey !== 'shuriken') {
+            if (shurikenInst && Array.isArray(shurikenInst.projectiles)) {
+                const p = this.targetPlayer;
+                if (p && (p.invincibleTimer || 0) <= 0) {
+                    for (const proj of shurikenInst.projectiles) {
+                        if (proj.isDestroyed) continue;
+                        const px = p.x + p.width / 2;
+                        const py = p.y + p.height / 2;
+                        const dx = px - proj.x;
+                        const dy = py - proj.y;
+                        const hitR = (proj.radius || 8) + Math.min(p.width, p.height) * 0.5;
+                        if (dx * dx + dy * dy < hitR * hitR) {
+                            proj.isDestroyed = true;
+                            if (typeof p.takeDamage === 'function') {
+                                p.takeDamage(this.damage, {
+                                    sourceX: proj.x,
+                                    knockbackX: proj.vx > 0 ? 6 : -6,
+                                    knockbackY: -4
+                                });
+                            }
+                        }
+                    }
+                }
+                // _subTimerが切れた後もprojectilesが残っていれば更新を継続
+                // （_subWeaponKey==='shuriken'のままでも寿命を進めないと空中で停止する）
+                const shouldTickShuriken = shurikenInst.projectiles.length > 0
+                    && (this._subWeaponKey !== 'shuriken' || this._subTimer <= 0);
+                if (shouldTickShuriken) {
+                    const enemyArg = this.targetPlayer ? [this.targetPlayer] : [];
                     shurikenInst.update(deltaTime, enemyArg);
                 }
-                for (const p of shurikenInst.projectiles) {
-                    if (!this.projectiles.includes(p)) {
-                        this.projectiles.push(p);
+                // projectilesが全消滅したらキーをクリア
+                if (this._subWeaponKey === 'shuriken' && shurikenInst.projectiles.length === 0
+                    && this._subTimer <= 0) {
+                    this._subAction    = null;
+                    this._subWeaponKey = null;
+                }
+            }
+        }
+
+        // 二刀流X: _subTimer終了後も飛翔斬撃の寿命を進め、消えたら構えを解除
+        {
+            const dualInst = this._subWeaponInstances['dual'];
+            if (dualInst && typeof dualInst.update === 'function') {
+                if (this._subWeaponKey === 'dual' && this._subTimer <= 0) {
+                    dualInst.update(deltaTime);
+                    const hasDualProjectiles = Array.isArray(dualInst.projectiles) && dualInst.projectiles.length > 0;
+                    if (!hasDualProjectiles && !dualInst.isAttacking) {
+                        this._subAction = null;
+                        this._subWeaponKey = null;
+                        this._dualZPendingSteps = null;
                     }
                 }
             }
-            this.projectiles = this.projectiles.filter(p => !p.isDestroyed);
         }
 
         return false;
@@ -1057,48 +1333,130 @@ export class Shogun extends Boss {
         this.isAttacking = true;
         this.attackFacingRight = this.facingRight;
 
-        const roll = Math.random();
-        if (roll < 0.40) {
-            this._comboPendingSteps = [1, 2, 3, 4, 5];
-            this._startNextComboStep();
+        // プレイヤーとの距離で技を使い分け
+        const player = this.targetPlayer;
+        const selfCX   = this.x + this.width * 0.5;
+        const playerCX = player ? player.x + player.width * 0.5 : selfCX;
+        const dist = Math.abs(playerCX - selfCX);
+
+        const actionMap = {
+            shuriken: 'throw', bomb: 'throw',
+            spear: '大槍', kusarigama: '鎖鎌',
+            odachi: '大太刀', dual: '二刀_合体', dual_z: '二刀_Z',
+        };
+        const getDuration = (key) => {
+            const inst = this._subWeaponInstances[key];
+            if (!inst) return 300;
+            if (inst.totalDuration && inst.plantedDuration) return inst.totalDuration + inst.plantedDuration + 60;
+            if (inst.totalDuration) return inst.totalDuration + 60;
+            if (inst.attackDuration) return inst.attackDuration + 60;
+            return 300;
+        };
+        const getDualCombinedDuration = () => {
+            const inst = this._subWeaponInstances['dual'];
+            if (!inst) return 900;
+            const projLife = 600 + (inst.enhanceTier || 3) * 60;
+            const activeCombined = Math.max(124, Math.round(inst.combinedDuration * 0.76));
+            return activeCombined + projLife + 60;
+        };
+        const durationMap = {
+            shuriken: 150, bomb: 150,
+            spear:    getDuration('spear'),
+            kusarigama: getDuration('kusarigama'),
+            odachi:   getDuration('odachi'),
+            dual:     getDualCombinedDuration(),
+        };
+
+        let type;
+        if (dist > 300) {
+            // 遠距離: 手裏剣・二刀流X斬撃で牽制
+            type = Math.random() < 0.55 ? 'shuriken' : 'dual';
+        } else if (dist > 150) {
+            // 中距離: 爆弾・大槍・鎖鎌
+            const choices = ['bomb', 'bomb', 'spear', 'kusarigama', 'shuriken'];
+            type = choices[Math.floor(Math.random() * choices.length)];
         } else {
-            const weapons   = ['shuriken', 'bomb', 'spear', 'dual', 'dual_z', 'kusarigama', 'odachi'];
-            const type      = weapons[Math.floor(Math.random() * weapons.length)];
-            const actionMap = {
-                shuriken: 'throw', bomb: 'throw',
-                spear: '大槍', kusarigama: '鎖鎌',
-                odachi: '大太刀', dual: '二刀_合体', dual_z: '二刀_Z',
-            };
-            const getDuration = (key) => {
-                const inst = this._subWeaponInstances[key];
-                if (!inst) return 300;
-                if (inst.totalDuration && inst.plantedDuration) {
-                    return inst.totalDuration + inst.plantedDuration + 60;
-                }
-                if (inst.totalDuration) return inst.totalDuration + 60;
-                if (inst.attackDuration) return inst.attackDuration + 60;
-                return 300;
-            };
-            const durationMap = {
-                shuriken: 150, bomb: 150,
-                spear:    getDuration('spear'),
-                kusarigama: getDuration('kusarigama'),
-                odachi:     getDuration('odachi'),
-                dual: 220,
-                dual_z: this._subWeaponInstances.dual
-                    ? (this._subWeaponInstances.dual.mainDuration || 204)
-                    : 204,
-            };
-            const weaponKey = type === 'dual_z' ? 'dual' : type;
+            // 近距離: 通常Zコンボ・二刀流Z・大太刀・鎖鎌
+            const r = Math.random();
+            if (r < 0.38) {
+                this._comboPendingSteps = [1, 2, 3, 4, 5];
+                this._startNextComboStep();
+                return;
+            }
+            const choices = ['dual_z', 'dual_z', 'odachi', 'kusarigama', 'bomb'];
+            type = choices[Math.floor(Math.random() * choices.length)];
+        }
+
+        if (type === 'shuriken' || type === 'bomb') {
+            this._fireSubWeapon(type);
+            this.subWeaponAction = null;
+            if (type === 'shuriken') {
+                // _subWeaponKey='shuriken'を維持してupdate内でhit判定・renderを機能させる
+                this._subAction    = 'throw';
+                this._subWeaponKey = 'shuriken';
+                this._subTimer     = 1400; // 手裏剣の寿命より長く（projectiles消滅で終了）
+                this._shurikenVisualTimer = 150;
+                this.attackTimer   = 200;
+                this._attackTimer  = 200;
+            } else {
+                this._subAction    = null;
+                this._subWeaponKey = null;
+                this._subTimer     = 0;
+                this._shurikenVisualTimer = 0;
+                this.attackTimer   = 150;
+                this._attackTimer  = 150;
+            }
+            this.attackCooldown = 400;
+            audio.playSlash(0);
+            return;
+        } else if (type === 'dual_z') {
+            // 二刀流Zコンボ: 5段を1段ずつ_fireDualZNextStepで連続発動
+            this._subAction    = '二刀_Z';
+            this._subWeaponKey = 'dual';
+            this._shurikenVisualTimer = 0;
+            this.attackCooldown = 500;
+            this._dualZPendingSteps = [1, 2, 3, 4, 5];
+            this._fireDualZNextStep();
+        } else {
             const duration     = durationMap[type] || 300;
-            this._subAction    = actionMap[type];
-            this._subWeaponKey = weaponKey;
+            this._subWeaponKey = type;
             this._subTimer     = duration;
+            this._shurikenVisualTimer = 0;
             this.attackTimer   = duration;
             this.attackCooldown = 400;
             this._fireSubWeapon(type);
+            // _fireSubWeapon呼び出し後にactionをセット（dualの場合はcombinedを保証）
+            this._subAction = (type === 'dual') ? '二刀_合体' : (actionMap[type] || null);
             audio.playSlash(2);
         }
+    }
+
+    // 二刀流Zコンボの次段を発動
+    _fireDualZNextStep() {
+        const dual = this._subWeaponInstances['dual'];
+        if (!dual) return;
+        const step = this._dualZPendingSteps && this._dualZPendingSteps.length > 0
+            ? this._dualZPendingSteps.shift() : null;
+        if (step == null) {
+            // 全5段終了 → projectile消滅まで待機
+            this._dualZPendingSteps = null;
+            if (!dual.projectiles || dual.projectiles.length === 0) {
+                this._subTimer     = 0;
+                this._subAction    = null;
+                this._subWeaponKey = null;
+                this.isAttacking   = false;
+            }
+            return;
+        }
+        if (typeof dual.applyEnhanceTier === 'function') dual.applyEnhanceTier(3, this);
+        const prevSubWeapon = this.currentSubWeapon;
+        this.currentSubWeapon = dual;
+        dual.use(this, 'main'); // 1段発動（内部でcomboIndexを進める）
+        this.currentSubWeapon = prevSubWeapon;
+        // この段のduration分だけ_subTimerをセット
+        const dur = Math.max(112, dual.mainDuration || 204);
+        this._subTimer   = dur;
+        this.attackTimer = dur;
     }
 
     _startNextComboStep() {
@@ -1117,6 +1475,30 @@ export class Shogun extends Boss {
         this.attackTimer  = dur;
         this.isAttacking  = true;
         this.attackCooldown = Math.max(100, dur * 0.5);
+        // player.jsのattack()と同じstepごとのvx/vyを再現
+        const dir = this.facingRight ? 1 : -1;
+        const impulse = this.speed;
+        if (step === 1) {
+            this.vx = this.vx * 0.2 + dir * impulse * 0.94;
+            if (this.isGrounded) { this.vy = 0; }
+            else { this.vy = Math.max(this.vy, -0.8); }
+        } else if (step === 2) {
+            this.vx = this.vx * 0.16 + dir * impulse * 0.9;
+            if (this.isGrounded) { this.vy = 0; }
+            else { this.vy = Math.min(this.vy, -1.2); }
+        } else if (step === 3) {
+            this.vx = this.vx * 0.12 + dir * impulse;
+            this.vy = Math.min(this.vy, -8.2);
+            this.isGrounded = false;
+        } else if (step === 4) {
+            this.vx = this.vx * 0.24 + dir * impulse * 0.42;
+            this.vy = Math.min(this.vy, -14.4);
+            this.isGrounded = false;
+        } else if (step === 5) {
+            this.vx = this.vx * 0.18;
+            this.vy = Math.max(this.vy, 3.4); // 落下断ち: 下に飛ぶ
+            this.isGrounded = false;
+        }
         audio.playSlash(Math.min(4, step));
     }
 
@@ -1125,14 +1507,8 @@ export class Shogun extends Boss {
         const dir = this.facingRight ? 1 : -1;
 
         if (this._attackTimer > 0) {
-            const elapsed = (this.attackTimer || this._attackTimer) - this._attackTimer;
-            const duration = this.attackTimer || this._attackTimer;
-            const progress = duration > 0 ? elapsed / duration : 1;
-            if (progress < 0.4) {
-                this.vx = dir * this.speed * 3.2;
-            } else {
-                this.vx *= 0.88;
-            }
+            // vx/vyはstep開始時に_startNextComboStepで設定済み
+            this.vx *= 0.92;
             this._attackTimer -= deltaMs;
             if (this._attackTimer <= 0) {
                 this._attackTimer = 0;
@@ -1147,12 +1523,41 @@ export class Shogun extends Boss {
             this.vx *= 0.92;
             this._subTimer -= deltaMs;
             if (this._subTimer <= 0) {
-                this._subTimer     = 0;
-                this._subAction    = null;
-                this._subWeaponKey = null;
+                this._subTimer = 0;
+                // 二刀流Z: 次段があれば連続発動
+                if (this._dualZPendingSteps && this._dualZPendingSteps.length > 0) {
+                    this._fireDualZNextStep();
+                    return;
+                }
+                // 二刀流Zの全段終了チェック
+                if (this._dualZPendingSteps !== null && this._dualZPendingSteps !== undefined
+                    && this._dualZPendingSteps.length === 0) {
+                    this._fireDualZNextStep(); // 終了処理
+                    return;
+                }
+                // 二刀流X: projectile飛翔中は描画キーを維持
+                const dualInst = this._subWeaponInstances['dual'];
+                const keepForDual = this._subWeaponKey === 'dual'
+                    && dualInst && dualInst.projectiles.length > 0;
+                // 手裏剣: projectile飛翔中は維持（update内でキーをクリアする）
+                const keepForShuriken = this._subWeaponKey === 'shuriken';
+                if (!keepForDual && !keepForShuriken) {
+                    this._subAction    = null;
+                    this._subWeaponKey = null;
+                    this._dualZPendingSteps = null;
+                }
                 this.isAttacking   = false;
                 this.attackCooldown = Math.max(this.attackCooldown, 300);
             }
+        } else if (this._subWeaponKey === 'dual') {
+            // subTimer=0でもprojectile残存中は描画キー保持（寿命更新はupdate()側で継続）
+            const dualInst = this._subWeaponInstances['dual'];
+            if (!dualInst || !Array.isArray(dualInst.projectiles) || dualInst.projectiles.length === 0) {
+                this._subAction    = null;
+                this._subWeaponKey = null;
+                this._dualZPendingSteps = null;
+            }
+            this.isAttacking = false;
         } else {
             this.isAttacking = false;
         }
@@ -1176,11 +1581,47 @@ export class Shogun extends Boss {
         const isSpear = (resolvedKey === 'spear');
 
         const useMode = type === 'dual' ? 'combined' : (type === 'dual_z' ? 'main' : undefined);
+
+        // bomb発射前のg.bombs長さを記録
+        const bombsBefore = (resolvedKey === 'bomb' && window.game && window.game.bombs)
+            ? window.game.bombs.length : -1;
+
         subInst.use(this, useMode);
 
         if (isSpear) {
             const dir = this.facingRight ? 1 : -1;
             this.vx = prevVx + dir * this.speed * 3.5;
+        }
+
+        // bomb: 新しく追加されたbombに敵弾フラグとgetHitboxを付ける
+        // （game.jsのupdateBombsはisEnemyProjectile===trueのbombにgetHitbox()を呼ぶため必須）
+        if (resolvedKey === 'bomb' && bombsBefore >= 0 && window.game && window.game.bombs) {
+            const owner = this;
+            for (let bi = bombsBefore; bi < window.game.bombs.length; bi++) {
+                const b = window.game.bombs[bi];
+                if (!b) continue;
+                b.isEnemyProjectile = true;
+                b.owner = owner;
+                // game.jsがisEnemyProjectile===trueのbombに呼ぶgetHitbox()を追加
+                b.getHitbox = function() {
+                    if (this.isExploding) {
+                        return {
+                            x: this.x - this.explosionRadius,
+                            y: this.y - this.explosionRadius,
+                            width: this.explosionRadius * 2,
+                            height: this.explosionRadius * 2
+                        };
+                    }
+                    return {
+                        x: this.x - this.radius,
+                        y: this.y - this.radius,
+                        width: this.radius * 2,
+                        height: this.radius * 2
+                    };
+                };
+                // updateはそのまま（game.jsがenemies=[]で呼んでくれるので敵には当たらない）
+                // game.jsのupdateBombs内でプレイヤーへのダメージはisEnemyProjectileブロックで処理される
+            }
         }
 
         this.currentSubWeapon = prevSubWeapon;
@@ -1260,7 +1701,8 @@ export class Shogun extends Boss {
             renderHeadbandTail: false,
             renderHeadband:     false,
             useLiveAccessories: false,
-            forceSubWeaponRender: (this._subTimer > 0 && this._subAction != null),
+            // throw時は通常のプレイヤー投擲姿勢（奥手の刀＋手前手投擲）を使う
+            forceSubWeaponRender: (this._subTimer > 0 && this._subAction != null && this._subAction !== 'throw'),
         };
 
         if (this._attackTimer > 0) {
@@ -1285,18 +1727,22 @@ export class Shogun extends Boss {
             this.actor.isAttacking     = false;
             this.actor.currentAttack   = null;
             this.actor.attackTimer     = 0;
-            this.actor.subWeaponTimer  = Math.max(1, this._subTimer);
-            this.actor.subWeaponAction = this._subAction;
-            this.actor.currentSubWeapon = subInst || null;
+            const isThrowAction = this._subAction === 'throw';
+            const throwPoseActive = isThrowAction && this._shurikenVisualTimer > 0;
+            const displaySubTimer = throwPoseActive
+                ? Math.max(1, this._shurikenVisualTimer)
+                : Math.max(1, this._subTimer);
+            this.actor.subWeaponTimer  = throwPoseActive ? displaySubTimer : (isThrowAction ? 0 : displaySubTimer);
+            this.actor.subWeaponAction = throwPoseActive ? 'throw' : (isThrowAction ? null : this._subAction);
+            // throw時に手持ち忍具アイコンが残らないよう、モデル上は通常刀扱いにする
+            this.actor.currentSubWeapon = isThrowAction ? null : (subInst || null);
 
             if (subInst) {
                 const isDualBlade = subInst.name === '二刀流';
-                if (isDualBlade && typeof subInst.attackTimer !== 'undefined') {
-                    if (!subInst.isAttacking || subInst.attackTimer <= 0) {
-                        subInst.attackTimer = this._subTimer;
-                    }
-                }
-                if (!subInst.isAttacking) {
+                if (isDualBlade) {
+                    // DualBladesはuse()でisAttacking/attackTimerが正しくセット済み。
+                    // renderBodyからは一切上書きしない（forceActiveも付けない）
+                } else if (!subInst.isAttacking) {
                     subInst._renderForceActive = true;
                     subInst.isAttacking = true;
                 }
@@ -1328,7 +1774,39 @@ export class Shogun extends Boss {
             ctx.restore();
         }
 
-        if (this._subTimer > 0 && this._subWeaponKey === 'dual') {
+        if (this._subTimer > 0 && this._subWeaponKey === 'kusarigama') {
+            const kusaInst = this._subWeaponInstances['kusarigama'];
+            if (kusaInst && typeof kusaInst.render === 'function') {
+                const wasAttacking = kusaInst.isAttacking;
+                if (!wasAttacking) kusaInst.isAttacking = true;
+                {
+                    const dir2d = this.facingRight ? 1 : -1;
+                    const pivotX = this.x + this.width * 0.5;
+                    const pivotY = this.y + this.height * 0.62;
+                    const moveBias = Math.min(0.024, Math.abs(this.vx || 0) * 0.0038);
+                    const attackBias = this.isAttacking ? 0.013 : 0;
+                    const yawSkew = dir2d * (0.046 + moveBias + attackBias);
+                    ctx.save();
+                    ctx.translate(pivotX, pivotY);
+                    ctx.transform(1, 0, -yawSkew / 0.982, 1, 0, 0);
+                    ctx.scale(1 / 0.982, 1);
+                    ctx.translate(-pivotX, -pivotY);
+                    kusaInst.render(ctx, this.actor);
+                    ctx.restore();
+                }
+                if (!wasAttacking) kusaInst.isAttacking = false;
+            }
+        }
+
+        // 手裏剣のprojectilesを描画
+        if (this._subWeaponKey === 'shuriken') {
+            const shurikenInst = this._subWeaponInstances['shuriken'];
+            if (shurikenInst && typeof shurikenInst.render === 'function') {
+                shurikenInst.render(ctx, this.actor);
+            }
+        }
+
+        if (this._subWeaponKey === 'dual') {
             const dualInst = this._subWeaponInstances['dual'];
             if (dualInst && typeof dualInst.render === 'function') {
                 const wasAttacking = dualInst.isAttacking;
@@ -1354,7 +1832,8 @@ export class Shogun extends Boss {
 
         if (this._subWeaponKey) {
             const subInstForRestore = this._subWeaponInstances[this._subWeaponKey];
-            if (subInstForRestore && subInstForRestore._renderForceActive) {
+            if (subInstForRestore && subInstForRestore._renderForceActive
+                && subInstForRestore.name !== '二刀流') {
                 subInstForRestore.isAttacking = false;
                 delete subInstForRestore._renderForceActive;
             }

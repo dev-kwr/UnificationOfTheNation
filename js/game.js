@@ -1327,11 +1327,14 @@ class Game {
     
     updateBombs(enemies = []) {
         this.bombs = this.bombs.filter((bomb, index) => {
-            bomb.update(this.deltaTime, this.groundY, enemies);
+            // 敵弾（将軍の火薬玉）は敵リストを渡さない（プレイヤーへの当たりのみ）
+            const updateEnemies = bomb.isEnemyProjectile ? [] : enemies;
+            bomb.update(this.deltaTime, this.groundY, updateEnemies);
             
             // 爆発中の判定
             if (bomb.isExploding) {
-                // 敵へのダメージ
+                // 敵へのダメージ（プレイヤー弾のみ）
+                if (!bomb.isEnemyProjectile) {
                 for (const enemy of enemies) {
                     if (this.collisionManager.checkAndRegisterBombHit(bomb, enemy, bomb.id)) {
                         this.damageEnemy(enemy, bomb.damage, {
@@ -1340,6 +1343,7 @@ class Game {
                             knockbackY: -6
                         });
                     }
+                }
                 }
 
                 // ボスの弾丸（火薬玉）の場合はプレイヤーへの当たり判定

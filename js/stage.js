@@ -73,6 +73,7 @@ export class Stage {
         };
         this.bossIntroDuration = this.bossIntroDurationByStage[this.stageNumber] || 1500;
         this.bossIntroTimer = 0;
+        this.bossEntranceTargetRatio = 0.8;
         
         // --- 竹林ステージの初期落ち葉配置 ---
         if (this.stageNumber === 1) {
@@ -477,7 +478,7 @@ export class Stage {
         // ボス登場演出中：画面右端から高速ダッシュで飛び込む
         if (this.boss && this.boss.isEntering) {
             const scrollX = (window.game && window.game.scrollX) || 0;
-            const targetX = scrollX + CANVAS_WIDTH * 0.72;
+            const targetX = scrollX + CANVAS_WIDTH * this.bossEntranceTargetRatio;
             this.boss.entranceTargetX = targetX;
 
             const dx = this.boss.x - targetX; // 左向きなので boss.x が大きい
@@ -492,18 +493,21 @@ export class Stage {
                 // 目標到達！ 登場完了
                 this.boss.x = targetX;
                 this.boss.isEntering = false;
+                this.boss.isAttacking = false;
+                this.boss.vx = 0;
+                // 到達直後の1拍だけ間を作る（フリーズではなく短い硬直）
+                this.boss.attackCooldown = Math.max(this.boss.attackCooldown || 0, 220);
                 // 到達時の闘気フラッシュ
                 this.bossEntranceFlash = Math.max(this.bossEntranceFlash, 0.8);
             }
         }
 
-        // ボス登場演出中（歩き入り完了後）はボス本体の攻撃を抑制して舞台演出を見せる
-        // ただし isEntering 中（歩き入り中）は停止させず歩かせる
-        if (this.bossIntroTimer > 0 && !(this.boss && this.boss.isEntering)) {
+        // 歩き入り中はボス更新を行わず、停止位置に到達するまで攻撃させない
+        if (this.boss && this.boss.isEntering) {
             if (this.boss) {
                 this.boss.isAttacking = false;
                 this.boss.vx = 0;
-                this.boss.attackCooldown = Math.max(this.boss.attackCooldown || 0, this.bossIntroTimer);
+                this.boss.attackCooldown = Math.max(this.boss.attackCooldown || 0, 300);
             }
             const activeObstacles = this.obstacles.filter(o => !o.isDestroyed);
             this.updateEnemies(deltaTime, player, activeObstacles);
@@ -539,7 +543,7 @@ export class Stage {
         this.updateEnemies(deltaTime, player, activeObstacles);
         this.updateObstacles(deltaTime);
 
-        // ボス戦中も少量の雑魚敵を出現させる
+        // ボス戦中も少量の雑魚敵を出現させる（BUSHOは除外）
         if (!this.bossDefeated && this.bossIntroTimer <= 0) {
             this.spawnTimer += deltaTime * 1000;
             // ボス戦時は通常の2.5倍の間隔でスポーン判定
@@ -626,7 +630,8 @@ export class Stage {
             } else if (roll < (cumulative += this.enemyWeights.ninja)) {
                 type = ENEMY_TYPES.NINJA;
             } else {
-                type = ENEMY_TYPES.BUSHO;
+                // ボス戦中はBUSHOの代わりにNINJAを出す
+                type = bossActive ? ENEMY_TYPES.NINJA : ENEMY_TYPES.BUSHO;
             }
             
             // 画面外（右側）から出現
@@ -734,7 +739,7 @@ export class Stage {
 
         // 登場演出フラグ: 画面右端から歩き入る
         this.boss.isEntering = true;
-        this.boss.entranceTargetX = scrollX + CANVAS_WIDTH * 0.72; // 着地目標X
+        this.boss.entranceTargetX = scrollX + CANVAS_WIDTH * this.bossEntranceTargetRatio; // 着地目標X
         this.boss.entranceSpeed = 900; // 高速ダッシュ登場
 
         this.bossIntroTimer = this.bossIntroDuration;
