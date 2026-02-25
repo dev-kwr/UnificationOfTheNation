@@ -4077,8 +4077,20 @@ export class Player {
                 this.subWeaponRenderedInModel = true;
             }
 
-            const supportTargetX = anchor.x - weaponDirX * 10 + (-weaponDirY) * 1.2;
-            const supportTargetY = anchor.y - weaponDirY * 10 + weaponDirX * 1.2;
+            // 手前手は柄の左右候補から「胴体に埋もれにくい側」を選ぶ
+            const supportGripBack = 9.0;
+            const supportGripSide = 2.7;
+            const baseGripX = anchor.x - weaponDirX * supportGripBack;
+            const baseGripY = anchor.y - weaponDirY * supportGripBack;
+            const perpX = -weaponDirY;
+            const perpY = weaponDirX;
+            const candidateAX = baseGripX + perpX * supportGripSide;
+            const candidateAY = baseGripY + perpY * supportGripSide;
+            const candidateBX = baseGripX - perpX * supportGripSide;
+            const candidateBY = baseGripY - perpY * supportGripSide;
+            const useA = Math.abs(candidateAX - centerX) >= Math.abs(candidateBX - centerX);
+            const supportTargetX = useA ? candidateAX : candidateBX;
+            const supportTargetY = useA ? candidateAY : candidateBY;
             const supportHand = clampArmReach(frontShoulderX, shoulderY + 1, supportTargetX, supportTargetY, 21.5);
             drawArmSegment(frontShoulderX, shoulderY + 1, supportHand.x, supportHand.y, 5.1);
             drawHand(supportHand.x, supportHand.y, 4.6);

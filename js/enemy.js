@@ -721,7 +721,7 @@ export class Enemy {
         ctx.strokeStyle = '#627083';
         ctx.lineWidth = 1.25;
         ctx.beginPath();
-        // プレイヤーのNodachiと完全に同期したシャープな形状
+        // プレイヤーのOdachiと完全に同期したシャープな形状
         ctx.moveTo(bladeStart, -5.2);
         ctx.quadraticCurveTo(bladeStart + length * 0.35, -12.5, bladeStart + length * 0.75, -9.2);
         ctx.quadraticCurveTo(bladeEnd - 18, -6.8, bladeEnd + 4, -0.8);

@@ -2102,13 +2102,13 @@ export class Kusarigama extends SubWeapon {
 }
 
 // 大太刀
-// weapon.js の Nodachi クラスを以下のように修正
+// weapon.js の Odachi クラス
 
 // ============================================
 // 大太刀 (修正版)
 // ============================================
 
-export class Nodachi extends SubWeapon {
+export class Odachi extends SubWeapon {
     constructor() {
         super('大太刀', 46, 74, 760);
         this.isAttacking = false;
@@ -2602,14 +2602,14 @@ export class Nodachi extends SubWeapon {
             
             ctx.fillStyle = bladeGrad;
             ctx.beginPath();
-            const tipX = blade.bladeEnd + 4.8;
-            const tipY = -0.7;
+            const tipX = blade.bladeEnd + 5.0;
+            const tipY = -0.8;
             ctx.moveTo(blade.bladeStart, -5.2);
-            ctx.quadraticCurveTo(blade.bladeStart + 30, -12.3, blade.bladeStart + 72, -9.3);
-            ctx.quadraticCurveTo(blade.bladeEnd - 18, -6.9, blade.bladeEnd - 3.5, -3.8);
-            // 切先を単一点にして先割れに見える破綻を防ぐ
-            ctx.lineTo(tipX, tipY);
-            ctx.quadraticCurveTo(blade.bladeEnd - 7.8, 4.8, blade.bladeEnd - 24, 6.3);
+            // 峰側（上側）を切先に向かって収束させる
+            ctx.quadraticCurveTo(blade.bladeStart + 28, -12.4, blade.bladeEnd - 18, -6.8);
+            ctx.quadraticCurveTo(blade.bladeEnd - 4.2, -4.2, tipX, tipY);
+            // 刃側（下側）も同じ切先へ収束させ、二股に見える形状を避ける
+            ctx.quadraticCurveTo(blade.bladeEnd - 4.8, 2.6, blade.bladeEnd - 22, 6.3);
             ctx.quadraticCurveTo(blade.bladeStart + 38, 8.4, blade.bladeStart + 7, 5.8);
             ctx.quadraticCurveTo(blade.bladeStart - 2, 2.8, blade.bladeStart, -5.2);
             ctx.closePath();
@@ -2617,20 +2617,11 @@ export class Nodachi extends SubWeapon {
             
             ctx.strokeStyle = '#374151';
             ctx.lineWidth = 1.0;
-            // 拡大時に切先の鋭角でミタージョインが飛び出し、
-            // 「先割れ」のように見えるのを防ぐ。
             ctx.lineJoin = 'round';
             ctx.miterLimit = 2;
             ctx.stroke();
 
-            // 切先の返しハイライト
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-            ctx.beginPath();
-            ctx.moveTo(blade.bladeEnd - 15, -6.0);
-            ctx.lineTo(blade.bladeEnd + 2, -1.0);
-            ctx.lineTo(blade.bladeEnd - 12, -2.5);
-            ctx.closePath();
-            ctx.fill();
+            // 切先側のハイライトは一旦外し、先端形状の破綻を優先して排除する
 
             // 峰のハイライト
             ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
@@ -2779,7 +2770,7 @@ export function createSubWeapon(type) {
         case '大槍': return new Spear();
         case '二刀流': return new DualBlades();
         case '鎖鎌': return new Kusarigama();
-        case '大太刀': return new Nodachi();
+        case '大太刀': return new Odachi();
         default: return null;
     }
 }
