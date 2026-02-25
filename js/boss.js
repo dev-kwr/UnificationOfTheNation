@@ -9,7 +9,13 @@ import { audio } from './audio.js';
 import { Player, ANIM_STATE } from './player.js';
 
 // ラスボス（将軍）の全体スケール。ここだけ変更すれば倍率調整できる。
-const SHOGUN_SCALE = 2.0;
+const SHOGUN_SCALE = 2.2;
+// ラスボス（将軍）の頭サイズ係数。少し小さくして頭身を上げる。
+const SHOGUN_HEAD_SCALE = 0.80;
+// ラスボス（将軍）の腰上げ量(px)。上げるほど胴が短く脚が長く見える。
+const SHOGUN_HIP_LIFT_PX = 8.00;
+// ラスボス（将軍）の腕リーチ係数。少しだけ長く見せる。
+const SHOGUN_ARM_REACH_SCALE = 1.08;
 
 // ボスベースクラス
 class Boss extends Enemy {
@@ -1731,6 +1737,9 @@ export class Shogun extends Boss {
             renderHeadbandTail: false,
             renderHeadband:     false,
             useLiveAccessories: false,
+            headScale: SHOGUN_HEAD_SCALE,
+            hipLiftPx: SHOGUN_HIP_LIFT_PX,
+            armReachScale: SHOGUN_ARM_REACH_SCALE,
             // throw時は通常のプレイヤー投擲姿勢（奥手の刀＋手前手投擲）を使う
             forceSubWeaponRender: (this._subTimer > 0 && this._subAction != null && this._subAction !== 'throw'),
         };

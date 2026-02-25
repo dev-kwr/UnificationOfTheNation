@@ -3076,6 +3076,12 @@ export class Player {
             ? (bottomY - headRadius * 0.95 + bob * 0.45)
             : (bottomY - headRadius * 1.43 - (isSpearThrustPose ? spearDrive * 3.2 : 0));
 
+        // 腰を上げるほど「胴が短く脚が長い」比率になる（主にボス向けの見た目調整）
+        const hipLiftPx = Number.isFinite(options.hipLiftPx) ? options.hipLiftPx : 0;
+        if (hipLiftPx !== 0) {
+            hipY -= hipLiftPx;
+        }
+
         let currentTorsoLean = isDashLike ? dir * 2.4 : (isRunLike ? dir * 1.6 : dir * 0.45);
         if (comboStepPose === 1) currentTorsoLean = dir * 0.24;
         if (comboStepPose === 2) currentTorsoLean = dir * 1.2;
@@ -3674,6 +3680,14 @@ export class Player {
         const backShoulderY = bodyTopY + (isCrouchPose ? 1 : 2);
         const frontShoulderX = centerX - dir * (isCrouchPose ? 0.4 : 1);
         const frontShoulderY = bodyTopY + (isCrouchPose ? 2 : 3);
+        const armReachScale = Number.isFinite(options.armReachScale) ? options.armReachScale : 1.0;
+        const stretchFromShoulder = (shoulderX, shoulderY, targetX, targetY) => {
+            if (Math.abs(armReachScale - 1.0) < 0.001) return { x: targetX, y: targetY };
+            return {
+                x: shoulderX + (targetX - shoulderX) * armReachScale,
+                y: shoulderY + (targetY - shoulderY) * armReachScale
+            };
+        };
 
         const drawArmSegment = (fromX, fromY, toX, toY, width = 6) => {
             ctx.strokeStyle = silhouetteColor; ctx.lineWidth = width;
@@ -3695,6 +3709,8 @@ export class Player {
         const idleBackHandY = bodyTopY + (isCrouchPose ? 7.5 : 10) + Math.sin(this.motionTime * 0.01) * (isCrouchPose ? 1 : 2);
         const idleFrontHandX = centerX - dir * (isCrouchPose ? 5 : 8);
         const idleFrontHandY = bodyTopY + (isCrouchPose ? 9 : 12) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? 1 : 2);
+        const idleBackHand = stretchFromShoulder(backShoulderX, backShoulderY, idleBackHandX, idleBackHandY);
+        const idleFrontHand = stretchFromShoulder(frontShoulderX, frontShoulderY, idleFrontHandX, idleFrontHandY);
         const idleBackBladeAngle = isCrouchPose ? -0.32 : -0.65;
         const idleFrontBladeAngle = isCrouchPose ? -0.82 : -1.1;
 
@@ -3704,20 +3720,26 @@ export class Player {
             const hasDualSubWeapon = this.currentSubWeapon && this.currentSubWeapon.name === '二刀流';
 
             // 奥手（刀を持つ）
-            drawArmSegment(backShoulderX, backShoulderY, idleBackHandX, idleBackHandY, 6);
-            drawHand(idleBackHandX, idleBackHandY, 4.8);
-            this.drawKatana(ctx, idleBackHandX, idleBackHandY, idleBackBladeAngle, dir);
+            drawArmSegment(backShoulderX, backShoulderY, idleBackHand.x, idleBackHand.y, 6);
+            drawHand(idleBackHand.x, idleBackHand.y, 4.8);
+            this.drawKatana(ctx, idleBackHand.x, idleBackHand.y, idleBackBladeAngle, dir);
 
             if (!isThrowing) {
                 if (hasDualSubWeapon) {
-                    drawArmSegment(frontShoulderX, frontShoulderY, idleFrontHandX, idleFrontHandY, 5);
-                    drawHand(idleFrontHandX, idleFrontHandY, 4.5);
-                    this.drawKatana(ctx, idleFrontHandX, idleFrontHandY, idleFrontBladeAngle, dir);
+                    drawArmSegment(frontShoulderX, frontShoulderY, idleFrontHand.x, idleFrontHand.y, 5);
+                    drawHand(idleFrontHand.x, idleFrontHand.y, 4.5);
+                    this.drawKatana(ctx, idleFrontHand.x, idleFrontHand.y, idleFrontBladeAngle, dir);
                 } else {
                     const bladeDirX = Math.cos(idleBackBladeAngle) * dir;
                     const bladeDirY = Math.sin(idleBackBladeAngle);
                     const perpX = -bladeDirY; const perpY = bladeDirX;
-                    const supportHand = clampArmReach(frontShoulderX, frontShoulderY, idleBackHandX - bladeDirX * 5.8 + perpX * 1.0, idleBackHandY - bladeDirY * 5.8 + perpY * 1.0, 22);
+                    const supportHand = clampArmReach(
+                        frontShoulderX,
+                        frontShoulderY,
+                        idleBackHand.x - bladeDirX * 5.8 + perpX * 1.0,
+                        idleBackHand.y - bladeDirY * 5.8 + perpY * 1.0,
+                        22 * armReachScale
+                    );
                     drawArmSegment(frontShoulderX, frontShoulderY, supportHand.x, supportHand.y, 5);
                     drawHand(supportHand.x, supportHand.y, 4.5);
                 }
@@ -3750,9 +3772,9 @@ export class Player {
                 supportFrontHand: !(this.currentSubWeapon && this.currentSubWeapon.name === '二刀流')
             }, options);
             if (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
-                drawArmSegment(frontShoulderX, frontShoulderY, idleFrontHandX, idleFrontHandY, 5);
-                drawHand(idleFrontHandX, idleFrontHandY, 4.5);
-                this.drawKatana(ctx, idleFrontHandX, idleFrontHandY, idleFrontBladeAngle, dir);
+                drawArmSegment(frontShoulderX, frontShoulderY, idleFrontHand.x, idleFrontHand.y, 5);
+                drawHand(idleFrontHand.x, idleFrontHand.y, 4.5);
+                this.drawKatana(ctx, idleFrontHand.x, idleFrontHand.y, idleFrontBladeAngle, dir);
             }
         }
 
@@ -3770,6 +3792,7 @@ export class Player {
 
     renderSubWeaponArm(ctx, centerX, pivotY, facingRight, renderWeaponVisuals = true, options = {}) {
         const dir = facingRight ? 1 : -1;
+        const armReachScale = Number.isFinite(options.armReachScale) ? options.armReachScale : 1.0;
         const dualBlade = (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') ? this.currentSubWeapon : null;
         const dualPoseOverride = (
             this.subWeaponPoseOverride &&
@@ -3831,10 +3854,11 @@ export class Player {
             const dx = targetX - shoulderX;
             const dy = targetY - shoulderYLocal;
             const dist = Math.hypot(dx, dy);
-            if (dist <= maxLen || dist === 0) {
+            const maxLenScaled = maxLen * armReachScale;
+            if (dist <= maxLenScaled || dist === 0) {
                 return { x: targetX, y: targetY };
             }
-            const ratio = maxLen / dist;
+            const ratio = maxLenScaled / dist;
             return {
                 x: shoulderX + dx * ratio,
                 y: shoulderYLocal + dy * ratio
@@ -4059,17 +4083,28 @@ export class Player {
                 drawSubWeaponKatana(rightX, rightY, rightAngle, dir);
             }
         } else if (this.subWeaponAction === '大太刀') {
-            // 大太刀: 武器側ポーズと同一アンカーを使用して手と柄を一致
+            // 大太刀: 柄の中心付近を両手で挟む専用グリップ
             const odachi = (this.currentSubWeapon && this.currentSubWeapon.name === '大太刀') ? this.currentSubWeapon : null;
-            const anchor = (odachi && typeof odachi.getHandAnchor === 'function')
-                ? odachi.getHandAnchor(this)
-                : { x: centerX + dir * 2, y: pivotY - 2, rotation: dir * (-Math.PI * 0.5), direction: dir };
-            const weaponDirX = Math.cos(anchor.rotation);
-            const weaponDirY = Math.sin(anchor.rotation);
+            const grips = (odachi && typeof odachi.getDualGripAnchors === 'function')
+                ? odachi.getDualGripAnchors(this)
+                : null;
+            const fallbackCenterX = centerX + dir * 2;
+            const fallbackCenterY = pivotY - 2;
+            const rearTarget = grips
+                ? grips.rear
+                : { x: fallbackCenterX - dir * 3, y: fallbackCenterY - 2.2 };
+            const frontTarget = grips
+                ? grips.front
+                : { x: fallbackCenterX + dir * 3, y: fallbackCenterY + 2.2 };
 
-            const leadHand = clampArmReach(backShoulderX, shoulderY, anchor.x, anchor.y, 24.5);
-            drawArmSegment(backShoulderX, shoulderY, leadHand.x, leadHand.y, 6);
-            drawHand(leadHand.x, leadHand.y, 5);
+            const rearShoulderX = backShoulderX + dir * 0.15;
+            const rearShoulderY = shoulderY - 0.2;
+            const frontShoulderGripX = frontShoulderX - dir * 0.25;
+            const frontShoulderGripY = shoulderY + 0.9;
+
+            const rearHand = clampArmReach(rearShoulderX, rearShoulderY, rearTarget.x, rearTarget.y, 25.2);
+            drawArmSegment(rearShoulderX, rearShoulderY, rearHand.x, rearHand.y, 6);
+            drawHand(rearHand.x, rearHand.y, 5);
 
             // 本体の手前に持つ見た目を作るため、奥手の後に大太刀を描く
             if (renderWeaponVisuals && odachi && typeof odachi.render === 'function') {
@@ -4077,23 +4112,9 @@ export class Player {
                 this.subWeaponRenderedInModel = true;
             }
 
-            // 手前手は柄の左右候補から「胴体に埋もれにくい側」を選ぶ
-            const supportGripBack = 9.0;
-            const supportGripSide = 2.7;
-            const baseGripX = anchor.x - weaponDirX * supportGripBack;
-            const baseGripY = anchor.y - weaponDirY * supportGripBack;
-            const perpX = -weaponDirY;
-            const perpY = weaponDirX;
-            const candidateAX = baseGripX + perpX * supportGripSide;
-            const candidateAY = baseGripY + perpY * supportGripSide;
-            const candidateBX = baseGripX - perpX * supportGripSide;
-            const candidateBY = baseGripY - perpY * supportGripSide;
-            const useA = Math.abs(candidateAX - centerX) >= Math.abs(candidateBX - centerX);
-            const supportTargetX = useA ? candidateAX : candidateBX;
-            const supportTargetY = useA ? candidateAY : candidateBY;
-            const supportHand = clampArmReach(frontShoulderX, shoulderY + 1, supportTargetX, supportTargetY, 21.5);
-            drawArmSegment(frontShoulderX, shoulderY + 1, supportHand.x, supportHand.y, 5.1);
-            drawHand(supportHand.x, supportHand.y, 4.6);
+            const frontHand = clampArmReach(frontShoulderGripX, frontShoulderGripY, frontTarget.x, frontTarget.y, 22.8);
+            drawArmSegment(frontShoulderGripX, frontShoulderGripY, frontHand.x, frontHand.y, 5.2);
+            drawHand(frontHand.x, frontHand.y, 4.8);
         } else if (this.subWeaponAction === '鎖鎌') {
             // 鎖鎌: 振りかぶり -> 前方へ伸ばす -> 伸ばしたまま後頭部へ回す
             const kusa = (this.currentSubWeapon && this.currentSubWeapon.name === '鎖鎌') ? this.currentSubWeapon : null;
@@ -4170,6 +4191,7 @@ export class Player {
     }, options = {}) {
         const silhouetteColor = (options.palette && options.palette.silhouette) || COLORS.PLAYER;
         const accentColor = (options.palette && options.palette.accent) || '#00bfff';
+        const armReachScale = Number.isFinite(options.armReachScale) ? options.armReachScale : 1.0;
         const attack = this.currentAttack;
         if (!attack) {
             return;
@@ -4424,6 +4446,11 @@ export class Player {
             }
         }
 
+        if (Math.abs(armReachScale - 1.0) > 0.001) {
+            armEndX = activeBackShoulderX + (armEndX - activeBackShoulderX) * armReachScale;
+            armEndY = activeBackShoulderY + (armEndY - activeBackShoulderY) * armReachScale;
+        }
+
         // 奥手（主動作）: 付け根を固定して描画
         ctx.strokeStyle = silhouetteColor;
         ctx.lineWidth = 6;
@@ -4449,10 +4476,11 @@ export class Player {
                 const dx = targetX - shoulderX;
                 const dy = targetY - shoulderY;
                 const dist = Math.hypot(dx, dy);
-                if (dist <= maxLen || dist === 0) {
+                const maxLenScaled = maxLen * armReachScale;
+                if (dist <= maxLenScaled || dist === 0) {
                     return { x: targetX, y: targetY };
                 }
-                const ratio = maxLen / dist;
+                const ratio = maxLenScaled / dist;
                 return {
                     x: shoulderX + dx * ratio,
                     y: shoulderY + dy * ratio

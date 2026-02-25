@@ -2285,6 +2285,42 @@ export class Odachi extends SubWeapon {
         return { progress, phase, direction, rotation, handX, handY, bladeLen };
     }
 
+    getHandleMetrics() {
+        const back = -34;
+        const front = 21;
+        return {
+            back,
+            front,
+            center: (back + front) * 0.5
+        };
+    }
+
+    localToWorldOnPose(pose, localX, localY = 0) {
+        const cosR = Math.cos(pose.rotation);
+        const sinR = Math.sin(pose.rotation);
+        return {
+            x: pose.handX + pose.direction * (localX * cosR - localY * sinR),
+            y: pose.handY + (localX * sinR + localY * cosR)
+        };
+    }
+
+    getDualGripAnchors(player) {
+        const pose = this.getPose(player);
+        const handle = this.getHandleMetrics();
+        const centerX = handle.center;
+        // 柄の中心付近を両手で挟む配置（長手方向に少しずらし、左右から包む）
+        const halfSpan = 3.2;
+        const pinch = 2.3;
+        return {
+            center: this.localToWorldOnPose(pose, centerX, 0),
+            rear: this.localToWorldOnPose(pose, centerX - halfSpan, -pinch),
+            front: this.localToWorldOnPose(pose, centerX + halfSpan, pinch),
+            rotation: pose.rotation,
+            direction: pose.direction,
+            phase: pose.phase
+        };
+    }
+
     getHandAnchor(player) {
         const pose = this.getPose(player);
         // 刃の部分にかからないよう、柄の端方向（負の方向）へオフセットを拡大
@@ -2547,14 +2583,15 @@ export class Odachi extends SubWeapon {
         if (this.isAttacking || (player && player.forceSubWeaponRender)) {
             const pose = this.getPose(player);
             const blade = this.getBladeGeometry(pose);
+            const handle = this.getHandleMetrics();
             ctx.save();
             ctx.translate(pose.handX, pose.handY);
             ctx.scale(pose.direction, 1);
             ctx.rotate(pose.rotation);
 
             // 柄（色を濃く、重厚に）
-            const handleBack = -34;
-            const handleFront = 21;
+            const handleBack = handle.back;
+            const handleFront = handle.front;
             ctx.fillStyle = '#3d2310';
             ctx.beginPath();
             ctx.rect(handleBack, -4.5, handleFront - handleBack, 9);
