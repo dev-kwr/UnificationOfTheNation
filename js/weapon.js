@@ -226,6 +226,10 @@ export class SubWeapon {
     applyEnhanceTier(tier) {
         this.enhanceTier = clampEnhanceTier(tier);
     }
+
+    canUse() {
+        return true; // デフォルトは常に使用可能
+    }
     
     use() {
         // オーバーライド用
@@ -381,6 +385,12 @@ export class ShurikenProjectile {
         const groundY = (window.game && window.game.groundY) ? window.game.groundY : 480;
         if (this.y >= groundY + LANE_OFFSET) this.isDestroyed = true;
 
+        // --- 画面外判定（左右） ---
+        const scrollX = (window.game && window.game.scrollX) || 0;
+        if (this.x < scrollX - 40 || this.x > scrollX + CANVAS_WIDTH + 40) {
+            this.isDestroyed = true;
+        }
+
         // ★追尾中は地面スレスレで下向き速度を抑える（突き刺さり防止）
         if (this.homing && (groundY - this.y) < 50 && this.vy > 0) {
             this.vy *= 0.3;
@@ -450,12 +460,15 @@ export class ShurikenProjectile {
 // 手裏剣サブ武器
 export class Shuriken extends SubWeapon {
     constructor() {
-        super('手裏剣', 12, 200, 300);
+        super('手裏剣', 10, 200, 320); // Lv0: 初期状態
+        this.baseDamage = 10;
+        this.baseSpeed = 16;
         this.projectiles = [];
         this.pendingShots = [];
-        this.projectileRadius = 10;
-        this.projectileRadiusHoming = 14;
+        this.projectileRadius = 14;
+        this.projectileRadiusHoming = 18;
         this.heldRotation = 0;
+        this.maxOnScreen = 1; // 画面上最大同時存在数
     }
 
     renderHeld(ctx, handX, handY, scale = 1.0) {
@@ -468,59 +481,49 @@ export class Shuriken extends SubWeapon {
         drawShurikenShape(ctx, localX, localY, r, this.heldRotation);
     }
 
-    use(player) {
-        const tier = (player && typeof player.getSubWeaponEnhanceTier === 'function')
-            ? player.getSubWeaponEnhanceTier()
-            : 0;
+    applyEnhanceTier(tier) {
+        super.applyEnhanceTier(tier);
+        const damages = [10, 12, 13, 14];
+        const speeds = [20, 22, 24, 26];
+        const maxCounts = [1, 2, 3, 5]; // 画面上最大同時存在数
 
+        this.damage = damages[this.enhanceTier] || damages[0];
+        this.bulletSpeed = speeds[this.enhanceTier] || speeds[0];
+        this.maxOnScreen = maxCounts[this.enhanceTier] || maxCounts[0];
+        this.cooldown = 150; // 投擲モーションのみ
+        // Lv3: サイズアップ
+        this.sizeUp = (this.enhanceTier >= 3);
+    }
+
+    canUse() {
+        // 画面上の在空数が最大数未満なら使用可能
+        return this.projectiles.length < this.maxOnScreen;
+    }
+
+    use(player) {
+        if (!this.canUse()) return;
+
+        const tier = this.enhanceTier;
         const pierce = tier >= 2;
         const homing = tier >= 3;
-        const shotCount = tier >= 2 ? 3 : (tier >= 1 ? 2 : 1);
         const direction = player.facingRight ? 1 : -1;
 
         const baseX = player.x + player.width / 2;
         const baseY = player.y;
 
-        // ★1発目は即時生成
-        this._spawnProjectile(baseX, baseY, direction, 0, shotCount, pierce, homing);
-
-        for (let i = 1; i < shotCount; i++) {
-            this.pendingShots.push({
-                delay: i * 60,
-                index: i,
-                shotCount,
-                pierce,
-                homing,
-                direction,
-                baseX,
-                baseY,
-                isClone: false
-            });
-        }
+        // 1発発射
+        this._spawnProjectile(baseX, baseY, direction, pierce, homing);
 
         // 奥義分身
         if (player && typeof player.getSubWeaponCloneOffsets === 'function') {
             const cloneOffsets = player.getSubWeaponCloneOffsets();
             if (Array.isArray(cloneOffsets) && cloneOffsets.length > 0) {
                 for (const clone of cloneOffsets) {
-                    player.triggerCloneSubWeapon(clone.index); // アニメーション誘発
+                    player.triggerCloneSubWeapon(clone.index);
                     this._spawnProjectile(
                         baseX + clone.dx, baseY + clone.dy,
-                        direction, 0, shotCount, pierce, homing
+                        direction, pierce, homing
                     );
-                    for (let i = 1; i < shotCount; i++) {
-                        this.pendingShots.push({
-                            delay: i * 60,
-                            index: i,
-                            shotCount,
-                            pierce,
-                            homing,
-                            direction,
-                            baseX: baseX + clone.dx,
-                            baseY: baseY + clone.dy,
-                            isClone: true
-                        });
-                    }
                 }
             }
         }
@@ -528,49 +531,31 @@ export class Shuriken extends SubWeapon {
         player.subWeaponAction = 'throw';
         audio.playShuriken();
     }
-    _spawnProjectile(baseX, baseY, direction, index, shotCount, pierce, homing) {
+
+    _spawnProjectile(baseX, baseY, direction, pierce, homing) {
         const spawnX = baseX + direction * 18;
         const spawnY = baseY + 16;
-        const speed = 9;
-        const spreadIndex = index - (shotCount - 1) / 2;
-        const vy = spreadIndex * 0.3;
-        const offsetY = spreadIndex * 3;
-        const r = homing ? this.projectileRadiusHoming : this.projectileRadius;
+        const speed = this.bulletSpeed || 20;
+        const r = this.sizeUp
+            ? (homing ? 22 : 18)
+            : (homing ? this.projectileRadiusHoming : this.projectileRadius);
 
         const proj = new ShurikenProjectile(
             spawnX,
-            spawnY + offsetY,
+            spawnY,
             direction * speed,
-            vy,
+            0,
             this.damage,
             r,
             pierce,
             homing,
-            index
+            0
         );
         this.projectiles.push(proj);
     }
 
     update(deltaTime, enemies = []) {
-        const dtMs = deltaTime * 1000;
-
-        // ★二重更新ガードを撤廃（ゲームループから1回だけ呼ばれる前提）
-
         this.heldRotation += 1.2 * deltaTime;
-
-        // 遅延発射
-        for (let i = this.pendingShots.length - 1; i >= 0; i--) {
-            const shot = this.pendingShots[i];
-            shot.delay -= dtMs;
-            if (shot.delay <= 0) {
-                this._spawnProjectile(
-                    shot.baseX, shot.baseY,
-                    shot.direction, shot.index, shot.shotCount,
-                    shot.pierce, shot.homing
-                );
-                this.pendingShots.splice(i, 1);
-            }
-        }
 
         // ★projectile は必ずここからだけ更新（enemies を確実に渡す）
         for (const proj of this.projectiles) {
@@ -602,15 +587,40 @@ export class Shuriken extends SubWeapon {
 // 火薬玉（爆弾を忍具として扱う）
 export class Firebomb extends SubWeapon {
     constructor() {
-        // 範囲制圧寄り: 爆風範囲を維持しつつ連投を抑制
-        super('火薬玉', 30, 70, 500);
+        super('火薬玉', 25, 70, 700); // Lv0
+        this.baseDamage = 25;
+        this.baseCooldown = 700;
+        this.trackedBombs = []; // 画面上に存在する自分のBomb
+        this.maxOnScreen = 1;   // 画面上最大同時存在数
+    }
+
+    applyEnhanceTier(tier) {
+        super.applyEnhanceTier(tier);
+        
+        const damages = [18, 22, 24, 28];
+        const ranges = [70, 70, 70, 90];
+        const maxCounts = [1, 2, 3, 3]; // 画面上最大同時存在数
+
+        this.damage = damages[this.enhanceTier] || damages[0];
+        this.range = ranges[this.enhanceTier] || ranges[0];
+        this.maxOnScreen = maxCounts[this.enhanceTier] || maxCounts[0];
+        this.cooldown = 150; // 投擲モーションのみ
+        this.totalDuration = this.cooldown;
+    }
+
+    canUse() {
+        // 爆発開始したBombは枠を空ける（爆風が出た瞬間に次を投げられる）
+        this.trackedBombs = this.trackedBombs.filter(b => !b.isExploding && !b.isDestroyed);
+        return this.trackedBombs.length < this.maxOnScreen;
     }
 
     render() {
-        // 投擲後は Bomb オブジェクトとして飛んでいくため、手元への描画は不要
         return;
     }
+
     use(player) {
+        if (!this.canUse()) return;
+
         const g = window.game;
         if (!g) return;
 
@@ -625,50 +635,49 @@ export class Firebomb extends SubWeapon {
             bombY = player.y + player.height - 15;
         }
 
-        const tier = (player && typeof player.getSubWeaponEnhanceTier === 'function')
-            ? player.getSubWeaponEnhanceTier()
-            : 0;
-        const shotCount = tier >= 2 ? 3 : (tier >= 1 ? 2 : 1);
-        const sizeUp = tier >= 3; // Lv3でサイズアップ
-        for (let shotIndex = 0; shotIndex < shotCount; shotIndex++) {
-            const spread = shotCount === 1 ? 0 : (shotIndex - (shotCount - 1) / 2) * 0.9;
-            const bomb = new Bomb(
-                player.x + player.width / 2 + direction * (15 + shotIndex * 4),
-                bombY - shotIndex * 1.5,
-                vx + spread,
-                vy - Math.abs(spread) * 0.2
-            );
-            bomb.damage = sizeUp ? Math.round(this.damage * 1.22) : this.damage;
-            bomb.radius = sizeUp ? 10.8 : 8.4;
-            bomb.explosionRadius = sizeUp ? Math.round(this.range * 1.16) : this.range;
-            bomb.explosionDuration = sizeUp ? 380 : 300;
-            g.bombs.push(bomb);
-        }
+        const tier = this.enhanceTier;
+        const sizeUp = tier >= 3;
+
+        // 1発発射
+        const bomb = new Bomb(
+            player.x + player.width / 2 + direction * 15,
+            bombY,
+            vx,
+            vy
+        );
+        bomb.damage = sizeUp ? Math.round(this.damage * 1.22) : this.damage;
+        bomb.radius = sizeUp ? 14 : 11;
+        bomb.explosionRadius = sizeUp ? Math.round(this.range * 1.16) : this.range;
+        bomb.explosionDuration = sizeUp ? 380 : 300;
+        g.bombs.push(bomb);
+        this.trackedBombs.push(bomb);
 
         // 奥義分身中は分身位置からも同時投擲
         if (player && typeof player.getSubWeaponCloneOffsets === 'function') {
             const cloneOffsets = player.getSubWeaponCloneOffsets();
             if (Array.isArray(cloneOffsets) && cloneOffsets.length > 0) {
                 for (const clone of cloneOffsets) {
-                    player.triggerCloneSubWeapon(clone.index); // アニメーション誘発
-                    for (let shotIndex = 0; shotIndex < shotCount; shotIndex++) {
-                        const spread = shotCount === 1 ? 0 : (shotIndex - (shotCount - 1) / 2) * 0.9;
-                        const cloneBomb = new Bomb(
-                            player.x + clone.dx + player.width / 2 + direction * (15 + shotIndex * 4),
-                            bombY + clone.dy - shotIndex * 1.5,
-                            vx + (clone.index % 2 === 0 ? 0.5 : -0.5) + spread,
-                            vy - Math.abs(spread) * 0.2
-                        );
-                        cloneBomb.damage = sizeUp ? Math.round(this.damage * 1.22) : this.damage;
-                        cloneBomb.radius = sizeUp ? 9.9 : 7.9;
-                        cloneBomb.explosionRadius = sizeUp ? Math.round(this.range * 1.16) : this.range;
-                        cloneBomb.explosionDuration = sizeUp ? 360 : 280;
-                        g.bombs.push(cloneBomb);
-                    }
+                    player.triggerCloneSubWeapon(clone.index);
+                    const cloneBomb = new Bomb(
+                        player.x + clone.dx + player.width / 2 + direction * 15,
+                        bombY + clone.dy,
+                        vx + (clone.index % 2 === 0 ? 0.5 : -0.5),
+                        vy
+                    );
+                    cloneBomb.damage = sizeUp ? Math.round(this.damage * 1.22) : this.damage;
+                    cloneBomb.radius = sizeUp ? 13 : 10;
+                    cloneBomb.explosionRadius = sizeUp ? Math.round(this.range * 1.16) : this.range;
+                    cloneBomb.explosionDuration = sizeUp ? 360 : 280;
+                    g.bombs.push(cloneBomb);
                 }
             }
         }
         audio.playDash();
+    }
+
+    update(deltaTime) {
+        // 消滅済みBombを追跡リストから除去
+        this.trackedBombs = this.trackedBombs.filter(b => !b.isDestroyed);
     }
 }
 
@@ -676,14 +685,14 @@ export class Firebomb extends SubWeapon {
 export class Spear extends SubWeapon {
     constructor() {
         // 差し込み特化: 先端火力を高め、やや長射程に
-        super('大槍', 28, 132, 360);
+        super('大槍', 20, 132, 360); // Lv0
         this.isAttacking = false;
         this.attackTimer = 0;
-        this.baseAttackDuration = 270;
+        this.baseAttackDuration = 270; 
         this.attackDuration = this.baseAttackDuration;
-        this.baseDashBoost = 76;
+        this.baseDashBoost = 60;
         this.dashBoost = this.baseDashBoost;
-        this.fixedRangeScale = 1.48; // Lv3相当の見た目長に固定
+        this.fixedRangeScale = 1.48; // 見た目長
         this.attackDirection = 1;
         this.thrustPulse = 0;
         this.hitEnemies = new Set();
@@ -693,9 +702,17 @@ export class Spear extends SubWeapon {
         super.applyEnhanceTier(tier);
         const baseRange = Number.isFinite(this.baseRange) ? this.baseRange : this.range;
         this.range = Math.max(24, Math.round(baseRange * this.fixedRangeScale));
-        this.attackDuration = this.baseAttackDuration;
-        // Lv1〜Lv2: 主変化は踏み込み距離。Lv3はさらに大きく伸ばす。
-        const dashByTier = [76, 106, 138, 176];
+        
+        // Lv別パラメータ設計
+        const damages = [20, 24, 26, 28];
+        const cooldowns = [360, 345, 330, 315];
+        const durations = [270, 255, 240, 225];
+        const dashByTier = [60, 76, 106, 140];
+
+        this.damage = damages[this.enhanceTier] || damages[0];
+        this.attackDuration = durations[this.enhanceTier] || durations[0];
+        // クールタイムをモーション時間と一致させる（待機時間を撤廃）
+        this.cooldown = this.attackDuration;
         this.dashBoost = dashByTier[this.enhanceTier] || dashByTier[0];
     }
     
@@ -1172,8 +1189,8 @@ export class Spear extends SubWeapon {
 // 二刀
 export class DualBlades extends SubWeapon {
     constructor() {
-        // 手数特化: 一撃は軽め、連撃でDPSを出す
-        super('二刀流', 19, 64, 180);
+        // 手数特化: 一撃は軽め、連撃でDPSを出す（合体技を最強にするため基本値を底上げ）
+        super('二刀流', 22, 64, 180);
         this.isAttacking = false;
         this.attackTimer = 0;
         this.attackType = 'combined'; // 'main', 'left', 'right', 'combined'
@@ -1182,7 +1199,7 @@ export class DualBlades extends SubWeapon {
         this.mainDuration = 204;
         this.baseMainMotionSpeedScale = 1.7;
         this.mainMotionSpeedScale = this.baseMainMotionSpeedScale; // 通常Z連撃と近い体感速度に合わせる
-        this.baseCombinedDuration = 900;
+        this.baseCombinedDuration = 740; // 1.3x速 (初期900に対して 1060->740まで追い込む)
         this.baseSideDuration = 150;
         this.combinedDuration = this.baseCombinedDuration;
         this.sideDuration = this.baseSideDuration;
@@ -1199,18 +1216,35 @@ export class DualBlades extends SubWeapon {
 
     applyEnhanceTier(tier) {
         super.applyEnhanceTier(tier);
-        this.mainMotionSpeedScale = Math.max(
-            1.05,
-            this.baseMainMotionSpeedScale - this.enhanceTier * 0.11
-        );
-        this.combinedDuration = Math.max(
-            700,
-            Math.round(this.baseCombinedDuration * (1 - this.enhanceTier * 0.03))
-        );
-        this.sideDuration = Math.max(
-            96,
-            Math.round(this.baseSideDuration * (1 - this.enhanceTier * 0.11))
-        );
+        
+        // Z連撃（通常攻撃）の段数ごと威力：Lv0(2連), Lv1(3連), Lv2(4連), Lv3(5連)
+        const zDamages = [
+            [14, 16],
+            [15, 17, 19],
+            [16, 18, 20, 22],
+            [17, 19, 21, 24, 28]
+        ];
+        // X合体技（大太刀の1.3倍：44, 52, 56, 60）
+        const xDamages = [44, 52, 56, 60];
+        
+        const cooldowns = [220, 200, 190, 180];
+        const motionScales = [1.0, 1.05, 1.10, 1.15];
+        const xMotionScales = [1.0, 1.05, 1.10, 1.20];
+
+        this.comboDamages = zDamages[this.enhanceTier] || zDamages[0];
+        this.xDamage = xDamages[this.enhanceTier] || xDamages[0];
+
+        // 速度向上を廃止 (1.0 固定)
+        this.motionScale = 1.0;
+        this.xMotionScale = 1.0;
+        this.xSizeUp = (this.enhanceTier >= 3);
+        
+        // 合体技の動作時間をLv別に短縮（一律15ms刻み）
+        const combinedDurations = [560, 545, 530, 515];
+        this.combinedDuration = combinedDurations[this.enhanceTier] || combinedDurations[0];
+        this.activeCombinedDuration = this.combinedDuration;
+        this.cooldown = this.combinedDuration;
+        this.totalDuration = this.cooldown;
     }
 
     getMainDurationByStep(step) {
@@ -1367,37 +1401,35 @@ export class DualBlades extends SubWeapon {
         this.activeCombinedDuration = Math.max(170, Math.round(this.combinedDuration * enemyCombinedTempoScale));
         
         if (type === 'combined') {
-            // X技は常に最新の1発のみを表示して剣筋の二重化を防ぐ
-            this.projectiles = [];
             this.attackTimer = this.activeCombinedDuration;
             this.mainComboLinkTimer = 0;
             this.comboIndex = 0;
-            // 振り下ろしタイミングで発射するため、一旦保留
+            // 振り下ろしタイミングで発射するため、一旦保留。座標は発射時に計算する
             this.pendingCombinedProjectile = {
-                x: player.x + player.width / 2,
-                y: player.y + player.height / 2,
                 vx: this.attackDirection * (11.4 + this.enhanceTier * 1.15),
                 life: 700 + this.enhanceTier * 90,
                 maxLife: 700 + this.enhanceTier * 90,
                 direction: this.attackDirection,
-                sizeScale: this.enhanceTier >= 3 ? 1.14 : 1.0
+                sizeScale: this.enhanceTier >= 3 ? 1.14 : 1.0,
+                _owner: player // 発射時に座標を取得するために保持
             };
             audio.playDualBladeCombined();
         } else if (type === 'main') {
-            // 5段ループの多方向コンボ
-            if (this.mainComboLinkTimer <= 0) {
-                // 入力間隔が空いたらコンボをリセット
-                this.comboIndex = 0;
-            }
-            this.comboIndex = (this.comboIndex + 1) % 5;
-            this.mainDuration = Math.max(
-                112,
-                Math.round(this.getMainDurationByStep(this.comboIndex) * enemyTempoScale)
-            );
-            this.attackTimer = this.mainDuration;
-            this.mainComboLinkTimer = this.mainDuration + this.mainComboLinkGraceMs;
-            audio.playSlash(this.comboIndex);
-        } else if (type === 'left') {
+        // 5段コンボのループ
+        if (this.mainComboLinkTimer <= 0) {
+            this.comboIndex = 0;
+        }
+        this.comboIndex = (this.comboIndex + 1) % this.comboDamages.length;
+        const damage = this.comboDamages[this.comboIndex] || this.comboDamages[0];
+        this.mainDuration = Math.max(
+            112,
+            Math.round(this.getMainDurationByStep(this.comboIndex) * enemyTempoScale)
+        );
+        this.attackTimer = this.mainDuration;
+        this.mainComboLinkTimer = this.mainDuration + this.mainComboLinkGraceMs;
+        audio.playSlash(this.comboIndex);
+        // ここでdamageを使用する処理があれば追記（現在はspawnEffect側で判定）
+    } else if (type === 'left') {
             this.attackTimer = this.activeSideDuration;
             // 4段コンボのループ (0 -> 1 -> 2 -> 3 -> 0)
             this.comboIndex = (this.comboIndex + 1) % 4;
@@ -1423,13 +1455,20 @@ export class DualBlades extends SubWeapon {
         }
 
         if (this.isAttacking) {
-            // 合体攻撃は前半を溜め、後半の振り下ろしで飛翔斬撃を出す
+            // 合体攻撃は前半を溜め、新タイミング（0.68: 振り下ろし開始）の瞬間に飛翔斬撃を出す
             if (this.attackType === 'combined' && this.pendingCombinedProjectile && this.getCombinedSwingProgress() >= 0.68) {
-                this.projectiles.push(this.pendingCombinedProjectile);
+                const p = this.pendingCombinedProjectile;
+                const owner = p._owner;
+                if (owner) {
+                    // 発射の瞬間のプレイヤー座標から基点を計算（移動に追従させる）
+                    p.x = owner.x + owner.width / 2;
+                    p.y = owner.y + owner.height / 2;
+                }
+                this.projectiles.push(p);
                 this.pendingCombinedProjectile = null;
             }
             this.attackTimer -= deltaTime * 1000;
-            if (this.attackTimer <= 0) {
+            if (this.attackTimer <= 20) { // わずかなマージンを持たせて終了判定
                 this.isAttacking = false;
                 this.pendingCombinedProjectile = null;
                 this.prevMainRightAngle = null;
@@ -1896,30 +1935,29 @@ export class DualBlades extends SubWeapon {
     }
 }
 
-
 // 鎖鎌
 export class Kusarigama extends SubWeapon {
     constructor() {
         // 制圧寄り: 間合い管理の武器として中火力を強化
-        super('鎖鎌', 20, 245, 480);
+        super('鎖鎌', 20, 340, 369); // 射程を 340 に微調整（380から少し短縮）
         this.isAttacking = false;
         this.attackTimer = 0;
-        this.baseTotalDuration = 560;
+        this.baseTotalDuration = 538; // 動作時間を延長 (700msベース)
         // モーション速度係数（0.5 = 約半速）
         this.motionSpeedScale = 0.5;
         this.totalDuration = this.scaleMotionDuration(this.baseTotalDuration);
         this.owner = null;
         this.attackDirection = 1;
-        this.baseWindupEnd = 0.16;
-        this.baseExtendEnd = 0.44;
-        this.baseOrbitEnd = 0.9;
-        this.baseThrowHoldRatio = 0.14;
+        this.baseWindupEnd = 0.1;
+        this.baseExtendEnd = 0.32;
+        this.baseOrbitEnd = 0.1;
+        this.baseThrowHoldRatio = 0.2;
         this.windupEnd = this.baseWindupEnd;
         this.extendEnd = this.baseExtendEnd;
         this.orbitEnd = this.baseOrbitEnd;
         this.throwHoldRatio = this.baseThrowHoldRatio;
         this.rangeScale = 1.0;
-        this.multiHitCount = 1;
+        this.multiHitCount = 0;
         this.tipX = null;
         this.tipY = null;
         this.echoHitEnemies = new Set();
@@ -1935,20 +1973,27 @@ export class Kusarigama extends SubWeapon {
 
     applyEnhanceTier(tier) {
         super.applyEnhanceTier(tier);
+        
+        const damages = [18, 20, 22, 24];
+        const cooldowns = [680, 665, 650, 635];
         const tierMap = [
-            { total: 560, rangeScale: 1.0, multi: 1, throwEnd: 0.44, orbit: 0.9, windupRatio: 0.40, holdRatio: 0.14 },
-            { total: 520, rangeScale: 1.1, multi: 2, throwEnd: 0.41, orbit: 0.9, windupRatio: 0.39, holdRatio: 0.13 },
-            { total: 490, rangeScale: 1.22, multi: 3, throwEnd: 0.38, orbit: 0.91, windupRatio: 0.38, holdRatio: 0.125 },
-            { total: 450, rangeScale: 1.34, multi: 4, throwEnd: 0.35, orbit: 0.92, windupRatio: 0.36, holdRatio: 0.12 }
+            { rangeScale: 1.0, multiHitCount: 0, extendEnd: 0.32, windupEnd: 0.1, orbitEnd: 0.1, throwHoldRatio: 0.2 },
+            { rangeScale: 1.0, multiHitCount: 1, extendEnd: 0.32, windupEnd: 0.1, orbitEnd: 0.1, throwHoldRatio: 0.2 },
+            { rangeScale: 1.15, multiHitCount: 2, extendEnd: 0.35, windupEnd: 0.12, orbitEnd: 0.12, throwHoldRatio: 0.25 },
+            { rangeScale: 1.34, multiHitCount: 4, extendEnd: 0.38, windupEnd: 0.15, orbitEnd: 0.15, throwHoldRatio: 0.3 }
         ];
-        const conf = tierMap[this.enhanceTier] || tierMap[0];
-        this.totalDuration = this.scaleMotionDuration(conf.total);
-        this.rangeScale = conf.rangeScale;
-        this.multiHitCount = conf.multi;
-        this.extendEnd = conf.throwEnd;
-        this.windupEnd = Math.max(0.12, this.extendEnd * conf.windupRatio);
-        this.orbitEnd = conf.orbit;
-        this.throwHoldRatio = conf.holdRatio;
+
+        const cfg = tierMap[this.enhanceTier] || tierMap[0];
+        this.damage = damages[this.enhanceTier] || damages[0];
+        // クールタイムをモーション時間と一致させる
+        this.cooldown = cooldowns[this.enhanceTier] || cooldowns[0];
+        this.rangeScale = cfg.rangeScale;
+        this.multiHitCount = cfg.multiHitCount;
+        this.extendEnd = cfg.extendEnd;
+        this.windupEnd = cfg.windupEnd;
+        this.orbitEnd = cfg.orbitEnd;
+        this.throwHoldRatio = cfg.throwHoldRatio;
+        this.totalDuration = this.cooldown;
     }
     
     use(player) {
@@ -2062,14 +2107,14 @@ export class Kusarigama extends SubWeapon {
             radius = this.range * this.rangeScale;
             // 前方へ投げ放った後に遠心力を感じるよう、ゆっくり回し始める
             const eased = Math.pow(phaseT, 1.22);
-            angle = 0.05 + (-Math.PI * 0.92 - 0.05) * eased;
+            angle = 0.05 + (-Math.PI * 1.22 - 0.05) * eased; // 終点を斜め後方 (-1.22PI) まで延長
         } else {
             phase = 'retract';
             phaseT = (progress - this.orbitEnd) / (1 - this.orbitEnd);
             // 縮退も常に円弧上（角度と半径を同時補間）
             const eased = 0.5 - Math.cos(phaseT * Math.PI) * 0.5;
             radius = this.range * this.rangeScale * (1 - eased * 0.9);
-            const startAngle = -Math.PI * 0.96;
+            const startAngle = -Math.PI * 1.22; // 回転終点に合わせて開始角も後方にずらす
             const endAngle = -Math.PI * 0.18;
             angle = startAngle + (endAngle - startAngle) * eased;
         }
@@ -2193,12 +2238,12 @@ export class Kusarigama extends SubWeapon {
         };
         const hitboxes = [chainHitbox, tipHitbox];
         // Lvが上がるほど鎌先まわりの追撃判定を増やして制圧力を上げる
-        if (this.multiHitCount > 1) {
+        if (this.multiHitCount > 0) {
             const tipReach = 18;
             const normalX = -Math.sin(st.chainHeading) * tipReach;
             const normalY = Math.cos(st.chainHeading) * tipReach;
-            for (let i = 1; i < this.multiHitCount; i++) {
-                const offset = (i - (this.multiHitCount - 1) * 0.5) * 10;
+            for (let i = 1; i <= this.multiHitCount; i++) {
+                const offset = (i - (this.multiHitCount + 1) * 0.5) * 10;
                 hitboxes.push({
                     x: tipHitbox.x + normalX * 0.4 + offset * st.direction * 0.15,
                     y: tipHitbox.y + normalY * 0.4 + offset * 0.18,
@@ -2432,18 +2477,12 @@ export class Kusarigama extends SubWeapon {
 }
 
 // 大太刀
-// weapon.js の Odachi クラス
-
-// ============================================
-// 大太刀 (修正版)
-// ============================================
-
 export class Odachi extends SubWeapon {
     constructor() {
-        super('大太刀', 46, 74, 760);
+        super('大太刀', 34, 74, 580); // Lv0
         this.isAttacking = false;
         this.attackTimer = 0;
-        this.baseTotalDuration = 760;
+        this.baseTotalDuration = 580; 
         this.totalDuration = this.baseTotalDuration;
         this.owner = null;
         this.impactX = 0;
@@ -2456,7 +2495,8 @@ export class Odachi extends SubWeapon {
         this.stallEnd = 0.46;
         this.flipEnd = 0.78;
         this.baseImpactStart = 0.92;
-        this.impactStart = this.baseImpactStart;
+        this.impactStart = 0.92;
+        this.impactEnd = 1.0;
         this.attackDirection = 1;
         // 着地後の「刺さり演出」用タイマー
         this.plantedTimer = 0;
@@ -2467,12 +2507,17 @@ export class Odachi extends SubWeapon {
 
     applyEnhanceTier(tier) {
         super.applyEnhanceTier(tier);
-        // totalDuration の短縮を緩やかにする（0.08 → 0.035 per tier）
-        this.totalDuration = Math.max(
-            620,
-            Math.round(this.baseTotalDuration * (1 - this.enhanceTier * 0.035))
-        );
-        // impactStart の短縮も緩やかに（0.045 → 0.025 per tier）
+        
+        const damages = [34, 40, 43, 46];
+        const cooldowns = [580, 565, 550, 535];
+        const jumps = [-22, -26, -28, -30];
+
+        this.damage = damages[this.enhanceTier] || damages[0];
+        // 待機時間を撤廃し、モーション時間自体をCDとする
+        this.cooldown = cooldowns[this.enhanceTier] || cooldowns[0];
+        this.totalDuration = this.cooldown;
+        this.odachiJumpVy = jumps[this.enhanceTier] || jumps[0];
+
         this.impactStart = Math.max(0.78, this.baseImpactStart - this.enhanceTier * 0.025);
         this.plantedDuration = Math.round(this.basePlantedDuration * (1 + this.enhanceTier * 0.12));
     }
@@ -2491,9 +2536,9 @@ export class Odachi extends SubWeapon {
 
         // ボス（敵）の場合は跳躍力を抑える
         if (player.isEnemy) {
-            player.vy = -16.5;
+            player.vy = (this.odachiJumpVy || -30) * 0.55;
         } else {
-            player.vy = -30;
+            player.vy = this.odachiJumpVy || -30;
         }
         player.isGrounded = false;
         player.vx *= 0.35;

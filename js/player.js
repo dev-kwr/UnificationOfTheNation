@@ -352,7 +352,7 @@ export class Player {
         return spear.isAttacking || Math.abs(this.vx) > PLAYER.SPEED * 1.2;
     }
     
-    update(deltaTime, walls = []) {
+    update(deltaTime, walls = [], enemies = []) {
         const deltaMs = deltaTime * 1000;
         this.updateTemporaryNinjutsu(deltaMs);
 
@@ -450,7 +450,7 @@ export class Player {
 
         // サブウェポンの状態更新（アニメーション進行など）
         if (this.currentSubWeapon && this.currentSubWeapon.update) {
-            this.currentSubWeapon.update(deltaTime / subWeaponScale);
+            this.currentSubWeapon.update(deltaTime / subWeaponScale, enemies);
         }
 
         // 鎖鎌・大太刀は武器側の攻撃終了を優先して即座に通常状態へ戻す
@@ -512,12 +512,13 @@ export class Player {
                 if (this.subWeaponTimer > 0) return;
                 if (!this.currentSubWeapon) return;
                 if (this.currentSubWeapon.name === '二刀流') {
-                    if (this.currentSubWeapon.projectiles && this.currentSubWeapon.projectiles.length > 0) return;
                     this.currentSubWeapon.use(this, 'combined');
                     this.subWeaponTimer = this.getSubWeaponActionDurationMs('二刀_合体', this.currentSubWeapon);
                     this.subWeaponAction = '二刀_合体';
                     this.vx = 0;
                 } else {
+                    // canUse() チェック（手裏剣・火薬玉の画面上最大数制限）
+                    if (this.currentSubWeapon.canUse && !this.currentSubWeapon.canUse()) return;
                     this.useSubWeapon();
                     const weaponName = this.currentSubWeapon ? this.currentSubWeapon.name : '';
                     const isThrow = weaponName === '火薬玉' || weaponName === '手裏剣';
@@ -573,15 +574,14 @@ export class Player {
 
             if (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
                 // 連打防止：既に衝撃波が出ていたら撃てない (一個目が消えるまで)
-                // 配列の長さチェックを確実に行う
-                if (this.currentSubWeapon.projectiles && this.currentSubWeapon.projectiles.length > 0) return;
-
                 // 二刀の忍具技：両手交差の飛翔斬撃
                 this.currentSubWeapon.use(this, 'combined');
                 this.subWeaponTimer = this.getSubWeaponActionDurationMs('二刀_合体', this.currentSubWeapon);
                 this.subWeaponAction = '二刀_合体';
                 this.vx = 0; // 完全に停止
             } else {
+                // canUse() チェック（手裏剣・火薬玉の画面上最大数制限）
+                if (this.currentSubWeapon.canUse && !this.currentSubWeapon.canUse()) return;
                 this.useSubWeapon();
                 const weaponName = this.currentSubWeapon ? this.currentSubWeapon.name : '';
                 const isThrow = weaponName === '火薬玉' || weaponName === '手裏剣';
@@ -887,7 +887,7 @@ export class Player {
 
     getSubWeaponActionDurationMs(actionName, weapon = this.currentSubWeapon) {
         const name = actionName || (weapon && weapon.name) || '';
-        if (name === 'throw') return 150;
+        if (name === 'throw') return 50;
         if (name === '二刀_合体') {
             const dual = (weapon && weapon.name === '二刀流') ? weapon : this.currentSubWeapon;
             return Math.max(
@@ -1501,7 +1501,21 @@ export class Player {
                     const canAttack = this.specialCloneAttackTimers[i] <= 0
                         && this.specialCloneSubWeaponTimers[i] <= 0;
                     if (canAttack) {
+                        const subWeapon = this.currentSubWeapon;
+                        const tier = (typeof resolveSubWeaponEnhanceTier === 'function') 
+                            ? resolveSubWeaponEnhanceTier(this, subWeapon.enhanceTier) 
+                            : 0;
+                        const isOdachi = subWeapon && subWeapon.name === '大太刀';
+                        const odachiRate = isOdachi ? 0.7 : 1.0;
+
                         this.triggerCloneAttack(i);
+                        
+                        // 奥義（忍術）の追加発動
+                        const weaponName = subWeapon ? subWeapon.name : '';
+                        const direction = pos.facingRight ? 1 : -1;
+                        if (tier >= 1 && weaponName !== '火薬玉' && Math.random() < odachiRate) {
+                            this.useNinjutsu(i, weaponName, direction);
+                        }
                     }
                 }
                 this.specialCloneReturnToAnchor[i] = false;
@@ -2283,10 +2297,13 @@ export class Player {
     }
 
     getNormalComboMax() {
+        // 連撃Lvに応じた段数 (Lv0:2連 〜 Lv3:5連)
         const tier = this.progression && Number.isFinite(this.progression.normalCombo)
             ? this.progression.normalCombo
             : 0;
-        return Math.max(2, Math.min(COMBO_ATTACKS.length, 2 + tier));
+        const max = Math.max(2, Math.min(COMBO_ATTACKS.length, 2 + tier));
+        
+        return max;
     }
 
     getSubWeaponEnhanceTier() {
@@ -2499,6 +2516,7 @@ export class Player {
         if (choiceId === 'normal_combo') {
             if (this.progression.normalCombo >= 3) return false;
             this.progression.normalCombo++;
+            // 速度向上ロジックは削除（初期速度固定）
             return true;
         }
         if (choiceId === 'sub_weapon') {
@@ -3012,7 +3030,7 @@ export class Player {
             filterParts.push(`brightness(${brightness}%) saturate(${saturation}%)`);
         }
 
-        // 空蝉透遁中は半透明化（全体フィルタは重いので適用しない）
+        // 隠れ身の術中は本体のみ透明化（全体フィルタは重いので適用しない）
         if (filterParts.length > 0) {
             ctx.filter = filterParts.join(' ');
         }
@@ -3057,12 +3075,14 @@ export class Player {
             const castOptions = ghostVeilActive
                 ? { palette: { silhouette: `rgba(26, 26, 26, ${ghostSilhouetteAlpha})` } }
                 : {};
+            // 隠れ身の術中は本体のみ透明にするため、全体のalphaではなくpaletteで制御。
             this.renderSpecialCastPose(ctx, this.x, this.y, this.facingRight, ctx.globalAlpha, castOptions);
         } else {
             this.renderComboSlashTrail(ctx);
             const renderOptions = ghostVeilActive
                 ? { palette: { silhouette: `rgba(26, 26, 26, ${ghostSilhouetteAlpha})` } }
                 : {};
+            // 隠れ身の術中は本体のみ透明にするため、全体のalphaではなくpaletteで制御。
             this.renderModel(ctx, this.x, this.y, this.facingRight, ctx.globalAlpha, true, renderOptions);
         }
 
@@ -4937,14 +4957,23 @@ export class Player {
         } else if (this.subWeaponAction === '二刀_合体') {
             // === 二刀合体: X構え → X斬撃 → アイドル復帰 ===
             const clamped = Math.min(1, Math.max(0, progress));
-            const gatherPhase = 0.28;
-            const holdPhase = 0.22;
+            
+            // ユーザー要望に合わせたフェード比率の最終調整:
+            // 1. 交差まで (gather) - 極めて高速 (15%)
+            // 2. タメ (hold) - 一定時間静止 (53%)
+            // 3. 振り下ろし (strike) - 瞬間的 (0.32 * 0.22 ≒ 7%)
+            // 4. 余韻・復帰 (recovery) - 残りすべてを使いゆっくり戻す (25%)
+            const gatherPhase = 0.15;
+            const holdPhase = 0.53;
             const releasePhase = Math.max(0.01, 1 - gatherPhase - holdPhase);
+            
             const gather = Math.max(0, Math.min(1, clamped / gatherPhase));
             const hold = clamped <= gatherPhase ? 0 : Math.max(0, Math.min(1, (clamped - gatherPhase) / holdPhase));
             const release = clamped <= (gatherPhase + holdPhase) ? 0 : Math.max(0, Math.min(1, (clamped - gatherPhase - holdPhase) / releasePhase));
-            const easeGather = gather * gather * (3 - 2 * gather);
-            const easeRelease = release * release * (3 - 2 * release);
+            
+            const easeGather = Math.pow(gather, 0.38); // さらに初速を上げる
+            const easeRelease = release;
+            const easeHold = hold;
             const holdPulse = Math.sin(hold * Math.PI) * 0.15;
             const lerp = (a, b, t) => a + (b - a) * t;
 
@@ -5009,32 +5038,23 @@ export class Player {
                 ba = xBackAngle + holdPulse * 0.015;
                 fa = xFrontAngle - holdPulse * 0.015;
             } else {
-                // 振り抜き → 余韻 → アイドル復帰 (3段階)
-                const relT = easeRelease;
-                if (relT < 0.25) {
-                    // 1. 素早い振り抜き
-                    const t = relT / 0.25;
-                    const eT = t * t * (3 - 2 * t);
+                // 振り抜き (0.0 -> 0.22) → 余韻 (0.22 -> 1.0)
+                const relProgress = easeRelease;
+                if (relProgress < 0.22) {
+                    // 1. 素早い振り抜き (Strike)
+                    const t = relProgress / 0.22;
+                    const eT = Math.pow(t, 0.4); // 加速感
                     bx = lerp(xBackHandX, slashBackHandX, eT);
                     by = lerp(xBackHandY, slashBackHandY, eT);
                     fx = lerp(xFrontHandX, slashFrontHandX, eT);
                     fy = lerp(xFrontHandY, slashFrontHandY, eT);
                     ba = lerp(xBackAngle, slashBackAngle, eT);
                     fa = lerp(xFrontAngle, slashFrontAngle, eT);
-                } else if (relT < 0.50) {
-                    // 2. 余韻 (振り抜きポーズで微かに揺れながら静止)
-                    const lingT = (relT - 0.25) / 0.25;
-                    const drift = Math.sin(lingT * Math.PI) * 0.3;
-                    bx = slashBackHandX + drift * dir;
-                    by = slashBackHandY - drift * 0.5;
-                    fx = slashFrontHandX - drift * dir;
-                    fy = slashFrontHandY - drift * 0.4;
-                    ba = slashBackAngle + drift * 0.02;
-                    fa = slashFrontAngle - drift * 0.02;
                 } else {
-                    // 3. ゆっくりアイドル復帰 (反動で自然に戻る)
-                    const t = (relT - 0.50) / 0.50;
+                    // 2. 余韻とアイドル復帰を統合し、ゆっくり戻す
+                    const t = (relProgress - 0.22) / 0.78;
                     const eT = t * t * (3 - 2 * t);
+                    // 振り抜き終点からアイドルへ
                     bx = lerp(slashBackHandX, idleBackHandX, eT);
                     by = lerp(slashBackHandY, idleBackHandY, eT);
                     fx = lerp(slashFrontHandX, idleFrontHandX, eT);
@@ -5050,11 +5070,10 @@ export class Player {
             const fsx = frontShoulderX + dir * easeGather * 0.3;
             const fsy = frontShoulderY - easeGather * 0.25;
 
-            // --- エネルギー蓄積エフェクト (ギャザー後半〜ホールド中) ---
-            // 斬撃の色: 奥の刀=青, 手前の刀=赤
+            // --- エネルギー蓄積エフェクト ---
             const energyIntensity = clamped < gatherPhase
-                ? easeGather * easeGather
-                : (clamped < gatherPhase + holdPhase ? 1.0 : Math.max(0, 1 - easeRelease * 3));
+                ? gather * gather
+                : (clamped < gatherPhase + holdPhase ? 1.0 : Math.max(0, 1 - release * 1.5));
 
             // --- 描画 ---
             // 奥手 (背面レイヤー)
@@ -5084,35 +5103,100 @@ export class Player {
                 ctx.globalCompositeOperation = 'lighter';
                 const ePulse = Math.sin(this.motionTime * 0.08) * 0.3 + 0.7;
                 const eAlpha = energyIntensity * 0.7 * ePulse;
-                const glowR = (7 + energyIntensity * 12) * ePulse;
-                // uprightBlend補正 (drawKatanaと同じ 0.02 の補正を適用)
                 const uprightTarget = -Math.PI / 2;
-                const rba = ba + (uprightTarget - ba) * 0.02;
-                const rfa = fa + (uprightTarget - fa) * 0.02;
+                const uprightBlend = 0.02;
+                const kScale = 0.52;
+                
+                // 刀と同じローカル座標系でエフェクトを描画するヘルパー
+                const drawBladeEffect = (baseX, baseY, baseAngle, colorCenter, colorMid, colorEdge, glowRBase, energyLenBase) => {
+                    ctx.save();
+                    ctx.translate(baseX, baseY);
+                    ctx.scale(dir, 1);
+                    
+                    // 左右反転に関わらず -PI/2 を基準にする（drawKatana 内部の回転挙動に合わせる）
+                    const uTarget = -Math.PI / 2;
+                    const blend = Math.max(0, Math.min(1, uprightBlend));
+                    const adjustedAngle = baseAngle + (uTarget - baseAngle) * blend;
+                    ctx.rotate(adjustedAngle);
+                    
+                    ctx.scale(kScale, kScale);
+                    
+                    const visualLen = this.getKatanaBladeLength() - 5;
+                    const bladeReach = Math.max(18, visualLen) / kScale;
+                    const bladeStart = 10 + 2.2; // habakiX + 2.2 in local scale
+                    const bladeEnd = Math.max(bladeStart + 10, bladeReach);
+                    const bl = bladeEnd - bladeStart;
+                    const sori = bl * 0.18;
+                    const getArcY = (t) => -(Math.pow(t, 1.8) * sori) + 0.06;
+                    
+                    // グロー: 刀身の中央付近
+                    const midT = 0.45;
+                    const midX = bladeStart + (bladeEnd - bladeStart) * midT;
+                    const midY = getArcY(midT);
+                    const glowR = glowRBase / kScale;
+                    const glow = ctx.createRadialGradient(midX, midY, 0, midX, midY, glowR * 1.8);
+                    glow.addColorStop(0, colorCenter);
+                    glow.addColorStop(0.5, colorMid);
+                    glow.addColorStop(1, colorEdge);
+                    ctx.fillStyle = glow;
+                    ctx.beginPath();
+                    ctx.arc(midX, midY, glowR * 1.8, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // エネルギーライン: 刀身の反りに沿って切っ先に向かう曲線。先細り形状にする
+                    if (energyIntensity > 0.1) {
+                        const lineAlpha = (energyIntensity - 0.1) * 0.85 * ePulse;
+                        const lineTEnd = energyLenBase;
+                        const baseWidth = 3.2 / kScale;
+                        
+                        ctx.beginPath();
+                        const getTX = (t) => bladeStart + (bladeEnd - bladeStart) * t;
+                        
+                        // 先細りの形状を作るため、片側の輪郭を描く
+                        const segs = 16;
+                        for (let i = 0; i <= segs; i++) {
+                            const t = (i / segs) * lineTEnd;
+                            const w = baseWidth * (1 - t * 0.85); // 先端に向かって細くする
+                            const px = getTX(t);
+                            const py = getArcY(t) - w * 0.5;
+                            if (i === 0) ctx.moveTo(px, py);
+                            else ctx.lineTo(px, py);
+                        }
+                        // もう片側の輪郭を逆順に描いて閉じる
+                        for (let i = segs; i >= 0; i--) {
+                            const t = (i / segs) * lineTEnd;
+                            const w = baseWidth * (1 - t * 0.85);
+                            const px = getTX(t);
+                            const py = getArcY(t) + w * 0.5;
+                            ctx.lineTo(px, py);
+                        }
+                        ctx.closePath();
+                        
+                        // 飛翔体のカラーコードに合わせて、中心に近い明るい色で塗りつぶし
+                        ctx.fillStyle = colorCenter.replace(/[\d.]+\)$/, `${lineAlpha})`);
+                        ctx.fill();
+                    }
+                    ctx.restore();
+                };
 
-                // 奥の刀: 青いグロー
-                const bMidX = bx + dir * Math.cos(rba) * 22;
-                const bMidY = by + Math.sin(rba) * 22;
-                const blueGlow = ctx.createRadialGradient(bMidX, bMidY, 0, bMidX, bMidY, glowR * 2);
-                blueGlow.addColorStop(0, `rgba(60, 140, 255, ${eAlpha * 0.5})`);
-                blueGlow.addColorStop(0.5, `rgba(40, 100, 220, ${eAlpha * 0.25})`);
-                blueGlow.addColorStop(1, `rgba(30, 70, 180, 0)`);
-                ctx.fillStyle = blueGlow;
-                ctx.beginPath();
-                ctx.arc(bMidX, bMidY, glowR * 2, 0, Math.PI * 2);
-                ctx.fill();
+                const glowR = (7 + energyIntensity * 12) * ePulse;
+                
+                // 飛翔体のカラーコードに合わせる
+                // 奥の刀: 青いエフェクト (rgba(80, 200, 255, 0.98) 系)
+                drawBladeEffect(bx, by, ba, 
+                    `rgba(80, 200, 255, ${eAlpha * 0.7})`,
+                    `rgba(50, 150, 255, ${eAlpha * 0.35})`,
+                    `rgba(40, 100, 220, 0)`,
+                    glowR, energyIntensity
+                );
 
-                // 手前の刀: 赤いグロー
-                const fMidX = fx + dir * Math.cos(rfa) * 22;
-                const fMidY = fy + Math.sin(rfa) * 22;
-                const redGlow = ctx.createRadialGradient(fMidX, fMidY, 0, fMidX, fMidY, glowR * 2);
-                redGlow.addColorStop(0, `rgba(255, 80, 60, ${eAlpha * 0.5})`);
-                redGlow.addColorStop(0.5, `rgba(220, 50, 40, ${eAlpha * 0.25})`);
-                redGlow.addColorStop(1, `rgba(180, 30, 30, 0)`);
-                ctx.fillStyle = redGlow;
-                ctx.beginPath();
-                ctx.arc(fMidX, fMidY, glowR * 2, 0, Math.PI * 2);
-                ctx.fill();
+                // 手前の刀: 赤いエフェクト (rgba(255, 80, 80, 0.98) 系)
+                drawBladeEffect(fx, fy, fa, 
+                    `rgba(255, 80, 80, ${eAlpha * 0.7})`,
+                    `rgba(255, 50, 40, ${eAlpha * 0.35})`,
+                    `rgba(180, 30, 30, 0)`,
+                    glowR, energyIntensity
+                );
 
                 // 交差点の白い輝き
                 ctx.fillStyle = `rgba(255, 255, 250, ${eAlpha * 0.4})`;
@@ -5120,22 +5204,6 @@ export class Player {
                 ctx.arc(crossX, crossY, (3 + energyIntensity * 3) * ePulse, 0, Math.PI * 2);
                 ctx.fill();
 
-                // 刃に沿ったエネルギーライン (青/赤)
-                if (energyIntensity > 0.3) {
-                    const lineAlpha = (energyIntensity - 0.3) * 0.4 * ePulse;
-                    const lineLen = 22 * energyIntensity;
-                    ctx.lineWidth = 1.8;
-                    ctx.strokeStyle = `rgba(80, 160, 255, ${lineAlpha})`;
-                    ctx.beginPath();
-                    ctx.moveTo(bx, by);
-                    ctx.lineTo(bx + dir * Math.cos(rba) * lineLen * 2.5, by + Math.sin(rba) * lineLen * 2.5);
-                    ctx.stroke();
-                    ctx.strokeStyle = `rgba(255, 80, 60, ${lineAlpha})`;
-                    ctx.beginPath();
-                    ctx.moveTo(fx, fy);
-                    ctx.lineTo(fx + dir * Math.cos(rfa) * lineLen * 2.5, fy + Math.sin(rfa) * lineLen * 2.5);
-                    ctx.stroke();
-                }
                 ctx.restore();
             }
         } else if (this.subWeaponAction === '大太刀') {

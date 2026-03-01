@@ -1316,8 +1316,10 @@ class Game {
         }
         
         // プレイヤー更新
+        const frameEnemies = this.stage.getAllEnemies();
+        const activeFrameEnemies = frameEnemies.filter((enemy) => enemy.isAlive && !enemy.isDying);
         const activeObstacles = this.stage.obstacles.filter(o => !o.isDestroyed);
-        this.player.update(this.deltaTime, activeObstacles);
+        this.player.update(this.deltaTime, activeObstacles, activeFrameEnemies);
         
         // 爆弾投げ処理は player.update 内で実行されるため削除
         
@@ -1357,8 +1359,6 @@ class Game {
             this.player.x = this.scrollX + CANVAS_WIDTH;
         }
 
-        const frameEnemies = this.stage.getAllEnemies();
-        const activeFrameEnemies = frameEnemies.filter((enemy) => enemy.isAlive && !enemy.isDying);
         this.updateSpecialCloneAutoCombat(activeFrameEnemies);
         this.resolveFinisherLandingOverlap(activeFrameEnemies);
 
@@ -1366,8 +1366,10 @@ class Game {
         this.updateBombs(activeFrameEnemies);
 
         // サブ武器のprojectile更新（手裏剣など）
+        // ※装備中の武器はplayer.update()内で更新済み → 二重更新を防止
         if (this.player.subWeapons) {
             for (const weapon of this.player.subWeapons) {
+                if (weapon === this.player.currentSubWeapon) continue;
                 if (weapon && typeof weapon.update === 'function') {
                     weapon.update(this.deltaTime, activeFrameEnemies);
                 }
@@ -1768,56 +1770,69 @@ class Game {
                     ? activeEnemies.slice().sort((a, b) => {
                         const dir = this.player.facingRight ? 1 : -1;
                         const playerCenterX = this.player.x + this.player.width * 0.5;
+                        const playerCenterY = this.player.y + this.player.height * 0.5;
                         const ax = (a.x + a.width * 0.5 - playerCenterX) * dir;
+                        const ay = (a.y + a.height * 0.5) - playerCenterY;
                         const bx = (b.x + b.width * 0.5 - playerCenterX) * dir;
-                        const aScore = ax >= 0 ? ax : 100000 + Math.abs(ax);
-                        const bScore = bx >= 0 ? bx : 100000 + Math.abs(bx);
-                        return aScore - bScore;
+                        const by = (b.y + b.height * 0.5) - playerCenterY;
+                        return (ax * ax + ay * ay) - (bx * bx + by * by);
                     })
                     : activeEnemies;
                 const resolveHitboxProfile = (baseProfile, hitbox) => {
-                    const attackData = { ...baseProfile.attackData };
-                    let damage = baseProfile.damage;
-                    if (subWeapon.name === '大槍') {
-                        if (hitbox && hitbox.part === 'tip' && spearTier >= 1) {
-                            damage *= 1.4;
-                            attackData.spearTipCritical = true;
-                            attackData.isLaunch = true;
-                            attackData.knockbackX = Math.max(10, attackData.knockbackX || 0);
-                            attackData.knockbackY = Math.min(-9, attackData.knockbackY || 0);
-                        } else if (hitbox && hitbox.part === 'shock' && spearTier >= 3) {
-                            damage *= 0.62;
-                            attackData.knockbackX = Math.max(6, attackData.knockbackX || 0);
-                            attackData.knockbackY = Math.min(-3, attackData.knockbackY || 0);
-                        }
-                    } else if (subWeapon.name === '鎖鎌') {
-                        if (hitbox && hitbox.part === 'chain' && kusaTier >= 1) {
-                            // Lv1: 鎖ヒットで25%スロウ (1.2秒)
-                            attackData.slowMultiplier = 0.75;
-                            attackData.slowDurationMs = 1200;
-                            // Lvごとに引き寄せを強化
-                            attackData.pullTowardPlayerStrength = kusaPullByTierChain[kusaTier] || 0;
-                            attackData.knockbackX = 3;
-                        } else if (hitbox && (hitbox.part === 'tip' || hitbox.part === 'tip_multi')) {
-                            // 鎌先は鎖より強く、Lvごとに段階強化
-                            attackData.pullTowardPlayerStrength = kusaPullByTierTip[kusaTier] || 0;
-                            attackData.knockbackX = 2;
-                            attackData.knockbackY = Math.min(-2, attackData.knockbackY || 0);
-                            if (hitbox && hitbox.part === 'tip_multi') {
-                                damage *= 0.58;
-                                attackData.kusarigamaMulti = true;
-                            }
-                        } else if (hitbox && hitbox.part === 'echo' && kusaTier >= 3) {
-                            // Lv3: 軌道終盤の追加多段判定
-                            damage *= 0.72;
-                            attackData.slowMultiplier = 0.82;
-                            attackData.slowDurationMs = 650;
-                            attackData.pullTowardPlayerStrength = kusaPullByTierEcho[kusaTier] || 0;
-                            attackData.kusarigamaEcho = true;
-                        }
-                    }
-                    return { damage, attackData };
-                };
+    const attackData = { ...baseProfile.attackData };
+    let damage = baseProfile.damage;
+    
+    if (subWeapon.name === '大槍') {
+        if (hitbox && hitbox.part === 'tip' && spearTier >= 1) {
+            damage *= 1.4;
+            attackData.spearTipCritical = true;
+            attackData.isLaunch = true;
+        } else if (hitbox && hitbox.part === 'shock' && spearTier >= 3) {
+            // 衝撃波（槍）は柄と同じ100%
+            damage *= 1.0;
+        }
+    } else if (subWeapon.name === '鎖鎌') {
+        if (hitbox && hitbox.part === 'chain' && kusaTier >= 1) {
+            attackData.slowMultiplier = 0.75;
+            attackData.slowDurationMs = 1200;
+            attackData.pullTowardPlayerStrength = kusaPullByTierChain[kusaTier] || 0;
+            attackData.knockbackX = 3;
+        } else if (hitbox && (hitbox.part === 'tip' || hitbox.part === 'tip_multi')) {
+            attackData.pullTowardPlayerStrength = kusaPullByTierTip[kusaTier] || 0;
+            attackData.knockbackX = 2;
+            attackData.knockbackY = Math.min(-2, attackData.knockbackY || 0);
+            if (hitbox && hitbox.part === 'tip_multi') {
+                damage *= 0.58; // 追撃分
+                attackData.kusarigamaMulti = true;
+            }
+        } else if (hitbox && hitbox.part === 'echo' && kusaTier >= 3) {
+            damage *= 0.72;
+            attackData.slowMultiplier = 0.82;
+            attackData.slowDurationMs = 650;
+            attackData.pullTowardPlayerStrength = kusaPullByTierEcho[kusaTier] || 0;
+            attackData.kusarigamaEcho = true;
+        }
+    } else if (subWeapon.name === '二刀流') {
+        if (hitbox && hitbox.part === 'projectile') {
+            // 合体技(X)は weapon.js で計算済みの固定値 (大太刀x1.3) を使用
+            damage = subWeapon.xDamage || damage;
+            attackData.isLaunch = true;
+        }
+    } else if (subWeapon.name === '大太刀') {
+        if (hitbox && hitbox.part === 'shock') {
+            // 大太刀の衝撃波ダメージ差別化 (70%)
+            damage *= 0.7;
+            attackData.odachiShock = true;
+        }
+    } else if (subWeapon.name === '火薬玉') {
+        if (hitbox && hitbox.part === 'direct') {
+            // 火薬玉の本体直撃ボーナス (110%)
+            damage *= 1.1;
+            attackData.firebombDirect = true;
+        }
+    }
+    return { damage, attackData };
+};
                 
                 // 火薬玉の爆発チェック (subWeaponAction === 'bomb' かつ爆発判定が出ている場合)
                 // getHitboxが爆風を返している前提だが、念のため岩破壊力を高めに設定
@@ -1881,6 +1896,11 @@ class Game {
                                     effectiveHitbox.x + effectiveHitbox.width * 0.5,
                                     effectiveHitbox.y + effectiveHitbox.height * 0.5
                                 );
+                            }
+                            // 手裏剣が岩に当たったら、貫通なしなら消滅
+                            const proj = hitbox && hitbox._sourceProjectile;
+                            if (proj && !proj.pierce) {
+                                proj.isDestroyed = true;
                             }
                         }
                     }
