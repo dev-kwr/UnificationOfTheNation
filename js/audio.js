@@ -81,7 +81,7 @@ class AudioManager {
             const raw = window.localStorage.getItem(this.muteStorageKey);
             if (raw === '1') this.isMuted = true;
             if (raw === '0') this.isMuted = false;
-        } catch (e) {
+        } catch {
             // localStorage が使えない環境では無視
         }
     }
@@ -90,7 +90,7 @@ class AudioManager {
         try {
             if (typeof window === 'undefined' || !window.localStorage) return;
             window.localStorage.setItem(this.muteStorageKey, this.isMuted ? '1' : '0');
-        } catch (e) {
+        } catch {
             // 保存失敗は非致命
         }
     }
@@ -258,7 +258,6 @@ class AudioManager {
     playPowerUp() {
         this.init();
         // 上昇音
-        const now = this.audioContext.currentTime;
         this.playSfx(440, 'sine', 0.1, 0.1, 1.0);
         setTimeout(() => this.playSfx(659.25, 'sine', 0.1, 0.1, 1.2), 100);
         setTimeout(() => this.playSfx(880, 'sine', 0.1, 0.1, 1.5), 200);
@@ -464,7 +463,7 @@ class AudioManager {
             
             try {
                 audioElement.volume = startVolume * (1 - progress);
-            } catch (e) {
+            } catch {
                 // ボリューム設定エラー対策
             }
             

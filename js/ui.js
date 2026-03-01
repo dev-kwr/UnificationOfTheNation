@@ -6,7 +6,7 @@ import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD } from './constants.js
 import { input } from './input.js';
 import { audio } from './audio.js';
 
-const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | D：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
+const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | S：切り替え | A：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE・ENTER：決定';
 const PAD_ICON_PATHS = {
     attack: './icon/attack.svg',
@@ -18,8 +18,8 @@ const PAD_ICON_PATHS = {
 const PAD_ICON_FALLBACK = {
     attack: 'Z',
     sub: 'X',
-    special: 'S',
-    switch: 'D',
+    special: 'A',
+    switch: 'S',
     pause: 'Ⅱ'
 };
 const BGM_ICON_PATHS = {
@@ -237,31 +237,121 @@ function drawRichTitleLogo(ctx, timeMs) {
 function drawTitleMistLayers(ctx, timeMs) {
     const t = timeMs * 0.001;
     const layers = [
-        { y: CANVAS_HEIGHT * 0.46, amp: 12, speed: 32, alpha: 0.12, w: 330, h: 92 },
-        { y: CANVAS_HEIGHT * 0.58, amp: 16, speed: 24, alpha: 0.1, w: 390, h: 108 },
-        { y: CANVAS_HEIGHT * 0.7, amp: 11, speed: 18, alpha: 0.08, w: 450, h: 120 }
+        { y: CANVAS_HEIGHT * 0.5, amp: 10, speed: 42, alpha: 0.1, w: 300, h: 88, tint: '188, 211, 255' },
+        { y: CANVAS_HEIGHT * 0.64, amp: 14, speed: 30, alpha: 0.08, w: 400, h: 112, tint: '168, 194, 245' },
+        { y: CANVAS_HEIGHT * 0.78, amp: 10, speed: 20, alpha: 0.06, w: 500, h: 132, tint: '148, 176, 228' }
     ];
 
     ctx.save();
+    ctx.globalCompositeOperation = 'screen';
     for (const layer of layers) {
-        for (let i = -1; i < 4; i++) {
-            const travel = ((timeMs * layer.speed * 0.001) + i * (layer.w * 0.7)) % (CANVAS_WIDTH + layer.w * 1.2);
-            const cx = travel - layer.w * 0.6;
-            const cy = layer.y + Math.sin(t * (0.9 + i * 0.18) + i * 1.3) * layer.amp;
-            const grad = ctx.createRadialGradient(cx, cy, layer.w * 0.08, cx, cy, layer.w * 0.55);
-            grad.addColorStop(0, `rgba(175, 200, 255, ${layer.alpha})`);
-            grad.addColorStop(0.55, `rgba(150, 176, 236, ${layer.alpha * 0.42})`);
-            grad.addColorStop(1, 'rgba(120, 150, 220, 0)');
+        for (let i = -2; i < 5; i++) {
+            const travel = ((timeMs * layer.speed * 0.001) + i * (layer.w * 0.72)) % (CANVAS_WIDTH + layer.w * 1.35);
+            const cx = travel - layer.w * 0.65;
+            const cy = layer.y + Math.sin(t * (0.82 + i * 0.14) + i * 1.23) * layer.amp;
+            const grad = ctx.createRadialGradient(cx, cy, layer.w * 0.06, cx, cy, layer.w * 0.58);
+            grad.addColorStop(0, `rgba(${layer.tint}, ${layer.alpha})`);
+            grad.addColorStop(0.52, `rgba(${layer.tint}, ${layer.alpha * 0.46})`);
+            grad.addColorStop(1, 'rgba(110, 140, 210, 0)');
             ctx.fillStyle = grad;
             ctx.beginPath();
             ctx.ellipse(cx, cy, layer.w, layer.h, 0, 0, Math.PI * 2);
             ctx.fill();
         }
     }
+
+    const depthFog = ctx.createLinearGradient(0, CANVAS_HEIGHT * 0.54, 0, CANVAS_HEIGHT);
+    depthFog.addColorStop(0, 'rgba(166, 194, 246, 0)');
+    depthFog.addColorStop(0.45, 'rgba(146, 176, 236, 0.06)');
+    depthFog.addColorStop(1, 'rgba(120, 154, 214, 0.11)');
+    ctx.fillStyle = depthFog;
+    ctx.fillRect(0, CANVAS_HEIGHT * 0.54, CANVAS_WIDTH, CANVAS_HEIGHT * 0.46);
     ctx.restore();
 }
 
-export function getTitleScreenLayout(hasSave = false) {
+function drawStageStyleCelestialBody(ctx, x, y, radius, coreTop, coreBottom, glowColor, alpha = 1, glowScale = 3.2) {
+    if (alpha <= 0.001) return;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.globalAlpha *= alpha;
+
+    const glowR = radius * glowScale;
+    const peakStop = radius / glowR;
+    const midStop = Math.min(peakStop + (1 - peakStop) * 0.45, 0.98);
+    const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, glowR);
+    glow.addColorStop(0, glowColor.replace('ALPHA', '0.15'));
+    glow.addColorStop(peakStop, glowColor.replace('ALPHA', '0.75'));
+    glow.addColorStop(midStop, glowColor.replace('ALPHA', '0.18'));
+    glow.addColorStop(1, glowColor.replace('ALPHA', '0'));
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(0, 0, glowR, 0, Math.PI * 2);
+    ctx.fill();
+
+    const coreGrad = ctx.createLinearGradient(0, -radius, 0, radius);
+    coreGrad.addColorStop(0, coreTop);
+    coreGrad.addColorStop(1, coreBottom);
+    ctx.fillStyle = coreGrad;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+}
+
+function drawTitleBackdropSilhouettes(ctx, timeMs) {
+    const t = timeMs * 0.001;
+    const layers = [
+        {
+            baseY: CANVAS_HEIGHT * 0.62,
+            step: 250,
+            color: 'rgba(18, 26, 56, 0.5)',
+            heightBase: 118,
+            heightAmp: 36,
+            drift: 0.016
+        },
+        {
+            baseY: CANVAS_HEIGHT * 0.72,
+            step: 205,
+            color: 'rgba(9, 14, 33, 0.78)',
+            heightBase: 96,
+            heightAmp: 28,
+            drift: 0.022
+        }
+    ];
+
+    ctx.save();
+    for (const layer of layers) {
+        ctx.fillStyle = layer.color;
+        const shift = (timeMs * layer.drift) % layer.step;
+        ctx.beginPath();
+        ctx.moveTo(-layer.step - shift, CANVAS_HEIGHT);
+        for (let x = -layer.step - shift; x <= CANVAS_WIDTH + layer.step * 1.5; x += layer.step) {
+            const peak = layer.baseY - layer.heightBase
+                - Math.sin((x + 160) * 0.011 + t * 0.33) * layer.heightAmp
+                - Math.cos((x + 70) * 0.018 + t * 0.21) * (layer.heightAmp * 0.42);
+            ctx.lineTo(x + layer.step * 0.38, peak);
+            ctx.lineTo(x + layer.step, layer.baseY);
+        }
+        ctx.lineTo(CANVAS_WIDTH + layer.step * 2, CANVAS_HEIGHT);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    const shrineY = CANVAS_HEIGHT * 0.74;
+    ctx.fillStyle = 'rgba(16, 9, 24, 0.82)';
+    ctx.fillRect(0, shrineY, CANVAS_WIDTH, CANVAS_HEIGHT - shrineY);
+    for (let i = -1; i < 6; i++) {
+        const gateX = i * 240 - ((timeMs * 0.021) % 240) + 40;
+        ctx.fillRect(gateX, shrineY - 10, 120, 10);
+        ctx.fillRect(gateX + 8, shrineY, 10, 120);
+        ctx.fillRect(gateX + 98, shrineY, 10, 120);
+        ctx.fillRect(gateX - 2, shrineY - 18, 134, 8);
+    }
+    ctx.restore();
+}
+
+export function getTitleScreenLayout() {
     const centerX = CANVAS_WIDTH / 2;
     const diffY = CANVAS_HEIGHT / 2 + 64;
     const startY = diffY + 108;
@@ -807,7 +897,7 @@ export class UI {
     }
 
     // 四角いボタン描画 (丸みを持たせる)
-    drawSquareButton(ctx, x, y, size, label, isPressed, color = null) {
+    drawSquareButton(ctx, x, y, size, label, isPressed) {
         ctx.save();
         
         // sizeは「中心から端までの距離」として扱う(Roundと同じサイズ感にするため)
@@ -1004,50 +1094,80 @@ export class UI {
 
 // タイトル画面描画
 export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, hasSave = false) {
-    // 背景（リッチな夜空グラデーション）
+    const time = Date.now();
+    const t = time * 0.001;
+
+    // 背景（夜空 + 光彩）
     const gradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
-    gradient.addColorStop(0, '#0a0522');
-    gradient.addColorStop(0.3, '#1a0f3a');
-    gradient.addColorStop(0.7, '#0f1a2a');
-    gradient.addColorStop(1, '#050a15');
+    gradient.addColorStop(0, '#020713');
+    gradient.addColorStop(0.26, '#0a1a3a');
+    gradient.addColorStop(0.58, '#14284a');
+    gradient.addColorStop(1, '#060d1b');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    
-    // 星空（粒子エフェクト - 流れ星に合わせて右上から左下へ）
-    const time = Date.now();
+
+    const skyGlow = ctx.createRadialGradient(
+        CANVAS_WIDTH * 0.68, CANVAS_HEIGHT * 0.1, 24,
+        CANVAS_WIDTH * 0.68, CANVAS_HEIGHT * 0.1, CANVAS_WIDTH * 0.72
+    );
+    skyGlow.addColorStop(0, 'rgba(136, 186, 255, 0.24)');
+    skyGlow.addColorStop(0.45, 'rgba(88, 138, 224, 0.14)');
+    skyGlow.addColorStop(1, 'rgba(58, 98, 180, 0)');
+    ctx.fillStyle = skyGlow;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // 天頂の薄い光帯
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    for (let i = 0; i < 3; i++) {
+        const bandY = CANVAS_HEIGHT * (0.16 + i * 0.1);
+        const bandW = CANVAS_WIDTH * (1.25 - i * 0.1);
+        const drift = Math.sin(t * (0.22 + i * 0.08) + i * 1.4) * 90;
+        const bandGrad = ctx.createLinearGradient(0, bandY - 36, 0, bandY + 36);
+        bandGrad.addColorStop(0, 'rgba(130, 181, 255, 0)');
+        bandGrad.addColorStop(0.5, `rgba(130, 181, 255, ${0.1 - i * 0.02})`);
+        bandGrad.addColorStop(1, 'rgba(130, 181, 255, 0)');
+        ctx.fillStyle = bandGrad;
+        ctx.beginPath();
+        ctx.moveTo(-120 + drift, bandY);
+        ctx.quadraticCurveTo(CANVAS_WIDTH * 0.34, bandY - 34, CANVAS_WIDTH * 0.64, bandY - 8);
+        ctx.quadraticCurveTo(CANVAS_WIDTH * 0.88, bandY + 26, bandW + drift, bandY - 8);
+        ctx.lineTo(bandW + drift, bandY + 44);
+        ctx.quadraticCurveTo(CANVAS_WIDTH * 0.88, bandY + 56, CANVAS_WIDTH * 0.6, bandY + 20);
+        ctx.quadraticCurveTo(CANVAS_WIDTH * 0.3, bandY - 8, -120 + drift, bandY + 28);
+        ctx.closePath();
+        ctx.fill();
+    }
+    ctx.restore();
+
+    // 星空（旧挙動: 右上→左下）
     for (let i = 0; i < 100; i++) {
-        const x = (i * 137.5 - time * 0.02) % CANVAS_WIDTH; // 右から左
-        const y = (i * 219.7 + time * 0.01) % CANVAS_HEIGHT; // 上から下
-        // 範囲外に出た際のラップ処理を確実にする
+        const x = (i * 137.5 - time * 0.02) % CANVAS_WIDTH;
+        const y = (i * 219.7 + time * 0.01) % CANVAS_HEIGHT;
         const finalX = x < 0 ? x + CANVAS_WIDTH : x;
         const finalY = y % CANVAS_HEIGHT;
-        
         const size = (Math.sin(i * 0.5) + 1) * 0.5 + 0.5;
         const alpha = (Math.sin(time * 0.001 + i) + 1) * 0.5;
-        
+
         ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.8})`;
         ctx.fillRect(finalX, finalY, size, size);
     }
-    
-    // 流れ星（斜め上から斜め下へ）
+
+    // 流れ星（旧挙動）
     const shootingStarSpeed = 0.5;
-    const shootingStarInterval = 4000; // 出現サイクル
+    const shootingStarInterval = 4000;
     const starCycle = time % shootingStarInterval;
-    
-    // サイクルごとに異なる開始位置を生成
     const starSeed = Math.floor(time / shootingStarInterval);
-    const starStartX = (starSeed * 543) % (CANVAS_WIDTH + 400); 
+    const starStartX = (starSeed * 543) % (CANVAS_WIDTH + 400);
     const starStartY = -100;
-    
-    if (starCycle < 1500) { // 最初の1.5秒間だけ流れる
+
+    if (starCycle < 1500) {
         const progress = starCycle * shootingStarSpeed;
-        const sx = starStartX - progress; // 右から左へ
-        const sy = starStartY + progress; // 上から下へ
-        
+        const sx = starStartX - progress;
+        const sy = starStartY + progress;
         const shootingStarGrad1 = ctx.createLinearGradient(sx, sy, sx + 60, sy - 60);
         shootingStarGrad1.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
         shootingStarGrad1.addColorStop(1, 'rgba(100, 150, 255, 0)');
-        
         ctx.save();
         ctx.beginPath();
         ctx.strokeStyle = shootingStarGrad1;
@@ -1057,24 +1177,21 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
         ctx.stroke();
         ctx.restore();
     }
-    
-    // 月（シンプル）
-    const moonX = CANVAS_WIDTH - 200;
-    const moonY = 150;
-    const moonGlow = ctx.createRadialGradient(moonX, moonY, 40, moonX, moonY, 100);
-    moonGlow.addColorStop(0, 'rgba(210, 226, 255, 0.32)');
-    moonGlow.addColorStop(1, 'rgba(210, 226, 255, 0)');
-    ctx.fillStyle = moonGlow;
-    ctx.fillRect(moonX - 100, moonY - 100, 200, 200);
 
-    ctx.fillStyle = '#edf5ff';
-    ctx.globalAlpha = 0.95;
-    ctx.beginPath();
-    ctx.arc(moonX, moonY, 60, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    
-    // 靄の流れ
+    // 月（stage準拠スタイルを大きめ）
+    drawStageStyleCelestialBody(
+        ctx,
+        CANVAS_WIDTH - 188,
+        148,
+        70,
+        '#f8f9fa',
+        '#ced4da',
+        'rgba(240, 248, 255, ALPHA)',
+        1,
+        3.4
+    );
+
+    // 靄・前景
     drawTitleMistLayers(ctx, time);
 
     
@@ -1252,7 +1369,7 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
 }
 
 // ゲームオーバー画面（リッチ化）
-export function renderGameOverScreen(ctx, player, stageNumber, fadeTimer = 0, stage) {
+export function renderGameOverScreen(ctx, player, stageNumber, fadeTimer = 0) {
     // 表示開始からの経過時間を使用（ループさせない）
     const time = fadeTimer;
     
@@ -1315,8 +1432,7 @@ export function renderGameOverScreen(ctx, player, stageNumber, fadeTimer = 0, st
 }
 
 // ステージクリア画面（ステータス画面）
-export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, options = {}, stage, ui) {
-    const time = Date.now();
+export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, options = {}) {
     const menuIndex = Number.isFinite(options.menuIndex) ? options.menuIndex : 0;
     const selectedWeaponName = options.selectedWeaponName || (player?.currentSubWeapon?.name || '未装備');
     const layer = options.layer || 'full';
@@ -1326,19 +1442,14 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
     const normalTier = Math.max(0, Math.min(3, Number(progression.normalCombo) || 0));
     const subTier = Math.max(0, Math.min(3, Number(progression.subWeapon) || 0));
     const specialTier = Math.max(0, Math.min(3, Number(progression.specialClone) || 0));
-    const specialCount = typeof player?.getSpecialCloneCount === 'function' ? player.getSpecialCloneCount() : 1;
-    const stageKanji = toKanjiNumber(stageNumber);
     const tierLabel = (tier) => ['初級', '中級', '上級', '特級'][Math.max(0, Math.min(3, tier))];
 
     // レイアウト定数 (全画面化)
-    const padding = 0;
     const panelX = 0;
     const panelY = 0;
     const panelW = CANVAS_WIDTH;
     const panelH = CANVAS_HEIGHT;
 
-    const leftColW = 840;
-    const previewAreaX = 40;
     const rightColX = 880;
     const rightColW = panelW - rightColX - 40;
 
@@ -1545,7 +1656,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
     }
 }
 
-export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 0, pendingCount = 1) {
+export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 0) {
     const time = Date.now();
     const pulse = (Math.sin(time * 0.006) + 1) * 0.5;
     const cardWidth = 300;
@@ -1651,120 +1762,209 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
 
 function renderWafuuCinematicBackdrop(ctx, timer, variant = 'opening') {
     const time = timer * 0.001;
-
-    // 夜（opening）と夜明け（ending）でトーンを切り替える
-    const palette = variant === 'ending'
-        ? {
-            skyTop: '#2b2032',
-            skyMid: '#8a5a48',
-            skyBottom: '#d6b078',
-            orb: 'rgba(255, 239, 198, 0.72)',
-            fog: 'rgba(255, 236, 196, 0.26)',
-            mountain: 'rgba(36, 24, 30, 0.62)',
-            shrine: 'rgba(92, 34, 30, 0.86)',
-            petals: 'rgba(255, 220, 198, 0.9)'
-        }
-        : {
-            skyTop: '#060a1b',
-            skyMid: '#12193a',
-            skyBottom: '#24162f',
-            orb: 'rgba(208, 226, 255, 0.45)',
-            fog: 'rgba(170, 190, 255, 0.14)',
-            mountain: 'rgba(10, 10, 24, 0.76)',
-            shrine: 'rgba(56, 20, 20, 0.88)',
-            petals: 'rgba(186, 214, 255, 0.62)'
-        };
-
-    const sky = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
-    sky.addColorStop(0, palette.skyTop);
-    sky.addColorStop(0.52, palette.skyMid);
-    sky.addColorStop(1, palette.skyBottom);
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    // 太陽（月）はendingのみ。openingでは月を描画しない。
-    if (variant === 'ending') {
-        const orbX = CANVAS_WIDTH * 0.24;
-        const orbY = CANVAS_HEIGHT * 0.22;
-        const orbCoreRadius = 62;
-        const orbGlowRadius = 132;
-        const orbGlow = ctx.createRadialGradient(orbX, orbY, 6, orbX, orbY, orbGlowRadius);
-        orbGlow.addColorStop(0, 'rgba(255, 243, 214, 0.66)');
-        orbGlow.addColorStop(0.48, palette.orb);
-        orbGlow.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        ctx.fillStyle = orbGlow;
-        ctx.fillRect(orbX - orbGlowRadius, orbY - orbGlowRadius, orbGlowRadius * 2, orbGlowRadius * 2);
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(orbX, orbY, orbCoreRadius, 0, Math.PI * 2);
-        ctx.clip();
-        const orbSurface = ctx.createRadialGradient(
-            orbX - orbCoreRadius * 0.32,
-            orbY - orbCoreRadius * 0.34,
-            orbCoreRadius * 0.1,
-            orbX,
-            orbY,
-            orbCoreRadius
-        );
-        orbSurface.addColorStop(0, 'rgba(255, 248, 228, 0.96)');
-        orbSurface.addColorStop(1, 'rgba(246, 214, 170, 0.9)');
-        ctx.fillStyle = orbSurface;
-        ctx.fillRect(orbX - orbCoreRadius, orbY - orbCoreRadius, orbCoreRadius * 2, orbCoreRadius * 2);
-        ctx.restore();
-
-        ctx.strokeStyle = 'rgba(255, 244, 214, 0.42)';
-        ctx.lineWidth = 1.1;
-        ctx.beginPath();
-        ctx.arc(orbX, orbY, orbCoreRadius, 0, Math.PI * 2);
-        ctx.stroke();
-    }
-
-    // 山シルエット
-    ctx.fillStyle = palette.mountain;
-    for (let i = -1; i < 8; i++) {
-        const x = i * 220 - ((timer * 0.018) % 220);
-        const h = 120 + Math.sin(i * 0.83 + time * 0.25) * 36;
-        ctx.beginPath();
-        ctx.moveTo(x, CANVAS_HEIGHT * 0.67);
-        ctx.lineTo(x + 80, CANVAS_HEIGHT * 0.67 - h);
-        ctx.lineTo(x + 170, CANVAS_HEIGHT * 0.67 - h * 0.55);
-        ctx.lineTo(x + 240, CANVAS_HEIGHT * 0.67);
-        ctx.closePath();
-        ctx.fill();
-    }
-
-    // 地平線の鳥居シルエット
-    const shrineY = CANVAS_HEIGHT * 0.63;
-    ctx.fillStyle = palette.shrine;
-    ctx.fillRect(0, shrineY, CANVAS_WIDTH, 18);
-    for (let i = 0; i < 5; i++) {
-        const gateX = 90 + i * 260 - ((timer * 0.026) % 260);
-        ctx.fillRect(gateX, shrineY + 14, 12, 130);
-        ctx.fillRect(gateX + 86, shrineY + 14, 12, 130);
-        ctx.fillRect(gateX - 10, shrineY - 6, 118, 12);
-    }
-
-    // 霧レイヤー（線状に見えないよう縦方向にもフェードさせる）
-    for (let i = 0; i < 3; i++) {
-        const fogY = CANVAS_HEIGHT * (0.58 + i * 0.09);
-        const fogShift = Math.sin(time * (0.7 + i * 0.2) + i) * 70;
-        const fogH = 56 + i * 8;
-        const fogGrad = ctx.createLinearGradient(0, fogY - fogH * 0.5, 0, fogY + fogH * 0.5);
-        fogGrad.addColorStop(0, 'rgba(255,255,255,0)');
-        fogGrad.addColorStop(0.35, palette.fog);
-        fogGrad.addColorStop(0.65, palette.fog);
-        fogGrad.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = fogGrad;
-        ctx.fillRect(-140 + fogShift, fogY - fogH * 0.5, CANVAS_WIDTH + 280, fogH);
-    }
-
-    // 花弁/粉雪の粒子（パターン数を増やし、見た目のランダム性を上げる）
     const hash01 = (n) => {
         const s = Math.sin(n * 127.1 + 311.7) * 43758.5453123;
         return s - Math.floor(s);
     };
-    const particleCount = variant === 'ending' ? 30 : 44;
+
+    // 夜（opening）と夜明け（ending）でトーンを切り替える
+    const palette = variant === 'ending'
+        ? {
+            skyTop: '#261d2c',
+            skyMid: '#7c5044',
+            skyBottom: '#d8ae72',
+            upperGlow: 'rgba(255, 182, 122, 0.2)',
+            horizonGlow: 'rgba(255, 214, 156, 0.36)',
+            orbCore: 'rgba(255, 244, 220, 0.95)',
+            orbGlow: 'rgba(255, 228, 170, 0.65)',
+            orbRing: 'rgba(255, 236, 200, 0.46)',
+            farMountain: 'rgba(56, 34, 38, 0.56)',
+            nearMountain: 'rgba(36, 22, 30, 0.78)',
+            ridgeLine: 'rgba(230, 184, 132, 0.22)',
+            shrine: 'rgba(76, 30, 30, 0.88)',
+            shrineEdge: 'rgba(248, 212, 168, 0.2)',
+            fog: 'rgba(255, 236, 194, 0.15)',
+            petalRgb: '255, 220, 198',
+            particleRgb: '255, 214, 164',
+            streak: 'rgba(255, 206, 152, 0.14)'
+        }
+        : {
+            skyTop: '#030917',
+            skyMid: '#101a39',
+            skyBottom: '#1b1734',
+            upperGlow: 'rgba(122, 176, 255, 0.16)',
+            horizonGlow: 'rgba(122, 160, 240, 0.2)',
+            orbCore: 'rgba(238, 246, 255, 0.93)',
+            orbGlow: 'rgba(170, 204, 255, 0.44)',
+            orbRing: 'rgba(176, 208, 255, 0.32)',
+            farMountain: 'rgba(10, 14, 31, 0.62)',
+            nearMountain: 'rgba(6, 10, 24, 0.84)',
+            ridgeLine: 'rgba(124, 162, 230, 0.16)',
+            shrine: 'rgba(38, 16, 24, 0.9)',
+            shrineEdge: 'rgba(176, 206, 255, 0.14)',
+            fog: 'rgba(170, 196, 250, 0.1)',
+            petalRgb: '186, 214, 255',
+            particleRgb: '198, 224, 255',
+            streak: 'rgba(146, 186, 255, 0.12)'
+        };
+
+    const sky = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+    sky.addColorStop(0, palette.skyTop);
+    sky.addColorStop(0.5, palette.skyMid);
+    sky.addColorStop(1, palette.skyBottom);
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    const upperGlow = ctx.createRadialGradient(
+        CANVAS_WIDTH * 0.72, CANVAS_HEIGHT * 0.12, 30,
+        CANVAS_WIDTH * 0.72, CANVAS_HEIGHT * 0.12, CANVAS_WIDTH * 0.78
+    );
+    upperGlow.addColorStop(0, palette.upperGlow);
+    upperGlow.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = upperGlow;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    const horizonGlow = ctx.createLinearGradient(0, CANVAS_HEIGHT * 0.42, 0, CANVAS_HEIGHT);
+    horizonGlow.addColorStop(0, 'rgba(255,255,255,0)');
+    horizonGlow.addColorStop(0.5, palette.horizonGlow);
+    horizonGlow.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = horizonGlow;
+    ctx.fillRect(0, CANVAS_HEIGHT * 0.42, CANVAS_WIDTH, CANVAS_HEIGHT * 0.58);
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    for (let i = 0; i < 4; i++) {
+        const y = CANVAS_HEIGHT * (0.2 + i * 0.08);
+        const drift = Math.sin(time * (0.24 + i * 0.07) + i * 1.1) * 70;
+        const band = ctx.createLinearGradient(0, y - 30, 0, y + 32);
+        band.addColorStop(0, 'rgba(255,255,255,0)');
+        band.addColorStop(0.5, palette.streak);
+        band.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = band;
+        ctx.beginPath();
+        ctx.moveTo(-160 + drift, y + 4);
+        ctx.quadraticCurveTo(CANVAS_WIDTH * 0.32, y - 34, CANVAS_WIDTH * 0.64, y - 6);
+        ctx.quadraticCurveTo(CANVAS_WIDTH * 0.94, y + 28, CANVAS_WIDTH + 140 + drift, y - 8);
+        ctx.lineTo(CANVAS_WIDTH + 140 + drift, y + 40);
+        ctx.quadraticCurveTo(CANVAS_WIDTH * 0.86, y + 58, CANVAS_WIDTH * 0.54, y + 18);
+        ctx.quadraticCurveTo(CANVAS_WIDTH * 0.24, y - 2, -160 + drift, y + 26);
+        ctx.closePath();
+        ctx.fill();
+    }
+    ctx.restore();
+
+    // 天体表現（stage準拠を大きめで表示）
+    if (variant === 'ending') {
+        drawStageStyleCelestialBody(
+            ctx,
+            CANVAS_WIDTH * 0.23,
+            CANVAS_HEIGHT * 0.22,
+            82,
+            '#ffd9b4',
+            '#ff7a33',
+            'rgba(255, 160, 80, ALPHA)',
+            1,
+            4.1
+        );
+    } else {
+        drawStageStyleCelestialBody(
+            ctx,
+            CANVAS_WIDTH * 0.78,
+            CANVAS_HEIGHT * 0.22,
+            74,
+            '#f8f9fa',
+            '#ced4da',
+            'rgba(240, 248, 255, ALPHA)',
+            1,
+            3.8
+        );
+    }
+
+    // 星/光塵
+    const skyParticleCount = variant === 'ending' ? 36 : 56;
+    for (let i = 0; i < skyParticleCount; i++) {
+        const seedA = hash01(i + 0.9);
+        const seedB = hash01(i * 1.8 + 3.2);
+        const depth = i % 3;
+        const px = (seedA * (CANVAS_WIDTH + 180) - 90 + timer * (0.002 + depth * 0.0014)) % (CANVAS_WIDTH + 180) - 90;
+        const py = (seedB * (CANVAS_HEIGHT * 0.58) + Math.sin(time * (0.7 + depth * 0.22) + i * 0.8) * (6 + depth * 4));
+        const twinkle = (Math.sin(time * (1.6 + depth * 0.38) + i * 1.4) + 1) * 0.5;
+        const alpha = (variant === 'ending' ? 0.2 : 0.14) + twinkle * (variant === 'ending' ? 0.2 : 0.38);
+        const size = 0.8 + depth * 0.6;
+        ctx.fillStyle = `rgba(${palette.particleRgb}, ${alpha.toFixed(3)})`;
+        ctx.fillRect(px, py, size, size);
+    }
+
+    // 遠景/近景の山
+    const drawMountainLayer = (baseY, step, heightBase, heightAmp, drift, color) => {
+        const shift = (timer * drift) % step;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(-step - shift, CANVAS_HEIGHT);
+        for (let x = -step - shift; x <= CANVAS_WIDTH + step * 1.4; x += step) {
+            const peak = baseY - heightBase
+                - Math.sin((x + 80) * 0.012 + time * 0.29) * heightAmp
+                - Math.cos((x + 30) * 0.018 + time * 0.18) * (heightAmp * 0.45);
+            ctx.lineTo(x + step * 0.34, peak);
+            ctx.lineTo(x + step, baseY);
+        }
+        ctx.lineTo(CANVAS_WIDTH + step * 2, CANVAS_HEIGHT);
+        ctx.closePath();
+        ctx.fill();
+    };
+
+    drawMountainLayer(CANVAS_HEIGHT * 0.62, 250, 130, 34, 0.014, palette.farMountain);
+    drawMountainLayer(CANVAS_HEIGHT * 0.71, 210, 104, 26, 0.02, palette.nearMountain);
+
+    ctx.strokeStyle = palette.ridgeLine;
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.moveTo(0, CANVAS_HEIGHT * 0.64);
+    for (let x = 0; x <= CANVAS_WIDTH; x += 16) {
+        const y = CANVAS_HEIGHT * 0.64 + Math.sin(x * 0.012 + time * 0.2) * 10 + Math.cos(x * 0.02 + time * 0.15) * 5;
+        ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // 地平線の鳥居シルエット
+    const shrineY = CANVAS_HEIGHT * 0.63;
+    ctx.fillStyle = palette.shrine;
+    ctx.fillRect(0, shrineY, CANVAS_WIDTH, 20);
+    ctx.fillStyle = palette.shrineEdge;
+    ctx.fillRect(0, shrineY - 2, CANVAS_WIDTH, 2);
+    ctx.fillStyle = palette.shrine;
+    for (let i = -1; i < 6; i++) {
+        const gateX = 80 + i * 245 - ((timer * 0.025) % 245);
+        ctx.fillRect(gateX + 8, shrineY + 12, 10, 136);
+        ctx.fillRect(gateX + 98, shrineY + 12, 10, 136);
+        ctx.fillRect(gateX - 3, shrineY - 8, 124, 10);
+        ctx.fillRect(gateX + 6, shrineY - 16, 106, 8);
+    }
+
+    // 霧レイヤー
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    for (let i = 0; i < 3; i++) {
+        const fogY = CANVAS_HEIGHT * (0.64 + i * 0.1);
+        const fogShift = Math.sin(time * (0.66 + i * 0.15) + i * 1.1) * 90;
+        const fogW = 280 + i * 108;
+        const fogH = 76 + i * 12;
+        for (let j = -1; j < 5; j++) {
+            const cx = j * fogW * 0.72 + fogShift - fogW * 0.28;
+            const grad = ctx.createRadialGradient(cx, fogY, fogW * 0.08, cx, fogY, fogW * 0.56);
+            grad.addColorStop(0, palette.fog);
+            grad.addColorStop(0.54, palette.fog.replace(/[\d.]+\)$/u, `${(i === 0 ? 0.085 : 0.055).toFixed(3)})`));
+            grad.addColorStop(1, 'rgba(255,255,255,0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.ellipse(cx, fogY, fogW, fogH, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+    ctx.restore();
+
+    // 花弁/粉雪の粒子
+    const particleCount = variant === 'ending' ? 38 : 52;
     for (let i = 0; i < particleCount; i++) {
         const seedA = hash01(i + 1.3);
         const seedB = hash01(i * 1.7 + 5.1);
@@ -1776,23 +1976,23 @@ function renderWafuuCinematicBackdrop(ctx, timer, variant = 'opening') {
         const spanY = CANVAS_HEIGHT + 320;
         const baseX = seedA * spanX - 130;
         const baseY = seedB * spanY - 160;
-        const fallSpeed = (variant === 'ending' ? 0.028 : 0.032) + layer * 0.004 + seedC * 0.012;
+        const fallSpeed = (variant === 'ending' ? 0.026 : 0.031) + layer * 0.004 + seedC * 0.011;
         const driftSpeed = 0.014 + layer * 0.003 + seedA * 0.006;
-        const driftAmp = 18 + layer * 8 + seedB * 14;
+        const driftAmp = 20 + layer * 8 + seedB * 13;
         const swirlAmp = 6 + seedC * 10;
-        const size = 2.8 + layer * 0.95 + seedA * 1.6;
+        const size = 2.8 + layer * 1.0 + seedA * 1.6;
 
         const py = (baseY + timer * fallSpeed) % spanY - 160;
         const sway = Math.sin(time * (0.8 + driftSpeed) + i * 0.77) * driftAmp;
-        const swirl = Math.cos(time * (1.25 + seedC * 0.7) + i * 0.41) * swirlAmp;
+        const swirl = Math.cos(time * (1.2 + seedC * 0.7) + i * 0.41) * swirlAmp;
         const px = (baseX + timer * (0.006 + layer * 0.0015) + sway + swirl + spanX) % spanX - 130;
         const rot = (time * (0.45 + seedA * 1.2) + i * 0.61) % (Math.PI * 2);
-        const alpha = 0.34 + seedB * 0.5;
+        const alpha = 0.32 + seedB * 0.48;
 
         ctx.save();
         ctx.translate(px, py);
         ctx.rotate(rot);
-        ctx.fillStyle = palette.petals.replace(/[\d.]+\)$/u, `${alpha.toFixed(3)})`);
+        ctx.fillStyle = `rgba(${palette.petalRgb}, ${alpha.toFixed(3)})`;
         ctx.strokeStyle = 'rgba(255,255,255,0.14)';
         ctx.lineWidth = 0.7;
 
@@ -1838,11 +2038,11 @@ function renderWafuuCinematicBackdrop(ctx, timer, variant = 'opening') {
 
     // 周辺減光
     const vignette = ctx.createRadialGradient(
-        CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.5, CANVAS_WIDTH * 0.16,
-        CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.5, CANVAS_WIDTH * 0.78
+        CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.5, CANVAS_WIDTH * 0.14,
+        CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.5, CANVAS_WIDTH * 0.82
     );
     vignette.addColorStop(0, 'rgba(0,0,0,0)');
-    vignette.addColorStop(1, variant === 'ending' ? 'rgba(0,0,0,0.24)' : 'rgba(0,0,0,0.42)');
+    vignette.addColorStop(1, variant === 'ending' ? 'rgba(0,0,0,0.22)' : 'rgba(0,0,0,0.44)');
     ctx.fillStyle = vignette;
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 }
@@ -1954,12 +2154,12 @@ export function renderEnding(ctx, timer) {
 }
 
 // ポーズ画面
-export function renderPauseScreen(ctx) {
+export function renderPauseScreen() {
     // ... (既存のコード) ...
 }
 
 // 全クリア画面
-export function renderGameClearScreen(ctx, player) {
+export function renderGameClearScreen(ctx) {
     // GAME OVER画面の金色版トーン
     const gradient = ctx.createRadialGradient(
         CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 0,

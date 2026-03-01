@@ -22,8 +22,7 @@ class InputManager {
             ' ': 'JUMP',
             'z': 'ATTACK', 'Z': 'ATTACK',
             'x': 'SUB_WEAPON', 'X': 'SUB_WEAPON',
-            'd': 'SWITCH_WEAPON', 'D': 'SWITCH_WEAPON',
-            's': 'SPECIAL', 'S': 'SPECIAL',
+            's': 'SWITCH_WEAPON', 'S': 'SWITCH_WEAPON',
             'a': 'SPECIAL', 'A': 'SPECIAL',
             'Shift': 'DASH',
             'Escape': 'PAUSE',
@@ -37,8 +36,7 @@ class InputManager {
             'Space': 'JUMP',
             'KeyZ': 'ATTACK',
             'KeyX': 'SUB_WEAPON',
-            'KeyD': 'SWITCH_WEAPON',
-            'KeyS': 'SPECIAL',
+            'KeyS': 'SWITCH_WEAPON',
             'KeyA': 'SPECIAL',
             'ShiftLeft': 'DASH',
             'ShiftRight': 'DASH',
@@ -132,7 +130,7 @@ class InputManager {
         this.handleTouch(fakeTouch);
     }
     
-    onMouseUp(e) {
+    onMouseUp() {
         // タッチ終了扱い
         this.releaseTouchBinding('mouse');
     }

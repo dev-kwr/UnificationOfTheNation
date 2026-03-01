@@ -8,7 +8,7 @@ import { Player } from './player.js';
 import { createSubWeapon } from './weapon.js';
 import { Stage } from './stage.js';
 import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout } from './ui.js';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit, checkPlayerAttackHit, checkSpecialHit, checkExplosionHit } from './collision.js';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js';
 import { saveManager } from './save.js';
 import { shop } from './shop.js';
 import { audio } from './audio.js';
@@ -19,6 +19,7 @@ class Game {
         this.canvas = null;
         this.ctx = null;
         this.state = GAME_STATE.TITLE;
+        this.pauseReturnState = GAME_STATE.PLAYING;
         this.lastTime = 0;
         this.deltaTime = 0;
         
@@ -156,6 +157,135 @@ class Game {
         window.addEventListener('click', resumeAudio);
         window.addEventListener('keydown', resumeAudio);
         window.addEventListener('touchstart', resumeAudio);
+    }
+
+    getOpaqueCanvasBounds(canvas) {
+        if (!canvas) return null;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+        const { width, height } = canvas;
+        if (width <= 0 || height <= 0) return null;
+        const data = ctx.getImageData(0, 0, width, height).data;
+        let minX = width;
+        let minY = height;
+        let maxX = -1;
+        let maxY = -1;
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const alpha = data[(y * width + x) * 4 + 3];
+                if (alpha <= 0) continue;
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+            }
+        }
+        if (maxX < minX || maxY < minY) return null;
+        return {
+            x: minX,
+            y: minY,
+            width: maxX - minX + 1,
+            height: maxY - minY + 1
+        };
+    }
+
+    refreshPlayerHeadFavicon() {
+        if (typeof document === 'undefined') return;
+        const iconLinks = Array.from(document.querySelectorAll('link[rel~="icon"]'));
+        if (iconLinks.length === 0) return;
+
+        const sourceCanvas = document.createElement('canvas');
+        sourceCanvas.width = 256;
+        sourceCanvas.height = 256;
+        const sourceCtx = sourceCanvas.getContext('2d');
+        if (!sourceCtx) return;
+
+        const previewPlayer = new Player(0, this.groundY - PLAYER.HEIGHT, this.groundY);
+        previewPlayer.facingRight = true;
+        previewPlayer.isGrounded = true;
+        previewPlayer.isDashing = false;
+        previewPlayer.isCrouching = false;
+        previewPlayer.vx = 0;
+        previewPlayer.vy = 0;
+        previewPlayer.motionTime = 120;
+        previewPlayer.legPhase = 0;
+        previewPlayer.resetVisualTrails();
+        const settleStepSec = 16 / 1000;
+        for (let i = 0; i < 64; i++) {
+            previewPlayer.motionTime += 16;
+            const anchor = previewPlayer.calculateAccessoryAnchor(
+                0,
+                previewPlayer.groundY,
+                previewPlayer.height,
+                previewPlayer.motionTime,
+                false,
+                false,
+                false,
+                0
+            );
+            const knotTargetX = previewPlayer.width / 2 - 12; // 右向き時の結び目位置
+            const knotTargetY = anchor.headY - 2;
+            previewPlayer.updateAccessoryNodes(
+                previewPlayer.scarfNodes,
+                previewPlayer.hairNodes,
+                knotTargetX,
+                knotTargetY,
+                0,
+                false,
+                settleStepSec
+            );
+        }
+
+        const renderScale = 3.2;
+        const renderW = previewPlayer.width * renderScale;
+        const renderH = previewPlayer.height * renderScale;
+        const renderX = (sourceCanvas.width - renderW) * 0.5;
+        const renderY = (sourceCanvas.height - renderH) * 0.5;
+        sourceCtx.save();
+        sourceCtx.translate(renderX, renderY);
+        sourceCtx.scale(renderScale, renderScale);
+        previewPlayer.renderHeadForFavicon(sourceCtx, 0, 0, true, {
+            useLiveAccessories: true,
+            renderHeadband: true,
+            renderHeadbandTail: true,
+            renderHair: true,
+            state: {
+                motionTime: previewPlayer.motionTime,
+                vx: 0,
+                vy: 0,
+                isGrounded: true,
+                isDashing: false,
+                isCrouching: false,
+                isAttacking: false,
+                subWeaponTimer: 0,
+                subWeaponAction: null
+            }
+        });
+        sourceCtx.restore();
+
+        // 輪郭検出ベースの切り出しだと鉢巻テールの一時的な伸びで頭部が小さくなるため、
+        // プレイヤー頭部が最も読み取りやすい固定フレームで切り出す。
+        const focusSize = 120;
+        const focusCenterX = sourceCanvas.width * 0.5 - 10; // 右向き時のポニーテール側へ少し寄せる
+        const focusCenterY = sourceCanvas.height * 0.5 - 8;
+        const sx = Math.max(0, Math.min(sourceCanvas.width - focusSize, Math.round(focusCenterX - focusSize * 0.5)));
+        const sy = Math.max(0, Math.min(sourceCanvas.height - focusSize, Math.round(focusCenterY - focusSize * 0.5)));
+        const sw = focusSize;
+        const sh = focusSize;
+
+        const faviconCanvas = document.createElement('canvas');
+        faviconCanvas.width = 64;
+        faviconCanvas.height = 64;
+        const faviconCtx = faviconCanvas.getContext('2d');
+        if (!faviconCtx) return;
+        faviconCtx.clearRect(0, 0, 64, 64);
+        faviconCtx.drawImage(sourceCanvas, sx, sy, sw, sh, 0, 0, 64, 64);
+
+        const faviconDataUrl = faviconCanvas.toDataURL('image/png');
+        for (const link of iconLinks) {
+            link.setAttribute('href', faviconDataUrl);
+            link.setAttribute('type', 'image/png');
+        }
     }
 
     configureCanvasResolution() {
@@ -1179,6 +1309,7 @@ class Game {
     updatePlaying() {
         // ポーズ
         if (input.isActionJustPressed('PAUSE')) {
+            this.pauseReturnState = GAME_STATE.PLAYING;
             this.state = GAME_STATE.PAUSED;
             audio.pauseBgm();
             return;
@@ -1326,7 +1457,7 @@ class Game {
     }
     
     updateBombs(enemies = []) {
-        this.bombs = this.bombs.filter((bomb, index) => {
+        this.bombs = this.bombs.filter((bomb) => {
             // 敵弾（将軍の火薬玉）は敵リストを渡さない（プレイヤーへの当たりのみ）
             const updateEnemies = bomb.isEnemyProjectile ? [] : enemies;
             bomb.update(this.deltaTime, this.groundY, updateEnemies);
@@ -1412,7 +1543,7 @@ class Game {
             attackData.knockbackY = -5;
         } else if (subWeapon.name === '二刀流') {
             if (subWeapon.attackType === 'combined') {
-                damage *= 1.28;
+                damage *= 1.45;
                 attackData.knockbackX = 8;
                 attackData.knockbackY = -8;
                 attackData.isLaunch = true;
@@ -1421,7 +1552,7 @@ class Game {
                 const comboStep = comboIndex === 0
                     ? 4
                     : Math.max(0, Math.min(4, comboIndex));
-                damage *= 1 + comboStep * 0.09;
+                damage *= 1 + comboStep * 0.1;
             }
         } else if (subWeapon.name === '手裏剣') {
             attackData.knockbackX = 4;
@@ -2133,8 +2264,6 @@ class Game {
     updateExpGems() {
         if (!this.expGems || this.expGems.length === 0 || !this.player) return;
 
-        const playerCenterX = this.player.x + this.player.width * 0.5;
-        const playerCenterY = this.player.y + this.player.height * 0.5;
         const pickupRadius = 26;
         const normalMagnetRadius = 120;
         const magnetBoostActive = !!(this.player.isExpMagnetBoostActive && this.player.isExpMagnetBoostActive());
@@ -2621,7 +2750,7 @@ class Game {
                     life: 500,
                     maxLife: 500,
                     radius: 10,
-                    color: 'rgba(255, 255, 255, 0.8)'
+                    color: '255, 255, 255'
                 });
             }, i * 150);
         }
@@ -2944,10 +3073,9 @@ class Game {
         const source = attackData && attackData.source ? attackData.source : 'main';
         const weapon = attackData && attackData.weapon ? attackData.weapon : null;
         let gain = 0;
+        let sourceScale = 1;
         if (source === 'shockwave') {
             gain = 5;
-        } else if (source === 'special_shadow') {
-            gain = 0;
         } else if (source === 'bomb' || weapon === '火薬玉') {
             gain = 2.2;
         } else if (weapon === '手裏剣') {
@@ -2962,12 +3090,16 @@ class Game {
             gain = 2.1;
         } else if (source === 'subweapon') {
             gain = 1.8;
-        } else if (source === 'main') {
+        } else if (source === 'main' || source === 'special_shadow') {
             gain = 1.4;
         }
 
+        if (source === 'special_shadow') {
+            // 分身キルでも奥義ゲージが貯まるようにしつつ、本体よりは抑えめに調整
+            sourceScale = 0.65;
+        }
         const damageFactor = Math.max(0.65, Math.min(1.45, damage / 24));
-        return Math.max(0, Math.round(gain * damageFactor));
+        return Math.max(0, Math.round(gain * sourceScale * damageFactor));
     }
 
     spawnRockBreakEffect(rock, impactX = null, impactY = null) {
@@ -3199,6 +3331,11 @@ class Game {
         if (this.player && typeof this.player.resetTemporaryNinjutsuTimers === 'function') {
             this.player.resetTemporaryNinjutsuTimers();
         }
+        if (this.player) {
+            // クリア画面では点滅させない（直前被弾や隠れ身解除の残タイマーを無効化）
+            this.player.invincibleTimer = 0;
+            this.player.damageFlashTimer = 0;
+        }
         this.pendingLevelUpChoices = 0;
         // this.levelUpChoiceIndex = 0; // フェードアウト完了まで位置を維持
 
@@ -3266,8 +3403,10 @@ class Game {
             this.player.switchSubWeapon();
         }
 
-        if (input.isActionJustPressed('PAUSE')) {
-            this.state = GAME_STATE.PLAYING;
+        if (input.isActionJustPressed('PAUSE') || input.isActionJustPressed('DEBUG_TOGGLE')) {
+            this.state = (this.pauseReturnState === GAME_STATE.STAGE_CLEAR)
+                ? GAME_STATE.STAGE_CLEAR
+                : GAME_STATE.PLAYING;
             audio.resumeBgm();
         }
     }
@@ -3329,6 +3468,14 @@ class Game {
     }
     
     updateStageClear() {
+        // ステータス画面中は Q キーでもポーズ可能にする
+        if (input.isActionJustPressed('PAUSE') || input.isActionJustPressed('DEBUG_TOGGLE')) {
+            this.pauseReturnState = GAME_STATE.STAGE_CLEAR;
+            this.state = GAME_STATE.PAUSED;
+            audio.pauseBgm();
+            return;
+        }
+
         // ステージ遷移演出中はそちらを更新
         if (this.stageTransitionPhase > 0) {
             this.updateStageTransition();
@@ -3375,6 +3522,8 @@ class Game {
                     this.player.attackCombo = 0;
                     this.player.subWeaponTimer = 0;
                     this.player.subWeaponAction = null;
+                    this.player.invincibleTimer = 0;
+                    this.player.damageFlashTimer = 0;
                     this.player.isDashing = false;
                     this.player.isCrouching = false;
                     this.bombs = [];
@@ -3568,7 +3717,9 @@ class Game {
         if (player.currentSubWeapon.name === '二刀流') {
             if (player.currentSubWeapon.projectiles && player.currentSubWeapon.projectiles.length > 0) return false;
             player.currentSubWeapon.use(player, 'combined');
-            player.subWeaponTimer = 220;
+            player.subWeaponTimer = (typeof player.getSubWeaponActionDurationMs === 'function')
+                ? player.getSubWeaponActionDurationMs('二刀_合体', player.currentSubWeapon)
+                : 320;
             player.subWeaponAction = '二刀_合体';
             player.vx = 0;
             return true;
@@ -3577,11 +3728,14 @@ class Game {
         player.useSubWeapon();
         const weaponName = player.currentSubWeapon ? player.currentSubWeapon.name : '';
         const isThrow = weaponName === '火薬玉' || weaponName === '手裏剣';
-        player.subWeaponTimer =
-            isThrow ? 150 :
-            weaponName === '大槍' ? 250 :
-            weaponName === '鎖鎌' ? 560 :
-            weaponName === '大太刀' ? 760 : 300;
+        player.subWeaponTimer = (typeof player.getSubWeaponActionDurationMs === 'function')
+            ? player.getSubWeaponActionDurationMs(isThrow ? 'throw' : weaponName, player.currentSubWeapon)
+            : (
+                isThrow ? 150 :
+                weaponName === '大槍' ? 270 :
+                weaponName === '鎖鎌' ? 560 :
+                weaponName === '大太刀' ? 760 : 300
+            );
         player.subWeaponAction = isThrow ? 'throw' : weaponName;
         return true;
     }
@@ -3656,7 +3810,11 @@ class Game {
                 break;
 
             case GAME_STATE.PAUSED:
-                this.renderPlaying();
+                if (this.pauseReturnState === GAME_STATE.STAGE_CLEAR) {
+                    this.renderStageClearView();
+                } else {
+                    this.renderPlaying();
+                }
                 renderPauseScreen(this.ctx);
                 break;
 
@@ -3741,40 +3899,9 @@ class Game {
                 shop.render(this.ctx, this.player);
                 break;
 
-        case GAME_STATE.STAGE_CLEAR:
-            if (this.stageClearPhase === 0) {
-                this.renderPlaying();
-                renderStageClearAnnouncement(this.ctx, this.currentStageNumber, this.clearedWeapon, this.stage);
-            } else {
-                const statusOptions = {
-                    menuIndex: this.stageClearMenuIndex,
-                    selectedWeaponName: this.player?.currentSubWeapon?.name || '未装備'
-                };
-                // 背景 → キャラ → UI の順で固定
-                renderStatusScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {
-                    ...statusOptions,
-                    layer: 'background'
-                }, this.stage, this.ui);
-                this.renderStatusCharPreview();
-                renderStatusScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {
-                    ...statusOptions,
-                    layer: 'ui'
-                }, this.stage, this.ui);
-            }
-            // ステージ遷移フェード
-            if (this.stageTransitionPhase === 1) {
-            this.ctx.save();
-            const alpha = Math.min(1.0, 1.0 - (this.stageTransitionTimer / 0.8));
-            this.ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
-            this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-            this.ctx.restore();
-            } else if (this.stageTransitionPhase === 2) {
-            this.ctx.save();
-            this.ctx.fillStyle = '#000000';
-            this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-            this.ctx.restore();
-            }
-            break;
+            case GAME_STATE.STAGE_CLEAR:
+                this.renderStageClearView();
+                break;
 
             case GAME_STATE.GAME_CLEAR:
                 renderGameClearScreen(this.ctx, this.player);
@@ -3850,7 +3977,7 @@ class Game {
         return false;
     }
 
-    beginPlayerDefeat(sourceX = null) {
+    beginPlayerDefeat() {
         if (!this.player || this.state === GAME_STATE.DEFEAT || this.state === GAME_STATE.GAME_OVER) return;
         
         audio.playPlayerDeath();
@@ -4068,6 +4195,42 @@ class Game {
         }
 
         ctx.restore();
+    }
+
+    renderStageClearView() {
+        if (this.stageClearPhase === 0) {
+            this.renderPlaying();
+            renderStageClearAnnouncement(this.ctx, this.currentStageNumber, this.clearedWeapon, this.stage);
+        } else {
+            const statusOptions = {
+                menuIndex: this.stageClearMenuIndex,
+                selectedWeaponName: this.player?.currentSubWeapon?.name || '未装備'
+            };
+            // 背景 → キャラ → UI の順で固定
+            renderStatusScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {
+                ...statusOptions,
+                layer: 'background'
+            }, this.stage, this.ui);
+            this.renderStatusCharPreview();
+            renderStatusScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {
+                ...statusOptions,
+                layer: 'ui'
+            }, this.stage, this.ui);
+        }
+
+        // ステージ遷移フェード
+        if (this.stageTransitionPhase === 1) {
+            this.ctx.save();
+            const alpha = Math.min(1.0, 1.0 - (this.stageTransitionTimer / 0.8));
+            this.ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+            this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            this.ctx.restore();
+        } else if (this.stageTransitionPhase === 2) {
+            this.ctx.save();
+            this.ctx.fillStyle = '#000000';
+            this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            this.ctx.restore();
+        }
     }
 }
 

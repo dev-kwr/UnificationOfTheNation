@@ -3,10 +3,12 @@
 // ============================================
 
 import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET } from './constants.js';
-import { createEnemy, Ashigaru, Samurai, Busho, Ninja } from './enemy.js';
+import { createEnemy } from './enemy.js';
 import { createBoss } from './boss.js';
 import { createObstacle } from './obstacle.js';
 import { audio } from './audio.js';
+
+const OBSTACLE_CHANCE_BOOST = 0.8;
 
 // ステージクラス
 export class Stage {
@@ -236,7 +238,7 @@ export class Stage {
                 multiSpawnPeak: 0.28,
                 leftSpawnBase: 0.14,
                 leftSpawnPeak: 0.22,
-                obstacleChance: 0.18,
+                obstacleChance: 0.22,
                 obstacleIntervalMin: 2600,
                 obstacleIntervalMax: 4200
             },
@@ -248,7 +250,7 @@ export class Stage {
                 multiSpawnPeak: 0.32,
                 leftSpawnBase: 0.17,
                 leftSpawnPeak: 0.25,
-                obstacleChance: 0.22,
+                obstacleChance: 0.26,
                 obstacleIntervalMin: 2400,
                 obstacleIntervalMax: 3900
             },
@@ -260,7 +262,7 @@ export class Stage {
                 multiSpawnPeak: 0.36,
                 leftSpawnBase: 0.2,
                 leftSpawnPeak: 0.28,
-                obstacleChance: 0.75,
+                obstacleChance: 0.78,
                 obstacleIntervalMin: 1200,
                 obstacleIntervalMax: 2200
             },
@@ -272,7 +274,7 @@ export class Stage {
                 multiSpawnPeak: 0.40,
                 leftSpawnBase: 0.22,
                 leftSpawnPeak: 0.3,
-                obstacleChance: 0.27,
+                obstacleChance: 0.31,
                 obstacleIntervalMin: 2000,
                 obstacleIntervalMax: 3400
             },
@@ -284,7 +286,7 @@ export class Stage {
                 multiSpawnPeak: 0.44,
                 leftSpawnBase: 0.24,
                 leftSpawnPeak: 0.32,
-                obstacleChance: 0.3,
+                obstacleChance: 0.34,
                 obstacleIntervalMin: 1900,
                 obstacleIntervalMax: 3200
             },
@@ -296,7 +298,7 @@ export class Stage {
                 multiSpawnPeak: 0.46,
                 leftSpawnBase: 0.25,
                 leftSpawnPeak: 0.34,
-                obstacleChance: 0.32,
+                obstacleChance: 0.36,
                 obstacleIntervalMin: 1800,
                 obstacleIntervalMax: 3000
             }
@@ -457,8 +459,8 @@ export class Stage {
             this.spawnBoss();
         }
         
-        // 障害物出現（ボス戦中・撃破後・中ボス戦中は出現させない）
-        const noObstaclePhase = (this.bossSpawned || this.midBossSpawned);
+        // 障害物出現はボス戦中のみ停止
+        const noObstaclePhase = (this.bossSpawned && !this.bossDefeated);
         this.obstacleTimer += deltaTime * 1000;
         if (this.obstacleTimer >= this.obstacleInterval && this.progress < this.maxProgress * 0.98 && !noObstaclePhase) {
              this.spawnObstacle();
@@ -677,8 +679,9 @@ export class Stage {
     }
 
     spawnObstacle() {
-        // ステージごとの発生率で調整
-        if (Math.random() > this.balanceProfile.obstacleChance) return;
+        // ステージごとの発生率にボーナスを加算（上限1.0）
+        const obstacleChance = Math.min(1, this.balanceProfile.obstacleChance + OBSTACLE_CHANCE_BOOST);
+        if (Math.random() > obstacleChance) return;
 
         const spikeChanceByStage = [0, 0.12, 0.15, 0.42, 0.56, 0.7];
         const spikeChance = spikeChanceByStage[Math.max(0, Math.min(spikeChanceByStage.length - 1, this.stageNumber - 1))];
@@ -715,7 +718,7 @@ export class Stage {
 
     updateObstacles(deltaTime) {
         this.obstacles = this.obstacles.filter(obs => {
-            const shouldRemove = obs.update(deltaTime);
+            obs.update(deltaTime);
             // 画面外（左）に出たら削除 (スクロール考慮)
             // this.progress (スクロール左端) - 100 より左なら削除
             if (obs.x + obs.width < this.progress - 100 || obs.isDestroyed) return false;
@@ -862,7 +865,7 @@ export class Stage {
         return t * t * (3 - 2 * t);
     }
 
-    updateBambooLeafEffects(deltaTime, progressDelta = 0) {
+    updateBambooLeafEffects(deltaTime) {
         if (this.stageNumber !== 1) {
             this.bambooFallingLeaves.length = 0;
             this.bambooLeafSpawnTimer = 0;
@@ -885,8 +888,9 @@ export class Stage {
         const spawnInterval = 400 / spawnMultiplier;
         this.bambooLeafSpawnTimer += dtMs;
 
-        // ボス戦中は竹エリア（画面左75%）内にのみ落ち葉を生成
-        const spawnXMax = this.bossSpawned
+        // Stage1はボス戦でも竹林全域を維持し、右1/4を削る演出を行わない
+        const shouldTrimBambooForBoss = this.bossSpawned && this.stageNumber !== 1;
+        const spawnXMax = shouldTrimBambooForBoss
             ? CANVAS_WIDTH * 0.75
             : CANVAS_WIDTH + 60;
 
@@ -911,13 +915,6 @@ export class Stage {
                 leafId: (this._leafIdCounter = ((this._leafIdCounter || 0) + 1) & 0xFFFF)
             });
         }
-
-        const playerX = this.playerProbe ? (this.playerProbe.x + this.playerProbe.width * 0.5 - this.progress) : -9999;
-        const playerY = this.playerProbe ? (this.playerProbe.y + this.playerProbe.height) : 9999;
-        const playerVX = this.playerProbe ? (this.playerProbe.vx || 0) : 0;
-        const isDashing = !!(this.playerProbe && this.playerProbe.isDashing); // ダッシュ判定
-
-        const cliffY = this.groundY + 120; // 路面パースに合わせて接地範囲を拡大
 
         for (let i = this.bambooFallingLeaves.length - 1; i >= 0; i--) {
             const leaf = this.bambooFallingLeaves[i];
@@ -1111,9 +1108,6 @@ export class Stage {
         const isCastleInterior = currentPalette.elements === 'castle';
         const isBambooForest = currentPalette.elements === 'bamboo';
         const isTenshuStageBg = currentPalette.elements === 'tenshu';
-        const bossIntroRatio = (this.bossIntroTimer > 0)
-            ? (this.bossIntroTimer / this.bossIntroDuration)
-            : 0;
         const bossEncounterActive = this.bossSpawned && !this.bossDefeated;
         const bossEncounterBlend = this.bossEncounterBlend;
 
@@ -1681,7 +1675,6 @@ export class Stage {
                 for (let s = 0; s < steps; s++) {
                     const t2 = s / steps;
                     const x0 = stairBaseX + (stairTopX - stairBaseX) * t2;
-                    const x1 = stairBaseX + (stairTopX - stairBaseX) * ((s + 1) / steps);
                     const y0 = gY - (gY - stairTopY) * t2;
                     const y1 = gY - (gY - stairTopY) * ((s + 1) / steps);
                     const stepW = CANVAS_WIDTH - x0 + 20;
@@ -1938,11 +1931,11 @@ export class Stage {
                 // 靄なし
 
                 // ボス部屋内で竹を描く右端スクリーンx上限
-                // bossEncounterBlend (0→1) を使ってイントロ演出に合わせて滑らかに竹を右から押し込む
-                // blend=0なら全画面、blend=1なら右75%でクリップ（右1/4に街道の景色が覗く）
-                // ボス撃破後も竹は戻さず右75%のまま固定
+                // Stage1だけは右1/4削り演出を無効化し、常に全画面で竹を描く
                 const bambooLimitFull = CANVAS_WIDTH + 80;
-                const bambooLimitBoss = CANVAS_WIDTH * 0.75;
+                const bambooLimitBoss = this.stageNumber === 1
+                    ? bambooLimitFull
+                    : CANVAS_WIDTH * 0.75;
                 let bambooScreenLimit;
                 if (!this.bossSpawned) {
                     bambooScreenLimit = bambooLimitFull;
@@ -3430,7 +3423,7 @@ export class Stage {
         const getX = (theta) => orbitCenterX - Math.cos(theta) * orbitRadiusX;
         const getY = (theta) => orbitCenterY - Math.sin(theta) * orbitRadiusY;
 
-        const drawBody = (cx, cy, r, alpha, coreTop, coreBottom, glowColor, isMoon = false) => {
+        const drawBody = (cx, cy, r, alpha, coreTop, coreBottom, glowColor) => {
             if (alpha <= 0.001) return;
             ctx.save();
             ctx.translate(cx, cy);

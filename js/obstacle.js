@@ -2,7 +2,7 @@
 // Unification of the Nation - 障害物クラス
 // ============================================
 
-import { OBSTACLE_TYPES, OBSTACLE_SETTINGS, COLORS, LANE_OFFSET } from './constants.js';
+import { OBSTACLE_TYPES, OBSTACLE_SETTINGS, LANE_OFFSET } from './constants.js';
 import { audio } from './audio.js';
 
 // 障害物基底クラス
@@ -35,7 +35,7 @@ export class Obstacle {
         return false; // 削除フラグ（画面外に出たらtrueにする処理はStage側またはGame側で）
     }
     
-    takeDamage(amount) {
+    takeDamage() {
         if (this.hp <= 0 || this.hitTimer > 0) return false;
         
         this.hp -= 1; // 常に 1 ダメージ（3回耐える）

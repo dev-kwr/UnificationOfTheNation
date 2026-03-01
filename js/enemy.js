@@ -2,7 +2,7 @@
 // Unification of the Nation - 敵クラス
 // ============================================
 
-import { ENEMY_TYPES, COLORS, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js';
+import { ENEMY_TYPES, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js';
 import { audio } from './audio.js';
 
 const ENEMY_HEADBAND_BASE = '#4f2f72';
@@ -302,7 +302,6 @@ export class Enemy {
         handY,
         upperLen = 11.5,
         foreLen = 11.5,
-        bendSign = 1,
         upperWidth = 5,
         foreWidth = 4.4,
         jointRadius = 3,
@@ -1365,7 +1364,6 @@ export class Enemy {
         if (config.headStyle === 'ninja') {
             // 目玉のように見える点は描かない（覆面＋鉢金だけ）
             const renderHeadband = config.renderHeadband !== false;
-            const renderHair = config.renderHair !== false;
 
             if (renderHeadband) {
                 ctx.save();
@@ -1588,7 +1586,6 @@ export class Enemy {
             const radiusScale = Number.isFinite(slash.radiusScale) ? slash.radiusScale : 1;
             const fixedRadius = Number.isFinite(slash.radius) ? slash.radius : null;
             const arcBack = Number.isFinite(slash.arcBack) ? slash.arcBack : 1.0;
-            const arcFront = Number.isFinite(slash.arcFront) ? slash.arcFront : 0.58;
             const widthScale = Number.isFinite(slash.widthScale) ? slash.widthScale : 1;
             
             ctx.save();
@@ -1601,7 +1598,6 @@ export class Enemy {
             const trailLength = arcBack * Math.min(1, swing * 1.8);
             const currentArcFront = 0.04; // 刃先を僅かに覆う程度に留め、先行させない
             
-            const arcStart = bladeAngle - dir * trailLength;
             const arcEnd = bladeAngle + dir * currentArcFront;
             const isNaginata = config.weaponMode === 'naginata';
             
@@ -2720,7 +2716,6 @@ export class Enemy {
         
         // 上昇する粒子
         for (let i = 0; i < 8; i++) {
-            const seed = (i * 123.45 + this.deathTimer * 0.2) % 100;
             const px = centerX + Math.sin(i + this.deathTimer * 0.01) * 20;
             const py = centerY + 30 - (this.deathTimer * 0.05 + i * 10) % 60;
             const size = 2 + Math.sin(this.deathTimer * 0.01 + i) * 1.5;
@@ -3746,15 +3741,13 @@ export class Busho extends Enemy {
 
         // 大剣
         const bladeLen = this.attackPattern === 1 ? 66 : 61;
-        const heavyBlade = this.drawDetailedHeavyBlade(ctx, {
+        this.drawDetailedHeavyBlade(ctx, {
             handX: leadHandX,
             handY: leadHandY,
             angle: weaponAngle,
             length: bladeLen,
             gripLen: 12
         });
-        const tipX = heavyBlade.tipX;
-        const tipY = heavyBlade.tipY;
 
         if (this.isAttacking) {
             if (this.attackPattern === 2) {

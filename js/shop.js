@@ -2,7 +2,7 @@
 // Unification of the Nation - ショップ機能
 // ============================================
 
-import { COLORS, CANVAS_WIDTH, CANVAS_HEIGHT, PLAYER } from './constants.js';
+import { CANVAS_WIDTH, CANVAS_HEIGHT } from './constants.js';
 import { input } from './input.js';
 import { audio } from './audio.js';
 import { drawScreenManualLine } from './ui.js';
@@ -83,7 +83,7 @@ export class Shop {
         this.message = '';
     }
     
-    updateItemList(player) {
+    updateItemList() {
         this.items = [...SHOP_ITEMS];
     }
 

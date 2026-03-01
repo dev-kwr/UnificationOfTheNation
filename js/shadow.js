@@ -53,7 +53,6 @@ export class ShadowRenderer {
         if (!stage || !player) return;
 
         const ctx   = this.ctx;
-        const scale = this.scale;
 
         // --- 1. 太陽角度の取得/算出 ---
         const sunTheta = this.getSunTheta(stage);

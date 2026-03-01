@@ -32,6 +32,7 @@ const COMBO_ATTACKS = [
     { type: ANIM_STATE.ATTACK_UPPERCUT, name: '四ノ太刀・天穿返り', damage: 2.2, range: 96, durationMs: 248, cooldownScale: 0.62, chainWindowMs: 126, impulse: 0.68 },
     { type: ANIM_STATE.ATTACK_DOWN, name: '五ノ太刀・落天水平叩き', damage: 2.52, range: 112, durationMs: 336, cooldownScale: 0.72, chainWindowMs: 136, impulse: 0.2 }
 ];
+const BASE_EXP_TO_NEXT = 100;
 
 export class Player {
     constructor(x, y, groundY) {
@@ -127,7 +128,7 @@ export class Player {
         this.maxHp = PLAYER.MAX_HP;
         this.level = 1;
         this.exp = 0;
-        this.expToNext = 100;
+        this.expToNext = BASE_EXP_TO_NEXT;
         this.money = 0;
         this.maxMoney = PLAYER.MONEY_MAX || 9999;
         this.attackPower = 1;
@@ -165,7 +166,6 @@ export class Player {
         
         // 残像用
         this.afterImages = [];
-        this.odachiAfterimageTimer = 0;
         this.subWeaponRenderedInModel = false;
         this.subWeaponPoseOverride = null;
         this.comboSlashTrailPoints = [];
@@ -175,8 +175,6 @@ export class Player {
         this.comboSlashTrailSampleIntervalMs = 14;
         this.comboSlashTrailActiveLifeMs = 520;
         this.comboSlashTrailFadeLifeMs = 300;
-        this.ghostVeilCanvas = null;
-        this.ghostVeilCtx = null;
         
         // 奥義分身関連
         this.specialClonePositions = []; // 各分身の現在の世界座標 {x, y, facingRight}
@@ -345,6 +343,14 @@ export class Player {
         }
         return this.subWeaponAction === '大太刀' && this.subWeaponTimer > 0 && !this.isGrounded;
     }
+
+    isSpearThrustAfterimageActive() {
+        const spear = this.currentSubWeapon;
+        if (!spear || spear.name !== '大槍') return false;
+        if (this.subWeaponAction !== '大槍' || this.subWeaponTimer <= 0) return false;
+        // 横っ飛び突きの最中だけ、ダッシュ同等の残像を出す
+        return spear.isAttacking || Math.abs(this.vx) > PLAYER.SPEED * 1.2;
+    }
     
     update(deltaTime, walls = []) {
         const deltaMs = deltaTime * 1000;
@@ -470,26 +476,23 @@ export class Player {
         // アニメーション更新
         this.updateAnimation(deltaTime);
         
-        // 残像更新（ダッシュ + 大太刀跳躍）
+        // 残像更新（ダッシュ相当：通常ダッシュ・大槍横っ飛び・大太刀跳躍）
         const isOdachiJumping = this.isOdachiJumpAfterimageActive();
-        if (isOdachiJumping) {
-            this.odachiAfterimageTimer -= deltaTime * 1000;
-        } else {
-            this.odachiAfterimageTimer = 0;
-        }
-
-        const shouldEmitDashAfterimage = this.isDashing || Math.abs(this.vx) > PLAYER.SPEED * 1.5;
-        const shouldEmitOdachiAfterimage = isOdachiJumping && this.odachiAfterimageTimer <= 0;
-        if (shouldEmitDashAfterimage || shouldEmitOdachiAfterimage) {
+        const isSpearThrusting = this.isSpearThrustAfterimageActive();
+        const shouldEmitDashAfterimage =
+            this.isDashing ||
+            Math.abs(this.vx) > PLAYER.SPEED * 1.5 ||
+            isOdachiJumping ||
+            isSpearThrusting;
+        if (shouldEmitDashAfterimage) {
             this.afterImages.unshift({
                 x: this.x,
                 y: this.y,
                 facingRight: this.facingRight
             });
-            if (isOdachiJumping) this.odachiAfterimageTimer = 30;
             const maxTrailCount = 7;
             if (this.afterImages.length > maxTrailCount) this.afterImages.pop();
-        } else if (!isOdachiJumping) {
+        } else {
             if (this.afterImages.length > 0) this.afterImages.pop();
         }
     }
@@ -505,18 +508,14 @@ export class Player {
                 if (this.currentSubWeapon.name === '二刀流') {
                     if (this.currentSubWeapon.projectiles && this.currentSubWeapon.projectiles.length > 0) return;
                     this.currentSubWeapon.use(this, 'combined');
-                    this.subWeaponTimer = 220;
+                    this.subWeaponTimer = this.getSubWeaponActionDurationMs('二刀_合体', this.currentSubWeapon);
                     this.subWeaponAction = '二刀_合体';
                     this.vx = 0;
                 } else {
                     this.useSubWeapon();
                     const weaponName = this.currentSubWeapon ? this.currentSubWeapon.name : '';
                     const isThrow = weaponName === '火薬玉' || weaponName === '手裏剣';
-                    this.subWeaponTimer =
-                        isThrow ? 150 :
-                        weaponName === '大槍' ? 270 :
-                        weaponName === '鎖鎌' ? 560 :
-                        weaponName === '大太刀' ? 760 : 300;
+                    this.subWeaponTimer = this.getSubWeaponActionDurationMs(isThrow ? 'throw' : weaponName, this.currentSubWeapon);
                     this.subWeaponAction = isThrow ? 'throw' : weaponName;
                 }
             }
@@ -573,18 +572,14 @@ export class Player {
 
                 // 二刀の忍具技：両手交差の飛翔斬撃
                 this.currentSubWeapon.use(this, 'combined');
-                this.subWeaponTimer = 220; // 合体モーションを高速化
+                this.subWeaponTimer = this.getSubWeaponActionDurationMs('二刀_合体', this.currentSubWeapon);
                 this.subWeaponAction = '二刀_合体';
                 this.vx = 0; // 完全に停止
             } else {
                 this.useSubWeapon();
                 const weaponName = this.currentSubWeapon ? this.currentSubWeapon.name : '';
                 const isThrow = weaponName === '火薬玉' || weaponName === '手裏剣';
-                this.subWeaponTimer =
-                    isThrow ? 150 :
-                    weaponName === '大槍' ? 270 :
-                    (weaponName === '鎖鎌') ? 560 :
-                    (weaponName === '大太刀') ? 760 : 300;
+                this.subWeaponTimer = this.getSubWeaponActionDurationMs(isThrow ? 'throw' : weaponName, this.currentSubWeapon);
                 this.subWeaponAction = isThrow ? 'throw' : weaponName;
             }
         }
@@ -800,13 +795,13 @@ export class Player {
                 this.vx = direction * this.speed * 0.52;
                 if (wasGrounded) this.vy = 0;
             } else if (step === 4) {
-                // 四段: 跳躍交叉斬り
-                this.vx = direction * this.speed * 0.95;
+                // 四段: 胸前クロスから斜め払い上げ
+                this.vx = direction * this.speed * 0.78;
                 if (wasGrounded) {
-                    this.vy = -9.4;
+                    this.vy = -5.0;
                     this.isGrounded = false;
                 } else {
-                    this.vy = Math.min(this.vy, -7.6);
+                    this.vy = Math.min(this.vy, -4.2);
                 }
             } else {
                 // 五段: 落下断ち
@@ -862,7 +857,7 @@ export class Player {
             this.isGrounded = false;
         } else if (step === 4) {
             this.vx = this.vx * 0.24 + direction * impulse * 0.42;
-            this.vy = Math.min(this.vy, -14.4);
+            this.vy = Math.min(this.vy, -10.6);
             this.isGrounded = false;
         } else if (step === 5) {
             // 五段目: 頭上から水平に叩きつける落下技
@@ -882,6 +877,39 @@ export class Player {
         if (this.currentSubWeapon) {
             this.currentSubWeapon.use(this);
         }
+    }
+
+    getSubWeaponActionDurationMs(actionName, weapon = this.currentSubWeapon) {
+        const name = actionName || (weapon && weapon.name) || '';
+        if (name === 'throw') return 150;
+        if (name === '二刀_合体') {
+            const dual = (weapon && weapon.name === '二刀流') ? weapon : this.currentSubWeapon;
+            return Math.max(
+                1,
+                Math.round(
+                    (dual && Number.isFinite(dual.activeCombinedDuration) && dual.activeCombinedDuration > 0)
+                        ? dual.activeCombinedDuration
+                        : ((dual && Number.isFinite(dual.combinedDuration)) ? dual.combinedDuration : 320)
+                )
+            );
+        }
+        if (name === '二刀_Z') {
+            const dual = (weapon && weapon.name === '二刀流') ? weapon : this.currentSubWeapon;
+            return Math.max(1, Math.round((dual && Number.isFinite(dual.mainDuration)) ? dual.mainDuration : 204));
+        }
+        if (name === '大槍') {
+            const spear = (weapon && weapon.name === '大槍') ? weapon : null;
+            return Math.max(1, Math.round((spear && Number.isFinite(spear.attackDuration)) ? spear.attackDuration : 270));
+        }
+        if (name === '鎖鎌') {
+            const kusa = (weapon && weapon.name === '鎖鎌') ? weapon : null;
+            return Math.max(1, Math.round((kusa && Number.isFinite(kusa.totalDuration)) ? kusa.totalDuration : 560));
+        }
+        if (name === '大太刀') {
+            const odachi = (weapon && weapon.name === '大太刀') ? weapon : null;
+            return Math.max(1, Math.round((odachi && Number.isFinite(odachi.totalDuration)) ? odachi.totalDuration : 760));
+        }
+        return 300;
     }
     
     updateAttack(deltaTime) {
@@ -910,16 +938,17 @@ export class Player {
             const duration = Math.max(1, activeAttack.durationMs || PLAYER.ATTACK_COOLDOWN);
             const progress = Math.max(0, Math.min(1, 1 - (this.attackTimer / duration)));
             const direction = this.facingRight ? 1 : -1;
+            const z4HeightScale = 0.6;
 
             // 四段目: 真上へ切り上げ → 後方へバク転
             if (progress < 0.42) {
                 const t = progress / 0.42;
                 this.vx = this.vx * 0.65 + direction * this.speed * (0.26 - t * 0.18);
-                this.vy = this.vy * 0.5 + (-15.8 + t * 4.6) * 0.5;
+                this.vy = this.vy * 0.5 + ((-15.8 + t * 4.6) * z4HeightScale) * 0.5;
             } else if (progress < 0.9) {
                 const t = (progress - 0.42) / 0.48;
                 const backSpeed = this.speed * (0.6 + t * 0.9);
-                const flipVy = -6.2 + t * 15.4;
+                const flipVy = (-6.2 + t * 15.4) * z4HeightScale;
                 this.vx = this.vx * 0.35 + (-direction * backSpeed) * 0.65;
                 this.vy = this.vy * 0.45 + flipVy * 0.55;
             } else {
@@ -1049,15 +1078,26 @@ export class Player {
                 this.vy = Math.max(this.vy, 3.8);
             }
         } else if (step === 4) {
-            // 跳躍交叉: 上昇→空中切り→落下移行
-            const targetVx = direction * this.speed * (0.9 - p * 0.3);
-            this.vx = blend(this.vx, targetVx);
-            if (p < 0.52) {
-                this.vy = Math.min(this.vy, -10.6 + p * 2.8);
-                if (this.isGrounded) this.isGrounded = false;
+            // 胸前クロスで一拍ためてから前方へ解放
+            let targetVx;
+            if (p < 0.24) {
+                const t = p / 0.24;
+                targetVx = direction * this.speed * (0.62 - t * 0.28);
+                if (!this.isGrounded) this.vy = Math.min(this.vy, -5.2 + t * 1.6);
+            } else if (p < 0.46) {
+                const t = (p - 0.24) / 0.22;
+                targetVx = direction * this.speed * (0.34 - t * 0.18);
+                if (!this.isGrounded) this.vy = Math.min(this.vy, -3.6 + t * 2.8);
+            } else if (p < 0.84) {
+                const t = (p - 0.46) / 0.38;
+                targetVx = direction * this.speed * (0.16 + t * 1.14);
+                if (!this.isGrounded) this.vy = Math.max(this.vy, 0.6 + t * 5.4);
             } else {
-                this.vy = Math.max(this.vy, -1.2 + (p - 0.52) * 13.2);
+                const t = (p - 0.84) / 0.16;
+                targetVx = direction * this.speed * (1.3 - t * 0.86);
+                if (!this.isGrounded) this.vy = Math.max(this.vy, 5.8 + t * 4.5);
             }
+            this.vx = blend(this.vx, targetVx);
         } else {
             // 落下断ち: 一瞬ためてから急降下して着地締め
             if (p < 0.24) {
@@ -1114,8 +1154,7 @@ export class Player {
             this.initCloneAccessoryNodes(i);
         }
 
-        const smokeAnchors = cloneAnchors.map(a => ({ x: a.x, y: a.y }));
-        this.spawnSpecialSmoke('appear', smokeAnchors);
+        this.spawnSpecialSmoke('appear', this.getSpecialSmokeAnchors(true));
 
         this.specialGauge = 0;
         this.animState = ANIM_STATE.SPECIAL;
@@ -1250,10 +1289,21 @@ export class Player {
 
         for (const puff of this.specialSmoke) {
             puff.life -= deltaMs;
+            const lifeRatio = Math.max(0, Math.min(1, puff.life / Math.max(1, puff.maxLife)));
+            puff.rot = (puff.rot || 0) + (puff.spin || 0);
+            const wobble = Math.sin((this.motionTime + (puff.rot || 0) * 60) * (puff.wobbleFreq || 0.01));
+            const wobbleScale = 1 + wobble * 0.35;
+            puff.vx += Math.cos((puff.rot || 0) * 1.2) * (puff.wobbleAmp || 0.2) * 0.016 * wobbleScale;
+            puff.vy += Math.sin((puff.rot || 0) * 1.1) * (puff.wobbleAmp || 0.2) * 0.01 * wobbleScale;
+            if (puff.mode === 'appear') {
+                puff.vy -= 0.006 * (0.6 + lifeRatio * 0.8);
+            } else {
+                puff.vy -= 0.003 * (0.45 + lifeRatio * 0.5);
+            }
             puff.x += puff.vx;
             puff.y += puff.vy;
-            puff.vx *= 0.97;
-            puff.vy *= 0.97;
+            puff.vx *= 0.968;
+            puff.vy *= 0.972;
         }
         this.specialSmoke = this.specialSmoke.filter((puff) => puff.life > 0);
     }
@@ -1289,11 +1339,10 @@ export class Player {
         if (!this.currentSubWeapon || this.specialCloneSubWeaponTimers[index] > 0 || this.specialCloneAttackTimers[index] > 0) return;
         
         const weaponName = this.currentSubWeapon.name;
-        this.specialCloneSubWeaponTimers[index] = 
-            weaponName === '火薬玉' ? 150 :
-            weaponName === '大槍' ? 270 :
-            weaponName === '鎖鎌' ? 560 :
-            weaponName === '大太刀' ? 760 : 300;
+        this.specialCloneSubWeaponTimers[index] = this.getSubWeaponActionDurationMs(
+            weaponName === '火薬玉' ? 'throw' : weaponName,
+            this.currentSubWeapon
+        );
         this.specialCloneSubWeaponActions[index] = weaponName === '火薬玉' ? 'throw' : weaponName;
     }
 
@@ -1327,8 +1376,32 @@ export class Player {
         this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
 
-        const smokeAnchors = anchors.map(a => ({ x: a.x, y: a.y }));
-        this.spawnSpecialSmoke('appear', smokeAnchors);
+        this.spawnSpecialSmoke('appear', this.getSpecialSmokeAnchors(true));
+    }
+
+    getSpecialSmokeAnchorByIndex(index) {
+        const pos = this.specialClonePositions[index];
+        const x = pos ? pos.x : (this.x + this.width / 2);
+        const y = (
+            this.specialCloneAutoAiEnabled &&
+            this.specialCloneCombatStarted &&
+            pos
+        )
+            ? pos.y
+            : (this.y + this.height * 0.5);
+        return { x, y };
+    }
+
+    getSpecialSmokeAnchors(onlyAlive = false) {
+        const anchors = [];
+        if (Array.isArray(this.specialCloneSlots) && this.specialCloneSlots.length > 0) {
+            for (let i = 0; i < this.specialCloneSlots.length; i++) {
+                if (onlyAlive && Array.isArray(this.specialCloneAlive) && this.specialCloneAlive.length > i && !this.specialCloneAlive[i]) continue;
+                anchors.push(this.getSpecialSmokeAnchorByIndex(i));
+            }
+        }
+        if (anchors.length > 0) return anchors;
+        return [{ x: this.x + this.width * 0.5, y: this.y + this.height * 0.5 }];
     }
 
     initCloneAccessoryNodes(index) {
@@ -1447,6 +1520,72 @@ export class Player {
                     pos.facingRight = this.facingRight;
                 }
                 this.specialCloneReturnToAnchor[i] = true;
+            }
+
+            // Lv3分身の通常Zコンボは本体同様にアクロバットな軌道で動かす
+            const cloneAttackTimerMs = this.specialCloneAttackTimers[i] || 0;
+            const cloneSubTimerMs = this.specialCloneSubWeaponTimers[i] || 0;
+            const cloneSubAction = this.specialCloneSubWeaponActions[i] || null;
+            const cloneDualZActive = cloneSubAction === '二刀_Z' && cloneSubTimerMs > 0;
+            if (cloneAttackTimerMs > 0 && !cloneDualZActive) {
+                const comboStep = ((this.specialCloneComboSteps[i] || 0) % COMBO_ATTACKS.length) + 1;
+                const attackProfile = this.getComboAttackProfileByStep(comboStep);
+                const durationMs = Math.max(1, attackProfile.durationMs || PLAYER.ATTACK_COOLDOWN);
+                const progress = Math.max(0, Math.min(1, 1 - (cloneAttackTimerMs / durationMs)));
+                const direction = pos.facingRight ? 1 : -1;
+                const baseSpeed = Math.max(1, this.speed || PLAYER.SPEED || 5);
+                let moveVx = 0;
+                let forceAirborne = false;
+
+                if (comboStep === 1) {
+                    const wind = Math.max(0, Math.min(1, progress / 0.36));
+                    const swing = Math.max(0, Math.min(1, (progress - 0.36) / 0.64));
+                    const swingEase = swing * swing * (3 - 2 * swing);
+                    moveVx = direction * baseSpeed * (0.16 + wind * 0.18 + swingEase * 0.24);
+                    if (!pos.jumping) pos.cloneVy = 0;
+                } else if (comboStep === 2) {
+                    const prep = Math.max(0, Math.min(1, progress / 0.42));
+                    moveVx = direction * baseSpeed * (0.24 + prep * 0.3);
+                    if (!pos.jumping) pos.cloneVy = 0;
+                } else if (comboStep === 3) {
+                    const arc = Math.sin(progress * Math.PI);
+                    moveVx = direction * baseSpeed * (0.42 + arc * 0.22);
+                    pos.cloneVy = Math.min(pos.cloneVy || 0, -8.8 + progress * 1.9);
+                    forceAirborne = true;
+                } else if (comboStep === 4) {
+                    const z4HeightScale = 0.84;
+                    if (progress < 0.42) {
+                        const t = progress / 0.42;
+                        moveVx = direction * baseSpeed * (0.26 - t * 0.18);
+                        pos.cloneVy = (pos.cloneVy || 0) * 0.5 + ((-15.8 + t * 4.6) * z4HeightScale) * 0.5;
+                    } else if (progress < 0.9) {
+                        const t = (progress - 0.42) / 0.48;
+                        const backSpeed = baseSpeed * (0.6 + t * 0.9);
+                        const flipVy = (-6.2 + t * 15.4) * z4HeightScale;
+                        moveVx = -direction * backSpeed;
+                        pos.cloneVy = (pos.cloneVy || 0) * 0.45 + flipVy * 0.55;
+                    } else {
+                        moveVx = direction * baseSpeed * 0.08;
+                    }
+                    forceAirborne = true;
+                } else if (comboStep === 5) {
+                    if (progress < 0.26) {
+                        moveVx = direction * baseSpeed * 0.04;
+                        pos.cloneVy = Math.min(pos.cloneVy || 0, -1.2);
+                    } else if (progress < 0.76) {
+                        const fallT = (progress - 0.26) / 0.5;
+                        moveVx = direction * baseSpeed * 0.05;
+                        pos.cloneVy = (pos.cloneVy || 0) * 0.58 + (6.5 + fallT * 15.5) * 0.42;
+                    } else {
+                        moveVx = direction * baseSpeed * 0.03;
+                    }
+                    forceAirborne = true;
+                }
+
+                pos.x += moveVx * deltaTime * 60;
+                if (forceAirborne) {
+                    pos.jumping = true;
+                }
             }
 
             // Lv3分身の自律ジャンプ（トラップ＋障害物回避）
@@ -1765,8 +1904,7 @@ export class Player {
         this.specialCloneAlive[consumeIndex] = false;
         this.specialCloneInvincibleTimers[consumeIndex] = 0;
         this.specialCloneDurability[consumeIndex] = 0;
-        const pos = this.specialClonePositions[consumeIndex];
-        this.spawnSpecialSmoke('vanish', pos ? [{ x: pos.x, y: pos.y }] : null);
+        this.spawnSpecialSmoke('vanish', [this.getSpecialSmokeAnchorByIndex(consumeIndex)]);
         if (this.getActiveSpecialCloneCount() <= 0) {
             this.isUsingSpecial = false;
             this.specialCloneCombatStarted = false;
@@ -1778,22 +1916,33 @@ export class Player {
     }
 
     spawnSpecialSmoke(mode = 'appear', fixedAnchors = null) {
-        const lifeBase = mode === 'appear' ? 420 : 320;
+        const isAppear = mode === 'appear';
+        const lifeBase = isAppear ? 560 : 320;
+        const puffCount = isAppear ? 16 : 10;
         // fixedAnchors があればそれを使用、なければ自分自身の位置を配列として使用
         const anchors = fixedAnchors || [{ x: this.x + this.width / 2, y: this.y + this.height / 2 }];
         for (const anchor of anchors) {
-            for (let index = 0; index < 8; index++) {
-                const angle = (Math.PI * 2 * index) / 8 + Math.random() * 0.45;
-                const speed = (mode === 'appear' ? 0.9 : 0.6) + Math.random() * 1.2;
+            for (let index = 0; index < puffCount; index++) {
+                const angle = (Math.PI * 2 * index) / puffCount + Math.random() * 0.48;
+                const speed = isAppear ? (0.58 + Math.random() * 0.86) : (0.62 + Math.random() * 1.2);
+                const maxLife = lifeBase + Math.random() * 180;
+                const spreadX = isAppear ? (10 + Math.random() * 18) : (6 + Math.random() * 12);
+                const spreadY = isAppear ? (10 + Math.random() * 20) : (4 + Math.random() * 10);
                 this.specialSmoke.push({
-                    x: anchor.x + Math.cos(angle) * (6 + Math.random() * 12),
-                    y: anchor.y + Math.sin(angle) * (4 + Math.random() * 10),
+                    x: anchor.x + Math.cos(angle) * spreadX,
+                    y: anchor.y + Math.sin(angle) * spreadY,
                     vx: Math.cos(angle) * speed,
                     vy: Math.sin(angle) * speed - 0.3,
-                    life: lifeBase + Math.random() * 180,
-                    maxLife: lifeBase + 180,
-                    radius: 7 + Math.random() * 10,
-                    mode
+                    life: maxLife,
+                    maxLife,
+                    radius: isAppear ? (12 + Math.random() * 14) : (7 + Math.random() * 10),
+                    mode,
+                    rot: Math.random() * Math.PI * 2,
+                    spin: (Math.random() - 0.5) * 0.085,
+                    wobbleAmp: isAppear ? (0.2 + Math.random() * 0.46) : (0.12 + Math.random() * 0.36),
+                    wobbleFreq: 0.007 + Math.random() * 0.017,
+                    ringStart: 0.2 + Math.random() * 0.24,
+                    hasSpark: Math.random() < 0.38
                 });
             }
         }
@@ -1855,9 +2004,50 @@ export class Player {
         
         // しゃがみ中は高さを半分に
         this.height = this.isCrouching ? PLAYER.HEIGHT / 2 : PLAYER.HEIGHT;
-        
+
+        const colliders = Array.isArray(walls) ? walls : [];
+
+        // 高速横移動時のめり込み防止: 移動予定線上で先に停止位置を確定する
+        let horizontalBlockedDir = 0;
+        let nextX = this.x + this.vx;
+        if (this.vx !== 0) {
+            const sweepTop = Math.min(this.y, this.y + this.vy);
+            const sweepBottom = Math.max(this.y + this.height, this.y + this.vy + this.height);
+            const edgeTolerance = 2;
+            const wallPadding = 0.01;
+
+            if (this.vx > 0) {
+                const currentRight = this.x + this.width;
+                for (const wall of colliders) {
+                    if (!this.isSolidCollider(wall)) continue;
+                    const overlapY = Math.min(sweepBottom, wall.y + wall.height) - Math.max(sweepTop, wall.y);
+                    if (overlapY <= edgeTolerance) continue;
+                    if (currentRight <= wall.x + 0.5 && nextX + this.width > wall.x) {
+                        nextX = Math.min(nextX, wall.x - this.width - wallPadding);
+                        horizontalBlockedDir = 1;
+                    }
+                }
+            } else {
+                const currentLeft = this.x;
+                for (const wall of colliders) {
+                    if (!this.isSolidCollider(wall)) continue;
+                    const overlapY = Math.min(sweepBottom, wall.y + wall.height) - Math.max(sweepTop, wall.y);
+                    if (overlapY <= edgeTolerance) continue;
+                    const wallRight = wall.x + wall.width;
+                    if (currentLeft >= wallRight - 0.5 && nextX < wallRight) {
+                        nextX = Math.max(nextX, wallRight + wallPadding);
+                        horizontalBlockedDir = -1;
+                    }
+                }
+            }
+
+            if (horizontalBlockedDir !== 0) {
+                this.vx = 0;
+            }
+        }
+
         // 位置更新
-        this.x += this.vx;
+        this.x = nextX;
         this.y += this.vy;
         
         // 壁判定リセット
@@ -1865,7 +2055,6 @@ export class Player {
         this.wallDirection = 0;
         
         // 壁との当たり判定
-        const colliders = Array.isArray(walls) ? walls : [];
         for (const wall of colliders) {
             if (!this.isSolidCollider(wall)) continue;
             if (this.intersects(wall)) {
@@ -1887,6 +2076,15 @@ export class Player {
                     }
                 }
                 this.vx = 0;
+            }
+        }
+        if (!this.isWallSliding && horizontalBlockedDir !== 0 && !this.isGrounded) {
+            if (horizontalBlockedDir > 0 && input.isAction('RIGHT')) {
+                this.isWallSliding = true;
+                this.wallDirection = -1;
+            } else if (horizontalBlockedDir < 0 && input.isAction('LEFT')) {
+                this.isWallSliding = true;
+                this.wallDirection = 1;
             }
         }
 
@@ -2042,7 +2240,11 @@ export class Player {
     
     addExp(amount) {
         let levelGained = 0;
-        this.exp += amount;
+        const safeAmount = Number.isFinite(amount) ? amount : 0;
+        this.exp += safeAmount;
+        if (!Number.isFinite(this.expToNext) || this.expToNext <= 0) {
+            this.expToNext = BASE_EXP_TO_NEXT;
+        }
         while (this.exp >= this.expToNext) {
             this.exp -= this.expToNext;
             this.levelUp();
@@ -2053,7 +2255,7 @@ export class Player {
     
     levelUp() {
         this.level++;
-        this.expToNext = Math.floor(this.expToNext * 1.42);
+        this.expToNext = BASE_EXP_TO_NEXT;
         this.hp = this.maxHp;
     }
     
@@ -2161,111 +2363,7 @@ export class Player {
     }
 
     getGhostVeilAlpha() {
-        return this.isGhostVeilActive() ? 0.18 : 1.0;
-    }
-
-    getGhostVeilBounds() {
-        const pad = 30;
-        const x = Math.floor(this.x - pad);
-        const y = Math.floor(this.y - pad);
-        const width = Math.max(2, Math.ceil(this.width + pad * 2));
-        const height = Math.max(2, Math.ceil(this.height + pad * 2));
-        return { x, y, width, height };
-    }
-
-    ensureGhostVeilCanvas(width, height) {
-        if (typeof document === 'undefined') return null;
-        if (!this.ghostVeilCanvas) {
-            this.ghostVeilCanvas = document.createElement('canvas');
-            this.ghostVeilCtx = this.ghostVeilCanvas.getContext('2d');
-        }
-        if (!this.ghostVeilCanvas || !this.ghostVeilCtx) return null;
-        if (this.ghostVeilCanvas.width !== width || this.ghostVeilCanvas.height !== height) {
-            this.ghostVeilCanvas.width = width;
-            this.ghostVeilCanvas.height = height;
-        }
-        return this.ghostVeilCanvas;
-    }
-
-    buildGhostVeilLayer(ctx, facingRight = this.facingRight) {
-        if (!this.isGhostVeilActive() || !ctx || !ctx.canvas) return null;
-        const bounds = this.getGhostVeilBounds();
-        const layer = this.ensureGhostVeilCanvas(bounds.width, bounds.height);
-        if (!layer || !this.ghostVeilCtx) return null;
-
-        const lctx = this.ghostVeilCtx;
-        const time = this.motionTime * 0.01;
-        const refractX = (Math.sin(time * 1.4) + Math.cos(time * 0.9)) * 2.2;
-        const refractY = Math.cos(time * 1.1) * 1.8;
-
-        lctx.save();
-        lctx.setTransform(1, 0, 0, 1, 0, 0);
-        lctx.clearRect(0, 0, bounds.width, bounds.height);
-
-        // 背景の写り込みと屈折ズレを重ねて、光学迷彩らしさを作る
-        lctx.globalCompositeOperation = 'source-over';
-        lctx.globalAlpha = 1;
-        lctx.filter = 'blur(1.2px) saturate(120%)';
-        lctx.drawImage(
-            ctx.canvas,
-            bounds.x, bounds.y, bounds.width, bounds.height,
-            0, 0, bounds.width, bounds.height
-        );
-        lctx.globalAlpha = 0.52;
-        lctx.filter = 'blur(2.1px)';
-        lctx.drawImage(
-            ctx.canvas,
-            bounds.x + refractX, bounds.y + refractY, bounds.width, bounds.height,
-            0, 0, bounds.width, bounds.height
-        );
-        lctx.filter = 'none';
-
-        // プレイヤー形状でマスク
-        lctx.globalAlpha = 1;
-        lctx.globalCompositeOperation = 'destination-in';
-        const savedAttack = this.isAttacking;
-        const savedCurrentAttack = this.currentAttack;
-        const savedAttackTimer = this.attackTimer;
-        const savedSubAction = this.subWeaponAction;
-        const savedSubTimer = this.subWeaponTimer;
-        this.isAttacking = false;
-        this.currentAttack = null;
-        this.attackTimer = 0;
-        this.subWeaponAction = null;
-        this.subWeaponTimer = 0;
-        this.renderModel(
-            lctx,
-            this.x - bounds.x,
-            this.y - bounds.y,
-            facingRight,
-            1.0,
-            true,
-            { forceSubWeaponRender: false }
-        );
-        this.isAttacking = savedAttack;
-        this.currentAttack = savedCurrentAttack;
-        this.attackTimer = savedAttackTimer;
-        this.subWeaponAction = savedSubAction;
-        this.subWeaponTimer = savedSubTimer;
-
-        // 迷彩特有のうっすらした走査ライン
-        lctx.globalCompositeOperation = 'source-atop';
-        lctx.globalAlpha = 0.38;
-        const sheen = lctx.createLinearGradient(
-            0,
-            bounds.height * (0.2 + Math.sin(time * 0.8) * 0.06),
-            bounds.width,
-            bounds.height * 0.82
-        );
-        sheen.addColorStop(0, 'rgba(120, 210, 255, 0)');
-        sheen.addColorStop(0.38, 'rgba(186, 236, 255, 0.28)');
-        sheen.addColorStop(0.62, 'rgba(82, 160, 220, 0.16)');
-        sheen.addColorStop(1, 'rgba(120, 210, 255, 0)');
-        lctx.fillStyle = sheen;
-        lctx.fillRect(0, 0, bounds.width, bounds.height);
-        lctx.restore();
-
-        return { canvas: layer, x: bounds.x, y: bounds.y };
+        return this.isGhostVeilActive() ? 0.0 : 1.0;
     }
 
     applyTemporaryNinjutsuChoice(choiceId) {
@@ -2366,20 +2464,20 @@ export class Player {
                 damageScale = 1 + tier * 0.08;
                 rangeScale = 1 + tier * 0.12;
             } else if (weapon.name === '火薬玉') {
-                damageScale = 1 + tier * 0.08;
-                rangeScale = 1 + tier * 0.08;
+                damageScale = 1 + tier * 0.06;
+                rangeScale = 1 + tier * 0.05;
             } else if (weapon.name === '大槍') {
                 damageScale = 1 + tier * 0.12;
-                rangeScale = 1 + tier * 0.2;
+                rangeScale = Number.isFinite(weapon.fixedRangeScale) ? weapon.fixedRangeScale : (1 + 3 * 0.16);
             } else if (weapon.name === '鎖鎌') {
                 damageScale = 1 + tier * 0.12;
-                rangeScale = 1 + tier * 0.18;
+                rangeScale = 1 + tier * 0.14;
             } else if (weapon.name === '大太刀') {
                 damageScale = 1 + tier * 0.15;
                 rangeScale = 1 + tier * 0.1;
             } else if (weapon.name === '二刀流') {
-                damageScale = 1 + tier * 0.09;
-                rangeScale = 1 + tier * 0.08;
+                damageScale = 1 + tier * 0.11;
+                rangeScale = 1 + tier * 0.09;
                 if (typeof weapon.mainMotionSpeedScale === 'number') {
                     weapon.mainMotionSpeedScale = Math.max(1.05, (this.attackMotionScale || 1.7) - tier * 0.08);
                 }
@@ -2600,12 +2698,22 @@ export class Player {
         return 66;
     }
 
-    drawKatana(ctx, x, y, angle, scaleDir = 1, bladeLength = this.getKatanaBladeLength(), uprightBlend = 0.28) {
+    drawKatana(
+        ctx,
+        x,
+        y,
+        angle,
+        scaleDir = 1,
+        bladeLength = this.getKatanaBladeLength(),
+        uprightBlend = 0.28,
+        renderMode = 'all',
+        scaleY = 1,
+        uprightTarget = -Math.PI / 2
+    ) {
         ctx.save();
         ctx.translate(x, y);
-        ctx.scale(scaleDir, 1);
-        // 垂直方向(-90度)へ角度を寄せて、刀全体を立たせる
-        const uprightTarget = -Math.PI / 2;
+        ctx.scale(scaleDir, scaleY);
+        // 垂直方向(uprightTarget)へ角度を寄せて、刀全体を立たせる
         const blend = Math.max(0, Math.min(1, uprightBlend));
         const adjustedAngle = angle + (uprightTarget - angle) * blend;
         ctx.rotate(adjustedAngle);
@@ -2617,6 +2725,8 @@ export class Player {
         const bladeReach = visualBladeLength / scale;
 
         const gripOffset = 10;
+        const drawHandle = renderMode === 'all' || renderMode === 'handle';
+        const drawBlade = renderMode === 'all' || renderMode === 'blade';
 
         // === 柄（つか）===
         const handleStart = -23.5;
@@ -2624,240 +2734,247 @@ export class Player {
         const handleLen = handleEnd - handleStart;
         const handleHalfH = 2.6;
 
-        ctx.fillStyle = '#1a1a1a';
-        ctx.beginPath();
-        ctx.moveTo(handleStart, -handleHalfH);
-        ctx.lineTo(handleEnd, -handleHalfH + 0.3);
-        ctx.lineTo(handleEnd, handleHalfH - 0.3);
-        ctx.lineTo(handleStart, handleHalfH);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-        ctx.lineWidth = 0.7;
-        const wrapSpacing = 4.2;
-        const wrapCount = Math.floor(handleLen / wrapSpacing);
-        for (let i = 0; i <= wrapCount; i++) {
-            const wx = handleStart + i * wrapSpacing;
-            ctx.beginPath();
-            ctx.moveTo(wx, -handleHalfH + 0.4);
-            ctx.lineTo(wx + wrapSpacing * 0.5, handleHalfH - 0.4);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(wx, handleHalfH - 0.4);
-            ctx.lineTo(wx + wrapSpacing * 0.5, -handleHalfH + 0.4);
-            ctx.stroke();
-        }
-
-        ctx.fillStyle = '#777';
-        ctx.beginPath();
-        ctx.ellipse(handleStart - 0.5, 0, 1.5, handleHalfH + 0.4, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#555';
-        ctx.lineWidth = 0.5;
-        ctx.stroke();
-
         // === 鍔（つば）===
         const tsubaX = gripOffset;
         const tsubaRX = 1.8;
         const tsubaRY = 4.4;
 
-        ctx.fillStyle = '#1a1a1a';
-        ctx.beginPath();
-        ctx.ellipse(tsubaX + 0.2, 0.2, tsubaRX, tsubaRY, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        const tsubaGrad = ctx.createLinearGradient(tsubaX, -tsubaRY, tsubaX, tsubaRY);
-        tsubaGrad.addColorStop(0, '#555');
-        tsubaGrad.addColorStop(0.45, '#2a2a2a');
-        tsubaGrad.addColorStop(0.55, '#222');
-        tsubaGrad.addColorStop(1, '#444');
-        ctx.fillStyle = tsubaGrad;
-        ctx.beginPath();
-        ctx.ellipse(tsubaX, 0, tsubaRX, tsubaRY, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.strokeStyle = '#666';
-        ctx.lineWidth = 0.6;
-        ctx.beginPath();
-        ctx.ellipse(tsubaX, 0, tsubaRX, tsubaRY, 0, 0, Math.PI * 2);
-        ctx.stroke();
-
         // === はばき ===
         const habakiX = tsubaX + tsubaRX + 0.4;
-        ctx.fillStyle = '#c9a545';
-        ctx.fillRect(habakiX, -1.8, 2.2, 3.6);
-        ctx.strokeStyle = '#a07828';
-        ctx.lineWidth = 0.4;
-        ctx.strokeRect(habakiX, -1.8, 2.2, 3.6);
 
-        // === 刀身 ===
-        const bladeStart = habakiX + 2.2;
-        // 先端を剣筋発生位置(= bladeLength)に合わせる
-        const bladeEnd = Math.max(bladeStart + 10, bladeReach);
-        const bl = bladeEnd - bladeStart;
-        const seg = 56;
+        if (drawHandle) {
+            ctx.fillStyle = '#1a1a1a';
+            ctx.beginPath();
+            ctx.moveTo(handleStart, -handleHalfH);
+            ctx.lineTo(handleEnd, -handleHalfH + 0.3);
+            ctx.lineTo(handleEnd, handleHalfH - 0.3);
+            ctx.lineTo(handleStart, handleHalfH);
+            ctx.closePath();
+            ctx.fill();
 
-        // シンプル刀身:
-        // - 白ベース（刀身全体は円弧）
-        // - 白の峰側に、幅1/2・少し短い黒レイヤーを重ねる
-        // - 先端は右下側のみ丸みを残して細くする
-        const getTX = (t) => bladeStart + (bladeEnd - bladeStart) * t;
-        const sori = bl * 0.18;
-        // 根本(t=0)は直線時と同じ位置・同じ入り方にする
-        const getArcY = (t) => -(Math.pow(t, 1.8) * sori) + 0.06;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 0.7;
+            const wrapSpacing = 4.2;
+            const wrapCount = Math.floor(handleLen / wrapSpacing);
+            for (let i = 0; i <= wrapCount; i++) {
+                const wx = handleStart + i * wrapSpacing;
+                ctx.beginPath();
+                ctx.moveTo(wx, -handleHalfH + 0.4);
+                ctx.lineTo(wx + wrapSpacing * 0.5, handleHalfH - 0.4);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(wx, handleHalfH - 0.4);
+                ctx.lineTo(wx + wrapSpacing * 0.5, -handleHalfH + 0.4);
+                ctx.stroke();
+            }
 
-        const whiteHalf = 2.2;
-        const getWhiteUpperY = (t) => getArcY(t) - whiteHalf;
-        const getWhiteLowerY = (t) => getArcY(t) + whiteHalf;
+            ctx.fillStyle = '#777';
+            ctx.beginPath();
+            ctx.ellipse(handleStart - 0.5, 0, 1.5, handleHalfH + 0.4, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 0.5;
+            ctx.stroke();
 
-        const upperPoints = [];
-        const lowerPoints = [];
-        for (let i = 0; i <= seg; i++) {
-            const t = i / seg;
-            upperPoints.push({ x: getTX(t), y: getWhiteUpperY(t) });
-            lowerPoints.push({ x: getTX(t), y: getWhiteLowerY(t) });
+            ctx.fillStyle = '#1a1a1a';
+            ctx.beginPath();
+            ctx.ellipse(tsubaX + 0.2, 0.2, tsubaRX, tsubaRY, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            const tsubaGrad = ctx.createLinearGradient(tsubaX, -tsubaRY, tsubaX, tsubaRY);
+            tsubaGrad.addColorStop(0, '#555');
+            tsubaGrad.addColorStop(0.45, '#2a2a2a');
+            tsubaGrad.addColorStop(0.55, '#222');
+            tsubaGrad.addColorStop(1, '#444');
+            ctx.fillStyle = tsubaGrad;
+            ctx.beginPath();
+            ctx.ellipse(tsubaX, 0, tsubaRX, tsubaRY, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.strokeStyle = '#666';
+            ctx.lineWidth = 0.6;
+            ctx.beginPath();
+            ctx.ellipse(tsubaX, 0, tsubaRX, tsubaRY, 0, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.fillStyle = '#c9a545';
+            ctx.fillRect(habakiX, -1.8, 2.2, 3.6);
+            ctx.strokeStyle = '#a07828';
+            ctx.lineWidth = 0.4;
+            ctx.strokeRect(habakiX, -1.8, 2.2, 3.6);
         }
 
-        // 先端形状:
-        // 峰側(上)はそのまま終端まで伸ばし、刃側(下)だけ先端へ向かって絞る
-        const tipY = upperPoints[seg].y;
-        const edgeStartIndex = Math.floor(seg * 0.9);
-        const edgeStart = lowerPoints[edgeStartIndex];
-        const edgeSpanX = bladeEnd - edgeStart.x;
-        const edgeCtrl1X = bladeEnd - edgeSpanX * 0.16;
-        const edgeCtrl1Y = tipY + whiteHalf * 0.2;
-        const edgeCtrl2X = edgeStart.x + edgeSpanX * 0.38;
-        const edgeCtrl2Y = edgeStart.y - whiteHalf * 0.24;
-        // 黒レイヤーは少し太く・長くし、峰側の隙間を潰す
-        const blackBandWidth = whiteHalf * 1.18;
-        const blackTopShift = -0.34;
-        const blackBottomOverlap = 0.08;
-        const blackTipIndex = Math.min(seg - 1, Math.floor(seg * 0.965));
-        const blackTip = {
-            x: upperPoints[blackTipIndex].x,
-            y: upperPoints[blackTipIndex].y + blackTopShift
-        };
-        const blackEdgeStartIndex = Math.max(1, Math.floor(blackTipIndex * 0.89));
-        const blackEdgeStart = {
-            x: upperPoints[blackEdgeStartIndex].x,
-            y: upperPoints[blackEdgeStartIndex].y + blackBandWidth + blackBottomOverlap
-        };
-        const blackEdgeSpanX = blackTip.x - blackEdgeStart.x;
-        const blackCtrl1X = blackTip.x - blackEdgeSpanX * 0.16;
-        const blackCtrl1Y = blackTip.y + blackBandWidth * 0.2;
-        const blackCtrl2X = blackEdgeStart.x + blackEdgeSpanX * 0.38;
-        const blackCtrl2Y = blackEdgeStart.y - blackBandWidth * 0.24;
+        if (drawBlade) {
+            // === 刀身 ===
+            const bladeStart = habakiX + 2.2;
+            // 先端を剣筋発生位置(= bladeLength)に合わせる
+            const bladeEnd = Math.max(bladeStart + 10, bladeReach);
+            const bl = bladeEnd - bladeStart;
+            const seg = 56;
 
-        // --- 白刀身 ---
-        // 白を少し銀寄りに抑えて、和鋼の質感に近づける
-        ctx.fillStyle = '#e6ecf2';
-        ctx.beginPath();
-        ctx.moveTo(upperPoints[0].x, upperPoints[0].y);
-        for (let i = 1; i <= seg; i++) ctx.lineTo(upperPoints[i].x, upperPoints[i].y);
-        // 刃側だけを先端に向けて絞って尖らせる
-        ctx.bezierCurveTo(edgeCtrl1X, edgeCtrl1Y, edgeCtrl2X, edgeCtrl2Y, edgeStart.x, edgeStart.y);
-        for (let i = edgeStartIndex - 1; i >= 0; i--) ctx.lineTo(lowerPoints[i].x, lowerPoints[i].y);
-        ctx.closePath();
-        ctx.fill();
+            // シンプル刀身:
+            // - 白ベース（刀身全体は円弧）
+            // - 白の峰側に、幅1/2・少し短い黒レイヤーを重ねる
+            // - 先端は右下側のみ丸みを残して細くする
+            const getTX = (t) => bladeStart + (bladeEnd - bladeStart) * t;
+            const sori = bl * 0.18;
+            // 根本(t=0)は直線時と同じ位置・同じ入り方にする
+            const getArcY = (t) => -(Math.pow(t, 1.8) * sori) + 0.06;
 
-        // 峰側エッジの明るい隙間を消すために、黒で上縁をなぞる
-        ctx.strokeStyle = '#1b2430';
-        ctx.lineWidth = 0.85;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.beginPath();
-        ctx.moveTo(upperPoints[0].x, upperPoints[0].y);
-        for (let i = 1; i <= blackTipIndex; i++) {
-            ctx.lineTo(upperPoints[i].x, upperPoints[i].y);
+            const whiteHalf = 2.2;
+            const getWhiteUpperY = (t) => getArcY(t) - whiteHalf;
+            const getWhiteLowerY = (t) => getArcY(t) + whiteHalf;
+
+            const upperPoints = [];
+            const lowerPoints = [];
+            for (let i = 0; i <= seg; i++) {
+                const t = i / seg;
+                upperPoints.push({ x: getTX(t), y: getWhiteUpperY(t) });
+                lowerPoints.push({ x: getTX(t), y: getWhiteLowerY(t) });
+            }
+
+            // 先端形状:
+            // 峰側(上)はそのまま終端まで伸ばし、刃側(下)だけ先端へ向かって絞る
+            const tipY = upperPoints[seg].y;
+            const edgeStartIndex = Math.floor(seg * 0.9);
+            const edgeStart = lowerPoints[edgeStartIndex];
+            const edgeSpanX = bladeEnd - edgeStart.x;
+            const edgeCtrl1X = bladeEnd - edgeSpanX * 0.16;
+            const edgeCtrl1Y = tipY + whiteHalf * 0.2;
+            const edgeCtrl2X = edgeStart.x + edgeSpanX * 0.38;
+            const edgeCtrl2Y = edgeStart.y - whiteHalf * 0.24;
+            // 黒レイヤーは少し太く・長くし、峰側の隙間を潰す
+            const blackBandWidth = whiteHalf * 1.18;
+            const blackTopShift = -0.34;
+            const blackBottomOverlap = 0.08;
+            const blackTipIndex = Math.min(seg - 1, Math.floor(seg * 0.965));
+            const blackTip = {
+                x: upperPoints[blackTipIndex].x,
+                y: upperPoints[blackTipIndex].y + blackTopShift
+            };
+            const blackEdgeStartIndex = Math.max(1, Math.floor(blackTipIndex * 0.89));
+            const blackEdgeStart = {
+                x: upperPoints[blackEdgeStartIndex].x,
+                y: upperPoints[blackEdgeStartIndex].y + blackBandWidth + blackBottomOverlap
+            };
+            const blackEdgeSpanX = blackTip.x - blackEdgeStart.x;
+            const blackCtrl1X = blackTip.x - blackEdgeSpanX * 0.16;
+            const blackCtrl1Y = blackTip.y + blackBandWidth * 0.2;
+            const blackCtrl2X = blackEdgeStart.x + blackEdgeSpanX * 0.38;
+            const blackCtrl2Y = blackEdgeStart.y - blackBandWidth * 0.24;
+
+            // --- 白刀身 ---
+            // 白を少し銀寄りに抑えて、和鋼の質感に近づける
+            ctx.fillStyle = '#e6ecf2';
+            ctx.beginPath();
+            ctx.moveTo(upperPoints[0].x, upperPoints[0].y);
+            for (let i = 1; i <= seg; i++) ctx.lineTo(upperPoints[i].x, upperPoints[i].y);
+            // 刃側だけを先端に向けて絞って尖らせる (upperPoints[seg]まで確実に到達させる)
+            ctx.bezierCurveTo(edgeCtrl1X, edgeCtrl1Y, edgeCtrl2X, edgeCtrl2Y, edgeStart.x, edgeStart.y);
+            for (let i = edgeStartIndex - 1; i >= 0; i--) ctx.lineTo(lowerPoints[i].x, lowerPoints[i].y);
+            ctx.closePath();
+            ctx.fill();
+
+            // 峰側エッジの明るい隙間を消すためのストロークは、先端でドットが出ないように miter Join にする
+            ctx.strokeStyle = '#1b2430';
+            ctx.lineWidth = 0.85;
+            ctx.lineCap = 'butt';
+            ctx.lineJoin = 'miter';
+            ctx.beginPath();
+            ctx.moveTo(upperPoints[0].x, upperPoints[0].y);
+            for (let i = 1; i <= blackTipIndex; i++) {
+                ctx.lineTo(upperPoints[i].x, upperPoints[i].y);
+            }
+            ctx.stroke();
+
+            // --- 峰側の黒レイヤ ---
+            // 漆黒ではなく暗い鋼色
+            ctx.fillStyle = '#1b2430';
+            ctx.beginPath();
+            ctx.moveTo(upperPoints[0].x, upperPoints[0].y + blackTopShift);
+            for (let i = 1; i <= blackTipIndex; i++) {
+                ctx.lineTo(upperPoints[i].x, upperPoints[i].y + blackTopShift);
+            }
+            ctx.bezierCurveTo(blackCtrl1X, blackCtrl1Y, blackCtrl2X, blackCtrl2Y, blackEdgeStart.x, blackEdgeStart.y);
+            for (let i = blackEdgeStartIndex - 1; i >= 0; i--) {
+                ctx.lineTo(upperPoints[i].x, upperPoints[i].y + blackBandWidth + blackBottomOverlap);
+            }
+            ctx.closePath();
+            ctx.fill();
+
+            // --- 黒と白の境界にグレーのグラデーション ---
+            // 刃文を落ち着かせる（細かすぎる波を抑える）
+            const seamWaveAmp = 0.10;
+            const seamWaveFreq = 7.0;
+            const seamBaseY = (i) => upperPoints[i].y + blackBandWidth + blackBottomOverlap;
+            const seamWaveY = (i) => {
+                if (blackEdgeStartIndex <= 0) return seamBaseY(i);
+                const t = i / blackEdgeStartIndex;
+                const wave = Math.sin(t * Math.PI * seamWaveFreq) * seamWaveAmp;
+                return seamBaseY(i) + wave;
+            };
+            const seamGrad = ctx.createLinearGradient(
+                bladeStart, getArcY(0) + blackBandWidth - 1.1,
+                bladeStart, getArcY(0) + blackBandWidth + 0.9
+            );
+            seamGrad.addColorStop(0, 'rgba(70, 78, 92, 0.82)');
+            seamGrad.addColorStop(0.45, 'rgba(145, 155, 170, 0.78)');
+            seamGrad.addColorStop(1, 'rgba(225, 234, 244, 0.62)');
+            ctx.strokeStyle = seamGrad;
+            ctx.lineWidth = 1.15;
+            ctx.lineCap = 'butt'; // 先端の丸を消す
+            ctx.lineJoin = 'miter';
+            ctx.beginPath();
+            ctx.moveTo(upperPoints[0].x, seamWaveY(0));
+            for (let i = 1; i <= blackEdgeStartIndex; i++) {
+                ctx.lineTo(upperPoints[i].x, seamWaveY(i));
+            }
+            ctx.bezierCurveTo(
+                blackCtrl2X, blackCtrl2Y + seamWaveAmp * 0.8,
+                blackCtrl1X, blackCtrl1Y - seamWaveAmp * 0.6,
+                upperPoints[seg].x, upperPoints[seg].y // blackTip.x/y ではなく確実に先端へ
+            );
+            ctx.stroke();
+
+            // 横手筋（切っ先境界）を薄く追加
+            const yokoteX = upperPoints[edgeStartIndex].x;
+            const yokoteTopY = upperPoints[edgeStartIndex].y + 0.1;
+            const yokoteBottomY = lowerPoints[edgeStartIndex].y - 0.2;
+            ctx.strokeStyle = 'rgba(210, 220, 230, 0.38)';
+            ctx.lineWidth = 0.42;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(yokoteX, yokoteTopY);
+            ctx.lineTo(yokoteX, yokoteBottomY);
+            ctx.stroke();
+
+            // 全周輪郭は暗めにして、峰側で白が見えないようにする
+            ctx.strokeStyle = '#4e5867';
+            ctx.lineWidth = 0.52;
+            ctx.lineJoin = 'miter';
+            ctx.miterLimit = 6;
+            ctx.lineCap = 'butt';
+            ctx.beginPath();
+            ctx.moveTo(upperPoints[0].x, upperPoints[0].y);
+            for (let i = 1; i <= seg; i++) ctx.lineTo(upperPoints[i].x, upperPoints[i].y);
+            ctx.bezierCurveTo(edgeCtrl1X, edgeCtrl1Y, edgeCtrl2X, edgeCtrl2Y, edgeStart.x, edgeStart.y);
+            for (let i = edgeStartIndex - 1; i >= 0; i--) ctx.lineTo(lowerPoints[i].x, lowerPoints[i].y);
+            ctx.closePath();
+            ctx.stroke();
+
+            // 明るい縁は刃側だけに限定。先端でドットが出ないように butt にする
+            ctx.strokeStyle = '#d6e0ea';
+            ctx.lineWidth = 0.42;
+            ctx.lineCap = 'butt';
+            ctx.lineJoin = 'miter';
+            ctx.beginPath();
+            ctx.moveTo(lowerPoints[0].x, lowerPoints[0].y);
+            // 切っ先の手前まで描画
+            for (let i = 1; i <= edgeStartIndex; i++) ctx.lineTo(lowerPoints[i].x, lowerPoints[i].y);
+            // 切っ先の頂点 (upperPoints[seg]) へ正確に結ぶ
+            ctx.bezierCurveTo(edgeCtrl2X, edgeCtrl2Y, edgeCtrl1X, edgeCtrl1Y, upperPoints[seg].x, upperPoints[seg].y);
+            ctx.stroke();
         }
-        ctx.stroke();
-
-        // --- 峰側の黒レイヤ ---
-        // 漆黒ではなく暗い鋼色
-        ctx.fillStyle = '#1b2430';
-        ctx.beginPath();
-        ctx.moveTo(upperPoints[0].x, upperPoints[0].y + blackTopShift);
-        for (let i = 1; i <= blackTipIndex; i++) {
-            ctx.lineTo(upperPoints[i].x, upperPoints[i].y + blackTopShift);
-        }
-        ctx.bezierCurveTo(blackCtrl1X, blackCtrl1Y, blackCtrl2X, blackCtrl2Y, blackEdgeStart.x, blackEdgeStart.y);
-        for (let i = blackEdgeStartIndex - 1; i >= 0; i--) {
-            ctx.lineTo(upperPoints[i].x, upperPoints[i].y + blackBandWidth + blackBottomOverlap);
-        }
-        ctx.closePath();
-        ctx.fill();
-
-        // --- 黒と白の境界にグレーのグラデーション ---
-        // 刃文を落ち着かせる（細かすぎる波を抑える）
-        const seamWaveAmp = 0.10;
-        const seamWaveFreq = 7.0;
-        const seamBaseY = (i) => upperPoints[i].y + blackBandWidth + blackBottomOverlap;
-        const seamWaveY = (i) => {
-            if (blackEdgeStartIndex <= 0) return seamBaseY(i);
-            const t = i / blackEdgeStartIndex;
-            const wave = Math.sin(t * Math.PI * seamWaveFreq) * seamWaveAmp;
-            return seamBaseY(i) + wave;
-        };
-        const seamGrad = ctx.createLinearGradient(
-            bladeStart, getArcY(0) + blackBandWidth - 1.1,
-            bladeStart, getArcY(0) + blackBandWidth + 0.9
-        );
-        seamGrad.addColorStop(0, 'rgba(70, 78, 92, 0.82)');
-        seamGrad.addColorStop(0.45, 'rgba(145, 155, 170, 0.78)');
-        seamGrad.addColorStop(1, 'rgba(225, 234, 244, 0.62)');
-        ctx.strokeStyle = seamGrad;
-        ctx.lineWidth = 1.15;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.beginPath();
-        ctx.moveTo(upperPoints[0].x, seamWaveY(0));
-        for (let i = 1; i <= blackEdgeStartIndex; i++) {
-            ctx.lineTo(upperPoints[i].x, seamWaveY(i));
-        }
-        ctx.bezierCurveTo(
-            blackCtrl2X, blackCtrl2Y + seamWaveAmp * 0.8,
-            blackCtrl1X, blackCtrl1Y - seamWaveAmp * 0.6,
-            blackTip.x, blackTip.y
-        );
-        ctx.stroke();
-
-        // 横手筋（切っ先境界）を薄く追加
-        const yokoteX = upperPoints[edgeStartIndex].x;
-        const yokoteTopY = upperPoints[edgeStartIndex].y + 0.1;
-        const yokoteBottomY = lowerPoints[edgeStartIndex].y - 0.2;
-        ctx.strokeStyle = 'rgba(210, 220, 230, 0.38)';
-        ctx.lineWidth = 0.42;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(yokoteX, yokoteTopY);
-        ctx.lineTo(yokoteX, yokoteBottomY);
-        ctx.stroke();
-
-        // 全周輪郭は暗めにして、峰側で白が見えないようにする
-        ctx.strokeStyle = '#4e5867';
-        ctx.lineWidth = 0.52;
-        ctx.lineJoin = 'miter';
-        ctx.miterLimit = 6;
-        ctx.lineCap = 'butt';
-        ctx.beginPath();
-        ctx.moveTo(upperPoints[0].x, upperPoints[0].y);
-        for (let i = 1; i <= seg; i++) ctx.lineTo(upperPoints[i].x, upperPoints[i].y);
-        ctx.bezierCurveTo(edgeCtrl1X, edgeCtrl1Y, edgeCtrl2X, edgeCtrl2Y, edgeStart.x, edgeStart.y);
-        for (let i = edgeStartIndex - 1; i >= 0; i--) ctx.lineTo(lowerPoints[i].x, lowerPoints[i].y);
-        ctx.closePath();
-        ctx.stroke();
-
-        // 明るい縁は刃側だけに限定
-        ctx.strokeStyle = '#d6e0ea';
-        ctx.lineWidth = 0.42;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.beginPath();
-        ctx.moveTo(lowerPoints[0].x, lowerPoints[0].y);
-        for (let i = 1; i <= edgeStartIndex; i++) ctx.lineTo(lowerPoints[i].x, lowerPoints[i].y);
-        ctx.bezierCurveTo(edgeCtrl2X, edgeCtrl2Y, edgeCtrl1X, edgeCtrl1Y, upperPoints[seg].x, upperPoints[seg].y);
-        ctx.stroke();
 
         ctx.restore();
     }
@@ -2867,10 +2984,13 @@ export class Player {
         this.subWeaponRenderedInModel = false;
         const filterParts = [];
         const ghostVeilActive = this.isGhostVeilActive();
-        const ghostVeilBounds = ghostVeilActive ? this.getGhostVeilBounds() : null;
-        const ghostVeilCanvas = ghostVeilBounds
-            ? this.ensureGhostVeilCanvas(ghostVeilBounds.width, ghostVeilBounds.height)
-            : null;
+        const ghostSilhouetteAlpha = ghostVeilActive
+            ? (
+                this.subWeaponAction === '大太刀' && this.subWeaponTimer > 0
+                    ? Math.max(0.1, this.getGhostVeilAlpha() * 0.78)
+                    : this.getGhostVeilAlpha()
+            )
+            : 1.0;
 
         // 必殺技詠唱中は軽く明るくする
         if (this.isUsingSpecial && this.specialCastTimer > 0) {
@@ -2898,27 +3018,26 @@ export class Player {
 
         // 残像
         const isOdachiJumping = this.isOdachiJumpAfterimageActive();
-        if (this.isDashing || Math.abs(this.vx) > PLAYER.SPEED * 1.5 || isOdachiJumping) {
-            const sampleStep = isOdachiJumping ? 1 : 2;
+        const isSpearThrusting = this.isSpearThrustAfterimageActive();
+        if (this.isDashing || Math.abs(this.vx) > PLAYER.SPEED * 1.5 || isOdachiJumping || isSpearThrusting) {
+            const sampleStep = ghostVeilActive
+                ? 4
+                : 2;
             for (let i = 0; i < this.afterImages.length; i += sampleStep) {
                 const img = this.afterImages[i];
                 if (!img) continue;
                 const depthFade = (1 - i / this.afterImages.length);
-                if (isOdachiJumping) {
-                    this.renderModel(ctx, img.x, img.y, img.facingRight, 0.16 + 0.56 * depthFade, false, {
-                        useLiveAccessories: false,
-                        renderHeadbandTail: false,
-                        renderHair: false
-                    });
-                } else {
-                    const isSpecialShadow = img.type === 'special_shadow';
-                    const alpha = isSpecialShadow ? 1.0 : (0.3 * depthFade);
-                    this.renderModel(ctx, img.x, img.y, img.facingRight, alpha, false, {
-                        useLiveAccessories: false,
-                        renderHeadbandTail: false,
-                        renderHair: false
-                    });
-                }
+                const isSpecialShadow = img.type === 'special_shadow';
+                const ghostTrailAlphaScale = ghostVeilActive
+                    ? (isSpecialShadow ? 0.45 : 0.18)
+                    : 1.0;
+                const alpha = (isSpecialShadow ? 1.0 : (0.3 * depthFade)) * ghostTrailAlphaScale;
+                this.renderModel(ctx, img.x, img.y, img.facingRight, alpha, false, {
+                    useLiveAccessories: false,
+                    renderHeadband: !ghostVeilActive,
+                    renderHeadbandTail: false,
+                    renderHair: false
+                });
             }
         }
 
@@ -2929,40 +3048,204 @@ export class Player {
 
         // 本体描画
         if (this.isUsingSpecial && this.specialCastTimer > 0) {
-            this.renderSpecialCastPose(ctx, this.x, this.y, this.facingRight, ctx.globalAlpha);
+            const castOptions = ghostVeilActive
+                ? { palette: { silhouette: `rgba(26, 26, 26, ${ghostSilhouetteAlpha})` } }
+                : {};
+            this.renderSpecialCastPose(ctx, this.x, this.y, this.facingRight, ctx.globalAlpha, castOptions);
         } else {
             this.renderComboSlashTrail(ctx);
-            if (ghostVeilActive && ghostVeilCanvas && this.ghostVeilCtx && ghostVeilBounds) {
-                // 1枚に合成してから透明化することで、重なり部だけ濃くならないようにする
-                const lctx = this.ghostVeilCtx;
-                lctx.save();
-                lctx.setTransform(1, 0, 0, 1, 0, 0);
-                lctx.clearRect(0, 0, ghostVeilBounds.width, ghostVeilBounds.height);
-                lctx.translate(-ghostVeilBounds.x, -ghostVeilBounds.y);
-                this.renderModel(
-                    lctx,
-                    this.x,
-                    this.y,
-                    this.facingRight,
-                    1.0,
-                    true,
-                    {}
-                );
-                lctx.restore();
-
-                ctx.save();
-                ctx.filter = 'blur(0.22px)';
-                ctx.globalAlpha *= this.getGhostVeilAlpha();
-                ctx.drawImage(ghostVeilCanvas, ghostVeilBounds.x, ghostVeilBounds.y);
-                ctx.restore();
-            } else {
-                this.renderModel(ctx, this.x, this.y, this.facingRight, ctx.globalAlpha, true, {});
-            }
+            const renderOptions = ghostVeilActive
+                ? { palette: { silhouette: `rgba(26, 26, 26, ${ghostSilhouetteAlpha})` } }
+                : {};
+            this.renderModel(ctx, this.x, this.y, this.facingRight, ctx.globalAlpha, true, renderOptions);
         }
 
         ctx.restore();
         ctx.filter = 'none';
         ctx.shadowBlur = 0;
+    }
+
+    // 実際のプレイヤー頭部描画ロジックをそのまま使う favicon 用レンダリング
+    renderHeadForFavicon(ctx, x, y, facingRight, options = {}) {
+        if (!ctx) return;
+
+        const state = options.state || this;
+        const useLiveAccessories = options.useLiveAccessories !== false;
+        const renderHeadband = options.renderHeadband !== false;
+        const renderHeadbandTail = options.renderHeadbandTail !== false;
+        const centerX = x + this.width / 2;
+        const bottomY = y + this.height - 2;
+        const dir = facingRight ? 1 : -1;
+        const time = state.motionTime !== undefined ? state.motionTime : this.motionTime;
+        const vx = state.vx !== undefined ? state.vx : this.vx;
+        const vy = state.vy !== undefined ? state.vy : this.vy;
+        const isDashing = state.isDashing !== undefined ? state.isDashing : this.isDashing;
+        const isGrounded = state.isGrounded !== undefined ? state.isGrounded : this.isGrounded;
+        const isAttacking = state.isAttacking !== undefined ? state.isAttacking : this.isAttacking;
+        const subWeaponTimer = state.subWeaponTimer !== undefined ? state.subWeaponTimer : this.subWeaponTimer;
+        const subWeaponAction = state.subWeaponAction !== undefined ? state.subWeaponAction : this.subWeaponAction;
+        const isCrouching = state.isCrouching !== undefined ? state.isCrouching : this.isCrouching;
+        const silhouetteColor = (options.palette && options.palette.silhouette) || '#1a1a1a';
+        const accentColor = (options.palette && options.palette.accent) || '#00bfff';
+        const isMoving = Math.abs(vx) > 0.1 || !isGrounded;
+        const isCrouchPose = isCrouching;
+        const speedAbs = Math.abs(vx);
+        const isRunLike = isGrounded && speedAbs > 0.85;
+        const locomotionPhase = isRunLike ? Math.sin(this.legPhase || time * 0.012) : 0;
+        const crouchWalkPhase = (isCrouchPose && isRunLike) ? locomotionPhase : 0;
+        const crouchIdlePhase = (isCrouchPose && !isRunLike) ? Math.sin(time * 0.006) : 0;
+        const crouchBodyBob = isCrouchPose
+            ? (isRunLike ? crouchWalkPhase * 0.4 : crouchIdlePhase * 0.2)
+            : 0;
+        const isSpearThrustPose = subWeaponTimer > 0 && subWeaponAction === '大槍' && !isAttacking;
+        const spearPoseProgress = isSpearThrustPose ? Math.max(0, Math.min(1, 1 - (subWeaponTimer / 270))) : 0;
+        const spearDrive = isSpearThrustPose ? Math.sin(spearPoseProgress * Math.PI) : 0;
+
+        let bob = 0;
+        if (isCrouchPose) {
+            bob = crouchBodyBob;
+        } else if (!isGrounded) {
+            bob = Math.max(-1.4, Math.min(1.6, -vy * 0.07));
+        } else if (isRunLike) {
+            bob = Math.abs(locomotionPhase) * (isDashing ? 3.6 : 2.5);
+        } else {
+            bob = Math.sin(time * 0.005) * 1.0;
+        }
+
+        const headRatio = options.headRatio || (14 * 2 / 60);
+        const headScale = options.headScale || 1.0;
+        const baseHeightForHead = isCrouching ? PLAYER.HEIGHT : this.height;
+        const headRadius = (baseHeightForHead * headRatio * 0.5) * headScale;
+        const headY = isCrouchPose
+            ? (bottomY - headRadius * 2.2 + bob)
+            : (y + headRadius * 1.1 + bob - (isSpearThrustPose ? spearDrive * 2.0 : 0));
+        const headCenterX = centerX;
+        const knotX = headCenterX + (facingRight ? -12 : 12);
+        const knotY = headY - 2;
+
+        if ((!this.scarfNodes || this.scarfNodes.length === 0 || !this.hairNodes || this.hairNodes.length === 0)) {
+            this.resetVisualTrails();
+        }
+        if (useLiveAccessories && this.scarfNodes && this.scarfNodes.length > 0) {
+            this.scarfNodes[0].x = knotX;
+            this.scarfNodes[0].y = knotY;
+        }
+        if (useLiveAccessories && this.hairNodes && this.hairNodes.length > 0) {
+            this.hairNodes[0].x = knotX;
+            this.hairNodes[0].y = knotY - 8;
+        }
+
+        ctx.save();
+        ctx.fillStyle = silhouetteColor;
+        ctx.beginPath();
+        ctx.arc(headCenterX, headY, headRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        const renderHair = options.renderHair !== false;
+        if (renderHair && useLiveAccessories && this.hairNodes && this.hairNodes.length > 1) {
+            ctx.fillStyle = silhouetteColor;
+            ctx.beginPath();
+            const hairBaseX = headCenterX - dir * 4;
+            const hairBaseY = headY - 12;
+            ctx.moveTo(hairBaseX, hairBaseY);
+            for (let i = 1; i < this.hairNodes.length; i++) {
+                const node = this.hairNodes[i];
+                const prev = this.hairNodes[i - 1];
+                ctx.quadraticCurveTo(prev.x, prev.y, (node.x + prev.x) / 2, (node.y + prev.y) / 2);
+            }
+            for (let i = this.hairNodes.length - 1; i >= 1; i--) {
+                const node = this.hairNodes[i];
+                const prev = this.hairNodes[i - 1];
+                const tProgress = i / (this.hairNodes.length - 1);
+                const thickness = (1 - tProgress) * 12 + 1;
+                const sideShift = Math.sin(time * 0.005 + i * 0.5) * (isMoving ? 1.0 : 1.5);
+                ctx.quadraticCurveTo(
+                    node.x + sideShift,
+                    node.y + thickness,
+                    (node.x + prev.x) / 2 + sideShift,
+                    (node.y + prev.y) / 2 + thickness
+                );
+            }
+            ctx.lineTo(hairBaseX, hairBaseY);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        const drawHeadbandTail = () => {
+            if (!renderHeadbandTail || !renderHeadband) return;
+            if (!useLiveAccessories || !this.scarfNodes || this.scarfNodes.length === 0) {
+                const tailLen = 20 + (isMoving ? 6 : 0);
+                const tailWave = Math.sin(time * 0.014 + (facingRight ? 0 : 1.7)) * (isMoving ? 2.8 : 1.6);
+                const tailRootX = knotX;
+                const tailRootY = knotY + 1.5;
+                const tailMidX = tailRootX - dir * (tailLen * 0.45);
+                const tailMidY = tailRootY + tailWave - 1.2;
+                const tailTipX = tailRootX - dir * tailLen;
+                const tailTipY = tailRootY + tailWave * 0.7 + (isMoving ? -0.6 : 1.0);
+                ctx.fillStyle = accentColor;
+                ctx.beginPath();
+                ctx.moveTo(tailRootX, tailRootY);
+                ctx.quadraticCurveTo(tailMidX + dir * 1.5, tailMidY - 1.8, tailTipX, tailTipY - 0.8);
+                ctx.lineTo(tailTipX + dir * 0.6, tailTipY + 1.0);
+                ctx.quadraticCurveTo(tailMidX + dir * 1.2, tailMidY + 2.8, tailRootX, tailRootY + 7.0);
+                ctx.closePath();
+                ctx.fill();
+                return;
+            }
+            ctx.fillStyle = accentColor;
+            ctx.beginPath();
+            ctx.moveTo(knotX, knotY);
+            for (let i = 1; i < this.scarfNodes.length - 1; i++) {
+                const xc = (this.scarfNodes[i].x + this.scarfNodes[i + 1].x) / 2;
+                const yc = (this.scarfNodes[i].y + this.scarfNodes[i + 1].y) / 2;
+                ctx.quadraticCurveTo(this.scarfNodes[i].x, this.scarfNodes[i].y, xc, yc);
+            }
+            const lastScarf = this.scarfNodes[this.scarfNodes.length - 1];
+            ctx.lineTo(lastScarf.x, lastScarf.y);
+            const scarfSpreadDist = Math.abs(lastScarf.x - this.scarfNodes[0].x);
+            const movingNow = scarfSpreadDist > 20;
+            for (let i = this.scarfNodes.length - 1; i >= 1; i--) {
+                const node = this.scarfNodes[i];
+                const prev = this.scarfNodes[i - 1];
+                const baseWidth = movingNow ? 7 : 10;
+                const waveSpeed = movingNow ? 0.008 : 0.004;
+                const wavePhase = i * (movingNow ? 0.5 : 0.6);
+                const wave = Math.sin(time * waveSpeed + wavePhase);
+                const currentWidth = baseWidth * (movingNow ? 0.85 : 1.0 + Math.abs(wave) * 0.3);
+                const tiltX = wave * (movingNow ? 1.0 : 3.0);
+                if (i === this.scarfNodes.length - 1) {
+                    ctx.lineTo(node.x + tiltX, node.y + currentWidth);
+                }
+                ctx.quadraticCurveTo(
+                    node.x + tiltX,
+                    node.y + currentWidth,
+                    (node.x + prev.x) / 2 + tiltX,
+                    (node.y + prev.y) / 2 + currentWidth
+                );
+            }
+            ctx.lineTo(knotX, knotY + 12);
+            ctx.closePath();
+            ctx.fill();
+        };
+
+        if (renderHeadband) {
+            ctx.strokeStyle = accentColor;
+            ctx.lineWidth = 4;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            const frontY = headY - 6;
+            const frontX = headCenterX + (facingRight ? 14 : -14);
+            const ctrl1X = headCenterX + (facingRight ? -4 : 4);
+            const ctrl1Y = headY - 4;
+            const ctrl2X = headCenterX + (facingRight ? 8 : -8);
+            const ctrl2Y = headY - 8;
+            ctx.moveTo(knotX, knotY);
+            ctx.bezierCurveTo(ctrl1X, ctrl1Y, ctrl2X, ctrl2Y, frontX, frontY);
+            ctx.stroke();
+        }
+
+        drawHeadbandTail();
+        ctx.restore();
     }
 
     renderModel(ctx, x, y, facingRight, alpha = 1.0, renderSubWeaponVisualsInput = true, options = {}) {
@@ -3008,6 +3291,8 @@ export class Player {
 // ---
         const silhouetteColor = (options.palette && options.palette.silhouette) || '#1a1a1a';
         const accentColor = (options.palette && options.palette.accent) || '#00bfff';
+        const silhouetteOutlineEnabled = options.silhouetteOutline !== false;
+        const silhouetteOutlineColor = (options.palette && options.palette.silhouetteOutline) || 'rgba(168, 196, 230, 0.29)';
 // ---
 
         const isCrouchPose = isCrouching;
@@ -3031,6 +3316,7 @@ export class Player {
         const dualZPose = isDualZComboPose
             ? this.currentSubWeapon.getMainSwingPose(dualZPoseOptions || {})
             : null;
+        const useDualZCustomLegPose = options.useDualZCustomLegPose === true;
         const speedAbs = Math.abs(this.vx);
         const comboStepPose = comboAttackingPose && currentAttack ? (currentAttack.comboStep || 0) : 0;
         const comboPoseProgress = comboStepPose
@@ -3071,10 +3357,11 @@ export class Player {
             ? (bottomY - headRadius * 2.2 + bob)
             : (y + headRadius * 1.1 + bob - (isSpearThrustPose ? spearDrive * 2.0 : 0));
             
-        let bodyTopY = headY + (isCrouchPose ? headRadius * 0.56 : headRadius * 0.57);
+        // 頭が胴体へ食い込んで見えないよう、胴体の起点を頭の下端寄りに下げる
+        let bodyTopY = headY + (isCrouchPose ? headRadius * 1.01 : headRadius * 1.03);
         let hipY = isCrouchPose
             ? (bottomY - headRadius * 0.95 + bob * 0.45)
-            : (bottomY - headRadius * 1.43 - (isSpearThrustPose ? spearDrive * 3.2 : 0));
+            : (bottomY - headRadius * 1.43 - (isSpearThrustPose ? spearDrive * 1.7 : 0));
 
         // 腰を上げるほど「胴が短く脚が長い」比率になる（主にボス向けの見た目調整）
         const hipLiftPx = Number.isFinite(options.hipLiftPx) ? options.hipLiftPx : 0;
@@ -3090,9 +3377,18 @@ export class Player {
             ? (centerX + dir * 1.3 + dir * crouchLeanShift * 0.55)
             : (centerX + dir * 0.2);
         let headCenterX = centerX;
+        const baseTorsoShoulderXForHeadTrack = torsoShoulderX;
 
         {
             // 通常ポーズ計算（攻撃・武器・移動など）
+            if (isSpearThrustPose) {
+                const spearWindup = Math.max(0, 1 - (spearPoseProgress / 0.34));
+                const spearLungeT = Math.max(0, Math.min(1, (spearPoseProgress - 0.16) / 0.62));
+                const spearLunge = Math.sin(spearLungeT * Math.PI * 0.5);
+                torsoShoulderX += dir * (2.8 + spearLunge * 5.6 - spearWindup * 1.1);
+                torsoHipX += dir * (0.9 + spearLunge * 2.2 - spearWindup * 0.5);
+                headCenterX += dir * (1.2 + spearLunge * 2.8);
+            }
             if (isDualZComboPose && dualZPose) {
                 const p = dualZPose.progress || 0;
                 const s = dualZPose.comboIndex || 0;
@@ -3115,11 +3411,16 @@ export class Player {
                     torsoShoulderX += dir * (twist * 7.2);
                     torsoHipX -= dir * (1.0 + wave * 1.3);
                 } else if (s === 4) {
-                    headY -= 2.8 + wave * 4.2;
-                    bodyTopY -= 2.0 + wave * 3.1;
-                    hipY -= 1.2 + wave * 2.3;
-                    torsoShoulderX += dir * (2.2 + twist * 5.2);
-                    torsoHipX -= dir * (2.0 + wave * 1.6);
+                    // 四段: 胸前クロス構え→前方へ払い上げ
+                    const gather = Math.max(0, Math.min(1, p / 0.42));
+                    const release = Math.max(0, Math.min(1, (p - 0.42) / 0.58));
+                    const gatherEase = gather * gather * (3 - 2 * gather);
+                    const releaseEase = release * release * (3 - 2 * release);
+                    headY -= 0.8 + gatherEase * 1.3 + releaseEase * 0.6;
+                    bodyTopY -= 0.6 + gatherEase * 1.1 + releaseEase * 0.4;
+                    hipY -= 0.2 + gatherEase * 0.45;
+                    torsoShoulderX += dir * (1.1 + gatherEase * 1.8 + releaseEase * 2.4 + twist * 0.45);
+                    torsoHipX += dir * (0.3 + gatherEase * 0.8 + releaseEase * 0.7);
                 } else {
                     headY -= 1.8 + wave * 2.0;
                     bodyTopY -= 1.4 + wave * 1.5;
@@ -3127,12 +3428,25 @@ export class Player {
                     torsoHipX += dir * (0.3 + wave * 1.1);
                 }
             }
+            if (isDualZComboPose) {
+                // 二刀Z中は頭を胴体の肩位置へ追従させ、首が常に接続されるようにする
+                const shoulderShiftX = torsoShoulderX - baseTorsoShoulderXForHeadTrack;
+                headCenterX += shoulderShiftX * 0.72;
+                bodyTopY = headY + (isCrouchPose ? headRadius * 1.01 : headRadius * 1.03);
+            }
+            if (isSpearThrustPose) {
+                // 大槍中は頭を胴（肩）移動へ追従させ、首元のズレを防ぐ
+                const shoulderShiftX = torsoShoulderX - baseTorsoShoulderXForHeadTrack;
+                const targetHeadX = centerX + shoulderShiftX * 0.86;
+                headCenterX += (targetHeadX - headCenterX) * 0.92;
+            }
             if (comboAttackingPose && this.currentAttack && this.currentAttack.comboStep === 4) {
                 const comboDuration = Math.max(1, this.currentAttack.durationMs || PLAYER.ATTACK_COOLDOWN);
                 const comboProgress = Math.max(0, Math.min(1, 1 - (this.attackTimer / comboDuration)));
                 const riseT = Math.min(1, comboProgress / 0.42);
                 const flipT = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.58));
-                const riseLift = Math.sin(riseT * Math.PI * 0.5) * 8.5;
+                const z4HeightScale = 0.62;
+                const riseLift = Math.sin(riseT * Math.PI * 0.5) * 8.5 * z4HeightScale;
                 hipY -= riseLift * 0.38;
                 bodyTopY -= riseLift * 0.95;
                 headY -= riseLift * 1.1;
@@ -3146,52 +3460,208 @@ export class Player {
                 }
             }
         }
+
+        // 頭位置補正は首元(胴体上端)も同時に追従させ、接続が切れないようにする
+        if (!isCrouchPose) {
+            const headLift = 3.2;
+            headY -= headLift;
+            bodyTopY -= headLift;
+        }
+
+        // 肩アンカーを胴体ライン上に固定し、腕の付け根が肩から自然に繋がるようにする
+        const shoulderAttachT = isCrouchPose ? 0.12 : 0.15;
+        const shoulderAnchorX = torsoShoulderX + (torsoHipX - torsoShoulderX) * shoulderAttachT;
+        const shoulderAnchorY = bodyTopY + (hipY - bodyTopY) * (isCrouchPose ? 0.09 : 0.11);
+        const backShoulderXShared = shoulderAnchorX + dir * 0.18;
+        const backShoulderYShared = shoulderAnchorY + (isCrouchPose ? 0.35 : 0.45);
+        const frontShoulderXShared = shoulderAnchorX - dir * (isCrouchPose ? 0.28 : 0.38);
+        const frontShoulderYShared = shoulderAnchorY + (isCrouchPose ? 0.55 : 0.65);
+        const idleArmWave = Math.sin(this.motionTime * 0.01);
+        const idleBackHandXShared = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
+        const idleBackHandYShared = backShoulderYShared + (isCrouchPose ? 6.2 : 7.8) + idleArmWave * (isCrouchPose ? 0.8 : 1.7);
+        const idleFrontHandXShared = centerX - dir * (isCrouchPose ? 4.6 : 7.2);
+        const idleFrontHandYShared = frontShoulderYShared + (isCrouchPose ? 6.8 : 8.5) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? 0.8 : 1.7);
+
+        // 通常構え時の「奥の手」は胴体・頭より先に描いて背面化する
+        const dualBladePre = (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') ? this.currentSubWeapon : null;
+        const dualPoseOverridePre = (
+            this.subWeaponPoseOverride &&
+            this.subWeaponAction === '二刀_Z'
+        ) ? this.subWeaponPoseOverride : null;
+        const effectiveSubWeaponTimerPre = (dualBladePre && (this.subWeaponAction === '二刀_合体' || this.subWeaponAction === '二刀_Z'))
+            ? (dualPoseOverridePre && Number.isFinite(dualPoseOverridePre.attackTimer)
+                ? dualPoseOverridePre.attackTimer
+                : dualBladePre.attackTimer)
+            : this.subWeaponTimer;
+        const isActuallyAttackingPre = isAttacking || (effectiveSubWeaponTimerPre > 0 && subWeaponAction !== 'throw');
+        const isIdleForceRenderPre = forceSubWeaponRender && !subWeaponAction && subWeaponTimer <= 0;
+        const kusaKeepIdleBackArm =
+            !isAttacking &&
+            effectiveSubWeaponTimerPre > 0 &&
+            subWeaponAction === '鎖鎌';
+        const renderIdleBackArmBehind =
+            kusaKeepIdleBackArm ||
+            (!isActuallyAttackingPre && (!forceSubWeaponRender || isIdleForceRenderPre));
+        if (renderIdleBackArmBehind) {
+            const backShoulderXPre = backShoulderXShared;
+            const backShoulderYPre = backShoulderYShared;
+            const idleBackHandXPre = idleBackHandXShared;
+            const idleBackHandYPre = idleBackHandYShared;
+            const handRadiusScalePre = 0.86;
+            const armReachScalePre = Number.isFinite(options.armReachScale) ? options.armReachScale : 1.0;
+            const idleBackHandPre = Math.abs(armReachScalePre - 1.0) < 0.001
+                ? { x: idleBackHandXPre, y: idleBackHandYPre }
+                : {
+                    x: backShoulderXPre + (idleBackHandXPre - backShoulderXPre) * armReachScalePre,
+                    y: backShoulderYPre + (idleBackHandYPre - backShoulderYPre) * armReachScalePre
+                };
+            const preArmDX = idleBackHandPre.x - backShoulderXPre;
+            const preArmDY = idleBackHandPre.y - backShoulderYPre;
+            const preArmDist = Math.hypot(preArmDX, preArmDY);
+            let preElbowX = backShoulderXPre + preArmDX * 0.54;
+            let preElbowY = backShoulderYPre + preArmDY * 0.54;
+            if (preArmDist > 0.001) {
+                const preNX = -preArmDY / preArmDist;
+                const preNY = preArmDX / preArmDist;
+                const preBend = preArmDist * (isCrouchPose ? 0.11 : 0.15);
+                preElbowX += preNX * preBend * dir;
+                preElbowY += preNY * preBend * dir + 0.25;
+            }
+            const idleBackBladeAnglePre = isCrouchPose ? -0.32 : -0.65;
+            if (silhouetteOutlineEnabled) {
+                ctx.strokeStyle = silhouetteOutlineColor;
+                ctx.lineWidth = 5.55;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(backShoulderXPre, backShoulderYPre);
+                ctx.lineTo(preElbowX, preElbowY);
+                ctx.lineTo(idleBackHandPre.x, idleBackHandPre.y);
+                ctx.stroke();
+            }
+            ctx.strokeStyle = silhouetteColor;
+            ctx.lineWidth = 4.8;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(backShoulderXPre, backShoulderYPre);
+            ctx.lineTo(preElbowX, preElbowY);
+            ctx.lineTo(idleBackHandPre.x, idleBackHandPre.y);
+            ctx.stroke();
+            ctx.fillStyle = silhouetteColor;
+            ctx.beginPath();
+            ctx.arc(idleBackHandPre.x, idleBackHandPre.y, 4.8 * handRadiusScalePre, 0, Math.PI * 2);
+            ctx.fill();
+            this.drawKatana(ctx, idleBackHandPre.x, idleBackHandPre.y, idleBackBladeAnglePre, dir);
+        }
         
-        // 体
-        ctx.strokeStyle = silhouetteColor;
-        ctx.lineWidth = 10;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(torsoShoulderX, bodyTopY);
-        ctx.lineTo(torsoHipX, hipY);
-        ctx.stroke();
+        const drawTorsoSegment = (withOutline = true) => {
+            if (withOutline && silhouetteOutlineEnabled) {
+                ctx.strokeStyle = silhouetteOutlineColor;
+                ctx.lineWidth = 11.2;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.beginPath();
+                ctx.moveTo(torsoShoulderX, bodyTopY);
+                ctx.lineTo(torsoHipX, hipY);
+                ctx.stroke();
+            }
+            ctx.strokeStyle = silhouetteColor;
+            ctx.lineWidth = 10;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(torsoShoulderX, bodyTopY);
+            ctx.lineTo(torsoHipX, hipY);
+            ctx.stroke();
+        };
 
         // 足
-        const drawJointedLeg = (hipX, hipYLocal, kneeX, kneeY, footX, footY, isFrontLeg = false, bendBias = 1) => {
+        const backLegOverlayQueue = [];
+        const drawJointedLeg = (
+            hipX,
+            hipYLocal,
+            kneeX,
+            kneeY,
+            footX,
+            footY,
+            isFrontLeg = false,
+            bendBias = 1,
+            bendDirSign = null,
+            storeForOverlay = true,
+            overlayInFront = null
+        ) => {
+            const defaultOverlayInFront = ((hipX - torsoHipX) * dir) <= 0;
+            if (storeForOverlay && (overlayInFront === null ? defaultOverlayInFront : overlayInFront)) {
+                backLegOverlayQueue.push([hipX, hipYLocal, kneeX, kneeY, footX, footY, isFrontLeg, bendBias, bendDirSign]);
+            }
             const thighWidth = isFrontLeg ? 5.1 : 4.2;
             const shinWidth = isFrontLeg ? 4.8 : 4.0;
-            const kneeRadius = isFrontLeg ? 2.9 : 2.45;
-            const footRadiusX = isFrontLeg ? 2.8 : 2.4;
-            const footRadiusY = isFrontLeg ? 1.4 : 1.18;
-            let kneeAdjX = kneeX;
-            let kneeAdjY = kneeY;
-            const legDX = footX - hipX;
-            const legDY = footY - hipYLocal;
+            // 膝丸は脚線幅を超過させない（接続を真っ直ぐ見せる）
+            const kneeRadius = Math.min(thighWidth, shinWidth) * 0.5;
+            // 脚の付け根を胴体下端へ寄せて接続を自然にし、腿長をやや短くする
+            const hipAttachBlendY = isCrouchPose ? 0.18 : 0.1;
+            // 付け根が胴体へめり込まないよう、わずかに外側へ逃がす
+            const hipOutSign = (hipX >= torsoHipX) ? 1 : -1;
+            const hipRootX = hipX + hipOutSign * 1.05;
+            // Yは胴体下端寄りへ固定して、付け根接続を明確化
+            const hipRootY = hipY + (hipYLocal - hipY) * hipAttachBlendY;
+            // 腿の長さは通常寄りに戻す
+            const thighScale = 1.0;
+            let kneeAdjX = hipRootX + (kneeX - hipRootX) * thighScale;
+            // 通常コンボ中は標準の膝Yを維持し、それ以外のみ軽く下げる
+            const kneeYOffset = comboAttackingPose ? 0 : 0.35;
+            let kneeAdjY = hipRootY + (kneeY - hipRootY) * thighScale + kneeYOffset;
+            const legDX = footX - hipRootX;
+            const legDY = footY - hipRootY;
             const legLen = Math.max(0.001, Math.hypot(legDX, legDY));
             const legUX = legDX / legLen;
             const legUY = legDY / legLen;
             const normalX = -legUY;
             const normalY = legUX;
-            const kneeProj = (kneeAdjX - hipX) * legUX + (kneeAdjY - hipYLocal) * legUY;
-            const kneeOnLineX = hipX + legUX * kneeProj;
-            const kneeOnLineY = hipYLocal + legUY * kneeProj;
+            const kneeProj = (kneeAdjX - hipRootX) * legUX + (kneeAdjY - hipRootY) * legUY;
+            const kneeOnLineX = hipRootX + legUX * kneeProj;
+            const kneeOnLineY = hipRootY + legUY * kneeProj;
             const signedBend = (kneeAdjX - kneeOnLineX) * normalX + (kneeAdjY - kneeOnLineY) * normalY;
             const minBend = (isFrontLeg ? 2.35 : 2.05) * Math.max(0, bendBias);
             if (Math.abs(signedBend) < minBend) {
-                const pushSign = dir * (isFrontLeg ? -1 : 1);
+                // 内股方向は前足/後ろ足で逆になるため、脚ごとに押し方向を分ける
+                const defaultPushSign = isFrontLeg ? -dir : dir;
+                const pushSign = (bendDirSign === null || bendDirSign === undefined)
+                    ? defaultPushSign
+                    : dir * bendDirSign;
                 const push = (minBend - Math.abs(signedBend)) * pushSign;
                 kneeAdjX += normalX * push;
                 kneeAdjY += normalY * push;
             }
             ctx.strokeStyle = silhouetteColor;
-            ctx.lineCap = 'round';
+            ctx.lineCap = 'butt';
             ctx.lineJoin = 'round';
+            if (silhouetteOutlineEnabled) {
+                ctx.strokeStyle = silhouetteOutlineColor;
+                ctx.lineWidth = thighWidth + 1.0;
+                ctx.lineCap = 'butt';
+                ctx.beginPath();
+                ctx.moveTo(hipRootX, hipRootY);
+                ctx.lineTo(kneeAdjX, kneeAdjY);
+                ctx.stroke();
+            }
+            ctx.strokeStyle = silhouetteColor;
             ctx.lineWidth = thighWidth;
+            ctx.lineCap = 'butt';
             ctx.beginPath();
-            ctx.moveTo(hipX, hipYLocal);
+            ctx.moveTo(hipRootX, hipRootY);
             ctx.lineTo(kneeAdjX, kneeAdjY);
             ctx.stroke();
+            if (silhouetteOutlineEnabled) {
+                ctx.strokeStyle = silhouetteOutlineColor;
+                ctx.lineWidth = shinWidth + 0.95;
+                ctx.lineCap = 'butt';
+                ctx.beginPath();
+                ctx.moveTo(kneeAdjX, kneeAdjY);
+                ctx.lineTo(footX, footY);
+                ctx.stroke();
+            }
+            ctx.strokeStyle = silhouetteColor;
             ctx.lineWidth = shinWidth;
+            ctx.lineCap = 'butt';
             ctx.beginPath();
             ctx.moveTo(kneeAdjX, kneeAdjY);
             ctx.lineTo(footX, footY);
@@ -3200,13 +3670,13 @@ export class Player {
             ctx.beginPath();
             ctx.arc(kneeAdjX, kneeAdjY, kneeRadius, 0, Math.PI * 2);
             ctx.fill();
-            const shinAngle = Math.atan2(footY - kneeAdjY, footX - kneeAdjX);
+            const footRadius = isFrontLeg ? 1.9 : 1.65;
             ctx.fillStyle = silhouetteColor;
             ctx.beginPath();
-            ctx.ellipse(footX, footY + 0.75, footRadiusX, footRadiusY, shinAngle * 0.3, 0, Math.PI * 2);
+            ctx.arc(footX, footY + 0.22, footRadius, 0, Math.PI * 2);
             ctx.fill();
         };
-        if (isDualZComboPose && dualZPose && !isSpearThrustPose && !isCrouchPose) {
+        if (useDualZCustomLegPose && isDualZComboPose && dualZPose && !isSpearThrustPose && !isCrouchPose) {
             const comboStep = dualZPose.comboIndex || 0;
             const comboProgress = dualZPose.progress || 0;
             const comboArc = Math.sin(comboProgress * Math.PI);
@@ -3233,8 +3703,9 @@ export class Player {
             } else if (comboStep === 0) {
                 backKneeX = backHipX - dir * (1.5 - comboArc * 0.8); backKneeY = hipLocalY + 8.7 + comboArc * 1.2; backFootX = centerX - dir * (4.9 - comboArc * 1.8); backFootY = bottomY - 1.6 + comboArc * 1.1 - airborneLift * 0.62; frontKneeX = frontHipX + dir * (1.3 - comboArc * 0.7); frontKneeY = hipLocalY + 8.5 + comboArc * 1.2; frontFootX = centerX + dir * (4.4 - comboArc * 1.7); frontFootY = bottomY - 1.7 + comboArc * 1.2 - airborneLift * 0.62;
             }
-            drawJointedLeg(backHipX, hipLocalY + 0.3, backKneeX, backKneeY, backFootX, backFootY, false, 1.1);
-            drawJointedLeg(frontHipX, hipLocalY + 0.1, frontKneeX, frontKneeY, frontFootX, frontFootY, true, 1.08);
+            // 二刀Z中の脚重ね順は固定: 後ろ足を手前、前足を奥
+            drawJointedLeg(backHipX, hipLocalY + 0.3, backKneeX, backKneeY, backFootX, backFootY, false, 1.1, null, true, true);
+            drawJointedLeg(frontHipX, hipLocalY + 0.1, frontKneeX, frontKneeY, frontFootX, frontFootY, true, 1.08, null, true, false);
         } else if (comboAttackingPose && !isSpearThrustPose && !isCrouchPose) {
             const attack = currentAttack || this.currentAttack;
             if (!attack) { this.x = originalX; this.y = originalY; ctx.restore(); return; }
@@ -3396,14 +3867,15 @@ export class Player {
             else if (comboStep === 4) {
                 const rise = comboProgress;
                 const flipT = Math.max(0, (rise - 0.42) / 0.58);
+                const z4HeightScale = 0.62;
                 backKneeX = backHipX - dir * (1.4 - rise * 0.6 + flipT * 2.8);
-                backKneeY = hipLocalY + 8.6 - rise * 2.2 - flipT * 1.2;
+                backKneeY = hipLocalY + 8.6 - (rise * 2.2 + flipT * 1.2) * z4HeightScale;
                 backFootX = centerX - dir * (5.4 - rise * 1.4 + flipT * 7.8);
-                backFootY = bottomY - 1.0 - airborneLift * (0.54 + rise * 0.22) - flipT * 1.0;
+                backFootY = bottomY - 1.0 - airborneLift * (0.44 + rise * 0.17) - flipT * (1.0 * z4HeightScale);
                 frontKneeX = frontHipX + dir * (2.3 + rise * 1.0 - flipT * 2.2);
-                frontKneeY = hipLocalY + 8.0 - rise * 2.2 - flipT * 1.1;
+                frontKneeY = hipLocalY + 8.0 - (rise * 2.2 + flipT * 1.1) * z4HeightScale;
                 frontFootX = centerX + dir * (7.2 + rise * 1.8 - flipT * 7.2);
-                frontFootY = bottomY - 1.2 - airborneLift * (0.58 + rise * 0.26) - flipT * 1.1;
+                frontFootY = bottomY - 1.2 - airborneLift * (0.47 + rise * 0.2) - flipT * (1.1 * z4HeightScale);
                 const prepT = Math.max(0, Math.min(1, comboProgress / 0.18));
                 const prepEase = prepT * prepT * (3 - 2 * prepT);
                 const from = {
@@ -3492,42 +3964,72 @@ export class Player {
             drawJointedLeg(backHipX,  backHipYL,  backHipX  + dir * (3.0 + crouchStride * 0.5), backKneeY,  centerX + dir * (6.5 + crouchStride), bottomY - 0.6 + crouchLift * 0.15, false, 1.0);
             drawJointedLeg(frontHipX, frontHipYL, frontHipX - dir * (3.6 - crouchStride * 0.5), frontKneeY, centerX - dir * (7.2 - crouchStride), bottomY - 0.2,                     true,  1.02);
         } else if (isSpearThrustPose) {
-            const rearHipX = torsoHipX + dir * 0.9; const frontHipX2 = torsoHipX - dir * 0.9;
-            const rearFootX = torsoHipX - dir * (12.8 + spearDrive * 6.2); const rearFootY = bottomY - 1.2 + spearDrive * 0.8;
-            drawJointedLeg(rearHipX, hipY + 0.3, torsoHipX + dir * (2.8 + spearDrive * 1.8), hipY + 5.4 + spearDrive * 0.8, rearFootX, rearFootY, false, 1.02);
-            const rearDX = rearFootX - torsoHipX; const rearDY = rearFootY - hipY; const rearLen = Math.max(0.001, Math.hypot(rearDX, rearDY)); const rearDirX = rearDX / rearLen; const rearDirY = rearDY / rearLen;
-            const frontLift = spearDrive * 5.2; const frontKneeX2 = torsoHipX + dir * (7.5 + spearDrive * 4.2); const frontKneeY2 = hipY + 4.6 - frontLift * 0.42; const shinLen = 12.5 + spearDrive * 3.0;
-            drawJointedLeg(frontHipX2, hipY + 0.15, frontKneeX2, frontKneeY2, frontKneeX2 + rearDirX * shinLen, frontKneeY2 + rearDirY * shinLen, true, 1.1);
+            // 横っ飛び: 後ろ足で蹴り、前足を畳む（脚長が伸びすぎない長さ）
+            const rearDrive = Math.max(0, Math.sin(Math.max(0, Math.min(1, (spearPoseProgress - 0.16) / 0.62)) * Math.PI * 0.5));
+            const hipLocalY = hipY - 0.24 - rearDrive * 0.48;
+            const rearHipX = torsoHipX + dir * 0.88;
+            const frontHipX2 = torsoHipX + dir * 1.18;
+
+            // 後ろ足: 画像2のように斜め後方へ長く蹴る
+            const rearFootX = rearHipX - dir * (14.1 + rearDrive * 3.1);
+            const rearFootY = hipLocalY + 12.9 + rearDrive * 0.24;
+            // 後ろ足は膝をまっすぐに見せる
+            const rearKneeX = rearHipX + (rearFootX - rearHipX) * 0.5;
+            const rearKneeY = (hipLocalY + 0.2) + (rearFootY - (hipLocalY + 0.2)) * 0.5;
+            // 手前足を前面レイヤーにするため、後ろ足を胴の前へ
+            drawJointedLeg(rearHipX, hipLocalY + 0.2, rearKneeX, rearKneeY, rearFootX, rearFootY, false, 0, 1, true, true);
+
+            // 前足: 画像2の曲げ感を維持しつつ、通常脚長に近づける
+            const frontKneeX2 = frontHipX2 + dir * (3.95 + rearDrive * 0.6);
+            const frontKneeY2 = hipLocalY + 8.7 + rearDrive * 0.24;
+            const frontFootX2 = frontHipX2 + dir * (0.22 + rearDrive * 0.1);
+            const frontFootY2 = hipLocalY + 16.2 + rearDrive * 0.3;
+            drawJointedLeg(frontHipX2, hipLocalY + 0.04, frontKneeX2, frontKneeY2, frontFootX2, frontFootY2, true, 1.22, 1, true, false);
         } else {
-            // 空中 or 走り or 待機の足描画 — 元のコードと同一
+            // 空中 or 走り or 待機の足描画
             if (!this.isGrounded) {
-                const riseTuck = this.vy < 0 ? Math.min(1, Math.abs(this.vy) / 16) : 0;
-                const apexBlend = Math.max(0, 1 - Math.min(1, Math.abs(this.vy) / 4));
-                const jumpTuck = Math.min(1, riseTuck + apexBlend * 0.35);
-                const landPrep = this.vy > 0 ? Math.min(1, this.vy / 14) : 0;
-                const drift = Math.max(-1, Math.min(1, this.vx / Math.max(1, this.speed * 1.4)));
-                const leapDrive = Math.min(1, Math.abs(this.vx) / Math.max(1, this.speed * 1.2));
-                const kickPose = Math.max(jumpTuck, leapDrive * 0.55) * (1 - landPrep * 0.68);
-                const airLegScale = 1.16 + leapDrive * 0.1 + (this.vy < 0 ? 0.03 : 0);
-                const backHipX = torsoHipX + dir * 1.45; const frontHipX3 = torsoHipX - dir * 1.35;
-                const backKneeX = backHipX - dir * ((4.8 + kickPose * 4.8 - landPrep * 0.8) * airLegScale) - dir * drift * 1.0;
-                const backKneeY = hipY + 7.2 - kickPose * 2.4 + landPrep * 1.9;
-                const backFootX = backKneeX - dir * ((4.4 + kickPose * 3.8 + landPrep * 0.4) * airLegScale) - dir * drift * 0.7;
-                const backFootY = backKneeY + 8.6 - kickPose * 1.2 + landPrep * 4.4;
-                drawJointedLeg(backHipX, hipY + 0.35, backKneeX, backKneeY, backFootX, backFootY, false, 1.25);
-                const frontKneeX = frontHipX3 + dir * ((3.8 + kickPose * 3.2 + landPrep * 0.6) * airLegScale) + dir * drift * 0.8;
-                const frontKneeY = hipY + 7.0 - kickPose * 3.8 + landPrep * 1.8;
-                const frontFootX = frontKneeX - dir * ((2.4 + kickPose * 2.8 - landPrep * 0.3) * airLegScale) + dir * drift * 0.25;
-                const frontFootY = frontKneeY + 8.4 - kickPose * 0.8 + landPrep * 4.6;
-                drawJointedLeg(frontHipX3, hipY + 0.2, frontKneeX, frontKneeY, frontFootX, frontFootY, true, 1.2);
+                // 画像参照に合わせ、前脚を強めに畳み、後脚はやや後方へ流す空中姿勢
+                const drift = Math.max(-1, Math.min(1, this.vx / Math.max(1, this.speed * 1.45)));
+                const rise = this.vy < 0 ? Math.min(1, Math.abs(this.vy) / 14) : 0;
+                const descend = this.vy > 0 ? Math.min(1, this.vy / 13) : 0;
+                const apex = Math.max(0, 1 - Math.min(1, Math.abs(this.vy) / 4.4));
+                const tuck = Math.max(rise * 0.74, apex * 0.92) * (1 - descend * 0.26);
+                const open = descend * 0.62;
+                const settle = Math.max(0, Math.min(1, (descend - 0.28) / 0.72));
+                const backHipX = torsoHipX + dir * 1.28;
+                const frontHipX3 = torsoHipX - dir * 1.18;
+
+                // 奥足は曲げ（短め）、手前足は伸ばし（長め）
+                let backKneeX = backHipX + dir * (2.78 + tuck * 2.25 - open * 1.24) + dir * drift * 0.2;
+                let backKneeY = hipY + 8.25 - tuck * 3.1 + open * 0.9;
+                let backFootX = backKneeX - dir * (3.22 + tuck * 1.12 - open * 0.58) + dir * drift * 0.1;
+                let backFootY = backKneeY + 7.02 - tuck * 1.86 + open * 1.62;
+
+                let frontKneeX = frontHipX3 - dir * (2.36 + tuck * 1.7 - open * 0.76) - dir * drift * 0.18;
+                let frontKneeY = hipY + 8.88 - tuck * 1.02 + open * 0.98;
+                let frontFootX = frontKneeX - dir * (3.72 + tuck * 1.35 - open * 0.62) - dir * drift * 0.02;
+                let frontFootY = frontKneeY + 7.28 - tuck * 0.35 + open * 1.82;
+
+                // 接地直前は地上待機姿勢へ自然に戻す
+                backKneeX += (backHipX + dir * 0.62 - backKneeX) * (settle * 0.64);
+                backKneeY += (hipY + 9.45 - backKneeY) * (settle * 0.68);
+                backFootX += (centerX + dir * 1.9 - backFootX) * (settle * 0.7);
+                backFootY += (bottomY + 0.06 - backFootY) * (settle * 0.78);
+                frontKneeX += (frontHipX3 + dir * 0.64 - frontKneeX) * (settle * 0.64);
+                frontKneeY += (hipY + 9.28 - frontKneeY) * (settle * 0.68);
+                frontFootX += (centerX - dir * 2.5 - frontFootX) * (settle * 0.7);
+                frontFootY += (bottomY - 0.06 - frontFootY) * (settle * 0.78);
+
+                drawJointedLeg(backHipX, hipY + 0.2, backKneeX, backKneeY, backFootX, backFootY, false, 0.9);
+                drawJointedLeg(frontHipX3, hipY + 0.1, frontKneeX, frontKneeY, frontFootX, frontFootY, true, 1.02);
             } else {
                 const runPhase = isRunLike ? Math.sin(this.legPhase || this.motionTime * 0.012) : 0;
                 if (!isRunLike) {
                     const idlePhase = Math.sin(this.motionTime * 0.0042);
                     const idleSpread = 2.5 + Math.abs(idlePhase) * 0.3;
                     const backHipX = torsoHipX + dir * 1.35; const frontHipX4 = torsoHipX - dir * 1.25;
-                    drawJointedLeg(backHipX, hipY + 0.45, backHipX + dir * 0.55, hipY + 9.9, centerX + dir * idleSpread, bottomY + 0.1, false, 0.0);
-                    drawJointedLeg(frontHipX4, hipY + 0.25, frontHipX4 + dir * 0.6, hipY + 9.6, centerX - dir * idleSpread, bottomY - 0.1, true, 0.18);
+                    drawJointedLeg(backHipX, hipY + 0.22, backHipX + dir * 0.55, hipY + 9.9, centerX + dir * idleSpread, bottomY + 0.1, false, 0.0);
+                    drawJointedLeg(frontHipX4, hipY + 0.14, frontHipX4 + dir * 0.6, hipY + 9.6, centerX - dir * idleSpread, bottomY - 0.1, true, 0.18);
                 } else {
                     const runBlend = Math.min(1, speedAbs / Math.max(1, this.speed * 1.25));
                     const strideAmp = isDashLike ? 13.8 : 10.4; const liftAmp = isDashLike ? 5.6 : 4.2;
@@ -3540,7 +4042,7 @@ export class Player {
                         const plant = Math.max(0, phase) * (0.72 + runBlend * 0.58);
                         const depthShift = isFrontLeg ? 0 : 0.45;
                         const hipX = torsoHipX + dir * legSign * 0.88;
-                        const hipLocalY = hipY + (isFrontLeg ? 0.2 : 0.45);
+                        const hipLocalY = hipY + (isFrontLeg ? 0.12 : 0.26);
                         const footX = centerX + dir * (forward + legSign * legSpread);
                         const footY = bottomY - lift + depthShift * 0.25;
                         const kneeX = hipX + dir * (forward * 0.44 + legSign * (legSpread * 0.56 + 0.62));
@@ -3551,8 +4053,68 @@ export class Player {
                 }
             }
         }
+
+        // 奥側の腕/武器は描画順だけで胴体の裏へ回す（オクルーダー不使用）
+        const dualBladeLayer = (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') ? this.currentSubWeapon : null;
+        const dualPoseOverrideLayer = (
+            this.subWeaponPoseOverride &&
+            this.subWeaponAction === '二刀_Z'
+        ) ? this.subWeaponPoseOverride : null;
+        const effectiveSubWeaponTimerLayer = (dualBladeLayer && (this.subWeaponAction === '二刀_合体' || this.subWeaponAction === '二刀_Z'))
+            ? (dualPoseOverrideLayer && Number.isFinite(dualPoseOverrideLayer.attackTimer)
+                ? dualPoseOverrideLayer.attackTimer
+                : dualBladeLayer.attackTimer)
+            : this.subWeaponTimer;
+        const shouldRenderSubWeaponLayerBack =
+            (effectiveSubWeaponTimerLayer > 0 || (forceSubWeaponRender && subWeaponAction)) &&
+            !isAttacking;
+        if (isAttacking) {
+            this.renderAttackArmAndWeapon(ctx, {
+                centerX,
+                pivotY: bodyTopY + 2,
+                facingRight,
+                backShoulderX: backShoulderXShared,
+                backShoulderY: backShoulderYShared,
+                frontShoulderX: frontShoulderXShared,
+                frontShoulderY: frontShoulderYShared,
+                supportFrontHand: !(this.currentSubWeapon && this.currentSubWeapon.name === '二刀流'),
+                layerPhase: 'back'
+            }, options);
+        }
+        if (shouldRenderSubWeaponLayerBack) {
+            this.renderSubWeaponArm(
+                ctx,
+                centerX,
+                bodyTopY + 2,
+                facingRight,
+                renderSubWeaponVisuals,
+                {
+                    ...options,
+                    shoulderAnchors: {
+                        backX: backShoulderXShared,
+                        backY: backShoulderYShared,
+                        frontX: frontShoulderXShared,
+                        frontY: frontShoulderYShared
+                    },
+                    layerPhase: 'back'
+                }
+            );
+        }
+
+        // 前足は胴の裏レイヤーに固定するため、脚描画後に胴体を描く
+        drawTorsoSegment(true);
+        // 後ろ足は胴の前レイヤーにする
+        for (const legArgs of backLegOverlayQueue) {
+            drawJointedLeg(...legArgs, false);
+        }
         
         // 頭
+        if (silhouetteOutlineEnabled) {
+            ctx.fillStyle = silhouetteOutlineColor;
+            ctx.beginPath();
+            ctx.arc(headCenterX, headY, headRadius + 0.85, 0, Math.PI * 2);
+            ctx.fill();
+        }
         ctx.fillStyle = silhouetteColor;
         ctx.beginPath();
         ctx.arc(headCenterX, headY, headRadius, 0, Math.PI * 2);
@@ -3675,11 +4237,11 @@ export class Player {
                 ? dualPoseOverride.attackTimer
                 : dualBlade.attackTimer)
             : this.subWeaponTimer;
-        const isActuallyAttacking = effectiveIsAttacking || (effectiveSubWeaponTimer > 0 && subWeaponAction !== 'throw');
-        const backShoulderX = torsoShoulderX;
-        const backShoulderY = bodyTopY + (isCrouchPose ? 1 : 2);
-        const frontShoulderX = centerX - dir * (isCrouchPose ? 0.4 : 1);
-        const frontShoulderY = bodyTopY + (isCrouchPose ? 2 : 3);
+        const isActuallyAttacking = effectiveIsAttacking || (effectiveSubWeaponTimer > 0 && subWeaponAction !== 'throw') || (dualBlade && this.subWeaponAction);
+        const backShoulderX = backShoulderXShared;
+        const backShoulderY = backShoulderYShared;
+        const frontShoulderX = frontShoulderXShared;
+        const frontShoulderY = frontShoulderYShared;
         const armReachScale = Number.isFinite(options.armReachScale) ? options.armReachScale : 1.0;
         const stretchFromShoulder = (shoulderX, shoulderY, targetX, targetY) => {
             if (Math.abs(armReachScale - 1.0) < 0.001) return { x: targetX, y: targetY };
@@ -3689,13 +4251,64 @@ export class Player {
             };
         };
 
+        const armStrokeWidth = 4.8; // 脚(前脛)と同じ太さ
+        const handRadiusScale = 0.86;
         const drawArmSegment = (fromX, fromY, toX, toY, width = 6) => {
-            ctx.strokeStyle = silhouetteColor; ctx.lineWidth = width;
+            // 微小な距離（0.1未満）の場合は描画をスキップして不要な点（lineCapによるもの）を防ぐ
+            if (Math.hypot(toX - fromX, toY - fromY) < 0.1) return;
+
+            if (silhouetteOutlineEnabled) {
+                ctx.strokeStyle = silhouetteOutlineColor;
+                ctx.lineWidth = armStrokeWidth + 0.75;
+                ctx.beginPath(); ctx.moveTo(fromX, fromY); ctx.lineTo(toX, toY); ctx.stroke();
+            }
+            ctx.strokeStyle = silhouetteColor; ctx.lineWidth = armStrokeWidth;
             ctx.beginPath(); ctx.moveTo(fromX, fromY); ctx.lineTo(toX, toY); ctx.stroke();
         };
-        const drawHand = (xPos, yPos, radius = 4.5) => {
+        const drawArmWithSoftElbow = (
+            shoulderX,
+            shoulderY,
+            handX,
+            handY,
+            bendDir = 1,
+            bendScale = 0.14,
+            elbowRadius = 2.15
+        ) => {
+            const dx = handX - shoulderX;
+            const dy = handY - shoulderY;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 0.001) {
+                drawArmSegment(shoulderX, shoulderY, handX, handY, 6);
+                return;
+            }
+            // 到達に余裕がある場合でも、肘の関節パーツを表示するために微小な曲げを維持
+            const poseDistLimit = 16.5; // 腕の物理限界に近い値
+            const effectiveDist = Math.min(poseDistLimit, dist);
+            const nx = -dy / dist;
+            const ny = dx / dist;
+            // 近距離だけ穏やかに曲げる（二刀流ポーズで肘が見えやすく調整）
+            const closeT = Math.max(0, Math.min(1, (14.5 - dist) / 14.5));
+            const bend = Math.min(2.5, dist * bendScale * (0.38 + closeT * 0.62));
+            const bendSign = -bendDir;
+            const elbowX = shoulderX + dx * 0.54 + nx * bend * bendSign;
+            const elbowY = shoulderY + dy * 0.54 + ny * bend * bendSign + 0.2;
+            
+            // 手首側の描画を少し短縮して手のひらからのハミ出しを防ぐ
+            const wristToHandDist = 1.35;
+            const wristX = handX - (dx / dist) * wristToHandDist;
+            const wristY = handY - (dy / dist) * wristToHandDist;
+
+            drawArmSegment(shoulderX, shoulderY, elbowX, elbowY, 6);
+            drawArmSegment(elbowX, elbowY, wristX, wristY, 5.4);
             ctx.fillStyle = silhouetteColor;
-            ctx.beginPath(); ctx.arc(xPos, yPos, radius, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath();
+            ctx.arc(elbowX, elbowY, elbowRadius, 0, Math.PI * 2);
+            ctx.fill();
+        };
+        const drawHand = (xPos, yPos, radius = 4.5) => {
+            const handR = radius * handRadiusScale;
+            ctx.fillStyle = silhouetteColor;
+            ctx.beginPath(); ctx.arc(xPos, yPos, handR, 0, Math.PI * 2); ctx.fill();
         };
         const clampArmReach = (shoulderX, shoulderY, targetX, targetY, maxLen) => {
             const dx = targetX - shoulderX; const dy = targetY - shoulderY;
@@ -3705,10 +4318,10 @@ export class Player {
             return { x: shoulderX + dx * ratio, y: shoulderY + dy * ratio };
         };
 
-        const idleBackHandX = centerX + dir * (isCrouchPose ? 12 : 15);
-        const idleBackHandY = bodyTopY + (isCrouchPose ? 7.5 : 10) + Math.sin(this.motionTime * 0.01) * (isCrouchPose ? 1 : 2);
-        const idleFrontHandX = centerX - dir * (isCrouchPose ? 5 : 8);
-        const idleFrontHandY = bodyTopY + (isCrouchPose ? 9 : 12) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? 1 : 2);
+        const idleBackHandX = idleBackHandXShared;
+        const idleBackHandY = idleBackHandYShared;
+        const idleFrontHandX = idleFrontHandXShared;
+        const idleFrontHandY = idleFrontHandYShared;
         const idleBackHand = stretchFromShoulder(backShoulderX, backShoulderY, idleBackHandX, idleBackHandY);
         const idleFrontHand = stretchFromShoulder(frontShoulderX, frontShoulderY, idleFrontHandX, idleFrontHandY);
         const idleBackBladeAngle = isCrouchPose ? -0.32 : -0.65;
@@ -3720,15 +4333,37 @@ export class Player {
             const hasDualSubWeapon = this.currentSubWeapon && this.currentSubWeapon.name === '二刀流';
 
             // 奥手（刀を持つ）
-            drawArmSegment(backShoulderX, backShoulderY, idleBackHand.x, idleBackHand.y, 6);
-            drawHand(idleBackHand.x, idleBackHand.y, 4.8);
-            this.drawKatana(ctx, idleBackHand.x, idleBackHand.y, idleBackBladeAngle, dir);
+            if (!renderIdleBackArmBehind) {
+                drawArmWithSoftElbow(
+                    backShoulderX,
+                    backShoulderY,
+                    idleBackHand.x,
+                    idleBackHand.y,
+                    -dir,
+                    isCrouchPose ? 0.11 : 0.15
+                );
+                drawHand(idleBackHand.x, idleBackHand.y, 4.8);
+                this.drawKatana(ctx, idleBackHand.x, idleBackHand.y, idleBackBladeAngle, dir);
+            }
 
             if (!isThrowing) {
                 if (hasDualSubWeapon) {
-                    drawArmSegment(frontShoulderX, frontShoulderY, idleFrontHand.x, idleFrontHand.y, 5);
+                    // 二刀前手: 描画順序を「腕→柄→手」に統一。
+                    // 1. 腕
+                    drawArmWithSoftElbow(
+                        frontShoulderX,
+                        frontShoulderY,
+                        idleFrontHand.x,
+                        idleFrontHand.y,
+                        -dir,
+                        isCrouchPose ? 0.1 : 0.14
+                    );
+                    // 2. 柄 (腕よりも前面)
+                    this.drawKatana(ctx, idleFrontHand.x, idleFrontHand.y, idleFrontBladeAngle, dir, this.getKatanaBladeLength(), 0.28, 'handle');
+                    // 3. 手 (柄よりも前面で握る)
                     drawHand(idleFrontHand.x, idleFrontHand.y, 4.5);
-                    this.drawKatana(ctx, idleFrontHand.x, idleFrontHand.y, idleFrontBladeAngle, dir);
+                    // 4. 刀身 (手の前面)
+                    this.drawKatana(ctx, idleFrontHand.x, idleFrontHand.y, idleFrontBladeAngle, dir, this.getKatanaBladeLength(), 0.28, 'blade');
                 } else {
                     const bladeDirX = Math.cos(idleBackBladeAngle) * dir;
                     const bladeDirY = Math.sin(idleBackBladeAngle);
@@ -3740,7 +4375,14 @@ export class Player {
                         idleBackHand.y - bladeDirY * 5.8 + perpY * 1.0,
                         22 * armReachScale
                     );
-                    drawArmSegment(frontShoulderX, frontShoulderY, supportHand.x, supportHand.y, 5);
+                    drawArmWithSoftElbow(
+                        frontShoulderX,
+                        frontShoulderY,
+                        supportHand.x,
+                        supportHand.y,
+                        -dir,
+                        isCrouchPose ? 0.09 : 0.13
+                    );
                     drawHand(supportHand.x, supportHand.y, 4.5);
                 }
             }
@@ -3769,18 +4411,34 @@ export class Player {
             this.renderAttackArmAndWeapon(ctx, {
                 centerX, pivotY: bodyTopY + 2, facingRight,
                 backShoulderX, backShoulderY, frontShoulderX, frontShoulderY,
-                supportFrontHand: !(this.currentSubWeapon && this.currentSubWeapon.name === '二刀流')
+                supportFrontHand: !(this.currentSubWeapon && this.currentSubWeapon.name === '二刀流'),
+                layerPhase: 'front'
             }, options);
             if (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
-                drawArmSegment(frontShoulderX, frontShoulderY, idleFrontHand.x, idleFrontHand.y, 5);
-                drawHand(idleFrontHand.x, idleFrontHand.y, 4.5);
-                this.drawKatana(ctx, idleFrontHand.x, idleFrontHand.y, idleFrontBladeAngle, dir);
+                // 二刀前手: 攻撃中もサブ武器アーム側の描画（renderSubWeaponArm）に任せるため、ここでは描画しない
+                // (以前はここで描画していたが、renderSubWeaponArmと重複して二重描画の原因になっていた)
             }
         }
 
         // サブ武器アーム描画
         if ((effectiveSubWeaponTimer > 0 || (forceSubWeaponRender && subWeaponAction)) && !effectiveIsAttacking) {
-            this.renderSubWeaponArm(ctx, centerX, bodyTopY + 2, facingRight, renderSubWeaponVisuals, options);
+            this.renderSubWeaponArm(
+                ctx,
+                centerX,
+                bodyTopY + 2,
+                facingRight,
+                renderSubWeaponVisuals,
+                {
+                    ...options,
+                    shoulderAnchors: {
+                        backX: backShoulderX,
+                        backY: backShoulderY,
+                        frontX: frontShoulderX,
+                        frontY: frontShoulderY
+                    },
+                    layerPhase: 'front'
+                }
+            );
         }
 
         drawHeadbandTail();
@@ -3798,13 +4456,8 @@ export class Player {
             this.subWeaponPoseOverride &&
             this.subWeaponAction === '二刀_Z'
         ) ? this.subWeaponPoseOverride : null;
-        const subDuration =
-            this.subWeaponAction === 'throw' ? 150 :
-            (this.subWeaponAction === '大槍') ? 270 :
-            (this.subWeaponAction === '鎖鎌') ? 560 :
-            (this.subWeaponAction === '二刀_Z') ? Math.max(1, (dualBlade && dualBlade.mainDuration) ? dualBlade.mainDuration : 204) :
-            (this.subWeaponAction === '二刀_合体') ? 220 :
-            (this.subWeaponAction === '大太刀') ? 760 : 300;
+        const durationWeapon = this.subWeaponAction === '二刀_Z' ? dualBlade : this.currentSubWeapon;
+        const subDuration = this.getSubWeaponActionDurationMs(this.subWeaponAction, durationWeapon);
         const sourceTimer =
             (dualBlade && (this.subWeaponAction === '二刀_合体' || this.subWeaponAction === '二刀_Z'))
                 ? ((dualPoseOverride && Number.isFinite(dualPoseOverride.attackTimer))
@@ -3813,41 +4466,214 @@ export class Player {
                 : this.subWeaponTimer;
         const progress = Math.max(0, Math.min(1, 1 - (sourceTimer / subDuration)));
         const silhouetteColor = (options.palette && options.palette.silhouette) || COLORS.PLAYER;
-        const accentColor = (options.palette && options.palette.accent) || '#00bfff';
-        const backShoulderX = centerX + dir * 4;
-        const frontShoulderX = centerX - dir * 3;
-        const shoulderY = pivotY;
-        const backShoulderY = shoulderY;
+        const silhouetteOutlineEnabled = options.silhouetteOutline !== false;
+        const silhouetteOutlineColor = (options.palette && options.palette.silhouetteOutline) || 'rgba(168, 196, 230, 0.29)';
+        const layerPhase = options.layerPhase || 'all';
+        const drawBackLayer = layerPhase !== 'front';
+        const drawFrontLayer = layerPhase !== 'back';
+        const shoulderAnchors = options.shoulderAnchors || null;
+        const backShoulderX = (shoulderAnchors && Number.isFinite(shoulderAnchors.backX))
+            ? shoulderAnchors.backX
+            : centerX + dir * 4;
+        const frontShoulderX = (shoulderAnchors && Number.isFinite(shoulderAnchors.frontX))
+            ? shoulderAnchors.frontX
+            : centerX - dir * 3;
+        const backShoulderY = (shoulderAnchors && Number.isFinite(shoulderAnchors.backY))
+            ? shoulderAnchors.backY
+            : pivotY;
+        const frontShoulderY = (shoulderAnchors && Number.isFinite(shoulderAnchors.frontY))
+            ? shoulderAnchors.frontY
+            : (backShoulderY + 1.0);
+        const shoulderY = backShoulderY;
+        const isCrouchPose = !!this.isCrouching;
+        const standardUpperLen = 13.6;
+        const standardForeLen = 13.2;
+        const standardBackHandRadius = 4.8;
+        const standardFrontHandRadius = 4.5;
+        const standardBackReach = 22.0;
+        const standardFrontReach = 21.6;
         
         ctx.save();
         ctx.strokeStyle = silhouetteColor;
         ctx.lineCap = 'round';
 
+        const armStrokeWidth = 4.8; // 脚(前脛)と同じ太さ
+        const handRadiusScale = 0.86;
         const drawArmSegment = (fromX, fromY, toX, toY, width = 6) => {
-            ctx.lineWidth = width;
+            // 微小な距離（0.1未満）の場合は描画をスキップして不要な点（lineCapによるもの）を防ぐ
+            if (Math.hypot(toX - fromX, toY - fromY) < 0.1) return;
+
+            if (silhouetteOutlineEnabled) {
+                ctx.strokeStyle = silhouetteOutlineColor;
+                ctx.lineWidth = armStrokeWidth + 0.75;
+                ctx.beginPath();
+                ctx.moveTo(fromX, fromY);
+                ctx.lineTo(toX, toY);
+                ctx.stroke();
+            }
+            ctx.strokeStyle = silhouetteColor;
+            ctx.lineWidth = armStrokeWidth;
             ctx.beginPath();
             ctx.moveTo(fromX, fromY);
             ctx.lineTo(toX, toY);
             ctx.stroke();
         };
 
-        const drawHand = (xPos, yPos, radius = 4.8) => {
-            ctx.fillStyle = silhouetteColor; // COLORS.PLAYER_GI から修正
+        const drawArmWithElbow = (
+            shoulderX,
+            shoulderYLocal,
+            elbowX,
+            elbowY,
+            handX,
+            handY,
+            upperWidth = 6,
+            foreWidth = 5.2
+        ) => {
+            drawArmSegment(shoulderX, shoulderYLocal, elbowX, elbowY, upperWidth);
+            drawArmSegment(elbowX, elbowY, handX, handY, foreWidth);
+            ctx.fillStyle = silhouetteColor;
             ctx.beginPath();
-            ctx.arc(xPos, yPos, radius, 0, Math.PI * 2);
+            ctx.arc(elbowX, elbowY, 2.35, 0, Math.PI * 2);
             ctx.fill();
         };
 
-        const drawSubWeaponKatana = (handX, handY, bladeAngle = -1.0, bladeScaleDir = dir) => {
-            this.drawKatana(ctx, handX, handY, bladeAngle, bladeScaleDir);
+        const drawBentArmSegment = (
+            shoulderX,
+            shoulderYLocal,
+            handX,
+            handY,
+            upperLen = 13.6,
+            foreLen = 13.2,
+            bendDir = 1,
+            width = 5.6
+        ) => {
+            const dx = handX - shoulderX;
+            const dy = handY - shoulderYLocal;
+            const distRaw = Math.hypot(dx, dy);
+            if (distRaw < 0.0001) {
+                drawArmSegment(shoulderX, shoulderYLocal, handX, handY, width);
+                return;
+            }
+            // 余裕がある姿勢でも肘の円を表示するため、常に曲げ計算を行う
+            const straightThreshold = (upperLen + foreLen) * 0.98;
+            const ux = dx / distRaw;
+            const uy = dy / distRaw;
+            const midX = shoulderX + ux * (distRaw * 0.54);
+            const midY = shoulderYLocal + uy * (distRaw * 0.54);
+            const nx = -uy;
+            const ny = ux;
+            const closeT = Math.max(0, Math.min(1, (straightThreshold - distRaw) / straightThreshold));
+            const bendAmount = 1.2 + closeT * 1.5;
+            const bendSign = -bendDir;
+            const elbowX = midX + nx * bendAmount * bendSign;
+            const elbowY = midY + ny * bendAmount * bendSign;
+
+            // 手首側の描画を少し短縮してハミ出しを抑制
+            const wristToHandDist = 1.42;
+            const wristX = handX - ux * wristToHandDist;
+            const wristY = handY - uy * wristToHandDist;
+
+            drawArmSegment(shoulderX, shoulderYLocal, elbowX, elbowY, width);
+            drawArmSegment(elbowX, elbowY, wristX, wristY, Math.max(4.4, width - 0.6));
+            ctx.fillStyle = silhouetteColor;
+            ctx.beginPath();
+            ctx.arc(elbowX, elbowY, 2.35, 0, Math.PI * 2);
+            ctx.fill();
+        };
+
+        const drawHand = (xPos, yPos, radius = 4.8) => {
+            const handR = radius * handRadiusScale;
+            ctx.fillStyle = silhouetteColor;
+            ctx.beginPath();
+            ctx.arc(xPos, yPos, handR, 0, Math.PI * 2);
+            ctx.fill();
+        };
+
+        const drawSubWeaponKatana = (
+            handX,
+            handY,
+            bladeAngle = -1.0,
+            bladeScaleDir = dir,
+            uprightBlend = 0.28,
+            renderMode = 'all',
+            scaleY = 1,
+            uprightTarget = -Math.PI / 2
+        ) => {
+            this.drawKatana(
+                ctx,
+                handX,
+                handY,
+                bladeAngle,
+                bladeScaleDir,
+                this.getKatanaBladeLength(),
+                uprightBlend,
+                renderMode,
+                scaleY,
+                uprightTarget
+            );
         };
 
         const drawSupportPose = (handX, handY, withBlade = false, bladeAngle = -1.0, bladeScaleDir = dir, fromBackShoulder = false) => {
-            drawArmSegment(fromBackShoulder ? backShoulderX : frontShoulderX, shoulderY + (fromBackShoulder ? 0 : 1), handX, handY, 5);
-            drawHand(handX, handY, 4.5);
+            const shoulderX = fromBackShoulder ? backShoulderX : frontShoulderX;
+            const shoulderYLocal = fromBackShoulder ? backShoulderY : frontShoulderY;
+            drawBentArmSegment(
+                shoulderX,
+                shoulderYLocal,
+                handX,
+                handY,
+                standardUpperLen,
+                standardForeLen,
+                fromBackShoulder ? -dir : -dir,
+                5.2
+            );
+            drawHand(
+                handX,
+                handY,
+                fromBackShoulder ? standardBackHandRadius : standardFrontHandRadius
+            );
             if (withBlade && renderWeaponVisuals) {
                 drawSubWeaponKatana(handX, handY, bladeAngle, bladeScaleDir);
             }
+        };
+        const drawProgressiveThrowArm = (
+            shoulderX,
+            shoulderYLocal,
+            handX,
+            handY,
+            straightenT = 0,
+            bendDir = -dir
+        ) => {
+            const dx = handX - shoulderX;
+            const dy = handY - shoulderYLocal;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 0.0001) {
+                drawArmSegment(shoulderX, shoulderYLocal, handX, handY, 5.2);
+                return;
+            }
+            const t = Math.max(0, Math.min(1, straightenT));
+            const bendBlend = 1 - t;
+            // 常に肘関節を描画するため、ショートカットを削除
+            const ux = dx / dist;
+            const uy = dy / dist;
+            const nx = -uy;
+            const ny = ux;
+            const elbowBaseX = shoulderX + dx * 0.54;
+            const elbowBaseY = shoulderYLocal + dy * 0.54 + 0.2;
+            const maxBend = Math.min(2.1, dist * 0.16);
+            const bendSign = -bendDir;
+            const bend = maxBend * bendBlend;
+            const elbowX = elbowBaseX + nx * bend * bendSign;
+            const elbowY = elbowBaseY + ny * bend * bendSign;
+            drawArmWithElbow(
+                shoulderX,
+                shoulderYLocal,
+                elbowX,
+                elbowY,
+                handX,
+                handY,
+                5.2,
+                4.7
+            );
         };
 
         const clampArmReach = (shoulderX, shoulderYLocal, targetX, targetY, maxLen) => {
@@ -3864,59 +4690,114 @@ export class Player {
                 y: shoulderYLocal + dy * ratio
             };
         };
+        const fitShoulderReach = (shoulderX, shoulderYLocal, handX, handY, maxLen) => {
+            const dx = handX - shoulderX;
+            const dy = handY - shoulderYLocal;
+            const dist = Math.hypot(dx, dy);
+            const maxLenScaled = maxLen * armReachScale;
+            if (dist <= maxLenScaled || dist <= 0.0001) {
+                return { x: shoulderX, y: shoulderYLocal };
+            }
+            const pull = dist - maxLenScaled;
+            return {
+                x: shoulderX + (dx / dist) * pull,
+                y: shoulderYLocal + (dy / dist) * pull
+            };
+        };
 
         if (this.subWeaponAction === 'throw') {
             // 手前手で投げる（手持ち武器は描画しない）
             const easedProgress = Math.pow(progress, 0.55); // イージングで初速を速く
             const armAngle = -Math.PI * 0.8 + easedProgress * Math.PI * 0.8;
             const armLength = 19;
-            const throwShoulderX = frontShoulderX;
-            const throwShoulderY = shoulderY + 1;
+            const throwShoulderX = frontShoulderX - dir * 0.2;
+            const throwShoulderY = frontShoulderY - 0.15;
             const throwTargetX = throwShoulderX + Math.cos(armAngle) * armLength * dir;
             const throwTargetY = throwShoulderY + Math.sin(armAngle) * armLength;
-            const throwHand = clampArmReach(throwShoulderX, throwShoulderY, throwTargetX, throwTargetY, 21);
-            const armEndX = throwHand.x;
-            const armEndY = throwHand.y;
-
-            ctx.strokeStyle = silhouetteColor;
-            drawArmSegment(throwShoulderX, throwShoulderY, armEndX, armEndY, 5.4);
-            drawHand(armEndX, armEndY, 5);
+            const throwHand = clampArmReach(throwShoulderX, throwShoulderY, throwTargetX, throwTargetY, standardFrontReach);
+            if (drawFrontLayer) {
+                drawProgressiveThrowArm(
+                    throwShoulderX,
+                    throwShoulderY,
+                    throwHand.x,
+                    throwHand.y,
+                    progress,
+                    -dir
+                );
+                drawHand(throwHand.x, throwHand.y, standardFrontHandRadius);
+            }
         } else if (this.subWeaponAction === '大槍') {
-            // 突き: 奥手で押し込み、槍を挟んで手前手でガイド
+            // 突き: いったん引いて腕を曲げ、押し込みで腕を伸ばす
             const spear = (this.currentSubWeapon && this.currentSubWeapon.name === '大槍') ? this.currentSubWeapon : null;
             const grips = (spear && typeof spear.getGripAnchors === 'function')
                 ? spear.getGripAnchors(this)
                 : null;
-            const pushLead = grips ? grips.progress : Math.min(1, progress * 1.35);
-            const thrustArc = Math.sin(pushLead * Math.PI) * 1.1;
-
-            const rearShoulderX = backShoulderX + dir * (0.6 + pushLead * 0.35);
-            const rearShoulderY = shoulderY - 1.1;
-            const rearTargetX = grips ? grips.rear.x : (centerX + dir * (14 + pushLead * 7));
-            const rearTargetY = grips ? grips.rear.y : (pivotY + 7.5 + thrustArc * 0.6);
-            const rearHand = clampArmReach(rearShoulderX, rearShoulderY, rearTargetX, rearTargetY, 26);
-            drawArmSegment(rearShoulderX, rearShoulderY, rearHand.x, rearHand.y, 6);
-            drawHand(rearHand.x, rearHand.y, 5.1);
+            const motionP = grips ? grips.progress : Math.min(1, progress * 1.2);
+            const windup = Math.max(0, 1 - (motionP / 0.34));
+            const extend = Math.max(0, Math.min(1, (motionP - 0.22) / 0.56));
+            const thrustDrive = Math.sin(extend * (Math.PI * 0.5));
+            // 開始時は腕が曲がって見えるよう肩を後ろ寄せ、突きで前へ伸ばす
+            const shoulderPush = -windup * 4.2 + thrustDrive * 2.2;
+            const rearShoulderX = backShoulderX + dir * (-0.9 + shoulderPush * 0.3);
+            const rearShoulderY = shoulderY + 0.15 + windup * 1.25 - thrustDrive * 0.2;
+            // 手元は槍上の固定グリップ位置に置き、槍本体の前進で突きを表現する
+            const rearTargetX = (grips ? grips.rear.x : (centerX + dir * 13.4));
+            const rearTargetY = (grips ? grips.rear.y : (pivotY + 7.8)) + windup * 0.14 - thrustDrive * 0.08;
+            // クランプをかけず、必ずグリップ座標を握る（槍が手元で滑らないようにする）
+            const rearHand = { x: rearTargetX, y: rearTargetY };
+            // 手前手側の補正に使う共通リーチ
+            const spearArmMaxReach = 18.9;
+            if (drawBackLayer) {
+                drawBentArmSegment(
+                    rearShoulderX,
+                    rearShoulderY,
+                    rearHand.x,
+                    rearHand.y,
+                    standardUpperLen,
+                    standardForeLen,
+                    -dir,
+                    5.3
+                );
+                drawHand(rearHand.x, rearHand.y, standardBackHandRadius);
+            }
 
             // 槍本体は奥手と手前手の間に描画する
-            if (renderWeaponVisuals && this.currentSubWeapon && typeof this.currentSubWeapon.render === 'function') {
+            if (drawFrontLayer && renderWeaponVisuals && this.currentSubWeapon && typeof this.currentSubWeapon.render === 'function') {
                 this.currentSubWeapon.render(ctx, this);
                 this.subWeaponRenderedInModel = true;
             }
 
-            const frontShoulderGripX = frontShoulderX + dir * (0.2 + pushLead * 0.25);
-            const frontShoulderGripY = shoulderY + 1 + thrustArc * 0.12;
-            const frontTargetX = grips ? grips.front.x : (centerX + dir * (11 + pushLead * 8));
-            const frontTargetY = grips ? grips.front.y : (pivotY + 10.2 + thrustArc * 0.7);
-            const frontHand = clampArmReach(frontShoulderGripX, frontShoulderGripY, frontTargetX, frontTargetY, 23.5);
-            drawArmSegment(frontShoulderGripX, frontShoulderGripY, frontHand.x, frontHand.y, 5.2);
-            drawHand(frontHand.x, frontHand.y, 5.0);
+            const frontShoulderGripX = frontShoulderX - dir * (0.95 + windup * 1.45) + dir * thrustDrive * 1.1;
+            const frontShoulderGripY = shoulderY + 1.3 + windup * 0.9 - thrustDrive * 0.12;
+            const frontTargetX = (grips ? grips.front.x : (centerX + dir * 11.2));
+            const frontTargetY = (grips ? grips.front.y : (pivotY + 10.0)) + windup * 0.1 - thrustDrive * 0.08;
+            const frontHand = { x: frontTargetX, y: frontTargetY };
+            const frontShoulderFit = fitShoulderReach(
+                frontShoulderGripX,
+                frontShoulderGripY,
+                frontHand.x,
+                frontHand.y,
+                spearArmMaxReach
+            );
+            if (drawFrontLayer) {
+                drawBentArmSegment(
+                    frontShoulderFit.x,
+                    frontShoulderFit.y,
+                    frontHand.x,
+                    frontHand.y,
+                    standardUpperLen,
+                    standardForeLen,
+                    -dir,
+                    5.3
+                );
+                drawHand(frontHand.x, frontHand.y, standardFrontHandRadius);
+            }
         } else if (this.subWeaponAction === '二刀_Z') {
-            // 二刀の通常連撃（Z）：二本の刀で多方向へ連続斬り
+            // 二刀Z: 段別の軌道は維持しつつ、肩起点/腕長を通常基準に統一
             const blade = dualBlade;
             const pose = (blade && typeof blade.getMainSwingPose === 'function')
                 ? blade.getMainSwingPose(dualPoseOverride || {})
-                : { comboIndex: 0, progress, rightAngle: -0.32, leftAngle: 2.2 };
+                : { comboIndex: 0, progress, rightAngle: -0.28, leftAngle: 2.14 };
             const comboStep = pose.comboIndex || 0;
             const comboProgress = pose.progress || 0;
             const comboWave = Math.sin(comboProgress * Math.PI);
@@ -3925,162 +4806,262 @@ export class Player {
                 ? comboProgress / 0.54
                 : (1 - ((comboProgress - 0.54) / 0.46));
             const recover = Math.max(0, (comboProgress - 0.62) / 0.38);
+            const backShoulderBaseX = backShoulderX + dir * 0.18;
+            const backShoulderBaseY = backShoulderY + 0.05;
+            const frontShoulderBaseX = frontShoulderX - dir * 0.18;
+            const frontShoulderBaseY = frontShoulderY + 0.12;
+            let backShoulderMoveX = backShoulderBaseX;
+            let backShoulderMoveY = backShoulderBaseY;
+            let frontShoulderMoveX = frontShoulderBaseX;
+            let frontShoulderMoveY = frontShoulderBaseY;
 
-            let rightShoulderX = backShoulderX + dir * 0.9;
-            let rightShoulderY = shoulderY - 0.9;
-            let leftShoulderX = frontShoulderX - dir * 0.8;
-            let leftShoulderY = shoulderY + 1.2;
-
-            let rightReach = 22.2;
-            let leftReach = 21.6;
-            let rightTargetX = rightShoulderX + Math.cos(pose.rightAngle) * rightReach * dir;
-            let rightTargetY = rightShoulderY + Math.sin(pose.rightAngle) * rightReach;
-            let leftTargetX = leftShoulderX + Math.cos(pose.leftAngle) * leftReach * dir;
-            let leftTargetY = leftShoulderY + Math.sin(pose.leftAngle) * leftReach;
+            let backReach = 19.2;
+            let frontReach = 18.8;
+            let backTargetX = backShoulderMoveX + Math.cos(pose.rightAngle) * backReach * dir;
+            let backTargetY = backShoulderMoveY + Math.sin(pose.rightAngle) * backReach;
+            let frontTargetX = frontShoulderMoveX + Math.cos(pose.leftAngle) * frontReach * dir;
+            let frontTargetY = frontShoulderMoveY + Math.sin(pose.leftAngle) * frontReach;
 
             if (comboStep === 1) {
-                // 一段: 右の抜き打ち、左は添え手で追従
-                rightShoulderX += dir * (2.2 + comboWave * 1.4);
-                leftShoulderX += dir * (0.8 + comboWave * 0.5);
-                rightTargetX += dir * (7.8 + strike * 10.2);
-                rightTargetY -= 2.4 + strike * 2.8;
-                leftTargetX -= dir * (2.0 + strike * 3.8);
-                leftTargetY += 1.0 + recover * 2.6;
+                // 一段: 抜き打ち
+                backShoulderMoveX += dir * (1.7 + comboWave * 0.9);
+                frontShoulderMoveX += dir * (0.4 + comboWave * 0.35);
+                backTargetX += dir * (6.6 + strike * 8.2);
+                backTargetY -= 2.0 + strike * 2.3;
+                frontTargetX -= dir * (1.6 + strike * 2.5);
+                frontTargetY += 0.9 + recover * 2.0;
             } else if (comboStep === 2) {
-                // 二段: 引いて溜め→逆袈裟で返す
+                // 二段: 引き付けから返し
                 const prep = Math.max(0, Math.min(1, comboProgress / 0.4));
                 const snap = Math.max(0, Math.min(1, (comboProgress - 0.4) / 0.6));
-                rightShoulderX -= dir * (1.8 + comboWave * 1.8);
-                leftShoulderX -= dir * (2.6 + comboWave * 2.2);
-                rightTargetX -= dir * (5.0 + prep * 4.6 - snap * 4.2);
-                rightTargetY += 1.4 + prep * 2.4 - snap * 3.0;
-                leftTargetX -= dir * (5.6 + prep * 6.0);
-                leftTargetY -= 2.2 + snap * 3.2;
+                backShoulderMoveX -= dir * (1.5 + comboWave * 1.2);
+                frontShoulderMoveX -= dir * (2.0 + comboWave * 1.6);
+                backTargetX -= dir * (4.2 + prep * 3.8 - snap * 3.2);
+                backTargetY += 1.2 + prep * 1.8 - snap * 2.5;
+                frontTargetX -= dir * (4.8 + prep * 4.6);
+                frontTargetY -= 2.0 + snap * 2.8;
             } else if (comboStep === 3) {
-                // 三段: クロスステップで左右へ払う
-                rightShoulderX += dir * (comboPulse * 2.0);
-                leftShoulderX -= dir * (comboPulse * 2.0);
-                rightTargetX += dir * (-8.0 + comboProgress * 22.0);
-                leftTargetX -= dir * (-6.5 + comboProgress * 20.0);
-                rightTargetY = rightShoulderY + 2.4 + comboPulse * 0.9;
-                leftTargetY = leftShoulderY + 2.9 - comboPulse * 0.9;
+                // 三段: クロスステップ払い
+                backShoulderMoveX += dir * (comboPulse * 1.4);
+                frontShoulderMoveX -= dir * (comboPulse * 1.4);
+                backTargetX += dir * (-6.0 + comboProgress * 17.0);
+                frontTargetX -= dir * (-5.0 + comboProgress * 15.0);
+                backTargetY = backShoulderMoveY + 2.1 + comboPulse * 0.7;
+                frontTargetY = frontShoulderMoveY + 2.5 - comboPulse * 0.7;
             } else if (comboStep === 4) {
-                // 四段: 跳躍しつつ頭上で交叉
-                rightShoulderY -= 2.6 + comboWave * 2.8;
-                leftShoulderY -= 2.4 + comboWave * 2.6;
-                rightReach = 26.0;
-                leftReach = 25.0;
-                rightTargetX += dir * (2.6 + comboWave * 6.0);
-                leftTargetX -= dir * (2.2 + comboWave * 5.6);
-                rightTargetY -= 5.2 + comboWave * 4.8;
-                leftTargetY -= 4.8 + comboWave * 4.4;
+                // 四段: 胸前クロスで止めてから斜めへ払い上げ
+                const gather = Math.max(0, Math.min(1, comboProgress / 0.42));
+                const release = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.58));
+                const gatherEase = gather * gather * (3 - 2 * gather);
+                const releaseEase = release * release * (3 - 2 * release);
+                const xBlend = (a, b) => a + (b - a) * gatherEase;
+                const yBlend = (a, b) => a + (b - a) * gatherEase;
+
+                backReach = 19.6;
+                frontReach = 19.2;
+                backShoulderMoveX += dir * (0.8 + gatherEase * 0.9 + releaseEase * 1.8);
+                backShoulderMoveY -= 0.5 + gatherEase * 1.0 + releaseEase * 0.5;
+                frontShoulderMoveX += dir * (0.2 + gatherEase * 0.7 + releaseEase * 1.1);
+                frontShoulderMoveY -= 0.3 + gatherEase * 0.8 + releaseEase * 0.5;
+
+                const crossBackX = centerX + dir * (isCrouchPose ? 5.8 : 6.8);
+                const crossBackY = pivotY + (isCrouchPose ? 6.1 : 4.7);
+                const crossFrontX = centerX + dir * (isCrouchPose ? 3.9 : 4.9);
+                const crossFrontY = pivotY + (isCrouchPose ? 7.5 : 6.2);
+                const releaseBackX = centerX + dir * (isCrouchPose ? 14.8 : 16.4);
+                const releaseBackY = pivotY - (isCrouchPose ? 1.2 : 4.9);
+                const releaseFrontX = centerX + dir * (isCrouchPose ? 11.8 : 13.2);
+                const releaseFrontY = pivotY - (isCrouchPose ? 0.2 : 3.8);
+
+                const gatheredBackX = xBlend(backTargetX, crossBackX);
+                const gatheredBackY = yBlend(backTargetY, crossBackY);
+                const gatheredFrontX = xBlend(frontTargetX, crossFrontX);
+                const gatheredFrontY = yBlend(frontTargetY, crossFrontY);
+                backTargetX = gatheredBackX + (releaseBackX - gatheredBackX) * releaseEase;
+                backTargetY = gatheredBackY + (releaseBackY - gatheredBackY) * releaseEase;
+                frontTargetX = gatheredFrontX + (releaseFrontX - gatheredFrontX) * releaseEase;
+                frontTargetY = gatheredFrontY + (releaseFrontY - gatheredFrontY) * releaseEase;
             } else if (comboStep === 0) {
-                // 五段: 頭上構えから落下断ち
-                rightReach = 24.2;
-                leftReach = 23.0;
+                // 五段: 頭上構え→落下断ち
+                backReach = 19.8;
+                frontReach = 19.2;
                 if (comboProgress < 0.35) {
                     const t = comboProgress / 0.35;
-                    rightShoulderY -= 3.2 + t * 3.2;
-                    leftShoulderY -= 3.0 + t * 3.0;
-                    rightTargetX += dir * (2.2 + t * 3.0);
-                    leftTargetX -= dir * (2.0 + t * 2.8);
-                    rightTargetY -= 6.0 + t * 7.4;
-                    leftTargetY -= 5.2 + t * 6.8;
+                    backShoulderMoveY -= 2.8 + t * 2.6;
+                    frontShoulderMoveY -= 2.6 + t * 2.4;
+                    backTargetX += dir * (1.9 + t * 2.4);
+                    frontTargetX -= dir * (1.7 + t * 2.2);
+                    backTargetY -= 5.4 + t * 6.2;
+                    frontTargetY -= 4.8 + t * 5.7;
                 } else {
                     const t = (comboProgress - 0.35) / 0.65;
-                    rightShoulderY -= 6.4 - t * 2.4;
-                    leftShoulderY -= 6.0 - t * 2.1;
-                    rightTargetX += dir * (5.0 + t * 7.2);
-                    leftTargetX -= dir * (3.2 + t * 4.6);
-                    rightTargetY -= 13.4 - t * 20.6;
-                    leftTargetY -= 11.8 - t * 17.6;
+                    backShoulderMoveY -= 5.4 - t * 2.0;
+                    frontShoulderMoveY -= 5.1 - t * 1.8;
+                    backTargetX += dir * (4.2 + t * 6.1);
+                    frontTargetX -= dir * (2.8 + t * 3.8);
+                    backTargetY -= 11.4 - t * 17.8;
+                    frontTargetY -= 10.1 - t * 15.6;
                 }
             }
 
-            // 肩位置を動かした分だけ手先ターゲットも追従
-            rightTargetX += rightShoulderX - (backShoulderX + dir * 0.9);
-            rightTargetY += rightShoulderY - (shoulderY - 0.9);
-            leftTargetX += leftShoulderX - (frontShoulderX - dir * 0.8);
-            leftTargetY += leftShoulderY - (shoulderY + 1.2);
-            rightTargetX += Math.cos(pose.rightAngle) * (rightReach - 22.2) * dir;
-            rightTargetY += Math.sin(pose.rightAngle) * (rightReach - 22.2);
-            leftTargetX += Math.cos(pose.leftAngle) * (leftReach - 21.6) * dir;
-            leftTargetY += Math.sin(pose.leftAngle) * (leftReach - 21.6);
+            const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+            const shoulderMaxDriftX = 2.9;
+            const shoulderMaxDriftY = 3.1;
+            backShoulderMoveX = clamp(backShoulderMoveX, backShoulderBaseX - shoulderMaxDriftX, backShoulderBaseX + shoulderMaxDriftX);
+            backShoulderMoveY = clamp(backShoulderMoveY, backShoulderBaseY - shoulderMaxDriftY, backShoulderBaseY + shoulderMaxDriftY);
+            frontShoulderMoveX = clamp(frontShoulderMoveX, frontShoulderBaseX - shoulderMaxDriftX, frontShoulderBaseX + shoulderMaxDriftX);
+            frontShoulderMoveY = clamp(frontShoulderMoveY, frontShoulderBaseY - shoulderMaxDriftY, frontShoulderBaseY + shoulderMaxDriftY);
 
-            const rightHand = clampArmReach(rightShoulderX, rightShoulderY, rightTargetX, rightTargetY, 24.6);
-            const leftHand = clampArmReach(leftShoulderX, leftShoulderY, leftTargetX, leftTargetY, 22.8);
-            drawArmSegment(rightShoulderX, rightShoulderY, rightHand.x, rightHand.y, 5.6);
-            drawArmSegment(leftShoulderX, leftShoulderY, leftHand.x, leftHand.y, 5.4);
-            drawHand(rightHand.x, rightHand.y, 5.0);
-            drawHand(leftHand.x, leftHand.y, 4.9);
+            // 肩移動の差分を手先ターゲットへ反映
+            backTargetX += backShoulderMoveX - backShoulderBaseX;
+            backTargetY += backShoulderMoveY - backShoulderBaseY;
+            frontTargetX += frontShoulderMoveX - frontShoulderBaseX;
+            frontTargetY += frontShoulderMoveY - frontShoulderBaseY;
+            backTargetX += Math.cos(pose.rightAngle) * (backReach - 21.8) * dir;
+            backTargetY += Math.sin(pose.rightAngle) * (backReach - 21.8);
+            frontTargetX += Math.cos(pose.leftAngle) * (frontReach - 21.2) * dir;
+            frontTargetY += Math.sin(pose.leftAngle) * (frontReach - 21.2);
 
-            if (renderWeaponVisuals) {
-                drawSubWeaponKatana(leftHand.x, leftHand.y, pose.leftAngle, dir);
-                drawSubWeaponKatana(rightHand.x, rightHand.y, pose.rightAngle, dir);
+            const dualBackReachCap = Math.min(standardBackReach, 20.8);
+            const dualFrontReachCap = Math.min(standardFrontReach, 20.4);
+            const backHand = clampArmReach(backShoulderMoveX, backShoulderMoveY, backTargetX, backTargetY, dualBackReachCap);
+            const frontHand = clampArmReach(frontShoulderMoveX, frontShoulderMoveY, frontTargetX, frontTargetY, dualFrontReachCap);
+            // 奥手のアーム、手、刀は通常通り背面（胴体の後ろ）に描画する
+            if (drawBackLayer) {
+                drawBentArmSegment(backShoulderMoveX, backShoulderMoveY, backHand.x, backHand.y, standardUpperLen, standardForeLen, -dir, 5.3);
+                drawHand(backHand.x, backHand.y, standardBackHandRadius);
+                if (renderWeaponVisuals) {
+                    drawSubWeaponKatana(backHand.x, backHand.y, pose.rightAngle, dir);
+                }
+            }
+            // 手前手
+            if (drawFrontLayer) {
+                drawBentArmSegment(frontShoulderMoveX, frontShoulderMoveY, frontHand.x, frontHand.y, standardUpperLen, standardForeLen, -dir, 5.3);
+
+                if (renderWeaponVisuals) {
+                    // 腕の後に「柄」を描画することで、手首が柄の背後に隠れるようにする
+                    drawSubWeaponKatana(frontHand.x, frontHand.y, pose.leftAngle, dir, 0.28, 'handle');
+                }
+                // 手前手は柄より前に描いて「握っている」見え方を優先する
+                drawHand(frontHand.x, frontHand.y, standardFrontHandRadius);
+                if (renderWeaponVisuals) {
+                    drawSubWeaponKatana(frontHand.x, frontHand.y, pose.leftAngle, dir, 0.28, 'blade');
+                }
             }
         } else if (this.subWeaponAction === '二刀_合体') {
-            // 目の前でクロスした状態から、そのまま振り下ろす
+            // 二刀合体: 顔前でX字に構えて静止 → その後に解放
             const clamped = Math.min(1, Math.max(0, progress));
-            const crossPhase = 0.34;
-            const isCrossPhase = clamped < crossPhase;
-            const t = isCrossPhase ? (clamped / crossPhase) : ((clamped - crossPhase) / (1 - crossPhase));
-            const comboBackShoulderX = backShoulderX;
-            const comboFrontShoulderX = frontShoulderX;
-            const comboShoulderY = shoulderY;
+            const gatherPhase = 0.34;
+            const holdPhase = 0.2;
+            const releasePhase = Math.max(0.01, 1 - gatherPhase - holdPhase);
+            const gather = Math.max(0, Math.min(1, clamped / gatherPhase));
+            const hold = clamped <= gatherPhase
+                ? 0
+                : Math.max(0, Math.min(1, (clamped - gatherPhase) / holdPhase));
+            const release = clamped <= (gatherPhase + holdPhase)
+                ? 0
+                : Math.max(0, Math.min(1, (clamped - gatherPhase - holdPhase) / releasePhase));
+            const easeGather = gather * gather * (3 - 2 * gather);
+            const easeRelease = release * release * (3 - 2 * release);
+            const holdPulse = Math.sin(hold * Math.PI) * 0.28;
+            const lerp = (a, b, t) => a + (b - a) * t;
 
-            let rightX, leftX, rightY, leftY;
-            let rightAngle, leftAngle;
-            if (isCrossPhase) {
-                const gather = t;
-                const ease = gather * gather * (3 - 2 * gather);
-                rightX = centerX + dir * (9 - ease * 6);
-                leftX = centerX - dir * (7 - ease * 4.5);
-                rightY = pivotY + 18 - ease * 8;
-                leftY = pivotY + 17 - ease * 6;
-                // 交差点を体の前方に置き、刀身中央あたりでクロスさせる
-                const crossTargetX = centerX + dir * (38 + ease * 4);
-                const crossTargetY = pivotY - (6 + ease * 1.5);
-                rightAngle = Math.atan2(crossTargetY - rightY, (crossTargetX - rightX) * dir);
-                leftAngle = Math.atan2(crossTargetY - leftY, (crossTargetX - leftX) * dir);
+            const backShoulderDualX = backShoulderX + dir * (0.12 + easeGather * 0.8 + easeRelease * 0.92);
+            const backShoulderDualY = backShoulderY - (0.02 + easeGather * 0.82 + easeRelease * 0.22);
+            const frontShoulderDualX = frontShoulderX + dir * (0.08 + easeGather * 0.74 + easeRelease * 0.82);
+            const frontShoulderDualY = frontShoulderY - (0.12 + easeGather * 0.64 + easeRelease * 0.24);
+
+            // crossは「刃が交わるべき空間上の点」（手ではなく刃の中間）
+            const crossX = centerX + dir * (isCrouchPose ? 13.0 : 15.6);
+            const crossY = pivotY - (isCrouchPose ? 5.0 : 6.5);
+            // ポーズの自然さ（アイドル状態ベース）を重視
+            // 奥手を少し引き、角度を立たせる（後ろに倒しすぎない）
+            const holdBackX = centerX + dir * (isCrouchPose ? 13.0 : 15.0);
+            const holdBackY = pivotY + (isCrouchPose ? 11.5 : 12.5);
+            const holdFrontX = centerX - dir * (isCrouchPose ? 2.0 : 2.5);
+            const holdFrontY = pivotY + (isCrouchPose ? 12.5 : 14.0);
+            // 刃の角度: オフセットをほぼゼロに近くし、自然なX字へ
+            const holdBackAngle = Math.atan2(crossY - holdBackY, (crossX - holdBackX) * dir) - 0.02;
+            const holdFrontAngle = Math.atan2(crossY - holdFrontY, (crossX - holdFrontX) * dir) + 0.03;
+            let backX;
+            let frontX;
+            let backY;
+            let frontY;
+            let backAngle;
+            let frontAngle;
+            if (clamped < gatherPhase) {
+                backX = lerp(centerX + dir * 8.2, holdBackX, easeGather);
+                frontX = lerp(centerX - dir * 6.6, holdFrontX, easeGather);
+                backY = lerp(pivotY + 15.8, holdBackY, easeGather);
+                frontY = lerp(pivotY + 14.7, holdFrontY, easeGather);
+                const gatherBackAngle = Math.atan2(crossY - backY, (crossX - backX) * dir);
+                const gatherFrontAngle = Math.atan2(crossY - frontY, (crossX - frontX) * dir);
+                backAngle = lerp(gatherBackAngle, holdBackAngle, easeGather);
+                frontAngle = lerp(gatherFrontAngle, holdFrontAngle, easeGather);
+            } else if (clamped < gatherPhase + holdPhase) {
+                backX = holdBackX - dir * holdPulse * 0.16;
+                frontX = holdFrontX - dir * holdPulse * 0.12;
+                backY = holdBackY - holdPulse * 0.2;
+                frontY = holdFrontY + holdPulse * 0.18;
+                backAngle = holdBackAngle + holdPulse * 0.02;
+                frontAngle = holdFrontAngle - holdPulse * 0.03;
             } else {
-                const sweep = t;
-                const spread = Math.pow(sweep, 0.6);
-                const fastSweepR = Math.min(1, sweep * 2.0);
-                const fastSweepL = Math.min(1, sweep * 1.9);
-                rightX = centerX + dir * (1 + spread * 17);
-                leftX = centerX - dir * (1 + spread * 15);
-                rightY = pivotY + 13 + fastSweepR * 11;
-                leftY = pivotY + 13 + fastSweepL * 9;
-                // クロス角から左右へ開いて斜め下へ振り抜く
-                const crossTargetX = centerX + dir * (42 + sweep * 3);
-                const crossTargetY = pivotY - 6 + sweep * 8;
-                const fromCrossRight = Math.atan2(crossTargetY - rightY, (crossTargetX - rightX) * dir);
-                const fromCrossLeft = Math.atan2(crossTargetY - leftY, (crossTargetX - leftX) * dir);
-                const rightEase = Math.pow(sweep, 0.74);
-                const leftEase = Math.pow(sweep, 0.70);
-                const rightEndAngle = 1.22;
-                const leftEndAngle = 2.16;
-                rightAngle = fromCrossRight + (rightEndAngle - fromCrossRight) * rightEase;
-                leftAngle = fromCrossLeft + (leftEndAngle - fromCrossLeft) * leftEase;
+                // 終端: 正面視でハの字（側面ビューでは腕は胴沿い、刀は前下）
+                const releaseBackX = backShoulderDualX + dir * (isCrouchPose ? 1.0 : 1.3);
+                const releaseFrontX = frontShoulderDualX + dir * (isCrouchPose ? 1.1 : 1.5);
+                const releaseBackY = backShoulderDualY + (isCrouchPose ? 15.6 : 17.0);
+                const releaseFrontY = frontShoulderDualY + (isCrouchPose ? 15.2 : 16.5);
+                backX = lerp(holdBackX, releaseBackX, easeRelease);
+                frontX = lerp(holdFrontX, releaseFrontX, easeRelease);
+                backY = lerp(holdBackY, releaseBackY, easeRelease);
+                frontY = lerp(holdFrontY, releaseFrontY, easeRelease);
+                const backEndAngle = 1.04;
+                const frontEndAngle = 0.92;
+                backAngle = lerp(holdBackAngle, backEndAngle, easeRelease);
+                frontAngle = lerp(holdFrontAngle, frontEndAngle, easeRelease);
             }
 
-            // 終端で腕が伸びすぎないように上限を設ける
-            const rightClamped = clampArmReach(comboBackShoulderX, comboShoulderY - 1, rightX, rightY, 23);
-            rightX = rightClamped.x;
-            rightY = rightClamped.y;
-            const leftClamped = clampArmReach(comboFrontShoulderX, comboShoulderY, leftX, leftY, 21);
-            leftX = leftClamped.x;
-            leftY = leftClamped.y;
+            const dualBackReachCap = standardBackReach;
+            const dualFrontReachCap = standardFrontReach;
+            const backHand = clampArmReach(backShoulderDualX, backShoulderDualY, backX, backY, dualBackReachCap);
+            const frontHand = clampArmReach(frontShoulderDualX, frontShoulderDualY, frontX, frontY, dualFrontReachCap);
 
-            drawArmSegment(comboBackShoulderX, comboShoulderY - 1, rightX, rightY, 5.4);
-            drawArmSegment(comboFrontShoulderX, comboShoulderY, leftX, leftY, 5.4);
-            drawHand(rightX, rightY, 5);
-            drawHand(leftX, leftY, 5);
+            // 肘を曲げるため、肩から手の距離を制限。手と刀の描画座標もこれに合わせることで隙間を解消
+            const distToCheck = Math.hypot(backHand.x - backShoulderDualX, backHand.y - backShoulderDualY);
+            const maxBendDist = 13.0;
+            if (distToCheck > maxBendDist) {
+                const ratio = maxBendDist / distToCheck;
+                backHand.x = backShoulderDualX + (backHand.x - backShoulderDualX) * ratio;
+                backHand.y = backShoulderDualY + (backHand.y - backShoulderDualY) * ratio;
+            }
 
-            // 奥(左手) -> 手前(右手)の順で描き、こちら向きの奥行きを作る
-            if (renderWeaponVisuals) {
-                drawSubWeaponKatana(leftX, leftY, leftAngle, dir);
-                drawSubWeaponKatana(rightX, rightY, rightAngle, dir);
+            // 奥手
+            // アームと手は胴体の裏（背面レイヤー）にのみ描画
+            if (drawBackLayer) {
+                drawBentArmSegment(backShoulderDualX, backShoulderDualY, backHand.x, backHand.y, standardUpperLen, standardForeLen, -dir, 5.3);
+                drawHand(backHand.x, backHand.y, standardBackHandRadius);
+            }
+            // 刀は前面フェーズでのみ描画（重複防止と、頭部の前に出すため）
+            if (drawFrontLayer && renderWeaponVisuals) {
+                // 奥の刀は Yスケールを反転させて刃と峰の向きを正しくする。
+                // 方向を維持するため、角度を反転させ、立ち上げターゲットも反転させる。
+                drawSubWeaponKatana(backHand.x, backHand.y, -backAngle, dir, 0.02, 'all', -1, Math.PI / 2);
+            }
+            // 手前手
+            if (drawFrontLayer) {
+                // 1. 腕（関節含む）
+                drawBentArmSegment(frontShoulderDualX, frontShoulderDualY, frontHand.x, frontHand.y, standardUpperLen, standardForeLen, -dir, 5.2);
+
+                if (renderWeaponVisuals) {
+                    // 2. 刀の柄（腕より前面）
+                    drawSubWeaponKatana(frontHand.x, frontHand.y, frontAngle, dir, 0.02, 'handle');
+                }
+                // 3. 手（柄より前面）
+                drawHand(frontHand.x, frontHand.y, standardFrontHandRadius);
+                if (renderWeaponVisuals) {
+                    // 4. 刀身（手の前面）
+                    drawSubWeaponKatana(frontHand.x, frontHand.y, frontAngle, dir, 0.02, 'blade');
+                }
             }
         } else if (this.subWeaponAction === '大太刀') {
             // 大太刀: 柄の中心付近を両手で挟む専用グリップ
@@ -4102,59 +5083,87 @@ export class Player {
             const frontShoulderGripX = frontShoulderX - dir * 0.25;
             const frontShoulderGripY = shoulderY + 0.9;
 
-            const rearHand = clampArmReach(rearShoulderX, rearShoulderY, rearTarget.x, rearTarget.y, 25.2);
-            drawArmSegment(rearShoulderX, rearShoulderY, rearHand.x, rearHand.y, 6);
-            drawHand(rearHand.x, rearHand.y, 5);
+            const rearHand = clampArmReach(rearShoulderX, rearShoulderY, rearTarget.x, rearTarget.y, standardBackReach);
+            if (drawBackLayer) {
+                drawBentArmSegment(rearShoulderX, rearShoulderY, rearHand.x, rearHand.y, standardUpperLen, standardForeLen, -dir, 5.3);
+                drawHand(rearHand.x, rearHand.y, standardBackHandRadius);
+            }
 
             // 本体の手前に持つ見た目を作るため、奥手の後に大太刀を描く
-            if (renderWeaponVisuals && odachi && typeof odachi.render === 'function') {
+            if (drawFrontLayer && renderWeaponVisuals && odachi && typeof odachi.render === 'function') {
                 odachi.render(ctx, this);
                 this.subWeaponRenderedInModel = true;
             }
 
-            const frontHand = clampArmReach(frontShoulderGripX, frontShoulderGripY, frontTarget.x, frontTarget.y, 22.8);
-            drawArmSegment(frontShoulderGripX, frontShoulderGripY, frontHand.x, frontHand.y, 5.2);
-            drawHand(frontHand.x, frontHand.y, 4.8);
+            const frontHand = clampArmReach(frontShoulderGripX, frontShoulderGripY, frontTarget.x, frontTarget.y, standardFrontReach);
+            if (drawFrontLayer) {
+                drawBentArmSegment(frontShoulderGripX, frontShoulderGripY, frontHand.x, frontHand.y, standardUpperLen, standardForeLen, -dir, 5.2);
+                drawHand(frontHand.x, frontHand.y, standardFrontHandRadius);
+            }
         } else if (this.subWeaponAction === '鎖鎌') {
-            // 鎖鎌: 振りかぶり -> 前方へ伸ばす -> 伸ばしたまま後頭部へ回す
+            // 鎖鎌: 振りかぶり -> 前方へ投げ放つ -> その後に回す
             const kusa = (this.currentSubWeapon && this.currentSubWeapon.name === '鎖鎌') ? this.currentSubWeapon : null;
             const anchor = (kusa && typeof kusa.getHandAnchor === 'function')
                 ? kusa.getHandAnchor(this)
                 : { x: centerX + dir * 13, y: pivotY + 8, progress };
             const phase = anchor.phase || 'orbit';
             const phaseT = anchor.phaseT || 0;
-            const swingShoulderX = frontShoulderX + dir * 0.15;
-            const swingShoulderY = shoulderY + 0.45;
-            const armMaxLen = phase === 'extend' ? 34.5 : 42.0;
-            const mainHand = clampArmReach(swingShoulderX, swingShoulderY, anchor.x, anchor.y, armMaxLen);
-            drawArmSegment(swingShoulderX, swingShoulderY, mainHand.x, mainHand.y, 5.5);
-            drawHand(mainHand.x, mainHand.y, 5);
+            const swingShoulderX = frontShoulderX + dir * 0.12;
+            const swingShoulderY = frontShoulderY + 0.18;
+            let targetHandX = anchor.x;
+            let targetHandY = anchor.y;
+            // 投げ終わり直後に軽い反動を入れて、人間の腕らしい減速を作る
+            if (phase === 'orbit' && phaseT < 0.26) {
+                const recoil = 1 - (phaseT / 0.26);
+                targetHandX -= dir * (2.6 + recoil * 5.2);
+                targetHandY += recoil * 1.25;
+            }
+            // 鎖鎌の腕長は投擲系(手裏剣/火薬玉)と同等レンジに統一
+            const armMaxLen =
+                phase === 'windup' ? 20.6 :
+                (phase === 'throw' ? 21.0 : 21.2);
+            const mainHand = clampArmReach(swingShoulderX, swingShoulderY, targetHandX, targetHandY, armMaxLen);
 
-            // 鎖鎌中でも奥手の刀は保持し続ける
-            if (phase === 'extend') {
-                const backEase = 1 - (phaseT * phaseT * (3 - 2 * phaseT));
-                drawSupportPose(
-                    centerX + dir * (10 - backEase * 4.5),
-                    pivotY + 9 - backEase * 3.5,
-                    true,
-                    -0.55 - backEase * 0.35,
-                    dir,
-                    true
-                );
-            } else {
-                drawSupportPose(centerX + dir * 11.5, pivotY + 8.2, true, -0.55, dir, true);
+            // 手前手は最後に描画して、奥手の刀より手前に見せる
+            if (drawFrontLayer) {
+                if (phase === 'throw') {
+                    drawProgressiveThrowArm(
+                        swingShoulderX,
+                        swingShoulderY,
+                        mainHand.x,
+                        mainHand.y,
+                        phaseT,
+                        -dir
+                    );
+                } else {
+                    drawBentArmSegment(
+                        swingShoulderX,
+                        swingShoulderY,
+                        mainHand.x,
+                        mainHand.y,
+                        standardUpperLen,
+                        standardForeLen,
+                        -dir,
+                        5.3
+                    );
+                }
+                drawHand(mainHand.x, mainHand.y, standardFrontHandRadius);
             }
         } else {
             // その他（デフォルト突き）
             const armEndX = centerX + dir * 20;
             const armEndY = pivotY + 5;
-            drawArmSegment(backShoulderX, shoulderY, armEndX, armEndY, 6);
-            drawHand(armEndX, armEndY, 5);
-            drawSupportPose(centerX - dir * 8, pivotY + 12);
+            if (drawBackLayer) {
+                drawBentArmSegment(backShoulderX, backShoulderY, armEndX, armEndY, standardUpperLen, standardForeLen, -dir, 5.3);
+                drawHand(armEndX, armEndY, standardBackHandRadius);
+            }
+            if (drawFrontLayer) {
+                drawSupportPose(centerX - dir * 8, pivotY + 12);
+            }
         }
 
         // 追加: モーション中以外で武器を強制表示（プレビュー用）
-        if (this.forceSubWeaponRender && !this.subWeaponRenderedInModel && this.currentSubWeapon && renderWeaponVisuals) {
+        if (drawFrontLayer && this.forceSubWeaponRender && !this.subWeaponRenderedInModel && this.currentSubWeapon && renderWeaponVisuals) {
             const weaponName = this.currentSubWeapon.name;
             if (weaponName === '手裏剣') {
                 // ★飛翔体と同一サイズで背中に表示
@@ -4187,10 +5196,12 @@ export class Player {
         backShoulderY = pivotY,
         frontShoulderX = centerX,
         frontShoulderY = pivotY + 1,
-        supportFrontHand = true
+        supportFrontHand = true,
+        layerPhase = 'all'
     }, options = {}) {
         const silhouetteColor = (options.palette && options.palette.silhouette) || COLORS.PLAYER;
-        const accentColor = (options.palette && options.palette.accent) || '#00bfff';
+        const silhouetteOutlineEnabled = options.silhouetteOutline !== false;
+        const silhouetteOutlineColor = (options.palette && options.palette.silhouetteOutline) || 'rgba(168, 196, 230, 0.29)';
         const armReachScale = Number.isFinite(options.armReachScale) ? options.armReachScale : 1.0;
         const attack = this.currentAttack;
         if (!attack) {
@@ -4200,8 +5211,13 @@ export class Player {
         const rawProgress = Math.max(0, Math.min(1, 1 - (this.attackTimer / attackDuration)));
         const progress = this.getAttackMotionProgress(attack, rawProgress);
         const dir = facingRight ? 1 : -1;
+        const attackArmStrokeWidth = 4.8; // 通常腕と同じ太さ
+        const attackHandRadiusScale = 0.86; // 通常手と同じ縮尺
+        const standardUpperLen = 13.6;
+        const standardForeLen = 13.2;
+        const drawBackLayer = layerPhase !== 'front';
+        const drawFrontLayer = layerPhase !== 'back';
         const easeOut = 1 - Math.pow(1 - progress, 2);
-        const easeIn = progress * progress;
         const easeInOut = progress < 0.5
             ? 2 * progress * progress
             : 1 - Math.pow(-2 * progress + 2, 2) / 2;
@@ -4420,6 +5436,14 @@ export class Player {
                     swordAngle = (progress - 0.5) * Math.PI;
                     armEndX = centerX + dir * 15;
                     armEndY = pivotY + 5;
+                    // 二刀流装備時、X技でのポーズ調整
+                    if (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
+                        // 肘を曲げるためにターゲットを肩方向へ引き寄せる
+                        armEndX -= dir * 4;
+                        armEndY += 2.5;
+                        // 角度を少し立たせて交差位置を調整
+                        swordAngle += dir * 0.15;
+                    }
                     break;
                 case ANIM_STATE.ATTACK_UPPERCUT:
                     swordAngle = Math.PI / 2 - progress * Math.PI;
@@ -4451,27 +5475,130 @@ export class Player {
             armEndY = activeBackShoulderY + (armEndY - activeBackShoulderY) * armReachScale;
         }
 
-        // 奥手（主動作）: 付け根を固定して描画
-        ctx.strokeStyle = silhouetteColor;
-        ctx.lineWidth = 6;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(activeBackShoulderX, activeBackShoulderY);
-        ctx.lineTo(armEndX, armEndY);
-        ctx.stroke();
+        const drawAttackArmSegment = (fromX, fromY, toX, toY, width = attackArmStrokeWidth) => {
+            // 微小な距離（0.1未満）の場合は描画をスキップ
+            if (Math.hypot(toX - fromX, toY - fromY) < 0.1) return;
 
-        // 手を上書きで描画
-        ctx.fillStyle = silhouetteColor; // COLORS.PLAYER_GI から修正
-        ctx.beginPath();
-        ctx.arc(armEndX, armEndY, 6, 0, Math.PI * 2);
-        ctx.fill();
+            if (silhouetteOutlineEnabled) {
+                ctx.strokeStyle = silhouetteOutlineColor;
+                ctx.lineWidth = width + 0.75;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(fromX, fromY);
+                ctx.lineTo(toX, toY);
+                ctx.stroke();
+            }
+            ctx.strokeStyle = silhouetteColor;
+            ctx.lineWidth = width;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(fromX, fromY);
+            ctx.lineTo(toX, toY);
+            ctx.stroke();
+        };
+        const drawAttackBentArm = (
+            shoulderX,
+            shoulderY,
+            handX,
+            handY,
+            bendDir = 1,
+            width = attackArmStrokeWidth,
+            upperLen = standardUpperLen,
+            foreLen = standardForeLen
+        ) => {
+            const dx = handX - shoulderX;
+            const dy = handY - shoulderY;
+            const distRaw = Math.hypot(dx, dy);
+            if (distRaw < 0.0001) {
+                drawAttackArmSegment(shoulderX, shoulderY, handX, handY, width);
+                return;
+            }
+            const straightThreshold = (upperLen + foreLen) * 0.98;
+            const ux = dx / distRaw;
+            const uy = dy / distRaw;
+            const midX = shoulderX + ux * (distRaw * 0.54);
+            const midY = shoulderY + uy * (distRaw * 0.54);
+            const nx = -uy;
+            const ny = ux;
+            const closeT = Math.max(0, Math.min(1, (straightThreshold - distRaw) / straightThreshold));
+            const bendAmount = 1.25 + closeT * 1.55;
+            const bendSign = -bendDir;
+            const elbowX = midX + nx * bendAmount * bendSign;
+            const elbowY = midY + ny * bendAmount * bendSign;
+
+            // 手のひらへのハミ出しを防ぐため終点を少し手前に
+            const wristToHandDist = 1.4;
+            const wristX = handX - ux * wristToHandDist;
+            const wristY = handY - uy * wristToHandDist;
+
+            drawAttackArmSegment(shoulderX, shoulderY, elbowX, elbowY, width);
+            drawAttackArmSegment(elbowX, elbowY, wristX, wristY, Math.max(4.4, width - 0.6));
+            ctx.fillStyle = silhouetteColor;
+            ctx.beginPath();
+            ctx.arc(elbowX, elbowY, 2.35, 0, Math.PI * 2);
+            ctx.fill();
+        };
+        const clampAttackMainReach = (shoulderX, shoulderY, handX, handY, maxLen) => {
+            const dx = handX - shoulderX;
+            const dy = handY - shoulderY;
+            const dist = Math.hypot(dx, dy);
+            if (dist <= maxLen || dist === 0) return { x: handX, y: handY };
+            const ratio = maxLen / dist;
+            return {
+                x: shoulderX + dx * ratio,
+                y: shoulderY + dy * ratio
+            };
+        };
 
         const rot = swordAngle;
+        const mainBendDir = Math.sin(rot) < -0.22 ? -dir : dir;
+        const mainReachCap = (standardUpperLen + standardForeLen) * armReachScale;
+        const clampedMainHand = clampAttackMainReach(
+            activeBackShoulderX,
+            activeBackShoulderY,
+            armEndX,
+            armEndY,
+            mainReachCap
+        );
+        armEndX = clampedMainHand.x;
+        armEndY = clampedMainHand.y;
+
+        const hasDualWeapon = this.currentSubWeapon && this.currentSubWeapon.name === '二刀流';
+        if (hasDualWeapon) {
+            // 二刀流装備時、肘の曲がりを保証するためにターゲットを引き寄せる
+            // drawAttackBentArmのstraightThreshold(≈15)未満に収めることで肘が必ず曲がる
+            const shoulderToHandDist = Math.hypot(armEndX - activeBackShoulderX, armEndY - activeBackShoulderY);
+            const maxDist = 13; // straightThreshold未満に制限
+            if (shoulderToHandDist > maxDist) {
+                const pullBack = maxDist / shoulderToHandDist;
+                armEndX = activeBackShoulderX + (armEndX - activeBackShoulderX) * pullBack;
+                armEndY = activeBackShoulderY + (armEndY - activeBackShoulderY) * pullBack;
+            }
+        }
+
+        // 奥手（主動作）: 付け根を固定して描画
+        if (drawBackLayer) {
+            drawAttackBentArm(
+                activeBackShoulderX,
+                activeBackShoulderY,
+                armEndX,
+                armEndY,
+                mainBendDir,
+                attackArmStrokeWidth
+            );
+
+            // 手を上書きで描画
+            ctx.fillStyle = silhouetteColor; // COLORS.PLAYER_GI から修正
+            ctx.beginPath();
+            ctx.arc(armEndX, armEndY, 4.8 * attackHandRadiusScale, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
         const swordLen = this.getKatanaBladeLength(); // 見た目の刀身長は常に統一（当たり判定rangeとは分離）
         let supportHand = null;
 
         // 手前手が空いている場合は添え手にする（両手持ち）
-        if (supportFrontHand) {
+        if (drawFrontLayer && supportFrontHand) {
             const clampArmReach = (shoulderX, shoulderY, targetX, targetY, maxLen) => {
                 const dx = targetX - shoulderX;
                 const dy = targetY - shoulderY;
@@ -4491,48 +5618,62 @@ export class Player {
             const bladeDirY = Math.sin(rot);
             const perpX = -bladeDirY;
             const perpY = bladeDirX;
-            const supportTargetX = armEndX - bladeDirX * supportGripBackDist + perpX * supportGripSideOffset;
-            const supportTargetY = armEndY - bladeDirY * supportGripBackDist + perpY * supportGripSideOffset;
-            supportHand = clampArmReach(
-                activeFrontShoulderX,
-                activeFrontShoulderY,
-                supportTargetX,
-                supportTargetY,
-                supportGripMaxReach
-            );
+            const supportTargetX = armEndX - bladeDirX * (hasDualWeapon ? 2.5 : supportGripBackDist) + perpX * supportGripSideOffset;
+            const supportTargetY = armEndY - bladeDirY * (hasDualWeapon ? 2.5 : supportGripBackDist) + perpY * supportGripSideOffset;
+            if (hasDualWeapon && attack.type === ANIM_STATE.ATTACK_SLASH) {
+                // 二刀流X技の添え手（手前手）位置も調整して、刃同士が中間で交差するようにする
+                // 位置を少し下にずらして「ハ」の字に近い角度を作る
+                supportHand = {
+                    x: activeFrontShoulderX + dir * 5.5,
+                    y: activeFrontShoulderY + 14.5
+                };
+            } else {
+                supportHand = clampArmReach(
+                    activeFrontShoulderX,
+                    activeFrontShoulderY,
+                    supportTargetX,
+                    supportTargetY,
+                    supportGripMaxReach
+                );
+            }
         }
 
         // 剣を描画（共通メソッドで統一）
         // 攻撃時は立たせ補正を切って、切っ先・剣筋・当たり判定を一致させる
-        this.drawKatana(ctx, armEndX, armEndY, rot, facingRight ? 1 : -1, swordLen, 0);
+        if (drawBackLayer || (drawFrontLayer && hasDualWeapon)) {
+            // 二刀流の場合、前面フェーズでも奥の手（メイン武器）の刀を描画することで、頭部より前面に出す
+            this.drawKatana(ctx, armEndX, armEndY, rot, facingRight ? 1 : -1, swordLen, 0);
+        }
         const suppressBaseSlashForXBoost = this.isXAttackBoostActive() && this.isXAttackActionActive();
 
         // 手前手は剣の後に描画して、握っている見た目を作る
-        if (supportHand) {
-            ctx.strokeStyle = silhouetteColor;
-            ctx.lineWidth = 5.1;
-            ctx.beginPath();
-            ctx.moveTo(activeFrontShoulderX, activeFrontShoulderY);
-            ctx.lineTo(supportHand.x, supportHand.y);
-            ctx.stroke();
+        if (drawFrontLayer && supportHand) {
+            drawAttackBentArm(
+                activeFrontShoulderX,
+                activeFrontShoulderY,
+                supportHand.x,
+                supportHand.y,
+                -dir,
+                attackArmStrokeWidth
+            );
 
             ctx.fillStyle = silhouetteColor;
             ctx.beginPath();
-            ctx.arc(supportHand.x, supportHand.y, 4.8, 0, Math.PI * 2);
+            ctx.arc(supportHand.x, supportHand.y, 4.5 * attackHandRadiusScale, 0, Math.PI * 2);
             ctx.fill();
         }
 
-        // 斬撃エフェクト（刀のローカル座標系で描画）
-        ctx.save();
-        ctx.translate(armEndX, armEndY);
-        ctx.scale(facingRight ? 1 : -1, 1);
-        ctx.rotate(rot);
+        if (drawFrontLayer) {
+            // 斬撃エフェクト（刀のローカル座標系で描画）
+            ctx.save();
+            ctx.translate(armEndX, armEndY);
+            ctx.scale(facingRight ? 1 : -1, 1);
+            ctx.rotate(rot);
 
-        // 斬撃エフェクト（大きく、派手に）
-        
-        const swingAlpha = Math.max(0.08, 1 - rawProgress);
-        const colorRgba = (rgb, alpha) => `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
-        const drawDepthArc = (arc) => {
+            // 斬撃エフェクト（大きく、派手に）
+            const swingAlpha = Math.max(0.08, 1 - rawProgress);
+            const colorRgba = (rgb, alpha) => `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
+            const drawDepthArc = (arc) => {
             const backAlpha = swingAlpha * 0.28;
             const frontAlpha = swingAlpha * 0.82;
             const counterClockwise = arc.end < arc.start;
@@ -4561,7 +5702,7 @@ export class Player {
             ctx.stroke();
             ctx.restore();
         };
-        const drawDepthSlice = (slice) => {
+            const drawDepthSlice = (slice) => {
             const backAlpha = swingAlpha * 0.28;
             const frontAlpha = swingAlpha * 0.82;
             const length = slice.length || 108;
@@ -4596,7 +5737,7 @@ export class Player {
             ctx.stroke();
             ctx.restore();
         };
-        const drawFollowSlash = (slash) => {
+            const drawFollowSlash = (slash) => {
             const alphaFloor = Math.max(0, Math.min(1, slash.minAlpha || 0));
             const alphaBase = Math.max(swingAlpha, alphaFloor);
             const backAlpha = alphaBase * 0.28;
@@ -4633,7 +5774,7 @@ export class Player {
             ctx.stroke();
             ctx.restore();
         };
-        const drawTipArc = (slash) => {
+            const drawTipArc = (slash) => {
             const backAlpha = swingAlpha * 0.28;
             const frontAlpha = swingAlpha * 0.82;
             const width = slash.width || 13;
@@ -4684,70 +5825,71 @@ export class Player {
             ctx.restore();
         };
 
-        const isComboAttack = !!attack.comboStep;
-        // コンボ中はローカル白斬撃を重ねず、軌跡側だけを表示して刀身の白発光を防ぐ
-        if (!suppressBaseSlashForXBoost && !isComboAttack) {
-            if (trail && trail.mode === 'arc') {
-                drawDepthArc(trail);
-            } else if (trail && trail.mode === 'depthSlice') {
-                drawDepthSlice(trail);
-            } else if (trail && trail.mode === 'followSlash') {
-                drawFollowSlash(trail);
-            } else if (trail && trail.mode === 'tipArc') {
-                drawTipArc(trail);
-            } else if (trail && trail.mode === 'thrust') {
-                const alpha = swingAlpha * 0.72;
-                ctx.save();
-                ctx.shadowBlur = 0;
-                ctx.fillStyle = colorRgba(trail.back, alpha * 0.3);
-                ctx.beginPath();
-                ctx.moveTo(swordLen - 2, -14);
-                ctx.lineTo(swordLen + 34, -5.5);
-                ctx.lineTo(swordLen + 34, 5.5);
-                ctx.lineTo(swordLen - 2, 14);
-                ctx.lineTo(swordLen + 6, 0);
-                ctx.closePath();
-                ctx.fill();
+            const isComboAttack = !!attack.comboStep;
+            // コンボ中はローカル白斬撃を重ねず、軌跡側だけを表示して刀身の白発光を防ぐ
+            if (!suppressBaseSlashForXBoost && !isComboAttack) {
+                if (trail && trail.mode === 'arc') {
+                    drawDepthArc(trail);
+                } else if (trail && trail.mode === 'depthSlice') {
+                    drawDepthSlice(trail);
+                } else if (trail && trail.mode === 'followSlash') {
+                    drawFollowSlash(trail);
+                } else if (trail && trail.mode === 'tipArc') {
+                    drawTipArc(trail);
+                } else if (trail && trail.mode === 'thrust') {
+                    const alpha = swingAlpha * 0.72;
+                    ctx.save();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = colorRgba(trail.back, alpha * 0.3);
+                    ctx.beginPath();
+                    ctx.moveTo(swordLen - 2, -14);
+                    ctx.lineTo(swordLen + 34, -5.5);
+                    ctx.lineTo(swordLen + 34, 5.5);
+                    ctx.lineTo(swordLen - 2, 14);
+                    ctx.lineTo(swordLen + 6, 0);
+                    ctx.closePath();
+                    ctx.fill();
 
-                ctx.fillStyle = colorRgba(trail.front, alpha);
-                ctx.beginPath();
-                ctx.moveTo(swordLen + 1, -9.5);
-                ctx.lineTo(swordLen + 42, -2.6);
-                ctx.lineTo(swordLen + 42, 2.6);
-                ctx.lineTo(swordLen + 1, 9.5);
-                ctx.lineTo(swordLen + 10, 0);
-                ctx.closePath();
-                ctx.fill();
-                ctx.restore();
-            } else if (attack.type === ANIM_STATE.ATTACK_THRUST) {
-                const alpha = swingAlpha * 0.72;
-                ctx.save();
-                ctx.shadowBlur = 0;
-                ctx.fillStyle = `rgba(100, 255, 255, ${alpha})`;
-                ctx.beginPath();
-                ctx.moveTo(swordLen, -25);
-                ctx.bezierCurveTo(swordLen + 20, -10, swordLen + 20, 10, swordLen, 25);
-                ctx.bezierCurveTo(swordLen + 10, 10, swordLen + 10, -10, swordLen, -25);
-                ctx.fill();
-                ctx.restore();
-            } else {
-                ctx.strokeStyle = `rgba(100, 200, 255, ${0.8 * swingAlpha})`;
-                ctx.lineWidth = 15;
-                ctx.lineCap = 'round';
-                ctx.beginPath();
-                const normalSlashRadius = 80;
-                if (attack.type === ANIM_STATE.ATTACK_SPIN) {
-                    ctx.arc(0, 0, normalSlashRadius, 0, Math.PI * 2);
-                } else if (attack.isLaunch) {
-                    ctx.arc(-20, 0, normalSlashRadius, -Math.PI * 0.4, Math.PI * 0.4, true);
+                    ctx.fillStyle = colorRgba(trail.front, alpha);
+                    ctx.beginPath();
+                    ctx.moveTo(swordLen + 1, -9.5);
+                    ctx.lineTo(swordLen + 42, -2.6);
+                    ctx.lineTo(swordLen + 42, 2.6);
+                    ctx.lineTo(swordLen + 1, 9.5);
+                    ctx.lineTo(swordLen + 10, 0);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.restore();
+                } else if (attack.type === ANIM_STATE.ATTACK_THRUST) {
+                    const alpha = swingAlpha * 0.72;
+                    ctx.save();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = `rgba(100, 255, 255, ${alpha})`;
+                    ctx.beginPath();
+                    ctx.moveTo(swordLen, -25);
+                    ctx.bezierCurveTo(swordLen + 20, -10, swordLen + 20, 10, swordLen, 25);
+                    ctx.bezierCurveTo(swordLen + 10, 10, swordLen + 10, -10, swordLen, -25);
+                    ctx.fill();
+                    ctx.restore();
                 } else {
-                    ctx.arc(-10, 0, normalSlashRadius, -0.8, 0.8);
+                    ctx.strokeStyle = `rgba(100, 200, 255, ${0.8 * swingAlpha})`;
+                    ctx.lineWidth = 15;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    const normalSlashRadius = 80;
+                    if (attack.type === ANIM_STATE.ATTACK_SPIN) {
+                        ctx.arc(0, 0, normalSlashRadius, 0, Math.PI * 2);
+                    } else if (attack.isLaunch) {
+                        ctx.arc(-20, 0, normalSlashRadius, -Math.PI * 0.4, Math.PI * 0.4, true);
+                    } else {
+                        ctx.arc(-10, 0, normalSlashRadius, -0.8, 0.8);
+                    }
+                    ctx.stroke();
                 }
-                ctx.stroke();
             }
-        }
 
-        ctx.restore();
+            ctx.restore();
+        }
 
     }
 
@@ -5435,9 +6577,6 @@ export class Player {
                 const cloneAttackProfile = this.specialCloneAutoAiEnabled
                     ? this.getComboAttackProfileByStep(cloneComboStep)
                     : null;
-                const cloneAttackDurationMs = this.specialCloneAutoAiEnabled
-                    ? cloneAttackProfile.durationMs
-                    : (this.currentAttack ? this.currentAttack.durationMs || 320 : 320);
 
                 // 分身の状態をセット
                 this.x = cloneDrawX;
@@ -5615,11 +6754,61 @@ export class Player {
         // 忍術ドロン煙
         for (const puff of this.specialSmoke) {
             const life = Math.max(0, Math.min(1, puff.life / puff.maxLife));
-            const alpha = (puff.mode === 'appear' ? 0.42 : 0.33) * life;
-            ctx.fillStyle = `rgba(206, 236, 252, ${alpha})`;
+            const bloom = 1 - life;
+            const radius = puff.radius * (puff.mode === 'appear' ? (0.78 + bloom * 1.05) : (0.66 + bloom * 0.88));
+            const alpha = (puff.mode === 'appear' ? 0.62 : 0.36) * life;
+            const warm = puff.mode === 'appear';
+            const grad = ctx.createRadialGradient(
+                puff.x - radius * 0.18,
+                puff.y - radius * 0.22,
+                radius * 0.08,
+                puff.x,
+                puff.y,
+                radius
+            );
+            if (warm) {
+                grad.addColorStop(0, `rgba(244, 251, 255, ${alpha * 0.95})`);
+                grad.addColorStop(0.38, `rgba(194, 233, 255, ${alpha * 0.72})`);
+                grad.addColorStop(1, `rgba(150, 204, 235, 0)`);
+            } else {
+                grad.addColorStop(0, `rgba(236, 244, 255, ${alpha * 0.85})`);
+                grad.addColorStop(0.42, `rgba(176, 196, 230, ${alpha * 0.62})`);
+                grad.addColorStop(1, `rgba(124, 146, 188, 0)`);
+            }
+            ctx.fillStyle = grad;
             ctx.beginPath();
-            ctx.arc(puff.x, puff.y, puff.radius * (0.7 + (1 - life) * 0.65), 0, Math.PI * 2);
+            ctx.arc(puff.x, puff.y, radius, 0, Math.PI * 2);
             ctx.fill();
+
+            const rot = puff.rot || 0;
+            const lobeX = puff.x + Math.cos(rot) * radius * 0.28;
+            const lobeY = puff.y + Math.sin(rot) * radius * 0.24;
+            ctx.fillStyle = warm
+                ? `rgba(228, 247, 255, ${alpha * 0.58})`
+                : `rgba(211, 228, 247, ${alpha * 0.34})`;
+            ctx.beginPath();
+            ctx.arc(lobeX, lobeY, radius * 0.52, 0, Math.PI * 2);
+            ctx.fill();
+
+            if (life < (puff.ringStart || 0.28) && life > 0.12) {
+                const ringAlpha = alpha * (1 - life) * 0.9;
+                ctx.strokeStyle = warm
+                    ? `rgba(194, 233, 255, ${ringAlpha})`
+                    : `rgba(182, 206, 240, ${ringAlpha})`;
+                ctx.lineWidth = 1.1;
+                ctx.beginPath();
+                ctx.arc(puff.x, puff.y, radius * (0.74 + (1 - life) * 0.35), 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            if (puff.hasSpark && life > 0.26) {
+                const sparkX = puff.x + Math.cos(rot * 1.7) * radius * 0.44;
+                const sparkY = puff.y + Math.sin(rot * 1.3) * radius * 0.32;
+                ctx.fillStyle = `rgba(248, 254, 255, ${alpha * 0.85})`;
+                ctx.beginPath();
+                ctx.arc(sparkX, sparkY, Math.max(0.8, radius * 0.08), 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
 
 
@@ -5632,8 +6821,9 @@ export class Player {
         const centerX = x + this.width / 2;
         const bottomY = y + this.height - 2;
         const dir = facingRight ? 1 : -1;
-        const silhouette = '#1a1a1a';
-        const accent = '#00bfff';
+        const palette = options.palette || {};
+        const silhouette = palette.silhouette || '#1a1a1a';
+        const accent = palette.accent || '#00bfff';
         const castPulse = Math.sin(this.motionTime * 0.03) * 1.2;
         const headY = y + 16 + castPulse * 0.2;
         const hipY = bottomY - 20;
@@ -5772,7 +6962,7 @@ export class Player {
         const palmX = centerX;
         const lowerHandY = headY + 10;
         const upperHandY = lowerHandY - 8;
-        const handColor = '#1d1d1d';
+        const handColor = silhouette;
         const shadowColor = 'rgba(80, 80, 80, 0.35)';
 
         // 下の手（拳）— 影付き

@@ -2,11 +2,11 @@
 // Unification of the Nation - ボスクラス
 // ============================================
 
-import { COLORS, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js';
+import { CANVAS_WIDTH, LANE_OFFSET } from './constants.js';
 import { Enemy } from './enemy.js';
 import { createSubWeapon } from './weapon.js';
 import { audio } from './audio.js';
-import { Player, ANIM_STATE } from './player.js';
+import { Player } from './player.js';
 
 // ラスボス（将軍）の全体スケール。ここだけ変更すれば倍率調整できる。
 const SHOGUN_SCALE = 2.2;
@@ -287,7 +287,7 @@ class Boss extends Enemy {
         }
     }
     
-    renderBody(ctx) {
+    renderBody() {
         // サブクラスでオーバーライド
     }
 
@@ -666,6 +666,7 @@ export class YariTaisho extends Boss {
         this.attackRange = 135;
         this.attackPatterns = ['thrust'];
         this.setupWeaponReplica('大槍');
+        this.forceSubWeaponRender = true;
     }
     
     startAttack() {
@@ -693,7 +694,7 @@ export class YariTaisho extends Boss {
     
     renderBody(ctx) {
         this.renderUnifiedEnemyModel(ctx, {
-            weaponMode: 'spear',
+            weaponMode: 'none',
             headStyle: 'kabuto',
             armorRows: 4,
             headRatio: 0.19,
@@ -715,6 +716,82 @@ export class YariTaisho extends Boss {
                 helmBottom: '#171a20',
                 crest: '#d8bd74'
             }
+        });
+
+        const spear = this.weaponReplica;
+        if (!spear) return;
+
+        const dir = this.facingRight ? 1 : -1;
+        const centerX = this.x + this.width * 0.5;
+        const shoulderY = this.y + this.height * 0.38 + Math.abs(this.bob) * 0.14;
+        const attackPoseActive = !!(spear && spear.isAttacking);
+        const spearProgress = (attackPoseActive && Number.isFinite(spear.attackDuration) && spear.attackDuration > 0)
+            ? Math.max(0, Math.min(1, 1 - ((spear.attackTimer || 0) / spear.attackDuration)))
+            : 0;
+        const windup = attackPoseActive ? Math.max(0, 1 - (spearProgress / 0.34)) : 0;
+        const thrustDrive = attackPoseActive
+            ? Math.max(0, Math.sin(Math.max(0, Math.min(1, (spearProgress - 0.22) / 0.56)) * (Math.PI * 0.5)))
+            : 0;
+        const shoulderSlide = -windup * 2.6 + thrustDrive * 4.4;
+        const handSlide = -windup * 6.4 + thrustDrive * 2.8;
+        const leanBase = (1.2 + this.torsoLean * 0.55 + (this.isAttacking ? 0.9 : 0)) * 1.14;
+        const facingLead = dir * this.width * 0.035;
+        const shoulderCenterX = centerX + dir * (leanBase + shoulderSlide * 0.42) + facingLead;
+        const bodyScreenTilt = dir * this.width * 0.038;
+        const shoulderFrontX = shoulderCenterX + dir * (this.width * 0.14 + bodyScreenTilt * 0.26 + shoulderSlide * 0.52);
+        const shoulderBackX = shoulderCenterX - dir * (this.width * 0.095 + bodyScreenTilt * 0.16 - shoulderSlide * 0.38);
+        const shoulderFrontY = shoulderY + this.height * 0.018 + windup * 0.72 - thrustDrive * 0.45;
+        const shoulderBackY = shoulderY + this.height * 0.032 + windup * 0.82 - thrustDrive * 0.36;
+
+        const grips = (typeof spear.getGripAnchors === 'function')
+            ? spear.getGripAnchors(this)
+            : null;
+        const tipTarget = grips
+            ? { x: grips.rear.x + dir * handSlide * 0.72 + dir * 1.2, y: grips.rear.y + windup * 0.58 - thrustDrive * 0.44 }
+            : { x: shoulderFrontX + dir * (this.width * 0.34), y: shoulderFrontY + this.height * 0.12 };
+        const rootTarget = grips
+            ? { x: grips.front.x + dir * handSlide * 0.44 - dir * 1.1, y: grips.front.y + windup * 0.5 - thrustDrive * 0.36 }
+            : { x: shoulderBackX + dir * (this.width * 0.2), y: shoulderBackY + this.height * 0.14 };
+        const backReach = Math.hypot(rootTarget.x - shoulderBackX, rootTarget.y - shoulderBackY);
+        const frontReach = Math.hypot(tipTarget.x - shoulderFrontX, tipTarget.y - shoulderFrontY);
+        const backUpperLen = Math.max(this.height * 0.19, backReach * 0.64);
+        const backForeLen = Math.max(this.height * 0.17, backReach * 0.56);
+        const frontUpperLen = Math.max(this.height * 0.2, frontReach * 0.66);
+        const frontForeLen = Math.max(this.height * 0.18, frontReach * 0.58);
+
+        // 奥腕 -> 槍 -> 手前腕 の順で描画し、プレイヤーと同じ持ち方に寄せる
+        this.drawJointedArm(ctx, {
+            shoulderX: shoulderBackX,
+            shoulderY: shoulderBackY,
+            handX: rootTarget.x,
+            handY: rootTarget.y,
+            upperLen: backUpperLen,
+            foreLen: backForeLen,
+            bendSign: dir * 0.88,
+            upperWidth: 7.8,
+            foreWidth: 7.0,
+            jointRadius: 4.2,
+            baseColor: '#171717',
+            handColor: '#1a1a1a'
+        });
+
+        if (typeof spear.render === 'function') {
+            spear.render(ctx, this);
+        }
+
+        this.drawJointedArm(ctx, {
+            shoulderX: shoulderFrontX,
+            shoulderY: shoulderFrontY,
+            handX: tipTarget.x,
+            handY: tipTarget.y,
+            upperLen: frontUpperLen,
+            foreLen: frontForeLen,
+            bendSign: -dir * 0.82,
+            upperWidth: 8.2,
+            foreWidth: 7.4,
+            jointRadius: 4.5,
+            baseColor: '#171717',
+            handColor: '#1a1a1a'
         });
     }
 }
@@ -1539,7 +1616,6 @@ export class Shogun extends Boss {
 
     updateAttack(deltaTime) {
         const deltaMs = deltaTime * 1000;
-        const dir = this.facingRight ? 1 : -1;
 
         if (this._attackTimer > 0) {
             // vx/vyはstep開始時に_startNextComboStepで設定済み
