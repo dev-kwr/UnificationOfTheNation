@@ -387,7 +387,13 @@ export class Player {
                     this.subWeaponTimer = 1;
                 } else {
                     this.subWeaponTimer = 0;
-                    this.subWeaponAction = null; // アニメーション終了時にアクションをクリア
+                    // 二刀流の合体技はアイドルが二刀流専用なので、通常アイドルを挿まずに直接戻る
+                    if (this.subWeaponAction === '二刀_合体' && this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
+                        // アクションをクリアするが、二刀流のアイドル描画が即座に引き継ぐ
+                        this.subWeaponAction = null;
+                    } else {
+                        this.subWeaponAction = null; // アニメーション終了時にアクションをクリア
+                    }
                     this.subWeaponCrouchLock = false;
                 }
             }
@@ -889,7 +895,7 @@ export class Player {
                 Math.round(
                     (dual && Number.isFinite(dual.activeCombinedDuration) && dual.activeCombinedDuration > 0)
                         ? dual.activeCombinedDuration
-                        : ((dual && Number.isFinite(dual.combinedDuration)) ? dual.combinedDuration : 320)
+                        : ((dual && Number.isFinite(dual.combinedDuration)) ? dual.combinedDuration : 800)
                 )
             );
         }
@@ -3261,7 +3267,7 @@ export class Player {
         if (alpha !== 1.0) ctx.globalAlpha *= alpha;
         const useLiveAccessories = options.useLiveAccessories !== false;
         const renderHeadbandTail = options.renderHeadbandTail !== false;
-        const forceSubWeaponRender = options.forceSubWeaponRender || false;
+        const forceSubWeaponRender = options.forceSubWeaponRender || (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流');
         const renderSubWeaponVisuals = renderSubWeaponVisualsInput;
 
         const originalX = this.x;
@@ -4387,26 +4393,6 @@ export class Player {
                 }
             }
 
-            // アイドル状態でforceSubWeaponRender時は背中に忍具アイコンを表示
-            if (isIdleForceRender && this.currentSubWeapon && renderSubWeaponVisuals) {
-                const weaponName = this.currentSubWeapon.name;
-                if (weaponName === '手裏剣') {
-                    const heldRadius = (this.currentSubWeapon.projectileRadius || 10);
-                    drawShurikenShape(ctx, centerX - dir * 10, bodyTopY + 2, heldRadius, -0.3);
-                } else if (weaponName === '火薬玉') {
-                    ctx.save();
-                    ctx.translate(centerX - dir * 10, bodyTopY + 2);
-                    ctx.fillStyle = '#2d2d2d';
-                    ctx.beginPath();
-                    ctx.arc(0, 0, 6, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.strokeStyle = '#767676';
-                    ctx.lineWidth = 1.5;
-                    ctx.stroke();
-                    ctx.restore();
-                }
-                this.subWeaponRenderedInModel = true;
-            }
         } else if (effectiveIsAttacking) {
             this.renderAttackArmAndWeapon(ctx, {
                 centerX, pivotY: bodyTopY + 2, facingRight,
@@ -4949,119 +4935,208 @@ export class Player {
                 }
             }
         } else if (this.subWeaponAction === '二刀_合体') {
-            // 二刀合体: 顔前でX字に構えて静止 → その後に解放
+            // === 二刀合体: X構え → X斬撃 → アイドル復帰 ===
             const clamped = Math.min(1, Math.max(0, progress));
-            const gatherPhase = 0.34;
-            const holdPhase = 0.2;
+            const gatherPhase = 0.28;
+            const holdPhase = 0.22;
             const releasePhase = Math.max(0.01, 1 - gatherPhase - holdPhase);
             const gather = Math.max(0, Math.min(1, clamped / gatherPhase));
-            const hold = clamped <= gatherPhase
-                ? 0
-                : Math.max(0, Math.min(1, (clamped - gatherPhase) / holdPhase));
-            const release = clamped <= (gatherPhase + holdPhase)
-                ? 0
-                : Math.max(0, Math.min(1, (clamped - gatherPhase - holdPhase) / releasePhase));
+            const hold = clamped <= gatherPhase ? 0 : Math.max(0, Math.min(1, (clamped - gatherPhase) / holdPhase));
+            const release = clamped <= (gatherPhase + holdPhase) ? 0 : Math.max(0, Math.min(1, (clamped - gatherPhase - holdPhase) / releasePhase));
             const easeGather = gather * gather * (3 - 2 * gather);
             const easeRelease = release * release * (3 - 2 * release);
-            const holdPulse = Math.sin(hold * Math.PI) * 0.28;
+            const holdPulse = Math.sin(hold * Math.PI) * 0.15;
             const lerp = (a, b, t) => a + (b - a) * t;
 
-            const backShoulderDualX = backShoulderX + dir * (0.12 + easeGather * 0.8 + easeRelease * 0.92);
-            const backShoulderDualY = backShoulderY - (0.02 + easeGather * 0.82 + easeRelease * 0.22);
-            const frontShoulderDualX = frontShoulderX + dir * (0.08 + easeGather * 0.74 + easeRelease * 0.82);
-            const frontShoulderDualY = frontShoulderY - (0.12 + easeGather * 0.64 + easeRelease * 0.24);
+            // --- 二刀流アイドル座標・角度 ---
+            const idleArmWave = Math.sin(this.motionTime * 0.01);
+            const idleBackHandX = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
+            const idleBackHandY = backShoulderY + (isCrouchPose ? 6.2 : 7.8) + idleArmWave * (isCrouchPose ? 0.8 : 1.7);
+            const idleFrontHandX = centerX - dir * (isCrouchPose ? 4.6 : 7.2);
+            const idleFrontHandY = frontShoulderY + (isCrouchPose ? 6.8 : 8.5) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? 0.8 : 1.7);
+            const idleBackAngle = isCrouchPose ? -0.32 : -0.65;
+            const idleFrontAngle = isCrouchPose ? -0.82 : -1.1;
 
-            // crossは「刃が交わるべき空間上の点」（手ではなく刃の中間）
-            const crossX = centerX + dir * (isCrouchPose ? 13.0 : 15.6);
-            const crossY = pivotY - (isCrouchPose ? 5.0 : 6.5);
-            // ポーズの自然さ（アイドル状態ベース）を重視
-            // 奥手を少し引き、角度を立たせる（後ろに倒しすぎない）
-            const holdBackX = centerX + dir * (isCrouchPose ? 13.0 : 15.0);
-            const holdBackY = pivotY + (isCrouchPose ? 11.5 : 12.5);
-            const holdFrontX = centerX - dir * (isCrouchPose ? 2.0 : 2.5);
-            const holdFrontY = pivotY + (isCrouchPose ? 12.5 : 14.0);
-            // 刃の角度: オフセットをほぼゼロに近くし、自然なX字へ
-            const holdBackAngle = Math.atan2(crossY - holdBackY, (crossX - holdBackX) * dir) - 0.02;
-            const holdFrontAngle = Math.atan2(crossY - holdFrontY, (crossX - holdFrontX) * dir) + 0.03;
-            let backX;
-            let frontX;
-            let backY;
-            let frontY;
-            let backAngle;
-            let frontAngle;
+            // --- X構えの幾何学的設計 ---
+            // 交差点: 顔の前方
+            const crossX = centerX + dir * (isCrouchPose ? 5 : 7);
+            const crossY = pivotY - (isCrouchPose ? 1 : 3);
+            // 垂直を中心に対称に開く角度
+            const openAngle = 0.48;
+            // 刃の中心までの距離 (手前=通常, 奥=短縮で奥行き表現)
+            const frontHalfReach = 22;
+            const backHalfReach = frontHalfReach * 0.82; // 仮想奥行きで短く見せる
+            // 刀の角度 (手前は切っ先が揃うよう少し右に傾ける)
+            const xBackAngle = -(Math.PI / 2 + openAngle);
+            const xFrontAngle = -(Math.PI / 2 - openAngle - 0.14);
+            // 交差点から逆算して手の位置を決定
+            const xBackHandX = crossX - dir * Math.cos(xBackAngle) * backHalfReach;
+            const xFrontHandX = crossX - dir * Math.cos(xFrontAngle) * frontHalfReach;
+            // 刃先の高さを揃える: 刀身カーブ補正含む
+            const rawBackHandY = crossY - Math.sin(xBackAngle) * backHalfReach;
+            const rawFrontHandY = crossY - Math.sin(xFrontAngle) * frontHalfReach;
+            const xBackHandY = rawBackHandY;
+            const xFrontHandY = rawFrontHandY + 2; // 刀身の反りによる切っ先ズレを補正
+
+            // --- 振り抜きポーズ (X斬撃) ---
+            // 交差状態から両刃が開くように振り抜く:
+            //   奥の剣: 上左方向 → 前下方向へ斬り抜け (手が前に出て下がる)
+            //   手前の剣: 上右方向 → 後ろ下方向へ斬り抜け (手が後ろに引かれ下がる)
+            const slashBackHandX = centerX + dir * (isCrouchPose ? 15 : 18);
+            const slashBackHandY = pivotY + (isCrouchPose ? 12 : 14);
+            const slashBackAngle = isCrouchPose ? 0.5 : 0.65;
+            const slashFrontHandX = centerX - dir * (isCrouchPose ? 7 : 10);
+            const slashFrontHandY = pivotY + (isCrouchPose ? 13 : 15);
+            const slashFrontAngle = isCrouchPose ? 2.3 : 2.5;
+
+            // --- アニメーション補間 ---
+            let bx, by, fx, fy, ba, fa;
+
             if (clamped < gatherPhase) {
-                backX = lerp(centerX + dir * 8.2, holdBackX, easeGather);
-                frontX = lerp(centerX - dir * 6.6, holdFrontX, easeGather);
-                backY = lerp(pivotY + 15.8, holdBackY, easeGather);
-                frontY = lerp(pivotY + 14.7, holdFrontY, easeGather);
-                const gatherBackAngle = Math.atan2(crossY - backY, (crossX - backX) * dir);
-                const gatherFrontAngle = Math.atan2(crossY - frontY, (crossX - frontX) * dir);
-                backAngle = lerp(gatherBackAngle, holdBackAngle, easeGather);
-                frontAngle = lerp(gatherFrontAngle, holdFrontAngle, easeGather);
+                // アイドル → X構え (スムーズ遷移)
+                bx = lerp(idleBackHandX, xBackHandX, easeGather);
+                by = lerp(idleBackHandY, xBackHandY, easeGather);
+                fx = lerp(idleFrontHandX, xFrontHandX, easeGather);
+                fy = lerp(idleFrontHandY, xFrontHandY, easeGather);
+                ba = lerp(idleBackAngle, xBackAngle, easeGather);
+                fa = lerp(idleFrontAngle, xFrontAngle, easeGather);
             } else if (clamped < gatherPhase + holdPhase) {
-                backX = holdBackX - dir * holdPulse * 0.16;
-                frontX = holdFrontX - dir * holdPulse * 0.12;
-                backY = holdBackY - holdPulse * 0.2;
-                frontY = holdFrontY + holdPulse * 0.18;
-                backAngle = holdBackAngle + holdPulse * 0.02;
-                frontAngle = holdFrontAngle - holdPulse * 0.03;
+                // X構えホールド (微振動)
+                bx = xBackHandX + holdPulse * 0.2;
+                by = xBackHandY - holdPulse * 0.1;
+                fx = xFrontHandX - holdPulse * 0.15;
+                fy = xFrontHandY + holdPulse * 0.08;
+                ba = xBackAngle + holdPulse * 0.015;
+                fa = xFrontAngle - holdPulse * 0.015;
             } else {
-                // 終端: 正面視でハの字（側面ビューでは腕は胴沿い、刀は前下）
-                const releaseBackX = backShoulderDualX + dir * (isCrouchPose ? 1.0 : 1.3);
-                const releaseFrontX = frontShoulderDualX + dir * (isCrouchPose ? 1.1 : 1.5);
-                const releaseBackY = backShoulderDualY + (isCrouchPose ? 15.6 : 17.0);
-                const releaseFrontY = frontShoulderDualY + (isCrouchPose ? 15.2 : 16.5);
-                backX = lerp(holdBackX, releaseBackX, easeRelease);
-                frontX = lerp(holdFrontX, releaseFrontX, easeRelease);
-                backY = lerp(holdBackY, releaseBackY, easeRelease);
-                frontY = lerp(holdFrontY, releaseFrontY, easeRelease);
-                const backEndAngle = 1.04;
-                const frontEndAngle = 0.92;
-                backAngle = lerp(holdBackAngle, backEndAngle, easeRelease);
-                frontAngle = lerp(holdFrontAngle, frontEndAngle, easeRelease);
+                // 振り抜き → 余韻 → アイドル復帰 (3段階)
+                const relT = easeRelease;
+                if (relT < 0.25) {
+                    // 1. 素早い振り抜き
+                    const t = relT / 0.25;
+                    const eT = t * t * (3 - 2 * t);
+                    bx = lerp(xBackHandX, slashBackHandX, eT);
+                    by = lerp(xBackHandY, slashBackHandY, eT);
+                    fx = lerp(xFrontHandX, slashFrontHandX, eT);
+                    fy = lerp(xFrontHandY, slashFrontHandY, eT);
+                    ba = lerp(xBackAngle, slashBackAngle, eT);
+                    fa = lerp(xFrontAngle, slashFrontAngle, eT);
+                } else if (relT < 0.50) {
+                    // 2. 余韻 (振り抜きポーズで微かに揺れながら静止)
+                    const lingT = (relT - 0.25) / 0.25;
+                    const drift = Math.sin(lingT * Math.PI) * 0.3;
+                    bx = slashBackHandX + drift * dir;
+                    by = slashBackHandY - drift * 0.5;
+                    fx = slashFrontHandX - drift * dir;
+                    fy = slashFrontHandY - drift * 0.4;
+                    ba = slashBackAngle + drift * 0.02;
+                    fa = slashFrontAngle - drift * 0.02;
+                } else {
+                    // 3. ゆっくりアイドル復帰 (反動で自然に戻る)
+                    const t = (relT - 0.50) / 0.50;
+                    const eT = t * t * (3 - 2 * t);
+                    bx = lerp(slashBackHandX, idleBackHandX, eT);
+                    by = lerp(slashBackHandY, idleBackHandY, eT);
+                    fx = lerp(slashFrontHandX, idleFrontHandX, eT);
+                    fy = lerp(slashFrontHandY, idleFrontHandY, eT);
+                    ba = lerp(slashBackAngle, idleBackAngle, eT);
+                    fa = lerp(slashFrontAngle, idleFrontAngle, eT);
+                }
             }
 
-            const dualBackReachCap = standardBackReach;
-            const dualFrontReachCap = standardFrontReach;
-            const backHand = clampArmReach(backShoulderDualX, backShoulderDualY, backX, backY, dualBackReachCap);
-            const frontHand = clampArmReach(frontShoulderDualX, frontShoulderDualY, frontX, frontY, dualFrontReachCap);
+            // 肩の微動
+            const bsx = backShoulderX + dir * easeGather * 0.4;
+            const bsy = backShoulderY - easeGather * 0.3;
+            const fsx = frontShoulderX + dir * easeGather * 0.3;
+            const fsy = frontShoulderY - easeGather * 0.25;
 
-            // 肘を曲げるため、肩から手の距離を制限。手と刀の描画座標もこれに合わせることで隙間を解消
-            const distToCheck = Math.hypot(backHand.x - backShoulderDualX, backHand.y - backShoulderDualY);
-            const maxBendDist = 13.0;
-            if (distToCheck > maxBendDist) {
-                const ratio = maxBendDist / distToCheck;
-                backHand.x = backShoulderDualX + (backHand.x - backShoulderDualX) * ratio;
-                backHand.y = backShoulderDualY + (backHand.y - backShoulderDualY) * ratio;
-            }
+            // --- エネルギー蓄積エフェクト (ギャザー後半〜ホールド中) ---
+            // 斬撃の色: 奥の刀=青, 手前の刀=赤
+            const energyIntensity = clamped < gatherPhase
+                ? easeGather * easeGather
+                : (clamped < gatherPhase + holdPhase ? 1.0 : Math.max(0, 1 - easeRelease * 3));
 
-            // 奥手
-            // アームと手は胴体の裏（背面レイヤー）にのみ描画
+            // --- 描画 ---
+            // 奥手 (背面レイヤー)
             if (drawBackLayer) {
-                drawBentArmSegment(backShoulderDualX, backShoulderDualY, backHand.x, backHand.y, standardUpperLen, standardForeLen, -dir, 5.3);
-                drawHand(backHand.x, backHand.y, standardBackHandRadius);
+                drawBentArmSegment(bsx, bsy, bx, by, standardUpperLen, standardForeLen, -dir, 5.3);
+                drawHand(bx, by, standardBackHandRadius);
             }
-            // 刀は前面フェーズでのみ描画（重複防止と、頭部の前に出すため）
+            // 奥の刀 (前面レイヤー, 通常描画)
             if (drawFrontLayer && renderWeaponVisuals) {
-                // 奥の刀は Yスケールを反転させて刃と峰の向きを正しくする。
-                // 方向を維持するため、角度を反転させ、立ち上げターゲットも反転させる。
-                drawSubWeaponKatana(backHand.x, backHand.y, -backAngle, dir, 0.02, 'all', -1, Math.PI / 2);
+                drawSubWeaponKatana(bx, by, ba, dir, 0.02, 'all');
             }
-            // 手前手
+            // 手前手 (前面レイヤー)
             if (drawFrontLayer) {
-                // 1. 腕（関節含む）
-                drawBentArmSegment(frontShoulderDualX, frontShoulderDualY, frontHand.x, frontHand.y, standardUpperLen, standardForeLen, -dir, 5.2);
+                drawBentArmSegment(fsx, fsy, fx, fy, standardUpperLen, standardForeLen, -dir, 5.2);
+                if (renderWeaponVisuals) {
+                    drawSubWeaponKatana(fx, fy, fa, dir, 0.02, 'handle');
+                }
+                drawHand(fx, fy, standardFrontHandRadius);
+                if (renderWeaponVisuals) {
+                    drawSubWeaponKatana(fx, fy, fa, dir, 0.02, 'blade');
+                }
+            }
 
-                if (renderWeaponVisuals) {
-                    // 2. 刀の柄（腕より前面）
-                    drawSubWeaponKatana(frontHand.x, frontHand.y, frontAngle, dir, 0.02, 'handle');
+            // --- エネルギーエフェクト (腕・刀の上に加算合成で重ねる) ---
+            if (energyIntensity > 0.01 && drawFrontLayer) {
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighter';
+                const ePulse = Math.sin(this.motionTime * 0.08) * 0.3 + 0.7;
+                const eAlpha = energyIntensity * 0.7 * ePulse;
+                const glowR = (7 + energyIntensity * 12) * ePulse;
+                // uprightBlend補正 (drawKatanaと同じ 0.02 の補正を適用)
+                const uprightTarget = -Math.PI / 2;
+                const rba = ba + (uprightTarget - ba) * 0.02;
+                const rfa = fa + (uprightTarget - fa) * 0.02;
+
+                // 奥の刀: 青いグロー
+                const bMidX = bx + dir * Math.cos(rba) * 22;
+                const bMidY = by + Math.sin(rba) * 22;
+                const blueGlow = ctx.createRadialGradient(bMidX, bMidY, 0, bMidX, bMidY, glowR * 2);
+                blueGlow.addColorStop(0, `rgba(60, 140, 255, ${eAlpha * 0.5})`);
+                blueGlow.addColorStop(0.5, `rgba(40, 100, 220, ${eAlpha * 0.25})`);
+                blueGlow.addColorStop(1, `rgba(30, 70, 180, 0)`);
+                ctx.fillStyle = blueGlow;
+                ctx.beginPath();
+                ctx.arc(bMidX, bMidY, glowR * 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 手前の刀: 赤いグロー
+                const fMidX = fx + dir * Math.cos(rfa) * 22;
+                const fMidY = fy + Math.sin(rfa) * 22;
+                const redGlow = ctx.createRadialGradient(fMidX, fMidY, 0, fMidX, fMidY, glowR * 2);
+                redGlow.addColorStop(0, `rgba(255, 80, 60, ${eAlpha * 0.5})`);
+                redGlow.addColorStop(0.5, `rgba(220, 50, 40, ${eAlpha * 0.25})`);
+                redGlow.addColorStop(1, `rgba(180, 30, 30, 0)`);
+                ctx.fillStyle = redGlow;
+                ctx.beginPath();
+                ctx.arc(fMidX, fMidY, glowR * 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 交差点の白い輝き
+                ctx.fillStyle = `rgba(255, 255, 250, ${eAlpha * 0.4})`;
+                ctx.beginPath();
+                ctx.arc(crossX, crossY, (3 + energyIntensity * 3) * ePulse, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 刃に沿ったエネルギーライン (青/赤)
+                if (energyIntensity > 0.3) {
+                    const lineAlpha = (energyIntensity - 0.3) * 0.4 * ePulse;
+                    const lineLen = 22 * energyIntensity;
+                    ctx.lineWidth = 1.8;
+                    ctx.strokeStyle = `rgba(80, 160, 255, ${lineAlpha})`;
+                    ctx.beginPath();
+                    ctx.moveTo(bx, by);
+                    ctx.lineTo(bx + dir * Math.cos(rba) * lineLen * 2.5, by + Math.sin(rba) * lineLen * 2.5);
+                    ctx.stroke();
+                    ctx.strokeStyle = `rgba(255, 80, 60, ${lineAlpha})`;
+                    ctx.beginPath();
+                    ctx.moveTo(fx, fy);
+                    ctx.lineTo(fx + dir * Math.cos(rfa) * lineLen * 2.5, fy + Math.sin(rfa) * lineLen * 2.5);
+                    ctx.stroke();
                 }
-                // 3. 手（柄より前面）
-                drawHand(frontHand.x, frontHand.y, standardFrontHandRadius);
-                if (renderWeaponVisuals) {
-                    // 4. 刀身（手の前面）
-                    drawSubWeaponKatana(frontHand.x, frontHand.y, frontAngle, dir, 0.02, 'blade');
-                }
+                ctx.restore();
             }
         } else if (this.subWeaponAction === '大太刀') {
             // 大太刀: 柄の中心付近を両手で挟む専用グリップ
@@ -5162,28 +5237,7 @@ export class Player {
             }
         }
 
-        // 追加: モーション中以外で武器を強制表示（プレビュー用）
-        if (drawFrontLayer && this.forceSubWeaponRender && !this.subWeaponRenderedInModel && this.currentSubWeapon && renderWeaponVisuals) {
-            const weaponName = this.currentSubWeapon.name;
-            if (weaponName === '手裏剣') {
-                // ★飛翔体と同一サイズで背中に表示
-                const heldRadius = (this.currentSubWeapon.projectileRadius || 10);
-                drawShurikenShape(ctx, centerX - dir * 10, pivotY + 2, heldRadius, -0.3);
-            } else if (weaponName === '火薬玉') {
-                ctx.save();
-                ctx.translate(centerX - dir * 10, pivotY + 2);
-                ctx.fillStyle = '#2d2d2d';
-                ctx.beginPath();
-                ctx.arc(0, 0, 6, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.strokeStyle = '#767676';
-                ctx.lineWidth = 1.5;
-                ctx.stroke();
-                ctx.restore();
-            } else if (typeof this.currentSubWeapon.render === 'function') {
-                this.currentSubWeapon.render(ctx, this);
-            }
-        }
+        // (プレビュー用背負い描画は削除)
 
         ctx.restore();
     }

@@ -1182,7 +1182,7 @@ export class DualBlades extends SubWeapon {
         this.mainDuration = 204;
         this.baseMainMotionSpeedScale = 1.7;
         this.mainMotionSpeedScale = this.baseMainMotionSpeedScale; // 通常Z連撃と近い体感速度に合わせる
-        this.baseCombinedDuration = 320;
+        this.baseCombinedDuration = 900;
         this.baseSideDuration = 150;
         this.combinedDuration = this.baseCombinedDuration;
         this.sideDuration = this.baseSideDuration;
@@ -1204,8 +1204,8 @@ export class DualBlades extends SubWeapon {
             this.baseMainMotionSpeedScale - this.enhanceTier * 0.11
         );
         this.combinedDuration = Math.max(
-            250,
-            Math.round(this.baseCombinedDuration * (1 - this.enhanceTier * 0.06))
+            700,
+            Math.round(this.baseCombinedDuration * (1 - this.enhanceTier * 0.03))
         );
         this.sideDuration = Math.max(
             96,
@@ -1647,9 +1647,9 @@ export class DualBlades extends SubWeapon {
                 ctx.restore();
             };
 
-            // 近接の剣筋と色対応を揃える（上: 赤、下: 青）
-            drawCrescent('rgba(255, 80, 80, 0.98)', -Math.PI / 4);
-            drawCrescent('rgba(80, 200, 255, 0.98)', Math.PI / 4);
+            // 近接の剣筋と色対応を揃える（奥の刀=青→上の三日月が青、手前の刀=赤→下の三日月が赤）
+            drawCrescent('rgba(80, 200, 255, 0.98)', -Math.PI / 4);
+            drawCrescent('rgba(255, 80, 80, 0.98)', Math.PI / 4);
 
             ctx.restore();
         }
@@ -2782,7 +2782,7 @@ export class Odachi extends SubWeapon {
                             this.owner.vy = 0;
                             this.hasImpacted = true;
                             this.plantedTimer = this.plantedDuration;
-                            this.impactX = this.owner.x + this.owner.width / 2;
+                            this.impactX = pose.handX + Math.cos(pose.rotation) * bladeEnd;
                             this.impactY = maxTipY;
                             this.impactFlashTimer = 170;
                             this.spawnImpactWaves();
@@ -2803,7 +2803,9 @@ export class Odachi extends SubWeapon {
                     this.hasImpacted = true;
                     this.plantedTimer = this.plantedDuration;
                     if (this.owner) {
-                        this.impactX = this.owner.x + this.owner.width / 2;
+                        const pose = this.getPose(this.owner);
+                        const bladeEnd = pose.bladeLen + 8;
+                        this.impactX = pose.handX + Math.cos(pose.rotation) * bladeEnd;
                         this.impactY = this.owner.groundY + LANE_OFFSET;
                     }
                     this.impactFlashTimer = 170;
@@ -2820,7 +2822,9 @@ export class Odachi extends SubWeapon {
                     this.hasImpacted = true;
                     this.plantedTimer = this.plantedDuration;
                     if (this.owner) {
-                        this.impactX = this.owner.x + this.owner.width / 2;
+                        const pose = this.getPose(this.owner);
+                        const bladeEnd = pose.bladeLen + 8;
+                        this.impactX = pose.handX + Math.cos(pose.rotation) * bladeEnd;
                         this.impactY = this.owner.groundY + LANE_OFFSET;
                     }
                     this.impactFlashTimer = 170;
@@ -3009,11 +3013,11 @@ export class Odachi extends SubWeapon {
             ctx.quadraticCurveTo(blade.bladeStart + 94, 1.7, blade.bladeEnd - 14, 3.2);
             ctx.stroke();
 
-            // 切先の一点ハイライト
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.66)';
-            ctx.beginPath();
-            ctx.arc(bladeEnd + 2.8, -0.75, 1.3, 0, Math.PI * 2);
-            ctx.fill();
+            // 切先の一点ハイライト（削除）
+            // ctx.fillStyle = 'rgba(255, 255, 255, 0.66)';
+            // ctx.beginPath();
+            // ctx.arc(bladeEnd + 2.8, -0.75, 1.3, 0, Math.PI * 2);
+            // ctx.fill();
 
             ctx.restore();
 
