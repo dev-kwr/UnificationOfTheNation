@@ -2085,17 +2085,8 @@ class Game {
                         const knockbackY = hardLanding ? -14 : -10;
                         const hitSourceX = obs.x + obs.width / 2;
 
-                        if (!hardLanding && !fromAbove) {
-                            // 横からの接触も軽微なダメージとノックバックを発生させてすり抜けを防止
-                            const knockbackDir = (this.player.x + this.player.width / 2 < obs.x + obs.width / 2) ? -1 : 1;
-                            if (this.handleSpikeDamage(1, hitSourceX, {
-                                knockbackX: 4,
-                                knockbackY: -4,
-                                knockbackDir: knockbackDir
-                            })) {
-                                continue;
-                            }
-                        }
+                        // 無敵時間中は判定自体を完全にスキップしてエフェクト発生を抑止
+                        if (this.player.invincibleTimer > 0 || this.player.isGhostVeilActive()) continue;
 
                         if (hardLanding) {
                             this.queueHitFeedback(5.2, 68);
@@ -2267,7 +2258,7 @@ class Game {
         if (this.isStageBossEnemy(enemy)) return;
 
         const isBossGem = this.shouldDropBossGem(enemy);
-        const gemExp = Math.max(1, Math.round(expValue * (isBossGem ? 1.8 : 1)));
+        const gemExp = Math.max(1, Math.round(expValue));
         this.expGems.push({
             x: enemy.x + enemy.width * 0.5,
             y: enemy.y + enemy.height * 0.42,

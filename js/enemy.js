@@ -3260,7 +3260,7 @@ export class Busho extends Enemy {
         this.speed = 2.1;
         this.speedVarianceRange = 0.18;
         this.speedVarianceBias = 0.06;
-        this.expReward = 100;
+        this.expReward = 60;
         this.moneyReward = 50;
         this.specialGaugeReward = 40; // 20 -> 40
         this.detectionRange = 620;

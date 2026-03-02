@@ -212,6 +212,7 @@ class Boss extends Enemy {
 
     startWeaponReplicaAttack(type = undefined) {
         if (!this.weaponReplica || typeof this.weaponReplica.use !== 'function') return false;
+        // 攻撃直前に最新のHP状態や難易度に応じたTierを再計算して反映
         this.applyWeaponReplicaEnhancement();
         this.weaponReplica.use(this, type);
         this.isAttacking = true;
@@ -247,7 +248,14 @@ class Boss extends Enemy {
     }
 
     getSubWeaponEnhanceTier() {
-        return Math.max(0, Math.min(3, this.getDifficultyReplicaTierBonus()));
+        // HP割合に応じて0〜3まで強化（HPが25%減るごとにLv+1）
+        const hpRatio = this.hp / this.maxHp;
+        let tierFromHp = 0;
+        if (hpRatio < 0.25) tierFromHp = 3;
+        else if (hpRatio < 0.5) tierFromHp = 2;
+        else if (hpRatio < 0.75) tierFromHp = 1;
+        
+        return Math.max(tierFromHp, this.getDifficultyReplicaTierBonus());
     }
 
     applyWeaponReplicaEnhancement() {

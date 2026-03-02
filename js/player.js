@@ -1864,7 +1864,7 @@ export class Player {
 
     takeTrapDamage(amount, options = {}) {
         if (this.isGhostVeilActive()) return false;
-        if (this.trapDamageCooldown > 0) return false;
+        if (this.trapDamageCooldown > 0 || this.invincibleTimer > 0) return false;
         const sourceX = (typeof options.sourceX === 'number') ? options.sourceX : null;
         const knockbackX = (typeof options.knockbackX === 'number') ? options.knockbackX : 4.5;
         const knockbackY = (typeof options.knockbackY === 'number') ? options.knockbackY : -7.5;
@@ -3073,17 +3073,17 @@ export class Player {
         // 本体描画
         if (this.isUsingSpecial && this.specialCastTimer > 0) {
             const castOptions = ghostVeilActive
-                ? { palette: { silhouette: `rgba(26, 26, 26, ${ghostSilhouetteAlpha})` } }
+                ? { palette: { silhouette: `rgba(26, 26, 26, 0.0)` } }
                 : {};
-            // 隠れ身の術中は本体のみ透明にするため、全体のalphaではなくpaletteで制御。
-            this.renderSpecialCastPose(ctx, this.x, this.y, this.facingRight, ctx.globalAlpha, castOptions);
+            // 隠れ身の術中は本体の色を透明にするため 0.0 を渡す。globalAlphaには影響させないことでアクセサリを維持。
+            this.renderSpecialCastPose(ctx, this.x, this.y, this.facingRight, ghostVeilActive ? 0.0 : ctx.globalAlpha, castOptions);
         } else {
             this.renderComboSlashTrail(ctx);
             const renderOptions = ghostVeilActive
-                ? { palette: { silhouette: `rgba(26, 26, 26, ${ghostSilhouetteAlpha})` } }
+                ? { palette: { silhouette: `rgba(26, 26, 26, 0.0)` } }
                 : {};
-            // 隠れ身の術中は本体のみ透明にするため、全体のalphaではなくpaletteで制御。
-            this.renderModel(ctx, this.x, this.y, this.facingRight, ctx.globalAlpha, true, renderOptions);
+            // 隠れ身の術中は本体の色を透明にするため 0.0 を渡す。globalAlphaには影響させないことでアクセサリを維持。
+            this.renderModel(ctx, this.x, this.y, this.facingRight, ghostVeilActive ? 0.0 : ctx.globalAlpha, true, renderOptions);
         }
 
         ctx.restore();
@@ -3275,16 +3275,22 @@ export class Player {
     }
 
     renderModel(ctx, x, y, facingRight, alpha = 1.0, renderSubWeaponVisualsInput = true, options = {}) {
+        ctx.save();
+        // alphaが0の場合でも、鉢巻や武器を描画するためにここではglobalAlphaを操作しない。
+        // 本体パーツの個別の描画内部でチェックを行う。
+
+        // alpha が正数かつ1.0未満のフェードイン/アウトなどの場合のみ全体の透明度に掛ける
+        if (alpha > 0 && alpha !== 1.0) ctx.globalAlpha *= alpha;
+
         // 無敵時間中の点滅
         if (this.invincibleTimer > 0) {
             // 約60fps想定で、2フレームごとに1フレーム非表示にする（高速点滅）
             if (Math.floor(this.motionTime / 32) % 2 === 0) {
+                ctx.restore();
                 return;
             }
         }
 
-        ctx.save();
-        if (alpha !== 1.0) ctx.globalAlpha *= alpha;
         const useLiveAccessories = options.useLiveAccessories !== false;
         const renderHeadbandTail = options.renderHeadbandTail !== false;
         const forceSubWeaponRender = options.forceSubWeaponRender || (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流');
@@ -3554,32 +3560,35 @@ export class Player {
                 preElbowY += preNY * preBend * dir + 0.25;
             }
             const idleBackBladeAnglePre = isCrouchPose ? -0.32 : -0.65;
-            if (silhouetteOutlineEnabled) {
-                ctx.strokeStyle = silhouetteOutlineColor;
-                ctx.lineWidth = 5.55;
+            if (alpha > 0) {
+                if (silhouetteOutlineEnabled) {
+                    ctx.strokeStyle = silhouetteOutlineColor;
+                    ctx.lineWidth = 5.55;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(backShoulderXPre, backShoulderYPre);
+                    ctx.lineTo(preElbowX, preElbowY);
+                    ctx.lineTo(idleBackHandPre.x, idleBackHandPre.y);
+                    ctx.stroke();
+                }
+                ctx.strokeStyle = silhouetteColor;
+                ctx.lineWidth = 4.8;
                 ctx.lineCap = 'round';
                 ctx.beginPath();
                 ctx.moveTo(backShoulderXPre, backShoulderYPre);
                 ctx.lineTo(preElbowX, preElbowY);
                 ctx.lineTo(idleBackHandPre.x, idleBackHandPre.y);
                 ctx.stroke();
+                ctx.fillStyle = silhouetteColor;
+                ctx.beginPath();
+                ctx.arc(idleBackHandPre.x, idleBackHandPre.y, 4.8 * handRadiusScalePre, 0, Math.PI * 2);
+                ctx.fill();
             }
-            ctx.strokeStyle = silhouetteColor;
-            ctx.lineWidth = 4.8;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            ctx.moveTo(backShoulderXPre, backShoulderYPre);
-            ctx.lineTo(preElbowX, preElbowY);
-            ctx.lineTo(idleBackHandPre.x, idleBackHandPre.y);
-            ctx.stroke();
-            ctx.fillStyle = silhouetteColor;
-            ctx.beginPath();
-            ctx.arc(idleBackHandPre.x, idleBackHandPre.y, 4.8 * handRadiusScalePre, 0, Math.PI * 2);
-            ctx.fill();
             this.drawKatana(ctx, idleBackHandPre.x, idleBackHandPre.y, idleBackBladeAnglePre, dir);
         }
         
-        const drawTorsoSegment = (withOutline = true) => {
+        const drawTorsoSegment = (withOutline = true, alphaVal = alpha) => {
+            if (alphaVal <= 0) return;
             if (withOutline && silhouetteOutlineEnabled) {
                 ctx.strokeStyle = silhouetteOutlineColor;
                 ctx.lineWidth = 11.2;
@@ -3614,6 +3623,7 @@ export class Player {
             storeForOverlay = true,
             overlayInFront = null
         ) => {
+            if (alpha <= 0) return;
             const defaultOverlayInFront = ((hipX - torsoHipX) * dir) <= 0;
             if (storeForOverlay && (overlayInFront === null ? defaultOverlayInFront : overlayInFront)) {
                 backLegOverlayQueue.push([hipX, hipYLocal, kneeX, kneeY, footX, footY, isFrontLeg, bendBias, bendDirSign]);
@@ -3647,60 +3657,52 @@ export class Player {
             const kneeOnLineY = hipRootY + legUY * kneeProj;
             const signedBend = (kneeAdjX - kneeOnLineX) * normalX + (kneeAdjY - kneeOnLineY) * normalY;
             const minBend = (isFrontLeg ? 2.35 : 2.05) * Math.max(0, bendBias);
-            if (Math.abs(signedBend) < minBend) {
-                // 内股方向は前足/後ろ足で逆になるため、脚ごとに押し方向を分ける
-                const defaultPushSign = isFrontLeg ? -dir : dir;
-                const pushSign = (bendDirSign === null || bendDirSign === undefined)
-                    ? defaultPushSign
-                    : dir * bendDirSign;
-                const push = (minBend - Math.abs(signedBend)) * pushSign;
-                kneeAdjX += normalX * push;
-                kneeAdjY += normalY * push;
-            }
-            ctx.strokeStyle = silhouetteColor;
-            ctx.lineCap = 'butt';
-            ctx.lineJoin = 'round';
-            if (silhouetteOutlineEnabled) {
-                ctx.strokeStyle = silhouetteOutlineColor;
-                ctx.lineWidth = thighWidth + 1.0;
+            if (alpha > 0) {
+                ctx.strokeStyle = silhouetteColor;
+                ctx.lineCap = 'butt';
+                ctx.lineJoin = 'round';
+                if (silhouetteOutlineEnabled) {
+                    ctx.strokeStyle = silhouetteOutlineColor;
+                    ctx.lineWidth = thighWidth + 1.0;
+                    ctx.lineCap = 'butt';
+                    ctx.beginPath();
+                    ctx.moveTo(hipRootX, hipRootY);
+                    ctx.lineTo(kneeAdjX, kneeAdjY);
+                    ctx.stroke();
+                }
+                ctx.strokeStyle = silhouetteColor;
+                ctx.lineWidth = thighWidth;
                 ctx.lineCap = 'butt';
                 ctx.beginPath();
                 ctx.moveTo(hipRootX, hipRootY);
                 ctx.lineTo(kneeAdjX, kneeAdjY);
                 ctx.stroke();
-            }
-            ctx.strokeStyle = silhouetteColor;
-            ctx.lineWidth = thighWidth;
-            ctx.lineCap = 'butt';
-            ctx.beginPath();
-            ctx.moveTo(hipRootX, hipRootY);
-            ctx.lineTo(kneeAdjX, kneeAdjY);
-            ctx.stroke();
-            if (silhouetteOutlineEnabled) {
-                ctx.strokeStyle = silhouetteOutlineColor;
-                ctx.lineWidth = shinWidth + 0.95;
+                if (silhouetteOutlineEnabled) {
+                    ctx.strokeStyle = silhouetteOutlineColor;
+                    ctx.lineWidth = shinWidth + 0.95;
+                    ctx.lineCap = 'butt';
+                    ctx.beginPath();
+                    ctx.moveTo(kneeAdjX, kneeAdjY);
+                    ctx.lineTo(footX, footY);
+                    ctx.stroke();
+                }
+                ctx.strokeStyle = silhouetteColor;
+                ctx.lineWidth = shinWidth;
                 ctx.lineCap = 'butt';
                 ctx.beginPath();
                 ctx.moveTo(kneeAdjX, kneeAdjY);
                 ctx.lineTo(footX, footY);
                 ctx.stroke();
+                ctx.fillStyle = silhouetteColor;
+                ctx.beginPath();
+                ctx.arc(kneeAdjX, kneeAdjY, kneeRadius, 0, Math.PI * 2);
+                ctx.fill();
+                const footRadius = isFrontLeg ? 1.9 : 1.65;
+                ctx.fillStyle = silhouetteColor;
+                ctx.beginPath();
+                ctx.arc(footX, footY + 0.22, footRadius, 0, Math.PI * 2);
+                ctx.fill();
             }
-            ctx.strokeStyle = silhouetteColor;
-            ctx.lineWidth = shinWidth;
-            ctx.lineCap = 'butt';
-            ctx.beginPath();
-            ctx.moveTo(kneeAdjX, kneeAdjY);
-            ctx.lineTo(footX, footY);
-            ctx.stroke();
-            ctx.fillStyle = silhouetteColor;
-            ctx.beginPath();
-            ctx.arc(kneeAdjX, kneeAdjY, kneeRadius, 0, Math.PI * 2);
-            ctx.fill();
-            const footRadius = isFrontLeg ? 1.9 : 1.65;
-            ctx.fillStyle = silhouetteColor;
-            ctx.beginPath();
-            ctx.arc(footX, footY + 0.22, footRadius, 0, Math.PI * 2);
-            ctx.fill();
         };
         if (useDualZCustomLegPose && isDualZComboPose && dualZPose && !isSpearThrustPose && !isCrouchPose) {
             const comboStep = dualZPose.comboIndex || 0;
@@ -4105,7 +4107,7 @@ export class Player {
                 frontShoulderY: frontShoulderYShared,
                 supportFrontHand: !(this.currentSubWeapon && this.currentSubWeapon.name === '二刀流'),
                 layerPhase: 'back'
-            }, options);
+            }, alpha, options);
         }
         if (shouldRenderSubWeaponLayerBack) {
             this.renderSubWeaponArm(
@@ -4135,16 +4137,18 @@ export class Player {
         }
         
         // 頭
-        if (silhouetteOutlineEnabled) {
-            ctx.fillStyle = silhouetteOutlineColor;
+        if (alpha > 0) {
+            if (silhouetteOutlineEnabled) {
+                ctx.fillStyle = silhouetteOutlineColor;
+                ctx.beginPath();
+                ctx.arc(headCenterX, headY, headRadius + 0.85, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.fillStyle = silhouetteColor;
             ctx.beginPath();
-            ctx.arc(headCenterX, headY, headRadius + 0.85, 0, Math.PI * 2);
+            ctx.arc(headCenterX, headY, headRadius, 0, Math.PI * 2);
             ctx.fill();
         }
-        ctx.fillStyle = silhouetteColor;
-        ctx.beginPath();
-        ctx.arc(headCenterX, headY, headRadius, 0, Math.PI * 2);
-        ctx.fill();
 
         // 鉢巻・ポニーテール
         const knotOffsetX = facingRight ? -12 : 12;
@@ -4300,6 +4304,7 @@ export class Player {
             bendScale = 0.14,
             elbowRadius = 2.15
         ) => {
+            if (alpha <= 0) return;
             const dx = handX - shoulderX;
             const dy = handY - shoulderY;
             const dist = Math.hypot(dx, dy);
@@ -4326,12 +4331,15 @@ export class Player {
 
             drawArmSegment(shoulderX, shoulderY, elbowX, elbowY, 6);
             drawArmSegment(elbowX, elbowY, wristX, wristY, 5.4);
-            ctx.fillStyle = silhouetteColor;
-            ctx.beginPath();
-            ctx.arc(elbowX, elbowY, elbowRadius, 0, Math.PI * 2);
-            ctx.fill();
+            if (alpha > 0) {
+                ctx.fillStyle = silhouetteColor;
+                ctx.beginPath();
+                ctx.arc(elbowX, elbowY, elbowRadius, 0, Math.PI * 2);
+                ctx.fill();
+            }
         };
         const drawHand = (xPos, yPos, radius = 4.5) => {
+            if (alpha <= 0) return;
             const handR = radius * handRadiusScale;
             ctx.fillStyle = silhouetteColor;
             ctx.beginPath(); ctx.arc(xPos, yPos, handR, 0, Math.PI * 2); ctx.fill();
@@ -4419,7 +4427,7 @@ export class Player {
                 backShoulderX, backShoulderY, frontShoulderX, frontShoulderY,
                 supportFrontHand: !(this.currentSubWeapon && this.currentSubWeapon.name === '二刀流'),
                 layerPhase: 'front'
-            }, options);
+            }, alpha, options);
             if (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
                 // 二刀前手: 攻撃中もサブ武器アーム側の描画（renderSubWeaponArm）に任せるため、ここでは描画しない
                 // (以前はここで描画していたが、renderSubWeaponArmと重複して二重描画の原因になっていた)
@@ -4434,6 +4442,7 @@ export class Player {
                 bodyTopY + 2,
                 facingRight,
                 renderSubWeaponVisuals,
+                alpha,
                 {
                     ...options,
                     shoulderAnchors: {
@@ -4454,7 +4463,7 @@ export class Player {
         ctx.restore();
     }
 
-    renderSubWeaponArm(ctx, centerX, pivotY, facingRight, renderWeaponVisuals = true, options = {}) {
+    renderSubWeaponArm(ctx, centerX, pivotY, facingRight, renderWeaponVisuals = true, alpha = 1.0, options = {}) {
         const dir = facingRight ? 1 : -1;
         const armReachScale = Number.isFinite(options.armReachScale) ? options.armReachScale : 1.0;
         const dualBlade = (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') ? this.currentSubWeapon : null;
@@ -4506,6 +4515,7 @@ export class Player {
         const armStrokeWidth = 4.8; // 脚(前脛)と同じ太さ
         const handRadiusScale = 0.86;
         const drawArmSegment = (fromX, fromY, toX, toY, width = 6) => {
+            if (alpha <= 0) return;
             // 微小な距離（0.1未満）の場合は描画をスキップして不要な点（lineCapによるもの）を防ぐ
             if (Math.hypot(toX - fromX, toY - fromY) < 0.1) return;
 
@@ -4537,10 +4547,12 @@ export class Player {
         ) => {
             drawArmSegment(shoulderX, shoulderYLocal, elbowX, elbowY, upperWidth);
             drawArmSegment(elbowX, elbowY, handX, handY, foreWidth);
-            ctx.fillStyle = silhouetteColor;
-            ctx.beginPath();
-            ctx.arc(elbowX, elbowY, 2.35, 0, Math.PI * 2);
-            ctx.fill();
+            if (alpha > 0) {
+                ctx.fillStyle = silhouetteColor;
+                ctx.beginPath();
+                ctx.arc(elbowX, elbowY, 2.35, 0, Math.PI * 2);
+                ctx.fill();
+            }
         };
 
         const drawBentArmSegment = (
@@ -4588,6 +4600,7 @@ export class Player {
         };
 
         const drawHand = (xPos, yPos, radius = 4.8) => {
+            if (alpha <= 0) return;
             const handR = radius * handRadiusScale;
             ctx.fillStyle = silhouetteColor;
             ctx.beginPath();
@@ -4647,8 +4660,10 @@ export class Player {
             handX,
             handY,
             straightenT = 0,
-            bendDir = -dir
+            bendDir = -dir,
+            alpha = 1.0
         ) => {
+            if (alpha <= 0) return;
             const dx = handX - shoulderX;
             const dy = handY - shoulderYLocal;
             const dist = Math.hypot(dx, dy);
@@ -4728,7 +4743,8 @@ export class Player {
                     throwHand.x,
                     throwHand.y,
                     progress,
-                    -dir
+                    -dir,
+                    alpha
                 );
                 drawHand(throwHand.x, throwHand.y, standardFrontHandRadius);
             }
@@ -5320,7 +5336,7 @@ export class Player {
         frontShoulderY = pivotY + 1,
         supportFrontHand = true,
         layerPhase = 'all'
-    }, options = {}) {
+    }, alpha = 1.0, options = {}) {
         const silhouetteColor = (options.palette && options.palette.silhouette) || COLORS.PLAYER;
         const silhouetteOutlineEnabled = options.silhouetteOutline !== false;
         const silhouetteOutlineColor = (options.palette && options.palette.silhouetteOutline) || 'rgba(168, 196, 230, 0.29)';
@@ -5557,7 +5573,7 @@ export class Player {
                 case ANIM_STATE.ATTACK_SLASH:
                     swordAngle = (progress - 0.5) * Math.PI;
                     armEndX = centerX + dir * 15;
-                    armEndY = pivotY + 5;
+                    armEndY = pivotY + 6;
                     // 二刀流装備時、X技でのポーズ調整
                     if (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
                         // 肘を曲げるためにターゲットを肩方向へ引き寄せる
@@ -5597,7 +5613,28 @@ export class Player {
             armEndY = activeBackShoulderY + (armEndY - activeBackShoulderY) * armReachScale;
         }
 
+        const drawArmSegment = (x1, y1, x2, y2, width) => {
+            if (alpha <= 0) return;
+            if (silhouetteOutlineEnabled) {
+                ctx.strokeStyle = silhouetteOutlineColor;
+                ctx.lineWidth = width + 0.85;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(x1, y1);
+                ctx.lineTo(x2, y2);
+                ctx.stroke();
+            }
+            ctx.strokeStyle = silhouetteColor;
+            ctx.lineWidth = width;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.stroke();
+        };
+
         const drawAttackArmSegment = (fromX, fromY, toX, toY, width = attackArmStrokeWidth) => {
+            if (alpha <= 0) return;
             // 微小な距離（0.1未満）の場合は描画をスキップ
             if (Math.hypot(toX - fromX, toY - fromY) < 0.1) return;
 
@@ -5628,6 +5665,7 @@ export class Player {
             upperLen = standardUpperLen,
             foreLen = standardForeLen
         ) => {
+            if (alpha <= 0) return;
             const dx = handX - shoulderX;
             const dy = handY - shoulderY;
             const distRaw = Math.hypot(dx, dy);
@@ -5710,10 +5748,12 @@ export class Player {
             );
 
             // 手を上書きで描画
-            ctx.fillStyle = silhouetteColor; // COLORS.PLAYER_GI から修正
-            ctx.beginPath();
-            ctx.arc(armEndX, armEndY, 4.8 * attackHandRadiusScale, 0, Math.PI * 2);
-            ctx.fill();
+            if (alpha > 0) {
+                ctx.fillStyle = silhouetteColor; // COLORS.PLAYER_GI から修正
+                ctx.beginPath();
+                ctx.arc(armEndX, armEndY, 4.8 * attackHandRadiusScale, 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
 
         const swordLen = this.getKatanaBladeLength(); // 見た目の刀身長は常に統一（当たり判定rangeとは分離）
@@ -5779,10 +5819,12 @@ export class Player {
                 attackArmStrokeWidth
             );
 
-            ctx.fillStyle = silhouetteColor;
-            ctx.beginPath();
-            ctx.arc(supportHand.x, supportHand.y, 4.5 * attackHandRadiusScale, 0, Math.PI * 2);
-            ctx.fill();
+            if (alpha > 0) {
+                ctx.fillStyle = silhouetteColor;
+                ctx.beginPath();
+                ctx.arc(supportHand.x, supportHand.y, 4.5 * attackHandRadiusScale, 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
 
         if (drawFrontLayer) {
@@ -6940,7 +6982,11 @@ export class Player {
     }
 
     renderSpecialCastPose(ctx, x, y, facingRight, alpha = 1.0, options = {}) {
+        ctx.save();
+        if (alpha > 0 && alpha !== 1.0) ctx.globalAlpha *= alpha;
+        // alphaが0の場合でも、鉢巻や武器を描画するためにここでは描画をスキップしない。
         const centerX = x + this.width / 2;
+
         const bottomY = y + this.height - 2;
         const dir = facingRight ? 1 : -1;
         const palette = options.palette || {};
@@ -6972,26 +7018,26 @@ export class Player {
         ctx.fillStyle = silhouette;
         ctx.lineCap = 'round';
 
-        // 体幹
-        ctx.lineWidth = 10;
-        ctx.beginPath();
-        ctx.moveTo(centerX + dir * 0.4, headY + 8);
-        ctx.lineTo(centerX - dir * 0.2, hipY);
-        ctx.stroke();
+        // 体幹・足・頭
+        if (alpha > 0) {
+            ctx.lineWidth = 10;
+            ctx.beginPath();
+            ctx.moveTo(centerX + dir * 0.4, headY + 8);
+            ctx.lineTo(centerX - dir * 0.2, hipY);
+            ctx.stroke();
 
-        // 足
-        ctx.lineWidth = 4.4;
-        ctx.beginPath();
-        ctx.moveTo(centerX - dir * 0.9, hipY);
-        ctx.lineTo(centerX - dir * 2.2, bottomY);
-        ctx.moveTo(centerX + dir * 0.9, hipY);
-        ctx.lineTo(centerX + dir * 2.1, bottomY - 0.3);
-        ctx.stroke();
+            ctx.lineWidth = 4.4;
+            ctx.beginPath();
+            ctx.moveTo(centerX - dir * 0.9, hipY);
+            ctx.lineTo(centerX - dir * 2.2, bottomY);
+            ctx.moveTo(centerX + dir * 0.9, hipY);
+            ctx.lineTo(centerX + dir * 2.1, bottomY - 0.3);
+            ctx.stroke();
 
-        // 頭
-        ctx.beginPath();
-        ctx.arc(centerX, headY, 14, 0, Math.PI * 2);
-        ctx.fill();
+            ctx.beginPath();
+            ctx.arc(centerX, headY, 14, 0, Math.PI * 2);
+            ctx.fill();
+        }
 
         // 鉢巻バンド
         ctx.strokeStyle = accent;
@@ -7081,47 +7127,49 @@ export class Player {
         }
 
         // ニンニン印 — 正面向きなので腕は体に隠れる。手と指だけ描画
-        const palmX = centerX;
-        const lowerHandY = headY + 10;
-        const upperHandY = lowerHandY - 8;
-        const handColor = silhouette;
-        const shadowColor = 'rgba(80, 80, 80, 0.35)';
+        if (alpha > 0) {
+            const palmX = centerX;
+            const lowerHandY = headY + 10;
+            const upperHandY = lowerHandY - 8;
+            const handColor = silhouette;
+            const shadowColor = 'rgba(80, 80, 80, 0.35)';
 
-        // 下の手（拳）— 影付き
-        ctx.fillStyle = shadowColor;
-        ctx.beginPath();
-        ctx.arc(palmX, lowerHandY + 1.5, 4.8, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = handColor;
-        ctx.beginPath();
-        ctx.arc(palmX, lowerHandY, 4.2, 0, Math.PI * 2);
-        ctx.fill();
+            // 下の手（拳）— 影付き
+            ctx.fillStyle = shadowColor;
+            ctx.beginPath();
+            ctx.arc(palmX, lowerHandY + 1.5, 4.8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = handColor;
+            ctx.beginPath();
+            ctx.arc(palmX, lowerHandY, 4.2, 0, Math.PI * 2);
+            ctx.fill();
 
-        // 上の手（拳）— 影付き
-        ctx.fillStyle = shadowColor;
-        ctx.beginPath();
-        ctx.arc(palmX, upperHandY + 1.5, 4.6, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = handColor;
-        ctx.beginPath();
-        ctx.arc(palmX, upperHandY, 4.0, 0, Math.PI * 2);
-        ctx.fill();
+            // 上の手（拳）— 影付き
+            ctx.fillStyle = shadowColor;
+            ctx.beginPath();
+            ctx.arc(palmX, upperHandY + 1.5, 4.6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = handColor;
+            ctx.beginPath();
+            ctx.arc(palmX, upperHandY, 4.0, 0, Math.PI * 2);
+            ctx.fill();
 
-        // 指 — 影付き
-        ctx.strokeStyle = shadowColor;
-        ctx.lineWidth = 5.0;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(palmX, upperHandY - 3.5);
-        ctx.lineTo(palmX, upperHandY - 5.0);
-        ctx.stroke();
-        ctx.strokeStyle = handColor;
-        ctx.lineWidth = 4.0;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(palmX, upperHandY - 4.0);
-        ctx.lineTo(palmX, upperHandY - 5.5);
-        ctx.stroke();
+            // 指 — 影付き
+            ctx.strokeStyle = shadowColor;
+            ctx.lineWidth = 5.0;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(palmX, upperHandY - 3.5);
+            ctx.lineTo(palmX, upperHandY - 5.0);
+            ctx.stroke();
+            ctx.strokeStyle = handColor;
+            ctx.lineWidth = 4.0;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(palmX, upperHandY - 4.0);
+            ctx.lineTo(palmX, upperHandY - 5.5);
+            ctx.stroke();
+        }
 
         ctx.restore();
 
