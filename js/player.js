@@ -36,7 +36,6 @@ const BASE_EXP_TO_NEXT = 100;
 const TEMP_NINJUTSU_MAX_STACK_MS = 300000;
 const PLAYER_HEADBAND_LINE_WIDTH = 4.2;
 const PLAYER_SPECIAL_HEADBAND_LINE_WIDTH = 5.4;
-const PLAYER_PONYTAIL_ROOT_OFFSET_Y = 8.0;
 const PLAYER_PONYTAIL_CONNECT_LIFT_Y = 0.0;
 const PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT = Math.PI * 1.12;
 const PLAYER_PONYTAIL_ROOT_ANGLE_LEFT = -Math.PI * 0.12;
@@ -223,7 +222,7 @@ export class Player {
         };
     }
 
-    calculateAccessoryAnchor(posX, groundY, height, motionTime, isMoving, isDashing, isCrouching, legPhase) {
+    calculateAccessoryAnchor(posX, groundY, height, motionTime, isMoving, isDashing, isCrouching, legPhase, facingRight = this.facingRight) {
         const bottomY = groundY;
         const drawY = groundY - height;
 
@@ -244,8 +243,32 @@ export class Player {
         const modelHeadY = isCrouching
             ? (bottomY - 2 - PLAYER.HEIGHT * (14 * 2 / 60) * 0.5 * 2.2 + modelBob)
             : (drawY + 15 + modelBob);
+        const headCenterX = posX + this.width / 2;
+        const baseHeightForHead = isCrouching ? PLAYER.HEIGHT : height;
+        const headRadius = (baseHeightForHead * (14 * 2 / 60) * 0.5);
+        const roots = this.getAccessoryRootAnchors(headCenterX, modelHeadY, headRadius, facingRight);
 
-        return { headY: modelHeadY, bob: modelBob };
+        return {
+            headY: modelHeadY,
+            bob: modelBob,
+            headX: headCenterX,
+            headRadius,
+            ...roots
+        };
+    }
+
+    getAccessoryRootAnchors(headCenterX, headY, headRadius, facingRight = this.facingRight) {
+        const bandBackAngle = facingRight ? Math.PI * 0.92 : Math.PI * 0.08;
+        const bandMaskRadius = Math.max(1, headRadius - 0.05);
+        const knotX = headCenterX + Math.cos(bandBackAngle) * bandMaskRadius;
+        const knotY = headY + Math.sin(bandBackAngle) * bandMaskRadius;
+
+        const hairRootAngle = facingRight ? PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT : PLAYER_PONYTAIL_ROOT_ANGLE_LEFT;
+        const hairRootRadius = Math.max(1, headRadius - 0.05);
+        const hairRootX = headCenterX + Math.cos(hairRootAngle) * hairRootRadius;
+        const hairRootY = headY + Math.sin(hairRootAngle) * hairRootRadius - PLAYER_PONYTAIL_CONNECT_LIFT_Y;
+
+        return { knotX, knotY, hairRootX, hairRootY };
     }
 
     resetVisualTrails() {
@@ -270,10 +293,13 @@ export class Player {
         }
     }
 
-    updateAccessoryNodes(scarfNodes, hairNodes, targetX, targetY, speedX, isMoving, deltaTime) {
+    updateAccessoryNodes(scarfNodes, hairNodes, targetX, targetY, speedX, isMoving, deltaTime, options = null) {
         if (!scarfNodes || scarfNodes.length === 0 || !hairNodes || hairNodes.length === 0) return;
 
-        const dir = this.facingRight ? 1 : -1;
+        const facingRight = (options && typeof options.facingRight === 'boolean')
+            ? options.facingRight
+            : this.facingRight;
+        const dir = facingRight ? 1 : -1;
         const time = this.motionTime;
         // deltaTimeが大きすぎる（ラグ等）と物理演算が爆発するため、上限を厳しく設定
         const dt = Math.min(deltaTime, 0.033);
@@ -283,8 +309,13 @@ export class Player {
 
         scarfNodes[0].x = targetX;
         scarfNodes[0].y = targetY;
-        hairNodes[0].x = targetX + dir * PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X;
-        hairNodes[0].y = targetY - PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y;
+        if (options && Number.isFinite(options.hairRootX) && Number.isFinite(options.hairRootY)) {
+            hairNodes[0].x = options.hairRootX;
+            hairNodes[0].y = options.hairRootY;
+        } else {
+            hairNodes[0].x = targetX + dir * PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X;
+            hairNodes[0].y = targetY - PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y;
+        }
 
         for (let s = 0; s < subSteps; s++) {
             for (let i = 1; i < scarfNodes.length; i++) {
@@ -1233,18 +1264,23 @@ export class Player {
                             pos.x, this.y + this.height, this.height,
                             cloneMotionTime, cloneIsMoving,
                             this.isDashing, this.isCrouching,
-                            this.legPhase || cloneMotionTime * 0.012
+                            this.legPhase || cloneMotionTime * 0.012,
+                            pos.facingRight
                         );
 
-                        const knotOffsetX = pos.facingRight ? -12 : 12;
                         this.updateAccessoryNodes(
                             this.specialCloneScarfNodes[i],
                             this.specialCloneHairNodes[i],
-                            pos.x + knotOffsetX,
-                            anchorCalc.headY - 2,
+                            anchorCalc.knotX,
+                            anchorCalc.knotY,
                             cloneVx,
                             cloneIsMoving,
-                            deltaTime
+                            deltaTime,
+                            {
+                                facingRight: pos.facingRight,
+                                hairRootX: anchorCalc.hairRootX,
+                                hairRootY: anchorCalc.hairRootY
+                            }
                         );
                     }
                 }
@@ -1290,18 +1326,23 @@ export class Player {
                                 pos.x, this.y + this.height, this.height,
                                 cloneMotionTime, cloneIsMoving,
                                 this.isDashing, this.isCrouching,
-                                this.legPhase || cloneMotionTime * 0.012
+                                this.legPhase || cloneMotionTime * 0.012,
+                                pos.facingRight
                             );
 
-                            const knotOffsetX = pos.facingRight ? -12 : 12;
                             this.updateAccessoryNodes(
                                 this.specialCloneScarfNodes[i],
                                 this.specialCloneHairNodes[i],
-                                pos.x + knotOffsetX,
-                                anchorCalc.headY - 2,
+                                anchorCalc.knotX,
+                                anchorCalc.knotY,
                                 cloneVx,
                                 cloneIsMoving,
-                                deltaTime
+                                deltaTime,
+                                {
+                                    facingRight: pos.facingRight,
+                                    hairRootX: anchorCalc.hairRootX,
+                                    hairRootY: anchorCalc.hairRootY
+                                }
                             );
                         }
                     }
@@ -1806,18 +1847,23 @@ export class Player {
                     pos.x, cloneFootY, this.height,
                     cloneMotionTime, cloneIsMoving,
                     false, false,
-                    cloneMotionTime * 0.012
+                    cloneMotionTime * 0.012,
+                    pos.facingRight
                 );
-                
-                const knotOffsetX = pos.facingRight ? -12 : 12;
+
                 this.updateAccessoryNodes(
                     this.specialCloneScarfNodes[i],
                     this.specialCloneHairNodes[i],
-                    pos.x + knotOffsetX,
-                    anchorCalc.headY - 2,
+                    anchorCalc.knotX,
+                    anchorCalc.knotY,
                     cloneVx,
                     cloneIsMoving,
-                    deltaTime
+                    deltaTime,
+                    {
+                        facingRight: pos.facingRight,
+                        hairRootX: anchorCalc.hairRootX,
+                        hairRootY: anchorCalc.hairRootY
+                    }
                 );
             }
         }
@@ -2694,11 +2740,12 @@ export class Player {
         const modelHeadY = this.isCrouching
             ? (modelBottomY - PLAYER.HEIGHT * (14 * 2 / 60) * 0.5 * 2.2 + modelBob)
             : (this.y + 15 + modelBob);
-
-        const knotOffsetX = this.facingRight ? -12 : 12;
-        const dir = this.facingRight ? 1 : -1;
-        const targetX = this.x + this.width / 2 + knotOffsetX;
-        const targetY = modelHeadY - 2;
+        const headCenterX = this.x + this.width / 2;
+        const baseHeightForHead = this.isCrouching ? PLAYER.HEIGHT : this.height;
+        const headRadius = (baseHeightForHead * (14 * 2 / 60) * 0.5);
+        const anchorRoots = this.getAccessoryRootAnchors(headCenterX, modelHeadY, headRadius, this.facingRight);
+        const targetX = anchorRoots.knotX;
+        const targetY = anchorRoots.knotY;
 
         // ステージ遷移や瞬間移動で履歴ノードが大きく離れている場合は破綻防止で再初期化
         const root = this.scarfNodes[0];
@@ -2709,8 +2756,8 @@ export class Player {
         // 1. 根元の位置固定
         this.scarfNodes[0].x = targetX;
         this.scarfNodes[0].y = targetY;
-        this.hairNodes[0].x = targetX + dir * PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X;
-        this.hairNodes[0].y = targetY - PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y;
+        this.hairNodes[0].x = anchorRoots.hairRootX;
+        this.hairNodes[0].y = anchorRoots.hairRootY;
 
         for (let s = 0; s < subSteps; s++) {
             // 鉢巻の更新
@@ -4259,32 +4306,14 @@ export class Player {
                 const wavePhase = i * (movingNow ? 0.5 : 0.6);
                 const wave = Math.sin(time * waveSpeed + wavePhase);
                 const waveAbs = Math.abs(wave);
-                const currentWidth = baseWidth * (movingNow ? 0.84 : 0.98 + waveAbs * 0.14);
+                const tProgress = i / (this.scarfNodes.length - 1);
+                const rootTaper = 0.36 + 0.64 * tProgress;
+                const currentWidth = baseWidth * (movingNow ? 0.84 : 0.98 + waveAbs * 0.14) * rootTaper;
                 const tiltX = wave * (movingNow ? 0.7 : 1.8);
                 if (i === this.scarfNodes.length - 1) ctx.lineTo(node.x + tiltX, node.y + currentWidth);
                 ctx.quadraticCurveTo(node.x + tiltX, node.y + currentWidth, (node.x + prev.x) / 2 + tiltX, (node.y + prev.y) / 2 + currentWidth);
             }
-            const rootLip = Math.max(1.6, PLAYER_HEADBAND_LINE_WIDTH * 0.52);
-            ctx.quadraticCurveTo(
-                tailRootX - dir * rootLip * 0.9,
-                tailRootY + rootLip * 0.66,
-                tailRootX,
-                tailRootY + rootLip * 0.2
-            );
             ctx.closePath();
-            ctx.fill();
-            // 接続部を楕円で整えて、バンドとテールの境目の欠けを防ぐ
-            const bandAngle = Math.atan2(bandCtrlY - knotY, bandCtrlX - knotX);
-            ctx.beginPath();
-            ctx.ellipse(
-                tailRootX + dir * 0.16,
-                tailRootY + 0.02,
-                Math.max(1.0, PLAYER_HEADBAND_LINE_WIDTH * 0.42),
-                Math.max(0.7, PLAYER_HEADBAND_LINE_WIDTH * 0.28),
-                bandAngle,
-                0,
-                Math.PI * 2
-            );
             ctx.fill();
         };
 
@@ -7040,9 +7069,6 @@ export class Player {
                     this.scarfNodes = this.specialCloneScarfNodes[i];
                     this.hairNodes = this.specialCloneHairNodes[i];
 
-                    const knotOffsetX = this.facingRight ? -12 : 12;
-                    const targetKnotX = pos.x + knotOffsetX;
-
                     const footY = this.y + this.height;
                     const cloneMotionTime = saved.motionTime + i * 400;
                     const cloneIsMoving = this.specialCloneAutoAiEnabled
@@ -7052,18 +7078,17 @@ export class Player {
                         pos.x, footY, this.height,
                         cloneMotionTime, cloneIsMoving,
                         false, false,
-                        this.legPhase || cloneMotionTime * 0.012
+                        this.legPhase || cloneMotionTime * 0.012,
+                        pos.facingRight
                     );
-                    const targetKnotY = anchorCalc.headY - 2;
 
                     if (this.scarfNodes.length) {
-                        this.scarfNodes[0].x = targetKnotX;
-                        this.scarfNodes[0].y = targetKnotY;
+                        this.scarfNodes[0].x = anchorCalc.knotX;
+                        this.scarfNodes[0].y = anchorCalc.knotY;
                     }
                     if (this.hairNodes.length) {
-                        const cloneDir = this.facingRight ? 1 : -1;
-                        this.hairNodes[0].x = targetKnotX + cloneDir * PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X;
-                        this.hairNodes[0].y = targetKnotY - PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y;
+                        this.hairNodes[0].x = anchorCalc.hairRootX;
+                        this.hairNodes[0].y = anchorCalc.hairRootY;
                     }
                 }
 
@@ -7334,7 +7359,9 @@ export class Player {
                 const waveSpeed = movingNow ? 0.008 : 0.004;
                 const wavePhase = i * (movingNow ? 0.5 : 0.6);
                 const wave = Math.sin(this.motionTime * waveSpeed + wavePhase);
-                const currentWidth = baseWidth * (movingNow ? 0.85 : 1.0 + Math.abs(wave) * 0.3);
+                const tProgress = i / (this.scarfNodes.length - 1);
+                const rootTaper = 0.34 + 0.66 * tProgress;
+                const currentWidth = baseWidth * (movingNow ? 0.85 : 1.0 + Math.abs(wave) * 0.3) * rootTaper;
                 const tiltX = wave * (movingNow ? 1.0 : 3.0);
                 const controlX = node.x + tiltX;
                 const controlY = node.y + currentWidth;
@@ -7345,26 +7372,7 @@ export class Player {
                 }
                 ctx.quadraticCurveTo(controlX, controlY, endX, endY);
             }
-            const rootLip = Math.max(1.8, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH * 0.56);
-            ctx.quadraticCurveTo(
-                tailRootX - dir * rootLip * 0.9,
-                tailRootY + rootLip * 0.66,
-                tailRootX,
-                tailRootY + rootLip * 0.2
-            );
             ctx.closePath();
-            ctx.fill();
-            const castBandAngle = Math.atan2(castBandCtrlY - knotTailY, castBandCtrlX - knotTailX);
-            ctx.beginPath();
-            ctx.ellipse(
-                tailRootX + dir * 0.2,
-                tailRootY + 0.02,
-                Math.max(1.1, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH * 0.43),
-                Math.max(0.75, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH * 0.29),
-                castBandAngle,
-                0,
-                Math.PI * 2
-            );
             ctx.fill();
         }
 
