@@ -7,16 +7,21 @@ import { input } from './input.js';
 import { audio } from './audio.js';
 import { drawScreenManualLine } from './ui.js';
 
+function formatMoneyValue(amount) {
+    const safe = Math.max(0, Math.floor(Number(amount) || 0));
+    return safe.toLocaleString('ja-JP');
+}
+
 // ショップアイテム
 const SHOP_ITEMS = [
     // ステータス強化
-    { id: 'hp_up', name: '活力の術', description: '最大HPを+5（最大18回まで）', price: 100, type: 'upgrade', stat: 'maxHp', value: 5 },
-    { id: 'attack_up', name: '剛力の術', description: '攻撃力が段階的に上昇（最大3回: 1.2→1.5→2.0倍）', price: 150, type: 'upgrade', stat: 'attackPower', value: 1 },
-    { id: 'speed_up', name: '韋駄天の術', description: '常時ダッシュ状態で移動可能になる', price: 150, type: 'upgrade', stat: 'speed', value: 1.5 },
+    { id: 'hp_up', name: '活力の秘薬', description: '最大HPを+5（最大18回まで・価格は段階上昇）', price: 100, type: 'upgrade', stat: 'maxHp', value: 5 },
+    { id: 'attack_up', name: '剛力の秘薬', description: '攻撃力が段階的に上昇（最大3回: 1.2→1.5→2.0倍・500枚から段階上昇）', price: 500, type: 'upgrade', stat: 'attackPower', value: 1 },
+    { id: 'speed_up', name: '韋駄天の秘術', description: '常時ダッシュ状態で移動可能になる', price: 2000, type: 'upgrade', stat: 'speed', value: 1.5 },
     
     // スキル
-    { id: 'double_jump', name: '二段跳び', description: '空中で一回追加跳躍が可能になる', price: 200, type: 'skill', skill: 'doubleJump' },
-    { id: 'triple_jump', name: '三段跳び', description: '空中跳躍が合計三回可能になる', price: 500, type: 'skill', skill: 'tripleJump' },
+    { id: 'double_jump', name: '二段跳び', description: '空中で一回追加跳躍が可能になる', price: 500, type: 'skill', skill: 'doubleJump' },
+    { id: 'triple_jump', name: '三段跳び', description: '空中跳躍が合計三回可能になる', price: 1000, type: 'skill', skill: 'tripleJump' },
 ];
 
 export class Shop {
@@ -84,7 +89,24 @@ export class Shop {
     }
     
     updateItemList() {
-        this.items = [...SHOP_ITEMS];
+        this.items = SHOP_ITEMS.map((item) => ({
+            ...item,
+            price: this.getItemPrice(item)
+        }));
+    }
+
+    getItemPrice(itemOrId) {
+        const id = typeof itemOrId === 'string' ? itemOrId : itemOrId?.id;
+        if (id === 'attack_up') {
+            // 500 -> 1000 -> 1500
+            return 500 + this.purchasedUpgrades.attack_up * 500;
+        }
+        if (id === 'hp_up') {
+            // 少しずつ値上げ
+            return 100 + this.purchasedUpgrades.hp_up * 25;
+        }
+        const item = SHOP_ITEMS.find((row) => row.id === id);
+        return item ? item.price : 0;
     }
 
     close() {
@@ -208,15 +230,16 @@ export class Shop {
             return;
         }
         
-        if (player.money < item.price) {
+        const price = this.getItemPrice(item);
+        if (player.money < price) {
             this.showMessage('お金が足りません！');
             return;
         }
 
         if (typeof player.addMoney === 'function') {
-            player.addMoney(-item.price);
+            player.addMoney(-price);
         } else {
-            player.money -= item.price;
+            player.money -= price;
         }
         
         switch (item.type) {
@@ -344,7 +367,7 @@ export class Shop {
         ctx.font = '700 14px sans-serif';
         ctx.textAlign = 'right';
         ctx.fillStyle = '#ffd96b';
-        const moneyLabel = `小判: ${player.money}`;
+        const moneyLabel = `小判: ${formatMoneyValue(player.money)}`;
         ctx.fillText(moneyLabel, shopX + shopW - 32, shopY + 66);
  
         this.items.forEach((item, i) => {
@@ -398,7 +421,8 @@ export class Shop {
             ctx.textBaseline = 'middle';
             ctx.fillStyle = (isPurchased || isLocked) ? 'rgba(155, 169, 198, 0.7)' : '#ffdb73';
             ctx.font = '700 15px sans-serif';
-            let priceText = `${item.price} 枚`;
+            const price = this.getItemPrice(item);
+            let priceText = `${formatMoneyValue(price)} 枚`;
             if (isPurchased) priceText = '習得済';
             else if (isLocked) priceText = '禁制';
             ctx.fillText(priceText, rect.x + rect.w - 24, priceY);

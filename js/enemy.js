@@ -3397,7 +3397,10 @@ export class Busho extends Enemy {
                     // 着地時に周囲のプレイヤーにダメージ（簡易）
                     const dist = Math.abs(window.game.player.x - this.x);
                     if (dist < 160 && window.game.player.isGrounded) {
-                        window.game.player.takeDamage(this.damage * 1.5);
+                        window.game.handlePlayerDamage(this.damage * 1.5, this.x + this.width / 2, {
+                            knockbackX: 3.6,
+                            knockbackY: -2.2
+                        });
                     }
                 }
                 audio.playSlash(3); // 衝撃音代用
@@ -4186,11 +4189,18 @@ class EnemyProjectile {
         }
 
         if (dist < 25 && player.invincibleTimer <= 0) {
-            player.takeDamage(this.damage, {
-                sourceX: this.x,
-                knockbackX: 6,
-                knockbackY: -5
-            });
+            if (window.game && typeof window.game.handlePlayerDamage === 'function') {
+                window.game.handlePlayerDamage(this.damage, this.x, {
+                    knockbackX: 3.6,
+                    knockbackY: -2.4
+                });
+            } else {
+                player.takeDamage(this.damage, {
+                    sourceX: this.x,
+                    knockbackX: 3.6,
+                    knockbackY: -2.4
+                });
+            }
             this.isAlive = false;
         }
 

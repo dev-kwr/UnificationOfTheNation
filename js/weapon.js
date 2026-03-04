@@ -637,6 +637,7 @@ export class Firebomb extends SubWeapon {
 
         const tier = this.enhanceTier;
         const sizeUp = tier >= 3;
+        const attackMultiplier = Math.max(1, Number(player && player.attackPower) || 1);
 
         // 1発発射
         const bomb = new Bomb(
@@ -645,7 +646,8 @@ export class Firebomb extends SubWeapon {
             vx,
             vy
         );
-        bomb.damage = sizeUp ? Math.round(this.damage * 1.22) : this.damage;
+        const baseBombDamage = sizeUp ? Math.round(this.damage * 1.22) : this.damage;
+        bomb.damage = Math.max(1, Math.round(baseBombDamage * attackMultiplier));
         bomb.radius = sizeUp ? 14 : 11;
         bomb.explosionRadius = sizeUp ? Math.round(this.range * 1.16) : this.range;
         bomb.explosionDuration = sizeUp ? 380 : 300;
@@ -664,7 +666,7 @@ export class Firebomb extends SubWeapon {
                         vx + (clone.index % 2 === 0 ? 0.5 : -0.5),
                         vy
                     );
-                    cloneBomb.damage = sizeUp ? Math.round(this.damage * 1.22) : this.damage;
+                    cloneBomb.damage = Math.max(1, Math.round(baseBombDamage * attackMultiplier));
                     cloneBomb.radius = sizeUp ? 13 : 10;
                     cloneBomb.explosionRadius = sizeUp ? Math.round(this.range * 1.16) : this.range;
                     cloneBomb.explosionDuration = sizeUp ? 360 : 280;

@@ -6,7 +6,7 @@ import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD } from './constants.js
 import { input } from './input.js';
 import { audio } from './audio.js';
 
-const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | S：切り替え | A：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
+const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE・ENTER：決定';
 const PAD_ICON_PATHS = {
     attack: './icon/attack.svg',
@@ -18,16 +18,25 @@ const PAD_ICON_PATHS = {
 const PAD_ICON_FALLBACK = {
     attack: 'Z',
     sub: 'X',
-    special: 'A',
-    switch: 'S',
+    special: 'S',
+    switch: 'C',
     pause: 'Ⅱ'
 };
 const BGM_ICON_PATHS = {
     unmuted: './icon/volume_on.svg',
     muted: './icon/volume_off.svg'
 };
+const TITLE_STAR_COUNT = 100;
+let cachedTitleLogoSprite = null;
+let cachedTitleLogoCanvasWidth = null;
+let cachedTitleLogoMetricWidth = null;
 
 const KANJI_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+
+function formatMoney(value) {
+    const safe = Math.max(0, Math.floor(Number(value) || 0));
+    return safe.toLocaleString('ja-JP');
+}
 
 function toKanjiSection(value) {
     if (value <= 0) return '';
@@ -143,94 +152,174 @@ export function drawScreenManualLine(ctx, text, y = CANVAS_HEIGHT - 20) {
     ctx.restore();
 }
 
-function drawRichTitleLogo(ctx, timeMs) {
-    const titleX = CANVAS_WIDTH / 2;
-    const titleY = CANVAS_HEIGHT / 2 - 120;
-    const pulse = (Math.sin(timeMs * 0.0023) + 1) * 0.5;
-    const bob = Math.sin(timeMs * 0.0017) * 1.2;
+function createTitleLogoSprite(measureCtx) {
+    if (typeof document === 'undefined') return null;
+
     const brushFamily = '"Rock Salt","Yuji Boku","Yusei Magic","Hiragino Mincho ProN","Yu Mincho",cursive';
     const subtitleFamily = '"Yuji Mai","Yuji Syuku","Yuji Boku","Yusei Magic","Hiragino Mincho ProN","Yu Mincho",cursive';
-
-    ctx.save();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-
     const titleText = 'Unification of the Nation';
-    const titleGradient = ctx.createLinearGradient(0, titleY - 90, 0, titleY + 28);
+    const subtitleText = '天下統一';
+    const maxTitleWidth = CANVAS_WIDTH * 0.88;
+    const baseTitleSize = 80;
+    const minTitleSize = 34;
+    const subtitleSize = 44;
+    const ornamentLen = 196;
+    const subtitleYOffset = 74;
+    const ornamentYOffset = subtitleYOffset + 40;
+
+    let titleSize = baseTitleSize;
+    measureCtx.save();
+    while (titleSize > minTitleSize) {
+        measureCtx.font = `700 ${titleSize}px ${brushFamily}`;
+        if (measureCtx.measureText(titleText).width <= maxTitleWidth) break;
+        titleSize -= 2;
+    }
+    measureCtx.font = `700 ${titleSize}px ${brushFamily}`;
+    const titleMetrics = measureCtx.measureText(titleText);
+    const titleWidth = titleMetrics.width;
+    const titleAsc = titleMetrics.actualBoundingBoxAscent || titleSize * 0.82;
+    const titleDesc = titleMetrics.actualBoundingBoxDescent || titleSize * 0.3;
+    const titleStrokeWidth = Math.max(2.8, titleSize * 0.064);
+
+    measureCtx.font = `400 ${subtitleSize}px ${subtitleFamily}`;
+    const subtitleMetrics = measureCtx.measureText(subtitleText);
+    const subtitleWidth = subtitleMetrics.width;
+    const subtitleDesc = subtitleMetrics.actualBoundingBoxDescent || subtitleSize * 0.26;
+    measureCtx.restore();
+
+    const spriteW = Math.ceil(Math.max(
+        titleWidth + titleStrokeWidth * 2 + 56,
+        subtitleWidth + 96,
+        ornamentLen * 2 + 76
+    ));
+    const titleBaselineY = Math.ceil(titleAsc + 28);
+    const subtitleY = titleBaselineY + subtitleYOffset;
+    const ornamentY = titleBaselineY + ornamentYOffset;
+    const spriteH = Math.ceil(Math.max(
+        titleBaselineY + titleDesc + 22,
+        subtitleY + subtitleDesc + 16,
+        ornamentY + 16
+    ));
+
+    const dpr = Math.min((typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1, 2);
+    const sprite = document.createElement('canvas');
+    sprite.width = Math.max(1, Math.round(spriteW * dpr));
+    sprite.height = Math.max(1, Math.round(spriteH * dpr));
+
+    const sctx = sprite.getContext('2d');
+    if (!sctx) return null;
+    sctx.scale(dpr, dpr);
+    sctx.textAlign = 'center';
+    sctx.textBaseline = 'alphabetic';
+
+    const drawX = spriteW / 2;
+    const titleGradient = sctx.createLinearGradient(0, titleBaselineY - 90, 0, titleBaselineY + 28);
     titleGradient.addColorStop(0, '#fff7df');
     titleGradient.addColorStop(0.42, '#f2d293');
     titleGradient.addColorStop(0.78, '#d8a65b');
     titleGradient.addColorStop(1, '#a47234');
 
-    const titleRenderY = titleY + bob * 0.42;
-    const maxTitleWidth = CANVAS_WIDTH * 0.92;
-    let titleSize = 86;
-    while (titleSize > 40) {
-        ctx.font = `700 ${titleSize}px ${brushFamily}`;
-        if (ctx.measureText(titleText).width <= maxTitleWidth) break;
-        titleSize -= 2;
+    sctx.font = `700 ${titleSize}px ${brushFamily}`;
+    sctx.lineJoin = 'bevel';
+    sctx.miterLimit = 1.4;
+    sctx.strokeStyle = 'rgba(8, 5, 14, 0.92)';
+    sctx.lineWidth = titleStrokeWidth;
+    sctx.shadowColor = 'rgba(0, 0, 0, 0.62)';
+    sctx.shadowBlur = 8;
+    sctx.strokeText(titleText, drawX, titleBaselineY);
+    sctx.shadowBlur = 0;
+
+    const jitterPasses = 2;
+    for (let i = 0; i < jitterPasses; i++) {
+        const jitterX = Math.sin(i * 1.3) * (0.9 + i * 0.22);
+        const jitterY = Math.cos(i * 1.6) * (0.7 + i * 0.18);
+        const smearAlpha = 0.1 - i * 0.028;
+        sctx.fillStyle = `rgba(26, 17, 20, ${Math.max(0.04, smearAlpha)})`;
+        sctx.fillText(titleText, drawX + jitterX, titleBaselineY + jitterY);
+    }
+    sctx.fillStyle = titleGradient;
+    sctx.fillText(titleText, drawX, titleBaselineY);
+    sctx.strokeStyle = 'rgba(255, 245, 221, 0.38)';
+    sctx.lineWidth = 0.8;
+    sctx.strokeText(titleText, drawX, titleBaselineY - 1);
+
+    sctx.font = `400 ${subtitleSize}px ${subtitleFamily}`;
+    sctx.lineJoin = 'bevel';
+    sctx.miterLimit = 1.4;
+    sctx.shadowColor = 'rgba(84, 130, 220, 0.28)';
+    sctx.shadowBlur = 2;
+    sctx.lineWidth = 1.2;
+    sctx.strokeStyle = 'rgba(10, 12, 20, 0.72)';
+    sctx.strokeText(subtitleText, drawX, subtitleY);
+    sctx.fillStyle = '#d9e8ff';
+    sctx.fillText(subtitleText, drawX, subtitleY);
+    sctx.shadowBlur = 0;
+
+    sctx.strokeStyle = 'rgba(229, 203, 142, 0.78)';
+    sctx.lineWidth = 2.4;
+    sctx.lineCap = 'round';
+    sctx.beginPath();
+    sctx.moveTo(drawX - 34, ornamentY);
+    sctx.quadraticCurveTo(drawX - 104, ornamentY - 5, drawX - ornamentLen, ornamentY + 2);
+    sctx.moveTo(drawX + 34, ornamentY);
+    sctx.quadraticCurveTo(drawX + 104, ornamentY + 5, drawX + ornamentLen, ornamentY - 1);
+    sctx.stroke();
+
+    sctx.fillStyle = 'rgba(240, 218, 165, 0.92)';
+    sctx.beginPath();
+    sctx.moveTo(drawX - 20, ornamentY);
+    sctx.lineTo(drawX, ornamentY - 10);
+    sctx.lineTo(drawX + 20, ornamentY);
+    sctx.lineTo(drawX, ornamentY + 10);
+    sctx.closePath();
+    sctx.fill();
+
+    return {
+        image: sprite,
+        anchorX: spriteW * 0.5,
+        anchorY: titleBaselineY,
+        drawWidth: spriteW,
+        drawHeight: spriteH
+    };
+}
+
+function drawRichTitleLogo(ctx, timeMs) {
+    const titleX = CANVAS_WIDTH / 2;
+    const titleY = CANVAS_HEIGHT / 2 - 120;
+    const titleRenderY = titleY + Math.sin(timeMs * 0.0017) * 0.5;
+    const probeFont = 80;
+    const brushFamily = '"Rock Salt","Yuji Boku","Yusei Magic","Hiragino Mincho ProN","Yu Mincho",cursive';
+
+    ctx.save();
+    ctx.font = `700 ${probeFont}px ${brushFamily}`;
+    const metricWidth = Math.round(ctx.measureText('Unification of the Nation').width);
+    ctx.restore();
+
+    const needsSpriteRebuild = !cachedTitleLogoSprite
+        || cachedTitleLogoCanvasWidth !== CANVAS_WIDTH
+        || !Number.isFinite(cachedTitleLogoMetricWidth)
+        || Math.abs(metricWidth - cachedTitleLogoMetricWidth) >= 2;
+
+    if (needsSpriteRebuild) {
+        const sprite = createTitleLogoSprite(ctx);
+        if (sprite) {
+            cachedTitleLogoSprite = sprite;
+            cachedTitleLogoCanvasWidth = CANVAS_WIDTH;
+            cachedTitleLogoMetricWidth = metricWidth;
+        }
     }
 
-    ctx.font = `700 ${titleSize}px ${brushFamily}`;
-    ctx.lineJoin = 'bevel';
-    ctx.miterLimit = 1.4;
-    ctx.strokeStyle = 'rgba(8, 5, 14, 0.92)';
-    ctx.lineWidth = Math.max(3.4, titleSize * 0.072);
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.62)';
-    ctx.shadowBlur = 12;
-    ctx.strokeText(titleText, titleX, titleRenderY);
-    ctx.shadowBlur = 0;
+    if (!cachedTitleLogoSprite) return;
 
-    // にじみ・かすれを先に重ねる
-    for (let i = 0; i < 4; i++) {
-        const jitterX = Math.sin(timeMs * 0.0028 + i * 1.3) * (0.9 + i * 0.22);
-        const jitterY = Math.cos(timeMs * 0.0021 + i * 1.6) * (0.7 + i * 0.18);
-        ctx.fillStyle = `rgba(26, 17, 20, ${0.12 - i * 0.02})`;
-        ctx.fillText(titleText, titleX + jitterX, titleRenderY + jitterY);
-    }
-
-    ctx.fillStyle = titleGradient;
-    ctx.fillText(titleText, titleX, titleRenderY);
-
-    ctx.strokeStyle = `rgba(255, 245, 221, ${0.3 + pulse * 0.16})`;
-    ctx.lineWidth = 1.0;
-    ctx.strokeText(titleText, titleX, titleRenderY - 1);
-
-    const subtitleY = titleY + 76 + bob * 0.2;
-    const subtitleText = '天下統一';
-    ctx.font = `400 48px ${subtitleFamily}`;
-    ctx.lineJoin = 'bevel';
-    ctx.miterLimit = 1.4;
-    ctx.shadowColor = 'rgba(84, 130, 220, 0.28)';
-    ctx.shadowBlur = 3;
-    ctx.lineWidth = 1.4;
-    ctx.strokeStyle = 'rgba(10, 12, 20, 0.72)';
-    ctx.strokeText(subtitleText, titleX, subtitleY);
-    ctx.fillStyle = '#d9e8ff';
-    ctx.fillText(subtitleText, titleX, subtitleY);
-    ctx.shadowBlur = 0;
-
-    const ornamentY = subtitleY + 40;
-    const ornamentLen = 206;
-    ctx.strokeStyle = 'rgba(229, 203, 142, 0.78)';
-    ctx.lineWidth = 2.4;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(titleX - 34, ornamentY);
-    ctx.quadraticCurveTo(titleX - 104, ornamentY - 5, titleX - ornamentLen, ornamentY + 2);
-    ctx.moveTo(titleX + 34, ornamentY);
-    ctx.quadraticCurveTo(titleX + 104, ornamentY + 5, titleX + ornamentLen, ornamentY - 1);
-    ctx.stroke();
-
-    ctx.fillStyle = 'rgba(240, 218, 165, 0.92)';
-    ctx.beginPath();
-    ctx.moveTo(titleX - 20, ornamentY);
-    ctx.lineTo(titleX, ornamentY - 10);
-    ctx.lineTo(titleX + 20, ornamentY);
-    ctx.lineTo(titleX, ornamentY + 10);
-    ctx.closePath();
-    ctx.fill();
-
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(
+        cachedTitleLogoSprite.image,
+        Math.round(titleX - cachedTitleLogoSprite.anchorX),
+        Math.round(titleRenderY - cachedTitleLogoSprite.anchorY),
+        cachedTitleLogoSprite.drawWidth,
+        cachedTitleLogoSprite.drawHeight
+    );
     ctx.restore();
 }
 
@@ -244,8 +333,9 @@ function drawTitleMistLayers(ctx, timeMs) {
 
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
+    const densityStep = 1;
     for (const layer of layers) {
-        for (let i = -2; i < 5; i++) {
+        for (let i = -2; i < 5; i += densityStep) {
             const travel = ((timeMs * layer.speed * 0.001) + i * (layer.w * 0.72)) % (CANVAS_WIDTH + layer.w * 1.35);
             const cx = travel - layer.w * 0.65;
             const cy = layer.y + Math.sin(t * (0.82 + i * 0.14) + i * 1.23) * layer.amp;
@@ -530,8 +620,7 @@ export class UI {
         const bgmLeftX = bgmCenterX - VIRTUAL_PAD.BGM_BUTTON_RADIUS;
         const stageRightX = bgmLeftX - 12; // BGMボタン左側に余白を確保
         const stageTextY = bgmCenterY;
-        const displayMoney = Math.max(0, Math.min(9999, Math.floor(Number(player.money) || 0)));
-        const moneyText = `${displayMoney}`;
+        const moneyText = formatMoney(player.money);
         const coinSize = 9;
 
         ctx.textBaseline = 'middle';
@@ -683,8 +772,10 @@ export class UI {
     }
     
     // ダメージ数値表示用
-    renderDamageNumber(ctx, x, y, damage, isCritical = false) {
+    renderDamageNumber(ctx, x, y, damage, isCritical = false, alpha = 1) {
+        if (alpha <= 0) return;
         ctx.save();
+        if (alpha < 1) ctx.globalAlpha *= alpha;
         ctx.fillStyle = isCritical ? '#ffcc00' : '#ffffff';
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 3;
@@ -1119,7 +1210,8 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     // 天頂の薄い光帯
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
-    for (let i = 0; i < 3; i++) {
+    const skyBandCount = 3;
+    for (let i = 0; i < skyBandCount; i++) {
         const bandY = CANVAS_HEIGHT * (0.16 + i * 0.1);
         const bandW = CANVAS_WIDTH * (1.25 - i * 0.1);
         const drift = Math.sin(t * (0.22 + i * 0.08) + i * 1.4) * 90;
@@ -1141,7 +1233,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     ctx.restore();
 
     // 星空（旧挙動: 右上→左下）
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < TITLE_STAR_COUNT; i++) {
         const x = (i * 137.5 - time * 0.02) % CANVAS_WIDTH;
         const y = (i * 219.7 + time * 0.01) % CANVAS_HEIGHT;
         const finalX = x < 0 ? x + CANVAS_WIDTH : x;
@@ -1280,7 +1372,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     
     // 右下デバッグモードヒント（⚙アイコン）
     ctx.save();
-    ctx.globalAlpha = 0.25 + Math.sin(Date.now() * 0.002) * 0.08;
+    ctx.globalAlpha = 0.25 + Math.sin(time * 0.002) * 0.08;
     ctx.font = '24px sans-serif';
     ctx.fillStyle = '#aabbcc';
     ctx.textAlign = 'right';
@@ -1551,7 +1643,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         const statRows = [
             { label: '段位', value: `${toKanjiNumber(player.level)}段`, color: '#fff' },
             { label: '体力', value: `${player.maxHp}`, color: '#ff7070' },
-            { label: '小判', value: `${player.money} 枚`, color: '#ffd700' },
+            { label: '小判', value: `${formatMoney(player.money)} 枚`, color: '#ffd700' },
             { label: '剛力', value: `${(player.attackPower || 1.0).toFixed(1)}倍`, color: '#ffae70' },
             { label: '韋駄天', value: player.permanentDash ? '習得済' : '未習得', color: '#7affae' },
             { label: '跳躍', value: `${player.maxJumps || 1}段`, color: '#7ab5ff' }
@@ -2158,29 +2250,36 @@ export function renderPauseScreen() {
     // ... (既存のコード) ...
 }
 
-// 全クリア画面
-export function renderGameClearScreen(ctx) {
-    // GAME OVER画面の金色版トーン
-    const gradient = ctx.createRadialGradient(
-        CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 0,
-        CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH * 0.62
-    );
-    gradient.addColorStop(0, '#c79a2f');
-    gradient.addColorStop(0.58, '#6f4d0d');
-    gradient.addColorStop(1, '#0b0906');
-    ctx.fillStyle = gradient;
+// 全クリア画面（通常ステージクリアと同等の透け感で重ねる）
+export function renderGameClearScreen(ctx, timerMs = 0) {
+    const time = Number.isFinite(timerMs) ? timerMs : 0;
+    const pulse = 0.5 + Math.sin(time * 0.003) * 0.5;
+
+    // 通常ステージクリア寄りの半透明オーバーレイ
+    ctx.fillStyle = `rgba(180, 132, 54, ${0.2 + pulse * 0.06})`;
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // 金粉パーティクル（GAME OVERの灰エフェクトと同じ構成）
-    const loopTime = Date.now();
+    const grad = ctx.createRadialGradient(
+        CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 0,
+        CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH * 0.72
+    );
+    grad.addColorStop(0, `rgba(255, 226, 146, ${0.24 + pulse * 0.08})`);
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0.16)');
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.restore();
+
+    // 金粉パーティクル（透け感を維持）
     for (let i = 0; i < 15; i++) {
         const cycleDuration = 4000;
         const offset = i * (cycleDuration / 15);
-        const cycleProgress = ((loopTime + offset) % cycleDuration) / cycleDuration;
-        const px = CANVAS_WIDTH / 2 + Math.sin(loopTime * 0.001 + i * 0.72) * 200;
-        const py = CANVAS_HEIGHT / 2 - 100 + Math.cos(loopTime * 0.0008 + i * 0.9) * 100 + cycleProgress * 120;
+        const cycleProgress = ((time + offset) % cycleDuration) / cycleDuration;
+        const px = CANVAS_WIDTH / 2 + Math.sin(time * 0.001 + i * 0.72) * 200;
+        const py = CANVAS_HEIGHT / 2 - 100 + Math.cos(time * 0.0008 + i * 0.9) * 100 + cycleProgress * 120;
         const size = 2 + Math.sin(i * 0.5) * 1.5;
-        const particleAlpha = Math.sin(cycleProgress * Math.PI) * 0.34;
+        const particleAlpha = Math.sin(cycleProgress * Math.PI) * 0.28;
         ctx.fillStyle = `rgba(238, 190, 78, ${particleAlpha})`;
         ctx.beginPath();
         ctx.arc(px, py, size, 0, Math.PI * 2);
@@ -2188,29 +2287,23 @@ export function renderGameClearScreen(ctx) {
     }
 
     ctx.textAlign = 'center';
-    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.58)';
+    ctx.shadowBlur = 10;
 
-    // 見出し（GAME OVERと同サイズ）
-    ctx.fillStyle = 'rgba(255, 247, 224, 1)';
+    ctx.fillStyle = 'rgba(255, 247, 224, 0.98)';
     ctx.font = 'bold 80px serif';
     ctx.fillText('天下統一', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 80);
 
-    // サブ見出し（GAME OVERと同サイズ）
     ctx.font = 'bold 40px serif';
-    ctx.fillStyle = 'rgba(255, 218, 108, 1)';
+    ctx.fillStyle = 'rgba(255, 218, 108, 0.98)';
     ctx.fillText('GAME CLEAR', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
 
-    // 続行メッセージ（GAME OVERと同じサイズ感）
-    const blink = Math.floor(Date.now() / 500) % 2 === 0;
-    if (blink) {
+    if (Math.floor(time / 500) % 2 === 0) {
         ctx.font = 'bold 20px sans-serif';
         ctx.fillStyle = 'rgba(255, 255, 255, 0.84)';
-        ctx.textAlign = 'center';
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-        ctx.shadowBlur = 4;
         ctx.fillText('Press SPACE or Tap Screen to Continue', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 80);
-        ctx.shadowBlur = 0;
     }
+    ctx.shadowBlur = 0;
 }
 
 /**

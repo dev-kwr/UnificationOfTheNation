@@ -33,6 +33,25 @@ const COMBO_ATTACKS = [
     { type: ANIM_STATE.ATTACK_DOWN, name: '五ノ太刀・落天水平叩き', damage: 2.52, range: 112, durationMs: 336, cooldownScale: 0.72, chainWindowMs: 136, impulse: 0.2 }
 ];
 const BASE_EXP_TO_NEXT = 100;
+const TEMP_NINJUTSU_MAX_STACK_MS = 300000;
+const PLAYER_HEADBAND_LINE_WIDTH = 4.2;
+const PLAYER_SPECIAL_HEADBAND_LINE_WIDTH = 5.4;
+const PLAYER_PONYTAIL_ROOT_OFFSET_Y = 8.0;
+const PLAYER_PONYTAIL_CONNECT_LIFT_Y = 0.0;
+const PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT = Math.PI * 1.12;
+const PLAYER_PONYTAIL_ROOT_ANGLE_LEFT = -Math.PI * 0.12;
+const PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X = 0.8;
+const PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y = 5.0;
+
+function calcExpToNextForLevel(level) {
+    const lv = Math.max(1, Math.floor(Number(level) || 1));
+    const n = lv - 1;
+    // Lvが上がるほど必要経験値を増やす（緩やか）
+    return Math.max(
+        BASE_EXP_TO_NEXT,
+        Math.floor(BASE_EXP_TO_NEXT + n * 10 + n * n * 0.9)
+    );
+}
 
 export class Player {
     constructor(x, y, groundY) {
@@ -128,7 +147,7 @@ export class Player {
         this.maxHp = PLAYER.MAX_HP;
         this.level = 1;
         this.exp = 0;
-        this.expToNext = BASE_EXP_TO_NEXT;
+        this.expToNext = calcExpToNextForLevel(1);
         this.money = 0;
         this.maxMoney = PLAYER.MONEY_MAX || 9999;
         this.attackPower = 1;
@@ -245,7 +264,7 @@ export class Player {
             if (i < 8) {
                 this.hairNodes.push({
                     x: anchorX - dir * i * 3.2,
-                    y: anchorY - 8 + i * 0.8
+                    y: anchorY - 6 + i * 0.8
                 });
             }
         }
@@ -254,6 +273,7 @@ export class Player {
     updateAccessoryNodes(scarfNodes, hairNodes, targetX, targetY, speedX, isMoving, deltaTime) {
         if (!scarfNodes || scarfNodes.length === 0 || !hairNodes || hairNodes.length === 0) return;
 
+        const dir = this.facingRight ? 1 : -1;
         const time = this.motionTime;
         // deltaTimeが大きすぎる（ラグ等）と物理演算が爆発するため、上限を厳しく設定
         const dt = Math.min(deltaTime, 0.033);
@@ -263,8 +283,8 @@ export class Player {
 
         scarfNodes[0].x = targetX;
         scarfNodes[0].y = targetY;
-        hairNodes[0].x = targetX;
-        hairNodes[0].y = targetY - 8;
+        hairNodes[0].x = targetX + dir * PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X;
+        hairNodes[0].y = targetY - PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y;
 
         for (let s = 0; s < subSteps; s++) {
             for (let i = 1; i < scarfNodes.length; i++) {
@@ -1192,12 +1212,12 @@ export class Player {
                 }
 
                 // 詠唱中は全レベル共通でノードを追従させる（Lv3も含む）
+                const stableGroundY = this.groundY + LANE_OFFSET;
+                const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - PLAYER.HEIGHT * 0.38);
                 for (let i = 0; i < this.specialCloneSlots.length; i++) {
                     const pos = this.specialClonePositions[i];
                     if (!pos) continue;
 
-                    const stableGroundY = this.groundY + LANE_OFFSET;
-                    const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - PLAYER.HEIGHT * 0.38);
                     pos.x = anchors[i].x;
                     pos.y = anchors[i].y;
                     pos.facingRight = anchors[i].facingRight;
@@ -1382,7 +1402,29 @@ export class Player {
         this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
 
-        this.spawnSpecialSmoke('appear', this.getSpecialSmokeAnchors(true));
+        // 戦闘開始時の煙もここでは生成せず、詠唱開始時のみに集約するか、
+        // 少なくとも重複は避ける。詠唱終了時の煙は削除。
+        // this.spawnSpecialSmoke('appear', this.getSpecialSmokeAnchors(true));
+        
+        // 分身の霧エフェクト軽量化用キャッシュ（オフスクリーンCanvas）
+        this.initMistCache();
+    }
+
+    initMistCache() {
+        if (this.mistCacheCanvas) return;
+        const size = 68; // 半径34 * 2
+        this.mistCacheCanvas = document.createElement('canvas');
+        this.mistCacheCanvas.width = size;
+        this.mistCacheCanvas.height = size;
+        const ctx = this.mistCacheCanvas.getContext('2d');
+        const mist = ctx.createRadialGradient(size/2, size/2, 2, size/2, size/2, size/2);
+        // 白・淡青のミスト（描画時にalphaをかけるためベースは不透明に近くする）
+        mist.addColorStop(0, 'rgba(180, 214, 246, 1.0)');
+        mist.addColorStop(1, 'rgba(180, 214, 246, 0.0)');
+        ctx.fillStyle = mist;
+        ctx.beginPath();
+        ctx.arc(size/2, size/2, size/2, 0, Math.PI * 2);
+        ctx.fill();
     }
 
     getSpecialSmokeAnchorByIndex(index) {
@@ -1434,7 +1476,7 @@ export class Player {
             // 全ノードをアンカー位置で束ねて初期化（初フレームに地面へ飛ばないよう）
             scarfNodes.push({ x: anchorX, y: anchorY });
             if (i < 8) {
-                hairNodes.push({ x: anchorX, y: anchorY - 8 });
+                hairNodes.push({ x: anchorX, y: anchorY - 6 });
             }
         }
         this.specialCloneScarfNodes[index] = scarfNodes;
@@ -1445,6 +1487,17 @@ export class Player {
         const deltaMs = deltaTime * 1000;
         const scrollX = (window.game && window.game.scrollX) || 0;
         const screenWidth = 1280;
+        const stage = (window.game && window.game.stage) ? window.game.stage : null;
+        const stageObstacles = (stage && Array.isArray(stage.obstacles)) ? stage.obstacles : [];
+        const stageHazards = [];
+        if (stage) {
+            if (Array.isArray(stage.traps)) stageHazards.push(...stage.traps);
+            if (stageObstacles.length > 0) {
+                for (const obs of stageObstacles) {
+                    if (obs && !obs.isDestroyed) stageHazards.push(obs);
+                }
+            }
+        }
 
         // スクロール速度を算出（カメラが動いた分だけ分身も見かけ上移動している）
         // this.vxはピクセル/フレーム単位なので、scrollDeltaをフレーム換算(÷deltaTime÷60)して合わせる
@@ -1453,8 +1506,8 @@ export class Player {
         const scrollVxPerFrame = (deltaTime > 0) ? scrollDeltaPx / (deltaTime * 60) : 0;
         this._prevScrollX = scrollX;
         
-        const enemies = (window.game && window.game.stage) 
-            ? window.game.stage.getAllEnemies().filter(e => {
+        const enemies = stage
+            ? stage.getAllEnemies().filter(e => {
                 if (!e.isAlive || e.isDying) return false;
                 const ex = e.x + e.width / 2;
                 return ex >= scrollX - 50 && ex <= scrollX + screenWidth + 50;
@@ -1613,21 +1666,12 @@ export class Player {
             if (!pos.cloneVy) pos.cloneVy = 0;
 
             let shouldJump = false;
-            if (window.game && window.game.stage) {
-                const stage = window.game.stage;
+            if (stageHazards.length > 0) {
                 const frameDx = pos.x - frameStartX;
                 const moveDir = Math.abs(frameDx) > 0.5 ? Math.sign(frameDx) : (pos.facingRight ? 1 : -1);
 
-                const hazards = [];
-                if (stage.traps) hazards.push(...stage.traps);
-                if (stage.obstacles) {
-                    for (const obs of stage.obstacles) {
-                        if (obs && !obs.isDestroyed) hazards.push(obs);
-                    }
-                }
-
                 const cloneHalfW = this.width * 0.4;
-                for (const hazard of hazards) {
+                for (const hazard of stageHazards) {
                     if (!hazard || hazard.x === undefined) continue;
 
                     const hLeft = hazard.x;
@@ -1673,8 +1717,8 @@ export class Player {
                 pos.y = cloneRestY;
             }
 
-            if (window.game && window.game.stage && window.game.stage.obstacles) {
-                for (const obs of window.game.stage.obstacles) {
+            if (stageObstacles.length > 0) {
+                for (const obs of stageObstacles) {
                     if (!obs || obs.isDestroyed || obs.x === undefined) continue;
                     const obsLeft = obs.x;
                     const obsRight = obs.x + (obs.width || 30);
@@ -1871,9 +1915,9 @@ export class Player {
         const forcedKnockbackDir = (typeof options.knockbackDir === 'number' && options.knockbackDir !== 0)
             ? (options.knockbackDir > 0 ? 1 : -1)
             : 0;
-        const cooldownMs = (typeof options.cooldownMs === 'number') ? options.cooldownMs : 420;
-        const flashMs = (typeof options.flashMs === 'number') ? options.flashMs : 230;
-        const invincibleMs = (typeof options.invincibleMs === 'number') ? options.invincibleMs : 220;
+        const cooldownMs = (typeof options.cooldownMs === 'number') ? options.cooldownMs : 780;
+        const flashMs = (typeof options.flashMs === 'number') ? options.flashMs : 280;
+        const invincibleMs = (typeof options.invincibleMs === 'number') ? options.invincibleMs : 780;
 
         this.hp -= amount;
         this.trapDamageCooldown = cooldownMs;
@@ -1965,6 +2009,9 @@ export class Player {
                     hasSpark: Math.random() < 0.38
                 });
             }
+        }
+        if (this.specialSmoke.length > 260) {
+            this.specialSmoke.splice(0, this.specialSmoke.length - 260);
         }
     }
 
@@ -2207,8 +2254,13 @@ export class Player {
         ) {
             return false;
         }
-        // 罠(竹槍)は足場にしない。岩と通常壁のみを足場扱いにする。
-        if (typeof rect.type === 'string' && rect.type !== 'rock') return false;
+        // 罠(竹槍)は通常時は足場にしない。
+        // ただし隠れ身の術中はすり抜け防止のため、竹槍にも当たり判定を持たせる。
+        if (typeof rect.type === 'string') {
+            if (rect.type === 'rock') return true;
+            if (rect.type === 'spike') return this.isGhostVeilActive();
+            return false;
+        }
         return true;
     }
     
@@ -2217,10 +2269,11 @@ export class Player {
         if (this.invincibleTimer > 0) return false;
 
         const sourceX = (typeof options.sourceX === 'number') ? options.sourceX : null;
-        const knockbackX = (typeof options.knockbackX === 'number') ? options.knockbackX : 5;
-        const knockbackY = (typeof options.knockbackY === 'number') ? options.knockbackY : -3;
-        const invincibleMs = (typeof options.invincibleMs === 'number') ? options.invincibleMs : 1000;
-        const flashMs = (typeof options.flashMs === 'number') ? options.flashMs : 300;
+        const knockbackX = (typeof options.knockbackX === 'number') ? options.knockbackX : 3.2;
+        const knockbackY = (typeof options.knockbackY === 'number') ? options.knockbackY : -1.9;
+        const invincibleMs = (typeof options.invincibleMs === 'number') ? options.invincibleMs : 1200;
+        const flashMs = (typeof options.flashMs === 'number') ? options.flashMs : 220;
+        const disableHitFeedback = options.disableHitFeedback === true;
 
         // しゃがみ中はダメージ半減
         if (this.isCrouching) {
@@ -2242,10 +2295,15 @@ export class Player {
 
         // 被弾フィードバック（ヒットストップ / 画面揺れ）
         const g = window.game || game;
-        if (g && typeof g.queueHitFeedback === 'function') {
+        if (
+            !disableHitFeedback &&
+            g &&
+            typeof g.queueHitFeedback === 'function' &&
+            (g.screenShakeEnabled || g.hitStopEnabled)
+        ) {
             const damageRatio = Math.max(0, Math.min(1.6, amount / 4));
-            const shake = 3 + damageRatio * 2;
-            const stopMs = 55 + damageRatio * 25;
+            const shake = 1.4 + damageRatio * 0.8;
+            const stopMs = 14 + damageRatio * 8;
             g.queueHitFeedback(shake, stopMs);
         }
         
@@ -2263,7 +2321,7 @@ export class Player {
         const safeAmount = Number.isFinite(amount) ? amount : 0;
         this.exp += safeAmount;
         if (!Number.isFinite(this.expToNext) || this.expToNext <= 0) {
-            this.expToNext = BASE_EXP_TO_NEXT;
+            this.expToNext = calcExpToNextForLevel(this.level);
         }
         while (this.exp >= this.expToNext) {
             this.exp -= this.expToNext;
@@ -2275,8 +2333,12 @@ export class Player {
     
     levelUp() {
         this.level++;
-        this.expToNext = BASE_EXP_TO_NEXT;
+        this.expToNext = calcExpToNextForLevel(this.level);
         this.hp = this.maxHp;
+    }
+
+    getExpToNextForLevel(level = this.level) {
+        return calcExpToNextForLevel(level);
     }
     
     addSpecialGauge(amount) {
@@ -2395,7 +2457,7 @@ export class Player {
         const addRemainingDuration = (key) => {
             const current = Math.max(0, this.tempNinjutsuTimers[key] || 0);
             const add = Math.max(0, this.tempNinjutsuDurations[key] || 0);
-            this.tempNinjutsuTimers[key] = current + add;
+            this.tempNinjutsuTimers[key] = Math.min(TEMP_NINJUTSU_MAX_STACK_MS, current + add);
         };
 
         if (choiceId === 'temp_exp_magnet') {
@@ -2634,6 +2696,7 @@ export class Player {
             : (this.y + 15 + modelBob);
 
         const knotOffsetX = this.facingRight ? -12 : 12;
+        const dir = this.facingRight ? 1 : -1;
         const targetX = this.x + this.width / 2 + knotOffsetX;
         const targetY = modelHeadY - 2;
 
@@ -2646,8 +2709,8 @@ export class Player {
         // 1. 根元の位置固定
         this.scarfNodes[0].x = targetX;
         this.scarfNodes[0].y = targetY;
-        this.hairNodes[0].x = targetX;
-        this.hairNodes[0].y = targetY - 8;
+        this.hairNodes[0].x = targetX + dir * PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X;
+        this.hairNodes[0].y = targetY - PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y;
 
         for (let s = 0; s < subSteps; s++) {
             // 鉢巻の更新
@@ -3022,13 +3085,7 @@ export class Player {
             filterParts.push(`brightness(${100 + progress * 28}%)`);
         }
 
-        // ダメージフラッシュ
-        if (this.damageFlashTimer > 0) {
-            const hitRatio = Math.max(0, Math.min(1, this.damageFlashTimer / 300));
-            const brightness = 140 + hitRatio * 120;
-            const saturation = Math.max(35, 100 - hitRatio * 55);
-            filterParts.push(`brightness(${brightness}%) saturate(${saturation}%)`);
-        }
+        const damageFlashActive = this.damageFlashTimer > 0;
 
         // 隠れ身の術中は本体のみ透明化（全体フィルタは重いので適用しない）
         if (filterParts.length > 0) {
@@ -3038,6 +3095,11 @@ export class Player {
         // 無敵時間中は点滅（死亡中は点滅しない）
         if (!this.isGhostVeilActive() && !this.isDefeated && !this.isUsingSpecial && this.invincibleTimer > 0 && Math.floor(this.invincibleTimer / 100) % 2 === 0) {
             ctx.globalAlpha *= 0.5;
+        }
+        // 被弾フラッシュは filter を使わず軽量な点滅アルファにする
+        if (damageFlashActive && !ghostVeilActive && !this.isDefeated) {
+            const flashStep = Math.floor((this.motionTime + this.damageFlashTimer) / 48) % 2;
+            ctx.globalAlpha *= flashStep === 0 ? 0.76 : 0.92;
         }
 
         // 残像
@@ -3091,189 +3153,6 @@ export class Player {
         ctx.shadowBlur = 0;
     }
 
-    // 実際のプレイヤー頭部描画ロジックをそのまま使う favicon 用レンダリング
-    renderHeadForFavicon(ctx, x, y, facingRight, options = {}) {
-        if (!ctx) return;
-
-        const state = options.state || this;
-        const useLiveAccessories = options.useLiveAccessories !== false;
-        const renderHeadband = options.renderHeadband !== false;
-        const renderHeadbandTail = options.renderHeadbandTail !== false;
-        const centerX = x + this.width / 2;
-        const bottomY = y + this.height - 2;
-        const dir = facingRight ? 1 : -1;
-        const time = state.motionTime !== undefined ? state.motionTime : this.motionTime;
-        const vx = state.vx !== undefined ? state.vx : this.vx;
-        const vy = state.vy !== undefined ? state.vy : this.vy;
-        const isDashing = state.isDashing !== undefined ? state.isDashing : this.isDashing;
-        const isGrounded = state.isGrounded !== undefined ? state.isGrounded : this.isGrounded;
-        const isAttacking = state.isAttacking !== undefined ? state.isAttacking : this.isAttacking;
-        const subWeaponTimer = state.subWeaponTimer !== undefined ? state.subWeaponTimer : this.subWeaponTimer;
-        const subWeaponAction = state.subWeaponAction !== undefined ? state.subWeaponAction : this.subWeaponAction;
-        const isCrouching = state.isCrouching !== undefined ? state.isCrouching : this.isCrouching;
-        const silhouetteColor = (options.palette && options.palette.silhouette) || '#1a1a1a';
-        const accentColor = (options.palette && options.palette.accent) || '#00bfff';
-        const isMoving = Math.abs(vx) > 0.1 || !isGrounded;
-        const isCrouchPose = isCrouching;
-        const speedAbs = Math.abs(vx);
-        const isRunLike = isGrounded && speedAbs > 0.85;
-        const locomotionPhase = isRunLike ? Math.sin(this.legPhase || time * 0.012) : 0;
-        const crouchWalkPhase = (isCrouchPose && isRunLike) ? locomotionPhase : 0;
-        const crouchIdlePhase = (isCrouchPose && !isRunLike) ? Math.sin(time * 0.006) : 0;
-        const crouchBodyBob = isCrouchPose
-            ? (isRunLike ? crouchWalkPhase * 0.4 : crouchIdlePhase * 0.2)
-            : 0;
-        const isSpearThrustPose = subWeaponTimer > 0 && subWeaponAction === '大槍' && !isAttacking;
-        const spearPoseProgress = isSpearThrustPose ? Math.max(0, Math.min(1, 1 - (subWeaponTimer / 270))) : 0;
-        const spearDrive = isSpearThrustPose ? Math.sin(spearPoseProgress * Math.PI) : 0;
-
-        let bob = 0;
-        if (isCrouchPose) {
-            bob = crouchBodyBob;
-        } else if (!isGrounded) {
-            bob = Math.max(-1.4, Math.min(1.6, -vy * 0.07));
-        } else if (isRunLike) {
-            bob = Math.abs(locomotionPhase) * (isDashing ? 3.6 : 2.5);
-        } else {
-            bob = Math.sin(time * 0.005) * 1.0;
-        }
-
-        const headRatio = options.headRatio || (14 * 2 / 60);
-        const headScale = options.headScale || 1.0;
-        const baseHeightForHead = isCrouching ? PLAYER.HEIGHT : this.height;
-        const headRadius = (baseHeightForHead * headRatio * 0.5) * headScale;
-        const headY = isCrouchPose
-            ? (bottomY - headRadius * 2.2 + bob)
-            : (y + headRadius * 1.1 + bob - (isSpearThrustPose ? spearDrive * 2.0 : 0));
-        const headCenterX = centerX;
-        const knotX = headCenterX + (facingRight ? -12 : 12);
-        const knotY = headY - 2;
-
-        if ((!this.scarfNodes || this.scarfNodes.length === 0 || !this.hairNodes || this.hairNodes.length === 0)) {
-            this.resetVisualTrails();
-        }
-        if (useLiveAccessories && this.scarfNodes && this.scarfNodes.length > 0) {
-            this.scarfNodes[0].x = knotX;
-            this.scarfNodes[0].y = knotY;
-        }
-        if (useLiveAccessories && this.hairNodes && this.hairNodes.length > 0) {
-            this.hairNodes[0].x = knotX;
-            this.hairNodes[0].y = knotY - 8;
-        }
-
-        ctx.save();
-        ctx.fillStyle = silhouetteColor;
-        ctx.beginPath();
-        ctx.arc(headCenterX, headY, headRadius, 0, Math.PI * 2);
-        ctx.fill();
-
-        const renderHair = options.renderHair !== false;
-        if (renderHair && useLiveAccessories && this.hairNodes && this.hairNodes.length > 1) {
-            ctx.fillStyle = silhouetteColor;
-            ctx.beginPath();
-            const hairBaseX = headCenterX - dir * 4;
-            const hairBaseY = headY - 12;
-            ctx.moveTo(hairBaseX, hairBaseY);
-            for (let i = 1; i < this.hairNodes.length; i++) {
-                const node = this.hairNodes[i];
-                const prev = this.hairNodes[i - 1];
-                ctx.quadraticCurveTo(prev.x, prev.y, (node.x + prev.x) / 2, (node.y + prev.y) / 2);
-            }
-            for (let i = this.hairNodes.length - 1; i >= 1; i--) {
-                const node = this.hairNodes[i];
-                const prev = this.hairNodes[i - 1];
-                const tProgress = i / (this.hairNodes.length - 1);
-                const thickness = (1 - tProgress) * 12 + 1;
-                const sideShift = Math.sin(time * 0.005 + i * 0.5) * (isMoving ? 1.0 : 1.5);
-                ctx.quadraticCurveTo(
-                    node.x + sideShift,
-                    node.y + thickness,
-                    (node.x + prev.x) / 2 + sideShift,
-                    (node.y + prev.y) / 2 + thickness
-                );
-            }
-            ctx.lineTo(hairBaseX, hairBaseY);
-            ctx.closePath();
-            ctx.fill();
-        }
-
-        const drawHeadbandTail = () => {
-            if (!renderHeadbandTail || !renderHeadband) return;
-            if (!useLiveAccessories || !this.scarfNodes || this.scarfNodes.length === 0) {
-                const tailLen = 20 + (isMoving ? 6 : 0);
-                const tailWave = Math.sin(time * 0.014 + (facingRight ? 0 : 1.7)) * (isMoving ? 2.8 : 1.6);
-                const tailRootX = knotX;
-                const tailRootY = knotY + 1.5;
-                const tailMidX = tailRootX - dir * (tailLen * 0.45);
-                const tailMidY = tailRootY + tailWave - 1.2;
-                const tailTipX = tailRootX - dir * tailLen;
-                const tailTipY = tailRootY + tailWave * 0.7 + (isMoving ? -0.6 : 1.0);
-                ctx.fillStyle = accentColor;
-                ctx.beginPath();
-                ctx.moveTo(tailRootX, tailRootY);
-                ctx.quadraticCurveTo(tailMidX + dir * 1.5, tailMidY - 1.8, tailTipX, tailTipY - 0.8);
-                ctx.lineTo(tailTipX + dir * 0.6, tailTipY + 1.0);
-                ctx.quadraticCurveTo(tailMidX + dir * 1.2, tailMidY + 2.8, tailRootX, tailRootY + 7.0);
-                ctx.closePath();
-                ctx.fill();
-                return;
-            }
-            ctx.fillStyle = accentColor;
-            ctx.beginPath();
-            ctx.moveTo(knotX, knotY);
-            for (let i = 1; i < this.scarfNodes.length - 1; i++) {
-                const xc = (this.scarfNodes[i].x + this.scarfNodes[i + 1].x) / 2;
-                const yc = (this.scarfNodes[i].y + this.scarfNodes[i + 1].y) / 2;
-                ctx.quadraticCurveTo(this.scarfNodes[i].x, this.scarfNodes[i].y, xc, yc);
-            }
-            const lastScarf = this.scarfNodes[this.scarfNodes.length - 1];
-            ctx.lineTo(lastScarf.x, lastScarf.y);
-            const scarfSpreadDist = Math.abs(lastScarf.x - this.scarfNodes[0].x);
-            const movingNow = scarfSpreadDist > 20;
-            for (let i = this.scarfNodes.length - 1; i >= 1; i--) {
-                const node = this.scarfNodes[i];
-                const prev = this.scarfNodes[i - 1];
-                const baseWidth = movingNow ? 7 : 10;
-                const waveSpeed = movingNow ? 0.008 : 0.004;
-                const wavePhase = i * (movingNow ? 0.5 : 0.6);
-                const wave = Math.sin(time * waveSpeed + wavePhase);
-                const currentWidth = baseWidth * (movingNow ? 0.85 : 1.0 + Math.abs(wave) * 0.3);
-                const tiltX = wave * (movingNow ? 1.0 : 3.0);
-                if (i === this.scarfNodes.length - 1) {
-                    ctx.lineTo(node.x + tiltX, node.y + currentWidth);
-                }
-                ctx.quadraticCurveTo(
-                    node.x + tiltX,
-                    node.y + currentWidth,
-                    (node.x + prev.x) / 2 + tiltX,
-                    (node.y + prev.y) / 2 + currentWidth
-                );
-            }
-            ctx.lineTo(knotX, knotY + 12);
-            ctx.closePath();
-            ctx.fill();
-        };
-
-        if (renderHeadband) {
-            ctx.strokeStyle = accentColor;
-            ctx.lineWidth = 4;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            const frontY = headY - 6;
-            const frontX = headCenterX + (facingRight ? 14 : -14);
-            const ctrl1X = headCenterX + (facingRight ? -4 : 4);
-            const ctrl1Y = headY - 4;
-            const ctrl2X = headCenterX + (facingRight ? 8 : -8);
-            const ctrl2Y = headY - 8;
-            ctx.moveTo(knotX, knotY);
-            ctx.bezierCurveTo(ctrl1X, ctrl1Y, ctrl2X, ctrl2Y, frontX, frontY);
-            ctx.stroke();
-        }
-
-        drawHeadbandTail();
-        ctx.restore();
-    }
-
     renderModel(ctx, x, y, facingRight, alpha = 1.0, renderSubWeaponVisualsInput = true, options = {}) {
         ctx.save();
         // alphaが0の場合でも、鉢巻や武器を描画するためにここではglobalAlphaを操作しない。
@@ -3325,6 +3204,7 @@ export class Player {
         const accentColor = (options.palette && options.palette.accent) || '#00bfff';
         const silhouetteOutlineEnabled = options.silhouetteOutline !== false;
         const silhouetteOutlineColor = (options.palette && options.palette.silhouetteOutline) || 'rgba(168, 196, 230, 0.29)';
+        const outlineExpand = 0.75;
 // ---
 
         const isCrouchPose = isCrouching;
@@ -3539,8 +3419,17 @@ export class Player {
             const backShoulderYPre = backShoulderYShared;
             const idleBackHandXPre = idleBackHandXShared;
             const idleBackHandYPre = idleBackHandYShared;
-            const handRadiusScalePre = 0.86;
+            const handRadiusScalePre = 0.94;
             const armReachScalePre = Number.isFinite(options.armReachScale) ? options.armReachScale : 1.0;
+            const insetAlongSegment = (fromX, fromY, toX, toY, insetPx = 0) => {
+                if (insetPx <= 0) return { x: fromX, y: fromY };
+                const dx = toX - fromX;
+                const dy = toY - fromY;
+                const len = Math.hypot(dx, dy);
+                if (len <= 0.0001) return { x: fromX, y: fromY };
+                const t = Math.min(1, insetPx / len);
+                return { x: fromX + dx * t, y: fromY + dy * t };
+            };
             const idleBackHandPre = Math.abs(armReachScalePre - 1.0) < 0.001
                 ? { x: idleBackHandXPre, y: idleBackHandYPre }
                 : {
@@ -3558,25 +3447,28 @@ export class Player {
                 const preBend = preArmDist * (isCrouchPose ? 0.11 : 0.15);
                 preElbowX += preNX * preBend * dir;
                 preElbowY += preNY * preBend * dir + 0.25;
-            }
-            const idleBackBladeAnglePre = isCrouchPose ? -0.32 : -0.65;
-            if (alpha > 0) {
-                if (silhouetteOutlineEnabled) {
-                    ctx.strokeStyle = silhouetteOutlineColor;
-                    ctx.lineWidth = 5.55;
-                    ctx.lineCap = 'round';
-                    ctx.beginPath();
-                    ctx.moveTo(backShoulderXPre, backShoulderYPre);
-                    ctx.lineTo(preElbowX, preElbowY);
-                    ctx.lineTo(idleBackHandPre.x, idleBackHandPre.y);
-                    ctx.stroke();
-                }
-                ctx.strokeStyle = silhouetteColor;
-                ctx.lineWidth = 4.8;
+        }
+        const idleBackBladeAnglePre = isCrouchPose ? -0.32 : -0.65;
+        if (alpha > 0) {
+            const preArmStart = insetAlongSegment(backShoulderXPre, backShoulderYPre, preElbowX, preElbowY, 1.2);
+            if (silhouetteOutlineEnabled) {
+                ctx.strokeStyle = silhouetteOutlineColor;
+                ctx.lineWidth = 4.8 + outlineExpand;
                 ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
                 ctx.beginPath();
-                ctx.moveTo(backShoulderXPre, backShoulderYPre);
+                ctx.moveTo(preArmStart.x, preArmStart.y);
                 ctx.lineTo(preElbowX, preElbowY);
+                ctx.lineTo(idleBackHandPre.x, idleBackHandPre.y);
+                ctx.stroke();
+            }
+            ctx.strokeStyle = silhouetteColor;
+            ctx.lineWidth = 4.8;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(backShoulderXPre, backShoulderYPre);
+            ctx.lineTo(preElbowX, preElbowY);
                 ctx.lineTo(idleBackHandPre.x, idleBackHandPre.y);
                 ctx.stroke();
                 ctx.fillStyle = silhouetteColor;
@@ -3591,7 +3483,7 @@ export class Player {
             if (alphaVal <= 0) return;
             if (withOutline && silhouetteOutlineEnabled) {
                 ctx.strokeStyle = silhouetteOutlineColor;
-                ctx.lineWidth = 11.2;
+                ctx.lineWidth = 10 + outlineExpand;
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
                 ctx.beginPath();
@@ -3621,15 +3513,16 @@ export class Player {
             bendBias = 1,
             bendDirSign = null,
             storeForOverlay = true,
-            overlayInFront = null
+            overlayInFront = null,
+            withOutline = true
         ) => {
             if (alpha <= 0) return;
             const defaultOverlayInFront = ((hipX - torsoHipX) * dir) <= 0;
             if (storeForOverlay && (overlayInFront === null ? defaultOverlayInFront : overlayInFront)) {
                 backLegOverlayQueue.push([hipX, hipYLocal, kneeX, kneeY, footX, footY, isFrontLeg, bendBias, bendDirSign]);
             }
-            const thighWidth = isFrontLeg ? 5.1 : 4.2;
-            const shinWidth = isFrontLeg ? 4.8 : 4.0;
+            const thighWidth = isFrontLeg ? 4.8 : 4.6;
+            const shinWidth = isFrontLeg ? 4.8 : 4.6;
             // 膝丸は脚線幅を超過させない（接続を真っ直ぐ見せる）
             const kneeRadius = Math.min(thighWidth, shinWidth) * 0.5;
             // 脚の付け根を胴体下端へ寄せて接続を自然にし、腿長をやや短くする
@@ -3659,48 +3552,49 @@ export class Player {
             const minBend = (isFrontLeg ? 2.35 : 2.05) * Math.max(0, bendBias);
             if (alpha > 0) {
                 ctx.strokeStyle = silhouetteColor;
-                ctx.lineCap = 'butt';
+                ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
-                if (silhouetteOutlineEnabled) {
+                const footRadius = isFrontLeg ? 1.9 : 1.65;
+                const footCenterX = footX;
+                const footCenterY = footY + 0.22;
+                if (withOutline && silhouetteOutlineEnabled) {
+                    const legRootInset = isFrontLeg ? 0.95 : 0.75;
+                    const legStart = (() => {
+                        const dx = kneeAdjX - hipRootX;
+                        const dy = kneeAdjY - hipRootY;
+                        const len = Math.hypot(dx, dy);
+                        if (len <= 0.0001) return { x: hipRootX, y: hipRootY };
+                        const t = Math.min(1, legRootInset / len);
+                        return { x: hipRootX + dx * t, y: hipRootY + dy * t };
+                    })();
                     ctx.strokeStyle = silhouetteOutlineColor;
-                    ctx.lineWidth = thighWidth + 1.0;
-                    ctx.lineCap = 'butt';
+                    ctx.lineWidth = shinWidth + outlineExpand;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
                     ctx.beginPath();
-                    ctx.moveTo(hipRootX, hipRootY);
+                    ctx.moveTo(legStart.x, legStart.y);
                     ctx.lineTo(kneeAdjX, kneeAdjY);
+                    ctx.lineTo(footCenterX, footCenterY);
                     ctx.stroke();
                 }
                 ctx.strokeStyle = silhouetteColor;
                 ctx.lineWidth = thighWidth;
-                ctx.lineCap = 'butt';
                 ctx.beginPath();
                 ctx.moveTo(hipRootX, hipRootY);
                 ctx.lineTo(kneeAdjX, kneeAdjY);
                 ctx.stroke();
-                if (silhouetteOutlineEnabled) {
-                    ctx.strokeStyle = silhouetteOutlineColor;
-                    ctx.lineWidth = shinWidth + 0.95;
-                    ctx.lineCap = 'butt';
-                    ctx.beginPath();
-                    ctx.moveTo(kneeAdjX, kneeAdjY);
-                    ctx.lineTo(footX, footY);
-                    ctx.stroke();
-                }
-                ctx.strokeStyle = silhouetteColor;
                 ctx.lineWidth = shinWidth;
-                ctx.lineCap = 'butt';
                 ctx.beginPath();
                 ctx.moveTo(kneeAdjX, kneeAdjY);
-                ctx.lineTo(footX, footY);
+                ctx.lineTo(footCenterX, footCenterY);
                 ctx.stroke();
                 ctx.fillStyle = silhouetteColor;
                 ctx.beginPath();
                 ctx.arc(kneeAdjX, kneeAdjY, kneeRadius, 0, Math.PI * 2);
                 ctx.fill();
-                const footRadius = isFrontLeg ? 1.9 : 1.65;
                 ctx.fillStyle = silhouetteColor;
                 ctx.beginPath();
-                ctx.arc(footX, footY + 0.22, footRadius, 0, Math.PI * 2);
+                ctx.arc(footCenterX, footCenterY, footRadius, 0, Math.PI * 2);
                 ctx.fill();
             }
         };
@@ -4133,128 +4027,267 @@ export class Player {
         drawTorsoSegment(true);
         // 後ろ足は胴の前レイヤーにする
         for (const legArgs of backLegOverlayQueue) {
-            drawJointedLeg(...legArgs, false);
+            drawJointedLeg(...legArgs, false, null, false);
         }
         
-        // 頭
-        if (alpha > 0) {
-            if (silhouetteOutlineEnabled) {
-                ctx.fillStyle = silhouetteOutlineColor;
-                ctx.beginPath();
-                ctx.arc(headCenterX, headY, headRadius + 0.85, 0, Math.PI * 2);
-                ctx.fill();
+        const renderHair = options.renderHair !== false;
+        const hairRootAngle = facingRight ? PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT : PLAYER_PONYTAIL_ROOT_ANGLE_LEFT;
+        const hairRootRadius = Math.max(1, headRadius - 0.05);
+        const hairBaseX = headCenterX + Math.cos(hairRootAngle) * hairRootRadius;
+        const hairBaseY = headY + Math.sin(hairRootAngle) * hairRootRadius - PLAYER_PONYTAIL_CONNECT_LIFT_Y;
+        const sampleHairNode = (index) => {
+            const maxIndex = this.hairNodes.length - 1;
+            const clamped = Math.max(1, Math.min(maxIndex, index));
+            const node = this.hairNodes[clamped];
+            const prev = this.hairNodes[Math.max(1, clamped - 1)];
+            const next = this.hairNodes[Math.min(maxIndex, clamped + 1)];
+            return {
+                x: (prev.x + node.x * 2 + next.x) * 0.25,
+                y: (prev.y + node.y * 2 + next.y) * 0.25
+            };
+        };
+        const hasLiveHairShape = !!(
+            renderHair &&
+            useLiveAccessories &&
+            this.hairNodes &&
+            this.hairNodes.length > 1
+        );
+        const traceHairShapePath = () => {
+            ctx.beginPath();
+            ctx.moveTo(hairBaseX, hairBaseY);
+            for (let i = 1; i < this.hairNodes.length; i++) {
+                const node = this.hairNodes[i]; const prev = this.hairNodes[i - 1];
+                ctx.quadraticCurveTo(prev.x, prev.y, (node.x + prev.x) / 2, (node.y + prev.y) / 2);
             }
+            for (let i = this.hairNodes.length - 1; i >= 1; i--) {
+                const smoothNode = sampleHairNode(i);
+                const smoothPrev = sampleHairNode(i - 1);
+                const tProgress = i / (this.hairNodes.length - 1);
+                const thickness = (1 - tProgress) * 8.8 + 1.1;
+                const smoothShift = -dir * (1 - tProgress) * 0.14;
+                ctx.quadraticCurveTo(
+                    smoothNode.x + smoothShift,
+                    smoothNode.y + thickness,
+                    (smoothNode.x + smoothPrev.x) * 0.5 + smoothShift,
+                    (smoothNode.y + smoothPrev.y) * 0.5 + thickness
+                );
+            }
+            ctx.lineTo(hairBaseX, hairBaseY);
+            ctx.closePath();
+        };
+        const drawHairSilhouetteWithOutline = () => {
+            if (!hasLiveHairShape || alpha <= 0) return;
+            // 腕と同じ見え方に寄せるため、先に輪郭を描いてから塗りで内側半分を隠す
+            if (silhouetteOutlineEnabled) {
+                ctx.strokeStyle = silhouetteOutlineColor;
+                ctx.lineWidth = outlineExpand;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                traceHairShapePath();
+                ctx.stroke();
+            }
+            ctx.fillStyle = silhouetteColor;
+            traceHairShapePath();
+            ctx.fill();
+            // 根元のコブ見えを防ぐため、追加の丸マスクは描かない
+        };
+
+        const drawHeadSilhouetteWithOutline = () => {
+            if (alpha <= 0) return;
+            if (silhouetteOutlineEnabled) {
+                const TAU = Math.PI * 2;
+                const normalizeAngle = (angle) => {
+                    let a = angle % TAU;
+                    if (a < 0) a += TAU;
+                    return a;
+                };
+                const gaps = [];
+                const addGap = (centerAngle, halfSpan) => {
+                    if (!Number.isFinite(centerAngle) || halfSpan <= 0) return;
+                    let start = normalizeAngle(centerAngle - halfSpan);
+                    let end = normalizeAngle(centerAngle + halfSpan);
+                    if (start <= end) {
+                        gaps.push([start, end]);
+                    } else {
+                        gaps.push([start, TAU]);
+                        gaps.push([0, end]);
+                    }
+                };
+                const neckJoinAngle = Math.atan2(bodyTopY - headY, torsoShoulderX - headCenterX);
+                addGap(neckJoinAngle, 0.36);
+                if (hasLiveHairShape) {
+                    const hairJoinAngle = Math.atan2(hairBaseY - headY, hairBaseX - headCenterX);
+                    addGap(hairJoinAngle, 0.28);
+                }
+
+                ctx.strokeStyle = silhouetteOutlineColor;
+                ctx.lineWidth = outlineExpand;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+
+                if (gaps.length === 0) {
+                    ctx.beginPath();
+                    ctx.arc(headCenterX, headY, headRadius, 0, TAU, false);
+                    ctx.stroke();
+                } else {
+                    gaps.sort((a, b) => a[0] - b[0]);
+                    const merged = [];
+                    for (const gap of gaps) {
+                        if (merged.length === 0 || gap[0] > merged[merged.length - 1][1]) {
+                            merged.push([gap[0], gap[1]]);
+                        } else {
+                            merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], gap[1]);
+                        }
+                    }
+                    let cursor = 0;
+                    for (const [gapStart, gapEnd] of merged) {
+                        if (gapStart - cursor > 0.0001) {
+                            ctx.beginPath();
+                            ctx.arc(headCenterX, headY, headRadius, cursor, gapStart, false);
+                            ctx.stroke();
+                        }
+                        cursor = Math.max(cursor, gapEnd);
+                    }
+                    if (TAU - cursor > 0.0001) {
+                        ctx.beginPath();
+                        ctx.arc(headCenterX, headY, headRadius, cursor, TAU, false);
+                        ctx.stroke();
+                    }
+                }
+            }
+            // 輪郭の内側半分を塗りで隠して、腕アウトラインと同じ薄い外周感に統一
             ctx.fillStyle = silhouetteColor;
             ctx.beginPath();
             ctx.arc(headCenterX, headY, headRadius, 0, Math.PI * 2);
             ctx.fill();
-        }
+        };
 
         // 鉢巻・ポニーテール
-        const knotOffsetX = facingRight ? -12 : 12;
-        const knotX = headCenterX + knotOffsetX;
-        const knotY = headY - 2;
+        const bandBackAngle = facingRight ? Math.PI * 0.92 : Math.PI * 0.08;
+        const bandFrontAngle = facingRight ? -Math.PI * 0.18 : Math.PI * 1.18;
+        const bandMaskRadius = Math.max(1, headRadius - 0.05);
+        const bandPathRadius = bandMaskRadius + PLAYER_HEADBAND_LINE_WIDTH * 0.34;
+        const bandStartX = headCenterX + Math.cos(bandBackAngle) * bandPathRadius;
+        const bandStartY = headY + Math.sin(bandBackAngle) * bandPathRadius;
+        const bandEndX = headCenterX + Math.cos(bandFrontAngle) * bandPathRadius;
+        const bandEndY = headY + Math.sin(bandFrontAngle) * bandPathRadius;
+        const knotX = headCenterX + Math.cos(bandBackAngle) * bandMaskRadius;
+        const knotY = headY + Math.sin(bandBackAngle) * bandMaskRadius;
 
         if (useLiveAccessories && this.scarfNodes && this.scarfNodes.length > 0) {
             this.scarfNodes[0].x = knotX;
             this.scarfNodes[0].y = knotY;
         }
         if (useLiveAccessories && this.hairNodes && this.hairNodes.length > 0) {
-            this.hairNodes[0].x = knotX;
-            this.hairNodes[0].y = knotY - 8;
+            this.hairNodes[0].x = hairBaseX;
+            this.hairNodes[0].y = hairBaseY;
         }
+        const bandCtrlX = headCenterX + dir * headRadius * 0.02;
+        const bandCtrlY = headY - headRadius * 0.30;
 
-        // ポニーテール描画
-        const renderHair = options.renderHair !== false;
-        if (renderHair) {
-            if (useLiveAccessories && this.hairNodes && this.hairNodes.length > 1) {
-                ctx.fillStyle = silhouetteColor;
-                ctx.beginPath();
-                const hairBaseX = headCenterX - dir * 4;
-                const hairBaseY = headY - 12;
-                ctx.moveTo(hairBaseX, hairBaseY);
-                for (let i = 1; i < this.hairNodes.length; i++) {
-                    const node = this.hairNodes[i]; const prev = this.hairNodes[i-1];
-                    ctx.quadraticCurveTo(prev.x, prev.y, (node.x + prev.x) / 2, (node.y + prev.y) / 2);
-                }
-                for (let i = this.hairNodes.length - 1; i >= 1; i--) {
-                    const node = this.hairNodes[i]; const prev = this.hairNodes[i-1];
-                    const tProgress = i / (this.hairNodes.length - 1);
-                    const thickness = (1 - tProgress) * 12 + 1;
-                    const sideShift = Math.sin(time * 0.005 + i * 0.5) * (isMoving ? 1.0 : 1.5);
-                    ctx.quadraticCurveTo(node.x + sideShift, node.y + thickness, (node.x + prev.x) / 2 + sideShift, (node.y + prev.y) / 2 + thickness);
-                }
-                ctx.lineTo(hairBaseX, hairBaseY);
-                ctx.closePath();
-                ctx.fill();
-            }
-        }
+        // 鉢巻バンド（頭より前）
+        const renderHeadband = options.renderHeadband !== false;
+        const drawHeadbandBand = () => {
+            if (!renderHeadband || alpha <= 0) return;
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(headCenterX, headY, bandMaskRadius, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.strokeStyle = accentColor;
+            ctx.lineWidth = PLAYER_HEADBAND_LINE_WIDTH;
+            ctx.lineCap = 'butt';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(bandStartX, bandStartY);
+            ctx.quadraticCurveTo(bandCtrlX, bandCtrlY, bandEndX, bandEndY);
+            ctx.stroke();
+            ctx.restore();
+        };
+        // 背面: 髪
+        drawHairSilhouetteWithOutline();
+        // 中央: 頭
+        drawHeadSilhouetteWithOutline();
+        // 前面: 鉢巻バンド
+        drawHeadbandBand();
 
         // 鉢巻テール描画関数
         const drawHeadbandTail = () => {
             const renderHeadband = options.renderHeadband !== false;
             if (!renderHeadbandTail || !renderHeadband) return;
-            if (!useLiveAccessories || !this.scarfNodes || this.scarfNodes.length === 0) {
-                // ポニーテール（髪）はこの関数より前で描画済み。ここでは鉢巻テールのみ描く
-                const tailLen = 20 + (isMoving ? 6 : 0);
-                const tailWave = Math.sin(time * 0.014 + (facingRight ? 0 : 1.7)) * (isMoving ? 2.8 : 1.6);
-                const tailRootX = knotX; const tailRootY = knotY + 1.5;
-                const tailMidX = tailRootX - dir * (tailLen * 0.45);
-                const tailMidY = tailRootY + tailWave - 1.2;
-                const tailTipX = tailRootX - dir * tailLen;
-                const tailTipY = tailRootY + tailWave * 0.7 + (isMoving ? -0.6 : 1.0);
-                ctx.fillStyle = accentColor;
-                ctx.beginPath(); ctx.moveTo(tailRootX, tailRootY);
-                ctx.quadraticCurveTo(tailMidX + dir * 1.5, tailMidY - 1.8, tailTipX, tailTipY - 0.8);
-                ctx.lineTo(tailTipX + dir * 0.6, tailTipY + 1.0);
-                ctx.quadraticCurveTo(tailMidX + dir * 1.2, tailMidY + 2.8, tailRootX, tailRootY + 7.0);
-                ctx.closePath(); ctx.fill();
-                return;
-            }
+            if (!useLiveAccessories || !this.scarfNodes || this.scarfNodes.length <= 1) return;
             // ライブスカーフ描画
+            const bandTangentX = bandCtrlX - bandStartX;
+            const bandTangentY = bandCtrlY - bandStartY;
+            const bandTangentLen = Math.hypot(bandTangentX, bandTangentY) || 1;
+            const bandTangentNX = bandTangentX / bandTangentLen;
+            const bandTangentNY = bandTangentY / bandTangentLen;
+            // バンド後端の「横」からテールを生やす（下方向に落とさない）
+            const tailRootX = knotX - dir * (PLAYER_HEADBAND_LINE_WIDTH * 0.45 + 0.12);
+            const tailRootY = knotY;
+            const rootNodeX = this.scarfNodes[0].x;
+            const rootNodeY = this.scarfNodes[0].y;
+            const tailShorten = 0.80;
+            const mapTailNode = (node) => ({
+                x: tailRootX + (node.x - rootNodeX) * tailShorten,
+                y: tailRootY + (node.y - rootNodeY) * tailShorten
+            });
             ctx.fillStyle = accentColor;
-            ctx.beginPath(); ctx.moveTo(knotX, knotY);
-            for (let i = 1; i < this.scarfNodes.length - 1; i++) {
-                const xc = (this.scarfNodes[i].x + this.scarfNodes[i + 1].x) / 2;
-                const yc = (this.scarfNodes[i].y + this.scarfNodes[i + 1].y) / 2;
-                ctx.quadraticCurveTo(this.scarfNodes[i].x, this.scarfNodes[i].y, xc, yc);
+            ctx.beginPath(); ctx.moveTo(tailRootX, tailRootY);
+            if (this.scarfNodes.length > 1) {
+                const firstNode = mapTailNode(this.scarfNodes[1]);
+                const rootCtrlX = tailRootX - dir * 2.4 - bandTangentNX * 0.25;
+                const rootCtrlY = tailRootY - bandTangentNY * 0.08;
+                ctx.quadraticCurveTo(rootCtrlX, rootCtrlY, (rootCtrlX + firstNode.x) / 2, (rootCtrlY + firstNode.y) / 2);
             }
-            const lastScarf = this.scarfNodes[this.scarfNodes.length - 1];
+            for (let i = 1; i < this.scarfNodes.length - 1; i++) {
+                const node = mapTailNode(this.scarfNodes[i]);
+                const nextNode = mapTailNode(this.scarfNodes[i + 1]);
+                const xc = (node.x + nextNode.x) / 2;
+                const yc = (node.y + nextNode.y) / 2;
+                ctx.quadraticCurveTo(node.x, node.y, xc, yc);
+            }
+            const lastScarf = mapTailNode(this.scarfNodes[this.scarfNodes.length - 1]);
             ctx.lineTo(lastScarf.x, lastScarf.y);
-            const scarfSpreadDist = Math.abs(lastScarf.x - this.scarfNodes[0].x);
+            const scarfSpreadDist = Math.abs(lastScarf.x - tailRootX);
             const movingNow = scarfSpreadDist > 20;
             for (let i = this.scarfNodes.length - 1; i >= 1; i--) {
-                const node = this.scarfNodes[i]; const prev = this.scarfNodes[i - 1];
+                const node = mapTailNode(this.scarfNodes[i]);
+                const prev = mapTailNode(this.scarfNodes[i - 1]);
                 const isPreview = options.useLiveAccessories && options.overrideScarfNodes;
-                const baseWidth = (movingNow ? 7 : 10) * (isPreview ? 0.35 : 1.0);
+                const baseWidth = (movingNow ? 7 : 9) * (isPreview ? 0.35 : 1.0);
                 const waveSpeed = movingNow ? 0.008 : 0.004;
                 const wavePhase = i * (movingNow ? 0.5 : 0.6);
                 const wave = Math.sin(time * waveSpeed + wavePhase);
-                const currentWidth = baseWidth * (movingNow ? 0.85 : 1.0 + Math.abs(wave) * 0.3);
-                const tiltX = wave * (movingNow ? 1.0 : 3.0);
+                const waveAbs = Math.abs(wave);
+                const currentWidth = baseWidth * (movingNow ? 0.84 : 0.98 + waveAbs * 0.14);
+                const tiltX = wave * (movingNow ? 0.7 : 1.8);
                 if (i === this.scarfNodes.length - 1) ctx.lineTo(node.x + tiltX, node.y + currentWidth);
                 ctx.quadraticCurveTo(node.x + tiltX, node.y + currentWidth, (node.x + prev.x) / 2 + tiltX, (node.y + prev.y) / 2 + currentWidth);
             }
-            ctx.lineTo(knotX, knotY + 12);
-            ctx.closePath(); ctx.fill();
+            const rootLip = Math.max(1.6, PLAYER_HEADBAND_LINE_WIDTH * 0.52);
+            ctx.quadraticCurveTo(
+                tailRootX - dir * rootLip * 0.9,
+                tailRootY + rootLip * 0.66,
+                tailRootX,
+                tailRootY + rootLip * 0.2
+            );
+            ctx.closePath();
+            ctx.fill();
+            // 接続部を楕円で整えて、バンドとテールの境目の欠けを防ぐ
+            const bandAngle = Math.atan2(bandCtrlY - knotY, bandCtrlX - knotX);
+            ctx.beginPath();
+            ctx.ellipse(
+                tailRootX + dir * 0.16,
+                tailRootY + 0.02,
+                Math.max(1.0, PLAYER_HEADBAND_LINE_WIDTH * 0.42),
+                Math.max(0.7, PLAYER_HEADBAND_LINE_WIDTH * 0.28),
+                bandAngle,
+                0,
+                Math.PI * 2
+            );
+            ctx.fill();
         };
 
-        // 鉢巻バンド
-        const renderHeadband = options.renderHeadband !== false;
-        if (renderHeadband) {
-            ctx.strokeStyle = accentColor;
-            ctx.lineWidth = 4;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            const frontY = headY - 6;
-            const frontX = headCenterX + (facingRight ? 14 : -14);
-            const ctrl1X = headCenterX + (facingRight ? -4 : 4); const ctrl1Y = headY - 4;
-            const ctrl2X = headCenterX + (facingRight ? 8 : -8); const ctrl2Y = headY - 8;
-            ctx.moveTo(knotX, knotY);
-            ctx.bezierCurveTo(ctrl1X, ctrl1Y, ctrl2X, ctrl2Y, frontX, frontY);
-            ctx.stroke();
-        }
-        
         // 腕と剣
         const effectiveIsAttacking = isAttacking;
         const dualBlade = (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') ? this.currentSubWeapon : null;
@@ -4282,14 +4315,59 @@ export class Player {
         };
 
         const armStrokeWidth = 4.8; // 脚(前脛)と同じ太さ
-        const handRadiusScale = 0.86;
-        const drawArmSegment = (fromX, fromY, toX, toY, width = 6) => {
+        const handRadiusScale = 0.94;
+        const handOutlineGapHalf = 0.62;
+        let lastHandConnectFrom = null;
+        const insetAlongSegment = (fromX, fromY, toX, toY, insetPx = 0) => {
+            if (insetPx <= 0) return { x: fromX, y: fromY };
+            const dx = toX - fromX;
+            const dy = toY - fromY;
+            const len = Math.hypot(dx, dy);
+            if (len <= 0.0001) return { x: fromX, y: fromY };
+            const t = Math.min(1, insetPx / len);
+            return { x: fromX + dx * t, y: fromY + dy * t };
+        };
+        const drawConnectedHandOutline = (xPos, yPos, radius, connectFrom = null) => {
+            if (!silhouetteOutlineEnabled || alpha <= 0) return;
+            ctx.strokeStyle = silhouetteOutlineColor;
+            ctx.lineWidth = outlineExpand;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            if (connectFrom && Number.isFinite(connectFrom.x) && Number.isFinite(connectFrom.y)) {
+                const inward = Math.atan2(connectFrom.y - yPos, connectFrom.x - xPos);
+                ctx.arc(
+                    xPos,
+                    yPos,
+                    radius,
+                    inward + handOutlineGapHalf,
+                    inward - handOutlineGapHalf + Math.PI * 2,
+                    false
+                );
+            } else {
+                ctx.arc(xPos, yPos, radius, 0, Math.PI * 2);
+            }
+            ctx.stroke();
+        };
+        const drawArmPolylineOutline = (points, outlineWidth = armStrokeWidth + outlineExpand) => {
+            if (!silhouetteOutlineEnabled || alpha <= 0 || !Array.isArray(points) || points.length < 2) return;
+            ctx.strokeStyle = silhouetteOutlineColor;
+            ctx.lineWidth = outlineWidth;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) {
+                ctx.lineTo(points[i].x, points[i].y);
+            }
+            ctx.stroke();
+        };
+        const drawArmSegment = (fromX, fromY, toX, toY, width = 6, withOutline = true) => {
             // 微小な距離（0.1未満）の場合は描画をスキップして不要な点（lineCapによるもの）を防ぐ
             if (Math.hypot(toX - fromX, toY - fromY) < 0.1) return;
 
-            if (silhouetteOutlineEnabled) {
+            if (withOutline && silhouetteOutlineEnabled) {
                 ctx.strokeStyle = silhouetteOutlineColor;
-                ctx.lineWidth = armStrokeWidth + 0.75;
+                ctx.lineWidth = armStrokeWidth + outlineExpand;
                 ctx.beginPath(); ctx.moveTo(fromX, fromY); ctx.lineTo(toX, toY); ctx.stroke();
             }
             ctx.strokeStyle = silhouetteColor; ctx.lineWidth = armStrokeWidth;
@@ -4309,6 +4387,7 @@ export class Player {
             const dy = handY - shoulderY;
             const dist = Math.hypot(dx, dy);
             if (dist < 0.001) {
+                lastHandConnectFrom = { x: shoulderX, y: shoulderY };
                 drawArmSegment(shoulderX, shoulderY, handX, handY, 6);
                 return;
             }
@@ -4328,9 +4407,17 @@ export class Player {
             const wristToHandDist = 1.35;
             const wristX = handX - (dx / dist) * wristToHandDist;
             const wristY = handY - (dy / dist) * wristToHandDist;
+            const armStart = insetAlongSegment(shoulderX, shoulderY, elbowX, elbowY, 1.2);
+            lastHandConnectFrom = { x: wristX, y: wristY };
 
-            drawArmSegment(shoulderX, shoulderY, elbowX, elbowY, 6);
-            drawArmSegment(elbowX, elbowY, wristX, wristY, 5.4);
+            drawArmPolylineOutline([
+                { x: armStart.x, y: armStart.y },
+                { x: elbowX, y: elbowY },
+                { x: wristX, y: wristY },
+                { x: handX, y: handY }
+            ]);
+            drawArmSegment(shoulderX, shoulderY, elbowX, elbowY, 6, false);
+            drawArmSegment(elbowX, elbowY, wristX, wristY, 5.4, false);
             if (alpha > 0) {
                 ctx.fillStyle = silhouetteColor;
                 ctx.beginPath();
@@ -4338,11 +4425,14 @@ export class Player {
                 ctx.fill();
             }
         };
-        const drawHand = (xPos, yPos, radius = 4.5) => {
+        const drawHand = (xPos, yPos, radius = 4.5, connectFrom = null) => {
             if (alpha <= 0) return;
             const handR = radius * handRadiusScale;
+            const connectAnchor = connectFrom || lastHandConnectFrom;
+            drawConnectedHandOutline(xPos, yPos, handR, connectAnchor);
             ctx.fillStyle = silhouetteColor;
             ctx.beginPath(); ctx.arc(xPos, yPos, handR, 0, Math.PI * 2); ctx.fill();
+            lastHandConnectFrom = null;
         };
         const clampArmReach = (shoulderX, shoulderY, targetX, targetY, maxLen) => {
             const dx = targetX - shoulderX; const dy = targetY - shoulderY;
@@ -4513,15 +4603,61 @@ export class Player {
         ctx.lineCap = 'round';
 
         const armStrokeWidth = 4.8; // 脚(前脛)と同じ太さ
-        const handRadiusScale = 0.86;
-        const drawArmSegment = (fromX, fromY, toX, toY, width = 6) => {
+        const handRadiusScale = 0.94;
+        const handOutlineGapHalf = 0.62;
+        const outlineExpand = 0.75;
+        let lastHandConnectFrom = null;
+        const insetAlongSegment = (fromX, fromY, toX, toY, insetPx = 0) => {
+            if (insetPx <= 0) return { x: fromX, y: fromY };
+            const dx = toX - fromX;
+            const dy = toY - fromY;
+            const len = Math.hypot(dx, dy);
+            if (len <= 0.0001) return { x: fromX, y: fromY };
+            const t = Math.min(1, insetPx / len);
+            return { x: fromX + dx * t, y: fromY + dy * t };
+        };
+        const drawConnectedHandOutline = (xPos, yPos, radius, connectFrom = null) => {
+            if (!silhouetteOutlineEnabled || alpha <= 0) return;
+            ctx.strokeStyle = silhouetteOutlineColor;
+            ctx.lineWidth = outlineExpand;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            if (connectFrom && Number.isFinite(connectFrom.x) && Number.isFinite(connectFrom.y)) {
+                const inward = Math.atan2(connectFrom.y - yPos, connectFrom.x - xPos);
+                ctx.arc(
+                    xPos,
+                    yPos,
+                    radius,
+                    inward + handOutlineGapHalf,
+                    inward - handOutlineGapHalf + Math.PI * 2,
+                    false
+                );
+            } else {
+                ctx.arc(xPos, yPos, radius, 0, Math.PI * 2);
+            }
+            ctx.stroke();
+        };
+        const drawArmPolylineOutline = (points, outlineWidth = armStrokeWidth + outlineExpand) => {
+            if (!silhouetteOutlineEnabled || alpha <= 0 || !Array.isArray(points) || points.length < 2) return;
+            ctx.strokeStyle = silhouetteOutlineColor;
+            ctx.lineWidth = outlineWidth;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) {
+                ctx.lineTo(points[i].x, points[i].y);
+            }
+            ctx.stroke();
+        };
+        const drawArmSegment = (fromX, fromY, toX, toY, width = 6, withOutline = true) => {
             if (alpha <= 0) return;
             // 微小な距離（0.1未満）の場合は描画をスキップして不要な点（lineCapによるもの）を防ぐ
             if (Math.hypot(toX - fromX, toY - fromY) < 0.1) return;
 
-            if (silhouetteOutlineEnabled) {
+            if (withOutline && silhouetteOutlineEnabled) {
                 ctx.strokeStyle = silhouetteOutlineColor;
-                ctx.lineWidth = armStrokeWidth + 0.75;
+                ctx.lineWidth = armStrokeWidth + outlineExpand;
                 ctx.beginPath();
                 ctx.moveTo(fromX, fromY);
                 ctx.lineTo(toX, toY);
@@ -4545,8 +4681,15 @@ export class Player {
             upperWidth = 6,
             foreWidth = 5.2
         ) => {
-            drawArmSegment(shoulderX, shoulderYLocal, elbowX, elbowY, upperWidth);
-            drawArmSegment(elbowX, elbowY, handX, handY, foreWidth);
+            lastHandConnectFrom = { x: elbowX, y: elbowY };
+            const armStart = insetAlongSegment(shoulderX, shoulderYLocal, elbowX, elbowY, 1.2);
+            drawArmPolylineOutline([
+                { x: armStart.x, y: armStart.y },
+                { x: elbowX, y: elbowY },
+                { x: handX, y: handY }
+            ]);
+            drawArmSegment(shoulderX, shoulderYLocal, elbowX, elbowY, upperWidth, false);
+            drawArmSegment(elbowX, elbowY, handX, handY, foreWidth, false);
             if (alpha > 0) {
                 ctx.fillStyle = silhouetteColor;
                 ctx.beginPath();
@@ -4569,6 +4712,7 @@ export class Player {
             const dy = handY - shoulderYLocal;
             const distRaw = Math.hypot(dx, dy);
             if (distRaw < 0.0001) {
+                lastHandConnectFrom = { x: shoulderX, y: shoulderYLocal };
                 drawArmSegment(shoulderX, shoulderYLocal, handX, handY, width);
                 return;
             }
@@ -4590,22 +4734,33 @@ export class Player {
             const wristToHandDist = 1.42;
             const wristX = handX - ux * wristToHandDist;
             const wristY = handY - uy * wristToHandDist;
+            const armStart = insetAlongSegment(shoulderX, shoulderYLocal, elbowX, elbowY, 1.2);
+            lastHandConnectFrom = { x: wristX, y: wristY };
 
-            drawArmSegment(shoulderX, shoulderYLocal, elbowX, elbowY, width);
-            drawArmSegment(elbowX, elbowY, wristX, wristY, Math.max(4.4, width - 0.6));
+            drawArmPolylineOutline([
+                { x: armStart.x, y: armStart.y },
+                { x: elbowX, y: elbowY },
+                { x: wristX, y: wristY },
+                { x: handX, y: handY }
+            ]);
+            drawArmSegment(shoulderX, shoulderYLocal, elbowX, elbowY, width, false);
+            drawArmSegment(elbowX, elbowY, wristX, wristY, Math.max(4.4, width - 0.6), false);
             ctx.fillStyle = silhouetteColor;
             ctx.beginPath();
             ctx.arc(elbowX, elbowY, 2.35, 0, Math.PI * 2);
             ctx.fill();
         };
 
-        const drawHand = (xPos, yPos, radius = 4.8) => {
+        const drawHand = (xPos, yPos, radius = 4.8, connectFrom = null) => {
             if (alpha <= 0) return;
             const handR = radius * handRadiusScale;
+            const connectAnchor = connectFrom || lastHandConnectFrom;
+            drawConnectedHandOutline(xPos, yPos, handR, connectAnchor);
             ctx.fillStyle = silhouetteColor;
             ctx.beginPath();
             ctx.arc(xPos, yPos, handR, 0, Math.PI * 2);
             ctx.fill();
+            lastHandConnectFrom = null;
         };
 
         const drawSubWeaponKatana = (
@@ -5350,7 +5505,9 @@ export class Player {
         const progress = this.getAttackMotionProgress(attack, rawProgress);
         const dir = facingRight ? 1 : -1;
         const attackArmStrokeWidth = 4.8; // 通常腕と同じ太さ
-        const attackHandRadiusScale = 0.86; // 通常手と同じ縮尺
+        const attackHandRadiusScale = 0.94; // 通常手と同じ縮尺
+        const handOutlineGapHalf = 0.62;
+        const outlineExpand = 0.75;
         const standardUpperLen = 13.6;
         const standardForeLen = 13.2;
         const drawBackLayer = layerPhase !== 'front';
@@ -5613,11 +5770,20 @@ export class Player {
             armEndY = activeBackShoulderY + (armEndY - activeBackShoulderY) * armReachScale;
         }
 
+        const insetAlongSegment = (fromX, fromY, toX, toY, insetPx = 0) => {
+            if (insetPx <= 0) return { x: fromX, y: fromY };
+            const dx = toX - fromX;
+            const dy = toY - fromY;
+            const len = Math.hypot(dx, dy);
+            if (len <= 0.0001) return { x: fromX, y: fromY };
+            const t = Math.min(1, insetPx / len);
+            return { x: fromX + dx * t, y: fromY + dy * t };
+        };
         const drawArmSegment = (x1, y1, x2, y2, width) => {
             if (alpha <= 0) return;
             if (silhouetteOutlineEnabled) {
                 ctx.strokeStyle = silhouetteOutlineColor;
-                ctx.lineWidth = width + 0.85;
+                ctx.lineWidth = width + outlineExpand;
                 ctx.lineCap = 'round';
                 ctx.beginPath();
                 ctx.moveTo(x1, y1);
@@ -5633,14 +5799,59 @@ export class Player {
             ctx.stroke();
         };
 
-        const drawAttackArmSegment = (fromX, fromY, toX, toY, width = attackArmStrokeWidth) => {
+        let lastAttackHandConnectFrom = null;
+        const drawAttackArmPolylineOutline = (points, outlineWidth) => {
+            if (!silhouetteOutlineEnabled || alpha <= 0 || !Array.isArray(points) || points.length < 2) return;
+            ctx.strokeStyle = silhouetteOutlineColor;
+            ctx.lineWidth = outlineWidth;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) {
+                ctx.lineTo(points[i].x, points[i].y);
+            }
+            ctx.stroke();
+        };
+        const drawConnectedAttackHandOutline = (xPos, yPos, radius, connectFrom = null) => {
+            if (!silhouetteOutlineEnabled || alpha <= 0) return;
+            ctx.strokeStyle = silhouetteOutlineColor;
+            ctx.lineWidth = outlineExpand;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            if (connectFrom && Number.isFinite(connectFrom.x) && Number.isFinite(connectFrom.y)) {
+                const inward = Math.atan2(connectFrom.y - yPos, connectFrom.x - xPos);
+                ctx.arc(
+                    xPos,
+                    yPos,
+                    radius,
+                    inward + handOutlineGapHalf,
+                    inward - handOutlineGapHalf + Math.PI * 2,
+                    false
+                );
+            } else {
+                ctx.arc(xPos, yPos, radius, 0, Math.PI * 2);
+            }
+            ctx.stroke();
+        };
+        const drawAttackHand = (xPos, yPos, radius = 4.8 * attackHandRadiusScale, connectFrom = null) => {
+            if (alpha <= 0) return;
+            const connectAnchor = connectFrom || lastAttackHandConnectFrom;
+            drawConnectedAttackHandOutline(xPos, yPos, radius, connectAnchor);
+            ctx.fillStyle = silhouetteColor;
+            ctx.beginPath();
+            ctx.arc(xPos, yPos, radius, 0, Math.PI * 2);
+            ctx.fill();
+            lastAttackHandConnectFrom = null;
+        };
+        const drawAttackArmSegment = (fromX, fromY, toX, toY, width = attackArmStrokeWidth, withOutline = true) => {
             if (alpha <= 0) return;
             // 微小な距離（0.1未満）の場合は描画をスキップ
             if (Math.hypot(toX - fromX, toY - fromY) < 0.1) return;
 
-            if (silhouetteOutlineEnabled) {
+            if (withOutline && silhouetteOutlineEnabled) {
                 ctx.strokeStyle = silhouetteOutlineColor;
-                ctx.lineWidth = width + 0.75;
+                ctx.lineWidth = width + outlineExpand;
                 ctx.lineCap = 'round';
                 ctx.beginPath();
                 ctx.moveTo(fromX, fromY);
@@ -5670,6 +5881,7 @@ export class Player {
             const dy = handY - shoulderY;
             const distRaw = Math.hypot(dx, dy);
             if (distRaw < 0.0001) {
+                lastAttackHandConnectFrom = { x: shoulderX, y: shoulderY };
                 drawAttackArmSegment(shoulderX, shoulderY, handX, handY, width);
                 return;
             }
@@ -5690,9 +5902,20 @@ export class Player {
             const wristToHandDist = 1.4;
             const wristX = handX - ux * wristToHandDist;
             const wristY = handY - uy * wristToHandDist;
+            const armStart = insetAlongSegment(shoulderX, shoulderY, elbowX, elbowY, 1.2);
+            lastAttackHandConnectFrom = { x: wristX, y: wristY };
 
-            drawAttackArmSegment(shoulderX, shoulderY, elbowX, elbowY, width);
-            drawAttackArmSegment(elbowX, elbowY, wristX, wristY, Math.max(4.4, width - 0.6));
+            drawAttackArmPolylineOutline(
+                [
+                    { x: armStart.x, y: armStart.y },
+                    { x: elbowX, y: elbowY },
+                    { x: wristX, y: wristY },
+                    { x: handX, y: handY }
+                ],
+                width + outlineExpand
+            );
+            drawAttackArmSegment(shoulderX, shoulderY, elbowX, elbowY, width, false);
+            drawAttackArmSegment(elbowX, elbowY, wristX, wristY, Math.max(4.4, width - 0.6), false);
             ctx.fillStyle = silhouetteColor;
             ctx.beginPath();
             ctx.arc(elbowX, elbowY, 2.35, 0, Math.PI * 2);
@@ -5747,13 +5970,7 @@ export class Player {
                 attackArmStrokeWidth
             );
 
-            // 手を上書きで描画
-            if (alpha > 0) {
-                ctx.fillStyle = silhouetteColor; // COLORS.PLAYER_GI から修正
-                ctx.beginPath();
-                ctx.arc(armEndX, armEndY, 4.8 * attackHandRadiusScale, 0, Math.PI * 2);
-                ctx.fill();
-            }
+            drawAttackHand(armEndX, armEndY, 4.8 * attackHandRadiusScale);
         }
 
         const swordLen = this.getKatanaBladeLength(); // 見た目の刀身長は常に統一（当たり判定rangeとは分離）
@@ -5819,12 +6036,7 @@ export class Player {
                 attackArmStrokeWidth
             );
 
-            if (alpha > 0) {
-                ctx.fillStyle = silhouetteColor;
-                ctx.beginPath();
-                ctx.arc(supportHand.x, supportHand.y, 4.5 * attackHandRadiusScale, 0, Math.PI * 2);
-                ctx.fill();
-            }
+            drawAttackHand(supportHand.x, supportHand.y, 4.5 * attackHandRadiusScale);
         }
 
         if (drawFrontLayer) {
@@ -6415,6 +6627,9 @@ export class Player {
                 pose,
                 deltaMs
             );
+            if (this.specialCloneSlashTrailPoints[i].length > 96) {
+                this.specialCloneSlashTrailPoints[i].splice(0, this.specialCloneSlashTrailPoints[i].length - 96);
+            }
         }
     }
 
@@ -6704,16 +6919,20 @@ export class Player {
                     ? (pos.y - PLAYER.HEIGHT * 0.62)
                     : (saved.y + saved.height - PLAYER.HEIGHT);
 
-                // 霧エフェクト（描画座標に追従）
+                // 霧エフェクト（描画座標に追従・キャッシュCanvasを利用して軽量化）
                 const mistCenterY = cloneDrawY + PLAYER.HEIGHT * 0.45;
                 ctx.save();
-                const mist = ctx.createRadialGradient(pos.x, mistCenterY, 2, pos.x, mistCenterY, 34);
-                mist.addColorStop(0, `rgba(180, 214, 246, ${cloneAlpha * 0.28})`);
-                mist.addColorStop(1, 'rgba(180, 214, 246, 0)');
-                ctx.fillStyle = mist;
-                ctx.beginPath();
-                ctx.arc(pos.x, mistCenterY, 34, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.globalAlpha = cloneAlpha * 0.4; // 不透明度を調整してスタンプ
+                if (this.mistCacheCanvas) {
+                    const size = this.mistCacheCanvas.width;
+                    ctx.drawImage(this.mistCacheCanvas, pos.x - size/2, mistCenterY - size/2);
+                } else {
+                    // フォールバック
+                    ctx.fillStyle = `rgba(180, 214, 246, 1.0)`;
+                    ctx.beginPath();
+                    ctx.arc(pos.x, mistCenterY, 34, 0, Math.PI * 2);
+                    ctx.fill();
+                }
                 ctx.restore();
 
                 // Lv0〜2は本体の攻撃状態に同期、Lv3は独自タイマー
@@ -6842,8 +7061,9 @@ export class Player {
                         this.scarfNodes[0].y = targetKnotY;
                     }
                     if (this.hairNodes.length) {
-                        this.hairNodes[0].x = targetKnotX;
-                        this.hairNodes[0].y = targetKnotY - 8;
+                        const cloneDir = this.facingRight ? 1 : -1;
+                        this.hairNodes[0].x = targetKnotX + cloneDir * PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X;
+                        this.hairNodes[0].y = targetKnotY - PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y;
                     }
                 }
 
@@ -6889,11 +7109,10 @@ export class Player {
 
                 this.scarfNodes = savedScarf;
                 this.hairNodes = savedHair;
-                this.height = saved.height;
 
                 ctx.restore();
 
-                // 本体の状態を復元
+                // 本体の状態を完全に復元
                 this.isAttacking = saved.isAttacking;
                 this.currentAttack = saved.currentAttack;
                 this.attackTimer = saved.attackTimer;
@@ -6910,6 +7129,7 @@ export class Player {
                 this.isCrouching = saved.isCrouching;
                 this.isDashing = saved.isDashing;
                 this.motionTime = saved.motionTime;
+                this.height = saved.height;
                 this.legPhase = saved.legPhase;
                 this.legAngle = saved.legAngle;
             }
@@ -6922,37 +7142,39 @@ export class Player {
             const radius = puff.radius * (puff.mode === 'appear' ? (0.78 + bloom * 1.05) : (0.66 + bloom * 0.88));
             const alpha = (puff.mode === 'appear' ? 0.62 : 0.36) * life;
             const warm = puff.mode === 'appear';
-            const grad = ctx.createRadialGradient(
-                puff.x - radius * 0.18,
-                puff.y - radius * 0.22,
-                radius * 0.08,
-                puff.x,
-                puff.y,
-                radius
-            );
-            if (warm) {
-                grad.addColorStop(0, `rgba(244, 251, 255, ${alpha * 0.95})`);
-                grad.addColorStop(0.38, `rgba(194, 233, 255, ${alpha * 0.72})`);
-                grad.addColorStop(1, `rgba(150, 204, 235, 0)`);
-            } else {
-                grad.addColorStop(0, `rgba(236, 244, 255, ${alpha * 0.85})`);
-                grad.addColorStop(0.42, `rgba(176, 196, 230, ${alpha * 0.62})`);
-                grad.addColorStop(1, `rgba(124, 146, 188, 0)`);
-            }
-            ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.arc(puff.x, puff.y, radius, 0, Math.PI * 2);
-            ctx.fill();
-
+            
             const rot = puff.rot || 0;
-            const lobeX = puff.x + Math.cos(rot) * radius * 0.28;
-            const lobeY = puff.y + Math.sin(rot) * radius * 0.24;
-            ctx.fillStyle = warm
-                ? `rgba(228, 247, 255, ${alpha * 0.58})`
-                : `rgba(211, 228, 247, ${alpha * 0.34})`;
-            ctx.beginPath();
-            ctx.arc(lobeX, lobeY, radius * 0.52, 0, Math.PI * 2);
-            ctx.fill();
+
+            // 煙描画もキャッシュミストを拡大縮小・着色して利用（大幅な軽量化）
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.translate(puff.x, puff.y);
+            // warm時は少し暖色寄りのglobalCompositeOperation 等を使ってもよいが
+            // ここではシンプルにキャッシュを利用し合成モードで色味を足す
+            
+            if (this.mistCacheCanvas) {
+                const s = this.mistCacheCanvas.width;
+                const scale = (radius * 2) / s;
+                ctx.scale(scale, scale);
+                // ベースの煙
+                ctx.drawImage(this.mistCacheCanvas, -s/2, -s/2);
+                
+                // 追加のコブ
+                ctx.save();
+                ctx.rotate(rot);
+                ctx.translate(0, s/4);
+                ctx.globalAlpha = alpha * 0.7;
+                ctx.scale(0.6, 0.6);
+                ctx.drawImage(this.mistCacheCanvas, -s/2, -s/2);
+                ctx.restore();
+            } else {
+                // フォールバック
+                ctx.fillStyle = warm ? `rgba(194, 233, 255, 1.0)` : `rgba(176, 196, 230, 1.0)`;
+                ctx.beginPath();
+                ctx.arc(0, 0, radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
 
             if (life < (puff.ringStart || 0.28) && life > 0.12) {
                 const ringAlpha = alpha * (1 - life) * 0.9;
@@ -6984,9 +7206,10 @@ export class Player {
     renderSpecialCastPose(ctx, x, y, facingRight, alpha = 1.0, options = {}) {
         ctx.save();
         if (alpha > 0 && alpha !== 1.0) ctx.globalAlpha *= alpha;
-        // alphaが0の場合でも、鉢巻や武器を描画するためにここでは描画をスキップしない。
+        
+        // ★修正: ここにあった二重の ctx.save() を整理削除（不整合の原因）
+        
         const centerX = x + this.width / 2;
-
         const bottomY = y + this.height - 2;
         const dir = facingRight ? 1 : -1;
         const palette = options.palette || {};
@@ -6996,11 +7219,12 @@ export class Player {
         const headY = y + 16 + castPulse * 0.2;
         const hipY = bottomY - 20;
 
-        // ★追加: 分身の場合はそのノードを一時セット
+        // 特殊技のノードを一時セット
         const cloneIndex = options.cloneIndex;
         const isClone = cloneIndex !== undefined && cloneIndex !== null;
         let savedScarf = null;
         let savedHair = null;
+
         if (isClone) {
             savedScarf = this.scarfNodes;
             savedHair = this.hairNodes;
@@ -7012,8 +7236,7 @@ export class Player {
             }
         }
 
-        ctx.save();
-        ctx.globalAlpha = alpha;
+        // 描画設定
         ctx.strokeStyle = silhouette;
         ctx.fillStyle = silhouette;
         ctx.lineCap = 'round';
@@ -7039,17 +7262,36 @@ export class Player {
             ctx.fill();
         }
 
-        // 鉢巻バンド
-        ctx.strokeStyle = accent;
-        ctx.lineWidth = 4;
+        // 鉢巻バンド（頭の輪郭でクリップ）
+        const castHeadRadius = 14;
+        const castBandBackAngle = facingRight ? Math.PI * 0.92 : Math.PI * 0.08;
+        const castBandFrontAngle = facingRight ? -Math.PI * 0.18 : Math.PI * 1.18;
+        const castBandMaskRadius = castHeadRadius - 0.05;
+        const castBandPathRadius = castBandMaskRadius + PLAYER_SPECIAL_HEADBAND_LINE_WIDTH * 0.34;
+        const castBandStartX = centerX + Math.cos(castBandBackAngle) * castBandPathRadius;
+        const castBandStartY = headY + Math.sin(castBandBackAngle) * castBandPathRadius;
+        const castBandEndX = centerX + Math.cos(castBandFrontAngle) * castBandPathRadius;
+        const castBandEndY = headY + Math.sin(castBandFrontAngle) * castBandPathRadius;
+        const castBandCtrlX = centerX + dir * castHeadRadius * 0.02;
+        const castBandCtrlY = headY - castHeadRadius * 0.30;
+
+        ctx.save();
         ctx.beginPath();
-        ctx.moveTo(centerX - 12, headY - 3);
-        ctx.lineTo(centerX + 12, headY - 5);
+        ctx.arc(centerX, headY, castBandMaskRadius, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = PLAYER_SPECIAL_HEADBAND_LINE_WIDTH;
+        ctx.lineCap = 'butt';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(castBandStartX, castBandStartY);
+        ctx.quadraticCurveTo(castBandCtrlX, castBandCtrlY, castBandEndX, castBandEndY);
         ctx.stroke();
+        ctx.restore();
 
         // 鉢巻テール — ライブノードを使用
-        const knotTailX = centerX + (facingRight ? -12 : 12);
-        const knotTailY = headY - 2;
+        const knotTailX = centerX + Math.cos(castBandBackAngle) * castBandMaskRadius;
+        const knotTailY = headY + Math.sin(castBandBackAngle) * castBandMaskRadius;
 
         if (this.scarfNodes && this.scarfNodes.length > 1) {
             this.scarfNodes[0].x = knotTailX;
@@ -7057,22 +7299,37 @@ export class Player {
 
             const scarfSpreadDist = Math.abs(this.scarfNodes[this.scarfNodes.length - 1].x - this.scarfNodes[0].x);
             const movingNow = scarfSpreadDist > 20;
+            const tailRootX = knotTailX - dir * (PLAYER_SPECIAL_HEADBAND_LINE_WIDTH * 0.45 + 0.12);
+            const tailRootY = knotTailY;
+            const rootNodeX = this.scarfNodes[0].x;
+            const rootNodeY = this.scarfNodes[0].y;
+            const mapTailNode = (node) => ({
+                x: tailRootX + (node.x - rootNodeX),
+                y: tailRootY + (node.y - rootNodeY)
+            });
 
             ctx.fillStyle = accent;
             ctx.beginPath();
-            ctx.moveTo(knotTailX, knotTailY);
+            ctx.moveTo(tailRootX, tailRootY);
+
+            const firstNode = mapTailNode(this.scarfNodes[1]);
+            const rootCtrlX = tailRootX - dir * 2.8;
+            const rootCtrlY = tailRootY;
+            ctx.quadraticCurveTo(rootCtrlX, rootCtrlY, (rootCtrlX + firstNode.x) / 2, (rootCtrlY + firstNode.y) / 2);
 
             for (let i = 1; i < this.scarfNodes.length - 1; i++) {
-                const xc = (this.scarfNodes[i].x + this.scarfNodes[i + 1].x) / 2;
-                const yc = (this.scarfNodes[i].y + this.scarfNodes[i + 1].y) / 2;
-                ctx.quadraticCurveTo(this.scarfNodes[i].x, this.scarfNodes[i].y, xc, yc);
+                const node = mapTailNode(this.scarfNodes[i]);
+                const next = mapTailNode(this.scarfNodes[i + 1]);
+                const xc = (node.x + next.x) / 2;
+                const yc = (node.y + next.y) / 2;
+                ctx.quadraticCurveTo(node.x, node.y, xc, yc);
             }
-            const lastScarf = this.scarfNodes[this.scarfNodes.length - 1];
+            const lastScarf = mapTailNode(this.scarfNodes[this.scarfNodes.length - 1]);
             ctx.lineTo(lastScarf.x, lastScarf.y);
 
             for (let i = this.scarfNodes.length - 1; i >= 1; i--) {
-                const node = this.scarfNodes[i];
-                const prev = this.scarfNodes[i - 1];
+                const node = mapTailNode(this.scarfNodes[i]);
+                const prev = mapTailNode(this.scarfNodes[i - 1]);
                 const baseWidth = movingNow ? 7 : 10;
                 const waveSpeed = movingNow ? 0.008 : 0.004;
                 const wavePhase = i * (movingNow ? 0.5 : 0.6);
@@ -7088,8 +7345,26 @@ export class Player {
                 }
                 ctx.quadraticCurveTo(controlX, controlY, endX, endY);
             }
-            ctx.lineTo(knotTailX, knotTailY + 12);
+            const rootLip = Math.max(1.8, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH * 0.56);
+            ctx.quadraticCurveTo(
+                tailRootX - dir * rootLip * 0.9,
+                tailRootY + rootLip * 0.66,
+                tailRootX,
+                tailRootY + rootLip * 0.2
+            );
             ctx.closePath();
+            ctx.fill();
+            const castBandAngle = Math.atan2(castBandCtrlY - knotTailY, castBandCtrlX - knotTailX);
+            ctx.beginPath();
+            ctx.ellipse(
+                tailRootX + dir * 0.2,
+                tailRootY + 0.02,
+                Math.max(1.1, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH * 0.43),
+                Math.max(0.75, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH * 0.29),
+                castBandAngle,
+                0,
+                Math.PI * 2
+            );
             ctx.fill();
         }
 
@@ -7097,8 +7372,12 @@ export class Player {
         if (this.hairNodes && this.hairNodes.length > 1) {
             ctx.fillStyle = silhouette;
             ctx.beginPath();
-            const hairBaseX = centerX - dir * 4;
-            const hairBaseY = headY - 12;
+            const castHairRootAngle = facingRight ? PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT : PLAYER_PONYTAIL_ROOT_ANGLE_LEFT;
+            const castHairRootRadius = castHeadRadius - 0.05;
+            const hairBaseX = centerX + Math.cos(castHairRootAngle) * castHairRootRadius;
+            const hairBaseY = headY + Math.sin(castHairRootAngle) * castHairRootRadius - PLAYER_PONYTAIL_CONNECT_LIFT_Y;
+            this.hairNodes[0].x = hairBaseX;
+            this.hairNodes[0].y = hairBaseY;
             ctx.moveTo(hairBaseX, hairBaseY);
 
             for (let i = 1; i < this.hairNodes.length; i++) {
@@ -7126,7 +7405,7 @@ export class Player {
             ctx.fill();
         }
 
-        // ニンニン印 — 正面向きなので腕は体に隠れる。手と指だけ描画
+        // ニンニン印
         if (alpha > 0) {
             const palmX = centerX;
             const lowerHandY = headY + 10;
@@ -7134,7 +7413,6 @@ export class Player {
             const handColor = silhouette;
             const shadowColor = 'rgba(80, 80, 80, 0.35)';
 
-            // 下の手（拳）— 影付き
             ctx.fillStyle = shadowColor;
             ctx.beginPath();
             ctx.arc(palmX, lowerHandY + 1.5, 4.8, 0, Math.PI * 2);
@@ -7144,7 +7422,6 @@ export class Player {
             ctx.arc(palmX, lowerHandY, 4.2, 0, Math.PI * 2);
             ctx.fill();
 
-            // 上の手（拳）— 影付き
             ctx.fillStyle = shadowColor;
             ctx.beginPath();
             ctx.arc(palmX, upperHandY + 1.5, 4.6, 0, Math.PI * 2);
@@ -7154,7 +7431,6 @@ export class Player {
             ctx.arc(palmX, upperHandY, 4.0, 0, Math.PI * 2);
             ctx.fill();
 
-            // 指 — 影付き
             ctx.strokeStyle = shadowColor;
             ctx.lineWidth = 5.0;
             ctx.lineCap = 'round';
@@ -7173,7 +7449,7 @@ export class Player {
 
         ctx.restore();
 
-        // ★追加: 分身のノードを復元
+        // 復元
         if (isClone) {
             this.scarfNodes = savedScarf;
             this.hairNodes = savedHair;

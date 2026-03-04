@@ -103,13 +103,27 @@ export class SaveManager {
     applyToPlayer(player, saveData) {
         if (!saveData || !saveData.player) return false;
         
-        const baseExpToNext = Math.max(1, Math.floor(Number(player.expToNext) || 100));
+        const baseExpToNext = Math.max(
+            1,
+            Math.floor(
+                (typeof player.getExpToNextForLevel === 'function')
+                    ? player.getExpToNextForLevel(1)
+                    : (Number(player.expToNext) || 100)
+            )
+        );
         const savedExpToNext = Math.max(1, Math.floor(Number(saveData.player.expToNext) || baseExpToNext));
         const savedExp = Math.max(0, Number(saveData.player.exp) || 0);
         const progressRatio = Math.max(0, Math.min(0.9999, savedExp / savedExpToNext));
 
         player.level = Math.max(1, Math.floor(Number(saveData.player.level) || 1));
-        player.expToNext = baseExpToNext;
+        player.expToNext = Math.max(
+            1,
+            Math.floor(
+                (typeof player.getExpToNextForLevel === 'function')
+                    ? player.getExpToNextForLevel(player.level)
+                    : baseExpToNext
+            )
+        );
         // 旧セーブ（可変必要経験値）の進捗率のみ引き継ぎ、現在仕様の固定必要経験値へ移行
         player.exp = Math.floor(player.expToNext * progressRatio);
         player.maxHp = saveData.player.maxHp;

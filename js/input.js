@@ -22,8 +22,8 @@ class InputManager {
             ' ': 'JUMP',
             'z': 'ATTACK', 'Z': 'ATTACK',
             'x': 'SUB_WEAPON', 'X': 'SUB_WEAPON',
-            's': 'SWITCH_WEAPON', 'S': 'SWITCH_WEAPON',
-            'a': 'SPECIAL', 'A': 'SPECIAL',
+            's': 'SPECIAL', 'S': 'SPECIAL',
+            'c': 'SWITCH_WEAPON', 'C': 'SWITCH_WEAPON',
             'Shift': 'DASH',
             'Escape': 'PAUSE',
             'q': 'DEBUG_TOGGLE', 'Q': 'DEBUG_TOGGLE'
@@ -36,8 +36,8 @@ class InputManager {
             'Space': 'JUMP',
             'KeyZ': 'ATTACK',
             'KeyX': 'SUB_WEAPON',
-            'KeyS': 'SWITCH_WEAPON',
-            'KeyA': 'SPECIAL',
+            'KeyS': 'SPECIAL',
+            'KeyC': 'SWITCH_WEAPON',
             'ShiftLeft': 'DASH',
             'ShiftRight': 'DASH',
             'Escape': 'PAUSE',
@@ -109,10 +109,20 @@ class InputManager {
     }
     
     onMouseDown(e) {
-        this.focusCanvas();
-        // キャンバス外クリックは無視（オプション）
-        // audio.init() はユーザインタラクション必須なのでここで呼ぶ
-        audio.init();
+        // Forced Reflow 回避: フォーカスが必要な場合のみ非同期で実行
+        if (this.canvas) {
+            setTimeout(() => {
+                if (document.activeElement !== this.canvas) {
+                    this.focusCanvas();
+                }
+            }, 0);
+        }
+
+        // オーディオ初期化は一回だけ行うか、既に初期化済みなら軽い resume のみにする
+        // audio.init 内で既に対策済みだが、ハンドラ内での呼び出し自体を必要最小限にする
+        if (!audio.initialized) {
+            audio.init();
+        }
         
         const fakeTouch = {
             identifier: 'mouse',

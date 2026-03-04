@@ -80,8 +80,8 @@ export const KEYS = {
     JUMP: [' ', 'ArrowUp'],  // Space or ↑ (SpaceをIDにするため先頭へ)
     ATTACK: ['z', 'Z'],
     SUB_WEAPON: ['x', 'X'],
-    SPECIAL: ['a', 'A'],
-    SWITCH_WEAPON: ['s', 'S'],
+    SPECIAL: ['s', 'S'],
+    SWITCH_WEAPON: ['c', 'C'],
     DASH: ['Shift'],
     PAUSE: ['Escape'],
     DEBUG_TOGGLE: ['q', 'Q'],
@@ -168,14 +168,14 @@ export const VIRTUAL_PAD = {
     
     // 右側：Z基準の扇形（隣接余白を同値で統一）
     // 条件:
-    // - ZとSは右揃え
+    // - ZとCは右揃え
     // - ZとXは下揃え
-    // - AはXとSの間
-    // - 隣接余白(Z-X / Z-S / X-A / S-A) ≒ 16px
+    // - SはXとCの間
+    // - 隣接余白(Z-X / Z-C / X-S / C-S) ≒ 16px
     ATTACK: { x: 26, y: 58 },        // Z: 主攻撃（基準）
     SUB_WEAPON: { x: -76, y: 68 },   // X: 左下
-    SPECIAL: { x: -53, y: -21 },     // A: 中間
-    SWITCH: { x: 36, y: -44 }        // S: 右上
+    SPECIAL: { x: -53, y: -21 },     // S: 中間
+    SWITCH: { x: 36, y: -44 }        // C: 右上
 };
 
 // 各ステージの初期装備（デフォルト武器）

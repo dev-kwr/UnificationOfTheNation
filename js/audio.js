@@ -24,9 +24,9 @@ class AudioManager {
         
         this.initialized = false;
         
-        // 効果音重複防止用
-        this.lastEnemyDeathTime = 0;
-        this.enemyDeathCooldown = 50; // 50ms以内の重複を防ぐ
+        // 効果音重複防止用（クールダウン管理）
+        this.lastPlayTimes = {}; // 'filename': timestamp
+        this.defaultCooldownMs = 40; // 同一ファイルの基本クールダウン
 
         // BGMファイルパス定義
         this.bgmFiles = {
@@ -45,31 +45,23 @@ class AudioManager {
         };
 
         // 主要な SE のプリロード（タイミングの高速化）
+        // タイトル画面で必要な最小限のもののみ即時ロードし、他は必要に応じてロード
         this.sfxPool = {
-            death: new Audio('se/death.mp3'),
-            deflect: new Audio('se/deflect.mp3'),
-            landing: new Audio('se/landing.mp3'),
-            ooyari: new Audio('se/ooyari.mp3'),
-            shuriken: new Audio('se/shuriken.mp3'),
-            katana: new Audio('se/katana.mp3'),
-            combined: new Audio('se/combined.mp3'),
-            exp: new Audio('se/exp.mp3'),
             cursor: new Audio('se/cursor.mp3'),
-            change: new Audio('se/change.mp3'),
             gamestart: new Audio('se/gamestart.mp3'),
-            levelup: new Audio('se/levelup.mp3'),
-            skillup: new Audio('se/skillup.mp3'),
-            item: new Audio('se/item.mp3'),
-            jump: new Audio('se/jump.mp3'),
-            dash: new Audio('se/dash.mp3'),
-            knockdown: new Audio('se/knockdown.mp3'),
-            damage: new Audio('se/damage.mp3'),
-            special: new Audio('se/special.mp3')
+            death: new Audio('se/death.mp3'),
+            // 他は遅延ロード
+            deflect: null, landing: null, ooyari: null, shuriken: null, katana: null,
+            combined: null, exp: null, change: null, levelup: null, skillup: null,
+            item: null, jump: null, dash: null, knockdown: null, damage: null, special: null
         };
-        // プリロード設定
-        Object.values(this.sfxPool).forEach(audio => {
-            audio.preload = 'auto';
-            audio.load();
+
+        // 必須 SE の初期ロード
+        ['cursor', 'gamestart', 'death'].forEach(key => {
+            if (this.sfxPool[key]) {
+                this.sfxPool[key].preload = 'auto';
+                this.sfxPool[key].load();
+            }
         });
 
         this.restoreMuteState();
@@ -117,25 +109,73 @@ class AudioManager {
             return;
         }
         
-        try {
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            this.audioContext = new AudioContext();
-            
-            // マスター出力
-            this.masterGain = this.audioContext.createGain();
-            this.masterGain.gain.value = this.isMuted ? 0 : this.masterVolume;
-            this.masterGain.connect(this.audioContext.destination);
-            
-            // SFX 出力
-            this.sfxGain = this.audioContext.createGain();
-            this.sfxGain.gain.value = this.sfxVolume;
-            this.sfxGain.connect(this.masterGain);
-            
-            this.initialized = true;
-            console.log('Audio system initialized (File-based BGM)');
-        } catch (e) {
-            console.warn('Audio not supported:', e);
-        }
+        // 1段階目: AudioContext 生成のみ (極めて軽量に)
+        setTimeout(() => {
+            if (this.initialized) return;
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (!AudioContext) return;
+                this.audioContext = new AudioContext();
+                
+                // 2段階目: マスター/SFX ゲインの設定 (次フレーム以降)
+                setTimeout(() => {
+                    this.masterGain = this.audioContext.createGain();
+                    this.masterGain.gain.value = this.isMuted ? 0 : this.masterVolume;
+                    this.masterGain.connect(this.audioContext.destination);
+                    
+                    this.sfxGain = this.audioContext.createGain();
+                    this.sfxGain.gain.value = this.sfxVolume;
+                    this.sfxGain.connect(this.masterGain);
+                    
+                    this.initialized = true;
+                    console.log('Audio system initialized (Multi-stage)');
+                    
+                    // 3段階目: 残りの SE ロード開始 (さらに遅延)
+                    setTimeout(() => this.loadRemainingSfx(), 500);
+                }, 16);
+            } catch (e) {
+                console.warn('Audio not supported:', e);
+            }
+        }, 1);
+    }
+    
+    loadRemainingSfx() {
+        const remaining = {
+            deflect: 'se/deflect.mp3',
+            landing: 'se/landing.mp3',
+            ooyari: 'se/ooyari.mp3',
+            shuriken: 'se/shuriken.mp3',
+            katana: 'se/katana.mp3',
+            combined: 'se/combined.mp3',
+            exp: 'se/exp.mp3',
+            change: 'se/change.mp3',
+            levelup: 'se/levelup.mp3',
+            skillup: 'se/skillup.mp3',
+            item: 'se/item.mp3',
+            jump: 'se/jump.mp3',
+            dash: 'se/dash.mp3',
+            knockdown: 'se/knockdown.mp3',
+            damage: 'se/damage.mp3',
+            special: 'se/special.mp3'
+        };
+
+        const keys = Object.keys(remaining);
+        let index = 0;
+        
+        // 一定間隔で1つずつロードし、瞬間的な CPU/ネットワーク負荷を避ける
+        const loadNext = () => {
+            if (index >= keys.length) return;
+            const key = keys[index];
+            if (!this.sfxPool[key]) {
+                const audio = new Audio(remaining[key]);
+                audio.preload = 'auto';
+                this.sfxPool[key] = audio;
+            }
+            index++;
+            setTimeout(loadNext, 200);
+        };
+        
+        loadNext();
     }
     
     // ノイズ生成 (SE用)
@@ -151,11 +191,22 @@ class AudioManager {
     }
     
     // === 効果音 ===
-    playFileSfx(filePath, volume = 1.0, playbackRate = 1.0, startTime = 0.02, preferPoolDirect = false) {
+    playFileSfx(filePath, volume = 1.0, playbackRate = 1.0, startTime = 0.02, preferPoolDirect = false, useCooldown = true) {
         if (this.isMuted) return;
         
-        // プリロード済みプールにあるか確認（ファイル名だけで判定）
         const fileName = filePath.split('/').pop().split('.')[0];
+
+        // 重複再生防止（クールダウン）
+        if (useCooldown) {
+            const now = Date.now();
+            const lastTime = this.lastPlayTimes[fileName] || 0;
+            if (now - lastTime < this.defaultCooldownMs) {
+                return; // クールダウン中は再生スキップ
+            }
+            this.lastPlayTimes[fileName] = now;
+        }
+
+        // プリロード済みプールにあるか確認
         let sfx;
         
         if (this.sfxPool[fileName]) {
@@ -264,17 +315,17 @@ class AudioManager {
     }
     playExplosion() {
         this.init();
-        // ノイズの音量を下げ、持続を短くしてクリーンな爆発音に
-        this.playNoiseSfx(0.18, 0.2, 600);
-        this.playSfx(55, 'sine', 0.15, 0.2, 0.4);
+        const now = Date.now();
+        if (now - (this.lastPlayTimes['explosion_synth'] || 0) < 60) return; // 合成音もクールダウン
+        this.lastPlayTimes['explosion_synth'] = now;
+        
+        // 火薬玉の破裂感を少し強める（過大にならない範囲で増量）
+        this.playNoiseSfx(0.23, 0.2, 600);
+        this.playSfx(55, 'sine', 0.19, 0.2, 0.4);
     }
     playEnemyDeath() { 
         this.init(); 
-        const now = Date.now();
-        if (now - this.lastEnemyDeathTime < 60) return;
-        this.lastEnemyDeathTime = now;
-        
-        // 音量は 0.6 に抑え、速度は 1.0 に戻す
+        // playFileSfx内でクールダウン管理するため直接呼ぶ
         this.playFileSfx('se/death.mp3', 0.6, 1.0, 0.02);
     }
     playSpecial() { 
@@ -380,7 +431,7 @@ class AudioManager {
     playMoney() { this.init(); this.playSfx(900, 'sine', 0.15, 0.08, 1.3); }
 
     // === BGM制御（ファイル再生のみ） ===
-    playBgm(type = 'stage', stageNum = 1, fadeDuration = 1500, fadeInDuration) {
+    playBgm(type = 'stage', stageNum = 1, fadeDuration = 800, fadeInDuration) {
         this.bgmPausedByGame = false;
         // fadeInDurationが未指定の場合はfadeDurationを使う
         if (fadeInDuration === undefined) fadeInDuration = fadeDuration;

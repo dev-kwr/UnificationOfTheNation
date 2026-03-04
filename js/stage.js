@@ -203,7 +203,7 @@ export class Stage {
     }
 
     initBambooLeaves() {
-        const initialCount = 45;
+        const initialCount = 28;
         const cliffY = this.groundY + 120; // 拡張された路面幅
         for (let i = 0; i < initialCount; i++) {
             const depth = 0.45 + Math.random() * 0.55;
@@ -768,7 +768,7 @@ export class Stage {
         });
 
         // BGM切り替え
-        audio.playBgm('boss', this.stageNumber, 1500, 0);
+        audio.playBgm('boss', this.stageNumber, 1000, 0);
     }
     
     render(ctx) {
@@ -884,8 +884,8 @@ export class Stage {
 
     updateBambooFallingLeaves(dtMs, dtScale, spawnMultiplier = 1.0) {
 
-        const maxLeaves = Math.floor(20 * spawnMultiplier);
-        const spawnInterval = 400 / spawnMultiplier;
+        const maxLeaves = Math.floor(12 * spawnMultiplier);
+        const spawnInterval = 520 / spawnMultiplier;
         this.bambooLeafSpawnTimer += dtMs;
 
         // Stage1はボス戦でも竹林全域を維持し、右1/4を削る演出を行わない
@@ -2917,8 +2917,8 @@ export class Stage {
         ctx.save();
         for (let i = start; i <= end; i++) {
             const seed = i * 7.41;
-            // 1セクションあたりの枚数を抑える (45-90 -> 15-30)
-            const leafCount = 15 + Math.floor(this.noise1D(seed + 3.7) * 15);
+            // 1セクションあたりの枚数を抑える
+            const leafCount = 9 + Math.floor(this.noise1D(seed + 3.7) * 10);
             for (let l = 0; l < leafCount; l++) {
                 const ls = seed + l * 2.37;
                 

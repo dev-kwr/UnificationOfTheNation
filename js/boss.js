@@ -64,9 +64,9 @@ class Boss extends Enemy {
             ? window.game.difficulty.id
             : 'normal';
         const bossDamageScaleByDifficulty = {
-            easy: 0.9,
-            normal: 0.76,
-            hard: 0.62
+            easy: 0.70,   // 弱体化
+            normal: 1.00, // 基準
+            hard: 1.45    // 大幅強化
         };
         const scale = bossDamageScaleByDifficulty[difficultyId] || bossDamageScaleByDifficulty.normal;
         this.damage = Math.max(1, Math.round(this.damage * scale));
@@ -242,8 +242,8 @@ class Boss extends Enemy {
 
     getDifficultyReplicaTierBonus() {
         const difficultyId = window.game && window.game.difficulty ? window.game.difficulty.id : 'normal';
-        if (difficultyId === 'hard') return 2;
-        if (difficultyId === 'normal') return 1;
+        if (difficultyId === 'hard') return 2;   // 最初からLv2相当
+        if (difficultyId === 'normal') return 0;
         return 0;
     }
 
@@ -474,7 +474,7 @@ export class KayakudamaTaisho extends Boss {
         this.throwInterval = Math.max(170, 280 - toolTier * 25);
         this.attackTimer = Math.max(680, this.throwCount * this.throwInterval + 260);
         this.throwTimer = 0;
-        audio.playSpecial();
+        // 誤った効果音(playSpecial)を削除
     }
 
     updateAttack(deltaTime) {
@@ -509,9 +509,15 @@ export class KayakudamaTaisho extends Boss {
         const startY = this.y + 15;
         const vx = direction * (6 + toolTier * 0.75);
         const vy = -7 - toolTier * 0.35;
-        const bombRadius = 8 + toolTier * 0.4;
-        const bombDamage = Math.max(1, Math.round(this.damage * (1 + toolTier * 0.08)));
-        const explosionRadius = 60 + toolTier * 8;
+        
+        // プレイヤーのFirebomb仕様と同期 (js/weapon.js)
+        const sizeUp = toolTier >= 3;
+        const bombRadius = sizeUp ? 14 : 11;
+        const bombDamages = [1.0, 1.22, 1.33, 1.55]; // プレイヤーの 18, 22, 24, 28 の比率
+        let bombDamage = Math.max(1, Math.round(this.damage * (bombDamages[toolTier] || 1.0)));
+        if (sizeUp) bombDamage = Math.round(bombDamage * 1.22);
+        
+        const explosionRadius = sizeUp ? 104 : 70; // プレイヤーの 90 * 1.16 : 70
         audio.playShuriken();
 
         if (g.bombs && typeof g.bombs.push === 'function') {
@@ -549,7 +555,7 @@ export class KayakudamaTaisho extends Boss {
                         }
                     }
 
-                    if (this.y + this.radius >= this.groundY + LANE_OFFSET || this.timer >= this.maxTimer) {
+                    if (this.y + this.radius >= this.groundY || this.timer >= this.maxTimer) {
                         this.explode();
                     }
                     return false;
@@ -573,18 +579,56 @@ export class KayakudamaTaisho extends Boss {
                     if (this.isDead) return;
                     ctx.save();
                     if (this.isExploding) {
+                        // プレイヤーのBombと同様のリッチな多層爆炎エフェクト
                         const progress = this.timer / this.explosionDuration;
-                        const r = this.explosionRadius * Math.min(1, progress * 2);
-                        const alpha = 1 - progress;
-                        ctx.globalAlpha = alpha * 0.7;
-                        ctx.fillStyle = '#ff6b35';
+                        const currentRadius = this.explosionRadius * Math.pow(progress, 0.4);
+                        const alpha = 1 - Math.pow(progress, 1.5);
+                        
+                        ctx.globalCompositeOperation = 'lighter';
+
+                        // 外側の熱波
+                        const outerGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, currentRadius * 1.2);
+                        outerGrad.addColorStop(0.3, `rgba(255, 80, 0, ${alpha * 0.7})`);
+                        outerGrad.addColorStop(0.8, `rgba(150, 20, 0, ${alpha * 0.4})`);
+                        outerGrad.addColorStop(1, 'rgba(0,0,0,0)');
+                        ctx.fillStyle = outerGrad;
                         ctx.beginPath();
-                        ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+                        ctx.arc(this.x, this.y, currentRadius * 1.2, 0, Math.PI * 2);
                         ctx.fill();
-                        ctx.fillStyle = '#ffd700';
+                        
+                        // 内側の爆発コア
+                        const innerGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, currentRadius);
+                        innerGrad.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+                        innerGrad.addColorStop(0.2, `rgba(255, 255, 150, ${alpha})`);
+                        innerGrad.addColorStop(0.6, `rgba(255, 120, 0, ${alpha * 0.9})`);
+                        innerGrad.addColorStop(1, 'rgba(255, 50, 0, 0)');
+                        ctx.fillStyle = innerGrad;
+
+                        // 星型の爆発ポリゴン
                         ctx.beginPath();
-                        ctx.arc(this.x, this.y, r * 0.5, 0, Math.PI * 2);
+                        const spikes = 12;
+                        for (let i = 0; i < spikes * 2; i++) {
+                            const angle = (Math.PI * 2 / (spikes * 2)) * i + progress;
+                            const r = (i % 2 === 0) ? currentRadius : currentRadius * 0.5;
+                            const px = this.x + Math.cos(angle) * r;
+                            const py = this.y + Math.sin(angle) * r;
+                            if (i === 0) ctx.moveTo(px, py);
+                            else ctx.lineTo(px, py);
+                        }
+                        ctx.closePath();
                         ctx.fill();
+
+                        // 火花パーティクル
+                        if (progress < 0.6) {
+                            ctx.fillStyle = `rgba(255, 200, 100, ${alpha})`;
+                            for(let i=0; i<5; i++) {
+                                const sd = currentRadius * (0.5 + Math.random());
+                                const sa = Math.random() * Math.PI * 2;
+                                ctx.beginPath();
+                                ctx.arc(this.x + Math.cos(sa)*sd, this.y + Math.sin(sa)*sd, 1 + Math.random()*2, 0, Math.PI*2);
+                                ctx.fill();
+                            }
+                        }
                     } else {
                         const grad = ctx.createRadialGradient(
                             this.x - this.radius * 0.3, 
@@ -1721,7 +1765,9 @@ export class Shogun extends Boss {
                 if (!b) continue;
                 if (Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 1) {
                     if (Number.isFinite(b.radius)) b.radius *= this.scaleMultiplier;
-                    if (Number.isFinite(b.explosionRadius)) b.explosionRadius *= this.scaleMultiplier;
+                    // 将軍もプレイヤーと同様の爆弾仕様。将軍は常にLv3(Tier3)を使用するため sizeUp は true 固定。
+                    const sizeUp = true; 
+                    b.explosionRadius = (sizeUp ? 104 : 70) * this.scaleMultiplier;
                 }
                 b.isEnemyProjectile = true;
                 b.owner = owner;
