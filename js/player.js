@@ -264,7 +264,7 @@ export class Player {
         const knotY = headY + Math.sin(bandBackAngle) * bandMaskRadius;
 
         const hairRootAngle = facingRight ? PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT : PLAYER_PONYTAIL_ROOT_ANGLE_LEFT;
-        const hairRootRadius = Math.max(1, headRadius - 0.05);
+        const hairRootRadius = Math.max(1, headRadius);
         const hairRootX = headCenterX + Math.cos(hairRootAngle) * hairRootRadius;
         const hairRootY = headY + Math.sin(hairRootAngle) * hairRootRadius - PLAYER_PONYTAIL_CONNECT_LIFT_Y;
 
@@ -380,6 +380,22 @@ export class Player {
                     node.y -= Math.sin(angle) * correction;
                 }
             }
+        }
+
+        // 根元の次ノードを軽く拘束して、接続点の暴れとギザつきを抑える
+        if (scarfNodes.length > 1) {
+            const scarfRootFollowX = scarfNodes[0].x - dir * 3.6;
+            const scarfRootFollowY = scarfNodes[0].y + 0.2;
+            const scarfRootFollow = isMoving ? 0.2 : 0.26;
+            scarfNodes[1].x += (scarfRootFollowX - scarfNodes[1].x) * scarfRootFollow;
+            scarfNodes[1].y += (scarfRootFollowY - scarfNodes[1].y) * scarfRootFollow;
+        }
+        if (hairNodes.length > 1) {
+            const hairRootFollowX = hairNodes[0].x - dir * 3.2;
+            const hairRootFollowY = hairNodes[0].y + 0.9;
+            const hairRootFollow = isMoving ? 0.2 : 0.3;
+            hairNodes[1].x += (hairRootFollowX - hairNodes[1].x) * hairRootFollow;
+            hairNodes[1].y += (hairRootFollowY - hairNodes[1].y) * hairRootFollow;
         }
     }
 
@@ -4078,15 +4094,21 @@ export class Player {
         }
         
         const renderHair = options.renderHair !== false;
-        const hairRootAngle = facingRight ? PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT : PLAYER_PONYTAIL_ROOT_ANGLE_LEFT;
-        const hairRootRadius = Math.max(1, headRadius - 0.05);
-        const hairBaseX = headCenterX + Math.cos(hairRootAngle) * hairRootRadius;
-        const hairBaseY = headY + Math.sin(hairRootAngle) * hairRootRadius - PLAYER_PONYTAIL_CONNECT_LIFT_Y;
+        const accessoryRoots = this.getAccessoryRootAnchors(headCenterX, headY, headRadius, facingRight);
+        const hairBaseX = accessoryRoots.hairRootX;
+        const hairBaseY = accessoryRoots.hairRootY;
+        if (useLiveAccessories && this.hairNodes && this.hairNodes.length > 0) {
+            this.hairNodes[0].x = hairBaseX;
+            this.hairNodes[0].y = hairBaseY;
+        }
         const sampleHairNode = (index) => {
             const maxIndex = this.hairNodes.length - 1;
-            const clamped = Math.max(1, Math.min(maxIndex, index));
+            const clamped = Math.max(0, Math.min(maxIndex, index));
+            if (clamped === 0) return { x: hairBaseX, y: hairBaseY };
             const node = this.hairNodes[clamped];
-            const prev = this.hairNodes[Math.max(1, clamped - 1)];
+            const prev = (clamped === 1)
+                ? { x: hairBaseX, y: hairBaseY }
+                : this.hairNodes[Math.max(0, clamped - 1)];
             const next = this.hairNodes[Math.min(maxIndex, clamped + 1)];
             return {
                 x: (prev.x + node.x * 2 + next.x) * 0.25,
@@ -4123,10 +4145,10 @@ export class Player {
                 const smoothPrev = sampleHairNodeWithRoot(i - 1);
                 const tProgress = i / hairDenom;
                 const baseThickness = (1 - tProgress) * 8.6 + 1.0;
-                // 根元では厚みを0に落として、頭との接続を尖らせない
-                const rootEase = Math.min(1, Math.max(0, tProgress / 0.22));
+                // 根元の細りを抑え、頭の切れ間に自然につながる太さへ戻す
+                const rootEase = 0.58 + 0.42 * Math.min(1, Math.pow(Math.max(0, tProgress) * 2.2, 1.6));
                 const thickness = baseThickness * rootEase;
-                const smoothShift = -dir * (1 - tProgress) * 0.14 * rootEase;
+                const smoothShift = -dir * (1 - tProgress) * 0.11 * rootEase;
                 ctx.quadraticCurveTo(
                     smoothNode.x + smoothShift,
                     smoothNode.y + thickness,
@@ -4179,7 +4201,7 @@ export class Player {
                 addGap(neckJoinAngle, 0.36);
                 if (hasLiveHairShape) {
                     const hairJoinAngle = Math.atan2(hairBaseY - headY, hairBaseX - headCenterX);
-                    addGap(hairJoinAngle, 0.28);
+                    addGap(hairJoinAngle, 0.34);
                 }
 
                 ctx.strokeStyle = silhouetteOutlineColor;
@@ -4233,8 +4255,8 @@ export class Player {
         const bandStartY = headY + Math.sin(bandBackAngle) * bandPathRadius;
         const bandEndX = headCenterX + Math.cos(bandFrontAngle) * bandPathRadius;
         const bandEndY = headY + Math.sin(bandFrontAngle) * bandPathRadius;
-        const knotX = headCenterX + Math.cos(bandBackAngle) * bandMaskRadius;
-        const knotY = headY + Math.sin(bandBackAngle) * bandMaskRadius;
+        const knotX = accessoryRoots.knotX;
+        const knotY = accessoryRoots.knotY;
 
         if (useLiveAccessories && this.scarfNodes && this.scarfNodes.length > 0) {
             this.scarfNodes[0].x = knotX;
@@ -4283,12 +4305,12 @@ export class Player {
             const bandTangentLen = Math.hypot(bandTangentX, bandTangentY) || 1;
             const bandTangentNX = bandTangentX / bandTangentLen;
             const bandTangentNY = bandTangentY / bandTangentLen;
-            // バンド後端の「横」からテールを生やす（下方向に落とさない）
-            const tailRootX = knotX - dir * (PLAYER_HEADBAND_LINE_WIDTH * 0.45 + 0.12);
+            // バンド後端にそのまま接続し、途切れを防ぐ
+            const tailRootX = knotX;
             const tailRootY = knotY;
             const rootNodeX = this.scarfNodes[0].x;
             const rootNodeY = this.scarfNodes[0].y;
-            const tailShorten = 0.80;
+            const tailShorten = 0.82;
             const mapTailNode = (node) => ({
                 x: tailRootX + (node.x - rootNodeX) * tailShorten,
                 y: tailRootY + (node.y - rootNodeY) * tailShorten
@@ -4296,9 +4318,13 @@ export class Player {
             ctx.fillStyle = accentColor;
             ctx.beginPath(); ctx.moveTo(tailRootX, tailRootY);
             if (this.scarfNodes.length > 1) {
-                const firstNode = mapTailNode(this.scarfNodes[1]);
-                const rootCtrlX = tailRootX - dir * 2.4 - bandTangentNX * 0.25;
-                const rootCtrlY = tailRootY - bandTangentNY * 0.08;
+                const firstNodeRaw = mapTailNode(this.scarfNodes[1]);
+                const firstNode = {
+                    x: tailRootX + (firstNodeRaw.x - tailRootX) * 0.52,
+                    y: tailRootY + (firstNodeRaw.y - tailRootY) * 0.52
+                };
+                const rootCtrlX = tailRootX - dir * 1.45 - bandTangentNX * 0.12;
+                const rootCtrlY = tailRootY - bandTangentNY * 0.05;
                 ctx.quadraticCurveTo(rootCtrlX, rootCtrlY, (rootCtrlX + firstNode.x) / 2, (rootCtrlY + firstNode.y) / 2);
             }
             for (let i = 1; i < this.scarfNodes.length - 1; i++) {
@@ -4322,8 +4348,8 @@ export class Player {
                 const wave = Math.sin(time * waveSpeed + wavePhase);
                 const waveAbs = Math.abs(wave);
                 const tProgress = i / (this.scarfNodes.length - 1);
-                const rootTaper = 0.36 + 0.64 * tProgress;
-                const rootEase = Math.min(1, Math.max(0, tProgress / 0.24));
+                const rootTaper = 0.42 + 0.58 * tProgress;
+                const rootEase = 0.54 + 0.46 * Math.min(1, Math.pow(Math.max(0, tProgress) * 2.4, 1.6));
                 const currentWidth = baseWidth * (movingNow ? 0.84 : 0.98 + waveAbs * 0.14) * rootTaper * rootEase;
                 const tiltX = wave * (movingNow ? 0.7 : 1.8);
                 if (i === this.scarfNodes.length - 1) ctx.lineTo(node.x + tiltX, node.y + currentWidth);
@@ -7306,6 +7332,7 @@ export class Player {
 
         // 鉢巻バンド（頭の輪郭でクリップ）
         const castHeadRadius = 14;
+        const castAccessoryRoots = this.getAccessoryRootAnchors(centerX, headY, castHeadRadius, facingRight);
         const castBandBackAngle = facingRight ? Math.PI * 0.92 : Math.PI * 0.08;
         const castBandFrontAngle = facingRight ? -Math.PI * 0.18 : Math.PI * 1.18;
         const castBandMaskRadius = castHeadRadius - 0.05;
@@ -7332,8 +7359,8 @@ export class Player {
         ctx.restore();
 
         // 鉢巻テール — ライブノードを使用
-        const knotTailX = centerX + Math.cos(castBandBackAngle) * castBandMaskRadius;
-        const knotTailY = headY + Math.sin(castBandBackAngle) * castBandMaskRadius;
+        const knotTailX = castAccessoryRoots.knotX;
+        const knotTailY = castAccessoryRoots.knotY;
 
         if (this.scarfNodes && this.scarfNodes.length > 1) {
             this.scarfNodes[0].x = knotTailX;
@@ -7341,22 +7368,32 @@ export class Player {
 
             const scarfSpreadDist = Math.abs(this.scarfNodes[this.scarfNodes.length - 1].x - this.scarfNodes[0].x);
             const movingNow = scarfSpreadDist > 20;
-            const tailRootX = knotTailX - dir * (PLAYER_SPECIAL_HEADBAND_LINE_WIDTH * 0.45 + 0.12);
+            const castBandTangentX = castBandCtrlX - castBandStartX;
+            const castBandTangentY = castBandCtrlY - castBandStartY;
+            const castBandTangentLen = Math.hypot(castBandTangentX, castBandTangentY) || 1;
+            const castBandTangentNX = castBandTangentX / castBandTangentLen;
+            const castBandTangentNY = castBandTangentY / castBandTangentLen;
+            const tailRootX = knotTailX;
             const tailRootY = knotTailY;
             const rootNodeX = this.scarfNodes[0].x;
             const rootNodeY = this.scarfNodes[0].y;
+            const tailShorten = 0.82;
             const mapTailNode = (node) => ({
-                x: tailRootX + (node.x - rootNodeX),
-                y: tailRootY + (node.y - rootNodeY)
+                x: tailRootX + (node.x - rootNodeX) * tailShorten,
+                y: tailRootY + (node.y - rootNodeY) * tailShorten
             });
 
             ctx.fillStyle = accent;
             ctx.beginPath();
             ctx.moveTo(tailRootX, tailRootY);
 
-            const firstNode = mapTailNode(this.scarfNodes[1]);
-            const rootCtrlX = tailRootX - dir * 2.8;
-            const rootCtrlY = tailRootY;
+            const firstNodeRaw = mapTailNode(this.scarfNodes[1]);
+            const firstNode = {
+                x: tailRootX + (firstNodeRaw.x - tailRootX) * 0.52,
+                y: tailRootY + (firstNodeRaw.y - tailRootY) * 0.52
+            };
+            const rootCtrlX = tailRootX - dir * 1.5 - castBandTangentNX * 0.14;
+            const rootCtrlY = tailRootY - castBandTangentNY * 0.06;
             ctx.quadraticCurveTo(rootCtrlX, rootCtrlY, (rootCtrlX + firstNode.x) / 2, (rootCtrlY + firstNode.y) / 2);
 
             for (let i = 1; i < this.scarfNodes.length - 1; i++) {
@@ -7377,8 +7414,8 @@ export class Player {
                 const wavePhase = i * (movingNow ? 0.5 : 0.6);
                 const wave = Math.sin(this.motionTime * waveSpeed + wavePhase);
                 const tProgress = i / (this.scarfNodes.length - 1);
-                const rootTaper = 0.34 + 0.66 * tProgress;
-                const rootEase = Math.min(1, Math.max(0, tProgress / 0.24));
+                const rootTaper = 0.42 + 0.58 * tProgress;
+                const rootEase = 0.54 + 0.46 * Math.min(1, Math.pow(Math.max(0, tProgress) * 2.4, 1.6));
                 const currentWidth = baseWidth * (movingNow ? 0.85 : 1.0 + Math.abs(wave) * 0.3) * rootTaper * rootEase;
                 const tiltX = wave * (movingNow ? 1.0 : 3.0);
                 const controlX = node.x + tiltX;
@@ -7399,10 +7436,8 @@ export class Player {
         if (this.hairNodes && this.hairNodes.length > 1) {
             ctx.fillStyle = silhouette;
             ctx.beginPath();
-            const castHairRootAngle = facingRight ? PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT : PLAYER_PONYTAIL_ROOT_ANGLE_LEFT;
-            const castHairRootRadius = castHeadRadius - 0.05;
-            const hairBaseX = centerX + Math.cos(castHairRootAngle) * castHairRootRadius;
-            const hairBaseY = headY + Math.sin(castHairRootAngle) * castHairRootRadius - PLAYER_PONYTAIL_CONNECT_LIFT_Y;
+            const hairBaseX = castAccessoryRoots.hairRootX;
+            const hairBaseY = castAccessoryRoots.hairRootY;
             this.hairNodes[0].x = hairBaseX;
             this.hairNodes[0].y = hairBaseY;
             ctx.moveTo(hairBaseX, hairBaseY);
