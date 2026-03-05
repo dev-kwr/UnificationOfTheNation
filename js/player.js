@@ -4102,16 +4102,31 @@ export class Player {
         const traceHairShapePath = () => {
             ctx.beginPath();
             ctx.moveTo(hairBaseX, hairBaseY);
+            let prevTop = { x: hairBaseX, y: hairBaseY };
             for (let i = 1; i < this.hairNodes.length; i++) {
-                const node = this.hairNodes[i]; const prev = this.hairNodes[i - 1];
-                ctx.quadraticCurveTo(prev.x, prev.y, (node.x + prev.x) / 2, (node.y + prev.y) / 2);
+                const node = sampleHairNode(i);
+                ctx.quadraticCurveTo(
+                    prevTop.x,
+                    prevTop.y,
+                    (node.x + prevTop.x) * 0.5,
+                    (node.y + prevTop.y) * 0.5
+                );
+                prevTop = node;
             }
-            for (let i = this.hairNodes.length - 1; i >= 1; i--) {
-                const smoothNode = sampleHairNode(i);
-                const smoothPrev = sampleHairNode(i - 1);
-                const tProgress = i / (this.hairNodes.length - 1);
-                const thickness = (1 - tProgress) * 8.8 + 1.1;
-                const smoothShift = -dir * (1 - tProgress) * 0.14;
+            const hairDenom = Math.max(1, this.hairNodes.length - 1);
+            const sampleHairNodeWithRoot = (index) => {
+                if (index <= 0) return { x: hairBaseX, y: hairBaseY };
+                return sampleHairNode(index);
+            };
+            for (let i = this.hairNodes.length - 1; i >= 0; i--) {
+                const smoothNode = sampleHairNodeWithRoot(i);
+                const smoothPrev = sampleHairNodeWithRoot(i - 1);
+                const tProgress = i / hairDenom;
+                const baseThickness = (1 - tProgress) * 8.6 + 1.0;
+                // 根元では厚みを0に落として、頭との接続を尖らせない
+                const rootEase = Math.min(1, Math.max(0, tProgress / 0.22));
+                const thickness = baseThickness * rootEase;
+                const smoothShift = -dir * (1 - tProgress) * 0.14 * rootEase;
                 ctx.quadraticCurveTo(
                     smoothNode.x + smoothShift,
                     smoothNode.y + thickness,
@@ -4308,11 +4323,13 @@ export class Player {
                 const waveAbs = Math.abs(wave);
                 const tProgress = i / (this.scarfNodes.length - 1);
                 const rootTaper = 0.36 + 0.64 * tProgress;
-                const currentWidth = baseWidth * (movingNow ? 0.84 : 0.98 + waveAbs * 0.14) * rootTaper;
+                const rootEase = Math.min(1, Math.max(0, tProgress / 0.24));
+                const currentWidth = baseWidth * (movingNow ? 0.84 : 0.98 + waveAbs * 0.14) * rootTaper * rootEase;
                 const tiltX = wave * (movingNow ? 0.7 : 1.8);
                 if (i === this.scarfNodes.length - 1) ctx.lineTo(node.x + tiltX, node.y + currentWidth);
                 ctx.quadraticCurveTo(node.x + tiltX, node.y + currentWidth, (node.x + prev.x) / 2 + tiltX, (node.y + prev.y) / 2 + currentWidth);
             }
+            ctx.lineTo(tailRootX, tailRootY);
             ctx.closePath();
             ctx.fill();
         };
@@ -7361,7 +7378,8 @@ export class Player {
                 const wave = Math.sin(this.motionTime * waveSpeed + wavePhase);
                 const tProgress = i / (this.scarfNodes.length - 1);
                 const rootTaper = 0.34 + 0.66 * tProgress;
-                const currentWidth = baseWidth * (movingNow ? 0.85 : 1.0 + Math.abs(wave) * 0.3) * rootTaper;
+                const rootEase = Math.min(1, Math.max(0, tProgress / 0.24));
+                const currentWidth = baseWidth * (movingNow ? 0.85 : 1.0 + Math.abs(wave) * 0.3) * rootTaper * rootEase;
                 const tiltX = wave * (movingNow ? 1.0 : 3.0);
                 const controlX = node.x + tiltX;
                 const controlY = node.y + currentWidth;
@@ -7372,6 +7390,7 @@ export class Player {
                 }
                 ctx.quadraticCurveTo(controlX, controlY, endX, endY);
             }
+            ctx.lineTo(tailRootX, tailRootY);
             ctx.closePath();
             ctx.fill();
         }
