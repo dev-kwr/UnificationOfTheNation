@@ -281,7 +281,7 @@ class InputManager {
             this.stickDash.strongLatched = false;
         }
 
-        // 左スティック右下の一時停止ボタン
+        // 左スティック左下の一時停止ボタン
         if (this.checkCircleHit(x, y, pauseX, pauseY, pauseRadius)) return ['PAUSE'];
 
         // --- 右側：アクション（円ボタン） ---

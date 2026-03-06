@@ -17,6 +17,7 @@ class AudioManager {
         this.bgmRetryRegistered = false;
         this.bgmRetryHandler = null;
         this.bgmPausedByGame = false;
+        this.activeBgmAudios = new Set();
         
         // 初期ボリューム
         this.masterVolume = 0.6;
@@ -481,8 +482,10 @@ class AudioManager {
         newBgm.playsInline = true;
         newBgm.loop = true;
         newBgm.volume = 0; // フェードインのため 0 から開始
+        newBgm.muted = !!this.isMuted;
         
         this.bgmAudio = newBgm;
+        this.activeBgmAudios.add(newBgm);
         this.tryPlayCurrentBgm(true);
         this.fadeInBgm(newBgm, fadeInDuration);
     }
@@ -530,6 +533,7 @@ class AudioManager {
     forceStopAudio(audioElement) {
         if (!audioElement) return;
         try {
+            this.activeBgmAudios.delete(audioElement);
             audioElement.pause();
             audioElement.currentTime = 0;
             audioElement.src = '';
@@ -575,6 +579,26 @@ class AudioManager {
             }
         };
         fade();
+    }
+
+    applyMuteToBgm(audioElement) {
+        if (!audioElement) return;
+        try {
+            // iOS Safari では volume のみだと反映されないケースがある
+            audioElement.muted = !!this.isMuted;
+            audioElement.volume = this.isMuted ? 0 : this.bgmVolume;
+        } catch {
+            // 非致命
+        }
+    }
+
+    syncMuteForAllBgm() {
+        for (const audioElement of this.activeBgmAudios) {
+            this.applyMuteToBgm(audioElement);
+        }
+        if (this.bgmAudio) {
+            this.applyMuteToBgm(this.bgmAudio);
+        }
     }
 
     tryPlayCurrentBgm(registerRetry = false) {
@@ -625,6 +649,7 @@ class AudioManager {
                 this.bgmAudio = null;
                 this.currentBgmType = null;
             } else {
+                this.activeBgmAudios.delete(this.bgmAudio);
                 this.bgmAudio.pause();
                 this.bgmAudio.currentTime = 0;
                 this.bgmAudio = null;
@@ -701,8 +726,8 @@ class AudioManager {
         if (this.masterGain) this.masterGain.gain.value = this.isMuted ? 0 : this.masterVolume;
         
         // BGMミュート（Audio要素）
+        this.syncMuteForAllBgm();
         if (this.bgmAudio) {
-            this.bgmAudio.volume = this.isMuted ? 0 : this.bgmVolume;
             if (!this.isMuted && this.bgmAudio.paused) {
                 this.tryPlayCurrentBgm(true);
             }

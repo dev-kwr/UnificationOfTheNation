@@ -148,7 +148,7 @@ export const VIRTUAL_PAD = {
     BOTTOM_MARGIN: 140,
     
     // 左側：丸型アナログスティック
-    STICK: { x: 0, y: 0 },
+    STICK: { x: 32, y: 34 }, // さらに右へ移動し、右側ボタン群と下揃え
     STICK_BASE_RADIUS: 72,
     STICK_KNOB_RADIUS: 34,
     STICK_MAX_DISTANCE: 56,
@@ -159,7 +159,7 @@ export const VIRTUAL_PAD = {
     STICK_DASH_RELEASE_THRESHOLD: 0.82,
     STICK_UP_THRESHOLD: -0.44,
     STICK_DOWN_THRESHOLD: 0.38,
-    PAUSE_BUTTON: { x: 104, y: 50 }, // 左スティック右下（下揃え）
+    PAUSE_BUTTON: { x: -104, y: 50 }, // 左スティック左下（Dパッドと非重なり）
 
     // 上部UIボタン（全画面共通・右上固定）
     BGM_BUTTON_MARGIN_TOP: 40,

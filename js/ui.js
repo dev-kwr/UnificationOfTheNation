@@ -847,7 +847,7 @@ export class UI {
             stickState.active
         );
 
-        // 左スティック右下：一時停止ボタン（小）
+        // 左スティック左下：一時停止ボタン（小）
         const pauseX = stickCenterX + (pad.PAUSE_BUTTON?.x || 0);
         const pauseY = stickCenterY + (pad.PAUSE_BUTTON?.y || 0);
         const pauseRadius = pad.PAUSE_BUTTON_RADIUS || 22;
