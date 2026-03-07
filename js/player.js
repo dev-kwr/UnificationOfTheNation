@@ -421,7 +421,8 @@ export class Player {
         const dt = Math.min(deltaTime, 0.033);
         const subSteps = 2;
         const subDelta = dt / subSteps;
-        const flutterSpeed = 0.02;
+        const speedNormBase = Math.max(1, this.speed || 1);
+        const moveBlend = Math.max(0, Math.min(1, Math.abs(speedX) / speedNormBase));
 
         scarfNodes[0].x = targetX;
         scarfNodes[0].y = targetY;
@@ -437,16 +438,18 @@ export class Player {
             for (let i = 1; i < scarfNodes.length; i++) {
                 const node = scarfNodes[i];
                 const prev = scarfNodes[i - 1];
-                const effectiveSpeed = isMoving ? flutterSpeed : flutterSpeed * 0.25;
-                const flutterIntensity = isMoving ? 5.0 : 1.0;
-                const flutterH = Math.sin(time * effectiveSpeed * 1.5 + i * 1.5) * flutterIntensity;
-                const flutterV = Math.cos(time * effectiveSpeed * 2.0 + i * 1.0) * (flutterIntensity * 1.2);
-                const windDecay = Math.pow(0.85, i);
-                const wind = isMoving ? (speedX > 0 ? -1 : 1) * (Math.abs(speedX) * 6 + 2) * windDecay : 0;
+                const effectiveSpeed = 0.005 + moveBlend * (0.03 - 0.005);
+                const flutterIntensity = 1.0 + moveBlend * 3.0;
+                const flutterH = Math.sin(time * effectiveSpeed + i * 1.2) * flutterIntensity;
+                const flutterV = Math.cos(time * (effectiveSpeed * 0.8) + i * 1.0) * (flutterIntensity * 0.8);
+                const windDecay = Math.pow(0.8, i);
+                const wind = Math.abs(speedX) > 0.1
+                    ? (speedX > 0 ? -1 : 1) * (Math.abs(speedX) * 5 + 2) * windDecay
+                    : 0;
 
             // Y-DOWNなので重力はプラス方向へ
-            node.x += (wind + flutterH) * subDelta * 12;
-            node.y += (1.5 + flutterV) * subDelta * 15;
+            node.x += (wind + flutterH) * subDelta * 9;
+            node.y += (1.8 + flutterV) * subDelta * 14;
 
             // 安全策：座標が異常値（Infinity/NaN）になったらリセット
             if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) {
@@ -459,9 +462,8 @@ export class Player {
             const dist = Math.sqrt(dx * dx + dy * dy);
             const targetDist = 5.0;
             if (dist > 0) {
-                const tension = isMoving ? 0.65 : 0.7;
-                // 補正量（correction）が距離を超えすぎないようクランプして発散を防ぐ
-                let correction = Math.min(dist * 0.9, (dist - targetDist) * tension);
+                const tension = 0.7 - moveBlend * 0.05;
+                let correction = (dist - targetDist) * tension;
                 const maxDist = targetDist * 1.35;
                 if (dist - correction > maxDist) correction = dist - maxDist;
                 const angle = Math.atan2(dy, dx);
@@ -500,13 +502,24 @@ export class Player {
         }
         }
 
-        // 根元の次ノードを軽く拘束して、接続点の暴れとギザつきを抑える
+        // 根元の次ノードを軽く拘束して、接続点の暴れを抑える
         if (scarfNodes.length > 1) {
-            const scarfRootFollowX = scarfNodes[0].x - dir * 3.6;
-            const scarfRootFollowY = scarfNodes[0].y + 0.2;
-            const scarfRootFollow = isMoving ? 0.2 : 0.26;
+            const scarfRootBack = 2.2 + moveBlend * 1.4;
+            const scarfRootFollowX = scarfNodes[0].x - dir * scarfRootBack;
+            const scarfRootFollowY = scarfNodes[0].y + 0.8;
+            const scarfRootFollow = 0.22;
             scarfNodes[1].x += (scarfRootFollowX - scarfNodes[1].x) * scarfRootFollow;
             scarfNodes[1].y += (scarfRootFollowY - scarfNodes[1].y) * scarfRootFollow;
+
+            const relBack = (scarfNodes[1].x - scarfNodes[0].x) * dir;
+            if (relBack > -0.1) {
+                const targetX = scarfNodes[0].x - dir * 0.1;
+                scarfNodes[1].x += (targetX - scarfNodes[1].x) * 0.25;
+            }
+            if (scarfNodes[1].y < scarfNodes[0].y + 0.35) {
+                const targetY = scarfNodes[0].y + 0.35;
+                scarfNodes[1].y += (targetY - scarfNodes[1].y) * 0.25;
+            }
         }
         if (hairNodes.length > 1) {
             // 接線方向バイアス計算のための基準点取得
@@ -3378,6 +3391,12 @@ export class Player {
 
         if (outlineEnabled) {
             ctx.save();
+            // 頭と重なる領域ではポニーテール輪郭を描かない
+            const overlapMaskRadius = headRadius + Math.max(0.35, outlineExpand * 0.6);
+            ctx.beginPath();
+            ctx.rect(-10000, -10000, 20000, 20000);
+            ctx.arc(headCenterX, headY, overlapMaskRadius, 0, Math.PI * 2, true);
+            ctx.clip('evenodd');
             ctx.strokeStyle = outlineColor;
             ctx.lineWidth = outlineExpand;
             ctx.lineCap = 'round';
@@ -3399,9 +3418,7 @@ export class Player {
         const scarfNodes = Array.isArray(options.scarfNodes) ? options.scarfNodes : this.scarfNodes;
         if (!scarfNodes || scarfNodes.length <= 1 || alpha <= 0) return;
 
-        const scarfSpreadDist = Math.abs(scarfNodes[scarfNodes.length - 1].x - scarfNodes[0].x);
-        const movingNow = scarfSpreadDist > 20;
-        const tailShorten = 0.82;
+        const tailShorten = 0.9;
         const rootNodeX = scarfNodes[0].x;
         const rootNodeY = scarfNodes[0].y;
 
@@ -3409,50 +3426,80 @@ export class Player {
             x: tailRootX + (node.x - rootNodeX) * tailShorten,
             y: tailRootY + (node.y - rootNodeY) * tailShorten
         });
+        const tailNodes = scarfNodes.map(mapNode);
+        if (tailNodes.length > 2) {
+            // 描画専用の平滑化。物理ノードは保持して輪郭だけギザつきを抑える
+            const smoothPasses = 2;
+            for (let pass = 0; pass < smoothPasses; pass++) {
+                const src = tailNodes.map((p) => ({ x: p.x, y: p.y }));
+                for (let i = 1; i < tailNodes.length - 1; i++) {
+                    const prev = src[i - 1];
+                    const cur = src[i];
+                    const next = src[i + 1];
+                    const curWeight = (i <= 2) ? 0.56 : 0.60;
+                    const sideWeight = (1 - curWeight) * 0.5;
+                    tailNodes[i].x = prev.x * sideWeight + cur.x * curWeight + next.x * sideWeight;
+                    tailNodes[i].y = prev.y * sideWeight + cur.y * curWeight + next.y * sideWeight;
+                }
+            }
+        }
+        const ribbonHalfWidth = 2.0;
+        const leftEdge = [];
+        const rightEdge = [];
+        let prevNx = 0;
+        let prevNy = 1;
+
+        for (let i = 0; i < tailNodes.length; i++) {
+            const prevNode = tailNodes[Math.max(0, i - 1)];
+            const nextNode = tailNodes[Math.min(tailNodes.length - 1, i + 1)];
+            const dx = nextNode.x - prevNode.x;
+            const dy = nextNode.y - prevNode.y;
+            const len = Math.hypot(dx, dy) || 1;
+            let nx = -dy / len;
+            let ny = dx / len;
+            if (i > 0 && nx * prevNx + ny * prevNy < 0) {
+                nx = -nx;
+                ny = -ny;
+            }
+            if (i > 0) {
+                nx = nx * 0.38 + prevNx * 0.62;
+                ny = ny * 0.38 + prevNy * 0.62;
+                const nLen = Math.hypot(nx, ny) || 1;
+                nx /= nLen;
+                ny /= nLen;
+            }
+            prevNx = nx;
+            prevNy = ny;
+
+            const waveSpeed = 0.0052;
+            const wavePhase = i * 0.55;
+            const wave = Math.sin(time * waveSpeed + wavePhase);
+            const tiltAmp = 0.55;
+            const rootDamp = i === 0 ? 0 : (i === 1 ? 0.5 : 1.0);
+            const tiltX = wave * tiltAmp * rootDamp;
+            const centerX = tailNodes[i].x + tiltX;
+            const centerY = tailNodes[i].y;
+            const half = ribbonHalfWidth;
+
+            leftEdge.push({ x: centerX - nx * half, y: centerY - ny * half });
+            rightEdge.push({ x: centerX + nx * half, y: centerY + ny * half });
+        }
 
         ctx.fillStyle = accentColor;
         ctx.beginPath();
-        ctx.moveTo(tailRootX, tailRootY);
-
-        const firstNodeRaw = mapNode(scarfNodes[1]);
-        const firstNode = {
-            x: tailRootX + (firstNodeRaw.x - tailRootX) * 0.52,
-            y: tailRootY + (firstNodeRaw.y - tailRootY) * 0.52
-        };
-        // 付け根の制御（少し後ろに逃がす）
-        const rootCtrlX = tailRootX - dir * 1.5;
-        const rootCtrlY = tailRootY - 0.2;
-        ctx.quadraticCurveTo(rootCtrlX, rootCtrlY, (rootCtrlX + firstNode.x) / 2, (rootCtrlY + firstNode.y) / 2);
-
-        for (let i = 1; i < scarfNodes.length - 1; i++) {
-            const node = mapNode(scarfNodes[i]);
-            const next = mapNode(scarfNodes[i + 1]);
-            const xc = (node.x + next.x) / 2;
-            const yc = (node.y + next.y) / 2;
-            ctx.quadraticCurveTo(node.x, node.y, xc, yc);
+        ctx.moveTo(leftEdge[0].x, leftEdge[0].y);
+        for (let i = 1; i < leftEdge.length; i++) {
+            ctx.lineTo(leftEdge[i].x, leftEdge[i].y);
         }
-
-        const lastNode = mapNode(scarfNodes[scarfNodes.length - 1]);
-        ctx.lineTo(lastNode.x, lastNode.y);
-
-        for (let i = scarfNodes.length - 1; i >= 1; i--) {
-            const node = mapNode(scarfNodes[i]);
-            const prev = mapNode(scarfNodes[i - 1]);
-            const baseWidth = movingNow ? 7 : 9.5;
-            const waveSpeed = movingNow ? 0.008 : 0.004;
-            const wavePhase = i * (movingNow ? 0.5 : 0.6);
-            const wave = Math.sin(time * waveSpeed + wavePhase);
-            const tProgress = i / (scarfNodes.length - 1);
-            const rootTaper = 0.42 + 0.58 * tProgress;
-            const rootEase = 0.54 + 0.46 * Math.min(1, Math.pow(Math.max(0, tProgress) * 2.4, 1.6));
-            const currentWidth = baseWidth * (movingNow ? 0.84 : 1.0 + Math.abs(wave) * 0.2) * rootTaper * rootEase;
-            const tiltX = wave * (movingNow ? 0.8 : 2.5);
-
-            if (i === scarfNodes.length - 1) ctx.lineTo(node.x + tiltX, node.y + currentWidth);
-            ctx.quadraticCurveTo(node.x + tiltX, node.y + currentWidth, (node.x + prev.x) / 2 + tiltX, (node.y + prev.y) / 2 + currentWidth);
+        for (let i = rightEdge.length - 1; i >= 0; i--) {
+            ctx.lineTo(rightEdge[i].x, rightEdge[i].y);
         }
-        ctx.lineTo(tailRootX, tailRootY);
         ctx.closePath();
+        ctx.fill();
+
+        // 接点の切れ目対策: 根元に小さな埋めパッチを重ねる
+        ctx.beginPath();
+        ctx.arc(tailRootX, tailRootY + 0.05, ribbonHalfWidth * 0.95, 0, Math.PI * 2);
         ctx.fill();
     }
 
@@ -4475,8 +4522,6 @@ export class Player {
         const accessoryRoots = this.getAccessoryRootAnchors(headCenterX, headY, headRadius, facingRight);
         const hairBaseX = accessoryRoots.hairRootX;
         const hairBaseY = accessoryRoots.hairRootY;
-        const knotX = accessoryRoots.knotX;
-        const knotY = accessoryRoots.knotY;
         if (useLiveAccessories) {
             this.syncAccessoryRootNodes(accessoryScarfNodes, accessoryHairNodes, accessoryRoots);
         }
@@ -4591,21 +4636,42 @@ export class Player {
             ctx.restore();
         };
 
+        // 頭より背面: 髪
+        if (renderHair) {
+            this.renderPonytail(ctx, headCenterX, headY, headRadius, hairBaseX, hairBaseY, facingRight, alpha, {
+                hairNodes: accessoryHairNodes,
+                silhouetteColor: silhouetteColor,
+                outlineEnabled: silhouetteOutlineEnabled,
+                outlineColor: silhouetteOutlineColor,
+                outlineExpand: outlineExpand
+            });
+        }
+
         // 中央: 頭
         drawHeadSilhouetteWithOutline();
 
-        // 前面: 鉢巻
-        drawHeadbandBand();
-
-        
         // 鉢巻テール
         const renderHeadband = options.renderHeadband !== false;
         if (renderHeadband && renderHeadbandTail) {
-            this.renderHeadbandTail(ctx, knotX, knotY, dir, alpha, accentColor, time, {
+            // 鉢巻バンドは頭円クリップ内に表示されるため、クリップ後に見える帯の中心へ根元を合わせる
+            const bandLineWidth = 6;
+            const bandMaskRadius = Math.max(1, headRadius - 0.05);
+            const bandPathRadius = bandMaskRadius + bandLineWidth * 0.34;
+            const bandBackAngle = facingRight ? Math.PI * 0.92 : Math.PI * 0.08;
+            const clippedBandInner = bandPathRadius - bandLineWidth * 0.5;
+            const clippedBandOuter = bandMaskRadius;
+            const clippedBandCenterRadius = (clippedBandInner + clippedBandOuter) * 0.5;
+            const headbandTailRootX = headCenterX + Math.cos(bandBackAngle) * clippedBandCenterRadius;
+            const headbandTailRootY = headY + Math.sin(bandBackAngle) * clippedBandCenterRadius - 0.12;
+            this.renderHeadbandTail(ctx, headbandTailRootX, headbandTailRootY, dir, alpha, accentColor, time, {
                 ...options,
+                isMoving,
                 scarfNodes: accessoryScarfNodes
             });
         }
+
+        // 最前面: 鉢巻（接点を完全に重ねる）
+        drawHeadbandBand();
 
         // 腕と剣
         const effectiveIsAttacking = isAttacking;
@@ -4865,16 +4931,6 @@ export class Player {
             );
         }
 
-        // 最前面: 髪（埋もれ確認用）
-        if (renderHair) {
-            this.renderPonytail(ctx, headCenterX, headY, headRadius, hairBaseX, hairBaseY, facingRight, alpha, {
-                hairNodes: accessoryHairNodes,
-                silhouetteColor: silhouetteColor,
-                outlineEnabled: silhouetteOutlineEnabled,
-                outlineColor: silhouetteOutlineColor,
-                outlineExpand: outlineExpand
-            });
-        }
     }
 
     this.x = originalX;
