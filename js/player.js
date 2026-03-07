@@ -39,6 +39,7 @@ const PLAYER_SPECIAL_HEADBAND_LINE_WIDTH = 5.4;
 const PLAYER_PONYTAIL_CONNECT_LIFT_Y = 2.2;
 const PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT = Math.PI * 1.10;
 const PLAYER_PONYTAIL_ROOT_ANGLE_LEFT = -Math.PI * 0.10;
+const PLAYER_PONYTAIL_ROOT_SHIFT_X = 2.2;
 const PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X = 1.0;
 const PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y = 6.0;
 
@@ -98,6 +99,7 @@ export class Player {
         this.attackBufferTimer = 0;
         this.comboResetTimer = 0;
         this.comboStrictMiss = false;
+        this.comboStep1IdleTransitionTimer = 0;
         this.finisherLandingSeparationTimer = 0;
         this.finisherAirLockTimer = 0;
         this.justLanded = false;
@@ -365,6 +367,7 @@ export class Player {
     }
 
     getAccessoryRootAnchors(headCenterX, headY, headRadius, facingRight = this.facingRight) {
+        const dir = facingRight ? 1 : -1;
         const bandBackAngle = facingRight ? Math.PI * 0.92 : Math.PI * 0.08;
         const bandMaskRadius = Math.max(1, headRadius - 0.05);
         const knotX = headCenterX + Math.cos(bandBackAngle) * bandMaskRadius;
@@ -372,7 +375,7 @@ export class Player {
 
         const hairRootAngle = facingRight ? PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT : PLAYER_PONYTAIL_ROOT_ANGLE_LEFT;
         const hairRootRadius = Math.max(1, headRadius);
-        const hairRootX = headCenterX + Math.cos(hairRootAngle) * hairRootRadius;
+        const hairRootX = headCenterX + Math.cos(hairRootAngle) * hairRootRadius - dir * PLAYER_PONYTAIL_ROOT_SHIFT_X;
         const hairRootY = headY + Math.sin(hairRootAngle) * hairRootRadius - PLAYER_PONYTAIL_CONNECT_LIFT_Y;
 
         return { knotX, knotY, hairRootX, hairRootY };
@@ -423,6 +426,29 @@ export class Player {
         const subDelta = dt / subSteps;
         const speedNormBase = Math.max(1, this.speed || 1);
         const moveBlend = Math.max(0, Math.min(1, Math.abs(speedX) / speedNormBase));
+        const prevScarfSpeedX = Number.isFinite(scarfNodes._prevSpeedX) ? scarfNodes._prevSpeedX : speedX;
+        const prevSpeedAbs = Math.abs(prevScarfSpeedX);
+        const currentSpeedAbs = Math.abs(speedX);
+        const rawDecelAmount = Math.max(0, prevSpeedAbs - currentSpeedAbs);
+        const decelAmount = prevSpeedAbs > 0.22 ? rawDecelAmount : 0;
+        const decelDir = Math.abs(prevScarfSpeedX) > 0.05
+            ? Math.sign(prevScarfSpeedX)
+            : (Math.abs(speedX) > 0.05 ? Math.sign(speedX) : dir);
+        let scarfSwingVelX = Number.isFinite(scarfNodes._swingVelX) ? scarfNodes._swingVelX : 0;
+        let scarfSwingOffsetX = Number.isFinite(scarfNodes._swingOffsetX) ? scarfNodes._swingOffsetX : 0;
+        // 減速時に前方慣性を加え、バネで中心へ戻してオーバーシュートを作る
+        scarfSwingVelX += decelDir * decelAmount * 0.86;
+        const swingSpring = 0.09;
+        scarfSwingVelX += (-scarfSwingOffsetX * swingSpring) * dt * 60;
+        const nearStill = currentSpeedAbs < 0.1 && prevSpeedAbs < 0.26;
+        const scarfSwingDamping = nearStill ? Math.pow(0.89, dt * 60) : Math.pow(0.95, dt * 60);
+        scarfSwingVelX *= scarfSwingDamping;
+        scarfSwingVelX = Math.max(-4.8, Math.min(4.8, scarfSwingVelX));
+        scarfSwingOffsetX += scarfSwingVelX * dt * 60;
+        scarfSwingOffsetX = Math.max(-5.2, Math.min(5.2, scarfSwingOffsetX));
+        scarfNodes._prevSpeedX = speedX;
+        scarfNodes._swingVelX = scarfSwingVelX;
+        scarfNodes._swingOffsetX = scarfSwingOffsetX;
 
         scarfNodes[0].x = targetX;
         scarfNodes[0].y = targetY;
@@ -435,21 +461,29 @@ export class Player {
         }
 
         for (let s = 0; s < subSteps; s++) {
+            const scarfDenom = Math.max(1, scarfNodes.length - 1);
             for (let i = 1; i < scarfNodes.length; i++) {
                 const node = scarfNodes[i];
                 const prev = scarfNodes[i - 1];
-                const effectiveSpeed = 0.005 + moveBlend * (0.03 - 0.005);
-                const flutterIntensity = 1.0 + moveBlend * 3.0;
-                const flutterH = Math.sin(time * effectiveSpeed + i * 1.2) * flutterIntensity;
-                const flutterV = Math.cos(time * (effectiveSpeed * 0.8) + i * 1.0) * (flutterIntensity * 0.8);
+                const tipBlend = i / scarfDenom;
+                const settleBlend = 1 - moveBlend;
+                const effectiveSpeed = 0.003 + moveBlend * (0.03 - 0.003) + tipBlend * 0.0012;
+                const flutterIntensity = 0.18 + moveBlend * 4.0 + Math.min(0.55, Math.abs(scarfSwingVelX) * 0.18);
+                const tipFlutterScale = 1 + tipBlend * 0.3;
+                const flutterH = Math.sin(time * effectiveSpeed + i * 1.2) * flutterIntensity * tipFlutterScale;
+                const flutterV = Math.cos(time * (effectiveSpeed * 0.86) + i * 1.0) * (flutterIntensity * (0.92 + tipBlend * 0.18));
                 const windDecay = Math.pow(0.8, i);
                 const wind = Math.abs(speedX) > 0.1
                     ? (speedX > 0 ? -1 : 1) * (Math.abs(speedX) * 5 + 2) * windDecay
                     : 0;
+                const gravityPull = 2.15 + settleBlend * 0.7;
+                const pendulumPush = (scarfSwingOffsetX * 0.72 + scarfSwingVelX * 0.48) * (0.34 + tipBlend * 0.55) * (0.52 + settleBlend * 0.68);
 
             // Y-DOWNなので重力はプラス方向へ
-            node.x += (wind + flutterH) * subDelta * 9;
-            node.y += (1.8 + flutterV) * subDelta * 14;
+            node.x += (wind + flutterH + pendulumPush) * subDelta * 9.2;
+            node.y += (gravityPull + flutterV) * subDelta * 14.5;
+            const settleLerp = (0.015 + settleBlend * 0.03) * (1 - tipBlend * 0.16) * subDelta * 60;
+            node.x += (prev.x - node.x) * settleLerp;
 
             // 安全策：座標が異常値（Infinity/NaN）になったらリセット
             if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) {
@@ -462,9 +496,9 @@ export class Player {
             const dist = Math.sqrt(dx * dx + dy * dy);
             const targetDist = 5.0;
             if (dist > 0) {
-                const tension = 0.7 - moveBlend * 0.05;
+                const tension = Math.max(0.4, (0.62 - moveBlend * 0.03) * (1 - tipBlend * 0.14));
                 let correction = (dist - targetDist) * tension;
-                const maxDist = targetDist * 1.35;
+                const maxDist = targetDist * (1.35 + tipBlend * 0.06);
                 if (dist - correction > maxDist) correction = dist - maxDist;
                 const angle = Math.atan2(dy, dx);
                 node.x -= Math.cos(angle) * correction;
@@ -504,17 +538,22 @@ export class Player {
 
         // 根元の次ノードを軽く拘束して、接続点の暴れを抑える
         if (scarfNodes.length > 1) {
-            const scarfRootBack = 2.2 + moveBlend * 1.4;
-            const scarfRootFollowX = scarfNodes[0].x - dir * scarfRootBack;
-            const scarfRootFollowY = scarfNodes[0].y + 0.8;
-            const scarfRootFollow = 0.22;
+            const scarfRootBack = 1.9 + moveBlend * 1.35;
+            const swingForward = Math.max(0, scarfSwingOffsetX * dir);
+            const baseBackX = scarfNodes[0].x - dir * scarfRootBack;
+            const forwardFollowX = scarfNodes[0].x + dir * Math.min(2.8, swingForward * 1.35);
+            const swingFollowBlend = Math.max(0, Math.min(1, swingForward / 1.25));
+            const scarfRootFollowX = baseBackX + (forwardFollowX - baseBackX) * swingFollowBlend;
+            const maxForward = Math.max(0, (swingForward + Math.max(0, scarfSwingVelX * dir) * 0.55) * 2.0);
+            const scarfRootFollowY = scarfNodes[0].y + 0.88;
+            const scarfRootFollow = 0.2 + (1 - moveBlend) * 0.07;
             scarfNodes[1].x += (scarfRootFollowX - scarfNodes[1].x) * scarfRootFollow;
             scarfNodes[1].y += (scarfRootFollowY - scarfNodes[1].y) * scarfRootFollow;
 
             const relBack = (scarfNodes[1].x - scarfNodes[0].x) * dir;
-            if (relBack > -0.1) {
-                const targetX = scarfNodes[0].x - dir * 0.1;
-                scarfNodes[1].x += (targetX - scarfNodes[1].x) * 0.25;
+            if (relBack > maxForward) {
+                const targetX = scarfNodes[0].x + dir * maxForward;
+                scarfNodes[1].x += (targetX - scarfNodes[1].x) * 0.22;
             }
             if (scarfNodes[1].y < scarfNodes[0].y + 0.35) {
                 const targetY = scarfNodes[0].y + 0.35;
@@ -643,6 +682,9 @@ export class Player {
                 this.comboResetTimer = 0;
                 this.attackCombo = 0;
             }
+        }
+        if (this.comboStep1IdleTransitionTimer > 0) {
+            this.comboStep1IdleTransitionTimer = Math.max(0, this.comboStep1IdleTransitionTimer - deltaTime * 1000);
         }
         if (this.finisherLandingSeparationTimer > 0) {
             this.finisherLandingSeparationTimer = Math.max(0, this.finisherLandingSeparationTimer - deltaTime * 1000);
@@ -974,6 +1016,7 @@ export class Player {
     
     attack({ fromBuffer = false } = {}) {
         if (!fromBuffer && this.attackCooldown > 0) return;
+        this.comboStep1IdleTransitionTimer = 0;
 
         // 斬撃SEの再生タイミングを最速にする（入力直後）
         if (!(this.currentSubWeapon && this.currentSubWeapon.name === '二刀流')) {
@@ -1062,7 +1105,8 @@ export class Player {
         } else if (step === 1) {
             // 一段目は後方へ返す斬り。ジャンプせず地上寄りで繋ぐ
             const groundedAtStart = this.isGrounded;
-            this.vx = this.vx * 0.2 + direction * impulse * 0.94;
+            this.vx *= 0.12;
+            if (Math.abs(this.vx) < 0.2) this.vx = 0;
             if (groundedAtStart) {
                 this.vy = 0;
                 this.isGrounded = true;
@@ -1155,8 +1199,10 @@ export class Player {
             const swing = Math.max(0, Math.min(1, (progress - 0.36) / 0.64));
             const swingEase = swing * swing * (3 - 2 * swing);
             // 1撃目は「返し斬り」だけ行い、後方ステップはさせない
-            const targetVx = direction * this.speed * (0.16 + wind * 0.18 + swingEase * 0.24);
-            this.vx = this.vx * 0.76 + targetVx * 0.24;
+            const targetVx = 0;
+            this.vx = this.vx * 0.62 + targetVx * 0.38;
+            if (this.vx * direction < 0) this.vx = 0;
+            if (Math.abs(this.vx) < 0.18) this.vx = 0;
             if (this.isGrounded) {
                 this.vy = 0;
             } else {
@@ -1231,6 +1277,11 @@ export class Player {
             this.isAttacking = false;
             this.currentAttack = null;
             this.finisherAirLockTimer = 0;
+            if (activeAttack && activeAttack.comboStep === 1) {
+                // 1撃目終了直後は脚遷移を短時間ロックし、歩行脚が挟まらないようにする
+                this.comboStep1IdleTransitionTimer = Math.max(this.comboStep1IdleTransitionTimer, 180);
+                this.vx *= 0.22;
+            }
             if (activeAttack && activeAttack.comboStep >= this.getNormalComboMax()) {
                 this.attackBuffered = false;
                 this.attackBufferTimer = 0;
@@ -2788,11 +2839,12 @@ export class Player {
 
         // 下半身は攻撃状態に依存させず、移動状態のみで計算する（本体/分身で共通式）
         const comboAttacking = !!(this.isAttacking && this.currentAttack && this.currentAttack.comboStep);
+        const legTransitionLocked = this.comboStep1IdleTransitionTimer > 0;
         const legMotion = this.updateLegLocomotion({
             legPhase: this.legPhase,
             legAngle: this.legAngle,
             deltaMs: deltaTime * 1000,
-            horizontalSpeed: this.vx,
+            horizontalSpeed: legTransitionLocked ? 0 : this.vx,
             isGrounded: this.isGrounded,
             isAttacking: comboAttacking,
             verticalSpeed: this.vy,
@@ -2816,7 +2868,7 @@ export class Player {
         const speedX = this.vx;
         const isMoving = Math.abs(speedX) > 0.1;
 
-        const isRunLikePose = (this.isGrounded && Math.abs(this.vx) > 0.85) || this.isDashing;
+        const isRunLikePose = !legTransitionLocked && ((this.isGrounded && Math.abs(this.vx) > 0.85) || this.isDashing);
         let modelBob = 0;
         if (this.isCrouching) {
             const crouchWalkPhase = isRunLikePose ? Math.sin(this.legPhase || this.motionTime * 0.012) : 0;
@@ -3639,6 +3691,9 @@ export class Player {
         const subWeaponTimer = state.subWeaponTimer !== undefined ? state.subWeaponTimer : this.subWeaponTimer;
         const subWeaponAction = state.subWeaponAction !== undefined ? state.subWeaponAction : this.subWeaponAction;
         const isCrouching = state.isCrouching !== undefined ? state.isCrouching : this.isCrouching;
+        const comboStep1IdleTransitionTimer = state.comboStep1IdleTransitionTimer !== undefined
+            ? state.comboStep1IdleTransitionTimer
+            : this.comboStep1IdleTransitionTimer;
 
         const isMoving = Math.abs(vx) > 0.1 || !isGrounded;
 // ---
@@ -3671,13 +3726,14 @@ export class Player {
             ? this.currentSubWeapon.getMainSwingPose(dualZPoseOptions || {})
             : null;
         const useDualZCustomLegPose = options.useDualZCustomLegPose === true;
-        const speedAbs = Math.abs(this.vx);
+        const speedAbs = Math.abs(vx);
+        const legTransitionLocked = comboStep1IdleTransitionTimer > 0;
         const comboStepPose = comboAttackingPose && currentAttack ? (currentAttack.comboStep || 0) : 0;
         const comboPoseProgress = comboStepPose
             ? Math.max(0, Math.min(1, 1 - (attackTimer / Math.max(1, (currentAttack && currentAttack.durationMs) || PLAYER.ATTACK_COOLDOWN))))
             : 0;
-        const isRunLike = !comboAttackingPose && isGrounded && speedAbs > 0.85;
-        const isDashLike = !comboAttackingPose && (isDashing || speedAbs > this.speed * 1.45);
+        const isRunLike = !comboAttackingPose && !legTransitionLocked && isGrounded && speedAbs > 0.85;
+        const isDashLike = !comboAttackingPose && !legTransitionLocked && (isDashing || speedAbs > this.speed * 1.45);
         const locomotionPhase = isRunLike ? Math.sin(this.legPhase || this.motionTime * 0.012) : 0;
         const crouchWalkPhase = (isCrouchPose && isRunLike) ? locomotionPhase : 0;
         const crouchIdlePhase = (isCrouchPose && !isRunLike) ? Math.sin(this.motionTime * 0.006) : 0;
@@ -4023,8 +4079,17 @@ export class Player {
             // 腿の長さは通常寄りに戻す
             const thighScale = 1.0;
             let kneeAdjX = hipRootX + (kneeX - hipRootX) * thighScale;
-            // 通常コンボ中は標準の膝Yを維持し、それ以外のみ軽く下げる
-            const kneeYOffset = comboAttackingPose ? 0 : 0.35;
+            // 通常時は膝を少し下げる。1撃目開始直後のみ段差が出ないよう補間する
+            let kneeYOffset = 0.35;
+            if (comboAttackingPose) {
+                if (comboStepPose === 1) {
+                    const startBlend = Math.max(0, Math.min(1, comboPoseProgress / 0.28));
+                    const startEase = startBlend * startBlend * (3 - 2 * startBlend);
+                    kneeYOffset = 0.35 * (1 - startEase);
+                } else {
+                    kneeYOffset = 0;
+                }
+            }
             let kneeAdjY = hipRootY + (kneeY - hipRootY) * thighScale + kneeYOffset;
             const legDX = footX - hipRootX;
             const legDY = footY - hipRootY;
@@ -4156,23 +4221,23 @@ export class Player {
                     frontFootY: bottomY - 0.5 - airborneLift * 0.48
                 };
                 const drivePose = {
-                    backKneeX: backHipX - dir * 2.6,
+                    backKneeX: backHipX + dir * 3.5,
                     backKneeY: hipLocalY + 8.8,
-                    backFootX: centerX - dir * 6.1,
+                    backFootX: centerX + dir * 9.4,
                     backFootY: bottomY - 0.86 - airborneLift * 0.46,
-                    frontKneeX: frontHipX + dir * 3.4,
+                    frontKneeX: frontHipX - dir * 3.4,
                     frontKneeY: hipLocalY + 8.4,
-                    frontFootX: centerX + dir * 9.3,
+                    frontFootX: centerX - dir * 9.1,
                     frontFootY: bottomY - 1.18 - airborneLift * 0.46
                 };
                 const settlePose = {
-                    backKneeX: backHipX - dir * 2.2,
+                    backKneeX: backHipX + dir * 2.8,
                     backKneeY: hipLocalY + 8.95,
-                    backFootX: centerX - dir * 5.5,
+                    backFootX: centerX + dir * 8.0,
                     backFootY: bottomY - 0.84 - airborneLift * 0.46,
-                    frontKneeX: frontHipX + dir * 3.0,
+                    frontKneeX: frontHipX - dir * 2.7,
                     frontKneeY: hipLocalY + 8.55,
-                    frontFootX: centerX + dir * 7.5,
+                    frontFootX: centerX - dir * 7.3,
                     frontFootY: bottomY - 1.08 - airborneLift * 0.46
                 };
                 const driveT = smooth(Math.max(0, Math.min(1, comboProgress / 0.72)));
@@ -4188,7 +4253,7 @@ export class Player {
                 frontFootX = posed.frontFootX;
                 frontFootY = posed.frontFootY;
             } else if (comboStep === 1) {
-                // 1撃目: 返し斬りは行うが、下半身は前進姿勢を維持してバックステップしない
+                // 1撃目: idle -> slash -> idle の2段補間で、前後の接続を自然化
                 const smooth = (t) => t * t * (3 - 2 * t);
                 const lerp = (a, b, t) => a + (b - a) * t;
                 const blendPose = (a, b, t) => ({
@@ -4201,40 +4266,33 @@ export class Player {
                     frontFootX: lerp(a.frontFootX, b.frontFootX, t),
                     frontFootY: lerp(a.frontFootY, b.frontFootY, t)
                 });
-                const startPose = {
-                    backKneeX: backHipX - dir * 2.2,
-                    backKneeY: hipLocalY + 8.95,
-                    backFootX: centerX - dir * 5.8,
-                    backFootY: bottomY - 0.84 - airborneLift * 0.5,
-                    frontKneeX: frontHipX + dir * 3.0,
-                    frontKneeY: hipLocalY + 9.0,
-                    frontFootX: centerX + dir * 8.1,
-                    frontFootY: bottomY - 0.5 - airborneLift * 0.48
+                const idlePhase = Math.sin(this.motionTime * 0.0042);
+                const idleSpread = 2.5 + Math.abs(idlePhase) * 0.3;
+                const idlePose = {
+                    backKneeX: backHipX + dir * 0.55,
+                    backKneeY: hipLocalY + 9.9,
+                    backFootX: centerX + dir * idleSpread,
+                    backFootY: bottomY + 0.1 - airborneLift * 0.14,
+                    frontKneeX: frontHipX + dir * 0.6,
+                    frontKneeY: hipLocalY + 9.6,
+                    frontFootX: centerX - dir * idleSpread,
+                    frontFootY: bottomY - 0.1 - airborneLift * 0.14
                 };
-                const returnPose = {
-                    backKneeX: backHipX - dir * 1.7,
-                    backKneeY: hipLocalY + 8.55,
-                    backFootX: centerX - dir * 4.6,
-                    backFootY: bottomY - 0.94 - airborneLift * 0.5,
-                    frontKneeX: frontHipX + dir * 3.8,
-                    frontKneeY: hipLocalY + 9.15,
-                    frontFootX: centerX + dir * 9.8,
+                const slashPose = {
+                    backKneeX: backHipX - dir * 2.05,
+                    backKneeY: hipLocalY + 8.85,
+                    backFootX: centerX - dir * 5.25,
+                    backFootY: bottomY - 0.88 - airborneLift * 0.5,
+                    frontKneeX: frontHipX + dir * 3.45,
+                    frontKneeY: hipLocalY + 9.05,
+                    frontFootX: centerX + dir * 8.75,
                     frontFootY: bottomY - 0.52 - airborneLift * 0.48
                 };
-                const settlePose = {
-                    backKneeX: backHipX - dir * 2.0,
-                    backKneeY: hipLocalY + 8.8,
-                    backFootX: centerX - dir * 5.2,
-                    backFootY: bottomY - 0.88 - airborneLift * 0.5,
-                    frontKneeX: frontHipX + dir * 3.4,
-                    frontKneeY: hipLocalY + 9.08,
-                    frontFootX: centerX + dir * 8.7,
-                    frontFootY: bottomY - 0.5 - airborneLift * 0.48
-                };
-                const returnT = smooth(Math.max(0, Math.min(1, comboProgress / 0.76)));
-                const settleT = smooth(Math.max(0, Math.min(1, (comboProgress - 0.88) / 0.12)));
-                const returned = blendPose(startPose, returnPose, returnT);
-                const posed = blendPose(returned, settlePose, settleT);
+                // 1撃目中は開脚を維持し、終了直前だけアイドルへ戻す
+                const slashT = smooth(Math.max(0, Math.min(1, comboProgress / 0.28)));
+                const recoverT = smooth(Math.max(0, Math.min(1, (comboProgress - 0.9) / 0.1)));
+                const slashed = blendPose(idlePose, slashPose, slashT);
+                const posed = blendPose(slashed, idlePose, recoverT);
                 backKneeX = posed.backKneeX;
                 backKneeY = posed.backKneeY;
                 backFootX = posed.backFootX;
@@ -4661,8 +4719,8 @@ export class Player {
             const clippedBandInner = bandPathRadius - bandLineWidth * 0.5;
             const clippedBandOuter = bandMaskRadius;
             const clippedBandCenterRadius = (clippedBandInner + clippedBandOuter) * 0.5;
-            const headbandTailRootX = headCenterX + Math.cos(bandBackAngle) * clippedBandCenterRadius;
-            const headbandTailRootY = headY + Math.sin(bandBackAngle) * clippedBandCenterRadius - 0.12;
+            const headbandTailRootX = headCenterX + Math.cos(bandBackAngle) * clippedBandCenterRadius + dir * 0.34;
+            const headbandTailRootY = headY + Math.sin(bandBackAngle) * clippedBandCenterRadius - 0.08;
             this.renderHeadbandTail(ctx, headbandTailRootX, headbandTailRootY, dir, alpha, accentColor, time, {
                 ...options,
                 isMoving,
