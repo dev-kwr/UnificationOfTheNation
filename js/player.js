@@ -36,9 +36,9 @@ const BASE_EXP_TO_NEXT = 100;
 const TEMP_NINJUTSU_MAX_STACK_MS = 300000;
 const PLAYER_HEADBAND_LINE_WIDTH = 4.2;
 const PLAYER_SPECIAL_HEADBAND_LINE_WIDTH = 5.4;
-const PLAYER_PONYTAIL_CONNECT_LIFT_Y = 0.0;
-const PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT = Math.PI * 1.28;
-const PLAYER_PONYTAIL_ROOT_ANGLE_LEFT = -Math.PI * 0.28;
+const PLAYER_PONYTAIL_CONNECT_LIFT_Y = 2.2;
+const PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT = Math.PI * 1.10;
+const PLAYER_PONYTAIL_ROOT_ANGLE_LEFT = -Math.PI * 0.10;
 const PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X = 1.0;
 const PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y = 6.0;
 
@@ -257,6 +257,113 @@ export class Player {
         };
     }
 
+    updateLegLocomotion({
+        legPhase = 0,
+        legAngle = 0,
+        deltaMs = 0,
+        horizontalSpeed = 0,
+        isGrounded = true,
+        isAttacking = false,
+        verticalSpeed = 0,
+        isDashing = false,
+        isCrouching = false,
+        runBaseFreq = null,
+        runAmplitude = null
+    } = {}) {
+        let nextLegPhase = Number.isFinite(legPhase) ? legPhase : 0;
+        let nextLegAngle = Number.isFinite(legAngle) ? legAngle : 0;
+        const speedAbs = Math.abs(horizontalSpeed);
+        const movingOnGround = !!isGrounded && speedAbs > 0.85;
+
+        if (isAttacking) {
+            nextLegPhase = 0;
+            nextLegAngle += (0 - nextLegAngle) * 0.34;
+        } else if (movingOnGround) {
+            const baseFreq = Number.isFinite(runBaseFreq)
+                ? runBaseFreq
+                : (isDashing ? 0.027 : (isCrouching ? 0.017 : 0.018));
+            const speedScale = isDashing ? 1.0 : Math.min(1.25, speedAbs / Math.max(1, this.speed));
+            nextLegPhase += deltaMs * baseFreq * (0.72 + speedScale * 0.68);
+
+            const amplitude = Number.isFinite(runAmplitude)
+                ? runAmplitude
+                : (isDashing ? 1.08 : (isCrouching ? 0.62 : 0.86));
+            const targetAngle = Math.sin(nextLegPhase) * amplitude;
+            nextLegAngle += (targetAngle - nextLegAngle) * 0.52;
+        } else if (isGrounded) {
+            nextLegPhase = 0;
+            nextLegAngle += (0 - nextLegAngle) * 0.24;
+        } else {
+            const airborneTarget = verticalSpeed < -1.8
+                ? -0.24 - Math.min(0.22, Math.abs(verticalSpeed) * 0.012)
+                : 0.28 + Math.min(0.36, Math.max(0, verticalSpeed) * 0.016);
+            nextLegAngle += (airborneTarget - nextLegAngle) * 0.2;
+        }
+
+        return {
+            legPhase: nextLegPhase,
+            legAngle: nextLegAngle
+        };
+    }
+
+    syncAccessoryRootNodes(scarfNodes, hairNodes, anchorCalc) {
+        if (!anchorCalc) return;
+        if (Array.isArray(scarfNodes) && scarfNodes.length > 0) {
+            scarfNodes[0].x = anchorCalc.knotX;
+            scarfNodes[0].y = anchorCalc.knotY;
+        }
+        if (Array.isArray(hairNodes) && hairNodes.length > 0) {
+            hairNodes[0].x = anchorCalc.hairRootX;
+            hairNodes[0].y = anchorCalc.hairRootY;
+        }
+    }
+
+    updateSpecialCloneAccessoryNodes(index, pos, deltaTime, options = {}) {
+        if (!pos) return null;
+        if (!this.specialCloneScarfNodes[index]) this.initCloneAccessoryNodes(index);
+
+        const scarfNodes = this.specialCloneScarfNodes[index];
+        const hairNodes = this.specialCloneHairNodes[index];
+        if (!scarfNodes || !hairNodes) return null;
+
+        const cloneVx = Number.isFinite(options.cloneVx) ? options.cloneVx : this.vx;
+        const cloneMotionTime = Number.isFinite(options.motionTime) ? options.motionTime : this.motionTime;
+        const cloneIsMoving = (typeof options.isMoving === 'boolean') ? options.isMoving : Math.abs(cloneVx) > 0.5;
+        const cloneHeight = Number.isFinite(options.height) ? options.height : this.height;
+        const drawX = Number.isFinite(options.drawX) ? options.drawX : (pos.x - this.width * 0.5);
+        const footY = Number.isFinite(options.footY) ? options.footY : (this.y + this.height);
+        const cloneLegPhase = Number.isFinite(options.legPhase) ? options.legPhase : (cloneMotionTime * 0.012);
+        const cloneIsDashing = !!options.isDashing;
+        const cloneIsCrouching = !!options.isCrouching;
+
+        const anchorCalc = this.calculateAccessoryAnchor(
+            drawX, footY, cloneHeight,
+            cloneMotionTime, cloneIsMoving,
+            cloneIsDashing, cloneIsCrouching,
+            cloneLegPhase,
+            pos.facingRight
+        );
+
+        this.updateAccessoryNodes(
+            scarfNodes,
+            hairNodes,
+            anchorCalc.knotX,
+            anchorCalc.knotY,
+            cloneVx,
+            cloneIsMoving,
+            deltaTime,
+            {
+                facingRight: pos.facingRight,
+                hairRootX: anchorCalc.hairRootX,
+                hairRootY: anchorCalc.hairRootY,
+                headCenterX: anchorCalc.headX,
+                headY: anchorCalc.headY
+            }
+        );
+
+        return anchorCalc;
+    }
+
     getAccessoryRootAnchors(headCenterX, headY, headRadius, facingRight = this.facingRight) {
         const bandBackAngle = facingRight ? Math.PI * 0.92 : Math.PI * 0.08;
         const bandMaskRadius = Math.max(1, headRadius - 0.05);
@@ -408,12 +515,29 @@ export class Player {
             
             // 根本先の折れ曲がり（尖り）を解消するため、拘束を緩やかにして慣性を生かす
             const hairAngle = Math.atan2(hairNodes[0].y - refHeadY, hairNodes[0].x - refHeadX);
-            const archPower = 3.8; // 射出をさらに穏やかに
+            const archPower = 2.6; // 立ち上がり直後を緩やかにする
             const hairRootFollowX = hairNodes[0].x + Math.cos(hairAngle) * archPower;
-            const hairRootFollowY = hairNodes[0].y + Math.sin(hairAngle) * archPower + 4.0; // より下方向へ導く
-            const hairRootFollow = isMoving ? 0.18 : 0.24; // 拘束力を大幅に下げて平滑化
+            const hairRootFollowY = hairNodes[0].y + Math.sin(hairAngle) * archPower + 1.0;
+            const hairRootFollow = isMoving ? 0.20 : 0.25;
             hairNodes[1].x += (hairRootFollowX - hairNodes[1].x) * hairRootFollow;
             hairNodes[1].y += (hairRootFollowY - hairNodes[1].y) * hairRootFollow;
+
+            // 根元付近が頭の前側へ回り込むと、描画輪郭が入れ替わってねじれやすい
+            const rootNode = hairNodes[0];
+            const clampCount = Math.min(2, hairNodes.length - 1);
+            for (let i = 1; i <= clampCount; i++) {
+                const node = hairNodes[i];
+                const minBack = 0.65 + i * 0.55;
+                const relBack = (node.x - rootNode.x) * dir;
+                if (relBack > -minBack) {
+                    node.x = rootNode.x + (-minBack) * dir;
+                }
+
+                const minDrop = 0.7 + (i - 1) * 0.9;
+                if (node.y < rootNode.y + minDrop) {
+                    node.y = rootNode.y + minDrop;
+                }
+            }
         }
     }
 
@@ -1288,37 +1412,17 @@ export class Player {
                     pos.facingRight = anchors[i].facingRight;
                     pos.prevX = pos.x; // prevXも同期して速度計算の暴走を防ぐ
 
-                    if (!this.specialCloneScarfNodes[i]) this.initCloneAccessoryNodes(i);
-                    if (this.specialCloneScarfNodes[i] && this.specialCloneHairNodes[i]) {
-                        const cloneVx = this.vx;
-                        const cloneMotionTime = this.motionTime;
-                        const cloneIsMoving = Math.abs(cloneVx) > 0.5 || !this.isGrounded;
-
-                        const anchorCalc = this.calculateAccessoryAnchor(
-                            pos.x - this.width * 0.5, this.y + this.height, this.height,
-                            cloneMotionTime, cloneIsMoving,
-                            this.isDashing, this.isCrouching,
-                            this.legPhase || cloneMotionTime * 0.012,
-                            pos.facingRight
-                        );
-
-                        this.updateAccessoryNodes(
-                            this.specialCloneScarfNodes[i],
-                            this.specialCloneHairNodes[i],
-                            anchorCalc.knotX,
-                            anchorCalc.knotY,
-                            cloneVx,
-                            cloneIsMoving,
-                            deltaTime,
-                            {
-                                facingRight: pos.facingRight,
-                                hairRootX: anchorCalc.hairRootX,
-                                hairRootY: anchorCalc.hairRootY,
-                                headCenterX: anchorCalc.headX,
-                                headY: anchorCalc.headY
-                            }
-                        );
-                    }
+                    this.updateSpecialCloneAccessoryNodes(i, pos, deltaTime, {
+                        cloneVx: this.vx,
+                        motionTime: this.motionTime,
+                        isMoving: Math.abs(this.vx) > 0.5 || !this.isGrounded,
+                        drawX: pos.x - this.width * 0.5,
+                        footY: this.y + this.height,
+                        height: this.height,
+                        isDashing: this.isDashing,
+                        isCrouching: this.isCrouching,
+                        legPhase: this.legPhase || this.motionTime * 0.012
+                    });
                 }
             } else {
                 if (!this.specialCloneCombatStarted) {
@@ -1351,38 +1455,18 @@ export class Player {
                         this.specialClonePositions[i].y = anchors[i].y;
                         this.specialClonePositions[i].facingRight = anchors[i].facingRight;
 
-                        if (!this.specialCloneScarfNodes[i]) this.initCloneAccessoryNodes(i);
-                        if (this.specialCloneScarfNodes[i] && this.specialCloneHairNodes[i]) {
-                            const pos = this.specialClonePositions[i];
-                            const cloneVx = this.vx;
-                            const cloneMotionTime = this.motionTime;
-                            const cloneIsMoving = Math.abs(cloneVx) > 0.5 || !this.isGrounded;
-
-                            const anchorCalc = this.calculateAccessoryAnchor(
-                                pos.x - this.width * 0.5, this.y + this.height, this.height,
-                                cloneMotionTime, cloneIsMoving,
-                                this.isDashing, this.isCrouching,
-                                this.legPhase || cloneMotionTime * 0.012,
-                                pos.facingRight
-                            );
-
-                            this.updateAccessoryNodes(
-                                this.specialCloneScarfNodes[i],
-                                this.specialCloneHairNodes[i],
-                                anchorCalc.knotX,
-                                anchorCalc.knotY,
-                                cloneVx,
-                                cloneIsMoving,
-                                deltaTime,
-                                {
-                                    facingRight: pos.facingRight,
-                                    hairRootX: anchorCalc.hairRootX,
-                                    hairRootY: anchorCalc.hairRootY,
-                                    headCenterX: anchorCalc.headX,
-                                    headY: anchorCalc.headY
-                                }
-                            );
-                        }
+                        const pos = this.specialClonePositions[i];
+                        this.updateSpecialCloneAccessoryNodes(i, pos, deltaTime, {
+                            cloneVx: this.vx,
+                            motionTime: this.motionTime,
+                            isMoving: Math.abs(this.vx) > 0.5 || !this.isGrounded,
+                            drawX: pos.x - this.width * 0.5,
+                            footY: this.y + this.height,
+                            height: this.height,
+                            isDashing: this.isDashing,
+                            isCrouching: this.isCrouching,
+                            legPhase: this.legPhase || this.motionTime * 0.012
+                        });
                     }
                 }
             }
@@ -1834,28 +1918,20 @@ export class Player {
             // renderVxをピクセル/フレーム単位に変換して scrollVxPerFrame を足す
             pos.renderVx = frameDeltaX / Math.max(0.016, deltaTime * 60) + scrollVxPerFrame;
 
-            // 分身独自のlegPhase/legAngleを毎フレーム更新（本体とは独立して足アニメを管理）
-            if (pos.legPhase === undefined) { pos.legPhase = 0; pos.legAngle = 0; }
-            const cloneHSpeed = Math.abs(pos.renderVx);
-            const cloneIsAttacking = (this.specialCloneAttackTimers[i] || 0) > 0;
-            const cloneOnGround = !pos.jumping;
-            if (cloneIsAttacking) {
-                pos.legPhase = 0;
-                pos.legAngle += (0 - pos.legAngle) * 0.34;
-            } else if (cloneOnGround && cloneHSpeed > 0.85) {
-                const baseFreq = 0.018;
-                const speedScale = Math.min(1.25, cloneHSpeed / Math.max(1, this.speed));
-                pos.legPhase += deltaMs * baseFreq * (0.72 + speedScale * 0.68);
-                pos.legAngle += (Math.sin(pos.legPhase) * 0.86 - pos.legAngle) * 0.52;
-            } else if (cloneOnGround) {
-                pos.legPhase = 0;
-                pos.legAngle += (0 - pos.legAngle) * 0.24;
-            } else {
-                const airborneTarget = (pos.cloneVy || 0) < -1.8
-                    ? -0.24 - Math.min(0.22, Math.abs(pos.cloneVy || 0) * 0.012)
-                    : 0.28 + Math.min(0.36, Math.max(0, pos.cloneVy || 0) * 0.016);
-                pos.legAngle += (airborneTarget - pos.legAngle) * 0.2;
-            }
+            // 分身独自のlegPhase/legAngleを毎フレーム更新（本体/分身で共通式）
+            const cloneLegMotion = this.updateLegLocomotion({
+                legPhase: pos.legPhase,
+                legAngle: pos.legAngle,
+                deltaMs,
+                horizontalSpeed: pos.renderVx || 0,
+                isGrounded: !pos.jumping,
+                isAttacking: (this.specialCloneAttackTimers[i] || 0) > 0,
+                verticalSpeed: pos.cloneVy || 0,
+                runBaseFreq: 0.018,
+                runAmplitude: 0.86
+            });
+            pos.legPhase = cloneLegMotion.legPhase;
+            pos.legAngle = cloneLegMotion.legAngle;
 
             if (this.specialCloneAttackTimers[i] > 0) {
                 this.specialCloneAttackTimers[i] -= deltaMs;
@@ -1868,44 +1944,25 @@ export class Player {
                 }
             }
 
-            if (!this.specialCloneScarfNodes[i]) this.initCloneAccessoryNodes(i);
-            if (this.specialCloneScarfNodes[i] && this.specialCloneHairNodes[i]) {
-                const rawRenderVx = pos.renderVx || 0;
-                // スクロール時にrenderVxが0になる場合は本体のvxを代わりに使う
-                const effectiveVx = Math.abs(rawRenderVx) >= Math.abs(this.vx) ? rawRenderVx : this.vx;
-                const cloneVx = Math.max(-this.speed * 2.5, Math.min(this.speed * 2.5, effectiveVx));
-                pos.prevX = pos.x;
+            const rawRenderVx = pos.renderVx || 0;
+            // スクロール時にrenderVxが0になる場合は本体のvxを代わりに使う
+            const effectiveVx = Math.abs(rawRenderVx) >= Math.abs(this.vx) ? rawRenderVx : this.vx;
+            const cloneVx = Math.max(-this.speed * 2.5, Math.min(this.speed * 2.5, effectiveVx));
+            pos.prevX = pos.x;
 
-                const cloneMotionTime = this.motionTime;
-                const cloneIsMoving = Math.abs(cloneVx) > 0.5;
-                const cloneDrawY = pos.y - PLAYER.HEIGHT * 0.62;
-                const cloneFootY = cloneDrawY + this.height;
-                
-                const anchorCalc = this.calculateAccessoryAnchor(
-                    pos.x - this.width * 0.5, cloneFootY, this.height,
-                    cloneMotionTime, cloneIsMoving,
-                    false, false,
-                    cloneMotionTime * 0.012,
-                    pos.facingRight
-                );
-
-                this.updateAccessoryNodes(
-                    this.specialCloneScarfNodes[i],
-                    this.specialCloneHairNodes[i],
-                    anchorCalc.knotX,
-                    anchorCalc.knotY,
-                    cloneVx,
-                    cloneIsMoving,
-                    deltaTime,
-                    {
-                        facingRight: pos.facingRight,
-                        hairRootX: anchorCalc.hairRootX,
-                        hairRootY: anchorCalc.hairRootY,
-                        headCenterX: anchorCalc.headX,
-                        headY: anchorCalc.headY
-                    }
-                );
-            }
+            const cloneDrawY = pos.y - PLAYER.HEIGHT * 0.62;
+            const cloneFootY = cloneDrawY + this.height;
+            this.updateSpecialCloneAccessoryNodes(i, pos, deltaTime, {
+                cloneVx,
+                motionTime: this.motionTime,
+                isMoving: Math.abs(cloneVx) > 0.5,
+                drawX: pos.x - this.width * 0.5,
+                footY: cloneFootY,
+                height: this.height,
+                isDashing: false,
+                isCrouching: false,
+                legPhase: this.motionTime * 0.012
+            });
         }
     }
 
@@ -2716,29 +2773,21 @@ export class Player {
             }
         }
 
-        // 下半身は攻撃状態に依存させず、移動状態のみで計算する
-        const horizontalSpeed = Math.abs(this.vx);
+        // 下半身は攻撃状態に依存させず、移動状態のみで計算する（本体/分身で共通式）
         const comboAttacking = !!(this.isAttacking && this.currentAttack && this.currentAttack.comboStep);
-        const isGroundMoving = this.isGrounded && horizontalSpeed > 0.85;
-        if (comboAttacking) {
-            this.legPhase = 0;
-            this.legAngle += (0 - this.legAngle) * 0.34;
-        } else if (isGroundMoving) {
-            const baseFreq = this.isDashing ? 0.027 : (this.isCrouching ? 0.017 : 0.018);
-            const speedScale = this.isDashing ? 1.0 : Math.min(1.25, horizontalSpeed / Math.max(1, this.speed));
-            this.legPhase += deltaTime * 1000 * baseFreq * (0.72 + speedScale * 0.68);
-            const amplitude = this.isDashing ? 1.08 : (this.isCrouching ? 0.62 : 0.86);
-            const targetAngle = Math.sin(this.legPhase) * amplitude;
-            this.legAngle += (targetAngle - this.legAngle) * 0.52;
-        } else if (this.isGrounded) {
-            this.legPhase = 0;
-            this.legAngle += (0 - this.legAngle) * 0.24;
-        } else {
-            const airborneTarget = this.vy < -1.8
-                ? -0.24 - Math.min(0.22, Math.abs(this.vy) * 0.012)
-                : 0.28 + Math.min(0.36, Math.max(0, this.vy) * 0.016);
-            this.legAngle += (airborneTarget - this.legAngle) * 0.2;
-        }
+        const legMotion = this.updateLegLocomotion({
+            legPhase: this.legPhase,
+            legAngle: this.legAngle,
+            deltaMs: deltaTime * 1000,
+            horizontalSpeed: this.vx,
+            isGrounded: this.isGrounded,
+            isAttacking: comboAttacking,
+            verticalSpeed: this.vy,
+            isDashing: this.isDashing,
+            isCrouching: this.isCrouching
+        });
+        this.legPhase = legMotion.legPhase;
+        this.legAngle = legMotion.legAngle;
 
         // --- 鉢巻・ポニーテールの更新処理 ---
         // ガード＆初期化
@@ -2753,11 +2802,6 @@ export class Player {
 
         const speedX = this.vx;
         const isMoving = Math.abs(speedX) > 0.1;
-        const dt = Math.min(deltaTime, 0.1); 
-        const subSteps = 2;
-        const subDelta = dt / subSteps;
-        const time = this.motionTime;
-        const flutterSpeed = 0.02;
 
         const isRunLikePose = (this.isGrounded && Math.abs(this.vx) > 0.85) || this.isDashing;
         let modelBob = 0;
@@ -3126,15 +3170,23 @@ export class Player {
         for (let i = 0; i < hairNodes.length; i++) {
             let node = { x: hairNodes[i].x, y: hairNodes[i].y };
             if (i === 0) {
-                node = { x: hairBaseX - dir * 1.5, y: hairBaseY + 0.5 };
+                node = { x: hairBaseX - dir * 0.7, y: hairBaseY - 0.15 };
             }
-            // 根本から曲がり角（0〜3ノード）を重点的に平滑化
-            if (i > 0 && i < 4 && i < hairNodes.length - 1) {
+            // 根本から曲がり角（0〜4ノード）を重点的に平滑化
+            if (i > 0 && i < 5 && i < hairNodes.length - 1) {
                 const prevNode = (i === 1) ? { x: hairBaseX, y: hairBaseY } : hairNodes[i - 1];
                 const nextNode = hairNodes[i + 1];
+                let wPrev = 0.34;
+                let wNode = 0.46;
+                let wNext = 0.20;
+                if (i === 1) {
+                    wPrev = 0.56; wNode = 0.30; wNext = 0.14;
+                } else if (i === 2) {
+                    wPrev = 0.46; wNode = 0.36; wNext = 0.18;
+                }
                 node = {
-                    x: (prevNode.x + node.x * 2 + nextNode.x) * 0.25,
-                    y: (prevNode.y + node.y * 2 + nextNode.y) * 0.25
+                    x: prevNode.x * wPrev + node.x * wNode + nextNode.x * wNext,
+                    y: prevNode.y * wPrev + node.y * wNode + nextNode.y * wNext
                 };
             }
             smoothedNodes.push(node);
@@ -3142,57 +3194,185 @@ export class Player {
 
         const topNodes = [];
         const bottomNodes = [];
-        const rootThickness = 14.8;
-        const hairHalfSpan = 0.46;
+        const rootThickness = 13.8;
+        const hairHalfSpan = 0.24;
+        const rootRadius = headRadius + 0.12;
+        const rootNx = -Math.sin(hairJoinAngle);
+        const rootNy = Math.cos(hairJoinAngle);
+        let prevNx = rootNx;
+        let prevNy = rootNy;
 
         for (let i = 0; i < smoothedNodes.length; i++) {
             const node = smoothedNodes[i];
             const tProgress = i / hairDenom;
-            const thickness = rootThickness * (Math.pow(1 - tProgress, 0.95) * 0.96 + 0.04);
+            const thickness = Math.max(2.2, rootThickness * (Math.pow(1 - tProgress, 0.88) * 0.90 + 0.10));
             const half = thickness * 0.5;
 
             if (i === 0) {
                 const topA = hairJoinAngle - hairHalfSpan;
                 const botA = hairJoinAngle + hairHalfSpan;
-                const innerRadius = headRadius - 2.5; 
                 topNodes.push({
-                    x: headCenterX + Math.cos(topA) * innerRadius,
-                    y: headY + Math.sin(topA) * innerRadius
+                    x: headCenterX + Math.cos(topA) * rootRadius,
+                    y: headY + Math.sin(topA) * rootRadius
                 });
                 bottomNodes.push({
-                    x: headCenterX + Math.cos(botA) * innerRadius,
-                    y: headY + Math.sin(botA) * innerRadius
+                    x: headCenterX + Math.cos(botA) * rootRadius,
+                    y: headY + Math.sin(botA) * rootRadius
                 });
-            } else {
-                const prevNode = (i >= 2) ? smoothedNodes[i - 2] : smoothedNodes[i - 1];
-                const nextNode = (i < smoothedNodes.length - 1) ? smoothedNodes[i + 1] : node;
-                const dx = nextNode.x - prevNode.x;
-                const dy = nextNode.y - prevNode.y;
-                const len = Math.hypot(dx, dy) || 1;
-                const nx = -dy / len;
-                const ny = dx / len;
+                continue;
+            }
 
-                topNodes.push({ x: node.x + nx * half, y: node.y + ny * half });
-                bottomNodes.push({ x: node.x - nx * half, y: node.y - ny * half });
+            const prevNode = smoothedNodes[Math.max(0, i - 1)];
+            const nextNode = smoothedNodes[Math.min(smoothedNodes.length - 1, i + 1)];
+            const dx = nextNode.x - prevNode.x;
+            const dy = nextNode.y - prevNode.y;
+            const len = Math.hypot(dx, dy) || 1;
+            const tangentNx = -dy / len;
+            const tangentNy = dx / len;
+            // 伸びた時の見た目を維持しつつ、垂れ下がり時だけ接線法線を強めてペラ化/ねじれを抑える
+            const verticality = Math.min(1, Math.abs(dy) / len); // 0:水平, 1:垂直
+            const tangentWeight = 0.06 + verticality * 0.64;
+            const rootWeight = 1 - tangentWeight;
+            let nx = tangentNx * tangentWeight + rootNx * rootWeight;
+            let ny = tangentNy * tangentWeight + rootNy * rootWeight;
+            const nLen = Math.hypot(nx, ny);
+            if (!Number.isFinite(nLen) || nLen < 0.08) {
+                nx = prevNx;
+                ny = prevNy;
+            } else {
+                nx /= nLen;
+                ny /= nLen;
+            }
+            // 直前ノードとの向きを揃えて、途中反転を防ぐ
+            if (nx * prevNx + ny * prevNy < 0) {
+                nx = -nx;
+                ny = -ny;
+            }
+            // 根元基準の向きも維持
+            if (nx * rootNx + ny * rootNy < 0) {
+                nx = -nx;
+                ny = -ny;
+            }
+
+            // 上下エッジの対応が入れ替わる場合は明示的に回避する
+            if (topNodes.length > 0 && bottomNodes.length > 0) {
+                const prevTop = topNodes[topNodes.length - 1];
+                const prevBottom = bottomNodes[bottomNodes.length - 1];
+                const topX = node.x + nx * half;
+                const topY = node.y + ny * half;
+                const bottomX = node.x - nx * half;
+                const bottomY = node.y - ny * half;
+                const normalScore =
+                    Math.hypot(topX - prevTop.x, topY - prevTop.y) +
+                    Math.hypot(bottomX - prevBottom.x, bottomY - prevBottom.y);
+                const swapScore =
+                    Math.hypot(bottomX - prevTop.x, bottomY - prevTop.y) +
+                    Math.hypot(topX - prevBottom.x, topY - prevBottom.y);
+                if (swapScore < normalScore) {
+                    nx = -nx;
+                    ny = -ny;
+                }
+            }
+            prevNx = nx;
+            prevNy = ny;
+
+            topNodes.push({ x: node.x + nx * half, y: node.y + ny * half });
+            bottomNodes.push({ x: node.x - nx * half, y: node.y - ny * half });
+        }
+
+        // 輪郭点を軽く平滑化して、根元付近の凹みを抑える
+        const smoothEdge = (nodes) => {
+            if (!Array.isArray(nodes) || nodes.length <= 2) return;
+            const src = nodes.map((p) => ({ x: p.x, y: p.y }));
+            for (let i = 1; i < nodes.length - 1; i++) {
+                const prev = src[i - 1];
+                const cur = src[i];
+                const next = src[i + 1];
+                const curW = i <= 2 ? 0.62 : 0.56;
+                const sideW = (1 - curW) * 0.5;
+                nodes[i].x = prev.x * sideW + cur.x * curW + next.x * sideW;
+                nodes[i].y = prev.y * sideW + cur.y * curW + next.y * sideW;
+            }
+        };
+        smoothEdge(topNodes);
+        smoothEdge(bottomNodes);
+
+        // 先端側の余計な立ち上がりを抑えるため、末端を細く収束させる
+        const sharpenTip = () => {
+            const last = Math.min(topNodes.length, bottomNodes.length) - 1;
+            if (last < 1) return;
+
+            const tipCenter = smoothedNodes[last];
+            const prevCenter = smoothedNodes[Math.max(0, last - 1)];
+            let dx = tipCenter.x - prevCenter.x;
+            let dy = tipCenter.y - prevCenter.y;
+            let len = Math.hypot(dx, dy);
+            if (len < 0.0001) {
+                dx = 1;
+                dy = 0;
+                len = 1;
+            }
+            let nx = -dy / len;
+            let ny = dx / len;
+            if (nx * prevNx + ny * prevNy < 0) {
+                nx = -nx;
+                ny = -ny;
+            }
+
+            const tipHalf = 0.62;
+            topNodes[last].x = tipCenter.x + nx * tipHalf;
+            topNodes[last].y = tipCenter.y + ny * tipHalf;
+            bottomNodes[last].x = tipCenter.x - nx * tipHalf;
+            bottomNodes[last].y = tipCenter.y - ny * tipHalf;
+
+            if (last >= 2) {
+                const shoulder = last - 1;
+                const cx = (topNodes[shoulder].x + bottomNodes[shoulder].x) * 0.5;
+                const cy = (topNodes[shoulder].y + bottomNodes[shoulder].y) * 0.5;
+                const curHalf = Math.hypot(
+                    topNodes[shoulder].x - bottomNodes[shoulder].x,
+                    topNodes[shoulder].y - bottomNodes[shoulder].y
+                ) * 0.5;
+                const half = Math.max(1.4, curHalf * 0.92);
+                topNodes[shoulder].x = cx + nx * half;
+                topNodes[shoulder].y = cy + ny * half;
+                bottomNodes[shoulder].x = cx - nx * half;
+                bottomNodes[shoulder].y = cy - ny * half;
+            }
+        };
+        // 先端の強制補正は形状を壊しやすいため無効化
+        // sharpenTip();
+
+        // 形状確認用: 頭との接続を視覚的に切るため、髪全体を少し後方へずらす
+        const debugDetachHairFromHead = false;
+        if (debugDetachHairFromHead) {
+            const detachX = -dir * 9.0;
+            const detachY = 4.0;
+            for (const p of topNodes) {
+                p.x += detachX;
+                p.y += detachY;
+            }
+            for (const p of bottomNodes) {
+                p.x += detachX;
+                p.y += detachY;
             }
         }
 
         const tracePath = () => {
+            const contour = [...topNodes, ...bottomNodes.slice().reverse()];
+            if (contour.length < 3) return;
             ctx.beginPath();
-            ctx.moveTo(topNodes[0].x, topNodes[0].y);
-            for (let i = 1; i < topNodes.length; i++) {
-                const xc = (topNodes[i].x + topNodes[i - 1].x) / 2;
-                const yc = (topNodes[i].y + topNodes[i - 1].y) / 2;
-                ctx.quadraticCurveTo(topNodes[i - 1].x, topNodes[i - 1].y, xc, yc);
+            const firstMidX = (contour[0].x + contour[1].x) * 0.5;
+            const firstMidY = (contour[0].y + contour[1].y) * 0.5;
+            ctx.moveTo(firstMidX, firstMidY);
+            for (let i = 1; i < contour.length; i++) {
+                const p = contour[i];
+                const next = contour[(i + 1) % contour.length];
+                const midX = (p.x + next.x) * 0.5;
+                const midY = (p.y + next.y) * 0.5;
+                ctx.quadraticCurveTo(p.x, p.y, midX, midY);
             }
-            const tipPoint = smoothedNodes[smoothedNodes.length - 1];
-            ctx.quadraticCurveTo(tipPoint.x, tipPoint.y, bottomNodes[bottomNodes.length - 1].x, bottomNodes[bottomNodes.length - 1].y);
-            for (let i = bottomNodes.length - 1; i >= 1; i--) {
-                const xc = (bottomNodes[i].x + bottomNodes[i - 1].x) / 2;
-                const yc = (bottomNodes[i].y + bottomNodes[i - 1].y) / 2;
-                ctx.quadraticCurveTo(bottomNodes[i].x, bottomNodes[i].y, xc, yc);
-            }
-            ctx.lineTo(topNodes[0].x, topNodes[0].y);
+            ctx.quadraticCurveTo(contour[0].x, contour[0].y, firstMidX, firstMidY);
             ctx.closePath();
         };
 
@@ -4298,14 +4478,7 @@ export class Player {
         const knotX = accessoryRoots.knotX;
         const knotY = accessoryRoots.knotY;
         if (useLiveAccessories) {
-            if (accessoryHairNodes && accessoryHairNodes.length > 0) {
-                accessoryHairNodes[0].x = hairBaseX;
-                accessoryHairNodes[0].y = hairBaseY;
-            }
-            if (accessoryScarfNodes && accessoryScarfNodes.length > 0) {
-                accessoryScarfNodes[0].x = knotX;
-                accessoryScarfNodes[0].y = knotY;
-            }
+            this.syncAccessoryRootNodes(accessoryScarfNodes, accessoryHairNodes, accessoryRoots);
         }
         const sampleHairNode = (index) => {
             if (!accessoryHairNodes || accessoryHairNodes.length === 0) return { x: hairBaseX, y: hairBaseY };
@@ -4417,15 +4590,6 @@ export class Player {
             ctx.stroke();
             ctx.restore();
         };
-
-        // 背面: 髪
-        this.renderPonytail(ctx, headCenterX, headY, headRadius, hairBaseX, hairBaseY, facingRight, alpha, {
-            hairNodes: accessoryHairNodes,
-            silhouetteColor: silhouetteColor,
-            outlineEnabled: silhouetteOutlineEnabled,
-            outlineColor: silhouetteOutlineColor,
-            outlineExpand: outlineExpand
-        });
 
         // 中央: 頭
         drawHeadSilhouetteWithOutline();
@@ -4699,6 +4863,17 @@ export class Player {
                     layerPhase: 'front'
                 }
             );
+        }
+
+        // 最前面: 髪（埋もれ確認用）
+        if (renderHair) {
+            this.renderPonytail(ctx, headCenterX, headY, headRadius, hairBaseX, hairBaseY, facingRight, alpha, {
+                hairNodes: accessoryHairNodes,
+                silhouetteColor: silhouetteColor,
+                outlineEnabled: silhouetteOutlineEnabled,
+                outlineColor: silhouetteOutlineColor,
+                outlineExpand: outlineExpand
+            });
         }
     }
 
@@ -7214,15 +7389,7 @@ export class Player {
                         this.legPhase || cloneMotionTime * 0.012,
                         pos.facingRight
                     );
-
-                    if (cloneScarfNodes.length) {
-                        cloneScarfNodes[0].x = anchorCalc.knotX;
-                        cloneScarfNodes[0].y = anchorCalc.knotY;
-                    }
-                    if (cloneHairNodes.length) {
-                        cloneHairNodes[0].x = anchorCalc.hairRootX;
-                        cloneHairNodes[0].y = anchorCalc.hairRootY;
-                    }
+                    this.syncAccessoryRootNodes(cloneScarfNodes, cloneHairNodes, anchorCalc);
                 }
 
                 this.renderModel(ctx, this.x, this.y, this.facingRight, 1.0, true, {
