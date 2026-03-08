@@ -327,6 +327,8 @@ export class ShurikenProjectile {
         this.lastHitMap = new Map();
         this.id = Math.random().toString(36).substr(2, 9);
         this.initialDirection = Math.sign(vx) || 1; // ★修正: 発射時の向きを記憶
+        this.prevX = x;
+        this.prevY = y;
     }
 
     update(deltaTime, enemies = []) {
@@ -376,6 +378,8 @@ export class ShurikenProjectile {
         }
 
         // --- 移動 ---
+        this.prevX = this.x;
+        this.prevY = this.y;
         this.x += this.vx * dt * 60;
         this.y += this.vy * dt * 60;
         this.rotation += this.rotationSpeed * dt;
@@ -400,11 +404,17 @@ export class ShurikenProjectile {
     }
 
     getHitbox() {
+        // 高速移動時のすり抜け防止:
+        // 直前位置〜現在位置を包むAABBを当たり判定に使う
+        const minX = Math.min(this.prevX, this.x) - this.radius;
+        const minY = Math.min(this.prevY, this.y) - this.radius;
+        const maxX = Math.max(this.prevX, this.x) + this.radius;
+        const maxY = Math.max(this.prevY, this.y) + this.radius;
         return {
-            x: this.x - this.radius,
-            y: this.y - this.radius,
-            width: this.radius * 2,
-            height: this.radius * 2
+            x: minX,
+            y: minY,
+            width: maxX - minX,
+            height: maxY - minY
         };
     }
 
@@ -1353,17 +1363,18 @@ export class DualBlades extends SubWeapon {
                 };
             case 4:
                 return {
-                    // 開始: 前方斜め下 / 終了: 頭上やや後方でクロス
-                    rightStart: 1.22, rightEnd: -2.44,
-                    leftStart: 1.1, leftEnd: -2.26,
+                    // 開始: 前方斜め下 / 終了: 頭上やや後方。左右は平行を維持
+                    rightStart: 1.2, rightEnd: -2.56,
+                    leftStart: 1.2, leftEnd: -2.56,
                     effectRadius: 108,
                     hit: 'risingX'
                 };
             default:
                 return {
                     // 海老反りクロスから、左右に開いて叩きつける
-                    rightStart: -2.44, rightEnd: 1.22,
-                    leftStart: -2.26, leftEnd: 0.64,
+                    // 奥手/手前手の刀角度は常に平行を維持
+                    rightStart: -2.34, rightEnd: 0.82,
+                    leftStart: -2.34, leftEnd: 0.82,
                     effectRadius: 112,
                     hit: 'fallingBreak'
                 };
@@ -1561,18 +1572,35 @@ export class DualBlades extends SubWeapon {
                         height: 92
                     });
                 } else {
-                    const sRange = this.range * 1.82;
+                    // 五段目（fallingBreak）は剣筋位置に合わせて
+                    // 上弧（大きい青弧）＋下弧（赤弧）＋体幹近傍を分離して判定
+                    const upperW = this.range * 1.12;
+                    const upperH = this.range * 2.18;
+                    const upperCenterX = centerX + direction * this.range * 1.02;
+                    const upperCenterY = centerY - this.range * 0.56;
                     hitboxes.push({
-                        x: centerX - sRange,
-                        y: centerY - sRange * 0.98,
-                        width: sRange * 2,
-                        height: sRange * 2.14
+                        x: upperCenterX - upperW * 0.5,
+                        y: upperCenterY - upperH * 0.5,
+                        width: upperW,
+                        height: upperH
                     });
+                    const lowerW = this.range * 1.52;
+                    const lowerH = this.range * 1.2;
+                    const lowerCenterX = centerX + direction * this.range * 0.38;
+                    const lowerCenterY = centerY + this.range * 0.86;
                     hitboxes.push({
-                        x: centerX - this.range * 0.48,
-                        y: centerY + 4,
-                        width: this.range * 0.96,
-                        height: this.range * 1.24
+                        x: lowerCenterX - lowerW * 0.5,
+                        y: lowerCenterY - lowerH * 0.5,
+                        width: lowerW,
+                        height: lowerH
+                    });
+                    const coreW = this.range * 0.9;
+                    const coreH = this.range * 1.08;
+                    hitboxes.push({
+                        x: centerX - coreW * 0.5,
+                        y: centerY - coreH * 0.22,
+                        width: coreW,
+                        height: coreH
                     });
                 }
             } else {

@@ -1237,10 +1237,13 @@ class Game {
         }
         
         // プレイヤー更新
-        const frameEnemies = this.stage.getAllEnemies();
-        const activeFrameEnemies = frameEnemies.filter((enemy) => enemy.isAlive && !enemy.isDying);
+        // NOTE:
+        // ここでは「前フレーム末の敵リスト」を使って操作/追尾を進める。
+        // 当たり判定側は stage.update 後に取り直し、画面端スポーン直後の1フレ遅延を避ける。
+        const preFrameEnemies = this.stage.getAllEnemies();
+        const preActiveFrameEnemies = preFrameEnemies.filter((enemy) => enemy.isAlive && !enemy.isDying);
         const activeObstacles = this.stage.obstacles.filter(o => !o.isDestroyed);
-        this.player.update(this.deltaTime, activeObstacles, activeFrameEnemies);
+        this.player.update(this.deltaTime, activeObstacles, preActiveFrameEnemies);
         
         // 爆弾投げ処理は player.update 内で実行されるため削除
         
@@ -1290,13 +1293,18 @@ class Game {
             this.player.x = this.scrollX + CANVAS_WIDTH;
         }
 
+        // stage.update 後の最新状態で当たり判定対象を再構築
+        const latestFrameEnemies = this.stage.getAllEnemies();
+        const latestActiveEnemies = latestFrameEnemies.filter((enemy) => enemy.isAlive && !enemy.isDying);
+        const latestObstacles = this.stage.obstacles.filter(o => !o.isDestroyed);
+
         const collisionMarginX = 300;
         const collisionMinX = this.scrollX - collisionMarginX;
         const collisionMaxX = this.scrollX + CANVAS_WIDTH + collisionMarginX;
-        const collisionEnemies = activeFrameEnemies.filter((enemy) =>
+        const collisionEnemies = latestActiveEnemies.filter((enemy) =>
             enemy.x + enemy.width >= collisionMinX && enemy.x <= collisionMaxX
         );
-        const collisionObstacles = activeObstacles.filter((obs) =>
+        const collisionObstacles = latestObstacles.filter((obs) =>
             obs.x + obs.width >= collisionMinX && obs.x <= collisionMaxX
         );
 
@@ -4317,17 +4325,23 @@ class Game {
             const playerPivotY = this.player.getFootY ? this.player.getFootY() : (this.player.y + this.player.height);
             this.renderScaledEntity(ctx, playerPivotX, playerPivotY, () => {
                 this.player.render(ctx, { forceStanding: forceStanding });
-
-                // サブ武器エフェクト（プレイヤー消失に同期）
-                if (
-                    this.player.currentSubWeapon &&
-                    !this.player.subWeaponRenderedInModel &&
-                    typeof this.player.currentSubWeapon.render === 'function'
-                ) {
-                    this.player.currentSubWeapon.render(ctx, this.player);
-                }
             });
             ctx.restore();
+
+            // NOTE:
+            // 投擲物・剣筋エフェクトを「プレイヤー中心スケール」の内側で描くと、
+            // プレイヤーから離れるほど表示位置がずれて当たり判定と乖離する。
+            // そのため、ワールド座標のまま（スケール外）で描画する。
+            if (
+                this.player.currentSubWeapon &&
+                !this.player.subWeaponRenderedInModel &&
+                typeof this.player.currentSubWeapon.render === 'function'
+            ) {
+                ctx.save();
+                if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
+                this.player.currentSubWeapon.render(ctx, this.player);
+                ctx.restore();
+            }
         } else {
             // プレイヤーを描画しない場合でも、必要な更新があればここで行う（現在はなし）
         }

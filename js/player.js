@@ -1275,7 +1275,7 @@ export class Player {
             const duration = Math.max(1, activeAttack.durationMs || PLAYER.ATTACK_COOLDOWN);
             const progress = Math.max(0, Math.min(1, 1 - (this.attackTimer / duration)));
             const direction = this.facingRight ? 1 : -1;
-            const z4HeightScale = 0.68;
+            const z4HeightScale = 0.82;
 
             // 四段目: 真上へ切り上げ → 後方へバク転
             if (progress < 0.42) {
@@ -1405,16 +1405,16 @@ export class Player {
                 this.vy = Math.max(this.vy, 3.8);
             }
         } else if (step === 4) {
-            // 四段: 斜め下から大きく切り上げて上昇、終端は海老反り
+            // 四段: 斜め下から大きく切り上げて上昇、終端で溜め姿勢へ
             let targetVx;
-            if (p < 0.66) {
-                const t = p / 0.66;
-                targetVx = direction * this.speed * (0.42 + t * 0.34);
-                this.vy = this.vy * 0.44 + (-14.6 + t * 7.6) * 0.56;
+            if (p < 0.7) {
+                const t = p / 0.7;
+                targetVx = direction * this.speed * (0.4 + t * 0.3);
+                this.vy = this.vy * 0.4 + (-16.2 + t * 7.0) * 0.6;
             } else {
-                const t = (p - 0.66) / 0.34;
-                targetVx = direction * this.speed * (0.76 - t * 0.54);
-                this.vy = this.vy * 0.46 + (-6.2 + t * 7.4) * 0.54;
+                const t = (p - 0.7) / 0.3;
+                targetVx = direction * this.speed * (0.7 - t * 0.5);
+                this.vy = this.vy * 0.46 + (-7.4 + t * 8.8) * 0.54;
             }
             this.vx = blend(this.vx, targetVx);
             this.isGrounded = false;
@@ -1439,9 +1439,11 @@ export class Player {
         }
 
         // 二刀コンボ中に上空へ登り続けないよう上昇量を制限
-        this.vy = Math.max(this.vy, -15.4);
+        const dualRiseCap = step === 4 ? -17.2 : -15.4;
+        this.vy = Math.max(this.vy, dualRiseCap);
         const liftFromGround = this.groundY - (this.y + this.height);
-        if (liftFromGround > 154 && this.vy < -0.4) {
+        const dualLiftLimit = step === 4 ? 174 : 154;
+        if (liftFromGround > dualLiftLimit && this.vy < -0.4) {
             this.vy *= 0.52;
         }
         if (step === 0 && p > 0.84 && !this.isGrounded) {
@@ -5502,6 +5504,7 @@ export class Player {
             let frontTargetX = frontShoulderMoveX + Math.cos(pose.leftAngle) * frontReach * dir;
             let frontTargetY = frontShoulderMoveY + Math.sin(pose.leftAngle) * frontReach;
             let skipPoseReachAdjustment = false;
+            let comboStep4LoadBlend = 0;
             const idleArmWaveLocal = Math.sin(this.motionTime * 0.01);
             const idleBackHandXLocal = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
             const idleBackHandYLocal = backShoulderY + (isCrouchPose ? 6.2 : 7.8) + idleArmWaveLocal * (isCrouchPose ? 0.8 : 1.7);
@@ -5563,33 +5566,33 @@ export class Player {
                 backTargetY = backShoulderMoveY + 2.1 + comboPulse * 0.7;
                 frontTargetY = frontShoulderMoveY + 2.5 - comboPulse * 0.7;
             } else if (comboStep === 4) {
-                // 四段: 前方斜め下から切り上げ、終端は海老反りで剣をクロス
+                // 四段: 前方斜め下から切り上げ、終端は平行維持のまま溜め姿勢
                 const phase = smoothStep01(comboProgress);
                 const backAngle = pose.rightAngle;
                 const frontAngle = pose.leftAngle;
-                const endBend = smoothStep01((comboProgress - 0.82) / 0.18);
+                const endBend = smoothStep01((comboProgress - 0.8) / 0.2);
+                comboStep4LoadBlend = smoothStep01((comboProgress - 0.72) / 0.28);
                 const baseReach = isCrouchPose ? 18.9 : 20.8;
-                const reachScale = 1 - 0.2 * endBend;
+                const reachScale = 1 - 0.18 * endBend;
                 const backSweepReach = baseReach * reachScale;
                 const frontSweepReach = (baseReach - 0.4) * reachScale;
 
                 skipPoseReachAdjustment = true;
-                backShoulderMoveX += dir * (0.25 + (phase - 0.5) * 1.12);
-                frontShoulderMoveX -= dir * (0.08 + phase * 0.58);
-                backShoulderMoveY -= 0.26 + phase * 1.35;
-                frontShoulderMoveY -= 0.24 + phase * 1.22;
+                backShoulderMoveX += dir * (0.25 + (phase - 0.5) * 1.12) - dir * (isCrouchPose ? 0.72 : 1.02) * comboStep4LoadBlend;
+                frontShoulderMoveX -= dir * (0.08 + phase * 0.58) + dir * (isCrouchPose ? 0.86 : 1.18) * comboStep4LoadBlend;
+                backShoulderMoveY -= 0.3 + phase * 1.62 + comboStep4LoadBlend * (isCrouchPose ? 0.12 : 0.2);
+                frontShoulderMoveY -= 0.28 + phase * 1.52 + comboStep4LoadBlend * (isCrouchPose ? 0.08 : 0.16);
 
                 backTargetX = backShoulderMoveX + Math.cos(backAngle) * backSweepReach * dir;
                 backTargetY = backShoulderMoveY + Math.sin(backAngle) * backSweepReach;
                 frontTargetX = frontShoulderMoveX + Math.cos(frontAngle) * frontSweepReach * dir;
                 frontTargetY = frontShoulderMoveY + Math.sin(frontAngle) * frontSweepReach;
 
-                // 奥行き: 手前手は下、奥手は上。終盤はクロスへ収束
-                const crossBlend = smoothStep01((comboProgress - 0.74) / 0.26);
-                frontTargetY += (isCrouchPose ? 1.45 : 2.0) - crossBlend * 1.35;
-                backTargetY -= (isCrouchPose ? 1.05 : 1.45) - crossBlend * 0.9;
-                frontTargetX -= dir * ((isCrouchPose ? 0.95 : 1.35) - crossBlend * 1.0);
-                backTargetX += dir * ((isCrouchPose ? 0.42 : 0.72) - crossBlend * 0.62);
+                // 奥行き: 手前手は下、奥手は上を維持しつつ、刀は平行のまま溜める
+                frontTargetY += (isCrouchPose ? 1.28 : 1.82) + comboStep4LoadBlend * (isCrouchPose ? 0.16 : 0.28);
+                backTargetY -= (isCrouchPose ? 0.86 : 1.24) + comboStep4LoadBlend * (isCrouchPose ? 0.06 : 0.12);
+                frontTargetX -= dir * ((isCrouchPose ? 0.86 : 1.22) + comboStep4LoadBlend * (isCrouchPose ? 0.44 : 0.68));
+                backTargetX += dir * ((isCrouchPose ? 0.28 : 0.46) - comboStep4LoadBlend * (isCrouchPose ? 0.06 : 0.1));
             } else if (comboStep === 0) {
                 // 五段: 海老反りクロスから腕を左右に開きつつ叩きつける
                 const phase = smoothStep01(comboProgress);
@@ -5646,19 +5649,50 @@ export class Player {
             if (comboStep === 1) {
                 const stretchCap = smoothStep01((comboProgress - 0.74) / 0.26);
                 dualFrontReachCap = Math.min(standardFrontReach + 2.8, dualFrontReachCap + 2.8 * stretchCap);
-            } else if (comboStep === 4 || comboStep === 0) {
-                // 4〜5撃目は腕をほぼ直線に保つ
+            } else if (comboStep === 4) {
+                // 4撃目終盤は肘を後ろへ折って溜めを作る
+                dualBackReachCap = Math.min(standardBackReach + 3.6 - comboStep4LoadBlend * 2.1, 24.1);
+                dualFrontReachCap = Math.min(standardFrontReach + 3.4 - comboStep4LoadBlend * 2.3, 23.7);
+            } else if (comboStep === 0) {
+                // 5撃目は振り下ろしで腕を伸ばす
                 dualBackReachCap = Math.min(standardBackReach + 4.2, 24.6);
                 dualFrontReachCap = Math.min(standardFrontReach + 4.2, 24.2);
             }
-            const backHand = clampArmReach(backShoulderMoveX, backShoulderMoveY, backTargetX, backTargetY, dualBackReachCap);
+            let backHand = clampArmReach(backShoulderMoveX, backShoulderMoveY, backTargetX, backTargetY, dualBackReachCap);
             const frontHand = clampArmReach(frontShoulderMoveX, frontShoulderMoveY, frontTargetX, frontTargetY, dualFrontReachCap);
+            // 五段目は奥行き感を保つため、奥手が手前手より下に落ちないように固定
+            if (comboStep === 0) {
+                const minBackAboveGap = isCrouchPose ? 0.7 : 1.2;
+                const maxBackY = frontHand.y - minBackAboveGap;
+                if (backHand.y > maxBackY) {
+                    const correctedBack = clampArmReach(
+                        backShoulderMoveX,
+                        backShoulderMoveY,
+                        backHand.x,
+                        maxBackY,
+                        dualBackReachCap
+                    );
+                    // 補正後も必ず「奥手が少し上」を維持
+                    backHand = {
+                        x: correctedBack.x,
+                        y: Math.min(correctedBack.y, maxBackY)
+                    };
+                }
+            }
             const katanaLength = this.getKatanaBladeLength();
             const uprightBlend = 0.28;
             const uprightTarget = -Math.PI / 2;
             const toAdjustedAngle = (rawAngle) => rawAngle + (uprightTarget - rawAngle) * uprightBlend;
             const backAdjustedAngle = toAdjustedAngle(pose.rightAngle);
             const frontAdjustedAngle = toAdjustedAngle(pose.leftAngle);
+            let backArmBendDir = -dir;
+            let frontArmBendDir = -dir;
+            if (comboStep === 4 && comboStep4LoadBlend > 0) {
+                // 溜め終盤は肘を背中側へ折り、次段の振り下ろしへ力を溜める
+                const bendBlend = comboStep4LoadBlend;
+                backArmBendDir = (-dir) * (1 - bendBlend) + dir * bendBlend;
+                frontArmBendDir = (-dir) * (1 - bendBlend) + dir * bendBlend;
+            }
             const backTipX = backHand.x + Math.cos(backAdjustedAngle) * dir * katanaLength;
             const backTipY = backHand.y + Math.sin(backAdjustedAngle) * katanaLength;
             const frontTipX = frontHand.x + Math.cos(frontAdjustedAngle) * dir * katanaLength;
@@ -5681,14 +5715,14 @@ export class Player {
                 }
             };
             const drawBackArmWeapon = () => {
-                drawBentArmSegment(backShoulderMoveX, backShoulderMoveY, backHand.x, backHand.y, standardUpperLen, standardForeLen, -dir, 5.3);
+                drawBentArmSegment(backShoulderMoveX, backShoulderMoveY, backHand.x, backHand.y, standardUpperLen, standardForeLen, backArmBendDir, 5.3);
                 drawHand(backHand.x, backHand.y, standardBackHandRadius);
                 if (renderWeaponVisuals) {
                     drawSubWeaponKatana(backHand.x, backHand.y, pose.rightAngle, dir);
                 }
             };
             const drawFrontArmWeapon = () => {
-                drawBentArmSegment(frontShoulderMoveX, frontShoulderMoveY, frontHand.x, frontHand.y, standardUpperLen, standardForeLen, -dir, 5.3);
+                drawBentArmSegment(frontShoulderMoveX, frontShoulderMoveY, frontHand.x, frontHand.y, standardUpperLen, standardForeLen, frontArmBendDir, 5.3);
                 if (renderWeaponVisuals) {
                     // 腕の後に「柄」を描画することで、手首が柄の背後に隠れるようにする
                     drawSubWeaponKatana(frontHand.x, frontHand.y, pose.leftAngle, dir, 0.28, 'handle');
@@ -6908,8 +6942,8 @@ export class Player {
             // 2撃目は戻りも技の流れとして見せる
             case 2: return { start: 0.1, end: 1.0 };
             case 3: return { start: 0.1, end: 0.9 };
-            // 4撃目は上昇斬りのみ剣筋を出し、宙返り区間では新規描画しない
-            case 4: return { start: 0.08, end: 0.42 };
+            // 4撃目は上昇斬り中心。宙返り直前まで自然に繋がる分だけ延長
+            case 4: return { start: 0.08, end: 0.54 };
             case 5: return { start: 0.24, end: 0.94 };
             default: return { start: 0, end: 1 };
         }
@@ -6999,9 +7033,20 @@ export class Player {
                 } else {
                     const flipT = Math.max(0, Math.min(1, (progress - 0.42) / 0.58));
                     const bodyFlipAngle = -Math.PI * 1.82 * flipT;
-                    swordAngle = -0.76 + bodyFlipAngle;
-                    armEndX = centerX - dir * (4.0 + Math.sin(flipT * Math.PI) * 6.0);
-                    armEndY = pivotY - 14 + Math.cos(flipT * Math.PI) * 4.0;
+                    const flipAngle = -0.76 + bodyFlipAngle;
+                    const flipX = centerX - dir * (4.0 + Math.sin(flipT * Math.PI) * 6.0);
+                    const flipY = pivotY - 14 + Math.cos(flipT * Math.PI) * 4.0;
+
+                    // 上昇弧(0.42まで)と宙返り弧(0.42以降)を短区間で補間して、
+                    // 4撃目の剣筋が不自然に折れずに延長されるようにする。
+                    const bridgeT = Math.max(0, Math.min(1, (progress - 0.42) / 0.12));
+                    const bridge = bridgeT * bridgeT * (3 - 2 * bridgeT);
+                    const riseAngleEnd = -0.74;
+                    const riseEndX = centerX + dir * 8.0;
+                    const riseEndY = pivotY - 24.0;
+                    swordAngle = riseAngleEnd + (flipAngle - riseAngleEnd) * bridge;
+                    armEndX = riseEndX + (flipX - riseEndX) * bridge;
+                    armEndY = riseEndY + (flipY - riseEndY) * bridge;
                 }
                 const prepT = Math.max(0, Math.min(1, progress / 0.18));
                 const prepEase = prepT * prepT * (3 - 2 * prepT);

@@ -137,52 +137,90 @@ export class Stage {
         if (this.stageNumber === 4) {
             const castleCanvas = document.createElement('canvas');
             castleCanvas.width = CANVAS_WIDTH;
-            castleCanvas.height = 400; 
+            castleCanvas.height = 420; 
             const cctx = castleCanvas.getContext('2d');
-            const wallBaseY = 300;
+            const wallBaseY = 326;
 
-            cctx.fillStyle = '#1a1a1a';
+            // 遠景の低い稜線
+            cctx.fillStyle = '#13151b';
             cctx.beginPath();
-            cctx.moveTo(-50, 400);
-            cctx.lineTo(CANVAS_WIDTH * 0.15, wallBaseY - 20);
-            cctx.lineTo(CANVAS_WIDTH * 0.5, wallBaseY - 5);
-            cctx.lineTo(CANVAS_WIDTH * 0.85, wallBaseY - 30);
-            cctx.lineTo(CANVAS_WIDTH + 50, 400);
+            cctx.moveTo(-80, 420);
+            cctx.lineTo(CANVAS_WIDTH * 0.1, wallBaseY - 16);
+            cctx.lineTo(CANVAS_WIDTH * 0.34, wallBaseY - 30);
+            cctx.lineTo(CANVAS_WIDTH * 0.62, wallBaseY - 18);
+            cctx.lineTo(CANVAS_WIDTH * 0.86, wallBaseY - 36);
+            cctx.lineTo(CANVAS_WIDTH + 80, 420);
+            cctx.closePath();
             cctx.fill();
 
-            // 櫓と天守のシルエット
-            cctx.fillStyle = '#1a1a1a';
-            cctx.fillRect(CANVAS_WIDTH * 0.05, wallBaseY - 160, 120, 150);
-            cctx.fillRect(CANVAS_WIDTH * 0.75, wallBaseY - 180, 140, 170);
+            // 石垣の台座
+            const stoneGrad = cctx.createLinearGradient(0, wallBaseY - 16, 0, wallBaseY + 82);
+            stoneGrad.addColorStop(0, '#2a2c34');
+            stoneGrad.addColorStop(1, '#1a1c22');
+            cctx.fillStyle = stoneGrad;
+            cctx.fillRect(-20, wallBaseY - 12, CANVAS_WIDTH + 40, 110);
+            cctx.strokeStyle = 'rgba(74, 82, 96, 0.3)';
+            cctx.lineWidth = 1.2;
+            for (let y = wallBaseY + 2; y < wallBaseY + 84; y += 18) {
+                cctx.beginPath();
+                cctx.moveTo(-20, y);
+                cctx.lineTo(CANVAS_WIDTH + 20, y);
+                cctx.stroke();
+            }
+
+            // 左右の櫓
+            cctx.fillStyle = '#14161c';
+            cctx.fillRect(CANVAS_WIDTH * 0.08, wallBaseY - 174, 118, 162);
+            cctx.fillRect(CANVAS_WIDTH * 0.78, wallBaseY - 188, 126, 176);
+            cctx.fillStyle = 'rgba(198, 204, 220, 0.18)';
+            cctx.fillRect(CANVAS_WIDTH * 0.08 + 12, wallBaseY - 156, 94, 48);
+            cctx.fillRect(CANVAS_WIDTH * 0.78 + 14, wallBaseY - 168, 98, 52);
+
+            // 中央の天守（段構造）
+            const cx = CANVAS_WIDTH * 0.5;
+            cctx.fillStyle = '#13151b';
             cctx.beginPath();
-            cctx.moveTo(CANVAS_WIDTH * 0.35, wallBaseY - 5);
-            cctx.lineTo(CANVAS_WIDTH * 0.4, wallBaseY - 260);
-            cctx.lineTo(CANVAS_WIDTH * 0.45, wallBaseY - 260);
-            cctx.lineTo(CANVAS_WIDTH * 0.46, wallBaseY - 340);
-            cctx.lineTo(CANVAS_WIDTH * 0.54, wallBaseY - 340);
-            cctx.lineTo(CANVAS_WIDTH * 0.55, wallBaseY - 260);
-            cctx.lineTo(CANVAS_WIDTH * 0.6, wallBaseY - 260);
-            cctx.lineTo(CANVAS_WIDTH * 0.65, wallBaseY - 5);
+            cctx.moveTo(cx - 136, wallBaseY - 6);
+            cctx.lineTo(cx - 102, wallBaseY - 208);
+            cctx.lineTo(cx + 102, wallBaseY - 208);
+            cctx.lineTo(cx + 136, wallBaseY - 6);
+            cctx.closePath();
             cctx.fill();
-            
-            // 白壁の月光描写
-            cctx.globalAlpha = 0.45;
-            cctx.fillStyle = '#e0e0f0';
-            cctx.fillRect(CANVAS_WIDTH * 0.05 + 10, wallBaseY - 140, 100, 120);
-            cctx.fillRect(CANVAS_WIDTH * 0.75 + 10, wallBaseY - 160, 120, 140);
-            cctx.fillRect(CANVAS_WIDTH * 0.41, wallBaseY - 250, 130, 80);
-            cctx.fillRect(CANVAS_WIDTH * 0.47, wallBaseY - 330, 45, 60);
-            
-            cctx.globalAlpha = 1.0;
-            cctx.strokeStyle = '#000';
+            cctx.fillStyle = 'rgba(214, 220, 236, 0.2)';
+            cctx.fillRect(cx - 88, wallBaseY - 190, 176, 54);
+
+            cctx.fillStyle = '#101218';
+            cctx.beginPath();
+            cctx.moveTo(cx - 90, wallBaseY - 208);
+            cctx.lineTo(cx - 60, wallBaseY - 286);
+            cctx.lineTo(cx + 60, wallBaseY - 286);
+            cctx.lineTo(cx + 90, wallBaseY - 208);
+            cctx.closePath();
+            cctx.fill();
+            cctx.fillStyle = 'rgba(228, 234, 246, 0.2)';
+            cctx.fillRect(cx - 52, wallBaseY - 270, 104, 42);
+
+            cctx.fillStyle = '#0d0f15';
+            cctx.beginPath();
+            cctx.moveTo(cx - 46, wallBaseY - 286);
+            cctx.lineTo(cx - 28, wallBaseY - 344);
+            cctx.lineTo(cx + 28, wallBaseY - 344);
+            cctx.lineTo(cx + 46, wallBaseY - 286);
+            cctx.closePath();
+            cctx.fill();
+            cctx.fillStyle = 'rgba(236, 242, 255, 0.26)';
+            cctx.fillRect(cx - 20, wallBaseY - 334, 40, 28);
+
+            // 屋根の輪郭
+            cctx.strokeStyle = 'rgba(160, 172, 198, 0.34)';
             cctx.lineWidth = 2;
             cctx.beginPath();
-            cctx.moveTo(CANVAS_WIDTH * 0.35, wallBaseY - 5);
-            cctx.lineTo(CANVAS_WIDTH * 0.4, wallBaseY - 260);
-            cctx.lineTo(CANVAS_WIDTH * 0.46, wallBaseY - 340);
-            cctx.lineTo(CANVAS_WIDTH * 0.54, wallBaseY - 340);
-            cctx.lineTo(CANVAS_WIDTH * 0.6, wallBaseY - 260);
-            cctx.lineTo(CANVAS_WIDTH * 0.65, wallBaseY - 5);
+            cctx.moveTo(cx - 164, wallBaseY - 198);
+            cctx.quadraticCurveTo(cx, wallBaseY - 246, cx + 164, wallBaseY - 198);
+            cctx.stroke();
+            cctx.beginPath();
+            cctx.moveTo(cx - 112, wallBaseY - 278);
+            cctx.quadraticCurveTo(cx, wallBaseY - 316, cx + 112, wallBaseY - 278);
             cctx.stroke();
 
             this.cachedAssets.castle = castleCanvas;
@@ -1615,54 +1653,88 @@ export class Stage {
             // ─── Stage4（城下町） → Stage5（城内）───────────────────────────
             // 城の大門に到達。巨大な城門と石垣が右端を塞いでいる
             case 4: {
-                // 石垣
-                ctx.fillStyle = this.interpolateColor('#302a28', '#1a1816', 0.42);
-                ctx.fillRect(CANVAS_WIDTH * 0.74, gY - 100, CANVAS_WIDTH * 0.26, 100);
-                // 石垣の目地
-                ctx.strokeStyle = 'rgba(55, 48, 44, 0.7)';
-                ctx.lineWidth = 1.4;
-                for (let row = 0; row < 5; row++) {
-                    const ry = gY - 100 + row * 20;
-                    const offset = (row % 2) * 30;
-                    for (let col = -1; col < 8; col++) {
-                        const sx = CANVAS_WIDTH * 0.74 + col * 60 + offset;
-                        if (sx < CANVAS_WIDTH * 0.74) continue;
-                        ctx.strokeRect(sx, ry, 54, 18);
-                    }
-                }
+                const fortX = CANVAS_WIDTH * 0.7;
+                const fortW = CANVAS_WIDTH * 0.34 + 28;
+                const fortTopY = gY - 116;
 
-                // 城門の大屋根（中央寄り右）
-                const gateX = CANVAS_WIDTH * 0.76;
-                const gateW = 220;
-                const gateWallH = 100;
-                const roofH = 72;
-                // 門壁
-                ctx.fillStyle = this.interpolateColor('#8c2e1c', '#4a1810', 0.38);
-                ctx.fillRect(gateX, gY - gateWallH - 100, gateW, 100);
-                // 大屋根
-                ctx.fillStyle = this.interpolateColor('#7a2818', '#3e1408', 0.5);
+                // 石垣（台形）
+                const stoneGrad = ctx.createLinearGradient(0, fortTopY, 0, gY);
+                stoneGrad.addColorStop(0, this.interpolateColor('#4b4a52', '#26242b', 0.44));
+                stoneGrad.addColorStop(1, this.interpolateColor('#2c2a30', '#141317', 0.5));
+                ctx.fillStyle = stoneGrad;
                 ctx.beginPath();
-                ctx.moveTo(gateX - 30, gY - gateWallH - 100 + 4);
-                ctx.quadraticCurveTo(gateX + gateW * 0.5, gY - gateWallH - 100 - roofH, gateX + gateW + 30, gY - gateWallH - 100 + 4);
-                ctx.lineTo(gateX + gateW + 20, gY - gateWallH - 100 + 18);
-                ctx.quadraticCurveTo(gateX + gateW * 0.5, gY - gateWallH - 100 - roofH * 0.72, gateX - 20, gY - gateWallH - 100 + 18);
+                ctx.moveTo(fortX + 18, fortTopY);
+                ctx.lineTo(CANVAS_WIDTH, fortTopY - 20);
+                ctx.lineTo(CANVAS_WIDTH, gY);
+                ctx.lineTo(fortX - 22, gY);
                 ctx.closePath();
                 ctx.fill();
-                // 門の開口部（暗い穴）
-                ctx.fillStyle = 'rgba(6, 3, 6, 0.92)';
-                const openW = gateW * 0.36;
-                ctx.fillRect(gateX + (gateW - openW) * 0.5, gY - gateWallH - 100 + 100 - 78, openW, 78);
-                // 開口部の両脇の朱柱
-                ctx.fillStyle = this.interpolateColor('#a03020', '#561810', 0.3);
-                ctx.fillRect(gateX + (gateW - openW) * 0.5 - 14, gY - gateWallH - 100 + 18, 14, 82);
-                ctx.fillRect(gateX + (gateW + openW) * 0.5, gY - gateWallH - 100 + 18, 14, 82);
-                // 城門脇の幟
-                const bannX = gateX - 28;
-                ctx.strokeStyle = 'rgba(40, 46, 62, 0.88)';
-                ctx.lineWidth = 2;
-                ctx.beginPath(); ctx.moveTo(bannX, gY); ctx.lineTo(bannX, gY - 190); ctx.stroke();
-                ctx.fillStyle = 'rgba(210, 220, 244, 0.46)';
-                ctx.fillRect(bannX, gY - 190, 28, 56);
+                ctx.strokeStyle = 'rgba(96, 104, 118, 0.24)';
+                ctx.lineWidth = 1;
+                for (let y = fortTopY + 8; y < gY; y += 18) {
+                    ctx.beginPath();
+                    ctx.moveTo(fortX - 18, y);
+                    ctx.lineTo(CANVAS_WIDTH, y - 8);
+                    ctx.stroke();
+                }
+
+                // 門楼
+                const gateX = fortX + 40;
+                const gateW = Math.min(250, fortW - 56);
+                const gateH = 118;
+                const gateY = fortTopY - gateH + 10;
+                ctx.fillStyle = this.interpolateColor('#b8ae9a', '#5d574c', 0.32);
+                ctx.fillRect(gateX, gateY, gateW, gateH);
+                ctx.fillStyle = this.interpolateColor('#332c28', '#151310', 0.56);
+                ctx.fillRect(gateX + 8, gateY + 8, gateW - 16, 16);
+
+                // 屋根
+                const roofY = gateY + 8;
+                ctx.fillStyle = this.interpolateColor('#5d6678', '#232936', 0.54);
+                ctx.beginPath();
+                ctx.moveTo(gateX - 30, roofY + 4);
+                ctx.quadraticCurveTo(gateX + gateW * 0.5, roofY - 62, gateX + gateW + 30, roofY + 4);
+                ctx.lineTo(gateX + gateW + 18, roofY + 18);
+                ctx.quadraticCurveTo(gateX + gateW * 0.5, roofY - 40, gateX - 18, roofY + 18);
+                ctx.closePath();
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(184, 194, 214, 0.24)';
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                ctx.moveTo(gateX - 18, roofY + 12);
+                ctx.quadraticCurveTo(gateX + gateW * 0.5, roofY - 30, gateX + gateW + 18, roofY + 12);
+                ctx.stroke();
+
+                // 門扉（半開き）
+                const openW = gateW * 0.42;
+                const openX = gateX + (gateW - openW) * 0.5;
+                const openY = gateY + gateH - 84;
+                ctx.fillStyle = 'rgba(10, 8, 10, 0.9)';
+                ctx.fillRect(openX, openY, openW, 84);
+                const doorW = openW * 0.48;
+                ctx.fillStyle = this.interpolateColor('#523f2c', '#231a12', 0.38);
+                ctx.fillRect(openX - doorW * 0.86, openY + 3, doorW, 80);
+                ctx.fillRect(openX + openW - doorW * 0.14, openY + 3, doorW, 80);
+                ctx.fillStyle = 'rgba(166, 138, 96, 0.34)';
+                ctx.fillRect(openX - doorW * 0.36, openY + 38, 8, 8);
+                ctx.fillRect(openX + openW + doorW * 0.18, openY + 38, 8, 8);
+
+                // 脇灯り
+                const lampPulse = 0.5 + Math.sin(time * 1.6) * 0.5;
+                for (let side = 0; side < 2; side++) {
+                    const lx = gateX + (side === 0 ? 18 : gateW - 18);
+                    const ly = gateY + 52;
+                    ctx.strokeStyle = 'rgba(66, 56, 46, 0.8)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(lx, ly - 10);
+                    ctx.lineTo(lx, ly);
+                    ctx.stroke();
+                    ctx.fillStyle = `rgba(248, 212, 146, ${(0.26 + lampPulse * 0.2).toFixed(3)})`;
+                    ctx.beginPath();
+                    ctx.ellipse(lx, ly + 7, 6, 9, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
                 break;
             }
 
