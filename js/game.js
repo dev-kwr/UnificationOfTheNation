@@ -59,7 +59,7 @@ class Game {
         
         // ステージ情報
         this.currentStageNumber = 1;
-        this.stage3AutoScrollSpeed = 120; // px/s（Stage3専用の自動横スクロール速度）
+        this.stage3AutoScrollSpeed = 60; // px/s（Stage3専用の自動横スクロール速度）
         
         // 地面の高さ
         this.groundY = Math.round(CANVAS_HEIGHT * (2 / 3));
@@ -2036,6 +2036,35 @@ class Game {
                     const rockBottom = obs.y + obs.height - 2;
                     const sideCollision = playerBottom > rockTop + 6 && this.player.y < rockBottom - 6;
                     if (sideCollision) {
+                        const stage3AutoScrollCrushActive = (
+                            this.currentStageNumber === 3 &&
+                            this.stage &&
+                            !this.stage.bossSpawned
+                        );
+                        if (stage3AutoScrollCrushActive) {
+                            const leftEdge = this.scrollX;
+                            const rightEdge = this.scrollX + CANVAS_WIDTH;
+                            const playerLeft = this.player.x;
+                            const playerRight = this.player.x + this.player.width;
+                            const playerCenterX = playerLeft + this.player.width * 0.5;
+                            const rockCenterX = obs.x + obs.width * 0.5;
+                            const edgeMargin = 2.5;
+                            const pinOverlapMargin = 1.0;
+                            const pinnedAtLeft = (
+                                playerLeft <= leftEdge + edgeMargin &&
+                                rockCenterX >= playerCenterX &&
+                                obs.x <= playerRight - pinOverlapMargin
+                            );
+                            const pinnedAtRight = (
+                                playerRight >= rightEdge - edgeMargin &&
+                                rockCenterX <= playerCenterX &&
+                                obs.x + obs.width >= playerLeft + pinOverlapMargin
+                            );
+                            if (pinnedAtLeft || pinnedAtRight) {
+                                this.beginPlayerDefeat();
+                                return;
+                            }
+                        }
                         this.player.vx = 0;
                     }
                 }

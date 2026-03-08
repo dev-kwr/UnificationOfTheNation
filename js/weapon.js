@@ -1310,16 +1310,13 @@ export class DualBlades extends SubWeapon {
             return 0.92 + ((p - 0.84) / 0.16) * 0.08;
         }
         if (step === 4) {
-            // 四段: 胸前でクロスを作って一拍止め、斜めに切り上げる
-            if (p < 0.18) return (p / 0.18) * 0.2;
-            if (p < 0.44) return 0.2 + ((p - 0.18) / 0.26) * 0.18;
-            if (p < 0.86) return 0.38 + ((p - 0.44) / 0.42) * 0.5;
-            return 0.88 + ((p - 0.86) / 0.14) * 0.12;
+            // 四段: 平行二刀の切り上げ（始動を速く、終端はわずかに減速）
+            if (p < 0.76) return (p / 0.76) * 0.88;
+            return 0.88 + ((p - 0.76) / 0.24) * 0.12;
         }
-        // 五段目(0): 頭上で溜めて落下断ち
-        if (p < 0.34) return (p / 0.34) * 0.1;
-        if (p < 0.82) return 0.1 + ((p - 0.34) / 0.48) * 0.74;
-        return 0.84 + ((p - 0.82) / 0.18) * 0.16;
+        // 五段目(0): 四段の逆ルートで振り下ろし
+        if (p < 0.2) return (p / 0.2) * 0.12;
+        return 0.12 + ((p - 0.2) / 0.8) * 0.88;
     }
 
     getMainSwingArcs(options = {}) {
@@ -1348,16 +1345,18 @@ export class DualBlades extends SubWeapon {
                 };
             case 4:
                 return {
-                    rightStart: 1.48, rightEnd: -1.88,
-                    leftStart: 1.16, leftEnd: -1.02,
-                    effectRadius: 106,
+                    // 開始: 前方斜め下 / 終了: 頭上やや後方（2本はほぼ平行）
+                    rightStart: 1.04, rightEnd: -2.04,
+                    leftStart: 0.96, leftEnd: -2.12,
+                    effectRadius: 108,
                     hit: 'risingX'
                 };
             default:
                 return {
-                    rightStart: -1.82, rightEnd: 1.24,
-                    leftStart: -1.08, leftEnd: 1.98,
-                    effectRadius: 118,
+                    // 四段の逆再生ルート
+                    rightStart: -2.04, rightEnd: 1.04,
+                    leftStart: -2.12, leftEnd: 0.96,
+                    effectRadius: 112,
                     hit: 'fallingBreak'
                 };
         }

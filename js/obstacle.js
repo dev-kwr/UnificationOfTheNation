@@ -221,8 +221,9 @@ export class Spike extends Obstacle {
 
 // 岩（邪魔、破壊可能）
 export class Rock extends Obstacle {
-    constructor(x, groundY) {
+    constructor(x, groundY, options = {}) {
         super(x, groundY, OBSTACLE_TYPES.ROCK);
+        this.stageNumber = Math.max(1, Math.min(6, Number(options.stageNumber) || 1));
         this.shapeSeed = (Math.abs(Math.sin((x + groundY) * 0.0197) * 43758.5453)) % 1;
         this.variant = this.selectVariant();
         this.applyVariantSize();
@@ -238,6 +239,12 @@ export class Rock extends Obstacle {
 
     selectVariant() {
         const roll = this.seeded(0.37);
+        if (this.stageNumber === 3) {
+            // Stage3は縦長シルエットを増やして圧迫感を強める
+            if (roll < 0.2) return 'slab';
+            if (roll < 0.74) return 'tall';
+            return 'jagged';
+        }
         if (roll < 0.34) return 'slab';
         if (roll < 0.68) return 'tall';
         return 'jagged';
@@ -254,6 +261,17 @@ export class Rock extends Obstacle {
         } else {
             this.width = Math.round(62 + this.seeded(4.3) * 42);
             this.height = Math.round(48 + this.seeded(4.8) * 36);
+        }
+
+        if (this.stageNumber === 3) {
+            // Stage3限定で高岩を混ぜる（高さ重視、幅は極端に増やさない）
+            const tallRoll = this.seeded(6.41);
+            if (tallRoll > 0.58) {
+                const heightScale = 1.2 + this.seeded(6.97) * 0.46; // 1.20〜1.66
+                const widthScale = 0.9 + this.seeded(7.53) * 0.16;  // 0.90〜1.06
+                this.height = Math.round(this.height * heightScale);
+                this.width = Math.round(this.width * widthScale);
+            }
         }
     }
 
@@ -427,7 +445,7 @@ export function createObstacle(type, x, groundY, options = {}) {
         case OBSTACLE_TYPES.SPIKE:
             return new Spike(x, groundY, options);
         case OBSTACLE_TYPES.ROCK:
-            return new Rock(x, groundY);
+            return new Rock(x, groundY, options);
         default:
             return new Obstacle(x, groundY, type);
     }

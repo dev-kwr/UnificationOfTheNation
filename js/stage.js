@@ -703,7 +703,9 @@ export class Stage {
             const chainCount = rockChainCount;
             let cursorX = x;
             for (let i = 0; i < chainCount; i++) {
-                const rock = createObstacle(OBSTACLE_TYPES.ROCK, cursorX + (Math.random() * 18 - 9), this.groundY);
+                const rock = createObstacle(OBSTACLE_TYPES.ROCK, cursorX + (Math.random() * 18 - 9), this.groundY, {
+                    stageNumber: this.stageNumber
+                });
                 this.obstacles.push(rock);
                 cursorX += rock.width * (0.44 + Math.random() * 0.3);
             }

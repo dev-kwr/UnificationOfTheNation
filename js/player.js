@@ -5487,6 +5487,7 @@ export class Player {
             let backTargetY = backShoulderMoveY + Math.sin(pose.rightAngle) * backReach;
             let frontTargetX = frontShoulderMoveX + Math.cos(pose.leftAngle) * frontReach * dir;
             let frontTargetY = frontShoulderMoveY + Math.sin(pose.leftAngle) * frontReach;
+            let skipPoseReachAdjustment = false;
             const idleArmWaveLocal = Math.sin(this.motionTime * 0.01);
             const idleBackHandXLocal = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
             const idleBackHandYLocal = backShoulderY + (isCrouchPose ? 6.2 : 7.8) + idleArmWaveLocal * (isCrouchPose ? 0.8 : 1.7);
@@ -5548,59 +5549,61 @@ export class Player {
                 backTargetY = backShoulderMoveY + 2.1 + comboPulse * 0.7;
                 frontTargetY = frontShoulderMoveY + 2.5 - comboPulse * 0.7;
             } else if (comboStep === 4) {
-                // 四段: 胸前クロスで止めてから斜めへ払い上げ
-                const gather = Math.max(0, Math.min(1, comboProgress / 0.42));
-                const release = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.58));
-                const gatherEase = gather * gather * (3 - 2 * gather);
-                const releaseEase = release * release * (3 - 2 * release);
-                const xBlend = (a, b) => a + (b - a) * gatherEase;
-                const yBlend = (a, b) => a + (b - a) * gatherEase;
+                // 四段: 平行二刀で前方斜め下→頭上やや後方へ切り上げ
+                const phase = smoothStep01(comboProgress);
+                const baseAngle = 1.06 + (-2.02 - 1.06) * phase;
+                const backAngle = baseAngle + 0.04;
+                const frontAngle = baseAngle - 0.04;
+                const endBend = smoothStep01((comboProgress - 0.84) / 0.16);
+                const reachScale = 1 - 0.1 * endBend; // 終端のみ軽く肘を曲げる
+                const baseReach = isCrouchPose ? 18.8 : 20.6;
+                const backSweepReach = baseReach * reachScale;
+                const frontSweepReach = (baseReach - 0.35) * reachScale;
 
-                backReach = 19.6;
-                frontReach = 19.2;
-                backShoulderMoveX += dir * (0.8 + gatherEase * 0.9 + releaseEase * 1.8);
-                backShoulderMoveY -= 0.5 + gatherEase * 1.0 + releaseEase * 0.5;
-                frontShoulderMoveX += dir * (0.2 + gatherEase * 0.7 + releaseEase * 1.1);
-                frontShoulderMoveY -= 0.3 + gatherEase * 0.8 + releaseEase * 0.5;
+                skipPoseReachAdjustment = true;
+                backShoulderMoveX += dir * (0.35 + (phase - 0.5) * 0.95);
+                frontShoulderMoveX += dir * (0.15 + (phase - 0.5) * 0.85);
+                backShoulderMoveY -= 0.12 + phase * 0.72;
+                frontShoulderMoveY -= 0.08 + phase * 0.66;
 
-                const crossBackX = centerX + dir * (isCrouchPose ? 5.8 : 6.8);
-                const crossBackY = pivotY + (isCrouchPose ? 6.1 : 4.7);
-                const crossFrontX = centerX + dir * (isCrouchPose ? 3.9 : 4.9);
-                const crossFrontY = pivotY + (isCrouchPose ? 7.5 : 6.2);
-                const releaseBackX = centerX + dir * (isCrouchPose ? 14.8 : 16.4);
-                const releaseBackY = pivotY - (isCrouchPose ? 1.2 : 4.9);
-                const releaseFrontX = centerX + dir * (isCrouchPose ? 11.8 : 13.2);
-                const releaseFrontY = pivotY - (isCrouchPose ? 0.2 : 3.8);
+                backTargetX = backShoulderMoveX + Math.cos(backAngle) * backSweepReach * dir;
+                backTargetY = backShoulderMoveY + Math.sin(backAngle) * backSweepReach;
+                frontTargetX = frontShoulderMoveX + Math.cos(frontAngle) * frontSweepReach * dir;
+                frontTargetY = frontShoulderMoveY + Math.sin(frontAngle) * frontSweepReach;
 
-                const gatheredBackX = xBlend(backTargetX, crossBackX);
-                const gatheredBackY = yBlend(backTargetY, crossBackY);
-                const gatheredFrontX = xBlend(frontTargetX, crossFrontX);
-                const gatheredFrontY = yBlend(frontTargetY, crossFrontY);
-                backTargetX = gatheredBackX + (releaseBackX - gatheredBackX) * releaseEase;
-                backTargetY = gatheredBackY + (releaseBackY - gatheredBackY) * releaseEase;
-                frontTargetX = gatheredFrontX + (releaseFrontX - gatheredFrontX) * releaseEase;
-                frontTargetY = gatheredFrontY + (releaseFrontY - gatheredFrontY) * releaseEase;
+                // 奥行き: 手前手は下、奥手は上で平行を保つ
+                frontTargetY += isCrouchPose ? 1.2 : 1.6;
+                backTargetY -= isCrouchPose ? 0.75 : 1.0;
+                frontTargetX -= dir * (isCrouchPose ? 0.7 : 0.95);
+                backTargetX += dir * (isCrouchPose ? 0.28 : 0.42);
             } else if (comboStep === 0) {
-                // 五段: 頭上構え→落下断ち
-                backReach = 19.8;
-                frontReach = 19.2;
-                if (comboProgress < 0.35) {
-                    const t = comboProgress / 0.35;
-                    backShoulderMoveY -= 2.8 + t * 2.6;
-                    frontShoulderMoveY -= 2.6 + t * 2.4;
-                    backTargetX += dir * (1.9 + t * 2.4);
-                    frontTargetX -= dir * (1.7 + t * 2.2);
-                    backTargetY -= 5.4 + t * 6.2;
-                    frontTargetY -= 4.8 + t * 5.7;
-                } else {
-                    const t = (comboProgress - 0.35) / 0.65;
-                    backShoulderMoveY -= 5.4 - t * 2.0;
-                    frontShoulderMoveY -= 5.1 - t * 1.8;
-                    backTargetX += dir * (4.2 + t * 6.1);
-                    frontTargetX -= dir * (2.8 + t * 3.8);
-                    backTargetY -= 11.4 - t * 17.8;
-                    frontTargetY -= 10.1 - t * 15.6;
-                }
+                // 五段: 四段と同ルートを逆再生して振り下ろし
+                const phase = smoothStep01(comboProgress);
+                const path = 1 - phase;
+                const baseAngle = 1.06 + (-2.02 - 1.06) * path;
+                const backAngle = baseAngle + 0.04;
+                const frontAngle = baseAngle - 0.04;
+                const startBend = 1 - smoothStep01(comboProgress / 0.2); // 開始直後だけ軽く曲げ
+                const reachScale = 1 - 0.1 * startBend;
+                const baseReach = isCrouchPose ? 18.8 : 20.6;
+                const backSweepReach = baseReach * reachScale;
+                const frontSweepReach = (baseReach - 0.35) * reachScale;
+
+                skipPoseReachAdjustment = true;
+                backShoulderMoveX += dir * (0.35 + (path - 0.5) * 0.95);
+                frontShoulderMoveX += dir * (0.15 + (path - 0.5) * 0.85);
+                backShoulderMoveY -= 0.12 + path * 0.72;
+                frontShoulderMoveY -= 0.08 + path * 0.66;
+
+                backTargetX = backShoulderMoveX + Math.cos(backAngle) * backSweepReach * dir;
+                backTargetY = backShoulderMoveY + Math.sin(backAngle) * backSweepReach;
+                frontTargetX = frontShoulderMoveX + Math.cos(frontAngle) * frontSweepReach * dir;
+                frontTargetY = frontShoulderMoveY + Math.sin(frontAngle) * frontSweepReach;
+
+                frontTargetY += isCrouchPose ? 1.2 : 1.6;
+                backTargetY -= isCrouchPose ? 0.75 : 1.0;
+                frontTargetX -= dir * (isCrouchPose ? 0.7 : 0.95);
+                backTargetX += dir * (isCrouchPose ? 0.28 : 0.42);
             }
 
             const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
@@ -5616,16 +5619,22 @@ export class Player {
             backTargetY += backShoulderMoveY - backShoulderBaseY;
             frontTargetX += frontShoulderMoveX - frontShoulderBaseX;
             frontTargetY += frontShoulderMoveY - frontShoulderBaseY;
-            backTargetX += Math.cos(pose.rightAngle) * (backReach - 21.8) * dir;
-            backTargetY += Math.sin(pose.rightAngle) * (backReach - 21.8);
-            frontTargetX += Math.cos(pose.leftAngle) * (frontReach - 21.2) * dir;
-            frontTargetY += Math.sin(pose.leftAngle) * (frontReach - 21.2);
+            if (!skipPoseReachAdjustment) {
+                backTargetX += Math.cos(pose.rightAngle) * (backReach - 21.8) * dir;
+                backTargetY += Math.sin(pose.rightAngle) * (backReach - 21.8);
+                frontTargetX += Math.cos(pose.leftAngle) * (frontReach - 21.2) * dir;
+                frontTargetY += Math.sin(pose.leftAngle) * (frontReach - 21.2);
+            }
 
             let dualBackReachCap = Math.min(standardBackReach, 20.8);
             let dualFrontReachCap = Math.min(standardFrontReach, 20.4);
             if (comboStep === 1) {
                 const stretchCap = smoothStep01((comboProgress - 0.74) / 0.26);
                 dualFrontReachCap = Math.min(standardFrontReach + 2.8, dualFrontReachCap + 2.8 * stretchCap);
+            } else if (comboStep === 4 || comboStep === 0) {
+                // 4〜5撃目は腕をほぼ直線に保つ
+                dualBackReachCap = Math.min(standardBackReach + 2.6, 22.4);
+                dualFrontReachCap = Math.min(standardFrontReach + 2.6, 22.0);
             }
             const backHand = clampArmReach(backShoulderMoveX, backShoulderMoveY, backTargetX, backTargetY, dualBackReachCap);
             const frontHand = clampArmReach(frontShoulderMoveX, frontShoulderMoveY, frontTargetX, frontTargetY, dualFrontReachCap);
@@ -5676,16 +5685,8 @@ export class Player {
                 }
             };
 
-            // 4〜5撃目は前後レイヤーを入れ替える:
-            // 手前手を後方、奥手を前方へ回して、クロス時の見え方を意図に合わせる。
-            const swapDepthOnLateCombo = (comboStep === 4 || comboStep === 0);
-            if (!swapDepthOnLateCombo) {
-                if (drawBackLayer) drawBackArmWeapon();
-                if (drawFrontLayer) drawFrontArmWeapon();
-            } else {
-                if (drawBackLayer) drawFrontArmWeapon();
-                if (drawFrontLayer) drawBackArmWeapon();
-            }
+            if (drawBackLayer) drawBackArmWeapon();
+            if (drawFrontLayer) drawFrontArmWeapon();
         } else if (this.subWeaponAction === '二刀_合体') {
             // === 二刀合体: X構え → X斬撃 → アイドル復帰 ===
             const clamped = Math.min(1, Math.max(0, progress));
