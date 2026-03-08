@@ -2,7 +2,7 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET } from './constants.js';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, WORLD_ENTITY_RENDER_SCALE } from './constants.js';
 import { createEnemy } from './enemy.js';
 import { createBoss } from './boss.js';
 import { createObstacle } from './obstacle.js';
@@ -3575,13 +3575,35 @@ export class Stage {
     
     renderEnemies(ctx) {
         for (const enemy of this.enemies) {
-            enemy.render(ctx);
+            if (WORLD_ENTITY_RENDER_SCALE !== 1) {
+                const pivotX = enemy.getFootX ? enemy.getFootX() : (enemy.x + enemy.width * 0.5);
+                const pivotY = enemy.getFootY ? enemy.getFootY() : (enemy.y + enemy.height);
+                ctx.save();
+                ctx.translate(pivotX, pivotY);
+                ctx.scale(WORLD_ENTITY_RENDER_SCALE, WORLD_ENTITY_RENDER_SCALE);
+                ctx.translate(-pivotX, -pivotY);
+                enemy.render(ctx);
+                ctx.restore();
+            } else {
+                enemy.render(ctx);
+            }
         }
     }
 
     renderObstacles(ctx) {
         for (const obs of this.obstacles) {
-            obs.render(ctx);
+            if (WORLD_ENTITY_RENDER_SCALE !== 1) {
+                const pivotX = obs.x + obs.width * 0.5;
+                const pivotY = obs.y + obs.height;
+                ctx.save();
+                ctx.translate(pivotX, pivotY);
+                ctx.scale(WORLD_ENTITY_RENDER_SCALE, WORLD_ENTITY_RENDER_SCALE);
+                ctx.translate(-pivotX, -pivotY);
+                obs.render(ctx);
+                ctx.restore();
+            } else {
+                obs.render(ctx);
+            }
         }
     }
     

@@ -49,7 +49,7 @@ export class ShadowRenderer {
     // =============================================
     // メインエントリ
     // =============================================
-    render(mainCtx, stage, player, enemies, scrollX) {
+    render(mainCtx, stage, player, enemies, scrollX, renderScale = 1) {
         if (!stage || !player) return;
 
         const ctx   = this.ctx;
@@ -88,7 +88,7 @@ export class ShadowRenderer {
 
         // --- 4. 各オブジェクトの影を描画 ---
         for (const caster of casters) {
-            this.drawObjectShadow(ctx, caster, scrollX, baseLen, sunDirX, sunAlt);
+            this.drawObjectShadow(ctx, caster, scrollX, baseLen, sunDirX, sunAlt, renderScale);
         }
 
         // --- 5. メインCanvasへ合成 ---
@@ -123,7 +123,7 @@ export class ShadowRenderer {
     // =============================================
     // 1体分の影描画（接地影 + 方向性影）
     // =============================================
-    drawObjectShadow(ctx, caster, scrollX, baseLen, sunDirX, sunAlt) {
+    drawObjectShadow(ctx, caster, scrollX, baseLen, sunDirX, sunAlt, renderScale = 1) {
         if (typeof caster.getFootX !== 'function') return;
 
         const footX  = caster.getFootX();
@@ -133,6 +133,7 @@ export class ShadowRenderer {
         // よって footY + heightAboveGround = 常に地面レベル
         const groundY = caster.getFootY() + heightAboveGround;
         let baseRadius = caster.getShadowBaseRadius();
+        baseRadius *= Math.max(0.1, renderScale);
 
         // 影が大きくなりすぎないように制限
         baseRadius = Math.min(baseRadius, 36);

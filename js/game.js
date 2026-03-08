@@ -2,7 +2,7 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET } from './constants.js';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, WORLD_ENTITY_RENDER_SCALE } from './constants.js';
 import { input } from './input.js';
 import { Player } from './player.js';
 import { createSubWeapon } from './weapon.js';
@@ -59,7 +59,8 @@ class Game {
         
         // ステージ情報
         this.currentStageNumber = 1;
-        this.stage3AutoScrollSpeed = 60; // px/s（Stage3専用の自動横スクロール速度）
+        this.stage3AutoScrollBaseSpeed = 66; // px/s（Stage3専用の標準自動横スクロール速度）
+        this.stage3AutoScrollSpeed = this.stage3AutoScrollBaseSpeed; // 難易度で補正
         
         // 地面の高さ
         this.groundY = Math.round(CANVAS_HEIGHT * (2 / 3));
@@ -1222,6 +1223,8 @@ class Game {
     updateDifficulty() {
         const key = this.difficultyKeys[this.difficultyIndex];
         this.difficulty = DIFFICULTY[key];
+        const scrollMult = Number.isFinite(this.difficulty?.stage3ScrollMult) ? this.difficulty.stage3ScrollMult : 1.0;
+        this.stage3AutoScrollSpeed = this.stage3AutoScrollBaseSpeed * scrollMult;
     }
     
     updatePlaying() {
@@ -4227,6 +4230,20 @@ class Game {
             }
         }
     }
+
+    renderScaledEntity(ctx, pivotX, pivotY, renderFn, scale = WORLD_ENTITY_RENDER_SCALE) {
+        const appliedScale = Number.isFinite(scale) ? scale : 1;
+        if (Math.abs(appliedScale - 1) < 0.001) {
+            renderFn();
+            return;
+        }
+        ctx.save();
+        ctx.translate(pivotX, pivotY);
+        ctx.scale(appliedScale, appliedScale);
+        ctx.translate(-pivotX, -pivotY);
+        renderFn();
+        ctx.restore();
+    }
     
     renderPlaying(playerAlpha = 1.0, forceStanding = false) {
         const ctx = this.ctx;
@@ -4245,7 +4262,14 @@ class Game {
         // 1.5 影（地面とオブジェクトの間）
         if (this.shadowRenderer) {
             // stage.enemies にはボスが含まれないため getAllEnemies() を使う
-            this.shadowRenderer.render(ctx, this.stage, this.player, this.stage.getAllEnemies(), this.scrollX);
+            this.shadowRenderer.render(
+                ctx,
+                this.stage,
+                this.player,
+                this.stage.getAllEnemies(),
+                this.scrollX,
+                WORLD_ENTITY_RENDER_SCALE
+            );
         }
         
         // 2. ワールドオブジェクト（スクロール適用）
@@ -4266,7 +4290,10 @@ class Game {
         
         // ボス（本体）
         if (this.stage.boss && this.stage.bossSpawned) {
-            this.stage.boss.render(ctx);
+            const boss = this.stage.boss;
+            const bossPivotX = boss.getFootX ? boss.getFootX() : (boss.x + boss.width * 0.5);
+            const bossPivotY = boss.getFootY ? boss.getFootY() : (boss.y + boss.height);
+            this.renderScaledEntity(ctx, bossPivotX, bossPivotY, () => boss.render(ctx));
         }
         
         // 爆弾
@@ -4286,16 +4313,20 @@ class Game {
         if (playerAlpha > 0) {
             ctx.save();
             if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
-            this.player.render(ctx, { forceStanding: forceStanding });
-            
-            // サブ武器エフェクト（プレイヤー消失に同期）
-            if (
-                this.player.currentSubWeapon &&
-                !this.player.subWeaponRenderedInModel &&
-                typeof this.player.currentSubWeapon.render === 'function'
-            ) {
-                this.player.currentSubWeapon.render(ctx, this.player);
-            }
+            const playerPivotX = this.player.getFootX ? this.player.getFootX() : (this.player.x + this.player.width * 0.5);
+            const playerPivotY = this.player.getFootY ? this.player.getFootY() : (this.player.y + this.player.height);
+            this.renderScaledEntity(ctx, playerPivotX, playerPivotY, () => {
+                this.player.render(ctx, { forceStanding: forceStanding });
+
+                // サブ武器エフェクト（プレイヤー消失に同期）
+                if (
+                    this.player.currentSubWeapon &&
+                    !this.player.subWeaponRenderedInModel &&
+                    typeof this.player.currentSubWeapon.render === 'function'
+                ) {
+                    this.player.currentSubWeapon.render(ctx, this.player);
+                }
+            });
             ctx.restore();
         } else {
             // プレイヤーを描画しない場合でも、必要な更新があればここで行う（現在はなし）
@@ -4346,15 +4377,19 @@ class Game {
         ctx.scale(scale, scale);
         ctx.translate(-(player.x + player.width / 2), -player.groundY);
 
-        player.render(ctx);
+        const playerPivotX = player.getFootX ? player.getFootX() : (player.x + player.width * 0.5);
+        const playerPivotY = player.getFootY ? player.getFootY() : (player.y + player.height);
+        this.renderScaledEntity(ctx, playerPivotX, playerPivotY, () => {
+            player.render(ctx);
 
-        if (
-            player.currentSubWeapon &&
-            !player.subWeaponRenderedInModel &&
-            typeof player.currentSubWeapon.render === 'function'
-        ) {
-            player.currentSubWeapon.render(ctx, player);
-        }
+            if (
+                player.currentSubWeapon &&
+                !player.subWeaponRenderedInModel &&
+                typeof player.currentSubWeapon.render === 'function'
+            ) {
+                player.currentSubWeapon.render(ctx, player);
+            }
+        }, 1);
 
         for (const bomb of this.bombs) {
             bomb.render(ctx);

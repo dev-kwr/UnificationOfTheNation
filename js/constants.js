@@ -13,6 +13,8 @@ export const FRICTION = 0.85;
 // レーンY軸オフセット（groundY からの相対値）
 // プレイヤー・敵・影・分身・ジェム・障害物等の標準接地レーン
 export const LANE_OFFSET = 32;
+// プレイ中ワールド描画の見た目倍率（当たり判定・物理は変更しない）
+export const WORLD_ENTITY_RENDER_SCALE = 1.2;
 
 // プレイヤー定数
 export const PLAYER = {
@@ -66,9 +68,9 @@ export const GAME_STATE = {
 
 // 難易度
 export const DIFFICULTY = {
-    EASY: { id: 'easy', name: '易', damageMult: 0.5, hpMult: 0.8 },
-    NORMAL: { id: 'normal', name: '普', damageMult: 1.1, hpMult: 1.15 },
-    HARD: { id: 'hard', name: '難', damageMult: 2.0, hpMult: 1.8 },
+    EASY: { id: 'easy', name: '易', damageMult: 0.5, hpMult: 0.8, stage3ScrollMult: 0.94 },
+    NORMAL: { id: 'normal', name: '普', damageMult: 1.1, hpMult: 1.15, stage3ScrollMult: 1.0 },
+    HARD: { id: 'hard', name: '難', damageMult: 2.0, hpMult: 1.8, stage3ScrollMult: 1.08 },
 };
 
 // キーマッピング

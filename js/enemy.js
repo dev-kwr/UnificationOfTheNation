@@ -555,12 +555,13 @@ export class Enemy {
 
         // 刀身（刃側＋棟側）
         const bladeGrad = ctx.createLinearGradient(bladeStart, -bladeWidth, bladeEnd, bladeWidth);
-        bladeGrad.addColorStop(0, '#d7e0ec');
-        bladeGrad.addColorStop(0.45, '#f8fbff');
-        bladeGrad.addColorStop(1, '#a6b1c0');
+        bladeGrad.addColorStop(0, '#cfd8e4');
+        bladeGrad.addColorStop(0.28, '#f4f8fd');
+        bladeGrad.addColorStop(0.62, '#a4afbe');
+        bladeGrad.addColorStop(1, '#6e7989');
         ctx.fillStyle = bladeGrad;
-        ctx.strokeStyle = '#5b6777';
-        ctx.lineWidth = 1.08;
+        ctx.strokeStyle = '#4b5666';
+        ctx.lineWidth = 1.02;
         ctx.beginPath();
         ctx.moveTo(bladeStart, -bladeWidth * 0.56);
         ctx.quadraticCurveTo(
@@ -581,8 +582,8 @@ export class Enemy {
         ctx.stroke();
 
         // 峰（棟/みね）- 刀の背に沿った太い暗い線
-        ctx.strokeStyle = 'rgba(60, 70, 85, 0.9)';
-        ctx.lineWidth = bladeWidth * 0.55;
+        ctx.strokeStyle = 'rgba(38, 47, 60, 0.96)';
+        ctx.lineWidth = bladeWidth * 0.74;
         ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.moveTo(bladeStart, -bladeWidth * 0.56);
@@ -594,8 +595,8 @@ export class Enemy {
         );
         ctx.stroke();
         // 峰のハイライト（金属の光沢）
-        ctx.strokeStyle = 'rgba(160, 180, 200, 0.55)';
-        ctx.lineWidth = bladeWidth * 0.18;
+        ctx.strokeStyle = 'rgba(124, 142, 165, 0.6)';
+        ctx.lineWidth = bladeWidth * 0.16;
         ctx.beginPath();
         ctx.moveTo(bladeStart + 3, -bladeWidth * 0.5);
         ctx.quadraticCurveTo(
@@ -606,8 +607,8 @@ export class Enemy {
         );
         ctx.stroke();
 
-        ctx.strokeStyle = 'rgba(255,255,255,0.78)';
-        ctx.lineWidth = 0.95;
+        ctx.strokeStyle = 'rgba(226,236,246,0.66)';
+        ctx.lineWidth = 0.72;
         ctx.beginPath();
         ctx.moveTo(bladeStart + 2.8, -bladeWidth * 0.14);
         ctx.quadraticCurveTo(
@@ -1423,12 +1424,12 @@ export class Enemy {
             const templates = {
                 samurai: {
                     angle: [
-                        // 上段構え -> 振り下ろし
-                        { t: 0.0, v: -1.04 },
-                        { t: 0.22, v: -2.24, ease: 'outCubic' },
-                        { t: 0.56, v: 0.86, ease: 'outExpo' },
+                        // 中段寄り構え -> 振り下ろし
+                        { t: 0.0, v: -0.9 },
+                        { t: 0.22, v: -1.94, ease: 'outCubic' },
+                        { t: 0.56, v: 0.82, ease: 'outExpo' },
                         { t: 0.82, v: 0.18, ease: 'inOutCubic' },
-                        { t: 1.0, v: -0.94, ease: 'outCubic' }
+                        { t: 1.0, v: -0.8, ease: 'outCubic' }
                     ],
                     reach: [
                         { t: 0.0, v: 0.8 },
@@ -1445,7 +1446,7 @@ export class Enemy {
                     ],
                     bodyLift: [
                         { t: 0.0, v: 0.0 },
-                        { t: 0.22, v: -0.11, ease: 'outCubic' },
+                        { t: 0.22, v: -0.08, ease: 'outCubic' },
                         { t: 0.56, v: 0.1, ease: 'outExpo' },
                         { t: 1.0, v: 0.03, ease: 'outCubic' }
                     ]
@@ -2003,7 +2004,7 @@ export class Enemy {
                 ? weaponMode 
                 : (isHeavy ? 'heavy' : 'samurai');
             const idlePoseByProfile = {
-                samurai: { rawAngle: -0.98, reachScale: 0.82, bodyDrive: -0.08, bodyLift: -0.08 },
+                samurai: { rawAngle: -0.72, reachScale: 0.8, bodyDrive: -0.08, bodyLift: -0.03 },
                 heavy: { rawAngle: 0.62, reachScale: 0.84, bodyDrive: -0.1, bodyLift: 0.04 },
                 naginata: { rawAngle: -1.2, reachScale: 0.85, bodyDrive: -0.12, bodyLift: 0.05 },
                 odachi: { rawAngle: -0.15, reachScale: 0.94, bodyDrive: -0.1, bodyLift: -0.04 },
@@ -2134,15 +2135,15 @@ export class Enemy {
                 slashBladeAngle = drawnWeaponAngle;
                 slashRadius = Math.max(36, heavyLen + 2.8);
             } else if (!suppressWeaponDraw) {
-                const katanaLen = Math.max(40, this.width * 1.38 * weaponScale);
+                const katanaLen = Math.max(38, this.width * 1.22 * weaponScale);
                 this.drawDetailedKatana(ctx, {
                     handX: leadHand.handX,
                     handY: leadHand.handY,
                     angle: weaponAngle,
                     length: katanaLen,
-                    gripLen: Math.max(9, this.width * 0.27),
-                    bladeWidth: Math.max(2.0, this.width * 0.052),
-                    guardSize: Math.max(2, this.width * 0.058),
+                    gripLen: Math.max(9.2, this.width * 0.29),
+                    bladeWidth: Math.max(2.2, this.width * 0.06),
+                    guardSize: Math.max(2.1, this.width * 0.063),
                     profileFlipY: bladeProfileFlipY
                 });
                 slashRadius = Math.max(28, katanaLen + 3.8);
@@ -3047,7 +3048,7 @@ export class Samurai extends Enemy {
             armScale: 1.08,
             torsoLeanScale: 1.06,
             attackDurationMs: 250,
-            weaponScale: 1.2,
+            weaponScale: 1.04,
             palette: {
                 legBack: '#111',
                 legFront: '#1a1a1a',
@@ -3901,10 +3902,11 @@ export class Ninja extends Enemy {
         // 手裏剣を投げる
         const direction = this.facingRight ? 1 : -1;
         const vy = 0; // まっすぐ飛ばす
+        const projectileSpeed = 5.8;
         this.projectiles.push(new EnemyProjectile(
             this.x + (this.facingRight ? this.width : 0),
             this.y + 20,
-            direction * 5.2,
+            direction * projectileSpeed,
             vy,
             this.damage
         ));
@@ -4090,7 +4092,7 @@ export class Ninja extends Enemy {
             angle: bladeAngle,
             length: 30.5,
             gripLen: 7.2,
-            bladeWidth: 2.15,
+            bladeWidth: 2.45,
             guardSize: 1.95
         });
 
@@ -4223,13 +4225,13 @@ class EnemyProjectile {
         // ctx.shadowBlur = 8;
         
         const shuriGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, 10);
-        shuriGrad.addColorStop(0, '#ffffff');
-        shuriGrad.addColorStop(0.3, '#bcc6d4');
-        shuriGrad.addColorStop(0.7, '#626d7d');
-        shuriGrad.addColorStop(1, '#252a33');
+        shuriGrad.addColorStop(0, '#dfe8f4');
+        shuriGrad.addColorStop(0.32, '#a7b5c8');
+        shuriGrad.addColorStop(0.72, '#59677b');
+        shuriGrad.addColorStop(1, '#242a34');
         
         ctx.fillStyle = shuriGrad;
-        ctx.strokeStyle = '#eef3fc';
+        ctx.strokeStyle = '#c8d5e6';
         ctx.lineWidth = 0.8;
         
         // 手裏剣の形（少し鋭利に）
@@ -4253,7 +4255,7 @@ class EnemyProjectile {
         ctx.fill();
         
         // 中心のハイライトエッジ
-        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+        ctx.strokeStyle = 'rgba(214, 230, 248, 0.34)';
         ctx.lineWidth = 1;
         ctx.stroke();
         ctx.restore();

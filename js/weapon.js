@@ -445,8 +445,8 @@ export class Shuriken extends SubWeapon {
         this.baseSpeed = 16;
         this.projectiles = [];
         this.pendingShots = [];
-        this.projectileRadius = 12;
-        this.projectileRadiusHoming = 16;
+        this.projectileRadius = 10;
+        this.projectileRadiusHoming = 14;
         this.heldRotation = 0;
         this.maxOnScreen = 1; // 画面上最大同時存在数
     }
@@ -466,10 +466,15 @@ export class Shuriken extends SubWeapon {
         const damages = [10, 12, 13, 14];
         const speeds = [20, 22, 24, 26];
         const maxCounts = [1, 2, 3, 5]; // 画面上最大同時存在数
+        // Lv0〜2のみ少し大きく、Lv3は従来サイズを維持
+        const normalRadii = [11.2, 11.2, 11.2, 10];
+        const homingRadii = [14, 14, 14, 14];
 
         this.damage = damages[this.enhanceTier] || damages[0];
         this.bulletSpeed = speeds[this.enhanceTier] || speeds[0];
         this.maxOnScreen = maxCounts[this.enhanceTier] || maxCounts[0];
+        this.projectileRadius = normalRadii[this.enhanceTier] || normalRadii[0];
+        this.projectileRadiusHoming = homingRadii[this.enhanceTier] || homingRadii[0];
         this.cooldown = 150; // 投擲モーションのみ
         // Lv3: サイズアップ
         this.sizeUp = (this.enhanceTier >= 3);
@@ -517,7 +522,7 @@ export class Shuriken extends SubWeapon {
         const spawnY = baseY + 16;
         const speed = this.bulletSpeed || 20;
         const r = this.sizeUp
-            ? (homing ? 20 : 16)
+            ? (homing ? 17 : 14)
             : (homing ? this.projectileRadiusHoming : this.projectileRadius);
 
         const proj = new ShurikenProjectile(
@@ -1240,12 +1245,14 @@ export class DualBlades extends SubWeapon {
             case 1: base = 148; break; // 初段: 抜き打ち
             case 2: base = 262; break; // 二段: 逆袈裟
             case 3: base = 186; break; // 三段: クロスステップ薙ぎ
-            case 4: base = 286; break; // 四段: 胸前クロスから払い上げ
-            default: base = 358; break; // 五段(0): 落下断ち
+            case 4: base = 286; break; // 四段: 上昇切り上げ→海老反り
+            default: base = 358; break; // 五段(0): 海老反りから叩きつけ
         }
-        // 4〜5撃目は一段速いテンポに寄せる
-        if (step === 4 || step === 0) {
+        // 4〜5撃目は一段速いテンポ。5撃目は叩きつけ速度をもう少し上げる
+        if (step === 4) {
             base *= 0.6;
+        } else if (step === 0) {
+            base *= 0.55;
         }
         return Math.round(base * this.mainMotionSpeedScale);
     }
@@ -1310,13 +1317,14 @@ export class DualBlades extends SubWeapon {
             return 0.92 + ((p - 0.84) / 0.16) * 0.08;
         }
         if (step === 4) {
-            // 四段: 平行二刀の切り上げ（始動を速く、終端はわずかに減速）
-            if (p < 0.76) return (p / 0.76) * 0.88;
-            return 0.88 + ((p - 0.76) / 0.24) * 0.12;
+            // 四段: 切り上げを主に使い、終端で海老反り姿勢へ少し溜める
+            if (p < 0.62) return (p / 0.62) * 0.84;
+            return 0.84 + ((p - 0.62) / 0.38) * 0.16;
         }
-        // 五段目(0): 四段の逆ルートで振り下ろし
-        if (p < 0.2) return (p / 0.2) * 0.12;
-        return 0.12 + ((p - 0.2) / 0.8) * 0.88;
+        // 五段目(0): 海老反り始動の溜め→叩きつけを強く見せる
+        if (p < 0.1) return (p / 0.1) * 0.04;
+        if (p < 0.7) return 0.04 + ((p - 0.1) / 0.6) * 0.9;
+        return 0.94 + ((p - 0.7) / 0.3) * 0.06;
     }
 
     getMainSwingArcs(options = {}) {
@@ -1345,17 +1353,17 @@ export class DualBlades extends SubWeapon {
                 };
             case 4:
                 return {
-                    // 開始: 前方斜め下 / 終了: 頭上やや後方（2本はほぼ平行）
-                    rightStart: 1.04, rightEnd: -2.04,
-                    leftStart: 0.96, leftEnd: -2.12,
+                    // 開始: 前方斜め下 / 終了: 頭上やや後方でクロス
+                    rightStart: 1.22, rightEnd: -2.44,
+                    leftStart: 1.1, leftEnd: -2.26,
                     effectRadius: 108,
                     hit: 'risingX'
                 };
             default:
                 return {
-                    // 四段の逆再生ルート
-                    rightStart: -2.04, rightEnd: 1.04,
-                    leftStart: -2.12, leftEnd: 0.96,
+                    // 海老反りクロスから、左右に開いて叩きつける
+                    rightStart: -2.44, rightEnd: 1.22,
+                    leftStart: -2.26, leftEnd: 0.64,
                     effectRadius: 112,
                     hit: 'fallingBreak'
                 };

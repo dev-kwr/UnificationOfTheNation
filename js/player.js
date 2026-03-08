@@ -34,6 +34,7 @@ const COMBO_ATTACKS = [
 ];
 const BASE_EXP_TO_NEXT = 100;
 const TEMP_NINJUTSU_MAX_STACK_MS = 300000;
+const LEVEL_UP_MAX_HP_GAIN = 2;
 const PLAYER_HEADBAND_LINE_WIDTH = 4.2;
 const PLAYER_SPECIAL_HEADBAND_LINE_WIDTH = 5.4;
 const PLAYER_PONYTAIL_CONNECT_LIFT_Y = 2.2;
@@ -1274,13 +1275,13 @@ export class Player {
             const duration = Math.max(1, activeAttack.durationMs || PLAYER.ATTACK_COOLDOWN);
             const progress = Math.max(0, Math.min(1, 1 - (this.attackTimer / duration)));
             const direction = this.facingRight ? 1 : -1;
-            const z4HeightScale = 0.6;
+            const z4HeightScale = 0.68;
 
             // 四段目: 真上へ切り上げ → 後方へバク転
             if (progress < 0.42) {
                 const t = progress / 0.42;
                 this.vx = this.vx * 0.65 + direction * this.speed * (0.26 - t * 0.18);
-                this.vy = this.vy * 0.5 + ((-15.8 + t * 4.6) * z4HeightScale) * 0.5;
+                this.vy = this.vy * 0.5 + ((-17.2 + t * 4.8) * z4HeightScale) * 0.5;
             } else if (progress < 0.9) {
                 const t = (progress - 0.42) / 0.48;
                 const backSpeed = this.speed * (0.6 + t * 0.9);
@@ -1404,52 +1405,47 @@ export class Player {
                 this.vy = Math.max(this.vy, 3.8);
             }
         } else if (step === 4) {
-            // 胸前クロスで一拍ためてから前方へ解放
+            // 四段: 斜め下から大きく切り上げて上昇、終端は海老反り
             let targetVx;
-            if (p < 0.24) {
-                const t = p / 0.24;
-                targetVx = direction * this.speed * (0.62 - t * 0.28);
-                if (!this.isGrounded) this.vy = Math.min(this.vy, -5.2 + t * 1.6);
-            } else if (p < 0.46) {
-                const t = (p - 0.24) / 0.22;
-                targetVx = direction * this.speed * (0.34 - t * 0.18);
-                if (!this.isGrounded) this.vy = Math.min(this.vy, -3.6 + t * 2.8);
-            } else if (p < 0.84) {
-                const t = (p - 0.46) / 0.38;
-                targetVx = direction * this.speed * (0.16 + t * 1.14);
-                if (!this.isGrounded) this.vy = Math.max(this.vy, 0.6 + t * 5.4);
+            if (p < 0.66) {
+                const t = p / 0.66;
+                targetVx = direction * this.speed * (0.42 + t * 0.34);
+                this.vy = this.vy * 0.44 + (-14.6 + t * 7.6) * 0.56;
             } else {
-                const t = (p - 0.84) / 0.16;
-                targetVx = direction * this.speed * (1.3 - t * 0.86);
-                if (!this.isGrounded) this.vy = Math.max(this.vy, 5.8 + t * 4.5);
+                const t = (p - 0.66) / 0.34;
+                targetVx = direction * this.speed * (0.76 - t * 0.54);
+                this.vy = this.vy * 0.46 + (-6.2 + t * 7.4) * 0.54;
             }
             this.vx = blend(this.vx, targetVx);
+            this.isGrounded = false;
         } else {
-            // 落下断ち: 一瞬ためてから急降下して着地締め
-            if (p < 0.24) {
-                this.vx = blend(this.vx, direction * this.speed * 0.36);
-                this.vy = Math.min(this.vy, -1.8);
-            } else if (p < 0.78) {
-                const dive = (p - 0.24) / 0.54;
-                this.vx = blend(this.vx, direction * this.speed * (0.42 - dive * 0.28));
-                this.vy = Math.max(this.vy, 8.8 + dive * 17.8);
+            // 五段: 海老反りクロスから叩きつけ着地
+            if (p < 0.14) {
+                const t = p / 0.14;
+                this.vx = blend(this.vx, direction * this.speed * 0.26);
+                this.vy = Math.min(this.vy, -3.2 + t * 0.9);
+            } else if (p < 0.74) {
+                const dive = (p - 0.14) / 0.6;
+                this.vx = blend(this.vx, direction * this.speed * (0.36 + dive * 0.46));
+                this.vy = Math.max(this.vy, 10.2 + dive * 22.4);
             } else {
-                this.vx = blend(this.vx, direction * this.speed * 0.06);
-                this.vy = Math.max(this.vy, 17.6);
+                const t = (p - 0.74) / 0.26;
+                this.vx = blend(this.vx, direction * this.speed * (0.8 - t * 0.56));
+                this.vy = Math.max(this.vy, 21.2 - t * 5.0);
             }
-            if (this.isGrounded && p > 0.6) {
-                this.vx *= 0.58;
+            if (this.isGrounded && p > 0.58) {
+                this.vx *= 0.5;
             }
         }
 
         // 二刀コンボ中に上空へ登り続けないよう上昇量を制限
-        this.vy = Math.max(this.vy, -10.8);
+        this.vy = Math.max(this.vy, -15.4);
         const liftFromGround = this.groundY - (this.y + this.height);
-        if (liftFromGround > 122 && this.vy < -0.4) {
-            this.vy *= 0.34;
+        if (liftFromGround > 154 && this.vy < -0.4) {
+            this.vy *= 0.52;
         }
-        if (step === 0 && p > 0.88 && !this.isGrounded) {
-            this.vy = Math.max(this.vy, 18.8);
+        if (step === 0 && p > 0.84 && !this.isGrounded) {
+            this.vy = Math.max(this.vy, 22.2);
         }
     }
 
@@ -2587,6 +2583,7 @@ export class Player {
     
     levelUp() {
         this.level++;
+        this.maxHp = Math.max(1, this.maxHp + LEVEL_UP_MAX_HP_GAIN);
         this.expToNext = calcExpToNextForLevel(this.level);
         this.hp = this.maxHp;
     }
@@ -2694,7 +2691,8 @@ export class Player {
 
     getXAttackTrailWidthScale() {
         if (!this.isXAttackBoostActive()) return 1.0;
-        return this.isXAttackActionActive() ? 2.6 : 1.0;
+        // 大凪の見た目倍率は少し抑え、誇張しすぎないサイズ感にする
+        return this.isXAttackActionActive() ? 2.35 : 1.0;
     }
 
     isGhostVeilActive() {
@@ -3675,14 +3673,21 @@ export class Player {
                 ? { palette: { silhouette: `rgba(26, 26, 26, 0.0)` } }
                 : {};
             // 隠れ身の術中は本体の色を透明にするため 0.0 を渡す。globalAlphaには影響させないことでアクセサリを維持。
-            this.renderModel(ctx, this.x, this.y, this.facingRight, ghostVeilActive ? 0.0 : ctx.globalAlpha, false, { ...castOptions, ninNinPose: true });
+            this.renderModel(ctx, this.x, this.y, this.facingRight, ghostVeilActive ? 0.0 : ctx.globalAlpha, false, {
+                ...castOptions,
+                ninNinPose: true,
+                headbandAlpha: ghostVeilActive ? 1.0 : undefined
+            });
         } else {
             this.renderComboSlashTrail(ctx);
             const renderOptions = ghostVeilActive
                 ? { palette: { silhouette: `rgba(26, 26, 26, 0.0)` } }
                 : {};
             // 隠れ身の術中は本体の色を透明にするため 0.0 を渡す。globalAlphaには影響させないことでアクセサリを維持。
-            this.renderModel(ctx, this.x, this.y, this.facingRight, ghostVeilActive ? 0.0 : ctx.globalAlpha, true, renderOptions);
+            this.renderModel(ctx, this.x, this.y, this.facingRight, ghostVeilActive ? 0.0 : ctx.globalAlpha, true, {
+                ...renderOptions,
+                headbandAlpha: ghostVeilActive ? 1.0 : undefined
+            });
         }
 
         ctx.restore();
@@ -3702,6 +3707,9 @@ export class Player {
 
         const useLiveAccessories = options.useLiveAccessories !== false;
         const renderHeadbandTail = options.renderHeadbandTail !== false;
+        const headbandAlpha = Number.isFinite(options.headbandAlpha)
+            ? Math.max(0, Math.min(1, options.headbandAlpha))
+            : alpha;
         const forceSubWeaponRender = options.forceSubWeaponRender || (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流');
         const renderSubWeaponVisuals = renderSubWeaponVisualsInput;
         const accessoryHairNodes = Array.isArray(options.hairNodes) ? options.hairNodes : this.hairNodes;
@@ -3862,21 +3870,26 @@ export class Player {
                     torsoShoulderX += dir * (twist * 7.2);
                     torsoHipX -= dir * (1.0 + wave * 1.3);
                 } else if (s === 4) {
-                    // 四段: 胸前クロス構え→前方へ払い上げ
-                    const gather = Math.max(0, Math.min(1, p / 0.42));
-                    const release = Math.max(0, Math.min(1, (p - 0.42) / 0.58));
-                    const gatherEase = gather * gather * (3 - 2 * gather);
-                    const releaseEase = release * release * (3 - 2 * release);
-                    headY -= 0.8 + gatherEase * 1.3 + releaseEase * 0.6;
-                    bodyTopY -= 0.6 + gatherEase * 1.1 + releaseEase * 0.4;
-                    hipY -= 0.2 + gatherEase * 0.45;
-                    torsoShoulderX += dir * (1.1 + gatherEase * 1.8 + releaseEase * 2.4 + twist * 0.45);
-                    torsoHipX += dir * (0.3 + gatherEase * 0.8 + releaseEase * 0.7);
+                    // 四段: 上昇しながら海老反りへ。終端で胸を開き、剣をクロスできる体幹を作る
+                    const rise = Math.max(0, Math.min(1, p / 0.74));
+                    const arch = Math.max(0, Math.min(1, (p - 0.74) / 0.26));
+                    const riseEase = rise * rise * (3 - 2 * rise);
+                    const archEase = arch * arch * (3 - 2 * arch);
+                    headY -= 1.2 + riseEase * 3.6 + archEase * 2.5;
+                    bodyTopY -= 1.0 + riseEase * 2.9 + archEase * 1.9;
+                    hipY -= 0.35 + riseEase * 1.2;
+                    torsoShoulderX += dir * (1.1 + riseEase * 2.8 - archEase * 2.6 + twist * 0.45);
+                    torsoHipX += dir * (0.25 + riseEase * 0.95 + archEase * 0.7);
+                    headCenterX -= dir * archEase * 1.9;
                 } else {
-                    headY -= 1.8 + wave * 2.0;
-                    bodyTopY -= 1.4 + wave * 1.5;
-                    torsoShoulderX += dir * (1.8 + wave * 2.8);
-                    torsoHipX += dir * (0.3 + wave * 1.1);
+                    // 五段: 海老反りから一気に叩きつけ。開始時クロス、終盤で左右に開く
+                    const dive = p * p * (3 - 2 * p);
+                    const smash = Math.max(0, Math.min(1, (p - 0.22) / 0.78));
+                    const smashEase = smash * smash * (3 - 2 * smash);
+                    headY -= 4.6 - dive * 3.0;
+                    bodyTopY -= 3.4 - dive * 2.4;
+                    torsoShoulderX += dir * (0.9 + smashEase * 2.2);
+                    torsoHipX += dir * (0.28 + smashEase * 1.25);
                 }
             }
             if (isDualZComboPose) {
@@ -3896,7 +3909,7 @@ export class Player {
                 const comboProgress = Math.max(0, Math.min(1, 1 - (this.attackTimer / comboDuration)));
                 const riseT = Math.min(1, comboProgress / 0.42);
                 const flipT = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.58));
-                const z4HeightScale = 0.62;
+                const z4HeightScale = 0.74;
                 const riseLift = Math.sin(riseT * Math.PI * 0.5) * 8.5 * z4HeightScale;
                 hipY -= riseLift * 0.38;
                 bodyTopY -= riseLift * 0.95;
@@ -4215,9 +4228,9 @@ export class Player {
             } else if (comboStep === 3) {
                 backKneeX = backHipX - dir * (3.2 - comboArc * 0.9); backKneeY = hipLocalY + 8.6 - comboArc * 0.9; backFootX = centerX - dir * (8.8 + comboArc * 3.2); backFootY = bottomY - 0.8 - airborneLift * 0.32; frontKneeX = frontHipX + dir * (3.4 - comboArc * 0.8); frontKneeY = hipLocalY + 8.3 - comboArc * 0.9; frontFootX = centerX + dir * (9.1 + comboArc * 3.0); frontFootY = bottomY - 0.9 - airborneLift * 0.32;
             } else if (comboStep === 4) {
-                backKneeX = backHipX - dir * (2.4 - comboArc * 1.3); backKneeY = hipLocalY + 8.1 - comboArc * 2.4; backFootX = centerX - dir * (7.4 + comboArc * 3.8); backFootY = bottomY - 1.4 - airborneLift * 0.66; frontKneeX = frontHipX + dir * (2.0 - comboArc * 1.2); frontKneeY = hipLocalY + 7.7 - comboArc * 2.2; frontFootX = centerX + dir * (6.4 + comboArc * 3.4); frontFootY = bottomY - 1.6 - airborneLift * 0.66;
+                backKneeX = backHipX - dir * (1.5 + comboArc * 1.5); backKneeY = hipLocalY + 8.2 - comboArc * 2.6; backFootX = centerX - dir * (6.0 + comboArc * 5.0); backFootY = bottomY - 1.3 - airborneLift * 0.74 - comboArc * 1.2; frontKneeX = frontHipX - dir * (0.25 + comboArc * 1.0); frontKneeY = hipLocalY + 7.9 - comboArc * 2.5; frontFootX = centerX - dir * (2.6 + comboArc * 4.1); frontFootY = bottomY - 1.5 - airborneLift * 0.72 - comboArc * 1.3;
             } else if (comboStep === 0) {
-                backKneeX = backHipX - dir * (1.5 - comboArc * 0.8); backKneeY = hipLocalY + 8.7 + comboArc * 1.2; backFootX = centerX - dir * (4.9 - comboArc * 1.8); backFootY = bottomY - 1.6 + comboArc * 1.1 - airborneLift * 0.62; frontKneeX = frontHipX + dir * (1.3 - comboArc * 0.7); frontKneeY = hipLocalY + 8.5 + comboArc * 1.2; frontFootX = centerX + dir * (4.4 - comboArc * 1.7); frontFootY = bottomY - 1.7 + comboArc * 1.2 - airborneLift * 0.62;
+                backKneeX = backHipX - dir * (2.2 - comboArc * 3.0); backKneeY = hipLocalY + 7.8 + comboArc * 2.3; backFootX = centerX - dir * (7.8 - comboArc * 12.0); backFootY = bottomY - 1.8 + comboArc * 2.0 - airborneLift * 0.68; frontKneeX = frontHipX - dir * (1.1 - comboArc * 3.4); frontKneeY = hipLocalY + 7.6 + comboArc * 2.4; frontFootX = centerX - dir * (4.9 - comboArc * 11.2); frontFootY = bottomY - 1.9 + comboArc * 2.1 - airborneLift * 0.7;
             }
             // 二刀Z中の脚重ね順は固定: 後ろ足を手前、前足を奥
             drawJointedLeg(backHipX, hipLocalY + 0.3, backKneeX, backKneeY, backFootX, backFootY, false, 1.1, null, true, true);
@@ -4376,7 +4389,7 @@ export class Player {
             else if (comboStep === 4) {
                 const rise = comboProgress;
                 const flipT = Math.max(0, (rise - 0.42) / 0.58);
-                const z4HeightScale = 0.62;
+                const z4HeightScale = 0.74;
                 backKneeX = backHipX - dir * (1.4 - rise * 0.6 + flipT * 2.8);
                 backKneeY = hipLocalY + 8.6 - (rise * 2.2 + flipT * 1.2) * z4HeightScale;
                 backFootX = centerX - dir * (5.4 - rise * 1.4 + flipT * 7.8);
@@ -4709,7 +4722,7 @@ export class Player {
 
         const drawHeadbandBand = () => {
             const renderHeadband = options.renderHeadband !== false;
-            if (!renderHeadband || alpha <= 0) return;
+            if (!renderHeadband || headbandAlpha <= 0) return;
             const bandMaskRadius = Math.max(1, headRadius - 0.05);
             const bandPathRadius = bandMaskRadius + 6 * 0.34; // 6 is PLAYER_HEADBAND_LINE_WIDTH
             const bandBackAngle = facingRight ? Math.PI * 0.92 : Math.PI * 0.08;
@@ -4722,6 +4735,7 @@ export class Player {
             const bCtrlY = headY - headRadius * 0.30;
 
             ctx.save();
+            if (headbandAlpha !== 1.0) ctx.globalAlpha *= headbandAlpha;
             ctx.beginPath();
             ctx.arc(headCenterX, headY, bandMaskRadius, 0, Math.PI * 2);
             ctx.clip();
@@ -4752,7 +4766,7 @@ export class Player {
 
         // 鉢巻テール
         const renderHeadband = options.renderHeadband !== false;
-        if (renderHeadband && renderHeadbandTail) {
+        if (renderHeadband && renderHeadbandTail && headbandAlpha > 0) {
             // 鉢巻バンドは頭円クリップ内に表示されるため、クリップ後に見える帯の中心へ根元を合わせる
             const bandLineWidth = 6;
             const bandMaskRadius = Math.max(1, headRadius - 0.05);
@@ -4763,7 +4777,7 @@ export class Player {
             const clippedBandCenterRadius = (clippedBandInner + clippedBandOuter) * 0.5;
             const headbandTailRootX = headCenterX + Math.cos(bandBackAngle) * clippedBandCenterRadius + dir * 0.34;
             const headbandTailRootY = headY + Math.sin(bandBackAngle) * clippedBandCenterRadius - 0.08;
-            this.renderHeadbandTail(ctx, headbandTailRootX, headbandTailRootY, dir, alpha, accentColor, time, {
+            this.renderHeadbandTail(ctx, headbandTailRootX, headbandTailRootY, dir, headbandAlpha, accentColor, time, {
                 ...options,
                 isMoving,
                 scarfNodes: accessoryScarfNodes
@@ -5549,66 +5563,67 @@ export class Player {
                 backTargetY = backShoulderMoveY + 2.1 + comboPulse * 0.7;
                 frontTargetY = frontShoulderMoveY + 2.5 - comboPulse * 0.7;
             } else if (comboStep === 4) {
-                // 四段: 平行二刀で前方斜め下→頭上やや後方へ切り上げ
+                // 四段: 前方斜め下から切り上げ、終端は海老反りで剣をクロス
                 const phase = smoothStep01(comboProgress);
-                const baseAngle = 1.06 + (-2.02 - 1.06) * phase;
-                const backAngle = baseAngle + 0.04;
-                const frontAngle = baseAngle - 0.04;
-                const endBend = smoothStep01((comboProgress - 0.84) / 0.16);
-                const reachScale = 1 - 0.1 * endBend; // 終端のみ軽く肘を曲げる
-                const baseReach = isCrouchPose ? 18.8 : 20.6;
+                const backAngle = pose.rightAngle;
+                const frontAngle = pose.leftAngle;
+                const endBend = smoothStep01((comboProgress - 0.82) / 0.18);
+                const baseReach = isCrouchPose ? 18.9 : 20.8;
+                const reachScale = 1 - 0.2 * endBend;
                 const backSweepReach = baseReach * reachScale;
-                const frontSweepReach = (baseReach - 0.35) * reachScale;
+                const frontSweepReach = (baseReach - 0.4) * reachScale;
 
                 skipPoseReachAdjustment = true;
-                backShoulderMoveX += dir * (0.35 + (phase - 0.5) * 0.95);
-                frontShoulderMoveX += dir * (0.15 + (phase - 0.5) * 0.85);
-                backShoulderMoveY -= 0.12 + phase * 0.72;
-                frontShoulderMoveY -= 0.08 + phase * 0.66;
+                backShoulderMoveX += dir * (0.25 + (phase - 0.5) * 1.12);
+                frontShoulderMoveX -= dir * (0.08 + phase * 0.58);
+                backShoulderMoveY -= 0.26 + phase * 1.35;
+                frontShoulderMoveY -= 0.24 + phase * 1.22;
 
                 backTargetX = backShoulderMoveX + Math.cos(backAngle) * backSweepReach * dir;
                 backTargetY = backShoulderMoveY + Math.sin(backAngle) * backSweepReach;
                 frontTargetX = frontShoulderMoveX + Math.cos(frontAngle) * frontSweepReach * dir;
                 frontTargetY = frontShoulderMoveY + Math.sin(frontAngle) * frontSweepReach;
 
-                // 奥行き: 手前手は下、奥手は上で平行を保つ
-                frontTargetY += isCrouchPose ? 1.2 : 1.6;
-                backTargetY -= isCrouchPose ? 0.75 : 1.0;
-                frontTargetX -= dir * (isCrouchPose ? 0.7 : 0.95);
-                backTargetX += dir * (isCrouchPose ? 0.28 : 0.42);
+                // 奥行き: 手前手は下、奥手は上。終盤はクロスへ収束
+                const crossBlend = smoothStep01((comboProgress - 0.74) / 0.26);
+                frontTargetY += (isCrouchPose ? 1.45 : 2.0) - crossBlend * 1.35;
+                backTargetY -= (isCrouchPose ? 1.05 : 1.45) - crossBlend * 0.9;
+                frontTargetX -= dir * ((isCrouchPose ? 0.95 : 1.35) - crossBlend * 1.0);
+                backTargetX += dir * ((isCrouchPose ? 0.42 : 0.72) - crossBlend * 0.62);
             } else if (comboStep === 0) {
-                // 五段: 四段と同ルートを逆再生して振り下ろし
+                // 五段: 海老反りクロスから腕を左右に開きつつ叩きつける
                 const phase = smoothStep01(comboProgress);
-                const path = 1 - phase;
-                const baseAngle = 1.06 + (-2.02 - 1.06) * path;
-                const backAngle = baseAngle + 0.04;
-                const frontAngle = baseAngle - 0.04;
-                const startBend = 1 - smoothStep01(comboProgress / 0.2); // 開始直後だけ軽く曲げ
-                const reachScale = 1 - 0.1 * startBend;
-                const baseReach = isCrouchPose ? 18.8 : 20.6;
+                const backAngle = pose.rightAngle;
+                const frontAngle = pose.leftAngle;
+                const startBend = 1 - smoothStep01(comboProgress / 0.24);
+                const baseReach = isCrouchPose ? 18.9 : 20.8;
+                const reachScale = 1 - 0.12 * startBend;
                 const backSweepReach = baseReach * reachScale;
-                const frontSweepReach = (baseReach - 0.35) * reachScale;
+                const frontSweepReach = (baseReach - 0.4) * reachScale;
 
                 skipPoseReachAdjustment = true;
-                backShoulderMoveX += dir * (0.35 + (path - 0.5) * 0.95);
-                frontShoulderMoveX += dir * (0.15 + (path - 0.5) * 0.85);
-                backShoulderMoveY -= 0.12 + path * 0.72;
-                frontShoulderMoveY -= 0.08 + path * 0.66;
+                backShoulderMoveX += dir * (0.28 + phase * 1.18);
+                frontShoulderMoveX -= dir * (0.1 + phase * 1.28);
+                backShoulderMoveY += 0.15 + phase * 1.55;
+                frontShoulderMoveY += 0.2 + phase * 1.7;
 
                 backTargetX = backShoulderMoveX + Math.cos(backAngle) * backSweepReach * dir;
                 backTargetY = backShoulderMoveY + Math.sin(backAngle) * backSweepReach;
                 frontTargetX = frontShoulderMoveX + Math.cos(frontAngle) * frontSweepReach * dir;
                 frontTargetY = frontShoulderMoveY + Math.sin(frontAngle) * frontSweepReach;
 
-                frontTargetY += isCrouchPose ? 1.2 : 1.6;
-                backTargetY -= isCrouchPose ? 0.75 : 1.0;
-                frontTargetX -= dir * (isCrouchPose ? 0.7 : 0.95);
-                backTargetX += dir * (isCrouchPose ? 0.28 : 0.42);
+                // 開始はクロス寄り、終盤で左右へ開く
+                frontTargetY += (isCrouchPose ? 1.1 : 1.55) + phase * 0.52;
+                backTargetY -= (isCrouchPose ? 0.62 : 0.9) - phase * 0.2;
+                // 叩きつけ終盤で左右展開。奥の手は抑えめにして破綻を防ぐ
+                const spreadBlend = smoothStep01((comboProgress - 0.46) / 0.54);
+                frontTargetX -= dir * ((isCrouchPose ? 0.62 : 0.95) + spreadBlend * 2.35);
+                backTargetX += dir * ((isCrouchPose ? 0.24 : 0.42) + spreadBlend * 0.95);
             }
 
             const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-            const shoulderMaxDriftX = 2.9;
-            const shoulderMaxDriftY = 3.1;
+            const shoulderMaxDriftX = (comboStep === 4 || comboStep === 0) ? 3.9 : 2.9;
+            const shoulderMaxDriftY = (comboStep === 4 || comboStep === 0) ? 3.9 : 3.1;
             backShoulderMoveX = clamp(backShoulderMoveX, backShoulderBaseX - shoulderMaxDriftX, backShoulderBaseX + shoulderMaxDriftX);
             backShoulderMoveY = clamp(backShoulderMoveY, backShoulderBaseY - shoulderMaxDriftY, backShoulderBaseY + shoulderMaxDriftY);
             frontShoulderMoveX = clamp(frontShoulderMoveX, frontShoulderBaseX - shoulderMaxDriftX, frontShoulderBaseX + shoulderMaxDriftX);
@@ -5633,8 +5648,8 @@ export class Player {
                 dualFrontReachCap = Math.min(standardFrontReach + 2.8, dualFrontReachCap + 2.8 * stretchCap);
             } else if (comboStep === 4 || comboStep === 0) {
                 // 4〜5撃目は腕をほぼ直線に保つ
-                dualBackReachCap = Math.min(standardBackReach + 2.6, 22.4);
-                dualFrontReachCap = Math.min(standardFrontReach + 2.6, 22.0);
+                dualBackReachCap = Math.min(standardBackReach + 4.2, 24.6);
+                dualFrontReachCap = Math.min(standardFrontReach + 4.2, 24.2);
             }
             const backHand = clampArmReach(backShoulderMoveX, backShoulderMoveY, backTargetX, backTargetY, dualBackReachCap);
             const frontHand = clampArmReach(frontShoulderMoveX, frontShoulderMoveY, frontTargetX, frontTargetY, dualFrontReachCap);
@@ -6216,13 +6231,13 @@ export class Player {
                         const t = progress / 0.42;
                         swordAngle = 1.32 - 2.06 * t;
                         armEndX = centerX + dir * (8.0 + Math.sin(t * Math.PI) * 1.2);
-                        armEndY = pivotY + 22 - t * 36;
+                        armEndY = pivotY + 22 - t * 46;
                     } else {
                         const flipT = Math.max(0, Math.min(1, (progress - 0.42) / 0.58));
                         const bodyFlipAngle = -Math.PI * 1.82 * flipT;
                         swordAngle = -0.76 + bodyFlipAngle;
                         armEndX = centerX - dir * (4.0 + Math.sin(flipT * Math.PI) * 6.0);
-                        armEndY = pivotY - 10 + Math.cos(flipT * Math.PI) * 3.0;
+                        armEndY = pivotY - 14 + Math.cos(flipT * Math.PI) * 4.0;
                     }
                     {
                         // 四段目開始は三段目終点から接続
@@ -6251,13 +6266,13 @@ export class Player {
                         if (progress < 0.26) {
                             const t = progress / 0.26;
                             swordAngle = -1.45 + t * 0.3;
-                            armEndX = centerX + dir * (2 + t * 4);
-                            armEndY = pivotY - 12 - t * 7;
+                            armEndX = centerX - dir * (4.0 - t * 8.0);
+                            armEndY = pivotY - 18 - t * 5.0;
                         } else if (progress < 0.78) {
                             const t = (progress - 0.26) / 0.52;
                             swordAngle = -1.15 + t * 2.2;
-                            armEndX = centerX + dir * (6 + t * 20);
-                            armEndY = pivotY - 19 + t * 36;
+                            armEndX = centerX + dir * (4 + t * 22);
+                            armEndY = pivotY - 23 + t * 40;
                         } else {
                             const t = (progress - 0.78) / 0.22;
                             swordAngle = 1.05 - t * 0.52;
@@ -6269,7 +6284,7 @@ export class Player {
                         const prepEase = prepT * prepT * (3 - 2 * prepT);
                         const prevAngle = -0.76 - Math.PI * 1.82;
                         const prevHandX = centerX - dir * 4.0;
-                        const prevHandY = pivotY - 13.0;
+                        const prevHandY = pivotY - 18.0;
                         swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
                         armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
                         armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
@@ -6980,13 +6995,13 @@ export class Player {
                     const t = progress / 0.42;
                     swordAngle = 1.32 - 2.06 * t;
                     armEndX = centerX + dir * (8.0 + Math.sin(t * Math.PI) * 1.2);
-                    armEndY = pivotY + 22 - t * 36;
+                    armEndY = pivotY + 22 - t * 46;
                 } else {
                     const flipT = Math.max(0, Math.min(1, (progress - 0.42) / 0.58));
                     const bodyFlipAngle = -Math.PI * 1.82 * flipT;
                     swordAngle = -0.76 + bodyFlipAngle;
                     armEndX = centerX - dir * (4.0 + Math.sin(flipT * Math.PI) * 6.0);
-                    armEndY = pivotY - 10 + Math.cos(flipT * Math.PI) * 3.0;
+                    armEndY = pivotY - 14 + Math.cos(flipT * Math.PI) * 4.0;
                 }
                 const prepT = Math.max(0, Math.min(1, progress / 0.18));
                 const prepEase = prepT * prepT * (3 - 2 * prepT);
@@ -7002,13 +7017,13 @@ export class Player {
                 if (progress < 0.26) {
                     const t = progress / 0.26;
                     swordAngle = -1.45 + t * 0.3;
-                    armEndX = centerX + dir * (2 + t * 4);
-                    armEndY = pivotY - 12 - t * 7;
+                    armEndX = centerX - dir * (4.0 - t * 8.0);
+                    armEndY = pivotY - 18 - t * 5.0;
                 } else if (progress < 0.78) {
                     const t = (progress - 0.26) / 0.52;
                     swordAngle = -1.15 + t * 2.2;
-                    armEndX = centerX + dir * (6 + t * 20);
-                    armEndY = pivotY - 19 + t * 36;
+                    armEndX = centerX + dir * (4 + t * 22);
+                    armEndY = pivotY - 23 + t * 40;
                 } else {
                     const t = (progress - 0.78) / 0.22;
                     swordAngle = 1.05 - t * 0.52;
@@ -7019,7 +7034,7 @@ export class Player {
                 const prepEase = prepT * prepT * (3 - 2 * prepT);
                 const prevAngle = -0.76 - Math.PI * 1.82;
                 const prevHandX = centerX - dir * 4.0;
-                const prevHandY = pivotY - 13.0;
+                const prevHandY = pivotY - 18.0;
                 swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
                 armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
                 armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
@@ -7277,6 +7292,17 @@ export class Player {
         const resolveHitboxCenter = (boxes) => {
             if (!boxes) return null;
             const arr = Array.isArray(boxes) ? boxes : [boxes];
+            // 先頭の剣本体ボックスを優先し、補助判定(密着/前方/衝撃)で中心がズレるのを防ぐ
+            const primary = arr.find((b) =>
+                b && Number.isFinite(b.x) && Number.isFinite(b.y) &&
+                Number.isFinite(b.width) && Number.isFinite(b.height)
+            );
+            if (primary) {
+                return {
+                    x: primary.x + primary.width * 0.5,
+                    y: primary.y + primary.height * 0.5
+                };
+            }
             let sumX = 0;
             let sumY = 0;
             let sumW = 0;
@@ -7744,9 +7770,7 @@ export class Player {
                 };
 
                 const cloneDrawX = pos.x - this.width * 0.5;
-                const cloneDrawY = this.specialCloneAutoAiEnabled
-                    ? (pos.y - PLAYER.HEIGHT * 0.62)
-                    : (saved.y + saved.height - PLAYER.HEIGHT);
+                const cloneDrawY = pos.y - PLAYER.HEIGHT * 0.62;
 
                 // 霧エフェクト（描画座標に追従・キャッシュCanvasを利用して軽量化）
                 const mistCenterY = cloneDrawY + PLAYER.HEIGHT * 0.45;
@@ -7816,8 +7840,9 @@ export class Player {
                         : null;
                 } else {
                     this.vx = saved.vx;
-                    this.vy = saved.vy;
-                    this.isGrounded = saved.isGrounded;
+                    // Lv0〜2分身はアンカー地面に固定し、本体ジャンプで見た目が沈まないようにする
+                    this.vy = 0;
+                    this.isGrounded = true;
                     this.isCrouching = saved.isCrouching;
                     this.isDashing = saved.isDashing;
                     this.subWeaponTimer = saved.subWeaponTimer;
@@ -8033,6 +8058,7 @@ export class Player {
 
         if (!isAttacking || !currentAttack) return null;
         const zHitboxScale = this.getXAttackHitboxScale();
+        const xBoostAction = this.isXAttackBoostActive() && this.isXAttackActionActive();
         const scaleBox = (box) => {
             if (!box || zHitboxScale <= 1.001) return box;
             const cx = box.x + box.width * 0.5;
@@ -8138,13 +8164,13 @@ export class Player {
                         const t = eased / 0.42;
                         swordAngle = 1.32 - 2.06 * t;
                         armEndX = centerX + dir * (8.0 + Math.sin(t * Math.PI) * 1.2);
-                        armEndY = pivotY + 22 - t * 36;
+                        armEndY = pivotY + 22 - t * 46;
                     } else {
                         const flipT = Math.max(0, Math.min(1, (eased - 0.42) / 0.58));
                         const bodyFlipAngle = -Math.PI * 1.82 * flipT;
                         swordAngle = -0.76 + bodyFlipAngle;
                         armEndX = centerX - dir * (4.0 + Math.sin(flipT * Math.PI) * 6.0);
-                        armEndY = pivotY - 10 + Math.cos(flipT * Math.PI) * 3.0;
+                        armEndY = pivotY - 14 + Math.cos(flipT * Math.PI) * 4.0;
                     }
                     {
                         const prepT = Math.max(0, Math.min(1, eased / 0.18));
@@ -8161,13 +8187,13 @@ export class Player {
                     if (eased < 0.26) {
                         const t = eased / 0.26;
                         swordAngle = -1.45 + t * 0.3;
-                        armEndX = centerX + dir * (2 + t * 4);
-                        armEndY = pivotY - 12 - t * 7;
+                        armEndX = centerX - dir * (4.0 - t * 8.0);
+                        armEndY = pivotY - 18 - t * 5.0;
                     } else if (eased < 0.78) {
                         const t = (eased - 0.26) / 0.52;
                         swordAngle = -1.15 + t * 2.2;
-                        armEndX = centerX + dir * (6 + t * 20);
-                        armEndY = pivotY - 19 + t * 36;
+                        armEndX = centerX + dir * (4 + t * 22);
+                        armEndY = pivotY - 23 + t * 40;
                     } else {
                         const t = (eased - 0.78) / 0.22;
                         swordAngle = 1.05 - t * 0.52;
@@ -8179,7 +8205,7 @@ export class Player {
                         const prepEase = prepT * prepT * (3 - 2 * prepT);
                         const prevAngle = -0.76 - Math.PI * 1.82;
                         const prevHandX = centerX - dir * 4.0;
-                        const prevHandY = pivotY - 13.0;
+                        const prevHandY = pivotY - 18.0;
                         swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
                         armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
                         armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
@@ -8239,6 +8265,10 @@ export class Player {
                     width: 88,
                     height: 52
                 };
+                if (xBoostAction) {
+                    // 大凪中は剣筋から離れた補助判定を抑えて、ヒット感を剣筋寄りに合わせる
+                    return [swordBox, impactBox].map(scaleBox);
+                }
                 return [swordBox, closeRangeBox, forwardAssistBox, impactBox].map(scaleBox);
             }
 
