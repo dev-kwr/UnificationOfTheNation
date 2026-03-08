@@ -59,6 +59,7 @@ class Game {
         
         // ステージ情報
         this.currentStageNumber = 1;
+        this.stage3AutoScrollSpeed = 120; // px/s（Stage3専用の自動横スクロール速度）
         
         // 地面の高さ
         this.groundY = Math.round(CANVAS_HEIGHT * (2 / 3));
@@ -1244,11 +1245,21 @@ class Game {
         
 
         
-        // --- スクロール処理 (プレイヤー追従・戻りなし) ---
-        const screenCenter = CANVAS_WIDTH / 2;
-        // プレイヤーが画面中央を超えたらスクロール位置を更新
-        if (this.player.x > this.scrollX + screenCenter) {
-            this.scrollX = this.player.x - screenCenter;
+        // --- スクロール処理 ---
+        // Stage3のみ、ボス戦開始までは自動横スクロールにする
+        const stage3AutoScrollActive = (
+            this.currentStageNumber === 3 &&
+            this.stage &&
+            !this.stage.bossSpawned
+        );
+        if (stage3AutoScrollActive) {
+            this.scrollX += this.stage3AutoScrollSpeed * this.deltaTime;
+        } else {
+            // それ以外は従来どおりプレイヤー追従（戻りなし）
+            const screenCenter = CANVAS_WIDTH / 2;
+            if (this.player.x > this.scrollX + screenCenter) {
+                this.scrollX = this.player.x - screenCenter;
+            }
         }
         
         // ステージ端（最大スクロール量）制限
