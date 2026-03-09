@@ -753,8 +753,10 @@ export class Player {
         // 入力処理 (handleInput内でタイマーをセットするように修正が必要)
         this.handleInput();
         
-        // 物理演算
-        this.applyPhysics(walls);
+        // 物理演算（ヒットストップ中は位置更新をスキップして、アニメーションとの同期を維持する）
+        if (deltaTime > 0) {
+            this.applyPhysics(walls);
+        }
         
         // アニメーション更新
         this.updateAnimation(deltaTime);
@@ -1313,11 +1315,14 @@ export class Player {
                 this.vx *= 0.78;
                 this.vy = Math.min(this.vy, 0.55);
             }
-            // ヒット時の負荷やノックバック干渉で上昇が潰れないよう、4段目前半は最低上昇速度を維持
+            // ヒット時の負荷やノックバック干渉で上昇が潰れないよう、4段目前半は上昇速度を強力に補正
             if (progress < 0.72) {
                 const riseLockT = Math.max(0, Math.min(1, progress / 0.72));
-                const minRiseVy = (-15.8 + riseLockT * 13.2) * z4HeightScale;
+                // 最低上昇速度をわずかに強化 (-15.8 -> -16.2)
+                const minRiseVy = (-16.2 + riseLockT * 13.5) * z4HeightScale;
                 this.vy = Math.min(this.vy, minRiseVy);
+                // 上昇中は接地判定を強制解除
+                this.isGrounded = false;
             }
             this.isGrounded = false;
         } else if (activeAttack && activeAttack.comboStep === 5 && (this.attackTimer > 0 || !this.isGrounded)) {
@@ -2494,11 +2499,17 @@ export class Player {
             this.isWallSliding = false;
             this.jumpCount = Math.max(this.jumpCount, 1);
         } else if (supportTopY !== null && this.y + this.height >= supportTopY - 2) {
-            this.y = supportTopY - this.height;
-            this.vy = 0;
-            this.isGrounded = true;
-            this.jumpCount = 0;
-            this.isWallSliding = false;
+            // 急上昇中は上面への「吸い付き」を防ぐため、判定を厳格化
+            const isRapidAscending = this.vy < -5.0;
+            if (!isRapidAscending || (prevY + this.height <= supportTopY + 1)) {
+                this.y = supportTopY - this.height;
+                this.vy = 0;
+                this.isGrounded = true;
+                this.jumpCount = 0;
+                this.isWallSliding = false;
+            } else {
+                this.isGrounded = false;
+            }
         } else if (this.y + this.height >= this.groundY + LANE_OFFSET) {
             this.y = this.groundY + LANE_OFFSET - this.height;
             this.vy = 0;
