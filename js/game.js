@@ -409,7 +409,7 @@ class Game {
                 label: 'アイテム:活力の秘薬',
                 getValue: () => `+ ${cfg.items.hp_boost * 5}`,
                 change: (delta) => { 
-                    cfg.items.hp_boost = Math.max(0, Math.min(18, (cfg.items.hp_boost || 0) + delta)); 
+                    cfg.items.hp_boost = Math.max(0, (cfg.items.hp_boost || 0) + delta); 
                 }
             },
             {

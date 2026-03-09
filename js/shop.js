@@ -15,7 +15,7 @@ function formatMoneyValue(amount) {
 // ショップアイテム
 const SHOP_ITEMS = [
     // ステータス強化
-    { id: 'hp_up', name: '活力の秘薬', description: '最大HPを+5（最大18回まで・価格は段階上昇）', price: 100, type: 'upgrade', stat: 'maxHp', value: 5 },
+    { id: 'hp_up', name: '活力の秘薬', description: '最大HPを+5', price: 100, type: 'upgrade', stat: 'maxHp', value: 5 },
     { id: 'attack_up', name: '剛力の秘薬', description: '攻撃力が段階的に上昇（最大3回: 1.2→1.5→2.0倍・500枚から段階上昇）', price: 500, type: 'upgrade', stat: 'attackPower', value: 1 },
     { id: 'speed_up', name: '韋駄天の秘術', description: '常時ダッシュ状態で移動可能になる', price: 2000, type: 'upgrade', stat: 'speed', value: 1.5 },
     
@@ -215,7 +215,6 @@ export class Shop {
 
         // 完売チェック
         let isSoldOut = false;
-        if (item.id === 'hp_up' && this.purchasedUpgrades.hp_up >= 18) isSoldOut = true;
         if (item.id === 'attack_up' && this.purchasedUpgrades.attack_up >= 3) isSoldOut = true;
         if (this.purchasedSkills.has(item.id)) isSoldOut = true;
 
@@ -248,7 +247,7 @@ export class Shop {
                     player.maxHp += item.value;
                     player.hp = player.maxHp;
                     this.purchasedUpgrades.hp_up++;
-                    this.showMessage(`最大HPが${item.value}増えた！ (${this.purchasedUpgrades.hp_up}/18)`);
+                    this.showMessage(`最大HPが${item.value}増えた！`);
                 } else if (item.stat === 'attackPower') {
                     this.purchasedUpgrades.attack_up++;
                     player.atkLv = this.purchasedUpgrades.attack_up;
@@ -376,7 +375,6 @@ export class Shop {
             
             // 完売判定
             let isPurchased = this.purchasedSkills.has(item.id);
-            if (item.id === 'hp_up' && this.purchasedUpgrades.hp_up >= 18) isPurchased = true;
             if (item.id === 'attack_up' && this.purchasedUpgrades.attack_up >= 3) isPurchased = true;
 
             const isLocked = item.id === 'triple_jump' && !this.purchasedSkills.has('double_jump');

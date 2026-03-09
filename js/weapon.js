@@ -1260,7 +1260,7 @@ export class DualBlades extends SubWeapon {
         }
         // 4〜5撃目は一段速いテンポ。5撃目は叩きつけ速度をもう少し上げる
         if (step === 4) {
-            base *= 0.6;
+            base *= 0.66;
         } else if (step === 0) {
             base *= 0.55;
         }
@@ -1331,10 +1331,10 @@ export class DualBlades extends SubWeapon {
             if (p < 0.62) return (p / 0.62) * 0.84;
             return 0.84 + ((p - 0.62) / 0.38) * 0.16;
         }
-        // 五段目(0): 海老反り始動の溜め→叩きつけを強く見せる
-        if (p < 0.1) return (p / 0.1) * 0.04;
-        if (p < 0.7) return 0.04 + ((p - 0.1) / 0.6) * 0.9;
-        return 0.94 + ((p - 0.7) / 0.3) * 0.06;
+        // 五段目(0): 4段目終端姿勢を短く保持してから叩きつける
+        if (p < 0.18) return (p / 0.18) * 0.04;
+        if (p < 0.72) return 0.04 + ((p - 0.18) / 0.54) * 0.9;
+        return 0.94 + ((p - 0.72) / 0.28) * 0.06;
     }
 
     getMainSwingArcs(options = {}) {
@@ -1373,8 +1373,8 @@ export class DualBlades extends SubWeapon {
                 return {
                     // 海老反りクロスから、左右に開いて叩きつける
                     // 奥手/手前手の刀角度は常に平行を維持
-                    rightStart: -2.34, rightEnd: 0.82,
-                    leftStart: -2.34, leftEnd: 0.82,
+                    rightStart: -2.56, rightEnd: 0.82,
+                    leftStart: -2.56, leftEnd: 0.82,
                     effectRadius: 112,
                     hit: 'fallingBreak'
                 };
