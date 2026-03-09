@@ -2,7 +2,7 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, WORLD_ENTITY_RENDER_SCALE } from './constants.js';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, WORLD_ENTITY_RENDER_SCALE, STAGE5_FLOOR } from './constants.js';
 import { createEnemy } from './enemy.js';
 import { createBoss } from './boss.js';
 import { createObstacle } from './obstacle.js';
@@ -19,8 +19,36 @@ export class Stage {
         
         // ステージ進行
         this.progress = 0;
-        this.maxProgress = 12000;  // スクロール距離を大幅に拡大 (6000 -> 12000)
         this.scrollSpeed = 2; // unused but kept
+
+        // --- Stage 5 フロア制 ---
+        if (this.stageNumber === 5) {
+            this.currentFloor = 1;
+            this.maxFloor = STAGE5_FLOOR.COUNT;
+            this.floorMaxProgress = STAGE5_FLOOR.PROGRESS_PER_FLOOR;
+            this.maxProgress = this.floorMaxProgress;
+            // 奇数フロア=右方向(1), 偶数フロア=左方向(-1)
+            this.floorScrollDirection = 1;
+            this.stairZoneWidth = STAGE5_FLOOR.STAIR_WIDTH;
+            this.stairHeightPx = STAGE5_FLOOR.STAIR_HEIGHT;
+            this.stairStepCount = STAGE5_FLOOR.STAIR_STEP_COUNT;
+            this.baseGroundY = Math.round(CANVAS_HEIGHT * (2 / 3));
+            // フロア遷移状態
+            this.isFloorTransitioning = false;
+            this.floorTransitionTimer = 0;
+            this.floorTransitionPhase = 0; // 0=なし, 1=暗転中, 2=暗転待機, 3=フェードイン
+            this.floorTransitionTotalMs = STAGE5_FLOOR.TRANSITION_FADE_MS + STAGE5_FLOOR.TRANSITION_WAIT_MS + STAGE5_FLOOR.TRANSITION_FADEIN_MS;
+            // 前フロアから登ってきた階段を表示するか
+            this.showPreviousStair = false;
+            this.previousStairDirection = 0; // 前フロアの方向
+            // フロア名表示
+            this.floorNameDisplayTimer = 0;
+            this.floorNameDisplayDuration = 1800; // ms
+        } else {
+            this.maxProgress = 12000;
+            this.currentFloor = 0;
+            this.floorScrollDirection = 1;
+        }
         
         // 敵管理
         this.enemies = [];
@@ -265,6 +293,486 @@ export class Stage {
         }
     }
 
+    // ============================
+    // Stage 5 フロア制メソッド群
+    // ============================
+
+    /** 階段区間の開始ワールドX座標を返す */
+    getStairStartX() {
+        if (this.stageNumber !== 5) return Infinity;
+        // 最終階でも、ビジュアルとして表示されている階段の開始位置を返す
+        return this.maxProgress - this.stairZoneWidth;
+    }
+
+    /** 階段区間の終了ワールドX座標を返す */
+    getStairEndX() {
+        if (this.stageNumber !== 5) return Infinity;
+        return this.maxProgress;
+    }
+
+    /** プレイヤーが階段区間にいるか判定 */
+    isInStairZone(playerX) {
+        if (this.stageNumber !== 5) return false;
+        
+        const isFinalFloor = this.currentFloor >= this.maxFloor;
+        
+        const stairStart = this.getStairStartX();
+        const stairEnd = this.getStairEndX();
+        if (this.floorScrollDirection === 1) {
+            return playerX >= stairStart && playerX <= stairEnd;
+        } else {
+            // 左方向フロア: 階段は左端にある
+            return playerX <= this.stairZoneWidth && playerX >= 0;
+        }
+    }
+
+    /** 階段内の登り進行度（0=階段入口, 1=階段頂上）を返す */
+    getStairClimbProgress(playerX) {
+        if (this.stageNumber !== 5) return 0;
+        if (this.floorScrollDirection === 1) {
+            // 右方向: 右端が階段
+            const stairStart = this.getStairStartX();
+            // リニア（線形）な進行に変更して描画と同期させる
+            return Math.max(0, Math.min(1, (playerX - stairStart) / this.stairZoneWidth));
+        } else {
+            // 左方向: 左端が階段
+            return Math.max(0, Math.min(1, 1 - playerX / this.stairZoneWidth));
+        }
+    }
+
+    /** 階段上のプレイヤー位置に対応する動的groundYを返す */
+    getStairGroundY(playerX) {
+        if (this.stageNumber !== 5) return this.groundY;
+        // 5階（最終回）は登る階段がないので baseGroundY を返す
+        if (this.currentFloor >= this.maxFloor) return this.baseGroundY;
+        
+        const direction = this.floorScrollDirection; // 1:右へ, -1:左へ
+        const stairW = this.stairZoneWidth;
+        
+        const stairH = this.stairHeightPx;
+        const stepCount = this.stairStepCount;
+
+        if (direction === 1) {
+            const stairStart = this.maxProgress - stairW;
+            const stairEnd = this.maxProgress;
+            // 階段の手前（平地）：stairStart 未満
+            if (playerX < stairStart) return this.baseGroundY;
+            // 階段の登り：stairStart 〜 stairEnd
+            if (playerX <= stairEnd) {
+                // 描画側のロジックを1ピクセル単位で再現する
+                // i番目のステップの前端 Y = horizonY - riser * i / stepCount
+                // 踏み面の幅 = stairW / stepCount
+                // 物理的な接地は、現在の X 座標におけるリニアな高さ (勾配) に一致させる
+                const progress = (playerX - stairStart) / stairW;
+                return this.baseGroundY - stairH * progress;
+            }
+            // 階段の奥（頂上以降）
+            return this.baseGroundY - stairH;
+        } else {
+            // 左方向フロア: 階段は左端 (0 〜 stairW)
+            const stairStart = 0;
+            const stairEnd = stairW;
+            // 階段の手前（右から来た平地）：stairEnd より右
+            if (playerX > stairEnd) return this.baseGroundY;
+            // 階段の登り：stairStart 〜 stairEnd
+            if (playerX >= stairStart) {
+                // 左登り: px = stairEnd(t=0) から stairStart(t=1) へ
+                // 描画側の t = (stairEnd - px) / stairW と一致させる
+                const progress = (stairEnd - playerX) / stairW;
+                return this.baseGroundY - stairH * progress;
+            }
+            // 階段の奥
+            return this.baseGroundY - stairH;
+        }
+    }
+
+    /** フロア遷移を開始する */
+    startFloorTransition() {
+        if (this.stageNumber !== 5 || this.isFloorTransitioning) return;
+        this.isFloorTransitioning = true;
+        this.floorTransitionPhase = 1; // 暗転開始
+        this.floorTransitionTimer = STAGE5_FLOOR.TRANSITION_FADE_MS;
+    }
+
+    /** フロア遷移のアニメーション更新 (deltaTime in seconds) */
+    updateFloorTransition(deltaTime) {
+        if (!this.isFloorTransitioning) return false;
+        
+        this.floorTransitionTimer -= deltaTime * 1000;
+        
+        if (this.floorTransitionTimer <= 0) {
+            if (this.floorTransitionPhase === 1) {
+                // 暗転完了 → 暗転待機（この間にフロア切り替え）
+                this.floorTransitionPhase = 2;
+                this.floorTransitionTimer = STAGE5_FLOOR.TRANSITION_WAIT_MS;
+                this.advanceFloor();
+            } else if (this.floorTransitionPhase === 2) {
+                // 暗転待機完了 → フェードイン開始
+                this.floorTransitionPhase = 3;
+                this.floorTransitionTimer = STAGE5_FLOOR.TRANSITION_FADEIN_MS;
+            } else if (this.floorTransitionPhase === 3) {
+                // フェードイン完了 → 遷移終了
+                this.isFloorTransitioning = false;
+                this.floorTransitionPhase = 0;
+                this.floorTransitionTimer = 0;
+            }
+        }
+        return this.isFloorTransitioning;
+    }
+
+    /** 次のフロアへ移行する（内部リセット） */
+    advanceFloor() {
+        if (this.stageNumber !== 5) return;
+        
+        // 前フロアの方向を記録（前階段表示用）
+        this.previousStairDirection = this.floorScrollDirection; // 現在の方向（遷移前）を保存
+        
+        this.currentFloor++;
+        // フロア方向: 奇数=右, 偶数=左
+        this.floorScrollDirection = (this.currentFloor % 2 === 1) ? 1 : -1;
+        
+        // 敵・障害物をリセット
+        this.enemies = [];
+        this.obstacles = [];
+        this.spawnTimer = 800;
+        this.obstacleTimer = 0;
+        
+        // groundYをリセット
+        this.groundY = this.baseGroundY;
+        
+        // 進行度（スクロール）をリセット
+        // 右進行なら 0, 左進行なら maxProgress
+        this.progress = (this.floorScrollDirection === 1) ? 0 : this.maxProgress;
+        this.lastProgress = this.progress;
+        
+        // 最終フロアかどうかで maxProgress を調整
+        if (this.currentFloor >= this.maxFloor) {
+            // 5Fはボスが出るため階段なし = フル幅
+            this.maxProgress = this.floorMaxProgress;
+        } else {
+            this.maxProgress = this.floorMaxProgress;
+        }
+        
+        // 前の階段を表示
+        this.showPreviousStair = (this.currentFloor > 1);
+        
+        // フロア名表示タイマー
+        this.floorNameDisplayTimer = this.floorNameDisplayDuration;
+        
+        // バランスプロファイルを再計算（フロア難易度倍率適用）
+        this.balanceProfile = this.getBalanceProfile();
+    }
+
+    /** フロアごとの難易度倍率を返す */
+    getFloorDifficultyMult() {
+        if (this.stageNumber !== 5 || !this.currentFloor) return 1.0;
+        const index = Math.max(0, Math.min(STAGE5_FLOOR.DIFFICULTY_SCALE.length - 1, this.currentFloor - 1));
+        return STAGE5_FLOOR.DIFFICULTY_SCALE[index];
+    }
+
+    /** フロア遷移のオーバーレイ透明度を返す */
+    getFloorTransitionAlpha() {
+        if (!this.isFloorTransitioning) return 0;
+        if (this.floorTransitionPhase === 1) {
+            // 暗転中: 0 → 1
+            return 1 - this.floorTransitionTimer / STAGE5_FLOOR.TRANSITION_FADE_MS;
+        } else if (this.floorTransitionPhase === 2) {
+            // 暗転待機: 常に1
+            return 1;
+        } else if (this.floorTransitionPhase === 3) {
+            // フェードイン: 1 → 0
+            return this.floorTransitionTimer / STAGE5_FLOOR.TRANSITION_FADEIN_MS;
+        }
+        return 0;
+    }
+
+    /** フロア遷移の暗転オーバーレイを描画する */
+    renderFloorTransition(ctx) {
+        const alpha = this.getFloorTransitionAlpha();
+        if (alpha <= 0.001) return;
+        ctx.save();
+        ctx.fillStyle = `rgba(0, 0, 0, ${Math.min(1, alpha)})`;
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        ctx.restore();
+    }
+
+    /** フロア名（「一階」「二階」等）を表示する */
+    renderFloorName(ctx) {
+        if (this.stageNumber !== 5 || this.floorNameDisplayTimer <= 0) return;
+        const floorNames = ['一階', '二階', '三階', '四階', '五階'];
+        const name = floorNames[this.currentFloor - 1] || '';
+        if (!name) return;
+        
+        const progress = 1 - this.floorNameDisplayTimer / this.floorNameDisplayDuration;
+        // フェードイン → 持続 → フェードアウト
+        let alpha = 1;
+        if (progress < 0.15) {
+            alpha = progress / 0.15;
+        } else if (progress > 0.7) {
+            alpha = (1 - progress) / 0.3;
+        }
+        alpha = Math.max(0, Math.min(1, alpha));
+        
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = '#e8d5a3';
+        ctx.font = 'bold 48px serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // 縁取り
+        ctx.strokeStyle = 'rgba(40, 20, 10, 0.8)';
+        ctx.lineWidth = 4;
+        ctx.strokeText(name, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.3);
+        ctx.fillText(name, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.3);
+        ctx.restore();
+    }
+
+    /** 階段区間の石段を描画する（参考画像風の急勾配・建築構造版） */
+    renderStairZone(ctx, scrollX) {
+        if (this.stageNumber !== 5) return; // 5階以外は描画しない
+        
+        const direction = this.floorScrollDirection;
+        const stairW = this.stairZoneWidth;
+        const stepCount = this.stairStepCount;
+        const horizonY = this.baseGroundY;
+        const stairRise = this.stairHeightPx;
+        
+        // 5階（最終階）は登れないが、右端にビジュアルとして階段を表示
+        const isFinalFloor = this.currentFloor >= this.maxFloor;
+        
+        let stairWorldStartX, stairWorldEndX;
+        if (direction === 1) {
+            stairWorldStartX = this.maxProgress - stairW;
+            stairWorldEndX = this.maxProgress;
+        } else {
+            stairWorldStartX = 0;
+            stairWorldEndX = stairW;
+        }
+        
+        // 5階の場合は右端に固定
+        if (isFinalFloor) {
+            stairWorldStartX = this.maxProgress - stairW;
+            stairWorldEndX = this.maxProgress;
+        }
+
+        const screenStartX = stairWorldStartX - scrollX;
+        const screenEndX = stairWorldEndX - scrollX;
+        if (screenEndX < -200 || screenStartX > CANVAS_WIDTH + 200) return;
+        
+        ctx.save();
+        const floorTone = Math.min(0.4, (this.currentFloor - 1) * 0.08);
+
+        // 階段の奥行き
+        const baseTreadDepth = 80;
+        
+        // --- 1. 階段全体の側面構造（Stringer / Carriage） ---
+        // 階段の「横っ面」を描画。
+        // ここが重要！ 接地ライン（Stringerの前端）を (screenStartX, horizonY) から (screenEndX, horizonY - stairRise) へリニアに結ぶ
+        ctx.fillStyle = this.interpolateColor('#1a1008', '#0a0502', 0.5 + floorTone);
+        ctx.beginPath();
+        if (direction === 1) {
+            ctx.moveTo(screenStartX, horizonY);
+            ctx.lineTo(screenEndX, horizonY - stairRise);
+            // 5階（最終階）かつ右端の場合は、側面を画面端まで塗りつぶして「天守閣」への土台にする
+            if (isFinalFloor) {
+                ctx.lineTo(CANVAS_WIDTH + 100, horizonY - stairRise);
+                ctx.lineTo(CANVAS_WIDTH + 100, horizonY + 200);
+            } else {
+                ctx.lineTo(screenEndX, horizonY + 200);
+            }
+            ctx.lineTo(screenStartX, horizonY + 200);
+        } else {
+            ctx.moveTo(screenEndX, horizonY);
+            ctx.lineTo(screenStartX, horizonY - stairRise);
+            ctx.lineTo(screenStartX, horizonY + 200);
+            ctx.lineTo(screenEndX, horizonY + 200);
+        }
+        ctx.fill();
+
+        // --- 2. ステップの描画 ---
+        for (let i = 0; i < stepCount; i++) {
+            const t = i / stepCount;
+            // 物理と完全に同期させるためリニアに
+            const easeT = t; 
+            
+            const stepY = horizonY - stairRise * easeT;
+            const riserH = Math.max(8, stairRise / stepCount);
+
+            // 踏み面の前端(bLeft, bRight)が側面の境界線上に正しく乗るように計算
+            let bLeft, bRight;
+            if (direction === 1) {
+                // 右登り: px = screenStartX(t=0) から screenEndX(t=1) へ
+                bLeft = screenStartX + stairW * t;
+                bRight = screenStartX + stairW * ((i + 1) / stepCount);
+            } else {
+                // 左登り: px = screenEndX(t=0) から screenStartX(t=1) へ
+                bRight = screenEndX - stairW * t;
+                bLeft = screenEndX - stairW * ((i + 1) / stepCount);
+            }
+
+            // パースの係数は「登り進行度」に基づき左右対称に適用
+            const pScale = 1.0 - t * 0.15;
+            const centerX = (bLeft + bRight) / 2;
+            const w = (bRight - bLeft) * pScale;
+            const xL = centerX - w / 2;
+            const xR = centerX + w / 2;
+
+            const treadY = stepY;
+
+            // 蹴上げ (Riser)
+            ctx.fillStyle = this.interpolateColor('#3d352d', '#1a1815', floorTone + t * 0.25);
+            ctx.fillRect(xL, treadY, xR - xL, riserH + 2);
+
+            // 踏み面 (Tread) - 物理的な「足のライン」を強調
+            const treadColor = this.interpolateColor('#7d7265', '#4a443d', floorTone + t * 0.15);
+            ctx.fillStyle = treadColor;
+            
+            // パースによる「奥行き」を後ろ方向に描画（キャラの立つラインを前縁にする）
+            ctx.beginPath();
+            ctx.moveTo(xL, treadY);
+            ctx.lineTo(xR, treadY);
+            ctx.lineTo(xR + 10 * pScale, treadY - 15 * pScale);
+            ctx.lineTo(xL - 10 * pScale, treadY - 15 * pScale);
+            ctx.fill();
+
+            // エッジハイライト
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.2 - t * 0.1})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(xL, treadY); ctx.lineTo(xR, treadY);
+            ctx.stroke();
+        }
+        
+        // 頂上の床（不要な旧踊り場矩形を削除）
+        // const topY = horizonY - stairRise;
+        // const topX = direction === 1 ? screenEndX : screenStartX;
+        // ... 代わりに階段の最後のステップが端まで描かれることで接続される
+
+        // 5階（最終階）の場合は、階段の終わりが画面端に見切れるようにし、
+        // 登れないビジュアルであることを強調（手すりの奥側にキャラが入る等）するため、
+        // 描画順を少し考慮するが、基本は同じロジックで描画。
+        // --- 3. 手すりの描画 ---
+        this.renderStairRails(ctx, screenStartX, screenEndX, direction, horizonY, stairRise, floorTone);
+
+        ctx.restore();
+    }
+
+    renderStairRails(ctx, startX, endX, dir, horizonY, rise, tone) {
+        const railColor = this.interpolateColor('#2a1a10', '#0a0502', tone);
+        ctx.fillStyle = railColor;
+        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+        ctx.lineWidth = 2;
+
+        const poleCount = 8;
+        for (let i = 0; i <= poleCount; i++) {
+            const t = i / poleCount;
+            // px = startX(t=0) から endX(t=1) へ
+            const px = startX + (endX - startX) * t;
+            
+            // Y座標は dir=1 なら startX が地面、dir=-1 なら startX が頂上
+            const py = (dir === 1) 
+                ? (horizonY - rise * t) 
+                : (horizonY - rise * (1 - t));
+            
+            // 支柱
+            ctx.fillRect(px - 5, py - 60, 10, 70);
+            ctx.strokeRect(px - 5, py - 60, 10, 70);
+            
+            // 飾り（宝珠）
+            ctx.beginPath();
+            ctx.arc(px, py - 65, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        }
+
+        // 手すり棒
+        ctx.beginPath();
+        ctx.lineWidth = 10;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        for (let i = 0; i <= 20; i++) {
+            const t = i / 20;
+            const px = startX + (endX - startX) * t;
+            const py = (dir === 1)
+                ? (horizonY - rise * t - 50)
+                : (horizonY - rise * (1 - t) - 50);
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+    }
+
+    /** 前フロア階段残骸（登ってきた口）の改善 */
+    renderPreviousStairTop(ctx, scrollX) {
+        if (this.stageNumber !== 5 || !this.showPreviousStair) return;
+        
+        const currentDir = this.floorScrollDirection; // 今いるフロアの方向
+        const prevDir = this.previousStairDirection; // 登ってきたフロアの方向
+        const horizonY = this.baseGroundY;
+        const visibleWidth = 240;
+        
+        ctx.save();
+        const floorTone = Math.min(0.4, (this.currentFloor - 2) * 0.08);
+
+        // 登ってきた口の位置
+        // 前フロアが右登り(prevDir=1)なら、現在は右端(maxProgress)に穴がある
+        // 前フロアが左登り(prevDir=-1)なら、現在は左端(0)に穴がある
+        let holeX;
+        if (prevDir === 1) {
+            holeX = (this.maxProgress - visibleWidth) - scrollX;
+        } else {
+            holeX = -scrollX;
+        }
+
+        // 穴の本体
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.95)';
+        ctx.beginPath();
+        ctx.moveTo(holeX, horizonY);
+        ctx.lineTo(holeX + visibleWidth, horizonY);
+        
+        // パースを前フロア（登り）の向きに合わせる
+        // prevDir=1 (右登り) なら、穴は「右から下へ」繋がっている。奥側は左に逃げる。
+        if (prevDir === 1) {
+            ctx.lineTo(holeX + visibleWidth - 40, horizonY + 80);
+            ctx.lineTo(holeX - 40, horizonY + 80);
+        } else {
+            // prevDir=-1 (左登り) なら、穴は「左から下へ」繋がっている。奥側は右に逃げる。
+            ctx.lineTo(holeX + visibleWidth + 40, horizonY + 80);
+            ctx.lineTo(holeX + 40, horizonY + 80);
+        }
+        ctx.closePath();
+        ctx.fill();
+
+        // 階段の段々（下に降りていくパース。前フロアの方向に基づいて左右を反転）
+        for (let i = 0; i < 4; i++) {
+            const t = i / 4;
+            const stepY = horizonY + i * 14;
+            const stoneColor = this.interpolateColor('#4d453d', '#1a1815', floorTone + t * 0.3);
+            ctx.fillStyle = stoneColor;
+            
+            const indent = i * 15;
+            let xL, xR;
+            if (prevDir === 1) {
+                // 右登り(下に降りていくので、左側を広げ、右側を削る)
+                xL = holeX;
+                xR = holeX + visibleWidth - indent;
+            } else {
+                // 左登り(下に降りていくので、右側を広げ、左側を削る)
+                xL = holeX + indent;
+                xR = holeX + visibleWidth;
+            }
+            
+            if (xR > xL) {
+                ctx.fillRect(xL, stepY, xR - xL, 14);
+                ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+                ctx.strokeRect(xL, stepY, xR - xL, 14);
+            }
+        }
+        
+        ctx.restore();
+    }
+
     getBalanceProfile() {
         // ステージが長くなったので、湧き頻度も少し緩和しつつ調整
         const profiles = {
@@ -341,7 +849,14 @@ export class Stage {
                 obstacleIntervalMax: 3000
             }
         };
-        return profiles[this.stageNumber] || profiles[3];
+        const profile = profiles[this.stageNumber] || profiles[3];
+        // Stage 5: フロアごとの難易度倍率を適用
+        if (this.stageNumber === 5 && this.currentFloor) {
+            const mult = this.getFloorDifficultyMult();
+            profile.spawnStart = Math.round(profile.spawnStart / mult);
+            profile.spawnMin = Math.round(profile.spawnMin / mult);
+        }
+        return profile;
     }
     
     getEnemyWeights() {
@@ -427,10 +942,10 @@ export class Stage {
                 end:   { sky: ['#162033', '#0a111a'], far: '#0f141f', mid: '#171d2d', near: '#222a3f' },
                 elements: 'town'
             },
-            5: { // 城内（朱色基調の回廊）
-                start: { sky: ['#7a2f21', '#c46234'], far: '#5f261d', mid: '#743022', near: '#8f3a26' },
-                mid:   { sky: ['#8a3524', '#d1703b'], far: '#6d2d22', mid: '#833427', near: '#9f422d' },
-                end:   { sky: ['#6f2a1f', '#b55431'], far: '#56221a', mid: '#6b2a20', near: '#843326' },
+            5: { // 城内（落ち着いた朱色の回廊）
+                start: { sky: ['#4a241c', '#7a3e26'], far: '#3f1a14', mid: '#4e221b', near: '#632b1e' },
+                mid:   { sky: ['#542a1e', '#8a442a'], far: '#4a2018', mid: '#5b261f', near: '#713123' },
+                end:   { sky: ['#45211b', '#723825'], far: '#3a1813', mid: '#481d18', near: '#5c271c' },
                 elements: 'castle'
             },
             6: { // 天守閣（深夜から最終日の出）
@@ -459,6 +974,11 @@ export class Stage {
         this.updateBambooLeafEffects(deltaTime, progressDelta);
         if (this.bossIntroTimer > 0) {
             this.bossIntroTimer = Math.max(0, this.bossIntroTimer - deltaTime * 1000);
+        }
+
+        // Stage 5 フロア名表示タイマー
+        if (this.stageNumber === 5 && this.floorNameDisplayTimer > 0) {
+            this.floorNameDisplayTimer = Math.max(0, this.floorNameDisplayTimer - deltaTime * 1000);
         }
 
         // ボス戦のブレンド率更新
@@ -493,19 +1013,35 @@ export class Stage {
         }
         
         // ボス出現
-        if (this.progress >= this.maxProgress && !this.bossSpawned) {
+        // 修正：this.progress はスクロール位置（maxProgress - CANVAS_WIDTH で止まる）なので、
+        // ボス出現判定はプレイヤーのワールド座標 player.x を基準にする。
+        const bossTriggerX = this.maxProgress - 150;
+        let canSpawnBoss = player.x >= bossTriggerX;
+        
+        if (this.stageNumber === 5) {
+            // Stage 5 の場合は最終フロアのみ
+            canSpawnBoss = canSpawnBoss && (this.currentFloor >= this.maxFloor);
+        }
+
+        if (canSpawnBoss && !this.bossSpawned) {
             this.spawnBoss();
         }
         
-        // 障害物出現はボス戦中のみ停止
+        // 障害物出現はボス戦中および階段区間では停止
         const noObstaclePhase = (this.bossSpawned && !this.bossDefeated);
         this.obstacleTimer += deltaTime * 1000;
-        if (this.obstacleTimer >= this.obstacleInterval && this.progress < this.maxProgress * 0.98 && !noObstaclePhase) {
-             this.spawnObstacle();
-             this.obstacleTimer = 0;
-             const minInterval = this.balanceProfile.obstacleIntervalMin;
-             const maxInterval = this.balanceProfile.obstacleIntervalMax;
-             this.obstacleInterval = minInterval + Math.random() * Math.max(1, (maxInterval - minInterval));
+        
+        // 階段の少し手前 (200px) までしか障害物を置かないように制限
+        const stairBuffer = 200;
+        const stairStart = this.getStairStartX();
+        const canSpawnObstacle = this.progress < Math.min(this.maxProgress * 0.98, stairStart - stairBuffer);
+
+        if (this.obstacleTimer >= this.obstacleInterval && canSpawnObstacle && !noObstaclePhase) {
+              this.spawnObstacle();
+              this.obstacleTimer = 0;
+              const minInterval = this.balanceProfile.obstacleIntervalMin;
+              const maxInterval = this.balanceProfile.obstacleIntervalMax;
+              this.obstacleInterval = minInterval + Math.random() * Math.max(1, (maxInterval - minInterval));
         }
         
         // 敵更新
@@ -681,9 +1217,14 @@ export class Stage {
             // 進行に応じて背後湧きを少し増やす（序盤は抑えめ）
             const leftChance = this.balanceProfile.leftSpawnBase +
                 (this.balanceProfile.leftSpawnPeak - this.balanceProfile.leftSpawnBase) * progressRatio;
-            const comeFromLeft = Math.random() < leftChance;
+            let comeFromLeft = Math.random() < leftChance;
             let spawnBaseX;
             let facingRight;
+
+            // Stage 5 左スクロールフロア: スポーン方向を反転
+            if (this.stageNumber === 5 && this.floorScrollDirection === -1) {
+                comeFromLeft = !comeFromLeft;
+            }
             
             if (comeFromLeft) {
                 // 左側（画面外左）から出現
@@ -697,6 +1238,11 @@ export class Stage {
             
             // 複数体湧くときは少し位置をずらす
             const x = this.progress + spawnBaseX + (comeFromLeft ? -variance : variance);
+
+            // Stage 5: 階段区間でのスポーンを制限（重力計算が平面前提のため不自然な浮きを防ぐ）
+            if (this.stageNumber === 5 && (this.isInStairZone(x) || x > this.maxProgress - 100)) {
+                continue;
+            }
             
             const y = this.groundY - 60;
             
@@ -721,17 +1267,33 @@ export class Stage {
         const obstacleChance = Math.min(1, this.balanceProfile.obstacleChance + OBSTACLE_CHANCE_BOOST);
         if (Math.random() > obstacleChance) return;
 
+        // 画面外（右側）から出現（Stage 5 左方向フロアは左側から出現）
+        let x;
+        if (this.stageNumber === 5 && this.floorScrollDirection === -1) {
+            x = this.progress - 50 - Math.random() * 100;
+        } else {
+            x = this.progress + CANVAS_WIDTH + 50 + Math.random() * 100;
+        }
+
+        // Stage 5: 階段区間およびフロア端には障害物を置かない
+        if (this.stageNumber === 5) {
+            // 階段ゾーン、またはフロアの開始/終了地点に近い場合はキャンセル
+            const isNearStart = x < 150;
+            // 5F目（最終回）は登れないがビジュアル階段があるので、
+            // その土台に罠が埋まらないよう広めに(300px)確保する
+            const isNearEnd = x > this.maxProgress - 300;
+            if (this.isInStairZone(x) || isNearStart || isNearEnd) {
+                return;
+            }
+        }
+
         const spikeChanceByStage = [0, 0.12, 0.15, 0.42, 0.56, 0.7];
         const spikeChance = spikeChanceByStage[Math.max(0, Math.min(spikeChanceByStage.length - 1, this.stageNumber - 1))];
-        // ステージ3（山道）はスパイク不要、常に岩
         const type = (this.stageNumber >= 5)
             ? OBSTACLE_TYPES.SPIKE
             : (this.stageNumber === 3)
                 ? OBSTACLE_TYPES.ROCK
                 : (Math.random() < spikeChance ? OBSTACLE_TYPES.SPIKE : OBSTACLE_TYPES.ROCK);
-        
-        // 画面外（右側）から出現
-        const x = this.progress + CANVAS_WIDTH + 50 + Math.random() * 100;
         const rockChainChance = this.stageNumber === 3 ? 0.88 : 0.65;
         const rockChainCount = this.stageNumber === 3
             ? 3 + Math.floor(Math.random() * 4)
@@ -1170,12 +1732,12 @@ export class Stage {
         }
         // ボス戦時の空の色変化を廃止
         
-        // 空グラデーション
-        const skyGradient = ctx.createLinearGradient(0, 0, 0, this.groundY);
+        // 空グラデーション - 垂直スクロール対応のため上下に大きく拡張
+        const skyGradient = ctx.createLinearGradient(0, -400, 0, this.groundY + 400);
         skyGradient.addColorStop(0, skyColors[0]);
         skyGradient.addColorStop(1, skyColors[1]);
         ctx.fillStyle = skyGradient;
-        ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY);
+        ctx.fillRect(0, -400, CANVAS_WIDTH, this.groundY + 800);
 
         if (this.stageNumber === 1) {
             const dawnP = this.smoothstep(0.08, 1, p);
@@ -1361,11 +1923,25 @@ export class Stage {
             const warmBottomG = Math.round(38 + (24 - 38) * timeBlend);
             const warmBottomB = Math.round(24 + (18 - 24) * timeBlend);
             const warmBottomA = 0.2 + (0.28 - 0.2) * timeBlend;
-            const indoorHaze = ctx.createLinearGradient(0, 0, 0, this.groundY);
+            const indoorHaze = ctx.createLinearGradient(0, -400, 0, this.groundY + 400);
             indoorHaze.addColorStop(0, `rgba(${warmTopR}, ${warmTopG}, ${warmTopB}, ${warmTopA.toFixed(3)})`);
             indoorHaze.addColorStop(1, `rgba(${warmBottomR}, ${warmBottomG}, ${warmBottomB}, ${warmBottomA.toFixed(3)})`);
             ctx.fillStyle = indoorHaze;
-            ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY);
+            ctx.fillRect(0, -400, CANVAS_WIDTH, this.groundY + 800);
+
+            // 城内の壁面の意匠（柱と梁）
+            const pillarDist = 400;
+            const scroll = this.progress * 0.5; // 背景パララックス
+            const pillarOffset = ((scroll % pillarDist) + pillarDist) % pillarDist;
+            ctx.fillStyle = this.interpolateColor('#2a1810', '#120a05', 0.2);
+            for (let i = -1; i <= Math.ceil(CANVAS_WIDTH / pillarDist) + 1; i++) {
+                const px = i * pillarDist - pillarOffset;
+                // 垂直の柱
+                ctx.fillRect(px, -400, 20, this.groundY + 400);
+            }
+            // 水平の梁（鴨居・長押）
+            ctx.fillRect(0, this.groundY * 0.25 - 400, CANVAS_WIDTH, 15);
+            ctx.fillRect(0, this.groundY - 40, CANVAS_WIDTH, 20);
 
             const motes = 16;
             for (let i = 0; i < motes; i++) {
@@ -1423,7 +1999,16 @@ export class Stage {
         vignette.addColorStop(0, 'rgba(0,0,0,0)');
         vignette.addColorStop(1, 'rgba(0,0,0,0.22)');
         ctx.fillStyle = vignette;
-        ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY);
+        ctx.fillRect(0, -400, CANVAS_WIDTH, this.groundY + 800);
+
+        // 地面との境界に影を落とす（室内のみ）
+        if (isCastleInterior) {
+            const shadowGrad = ctx.createLinearGradient(0, this.groundY - 60, 0, this.groundY);
+            shadowGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+            shadowGrad.addColorStop(1, 'rgba(0, 0, 0, 0.45)');
+            ctx.fillStyle = shadowGrad;
+            ctx.fillRect(0, this.groundY - 60, CANVAS_WIDTH, 65);
+        }
     }
 
     // ボス部屋の右3/4から画面右端にかけて次ステージへの「出入口」を描画
@@ -3115,9 +3700,9 @@ export class Stage {
 
     renderGroundCastle(ctx, renderProgress, darken) {
         const horizonY = this.groundY;
-        const bottomY = CANVAS_HEIGHT;
+        const bottomY = CANVAS_HEIGHT + 600; // 垂直スクロール時に下が途切れないように拡張
 
-        const roadGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
+        const roadGrad = ctx.createLinearGradient(0, horizonY, 0, horizonY + 600);
         roadGrad.addColorStop(0, this.interpolateColor('#c5b489', '#3a3324', darken * 0.7));
         roadGrad.addColorStop(0.5, this.interpolateColor('#dccd9a', '#544b36', darken * 0.5));
         roadGrad.addColorStop(1, this.interpolateColor('#a5966d', '#28231a', darken * 0.9));
@@ -3139,8 +3724,8 @@ export class Stage {
         // 畳の目
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.05)';
         ctx.lineWidth = 1;
-        for (let j = 0; j < 12; j++) {
-            const hy = horizonY + (j / 12) * (bottomY - horizonY);
+        for (let j = 0; j < 36; j++) { // 行数をさらに増やす
+            const hy = horizonY + (j / 12) * 600;
             ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(CANVAS_WIDTH, hy); ctx.stroke();
         }
     }

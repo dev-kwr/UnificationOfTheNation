@@ -122,6 +122,9 @@ class Game {
         
         // 影レンダー
         this.shadowRenderer = new ShadowRenderer();
+        
+        // 垂直スクロール用（Stage 5などで使用）
+        this.cameraY = 0;
     }
     
     init(canvas) {
@@ -340,7 +343,7 @@ class Game {
                         cfg.specialClone = 3;
                         cfg.moneyMax = true;
                         cfg.money = 9999;
-                        cfg.items.hp_boost = 18;
+                        cfg.items.hp_boost = 198; // 5 * 198 = +990 加算 (初期値 10 + 990 = 1000)
                         cfg.items.atk_boost = 3;
                         cfg.items.double_jump = true;
                         cfg.items.triple_jump = true;
@@ -518,7 +521,7 @@ class Game {
             cfg.specialClone = 3;
             cfg.moneyMax = true;
             cfg.money = 9999;
-            cfg.items.hp_boost = 18;
+            cfg.items.hp_boost = 198; // 5 * 198 = +990 加算
             cfg.items.atk_boost = 3;
             cfg.items.double_jump = true;
             cfg.items.triple_jump = true;
@@ -710,6 +713,7 @@ class Game {
         
         // スクロール位置初期化
         this.scrollX = 0;
+        this.cameraY = 0;
         
         // ─── デバッグ：ボス部屋からスタート ───────────────────────────
         if (this.debugBossRoomStart) {
@@ -1251,49 +1255,140 @@ class Game {
         
 
         
+        // --- Stage 5 フロア遷移中の処理 ---
+        if (this.currentStageNumber === 5 && this.stage && this.stage.isFloorTransitioning) {
+            const prevPhase = this.stage.floorTransitionPhase;
+            const stillTransitioning = this.stage.updateFloorTransition(this.deltaTime);
+            const currentPhase = this.stage.floorTransitionPhase;
+
+            // フェードイン開始の瞬間（Phase 2 -> 3 への切り替わり）のみ位置をリセット
+            if (prevPhase === 2 && currentPhase === 3) {
+                const dir = this.stage.floorScrollDirection; // 1:右へ(左端開始), -1:左へ(右端開始)
+                const isRightDir = dir === 1;
+                
+                // 次のフロアの開始位置を決定
+                // dir=1 なら左端(80)から、dir=-1 なら右端(maxProgress - 80)から開始
+                // 速度と向きも完全にリセットして画面外への飛び出しを防止
+                this.player.x = isRightDir ? 80 : this.stage.maxProgress - 80;
+                this.player.vx = 0;
+                this.player.vy = 0;
+                this.player.facingRight = isRightDir; // 2F(dir=-1)なら左を向く
+                
+                // スクロール位置の決定
+                // dir=1 なら左端(0)固定、dir=-1 なら右端(maxProgress - CANVAS_WIDTH)固定
+                const targetScrollX = isRightDir ? 0 : Math.max(0, this.stage.maxProgress - CANVAS_WIDTH);
+                
+                this.scrollX = targetScrollX;
+                this.stage.progress = targetScrollX;
+                
+                // 接地
+                this.player.groundY = this.stage.getStairGroundY(this.player.x);
+                this.player.y = this.player.groundY - this.player.height;
+            }
+            
+            // 遷移中も接地判定だけは最新の座標で更新し続ける（操作不能スタック防止）
+            this.player.groundY = this.stage.getStairGroundY(this.player.x);
+            this.stage.update(this.deltaTime, this.player);
+            
+            // 遷移が完了したフレーム(Phase 3 -> 0)
+            if (prevPhase === 3 && currentPhase === 0) {
+                const dir = this.stage.floorScrollDirection;
+                const targetScrollX = (dir === 1) ? 0 : Math.max(0, this.stage.maxProgress - CANVAS_WIDTH);
+                this.scrollX = targetScrollX;
+                this.stage.progress = targetScrollX;
+            }
+            return;
+        }
+
         // --- スクロール処理 ---
-        // Stage3のみ、ボス戦開始までは自動横スクロールにする
-        const stage3AutoScrollActive = (
-            this.currentStageNumber === 3 &&
-            this.stage &&
-            !this.stage.bossSpawned
-        );
+        const stage3AutoScrollActive = (this.currentStageNumber === 3 && this.stage && !this.stage.bossSpawned);
+        const screenCenter = CANVAS_WIDTH / 2;
+
         if (stage3AutoScrollActive) {
             this.scrollX += this.stage3AutoScrollSpeed * this.deltaTime;
-        } else {
-            // それ以外は従来どおりプレイヤー追従（戻りなし）
+        } else if (this.currentStageNumber === 5 && this.stage) {
+            // Stage 5 のフロア方向に応じたスクロール
+            const dir = this.stage.floorScrollDirection;
             const screenCenter = CANVAS_WIDTH / 2;
-            if (this.player.x > this.scrollX + screenCenter) {
-                this.scrollX = this.player.x - screenCenter;
+            const stairClimb = this.stage.getStairClimbProgress(this.player.x);
+            
+            if (dir === 1) { // 右
+                // 階段を登りきるまでは、プレイヤーが右端に行ってもスクロールを止める
+                const stopScrollX = this.stage.maxProgress - CANVAS_WIDTH;
+                if (this.player.x > this.scrollX + screenCenter) {
+                    this.scrollX = this.player.x - screenCenter;
+                }
+                // 修正：最終階(currentFloor >= maxFloor)または階段を登りきっている場合、
+                // 画面端(stopScrollX)でスクロールを止めるが、プレイヤーの移動は制限しない。
+                const isFinal = this.stage.currentFloor >= this.stage.maxFloor;
+                if ((isFinal || stairClimb >= 1.0) && this.scrollX > stopScrollX) {
+                    this.scrollX = stopScrollX;
+                } else if (stairClimb < 1.0 && this.scrollX > stopScrollX) {
+                    // 登り途中は画面端で止める
+                    this.scrollX = stopScrollX;
+                }
+            } else { // 左
+                const stopScrollX = 0;
+                if (this.player.x < this.scrollX + screenCenter) {
+                    this.scrollX = this.player.x - screenCenter;
+                }
+                const isFinal = this.stage.currentFloor >= this.stage.maxFloor;
+                if ((isFinal || stairClimb >= 1.0) && this.scrollX < stopScrollX) {
+                    this.scrollX = stopScrollX;
+                } else if (stairClimb < 1.0 && this.scrollX < stopScrollX) {
+                    this.scrollX = stopScrollX;
+                }
             }
+        } else {
+            // 通常（固定方向）
+            if (this.player.x > this.scrollX + screenCenter) this.scrollX = this.player.x - screenCenter;
         }
         
-        // ステージ端（最大スクロール量）制限
-        // Stage.jsのmaxProgressを最大スクロール量とする
-        const maxScroll = this.stage.maxProgress;
-        if (this.scrollX > maxScroll) {
-            this.scrollX = maxScroll;
-        }
+        // スクロール制限
+        // maxProgress は世界の全幅。カメラが映せる右端は maxProgress - CANVAS_WIDTH
+        const maxScroll = Math.max(0, this.stage.maxProgress - CANVAS_WIDTH);
+        if (this.scrollX > maxScroll) this.scrollX = maxScroll;
+        if (this.scrollX < 0) this.scrollX = 0;
         
         // 背景パララックス用にStage側のprogressも更新
         this.stage.progress = this.scrollX;
         
+        // --- Stage 5 各エンティティの物理同期 ---
+        if (this.currentStageNumber === 5 && this.stage) {
+            // プレイヤーの接地更新
+            this.player.groundY = this.stage.getStairGroundY(this.player.x);
+            
+            // 敵全員の接地更新（踊り場対応）
+            const allEnemies = this.stage.getAllEnemies();
+            for (const enemy of allEnemies) {
+                enemy.groundY = this.stage.getStairGroundY(enemy.x);
+            }
+            
+            // 登りきったら次のフロアへ（最終階を除く）
+            const stairProgress = this.stage.getStairClimbProgress(this.player.x);
+            if (stairProgress >= 1.0 && !this.stage.isFloorTransitioning && this.stage.currentFloor < this.stage.maxFloor) {
+                this.stage.startFloorTransition();
+            }
+        }
+
         // ステージ更新
         this.stage.update(this.deltaTime, this.player);
         if (this.stage.bossSpawned && !this.stage.bossDefeated && audio.bgmAudio && audio.bgmAudio.paused && !audio.isMuted) {
             audio.playBgm('boss', this.currentStageNumber);
         }
         
-        // プレイヤーの移動制限（画面左端から出ない：戻りなしスクロールのため）
-        if (this.player.x < this.scrollX) {
-            this.player.x = this.scrollX;
+        // プレイヤーの移動制限
+        if (this.currentStageNumber === 5) {
+            // Stage 5：フロア終端（階段手前）以上には進ませない仕組みが必要であればここに
+        } else {
+            // 戻りなしスクロール制限
+            if (this.player.x < this.scrollX) this.player.x = this.scrollX;
         }
-        // プレイヤーの移動制限（画面右端から出ない）
         if (this.player.x > this.scrollX + CANVAS_WIDTH) {
             this.player.x = this.scrollX + CANVAS_WIDTH;
         }
 
-        // stage.update 後の最新状態で当たり判定対象を再構築
+        // 当たり判定対象の再構築
         const latestFrameEnemies = this.stage.getAllEnemies();
         const latestActiveEnemies = latestFrameEnemies.filter((enemy) => enemy.isAlive && !enemy.isDying);
         const latestObstacles = this.stage.obstacles.filter(o => !o.isDestroyed);
@@ -4263,13 +4358,23 @@ class Game {
         ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
         ctx.restore();
         
-        // 1. 背景と地面（カメラ固定・パララックスは内部で処理）
+        ctx.save();
+        // 1. 背景
         this.stage.renderBackground(ctx);
+        
+        // --- レイヤー描画 ---
+        
+        // 2. 地面
         this.stage.renderGround(ctx);
         
-        // 1.5 影（地面とオブジェクトの間）
+        // 3. Stage 5: 階段描画
+        if (this.currentStageNumber === 5 && this.stage.stageNumber === 5) {
+            this.stage.renderPreviousStairTop(ctx, this.scrollX);
+            this.stage.renderStairZone(ctx, this.scrollX);
+        }
+        
+        // 4. 影
         if (this.shadowRenderer) {
-            // stage.enemies にはボスが含まれないため getAllEnemies() を使う
             this.shadowRenderer.render(
                 ctx,
                 this.stage,
@@ -4280,7 +4385,7 @@ class Game {
             );
         }
         
-        // 2. ワールドオブジェクト（スクロール適用）
+        // 5. ワールドオブジェクト（水平スクロール適用）
         ctx.save();
         ctx.translate(-Math.floor(this.scrollX), 0);
         
@@ -4316,8 +4421,7 @@ class Game {
             }
         }
         
-        // プレイヤー (透明化対応)
-        // playerAlphaが0の場合は描画自体をスキップして「即時消去」を実現
+        // プレイヤー
         if (playerAlpha > 0) {
             ctx.save();
             if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
@@ -4328,10 +4432,6 @@ class Game {
             });
             ctx.restore();
 
-            // NOTE:
-            // 投擲物・剣筋エフェクトを「プレイヤー中心スケール」の内側で描くと、
-            // プレイヤーから離れるほど表示位置がずれて当たり判定と乖離する。
-            // そのため、ワールド座標のまま（スケール外）で描画する。
             if (
                 this.player.currentSubWeapon &&
                 !this.player.subWeaponRenderedInModel &&
@@ -4342,8 +4442,6 @@ class Game {
                 this.player.currentSubWeapon.render(ctx, this.player);
                 ctx.restore();
             }
-        } else {
-            // プレイヤーを描画しない場合でも、必要な更新があればここで行う（現在はなし）
         }
 
         // ヒット演出（世界座標）
@@ -4361,7 +4459,7 @@ class Game {
             this.ui.renderDamageNumber(ctx, dn.x, dn.y, dn.damage, dn.isCritical, dn.alpha);
         }
         
-        ctx.restore();
+        ctx.restore(); // 水平スクロール保存の復元
         
         // 3. HUD（カメラ固定）
         
@@ -4375,6 +4473,16 @@ class Game {
         
         // 操作説明
         this.ui.renderControls(ctx);
+
+        // Stage 5: フロア名表示
+        if (this.currentStageNumber === 5 && this.stage.stageNumber === 5) {
+            this.stage.renderFloorName(ctx);
+        }
+
+        // Stage 5: フロア遷移暗転オーバーレイ（最前面）
+        if (this.currentStageNumber === 5 && this.stage.isFloorTransitioning) {
+            this.stage.renderFloorTransition(ctx);
+        }
     }
 
     renderStatusCharPreview() {

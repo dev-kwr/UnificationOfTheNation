@@ -180,6 +180,20 @@ export const VIRTUAL_PAD = {
     SWITCH: { x: 36, y: -44 }        // C: 右上
 };
 
+// Stage 5 フロア制の定数
+export const STAGE5_FLOOR = {
+    COUNT: 5,
+    PROGRESS_PER_FLOOR: 3000,
+    STAIR_WIDTH: 600,               // 階段区間の幅（急勾配にするため短縮）
+    STAIR_HEIGHT: 400,              // 階段で登る高さ
+    STAIR_STEP_COUNT: 36,           // 段数（密度を大幅に増加）
+    TRANSITION_FADE_MS: 400,
+    TRANSITION_WAIT_MS: 600,
+    TRANSITION_FADEIN_MS: 400,
+    DIFFICULTY_SCALE: [1.0, 1.1, 1.2, 1.35, 1.5],
+    PREVIOUS_STAIR_VISIBLE_WIDTH: 200,
+};
+
 // 各ステージの初期装備（デフォルト武器）
 export const STAGE_DEFAULT_WEAPON = {
     1: '手裏剣',
