@@ -195,6 +195,7 @@ export class Player {
         this.comboSlashTrailBoostAnchor = null;
         this.specialCloneSlashTrailPoints = [];
         this.specialCloneSlashTrailSampleTimers = [];
+        this.specialCloneSlashTrailBoostAnchors = [];
         this.comboSlashTrailSampleIntervalMs = 14;
         this.comboSlashTrailActiveLifeMs = 860;
         // 攻撃終了後は形を保ったまま滑らかにフェードさせる
@@ -1164,6 +1165,23 @@ export class Player {
         // 通常コンボは段ごとに剣筋の始点をリセットし、剣が動く前の先行表示を防ぐ
         this.comboSlashTrailPoints.length = 0;
         this.comboSlashTrailSampleTimer = 0;
+        if (Array.isArray(this.specialCloneSlashTrailPoints) && !this.specialCloneAutoAiEnabled) {
+            for (let i = 0; i < this.specialCloneSlashTrailPoints.length; i++) {
+                if (Array.isArray(this.specialCloneSlashTrailPoints[i])) {
+                    this.specialCloneSlashTrailPoints[i].length = 0;
+                }
+            }
+        }
+        if (Array.isArray(this.specialCloneSlashTrailSampleTimers) && !this.specialCloneAutoAiEnabled) {
+            for (let i = 0; i < this.specialCloneSlashTrailSampleTimers.length; i++) {
+                this.specialCloneSlashTrailSampleTimers[i] = 0;
+            }
+        }
+        if (Array.isArray(this.specialCloneSlashTrailBoostAnchors) && !this.specialCloneAutoAiEnabled) {
+            for (let i = 0; i < this.specialCloneSlashTrailBoostAnchors.length; i++) {
+                this.specialCloneSlashTrailBoostAnchors[i] = null;
+            }
+        }
         
         // コンボ
         const comboMax = this.getNormalComboMax();
@@ -1505,10 +1523,9 @@ export class Player {
         this.specialCloneDurability = this.specialCloneSlots.map(() => cloneDurability);
         this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
+        this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
 
-        // groundBasedYを廃止、接地ベース基準 (プレイヤーのジャンプに同期させない)
-        const stableGroundY = this.groundY + LANE_OFFSET;
-        const cloneAnchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - PLAYER.HEIGHT * 0.38);
+        const cloneAnchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
         this.specialClonePositions = cloneAnchors.map(a => ({ x: a.x, y: a.y, facingRight: this.facingRight, prevX: a.x }));
         this.specialCloneScarfNodes = this.specialCloneSlots.map(() => null);
         this.specialCloneHairNodes = this.specialCloneSlots.map(() => null);
@@ -1533,6 +1550,7 @@ export class Player {
         this.specialCloneDurability = this.specialCloneSlots.map(() => 0);
         this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
+        this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
         if (clearSmoke) this.specialSmoke = [];
     }
     
@@ -1548,8 +1566,7 @@ export class Player {
                 }
 
                 // 詠唱中は全レベル共通でノードを追従させる（Lv3も含む）
-                const stableGroundY = this.groundY + LANE_OFFSET;
-                const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - PLAYER.HEIGHT * 0.38);
+                const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
                 for (let i = 0; i < this.specialCloneSlots.length; i++) {
                     const pos = this.specialClonePositions[i];
                     if (!pos) continue;
@@ -1564,7 +1581,7 @@ export class Player {
                         motionTime: this.motionTime,
                         isMoving: Math.abs(this.vx) > 0.5 || !this.isGrounded,
                         drawX: pos.x - this.width * 0.5,
-                        footY: this.y + this.height,
+                        footY: this.getSpecialCloneFootY(pos.y),
                         height: this.height,
                         isDashing: this.isDashing,
                         isCrouching: this.isCrouching,
@@ -1594,8 +1611,7 @@ export class Player {
                 this.updateSpecialCloneAi(deltaTime);
             } else if (this.specialCloneCombatStarted) {
                 // Lv1〜2: 本体に追従
-                const stableGroundY = this.groundY + LANE_OFFSET;
-                const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - PLAYER.HEIGHT * 0.38);
+                const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
                 for (let i = 0; i < this.specialCloneSlots.length; i++) {
                     if (this.specialClonePositions[i]) {
                         this.specialClonePositions[i].x = anchors[i].x;
@@ -1608,7 +1624,7 @@ export class Player {
                             motionTime: this.motionTime,
                             isMoving: Math.abs(this.vx) > 0.5 || !this.isGrounded,
                             drawX: pos.x - this.width * 0.5,
-                            footY: this.y + this.height,
+                            footY: this.getSpecialCloneFootY(pos.y),
                             height: this.height,
                             isDashing: this.isDashing,
                             isCrouching: this.isCrouching,
@@ -1646,6 +1662,15 @@ export class Player {
 
     triggerCloneAttack(index) {
         if (this.specialCloneAttackTimers[index] <= 0 && this.specialCloneSubWeaponTimers[index] <= 0) {
+            if (Array.isArray(this.specialCloneSlashTrailPoints) && Array.isArray(this.specialCloneSlashTrailPoints[index])) {
+                this.specialCloneSlashTrailPoints[index].length = 0;
+            }
+            if (Array.isArray(this.specialCloneSlashTrailSampleTimers)) {
+                this.specialCloneSlashTrailSampleTimers[index] = 0;
+            }
+            if (Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
+                this.specialCloneSlashTrailBoostAnchors[index] = null;
+            }
             if (
                 this.specialCloneAutoAiEnabled &&
                 this.currentSubWeapon &&
@@ -1687,15 +1712,14 @@ export class Player {
         this.specialCloneInvincibleTimers = this.specialCloneSlots.map(() => this.specialCloneSpawnInvincibleMs);
         this.specialCloneAutoCooldowns = this.specialCloneSlots.map((_, index) => index * 30);
         
-        const stableGroundY = this.groundY + LANE_OFFSET;
-        const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - PLAYER.HEIGHT * 0.38);
+        const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
         this.specialClonePositions = anchors.map(a => ({
             x: a.x,
             y: a.y,
             facingRight: this.facingRight,
             prevX: a.x,
-            jumping: !this.isGrounded,
-            cloneVy: !this.isGrounded ? this.vy : 0
+            jumping: false,
+            cloneVy: 0
         }));
 
         for (let i = 0; i < this.specialCloneSlots.length; i++) {
@@ -1711,6 +1735,7 @@ export class Player {
         this.specialCloneSubWeaponActions = this.specialCloneSlots.map(() => null);
         this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
+        this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
 
         // 戦闘開始時の煙もここでは生成せず、詠唱開始時のみに集約するか、
         // 少なくとも重複は避ける。詠唱終了時の煙は削除。
@@ -1824,15 +1849,14 @@ export class Player {
             }) 
             : [];
             
-        const stableGroundY = this.groundY + LANE_OFFSET;
-        const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, stableGroundY - PLAYER.HEIGHT * 0.38);
-        const cloneRestY = stableGroundY - PLAYER.HEIGHT * 0.38;
+        const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
 
         for (let i = 0; i < this.specialCloneSlots.length; i++) {
             if (!this.specialCloneAlive[i]) continue;
             
             const pos = this.specialClonePositions[i];
             const anchor = anchors[i];
+            const cloneRestY = anchor.y;
             const prevY = pos.y;
 
             const frameStartX = pos.x;
@@ -2038,7 +2062,7 @@ export class Player {
                     const cloneHalfW = this.width * 0.4;
                     const cloneLeft = pos.x - cloneHalfW;
                     const cloneRight = pos.x + cloneHalfW;
-                    const cloneDrawY = pos.y - PLAYER.HEIGHT * 0.62;
+                    const cloneDrawY = this.getSpecialCloneDrawY(pos.y);
                     const cloneBottom = cloneDrawY + this.height;
                     const cloneTop = cloneDrawY;
 
@@ -2097,8 +2121,7 @@ export class Player {
             const cloneVx = Math.max(-this.speed * 2.5, Math.min(this.speed * 2.5, effectiveVx));
             pos.prevX = pos.x;
 
-            const cloneDrawY = pos.y - PLAYER.HEIGHT * 0.62;
-            const cloneFootY = cloneDrawY + this.height;
+            const cloneFootY = this.getSpecialCloneFootY(pos.y);
             this.updateSpecialCloneAccessoryNodes(i, pos, deltaTime, {
                 cloneVx,
                 motionTime: this.motionTime,
@@ -2136,6 +2159,22 @@ export class Player {
         return this.specialCloneAlive.reduce((acc, alive) => acc + (alive ? 1 : 0), 0);
     }
 
+    getSpecialCloneAnchorY() {
+        const mirrorPlayerMotion = !this.specialCloneAutoAiEnabled || this.specialCastTimer > 0;
+        if (mirrorPlayerMotion) {
+            return this.getFootY() - PLAYER.HEIGHT * 0.38;
+        }
+        return this.groundY + LANE_OFFSET - PLAYER.HEIGHT * 0.38;
+    }
+
+    getSpecialCloneDrawY(anchorY) {
+        return anchorY - PLAYER.HEIGHT * 0.62;
+    }
+
+    getSpecialCloneFootY(anchorY) {
+        return anchorY + PLAYER.HEIGHT * 0.38;
+    }
+
     getSpecialCloneDurabilityPerUnit() {
         const tier = this.progression && Number.isFinite(this.progression.specialClone)
             ? Math.max(0, Math.min(3, this.progression.specialClone))
@@ -2145,7 +2184,7 @@ export class Player {
 
     getSpecialCloneAnchors() {
         if (!this.specialCloneCombatStarted) {
-            return this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getFootY() - PLAYER.HEIGHT * 0.38);
+            return this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
         }
 
         // 戦闘開始後は、AIによって更新された個別座標を返す
@@ -2791,6 +2830,7 @@ export class Player {
         this.specialCloneDurability = this.specialCloneSlots.map(() => 0);
         this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
+        this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
     }
 
     getSpecialCloneCountByTier(tier) {
@@ -2808,7 +2848,7 @@ export class Player {
     }
 
     buildCloneSlotLayout(count) {
-        if (count <= 1) return [-1];
+        if (count <= 1) return [1];
         if (count === 2) return [-1, 1];
         if (count === 3) return [-1, 1, -2];
         return [-2, -1, 1, 2];
@@ -3650,6 +3690,7 @@ export class Player {
         ctx.save();
         this.subWeaponRenderedInModel = false;
         this.dualBladeTrailAnchors = null;
+        const skipSpecialRender = options.skipSpecialRender === true;
         const filterParts = [];
         const ghostVeilActive = this.isGhostVeilActive();
         const ghostSilhouetteAlpha = ghostVeilActive
@@ -3709,8 +3750,8 @@ export class Player {
         }
 
         // 必殺技演出を本体の下に描画
-        if (this.isUsingSpecial || this.specialSmoke.length > 0) {
-            this.renderSpecial(ctx);
+        if (!skipSpecialRender && (this.isUsingSpecial || this.specialSmoke.length > 0)) {
+            this.renderSpecial(ctx, options.specialRenderOptions || {});
         }
 
         // 本体描画
@@ -3827,8 +3868,8 @@ export class Player {
         const comboPoseProgress = comboStepPose
             ? Math.max(0, Math.min(1, 1 - (attackTimer / Math.max(1, (currentAttack && currentAttack.durationMs) || PLAYER.ATTACK_COOLDOWN))))
             : 0;
-        const isRunLike = !comboAttackingPose && !legTransitionLocked && isGrounded && speedAbs > 0.85;
-        const isDashLike = !comboAttackingPose && !legTransitionLocked && (isDashing || speedAbs > this.speed * 1.45);
+        const isRunLike = !isNinNinPose && !comboAttackingPose && !legTransitionLocked && isGrounded && speedAbs > 0.85;
+        const isDashLike = !isNinNinPose && !comboAttackingPose && !legTransitionLocked && (isDashing || speedAbs > this.speed * 1.45);
         const locomotionPhase = isRunLike ? Math.sin(this.legPhase || this.motionTime * 0.012) : 0;
         const crouchWalkPhase = (isCrouchPose && isRunLike) ? locomotionPhase : 0;
         const crouchIdlePhase = (isCrouchPose && !isRunLike) ? Math.sin(this.motionTime * 0.006) : 0;
@@ -3838,7 +3879,9 @@ export class Player {
         const crouchLeanShift = isCrouchPose ? crouchWalkPhase * 0.55 : 0;
 
         let bob = 0;
-        if (isCrouchPose) {
+        if (isNinNinPose) {
+            bob = 0;
+        } else if (isCrouchPose) {
             bob = crouchBodyBob;
         } else if (!isGrounded) {
             bob = Math.max(-1.4, Math.min(1.6, -vy * 0.07));
@@ -3874,7 +3917,7 @@ export class Player {
             hipY -= hipLiftPx;
         }
 
-        let currentTorsoLean = isDashLike ? dir * 2.4 : (isRunLike ? dir * 1.6 : dir * 0.45);
+        let currentTorsoLean = isNinNinPose ? dir * 0.45 : (isDashLike ? dir * 2.4 : (isRunLike ? dir * 1.6 : dir * 0.45));
         if (comboStepPose === 1) currentTorsoLean = dir * 0.24;
         if (comboStepPose === 2) currentTorsoLean = dir * 1.2;
         let torsoShoulderX = centerX + (isCrouchPose ? dir * 4.0 : currentTorsoLean) + dir * crouchLeanShift;
@@ -4006,52 +4049,67 @@ export class Player {
         const frontShoulderXShared = shoulderAnchorX - dir * (isCrouchPose ? 0.28 : 0.38);
         const frontShoulderYShared = shoulderAnchorY + (isCrouchPose ? 0.55 : 0.65);
 
-        // --- 腕の描画分岐 ---
-        if (isNinNinPose) {
-            // 印を結ぶポーズ (旧 renderSpecialCastPose のロジック統合)
-            if (alpha > 0) {
-                const palmX = centerX;
-                const lowerHandY = headY + 10;
-                const upperHandY = lowerHandY - 8;
-                const handColor = silhouetteColor;
-                const shadowColor = isSilhouetteMode ? 'rgba(40, 40, 40, 0.3)' : 'rgba(80, 80, 80, 0.35)';
+        // 印を結ぶポーズ (旧 renderSpecialCastPose のロジック統合)
+        const drawNinNinPoseHands = () => {
+            if (alpha <= 0) return;
+            const sealBaseX = centerX + dir * 7.2;
+            const backHandY = bodyTopY + (hipY - bodyTopY) * 0.44;
+            const frontHandY = backHandY - 6.6;
+            const frontHand = stretchFromShoulder(
+                frontShoulderXShared,
+                frontShoulderYShared,
+                sealBaseX + dir * 0.45,
+                frontHandY
+            );
+            const backHand = stretchFromShoulder(
+                backShoulderXShared,
+                backShoulderYShared,
+                sealBaseX - dir * 0.25,
+                backHandY
+            );
 
-                ctx.fillStyle = shadowColor;
-                ctx.beginPath();
-                ctx.arc(palmX, lowerHandY + 1.5, 4.8, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillStyle = handColor;
-                ctx.beginPath();
-                ctx.arc(palmX, lowerHandY, 4.2, 0, Math.PI * 2);
-                ctx.fill();
+            drawArmWithSoftElbow(
+                frontShoulderXShared,
+                frontShoulderYShared,
+                frontHand.x,
+                frontHand.y,
+                -dir,
+                0.13
+            );
+            drawHand(frontHand.x, frontHand.y, 4.6);
 
-                ctx.fillStyle = shadowColor;
-                ctx.beginPath();
-                ctx.arc(palmX, upperHandY + 1.5, 4.6, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.fillStyle = handColor;
-                ctx.beginPath();
-                ctx.arc(palmX, upperHandY, 4.0, 0, Math.PI * 2);
-                ctx.fill();
+            drawArmWithSoftElbow(
+                backShoulderXShared,
+                backShoulderYShared,
+                backHand.x,
+                backHand.y,
+                -dir,
+                0.12
+            );
+            drawHand(backHand.x, backHand.y, 4.6);
 
-                ctx.strokeStyle = shadowColor;
-                ctx.lineWidth = 5.0;
+            const fingerBaseY = frontHand.y - 3.8;
+            const fingerTipY = frontHand.y - 11.2;
+            if (silhouetteOutlineEnabled) {
+                ctx.strokeStyle = silhouetteOutlineColor;
+                ctx.lineWidth = 4.4;
                 ctx.lineCap = 'round';
                 ctx.beginPath();
-                ctx.moveTo(palmX, upperHandY - 3.5);
-                ctx.lineTo(palmX, upperHandY - 5.0);
-                ctx.stroke();
-                ctx.strokeStyle = handColor;
-                ctx.lineWidth = 4.0;
-                ctx.lineCap = 'round';
-                ctx.beginPath();
-                ctx.moveTo(palmX, upperHandY - 4.0);
-                ctx.lineTo(palmX, upperHandY - 5.5);
+                ctx.moveTo(frontHand.x, fingerBaseY);
+                ctx.lineTo(frontHand.x, fingerTipY);
                 ctx.stroke();
             }
-        } else {
-            // 通常の腕・武器描画
-            const idleArmWave = Math.sin(this.motionTime * 0.01);
+            ctx.strokeStyle = silhouetteColor;
+            ctx.lineWidth = 3.6;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(frontHand.x, fingerBaseY + 0.2);
+            ctx.lineTo(frontHand.x, fingerTipY + 0.2);
+            ctx.stroke();
+        };
+
+        // 通常の腕・武器描画
+        const idleArmWave = Math.sin(this.motionTime * 0.01);
         const idleBackHandXShared = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
         const idleBackHandYShared = backShoulderYShared + (isCrouchPose ? 6.2 : 7.8) + idleArmWave * (isCrouchPose ? 0.8 : 1.7);
         const idleFrontHandXShared = centerX - dir * (isCrouchPose ? 4.6 : 7.2);
@@ -4074,9 +4132,10 @@ export class Player {
             !isAttacking &&
             effectiveSubWeaponTimerPre > 0 &&
             subWeaponAction === '鎖鎌';
-        const renderIdleBackArmBehind =
+        const renderIdleBackArmBehind = !isNinNinPose && (
             kusaKeepIdleBackArm ||
-            (!isActuallyAttackingPre && (!forceSubWeaponRender || isIdleForceRenderPre));
+            (!isActuallyAttackingPre && (!forceSubWeaponRender || isIdleForceRenderPre))
+        );
         if (renderIdleBackArmBehind) {
             const backShoulderXPre = backShoulderXShared;
             const backShoulderYPre = backShoulderYShared;
@@ -4704,8 +4763,9 @@ export class Player {
             : this.subWeaponTimer;
         const shouldRenderSubWeaponLayerBack =
             (effectiveSubWeaponTimerLayer > 0 || (forceSubWeaponRender && subWeaponAction)) &&
-            !isAttacking;
-        if (isAttacking) {
+            !isAttacking &&
+            !isNinNinPose;
+        if (isAttacking && !isNinNinPose) {
             this.renderAttackArmAndWeapon(ctx, {
                 centerX,
                 pivotY: bodyTopY + 2,
@@ -5070,7 +5130,9 @@ export class Player {
         const idleFrontBladeAngle = isCrouchPose ? -0.82 : -1.1;
 
         const isIdleForceRender = forceSubWeaponRender && !subWeaponAction && subWeaponTimer <= 0;
-        if (!isActuallyAttacking && (!forceSubWeaponRender || isIdleForceRender)) {
+        if (isNinNinPose) {
+            drawNinNinPoseHands();
+        } else if (!isActuallyAttacking && (!forceSubWeaponRender || isIdleForceRender)) {
             const isThrowing = effectiveSubWeaponTimer > 0 && subWeaponAction === 'throw';
             const hasDualSubWeapon = this.currentSubWeapon && this.currentSubWeapon.name === '二刀流';
 
@@ -5143,7 +5205,7 @@ export class Player {
         }
 
         // サブ武器アーム描画
-        if ((effectiveSubWeaponTimer > 0 || (forceSubWeaponRender && subWeaponAction)) && !effectiveIsAttacking) {
+        if ((effectiveSubWeaponTimer > 0 || (forceSubWeaponRender && subWeaponAction)) && !effectiveIsAttacking && !isNinNinPose) {
             this.renderSubWeaponArm(
                 ctx,
                 centerX,
@@ -5163,8 +5225,6 @@ export class Player {
                 }
             );
         }
-
-    }
 
     this.x = originalX;
     this.y = originalY;
@@ -6254,11 +6314,6 @@ export class Player {
         const standardForeLen = 13.2;
         const drawBackLayer = layerPhase !== 'front';
         const drawFrontLayer = layerPhase !== 'back';
-        const easeOut = 1 - Math.pow(1 - progress, 2);
-        const easeInOut = progress < 0.5
-            ? 2 * progress * progress
-            : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-        
         let swordAngle = 0;
         let armEndX = centerX + dir * 14;
         let armEndY = pivotY + 6;
@@ -6272,34 +6327,43 @@ export class Player {
         let supportGripMaxReach = 22;
         let allowSupportFrontHand = supportFrontHand;
         if (attack.comboStep) {
+            const bodyHeight = this.height;
+            const bodyWidth = this.width;
+            const bodyY = pivotY - (this.isCrouching ? bodyHeight * 0.58 : bodyHeight * 0.43);
+            const comboPose = this.getComboSwordPoseState(
+                {
+                    x: centerX - bodyWidth * 0.5,
+                    y: bodyY,
+                    width: bodyWidth,
+                    height: bodyHeight,
+                    facingRight,
+                    isCrouching: this.isCrouching,
+                    attackTimer: this.attackTimer,
+                    currentAttack: attack
+                },
+                {
+                    backShoulderX,
+                    backShoulderY,
+                    frontShoulderX,
+                    frontShoulderY,
+                    supportFrontHand
+                }
+            );
+            if (comboPose) {
+                swordAngle = comboPose.swordAngle;
+                armEndX = comboPose.armEndX;
+                armEndY = comboPose.armEndY;
+                activeBackShoulderX = comboPose.activeBackShoulderX;
+                activeBackShoulderY = comboPose.activeBackShoulderY;
+                activeFrontShoulderX = comboPose.activeFrontShoulderX;
+                activeFrontShoulderY = comboPose.activeFrontShoulderY;
+                supportGripBackDist = comboPose.supportGripBackDist;
+                supportGripSideOffset = comboPose.supportGripSideOffset;
+                supportGripMaxReach = comboPose.supportGripMaxReach;
+                allowSupportFrontHand = comboPose.allowSupportFrontHand;
+            }
             switch (attack.comboStep) {
                 case 2:
-                    // 影走り袈裟（前へ踏み込みつつ斜めに薙ぐ）
-                    swordAngle = 2.6 - 2.56 * easeOut;
-                    armEndX = centerX + dir * (6 + easeOut * 26);
-                    armEndY = pivotY + 9 - easeOut * 5.2;
-                    // 二段目開始は一段終点(アイドル終点)から補間して繋ぐ
-                    {
-                        const prepT = Math.max(0, Math.min(1, progress / 0.2));
-                        const prepEase = prepT * prepT * (3 - 2 * prepT);
-                        const idleAngle = this.isCrouching ? -0.32 : -0.65;
-                        const idleHandX = centerX + dir * (this.isCrouching ? 12 : 15);
-                        const idleHandY = pivotY + (this.isCrouching ? 5.5 : 8.0);
-                        swordAngle = idleAngle + (swordAngle - idleAngle) * prepEase;
-                        armEndX = idleHandX + (armEndX - idleHandX) * prepEase;
-                        armEndY = idleHandY + (armEndY - idleHandY) * prepEase;
-                    }
-                    // 終端だけアイドル構えへ寄せ、1撃目終了→待機の接続を自然にする
-                    {
-                        const settleT = Math.max(0, Math.min(1, (progress - 0.78) / 0.22));
-                        const settle = settleT * settleT * (3 - 2 * settleT);
-                        const idleAngle = this.isCrouching ? -0.32 : -0.65;
-                        const idleHandX = centerX + dir * (this.isCrouching ? 12 : 15);
-                        const idleHandY = pivotY + (this.isCrouching ? 5.5 : 8.0);
-                        swordAngle += (idleAngle - swordAngle) * settle;
-                        armEndX += (idleHandX - armEndX) * settle;
-                        armEndY += (idleHandY - armEndY) * settle;
-                    }
                     trail = {
                         mode: 'followSlash',
                         front: [214, 246, 255],
@@ -6311,48 +6375,6 @@ export class Player {
                     };
                     break;
                 case 1:
-                    // 閃返し（後方へ返す斬り）
-                    {
-                        const wind = Math.max(0, Math.min(1, progress / 0.34));
-                        const swing = Math.max(0, Math.min(1, (progress - 0.34) / 0.66));
-                        const swingEase = swing * swing * (3 - 2 * swing);
-                        swordAngle = 0.22 + wind * 0.78 + swingEase * 1.92;
-                        armEndX = centerX + dir * (15 - wind * 6.6 - swingEase * 27.5);
-                        armEndY = pivotY + 8.0 - wind * 4.8 + swingEase * 8.6;
-                        activeBackShoulderX = backShoulderX - dir * (0.6 + swingEase * 2.0);
-                        activeBackShoulderY = backShoulderY + swingEase * 1.1;
-                        activeFrontShoulderX = frontShoulderX - dir * (0.2 + swingEase * 1.2);
-                        activeFrontShoulderY = frontShoulderY + swingEase * 1.0;
-                        // 切り始めは必ずアイドル姿勢から入る
-                        const prepT = Math.max(0, Math.min(1, progress / 0.22));
-                        const prepEase = prepT * prepT * (3 - 2 * prepT);
-                        const idleAngle = this.isCrouching ? -0.32 : -0.65;
-                        const idleHandX = centerX + dir * (this.isCrouching ? 12 : 15);
-                        const idleHandY = pivotY + (this.isCrouching ? 5.5 : 8.0);
-                        swordAngle = idleAngle + (swordAngle - idleAngle) * prepEase;
-                        armEndX = idleHandX + (armEndX - idleHandX) * prepEase;
-                        armEndY = idleHandY + (armEndY - idleHandY) * prepEase;
-                        activeBackShoulderX = backShoulderX + (activeBackShoulderX - backShoulderX) * prepEase;
-                        activeBackShoulderY = backShoulderY + (activeBackShoulderY - backShoulderY) * prepEase;
-                        activeFrontShoulderX = frontShoulderX + (activeFrontShoulderX - frontShoulderX) * prepEase;
-                        activeFrontShoulderY = frontShoulderY + (activeFrontShoulderY - frontShoulderY) * prepEase;
-
-                        // 1撃目は添え手を柄の内側へ寄せ、開始時だけアイドル値から補間
-                        supportGripBackDist = 6.2 + (7.4 - 6.2) * prepEase;
-                        supportGripSideOffset = 1.0 + (-0.9 - 1.0) * prepEase;
-                        supportGripMaxReach = 22 + (20.2 - 22) * prepEase;
-
-                        // 終端をアイドル構えに寄せ、1撃目後の接続を自然にする
-                        const settleT = Math.max(0, Math.min(1, (progress - 0.88) / 0.12));
-                        const settle = settleT * settleT * (3 - 2 * settleT);
-                        swordAngle += (idleAngle - swordAngle) * settle;
-                        armEndX += (idleHandX - armEndX) * settle;
-                        armEndY += (idleHandY - armEndY) * settle;
-                        activeBackShoulderX += (backShoulderX - activeBackShoulderX) * settle;
-                        activeBackShoulderY += (backShoulderY - activeBackShoulderY) * settle;
-                        activeFrontShoulderX += (frontShoulderX - activeFrontShoulderX) * settle;
-                        activeFrontShoulderY += (frontShoulderY - activeFrontShoulderY) * settle;
-                    }
                     trail = {
                         mode: 'followSlash',
                         front: [225, 249, 255],
@@ -6364,21 +6386,6 @@ export class Player {
                     };
                     break;
                 case 3:
-                    // 燕返横薙ぎ（奥行き付きの水平切り）
-                    swordAngle = -0.22 + Math.sin(progress * Math.PI) * 0.34;
-                    armEndX = centerX + dir * (-10 + easeInOut * 36);
-                    armEndY = pivotY + 5 - Math.sin(progress * Math.PI) * 9.2;
-                    {
-                        // 三段目開始は二段目終端(アイドル終点)から接続
-                        const prepT = Math.max(0, Math.min(1, progress / 0.2));
-                        const prepEase = prepT * prepT * (3 - 2 * prepT);
-                        const idleAngle = this.isCrouching ? -0.32 : -0.65;
-                        const idleHandX = centerX + dir * (this.isCrouching ? 12 : 15);
-                        const idleHandY = pivotY + (this.isCrouching ? 5.5 : 8.0);
-                        swordAngle = idleAngle + (swordAngle - idleAngle) * prepEase;
-                        armEndX = idleHandX + (armEndX - idleHandX) * prepEase;
-                        armEndY = idleHandY + (armEndY - idleHandY) * prepEase;
-                    }
                     trail = {
                         mode: 'tipArc',
                         front: [222, 248, 255],
@@ -6392,52 +6399,6 @@ export class Player {
                     };
                     break;
                 case 4:
-                    // 四ノ太刀: 天穿斬り上げ（真上へ上昇→後方バク転）
-                    if (progress < 0.42) {
-                        const t = progress / 0.42;
-                        const rise = t * t * (3 - 2 * t);
-                        // 三段目終端から角度を下げず、そのまま切り上げへ接続
-                        swordAngle = -0.22 + (-0.74 + 0.22) * rise;
-                        armEndX = centerX + dir * (26 + (8.0 - 26) * rise);
-                        armEndY = pivotY + 5 + (-24.0 - 5) * rise;
-                    } else {
-                        const flipT = Math.max(0, Math.min(1, (progress - 0.42) / 0.58));
-                        const bodyFlipAngle = -Math.PI * 1.82 * flipT;
-                        const flipAngle = -0.76 + bodyFlipAngle;
-                        const flipX = centerX - dir * (4.0 + Math.sin(flipT * Math.PI) * 6.0);
-                        const flipY = pivotY - 14 + Math.cos(flipT * Math.PI) * 4.0;
-                        // 剣筋側と同じ補間を使い、宙返り序盤の手元ジャンプを防ぐ
-                        const bridgeT = Math.max(0, Math.min(1, (progress - 0.42) / 0.12));
-                        const bridge = bridgeT * bridgeT * (3 - 2 * bridgeT);
-                        const riseAngleEnd = -0.74;
-                        const riseEndX = centerX + dir * 8.0;
-                        const riseEndY = pivotY - 24.0;
-                        swordAngle = riseAngleEnd + (flipAngle - riseAngleEnd) * bridge;
-                        armEndX = riseEndX + (flipX - riseEndX) * bridge;
-                        armEndY = riseEndY + (flipY - riseEndY) * bridge;
-
-                        // 宙返り中は肩位置を少し胴体側へ下げ、腕が頭から生える見え方を抑える
-                        const shoulderT = Math.max(0, Math.min(1, (progress - 0.5) / 0.5));
-                        const shoulderEase = shoulderT * shoulderT * (3 - 2 * shoulderT);
-                        activeBackShoulderX -= dir * (0.4 + shoulderEase * 1.6);
-                        activeBackShoulderY += 0.2 + shoulderEase * 1.8;
-                        activeFrontShoulderX -= dir * (0.3 + shoulderEase * 1.35);
-                        activeFrontShoulderY += 0.2 + shoulderEase * 1.55;
-                        if (progress > 0.48) {
-                            allowSupportFrontHand = false;
-                        }
-                    }
-                    {
-                        // 四段目開始は三段目終点から接続
-                        const prepT = Math.max(0, Math.min(1, progress / 0.18));
-                        const prepEase = prepT * prepT * (3 - 2 * prepT);
-                        const prevAngle = -0.22;
-                        const prevHandX = centerX + dir * 26;
-                        const prevHandY = pivotY + 5;
-                        swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
-                        armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
-                        armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
-                    }
                     trail = {
                         mode: 'depthSlice',
                         front: [228, 250, 255],
@@ -6449,34 +6410,6 @@ export class Player {
                     };
                     break;
                 case 5:
-                    // 五ノ太刀: 頭上から水平へ叩きつける落下
-                    {
-                        if (progress < 0.26) {
-                            const t = progress / 0.26;
-                            swordAngle = -1.45 + t * 0.3;
-                            armEndX = centerX - dir * (4.0 - t * 8.0);
-                            armEndY = pivotY - 18 - t * 5.0;
-                        } else if (progress < 0.78) {
-                            const t = (progress - 0.26) / 0.52;
-                            swordAngle = -1.15 + t * 2.2;
-                            armEndX = centerX + dir * (4 + t * 22);
-                            armEndY = pivotY - 23 + t * 40;
-                        } else {
-                            const t = (progress - 0.78) / 0.22;
-                            swordAngle = 1.05 - t * 0.52;
-                            armEndX = centerX + dir * (26 - t * 8);
-                            armEndY = pivotY + 17 - t * 4;
-                        }
-                        // 五段目開始は四段目終点から接続
-                        const prepT = Math.max(0, Math.min(1, progress / 0.2));
-                        const prepEase = prepT * prepT * (3 - 2 * prepT);
-                        const prevAngle = -0.76 - Math.PI * 1.82;
-                        const prevHandX = centerX - dir * 4.0;
-                        const prevHandY = pivotY - 18.0;
-                        swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
-                        armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
-                        armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
-                    }
                     trail = {
                         mode: 'followSlash',
                         front: [232, 252, 255],
@@ -7103,31 +7036,45 @@ export class Player {
         }
     }
 
-    getComboSwordPoseForTrailState(state) {
+    getComboSwordPoseState(state, options = {}) {
         if (!state) return null;
         const attack = state.currentAttack;
-        if (!state.isAttacking || !attack || !attack.comboStep) return null;
+        if (!attack || !attack.comboStep) return null;
 
-        const dir = state.facingRight ? 1 : -1;
-        const centerX = state.x + this.width / 2;
-        const pivotY = state.y + (state.isCrouching ? this.height * 0.58 : this.height * 0.43);
+        const x = state.x !== undefined ? state.x : this.x;
+        const y = state.y !== undefined ? state.y : this.y;
+        const width = Number.isFinite(state.width) ? state.width : this.width;
+        const height = Number.isFinite(state.height) ? state.height : this.height;
+        const facingRight = state.facingRight !== undefined ? state.facingRight : this.facingRight;
+        const isCrouching = state.isCrouching !== undefined ? state.isCrouching : this.isCrouching;
+        const attackTimer = state.attackTimer !== undefined ? state.attackTimer : this.attackTimer;
+        const dir = facingRight ? 1 : -1;
+        const centerX = x + width / 2;
+        const centerY = y + height * 0.5;
+        const pivotY = y + (isCrouching ? height * 0.58 : height * 0.43);
         const attackDuration = Math.max(1, attack.durationMs || PLAYER.ATTACK_COOLDOWN);
-        const rawProgress = Math.max(0, Math.min(1, 1 - (state.attackTimer / attackDuration)));
+        const rawProgress = Math.max(0, Math.min(1, 1 - (attackTimer / attackDuration)));
         const progress = this.getAttackMotionProgress(attack, rawProgress);
-        const trailWindow = this.getComboTrailProgressWindow(attack.comboStep);
-        if (progress < trailWindow.start || progress > trailWindow.end) return null;
         const easeOut = 1 - Math.pow(1 - progress, 2);
         const easeInOut = progress < 0.5
             ? 2 * progress * progress
             : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+        const backShoulderXBase = Number.isFinite(options.backShoulderX) ? options.backShoulderX : centerX;
+        const backShoulderYBase = Number.isFinite(options.backShoulderY) ? options.backShoulderY : pivotY;
+        const frontShoulderXBase = Number.isFinite(options.frontShoulderX) ? options.frontShoulderX : centerX;
+        const frontShoulderYBase = Number.isFinite(options.frontShoulderY) ? options.frontShoulderY : (pivotY + 1);
 
-        const idleAngle = state.isCrouching ? -0.32 : -0.65;
-        const idleHandX = centerX + dir * (state.isCrouching ? 12 : 15);
-        const idleHandY = pivotY + (state.isCrouching ? 5.5 : 8.0);
-
-        let swordAngle = idleAngle;
-        let armEndX = idleHandX;
-        let armEndY = idleHandY;
+        let swordAngle = 0;
+        let armEndX = centerX + dir * 14;
+        let armEndY = pivotY + 6;
+        let activeBackShoulderX = backShoulderXBase;
+        let activeBackShoulderY = backShoulderYBase;
+        let activeFrontShoulderX = frontShoulderXBase;
+        let activeFrontShoulderY = frontShoulderYBase;
+        let supportGripBackDist = 6.2;
+        let supportGripSideOffset = 1.0;
+        let supportGripMaxReach = 22;
+        let allowSupportFrontHand = options.supportFrontHand !== false;
 
         switch (attack.comboStep) {
             case 2: {
@@ -7136,6 +7083,9 @@ export class Player {
                 armEndY = pivotY + 9 - easeOut * 5.2;
                 const prepT = Math.max(0, Math.min(1, progress / 0.2));
                 const prepEase = prepT * prepT * (3 - 2 * prepT);
+                const idleAngle = isCrouching ? -0.32 : -0.65;
+                const idleHandX = centerX + dir * (isCrouching ? 12 : 15);
+                const idleHandY = pivotY + (isCrouching ? 5.5 : 8.0);
                 swordAngle = idleAngle + (swordAngle - idleAngle) * prepEase;
                 armEndX = idleHandX + (armEndX - idleHandX) * prepEase;
                 armEndY = idleHandY + (armEndY - idleHandY) * prepEase;
@@ -7154,17 +7104,36 @@ export class Player {
                 swordAngle = 0.22 + wind * 0.78 + swingEase * 1.92;
                 armEndX = centerX + dir * (15 - wind * 6.6 - swingEase * 27.5);
                 armEndY = pivotY + 8.0 - wind * 4.8 + swingEase * 8.6;
+                activeBackShoulderX -= dir * (0.6 + swingEase * 2.0);
+                activeBackShoulderY += swingEase * 1.1;
+                activeFrontShoulderX -= dir * (0.2 + swingEase * 1.2);
+                activeFrontShoulderY += swingEase * 1.0;
                 const prepT = Math.max(0, Math.min(1, progress / 0.22));
                 const prepEase = prepT * prepT * (3 - 2 * prepT);
+                const idleAngle = isCrouching ? -0.32 : -0.65;
+                const idleHandX = centerX + dir * (isCrouching ? 12 : 15);
+                const idleHandY = pivotY + (isCrouching ? 5.5 : 8.0);
                 swordAngle = idleAngle + (swordAngle - idleAngle) * prepEase;
                 armEndX = idleHandX + (armEndX - idleHandX) * prepEase;
                 armEndY = idleHandY + (armEndY - idleHandY) * prepEase;
+                activeBackShoulderX = backShoulderXBase + (activeBackShoulderX - backShoulderXBase) * prepEase;
+                activeBackShoulderY = backShoulderYBase + (activeBackShoulderY - backShoulderYBase) * prepEase;
+                activeFrontShoulderX = frontShoulderXBase + (activeFrontShoulderX - frontShoulderXBase) * prepEase;
+                activeFrontShoulderY = frontShoulderYBase + (activeFrontShoulderY - frontShoulderYBase) * prepEase;
+
+                supportGripBackDist = 6.2 + (7.4 - 6.2) * prepEase;
+                supportGripSideOffset = 1.0 + (-0.9 - 1.0) * prepEase;
+                supportGripMaxReach = 22 + (20.2 - 22) * prepEase;
 
                 const settleT = Math.max(0, Math.min(1, (progress - 0.88) / 0.12));
                 const settle = settleT * settleT * (3 - 2 * settleT);
                 swordAngle += (idleAngle - swordAngle) * settle;
                 armEndX += (idleHandX - armEndX) * settle;
                 armEndY += (idleHandY - armEndY) * settle;
+                activeBackShoulderX += (backShoulderXBase - activeBackShoulderX) * settle;
+                activeBackShoulderY += (backShoulderYBase - activeBackShoulderY) * settle;
+                activeFrontShoulderX += (frontShoulderXBase - activeFrontShoulderX) * settle;
+                activeFrontShoulderY += (frontShoulderYBase - activeFrontShoulderY) * settle;
                 break;
             }
             case 3: {
@@ -7173,6 +7142,9 @@ export class Player {
                 armEndY = pivotY + 5 - Math.sin(progress * Math.PI) * 9.2;
                 const prepT = Math.max(0, Math.min(1, progress / 0.2));
                 const prepEase = prepT * prepT * (3 - 2 * prepT);
+                const idleAngle = isCrouching ? -0.32 : -0.65;
+                const idleHandX = centerX + dir * (isCrouching ? 12 : 15);
+                const idleHandY = pivotY + (isCrouching ? 5.5 : 8.0);
                 swordAngle = idleAngle + (swordAngle - idleAngle) * prepEase;
                 armEndX = idleHandX + (armEndX - idleHandX) * prepEase;
                 armEndY = idleHandY + (armEndY - idleHandY) * prepEase;
@@ -7182,7 +7154,6 @@ export class Player {
                 if (progress < 0.42) {
                     const t = progress / 0.42;
                     const rise = t * t * (3 - 2 * t);
-                    // 三段目終端から角度を下げず、そのまま切り上げへ接続
                     swordAngle = -0.22 + (-0.74 + 0.22) * rise;
                     armEndX = centerX + dir * (26 + (8.0 - 26) * rise);
                     armEndY = pivotY + 5 + (-24.0 - 5) * rise;
@@ -7192,9 +7163,6 @@ export class Player {
                     const flipAngle = -0.76 + bodyFlipAngle;
                     const flipX = centerX - dir * (4.0 + Math.sin(flipT * Math.PI) * 6.0);
                     const flipY = pivotY - 14 + Math.cos(flipT * Math.PI) * 4.0;
-
-                    // 上昇弧(0.42まで)と宙返り弧(0.42以降)を短区間で補間して、
-                    // 4撃目の剣筋が不自然に折れずに延長されるようにする。
                     const bridgeT = Math.max(0, Math.min(1, (progress - 0.42) / 0.12));
                     const bridge = bridgeT * bridgeT * (3 - 2 * bridgeT);
                     const riseAngleEnd = -0.74;
@@ -7203,6 +7171,16 @@ export class Player {
                     swordAngle = riseAngleEnd + (flipAngle - riseAngleEnd) * bridge;
                     armEndX = riseEndX + (flipX - riseEndX) * bridge;
                     armEndY = riseEndY + (flipY - riseEndY) * bridge;
+
+                    const shoulderT = Math.max(0, Math.min(1, (progress - 0.5) / 0.5));
+                    const shoulderEase = shoulderT * shoulderT * (3 - 2 * shoulderT);
+                    activeBackShoulderX -= dir * (0.4 + shoulderEase * 1.6);
+                    activeBackShoulderY += 0.2 + shoulderEase * 1.8;
+                    activeFrontShoulderX -= dir * (0.3 + shoulderEase * 1.35);
+                    activeFrontShoulderY += 0.2 + shoulderEase * 1.55;
+                    if (progress > 0.48) {
+                        allowSupportFrontHand = false;
+                    }
                 }
                 const prepT = Math.max(0, Math.min(1, progress / 0.18));
                 const prepEase = prepT * prepT * (3 - 2 * prepT);
@@ -7212,9 +7190,6 @@ export class Player {
                 swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
                 armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
                 armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
-                // 通常4撃目の剣筋始点が低くならないよう、序盤のみ上方向へ補正
-                const earlyLiftT = Math.max(0, Math.min(1, 1 - progress / 0.38));
-                armEndY -= 2.2 + earlyLiftT * 8.4;
                 break;
             }
             case 5: {
@@ -7248,12 +7223,11 @@ export class Player {
                 return null;
         }
 
-        const bladeLen = this.getKatanaBladeLength();
-        const bladeDirX = Math.cos(swordAngle) * dir;
-        const bladeDirY = Math.sin(swordAngle);
         let trailTipExtend = 0;
-        if (attack.comboStep === 5) {
-            // 大凪は当たり判定が前方に強いため、剣筋もやや外側へ寄せて見た目と一致させる
+        if (attack.comboStep === 4) {
+            const earlyLiftT = Math.max(0, Math.min(1, 1 - progress / 0.38));
+            armEndY -= 2.2 + earlyLiftT * 8.4;
+        } else if (attack.comboStep === 5) {
             if (progress < 0.26) {
                 trailTipExtend = 8;
             } else if (progress < 0.78) {
@@ -7264,12 +7238,49 @@ export class Player {
                 trailTipExtend = 22 - t * 7;
             }
         }
+
+        const bladeLen = this.getKatanaBladeLength();
+        const bladeDirX = Math.cos(swordAngle) * dir;
+        const bladeDirY = Math.sin(swordAngle);
         return {
+            attack,
             comboStep: attack.comboStep,
-            tipX: armEndX + bladeDirX * (bladeLen + trailTipExtend),
-            tipY: armEndY + bladeDirY * (bladeLen + trailTipExtend),
-            centerX: centerX,
-            centerY: state.y + this.height * 0.5
+            dir,
+            centerX,
+            centerY,
+            pivotY,
+            progress,
+            rawProgress,
+            swordAngle,
+            armEndX,
+            armEndY,
+            activeBackShoulderX,
+            activeBackShoulderY,
+            activeFrontShoulderX,
+            activeFrontShoulderY,
+            supportGripBackDist,
+            supportGripSideOffset,
+            supportGripMaxReach,
+            allowSupportFrontHand,
+            bladeLen,
+            tipX: armEndX + bladeDirX * bladeLen,
+            tipY: armEndY + bladeDirY * bladeLen,
+            trailTipX: armEndX + bladeDirX * (bladeLen + trailTipExtend),
+            trailTipY: armEndY + bladeDirY * (bladeLen + trailTipExtend)
+        };
+    }
+
+    getComboSwordPoseForTrailState(state) {
+        const swordPose = this.getComboSwordPoseState(state);
+        if (!swordPose) return null;
+        const trailWindow = this.getComboTrailProgressWindow(swordPose.comboStep);
+        if (swordPose.progress < trailWindow.start || swordPose.progress > trailWindow.end) return null;
+        return {
+            comboStep: swordPose.comboStep,
+            tipX: swordPose.trailTipX,
+            tipY: swordPose.trailTipY,
+            centerX: swordPose.centerX,
+            centerY: swordPose.centerY
         };
     }
 
@@ -7390,9 +7401,7 @@ export class Player {
 
             if (isAlive && pos) {
                 const isAutoAi = !!this.specialCloneAutoAiEnabled;
-                const cloneDrawY = isAutoAi
-                    ? (pos.y - PLAYER.HEIGHT * 0.62)
-                    : this.y;
+                const cloneDrawY = this.getSpecialCloneDrawY(pos.y);
                 const dualTimer = isAutoAi
                     ? (this.specialCloneSubWeaponTimers[i] || 0)
                     : this.subWeaponTimer;
@@ -7457,6 +7466,9 @@ export class Player {
                 deltaMs,
                 { holdExisting: !!(isAlive && pos && !pose) }
             );
+            if (Array.isArray(this.specialCloneSlashTrailBoostAnchors) && this.specialCloneSlashTrailPoints[i].length < 2) {
+                this.specialCloneSlashTrailBoostAnchors[i] = null;
+            }
             if (this.specialCloneSlashTrailPoints[i].length > 96) {
                 this.specialCloneSlashTrailPoints[i].splice(0, this.specialCloneSlashTrailPoints[i].length - 96);
             }
@@ -7464,10 +7476,19 @@ export class Player {
     }
 
     renderComboSlashTrail(ctx, options = {}) {
-        const points = Array.isArray(options.points) ? options.points : this.comboSlashTrailPoints;
-        const isPrimaryTrail = !Array.isArray(options.points);
+        const usesExternalPoints = Array.isArray(options.points);
+        const points = usesExternalPoints ? options.points : this.comboSlashTrailPoints;
+        const getBoostAnchor = typeof options.getBoostAnchor === 'function'
+            ? options.getBoostAnchor
+            : (() => this.comboSlashTrailBoostAnchor);
+        const setBoostAnchor = typeof options.setBoostAnchor === 'function'
+            ? options.setBoostAnchor
+            : ((value) => { this.comboSlashTrailBoostAnchor = value; });
+        const sourceIsAttacking = options.isAttacking !== undefined
+            ? !!options.isAttacking
+            : this.isAttacking;
         if (!points || points.length < 2) {
-            if (isPrimaryTrail) this.comboSlashTrailBoostAnchor = null;
+            setBoostAnchor(null);
             return;
         }
         const storedTrailScale = points.reduce((max, p) => {
@@ -7481,8 +7502,8 @@ export class Player {
         const boostActive = options.boostActive !== undefined
             ? !!options.boostActive
             : (trailWidthScale > 1.01 && (this.isAttacking || storedTrailScale > 1.01));
-        if (!boostActive && isPrimaryTrail) {
-            this.comboSlashTrailBoostAnchor = null;
+        if (!boostActive) {
+            setBoostAnchor(null);
         }
         let trailCenterX = Number.isFinite(options.centerX)
             ? options.centerX
@@ -7847,28 +7868,32 @@ export class Player {
             let projectedCenterY = trailCenterY;
             let boostScale = Math.max(1.02, 1 + (trailWidthScale - 1) * 0.74);
 
-            if (isPrimaryTrail && !this.isAttacking && this.comboSlashTrailBoostAnchor) {
+            const boostAnchor = getBoostAnchor();
+            if (!sourceIsAttacking && boostAnchor) {
                 // フェード中は直前の投影中心を固定し、ジリジリした位置ずれを防ぐ
-                baseCenterX = this.comboSlashTrailBoostAnchor.baseCenterX;
-                baseCenterY = this.comboSlashTrailBoostAnchor.baseCenterY;
-                projectedCenterX = this.comboSlashTrailBoostAnchor.projectedCenterX;
-                projectedCenterY = this.comboSlashTrailBoostAnchor.projectedCenterY;
-                boostScale = this.comboSlashTrailBoostAnchor.boostScale;
+                baseCenterX = boostAnchor.baseCenterX;
+                baseCenterY = boostAnchor.baseCenterY;
+                projectedCenterX = boostAnchor.projectedCenterX;
+                projectedCenterY = boostAnchor.projectedCenterY;
+                boostScale = boostAnchor.boostScale;
             } else {
-                const hitboxCenter = resolveHitboxCenter(this.getAttackHitbox ? this.getAttackHitbox() : null);
+                const hitboxSource = options.attackHitboxes !== undefined
+                    ? options.attackHitboxes
+                    : (this.getAttackHitbox
+                        ? this.getAttackHitbox(options.attackState ? { state: options.attackState } : {})
+                        : null);
+                const hitboxCenter = resolveHitboxCenter(hitboxSource);
                 if (hitboxCenter) {
                     projectedCenterX = hitboxCenter.x;
                     projectedCenterY = hitboxCenter.y;
                 }
-                if (isPrimaryTrail) {
-                    this.comboSlashTrailBoostAnchor = {
-                        baseCenterX,
-                        baseCenterY,
-                        projectedCenterX,
-                        projectedCenterY,
-                        boostScale
-                    };
-                }
+                setBoostAnchor({
+                    baseCenterX,
+                    baseCenterY,
+                    projectedCenterX,
+                    projectedCenterY,
+                    boostScale
+                });
             }
             trailCenterX = projectedCenterX;
             trailCenterY = projectedCenterY;
@@ -7910,8 +7935,16 @@ export class Player {
         ctx.restore();
     }
     
-    renderSpecial(ctx) {
+    renderSpecial(ctx, options = {}) {
         const anchors = this.getSpecialCloneAnchors();
+        const scaleEntity = typeof options.scaleEntity === 'function' ? options.scaleEntity : null;
+        const renderScaled = (pivotX, pivotY, renderFn) => {
+            if (scaleEntity) {
+                scaleEntity(pivotX, pivotY, renderFn);
+                return;
+            }
+            renderFn();
+        };
 
         ctx.save();
 
@@ -7920,24 +7953,26 @@ export class Player {
                 if (anchor.alpha <= 0.02) continue;
                 const cloneScarfNodes = this.specialCloneScarfNodes[anchor.index] || null;
                 const cloneHairNodes = this.specialCloneHairNodes[anchor.index] || null;
-                // cloneIndexを渡し、y座標を本体と同じ高さに
-                this.renderModel(
-                    ctx,
-                    anchor.x - this.width * 0.5,
-                    this.y,
-                    anchor.facingRight,
-                    anchor.alpha,
-                    false,
-                    {
-                        silhouetteMode: true,
-                        ninNinPose: true,
-                        isClone: true,
-                        cloneIndex: anchor.index,
-                        palette: { silhouette: '#1a1a1a', accent: '#00bfff' },
-                        scarfNodes: cloneScarfNodes || undefined,
-                        hairNodes: cloneHairNodes || undefined
-                    }
-                );
+                const cloneDrawY = this.getSpecialCloneDrawY(anchor.y);
+                renderScaled(anchor.x, this.getSpecialCloneFootY(anchor.y), () => {
+                    this.renderModel(
+                        ctx,
+                        anchor.x - this.width * 0.5,
+                        cloneDrawY,
+                        anchor.facingRight,
+                        anchor.alpha,
+                        false,
+                        {
+                            silhouetteMode: true,
+                            ninNinPose: true,
+                            isClone: true,
+                            cloneIndex: anchor.index,
+                            palette: { silhouette: '#1a1a1a', accent: '#00bfff' },
+                            scarfNodes: cloneScarfNodes || undefined,
+                            hairNodes: cloneHairNodes || undefined
+                        }
+                    );
+                });
             }
         } else if (this.isSpecialCloneCombatActive()) {
             for (const anchor of anchors) {
@@ -7974,23 +8009,7 @@ export class Player {
                 };
 
                 const cloneDrawX = pos.x - this.width * 0.5;
-                const cloneDrawY = pos.y - PLAYER.HEIGHT * 0.62;
-
-                // 霧エフェクト（描画座標に追従・キャッシュCanvasを利用して軽量化）
-                const mistCenterY = cloneDrawY + PLAYER.HEIGHT * 0.45;
-                ctx.save();
-                ctx.globalAlpha = cloneAlpha * 0.4; // 不透明度を調整してスタンプ
-                if (this.mistCacheCanvas) {
-                    const size = this.mistCacheCanvas.width;
-                    ctx.drawImage(this.mistCacheCanvas, pos.x - size/2, mistCenterY - size/2);
-                } else {
-                    // フォールバック
-                    ctx.fillStyle = `rgba(180, 214, 246, 1.0)`;
-                    ctx.beginPath();
-                    ctx.arc(pos.x, mistCenterY, 34, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-                ctx.restore();
+                const cloneDrawY = this.getSpecialCloneDrawY(pos.y);
 
                 // Lv0〜2は本体の攻撃状態に同期、Lv3は独自タイマー
                 const cloneUsesDualZ = !!(
@@ -8044,9 +8063,8 @@ export class Player {
                         : null;
                 } else {
                     this.vx = saved.vx;
-                    // Lv0〜2分身はアンカー地面に固定し、本体ジャンプで見た目が沈まないようにする
-                    this.vy = 0;
-                    this.isGrounded = true;
+                    this.vy = saved.vy;
+                    this.isGrounded = saved.isGrounded;
                     this.isCrouching = saved.isCrouching;
                     this.isDashing = saved.isDashing;
                     this.subWeaponTimer = saved.subWeaponTimer;
@@ -8072,89 +8090,126 @@ export class Player {
                     this.attackTimer = 0;
                 }
 
-                ctx.save();
-                ctx.globalAlpha = cloneAlpha;
-
-                const cloneTrailPoints = Array.isArray(this.specialCloneSlashTrailPoints)
-                    ? this.specialCloneSlashTrailPoints[i]
-                    : null;
-                if (cloneTrailPoints && cloneTrailPoints.length > 1) {
-                    const trailScale = this.getXAttackTrailWidthScale();
-                    if (!cloneUsesDualZ) {
-                        this.renderComboSlashTrail(ctx, {
-                            points: cloneTrailPoints,
-                            centerX: pos.x,
-                            centerY: cloneDrawY + this.height * 0.5,
-                            trailWidthScale: trailScale,
-                            boostActive: trailScale > 1.01 && isCloneAttacking
-                        });
+                renderScaled(pos.x, this.getSpecialCloneFootY(pos.y), () => {
+                    // 霧エフェクト（描画座標に追従・キャッシュCanvasを利用して軽量化）
+                    const mistCenterY = cloneDrawY + PLAYER.HEIGHT * 0.45;
+                    ctx.save();
+                    ctx.globalAlpha = cloneAlpha * 0.4;
+                    if (this.mistCacheCanvas) {
+                        const size = this.mistCacheCanvas.width;
+                        ctx.drawImage(this.mistCacheCanvas, pos.x - size / 2, mistCenterY - size / 2);
+                    } else {
+                        ctx.fillStyle = `rgba(180, 214, 246, 1.0)`;
+                        ctx.beginPath();
+                        ctx.arc(pos.x, mistCenterY, 34, 0, Math.PI * 2);
+                        ctx.fill();
                     }
-                }
+                    ctx.restore();
 
-                const cloneScarfNodes = this.specialCloneScarfNodes[i] || null;
-                const cloneHairNodes = this.specialCloneHairNodes[i] || null;
+                    ctx.save();
+                    ctx.globalAlpha = cloneAlpha;
 
-                if (cloneScarfNodes && cloneHairNodes) {
-                    const footY = this.y + this.height;
-                    const cloneMotionTime = saved.motionTime;
-                    const cloneIsMoving = this.specialCloneAutoAiEnabled
-                        ? (Math.abs(pos.prevX - pos.x) > 0.5)
-                        : (Math.abs(saved.vx) > 0.5 || !saved.isGrounded);
-                    const anchorCalc = this.calculateAccessoryAnchor(
-                        pos.x - this.width * 0.5, footY, this.height,
-                        cloneMotionTime, cloneIsMoving,
-                        false, false,
-                        this.legPhase || cloneMotionTime * 0.012,
-                        pos.facingRight
-                    );
-                    this.syncAccessoryRootNodes(cloneScarfNodes, cloneHairNodes, anchorCalc);
-                }
+                    const cloneTrailPoints = Array.isArray(this.specialCloneSlashTrailPoints)
+                        ? this.specialCloneSlashTrailPoints[i]
+                        : null;
+                    if (cloneTrailPoints && cloneTrailPoints.length > 1) {
+                        const trailScale = this.getXAttackTrailWidthScale();
+                        if (!cloneUsesDualZ) {
+                            const cloneAttackState = {
+                                x: this.x,
+                                y: this.y,
+                                facingRight: this.facingRight,
+                                isAttacking: this.isAttacking,
+                                currentAttack: this.currentAttack,
+                                attackTimer: this.attackTimer,
+                                isCrouching: this.isCrouching
+                            };
+                            this.renderComboSlashTrail(ctx, {
+                                points: cloneTrailPoints,
+                                trailWidthScale: trailScale,
+                                boostActive: trailScale > 1.01 && isCloneAttacking,
+                                isAttacking: isCloneAttacking,
+                                attackState: cloneAttackState,
+                                getBoostAnchor: () => (
+                                    Array.isArray(this.specialCloneSlashTrailBoostAnchors)
+                                        ? this.specialCloneSlashTrailBoostAnchors[i]
+                                        : null
+                                ),
+                                setBoostAnchor: (value) => {
+                                    if (!Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
+                                        this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
+                                    }
+                                    this.specialCloneSlashTrailBoostAnchors[i] = value;
+                                }
+                            });
+                        }
+                    }
 
-                this.renderModel(ctx, this.x, this.y, this.facingRight, 1.0, true, {
-                    useLiveAccessories: true,
-                    renderHeadbandTail: true,
-                    isClone: true,
-                    cloneIndex: i,
-                    scarfNodes: cloneScarfNodes || undefined,
-                    hairNodes: cloneHairNodes || undefined
+                    const cloneScarfNodes = this.specialCloneScarfNodes[i] || null;
+                    const cloneHairNodes = this.specialCloneHairNodes[i] || null;
+
+                    if (cloneScarfNodes && cloneHairNodes) {
+                        const footY = this.y + this.height;
+                        const cloneMotionTime = saved.motionTime;
+                        const cloneIsMoving = this.specialCloneAutoAiEnabled
+                            ? (Math.abs(pos.prevX - pos.x) > 0.5)
+                            : (Math.abs(saved.vx) > 0.5 || !saved.isGrounded);
+                        const anchorCalc = this.calculateAccessoryAnchor(
+                            pos.x - this.width * 0.5, footY, this.height,
+                            cloneMotionTime, cloneIsMoving,
+                            false, false,
+                            this.legPhase || cloneMotionTime * 0.012,
+                            pos.facingRight
+                        );
+                        this.syncAccessoryRootNodes(cloneScarfNodes, cloneHairNodes, anchorCalc);
+                    }
+
+                    this.renderModel(ctx, this.x, this.y, this.facingRight, 1.0, true, {
+                        useLiveAccessories: true,
+                        renderHeadbandTail: true,
+                        isClone: true,
+                        cloneIndex: i,
+                        scarfNodes: cloneScarfNodes || undefined,
+                        hairNodes: cloneHairNodes || undefined
+                    });
+                    if (
+                        cloneUsesDualZ &&
+                        this.currentSubWeapon &&
+                        this.currentSubWeapon.name === '二刀流' &&
+                        typeof this.currentSubWeapon.render === 'function'
+                    ) {
+                        const dualBlade = this.currentSubWeapon;
+                        const dualSaved = {
+                            isAttacking: dualBlade.isAttacking,
+                            attackType: dualBlade.attackType,
+                            attackTimer: dualBlade.attackTimer,
+                            attackDirection: dualBlade.attackDirection,
+                            comboIndex: dualBlade.comboIndex,
+                            projectiles: dualBlade.projectiles
+                        };
+                        const dualComboIndex = this.specialCloneAutoAiEnabled
+                            ? (this.specialCloneComboSteps[i] || 0)
+                            : (dualBlade.comboIndex || 0);
+                        const dualAttackTimer = this.specialCloneAutoAiEnabled
+                            ? (this.specialCloneSubWeaponTimers[i] || 0)
+                            : (this.subWeaponTimer || dualBlade.attackTimer || 0);
+                        dualBlade.isAttacking = true;
+                        dualBlade.attackType = 'main';
+                        dualBlade.attackDirection = this.facingRight ? 1 : -1;
+                        dualBlade.comboIndex = dualComboIndex;
+                        dualBlade.attackTimer = dualAttackTimer;
+                        dualBlade.projectiles = [];
+                        dualBlade.render(ctx, this);
+                        dualBlade.isAttacking = dualSaved.isAttacking;
+                        dualBlade.attackType = dualSaved.attackType;
+                        dualBlade.attackTimer = dualSaved.attackTimer;
+                        dualBlade.attackDirection = dualSaved.attackDirection;
+                        dualBlade.comboIndex = dualSaved.comboIndex;
+                        dualBlade.projectiles = dualSaved.projectiles;
+                    }
+
+                    ctx.restore();
                 });
-                if (
-                    cloneUsesDualZ &&
-                    this.currentSubWeapon &&
-                    this.currentSubWeapon.name === '二刀流' &&
-                    typeof this.currentSubWeapon.render === 'function'
-                ) {
-                    const dualBlade = this.currentSubWeapon;
-                    const dualSaved = {
-                        isAttacking: dualBlade.isAttacking,
-                        attackType: dualBlade.attackType,
-                        attackTimer: dualBlade.attackTimer,
-                        attackDirection: dualBlade.attackDirection,
-                        comboIndex: dualBlade.comboIndex,
-                        projectiles: dualBlade.projectiles
-                    };
-                    const dualComboIndex = this.specialCloneAutoAiEnabled
-                        ? (this.specialCloneComboSteps[i] || 0)
-                        : (dualBlade.comboIndex || 0);
-                    const dualAttackTimer = this.specialCloneAutoAiEnabled
-                        ? (this.specialCloneSubWeaponTimers[i] || 0)
-                        : (this.subWeaponTimer || dualBlade.attackTimer || 0);
-                    dualBlade.isAttacking = true;
-                    dualBlade.attackType = 'main';
-                    dualBlade.attackDirection = this.facingRight ? 1 : -1;
-                    dualBlade.comboIndex = dualComboIndex;
-                    dualBlade.attackTimer = dualAttackTimer;
-                    dualBlade.projectiles = [];
-                    dualBlade.render(ctx, this);
-                    dualBlade.isAttacking = dualSaved.isAttacking;
-                    dualBlade.attackType = dualSaved.attackType;
-                    dualBlade.attackTimer = dualSaved.attackTimer;
-                    dualBlade.attackDirection = dualSaved.attackDirection;
-                    dualBlade.comboIndex = dualSaved.comboIndex;
-                    dualBlade.projectiles = dualSaved.projectiles;
-                }
-
-                ctx.restore();
 
                 // 本体の状態を完全に復元
                 this.isAttacking = saved.isAttacking;
@@ -8181,64 +8236,66 @@ export class Player {
 
         // 忍術ドロン煙
         for (const puff of this.specialSmoke) {
-            const life = Math.max(0, Math.min(1, puff.life / puff.maxLife));
-            const bloom = 1 - life;
-            const radius = puff.radius * (puff.mode === 'appear' ? (0.78 + bloom * 1.05) : (0.66 + bloom * 0.88));
-            const alpha = (puff.mode === 'appear' ? 0.62 : 0.36) * life;
-            const warm = puff.mode === 'appear';
-            
-            const rot = puff.rot || 0;
-
-            // 煙描画もキャッシュミストを拡大縮小・着色して利用（大幅な軽量化）
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            ctx.translate(puff.x, puff.y);
-            // warm時は少し暖色寄りのglobalCompositeOperation 等を使ってもよいが
-            // ここではシンプルにキャッシュを利用し合成モードで色味を足す
-            
-            if (this.mistCacheCanvas) {
-                const s = this.mistCacheCanvas.width;
-                const scale = (radius * 2) / s;
-                ctx.scale(scale, scale);
-                // ベースの煙
-                ctx.drawImage(this.mistCacheCanvas, -s/2, -s/2);
+            renderScaled(puff.x, puff.y, () => {
+                const life = Math.max(0, Math.min(1, puff.life / puff.maxLife));
+                const bloom = 1 - life;
+                const radius = puff.radius * (puff.mode === 'appear' ? (0.78 + bloom * 1.05) : (0.66 + bloom * 0.88));
+                const alpha = (puff.mode === 'appear' ? 0.62 : 0.36) * life;
+                const warm = puff.mode === 'appear';
                 
-                // 追加のコブ
+                const rot = puff.rot || 0;
+
+                // 煙描画もキャッシュミストを拡大縮小・着色して利用（大幅な軽量化）
                 ctx.save();
-                ctx.rotate(rot);
-                ctx.translate(0, s/4);
-                ctx.globalAlpha = alpha * 0.7;
-                ctx.scale(0.6, 0.6);
-                ctx.drawImage(this.mistCacheCanvas, -s/2, -s/2);
+                ctx.globalAlpha = alpha;
+                ctx.translate(puff.x, puff.y);
+                // warm時は少し暖色寄りのglobalCompositeOperation 等を使ってもよいが
+                // ここではシンプルにキャッシュを利用し合成モードで色味を足す
+                
+                if (this.mistCacheCanvas) {
+                    const s = this.mistCacheCanvas.width;
+                    const scale = (radius * 2) / s;
+                    ctx.scale(scale, scale);
+                    // ベースの煙
+                    ctx.drawImage(this.mistCacheCanvas, -s/2, -s/2);
+                    
+                    // 追加のコブ
+                    ctx.save();
+                    ctx.rotate(rot);
+                    ctx.translate(0, s/4);
+                    ctx.globalAlpha = alpha * 0.7;
+                    ctx.scale(0.6, 0.6);
+                    ctx.drawImage(this.mistCacheCanvas, -s/2, -s/2);
+                    ctx.restore();
+                } else {
+                    // フォールバック
+                    ctx.fillStyle = warm ? `rgba(194, 233, 255, 1.0)` : `rgba(176, 196, 230, 1.0)`;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
                 ctx.restore();
-            } else {
-                // フォールバック
-                ctx.fillStyle = warm ? `rgba(194, 233, 255, 1.0)` : `rgba(176, 196, 230, 1.0)`;
-                ctx.beginPath();
-                ctx.arc(0, 0, radius, 0, Math.PI * 2);
-                ctx.fill();
-            }
-            ctx.restore();
 
-            if (life < (puff.ringStart || 0.28) && life > 0.12) {
-                const ringAlpha = alpha * (1 - life) * 0.9;
-                ctx.strokeStyle = warm
-                    ? `rgba(194, 233, 255, ${ringAlpha})`
-                    : `rgba(182, 206, 240, ${ringAlpha})`;
-                ctx.lineWidth = 1.1;
-                ctx.beginPath();
-                ctx.arc(puff.x, puff.y, radius * (0.74 + (1 - life) * 0.35), 0, Math.PI * 2);
-                ctx.stroke();
-            }
+                if (life < (puff.ringStart || 0.28) && life > 0.12) {
+                    const ringAlpha = alpha * (1 - life) * 0.9;
+                    ctx.strokeStyle = warm
+                        ? `rgba(194, 233, 255, ${ringAlpha})`
+                        : `rgba(182, 206, 240, ${ringAlpha})`;
+                    ctx.lineWidth = 1.1;
+                    ctx.beginPath();
+                    ctx.arc(puff.x, puff.y, radius * (0.74 + (1 - life) * 0.35), 0, Math.PI * 2);
+                    ctx.stroke();
+                }
 
-            if (puff.hasSpark && life > 0.26) {
-                const sparkX = puff.x + Math.cos(rot * 1.7) * radius * 0.44;
-                const sparkY = puff.y + Math.sin(rot * 1.3) * radius * 0.32;
-                ctx.fillStyle = `rgba(248, 254, 255, ${alpha * 0.85})`;
-                ctx.beginPath();
-                ctx.arc(sparkX, sparkY, Math.max(0.8, radius * 0.08), 0, Math.PI * 2);
-                ctx.fill();
-            }
+                if (puff.hasSpark && life > 0.26) {
+                    const sparkX = puff.x + Math.cos(rot * 1.7) * radius * 0.44;
+                    const sparkY = puff.y + Math.sin(rot * 1.3) * radius * 0.32;
+                    ctx.fillStyle = `rgba(248, 254, 255, ${alpha * 0.85})`;
+                    ctx.beginPath();
+                    ctx.arc(sparkX, sparkY, Math.max(0.8, radius * 0.08), 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            });
         }
 
 
@@ -8257,6 +8314,8 @@ export class Player {
         const attackTimer = state.attackTimer !== undefined ? state.attackTimer : this.attackTimer;
         const x = state.x !== undefined ? state.x : this.x;
         const y = state.y !== undefined ? state.y : this.y;
+        const bodyWidth = Number.isFinite(state.width) ? state.width : this.width;
+        const bodyHeight = Number.isFinite(state.height) ? state.height : this.height;
         const facingRight = state.facingRight !== undefined ? state.facingRight : this.facingRight;
         const isCrouching = state.isCrouching !== undefined ? state.isCrouching : this.isCrouching;
 
@@ -8285,8 +8344,8 @@ export class Player {
         
         // 回転斬り（全方位）
         if (attack.type === ANIM_STATE.ATTACK_SPIN) {
-            const centerX = x + this.width / 2;
-            const centerY = y + this.height / 2;
+            const centerX = x + bodyWidth / 2;
+            const centerY = y + bodyHeight / 2;
             return scaleBox({
                 x: centerX - range,
                 y: centerY - range,
@@ -8296,173 +8355,50 @@ export class Player {
         }
 
         if (attack.comboStep) {
-            const dir = facingRight ? 1 : -1;
-            const centerX = x + this.width / 2;
-            const pivotY = y + (isCrouching ? this.height * 0.58 : this.height * 0.43);
-            const eased = this.getAttackMotionProgress(attack, progress);
-            const easeOut = 1 - Math.pow(1 - eased, 2);
-            const easeInOut = eased < 0.5
-                ? 2 * eased * eased
-                : 1 - Math.pow(-2 * eased + 2, 2) / 2;
+            const swordPose = this.getComboSwordPoseState({
+                x,
+                y,
+                width: bodyWidth,
+                height: bodyHeight,
+                facingRight,
+                isCrouching,
+                attackTimer,
+                currentAttack
+            });
+            if (!swordPose) return null;
 
-            let swordAngle = 0;
-            let armEndX = centerX + dir * 14;
-            let armEndY = pivotY + 6;
-
-            switch (attack.comboStep) {
-                case 2:
-                    swordAngle = 2.6 - 2.56 * easeOut;
-                    armEndX = centerX + dir * (6 + easeOut * 26);
-                    armEndY = pivotY + 9 - easeOut * 5.2;
-                    {
-                        const prepT = Math.max(0, Math.min(1, eased / 0.2));
-                        const prepEase = prepT * prepT * (3 - 2 * prepT);
-                        const idleAngle = isCrouching ? -0.32 : -0.65;
-                        const idleHandX = centerX + dir * (isCrouching ? 12 : 15);
-                        const idleHandY = pivotY + (isCrouching ? 5.5 : 8.0);
-                        swordAngle = idleAngle + (swordAngle - idleAngle) * prepEase;
-                        armEndX = idleHandX + (armEndX - idleHandX) * prepEase;
-                        armEndY = idleHandY + (armEndY - idleHandY) * prepEase;
-                    }
-                    break;
-                case 1:
-                    {
-                        const wind = Math.max(0, Math.min(1, eased / 0.34));
-                        const swing = Math.max(0, Math.min(1, (eased - 0.34) / 0.66));
-                        const swingEase = swing * swing * (3 - 2 * swing);
-                        swordAngle = 0.22 + wind * 0.94 + swingEase * 2.18;
-                        armEndX = centerX + dir * (15 - wind * 8.4 - swingEase * 34.2);
-                        armEndY = pivotY + 8.0 - wind * 5.6 + swingEase * 10.8;
-                        const prepT = Math.max(0, Math.min(1, eased / 0.22));
-                        const prepEase = prepT * prepT * (3 - 2 * prepT);
-                        const idleAngle = isCrouching ? -0.32 : -0.65;
-                        const idleHandX = centerX + dir * (isCrouching ? 12 : 15);
-                        const idleHandY = pivotY + (isCrouching ? 5.5 : 8.0);
-                        swordAngle = idleAngle + (swordAngle - idleAngle) * prepEase;
-                        armEndX = idleHandX + (armEndX - idleHandX) * prepEase;
-                        armEndY = idleHandY + (armEndY - idleHandY) * prepEase;
-                        const settleT = Math.max(0, Math.min(1, (eased - 0.88) / 0.12));
-                        const settle = settleT * settleT * (3 - 2 * settleT);
-                        swordAngle += (idleAngle - swordAngle) * settle;
-                        armEndX += (idleHandX - armEndX) * settle;
-                        armEndY += (idleHandY - armEndY) * settle;
-                    }
-                    break;
-                case 3:
-                    swordAngle = -0.22 + Math.sin(eased * Math.PI) * 0.34;
-                    armEndX = centerX + dir * (-10 + easeInOut * 36);
-                    armEndY = pivotY + 5 - Math.sin(eased * Math.PI) * 9.2;
-                    {
-                        const prepT = Math.max(0, Math.min(1, eased / 0.2));
-                        const prepEase = prepT * prepT * (3 - 2 * prepT);
-                        const idleAngle = isCrouching ? -0.32 : -0.65;
-                        const idleHandX = centerX + dir * (isCrouching ? 12 : 15);
-                        const idleHandY = pivotY + (isCrouching ? 5.5 : 8.0);
-                        swordAngle = idleAngle + (swordAngle - idleAngle) * prepEase;
-                        armEndX = idleHandX + (armEndX - idleHandX) * prepEase;
-                        armEndY = idleHandY + (armEndY - idleHandY) * prepEase;
-                    }
-                    break;
-                case 4:
-                    if (eased < 0.42) {
-                        const t = eased / 0.42;
-                        const rise = t * t * (3 - 2 * t);
-                        // 三段目終端から角度を下げず、そのまま切り上げへ接続
-                        swordAngle = -0.22 + (-0.74 + 0.22) * rise;
-                        armEndX = centerX + dir * (26 + (8.0 - 26) * rise);
-                        armEndY = pivotY + 5 + (-24.0 - 5) * rise;
-                    } else {
-                        const flipT = Math.max(0, Math.min(1, (eased - 0.42) / 0.58));
-                        const bodyFlipAngle = -Math.PI * 1.82 * flipT;
-                        const flipAngle = -0.76 + bodyFlipAngle;
-                        const flipX = centerX - dir * (4.0 + Math.sin(flipT * Math.PI) * 6.0);
-                        const flipY = pivotY - 14 + Math.cos(flipT * Math.PI) * 4.0;
-                        const bridgeT = Math.max(0, Math.min(1, (eased - 0.42) / 0.12));
-                        const bridge = bridgeT * bridgeT * (3 - 2 * bridgeT);
-                        const riseAngleEnd = -0.74;
-                        const riseEndX = centerX + dir * 8.0;
-                        const riseEndY = pivotY - 24.0;
-                        swordAngle = riseAngleEnd + (flipAngle - riseAngleEnd) * bridge;
-                        armEndX = riseEndX + (flipX - riseEndX) * bridge;
-                        armEndY = riseEndY + (flipY - riseEndY) * bridge;
-                    }
-                    {
-                        const prepT = Math.max(0, Math.min(1, eased / 0.18));
-                        const prepEase = prepT * prepT * (3 - 2 * prepT);
-                        const prevAngle = -0.22;
-                        const prevHandX = centerX + dir * 26;
-                        const prevHandY = pivotY + 5;
-                        swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
-                        armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
-                        armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
-                    }
-                    {
-                        // 剣筋座標と同じ序盤持ち上げ補正を適用して判定位置も合わせる
-                        const earlyLiftT = Math.max(0, Math.min(1, 1 - eased / 0.38));
-                        armEndY -= 2.2 + earlyLiftT * 8.4;
-                    }
-                    break;
-                case 5:
-                    if (eased < 0.26) {
-                        const t = eased / 0.26;
-                        swordAngle = -1.45 + t * 0.3;
-                        armEndX = centerX - dir * (4.0 - t * 8.0);
-                        armEndY = pivotY - 18 - t * 5.0;
-                    } else if (eased < 0.78) {
-                        const t = (eased - 0.26) / 0.52;
-                        swordAngle = -1.15 + t * 2.2;
-                        armEndX = centerX + dir * (4 + t * 22);
-                        armEndY = pivotY - 23 + t * 40;
-                    } else {
-                        const t = (eased - 0.78) / 0.22;
-                        swordAngle = 1.05 - t * 0.52;
-                        armEndX = centerX + dir * (26 - t * 8);
-                        armEndY = pivotY + 17 - t * 4;
-                    }
-                    {
-                        const prepT = Math.max(0, Math.min(1, eased / 0.2));
-                        const prepEase = prepT * prepT * (3 - 2 * prepT);
-                        const prevAngle = -0.76 - Math.PI * 1.82;
-                        const prevHandX = centerX - dir * 4.0;
-                        const prevHandY = pivotY - 18.0;
-                        swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
-                        armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
-                        armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
-                    }
-                    break;
-                default:
-                    break;
-            }
-
-            const swordLen = this.getKatanaBladeLength();
-            const tipX = armEndX + Math.cos(swordAngle) * dir * swordLen;
-            const tipY = armEndY + Math.sin(swordAngle) * swordLen;
+            const centerX = swordPose.centerX;
+            const dir = swordPose.dir;
+            const armEndX = swordPose.armEndX;
+            const armEndY = swordPose.armEndY;
+            const tipX = swordPose.tipX;
+            const tipY = swordPose.tipY;
             const basePad = attack.comboStep === 5 ? 18 : 14;
             const extraDown = attack.comboStep === 5 ? 28 : 0;
             const xBox = Math.min(armEndX, tipX) - basePad;
             const yBox = Math.min(armEndY, tipY) - basePad;
-            const width = Math.abs(tipX - armEndX) + basePad * 2;
-            const height = Math.abs(tipY - armEndY) + basePad * 2 + extraDown;
+            const swordBoxWidth = Math.abs(tipX - armEndX) + basePad * 2;
+            const swordBoxHeight = Math.abs(tipY - armEndY) + basePad * 2 + extraDown;
 
             const swordBox = {
                 x: xBox,
                 y: yBox - (attack.comboStep === 5 ? 4 : 0),
-                width,
-                height
+                width: swordBoxWidth,
+                height: swordBoxHeight
             };
             const closeRangeBox = {
                 // 至近距離で密着しても当たる補助判定（前寄り）
                 x: centerX - 40 + dir * 10,
                 y: y - 14,
                 width: 80,
-                height: this.height + 36
+                height: bodyHeight + 36
             };
             const forwardAssistBox = {
                 // 中ボス級にも空振りしづらい前方補助判定
                 x: centerX + (dir > 0 ? 8 : -92),
                 y: y - 20,
                 width: 100,
-                height: this.height + 44
+                height: bodyHeight + 44
             };
 
             if (attack.comboStep === 4) {
@@ -8471,7 +8407,7 @@ export class Player {
                     x: centerX - 36,
                     y: y - 26,
                     width: 72,
-                    height: this.height + 40
+                    height: bodyHeight + 40
                 };
                 return [swordBox, closeRangeBox, forwardAssistBox, aerialBodyBox].map(scaleBox);
             }
@@ -8480,7 +8416,7 @@ export class Player {
                 // 五段目: 落下斬り + 着地衝撃（足元と左右）を別当たり判定で付与
                 const impactBox = {
                     x: centerX - 44,
-                    y: y + this.height - 26,
+                    y: y + bodyHeight - 26,
                     width: 88,
                     height: 52
                 };
@@ -8495,30 +8431,30 @@ export class Player {
         }
 
         if (attack.isLaunch) {
-            const width = range;
-            const height = Math.max(54, this.height + 22);
+            const launchWidth = range;
+            const launchHeight = Math.max(54, bodyHeight + 22);
             const yBox = y - 18;
             return scaleBox({
-                x: facingRight ? x + this.width : x - range,
+                x: facingRight ? x + bodyWidth : x - range,
                 y: yBox,
-                width,
-                height
+                width: launchWidth,
+                height: launchHeight
             });
         }
         
         if (facingRight) {
             return scaleBox({
-                x: x + this.width,
+                x: x + bodyWidth,
                 y: y,
                 width: range,
-                height: this.height
+                height: bodyHeight
             });
         } else {
             return scaleBox({
                 x: x - range,
                 y: y,
                 width: range,
-                height: this.height
+                height: bodyHeight
             });
         }
     }

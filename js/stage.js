@@ -110,6 +110,12 @@ export class Stage {
             this.initBambooLeaves();
         }
 
+        // --- Stage 5 階段画像 ---
+        if (this.stageNumber === 5) {
+            this.stairImage = new Image();
+            this.stairImage.src = './images/stairs.png';
+        }
+
         // キャッシュ用オフスクリーンCanvasの初期化
         this.cachedAssets = {};
         this.initCache();
@@ -297,11 +303,21 @@ export class Stage {
     // Stage 5 フロア制メソッド群
     // ============================
 
-    /** 階段区間の開始ワールドX座標を返す */
+        /** 階段区間の開始ワールドX座標を返す (常に左端を0, 右端を3000とする) */
     getStairStartX() {
         if (this.stageNumber !== 5) return Infinity;
-        // 最終階でも、ビジュアルとして表示されている階段の開始位置を返す
-        return this.maxProgress - this.stairZoneWidth;
+        const stairW = this.stairZoneWidth;
+        // 画像内の1段目のオフセット(5.2%)を考慮した、物理的な登り開始点
+        const stairInternalOffset = stairW * 0.052;
+        const imageSlide = 45;
+
+        if (this.floorScrollDirection === 1) {
+            // 右登り: 右端に配置
+            return (this.maxProgress - stairW) + imageSlide + stairInternalOffset;
+        } else {
+            // 左登り: 左端に配置
+            return imageSlide + stairInternalOffset;
+        }
     }
 
     /** 階段区間の終了ワールドX座標を返す */
@@ -326,63 +342,49 @@ export class Stage {
         }
     }
 
-    /** 階段内の登り進行度（0=階段入口, 1=階段頂上）を返す */
+        /** 階段内の登り進行度（0=階段入口, 1=階段頂上）を返す */
     getStairClimbProgress(playerX) {
         if (this.stageNumber !== 5) return 0;
+        const stairW = this.stairZoneWidth;
+        const imageSlide = 45;
+        const stairInternalOffset = stairW * 0.052;
+        
         if (this.floorScrollDirection === 1) {
-            // 右方向: 右端が階段
-            const stairStart = this.getStairStartX();
-            // リニア（線形）な進行に変更して描画と同期させる
-            return Math.max(0, Math.min(1, (playerX - stairStart) / this.stairZoneWidth));
+            // 右登り: worldXが大きいほど登っている
+            const start = (this.maxProgress - stairW) + imageSlide + stairInternalOffset;
+            const end = this.maxProgress;
+            return Math.max(0, Math.min(1, (playerX - start) / (end - start)));
         } else {
-            // 左方向: 左端が階段
-            return Math.max(0, Math.min(1, 1 - playerX / this.stairZoneWidth));
+            // 左登り: worldXが小さいほど登っている
+            const start = stairW - imageSlide - stairInternalOffset;
+            const end = 0;
+            return Math.max(0, Math.min(1, (playerX - start) / (end - start)));
         }
     }
 
-    /** 階段上のプレイヤー位置に対応する動的groundYを返す */
+        /** 階段上のプレイヤー位置に対応する動的groundYを返す */
     getStairGroundY(playerX) {
         if (this.stageNumber !== 5) return this.groundY;
-        // 5階（最終回）は登る階段がないので baseGroundY を返す
         if (this.currentFloor >= this.maxFloor) return this.baseGroundY;
         
-        const direction = this.floorScrollDirection; // 1:右へ, -1:左へ
-        const stairW = this.stairZoneWidth;
-        
+        const direction = this.floorScrollDirection;
         const stairH = this.stairHeightPx;
-        const stepCount = this.stairStepCount;
+        const stairW = this.stairZoneWidth;
+        const imageSlide = 45;
+        const stairInternalOffset = stairW * 0.052;
 
         if (direction === 1) {
-            const stairStart = this.maxProgress - stairW;
-            const stairEnd = this.maxProgress;
-            // 階段の手前（平地）：stairStart 未満
-            if (playerX < stairStart) return this.baseGroundY;
-            // 階段の登り：stairStart 〜 stairEnd
-            if (playerX <= stairEnd) {
-                // 描画側のロジックを1ピクセル単位で再現する
-                // i番目のステップの前端 Y = horizonY - riser * i / stepCount
-                // 踏み面の幅 = stairW / stepCount
-                // 物理的な接地は、現在の X 座標におけるリニアな高さ (勾配) に一致させる
-                const progress = (playerX - stairStart) / stairW;
-                return this.baseGroundY - stairH * progress;
-            }
-            // 階段の奥（頂上以降）
-            return this.baseGroundY - stairH;
+            // 右登り
+            const start = (this.maxProgress - stairW) + imageSlide + stairInternalOffset;
+            if (playerX < start) return this.baseGroundY;
+            const progress = Math.max(0, Math.min(1, (playerX - start) / (this.maxProgress - start)));
+            return this.baseGroundY - stairH * progress;
         } else {
-            // 左方向フロア: 階段は左端 (0 〜 stairW)
-            const stairStart = 0;
-            const stairEnd = stairW;
-            // 階段の手前（右から来た平地）：stairEnd より右
-            if (playerX > stairEnd) return this.baseGroundY;
-            // 階段の登り：stairStart 〜 stairEnd
-            if (playerX >= stairStart) {
-                // 左登り: px = stairEnd(t=0) から stairStart(t=1) へ
-                // 描画側の t = (stairEnd - px) / stairW と一致させる
-                const progress = (stairEnd - playerX) / stairW;
-                return this.baseGroundY - stairH * progress;
-            }
-            // 階段の奥
-            return this.baseGroundY - stairH;
+            // 左登り
+            const start = stairW - imageSlide - stairInternalOffset;
+            if (playerX > start) return this.baseGroundY;
+            const progress = Math.max(0, Math.min(1, (start - playerX) / start));
+            return this.baseGroundY - stairH * progress;
         }
     }
 
@@ -528,248 +530,96 @@ export class Stage {
         ctx.restore();
     }
 
-    /** 階段区間の石段を描画する（参考画像風の急勾配・建築構造版） */
+    /** 階段区間の石段を描画する */
     renderStairZone(ctx, scrollX) {
-        if (this.stageNumber !== 5) return; // 5階以外は描画しない
+        if (this.stageNumber !== 5 || !this.stairImage || !this.stairImage.complete) return;
         
         const direction = this.floorScrollDirection;
         const stairW = this.stairZoneWidth;
-        const stepCount = this.stairStepCount;
-        const horizonY = this.baseGroundY;
-        const stairRise = this.stairHeightPx;
+        if (this.currentFloor >= this.maxFloor) return; // 5Fは階段なし
+
+        // 接地数式: アスペクト比に依存させず、imgHを十分に大きくして埋める
+        const imgH = 512; 
+        const step1YRatio = 0.928;
+        // 接地ライン (baseGroundY + 32) から逆算
+        const drawY = (this.baseGroundY + LANE_OFFSET) - (imgH * step1YRatio);
         
-        // 5階（最終階）は登れないが、右端にビジュアルとして階段を表示
-        const isFinalFloor = this.currentFloor >= this.maxFloor;
-        
-        let stairWorldStartX, stairWorldEndX;
+        const imageSlide = 45;
+        let worldX;
         if (direction === 1) {
-            stairWorldStartX = this.maxProgress - stairW;
-            stairWorldEndX = this.maxProgress;
+            worldX = this.maxProgress - stairW + imageSlide;
         } else {
-            stairWorldStartX = 0;
-            stairWorldEndX = stairW;
-        }
-        
-        // 5階の場合は右端に固定
-        if (isFinalFloor) {
-            stairWorldStartX = this.maxProgress - stairW;
-            stairWorldEndX = this.maxProgress;
+            worldX = -imageSlide;
         }
 
-        const screenStartX = stairWorldStartX - scrollX;
-        const screenEndX = stairWorldEndX - scrollX;
-        if (screenEndX < -200 || screenStartX > CANVAS_WIDTH + 200) return;
-        
+        const screenX = worldX - scrollX;
+
         ctx.save();
-        const floorTone = Math.min(0.4, (this.currentFloor - 1) * 0.08);
-
-        // 階段の奥行き
-        const baseTreadDepth = 80;
-        
-        // --- 1. 階段全体の側面構造（Stringer / Carriage） ---
-        // 階段の「横っ面」を描画。
-        // ここが重要！ 接地ライン（Stringerの前端）を (screenStartX, horizonY) から (screenEndX, horizonY - stairRise) へリニアに結ぶ
-        ctx.fillStyle = this.interpolateColor('#1a1008', '#0a0502', 0.5 + floorTone);
-        ctx.beginPath();
         if (direction === 1) {
-            ctx.moveTo(screenStartX, horizonY);
-            ctx.lineTo(screenEndX, horizonY - stairRise);
-            // 5階（最終階）かつ右端の場合は、側面を画面端まで塗りつぶして「天守閣」への土台にする
-            if (isFinalFloor) {
-                ctx.lineTo(CANVAS_WIDTH + 100, horizonY - stairRise);
-                ctx.lineTo(CANVAS_WIDTH + 100, horizonY + 200);
-            } else {
-                ctx.lineTo(screenEndX, horizonY + 200);
-            }
-            ctx.lineTo(screenStartX, horizonY + 200);
+            // 右登り
+            ctx.drawImage(this.stairImage, screenX, drawY, stairW, imgH);
         } else {
-            ctx.moveTo(screenEndX, horizonY);
-            ctx.lineTo(screenStartX, horizonY - stairRise);
-            ctx.lineTo(screenStartX, horizonY + 200);
-            ctx.lineTo(screenEndX, horizonY + 200);
+            // 左登り: 反転
+            ctx.scale(-1, 1);
+            ctx.drawImage(this.stairImage, -(screenX + stairW), drawY, stairW, imgH);
         }
-        ctx.fill();
-
-        // --- 2. ステップの描画 ---
-        for (let i = 0; i < stepCount; i++) {
-            const t = i / stepCount;
-            // 物理と完全に同期させるためリニアに
-            const easeT = t; 
-            
-            const stepY = horizonY - stairRise * easeT;
-            const riserH = Math.max(8, stairRise / stepCount);
-
-            // 踏み面の前端(bLeft, bRight)が側面の境界線上に正しく乗るように計算
-            let bLeft, bRight;
-            if (direction === 1) {
-                // 右登り: px = screenStartX(t=0) から screenEndX(t=1) へ
-                bLeft = screenStartX + stairW * t;
-                bRight = screenStartX + stairW * ((i + 1) / stepCount);
-            } else {
-                // 左登り: px = screenEndX(t=0) から screenStartX(t=1) へ
-                bRight = screenEndX - stairW * t;
-                bLeft = screenEndX - stairW * ((i + 1) / stepCount);
-            }
-
-            // パースの係数は「登り進行度」に基づき左右対称に適用
-            const pScale = 1.0 - t * 0.15;
-            const centerX = (bLeft + bRight) / 2;
-            const w = (bRight - bLeft) * pScale;
-            const xL = centerX - w / 2;
-            const xR = centerX + w / 2;
-
-            const treadY = stepY;
-
-            // 蹴上げ (Riser)
-            ctx.fillStyle = this.interpolateColor('#3d352d', '#1a1815', floorTone + t * 0.25);
-            ctx.fillRect(xL, treadY, xR - xL, riserH + 2);
-
-            // 踏み面 (Tread) - 物理的な「足のライン」を強調
-            const treadColor = this.interpolateColor('#7d7265', '#4a443d', floorTone + t * 0.15);
-            ctx.fillStyle = treadColor;
-            
-            // パースによる「奥行き」を後ろ方向に描画（キャラの立つラインを前縁にする）
-            ctx.beginPath();
-            ctx.moveTo(xL, treadY);
-            ctx.lineTo(xR, treadY);
-            ctx.lineTo(xR + 10 * pScale, treadY - 15 * pScale);
-            ctx.lineTo(xL - 10 * pScale, treadY - 15 * pScale);
-            ctx.fill();
-
-            // エッジハイライト
-            ctx.strokeStyle = `rgba(255, 255, 255, ${0.2 - t * 0.1})`;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(xL, treadY); ctx.lineTo(xR, treadY);
-            ctx.stroke();
-        }
-        
-        // 頂上の床（不要な旧踊り場矩形を削除）
-        // const topY = horizonY - stairRise;
-        // const topX = direction === 1 ? screenEndX : screenStartX;
-        // ... 代わりに階段の最後のステップが端まで描かれることで接続される
-
-        // 5階（最終階）の場合は、階段の終わりが画面端に見切れるようにし、
-        // 登れないビジュアルであることを強調（手すりの奥側にキャラが入る等）するため、
-        // 描画順を少し考慮するが、基本は同じロジックで描画。
-        // --- 3. 手すりの描画 ---
-        this.renderStairRails(ctx, screenStartX, screenEndX, direction, horizonY, stairRise, floorTone);
-
         ctx.restore();
     }
 
-    renderStairRails(ctx, startX, endX, dir, horizonY, rise, tone) {
-        const railColor = this.interpolateColor('#2a1a10', '#0a0502', tone);
-        ctx.fillStyle = railColor;
-        ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-        ctx.lineWidth = 2;
-
-        const poleCount = 8;
-        for (let i = 0; i <= poleCount; i++) {
-            const t = i / poleCount;
-            // px = startX(t=0) から endX(t=1) へ
-            const px = startX + (endX - startX) * t;
-            
-            // Y座標は dir=1 なら startX が地面、dir=-1 なら startX が頂上
-            const py = (dir === 1) 
-                ? (horizonY - rise * t) 
-                : (horizonY - rise * (1 - t));
-            
-            // 支柱
-            ctx.fillRect(px - 5, py - 60, 10, 70);
-            ctx.strokeRect(px - 5, py - 60, 10, 70);
-            
-            // 飾り（宝珠）
-            ctx.beginPath();
-            ctx.arc(px, py - 65, 8, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-        }
-
-        // 手すり棒
-        ctx.beginPath();
-        ctx.lineWidth = 10;
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        for (let i = 0; i <= 20; i++) {
-            const t = i / 20;
-            const px = startX + (endX - startX) * t;
-            const py = (dir === 1)
-                ? (horizonY - rise * t - 50)
-                : (horizonY - rise * (1 - t) - 50);
-            if (i === 0) ctx.moveTo(px, py);
-            else ctx.lineTo(px, py);
-        }
-        ctx.stroke();
-    }
-
-    /** 前フロア階段残骸（登ってきた口）の改善 */
+    /** 前フロア階段残骸（登ってきた口） */
     renderPreviousStairTop(ctx, scrollX) {
         if (this.stageNumber !== 5 || !this.showPreviousStair) return;
+        if (!this.stairImage || !this.stairImage.complete) return;
         
-        const currentDir = this.floorScrollDirection; // 今いるフロアの方向
-        const prevDir = this.previousStairDirection; // 登ってきたフロアの方向
-        const horizonY = this.baseGroundY;
-        const visibleWidth = 240;
+        const prevDir = this.previousStairDirection;
+        const stairW = this.stairZoneWidth;
+        const imgH = 512;
+        const step1YRatio = 0.928;
+        // 接地ライン (baseGroundY + 32)
+        const drawY = (this.baseGroundY + LANE_OFFSET) - (imgH * step1YRatio);
+        const imageSlide = 45;
         
+        // 前フロアから登ってきた口は常にフロアの両端のどちらかにある
+        let worldX;
+        if (prevDir === 1) {
+            // 前が右登りなら、現在フロアの左端(0)に頂上が来ているはず
+            // 画像の右端が worldX=0 に重なるように配置
+            worldX = imageSlide - stairW;
+        } else {
+            // 前が左登りなら、現在フロアの右端(3000)に頂上が来ているはず
+            // 画像の左端(反転込)が worldX=3000 に重なるように配置
+            worldX = this.maxProgress - imageSlide;
+        }
+
+        const screenX = worldX - scrollX;
+        const visibleWidth = STAGE5_FLOOR.PREVIOUS_STAIR_VISIBLE_WIDTH || 200;
+        
+        // 描画範囲をクリップ
         ctx.save();
-        const floorTone = Math.min(0.4, (this.currentFloor - 2) * 0.08);
-
-        // 登ってきた口の位置
-        // 前フロアが右登り(prevDir=1)なら、現在は右端(maxProgress)に穴がある
-        // 前フロアが左登り(prevDir=-1)なら、現在は左端(0)に穴がある
-        let holeX;
+        let clipX;
         if (prevDir === 1) {
-            holeX = (this.maxProgress - visibleWidth) - scrollX;
+            clipX = -scrollX;
         } else {
-            holeX = -scrollX;
+            clipX = this.maxProgress - visibleWidth - scrollX;
         }
-
-        // 穴の本体
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.95)';
         ctx.beginPath();
-        ctx.moveTo(holeX, horizonY);
-        ctx.lineTo(holeX + visibleWidth, horizonY);
-        
-        // パースを前フロア（登り）の向きに合わせる
-        // prevDir=1 (右登り) なら、穴は「右から下へ」繋がっている。奥側は左に逃げる。
-        if (prevDir === 1) {
-            ctx.lineTo(holeX + visibleWidth - 40, horizonY + 80);
-            ctx.lineTo(holeX - 40, horizonY + 80);
-        } else {
-            // prevDir=-1 (左登り) なら、穴は「左から下へ」繋がっている。奥側は右に逃げる。
-            ctx.lineTo(holeX + visibleWidth + 40, horizonY + 80);
-            ctx.lineTo(holeX + 40, horizonY + 80);
-        }
-        ctx.closePath();
-        ctx.fill();
+        ctx.rect(clipX, 0, visibleWidth, CANVAS_HEIGHT);
+        ctx.clip();
 
-        // 階段の段々（下に降りていくパース。前フロアの方向に基づいて左右を反転）
-        for (let i = 0; i < 4; i++) {
-            const t = i / 4;
-            const stepY = horizonY + i * 14;
-            const stoneColor = this.interpolateColor('#4d453d', '#1a1815', floorTone + t * 0.3);
-            ctx.fillStyle = stoneColor;
-            
-            const indent = i * 15;
-            let xL, xR;
-            if (prevDir === 1) {
-                // 右登り(下に降りていくので、左側を広げ、右側を削る)
-                xL = holeX;
-                xR = holeX + visibleWidth - indent;
-            } else {
-                // 左登り(下に降りていくので、右側を広げ、左側を削る)
-                xL = holeX + indent;
-                xR = holeX + visibleWidth;
-            }
-            
-            if (xR > xL) {
-                ctx.fillRect(xL, stepY, xR - xL, 14);
-                ctx.strokeStyle = 'rgba(0,0,0,0.5)';
-                ctx.strokeRect(xL, stepY, xR - xL, 14);
-            }
+        if (prevDir === 1) {
+            // 右登りの頂上: そのまま描画
+            ctx.drawImage(this.stairImage, screenX, drawY, stairW, imgH);
+        } else {
+            // 左登りの頂上: 反転描画
+            ctx.scale(-1, 1);
+            ctx.drawImage(this.stairImage, -(screenX + stairW), drawY, stairW, imgH);
         }
-        
+        ctx.restore();
+
+        // 穴の黒塗り
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+        ctx.fillRect(clipX, this.baseGroundY, visibleWidth, 80);
         ctx.restore();
     }
 
@@ -1013,10 +863,9 @@ export class Stage {
         }
         
         // ボス出現
-        // 修正：this.progress はスクロール位置（maxProgress - CANVAS_WIDTH で止まる）なので、
-        // ボス出現判定はプレイヤーのワールド座標 player.x を基準にする。
-        const bossTriggerX = this.maxProgress - 150;
-        let canSpawnBoss = player.x >= bossTriggerX;
+        // 描画スケールではなく、カメラが右端で停止したかどうかで判定する。
+        const bossScrollStopX = Math.max(0, this.maxProgress - CANVAS_WIDTH);
+        let canSpawnBoss = this.progress >= bossScrollStopX - 0.5;
         
         if (this.stageNumber === 5) {
             // Stage 5 の場合は最終フロアのみ

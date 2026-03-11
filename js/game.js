@@ -254,9 +254,9 @@ class Game {
 
     createTitleDebugConfig() {
         return {
+            preset: 'default',
             stage: 1,
             bossRoom: false, // デバッグ用：ボス部屋からスタート
-            fullMax: false, // 追加: 一括最強
             moneyMax: false,
             normalCombo: 0,
             subWeapon: 0,
@@ -298,6 +298,39 @@ class Game {
         }
     }
 
+    applyTitleDebugFullMaxPreset() {
+        const cfg = this.titleDebugConfig;
+        cfg.preset = 'fullMax';
+        cfg.normalCombo = 3;
+        cfg.subWeapon = 3;
+        cfg.specialClone = 3;
+        cfg.moneyMax = true;
+        cfg.money = 9999;
+        cfg.items.hp_boost = 198; // 5 * 198 = +990 加算 (初期値 10 + 990 = 1000)
+        cfg.items.atk_boost = 3;
+        cfg.items.double_jump = true;
+        cfg.items.triple_jump = true;
+        cfg.items.speed_up = true;
+        cfg.items.permanent_max_special = true;
+        for (const w in cfg.ownedWeapons) cfg.ownedWeapons[w] = true;
+        this.ensureTitleDebugStartWeapon();
+    }
+
+    applyTitleDebugDefaultPreset() {
+        const cfg = this.titleDebugConfig;
+        const def = this.createTitleDebugConfig();
+        cfg.preset = 'default';
+        cfg.normalCombo = def.normalCombo;
+        cfg.subWeapon = def.subWeapon;
+        cfg.specialClone = def.specialClone;
+        cfg.moneyMax = def.moneyMax;
+        cfg.money = def.money;
+        cfg.items = { ...def.items };
+        for (const w in cfg.ownedWeapons) cfg.ownedWeapons[w] = def.ownedWeapons[w];
+        cfg.startWeapon = def.startWeapon;
+        this.ensureTitleDebugStartWeapon();
+    }
+
     getTitleDebugEntries() {
         const cfg = this.titleDebugConfig;
         const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
@@ -308,20 +341,19 @@ class Game {
             return list[next];
         };
 
-        const resetToDefault = () => {
-            const def = this.createTitleDebugConfig();
-            cfg.normalCombo = def.normalCombo;
-            cfg.subWeapon = def.subWeapon;
-            cfg.specialClone = def.specialClone;
-            cfg.moneyMax = def.moneyMax;
-            cfg.money = def.money;
-            // cfg.bossRoom はリセットしない（一括最強のOFF時に影響しないようにする）
-            cfg.items = { ...def.items };
-            for (const w in cfg.ownedWeapons) cfg.ownedWeapons[w] = def.ownedWeapons[w];
-            cfg.startWeapon = def.startWeapon;
-        };
-
         const entries = [
+            {
+                label: 'プリセット',
+                getValue: () => (cfg.preset === 'fullMax' ? '最強' : 'デフォルト'),
+                change: (delta) => {
+                    const nextPreset = cycleEnum(cfg.preset, ['default', 'fullMax'], delta);
+                    if (nextPreset === 'fullMax') {
+                        this.applyTitleDebugFullMaxPreset();
+                    } else {
+                        this.applyTitleDebugDefaultPreset();
+                    }
+                }
+            },
             {
                 label: '開始階層',
                 getValue: () => `${cfg.stage}`,
@@ -331,29 +363,6 @@ class Game {
                 label: 'ボスから開始',
                 getValue: () => (cfg.bossRoom ? 'ON' : 'OFF'),
                 change: () => { cfg.bossRoom = !cfg.bossRoom; }
-            },
-            {
-                label: '一括最強',
-                getValue: () => (cfg.fullMax ? 'ON' : 'OFF'),
-                change: () => { 
-                    cfg.fullMax = !cfg.fullMax; 
-                    if (cfg.fullMax) {
-                        cfg.normalCombo = 3;
-                        cfg.subWeapon = 3;
-                        cfg.specialClone = 3;
-                        cfg.moneyMax = true;
-                        cfg.money = 9999;
-                        cfg.items.hp_boost = 198; // 5 * 198 = +990 加算 (初期値 10 + 990 = 1000)
-                        cfg.items.atk_boost = 3;
-                        cfg.items.double_jump = true;
-                        cfg.items.triple_jump = true;
-                        cfg.items.speed_up = true;
-                        cfg.items.permanent_max_special = true;
-                        for (const w in cfg.ownedWeapons) cfg.ownedWeapons[w] = true;
-                    } else {
-                        resetToDefault();
-                    }
-                }
             },
             {
                 label: '小判MAX',
@@ -513,23 +522,6 @@ class Game {
     applyTitleDebugSetupToNewGame() {
         if (!this.player || !this.titleDebugApplyOnStart) return;
         const cfg = this.titleDebugConfig;
-
-        // ★追加: 一括最強設定
-        if (cfg.fullMax) {
-            cfg.normalCombo = 3;
-            cfg.subWeapon = 3;
-            cfg.specialClone = 3;
-            cfg.moneyMax = true;
-            cfg.money = 9999;
-            cfg.items.hp_boost = 198; // 5 * 198 = +990 加算
-            cfg.items.atk_boost = 3;
-            cfg.items.double_jump = true;
-            cfg.items.triple_jump = true;
-            cfg.items.speed_up = true;
-            cfg.items.permanent_max_special = true;
-            // 全武器所持
-            for (const w in cfg.ownedWeapons) cfg.ownedWeapons[w] = true;
-        }
 
         this.player.progression.normalCombo = Math.max(0, Math.min(3, cfg.normalCombo || 0));
         this.player.progression.subWeapon = Math.max(0, Math.min(3, cfg.subWeapon || 0));
@@ -1748,7 +1740,7 @@ class Game {
                     // 分身用の状態を作成
                     const cloneState = {
                         x: pos.x - this.player.width / 2,
-                        y: isAutoAi ? (pos.y - this.player.height * 0.62) : this.player.y,
+                        y: pos.y - this.player.height * 0.62,
                         facingRight: facingRight,
                         isAttacking: cloneIsAttacking,
                         currentAttack: {
@@ -4423,12 +4415,23 @@ class Game {
         
         // プレイヤー
         if (playerAlpha > 0) {
+            if (this.player.isUsingSpecial || this.player.specialSmoke.length > 0) {
+                ctx.save();
+                if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
+                this.player.renderSpecial(ctx, {
+                    scaleEntity: (pivotX, pivotY, renderFn) => this.renderScaledEntity(ctx, pivotX, pivotY, renderFn)
+                });
+                ctx.restore();
+            }
             ctx.save();
             if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
             const playerPivotX = this.player.getFootX ? this.player.getFootX() : (this.player.x + this.player.width * 0.5);
             const playerPivotY = this.player.getFootY ? this.player.getFootY() : (this.player.y + this.player.height);
             this.renderScaledEntity(ctx, playerPivotX, playerPivotY, () => {
-                this.player.render(ctx, { forceStanding: forceStanding });
+                this.player.render(ctx, {
+                    forceStanding: forceStanding,
+                    skipSpecialRender: true
+                });
             });
             ctx.restore();
 

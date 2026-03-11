@@ -185,7 +185,7 @@ export const STAGE5_FLOOR = {
     COUNT: 5,
     PROGRESS_PER_FLOOR: 3000,
     STAIR_WIDTH: 600,               // 階段区間の幅（急勾配にするため短縮）
-    STAIR_HEIGHT: 400,              // 階段で登る高さ
+    STAIR_HEIGHT: 380,              // 階段で登る高さ（画像角度 約0.75倍に最適化）
     STAIR_STEP_COUNT: 36,           // 段数（密度を大幅に増加）
     TRANSITION_FADE_MS: 400,
     TRANSITION_WAIT_MS: 600,
