@@ -1614,7 +1614,11 @@ class Game {
         const baseDamage = (10 + this.player.attackCombo * 2 + 3) * attackMultiplier;
         const attack = this.player.currentAttack;
         if (attack && attack.comboStep === 5) {
-            return Math.round(baseDamage * 1.45);
+            const finisherDamage = baseDamage * 1.45;
+            if (this.player.isXAttackFinisherActive && this.player.isXAttackFinisherActive(attack)) {
+                return Math.round(finisherDamage * 1.3);
+            }
+            return Math.round(finisherDamage);
         }
         return Math.round(baseDamage);
     }
