@@ -2202,13 +2202,30 @@ export class Player {
 
     calculateSpecialCloneAnchors(centerX, centerY) {
         const spacing = this.specialCloneSpacing || 180;
-        return this.specialCloneSlots.map((unit, index) => ({
+        const anchors = this.specialCloneSlots.map((unit, index) => ({
             x: centerX + unit * spacing,
             y: centerY + (Math.abs(unit) - 1.5) * 1.6 + 1.2,
             facingRight: this.facingRight,
             alpha: this.specialCloneAlive[index] ? 1.0 : 0,
             index
         }));
+        const displayOrder = this.getSpecialCloneDisplayOrder();
+        const aliveIndices = displayOrder.filter((index) => this.specialCloneAlive[index]);
+        const activeUnits = this.getSpecialCloneActiveLayout(aliveIndices.length);
+
+        for (let i = 0; i < aliveIndices.length; i++) {
+            const index = aliveIndices[i];
+            const unit = activeUnits[i];
+            anchors[index] = {
+                x: centerX + unit * spacing,
+                y: centerY + (Math.abs(unit) - 1.5) * 1.6 + 1.2,
+                facingRight: this.facingRight,
+                alpha: 1.0,
+                index
+            };
+        }
+
+        return anchors;
     }
 
     getSpecialCloneOffsets() {
@@ -2851,6 +2868,20 @@ export class Player {
         if (count <= 1) return [1];
         if (count === 2) return [-1, 1];
         if (count === 3) return [-1, 1, -2];
+        return [-2, -1, 1, 2];
+    }
+
+    getSpecialCloneDisplayOrder() {
+        const count = Array.isArray(this.specialCloneSlots) ? this.specialCloneSlots.length : 0;
+        if (count <= 1) return [0];
+        if (count === 2) return [1, 0];
+        return [3, 1, 0, 2].filter((index) => index < count);
+    }
+
+    getSpecialCloneActiveLayout(count) {
+        if (count <= 1) return [1];
+        if (count === 2) return [-1, 1];
+        if (count === 3) return [-1, 1, 2];
         return [-2, -1, 1, 2];
     }
 
@@ -3760,7 +3791,7 @@ export class Player {
                 ? { palette: { silhouette: `rgba(26, 26, 26, 0.0)` } }
                 : {};
             // 隠れ身の術中は本体の色を透明にするため 0.0 を渡す。globalAlphaには影響させないことでアクセサリを維持。
-            this.renderModel(ctx, this.x, this.y, this.facingRight, ghostVeilActive ? 0.0 : ctx.globalAlpha, false, {
+            this.renderModel(ctx, this.x, this.y, this.facingRight, ghostVeilActive ? 0.0 : 1.0, false, {
                 ...castOptions,
                 ninNinPose: true,
                 headbandAlpha: ghostVeilActive ? 1.0 : undefined
@@ -3771,7 +3802,7 @@ export class Player {
                 ? { palette: { silhouette: `rgba(26, 26, 26, 0.0)` } }
                 : {};
             // 隠れ身の術中は本体の色を透明にするため 0.0 を渡す。globalAlphaには影響させないことでアクセサリを維持。
-            this.renderModel(ctx, this.x, this.y, this.facingRight, ghostVeilActive ? 0.0 : ctx.globalAlpha, true, {
+            this.renderModel(ctx, this.x, this.y, this.facingRight, ghostVeilActive ? 0.0 : 1.0, true, {
                 ...renderOptions,
                 headbandAlpha: ghostVeilActive ? 1.0 : undefined
             });
@@ -4044,76 +4075,74 @@ export class Player {
         const shoulderAttachT = isCrouchPose ? 0.12 : 0.15;
         const shoulderAnchorX = torsoShoulderX + (torsoHipX - torsoShoulderX) * shoulderAttachT;
         const shoulderAnchorY = bodyTopY + (hipY - bodyTopY) * (isCrouchPose ? 0.09 : 0.11);
-        const backShoulderXShared = shoulderAnchorX + dir * 0.18;
-        const backShoulderYShared = shoulderAnchorY + (isCrouchPose ? 0.35 : 0.45);
-        const frontShoulderXShared = shoulderAnchorX - dir * (isCrouchPose ? 0.28 : 0.38);
-        const frontShoulderYShared = shoulderAnchorY + (isCrouchPose ? 0.55 : 0.65);
-
-        // 印を結ぶポーズ (旧 renderSpecialCastPose のロジック統合)
-        const drawNinNinPoseHands = () => {
-            if (alpha <= 0) return;
-            const sealBaseX = centerX + dir * 7.2;
-            const backHandY = bodyTopY + (hipY - bodyTopY) * 0.44;
-            const frontHandY = backHandY - 6.6;
-            const frontHand = stretchFromShoulder(
-                frontShoulderXShared,
-                frontShoulderYShared,
-                sealBaseX + dir * 0.45,
-                frontHandY
+        const leftShoulderXShared = shoulderAnchorX + dir * 0.18;
+        const leftShoulderYShared = shoulderAnchorY + (isCrouchPose ? 0.35 : 0.45);
+        const rightShoulderXShared = shoulderAnchorX - dir * (isCrouchPose ? 0.28 : 0.38);
+        const rightShoulderYShared = shoulderAnchorY + (isCrouchPose ? 0.55 : 0.65);
+        const idleArmWave = Math.sin(this.motionTime * 0.01);
+        const singleKatanaLeftHandXShared = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
+        const singleKatanaLeftHandYShared = leftShoulderYShared + (isCrouchPose ? 6.2 : 7.8) + idleArmWave * (isCrouchPose ? 0.8 : 1.7);
+        // 真のアイドル基準は片刀構え。二刀流の右手だけ別基準にする
+        const dualWieldRightHandXShared = centerX - dir * (isCrouchPose ? 4.6 : 7.2);
+        const dualWieldRightHandYShared = rightShoulderYShared + (isCrouchPose ? 6.8 : 8.5) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? 0.8 : 1.7);
+        const armReachScale = Number.isFinite(options.armReachScale) ? options.armReachScale : 1.0;
+        const stretchFromShoulder = (shoulderX, shoulderY, targetX, targetY) => {
+            if (Math.abs(armReachScale - 1.0) < 0.001) return { x: targetX, y: targetY };
+            return {
+                x: shoulderX + (targetX - shoulderX) * armReachScale,
+                y: shoulderY + (targetY - shoulderY) * armReachScale
+            };
+        };
+        const getSingleKatanaIdleHandPose = (reachScale = armReachScale) => {
+            const projectHand = (shoulderX, shoulderY, targetX, targetY) => {
+                if (Math.abs(reachScale - 1.0) < 0.001) return { x: targetX, y: targetY };
+                return {
+                    x: shoulderX + (targetX - shoulderX) * reachScale,
+                    y: shoulderY + (targetY - shoulderY) * reachScale
+                };
+            };
+            const clampReach = (shoulderX, shoulderY, targetX, targetY, maxLen) => {
+                const dx = targetX - shoulderX;
+                const dy = targetY - shoulderY;
+                const dist = Math.hypot(dx, dy);
+                if (dist <= maxLen || dist === 0) return { x: targetX, y: targetY };
+                const ratio = maxLen / dist;
+                return { x: shoulderX + dx * ratio, y: shoulderY + dy * ratio };
+            };
+            const leftShoulderX = leftShoulderXShared;
+            const leftShoulderY = leftShoulderYShared;
+            const rightShoulderX = rightShoulderXShared;
+            const rightShoulderY = rightShoulderYShared;
+            const leftHand = projectHand(
+                leftShoulderX,
+                leftShoulderY,
+                singleKatanaLeftHandXShared,
+                singleKatanaLeftHandYShared
             );
-            const backHand = stretchFromShoulder(
-                backShoulderXShared,
-                backShoulderYShared,
-                sealBaseX - dir * 0.25,
-                backHandY
+            const bladeAngle = isCrouchPose ? -0.32 : -0.65;
+            const bladeDirX = Math.cos(bladeAngle) * dir;
+            const bladeDirY = Math.sin(bladeAngle);
+            const perpX = -bladeDirY;
+            const perpY = bladeDirX;
+            const rightHand = clampReach(
+                rightShoulderX,
+                rightShoulderY,
+                leftHand.x - bladeDirX * 5.8 + perpX * 1.0,
+                leftHand.y - bladeDirY * 5.8 + perpY * 1.0,
+                22 * reachScale
             );
-
-            drawArmWithSoftElbow(
-                frontShoulderXShared,
-                frontShoulderYShared,
-                frontHand.x,
-                frontHand.y,
-                -dir,
-                0.13
-            );
-            drawHand(frontHand.x, frontHand.y, 4.6);
-
-            drawArmWithSoftElbow(
-                backShoulderXShared,
-                backShoulderYShared,
-                backHand.x,
-                backHand.y,
-                -dir,
-                0.12
-            );
-            drawHand(backHand.x, backHand.y, 4.6);
-
-            const fingerBaseY = frontHand.y - 3.8;
-            const fingerTipY = frontHand.y - 11.2;
-            if (silhouetteOutlineEnabled) {
-                ctx.strokeStyle = silhouetteOutlineColor;
-                ctx.lineWidth = 4.4;
-                ctx.lineCap = 'round';
-                ctx.beginPath();
-                ctx.moveTo(frontHand.x, fingerBaseY);
-                ctx.lineTo(frontHand.x, fingerTipY);
-                ctx.stroke();
-            }
-            ctx.strokeStyle = silhouetteColor;
-            ctx.lineWidth = 3.6;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            ctx.moveTo(frontHand.x, fingerBaseY + 0.2);
-            ctx.lineTo(frontHand.x, fingerTipY + 0.2);
-            ctx.stroke();
+            return {
+                leftShoulderX,
+                leftShoulderY,
+                rightShoulderX,
+                rightShoulderY,
+                leftHand,
+                rightHand,
+                bladeAngle
+            };
         };
 
         // 通常の腕・武器描画
-        const idleArmWave = Math.sin(this.motionTime * 0.01);
-        const idleBackHandXShared = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
-        const idleBackHandYShared = backShoulderYShared + (isCrouchPose ? 6.2 : 7.8) + idleArmWave * (isCrouchPose ? 0.8 : 1.7);
-        const idleFrontHandXShared = centerX - dir * (isCrouchPose ? 4.6 : 7.2);
-        const idleFrontHandYShared = frontShoulderYShared + (isCrouchPose ? 6.8 : 8.5) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? 0.8 : 1.7);
 
         // 通常構え時の「奥の手」は胴体・頭より先に描いて背面化する
         const dualBladePre = (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') ? this.currentSubWeapon : null;
@@ -4132,18 +4161,18 @@ export class Player {
             !isAttacking &&
             effectiveSubWeaponTimerPre > 0 &&
             subWeaponAction === '鎖鎌';
-        const renderIdleBackArmBehind = !isNinNinPose && (
+        const renderIdleBackArmBehind = isNinNinPose || (
             kusaKeepIdleBackArm ||
             (!isActuallyAttackingPre && (!forceSubWeaponRender || isIdleForceRenderPre))
         );
         if (renderIdleBackArmBehind) {
-            const backShoulderXPre = backShoulderXShared;
-            const backShoulderYPre = backShoulderYShared;
-            const idleBackHandXPre = idleBackHandXShared;
-            const idleBackHandYPre = idleBackHandYShared;
+            const singleKatanaIdlePosePre = getSingleKatanaIdleHandPose(
+                Number.isFinite(options.armReachScale) ? options.armReachScale : 1.0
+            );
+            const leftShoulderXPre = singleKatanaIdlePosePre.leftShoulderX;
+            const leftShoulderYPre = singleKatanaIdlePosePre.leftShoulderY;
             const handRadiusScalePre = 0.94;
-            const armReachScalePre = Number.isFinite(options.armReachScale) ? options.armReachScale : 1.0;
-            const insetAlongSegment = (fromX, fromY, toX, toY, insetPx = 0) => {
+            const insetAlongSegmentPre = (fromX, fromY, toX, toY, insetPx = 0) => {
                 if (insetPx <= 0) return { x: fromX, y: fromY };
                 const dx = toX - fromX;
                 const dy = toY - fromY;
@@ -4152,28 +4181,24 @@ export class Player {
                 const t = Math.min(1, insetPx / len);
                 return { x: fromX + dx * t, y: fromY + dy * t };
             };
-            const idleBackHandPre = Math.abs(armReachScalePre - 1.0) < 0.001
-                ? { x: idleBackHandXPre, y: idleBackHandYPre }
-                : {
-                    x: backShoulderXPre + (idleBackHandXPre - backShoulderXPre) * armReachScalePre,
-                    y: backShoulderYPre + (idleBackHandYPre - backShoulderYPre) * armReachScalePre
-                };
-            const preArmDX = idleBackHandPre.x - backShoulderXPre;
-            const preArmDY = idleBackHandPre.y - backShoulderYPre;
+            const idleLeftHandPre = singleKatanaIdlePosePre.leftHand;
+            const preArmDX = idleLeftHandPre.x - leftShoulderXPre;
+            const preArmDY = idleLeftHandPre.y - leftShoulderYPre;
             const preArmDist = Math.hypot(preArmDX, preArmDY);
-            let preElbowX = backShoulderXPre + preArmDX * 0.54;
-            let preElbowY = backShoulderYPre + preArmDY * 0.54;
+            let preElbowX = leftShoulderXPre + preArmDX * 0.54;
+            let preElbowY = leftShoulderYPre + preArmDY * 0.54;
             if (preArmDist > 0.001) {
                 const preNX = -preArmDY / preArmDist;
                 const preNY = preArmDX / preArmDist;
-                const preBend = preArmDist * (isCrouchPose ? 0.11 : 0.15);
+                const preBendScale = isCrouchPose ? 0.11 : 0.15;
+                const preBend = preArmDist * preBendScale;
                 preElbowX += preNX * preBend * dir;
                 preElbowY += preNY * preBend * dir + 0.25;
         }
-        const idleBackBladeAnglePre = isCrouchPose ? -0.32 : -0.65;
-        if (alpha > 0) {
-            const preArmStart = insetAlongSegment(backShoulderXPre, backShoulderYPre, preElbowX, preElbowY, 1.2);
-            if (silhouetteOutlineEnabled) {
+        const idleLeftBladeAnglePre = isCrouchPose ? -0.32 : -0.65;
+	        if (alpha > 0) {
+	            const preArmStart = insetAlongSegmentPre(leftShoulderXPre, leftShoulderYPre, preElbowX, preElbowY, 1.2);
+	            if (silhouetteOutlineEnabled) {
                 ctx.strokeStyle = silhouetteOutlineColor;
                 ctx.lineWidth = 4.8 + outlineExpand;
                 ctx.lineCap = 'round';
@@ -4181,7 +4206,7 @@ export class Player {
                 ctx.beginPath();
                 ctx.moveTo(preArmStart.x, preArmStart.y);
                 ctx.lineTo(preElbowX, preElbowY);
-                ctx.lineTo(idleBackHandPre.x, idleBackHandPre.y);
+                ctx.lineTo(idleLeftHandPre.x, idleLeftHandPre.y);
                 ctx.stroke();
             }
             ctx.strokeStyle = silhouetteColor;
@@ -4189,19 +4214,21 @@ export class Player {
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
             ctx.beginPath();
-            ctx.moveTo(backShoulderXPre, backShoulderYPre);
+            ctx.moveTo(leftShoulderXPre, leftShoulderYPre);
             ctx.lineTo(preElbowX, preElbowY);
-                ctx.lineTo(idleBackHandPre.x, idleBackHandPre.y);
-                ctx.stroke();
-                ctx.fillStyle = silhouetteColor;
-                ctx.beginPath();
-                ctx.arc(idleBackHandPre.x, idleBackHandPre.y, 4.8 * handRadiusScalePre, 0, Math.PI * 2);
-                ctx.fill();
-            }
-            this.drawKatana(ctx, idleBackHandPre.x, idleBackHandPre.y, idleBackBladeAnglePre, dir);
-        }
-        
-        const drawTorsoSegment = (withOutline = true, alphaVal = alpha) => {
+            ctx.lineTo(idleLeftHandPre.x, idleLeftHandPre.y);
+            ctx.stroke();
+            ctx.fillStyle = silhouetteColor;
+            ctx.beginPath();
+            ctx.arc(idleLeftHandPre.x, idleLeftHandPre.y, 4.8 * handRadiusScalePre, 0, Math.PI * 2);
+            ctx.fill();
+	            if (!isNinNinPose) {
+	                this.drawKatana(ctx, idleLeftHandPre.x, idleLeftHandPre.y, idleLeftBladeAnglePre, dir);
+	            }
+	        }
+	        }
+	        
+	        const drawTorsoSegment = (withOutline = true, alphaVal = alpha) => {
             if (alphaVal <= 0) return;
             if (withOutline && silhouetteOutlineEnabled) {
                 ctx.strokeStyle = silhouetteOutlineColor;
@@ -4335,30 +4362,30 @@ export class Player {
             const comboArc = Math.sin(comboProgress * Math.PI);
             const airborneLift = (!this.isGrounded ? 4.2 : 0) + ((comboStep === 4 || comboStep === 0) ? comboArc * 3.4 : 0);
             const hipLocalY = hipY - airborneLift;
-            const backHipX = torsoHipX + dir * 1.2;
-            const frontHipX = torsoHipX - dir * 1.0;
-            let backKneeX = backHipX + dir * 0.9;
-            let backKneeY = hipLocalY + 9.3;
-            let backFootX = centerX + dir * 2.9;
-            let backFootY = bottomY - 0.3 - airborneLift * 0.48;
-            let frontKneeX = frontHipX + dir * 0.8;
-            let frontKneeY = hipLocalY + 9.1;
-            let frontFootX = centerX - dir * 2.7;
-            let frontFootY = bottomY - 0.2 - airborneLift * 0.44;
+            const leftHipX = torsoHipX + dir * 1.2;
+            const rightHipX = torsoHipX - dir * 1.0;
+            let leftKneeX = leftHipX + dir * 0.9;
+            let leftKneeY = hipLocalY + 9.3;
+            let leftFootX = centerX + dir * 2.9;
+            let leftFootY = bottomY - 0.3 - airborneLift * 0.48;
+            let rightKneeX = rightHipX + dir * 0.8;
+            let rightKneeY = hipLocalY + 9.1;
+            let rightFootX = centerX - dir * 2.7;
+            let rightFootY = bottomY - 0.2 - airborneLift * 0.44;
             if (comboStep === 1) {
-                backKneeX = backHipX - dir * (1.8 + comboArc * 1.3); backKneeY = hipLocalY + 8.6 - comboArc * 1.0; backFootX = centerX - dir * (5.6 + comboArc * 2.8); backFootY = bottomY - 0.8 - airborneLift * 0.45; frontKneeX = frontHipX + dir * (3.2 + comboArc * 1.8); frontKneeY = hipLocalY + 8.2 - comboArc * 0.9; frontFootX = centerX + dir * (8.4 + comboArc * 3.8); frontFootY = bottomY - 1.1 - airborneLift * 0.45;
+                leftKneeX = leftHipX - dir * (1.8 + comboArc * 1.3); leftKneeY = hipLocalY + 8.6 - comboArc * 1.0; leftFootX = centerX - dir * (5.6 + comboArc * 2.8); leftFootY = bottomY - 0.8 - airborneLift * 0.45; rightKneeX = rightHipX + dir * (3.2 + comboArc * 1.8); rightKneeY = hipLocalY + 8.2 - comboArc * 0.9; rightFootX = centerX + dir * (8.4 + comboArc * 3.8); rightFootY = bottomY - 1.1 - airborneLift * 0.45;
             } else if (comboStep === 2) {
-                backKneeX = backHipX + dir * (3.0 + comboArc * 1.5); backKneeY = hipLocalY + 8.8 - comboArc * 0.9; backFootX = centerX + dir * (7.6 + comboArc * 3.0); backFootY = bottomY - 0.8 - airborneLift * 0.5; frontKneeX = frontHipX - dir * (2.8 + comboArc * 1.9); frontKneeY = hipLocalY + 9.1 - comboArc * 0.9; frontFootX = centerX - dir * (8.2 + comboArc * 3.8); frontFootY = bottomY - 0.9 - airborneLift * 0.5;
+                leftKneeX = leftHipX + dir * (3.0 + comboArc * 1.5); leftKneeY = hipLocalY + 8.8 - comboArc * 0.9; leftFootX = centerX + dir * (7.6 + comboArc * 3.0); leftFootY = bottomY - 0.8 - airborneLift * 0.5; rightKneeX = rightHipX - dir * (2.8 + comboArc * 1.9); rightKneeY = hipLocalY + 9.1 - comboArc * 0.9; rightFootX = centerX - dir * (8.2 + comboArc * 3.8); rightFootY = bottomY - 0.9 - airborneLift * 0.5;
             } else if (comboStep === 3) {
-                backKneeX = backHipX - dir * (3.2 - comboArc * 0.9); backKneeY = hipLocalY + 8.6 - comboArc * 0.9; backFootX = centerX - dir * (8.8 + comboArc * 3.2); backFootY = bottomY - 0.8 - airborneLift * 0.32; frontKneeX = frontHipX + dir * (3.4 - comboArc * 0.8); frontKneeY = hipLocalY + 8.3 - comboArc * 0.9; frontFootX = centerX + dir * (9.1 + comboArc * 3.0); frontFootY = bottomY - 0.9 - airborneLift * 0.32;
+                leftKneeX = leftHipX - dir * (3.2 - comboArc * 0.9); leftKneeY = hipLocalY + 8.6 - comboArc * 0.9; leftFootX = centerX - dir * (8.8 + comboArc * 3.2); leftFootY = bottomY - 0.8 - airborneLift * 0.32; rightKneeX = rightHipX + dir * (3.4 - comboArc * 0.8); rightKneeY = hipLocalY + 8.3 - comboArc * 0.9; rightFootX = centerX + dir * (9.1 + comboArc * 3.0); rightFootY = bottomY - 0.9 - airborneLift * 0.32;
             } else if (comboStep === 4) {
-                backKneeX = backHipX - dir * (1.5 + comboArc * 1.5); backKneeY = hipLocalY + 8.2 - comboArc * 2.6; backFootX = centerX - dir * (6.0 + comboArc * 5.0); backFootY = bottomY - 1.3 - airborneLift * 0.74 - comboArc * 1.2; frontKneeX = frontHipX - dir * (0.25 + comboArc * 1.0); frontKneeY = hipLocalY + 7.9 - comboArc * 2.5; frontFootX = centerX - dir * (2.6 + comboArc * 4.1); frontFootY = bottomY - 1.5 - airborneLift * 0.72 - comboArc * 1.3;
+                leftKneeX = leftHipX - dir * (1.5 + comboArc * 1.5); leftKneeY = hipLocalY + 8.2 - comboArc * 2.6; leftFootX = centerX - dir * (6.0 + comboArc * 5.0); leftFootY = bottomY - 1.3 - airborneLift * 0.74 - comboArc * 1.2; rightKneeX = rightHipX - dir * (0.25 + comboArc * 1.0); rightKneeY = hipLocalY + 7.9 - comboArc * 2.5; rightFootX = centerX - dir * (2.6 + comboArc * 4.1); rightFootY = bottomY - 1.5 - airborneLift * 0.72 - comboArc * 1.3;
             } else if (comboStep === 0) {
-                backKneeX = backHipX - dir * (2.2 - comboArc * 3.0); backKneeY = hipLocalY + 7.8 + comboArc * 2.3; backFootX = centerX - dir * (7.8 - comboArc * 12.0); backFootY = bottomY - 1.8 + comboArc * 2.0 - airborneLift * 0.68; frontKneeX = frontHipX - dir * (1.1 - comboArc * 3.4); frontKneeY = hipLocalY + 7.6 + comboArc * 2.4; frontFootX = centerX - dir * (4.9 - comboArc * 11.2); frontFootY = bottomY - 1.9 + comboArc * 2.1 - airborneLift * 0.7;
+                leftKneeX = leftHipX - dir * (2.2 - comboArc * 3.0); leftKneeY = hipLocalY + 7.8 + comboArc * 2.3; leftFootX = centerX - dir * (7.8 - comboArc * 12.0); leftFootY = bottomY - 1.8 + comboArc * 2.0 - airborneLift * 0.68; rightKneeX = rightHipX - dir * (1.1 - comboArc * 3.4); rightKneeY = hipLocalY + 7.6 + comboArc * 2.4; rightFootX = centerX - dir * (4.9 - comboArc * 11.2); rightFootY = bottomY - 1.9 + comboArc * 2.1 - airborneLift * 0.7;
             }
             // 二刀Z中の脚重ね順は固定: 後ろ足を手前、前足を奥
-            drawJointedLeg(backHipX, hipLocalY + 0.3, backKneeX, backKneeY, backFootX, backFootY, false, 1.1, null, true, true);
-            drawJointedLeg(frontHipX, hipLocalY + 0.1, frontKneeX, frontKneeY, frontFootX, frontFootY, true, 1.08, null, true, false);
+            drawJointedLeg(leftHipX, hipLocalY + 0.3, leftKneeX, leftKneeY, leftFootX, leftFootY, false, 1.1, null, true, true);
+            drawJointedLeg(rightHipX, hipLocalY + 0.1, rightKneeX, rightKneeY, rightFootX, rightFootY, true, 1.08, null, true, false);
         } else if (comboAttackingPose && !isSpearThrustPose && !isCrouchPose) {
             const attack = currentAttack || this.currentAttack;
             if (!attack) { this.x = originalX; this.y = originalY; ctx.restore(); return; }
@@ -4369,160 +4396,160 @@ export class Player {
             const baseLift = Math.max(0, Math.min(1, Math.abs(vx) / 14));
             const airborneLift = !isGrounded ? 4.8 + baseLift * 4.4 : 0;
             const hipLocalY = hipY - airborneLift;
-            const backHipX = torsoHipX + dir * 1.3;
-            const frontHipX = torsoHipX - dir * 1.2;
-            let backKneeX = backHipX + dir * 0.8, backKneeY = hipLocalY + 10.1, backFootX = centerX + dir * 2.6, backFootY = bottomY + 0.2 - airborneLift * 0.55;
-            let frontKneeX = frontHipX + dir * 0.9, frontKneeY = hipLocalY + 9.5, frontFootX = centerX - dir * 3.0, frontFootY = bottomY - 0.2 - airborneLift * 0.52;
+            const leftHipX = torsoHipX + dir * 1.3;
+            const rightHipX = torsoHipX - dir * 1.2;
+            let leftKneeX = leftHipX + dir * 0.8, leftKneeY = hipLocalY + 10.1, leftFootX = centerX + dir * 2.6, leftFootY = bottomY + 0.2 - airborneLift * 0.55;
+            let rightKneeX = rightHipX + dir * 0.9, rightKneeY = hipLocalY + 9.5, rightFootX = centerX - dir * 3.0, rightFootY = bottomY - 0.2 - airborneLift * 0.52;
             if (comboStep === 2) {
                 // 2撃目: 初期→踏み込み→終端を単調補間してブレを防ぐ
                 const smooth = (t) => t * t * (3 - 2 * t);
                 const lerp = (a, b, t) => a + (b - a) * t;
                 const blendPose = (a, b, t) => ({
-                    backKneeX: lerp(a.backKneeX, b.backKneeX, t),
-                    backKneeY: lerp(a.backKneeY, b.backKneeY, t),
-                    backFootX: lerp(a.backFootX, b.backFootX, t),
-                    backFootY: lerp(a.backFootY, b.backFootY, t),
-                    frontKneeX: lerp(a.frontKneeX, b.frontKneeX, t),
-                    frontKneeY: lerp(a.frontKneeY, b.frontKneeY, t),
-                    frontFootX: lerp(a.frontFootX, b.frontFootX, t),
-                    frontFootY: lerp(a.frontFootY, b.frontFootY, t)
+                    leftKneeX: lerp(a.leftKneeX, b.leftKneeX, t),
+                    leftKneeY: lerp(a.leftKneeY, b.leftKneeY, t),
+                    leftFootX: lerp(a.leftFootX, b.leftFootX, t),
+                    leftFootY: lerp(a.leftFootY, b.leftFootY, t),
+                    rightKneeX: lerp(a.rightKneeX, b.rightKneeX, t),
+                    rightKneeY: lerp(a.rightKneeY, b.rightKneeY, t),
+                    rightFootX: lerp(a.rightFootX, b.rightFootX, t),
+                    rightFootY: lerp(a.rightFootY, b.rightFootY, t)
                 });
                 const startPose = {
                     // 一段目終端の姿勢からそのまま開始
-                    backKneeX: backHipX - dir * 2.0,
-                    backKneeY: hipLocalY + 8.8,
-                    backFootX: centerX - dir * 5.2,
-                    backFootY: bottomY - 0.88 - airborneLift * 0.5,
-                    frontKneeX: frontHipX + dir * 3.4,
-                    frontKneeY: hipLocalY + 9.08,
-                    frontFootX: centerX + dir * 8.7,
-                    frontFootY: bottomY - 0.5 - airborneLift * 0.48
+                    leftKneeX: leftHipX - dir * 2.0,
+                    leftKneeY: hipLocalY + 8.8,
+                    leftFootX: centerX - dir * 5.2,
+                    leftFootY: bottomY - 0.88 - airborneLift * 0.5,
+                    rightKneeX: rightHipX + dir * 3.4,
+                    rightKneeY: hipLocalY + 9.08,
+                    rightFootX: centerX + dir * 8.7,
+                    rightFootY: bottomY - 0.5 - airborneLift * 0.48
                 };
                 const drivePose = {
-                    backKneeX: backHipX + dir * 3.5,
-                    backKneeY: hipLocalY + 8.8,
-                    backFootX: centerX + dir * 9.4,
-                    backFootY: bottomY - 0.86 - airborneLift * 0.46,
-                    frontKneeX: frontHipX - dir * 3.4,
-                    frontKneeY: hipLocalY + 8.4,
-                    frontFootX: centerX - dir * 9.1,
-                    frontFootY: bottomY - 1.18 - airborneLift * 0.46
+                    leftKneeX: leftHipX + dir * 3.5,
+                    leftKneeY: hipLocalY + 8.8,
+                    leftFootX: centerX + dir * 9.4,
+                    leftFootY: bottomY - 0.86 - airborneLift * 0.46,
+                    rightKneeX: rightHipX - dir * 3.4,
+                    rightKneeY: hipLocalY + 8.4,
+                    rightFootX: centerX - dir * 9.1,
+                    rightFootY: bottomY - 1.18 - airborneLift * 0.46
                 };
                 const settlePose = {
-                    backKneeX: backHipX + dir * 2.8,
-                    backKneeY: hipLocalY + 8.95,
-                    backFootX: centerX + dir * 8.0,
-                    backFootY: bottomY - 0.84 - airborneLift * 0.46,
-                    frontKneeX: frontHipX - dir * 2.7,
-                    frontKneeY: hipLocalY + 8.55,
-                    frontFootX: centerX - dir * 7.3,
-                    frontFootY: bottomY - 1.08 - airborneLift * 0.46
+                    leftKneeX: leftHipX + dir * 2.8,
+                    leftKneeY: hipLocalY + 8.95,
+                    leftFootX: centerX + dir * 8.0,
+                    leftFootY: bottomY - 0.84 - airborneLift * 0.46,
+                    rightKneeX: rightHipX - dir * 2.7,
+                    rightKneeY: hipLocalY + 8.55,
+                    rightFootX: centerX - dir * 7.3,
+                    rightFootY: bottomY - 1.08 - airborneLift * 0.46
                 };
                 const driveT = smooth(Math.max(0, Math.min(1, comboProgress / 0.72)));
                 const settleT = smooth(Math.max(0, Math.min(1, (comboProgress - 0.84) / 0.16)));
                 const driven = blendPose(startPose, drivePose, driveT);
                 const posed = blendPose(driven, settlePose, settleT);
-                backKneeX = posed.backKneeX;
-                backKneeY = posed.backKneeY;
-                backFootX = posed.backFootX;
-                backFootY = posed.backFootY;
-                frontKneeX = posed.frontKneeX;
-                frontKneeY = posed.frontKneeY;
-                frontFootX = posed.frontFootX;
-                frontFootY = posed.frontFootY;
+                leftKneeX = posed.leftKneeX;
+                leftKneeY = posed.leftKneeY;
+                leftFootX = posed.leftFootX;
+                leftFootY = posed.leftFootY;
+                rightKneeX = posed.rightKneeX;
+                rightKneeY = posed.rightKneeY;
+                rightFootX = posed.rightFootX;
+                rightFootY = posed.rightFootY;
             } else if (comboStep === 1) {
                 // 1撃目: idle -> slash -> idle の2段補間で、前後の接続を自然化
                 const smooth = (t) => t * t * (3 - 2 * t);
                 const lerp = (a, b, t) => a + (b - a) * t;
                 const blendPose = (a, b, t) => ({
-                    backKneeX: lerp(a.backKneeX, b.backKneeX, t),
-                    backKneeY: lerp(a.backKneeY, b.backKneeY, t),
-                    backFootX: lerp(a.backFootX, b.backFootX, t),
-                    backFootY: lerp(a.backFootY, b.backFootY, t),
-                    frontKneeX: lerp(a.frontKneeX, b.frontKneeX, t),
-                    frontKneeY: lerp(a.frontKneeY, b.frontKneeY, t),
-                    frontFootX: lerp(a.frontFootX, b.frontFootX, t),
-                    frontFootY: lerp(a.frontFootY, b.frontFootY, t)
+                    leftKneeX: lerp(a.leftKneeX, b.leftKneeX, t),
+                    leftKneeY: lerp(a.leftKneeY, b.leftKneeY, t),
+                    leftFootX: lerp(a.leftFootX, b.leftFootX, t),
+                    leftFootY: lerp(a.leftFootY, b.leftFootY, t),
+                    rightKneeX: lerp(a.rightKneeX, b.rightKneeX, t),
+                    rightKneeY: lerp(a.rightKneeY, b.rightKneeY, t),
+                    rightFootX: lerp(a.rightFootX, b.rightFootX, t),
+                    rightFootY: lerp(a.rightFootY, b.rightFootY, t)
                 });
                 const idlePhase = Math.sin(this.motionTime * 0.0042);
                 const idleSpread = 2.5 + Math.abs(idlePhase) * 0.3;
                 const idlePose = {
-                    backKneeX: backHipX + dir * 0.55,
-                    backKneeY: hipLocalY + 9.9,
-                    backFootX: centerX + dir * idleSpread,
-                    backFootY: bottomY + 0.1 - airborneLift * 0.14,
-                    frontKneeX: frontHipX + dir * 0.6,
-                    frontKneeY: hipLocalY + 9.6,
-                    frontFootX: centerX - dir * idleSpread,
-                    frontFootY: bottomY - 0.1 - airborneLift * 0.14
+                    leftKneeX: leftHipX + dir * 0.55,
+                    leftKneeY: hipLocalY + 9.9,
+                    leftFootX: centerX + dir * idleSpread,
+                    leftFootY: bottomY + 0.1 - airborneLift * 0.14,
+                    rightKneeX: rightHipX + dir * 0.6,
+                    rightKneeY: hipLocalY + 9.6,
+                    rightFootX: centerX - dir * idleSpread,
+                    rightFootY: bottomY - 0.1 - airborneLift * 0.14
                 };
                 const slashPose = {
-                    backKneeX: backHipX - dir * 2.05,
-                    backKneeY: hipLocalY + 8.85,
-                    backFootX: centerX - dir * 5.25,
-                    backFootY: bottomY - 0.88 - airborneLift * 0.5,
-                    frontKneeX: frontHipX + dir * 3.45,
-                    frontKneeY: hipLocalY + 9.05,
-                    frontFootX: centerX + dir * 8.75,
-                    frontFootY: bottomY - 0.52 - airborneLift * 0.48
+                    leftKneeX: leftHipX - dir * 2.05,
+                    leftKneeY: hipLocalY + 8.85,
+                    leftFootX: centerX - dir * 5.25,
+                    leftFootY: bottomY - 0.88 - airborneLift * 0.5,
+                    rightKneeX: rightHipX + dir * 3.45,
+                    rightKneeY: hipLocalY + 9.05,
+                    rightFootX: centerX + dir * 8.75,
+                    rightFootY: bottomY - 0.52 - airborneLift * 0.48
                 };
                 // 1撃目中は開脚を維持し、終了直前だけアイドルへ戻す
                 const slashT = smooth(Math.max(0, Math.min(1, comboProgress / 0.28)));
                 const recoverT = smooth(Math.max(0, Math.min(1, (comboProgress - 0.9) / 0.1)));
                 const slashed = blendPose(idlePose, slashPose, slashT);
                 const posed = blendPose(slashed, idlePose, recoverT);
-                backKneeX = posed.backKneeX;
-                backKneeY = posed.backKneeY;
-                backFootX = posed.backFootX;
-                backFootY = posed.backFootY;
-                frontKneeX = posed.frontKneeX;
-                frontKneeY = posed.frontKneeY;
-                frontFootX = posed.frontFootX;
-                frontFootY = posed.frontFootY;
+                leftKneeX = posed.leftKneeX;
+                leftKneeY = posed.leftKneeY;
+                leftFootX = posed.leftFootX;
+                leftFootY = posed.leftFootY;
+                rightKneeX = posed.rightKneeX;
+                rightKneeY = posed.rightKneeY;
+                rightFootX = posed.rightFootX;
+                rightFootY = posed.rightFootY;
             }
             else if (comboStep === 3) {
-                backKneeX = backHipX - dir * (2.6 - comboArc * 1.1);
-                backKneeY = hipLocalY + 8.5 - comboArc * 1.4;
-                backFootX = centerX - dir * (7.2 + comboArc * 2.0);
-                backFootY = bottomY - 0.9 - airborneLift * 0.56;
-                frontKneeX = frontHipX + dir * (2.9 - comboArc * 1.0);
-                frontKneeY = hipLocalY + 8.2 - comboArc * 1.5;
-                frontFootX = centerX + dir * (7.6 + comboArc * 2.2);
-                frontFootY = bottomY - 1.2 - airborneLift * 0.56;
+                leftKneeX = leftHipX - dir * (2.6 - comboArc * 1.1);
+                leftKneeY = hipLocalY + 8.5 - comboArc * 1.4;
+                leftFootX = centerX - dir * (7.2 + comboArc * 2.0);
+                leftFootY = bottomY - 0.9 - airborneLift * 0.56;
+                rightKneeX = rightHipX + dir * (2.9 - comboArc * 1.0);
+                rightKneeY = hipLocalY + 8.2 - comboArc * 1.5;
+                rightFootX = centerX + dir * (7.6 + comboArc * 2.2);
+                rightFootY = bottomY - 1.2 - airborneLift * 0.56;
                 const prepT = Math.max(0, Math.min(1, comboProgress / 0.18));
                 const prepEase = prepT * prepT * (3 - 2 * prepT);
                 const from = {
-                    backKneeX: backHipX - dir * 2.2,
-                    backKneeY: hipLocalY + 8.95,
-                    backFootX: centerX - dir * 5.5,
-                    backFootY: bottomY - 0.84 - airborneLift * 0.46,
-                    frontKneeX: frontHipX + dir * 3.0,
-                    frontKneeY: hipLocalY + 8.55,
-                    frontFootX: centerX + dir * 7.5,
-                    frontFootY: bottomY - 1.08 - airborneLift * 0.46
+                    leftKneeX: leftHipX - dir * 2.2,
+                    leftKneeY: hipLocalY + 8.95,
+                    leftFootX: centerX - dir * 5.5,
+                    leftFootY: bottomY - 0.84 - airborneLift * 0.46,
+                    rightKneeX: rightHipX + dir * 3.0,
+                    rightKneeY: hipLocalY + 8.55,
+                    rightFootX: centerX + dir * 7.5,
+                    rightFootY: bottomY - 1.08 - airborneLift * 0.46
                 };
-                backKneeX = from.backKneeX + (backKneeX - from.backKneeX) * prepEase;
-                backKneeY = from.backKneeY + (backKneeY - from.backKneeY) * prepEase;
-                backFootX = from.backFootX + (backFootX - from.backFootX) * prepEase;
-                backFootY = from.backFootY + (backFootY - from.backFootY) * prepEase;
-                frontKneeX = from.frontKneeX + (frontKneeX - from.frontKneeX) * prepEase;
-                frontKneeY = from.frontKneeY + (frontKneeY - from.frontKneeY) * prepEase;
-                frontFootX = from.frontFootX + (frontFootX - from.frontFootX) * prepEase;
-                frontFootY = from.frontFootY + (frontFootY - from.frontFootY) * prepEase;
+                leftKneeX = from.leftKneeX + (leftKneeX - from.leftKneeX) * prepEase;
+                leftKneeY = from.leftKneeY + (leftKneeY - from.leftKneeY) * prepEase;
+                leftFootX = from.leftFootX + (leftFootX - from.leftFootX) * prepEase;
+                leftFootY = from.leftFootY + (leftFootY - from.leftFootY) * prepEase;
+                rightKneeX = from.rightKneeX + (rightKneeX - from.rightKneeX) * prepEase;
+                rightKneeY = from.rightKneeY + (rightKneeY - from.rightKneeY) * prepEase;
+                rightFootX = from.rightFootX + (rightFootX - from.rightFootX) * prepEase;
+                rightFootY = from.rightFootY + (rightFootY - from.rightFootY) * prepEase;
             }
             else if (comboStep === 4) {
                 const smooth = (t) => t * t * (3 - 2 * t);
                 if (comboProgress < 0.42) {
                     const rise = comboProgress / 0.42;
                     const riseEase = smooth(rise);
-                    backKneeX = backHipX - dir * (2.1 - riseEase * 0.8);
-                    backKneeY = hipLocalY + 8.4 - riseEase * 1.4;
-                    backFootX = centerX - dir * (6.4 - riseEase * 1.2);
-                    backFootY = bottomY - 1.2 - airborneLift * (0.52 + riseEase * 0.12);
-                    frontKneeX = frontHipX + dir * (2.6 - riseEase * 0.6);
-                    frontKneeY = hipLocalY + 8.1 - riseEase * 1.3;
-                    frontFootX = centerX + dir * (6.9 - riseEase * 1.0);
-                    frontFootY = bottomY - 1.3 - airborneLift * (0.54 + riseEase * 0.12);
+                    leftKneeX = leftHipX - dir * (2.1 - riseEase * 0.8);
+                    leftKneeY = hipLocalY + 8.4 - riseEase * 1.4;
+                    leftFootX = centerX - dir * (6.4 - riseEase * 1.2);
+                    leftFootY = bottomY - 1.2 - airborneLift * (0.52 + riseEase * 0.12);
+                    rightKneeX = rightHipX + dir * (2.6 - riseEase * 0.6);
+                    rightKneeY = hipLocalY + 8.1 - riseEase * 1.3;
+                    rightFootX = centerX + dir * (6.9 - riseEase * 1.0);
+                    rightFootY = bottomY - 1.3 - airborneLift * (0.54 + riseEase * 0.12);
                 } else {
                     const flipT = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.58));
                     const flipEase = smooth(flipT);
@@ -4537,134 +4564,134 @@ export class Player {
                         x: hipBaseX + normalX * side + axisX * down,
                         y: hipBaseY + normalY * side + axisY * down
                     });
-                    const backHipYLocal = hipLocalY + 0.3;
-                    const frontHipYLocal = hipLocalY + 0.08;
-                    const backKneeP = placeFrom(
-                        backHipX,
-                        backHipYLocal,
+                    const leftHipYLocal = hipLocalY + 0.3;
+                    const rightHipYLocal = hipLocalY + 0.08;
+                    const leftKneeP = placeFrom(
+                        leftHipX,
+                        leftHipYLocal,
                         -1.6 - tuck * 2.2 + open * 0.7,
                         7.2 - tuck * 3.4 + open * 2.5
                     );
-                    const backFootP = placeFrom(
-                        backHipX,
-                        backHipYLocal,
+                    const leftFootP = placeFrom(
+                        leftHipX,
+                        leftHipYLocal,
                         -3.0 - tuck * 3.8 + open * 1.2,
                         14.7 - tuck * 6.6 + open * 5.8
                     );
-                    const frontKneeP = placeFrom(
-                        frontHipX,
-                        frontHipYLocal,
+                    const rightKneeP = placeFrom(
+                        rightHipX,
+                        rightHipYLocal,
                         1.8 + tuck * 2.0 - open * 0.6,
                         6.9 - tuck * 3.2 + open * 2.4
                     );
-                    const frontFootP = placeFrom(
-                        frontHipX,
-                        frontHipYLocal,
+                    const rightFootP = placeFrom(
+                        rightHipX,
+                        rightHipYLocal,
                         3.4 + tuck * 3.5 - open * 1.1,
                         13.9 - tuck * 6.1 + open * 5.4
                     );
-                    backKneeX = backKneeP.x;
-                    backKneeY = backKneeP.y;
-                    backFootX = backFootP.x;
-                    backFootY = backFootP.y;
-                    frontKneeX = frontKneeP.x;
-                    frontKneeY = frontKneeP.y;
-                    frontFootX = frontFootP.x;
-                    frontFootY = frontFootP.y;
+                    leftKneeX = leftKneeP.x;
+                    leftKneeY = leftKneeP.y;
+                    leftFootX = leftFootP.x;
+                    leftFootY = leftFootP.y;
+                    rightKneeX = rightKneeP.x;
+                    rightKneeY = rightKneeP.y;
+                    rightFootX = rightFootP.x;
+                    rightFootY = rightFootP.y;
                 }
                 const prepT = Math.max(0, Math.min(1, comboProgress / 0.18));
                 const prepEase = prepT * prepT * (3 - 2 * prepT);
                 const from = {
-                    backKneeX: backHipX - dir * 2.6,
-                    backKneeY: hipLocalY + 8.5,
-                    backFootX: centerX - dir * 7.2,
-                    backFootY: bottomY - 0.9 - airborneLift * 0.56,
-                    frontKneeX: frontHipX + dir * 2.9,
-                    frontKneeY: hipLocalY + 8.2,
-                    frontFootX: centerX + dir * 7.6,
-                    frontFootY: bottomY - 1.2 - airborneLift * 0.56
+                    leftKneeX: leftHipX - dir * 2.6,
+                    leftKneeY: hipLocalY + 8.5,
+                    leftFootX: centerX - dir * 7.2,
+                    leftFootY: bottomY - 0.9 - airborneLift * 0.56,
+                    rightKneeX: rightHipX + dir * 2.9,
+                    rightKneeY: hipLocalY + 8.2,
+                    rightFootX: centerX + dir * 7.6,
+                    rightFootY: bottomY - 1.2 - airborneLift * 0.56
                 };
-                backKneeX = from.backKneeX + (backKneeX - from.backKneeX) * prepEase;
-                backKneeY = from.backKneeY + (backKneeY - from.backKneeY) * prepEase;
-                backFootX = from.backFootX + (backFootX - from.backFootX) * prepEase;
-                backFootY = from.backFootY + (backFootY - from.backFootY) * prepEase;
-                frontKneeX = from.frontKneeX + (frontKneeX - from.frontKneeX) * prepEase;
-                frontKneeY = from.frontKneeY + (frontKneeY - from.frontKneeY) * prepEase;
-                frontFootX = from.frontFootX + (frontFootX - from.frontFootX) * prepEase;
-                frontFootY = from.frontFootY + (frontFootY - from.frontFootY) * prepEase;
+                leftKneeX = from.leftKneeX + (leftKneeX - from.leftKneeX) * prepEase;
+                leftKneeY = from.leftKneeY + (leftKneeY - from.leftKneeY) * prepEase;
+                leftFootX = from.leftFootX + (leftFootX - from.leftFootX) * prepEase;
+                leftFootY = from.leftFootY + (leftFootY - from.leftFootY) * prepEase;
+                rightKneeX = from.rightKneeX + (rightKneeX - from.rightKneeX) * prepEase;
+                rightKneeY = from.rightKneeY + (rightKneeY - from.rightKneeY) * prepEase;
+                rightFootX = from.rightFootX + (rightFootX - from.rightFootX) * prepEase;
+                rightFootY = from.rightFootY + (rightFootY - from.rightFootY) * prepEase;
             }
             else if (comboStep === 5) {
                 if (comboProgress < 0.3) {
                     const t = comboProgress / 0.3;
-                    backKneeX = backHipX - dir * (1.8 - t * 0.7);
-                    backKneeY = hipLocalY + 8.7 - t * 1.5;
-                    backFootX = centerX - dir * (5.6 - t * 2.2);
-                    backFootY = bottomY - 1.0 - airborneLift * 0.62;
-                    frontKneeX = frontHipX + dir * (2.5 - t * 1.2);
-                    frontKneeY = hipLocalY + 8.5 - t * 1.5;
-                    frontFootX = centerX + dir * (7.1 - t * 2.9);
-                    frontFootY = bottomY - 1.1 - airborneLift * 0.64;
+                    leftKneeX = leftHipX - dir * (1.8 - t * 0.7);
+                    leftKneeY = hipLocalY + 8.7 - t * 1.5;
+                    leftFootX = centerX - dir * (5.6 - t * 2.2);
+                    leftFootY = bottomY - 1.0 - airborneLift * 0.62;
+                    rightKneeX = rightHipX + dir * (2.5 - t * 1.2);
+                    rightKneeY = hipLocalY + 8.5 - t * 1.5;
+                    rightFootX = centerX + dir * (7.1 - t * 2.9);
+                    rightFootY = bottomY - 1.1 - airborneLift * 0.64;
                 } else if (comboProgress < 0.78) {
                     const t = (comboProgress - 0.3) / 0.48;
-                    backKneeX = backHipX - dir * (1.1 + t * 1.8);
-                    backKneeY = hipLocalY + 7.2 + t * 2.4;
-                    backFootX = centerX - dir * (3.4 + t * 2.8);
-                    backFootY = bottomY - 2.4 + t * 1.7 - airborneLift * 0.44;
-                    frontKneeX = frontHipX + dir * (1.3 + t * 1.2);
-                    frontKneeY = hipLocalY + 7.0 + t * 2.5;
-                    frontFootX = centerX + dir * (4.4 + t * 1.8);
-                    frontFootY = bottomY - 2.6 + t * 1.9 - airborneLift * 0.46;
+                    leftKneeX = leftHipX - dir * (1.1 + t * 1.8);
+                    leftKneeY = hipLocalY + 7.2 + t * 2.4;
+                    leftFootX = centerX - dir * (3.4 + t * 2.8);
+                    leftFootY = bottomY - 2.4 + t * 1.7 - airborneLift * 0.44;
+                    rightKneeX = rightHipX + dir * (1.3 + t * 1.2);
+                    rightKneeY = hipLocalY + 7.0 + t * 2.5;
+                    rightFootX = centerX + dir * (4.4 + t * 1.8);
+                    rightFootY = bottomY - 2.6 + t * 1.9 - airborneLift * 0.46;
                 } else {
                     const t = (comboProgress - 0.78) / 0.22;
-                    backKneeX = backHipX - dir * (2.9 - t * 1.6);
-                    backKneeY = hipLocalY + 9.6 - t * 1.4;
-                    backFootX = centerX - dir * (6.2 - t * 2.4);
-                    backFootY = bottomY - 0.6 - airborneLift * 0.22;
-                    frontKneeX = frontHipX + dir * (2.7 - t * 1.4);
-                    frontKneeY = hipLocalY + 9.3 - t * 1.3;
-                    frontFootX = centerX + dir * (6.0 - t * 2.2);
-                    frontFootY = bottomY - 0.7 - airborneLift * 0.22;
+                    leftKneeX = leftHipX - dir * (2.9 - t * 1.6);
+                    leftKneeY = hipLocalY + 9.6 - t * 1.4;
+                    leftFootX = centerX - dir * (6.2 - t * 2.4);
+                    leftFootY = bottomY - 0.6 - airborneLift * 0.22;
+                    rightKneeX = rightHipX + dir * (2.7 - t * 1.4);
+                    rightKneeY = hipLocalY + 9.3 - t * 1.3;
+                    rightFootX = centerX + dir * (6.0 - t * 2.2);
+                    rightFootY = bottomY - 0.7 - airborneLift * 0.22;
                 }
                 const prepT = Math.max(0, Math.min(1, comboProgress / 0.2));
                 const prepEase = prepT * prepT * (3 - 2 * prepT);
                 const from = {
-                    backKneeX: backHipX - dir * 3.6,
-                    backKneeY: hipLocalY + 5.2,
-                    backFootX: centerX - dir * 11.8,
-                    backFootY: bottomY - 2.0 - airborneLift * 0.76,
-                    frontKneeX: frontHipX + dir * 1.1,
-                    frontKneeY: hipLocalY + 4.7,
-                    frontFootX: centerX + dir * 1.8,
-                    frontFootY: bottomY - 2.3 - airborneLift * 0.84
+                    leftKneeX: leftHipX - dir * 3.6,
+                    leftKneeY: hipLocalY + 5.2,
+                    leftFootX: centerX - dir * 11.8,
+                    leftFootY: bottomY - 2.0 - airborneLift * 0.76,
+                    rightKneeX: rightHipX + dir * 1.1,
+                    rightKneeY: hipLocalY + 4.7,
+                    rightFootX: centerX + dir * 1.8,
+                    rightFootY: bottomY - 2.3 - airborneLift * 0.84
                 };
-                backKneeX = from.backKneeX + (backKneeX - from.backKneeX) * prepEase;
-                backKneeY = from.backKneeY + (backKneeY - from.backKneeY) * prepEase;
-                backFootX = from.backFootX + (backFootX - from.backFootX) * prepEase;
-                backFootY = from.backFootY + (backFootY - from.backFootY) * prepEase;
-                frontKneeX = from.frontKneeX + (frontKneeX - from.frontKneeX) * prepEase;
-                frontKneeY = from.frontKneeY + (frontKneeY - from.frontKneeY) * prepEase;
-                frontFootX = from.frontFootX + (frontFootX - from.frontFootX) * prepEase;
-                frontFootY = from.frontFootY + (frontFootY - from.frontFootY) * prepEase;
+                leftKneeX = from.leftKneeX + (leftKneeX - from.leftKneeX) * prepEase;
+                leftKneeY = from.leftKneeY + (leftKneeY - from.leftKneeY) * prepEase;
+                leftFootX = from.leftFootX + (leftFootX - from.leftFootX) * prepEase;
+                leftFootY = from.leftFootY + (leftFootY - from.leftFootY) * prepEase;
+                rightKneeX = from.rightKneeX + (rightKneeX - from.rightKneeX) * prepEase;
+                rightKneeY = from.rightKneeY + (rightKneeY - from.rightKneeY) * prepEase;
+                rightFootX = from.rightFootX + (rightFootX - from.rightFootX) * prepEase;
+                rightFootY = from.rightFootY + (rightFootY - from.rightFootY) * prepEase;
             }
-            drawJointedLeg(backHipX, hipLocalY + 0.35, backKneeX, backKneeY, backFootX, backFootY, false, 1.12);
-            drawJointedLeg(frontHipX, hipLocalY + 0.12, frontKneeX, frontKneeY, frontFootX, frontFootY, true, 1.06);
+            drawJointedLeg(leftHipX, hipLocalY + 0.35, leftKneeX, leftKneeY, leftFootX, leftFootY, false, 1.12);
+            drawJointedLeg(rightHipX, hipLocalY + 0.12, rightKneeX, rightKneeY, rightFootX, rightFootY, true, 1.06);
         } else if (isCrouchPose) {
             const crouchStride = crouchWalkPhase * 3.4;
             const crouchLift = Math.abs(crouchWalkPhase) * 1.8;
-            const backHipX = torsoHipX + dir * 1.15; const frontHipX = torsoHipX - dir * 1.35;
-            const backHipYL = hipY + 0.4; const frontHipYL = hipY + 0.2;
+            const leftHipX = torsoHipX + dir * 1.15; const rightHipX = torsoHipX - dir * 1.35;
+            const leftHipYL = hipY + 0.4; const rightHipYL = hipY + 0.2;
             // 膝はhipYからbottomYの範囲に収まるよう clamp する
             const kneeYMax = bottomY - 4;
-            const backKneeY  = Math.min(kneeYMax, hipY + 6.0 + Math.max(0, -crouchWalkPhase) * 1.2);
-            const frontKneeY = Math.min(kneeYMax, hipY + 6.4 + Math.max(0,  crouchWalkPhase) * 1.2);
-            drawJointedLeg(backHipX,  backHipYL,  backHipX  + dir * (3.0 + crouchStride * 0.5), backKneeY,  centerX + dir * (6.5 + crouchStride), bottomY - 0.6 + crouchLift * 0.15, false, 1.0);
-            drawJointedLeg(frontHipX, frontHipYL, frontHipX - dir * (3.6 - crouchStride * 0.5), frontKneeY, centerX - dir * (7.2 - crouchStride), bottomY - 0.2,                     true,  1.02);
+            const leftKneeY  = Math.min(kneeYMax, hipY + 6.0 + Math.max(0, -crouchWalkPhase) * 1.2);
+            const rightKneeY = Math.min(kneeYMax, hipY + 6.4 + Math.max(0,  crouchWalkPhase) * 1.2);
+            drawJointedLeg(leftHipX,  leftHipYL,  leftHipX  + dir * (3.0 + crouchStride * 0.5), leftKneeY,  centerX + dir * (6.5 + crouchStride), bottomY - 0.6 + crouchLift * 0.15, false, 1.0);
+            drawJointedLeg(rightHipX, rightHipYL, rightHipX - dir * (3.6 - crouchStride * 0.5), rightKneeY, centerX - dir * (7.2 - crouchStride), bottomY - 0.2,                     true,  1.02);
         } else if (isSpearThrustPose) {
             // 横っ飛び: 後ろ足で蹴り、前足を畳む（脚長が伸びすぎない長さ）
             const rearDrive = Math.max(0, Math.sin(Math.max(0, Math.min(1, (spearPoseProgress - 0.16) / 0.62)) * Math.PI * 0.5));
             const hipLocalY = hipY - 0.24 - rearDrive * 0.48;
             const rearHipX = torsoHipX + dir * 0.88;
-            const frontHipX2 = torsoHipX + dir * 1.18;
+            const rightHipX2 = torsoHipX + dir * 1.18;
 
             // 後ろ足: 画像2のように斜め後方へ長く蹴る
             const rearFootX = rearHipX - dir * (14.1 + rearDrive * 3.1);
@@ -4676,11 +4703,11 @@ export class Player {
             drawJointedLeg(rearHipX, hipLocalY + 0.2, rearKneeX, rearKneeY, rearFootX, rearFootY, false, 0, 1, true, true);
 
             // 前足: 画像2の曲げ感を維持しつつ、通常脚長に近づける
-            const frontKneeX2 = frontHipX2 + dir * (3.95 + rearDrive * 0.6);
-            const frontKneeY2 = hipLocalY + 8.7 + rearDrive * 0.24;
-            const frontFootX2 = frontHipX2 + dir * (0.22 + rearDrive * 0.1);
-            const frontFootY2 = hipLocalY + 16.2 + rearDrive * 0.3;
-            drawJointedLeg(frontHipX2, hipLocalY + 0.04, frontKneeX2, frontKneeY2, frontFootX2, frontFootY2, true, 1.22, 1, true, false);
+            const rightKneeX2 = rightHipX2 + dir * (3.95 + rearDrive * 0.6);
+            const rightKneeY2 = hipLocalY + 8.7 + rearDrive * 0.24;
+            const rightFootX2 = rightHipX2 + dir * (0.22 + rearDrive * 0.1);
+            const rightFootY2 = hipLocalY + 16.2 + rearDrive * 0.3;
+            drawJointedLeg(rightHipX2, hipLocalY + 0.04, rightKneeX2, rightKneeY2, rightFootX2, rightFootY2, true, 1.22, 1, true, false);
         } else {
             // 空中 or 走り or 待機の足描画
             if (!this.isGrounded) {
@@ -4692,40 +4719,40 @@ export class Player {
                 const tuck = Math.max(rise * 0.74, apex * 0.92) * (1 - descend * 0.26);
                 const open = descend * 0.62;
                 const settle = Math.max(0, Math.min(1, (descend - 0.28) / 0.72));
-                const backHipX = torsoHipX + dir * 1.28;
-                const frontHipX3 = torsoHipX - dir * 1.18;
+                const leftHipX = torsoHipX + dir * 1.28;
+                const rightHipX3 = torsoHipX - dir * 1.18;
 
                 // 奥足は曲げ（短め）、手前足は伸ばし（長め）
-                let backKneeX = backHipX + dir * (2.78 + tuck * 2.25 - open * 1.24) + dir * drift * 0.2;
-                let backKneeY = hipY + 8.25 - tuck * 3.1 + open * 0.9;
-                let backFootX = backKneeX - dir * (3.22 + tuck * 1.12 - open * 0.58) + dir * drift * 0.1;
-                let backFootY = backKneeY + 7.02 - tuck * 1.86 + open * 1.62;
+                let leftKneeX = leftHipX + dir * (2.78 + tuck * 2.25 - open * 1.24) + dir * drift * 0.2;
+                let leftKneeY = hipY + 8.25 - tuck * 3.1 + open * 0.9;
+                let leftFootX = leftKneeX - dir * (3.22 + tuck * 1.12 - open * 0.58) + dir * drift * 0.1;
+                let leftFootY = leftKneeY + 7.02 - tuck * 1.86 + open * 1.62;
 
-                let frontKneeX = frontHipX3 - dir * (2.36 + tuck * 1.7 - open * 0.76) - dir * drift * 0.18;
-                let frontKneeY = hipY + 8.88 - tuck * 1.02 + open * 0.98;
-                let frontFootX = frontKneeX - dir * (3.72 + tuck * 1.35 - open * 0.62) - dir * drift * 0.02;
-                let frontFootY = frontKneeY + 7.28 - tuck * 0.35 + open * 1.82;
+                let rightKneeX = rightHipX3 - dir * (2.36 + tuck * 1.7 - open * 0.76) - dir * drift * 0.18;
+                let rightKneeY = hipY + 8.88 - tuck * 1.02 + open * 0.98;
+                let rightFootX = rightKneeX - dir * (3.72 + tuck * 1.35 - open * 0.62) - dir * drift * 0.02;
+                let rightFootY = rightKneeY + 7.28 - tuck * 0.35 + open * 1.82;
 
                 // 接地直前は地上待機姿勢へ自然に戻す
-                backKneeX += (backHipX + dir * 0.62 - backKneeX) * (settle * 0.64);
-                backKneeY += (hipY + 9.45 - backKneeY) * (settle * 0.68);
-                backFootX += (centerX + dir * 1.9 - backFootX) * (settle * 0.7);
-                backFootY += (bottomY + 0.06 - backFootY) * (settle * 0.78);
-                frontKneeX += (frontHipX3 + dir * 0.64 - frontKneeX) * (settle * 0.64);
-                frontKneeY += (hipY + 9.28 - frontKneeY) * (settle * 0.68);
-                frontFootX += (centerX - dir * 2.5 - frontFootX) * (settle * 0.7);
-                frontFootY += (bottomY - 0.06 - frontFootY) * (settle * 0.78);
+                leftKneeX += (leftHipX + dir * 0.62 - leftKneeX) * (settle * 0.64);
+                leftKneeY += (hipY + 9.45 - leftKneeY) * (settle * 0.68);
+                leftFootX += (centerX + dir * 1.9 - leftFootX) * (settle * 0.7);
+                leftFootY += (bottomY + 0.06 - leftFootY) * (settle * 0.78);
+                rightKneeX += (rightHipX3 + dir * 0.64 - rightKneeX) * (settle * 0.64);
+                rightKneeY += (hipY + 9.28 - rightKneeY) * (settle * 0.68);
+                rightFootX += (centerX - dir * 2.5 - rightFootX) * (settle * 0.7);
+                rightFootY += (bottomY - 0.06 - rightFootY) * (settle * 0.78);
 
-                drawJointedLeg(backHipX, hipY + 0.2, backKneeX, backKneeY, backFootX, backFootY, false, 0.9);
-                drawJointedLeg(frontHipX3, hipY + 0.1, frontKneeX, frontKneeY, frontFootX, frontFootY, true, 1.02);
+                drawJointedLeg(leftHipX, hipY + 0.2, leftKneeX, leftKneeY, leftFootX, leftFootY, false, 0.9);
+                drawJointedLeg(rightHipX3, hipY + 0.1, rightKneeX, rightKneeY, rightFootX, rightFootY, true, 1.02);
             } else {
                 const runPhase = isRunLike ? Math.sin(this.legPhase || this.motionTime * 0.012) : 0;
                 if (!isRunLike) {
                     const idlePhase = Math.sin(this.motionTime * 0.0042);
                     const idleSpread = 2.5 + Math.abs(idlePhase) * 0.3;
-                    const backHipX = torsoHipX + dir * 1.35; const frontHipX4 = torsoHipX - dir * 1.25;
-                    drawJointedLeg(backHipX, hipY + 0.22, backHipX + dir * 0.55, hipY + 9.9, centerX + dir * idleSpread, bottomY + 0.1, false, 0.0);
-                    drawJointedLeg(frontHipX4, hipY + 0.14, frontHipX4 + dir * 0.6, hipY + 9.6, centerX - dir * idleSpread, bottomY - 0.1, true, 0.18);
+                    const leftHipX = torsoHipX + dir * 1.35; const rightHipX4 = torsoHipX - dir * 1.25;
+                    drawJointedLeg(leftHipX, hipY + 0.22, leftHipX + dir * 0.55, hipY + 9.9, centerX + dir * idleSpread, bottomY + 0.1, false, 0.0);
+                    drawJointedLeg(rightHipX4, hipY + 0.14, rightHipX4 + dir * 0.6, hipY + 9.6, centerX - dir * idleSpread, bottomY - 0.1, true, 0.18);
                 } else {
                     const runBlend = Math.min(1, speedAbs / Math.max(1, this.speed * 1.25));
                     const strideAmp = isDashLike ? 13.8 : 10.4; const liftAmp = isDashLike ? 5.6 : 4.2;
@@ -4770,11 +4797,11 @@ export class Player {
                 centerX,
                 pivotY: bodyTopY + 2,
                 facingRight,
-                backShoulderX: backShoulderXShared,
-                backShoulderY: backShoulderYShared,
-                frontShoulderX: frontShoulderXShared,
-                frontShoulderY: frontShoulderYShared,
-                supportFrontHand: !(this.currentSubWeapon && this.currentSubWeapon.name === '二刀流'),
+                leftShoulderX: leftShoulderXShared,
+                leftShoulderY: leftShoulderYShared,
+                rightShoulderX: rightShoulderXShared,
+                rightShoulderY: rightShoulderYShared,
+                supportRightHand: !(this.currentSubWeapon && this.currentSubWeapon.name === '二刀流'),
                 layerPhase: 'back'
             }, alpha, options);
         }
@@ -4789,10 +4816,10 @@ export class Player {
                 {
                     ...options,
                     shoulderAnchors: {
-                        backX: backShoulderXShared,
-                        backY: backShoulderYShared,
-                        frontX: frontShoulderXShared,
-                        frontY: frontShoulderYShared
+                        leftX: leftShoulderXShared,
+                        leftY: leftShoulderYShared,
+                        rightX: rightShoulderXShared,
+                        rightY: rightShoulderYShared
                     },
                     layerPhase: 'back'
                 }
@@ -4979,18 +5006,10 @@ export class Player {
                 : dualBlade.attackTimer)
             : this.subWeaponTimer;
         const isActuallyAttacking = effectiveIsAttacking || (effectiveSubWeaponTimer > 0 && subWeaponAction !== 'throw') || (dualBlade && this.subWeaponAction);
-        const backShoulderX = backShoulderXShared;
-        const backShoulderY = backShoulderYShared;
-        const frontShoulderX = frontShoulderXShared;
-        const frontShoulderY = frontShoulderYShared;
-        const armReachScale = Number.isFinite(options.armReachScale) ? options.armReachScale : 1.0;
-        const stretchFromShoulder = (shoulderX, shoulderY, targetX, targetY) => {
-            if (Math.abs(armReachScale - 1.0) < 0.001) return { x: targetX, y: targetY };
-            return {
-                x: shoulderX + (targetX - shoulderX) * armReachScale,
-                y: shoulderY + (targetY - shoulderY) * armReachScale
-            };
-        };
+        const leftShoulderX = leftShoulderXShared;
+        const leftShoulderY = leftShoulderYShared;
+        const rightShoulderX = rightShoulderXShared;
+        const rightShoulderY = rightShoulderYShared;
 
         const armStrokeWidth = 4.8; // 脚(前脛)と同じ太さ
         const handRadiusScale = 0.94;
@@ -5058,7 +5077,8 @@ export class Player {
             handY,
             bendDir = 1,
             bendScale = 0.14,
-            elbowRadius = 2.15
+            elbowRadius = 2.15,
+            options = {}
         ) => {
             if (alpha <= 0) return;
             const dx = handX - shoulderX;
@@ -5078,8 +5098,16 @@ export class Player {
             const closeT = Math.max(0, Math.min(1, (14.5 - dist) / 14.5));
             const bend = Math.min(2.5, dist * bendScale * (0.38 + closeT * 0.62));
             const bendSign = -bendDir;
-            const elbowX = shoulderX + dx * 0.54 + nx * bend * bendSign;
-            const elbowY = shoulderY + dy * 0.54 + ny * bend * bendSign + 0.2;
+            const preferUpwardElbow = options.preferUpwardElbow === true;
+            let elbowX = shoulderX + dx * 0.54;
+            let elbowY = shoulderY + dy * 0.54 + 0.2;
+            if (preferUpwardElbow) {
+                elbowX += nx * bend * bendSign * 0.22;
+                elbowY -= bend * 0.96;
+            } else {
+                elbowX += nx * bend * bendSign;
+                elbowY += ny * bend * bendSign;
+            }
             
             // 手首側の描画を少し短縮して手のひらからのハミ出しを防ぐ
             const wristToHandDist = 1.35;
@@ -5120,18 +5148,29 @@ export class Player {
             return { x: shoulderX + dx * ratio, y: shoulderY + dy * ratio };
         };
 
-        const idleBackHandX = idleBackHandXShared;
-        const idleBackHandY = idleBackHandYShared;
-        const idleFrontHandX = idleFrontHandXShared;
-        const idleFrontHandY = idleFrontHandYShared;
-        const idleBackHand = stretchFromShoulder(backShoulderX, backShoulderY, idleBackHandX, idleBackHandY);
-        const idleFrontHand = stretchFromShoulder(frontShoulderX, frontShoulderY, idleFrontHandX, idleFrontHandY);
-        const idleBackBladeAngle = isCrouchPose ? -0.32 : -0.65;
-        const idleFrontBladeAngle = isCrouchPose ? -0.82 : -1.1;
+        const singleKatanaIdlePose = getSingleKatanaIdleHandPose();
+        const idleLeftHand = singleKatanaIdlePose.leftHand;
+        const dualWieldRightHand = stretchFromShoulder(
+            rightShoulderX,
+            rightShoulderY,
+            dualWieldRightHandXShared,
+            dualWieldRightHandYShared
+        );
+        const idleLeftBladeAngle = isCrouchPose ? -0.32 : -0.65;
+        const idleRightBladeAngle = isCrouchPose ? -0.82 : -1.1;
+        const singleKatanaRightHand = singleKatanaIdlePose.rightHand;
 
         const isIdleForceRender = forceSubWeaponRender && !subWeaponAction && subWeaponTimer <= 0;
         if (isNinNinPose) {
-            drawNinNinPoseHands();
+            drawArmWithSoftElbow(
+                rightShoulderX,
+                rightShoulderY,
+                singleKatanaRightHand.x,
+                singleKatanaRightHand.y,
+                -dir,
+                isCrouchPose ? 0.09 : 0.13
+            );
+            drawHand(singleKatanaRightHand.x, singleKatanaRightHand.y, 4.5);
         } else if (!isActuallyAttacking && (!forceSubWeaponRender || isIdleForceRender)) {
             const isThrowing = effectiveSubWeaponTimer > 0 && subWeaponAction === 'throw';
             const hasDualSubWeapon = this.currentSubWeapon && this.currentSubWeapon.name === '二刀流';
@@ -5139,15 +5178,15 @@ export class Player {
             // 奥手（刀を持つ）
             if (!renderIdleBackArmBehind) {
                 drawArmWithSoftElbow(
-                    backShoulderX,
-                    backShoulderY,
-                    idleBackHand.x,
-                    idleBackHand.y,
+                    leftShoulderX,
+                    leftShoulderY,
+                    idleLeftHand.x,
+                    idleLeftHand.y,
                     -dir,
                     isCrouchPose ? 0.11 : 0.15
                 );
-                drawHand(idleBackHand.x, idleBackHand.y, 4.8);
-                this.drawKatana(ctx, idleBackHand.x, idleBackHand.y, idleBackBladeAngle, dir);
+                drawHand(idleLeftHand.x, idleLeftHand.y, 4.8);
+                this.drawKatana(ctx, idleLeftHand.x, idleLeftHand.y, idleLeftBladeAngle, dir);
             }
 
             if (!isThrowing) {
@@ -5155,47 +5194,40 @@ export class Player {
                     // 二刀前手: 描画順序を「腕→柄→手」に統一。
                     // 1. 腕
                     drawArmWithSoftElbow(
-                        frontShoulderX,
-                        frontShoulderY,
-                        idleFrontHand.x,
-                        idleFrontHand.y,
+                        rightShoulderX,
+                        rightShoulderY,
+                        dualWieldRightHand.x,
+                        dualWieldRightHand.y,
                         -dir,
                         isCrouchPose ? 0.1 : 0.14
                     );
                     // 2. 柄 (腕よりも前面)
-                    this.drawKatana(ctx, idleFrontHand.x, idleFrontHand.y, idleFrontBladeAngle, dir, this.getKatanaBladeLength(), 0.28, 'handle');
+                    this.drawKatana(ctx, dualWieldRightHand.x, dualWieldRightHand.y, idleRightBladeAngle, dir, this.getKatanaBladeLength(), 0.28, 'handle');
                     // 3. 手 (柄よりも前面で握る)
-                    drawHand(idleFrontHand.x, idleFrontHand.y, 4.5);
+                    drawHand(dualWieldRightHand.x, dualWieldRightHand.y, 4.5);
                     // 4. 刀身 (手の前面)
-                    this.drawKatana(ctx, idleFrontHand.x, idleFrontHand.y, idleFrontBladeAngle, dir, this.getKatanaBladeLength(), 0.28, 'blade');
+                    this.drawKatana(ctx, dualWieldRightHand.x, dualWieldRightHand.y, idleRightBladeAngle, dir, this.getKatanaBladeLength(), 0.28, 'blade');
                 } else {
-                    const bladeDirX = Math.cos(idleBackBladeAngle) * dir;
-                    const bladeDirY = Math.sin(idleBackBladeAngle);
-                    const perpX = -bladeDirY; const perpY = bladeDirX;
-                    const supportHand = clampArmReach(
-                        frontShoulderX,
-                        frontShoulderY,
-                        idleBackHand.x - bladeDirX * 5.8 + perpX * 1.0,
-                        idleBackHand.y - bladeDirY * 5.8 + perpY * 1.0,
-                        22 * armReachScale
-                    );
                     drawArmWithSoftElbow(
-                        frontShoulderX,
-                        frontShoulderY,
-                        supportHand.x,
-                        supportHand.y,
+                        rightShoulderX,
+                        rightShoulderY,
+                        singleKatanaRightHand.x,
+                        singleKatanaRightHand.y,
                         -dir,
                         isCrouchPose ? 0.09 : 0.13
                     );
-                    drawHand(supportHand.x, supportHand.y, 4.5);
+                    drawHand(singleKatanaRightHand.x, singleKatanaRightHand.y, 4.5);
                 }
             }
 
         } else if (effectiveIsAttacking) {
             this.renderAttackArmAndWeapon(ctx, {
                 centerX, pivotY: bodyTopY + 2, facingRight,
-                backShoulderX, backShoulderY, frontShoulderX, frontShoulderY,
-                supportFrontHand: !(this.currentSubWeapon && this.currentSubWeapon.name === '二刀流'),
+                leftShoulderX: leftShoulderX,
+                leftShoulderY: leftShoulderY,
+                rightShoulderX: rightShoulderX,
+                rightShoulderY: rightShoulderY,
+                supportRightHand: !(this.currentSubWeapon && this.currentSubWeapon.name === '二刀流'),
                 layerPhase: 'front'
             }, alpha, options);
             if (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
@@ -5205,8 +5237,8 @@ export class Player {
         }
 
         // サブ武器アーム描画
-        if ((effectiveSubWeaponTimer > 0 || (forceSubWeaponRender && subWeaponAction)) && !effectiveIsAttacking && !isNinNinPose) {
-            this.renderSubWeaponArm(
+	        if ((effectiveSubWeaponTimer > 0 || (forceSubWeaponRender && subWeaponAction)) && !effectiveIsAttacking && !isNinNinPose) {
+	            this.renderSubWeaponArm(
                 ctx,
                 centerX,
                 bodyTopY + 2,
@@ -5216,22 +5248,25 @@ export class Player {
                 {
                     ...options,
                     shoulderAnchors: {
-                        backX: backShoulderX,
-                        backY: backShoulderY,
-                        frontX: frontShoulderX,
-                        frontY: frontShoulderY
+                        leftX: leftShoulderX,
+                        leftY: leftShoulderY,
+                        rightX: rightShoulderX,
+                        rightY: rightShoulderY
                     },
                     layerPhase: 'front'
                 }
-            );
-        }
+	            );
+	        }
 
-    this.x = originalX;
+	    this.x = originalX;
     this.y = originalY;
     ctx.restore();
 }
 
-    renderSubWeaponArm(ctx, centerX, pivotY, facingRight, renderWeaponVisuals = true, alpha = 1.0, options = {}) {
+    renderSubWeaponArm(ctx, centerX, pivotY, facingRight, renderWeaponVisuals, alpha, options) {
+        renderWeaponVisuals = renderWeaponVisuals !== false;
+        alpha = Number.isFinite(alpha) ? alpha : 1.0;
+        options = options || {};
         const dir = facingRight ? 1 : -1;
         const armReachScale = Number.isFinite(options.armReachScale) ? options.armReachScale : 1.0;
         const dualBlade = (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') ? this.currentSubWeapon : null;
@@ -5255,26 +5290,26 @@ export class Player {
         const drawBackLayer = layerPhase !== 'front';
         const drawFrontLayer = layerPhase !== 'back';
         const shoulderAnchors = options.shoulderAnchors || null;
-        const backShoulderX = (shoulderAnchors && Number.isFinite(shoulderAnchors.backX))
-            ? shoulderAnchors.backX
+        const leftShoulderX = (shoulderAnchors && Number.isFinite(shoulderAnchors.leftX))
+            ? shoulderAnchors.leftX
             : centerX + dir * 4;
-        const frontShoulderX = (shoulderAnchors && Number.isFinite(shoulderAnchors.frontX))
-            ? shoulderAnchors.frontX
+        const rightShoulderX = (shoulderAnchors && Number.isFinite(shoulderAnchors.rightX))
+            ? shoulderAnchors.rightX
             : centerX - dir * 3;
-        const backShoulderY = (shoulderAnchors && Number.isFinite(shoulderAnchors.backY))
-            ? shoulderAnchors.backY
+        const leftShoulderY = (shoulderAnchors && Number.isFinite(shoulderAnchors.leftY))
+            ? shoulderAnchors.leftY
             : pivotY;
-        const frontShoulderY = (shoulderAnchors && Number.isFinite(shoulderAnchors.frontY))
-            ? shoulderAnchors.frontY
-            : (backShoulderY + 1.0);
-        const shoulderY = backShoulderY;
+        const rightShoulderY = (shoulderAnchors && Number.isFinite(shoulderAnchors.rightY))
+            ? shoulderAnchors.rightY
+            : (leftShoulderY + 1.0);
+        const shoulderY = leftShoulderY;
         const isCrouchPose = !!this.isCrouching;
         const standardUpperLen = 13.6;
         const standardForeLen = 13.2;
-        const standardBackHandRadius = 4.8;
-        const standardFrontHandRadius = 4.5;
-        const standardBackReach = 22.0;
-        const standardFrontReach = 21.6;
+        const standardLeftHandRadius = 4.8;
+        const standardRightHandRadius = 4.5;
+        const standardLeftReach = 22.0;
+        const standardRightReach = 21.6;
         
         ctx.save();
         ctx.strokeStyle = silhouetteColor;
@@ -5467,9 +5502,9 @@ export class Player {
             );
         };
 
-        const drawSupportPose = (handX, handY, withBlade = false, bladeAngle = -1.0, bladeScaleDir = dir, fromBackShoulder = false) => {
-            const shoulderX = fromBackShoulder ? backShoulderX : frontShoulderX;
-            const shoulderYLocal = fromBackShoulder ? backShoulderY : frontShoulderY;
+        const drawSupportPose = (handX, handY, withBlade = false, bladeAngle = -1.0, bladeScaleDir = dir, fromLeftShoulder = false) => {
+            const shoulderX = fromLeftShoulder ? leftShoulderX : rightShoulderX;
+            const shoulderYLocal = fromLeftShoulder ? leftShoulderY : rightShoulderY;
             drawBentArmSegment(
                 shoulderX,
                 shoulderYLocal,
@@ -5477,13 +5512,13 @@ export class Player {
                 handY,
                 standardUpperLen,
                 standardForeLen,
-                fromBackShoulder ? -dir : -dir,
+                fromLeftShoulder ? -dir : -dir,
                 5.2
             );
             drawHand(
                 handX,
                 handY,
-                fromBackShoulder ? standardBackHandRadius : standardFrontHandRadius
+                fromLeftShoulder ? standardLeftHandRadius : standardRightHandRadius
             );
             if (withBlade && renderWeaponVisuals) {
                 drawSubWeaponKatana(handX, handY, bladeAngle, bladeScaleDir);
@@ -5566,11 +5601,11 @@ export class Player {
             const easedProgress = Math.pow(progress, 0.55); // イージングで初速を速く
             const armAngle = -Math.PI * 0.8 + easedProgress * Math.PI * 0.8;
             const armLength = 19;
-            const throwShoulderX = frontShoulderX - dir * 0.2;
-            const throwShoulderY = frontShoulderY - 0.15;
+            const throwShoulderX = rightShoulderX - dir * 0.2;
+            const throwShoulderY = rightShoulderY - 0.15;
             const throwTargetX = throwShoulderX + Math.cos(armAngle) * armLength * dir;
             const throwTargetY = throwShoulderY + Math.sin(armAngle) * armLength;
-            const throwHand = clampArmReach(throwShoulderX, throwShoulderY, throwTargetX, throwTargetY, standardFrontReach);
+            const throwHand = clampArmReach(throwShoulderX, throwShoulderY, throwTargetX, throwTargetY, standardRightReach);
             if (drawFrontLayer) {
                 drawProgressiveThrowArm(
                     throwShoulderX,
@@ -5581,7 +5616,7 @@ export class Player {
                     -dir,
                     alpha
                 );
-                drawHand(throwHand.x, throwHand.y, standardFrontHandRadius);
+                drawHand(throwHand.x, throwHand.y, standardRightHandRadius);
             }
         } else if (this.subWeaponAction === '大槍') {
             // 突き: いったん引いて腕を曲げ、押し込みで腕を伸ばす
@@ -5595,7 +5630,7 @@ export class Player {
             const thrustDrive = Math.sin(extend * (Math.PI * 0.5));
             // 開始時は腕が曲がって見えるよう肩を後ろ寄せ、突きで前へ伸ばす
             const shoulderPush = -windup * 4.2 + thrustDrive * 2.2;
-            const rearShoulderX = backShoulderX + dir * (-0.9 + shoulderPush * 0.3);
+            const rearShoulderX = leftShoulderX + dir * (-0.9 + shoulderPush * 0.3);
             const rearShoulderY = shoulderY + 0.15 + windup * 1.25 - thrustDrive * 0.2;
             // 手元は槍上の固定グリップ位置に置き、槍本体の前進で突きを表現する
             const rearTargetX = (grips ? grips.rear.x : (centerX + dir * 13.4));
@@ -5615,7 +5650,7 @@ export class Player {
                     -dir,
                     5.3
                 );
-                drawHand(rearHand.x, rearHand.y, standardBackHandRadius);
+                drawHand(rearHand.x, rearHand.y, standardLeftHandRadius);
             }
 
             // 槍本体は奥手と手前手の間に描画する
@@ -5624,30 +5659,30 @@ export class Player {
                 this.subWeaponRenderedInModel = true;
             }
 
-            const frontShoulderGripX = frontShoulderX - dir * (0.95 + windup * 1.45) + dir * thrustDrive * 1.1;
+            const frontShoulderGripX = rightShoulderX - dir * (0.95 + windup * 1.45) + dir * thrustDrive * 1.1;
             const frontShoulderGripY = shoulderY + 1.3 + windup * 0.9 - thrustDrive * 0.12;
-            const frontTargetX = (grips ? grips.front.x : (centerX + dir * 11.2));
-            const frontTargetY = (grips ? grips.front.y : (pivotY + 10.0)) + windup * 0.1 - thrustDrive * 0.08;
-            const frontHand = { x: frontTargetX, y: frontTargetY };
+            const rightTargetX = (grips ? grips.front.x : (centerX + dir * 11.2));
+            const rightTargetY = (grips ? grips.front.y : (pivotY + 10.0)) + windup * 0.1 - thrustDrive * 0.08;
+            const rightHand = { x: rightTargetX, y: rightTargetY };
             const frontShoulderFit = fitShoulderReach(
                 frontShoulderGripX,
                 frontShoulderGripY,
-                frontHand.x,
-                frontHand.y,
+                rightHand.x,
+                rightHand.y,
                 spearArmMaxReach
             );
             if (drawFrontLayer) {
                 drawBentArmSegment(
                     frontShoulderFit.x,
                     frontShoulderFit.y,
-                    frontHand.x,
-                    frontHand.y,
+                    rightHand.x,
+                    rightHand.y,
                     standardUpperLen,
                     standardForeLen,
                     -dir,
                     5.3
                 );
-                drawHand(frontHand.x, frontHand.y, standardFrontHandRadius);
+                drawHand(rightHand.x, rightHand.y, standardRightHandRadius);
             }
         } else if (this.subWeaponAction === '二刀_Z') {
             // 二刀Z: 段別の軌道は維持しつつ、肩起点/腕長を通常基準に統一
@@ -5667,84 +5702,84 @@ export class Player {
                 ? comboProgress / 0.54
                 : (1 - ((comboProgress - 0.54) / 0.46));
             const recover = Math.max(0, (comboProgress - 0.62) / 0.38);
-            const backShoulderBaseX = backShoulderX + dir * 0.18;
-            const backShoulderBaseY = backShoulderY + 0.05;
-            const frontShoulderBaseX = frontShoulderX - dir * 0.18;
-            const frontShoulderBaseY = frontShoulderY + 0.12;
-            let backShoulderMoveX = backShoulderBaseX;
-            let backShoulderMoveY = backShoulderBaseY;
-            let frontShoulderMoveX = frontShoulderBaseX;
-            let frontShoulderMoveY = frontShoulderBaseY;
+            const leftShoulderBaseX = leftShoulderX + dir * 0.18;
+            const leftShoulderBaseY = leftShoulderY + 0.05;
+            const rightShoulderBaseX = rightShoulderX - dir * 0.18;
+            const rightShoulderBaseY = rightShoulderY + 0.12;
+            let leftShoulderMoveX = leftShoulderBaseX;
+            let leftShoulderMoveY = leftShoulderBaseY;
+            let rightShoulderMoveX = rightShoulderBaseX;
+            let rightShoulderMoveY = rightShoulderBaseY;
 
-            let backReach = 19.2;
-            let frontReach = 18.8;
-            let backTargetX = backShoulderMoveX + Math.cos(pose.rightAngle) * backReach * dir;
-            let backTargetY = backShoulderMoveY + Math.sin(pose.rightAngle) * backReach;
-            let frontTargetX = frontShoulderMoveX + Math.cos(pose.leftAngle) * frontReach * dir;
-            let frontTargetY = frontShoulderMoveY + Math.sin(pose.leftAngle) * frontReach;
+            let leftReach = 19.2;
+            let rightReach = 18.8;
+            let leftTargetX = leftShoulderMoveX + Math.cos(pose.rightAngle) * leftReach * dir;
+            let leftTargetY = leftShoulderMoveY + Math.sin(pose.rightAngle) * leftReach;
+            let rightTargetX = rightShoulderMoveX + Math.cos(pose.leftAngle) * rightReach * dir;
+            let rightTargetY = rightShoulderMoveY + Math.sin(pose.leftAngle) * rightReach;
             let skipPoseReachAdjustment = false;
             let comboStep4LoadBlend = 0;
             let comboStep4AngleDive = 0;
             const idleArmWaveLocal = Math.sin(this.motionTime * 0.01);
-            const idleBackHandXLocal = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
-            const idleBackHandYLocal = backShoulderY + (isCrouchPose ? 6.2 : 7.8) + idleArmWaveLocal * (isCrouchPose ? 0.8 : 1.7);
-            const idleFrontHandXLocal = centerX - dir * (isCrouchPose ? 4.6 : 7.2);
-            const idleFrontHandYLocal = frontShoulderY + (isCrouchPose ? 6.8 : 8.5) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? 0.8 : 1.7);
+            const singleKatanaLeftHandXLocal = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
+            const singleKatanaLeftHandYLocal = leftShoulderY + (isCrouchPose ? 6.2 : 7.8) + idleArmWaveLocal * (isCrouchPose ? 0.8 : 1.7);
+            const dualWieldRightHandXLocal = centerX - dir * (isCrouchPose ? 4.6 : 7.2);
+            const dualWieldRightHandYLocal = rightShoulderY + (isCrouchPose ? 6.8 : 8.5) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? 0.8 : 1.7);
 
             if (comboStep === 1) {
                 // 一段: 抜き打ち
                 const frontRise = smoothStep01((comboProgress - 0.08) / 0.72);
                 const frontDown = 1 - frontRise;
-                backShoulderMoveX += dir * (1.7 + comboWave * 0.9);
-                frontShoulderMoveX += dir * (0.4 + comboWave * 0.35);
-                backTargetX += dir * (6.6 + strike * 8.2);
-                backTargetY -= 2.0 + strike * 2.3;
+                leftShoulderMoveX += dir * (1.7 + comboWave * 0.9);
+                rightShoulderMoveX += dir * (0.4 + comboWave * 0.35);
+                leftTargetX += dir * (6.6 + strike * 8.2);
+                leftTargetY -= 2.0 + strike * 2.3;
                 // 手前手は「斜め下から上へ」の切り上げ軌道に作り直す
-                frontTargetX += dir * (-3.6 * frontDown + 5.2 * frontRise);
-                frontTargetY += 3.4 * frontDown - 5.0 * frontRise + recover * 0.7;
-                frontShoulderMoveX += dir * (-0.15 + frontRise * 0.95);
-                frontShoulderMoveY -= frontRise * 0.8;
+                rightTargetX += dir * (-3.6 * frontDown + 5.2 * frontRise);
+                rightTargetY += 3.4 * frontDown - 5.0 * frontRise + recover * 0.7;
+                rightShoulderMoveX += dir * (-0.15 + frontRise * 0.95);
+                rightShoulderMoveY -= frontRise * 0.8;
 
                 // 1撃目終盤は手前手を先行してアイドルへ戻し、終了時のカクつきを抑える
                 const settleBack = smoothStep01((comboProgress - 0.78) / 0.22);
                 const settleFront = smoothStep01((comboProgress - 0.9) / 0.1);
-                backTargetX += (idleBackHandXLocal - backTargetX) * settleBack;
-                backTargetY += (idleBackHandYLocal - backTargetY) * settleBack;
-                frontTargetX += (idleFrontHandXLocal - frontTargetX) * settleFront * 0.12;
-                frontTargetY += (idleFrontHandYLocal - frontTargetY) * settleFront * 0.08;
-                backShoulderMoveX += (backShoulderBaseX - backShoulderMoveX) * settleBack;
-                backShoulderMoveY += (backShoulderBaseY - backShoulderMoveY) * settleBack;
-                frontShoulderMoveX += (frontShoulderBaseX - frontShoulderMoveX) * settleFront * 0.18;
-                frontShoulderMoveY += (frontShoulderBaseY - frontShoulderMoveY) * settleFront * 0.12;
+                leftTargetX += (singleKatanaLeftHandXLocal - leftTargetX) * settleBack;
+                leftTargetY += (singleKatanaLeftHandYLocal - leftTargetY) * settleBack;
+                rightTargetX += (dualWieldRightHandXLocal - rightTargetX) * settleFront * 0.12;
+                rightTargetY += (dualWieldRightHandYLocal - rightTargetY) * settleFront * 0.08;
+                leftShoulderMoveX += (leftShoulderBaseX - leftShoulderMoveX) * settleBack;
+                leftShoulderMoveY += (leftShoulderBaseY - leftShoulderMoveY) * settleBack;
+                rightShoulderMoveX += (rightShoulderBaseX - rightShoulderMoveX) * settleFront * 0.18;
+                rightShoulderMoveY += (rightShoulderBaseY - rightShoulderMoveY) * settleFront * 0.12;
 
                 // 終端は「手前腕だけを前方へ水平に伸ばす」姿勢へ収束させる
                 const finalStretch = smoothStep01((comboProgress - 0.74) / 0.26);
                 if (finalStretch > 0) {
                     const forwardFrontX = centerX + dir * (isCrouchPose ? 16.4 : 21.0);
-                    const forwardFrontY = frontShoulderMoveY + (isCrouchPose ? 0.08 : -0.05);
-                    frontTargetX += (forwardFrontX - frontTargetX) * finalStretch;
-                    frontTargetY += (forwardFrontY - frontTargetY) * finalStretch;
-                    frontShoulderMoveX += ((frontShoulderBaseX + dir * 1.05) - frontShoulderMoveX) * finalStretch;
-                    frontShoulderMoveY += (frontShoulderBaseY - frontShoulderMoveY) * finalStretch;
+                    const forwardFrontY = rightShoulderMoveY + (isCrouchPose ? 0.08 : -0.05);
+                    rightTargetX += (forwardFrontX - rightTargetX) * finalStretch;
+                    rightTargetY += (forwardFrontY - rightTargetY) * finalStretch;
+                    rightShoulderMoveX += ((rightShoulderBaseX + dir * 1.05) - rightShoulderMoveX) * finalStretch;
+                    rightShoulderMoveY += (rightShoulderBaseY - rightShoulderMoveY) * finalStretch;
                 }
             } else if (comboStep === 2) {
                 // 二段: 引き付けから返し
                 const prep = Math.max(0, Math.min(1, comboProgress / 0.4));
                 const snap = Math.max(0, Math.min(1, (comboProgress - 0.4) / 0.6));
-                backShoulderMoveX -= dir * (1.5 + comboWave * 1.2);
-                frontShoulderMoveX -= dir * (2.0 + comboWave * 1.6);
-                backTargetX -= dir * (4.2 + prep * 3.8 - snap * 3.2);
-                backTargetY += 1.2 + prep * 1.8 - snap * 2.5;
-                frontTargetX -= dir * (4.8 + prep * 4.6);
-                frontTargetY -= 2.0 + snap * 2.8;
+                leftShoulderMoveX -= dir * (1.5 + comboWave * 1.2);
+                rightShoulderMoveX -= dir * (2.0 + comboWave * 1.6);
+                leftTargetX -= dir * (4.2 + prep * 3.8 - snap * 3.2);
+                leftTargetY += 1.2 + prep * 1.8 - snap * 2.5;
+                rightTargetX -= dir * (4.8 + prep * 4.6);
+                rightTargetY -= 2.0 + snap * 2.8;
             } else if (comboStep === 3) {
                 // 三段: クロスステップ払い
-                backShoulderMoveX += dir * (comboPulse * 1.4);
-                frontShoulderMoveX -= dir * (comboPulse * 1.4);
-                backTargetX += dir * (-6.0 + comboProgress * 17.0);
-                frontTargetX -= dir * (-5.0 + comboProgress * 15.0);
-                backTargetY = backShoulderMoveY + 2.1 + comboPulse * 0.7;
-                frontTargetY = frontShoulderMoveY + 2.5 - comboPulse * 0.7;
+                leftShoulderMoveX += dir * (comboPulse * 1.4);
+                rightShoulderMoveX -= dir * (comboPulse * 1.4);
+                leftTargetX += dir * (-6.0 + comboProgress * 17.0);
+                rightTargetX -= dir * (-5.0 + comboProgress * 15.0);
+                leftTargetY = leftShoulderMoveY + 2.1 + comboPulse * 0.7;
+                rightTargetY = rightShoulderMoveY + 2.5 - comboPulse * 0.7;
             } else if (comboStep === 4) {
                 // 四段: 前方斜め下から切り上げ、終端は平行維持のまま溜め姿勢
                 const phase = smoothStep01(comboProgress);
@@ -5759,21 +5794,21 @@ export class Player {
                 const frontSweepReach = (baseReach - 0.4) * reachScale;
 
                 skipPoseReachAdjustment = true;
-                backShoulderMoveX += dir * (0.25 + (phase - 0.5) * 1.12) - dir * (isCrouchPose ? 0.72 : 1.02) * comboStep4LoadBlend;
-                frontShoulderMoveX -= dir * (0.08 + phase * 0.58) + dir * (isCrouchPose ? 0.86 : 1.18) * comboStep4LoadBlend;
-                backShoulderMoveY -= 0.3 + phase * 1.62 + comboStep4LoadBlend * (isCrouchPose ? 0.12 : 0.2);
-                frontShoulderMoveY -= 0.28 + phase * 1.52 + comboStep4LoadBlend * (isCrouchPose ? 0.08 : 0.16);
+                leftShoulderMoveX += dir * (0.25 + (phase - 0.5) * 1.12) - dir * (isCrouchPose ? 0.72 : 1.02) * comboStep4LoadBlend;
+                rightShoulderMoveX -= dir * (0.08 + phase * 0.58) + dir * (isCrouchPose ? 0.86 : 1.18) * comboStep4LoadBlend;
+                leftShoulderMoveY -= 0.3 + phase * 1.62 + comboStep4LoadBlend * (isCrouchPose ? 0.12 : 0.2);
+                rightShoulderMoveY -= 0.28 + phase * 1.52 + comboStep4LoadBlend * (isCrouchPose ? 0.08 : 0.16);
 
-                backTargetX = backShoulderMoveX + Math.cos(backAngle) * backSweepReach * dir;
-                backTargetY = backShoulderMoveY + Math.sin(backAngle) * backSweepReach;
-                frontTargetX = frontShoulderMoveX + Math.cos(frontAngle) * frontSweepReach * dir;
-                frontTargetY = frontShoulderMoveY + Math.sin(frontAngle) * frontSweepReach;
+                leftTargetX = leftShoulderMoveX + Math.cos(backAngle) * backSweepReach * dir;
+                leftTargetY = leftShoulderMoveY + Math.sin(backAngle) * backSweepReach;
+                rightTargetX = rightShoulderMoveX + Math.cos(frontAngle) * frontSweepReach * dir;
+                rightTargetY = rightShoulderMoveY + Math.sin(frontAngle) * frontSweepReach;
 
                 // 奥行き: 手前手は下、奥手は上を維持しつつ、刀は平行のまま溜める
-                frontTargetY += (isCrouchPose ? 1.28 : 1.82) + comboStep4LoadBlend * (isCrouchPose ? 0.16 : 0.28);
-                backTargetY -= (isCrouchPose ? 0.86 : 1.24) + comboStep4LoadBlend * (isCrouchPose ? 0.06 : 0.12);
-                frontTargetX -= dir * ((isCrouchPose ? 0.86 : 1.22) + comboStep4LoadBlend * (isCrouchPose ? 0.44 : 0.68));
-                backTargetX += dir * ((isCrouchPose ? 0.28 : 0.46) - comboStep4LoadBlend * (isCrouchPose ? 0.06 : 0.1));
+                rightTargetY += (isCrouchPose ? 1.28 : 1.82) + comboStep4LoadBlend * (isCrouchPose ? 0.16 : 0.28);
+                leftTargetY -= (isCrouchPose ? 0.86 : 1.24) + comboStep4LoadBlend * (isCrouchPose ? 0.06 : 0.12);
+                rightTargetX -= dir * ((isCrouchPose ? 0.86 : 1.22) + comboStep4LoadBlend * (isCrouchPose ? 0.44 : 0.68));
+                leftTargetX += dir * ((isCrouchPose ? 0.28 : 0.46) - comboStep4LoadBlend * (isCrouchPose ? 0.06 : 0.1));
             } else if (comboStep === 0) {
                 // 五段: 海老反りクロスから腕を左右に開きつつ叩きつける
                 const phase = smoothStep01(comboProgress);
@@ -5786,75 +5821,75 @@ export class Player {
                 const frontSweepReach = (baseReach - 0.4) * reachScale;
 
                 skipPoseReachAdjustment = true;
-                backShoulderMoveX += dir * (0.28 + phase * 1.18);
-                frontShoulderMoveX -= dir * (0.1 + phase * 1.28);
-                backShoulderMoveY += 0.15 + phase * 1.55;
-                frontShoulderMoveY += 0.2 + phase * 1.7;
+                leftShoulderMoveX += dir * (0.28 + phase * 1.18);
+                rightShoulderMoveX -= dir * (0.1 + phase * 1.28);
+                leftShoulderMoveY += 0.15 + phase * 1.55;
+                rightShoulderMoveY += 0.2 + phase * 1.7;
 
-                backTargetX = backShoulderMoveX + Math.cos(backAngle) * backSweepReach * dir;
-                backTargetY = backShoulderMoveY + Math.sin(backAngle) * backSweepReach;
-                frontTargetX = frontShoulderMoveX + Math.cos(frontAngle) * frontSweepReach * dir;
-                frontTargetY = frontShoulderMoveY + Math.sin(frontAngle) * frontSweepReach;
+                leftTargetX = leftShoulderMoveX + Math.cos(backAngle) * backSweepReach * dir;
+                leftTargetY = leftShoulderMoveY + Math.sin(backAngle) * backSweepReach;
+                rightTargetX = rightShoulderMoveX + Math.cos(frontAngle) * frontSweepReach * dir;
+                rightTargetY = rightShoulderMoveY + Math.sin(frontAngle) * frontSweepReach;
 
                 // 開始はクロス寄り、終盤で左右へ開く
-                frontTargetY += (isCrouchPose ? 1.1 : 1.55) + phase * 0.52;
-                backTargetY -= (isCrouchPose ? 0.62 : 0.9) - phase * 0.2;
+                rightTargetY += (isCrouchPose ? 1.1 : 1.55) + phase * 0.52;
+                leftTargetY -= (isCrouchPose ? 0.62 : 0.9) - phase * 0.2;
                 // 叩きつけ終盤で左右展開。奥の手は抑えめにして破綻を防ぐ
                 const spreadBlend = smoothStep01((comboProgress - 0.46) / 0.54);
-                frontTargetX -= dir * ((isCrouchPose ? 0.62 : 0.95) + spreadBlend * 2.35);
-                backTargetX += dir * ((isCrouchPose ? 0.24 : 0.42) + spreadBlend * 0.95);
+                rightTargetX -= dir * ((isCrouchPose ? 0.62 : 0.95) + spreadBlend * 2.35);
+                leftTargetX += dir * ((isCrouchPose ? 0.24 : 0.42) + spreadBlend * 0.95);
             }
 
             const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
             const shoulderMaxDriftX = (comboStep === 4 || comboStep === 0) ? 3.9 : 2.9;
             const shoulderMaxDriftY = (comboStep === 4 || comboStep === 0) ? 3.9 : 3.1;
-            backShoulderMoveX = clamp(backShoulderMoveX, backShoulderBaseX - shoulderMaxDriftX, backShoulderBaseX + shoulderMaxDriftX);
-            backShoulderMoveY = clamp(backShoulderMoveY, backShoulderBaseY - shoulderMaxDriftY, backShoulderBaseY + shoulderMaxDriftY);
-            frontShoulderMoveX = clamp(frontShoulderMoveX, frontShoulderBaseX - shoulderMaxDriftX, frontShoulderBaseX + shoulderMaxDriftX);
-            frontShoulderMoveY = clamp(frontShoulderMoveY, frontShoulderBaseY - shoulderMaxDriftY, frontShoulderBaseY + shoulderMaxDriftY);
+            leftShoulderMoveX = clamp(leftShoulderMoveX, leftShoulderBaseX - shoulderMaxDriftX, leftShoulderBaseX + shoulderMaxDriftX);
+            leftShoulderMoveY = clamp(leftShoulderMoveY, leftShoulderBaseY - shoulderMaxDriftY, leftShoulderBaseY + shoulderMaxDriftY);
+            rightShoulderMoveX = clamp(rightShoulderMoveX, rightShoulderBaseX - shoulderMaxDriftX, rightShoulderBaseX + shoulderMaxDriftX);
+            rightShoulderMoveY = clamp(rightShoulderMoveY, rightShoulderBaseY - shoulderMaxDriftY, rightShoulderBaseY + shoulderMaxDriftY);
 
             // 肩移動の差分を手先ターゲットへ反映
-            backTargetX += backShoulderMoveX - backShoulderBaseX;
-            backTargetY += backShoulderMoveY - backShoulderBaseY;
-            frontTargetX += frontShoulderMoveX - frontShoulderBaseX;
-            frontTargetY += frontShoulderMoveY - frontShoulderBaseY;
+            leftTargetX += leftShoulderMoveX - leftShoulderBaseX;
+            leftTargetY += leftShoulderMoveY - leftShoulderBaseY;
+            rightTargetX += rightShoulderMoveX - rightShoulderBaseX;
+            rightTargetY += rightShoulderMoveY - rightShoulderBaseY;
             if (!skipPoseReachAdjustment) {
-                backTargetX += Math.cos(pose.rightAngle) * (backReach - 21.8) * dir;
-                backTargetY += Math.sin(pose.rightAngle) * (backReach - 21.8);
-                frontTargetX += Math.cos(pose.leftAngle) * (frontReach - 21.2) * dir;
-                frontTargetY += Math.sin(pose.leftAngle) * (frontReach - 21.2);
+                leftTargetX += Math.cos(pose.rightAngle) * (leftReach - 21.8) * dir;
+                leftTargetY += Math.sin(pose.rightAngle) * (leftReach - 21.8);
+                rightTargetX += Math.cos(pose.leftAngle) * (rightReach - 21.2) * dir;
+                rightTargetY += Math.sin(pose.leftAngle) * (rightReach - 21.2);
             }
 
-            let dualBackReachCap = Math.min(standardBackReach, 20.8);
-            let dualFrontReachCap = Math.min(standardFrontReach, 20.4);
+            let dualBackReachCap = Math.min(standardLeftReach, 20.8);
+            let dualFrontReachCap = Math.min(standardRightReach, 20.4);
             if (comboStep === 1) {
                 const stretchCap = smoothStep01((comboProgress - 0.74) / 0.26);
-                dualFrontReachCap = Math.min(standardFrontReach + 2.8, dualFrontReachCap + 2.8 * stretchCap);
+                dualFrontReachCap = Math.min(standardRightReach + 2.8, dualFrontReachCap + 2.8 * stretchCap);
             } else if (comboStep === 4) {
                 // 4撃目終盤は肘を後ろへ折って溜めを作る
-                dualBackReachCap = Math.min(standardBackReach + 3.4 - comboStep4LoadBlend * 4.2, 23.8);
-                dualFrontReachCap = Math.min(standardFrontReach + 3.2 - comboStep4LoadBlend * 4.6, 23.3);
+                dualBackReachCap = Math.min(standardLeftReach + 3.4 - comboStep4LoadBlend * 4.2, 23.8);
+                dualFrontReachCap = Math.min(standardRightReach + 3.2 - comboStep4LoadBlend * 4.6, 23.3);
             } else if (comboStep === 0) {
                 // 5撃目は振り下ろしで腕を伸ばす
-                dualBackReachCap = Math.min(standardBackReach + 4.2, 24.6);
-                dualFrontReachCap = Math.min(standardFrontReach + 4.2, 24.2);
+                dualBackReachCap = Math.min(standardLeftReach + 4.2, 24.6);
+                dualFrontReachCap = Math.min(standardRightReach + 4.2, 24.2);
             }
-            let backHand = clampArmReach(backShoulderMoveX, backShoulderMoveY, backTargetX, backTargetY, dualBackReachCap);
-            const frontHand = clampArmReach(frontShoulderMoveX, frontShoulderMoveY, frontTargetX, frontTargetY, dualFrontReachCap);
+            let leftHand = clampArmReach(leftShoulderMoveX, leftShoulderMoveY, leftTargetX, leftTargetY, dualBackReachCap);
+            const rightHand = clampArmReach(rightShoulderMoveX, rightShoulderMoveY, rightTargetX, rightTargetY, dualFrontReachCap);
             // 五段目は奥行き感を保つため、奥手が手前手より下に落ちないように固定
             if (comboStep === 0) {
                 const minBackAboveGap = isCrouchPose ? 0.7 : 1.2;
-                const maxBackY = frontHand.y - minBackAboveGap;
-                if (backHand.y > maxBackY) {
+                const maxBackY = rightHand.y - minBackAboveGap;
+                if (leftHand.y > maxBackY) {
                     const correctedBack = clampArmReach(
-                        backShoulderMoveX,
-                        backShoulderMoveY,
-                        backHand.x,
+                        leftShoulderMoveX,
+                        leftShoulderMoveY,
+                        leftHand.x,
                         maxBackY,
                         dualBackReachCap
                     );
                     // 補正後も必ず「奥手が少し上」を維持
-                    backHand = {
+                    leftHand = {
                         x: correctedBack.x,
                         y: Math.min(correctedBack.y, maxBackY)
                     };
@@ -5863,65 +5898,65 @@ export class Player {
             const katanaLength = this.getKatanaBladeLength();
             const uprightBlend = 0.28;
             const uprightTarget = -Math.PI / 2;
-            const backWeaponAngleRaw = pose.rightAngle - comboStep4AngleDive;
-            const frontWeaponAngleRaw = pose.leftAngle - comboStep4AngleDive;
+            const leftWeaponAngleRaw = pose.rightAngle - comboStep4AngleDive;
+            const rightWeaponAngleRaw = pose.leftAngle - comboStep4AngleDive;
             // 4撃目終盤は「刀見た目の溜め角度」と「剣筋追従角度」を分離して、
             // 下側に飛ぶ異常剣筋を抑える
-            const backTrailAngleRaw = (comboStep === 4) ? pose.rightAngle : backWeaponAngleRaw;
-            const frontTrailAngleRaw = (comboStep === 4) ? pose.leftAngle : frontWeaponAngleRaw;
+            const leftTrailAngleRaw = (comboStep === 4) ? pose.rightAngle : leftWeaponAngleRaw;
+            const rightTrailAngleRaw = (comboStep === 4) ? pose.leftAngle : rightWeaponAngleRaw;
             const toAdjustedAngle = (rawAngle) => rawAngle + (uprightTarget - rawAngle) * uprightBlend;
-            const backAdjustedAngle = toAdjustedAngle(backTrailAngleRaw);
-            const frontAdjustedAngle = toAdjustedAngle(frontTrailAngleRaw);
-            let backArmBendDir = -dir;
-            let frontArmBendDir = -dir;
-            let backArmBendScale = 1;
-            let frontArmBendScale = 1;
+            const leftAdjustedAngle = toAdjustedAngle(leftTrailAngleRaw);
+            const rightAdjustedAngle = toAdjustedAngle(rightTrailAngleRaw);
+            let leftArmBendDir = -dir;
+            let rightArmBendDir = -dir;
+            let leftArmBendScale = 1;
+            let rightArmBendScale = 1;
             if (comboStep === 4 && comboStep4LoadBlend > 0) {
                 // 溜め終盤は肘を背中側へ折り、次段の振り下ろしへ力を溜める
                 const bendBlend = comboStep4LoadBlend;
-                backArmBendDir = (-dir) * (1 - bendBlend) + dir * bendBlend;
-                frontArmBendDir = (-dir) * (1 - bendBlend) + dir * bendBlend;
-                backArmBendScale = 1 + bendBlend * 1.95;
-                frontArmBendScale = 1 + bendBlend * 2.08;
+                leftArmBendDir = (-dir) * (1 - bendBlend) + dir * bendBlend;
+                rightArmBendDir = (-dir) * (1 - bendBlend) + dir * bendBlend;
+                leftArmBendScale = 1 + bendBlend * 1.95;
+                rightArmBendScale = 1 + bendBlend * 2.08;
             }
-            const backTipX = backHand.x + Math.cos(backAdjustedAngle) * dir * katanaLength;
-            const backTipY = backHand.y + Math.sin(backAdjustedAngle) * katanaLength;
-            const frontTipX = frontHand.x + Math.cos(frontAdjustedAngle) * dir * katanaLength;
-            const frontTipY = frontHand.y + Math.sin(frontAdjustedAngle) * katanaLength;
+            const leftTipX = leftHand.x + Math.cos(leftAdjustedAngle) * dir * katanaLength;
+            const leftTipY = leftHand.y + Math.sin(leftAdjustedAngle) * katanaLength;
+            const rightTipX = rightHand.x + Math.cos(rightAdjustedAngle) * dir * katanaLength;
+            const rightTipY = rightHand.y + Math.sin(rightAdjustedAngle) * katanaLength;
             this.dualBladeTrailAnchors = {
                 direction: dir,
                 back: {
-                    handX: backHand.x,
-                    handY: backHand.y,
-                    tipX: backTipX,
-                    tipY: backTipY,
-                    angle: backAdjustedAngle
+                    handX: leftHand.x,
+                    handY: leftHand.y,
+                    tipX: leftTipX,
+                    tipY: leftTipY,
+                    angle: leftAdjustedAngle
                 },
                 front: {
-                    handX: frontHand.x,
-                    handY: frontHand.y,
-                    tipX: frontTipX,
-                    tipY: frontTipY,
-                    angle: frontAdjustedAngle
+                    handX: rightHand.x,
+                    handY: rightHand.y,
+                    tipX: rightTipX,
+                    tipY: rightTipY,
+                    angle: rightAdjustedAngle
                 }
             };
             const drawBackArmWeapon = () => {
-                drawBentArmSegment(backShoulderMoveX, backShoulderMoveY, backHand.x, backHand.y, standardUpperLen, standardForeLen, backArmBendDir, 5.3, backArmBendScale);
-                drawHand(backHand.x, backHand.y, standardBackHandRadius);
+                drawBentArmSegment(leftShoulderMoveX, leftShoulderMoveY, leftHand.x, leftHand.y, standardUpperLen, standardForeLen, leftArmBendDir, 5.3, leftArmBendScale);
+                drawHand(leftHand.x, leftHand.y, standardLeftHandRadius);
                 if (renderWeaponVisuals) {
-                    drawSubWeaponKatana(backHand.x, backHand.y, backWeaponAngleRaw, dir);
+                    drawSubWeaponKatana(leftHand.x, leftHand.y, leftWeaponAngleRaw, dir);
                 }
             };
             const drawFrontArmWeapon = () => {
-                drawBentArmSegment(frontShoulderMoveX, frontShoulderMoveY, frontHand.x, frontHand.y, standardUpperLen, standardForeLen, frontArmBendDir, 5.3, frontArmBendScale);
+                drawBentArmSegment(rightShoulderMoveX, rightShoulderMoveY, rightHand.x, rightHand.y, standardUpperLen, standardForeLen, rightArmBendDir, 5.3, rightArmBendScale);
                 if (renderWeaponVisuals) {
                     // 腕の後に「柄」を描画することで、手首が柄の背後に隠れるようにする
-                    drawSubWeaponKatana(frontHand.x, frontHand.y, frontWeaponAngleRaw, dir, 0.28, 'handle');
+                    drawSubWeaponKatana(rightHand.x, rightHand.y, rightWeaponAngleRaw, dir, 0.28, 'handle');
                 }
                 // 手前手は柄より前に描いて「握っている」見え方を優先する
-                drawHand(frontHand.x, frontHand.y, standardFrontHandRadius);
+                drawHand(rightHand.x, rightHand.y, standardRightHandRadius);
                 if (renderWeaponVisuals) {
-                    drawSubWeaponKatana(frontHand.x, frontHand.y, frontWeaponAngleRaw, dir, 0.28, 'blade');
+                    drawSubWeaponKatana(rightHand.x, rightHand.y, rightWeaponAngleRaw, dir, 0.28, 'blade');
                 }
             };
 
@@ -5952,12 +5987,12 @@ export class Player {
 
             // --- 二刀流アイドル座標・角度 ---
             const idleArmWave = Math.sin(this.motionTime * 0.01);
-            const idleBackHandX = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
-            const idleBackHandY = backShoulderY + (isCrouchPose ? 6.2 : 7.8) + idleArmWave * (isCrouchPose ? 0.8 : 1.7);
-            const idleFrontHandX = centerX - dir * (isCrouchPose ? 4.6 : 7.2);
-            const idleFrontHandY = frontShoulderY + (isCrouchPose ? 6.8 : 8.5) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? 0.8 : 1.7);
-            const idleBackAngle = isCrouchPose ? -0.32 : -0.65;
-            const idleFrontAngle = isCrouchPose ? -0.82 : -1.1;
+            const singleKatanaLeftHandX = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
+            const singleKatanaLeftHandY = leftShoulderY + (isCrouchPose ? 6.2 : 7.8) + idleArmWave * (isCrouchPose ? 0.8 : 1.7);
+            const dualWieldRightHandX = centerX - dir * (isCrouchPose ? 4.6 : 7.2);
+            const dualWieldRightHandY = rightShoulderY + (isCrouchPose ? 6.8 : 8.5) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? 0.8 : 1.7);
+            const singleKatanaLeftBladeAngle = isCrouchPose ? -0.32 : -0.65;
+            const dualWieldRightBladeAngle = isCrouchPose ? -0.82 : -1.1;
 
             // --- X構えの幾何学的設計 ---
             // 交差点: 顔の前方
@@ -5996,12 +6031,12 @@ export class Player {
 
             if (clamped < gatherPhase) {
                 // アイドル → X構え (スムーズ遷移)
-                bx = lerp(idleBackHandX, xBackHandX, easeGather);
-                by = lerp(idleBackHandY, xBackHandY, easeGather);
-                fx = lerp(idleFrontHandX, xFrontHandX, easeGather);
-                fy = lerp(idleFrontHandY, xFrontHandY, easeGather);
-                ba = lerp(idleBackAngle, xBackAngle, easeGather);
-                fa = lerp(idleFrontAngle, xFrontAngle, easeGather);
+                bx = lerp(singleKatanaLeftHandX, xBackHandX, easeGather);
+                by = lerp(singleKatanaLeftHandY, xBackHandY, easeGather);
+                fx = lerp(dualWieldRightHandX, xFrontHandX, easeGather);
+                fy = lerp(dualWieldRightHandY, xFrontHandY, easeGather);
+                ba = lerp(singleKatanaLeftBladeAngle, xBackAngle, easeGather);
+                fa = lerp(dualWieldRightBladeAngle, xFrontAngle, easeGather);
             } else if (clamped < gatherPhase + holdPhase) {
                 // X構えホールド (微振動)
                 bx = xBackHandX + holdPulse * 0.2;
@@ -6028,20 +6063,20 @@ export class Player {
                     const t = (relProgress - 0.22) / 0.78;
                     const eT = t * t * (3 - 2 * t);
                     // 振り抜き終点からアイドルへ
-                    bx = lerp(slashBackHandX, idleBackHandX, eT);
-                    by = lerp(slashBackHandY, idleBackHandY, eT);
-                    fx = lerp(slashFrontHandX, idleFrontHandX, eT);
-                    fy = lerp(slashFrontHandY, idleFrontHandY, eT);
-                    ba = lerp(slashBackAngle, idleBackAngle, eT);
-                    fa = lerp(slashFrontAngle, idleFrontAngle, eT);
+                    bx = lerp(slashBackHandX, singleKatanaLeftHandX, eT);
+                    by = lerp(slashBackHandY, singleKatanaLeftHandY, eT);
+                    fx = lerp(slashFrontHandX, dualWieldRightHandX, eT);
+                    fy = lerp(slashFrontHandY, dualWieldRightHandY, eT);
+                    ba = lerp(slashBackAngle, singleKatanaLeftBladeAngle, eT);
+                    fa = lerp(slashFrontAngle, dualWieldRightBladeAngle, eT);
                 }
             }
 
             // 肩の微動
-            const bsx = backShoulderX + dir * easeGather * 0.4;
-            const bsy = backShoulderY - easeGather * 0.3;
-            const fsx = frontShoulderX + dir * easeGather * 0.3;
-            const fsy = frontShoulderY - easeGather * 0.25;
+            const bsx = leftShoulderX + dir * easeGather * 0.4;
+            const bsy = leftShoulderY - easeGather * 0.3;
+            const fsx = rightShoulderX + dir * easeGather * 0.3;
+            const fsy = rightShoulderY - easeGather * 0.25;
 
             // --- エネルギー蓄積エフェクト ---
             const energyIntensity = clamped < gatherPhase
@@ -6052,7 +6087,7 @@ export class Player {
             // 奥手 (背面レイヤー)
             if (drawBackLayer) {
                 drawBentArmSegment(bsx, bsy, bx, by, standardUpperLen, standardForeLen, -dir, 5.3);
-                drawHand(bx, by, standardBackHandRadius);
+                drawHand(bx, by, standardLeftHandRadius);
             }
             // 奥の刀 (前面レイヤー, 通常描画)
             if (drawFrontLayer && renderWeaponVisuals) {
@@ -6064,7 +6099,7 @@ export class Player {
                 if (renderWeaponVisuals) {
                     drawSubWeaponKatana(fx, fy, fa, dir, 0.02, 'handle');
                 }
-                drawHand(fx, fy, standardFrontHandRadius);
+                drawHand(fx, fy, standardRightHandRadius);
                 if (renderWeaponVisuals) {
                     drawSubWeaponKatana(fx, fy, fa, dir, 0.02, 'blade');
                 }
@@ -6194,15 +6229,15 @@ export class Player {
                 ? grips.front
                 : { x: fallbackCenterX + dir * 3, y: fallbackCenterY + 2.2 };
 
-            const rearShoulderX = backShoulderX + dir * 0.15;
+            const rearShoulderX = leftShoulderX + dir * 0.15;
             const rearShoulderY = shoulderY - 0.2;
-            const frontShoulderGripX = frontShoulderX - dir * 0.25;
+            const frontShoulderGripX = rightShoulderX - dir * 0.25;
             const frontShoulderGripY = shoulderY + 0.9;
 
-            const rearHand = clampArmReach(rearShoulderX, rearShoulderY, rearTarget.x, rearTarget.y, standardBackReach);
+            const rearHand = clampArmReach(rearShoulderX, rearShoulderY, rearTarget.x, rearTarget.y, standardLeftReach);
             if (drawBackLayer) {
                 drawBentArmSegment(rearShoulderX, rearShoulderY, rearHand.x, rearHand.y, standardUpperLen, standardForeLen, -dir, 5.3);
-                drawHand(rearHand.x, rearHand.y, standardBackHandRadius);
+                drawHand(rearHand.x, rearHand.y, standardLeftHandRadius);
             }
 
             // 本体の手前に持つ見た目を作るため、奥手の後に大太刀を描く
@@ -6211,10 +6246,10 @@ export class Player {
                 this.subWeaponRenderedInModel = true;
             }
 
-            const frontHand = clampArmReach(frontShoulderGripX, frontShoulderGripY, frontTarget.x, frontTarget.y, standardFrontReach);
+            const rightHand = clampArmReach(frontShoulderGripX, frontShoulderGripY, frontTarget.x, frontTarget.y, standardRightReach);
             if (drawFrontLayer) {
-                drawBentArmSegment(frontShoulderGripX, frontShoulderGripY, frontHand.x, frontHand.y, standardUpperLen, standardForeLen, -dir, 5.2);
-                drawHand(frontHand.x, frontHand.y, standardFrontHandRadius);
+                drawBentArmSegment(frontShoulderGripX, frontShoulderGripY, rightHand.x, rightHand.y, standardUpperLen, standardForeLen, -dir, 5.2);
+                drawHand(rightHand.x, rightHand.y, standardRightHandRadius);
             }
         } else if (this.subWeaponAction === '鎖鎌') {
             // 鎖鎌: 振りかぶり -> 前方へ投げ放つ -> その後に回す
@@ -6224,8 +6259,8 @@ export class Player {
                 : { x: centerX + dir * 13, y: pivotY + 8, progress };
             const phase = anchor.phase || 'orbit';
             const phaseT = anchor.phaseT || 0;
-            const swingShoulderX = frontShoulderX + dir * 0.12;
-            const swingShoulderY = frontShoulderY + 0.18;
+            const swingShoulderX = rightShoulderX + dir * 0.12;
+            const swingShoulderY = rightShoulderY + 0.18;
             let targetHandX = anchor.x;
             let targetHandY = anchor.y;
             // 投げ終わり直後に軽い反動を入れて、人間の腕らしい減速を作る
@@ -6263,15 +6298,15 @@ export class Player {
                         5.3
                     );
                 }
-                drawHand(mainHand.x, mainHand.y, standardFrontHandRadius);
+                drawHand(mainHand.x, mainHand.y, standardRightHandRadius);
             }
         } else {
             // その他（デフォルト突き）
             const armEndX = centerX + dir * 20;
             const armEndY = pivotY + 5;
             if (drawBackLayer) {
-                drawBentArmSegment(backShoulderX, backShoulderY, armEndX, armEndY, standardUpperLen, standardForeLen, -dir, 5.3);
-                drawHand(armEndX, armEndY, standardBackHandRadius);
+                drawBentArmSegment(leftShoulderX, leftShoulderY, armEndX, armEndY, standardUpperLen, standardForeLen, -dir, 5.3);
+                drawHand(armEndX, armEndY, standardLeftHandRadius);
             }
             if (drawFrontLayer) {
                 drawSupportPose(centerX - dir * 8, pivotY + 12);
@@ -6287,11 +6322,11 @@ export class Player {
         centerX,
         pivotY,
         facingRight,
-        backShoulderX = centerX,
-        backShoulderY = pivotY,
-        frontShoulderX = centerX,
-        frontShoulderY = pivotY + 1,
-        supportFrontHand = true,
+        leftShoulderX = centerX,
+        leftShoulderY = pivotY,
+        rightShoulderX = centerX,
+        rightShoulderY = pivotY + 1,
+        supportRightHand = true,
         layerPhase = 'all'
     }, alpha = 1.0, options = {}) {
         const silhouetteColor = (options.palette && options.palette.silhouette) || COLORS.PLAYER;
@@ -6318,14 +6353,14 @@ export class Player {
         let armEndX = centerX + dir * 14;
         let armEndY = pivotY + 6;
         let trail = null;
-        let activeBackShoulderX = backShoulderX;
-        let activeBackShoulderY = backShoulderY;
-        let activeFrontShoulderX = frontShoulderX;
-        let activeFrontShoulderY = frontShoulderY;
+        let activeLeftShoulderX = leftShoulderX;
+        let activeLeftShoulderY = leftShoulderY;
+        let activeRightShoulderX = rightShoulderX;
+        let activeRightShoulderY = rightShoulderY;
         let supportGripBackDist = 6.2;
         let supportGripSideOffset = 1.0;
         let supportGripMaxReach = 22;
-        let allowSupportFrontHand = supportFrontHand;
+        let allowSupportFrontHand = supportRightHand;
         if (attack.comboStep) {
             const bodyHeight = this.height;
             const bodyWidth = this.width;
@@ -6342,21 +6377,21 @@ export class Player {
                     currentAttack: attack
                 },
                 {
-                    backShoulderX,
-                    backShoulderY,
-                    frontShoulderX,
-                    frontShoulderY,
-                    supportFrontHand
+                    leftShoulderX,
+                    leftShoulderY,
+                    rightShoulderX,
+                    rightShoulderY,
+                    supportRightHand
                 }
             );
             if (comboPose) {
                 swordAngle = comboPose.swordAngle;
                 armEndX = comboPose.armEndX;
                 armEndY = comboPose.armEndY;
-                activeBackShoulderX = comboPose.activeBackShoulderX;
-                activeBackShoulderY = comboPose.activeBackShoulderY;
-                activeFrontShoulderX = comboPose.activeFrontShoulderX;
-                activeFrontShoulderY = comboPose.activeFrontShoulderY;
+                activeLeftShoulderX = comboPose.activeLeftShoulderX;
+                activeLeftShoulderY = comboPose.activeLeftShoulderY;
+                activeRightShoulderX = comboPose.activeRightShoulderX;
+                activeRightShoulderY = comboPose.activeRightShoulderY;
                 supportGripBackDist = comboPose.supportGripBackDist;
                 supportGripSideOffset = comboPose.supportGripSideOffset;
                 supportGripMaxReach = comboPose.supportGripMaxReach;
@@ -6464,8 +6499,8 @@ export class Player {
         }
 
         if (Math.abs(armReachScale - 1.0) > 0.001) {
-            armEndX = activeBackShoulderX + (armEndX - activeBackShoulderX) * armReachScale;
-            armEndY = activeBackShoulderY + (armEndY - activeBackShoulderY) * armReachScale;
+            armEndX = activeLeftShoulderX + (armEndX - activeLeftShoulderX) * armReachScale;
+            armEndY = activeLeftShoulderY + (armEndY - activeLeftShoulderY) * armReachScale;
         }
 
         const insetAlongSegment = (fromX, fromY, toX, toY, insetPx = 0) => {
@@ -6635,8 +6670,8 @@ export class Player {
         const mainBendDir = Math.sin(rot) < -0.22 ? -dir : dir;
         const mainReachCap = (standardUpperLen + standardForeLen) * armReachScale;
         const clampedMainHand = clampAttackMainReach(
-            activeBackShoulderX,
-            activeBackShoulderY,
+            activeLeftShoulderX,
+            activeLeftShoulderY,
             armEndX,
             armEndY,
             mainReachCap
@@ -6648,20 +6683,20 @@ export class Player {
         if (hasDualWeapon) {
             // 二刀流装備時、肘の曲がりを保証するためにターゲットを引き寄せる
             // drawAttackBentArmのstraightThreshold(≈15)未満に収めることで肘が必ず曲がる
-            const shoulderToHandDist = Math.hypot(armEndX - activeBackShoulderX, armEndY - activeBackShoulderY);
+            const shoulderToHandDist = Math.hypot(armEndX - activeLeftShoulderX, armEndY - activeLeftShoulderY);
             const maxDist = 13; // straightThreshold未満に制限
             if (shoulderToHandDist > maxDist) {
                 const pullBack = maxDist / shoulderToHandDist;
-                armEndX = activeBackShoulderX + (armEndX - activeBackShoulderX) * pullBack;
-                armEndY = activeBackShoulderY + (armEndY - activeBackShoulderY) * pullBack;
+                armEndX = activeLeftShoulderX + (armEndX - activeLeftShoulderX) * pullBack;
+                armEndY = activeLeftShoulderY + (armEndY - activeLeftShoulderY) * pullBack;
             }
         }
 
         // 奥手（主動作）: 付け根を固定して描画
         if (drawBackLayer) {
             drawAttackBentArm(
-                activeBackShoulderX,
-                activeBackShoulderY,
+                activeLeftShoulderX,
+                activeLeftShoulderY,
                 armEndX,
                 armEndY,
                 mainBendDir,
@@ -6701,13 +6736,13 @@ export class Player {
                 // 二刀流X技の添え手（手前手）位置も調整して、刃同士が中間で交差するようにする
                 // 位置を少し下にずらして「ハ」の字に近い角度を作る
                 supportHand = {
-                    x: activeFrontShoulderX + dir * 5.5,
-                    y: activeFrontShoulderY + 14.5
+                    x: activeRightShoulderX + dir * 5.5,
+                    y: activeRightShoulderY + 14.5
                 };
             } else {
                 supportHand = clampArmReach(
-                    activeFrontShoulderX,
-                    activeFrontShoulderY,
+                    activeRightShoulderX,
+                    activeRightShoulderY,
                     supportTargetX,
                     supportTargetY,
                     supportGripMaxReach
@@ -6726,8 +6761,8 @@ export class Player {
         // 手前手は剣の後に描画して、握っている見た目を作る
         if (drawFrontLayer && supportHand) {
             drawAttackBentArm(
-                activeFrontShoulderX,
-                activeFrontShoulderY,
+                activeRightShoulderX,
+                activeRightShoulderY,
                 supportHand.x,
                 supportHand.y,
                 -dir,
@@ -7059,22 +7094,22 @@ export class Player {
         const easeInOut = progress < 0.5
             ? 2 * progress * progress
             : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-        const backShoulderXBase = Number.isFinite(options.backShoulderX) ? options.backShoulderX : centerX;
-        const backShoulderYBase = Number.isFinite(options.backShoulderY) ? options.backShoulderY : pivotY;
-        const frontShoulderXBase = Number.isFinite(options.frontShoulderX) ? options.frontShoulderX : centerX;
-        const frontShoulderYBase = Number.isFinite(options.frontShoulderY) ? options.frontShoulderY : (pivotY + 1);
+        const leftShoulderXBase = Number.isFinite(options.leftShoulderX) ? options.leftShoulderX : centerX;
+        const leftShoulderYBase = Number.isFinite(options.leftShoulderY) ? options.leftShoulderY : pivotY;
+        const rightShoulderXBase = Number.isFinite(options.rightShoulderX) ? options.rightShoulderX : centerX;
+        const rightShoulderYBase = Number.isFinite(options.rightShoulderY) ? options.rightShoulderY : (pivotY + 1);
 
         let swordAngle = 0;
         let armEndX = centerX + dir * 14;
         let armEndY = pivotY + 6;
-        let activeBackShoulderX = backShoulderXBase;
-        let activeBackShoulderY = backShoulderYBase;
-        let activeFrontShoulderX = frontShoulderXBase;
-        let activeFrontShoulderY = frontShoulderYBase;
+        let activeLeftShoulderX = leftShoulderXBase;
+        let activeLeftShoulderY = leftShoulderYBase;
+        let activeRightShoulderX = rightShoulderXBase;
+        let activeRightShoulderY = rightShoulderYBase;
         let supportGripBackDist = 6.2;
         let supportGripSideOffset = 1.0;
         let supportGripMaxReach = 22;
-        let allowSupportFrontHand = options.supportFrontHand !== false;
+        let allowSupportFrontHand = options.supportRightHand !== false;
 
         switch (attack.comboStep) {
             case 2: {
@@ -7104,10 +7139,10 @@ export class Player {
                 swordAngle = 0.22 + wind * 0.78 + swingEase * 1.92;
                 armEndX = centerX + dir * (15 - wind * 6.6 - swingEase * 27.5);
                 armEndY = pivotY + 8.0 - wind * 4.8 + swingEase * 8.6;
-                activeBackShoulderX -= dir * (0.6 + swingEase * 2.0);
-                activeBackShoulderY += swingEase * 1.1;
-                activeFrontShoulderX -= dir * (0.2 + swingEase * 1.2);
-                activeFrontShoulderY += swingEase * 1.0;
+                activeLeftShoulderX -= dir * (0.6 + swingEase * 2.0);
+                activeLeftShoulderY += swingEase * 1.1;
+                activeRightShoulderX -= dir * (0.2 + swingEase * 1.2);
+                activeRightShoulderY += swingEase * 1.0;
                 const prepT = Math.max(0, Math.min(1, progress / 0.22));
                 const prepEase = prepT * prepT * (3 - 2 * prepT);
                 const idleAngle = isCrouching ? -0.32 : -0.65;
@@ -7116,10 +7151,10 @@ export class Player {
                 swordAngle = idleAngle + (swordAngle - idleAngle) * prepEase;
                 armEndX = idleHandX + (armEndX - idleHandX) * prepEase;
                 armEndY = idleHandY + (armEndY - idleHandY) * prepEase;
-                activeBackShoulderX = backShoulderXBase + (activeBackShoulderX - backShoulderXBase) * prepEase;
-                activeBackShoulderY = backShoulderYBase + (activeBackShoulderY - backShoulderYBase) * prepEase;
-                activeFrontShoulderX = frontShoulderXBase + (activeFrontShoulderX - frontShoulderXBase) * prepEase;
-                activeFrontShoulderY = frontShoulderYBase + (activeFrontShoulderY - frontShoulderYBase) * prepEase;
+                activeLeftShoulderX = leftShoulderXBase + (activeLeftShoulderX - leftShoulderXBase) * prepEase;
+                activeLeftShoulderY = leftShoulderYBase + (activeLeftShoulderY - leftShoulderYBase) * prepEase;
+                activeRightShoulderX = rightShoulderXBase + (activeRightShoulderX - rightShoulderXBase) * prepEase;
+                activeRightShoulderY = rightShoulderYBase + (activeRightShoulderY - rightShoulderYBase) * prepEase;
 
                 supportGripBackDist = 6.2 + (7.4 - 6.2) * prepEase;
                 supportGripSideOffset = 1.0 + (-0.9 - 1.0) * prepEase;
@@ -7130,10 +7165,10 @@ export class Player {
                 swordAngle += (idleAngle - swordAngle) * settle;
                 armEndX += (idleHandX - armEndX) * settle;
                 armEndY += (idleHandY - armEndY) * settle;
-                activeBackShoulderX += (backShoulderXBase - activeBackShoulderX) * settle;
-                activeBackShoulderY += (backShoulderYBase - activeBackShoulderY) * settle;
-                activeFrontShoulderX += (frontShoulderXBase - activeFrontShoulderX) * settle;
-                activeFrontShoulderY += (frontShoulderYBase - activeFrontShoulderY) * settle;
+                activeLeftShoulderX += (leftShoulderXBase - activeLeftShoulderX) * settle;
+                activeLeftShoulderY += (leftShoulderYBase - activeLeftShoulderY) * settle;
+                activeRightShoulderX += (rightShoulderXBase - activeRightShoulderX) * settle;
+                activeRightShoulderY += (rightShoulderYBase - activeRightShoulderY) * settle;
                 break;
             }
             case 3: {
@@ -7174,10 +7209,10 @@ export class Player {
 
                     const shoulderT = Math.max(0, Math.min(1, (progress - 0.5) / 0.5));
                     const shoulderEase = shoulderT * shoulderT * (3 - 2 * shoulderT);
-                    activeBackShoulderX -= dir * (0.4 + shoulderEase * 1.6);
-                    activeBackShoulderY += 0.2 + shoulderEase * 1.8;
-                    activeFrontShoulderX -= dir * (0.3 + shoulderEase * 1.35);
-                    activeFrontShoulderY += 0.2 + shoulderEase * 1.55;
+                    activeLeftShoulderX -= dir * (0.4 + shoulderEase * 1.6);
+                    activeLeftShoulderY += 0.2 + shoulderEase * 1.8;
+                    activeRightShoulderX -= dir * (0.3 + shoulderEase * 1.35);
+                    activeRightShoulderY += 0.2 + shoulderEase * 1.55;
                     if (progress > 0.48) {
                         allowSupportFrontHand = false;
                     }
@@ -7254,10 +7289,10 @@ export class Player {
             swordAngle,
             armEndX,
             armEndY,
-            activeBackShoulderX,
-            activeBackShoulderY,
-            activeFrontShoulderX,
-            activeFrontShoulderY,
+            activeLeftShoulderX,
+            activeLeftShoulderY,
+            activeRightShoulderX,
+            activeRightShoulderY,
             supportGripBackDist,
             supportGripSideOffset,
             supportGripMaxReach,
