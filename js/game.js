@@ -2132,6 +2132,12 @@ class Game {
                         }
                     }
                 } else if (obs.type === OBSTACLE_TYPES.ROCK) {
+                    const comboStep = this.player && this.player.currentAttack
+                        ? this.player.currentAttack.comboStep || 0
+                        : 0;
+                    if (this.player && this.player.isAttacking && comboStep === 4) {
+                        continue;
+                    }
                     // 岩上に乗っている時は横押し戻しをしない
                     const playerBottom = this.player.y + this.player.height;
                     const rockTop = obs.y + 2;

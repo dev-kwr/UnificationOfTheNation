@@ -1252,10 +1252,10 @@ export class DualBlades extends SubWeapon {
     getMainDurationByStep(step) {
         let base = 220;
         switch (step) {
-            case 1: base = 148; break; // 初段: 抜き打ち
-            case 2: base = 262; break; // 二段: 逆袈裟
-            case 3: base = 186; break; // 三段: クロスステップ薙ぎ
-            case 4: base = 286; break; // 四段: 上昇切り上げ→海老反り
+            case 1: base = 196; break; // 初段: 右先導→左追撃
+            case 2: base = 236; break; // 二段: 前後挟撃
+            case 3: base = 214; break; // 三段: 交差踏み薙ぎ
+            case 4: base = 338; break; // 四段: 上昇切り上げ→海老反り
             default: base = 358; break; // 五段(0): 海老反りから叩きつけ
         }
         // 4〜5撃目は一段速いテンポ。5撃目は叩きつけ速度をもう少し上げる
@@ -1297,6 +1297,9 @@ export class DualBlades extends SubWeapon {
     }
 
     getMainSwingProgress(options = {}) {
+        if (options.progress !== undefined) {
+            return Math.max(0, Math.min(1, options.progress));
+        }
         const timer = options.attackTimer !== undefined ? options.attackTimer : this.attackTimer;
         let duration = this.mainDuration;
         if (options.comboIndex !== undefined) {
@@ -1305,29 +1308,63 @@ export class DualBlades extends SubWeapon {
         return Math.max(0, Math.min(1, 1 - (timer / duration)));
     }
 
-    remapMainSwingProgress(step, progress) {
+    remapMainSwingProgress(step, progress, side = 'right') {
         const p = Math.max(0, Math.min(1, progress));
         if (step === 1) {
-            // 初段: ほぼ即出しの抜き打ち
-            return p < 0.1
-                ? (p / 0.1) * 0.3
-                : 0.3 + ((p - 0.1) / 0.9) * 0.7;
+            // 1撃目: 右刀が即座に走り、左刀が追撃で重なる
+            if (side === 'right') {
+                const pRight = Math.max(0, Math.min(1, p / 0.46));
+                return pRight * pRight * (3 - 2 * pRight);
+            } else {
+                if (p < 0.22) return 0;
+                const pLeft = Math.max(0, Math.min(1, (p - 0.22) / 0.78));
+                return pLeft * pLeft * (3 - 2 * pLeft);
+            }
         }
         if (step === 2) {
-            // 二段: 引きつけて一気に返す
-            return p < 0.38
-                ? (p / 0.38) * 0.08
-                : 0.08 + ((p - 0.38) / 0.62) * 0.92;
+            // 2撃目: 前方の払いと背面の返しをほぼ同時に出す
+            if (side === 'right') {
+                if (p < 0.18) return (p / 0.18) * 0.14;
+                if (p < 0.52) {
+                    const slash = (p - 0.18) / 0.34;
+                    const eased = slash * slash * (3 - 2 * slash);
+                    return 0.14 + eased * 0.74;
+                }
+                const settle = Math.max(0, Math.min(1, (p - 0.52) / 0.48));
+                return 0.88 + settle * settle * (3 - 2 * settle) * 0.12;
+            }
+            if (p < 0.16) return 0;
+            const delayed = Math.max(0, Math.min(1, (p - 0.16) / 0.84));
+            if (delayed < 0.56) {
+                const lift = delayed / 0.56;
+                return lift * lift * (3 - 2 * lift) * 0.74;
+            }
+            const finish = (delayed - 0.56) / 0.44;
+            const eased = finish * finish * (3 - 2 * finish);
+            return 0.74 + eased * 0.26;
         }
         if (step === 3) {
-            // 三段: 踏み替えの間を挟んだ二拍子
-            if (p < 0.22) return (p / 0.22) * 0.42;
-            if (p < 0.4) return 0.42 + ((p - 0.22) / 0.18) * 0.1;
-            if (p < 0.84) return 0.52 + ((p - 0.4) / 0.44) * 0.4;
-            return 0.92 + ((p - 0.84) / 0.16) * 0.08;
+            // 3撃目: 背面を拾ってから交差踏み込みで前方へ抜ける
+            if (side === 'left') {
+                if (p < 0.1) return 0;
+                if (p < 0.44) {
+                    const support = (p - 0.1) / 0.34;
+                    const eased = support * support * (3 - 2 * support);
+                    return eased * 0.58;
+                }
+                const carry = Math.max(0, Math.min(1, (p - 0.44) / 0.56));
+                return 0.58 + carry * carry * (3 - 2 * carry) * 0.42;
+            }
+            if (p < 0.16) return 0;
+            if (p < 0.38) {
+                const load = (p - 0.16) / 0.22;
+                return load * load * (3 - 2 * load) * 0.36;
+            }
+            return 0.36 + Math.pow((p - 0.38) / 0.62, 0.74) * 0.64;
         }
         if (step === 4) {
-            // 四段: 切り上げを主に使い、終端で海老反り姿勢へ少し溜める
+            // 4撃目: 「天穿・Rising X」
+            // 切り上げを主に使い、終端で海老反り姿勢へ少し溜める
             if (p < 0.62) return (p / 0.62) * 0.84;
             return 0.84 + ((p - 0.62) / 0.38) * 0.16;
         }
@@ -1342,37 +1379,40 @@ export class DualBlades extends SubWeapon {
         switch (index) {
             case 1:
                 return {
-                    rightStart: -2.36, rightEnd: -0.16,
-                    leftStart: 2.46, leftEnd: -0.14,
-                    effectRadius: 88,
-                    hit: 'drawDash'
+                    // 1撃目: 右先・追い斬り
+                    rightStart: -1.1, rightEnd: 1.52,
+                    leftStart: -0.64, leftEnd: 1.22,
+                    effectRadius: 90,
+                    hit: 'rightLeadChase'
                 };
             case 2:
                 return {
-                    rightStart: 0.84, rightEnd: 2.46,
-                    leftStart: -2.68, leftEnd: -0.26,
-                    effectRadius: 98,
-                    hit: 'reverseCounter'
+                    // 2撃目: 前後挟撃
+                    rightStart: 1.52, rightEnd: -0.84,
+                    leftStart: 1.08, leftEnd: -1.42,
+                    effectRadius: 92,
+                    hit: 'frontBackSplit'
                 };
             case 3:
                 return {
-                    rightStart: -0.22, rightEnd: 1.42,
-                    leftStart: 2.86, leftEnd: 1.2,
-                    effectRadius: 102,
-                    hit: 'crossStepSweep'
+                    // 3撃目: 交差踏み薙ぎ
+                    rightStart: -0.84, rightEnd: 1.54,
+                    leftStart: -1.42, leftEnd: 0.42,
+                    effectRadius: 98,
+                    hit: 'crossStepDrive'
                 };
             case 4:
                 return {
-                    // 開始: 前方斜め下 / 終了: 頭上やや後方。左右は平行を維持
-                    rightStart: 1.2, rightEnd: -2.56,
-                    leftStart: 1.2, leftEnd: -2.56,
-                    effectRadius: 108,
+                    // 4撃目: 「天穿・Rising X」
+                    // 3撃目の前傾姿勢から両刀を揃えて切り上げる
+                    rightStart: 1.4, rightEnd: -2.56,
+                    leftStart: 1.16, leftEnd: -2.42,
+                    effectRadius: 110,
                     hit: 'risingX'
                 };
             default:
                 return {
-                    // 海老反りクロスから、左右に開いて叩きつける
-                    // 奥手/手前手の刀角度は常に平行を維持
+                    // 五段目（再設定は保留、既存を維持しつつ整合性をとる）
                     rightStart: -2.56, rightEnd: 0.82,
                     leftStart: -2.56, leftEnd: 0.82,
                     effectRadius: 112,
@@ -1384,17 +1424,17 @@ export class DualBlades extends SubWeapon {
     getMainSwingPose(options = {}) {
         const progress = this.getMainSwingProgress(options);
         const index = options.comboIndex !== undefined ? options.comboIndex : this.comboIndex;
-        const remapped = this.remapMainSwingProgress(index, progress);
-        const eased = remapped * remapped * (3 - 2 * remapped);
+        const remappedRight = this.remapMainSwingProgress(index, progress, 'right');
+        const remappedLeft = this.remapMainSwingProgress(index, progress, 'left');
         const arcs = this.getMainSwingArcs(options);
         return {
             progress,
-            remapped,
-            eased,
+            remappedRight,
+            remappedLeft,
             comboIndex: index,
             arcs,
-            rightAngle: arcs.rightStart + (arcs.rightEnd - arcs.rightStart) * eased,
-            leftAngle: arcs.leftStart + (arcs.leftEnd - arcs.leftStart) * eased
+            rightAngle: arcs.rightStart + (arcs.rightEnd - arcs.rightStart) * remappedRight,
+            leftAngle: arcs.leftStart + (arcs.leftEnd - arcs.leftStart) * remappedLeft
         };
     }
     
@@ -1519,7 +1559,52 @@ export class DualBlades extends SubWeapon {
                 const frontX = player.x + (direction > 0 ? player.width : -this.range * 1.4);
                 const backX = player.x + (direction > 0 ? -this.range * 1.35 : player.width);
                 const coreW = this.range * 0.75;
-                if (arcs.hit === 'drawDash') {
+                if (arcs.hit === 'rightLeadChase') {
+                    hitboxes.push({
+                        x: frontX - this.range * 0.08,
+                        y: player.y - 34,
+                        width: this.range * 1.42,
+                        height: 74
+                    });
+                    hitboxes.push({
+                        x: centerX - this.range * 0.12,
+                        y: player.y - 70,
+                        width: this.range * 1.08,
+                        height: 98
+                    });
+                } else if (arcs.hit === 'frontBackSplit') {
+                    hitboxes.push({
+                        x: frontX - this.range * 0.04,
+                        y: centerY - 36,
+                        width: this.range * 1.26,
+                        height: 72
+                    });
+                    hitboxes.push({
+                        x: backX - this.range * 0.1,
+                        y: centerY - 48,
+                        width: this.range * 1.14,
+                        height: 96
+                    });
+                    hitboxes.push({
+                        x: centerX - this.range * 0.52,
+                        y: centerY - 40,
+                        width: this.range * 1.04,
+                        height: 84
+                    });
+                } else if (arcs.hit === 'crossStepDrive') {
+                    hitboxes.push({
+                        x: centerX - this.range * 0.68,
+                        y: centerY - 26,
+                        width: this.range * 1.86,
+                        height: 74
+                    });
+                    hitboxes.push({
+                        x: frontX - this.range * 0.12,
+                        y: centerY - 44,
+                        width: this.range * 1.54,
+                        height: 90
+                    });
+                } else if (arcs.hit === 'drawDash') {
                     hitboxes.push({
                         x: frontX,
                         y: player.y - 24,
@@ -1935,28 +2020,28 @@ export class DualBlades extends SubWeapon {
             const redPalette = { front: [255, 90, 90], back: [214, 74, 74] };
             const sampleStep = 0.055;
             const prevProgress = Math.max(0, pose.progress - sampleStep);
-            const prevRemapped = this.remapMainSwingProgress(pose.comboIndex, prevProgress);
-            const prevEased = prevRemapped * prevRemapped * (3 - 2 * prevRemapped);
-            const prevRightRaw = pose.arcs.rightStart + (pose.arcs.rightEnd - pose.arcs.rightStart) * prevEased;
-            const prevLeftRaw = pose.arcs.leftStart + (pose.arcs.leftEnd - pose.arcs.leftStart) * prevEased;
-            const rightAngle = toAdjustedAngle(pose.rightAngle);
-            const leftAngle = toAdjustedAngle(pose.leftAngle);
-            const prevRightAngle = toAdjustedAngle(prevRightRaw);
-            const prevLeftAngle = toAdjustedAngle(prevLeftRaw);
-            const rightStartAngle = toAdjustedAngle(pose.arcs.rightStart);
-            const leftStartAngle = toAdjustedAngle(pose.arcs.leftStart);
-            const rightEndAngle = toAdjustedAngle(pose.arcs.rightEnd);
-            const leftEndAngle = toAdjustedAngle(pose.arcs.leftEnd);
-            const rightDelta = rightAngle - prevRightAngle;
-            const leftDelta = leftAngle - prevLeftAngle;
-            const rightFullSpanSigned = rightEndAngle - rightStartAngle;
-            const leftFullSpanSigned = leftEndAngle - leftStartAngle;
-            const rightFullSpan = Math.abs(rightFullSpanSigned);
-            const leftFullSpan = Math.abs(leftFullSpanSigned);
-            const rightTraversed = Math.min(rightFullSpan, Math.max(0, Math.abs(rightAngle - rightStartAngle)));
-            const leftTraversed = Math.min(leftFullSpan, Math.max(0, Math.abs(leftAngle - leftStartAngle)));
-            const rightSweepSign = Math.sign(rightFullSpanSigned) || Math.sign(rightDelta) || 1;
-            const leftSweepSign = Math.sign(leftFullSpanSigned) || Math.sign(leftDelta) || 1;
+            const prevRemappedRight = this.remapMainSwingProgress(pose.comboIndex, prevProgress, 'right');
+            const prevRemappedLeft = this.remapMainSwingProgress(pose.comboIndex, prevProgress, 'left');
+            const prevRightRaw = pose.arcs.rightStart + (pose.arcs.rightEnd - pose.arcs.rightStart) * prevRemappedRight;
+            const prevLeftRaw = pose.arcs.leftStart + (pose.arcs.leftEnd - pose.arcs.leftStart) * prevRemappedLeft;
+            const backAngle = toAdjustedAngle(pose.leftAngle);
+            const frontAngle = toAdjustedAngle(pose.rightAngle);
+            const prevBackAngle = toAdjustedAngle(prevLeftRaw);
+            const prevFrontAngle = toAdjustedAngle(prevRightRaw);
+            const backStartAngle = toAdjustedAngle(pose.arcs.leftStart);
+            const frontStartAngle = toAdjustedAngle(pose.arcs.rightStart);
+            const backEndAngle = toAdjustedAngle(pose.arcs.leftEnd);
+            const frontEndAngle = toAdjustedAngle(pose.arcs.rightEnd);
+            const backDelta = backAngle - prevBackAngle;
+            const frontDelta = frontAngle - prevFrontAngle;
+            const backFullSpanSigned = backEndAngle - backStartAngle;
+            const frontFullSpanSigned = frontEndAngle - frontStartAngle;
+            const backFullSpan = Math.abs(backFullSpanSigned);
+            const frontFullSpan = Math.abs(frontFullSpanSigned);
+            const backTraversed = Math.min(backFullSpan, Math.max(0, Math.abs(backAngle - backStartAngle)));
+            const frontTraversed = Math.min(frontFullSpan, Math.max(0, Math.abs(frontAngle - frontStartAngle)));
+            const backSweepSign = Math.sign(backFullSpanSigned) || Math.sign(backDelta) || 1;
+            const frontSweepSign = Math.sign(frontFullSpanSigned) || Math.sign(frontDelta) || 1;
             const dualTrailWidth = 13.8 * trailScale;
             const redRadiusScale = 0.56;
             const redYOffsetBias = -34;
@@ -1971,24 +2056,24 @@ export class DualBlades extends SubWeapon {
             const fallingBlueRadiusScale = 0.78;
             const fallingBlueSpanGain = 0.66;
             const fallingBlueTrailBackScale = 1.12;
-            if (pose.arcs.hit === 'drawDash') {
-                drawTrackedArcSlash(bluePalette, rightAngle, rightDelta, rightTraversed, rightFullSpan, (pose.arcs.effectRadius + 10) * trailScale, dualTrailWidth, -6, 0.82, 0, backTrailAnchor, true, 1.55, 0, rightSweepSign, rightStartAngle);
-                drawTrackedArcSlash(redPalette, leftAngle, leftDelta, leftTraversed, leftFullSpan, (pose.arcs.effectRadius + 2) * trailScale * redRadiusScale, dualTrailWidth, 5 + redYOffsetBias, 0.74 * redSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, leftSweepSign, leftStartAngle);
-            } else if (pose.arcs.hit === 'reverseCounter') {
-                drawTrackedArcSlash(redPalette, leftAngle, leftDelta, leftTraversed, leftFullSpan, (pose.arcs.effectRadius + 14) * trailScale * redRadiusScale, dualTrailWidth, -9 + redYOffsetBias, 0.9 * redSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, leftSweepSign, leftStartAngle);
-                drawTrackedArcSlash(bluePalette, rightAngle, rightDelta, rightTraversed, rightFullSpan, (pose.arcs.effectRadius + 7) * trailScale, dualTrailWidth, 7, 0.76, 0, backTrailAnchor, true, 1.55, 0, rightSweepSign, rightStartAngle);
-            } else if (pose.arcs.hit === 'crossStepSweep') {
-                drawTrackedArcSlash(bluePalette, rightAngle, rightDelta, rightTraversed, rightFullSpan, (pose.arcs.effectRadius + 18) * trailScale, dualTrailWidth, -3, 0.72, 0, backTrailAnchor, true, 1.55, 0, rightSweepSign, rightStartAngle);
-                drawTrackedArcSlash(redPalette, leftAngle, leftDelta, leftTraversed, leftFullSpan, (pose.arcs.effectRadius + 16) * trailScale * redRadiusScale, dualTrailWidth, 4 + redYOffsetBias, 0.72 * redSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, leftSweepSign, leftStartAngle);
+            if (pose.arcs.hit === 'rightLeadChase') {
+                drawTrackedArcSlash(bluePalette, backAngle, backDelta, backTraversed, backFullSpan, (pose.arcs.effectRadius + 12) * trailScale, dualTrailWidth, -8, 0.84, 2, backTrailAnchor, true, 1.55, 0, backSweepSign, backStartAngle);
+                drawTrackedArcSlash(redPalette, frontAngle, frontDelta, frontTraversed, frontFullSpan, (pose.arcs.effectRadius + 3) * trailScale * redRadiusScale, dualTrailWidth, 6 + redYOffsetBias, 0.7 * redSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, frontSweepSign, frontStartAngle);
+            } else if (pose.arcs.hit === 'frontBackSplit') {
+                drawTrackedArcSlash(redPalette, frontAngle, frontDelta, frontTraversed, frontFullSpan, (pose.arcs.effectRadius + 9) * trailScale * redRadiusScale, dualTrailWidth, -4 + redYOffsetBias, 0.9 * redSpanScale, 16, frontTrailAnchor, true, 1.48, redLeadScale, frontSweepSign, frontStartAngle);
+                drawTrackedArcSlash(bluePalette, backAngle, backDelta, backTraversed, backFullSpan, (pose.arcs.effectRadius - 8) * trailScale, dualTrailWidth, -2, 0.52, -10, backTrailAnchor, false, 1.12, 0, backSweepSign, backStartAngle);
+            } else if (pose.arcs.hit === 'crossStepDrive') {
+                drawTrackedArcSlash(bluePalette, backAngle, backDelta, backTraversed, backFullSpan, (pose.arcs.effectRadius - 6) * trailScale, dualTrailWidth, -4, 0.48, -6, backTrailAnchor, false, 1.08, 0, backSweepSign, backStartAngle);
+                drawTrackedArcSlash(redPalette, frontAngle, frontDelta, frontTraversed, frontFullSpan, (pose.arcs.effectRadius + 16) * trailScale * redRadiusScale, dualTrailWidth, 3 + redYOffsetBias, 0.76 * redSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, frontSweepSign, frontStartAngle);
             } else if (pose.arcs.hit === 'risingX') {
-                drawTrackedArcSlash(bluePalette, rightAngle, rightDelta, rightTraversed, rightFullSpan, (pose.arcs.effectRadius + 10) * trailScale * risingBlueRadiusScale, dualTrailWidth, -10, risingBlueSpanGain, 0, backTrailAnchor, true, risingBlueTrailBackScale, 0, rightSweepSign, rightStartAngle);
-                drawTrackedArcSlash(redPalette, leftAngle, leftDelta, leftTraversed, leftFullSpan, (pose.arcs.effectRadius + 7) * trailScale * risingRedRadiusScale, dualTrailWidth, -3 + redYOffsetBias, 0.76 * risingRedSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, leftSweepSign, leftStartAngle);
+                drawTrackedArcSlash(bluePalette, backAngle, backDelta, backTraversed, backFullSpan, (pose.arcs.effectRadius + 10) * trailScale * risingBlueRadiusScale, dualTrailWidth, -10, risingBlueSpanGain, 0, backTrailAnchor, true, risingBlueTrailBackScale, 0, backSweepSign, backStartAngle);
+                drawTrackedArcSlash(redPalette, frontAngle, frontDelta, frontTraversed, frontFullSpan, (pose.arcs.effectRadius + 7) * trailScale * risingRedRadiusScale, dualTrailWidth, -3 + redYOffsetBias, 0.76 * risingRedSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, frontSweepSign, frontStartAngle);
             } else if (pose.arcs.hit === 'fallingBreak') {
-                drawTrackedArcSlash(bluePalette, rightAngle, rightDelta, rightTraversed, rightFullSpan, (pose.arcs.effectRadius + 16) * trailScale * fallingBlueRadiusScale, dualTrailWidth, -5, fallingBlueSpanGain, 0, backTrailAnchor, true, fallingBlueTrailBackScale, 0, rightSweepSign, rightStartAngle);
-                drawTrackedArcSlash(redPalette, leftAngle, leftDelta, leftTraversed, leftFullSpan, (pose.arcs.effectRadius + 12) * trailScale * redRadiusScale, dualTrailWidth, 5 + redYOffsetBias, 0.86 * redSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, leftSweepSign, leftStartAngle);
+                drawTrackedArcSlash(bluePalette, backAngle, backDelta, backTraversed, backFullSpan, (pose.arcs.effectRadius + 16) * trailScale * fallingBlueRadiusScale, dualTrailWidth, -5, fallingBlueSpanGain, 0, backTrailAnchor, true, fallingBlueTrailBackScale, 0, backSweepSign, backStartAngle);
+                drawTrackedArcSlash(redPalette, frontAngle, frontDelta, frontTraversed, frontFullSpan, (pose.arcs.effectRadius + 12) * trailScale * redRadiusScale, dualTrailWidth, 5 + redYOffsetBias, 0.86 * redSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, frontSweepSign, frontStartAngle);
             } else {
-                drawTrackedArcSlash(bluePalette, rightAngle, rightDelta, rightTraversed, rightFullSpan, (pose.arcs.effectRadius + 16) * trailScale, dualTrailWidth, -5, 0.84, 0, backTrailAnchor, true, 1.55, 0, rightSweepSign, rightStartAngle);
-                drawTrackedArcSlash(redPalette, leftAngle, leftDelta, leftTraversed, leftFullSpan, (pose.arcs.effectRadius + 12) * trailScale * redRadiusScale, dualTrailWidth, 5 + redYOffsetBias, 0.86 * redSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, leftSweepSign, leftStartAngle);
+                drawTrackedArcSlash(bluePalette, backAngle, backDelta, backTraversed, backFullSpan, (pose.arcs.effectRadius + 16) * trailScale, dualTrailWidth, -5, 0.84, 0, backTrailAnchor, true, 1.55, 0, backSweepSign, backStartAngle);
+                drawTrackedArcSlash(redPalette, frontAngle, frontDelta, frontTraversed, frontFullSpan, (pose.arcs.effectRadius + 12) * trailScale * redRadiusScale, dualTrailWidth, 5 + redYOffsetBias, 0.86 * redSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, frontSweepSign, frontStartAngle);
             }
             this.mainTrailFadeMaxScale = liveTrailSnapshot.reduce((max, seg) => {
                 const s = Number.isFinite(seg.fadeLifeScale) ? seg.fadeLifeScale : 1;

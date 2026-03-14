@@ -16,7 +16,7 @@ function formatMoneyValue(amount) {
 const SHOP_ITEMS = [
     // ステータス強化
     { id: 'hp_up', name: '活力の秘薬', description: '最大HPを+5', price: 100, type: 'upgrade', stat: 'maxHp', value: 5 },
-    { id: 'attack_up', name: '剛力の秘薬', description: '攻撃力が段階的に上昇（最大3回: 1.2→1.5→2.0倍・500枚から段階上昇）', price: 500, type: 'upgrade', stat: 'attackPower', value: 1 },
+    { id: 'attack_up', name: '剛力の秘薬', description: '攻撃力が段階的に上昇（最大3回: 1.2→1.5→2.0倍）', price: 500, type: 'upgrade', stat: 'attackPower', value: 1 },
     { id: 'speed_up', name: '韋駄天の秘術', description: '常時ダッシュ状態で移動可能になる', price: 2000, type: 'upgrade', stat: 'speed', value: 1.5 },
     
     // スキル
@@ -102,8 +102,7 @@ export class Shop {
             return 500 + this.purchasedUpgrades.attack_up * 500;
         }
         if (id === 'hp_up') {
-            // 少しずつ値上げ
-            return 100 + this.purchasedUpgrades.hp_up * 25;
+            return 100;
         }
         const item = SHOP_ITEMS.find((row) => row.id === id);
         return item ? item.price : 0;
