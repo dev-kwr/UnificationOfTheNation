@@ -910,7 +910,7 @@ export class Player {
                 this.currentSubWeapon.name !== '火薬玉' &&
                 this.currentSubWeapon.name !== '二刀流';
             
-            // 完結段（5撃目）の後は着地するまで1撃目を出せないように制限。4→5への空中派生は許可。
+            // 完結段（5撃目）の後は着地するまで1撃目を出せないように制限。
             const loopToStartAirborne = this.attackCombo === 5 && !this.isGrounded;
 
             if (lockZDuringSub || loopToStartAirborne) return;
@@ -1102,58 +1102,65 @@ export class Player {
     }
 
     freezeCurrentSlashTrail() {
-        if (!this.currentAttack || this.currentAttack.comboStep < 1) return;
-        const activeAttack = this.currentAttack;
-        const stepNum = activeAttack.comboStep;
-        // 現在の段に属するポイントを収集
-        const stepPoints = this.comboSlashTrailPoints.filter(p => (p.step || 0) === stepNum);
+        if (!Array.isArray(this.comboSlashTrailPoints) || this.comboSlashTrailPoints.length === 0) return;
         
-        if ([1, 2, 5].includes(stepNum)) {
-            // ベジェ曲線段: パラメータを保存
-            const lastPt = stepPoints.length > 0 ? stepPoints[stepPoints.length - 1] : null;
-            if (lastPt && Number.isFinite(lastPt.trailCurveStartX)) {
-                this.comboSlashTrailFrozenCurves.push({
-                    type: 'bezier',
-                    step: stepNum,
-                    trailCurveStartX: lastPt.trailCurveStartX,
-                    trailCurveStartY: lastPt.trailCurveStartY,
-                    trailCurveControlX: lastPt.trailCurveControlX,
-                    trailCurveControlY: lastPt.trailCurveControlY,
-                    trailCurveEndX: lastPt.trailCurveEndX,
-                    trailCurveEndY: lastPt.trailCurveEndY,
-                    trailRadius: lastPt.trailRadius,
-                    centerX: lastPt.centerX,
-                    centerY: lastPt.centerY,
-                    dir: lastPt.dir,
-                    progress: lastPt.progress,
-                    trailIsRelative: !!activeAttack.trailIsRelative,
-                    playerX: this.x,
-                    playerY: this.y,
-                    frozenFootX: this.getFootX ? this.getFootX() : (this.x + this.width * 0.5),
-                    frozenFootY: this.getFootY ? this.getFootY() : (this.y + this.height),
-                    age: 0,
-                    life: this.comboSlashTrailActiveLifeMs,
-                    trailCurveFrozen: !!activeAttack.trailCurveFrozen
-                });
-            }
-        } else {
-            // リニア/アーク段(3, 4など): ポイント配列のコピーを保存
-            if (stepPoints.length >= 2) {
-                const footX = this.getFootX ? this.getFootX() : (this.x + this.width * 0.5);
-                const footY = this.getFootY ? this.getFootY() : (this.y + this.height);
-                this.comboSlashTrailFrozenCurves.push({
-                    type: 'points',
-                    step: stepNum,
-                    // 絶対座標で保存（スケール補正は描画時に行う）
-                    frozenPoints: stepPoints.map(p => ({ ...p, age: 0 })),
-                    // 凍結時の足元座標（スケール補正用）
-                    frozenFootX: footX,
-                    frozenFootY: footY,
-                    age: 0,
-                    life: this.comboSlashTrailActiveLifeMs
-                });
+        // メインバッファ内に存在する段(step)の種類を抽出
+        const steps = new Set();
+        for (let i = 0; i < this.comboSlashTrailPoints.length; i++) {
+            const step = this.comboSlashTrailPoints[i].step;
+            if (typeof step === 'number' && step >= 1 && step <= 5) steps.add(step);
+        }
+        
+        for (const stepNum of steps) {
+            const stepPoints = this.comboSlashTrailPoints.filter(p => p.step === stepNum);
+            
+            if ([1, 2, 5].includes(stepNum)) {
+                // ベジェ曲線段: 最新のパラメータを保存
+                const lastPt = stepPoints.length > 0 ? stepPoints[stepPoints.length - 1] : null;
+                if (lastPt && Number.isFinite(lastPt.trailCurveStartX)) {
+                    this.comboSlashTrailFrozenCurves.push({
+                        type: 'bezier',
+                        step: stepNum,
+                        trailCurveStartX: lastPt.trailCurveStartX,
+                        trailCurveStartY: lastPt.trailCurveStartY,
+                        trailCurveControlX: lastPt.trailCurveControlX,
+                        trailCurveControlY: lastPt.trailCurveControlY,
+                        trailCurveEndX: lastPt.trailCurveEndX,
+                        trailCurveEndY: lastPt.trailCurveEndY,
+                        trailRadius: lastPt.trailRadius,
+                        centerX: lastPt.centerX,
+                        centerY: lastPt.centerY,
+                        dir: lastPt.dir,
+                        progress: 1.0, // 過去の軌跡は常に完成形として扱う
+                        trailIsRelative: !!lastPt.trailIsRelative,
+                        playerX: this.x,
+                        playerY: this.y,
+                        age: Math.max(0, lastPt.age || 0), // フェードアウト度合いを引き継ぐ
+                        life: Math.max(1, lastPt.life || this.comboSlashTrailActiveLifeMs),
+                        trailCurveFrozen: true
+                    });
+                }
+            } else {
+                // リニア/アーク段(3, 4など): ポイント配列を保存
+                if (stepPoints.length >= 2) {
+                    const footX = this.getFootX ? this.getFootX() : (this.x + this.width * 0.5);
+                    const footY = this.getFootY ? this.getFootY() : (this.y + this.height);
+                    this.comboSlashTrailFrozenCurves.push({
+                        type: 'points',
+                        step: stepNum,
+                        // メインバッファでの年齢を引き継ぐ
+                        frozenPoints: stepPoints.map(p => ({ ...p, age: p.age || 0 })),
+                        frozenFootX: footX,
+                        frozenFootY: footY,
+                        age: 0, // 全体管理上のタイマー
+                        life: this.comboSlashTrailActiveLifeMs
+                    });
+                }
             }
         }
+        
+        // 全ての過去の軌跡を凍結スナップショットに移管したため、メインバッファを完全に消去する（追従バグの根絶）
+        this.comboSlashTrailPoints.length = 0;
     }
 
     getComboAttackProfileByStep(step) {
@@ -1287,13 +1294,27 @@ export class Player {
             }
         }
         
-        // コンボ
+        // コンボ進行
         const comboMax = this.getNormalComboMax();
-        if (this.attackCombo < comboMax) {
-            this.attackCombo++;
-        } else {
-            this.attackCombo = 1;
+        let nextCombo = this.attackCombo + 1;
+        
+        // 過去の攻撃が時間経過で切れている場合（attackCombo === 0 の状態）
+        if (this.attackCombo === 0) {
+            nextCombo = 1;
+        } else if (nextCombo > comboMax) {
+            nextCombo = 1;
         }
+
+        // コンボが最後（4段目や5段目）まで到達したあと、空中にいるまま「1段目」へループするのを防ぐ。
+        // 空中で4段目や5段目を発動した直後は restrictAirCombo1 が true になり、着地するまでは1段目が出せない
+        if (nextCombo === 1 && !this.isGrounded && this.restrictAirCombo1) {
+            // 空中でのコンボループ不発処理
+            this.isAttacking = false;
+            this.attackBuffered = false;
+            return;
+        }
+
+        this.attackCombo = nextCombo;
         
         const comboProfile = COMBO_ATTACKS[this.attackCombo - 1];
         this.currentAttack = this.buildAttackProfile(comboProfile, { comboStep: this.attackCombo, source: 'main' });
@@ -1364,6 +1385,11 @@ export class Player {
         const direction = this.facingRight ? 1 : -1;
         const impulse = (this.currentAttack.impulse || 1) * this.speed;
         const step = this.currentAttack.comboStep;
+        
+        if (step === 4 || step === 5) {
+            this.restrictAirCombo1 = true;
+        }
+
         if (this.isCrouching) {
             this.vx = direction * impulse * 0.28;
         } else if (step === 1) {
@@ -1592,57 +1618,8 @@ export class Player {
                 return;
             }
             this.isAttacking = false;
-            // 攻撃終了時: 全段の軌跡を凍結スナップショットとして保存
-            if (activeAttack && activeAttack.comboStep >= 1) {
-                const stepNum = activeAttack.comboStep;
-                // 現在の段に属するポイントを収集
-                const stepPoints = this.comboSlashTrailPoints.filter(p => (p.step || 0) === stepNum);
-                
-                if ([1, 2, 5].includes(stepNum)) {
-                    // ベジェ曲線段: パラメータを保存
-                    const lastPt = stepPoints.length > 0 ? stepPoints[stepPoints.length - 1] : null;
-                    if (lastPt && Number.isFinite(lastPt.trailCurveStartX)) {
-                        this.comboSlashTrailFrozenCurves.push({
-                            type: 'bezier',
-                            step: stepNum,
-                            trailCurveStartX: lastPt.trailCurveStartX,
-                            trailCurveStartY: lastPt.trailCurveStartY,
-                            trailCurveControlX: lastPt.trailCurveControlX,
-                            trailCurveControlY: lastPt.trailCurveControlY,
-                            trailCurveEndX: lastPt.trailCurveEndX,
-                            trailCurveEndY: lastPt.trailCurveEndY,
-                            trailRadius: lastPt.trailRadius,
-                            centerX: lastPt.centerX,
-                            centerY: lastPt.centerY,
-                            dir: lastPt.dir,
-                            progress: lastPt.progress,
-                            trailIsRelative: !!activeAttack.trailIsRelative,
-                            playerX: this.x,
-                            playerY: this.y,
-                            age: 0,
-                            life: this.comboSlashTrailActiveLifeMs,
-                            trailCurveFrozen: !!activeAttack.trailCurveFrozen
-                        });
-                    }
-                } else {
-                    // リニア/アーク段(3, 4など): ポイント配列のコピーを保存
-                    if (stepPoints.length >= 2) {
-                        const footX = this.getFootX ? this.getFootX() : (this.x + this.width * 0.5);
-                        const footY = this.getFootY ? this.getFootY() : (this.y + this.height);
-                        this.comboSlashTrailFrozenCurves.push({
-                            type: 'points',
-                            step: stepNum,
-                            // 絶対座標で保存（スケール補正は描画時に行う）
-                            frozenPoints: stepPoints.map(p => ({ ...p, age: 0 })),
-                            // 凍結時の足元座標（スケール補正用）
-                            frozenFootX: footX,
-                            frozenFootY: footY,
-                            age: 0,
-                            life: this.comboSlashTrailActiveLifeMs
-                        });
-                    }
-                }
-            }
+            
+            // 攻撃終了時の余韻管理
             if (activeAttack && activeAttack.comboStep <= this.getNormalComboMax()) {
                 const pauseMs = 180; // 完全静止の余韻
                 const returnMs = 100; // その後の戻りアニメーション
@@ -8096,11 +8073,14 @@ export class Player {
             trailCurveEndY,
             trailRadius,
             trailCenterX,
-            trailCenterY
+            trailCenterY,
+            trailIsRelative: attack ? attack.trailIsRelative : undefined
         };
     }
 
     getComboSwordPoseForTrailState(state) {
+        if (!state.isAttacking) return null;
+        
         const swordPose = this.getComboSwordPoseState(state);
         if (!swordPose) return null;
         const trailWindow = this.getComboTrailProgressWindow(swordPose.comboStep);
@@ -8123,7 +8103,8 @@ export class Player {
             trailCurveEndY: swordPose.trailCurveEndY,
             trailRadius: swordPose.trailRadius,
             centerX: Number.isFinite(swordPose.trailCenterX) ? swordPose.trailCenterX : swordPose.centerX,
-            centerY: Number.isFinite(swordPose.trailCenterY) ? swordPose.trailCenterY : swordPose.centerY
+            centerY: Number.isFinite(swordPose.trailCenterY) ? swordPose.trailCenterY : swordPose.centerY,
+            trailIsRelative: swordPose.trailIsRelative
         };
     }
 
@@ -8136,12 +8117,11 @@ export class Player {
             for (let i = this.comboSlashTrailFrozenCurves.length - 1; i >= 0; i--) {
                 const fc = this.comboSlashTrailFrozenCurves[i];
                 fc.age = (fc.age || 0) + deltaMs;
-                if (fc.age > fc.life) {
+                if (fc.age >= fc.life) {
                     this.comboSlashTrailFrozenCurves.splice(i, 1);
                 }
             }
         }
-        
         // 攻撃終了後にバッファを強制クリアするロジックを排除。
         // 代わりに updateSlashTrailBuffer 内で寿命(age/life)に基づいて自然にフェードアウトさせる。
         
@@ -8170,6 +8150,18 @@ export class Player {
         // 核心ルール: lifeは生成時に一度だけ設定。以降はageのみが進む。
         for (let i = 0; i < points.length; i++) {
             const p = points[i];
+            
+            // 攻撃が終了した（poseがない）時点で、相対座標の軌跡はワールド座標（絶対座標）に固定し、プレイヤーの手を離れて空間に残るようにする
+            if (!pose && p.trailIsRelative) {
+                if (Number.isFinite(p.trailCurveStartX)) p.trailCurveStartX += this.x;
+                if (Number.isFinite(p.trailCurveStartY)) p.trailCurveStartY += this.y;
+                if (Number.isFinite(p.trailCurveControlX)) p.trailCurveControlX += this.x;
+                if (Number.isFinite(p.trailCurveControlY)) p.trailCurveControlY += this.y;
+                if (Number.isFinite(p.trailCurveEndX)) p.trailCurveEndX += this.x;
+                if (Number.isFinite(p.trailCurveEndY)) p.trailCurveEndY += this.y;
+                p.trailIsRelative = false;
+            }
+
             if (pose && p.step === currentStep) {
                 // 現在進行中の段のみ鮮度を保つ（age=0リセット）
                 p.age = 0;
@@ -8223,6 +8215,7 @@ export class Player {
                     trailRadius: Number.isFinite(pose.trailRadius) ? pose.trailRadius : undefined,
                     centerX: Number.isFinite(pose.centerX) ? pose.centerX : undefined,
                     centerY: Number.isFinite(pose.centerY) ? pose.centerY : undefined,
+                    trailIsRelative: pose.trailIsRelative,
                     step: pose.comboStep || 0,
                     trailScale: sampleTrailScale,
                     age: 0,
@@ -8248,6 +8241,7 @@ export class Player {
                 last.trailRadius = Number.isFinite(pose.trailRadius) ? pose.trailRadius : last.trailRadius;
                 last.centerX = Number.isFinite(pose.centerX) ? pose.centerX : last.centerX;
                 last.centerY = Number.isFinite(pose.centerY) ? pose.centerY : last.centerY;
+                last.trailIsRelative = pose.trailIsRelative !== undefined ? pose.trailIsRelative : last.trailIsRelative;
                 last.step = pose.comboStep || 0;
                 last.trailScale = sampleTrailScale;
                 last.age = Math.max(0, last.age - deltaMs * 0.7);
@@ -8595,8 +8589,8 @@ export class Player {
             const newestLife = Math.max(1, newestSrc.life || this.comboSlashTrailActiveLifeMs);
             const oldestFade = clamp01(1 - ((oldestSrc.age || 0) / oldestLife));
             const newestFade = clamp01(1 - ((newestSrc.age || 0) / newestLife));
-            const oldestAlpha = oldestFade * oldestScale;
-            const newestAlpha = newestFade * newestScale;
+            const oldestAlpha = Math.max(0, oldestFade * oldestScale);
+            const newestAlpha = Math.max(0, newestFade * newestScale);
             if (newestAlpha <= 0.01) return;
             const start = mapped[0];
             const end = mapped[mapped.length - 1];
@@ -8833,27 +8827,33 @@ export class Player {
                 return null;
             })();
             const isRelative = !!(
+                options.forceRelative ||
                 (options.useRelativeIfAvailable && attackRef && attackRef.trailIsRelative) ||
-                (options.useRelativeIfAvailable && newestSrc.trailCurveFrozen)
+                (options.useRelativeIfAvailable && newestSrc.trailIsRelative)
             );
             const offsetX = isRelative ? (options.offsetX || 0) : 0;
             const offsetY = isRelative ? (options.offsetY || 0) : 0;
-            const startX = (Number.isFinite(newestSrc.trailCurveStartX) ? newestSrc.trailCurveStartX : 0) + offsetX;
-            const startY = (Number.isFinite(newestSrc.trailCurveStartY) ? newestSrc.trailCurveStartY : 0) + offsetY;
-            const controlX = (Number.isFinite(newestSrc.trailCurveControlX) ? newestSrc.trailCurveControlX : 0) + offsetX;
-            const controlY = (Number.isFinite(newestSrc.trailCurveControlY) ? newestSrc.trailCurveControlY : 0) + offsetY;
-            const endX = (Number.isFinite(newestSrc.trailCurveEndX) ? newestSrc.trailCurveEndX : 0) + offsetX;
-            const endY = (Number.isFinite(newestSrc.trailCurveEndY) ? newestSrc.trailCurveEndY : 0) + offsetY;
+            const startX = Number.isFinite(newestSrc.trailCurveStartX) ? newestSrc.trailCurveStartX + offsetX : null;
+            const startY = Number.isFinite(newestSrc.trailCurveStartY) ? newestSrc.trailCurveStartY + offsetY : null;
+            const controlX = Number.isFinite(newestSrc.trailCurveControlX) ? newestSrc.trailCurveControlX + offsetX : null;
+            const controlY = Number.isFinite(newestSrc.trailCurveControlY) ? newestSrc.trailCurveControlY + offsetY : null;
+            const endX = Number.isFinite(newestSrc.trailCurveEndX) ? newestSrc.trailCurveEndX + offsetX : null;
+            const endY = Number.isFinite(newestSrc.trailCurveEndY) ? newestSrc.trailCurveEndY + offsetY : null;
             if ([startX, startY, controlX, controlY, endX, endY].some((v) => !Number.isFinite(v))) return;
             const activeProgress = (() => {
+                if (options.useRelativeIfAvailable && newestSrc.trailCurveFrozen) return 1.0;
+                
                 const attackState = renderOptions.attackState || {
                     isAttacking: sourceIsAttacking,
                     currentAttack: this.currentAttack,
                     attackTimer: this.attackTimer
                 };
+                
+                // 現在の攻撃ステートが異なる（過去の軌跡）か、攻撃が終了している場合は、過去の軌跡（描画完了済み）として扱う
                 if (!sourceIsAttacking || !attackState || !attackState.currentAttack || attackState.currentAttack.comboStep !== comboStep) {
-                    return null;
+                    return 1.0; 
                 }
+                
                 const duration = Math.max(1, attackState.currentAttack.durationMs || PLAYER.ATTACK_COOLDOWN);
                 const rawProgress = Number.isFinite(attackState.currentAttack.motionElapsedMs)
                     ? clamp01(attackState.currentAttack.motionElapsedMs / duration)
@@ -8866,7 +8866,9 @@ export class Player {
                 !sourceIsAttacking ||
                 (newestSrc.age || 0) > 0.001;
             const growth = (() => {
-                if (holdCompletedShape) return 1;
+                // 凍結された軌跡、または攻撃終了後の軌跡は常に完成形（1.0）として描画する
+                if (holdCompletedShape || (options.useRelativeIfAvailable && newestSrc.trailCurveFrozen)) return 1.0;
+                
                 const p = Number.isFinite(activeProgress)
                     ? activeProgress
                     : (Number.isFinite(newestSrc.progress) ? newestSrc.progress : 0);
@@ -8937,7 +8939,9 @@ export class Player {
             if (!boostActive) {
                 // 通常時描画
                 if (stripStep === 5) {
-                    drawFixedBezierTrail(strip, 13.8 * visualWidthScale, outerOldestAlpha, outerNewestAlpha, null, { comboStep: 5, trimEnd: true, trimFactor: 0.24 });
+                    drawFixedBezierTrail(strip, 13.8 * visualWidthScale, outerOldestAlpha, outerNewestAlpha, null, { 
+                        comboStep: 5, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y, trimEnd: true, trimFactor: 0.24 
+                    });
                 } else if (stripStep === 1 || stripStep === 2) {
                     drawFixedBezierTrail(strip, 13.8 * visualWidthScale, outerOldestAlpha, outerNewestAlpha, null, { 
                         comboStep: stripStep, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y 
@@ -8988,9 +8992,13 @@ export class Player {
 
                 const boostOldest = outerOldestAlpha * 0.35;
                 if (stripStep === 5) {
-                    drawFixedBezierTrail(strip, 13.8 * trailWidthScale, boostOldest, outerNewestAlpha, projectOut, { comboStep: 5, trimEnd: true, trimFactor: 0.24 });
+                    drawFixedBezierTrail(strip, 13.8 * trailWidthScale, boostOldest, outerNewestAlpha, projectOut, { 
+                        comboStep: 5, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y, trimEnd: true, trimFactor: 0.24 
+                    });
                 } else if (stripStep === 1 || stripStep === 2) {
-                    drawFixedBezierTrail(strip, 13.8 * trailWidthScale, boostOldest, outerNewestAlpha, projectOut, { comboStep: stripStep });
+                    drawFixedBezierTrail(strip, 13.8 * trailWidthScale, boostOldest, outerNewestAlpha, projectOut, { 
+                        comboStep: stripStep, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y 
+                    });
                 } else if (stripStep === 4) {
                     drawStep4AnchoredArcTrail(strip, 13.8 * trailWidthScale, boostOldest, outerNewestAlpha, projectOut, { includeGhost: false });
                 } else if (stripStep === 3) {
@@ -9036,7 +9044,8 @@ export class Player {
                     const offsetY = fc.trailIsRelative ? fc.playerY : 0;
                     drawFixedBezierTrail([frozenPt], 13.8 * visualWidthScale, frozenOldest, frozenNewest, null, {
                         comboStep: fc.step,
-                        useRelativeIfAvailable: fc.trailIsRelative,
+                        forceRelative: true, // 凍結スナップショットは常に相対座標で描画されなければならない
+                        useRelativeIfAvailable: true,
                         offsetX: offsetX,
                         offsetY: offsetY
                     });
@@ -9049,6 +9058,14 @@ export class Player {
                     }));
                     if (pts.length < 2) continue;
                     
+                    // アーク系の描画関数内部で使われる trailCenter を現在の足元ベースとして一時設定
+                    const currentFootX = this.getFootX ? this.getFootX() : (this.x + this.width * 0.5);
+                    const currentFootY = this.getFootY ? this.getFootY() : (this.y + this.height);
+                    const savedCenterX = trailCenterX;
+                    const savedCenterY = trailCenterY;
+                    trailCenterX = currentFootX;
+                    trailCenterY = currentFootY - this.height * 0.5;
+
                     if (fc.step === 4) {
                         drawStep4AnchoredArcTrail(pts, 13.8 * visualWidthScale, frozenOldest, frozenNewest);
                     } else if (fc.step === 3) {
@@ -9056,6 +9073,10 @@ export class Player {
                     } else {
                         drawDualBlueArcTrail(pts, 13.8 * visualWidthScale, frozenOldest, frozenNewest);
                     }
+                    
+                    // 中心座標を元の状態に復元
+                    trailCenterX = savedCenterX;
+                    trailCenterY = savedCenterY;
                 }
             }
         }
