@@ -26,8 +26,8 @@ export const ANIM_STATE = {
 
 // 連撃パターン
 const COMBO_ATTACKS = [
-    { type: ANIM_STATE.ATTACK_SLASH, name: '一ノ太刀・閃返し', damage: 1.22, range: 84, durationMs: 182, cooldownScale: 0.5, chainWindowMs: 98, impulse: -0.66 },
-    { type: ANIM_STATE.ATTACK_SLASH, name: '二ノ太刀・影走り袈裟', damage: 1.02, range: 80, durationMs: 194, cooldownScale: 0.46, chainWindowMs: 108, impulse: 1.08 },
+    { type: ANIM_STATE.ATTACK_SLASH, name: '一ノ太刀・閃返し', damage: 1.22, range: 84, durationMs: 160, cooldownScale: 0.5, chainWindowMs: 98, impulse: -0.66 },
+    { type: ANIM_STATE.ATTACK_SLASH, name: '二ノ太刀・影走り袈裟', damage: 1.02, range: 80, durationMs: 170, cooldownScale: 0.46, chainWindowMs: 108, impulse: 1.08 },
     { type: ANIM_STATE.ATTACK_SPIN, name: '三ノ太刀・燕返横薙ぎ', damage: 1.5, range: 96, durationMs: 208, cooldownScale: 0.58, chainWindowMs: 108, impulse: 0.84 },
     { type: ANIM_STATE.ATTACK_UPPERCUT, name: '四ノ太刀・天穿返り', damage: 2.2, range: 96, durationMs: 248, cooldownScale: 0.62, chainWindowMs: 126, impulse: 0.68 },
     { type: ANIM_STATE.ATTACK_DOWN, name: '五ノ太刀・落天水平叩き', damage: 2.52, range: 112, durationMs: 336, cooldownScale: 0.72, chainWindowMs: 136, impulse: 0.2 }
@@ -903,10 +903,16 @@ export class Player {
                 this.subWeaponTimer > 0 &&
                 this.subWeaponAction &&
                 this.subWeaponAction !== 'throw' &&
+                this.currentAttack &&
                 this.currentSubWeapon &&
                 this.currentSubWeapon.name !== '火薬玉' &&
                 this.currentSubWeapon.name !== '二刀流';
-            if (lockZDuringSub) return;
+            
+            // 完結段（5撃目）の後は着地するまで1撃目を出せないように制限。4→5への空中派生は許可。
+            const loopToStartAirborne = this.attackCombo === 5 && !this.isGrounded;
+
+            if (lockZDuringSub || loopToStartAirborne) return;
+
             if (this.isAttacking) {
                 this.bufferNextAttack();
             } else {
@@ -1477,7 +1483,18 @@ export class Player {
         }
         this.attackTimer -= deltaMs;
 
-        // 通常コンボはモーション完了前のキャンセル遷移を行わない
+        // 通常コンボはモーション完了前のキャンセル遷移を厳格に制限（4段目の宙返りなどを完遂させる）
+        if (this.attackTimer <= deltaMs + 0.001) {
+            const minCompletion = (activeAttack && activeAttack.comboStep === 4) ? 0.99 : 0.98;
+            const duration = Math.max(1, activeAttack?.durationMs || PLAYER.ATTACK_COOLDOWN);
+            const progress = Number.isFinite(activeAttack?.motionElapsedMs) 
+                ? activeAttack.motionElapsedMs / duration 
+                : 1.0;
+            if (progress < minCompletion) {
+                this.attackTimer = deltaMs + 1;
+                return;
+            }
+        }
 
         if (this.attackTimer <= 0) {
             if (
@@ -1502,14 +1519,16 @@ export class Player {
                 return;
             }
             this.isAttacking = false;
-            if (activeAttack && activeAttack.comboStep === this.getNormalComboMax()) {
-                this.comboStep5IdleTransitionTimer = Math.max(this.comboStep5IdleTransitionTimer, 130);
+            if (activeAttack && activeAttack.comboStep <= this.getNormalComboMax()) {
+                const pauseMs = 180; // 完全静止の余韻
+                const returnMs = 100; // その後の戻りアニメーション
+                this.comboStep5IdleTransitionTimer = pauseMs + returnMs;
                 this.comboStep5RecoveryAttack = { ...activeAttack };
             }
             this.currentAttack = null;
             this.finisherAirLockTimer = 0;
             if (activeAttack && activeAttack.comboStep === 1) {
-                // 1撃目終了直後は脚遷移を短時間ロックし、歩行脚が挟まらないようにする
+                // 1撃目終了直後の脚遷移用既存ロジック
                 this.comboStep1IdleTransitionTimer = Math.max(this.comboStep1IdleTransitionTimer, 180);
                 this.vx *= 0.22;
             }
@@ -4019,7 +4038,7 @@ export class Player {
         const comboStep5RecoveryAttack = state.comboStep5RecoveryAttack !== undefined
             ? state.comboStep5RecoveryAttack
             : this.comboStep5RecoveryAttack;
-        const comboStep5RecoveryDuration = 130;
+        const comboStep5RecoveryDuration = 180; // recoveryMsと一致させる
         const clamp01 = (value) => Math.max(0, Math.min(1, value));
 
         const isMoving = Math.abs(vx) > 0.1 || !isGrounded;
@@ -4044,11 +4063,11 @@ export class Player {
         const comboStep5RecoveryActive = !!(
             comboPoseAttack &&
             comboPoseAttack === comboStep5RecoveryAttack &&
-            (comboPoseAttack.comboStep || 0) === 5 &&
             comboStep5IdleTransitionTimer > 0
         );
-        const comboStep5RecoveryBlend = comboStep5RecoveryActive
-            ? (1 - clamp01(comboStep5IdleTransitionTimer / comboStep5RecoveryDuration))
+        // 合計280ms。最初の180ms(280->100)は静止(Blend=0)、後半100ms(100->0)でアイドルへ戻る。
+        const comboStep5RecoveryBlend = (comboStep5RecoveryActive && comboStep5IdleTransitionTimer < 100)
+            ? (1 - Math.max(0, Math.min(1, comboStep5IdleTransitionTimer / 100)))
             : 0;
         const visualIsAttacking = isAttacking || comboStep5RecoveryActive;
         const comboVisualAttackState = comboAttackingPose
@@ -4087,7 +4106,7 @@ export class Player {
         const comboPoseProgress = comboStepPose
             ? (
                 comboPoseAttack === comboStep5RecoveryAttack
-                    ? (0.82 + (1 - clamp01(comboStep5IdleTransitionTimer / comboStep5RecoveryDuration)) * 0.18)
+                    ? 1.0 // 余韻中はモーションの最終ポーズ(1.0)を維持
                     : clamp01(1 - (attackTimer / Math.max(1, (comboPoseAttack && comboPoseAttack.durationMs) || PLAYER.ATTACK_COOLDOWN)))
             )
             : 0;
@@ -7317,19 +7336,20 @@ export class Player {
 
         const lerp = (a, b, t) => a + (b - a) * t;
         const smooth = (t) => t * t * (3 - 2 * t);
+        const easeOut = (t) => 1 - Math.pow(1 - t, 3); // 減速型（出だしが速い）
 
         switch (attack.comboStep) {
-            case 2: {
-                // 初段: 小さく溜めて重く振り下ろす
-                if (p < 0.34) return lerp(0, 0.2, smooth(p / 0.34));
-                if (p < 0.54) return lerp(0.2, 0.9, smooth((p - 0.34) / 0.2));
-                return lerp(0.9, 1.0, smooth((p - 0.54) / 0.46));
-            }
             case 1: {
-                // 二段: ためを強めに入れて返し斬り
-                if (p < 0.38) return lerp(0, 0.22, smooth(p / 0.38));
-                if (p < 0.6) return lerp(0.22, 0.9, smooth((p - 0.38) / 0.22));
-                return lerp(0.9, 1.0, smooth((p - 0.6) / 0.4));
+                // 初段（一ノ太刀）: 溜めを短縮し、一気に振り抜く減速型
+                if (p < 0.18) return lerp(0, 0.2, smooth(p / 0.18));
+                if (p < 0.82) return lerp(0.2, 0.95, easeOut((p - 0.18) / 0.64));
+                return lerp(0.95, 1.0, smooth((p - 0.82) / 0.18));
+            }
+            case 2: {
+                // 二段（二ノ太刀）: 溜めを極小にし、鋭く振り出す
+                if (p < 0.15) return lerp(0, 0.22, smooth(p / 0.15));
+                if (p < 0.85) return lerp(0.22, 0.96, easeOut((p - 0.15) / 0.7));
+                return lerp(0.96, 1.0, smooth((p - 0.85) / 0.15));
             }
             case 3: {
                 // 三段: しっかり溜め -> 回転横薙ぎを一気に
@@ -7369,14 +7389,12 @@ export class Player {
 
     getComboTrailProgressWindow(comboStep) {
         switch (comboStep) {
-            case 1: return { start: 0.04, end: 0.88 };
-            // 2撃目は戻りも技の流れとして見せる
-            case 2: return { start: 0.08, end: 0.88 };
-            case 3: return { start: 0.08, end: 1.0 };
-            // 4撃目は宙返り手前までで円弧を確定し、その後は表示だけ保持する
-            case 4: return { start: 0.08, end: 0.42 };
-            // 5撃目は振り下ろしの入りを少し早めに見せる
-            case 5: return { start: 0.18, end: 0.98 };
+            // 剣筋描画調整を一旦リセット
+            case 1: return { start: 0.0, end: 1.0 };
+            case 2: return { start: 0.0, end: 1.0 };
+            case 3: return { start: 0.0, end: 1.0 };
+            case 4: return { start: 0.0, end: 1.0 };
+            case 5: return { start: 0.15, end: 1.0 };
             default: return { start: 0, end: 1 };
         }
     }
@@ -7572,7 +7590,7 @@ export class Player {
             }
             const prepT = Math.max(0, Math.min(1, progress / 0.2));
             const prepEase = prepT * prepT * (3 - 2 * prepT);
-            const prevAngle = -0.76 - Math.PI * 1.82;
+            const prevAngle = -2.7;
             const prevHandX = centerX - dir * 4.0;
             const prevHandY = pivotY - 18.0;
             swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
@@ -7584,14 +7602,14 @@ export class Player {
             };
         };
 
-        const sampleTargets = [0.16, 0.38, 0.62, 0.78];
+        const sampleTargets = [0.06, 0.38, 0.62, 0.78];
         const sampledBodies = [];
         const durationMs = Math.max(1, attack?.durationMs || PLAYER.ATTACK_COOLDOWN);
         const frameMs = 1000 / 60;
         let simX = x;
         let simY = y;
         let simVx = (Number.isFinite(state.vx) ? state.vx : this.vx) * 0.18;
-        let simVy = Math.max(Number.isFinite(state.vy) ? state.vy : this.vy, 3.4);
+        let simVy = Math.min(Number.isFinite(state.vy) ? state.vy : this.vy, -1.2);
         let timerMs = durationMs;
         let sampleIndex = 0;
         while (sampleIndex < sampleTargets.length) {
@@ -7612,8 +7630,9 @@ export class Player {
                 simVx *= 0.64;
                 simVy = Math.max(simVy, 13.4);
             }
+            // 実際の物理演算(applyPhysics)に合わせ、重力定数(0.8)を考慮して座標を更新
             simX += simVx;
-            simY += simVy;
+            simY += simVy + 0.8;
             timerMs = Math.max(0, timerMs - frameMs);
         }
         while (sampleIndex < sampleTargets.length) {
@@ -7625,10 +7644,10 @@ export class Player {
         const midBody = sampledBodies[1] || startBody;
         const endBody = sampledBodies[2] || midBody;
         const settleBody = sampledBodies[3] || endBody;
-        const start = pointAt(0.16, startBody.x, startBody.y);
-        const mid = pointAt(0.38, midBody.x, midBody.y);
-        const end = pointAt(0.62, endBody.x, endBody.y);
-        const settleTip = pointAt(0.78, settleBody.x, settleBody.y);
+        const start = pointAt(sampleTargets[0], startBody.x, startBody.y);
+        const mid = pointAt(sampleTargets[1], midBody.x, midBody.y);
+        const end = pointAt(sampleTargets[2], endBody.x, endBody.y);
+        const settleTip = pointAt(sampleTargets[3], settleBody.x, settleBody.y);
         const slashFloorY = (this.groundY + LANE_OFFSET) - Math.max(10, height * 0.1);
         end.y = Math.min(end.y, slashFloorY, settleTip.y);
         mid.y = Math.min(mid.y, start.y + (end.y - start.y) * 0.54);
@@ -7712,35 +7731,23 @@ export class Player {
                     swordAngle = 2.18 + backEase * 1.34;
                     armEndX = centerX - dir * (12.0 + backEase * 10.8);
                     armEndY = pivotY + 7.8 - backEase * 20.4;
-                } else if (progress < 0.76) {
-                    const cutT = (progress - 0.34) / 0.42;
+                } else {
+                    const cutT = Math.min(1, (progress - 0.34) / 0.52); // 0.86で斬り抜き完了
                     const cutEase = cutT * cutT * (3 - 2 * cutT);
                     swordAngle = 3.52 + cutEase * 2.9;
                     armEndX = centerX - dir * (22.8 - cutEase * 42.2);
                     armEndY = pivotY - 12.6 + cutEase * 18.2;
-                } else {
-                    const settleT = (progress - 0.76) / 0.24;
-                    const settle = settleT * settleT * (3 - 2 * settleT);
-                    swordAngle = 0.14 + settle * 0.04;
-                    armEndX = centerX + dir * (19.4 - settle * 4.4);
-                    armEndY = pivotY + 5.6 + settle * 2.4;
                 }
                 const prepT = Math.max(0, Math.min(1, progress / 0.12));
                 const prepEase = prepT * prepT * (3 - 2 * prepT);
                 swordAngle = 2.12 + (swordAngle - 2.12) * prepEase;
                 armEndX = centerX - dir * 7.2 + (armEndX - (centerX - dir * 7.2)) * prepEase;
                 armEndY = pivotY + 9.6 + (armEndY - (pivotY + 9.6)) * prepEase;
-
-                const settleT = Math.max(0, Math.min(1, (progress - 0.86) / 0.14));
-                const settle = settleT * settleT * (3 - 2 * settleT);
-                swordAngle += (idleAngle - swordAngle) * settle;
-                armEndX += (idleHandX - armEndX) * settle;
-                armEndY += (idleHandY - armEndY) * settle;
                 break;
             }
             case 1: {
                 const wind = Math.max(0, Math.min(1, progress / 0.34));
-                const swing = Math.max(0, Math.min(1, (progress - 0.34) / 0.66));
+                const swing = Math.max(0, Math.min(1, (progress - 0.34) / 0.48)); // 0.82で振り抜き完了
                 const swingEase = swing * swing * (3 - 2 * swing);
                 swordAngle = 0.22 + wind * 0.78 + swingEase * 1.92;
                 armEndX = centerX + dir * (15 - wind * 6.6 - swingEase * 27.5);
@@ -7749,32 +7756,6 @@ export class Player {
                 activeLeftShoulderY += swingEase * 1.1;
                 activeRightShoulderX -= dir * (0.2 + swingEase * 1.2);
                 activeRightShoulderY += swingEase * 1.0;
-                const prepT = Math.max(0, Math.min(1, progress / 0.22));
-                const prepEase = prepT * prepT * (3 - 2 * prepT);
-                const idleAngle = isCrouching ? -0.32 : -0.65;
-                const idleHandX = centerX + dir * (isCrouching ? 12 : 15);
-                const idleHandY = pivotY + (isCrouching ? 5.5 : 8.0);
-                swordAngle = idleAngle + (swordAngle - idleAngle) * prepEase;
-                armEndX = idleHandX + (armEndX - idleHandX) * prepEase;
-                armEndY = idleHandY + (armEndY - idleHandY) * prepEase;
-                activeLeftShoulderX = leftShoulderXBase + (activeLeftShoulderX - leftShoulderXBase) * prepEase;
-                activeLeftShoulderY = leftShoulderYBase + (activeLeftShoulderY - leftShoulderYBase) * prepEase;
-                activeRightShoulderX = rightShoulderXBase + (activeRightShoulderX - rightShoulderXBase) * prepEase;
-                activeRightShoulderY = rightShoulderYBase + (activeRightShoulderY - rightShoulderYBase) * prepEase;
-
-                supportGripBackDist = 6.2 + (7.4 - 6.2) * prepEase;
-                supportGripSideOffset = 1.0 + (-0.9 - 1.0) * prepEase;
-                supportGripMaxReach = 22 + (20.2 - 22) * prepEase;
-
-                const settleT = Math.max(0, Math.min(1, (progress - 0.88) / 0.12));
-                const settle = settleT * settleT * (3 - 2 * settleT);
-                swordAngle += (idleAngle - swordAngle) * settle;
-                armEndX += (idleHandX - armEndX) * settle;
-                armEndY += (idleHandY - armEndY) * settle;
-                activeLeftShoulderX += (leftShoulderXBase - activeLeftShoulderX) * settle;
-                activeLeftShoulderY += (leftShoulderYBase - activeLeftShoulderY) * settle;
-                activeRightShoulderX += (rightShoulderXBase - activeRightShoulderX) * settle;
-                activeRightShoulderY += (rightShoulderYBase - activeRightShoulderY) * settle;
                 break;
             }
             case 3: {
@@ -7860,26 +7841,34 @@ export class Player {
                 swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
                 armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
                 armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
-                if (recoveryBlend > 0) {
-                    const recover = recoveryBlend * recoveryBlend * (3 - 2 * recoveryBlend);
-                    const idleAngle = isCrouching ? -0.32 : -0.65;
-                    const idleHandX = centerX + dir * (isCrouching ? 12 : 15);
-                    const idleHandY = pivotY + (isCrouching ? 5.5 : 8.0);
-                    swordAngle += (idleAngle - swordAngle) * recover;
-                    armEndX += (idleHandX - armEndX) * recover;
-                    armEndY += (idleHandY - armEndY) * recover;
-                    activeLeftShoulderX += (leftShoulderXBase - activeLeftShoulderX) * recover;
-                    activeLeftShoulderY += (leftShoulderYBase - activeLeftShoulderY) * recover;
-                    activeRightShoulderX += (rightShoulderXBase - activeRightShoulderX) * recover;
-                    activeRightShoulderY += (rightShoulderYBase - activeRightShoulderY) * recover;
-                    supportGripBackDist += (5.8 - supportGripBackDist) * recover;
-                    supportGripSideOffset += (1.0 - supportGripSideOffset) * recover;
-                    supportGripMaxReach += (21.6 - supportGripMaxReach) * recover;
-                }
                 break;
             }
             default:
                 return null;
+        }
+
+        // リカバリー補間（アイドル戻り）を全段共通で適用
+        if (recoveryBlend > 0) {
+            const recover = recoveryBlend * recoveryBlend * (3 - 2 * recoveryBlend);
+            const idleAngle = isCrouching ? -0.32 : -0.65;
+            const idleHandX = centerX + dir * (isCrouching ? 12 : 15);
+            const idleHandY = pivotY + (isCrouching ? 5.5 : 8.0);
+            
+            // 最短経路で角度を補間するための正規化
+            let angleDiff = idleAngle - swordAngle;
+            while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+            while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+            
+            swordAngle += angleDiff * recover;
+            armEndX += (idleHandX - armEndX) * recover;
+            armEndY += (idleHandY - armEndY) * recover;
+            activeLeftShoulderX += (leftShoulderXBase - activeLeftShoulderX) * recover;
+            activeLeftShoulderY += (leftShoulderYBase - activeLeftShoulderY) * recover;
+            activeRightShoulderX += (rightShoulderXBase - activeRightShoulderX) * recover;
+            activeRightShoulderY += (rightShoulderYBase - activeRightShoulderY) * recover;
+            supportGripBackDist += (6.2 - supportGripBackDist) * recover;
+            supportGripSideOffset += (1.0 - supportGripSideOffset) * recover;
+            supportGripMaxReach += (22.0 - supportGripMaxReach) * recover;
         }
 
         let trailTipExtend = 0;
