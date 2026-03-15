@@ -7,7 +7,7 @@ import { input } from './input.js';
 import { audio } from './audio.js';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
-const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE・ENTER：決定';
+const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
 const PAD_ICON_PATHS = {
     attack: './icon/attack.svg',
     sub: './icon/sub_weapon.svg',

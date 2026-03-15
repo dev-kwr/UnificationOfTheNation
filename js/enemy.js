@@ -2207,7 +2207,7 @@ export class Enemy {
         // 画面外（右側）にいる場合、索敵範囲に関わらずプレイヤー（左）に向かって進む
         const scrollX = window.game ? window.game.scrollX : 0;
         const screenRight = scrollX + CANVAS_WIDTH;
-        if (this.x > screenRight - 20) { // 画面端付近でも追跡開始
+        if (this.x > screenRight - 100) { // 画面内に十分入ってから通常AIに切り替え
             this.state = 'chase';
             desiredVX = -this.speed;
             this.facingRight = false;
@@ -2232,7 +2232,7 @@ export class Enemy {
                 }
                 
                 // 画面内にプレイヤーがいれば強制的に chase 状態へ（索敵範囲を実質無視）
-                const isPlayerOnScreen = horizontalDistance < CANVAS_WIDTH * 0.8;
+                const isPlayerOnScreen = horizontalDistance < CANVAS_WIDTH * 1.1;
                 if (distanceToPlayer < this.detectionRange || isPlayerOnScreen) {
                     this.state = 'chase';
                     this.stateTimer = 0;
@@ -2247,7 +2247,7 @@ export class Enemy {
                 if (this.hitTimer <= 0) this.facingRight = this.patrolDirection > 0;
                 
                 // 画面内にプレイヤーがいれば巡回をやめて追跡
-                if (distanceToPlayer < this.detectionRange || horizontalDistance < CANVAS_WIDTH * 0.7) {
+                if (distanceToPlayer < this.detectionRange || horizontalDistance < CANVAS_WIDTH) {
                     this.state = 'chase';
                     this.stateTimer = 0;
                 }

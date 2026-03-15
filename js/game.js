@@ -1174,7 +1174,7 @@ class Game {
         this.introTimer += this.deltaTime * 1000;
         
         // 操作入力でのみプレイ開始（自動遷移しない）
-        if (this.introTimer > 500 && (input.isActionJustPressed('JUMP') || input.touchJustPressed)) {
+        if (this.introTimer > 500 && (input.isActionJustPressed('JUMP') || input.isActionJustPressed('DEBUG_START') || input.touchJustPressed)) {
             // ゲーム開始（フェードイン含む）
             this.startStage();
         }
@@ -3908,7 +3908,7 @@ class Game {
         this.endingTimer += this.deltaTime * 1000;
 
         const canSkip = this.endingTimer > 900;
-        const wantsReturn = canSkip && (input.isActionJustPressed('JUMP') || input.touchJustPressed);
+        const wantsReturn = canSkip && (input.isActionJustPressed('JUMP') || input.isActionJustPressed('DEBUG_START') || input.touchJustPressed);
         if (wantsReturn) {
             saveManager.deleteSave();
             this.state = GAME_STATE.TITLE;
@@ -4444,6 +4444,9 @@ class Game {
                 });
             });
             ctx.restore();
+            
+            // 剣筋をワールド座標（スケール影響外）で描画
+            this.player.renderComboSlashTrail(ctx);
 
             if (
                 this.player.currentSubWeapon &&

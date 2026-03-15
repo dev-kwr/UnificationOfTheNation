@@ -1252,13 +1252,13 @@ export class DualBlades extends SubWeapon {
     getMainDurationByStep(step) {
         let base = 220;
         switch (step) {
-            case 1: base = 196; break; // 初段: 右先導→左追撃
-            case 2: base = 236; break; // 二段: 前後挟撃
-            case 3: base = 214; break; // 三段: 交差踏み薙ぎ
-            case 4: base = 338; break; // 四段: 上昇切り上げ→海老反り
-            default: base = 358; break; // 五段(0): 海老反りから叩きつけ
+            case 1: base = 196; break; // 初段: 左刀・袈裟斬り（上→下）
+            case 2: base = 220; break; // 二段: 右刀・逆袈裟（下→上）
+            case 3: base = 236; break; // 三段: 両手・交差薙ぎ
+            case 4: base = 338; break; // 四段: 天穿・並行切り上げ
+            default: base = 358; break; // 五段(0): 叩きつけ
         }
-        // 4〜5撃目は一段速いテンポ。5撃目は叩きつけ速度をもう少し上げる
+        // 4〜5撃目は一段速いテンポ
         if (step === 4) {
             base *= 0.66;
         } else if (step === 0) {
@@ -1311,60 +1311,70 @@ export class DualBlades extends SubWeapon {
     remapMainSwingProgress(step, progress, side = 'right') {
         const p = Math.max(0, Math.min(1, progress));
         if (step === 1) {
-            // 1撃目: 右刀が即座に走り、左刀が追撃で重なる
-            if (side === 'right') {
-                const pRight = Math.max(0, Math.min(1, p / 0.46));
-                return pRight * pRight * (3 - 2 * pRight);
+            // 1撃目: 左刀が主役で袈裟斬り。右刀は小さく追従するだけ
+            if (side === 'left') {
+                // 左刀メイン: 即座に振り下ろし、終盤で少し留まる
+                if (p < 0.56) {
+                    const t = p / 0.56;
+                    return t * t * (3 - 2 * t) * 0.88;
+                }
+                const settle = (p - 0.56) / 0.44;
+                return 0.88 + settle * settle * (3 - 2 * settle) * 0.12;
             } else {
-                if (p < 0.22) return 0;
-                const pLeft = Math.max(0, Math.min(1, (p - 0.22) / 0.78));
-                return pLeft * pLeft * (3 - 2 * pLeft);
+                // 右刀サブ: わずかに遅れて小さく動く
+                if (p < 0.14) return 0;
+                const t = Math.max(0, Math.min(1, (p - 0.14) / 0.86));
+                return t * t * (3 - 2 * t) * 0.35;
             }
         }
         if (step === 2) {
-            // 2撃目: 前方の払いと背面の返しをほぼ同時に出す
+            // 2撃目: 右刀が主役で逆袈裟。左刀は追従で小さく動く
             if (side === 'right') {
-                if (p < 0.18) return (p / 0.18) * 0.14;
+                // 右刀メイン: 下から上へ跳ね上げ
                 if (p < 0.52) {
-                    const slash = (p - 0.18) / 0.34;
-                    const eased = slash * slash * (3 - 2 * slash);
-                    return 0.14 + eased * 0.74;
+                    const t = p / 0.52;
+                    return t * t * (3 - 2 * t) * 0.86;
                 }
-                const settle = Math.max(0, Math.min(1, (p - 0.52) / 0.48));
-                return 0.88 + settle * settle * (3 - 2 * settle) * 0.12;
+                const settle = (p - 0.52) / 0.48;
+                return 0.86 + settle * settle * (3 - 2 * settle) * 0.14;
+            } else {
+                // 左刀サブ: 少し引き戻す（次段の交差に備える）
+                if (p < 0.12) return 0;
+                const t = Math.max(0, Math.min(1, (p - 0.12) / 0.88));
+                return t * t * (3 - 2 * t) * 0.42;
             }
-            if (p < 0.16) return 0;
-            const delayed = Math.max(0, Math.min(1, (p - 0.16) / 0.84));
-            if (delayed < 0.56) {
-                const lift = delayed / 0.56;
-                return lift * lift * (3 - 2 * lift) * 0.74;
-            }
-            const finish = (delayed - 0.56) / 0.44;
-            const eased = finish * finish * (3 - 2 * finish);
-            return 0.74 + eased * 0.26;
         }
         if (step === 3) {
-            // 3撃目: 背面を拾ってから交差踏み込みで前方へ抜ける
+            // 3撃目: 両刀を一旦寄せてからX字に開く
             if (side === 'left') {
-                if (p < 0.1) return 0;
-                if (p < 0.44) {
-                    const support = (p - 0.1) / 0.34;
-                    const eased = support * support * (3 - 2 * support);
-                    return eased * 0.58;
+                // 左刀: 体の前で一旦止まり、そこから外へ薙ぐ
+                if (p < 0.22) {
+                    const gather = p / 0.22;
+                    return gather * gather * (3 - 2 * gather) * 0.18;
                 }
-                const carry = Math.max(0, Math.min(1, (p - 0.44) / 0.56));
-                return 0.58 + carry * carry * (3 - 2 * carry) * 0.42;
+                if (p < 0.62) {
+                    const slash = (p - 0.22) / 0.40;
+                    const eased = slash * slash * (3 - 2 * slash);
+                    return 0.18 + eased * 0.72;
+                }
+                const settle = (p - 0.62) / 0.38;
+                return 0.90 + settle * settle * (3 - 2 * settle) * 0.10;
             }
-            if (p < 0.16) return 0;
-            if (p < 0.38) {
-                const load = (p - 0.16) / 0.22;
-                return load * load * (3 - 2 * load) * 0.36;
+            // 右刀: 同時に寄せてから反対方向へ薙ぐ
+            if (p < 0.20) {
+                const gather = p / 0.20;
+                return gather * gather * (3 - 2 * gather) * 0.16;
             }
-            return 0.36 + Math.pow((p - 0.38) / 0.62, 0.74) * 0.64;
+            if (p < 0.58) {
+                const slash = (p - 0.20) / 0.38;
+                const eased = slash * slash * (3 - 2 * slash);
+                return 0.16 + eased * 0.74;
+            }
+            const settle = (p - 0.58) / 0.42;
+            return 0.90 + settle * settle * (3 - 2 * settle) * 0.10;
         }
         if (step === 4) {
-            // 4撃目: 「天穿・Rising X」
-            // 切り上げを主に使い、終端で海老反り姿勢へ少し溜める
+            // 4撃目: 天穿・並行切り上げ
             if (p < 0.62) return (p / 0.62) * 0.84;
             return 0.84 + ((p - 0.62) / 0.38) * 0.16;
         }
@@ -1379,32 +1389,39 @@ export class DualBlades extends SubWeapon {
         switch (index) {
             case 1:
                 return {
-                    // 1撃目: 右先・追い斬り
-                    rightStart: -1.1, rightEnd: 1.52,
-                    leftStart: -0.64, leftEnd: 1.22,
-                    effectRadius: 90,
-                    hit: 'rightLeadChase'
+                    // 1撃目: 左刀・袈裟斬り（構え位置から右上→左下へ振り下ろす）
+                    // 左刀メイン: アイドル構え角度(-0.65)付近 → 下方(1.4)へ
+                    // 右刀サブ: 後方待機角度(2.14)付近で微動
+                    leftStart: -0.65, leftEnd: 1.42,
+                    rightStart: 2.14, rightEnd: 1.68,
+                    effectRadius: 88,
+                    hit: 'leftKesa'
                 };
             case 2:
                 return {
-                    // 2撃目: 前後挟撃
-                    rightStart: 1.52, rightEnd: -0.84,
-                    leftStart: 1.08, leftEnd: -1.42,
-                    effectRadius: 92,
-                    hit: 'frontBackSplit'
+                    // 2撃目: 右刀・逆袈裟（1段目終了位置から下→上へ跳ね上げ）
+                    // 右刀メイン: 1段終了位置(1.68)付近 → 上方(-1.2)へ
+                    // 左刀サブ: 1段終了位置(1.42)から少し引き戻す
+                    rightStart: 1.68, rightEnd: -1.22,
+                    leftStart: 1.42, leftEnd: 0.72,
+                    effectRadius: 90,
+                    hit: 'rightGyakuKesa'
                 };
             case 3:
                 return {
-                    // 3撃目: 交差踏み薙ぎ
-                    rightStart: -0.84, rightEnd: 1.54,
-                    leftStart: -1.42, leftEnd: 0.42,
-                    effectRadius: 98,
-                    hit: 'crossStepDrive'
+                    // 3撃目: 両手・交差薙ぎ（一旦中央に寄せてからX字に開く）
+                    // 左刀: 2段終了(0.72) → 一旦中央寄せ → 前方展開(1.62)
+                    // 右刀: 2段終了(-1.22) → 一旦中央寄せ → 前方上方展開(-1.48)
+                    // 終了時は体の前方に両刀が自然に収まり、4段目の並行切り上げに繋がる
+                    leftStart: 0.72, leftEnd: 1.62,
+                    rightStart: -1.22, rightEnd: -1.48,
+                    effectRadius: 100,
+                    hit: 'crossNagi'
                 };
             case 4:
                 return {
-                    // 4撃目: 「天穿・Rising X」
-                    // 3撃目の前傾姿勢から両刀を揃えて切り上げる
+                    // 4撃目: 天穿・並行切り上げ
+                    // 3段終了位置から両刀を揃えて斜め上へ一気に切り上げる
                     rightStart: 1.4, rightEnd: -2.56,
                     leftStart: 1.16, leftEnd: -2.42,
                     effectRadius: 110,
@@ -1412,7 +1429,7 @@ export class DualBlades extends SubWeapon {
                 };
             default:
                 return {
-                    // 五段目（再設定は保留、既存を維持しつつ整合性をとる）
+                    // 五段目: 叩きつけ（上方から一気に振り下ろす）
                     rightStart: -2.56, rightEnd: 0.82,
                     leftStart: -2.56, leftEnd: 0.82,
                     effectRadius: 112,
@@ -1559,7 +1576,7 @@ export class DualBlades extends SubWeapon {
                 const frontX = player.x + (direction > 0 ? player.width : -this.range * 1.4);
                 const backX = player.x + (direction > 0 ? -this.range * 1.35 : player.width);
                 const coreW = this.range * 0.75;
-                if (arcs.hit === 'rightLeadChase') {
+                if (arcs.hit === 'leftKesa') {
                     hitboxes.push({
                         x: frontX - this.range * 0.08,
                         y: player.y - 34,
@@ -1572,7 +1589,7 @@ export class DualBlades extends SubWeapon {
                         width: this.range * 1.08,
                         height: 98
                     });
-                } else if (arcs.hit === 'frontBackSplit') {
+                } else if (arcs.hit === 'rightGyakuKesa') {
                     hitboxes.push({
                         x: frontX - this.range * 0.04,
                         y: centerY - 36,
@@ -1591,7 +1608,7 @@ export class DualBlades extends SubWeapon {
                         width: this.range * 1.04,
                         height: 84
                     });
-                } else if (arcs.hit === 'crossStepDrive') {
+                } else if (arcs.hit === 'crossNagi') {
                     hitboxes.push({
                         x: centerX - this.range * 0.68,
                         y: centerY - 26,
@@ -2056,13 +2073,13 @@ export class DualBlades extends SubWeapon {
             const fallingBlueRadiusScale = 0.78;
             const fallingBlueSpanGain = 0.66;
             const fallingBlueTrailBackScale = 1.12;
-            if (pose.arcs.hit === 'rightLeadChase') {
+            if (pose.arcs.hit === 'leftKesa') {
                 drawTrackedArcSlash(bluePalette, backAngle, backDelta, backTraversed, backFullSpan, (pose.arcs.effectRadius + 12) * trailScale, dualTrailWidth, -8, 0.84, 2, backTrailAnchor, true, 1.55, 0, backSweepSign, backStartAngle);
                 drawTrackedArcSlash(redPalette, frontAngle, frontDelta, frontTraversed, frontFullSpan, (pose.arcs.effectRadius + 3) * trailScale * redRadiusScale, dualTrailWidth, 6 + redYOffsetBias, 0.7 * redSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, frontSweepSign, frontStartAngle);
-            } else if (pose.arcs.hit === 'frontBackSplit') {
+            } else if (pose.arcs.hit === 'rightGyakuKesa') {
                 drawTrackedArcSlash(redPalette, frontAngle, frontDelta, frontTraversed, frontFullSpan, (pose.arcs.effectRadius + 9) * trailScale * redRadiusScale, dualTrailWidth, -4 + redYOffsetBias, 0.9 * redSpanScale, 16, frontTrailAnchor, true, 1.48, redLeadScale, frontSweepSign, frontStartAngle);
                 drawTrackedArcSlash(bluePalette, backAngle, backDelta, backTraversed, backFullSpan, (pose.arcs.effectRadius - 8) * trailScale, dualTrailWidth, -2, 0.52, -10, backTrailAnchor, false, 1.12, 0, backSweepSign, backStartAngle);
-            } else if (pose.arcs.hit === 'crossStepDrive') {
+            } else if (pose.arcs.hit === 'crossNagi') {
                 drawTrackedArcSlash(bluePalette, backAngle, backDelta, backTraversed, backFullSpan, (pose.arcs.effectRadius - 6) * trailScale, dualTrailWidth, -4, 0.48, -6, backTrailAnchor, false, 1.08, 0, backSweepSign, backStartAngle);
                 drawTrackedArcSlash(redPalette, frontAngle, frontDelta, frontTraversed, frontFullSpan, (pose.arcs.effectRadius + 16) * trailScale * redRadiusScale, dualTrailWidth, 3 + redYOffsetBias, 0.76 * redSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, frontSweepSign, frontStartAngle);
             } else if (pose.arcs.hit === 'risingX') {
