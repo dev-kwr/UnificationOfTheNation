@@ -27,7 +27,7 @@ export const ANIM_STATE = {
 // 連撃パターン
 const COMBO_ATTACKS = [
     { type: ANIM_STATE.ATTACK_SLASH, name: '一ノ太刀・閃返し', damage: 1.22, range: 84, durationMs: 182, cooldownScale: 0.5, chainWindowMs: 98, impulse: -0.66 },
-    { type: ANIM_STATE.ATTACK_SLASH, name: '二ノ太刀・影走り袈裟', damage: 1.02, range: 80, durationMs: 138, cooldownScale: 0.46, chainWindowMs: 84, impulse: 1.08 },
+    { type: ANIM_STATE.ATTACK_SLASH, name: '二ノ太刀・影走り袈裟', damage: 1.02, range: 80, durationMs: 194, cooldownScale: 0.46, chainWindowMs: 108, impulse: 1.08 },
     { type: ANIM_STATE.ATTACK_SPIN, name: '三ノ太刀・燕返横薙ぎ', damage: 1.5, range: 96, durationMs: 208, cooldownScale: 0.58, chainWindowMs: 108, impulse: 0.84 },
     { type: ANIM_STATE.ATTACK_UPPERCUT, name: '四ノ太刀・天穿返り', damage: 2.2, range: 96, durationMs: 248, cooldownScale: 0.62, chainWindowMs: 126, impulse: 0.68 },
     { type: ANIM_STATE.ATTACK_DOWN, name: '五ノ太刀・落天水平叩き', damage: 2.52, range: 112, durationMs: 336, cooldownScale: 0.72, chainWindowMs: 136, impulse: 0.2 }
@@ -201,7 +201,7 @@ export class Player {
         this.comboSlashTrailSampleIntervalMs = 14;
         this.comboSlashTrailActiveLifeMs = 860;
         // 攻撃終了後は形を保ったまま滑らかにフェードさせる
-        this.comboSlashTrailFadeLifeMs = 320;
+        this.comboSlashTrailFadeLifeMs = 360;
         
         // 奥義分身関連
         this.specialClonePositions = []; // 各分身の現在の世界座標 {x, y, facingRight}
@@ -1220,7 +1220,33 @@ export class Player {
         
         const comboProfile = COMBO_ATTACKS[this.attackCombo - 1];
         this.currentAttack = this.buildAttackProfile(comboProfile, { comboStep: this.attackCombo, source: 'main' });
-        if (this.currentAttack && this.currentAttack.comboStep === 4) {
+        if (this.currentAttack && this.currentAttack.comboStep === 1) {
+            const step1TrailSpec = this.buildComboFixedBezierTrailSpec({
+                x: this.x,
+                y: this.y,
+                width: this.width,
+                height: this.height,
+                facingRight: this.facingRight,
+                isCrouching: this.isCrouching,
+                attack: this.currentAttack
+            }, [0.05, 0.48, 0.68]);
+            if (step1TrailSpec) {
+                Object.assign(this.currentAttack, step1TrailSpec);
+            }
+        } else if (this.currentAttack && this.currentAttack.comboStep === 2) {
+            const step2TrailSpec = this.buildComboFixedBezierTrailSpec({
+                x: this.x,
+                y: this.y,
+                width: this.width,
+                height: this.height,
+                facingRight: this.facingRight,
+                isCrouching: this.isCrouching,
+                attack: this.currentAttack
+            }, [0.08, 0.42, 0.74]);
+            if (step2TrailSpec) {
+                Object.assign(this.currentAttack, step2TrailSpec);
+            }
+        } else if (this.currentAttack && this.currentAttack.comboStep === 4) {
             const step4TrailArc = this.buildComboStep4TrailArcSpec({
                 x: this.x,
                 y: this.y,
@@ -1454,6 +1480,17 @@ export class Player {
         // 通常コンボはモーション完了前のキャンセル遷移を行わない
 
         if (this.attackTimer <= 0) {
+            if (
+                activeAttack &&
+                activeAttack.comboStep === 4 &&
+                Number.isFinite(activeAttack.motionElapsedMs)
+            ) {
+                const duration = Math.max(1, activeAttack.durationMs || PLAYER.ATTACK_COOLDOWN);
+                if (activeAttack.motionElapsedMs < duration - 0.5) {
+                    this.attackTimer = 1;
+                    return;
+                }
+            }
             if (
                 activeAttack &&
                 activeAttack.comboStep === this.getNormalComboMax() &&
@@ -6937,7 +6974,9 @@ export class Player {
         };
 
         const rot = swordAngle;
-        const mainBendDir = Math.sin(rot) < -0.22 ? -dir : dir;
+        const mainBendDir = attack.comboStep === 5
+            ? -dir
+            : (Math.sin(rot) < -0.22 ? -dir : dir);
         const mainReachCap = (standardUpperLen + standardForeLen) * armReachScale;
         const clampedMainHand = clampAttackMainReach(
             activeLeftShoulderX,
@@ -7332,12 +7371,12 @@ export class Player {
         switch (comboStep) {
             case 1: return { start: 0.04, end: 0.88 };
             // 2撃目は戻りも技の流れとして見せる
-            case 2: return { start: 0.1, end: 1.0 };
+            case 2: return { start: 0.08, end: 0.88 };
             case 3: return { start: 0.08, end: 1.0 };
             // 4撃目は宙返り手前までで円弧を確定し、その後は表示だけ保持する
             case 4: return { start: 0.08, end: 0.42 };
-            // 5撃目は振り下ろし直線だけを見せる
-            case 5: return { start: 0.26, end: 0.98 };
+            // 5撃目は振り下ろしの入りを少し早めに見せる
+            case 5: return { start: 0.18, end: 0.98 };
             default: return { start: 0, end: 1 };
         }
     }
@@ -7345,6 +7384,61 @@ export class Player {
     shouldKeepComboTrailDuringReturn(comboStep) {
         // 1-5撃目は戻りの余韻まで剣筋だけを残してフェードさせる
         return comboStep >= 1 && comboStep <= 5;
+    }
+
+    buildComboFixedBezierTrailSpec(state = {}, sampleTargets = [0.06, 0.5, 0.92]) {
+        const attack = state.attack || this.currentAttack || null;
+        if (!attack || !attack.comboStep || !Array.isArray(sampleTargets) || sampleTargets.length < 3) {
+            return null;
+        }
+        const durationMs = Math.max(1, attack.durationMs || PLAYER.ATTACK_COOLDOWN);
+        const buildStateAt = (rawProgress) => ({
+            x: state.x !== undefined ? state.x : this.x,
+            y: state.y !== undefined ? state.y : this.y,
+            width: Number.isFinite(state.width) ? state.width : this.width,
+            height: Number.isFinite(state.height) ? state.height : this.height,
+            facingRight: state.facingRight !== undefined ? state.facingRight : this.facingRight,
+            isCrouching: state.isCrouching !== undefined ? state.isCrouching : this.isCrouching,
+            currentAttack: attack,
+            attackTimer: durationMs * (1 - Math.max(0, Math.min(1, rawProgress))),
+            recoveryBlend: 0
+        });
+        const startPose = this.getComboSwordPoseState(buildStateAt(sampleTargets[0]));
+        const midPose = this.getComboSwordPoseState(buildStateAt(sampleTargets[1]));
+        const endPose = this.getComboSwordPoseState(buildStateAt(sampleTargets[2]));
+        if (!startPose || !midPose || !endPose) {
+            return null;
+        }
+        const start = { x: startPose.trailTipX, y: startPose.trailTipY };
+        const mid = { x: midPose.trailTipX, y: midPose.trailTipY };
+        const end = { x: endPose.trailTipX, y: endPose.trailTipY };
+        const totalSpan = Math.max(0.001, sampleTargets[2] - sampleTargets[0]);
+        const midT = Math.max(0.08, Math.min(0.92, (sampleTargets[1] - sampleTargets[0]) / totalSpan));
+        const midFactor = Math.max(0.001, 2 * (1 - midT) * midT);
+        let controlX = (
+            mid.x -
+            ((1 - midT) * (1 - midT) * start.x) -
+            (midT * midT * end.x)
+        ) / midFactor;
+        let controlY = (
+            mid.y -
+            ((1 - midT) * (1 - midT) * start.y) -
+            (midT * midT * end.y)
+        ) / midFactor;
+        const controlXMin = Math.min(start.x, mid.x, end.x) - 18;
+        const controlXMax = Math.max(start.x, mid.x, end.x) + 18;
+        const controlYMin = Math.min(start.y, mid.y, end.y) - 18;
+        const controlYMax = Math.max(start.y, mid.y, end.y) + 18;
+        controlX = Math.max(controlXMin, Math.min(controlXMax, controlX));
+        controlY = Math.max(controlYMin, Math.min(controlYMax, controlY));
+        return {
+            trailCurveStartX: start.x,
+            trailCurveStartY: start.y,
+            trailCurveControlX: controlX,
+            trailCurveControlY: controlY,
+            trailCurveEndX: end.x,
+            trailCurveEndY: end.y
+        };
     }
 
     buildComboStep4TrailArcSpec(state = {}) {
@@ -7490,7 +7584,7 @@ export class Player {
             };
         };
 
-        const sampleTargets = [0.26, 0.48, 0.68];
+        const sampleTargets = [0.16, 0.38, 0.62, 0.78];
         const sampledBodies = [];
         const durationMs = Math.max(1, attack?.durationMs || PLAYER.ATTACK_COOLDOWN);
         const frameMs = 1000 / 60;
@@ -7506,7 +7600,7 @@ export class Player {
                 sampledBodies[sampleIndex] = { x: simX, y: simY };
                 sampleIndex++;
             }
-            if (progress >= 0.68 || timerMs <= 0) break;
+            if (progress >= 0.78 || timerMs <= 0) break;
             if (progress < 0.26) {
                 simVx *= 0.82;
                 simVy = Math.min(simVy, -1.2);
@@ -7530,16 +7624,24 @@ export class Player {
         const startBody = sampledBodies[0] || { x, y };
         const midBody = sampledBodies[1] || startBody;
         const endBody = sampledBodies[2] || midBody;
-        const start = pointAt(0.26, startBody.x, startBody.y);
-        const mid = pointAt(0.48, midBody.x, midBody.y);
-        const end = pointAt(0.68, endBody.x, endBody.y);
+        const settleBody = sampledBodies[3] || endBody;
+        const start = pointAt(0.16, startBody.x, startBody.y);
+        const mid = pointAt(0.38, midBody.x, midBody.y);
+        const end = pointAt(0.62, endBody.x, endBody.y);
+        const settleTip = pointAt(0.78, settleBody.x, settleBody.y);
         const slashFloorY = (this.groundY + LANE_OFFSET) - Math.max(10, height * 0.1);
-        end.y = Math.min(end.y, slashFloorY);
+        end.y = Math.min(end.y, slashFloorY, settleTip.y);
         mid.y = Math.min(mid.y, start.y + (end.y - start.y) * 0.54);
-        const midT = Math.max(0.08, Math.min(0.92, (0.48 - 0.26) / (0.68 - 0.26)));
+        const midT = Math.max(0.08, Math.min(0.92, (0.38 - 0.16) / (0.62 - 0.16)));
         const midFactor = 2 * (1 - midT) * midT;
-        const controlX = (mid.x - ((1 - midT) * (1 - midT) * start.x) - (midT * midT * end.x)) / midFactor;
-        const controlY = (mid.y - ((1 - midT) * (1 - midT) * start.y) - (midT * midT * end.y)) / midFactor;
+        let controlX = (mid.x - ((1 - midT) * (1 - midT) * start.x) - (midT * midT * end.x)) / midFactor;
+        let controlY = (mid.y - ((1 - midT) * (1 - midT) * start.y) - (midT * midT * end.y)) / midFactor;
+        const controlXMin = Math.min(start.x, end.x) - 6;
+        const controlXMax = Math.max(start.x, end.x) + 6;
+        const controlYMin = Math.min(start.y, end.y);
+        const controlYMax = Math.max(start.y, end.y);
+        controlX = Math.max(controlXMin, Math.min(controlXMax, controlX));
+        controlY = Math.max(controlYMin, Math.min(controlYMax, controlY));
         return {
             trailCurveStartX: start.x,
             trailCurveStartY: start.y,
@@ -7601,19 +7703,35 @@ export class Player {
 
         switch (attack.comboStep) {
             case 2: {
-                swordAngle = 2.6 - 2.56 * easeOut;
-                armEndX = centerX + dir * (6 + easeOut * 26);
-                armEndY = pivotY + 9 - easeOut * 5.2;
-                const prepT = Math.max(0, Math.min(1, progress / 0.2));
-                const prepEase = prepT * prepT * (3 - 2 * prepT);
                 const idleAngle = isCrouching ? -0.32 : -0.65;
                 const idleHandX = centerX + dir * (isCrouching ? 12 : 15);
                 const idleHandY = pivotY + (isCrouching ? 5.5 : 8.0);
-                swordAngle = idleAngle + (swordAngle - idleAngle) * prepEase;
-                armEndX = idleHandX + (armEndX - idleHandX) * prepEase;
-                armEndY = idleHandY + (armEndY - idleHandY) * prepEase;
+                if (progress < 0.34) {
+                    const backT = progress / 0.34;
+                    const backEase = backT * backT * (3 - 2 * backT);
+                    swordAngle = 2.18 + backEase * 1.34;
+                    armEndX = centerX - dir * (12.0 + backEase * 10.8);
+                    armEndY = pivotY + 7.8 - backEase * 20.4;
+                } else if (progress < 0.76) {
+                    const cutT = (progress - 0.34) / 0.42;
+                    const cutEase = cutT * cutT * (3 - 2 * cutT);
+                    swordAngle = 3.52 + cutEase * 2.9;
+                    armEndX = centerX - dir * (22.8 - cutEase * 42.2);
+                    armEndY = pivotY - 12.6 + cutEase * 18.2;
+                } else {
+                    const settleT = (progress - 0.76) / 0.24;
+                    const settle = settleT * settleT * (3 - 2 * settleT);
+                    swordAngle = 0.14 + settle * 0.04;
+                    armEndX = centerX + dir * (19.4 - settle * 4.4);
+                    armEndY = pivotY + 5.6 + settle * 2.4;
+                }
+                const prepT = Math.max(0, Math.min(1, progress / 0.12));
+                const prepEase = prepT * prepT * (3 - 2 * prepT);
+                swordAngle = 2.12 + (swordAngle - 2.12) * prepEase;
+                armEndX = centerX - dir * 7.2 + (armEndX - (centerX - dir * 7.2)) * prepEase;
+                armEndY = pivotY + 9.6 + (armEndY - (pivotY + 9.6)) * prepEase;
 
-                const settleT = Math.max(0, Math.min(1, (progress - 0.78) / 0.22));
+                const settleT = Math.max(0, Math.min(1, (progress - 0.86) / 0.14));
                 const settle = settleT * settleT * (3 - 2 * settleT);
                 swordAngle += (idleAngle - swordAngle) * settle;
                 armEndX += (idleHandX - armEndX) * settle;
@@ -7718,9 +7836,9 @@ export class Player {
             case 5: {
                 if (progress < 0.26) {
                     const t = progress / 0.26;
-                    swordAngle = -1.45 + t * 0.3;
-                    armEndX = centerX - dir * (4.0 - t * 8.0);
-                    armEndY = pivotY - 18 - t * 5.0;
+                    swordAngle = -2.52 + t * 0.24;
+                    armEndX = centerX - dir * (15.6 - t * 5.8);
+                    armEndY = pivotY - 22.8 - t * 2.8;
                 } else if (progress < 0.78) {
                     const t = (progress - 0.26) / 0.52;
                     const fallEase = t * t * (3 - 2 * t);
@@ -7736,7 +7854,7 @@ export class Player {
                 }
                 const prepT = Math.max(0, Math.min(1, progress / 0.2));
                 const prepEase = prepT * prepT * (3 - 2 * prepT);
-                const prevAngle = -0.76 - Math.PI * 1.82;
+                const prevAngle = -2.7;
                 const prevHandX = centerX - dir * 4.0;
                 const prevHandY = pivotY - 18.0;
                 swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
@@ -7778,7 +7896,7 @@ export class Player {
         let trailCurveControlY = null;
         let trailCurveEndX = null;
         let trailCurveEndY = null;
-        if (attack.comboStep === 4) {
+        if (attack.comboStep === 1 || attack.comboStep === 2 || attack.comboStep === 4) {
             trailArcCenterX = Number.isFinite(attack.trailArcCenterX) ? attack.trailArcCenterX : null;
             trailArcCenterY = Number.isFinite(attack.trailArcCenterY) ? attack.trailArcCenterY : null;
             trailArcStartAngle = Number.isFinite(attack.trailArcStartAngle) ? attack.trailArcStartAngle : null;
@@ -7796,8 +7914,10 @@ export class Player {
             if (Number.isFinite(attack.trailArcRadius)) {
                 trailRadius = attack.trailArcRadius;
             }
-            const earlyLiftT = Math.max(0, Math.min(1, 1 - progress / 0.38));
-            armEndY -= 2.2 + earlyLiftT * 8.4;
+            if (attack.comboStep === 4) {
+                const earlyLiftT = Math.max(0, Math.min(1, 1 - progress / 0.38));
+                armEndY -= 2.2 + earlyLiftT * 8.4;
+            }
         } else if (attack.comboStep === 5) {
             trailCurveStartX = Number.isFinite(attack.trailCurveStartX) ? attack.trailCurveStartX : null;
             trailCurveStartY = Number.isFinite(attack.trailCurveStartY) ? attack.trailCurveStartY : null;
@@ -7805,15 +7925,7 @@ export class Player {
             trailCurveControlY = Number.isFinite(attack.trailCurveControlY) ? attack.trailCurveControlY : null;
             trailCurveEndX = Number.isFinite(attack.trailCurveEndX) ? attack.trailCurveEndX : null;
             trailCurveEndY = Number.isFinite(attack.trailCurveEndY) ? attack.trailCurveEndY : null;
-            if (progress < 0.26) {
-                trailTipExtend = 4;
-            } else if (progress < 0.78) {
-                const t = (progress - 0.26) / 0.52;
-                trailTipExtend = 8 + t * 10;
-            } else {
-                const t = (progress - 0.78) / 0.22;
-                trailTipExtend = 18 - t * 8;
-            }
+            trailTipExtend = 0;
         }
 
         const bladeLen = this.getKatanaBladeLength();
@@ -7907,7 +8019,8 @@ export class Player {
             }
         }
         // コンボモーション中は剣筋を維持し、攻撃終了後にフェードさせる
-        const holdExisting = !!(this.isAttacking && this.currentAttack && this.currentAttack.comboStep);
+        // 段ごとの差を減らすため、剣筋は戻り姿勢では保持せず一定時間でフェードさせる
+        const holdExisting = false;
         const sampleTrailScale = this.getXAttackTrailWidthScale();
         this.comboSlashTrailSampleTimer = this.updateSlashTrailBuffer(
             this.comboSlashTrailPoints,
@@ -8635,16 +8748,17 @@ export class Player {
                 projectFn
             );
         };
-        const drawStep5ArcLineTrail = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
+        const drawFixedBezierTrail = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
             if (!pts || pts.length < 1) return;
             const oldestSrc = pts[0];
             const newestSrc = pts[pts.length - 1];
+            const comboStep = options.comboStep || newestSrc.step || 0;
             const attackRef = (() => {
                 const attackState = renderOptions.attackState || null;
-                if (attackState && attackState.currentAttack && attackState.currentAttack.comboStep === 5) {
+                if (attackState && attackState.currentAttack && attackState.currentAttack.comboStep === comboStep) {
                     return attackState.currentAttack;
                 }
-                if (sourceIsAttacking && this.currentAttack && this.currentAttack.comboStep === 5) {
+                if (sourceIsAttacking && this.currentAttack && this.currentAttack.comboStep === comboStep) {
                     return this.currentAttack;
                 }
                 return null;
@@ -8656,86 +8770,51 @@ export class Player {
             const endX = Number.isFinite(newestSrc.trailCurveEndX) ? newestSrc.trailCurveEndX : null;
             const endY = Number.isFinite(newestSrc.trailCurveEndY) ? newestSrc.trailCurveEndY : null;
             if ([startX, startY, controlX, controlY, endX, endY].some((v) => !Number.isFinite(v))) return;
-            const slashFloorY = (this.groundY + LANE_OFFSET) - Math.max(10, this.height * 0.1);
-            const fixedMidT = Math.max(0.08, Math.min(0.92, (0.48 - 0.26) / (0.68 - 0.26)));
-            const fixedOneMinusT = 1 - fixedMidT;
-            const fixedMidX =
-                fixedOneMinusT * fixedOneMinusT * startX +
-                2 * fixedOneMinusT * fixedMidT * controlX +
-                fixedMidT * fixedMidT * endX;
-            const fixedMidY =
-                fixedOneMinusT * fixedOneMinusT * startY +
-                2 * fixedOneMinusT * fixedMidT * controlY +
-                fixedMidT * fixedMidT * endY;
-            const activeStep5Progress = (() => {
+            const activeProgress = (() => {
                 const attackState = renderOptions.attackState || {
                     isAttacking: sourceIsAttacking,
                     currentAttack: this.currentAttack,
                     attackTimer: this.attackTimer
                 };
-                if (!sourceIsAttacking || !attackState || !attackState.currentAttack || attackState.currentAttack.comboStep !== 5) {
+                if (!sourceIsAttacking || !attackState || !attackState.currentAttack || attackState.currentAttack.comboStep !== comboStep) {
                     return null;
                 }
                 const duration = Math.max(1, attackState.currentAttack.durationMs || PLAYER.ATTACK_COOLDOWN);
-                const timer = Number.isFinite(attackState.attackTimer) ? attackState.attackTimer : this.attackTimer;
-                const rawProgress = clamp01(1 - (timer / duration));
+                const rawProgress = Number.isFinite(attackState.currentAttack.motionElapsedMs)
+                    ? clamp01(attackState.currentAttack.motionElapsedMs / duration)
+                    : clamp01(1 - ((Number.isFinite(attackState.attackTimer) ? attackState.attackTimer : this.attackTimer) / duration));
                 return this.getAttackMotionProgress(attackState.currentAttack, rawProgress);
             })();
-            const holdCompletedShape = !sourceIsAttacking || (newestSrc.age || 0) > 0.001;
+            const trailWindow = this.getComboTrailProgressWindow(comboStep);
+            const holdCompletedShape =
+                (attackRef && attackRef.trailCurveFrozen === true) ||
+                !sourceIsAttacking ||
+                (newestSrc.age || 0) > 0.001;
             const growth = (() => {
                 if (holdCompletedShape) return 1;
-                const p = Number.isFinite(activeStep5Progress)
-                    ? activeStep5Progress
+                const p = Number.isFinite(activeProgress)
+                    ? activeProgress
                     : (Number.isFinite(newestSrc.progress) ? newestSrc.progress : 0);
-                if (p <= 0.26) return 0;
-                if (p >= 0.68) return 1;
-                return clamp01((p - 0.26) / 0.42);
+                if (p <= trailWindow.start) return 0;
+                if (p >= trailWindow.end) return 1;
+                const span = Math.max(0.001, trailWindow.end - trailWindow.start);
+                return clamp01((p - trailWindow.start) / span);
             })();
             if (growth <= 0.001) return;
             let drawEndX = endX;
             let drawEndY = endY;
             let drawControlX = controlX;
             let drawControlY = controlY;
-            if (!holdCompletedShape) {
-                drawEndX = Number.isFinite(newestSrc.x) ? newestSrc.x : endX;
-                drawEndY = Number.isFinite(newestSrc.y) ? newestSrc.y : endY;
-                const liveClampedToFloor = drawEndY >= slashFloorY - 0.001;
-                drawEndY = Math.min(drawEndY, slashFloorY);
-                const progress = Number.isFinite(activeStep5Progress)
-                    ? activeStep5Progress
-                    : (Number.isFinite(newestSrc.progress) ? newestSrc.progress : 0.26);
-                if (liveClampedToFloor) {
-                    drawEndX = endX;
-                    drawEndY = Math.min(endY, slashFloorY);
-                    drawControlX = controlX;
-                    drawControlY = Math.min(controlY, drawEndY);
-                } else if (progress > 0.48) {
-                    const liveMidT = Math.max(0.12, Math.min(0.88, (0.48 - 0.26) / Math.max(0.08, progress - 0.26)));
-                    const liveOneMinusT = 1 - liveMidT;
-                    const liveMidFactor = Math.max(0.001, 2 * liveOneMinusT * liveMidT);
-                    drawControlX =
-                        (fixedMidX - (liveOneMinusT * liveOneMinusT * startX) - (liveMidT * liveMidT * drawEndX)) / liveMidFactor;
-                    drawControlY =
-                        (fixedMidY - (liveOneMinusT * liveOneMinusT * startY) - (liveMidT * liveMidT * drawEndY)) / liveMidFactor;
+            if (options.trimEnd) {
+                const tangentX = drawEndX - drawControlX;
+                const tangentY = drawEndY - drawControlY;
+                const tangentLen = Math.hypot(tangentX, tangentY);
+                if (tangentLen > 0.001) {
+                    const trimFactor = Number.isFinite(options.trimFactor) ? options.trimFactor : 0.28;
+                    const trim = Math.min(baseWidth * trimFactor, tangentLen * 0.24);
+                    drawEndX -= (tangentX / tangentLen) * trim;
+                    drawEndY -= (tangentY / tangentLen) * trim;
                 }
-                drawControlY = Math.min(drawControlY, drawEndY);
-                if (growth >= 0.999) {
-                    newestSrc.trailCurveEndX = drawEndX;
-                    newestSrc.trailCurveEndY = drawEndY;
-                    newestSrc.trailCurveControlX = drawControlX;
-                    newestSrc.trailCurveControlY = drawControlY;
-                    if (attackRef) {
-                        attackRef.trailCurveEndX = drawEndX;
-                        attackRef.trailCurveEndY = drawEndY;
-                        attackRef.trailCurveControlX = drawControlX;
-                        attackRef.trailCurveControlY = drawControlY;
-                    }
-                }
-            } else {
-                drawEndX = endX;
-                drawEndY = Math.min(endY, slashFloorY);
-                drawControlX = controlX;
-                drawControlY = Math.min(controlY, drawEndY);
             }
             const stripCount = Math.max(12, Math.round(12 + growth * 16));
             const mergedStrip = [];
@@ -8776,11 +8855,22 @@ export class Player {
             // 切っ先追従の軌跡を使いながら、二刀流(青)と同じ剣筋レイヤー構成で描画
             for (const strip of strips) {
                 if (newestStep === 5) {
-                    drawStep5ArcLineTrail(
+                    drawFixedBezierTrail(
                         strip,
                         13.8 * visualWidthScale,
                         outerOldestAlpha,
-                        outerNewestAlpha
+                        outerNewestAlpha,
+                        null,
+                        { comboStep: 5, trimEnd: true, trimFactor: 0.24 }
+                    );
+                } else if (newestStep === 1 || newestStep === 2) {
+                    drawFixedBezierTrail(
+                        strip,
+                        13.8 * visualWidthScale,
+                        outerOldestAlpha,
+                        outerNewestAlpha,
+                        null,
+                        { comboStep: newestStep }
                     );
                 } else if (newestStep === 4) {
                     drawStep4AnchoredArcTrail(
@@ -8858,13 +8948,22 @@ export class Player {
                 // 拡張中も剣筋レイヤー構成は同一のまま、軌跡だけ外側へ投影
                 const boostOldest = outerOldestAlpha * 0.35;
                 if (newestStep === 5) {
-                    drawStep5ArcLineTrail(
+                    drawFixedBezierTrail(
                         strip,
                         13.8 * trailWidthScale,
                         boostOldest,
                         outerNewestAlpha,
                         projectOut,
-                        { includeGhost: false }
+                        { comboStep: 5, trimEnd: true, trimFactor: 0.24 }
+                    );
+                } else if (newestStep === 1 || newestStep === 2) {
+                    drawFixedBezierTrail(
+                        strip,
+                        13.8 * trailWidthScale,
+                        boostOldest,
+                        outerNewestAlpha,
+                        projectOut,
+                        { comboStep: newestStep }
                     );
                 } else if (newestStep === 4) {
                     drawStep4AnchoredArcTrail(
