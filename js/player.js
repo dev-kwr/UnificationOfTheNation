@@ -101,6 +101,8 @@ export class Player {
         this.comboResetTimer = 0;
         this.comboStrictMiss = false;
         this.comboStep1IdleTransitionTimer = 0;
+        this.comboStep5IdleTransitionTimer = 0;
+        this.comboStep5RecoveryAttack = null;
         this.finisherLandingSeparationTimer = 0;
         this.finisherAirLockTimer = 0;
         this.justLanded = false;
@@ -685,6 +687,13 @@ export class Player {
                 if (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流' && this.subWeaponTimer <= 0) {
                     this.currentSubWeapon.comboIndex = 0;
                 }
+            }
+        }
+        if (this.comboStep5IdleTransitionTimer > 0) {
+            this.comboStep5IdleTransitionTimer -= deltaMs;
+            if (this.comboStep5IdleTransitionTimer <= 0) {
+                this.comboStep5IdleTransitionTimer = 0;
+                this.comboStep5RecoveryAttack = null;
             }
         }
         
@@ -1419,6 +1428,25 @@ export class Player {
                 if (!this.isGrounded) {
                     this.vy = Math.max(this.vy, 13.4);
                 }
+                if (activeAttack && activeAttack.trailCurveFrozen !== true) {
+                    if (Number.isFinite(activeAttack.trailCurveEndX) && Number.isFinite(activeAttack.trailCurveEndY)) {
+                        const slashFloorY = (this.groundY + LANE_OFFSET) - Math.max(10, this.height * 0.1);
+                        const frozenEndY = Math.min(activeAttack.trailCurveEndY, slashFloorY);
+                        activeAttack.trailCurveEndY = frozenEndY;
+                        activeAttack.trailCurveControlY = Math.min(activeAttack.trailCurveControlY, frozenEndY);
+                        activeAttack.trailCurveFrozen = true;
+                        if (Array.isArray(this.comboSlashTrailPoints)) {
+                            for (let i = 0; i < this.comboSlashTrailPoints.length; i++) {
+                                const p = this.comboSlashTrailPoints[i];
+                                if (!p || (p.step || 0) !== 5) continue;
+                                p.trailCurveEndX = activeAttack.trailCurveEndX;
+                                p.trailCurveEndY = frozenEndY;
+                                p.trailCurveControlX = activeAttack.trailCurveControlX;
+                                p.trailCurveControlY = Math.min(activeAttack.trailCurveControlY, frozenEndY);
+                            }
+                        }
+                    }
+                }
             }
         }
         this.attackTimer -= deltaMs;
@@ -1437,6 +1465,10 @@ export class Player {
                 return;
             }
             this.isAttacking = false;
+            if (activeAttack && activeAttack.comboStep === this.getNormalComboMax()) {
+                this.comboStep5IdleTransitionTimer = Math.max(this.comboStep5IdleTransitionTimer, 130);
+                this.comboStep5RecoveryAttack = { ...activeAttack };
+            }
             this.currentAttack = null;
             this.finisherAirLockTimer = 0;
             if (activeAttack && activeAttack.comboStep === 1) {
@@ -3944,6 +3976,14 @@ export class Player {
         const comboStep1IdleTransitionTimer = state.comboStep1IdleTransitionTimer !== undefined
             ? state.comboStep1IdleTransitionTimer
             : this.comboStep1IdleTransitionTimer;
+        const comboStep5IdleTransitionTimer = state.comboStep5IdleTransitionTimer !== undefined
+            ? state.comboStep5IdleTransitionTimer
+            : this.comboStep5IdleTransitionTimer;
+        const comboStep5RecoveryAttack = state.comboStep5RecoveryAttack !== undefined
+            ? state.comboStep5RecoveryAttack
+            : this.comboStep5RecoveryAttack;
+        const comboStep5RecoveryDuration = 130;
+        const clamp01 = (value) => Math.max(0, Math.min(1, value));
 
         const isMoving = Math.abs(vx) > 0.1 || !isGrounded;
 // ---
@@ -3958,7 +3998,35 @@ export class Player {
         const isSpearThrustPose = subWeaponTimer > 0 && subWeaponAction === '大槍' && !isAttacking;
         const spearPoseProgress = isSpearThrustPose ? Math.max(0, Math.min(1, 1 - (subWeaponTimer / 270))) : 0;
         const spearDrive = isSpearThrustPose ? Math.sin(spearPoseProgress * Math.PI) : 0;
-        const comboAttackingPose = !!(isAttacking && currentAttack && currentAttack.comboStep);
+        const comboPoseAttack = (isAttacking && currentAttack && currentAttack.comboStep)
+            ? currentAttack
+            : ((comboStep5IdleTransitionTimer > 0 && comboStep5RecoveryAttack && comboStep5RecoveryAttack.comboStep)
+                ? comboStep5RecoveryAttack
+                : null);
+        const comboAttackingPose = !!comboPoseAttack;
+        const comboStep5RecoveryActive = !!(
+            comboPoseAttack &&
+            comboPoseAttack === comboStep5RecoveryAttack &&
+            (comboPoseAttack.comboStep || 0) === 5 &&
+            comboStep5IdleTransitionTimer > 0
+        );
+        const comboStep5RecoveryBlend = comboStep5RecoveryActive
+            ? (1 - clamp01(comboStep5IdleTransitionTimer / comboStep5RecoveryDuration))
+            : 0;
+        const visualIsAttacking = isAttacking || comboStep5RecoveryActive;
+        const comboVisualAttackState = comboAttackingPose
+            ? {
+                currentAttack: comboPoseAttack,
+                attackTimer: comboStep5RecoveryActive ? 0 : attackTimer,
+                facingRight,
+                x,
+                y,
+                width: this.width,
+                height: this.height,
+                isCrouching,
+                recoveryBlend: comboStep5RecoveryBlend
+            }
+            : null;
         const isDualZComboPose = !!(
             !isAttacking &&
             subWeaponTimer > 0 &&
@@ -3978,9 +4046,13 @@ export class Player {
         const useDualZCustomLegPose = options.useDualZCustomLegPose === true;
         const speedAbs = Math.abs(vx);
         const legTransitionLocked = comboStep1IdleTransitionTimer > 0;
-        const comboStepPose = comboAttackingPose && currentAttack ? (currentAttack.comboStep || 0) : 0;
+        const comboStepPose = comboAttackingPose && comboPoseAttack ? (comboPoseAttack.comboStep || 0) : 0;
         const comboPoseProgress = comboStepPose
-            ? Math.max(0, Math.min(1, 1 - (attackTimer / Math.max(1, (currentAttack && currentAttack.durationMs) || PLAYER.ATTACK_COOLDOWN))))
+            ? (
+                comboPoseAttack === comboStep5RecoveryAttack
+                    ? (0.82 + (1 - clamp01(comboStep5IdleTransitionTimer / comboStep5RecoveryDuration)) * 0.18)
+                    : clamp01(1 - (attackTimer / Math.max(1, (comboPoseAttack && comboPoseAttack.durationMs) || PLAYER.ATTACK_COOLDOWN)))
+            )
             : 0;
         const isRunLike = !isNinNinPose && !comboAttackingPose && !legTransitionLocked && isGrounded && speedAbs > 0.85;
         const isDashLike = !isNinNinPose && !comboAttackingPose && !legTransitionLocked && (isDashing || speedAbs > this.speed * 1.45);
@@ -4273,10 +4345,10 @@ export class Player {
                 ? dualPoseOverridePre.attackTimer
                 : dualBladePre.attackTimer)
             : this.subWeaponTimer;
-        const isActuallyAttackingPre = isAttacking || (effectiveSubWeaponTimerPre > 0 && subWeaponAction !== 'throw');
+        const isActuallyAttackingPre = visualIsAttacking || (effectiveSubWeaponTimerPre > 0 && subWeaponAction !== 'throw');
         const isIdleForceRenderPre = forceSubWeaponRender && !subWeaponAction && subWeaponTimer <= 0;
         const kusaKeepIdleBackArm =
-            !isAttacking &&
+            !visualIsAttacking &&
             effectiveSubWeaponTimerPre > 0 &&
             subWeaponAction === '鎖鎌';
         const renderIdleBackArmBehind = isNinNinPose || (
@@ -4505,11 +4577,12 @@ export class Player {
             drawJointedLeg(leftHipX, hipLocalY + 0.3, leftKneeX, leftKneeY, leftFootX, leftFootY, false, 1.1, null, true, true);
             drawJointedLeg(rightHipX, hipLocalY + 0.1, rightKneeX, rightKneeY, rightFootX, rightFootY, true, 1.08, null, true, false);
         } else if (comboAttackingPose && !isSpearThrustPose && !isCrouchPose) {
-            const attack = currentAttack || this.currentAttack;
+            const attack = comboPoseAttack || currentAttack || this.currentAttack;
             if (!attack) { this.x = originalX; this.y = originalY; ctx.restore(); return; }
             const comboStep = attack.comboStep || 1;
-            const comboDuration = Math.max(1, attack.durationMs || PLAYER.ATTACK_COOLDOWN);
-            const comboProgress = Math.max(0, Math.min(1, 1 - (attackTimer / comboDuration)));
+            const comboProgress = (comboStep === 5 && comboStep5RecoveryActive)
+                ? 1
+                : comboPoseProgress;
             const comboArc = Math.sin(comboProgress * Math.PI);
             const baseLift = Math.max(0, Math.min(1, Math.abs(vx) / 14));
             const airborneLift = !isGrounded ? 4.8 + baseLift * 4.4 : 0;
@@ -4790,6 +4863,29 @@ export class Player {
                 rightKneeY = from.rightKneeY + (rightKneeY - from.rightKneeY) * prepEase;
                 rightFootX = from.rightFootX + (rightFootX - from.rightFootX) * prepEase;
                 rightFootY = from.rightFootY + (rightFootY - from.rightFootY) * prepEase;
+                if (comboStep5RecoveryActive) {
+                    const recover = comboStep5RecoveryBlend * comboStep5RecoveryBlend * (3 - 2 * comboStep5RecoveryBlend);
+                    const idlePhase = Math.sin(this.motionTime * 0.0042);
+                    const idleSpread = 2.5 + Math.abs(idlePhase) * 0.3;
+                    const idlePose = {
+                        leftKneeX: leftHipX + dir * 0.55,
+                        leftKneeY: hipLocalY + 9.9,
+                        leftFootX: centerX + dir * idleSpread,
+                        leftFootY: bottomY + 0.1 - airborneLift * 0.14,
+                        rightKneeX: rightHipX + dir * 0.6,
+                        rightKneeY: hipLocalY + 9.6,
+                        rightFootX: centerX - dir * idleSpread,
+                        rightFootY: bottomY - 0.1 - airborneLift * 0.14
+                    };
+                    leftKneeX += (idlePose.leftKneeX - leftKneeX) * recover;
+                    leftKneeY += (idlePose.leftKneeY - leftKneeY) * recover;
+                    leftFootX += (idlePose.leftFootX - leftFootX) * recover;
+                    leftFootY += (idlePose.leftFootY - leftFootY) * recover;
+                    rightKneeX += (idlePose.rightKneeX - rightKneeX) * recover;
+                    rightKneeY += (idlePose.rightKneeY - rightKneeY) * recover;
+                    rightFootX += (idlePose.rightFootX - rightFootX) * recover;
+                    rightFootY += (idlePose.rightFootY - rightFootY) * recover;
+                }
             }
             drawJointedLeg(leftHipX, hipLocalY + 0.35, leftKneeX, leftKneeY, leftFootX, leftFootY, false, 1.12);
             drawJointedLeg(rightHipX, hipLocalY + 0.12, rightKneeX, rightKneeY, rightFootX, rightFootY, true, 1.06);
@@ -4908,9 +5004,9 @@ export class Player {
             : this.subWeaponTimer;
         const shouldRenderSubWeaponLayerBack =
             (effectiveSubWeaponTimerLayer > 0 || (forceSubWeaponRender && subWeaponAction)) &&
-            !isAttacking &&
+            !visualIsAttacking &&
             !isNinNinPose;
-        if (isAttacking && !isNinNinPose) {
+        if (visualIsAttacking && !isNinNinPose) {
             this.renderAttackArmAndWeapon(ctx, {
                 centerX,
                 pivotY: bodyTopY + 2,
@@ -4921,7 +5017,10 @@ export class Player {
                 rightShoulderY: rightShoulderYShared,
                 supportRightHand: !(this.currentSubWeapon && this.currentSubWeapon.name === '二刀流'),
                 layerPhase: 'back'
-            }, alpha, options);
+            }, alpha, {
+                ...options,
+                attackState: comboVisualAttackState
+            });
         }
         if (shouldRenderSubWeaponLayerBack) {
             this.renderSubWeaponArm(
@@ -5112,7 +5211,7 @@ export class Player {
         drawHeadbandBand();
 
         // 腕と剣
-        const effectiveIsAttacking = isAttacking;
+        const effectiveIsAttacking = visualIsAttacking;
         const dualBlade = (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') ? this.currentSubWeapon : null;
         const dualPoseOverride = (
             this.subWeaponPoseOverride &&
@@ -5347,7 +5446,10 @@ export class Player {
                 rightShoulderY: rightShoulderY,
                 supportRightHand: !(this.currentSubWeapon && this.currentSubWeapon.name === '二刀流'),
                 layerPhase: 'front'
-            }, alpha, options);
+            }, alpha, {
+                ...options,
+                attackState: comboVisualAttackState
+            });
             if (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
                 // 二刀前手: 攻撃中もサブ武器アーム側の描画（renderSubWeaponArm）に任せるため、ここでは描画しない
                 // (以前はここで描画していたが、renderSubWeaponArmと重複して二重描画の原因になっていた)
@@ -6483,12 +6585,30 @@ export class Player {
         const silhouetteOutlineEnabled = options.silhouetteOutline !== false;
         const silhouetteOutlineColor = (options.palette && options.palette.silhouetteOutline) || 'rgba(168, 196, 230, 0.29)';
         const armReachScale = Number.isFinite(options.armReachScale) ? options.armReachScale : 1.0;
-        const attack = this.currentAttack;
+        const attackState = options.attackState || null;
+        const attack = (attackState && attackState.currentAttack) ? attackState.currentAttack : this.currentAttack;
         if (!attack) {
             return;
         }
         const attackDuration = Math.max(1, attack.durationMs || PLAYER.ATTACK_COOLDOWN);
-        const rawProgress = Math.max(0, Math.min(1, 1 - (this.attackTimer / attackDuration)));
+        const renderAttackTimer = (attackState && attackState.attackTimer !== undefined)
+            ? attackState.attackTimer
+            : this.attackTimer;
+        const renderIsCrouching = (attackState && attackState.isCrouching !== undefined)
+            ? attackState.isCrouching
+            : this.isCrouching;
+        const renderWidth = (attackState && Number.isFinite(attackState.width)) ? attackState.width : this.width;
+        const renderHeight = (attackState && Number.isFinite(attackState.height)) ? attackState.height : this.height;
+        const renderX = (attackState && Number.isFinite(attackState.x))
+            ? attackState.x
+            : (centerX - renderWidth * 0.5);
+        const renderY = (attackState && Number.isFinite(attackState.y))
+            ? attackState.y
+            : (pivotY - (renderIsCrouching ? renderHeight * 0.58 : renderHeight * 0.43));
+        const recoveryBlend = (attackState && Number.isFinite(attackState.recoveryBlend))
+            ? Math.max(0, Math.min(1, attackState.recoveryBlend))
+            : 0;
+        const rawProgress = Math.max(0, Math.min(1, 1 - (renderAttackTimer / attackDuration)));
         const progress = this.getAttackMotionProgress(attack, rawProgress);
         const dir = facingRight ? 1 : -1;
         const attackArmStrokeWidth = 4.8; // 通常腕と同じ太さ
@@ -6512,19 +6632,19 @@ export class Player {
         let supportGripMaxReach = 22;
         let allowSupportFrontHand = supportRightHand;
         if (attack.comboStep) {
-            const bodyHeight = this.height;
-            const bodyWidth = this.width;
-            const bodyY = pivotY - (this.isCrouching ? bodyHeight * 0.58 : bodyHeight * 0.43);
+            const bodyHeight = renderHeight;
+            const bodyWidth = renderWidth;
             const comboPose = this.getComboSwordPoseState(
                 {
-                    x: centerX - bodyWidth * 0.5,
-                    y: bodyY,
+                    x: renderX,
+                    y: renderY,
                     width: bodyWidth,
                     height: bodyHeight,
                     facingRight,
-                    isCrouching: this.isCrouching,
-                    attackTimer: this.attackTimer,
-                    currentAttack: attack
+                    isCrouching: renderIsCrouching,
+                    attackTimer: renderAttackTimer,
+                    currentAttack: attack,
+                    recoveryBlend
                 },
                 {
                     leftShoulderX,
@@ -7345,16 +7465,16 @@ export class Player {
                 armEndY = pivotY - 18 - t * 5.0;
             } else if (progress < 0.78) {
                 const t = (progress - 0.26) / 0.52;
-                const accel = Math.pow(t, 1.28);
-                swordAngle = -1.15 + accel * 2.28;
-                armEndX = centerX + dir * (4 + accel * 23);
-                armEndY = pivotY - 23 + accel * 42;
+                const fallEase = t * t * (3 - 2 * t);
+                swordAngle = 0.1 + fallEase * 0.08;
+                armEndX = centerX + dir * (15.6 + fallEase * 1.8);
+                armEndY = pivotY + 12.8 + fallEase * 1.4;
             } else {
                 const t = (progress - 0.78) / 0.22;
                 const settle = t * t * (3 - 2 * t);
-                swordAngle = 1.13 - settle * 0.6;
-                armEndX = centerX + dir * (27 - settle * 9);
-                armEndY = pivotY + 19 - settle * 5.5;
+                swordAngle = 0.18 - settle * 0.04;
+                armEndX = centerX + dir * (17.4 - settle * 0.8);
+                armEndY = pivotY + 14.2 - settle * 0.8;
             }
             const prepT = Math.max(0, Math.min(1, progress / 0.2));
             const prepEase = prepT * prepT * (3 - 2 * prepT);
@@ -7416,8 +7536,10 @@ export class Player {
         const slashFloorY = (this.groundY + LANE_OFFSET) - Math.max(10, height * 0.1);
         end.y = Math.min(end.y, slashFloorY);
         mid.y = Math.min(mid.y, start.y + (end.y - start.y) * 0.54);
-        const controlX = 2 * mid.x - (start.x + end.x) * 0.5;
-        const controlY = 2 * mid.y - (start.y + end.y) * 0.5;
+        const midT = Math.max(0.08, Math.min(0.92, (0.48 - 0.26) / (0.68 - 0.26)));
+        const midFactor = 2 * (1 - midT) * midT;
+        const controlX = (mid.x - ((1 - midT) * (1 - midT) * start.x) - (midT * midT * end.x)) / midFactor;
+        const controlY = (mid.y - ((1 - midT) * (1 - midT) * start.y) - (midT * midT * end.y)) / midFactor;
         return {
             trailCurveStartX: start.x,
             trailCurveStartY: start.y,
@@ -7440,6 +7562,9 @@ export class Player {
         const facingRight = state.facingRight !== undefined ? state.facingRight : this.facingRight;
         const isCrouching = state.isCrouching !== undefined ? state.isCrouching : this.isCrouching;
         const attackTimer = state.attackTimer !== undefined ? state.attackTimer : this.attackTimer;
+        const recoveryBlend = Number.isFinite(state.recoveryBlend)
+            ? Math.max(0, Math.min(1, state.recoveryBlend))
+            : 0;
         const dir = facingRight ? 1 : -1;
         const centerX = x + width / 2;
         const centerY = y + height * 0.5;
@@ -7598,16 +7723,16 @@ export class Player {
                     armEndY = pivotY - 18 - t * 5.0;
                 } else if (progress < 0.78) {
                     const t = (progress - 0.26) / 0.52;
-                    const accel = Math.pow(t, 1.28);
-                    swordAngle = -1.15 + accel * 2.28;
-                    armEndX = centerX + dir * (4 + accel * 23);
-                    armEndY = pivotY - 23 + accel * 42;
+                    const fallEase = t * t * (3 - 2 * t);
+                    swordAngle = 0.1 + fallEase * 0.08;
+                    armEndX = centerX + dir * (15.6 + fallEase * 1.8);
+                    armEndY = pivotY + 12.8 + fallEase * 1.4;
                 } else {
                     const t = (progress - 0.78) / 0.22;
                     const settle = t * t * (3 - 2 * t);
-                    swordAngle = 1.13 - settle * 0.6;
-                    armEndX = centerX + dir * (27 - settle * 9);
-                    armEndY = pivotY + 19 - settle * 5.5;
+                    swordAngle = 0.18 - settle * 0.04;
+                    armEndX = centerX + dir * (17.4 - settle * 0.8);
+                    armEndY = pivotY + 14.2 - settle * 0.8;
                 }
                 const prepT = Math.max(0, Math.min(1, progress / 0.2));
                 const prepEase = prepT * prepT * (3 - 2 * prepT);
@@ -7617,6 +7742,22 @@ export class Player {
                 swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
                 armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
                 armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
+                if (recoveryBlend > 0) {
+                    const recover = recoveryBlend * recoveryBlend * (3 - 2 * recoveryBlend);
+                    const idleAngle = isCrouching ? -0.32 : -0.65;
+                    const idleHandX = centerX + dir * (isCrouching ? 12 : 15);
+                    const idleHandY = pivotY + (isCrouching ? 5.5 : 8.0);
+                    swordAngle += (idleAngle - swordAngle) * recover;
+                    armEndX += (idleHandX - armEndX) * recover;
+                    armEndY += (idleHandY - armEndY) * recover;
+                    activeLeftShoulderX += (leftShoulderXBase - activeLeftShoulderX) * recover;
+                    activeLeftShoulderY += (leftShoulderYBase - activeLeftShoulderY) * recover;
+                    activeRightShoulderX += (rightShoulderXBase - activeRightShoulderX) * recover;
+                    activeRightShoulderY += (rightShoulderYBase - activeRightShoulderY) * recover;
+                    supportGripBackDist += (5.8 - supportGripBackDist) * recover;
+                    supportGripSideOffset += (1.0 - supportGripSideOffset) * recover;
+                    supportGripMaxReach += (21.6 - supportGripMaxReach) * recover;
+                }
                 break;
             }
             default:
@@ -8498,6 +8639,16 @@ export class Player {
             if (!pts || pts.length < 1) return;
             const oldestSrc = pts[0];
             const newestSrc = pts[pts.length - 1];
+            const attackRef = (() => {
+                const attackState = renderOptions.attackState || null;
+                if (attackState && attackState.currentAttack && attackState.currentAttack.comboStep === 5) {
+                    return attackState.currentAttack;
+                }
+                if (sourceIsAttacking && this.currentAttack && this.currentAttack.comboStep === 5) {
+                    return this.currentAttack;
+                }
+                return null;
+            })();
             const startX = Number.isFinite(newestSrc.trailCurveStartX) ? newestSrc.trailCurveStartX : null;
             const startY = Number.isFinite(newestSrc.trailCurveStartY) ? newestSrc.trailCurveStartY : null;
             const controlX = Number.isFinite(newestSrc.trailCurveControlX) ? newestSrc.trailCurveControlX : null;
@@ -8505,6 +8656,17 @@ export class Player {
             const endX = Number.isFinite(newestSrc.trailCurveEndX) ? newestSrc.trailCurveEndX : null;
             const endY = Number.isFinite(newestSrc.trailCurveEndY) ? newestSrc.trailCurveEndY : null;
             if ([startX, startY, controlX, controlY, endX, endY].some((v) => !Number.isFinite(v))) return;
+            const slashFloorY = (this.groundY + LANE_OFFSET) - Math.max(10, this.height * 0.1);
+            const fixedMidT = Math.max(0.08, Math.min(0.92, (0.48 - 0.26) / (0.68 - 0.26)));
+            const fixedOneMinusT = 1 - fixedMidT;
+            const fixedMidX =
+                fixedOneMinusT * fixedOneMinusT * startX +
+                2 * fixedOneMinusT * fixedMidT * controlX +
+                fixedMidT * fixedMidT * endX;
+            const fixedMidY =
+                fixedOneMinusT * fixedOneMinusT * startY +
+                2 * fixedOneMinusT * fixedMidT * controlY +
+                fixedMidT * fixedMidT * endY;
             const activeStep5Progress = (() => {
                 const attackState = renderOptions.attackState || {
                     isAttacking: sourceIsAttacking,
@@ -8526,18 +8688,63 @@ export class Player {
                     ? activeStep5Progress
                     : (Number.isFinite(newestSrc.progress) ? newestSrc.progress : 0);
                 if (p <= 0.26) return 0;
-                if (p >= 0.78) return 1;
-                return clamp01((p - 0.26) / 0.52);
+                if (p >= 0.68) return 1;
+                return clamp01((p - 0.26) / 0.42);
             })();
             if (growth <= 0.001) return;
+            let drawEndX = endX;
+            let drawEndY = endY;
+            let drawControlX = controlX;
+            let drawControlY = controlY;
+            if (!holdCompletedShape) {
+                drawEndX = Number.isFinite(newestSrc.x) ? newestSrc.x : endX;
+                drawEndY = Number.isFinite(newestSrc.y) ? newestSrc.y : endY;
+                const liveClampedToFloor = drawEndY >= slashFloorY - 0.001;
+                drawEndY = Math.min(drawEndY, slashFloorY);
+                const progress = Number.isFinite(activeStep5Progress)
+                    ? activeStep5Progress
+                    : (Number.isFinite(newestSrc.progress) ? newestSrc.progress : 0.26);
+                if (liveClampedToFloor) {
+                    drawEndX = endX;
+                    drawEndY = Math.min(endY, slashFloorY);
+                    drawControlX = controlX;
+                    drawControlY = Math.min(controlY, drawEndY);
+                } else if (progress > 0.48) {
+                    const liveMidT = Math.max(0.12, Math.min(0.88, (0.48 - 0.26) / Math.max(0.08, progress - 0.26)));
+                    const liveOneMinusT = 1 - liveMidT;
+                    const liveMidFactor = Math.max(0.001, 2 * liveOneMinusT * liveMidT);
+                    drawControlX =
+                        (fixedMidX - (liveOneMinusT * liveOneMinusT * startX) - (liveMidT * liveMidT * drawEndX)) / liveMidFactor;
+                    drawControlY =
+                        (fixedMidY - (liveOneMinusT * liveOneMinusT * startY) - (liveMidT * liveMidT * drawEndY)) / liveMidFactor;
+                }
+                drawControlY = Math.min(drawControlY, drawEndY);
+                if (growth >= 0.999) {
+                    newestSrc.trailCurveEndX = drawEndX;
+                    newestSrc.trailCurveEndY = drawEndY;
+                    newestSrc.trailCurveControlX = drawControlX;
+                    newestSrc.trailCurveControlY = drawControlY;
+                    if (attackRef) {
+                        attackRef.trailCurveEndX = drawEndX;
+                        attackRef.trailCurveEndY = drawEndY;
+                        attackRef.trailCurveControlX = drawControlX;
+                        attackRef.trailCurveControlY = drawControlY;
+                    }
+                }
+            } else {
+                drawEndX = endX;
+                drawEndY = Math.min(endY, slashFloorY);
+                drawControlX = controlX;
+                drawControlY = Math.min(controlY, drawEndY);
+            }
             const stripCount = Math.max(12, Math.round(12 + growth * 16));
             const mergedStrip = [];
             for (let i = 0; i < stripCount; i++) {
                 const t = (stripCount <= 1 ? 1 : (i / (stripCount - 1))) * growth;
                 const oneMinusT = 1 - t;
                 mergedStrip.push({
-                    x: oneMinusT * oneMinusT * startX + 2 * oneMinusT * t * controlX + t * t * endX,
-                    y: oneMinusT * oneMinusT * startY + 2 * oneMinusT * t * controlY + t * t * endY,
+                    x: oneMinusT * oneMinusT * startX + 2 * oneMinusT * t * drawControlX + t * t * drawEndX,
+                    y: oneMinusT * oneMinusT * startY + 2 * oneMinusT * t * drawControlY + t * t * drawEndY,
                     age: oldestSrc.age + (newestSrc.age - oldestSrc.age) * (stripCount <= 1 ? 1 : i / (stripCount - 1)),
                     life: Math.max(
                         1,
