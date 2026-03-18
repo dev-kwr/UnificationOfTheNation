@@ -200,6 +200,7 @@ export class Player {
         this.specialCloneSlashTrailBoostAnchors = [];
         this.comboSlashTrailSampleIntervalMs = 14;
         this.comboSlashTrailActiveLifeMs = 800;
+        this.comboSlashTrailAttackSerial = 0;
         // 攻撃終了後は形を保ったまま緩やかにフェードアウトさせる
         this.comboSlashTrailFadeLifeMs = 480;
         // 凍結ベジェ曲線: 各段の攻撃終了時にベジェパラメータを独立保存しフェードさせる
@@ -912,10 +913,7 @@ export class Player {
                 this.currentSubWeapon.name !== '火薬玉' &&
                 this.currentSubWeapon.name !== '二刀流';
             
-            // 完結段（5撃目）の後は着地するまで1撃目を出せないように制限。
-            const loopToStartAirborne = this.attackCombo === 5 && !this.isGrounded;
-
-            if (lockZDuringSub || loopToStartAirborne) return;
+            if (lockZDuringSub) return;
 
             if (this.isAttacking) {
                 this.bufferNextAttack();
@@ -1139,6 +1137,15 @@ export class Player {
             oldestAge: Math.max(0, firstPt.age || 0),
             life: Math.max(1, lastPt.life || this.comboSlashTrailActiveLifeMs)
         };
+    }
+
+    pinSlashTrailPoints(points) {
+        if (!Array.isArray(points) || points.length === 0) return;
+        for (let i = 0; i < points.length; i++) {
+            const point = points[i];
+            if (!point || !point.trailIsRelative) continue;
+            Object.assign(points[i], this.absolutizeRelativeTrailPoint(point));
+        }
     }
 
     freezeCurrentSlashTrail() {
@@ -1409,13 +1416,8 @@ export class Player {
         }
         
         // 通常の新規攻撃またはコンボスナップ開始処理
-        this.freezeCurrentSlashTrail(); // Call the new method here
+        this.pinSlashTrailPoints(this.comboSlashTrailPoints);
         this.isAttacking = true;
-        // 1段目の時だけ先行する古い軌跡をクリアし、2段目以降は残像として重ねる
-        if (this.attackCombo === 0 || this.attackCombo === this.getNormalComboMax()) {
-            this.comboSlashTrailPoints.length = 0;
-            // 凍結曲線はクリアしない - 自然フェードに任せる
-        }
         this.comboSlashTrailSampleTimer = 0;
         if (Array.isArray(this.specialCloneSlashTrailPoints) && !this.specialCloneAutoAiEnabled) {
             for (let i = 0; i < this.specialCloneSlashTrailPoints.length; i++) {
@@ -1468,6 +1470,7 @@ export class Player {
             vy: this.vy,
             speed: this.speed
         });
+        this.currentAttack.trailAttackId = ++this.comboSlashTrailAttackSerial;
         this.attackTimer = this.currentAttack.durationMs;
         this.attackCooldown = Math.max(28, this.currentAttack.durationMs * this.currentAttack.cooldownScale);
         this.comboResetTimer = (this.currentAttack.chainWindowMs || 60) + 190;
@@ -2052,6 +2055,43 @@ export class Player {
                 vy: clonePos ? (clonePos.cloneVy || 0) : this.vy,
                 speed: this.speed
             });
+            profile.trailAttackId = ++this.comboSlashTrailAttackSerial;
+            if (clonePos) {
+                const airborneAtStart = !!clonePos.jumping;
+                const direction = clonePos.facingRight ? 1 : -1;
+                const impulse = (profile.impulse || 1) * this.speed;
+                clonePos.comboVx = Number.isFinite(clonePos.comboVx)
+                    ? clonePos.comboVx
+                    : (clonePos.renderVx || 0);
+                if (profile.comboStep === 1) {
+                    clonePos.comboVx *= 0.12;
+                    if (Math.abs(clonePos.comboVx) < 0.2) clonePos.comboVx = 0;
+                    if (airborneAtStart) {
+                        clonePos.cloneVy = Math.max(clonePos.cloneVy || 0, -0.8);
+                    } else {
+                        clonePos.cloneVy = 0;
+                    }
+                } else if (profile.comboStep === 2) {
+                    clonePos.comboVx = clonePos.comboVx * 0.16 + direction * impulse * 0.9;
+                    if (airborneAtStart) {
+                        clonePos.cloneVy = Math.min(clonePos.cloneVy || 0, -1.2);
+                    } else {
+                        clonePos.cloneVy = 0;
+                    }
+                } else if (profile.comboStep === 3) {
+                    clonePos.comboVx = clonePos.comboVx * 0.12 + direction * impulse * 1.71;
+                    clonePos.cloneVy = Math.min(clonePos.cloneVy || 0, -8.2);
+                    clonePos.jumping = true;
+                } else if (profile.comboStep === 4) {
+                    clonePos.comboVx = clonePos.comboVx * 0.24 + direction * impulse * 0.42;
+                    clonePos.cloneVy = Math.min(clonePos.cloneVy || 0, -10.6);
+                    clonePos.jumping = true;
+                } else if (profile.comboStep === 5) {
+                    clonePos.comboVx *= 0.18;
+                    clonePos.cloneVy = Math.max(clonePos.cloneVy || 0, 3.4);
+                    clonePos.jumping = true;
+                }
+            }
             this.specialCloneCurrentAttacks[index] = profile;
             this.specialCloneAttackTimers[index] = profile.durationMs;
             this.specialCloneComboSteps[index] = nextStep;
@@ -2087,7 +2127,8 @@ export class Player {
             facingRight: this.facingRight,
             prevX: a.x,
             jumping: false,
-            cloneVy: 0
+            cloneVy: 0,
+            comboVx: 0
         }));
 
         for (let i = 0; i < this.specialCloneSlots.length; i++) {
@@ -2308,57 +2349,75 @@ export class Player {
                 const comboStep = this.specialCloneComboSteps[i] || 1;
                 const attackProfile = this.specialCloneCurrentAttacks[i] || this.getComboAttackProfileByStep(comboStep);
                 const durationMs = Math.max(1, attackProfile.durationMs || PLAYER.ATTACK_COOLDOWN);
-                const progress = Math.max(0, Math.min(1, 1 - (cloneAttackTimerMs / durationMs)));
+                const progress = Number.isFinite(attackProfile.motionElapsedMs)
+                    ? Math.max(0, Math.min(1, attackProfile.motionElapsedMs / durationMs))
+                    : Math.max(0, Math.min(1, 1 - (cloneAttackTimerMs / durationMs)));
                 const direction = pos.facingRight ? 1 : -1;
                 const baseSpeed = Math.max(1, this.speed || PLAYER.SPEED || 5);
-                let moveVx = 0;
+                let moveVx = Number.isFinite(pos.comboVx) ? pos.comboVx : 0;
                 let forceAirborne = false;
 
+                if (!pos.jumping) {
+                    moveVx *= 0.965;
+                }
+
                 if (comboStep === 1) {
-                    const wind = Math.max(0, Math.min(1, progress / 0.36));
-                    const swing = Math.max(0, Math.min(1, (progress - 0.36) / 0.64));
-                    const swingEase = swing * swing * (3 - 2 * swing);
-                    moveVx = direction * baseSpeed * (0.16 + wind * 0.18 + swingEase * 0.24);
-                    if (!pos.jumping) pos.cloneVy = 0;
+                    moveVx = moveVx * 0.62;
+                    if (moveVx * direction < 0) moveVx = 0;
+                    if (Math.abs(moveVx) < 0.18) moveVx = 0;
+                    if (!pos.jumping) {
+                        pos.cloneVy = 0;
+                    } else {
+                        pos.cloneVy = Math.max(pos.cloneVy || 0, 1.2);
+                    }
                 } else if (comboStep === 2) {
-                    const prep = Math.max(0, Math.min(1, progress / 0.42));
-                    moveVx = direction * baseSpeed * (0.24 + prep * 0.3);
-                    if (!pos.jumping) pos.cloneVy = 0;
+                    if (!pos.jumping) {
+                        pos.cloneVy = 0;
+                    } else {
+                        pos.cloneVy = Math.min(pos.cloneVy || 0, -1.2);
+                    }
                 } else if (comboStep === 3) {
-                    const arc = Math.sin(progress * Math.PI);
-                    moveVx = direction * baseSpeed * (0.63 + arc * 0.33);
-                    pos.cloneVy = Math.min(pos.cloneVy || 0, -8.8 + progress * 1.9);
                     forceAirborne = true;
                 } else if (comboStep === 4) {
-                    const z4HeightScale = 0.84;
+                    const z4HeightScale = 0.96;
                     if (progress < 0.42) {
                         const t = progress / 0.42;
-                        moveVx = direction * baseSpeed * (0.26 - t * 0.18);
-                        pos.cloneVy = (pos.cloneVy || 0) * 0.5 + ((-15.8 + t * 4.6) * z4HeightScale) * 0.5;
+                        moveVx = moveVx * 0.52 + direction * baseSpeed * (0.2 - t * 0.08);
+                        pos.cloneVy = (-20.4 + t * 2.6) * z4HeightScale;
                     } else if (progress < 0.9) {
                         const t = (progress - 0.42) / 0.48;
-                        const backSpeed = baseSpeed * (0.6 + t * 0.9);
-                        const flipVy = (-6.2 + t * 15.4) * z4HeightScale;
-                        moveVx = -direction * backSpeed;
-                        pos.cloneVy = (pos.cloneVy || 0) * 0.45 + flipVy * 0.55;
+                        const backSpeed = baseSpeed * (0.66 + t * 0.94);
+                        const holdVy = (-0.9 + t * 1.18) * z4HeightScale;
+                        moveVx = moveVx * 0.4 + (-direction * backSpeed) * 0.6;
+                        pos.cloneVy = Math.max(-1.0, Math.min(0.95, holdVy));
                     } else {
-                        moveVx = direction * baseSpeed * 0.08;
+                        moveVx *= 0.78;
+                        pos.cloneVy = Math.min(pos.cloneVy || 0, 0.55);
+                    }
+                    if (progress < 0.72) {
+                        const riseLockT = Math.max(0, Math.min(1, progress / 0.72));
+                        const minRiseVy = (-18.8 + riseLockT * 14.8) * z4HeightScale;
+                        pos.cloneVy = Math.min(pos.cloneVy || 0, minRiseVy);
                     }
                     forceAirborne = true;
                 } else if (comboStep === 5) {
                     if (progress < 0.26) {
-                        moveVx = direction * baseSpeed * 0.04;
+                        moveVx *= 0.82;
                         pos.cloneVy = Math.min(pos.cloneVy || 0, -1.2);
                     } else if (progress < 0.76) {
                         const fallT = (progress - 0.26) / 0.5;
-                        moveVx = direction * baseSpeed * 0.05;
-                        pos.cloneVy = (pos.cloneVy || 0) * 0.58 + (6.5 + fallT * 15.5) * 0.42;
+                        moveVx = moveVx * 0.7 + direction * baseSpeed * 0.08;
+                        pos.cloneVy = (pos.cloneVy || 0) * 0.34 + (9.8 + fallT * 19.8) * 0.66;
                     } else {
-                        moveVx = direction * baseSpeed * 0.03;
+                        moveVx *= 0.64;
+                        if (pos.jumping) {
+                            pos.cloneVy = Math.max(pos.cloneVy || 0, 13.4);
+                        }
                     }
                     forceAirborne = true;
                 }
 
+                pos.comboVx = moveVx;
                 pos.x += moveVx * deltaTime * 60;
                 if (forceAirborne) {
                     pos.jumping = true;
@@ -2972,6 +3031,9 @@ export class Player {
         }
 
         this.justLanded = !wasGrounded && this.isGrounded;
+        if (this.justLanded) {
+            this.restrictAirCombo1 = false;
+        }
         if (this.justLanded && fallingSpeed > 0) {
             audio.playLanding();
         }
@@ -7825,8 +7887,12 @@ export class Player {
             options.forceRelative ||
             (options.useRelativeIfAvailable && newestSrc.trailIsRelative)
         );
-        const offsetX = isRelative ? (options.offsetX || 0) : 0;
-        const offsetY = isRelative ? (options.offsetY || 0) : 0;
+        const offsetX = isRelative
+            ? (Number.isFinite(newestSrc.playerX) ? newestSrc.playerX : (options.offsetX || 0))
+            : 0;
+        const offsetY = isRelative
+            ? (Number.isFinite(newestSrc.playerY) ? newestSrc.playerY : (options.offsetY || 0))
+            : 0;
         const start = (
             Number.isFinite(newestSrc.trailCurveStartX) &&
             Number.isFinite(newestSrc.trailCurveStartY)
@@ -8515,7 +8581,13 @@ export class Player {
             this.comboSlashTrailSampleTimer,
             pose,
             deltaMs,
-            { holdExisting, sampleTrailScale }
+            {
+                holdExisting,
+                sampleTrailScale,
+                activeTrailId: this.currentAttack && Number.isFinite(this.currentAttack.trailAttackId)
+                    ? this.currentAttack.trailAttackId
+                    : null
+            }
         );
     }
 
@@ -8524,10 +8596,22 @@ export class Player {
         const holdExisting = !!options.holdExisting;
         const sampleTrailScale = Number.isFinite(options.sampleTrailScale) ? options.sampleTrailScale : 1;
         const currentStep = pose ? (pose.comboStep || 0) : -1;
+        const activeTrailId = Number.isFinite(options.activeTrailId) ? options.activeTrailId : null;
+        const trimTrailingStepPoints = (step) => {
+            if (!Number.isFinite(step) || step <= 0) return;
+            while (points.length > 0) {
+                const tail = points[points.length - 1];
+                if (!tail || (tail.step || 0) !== step) break;
+                points.pop();
+            }
+        };
         
         // 核心ルール: lifeは生成時に一度だけ設定。以降はageのみが進む。
         for (let i = 0; i < points.length; i++) {
             const p = points[i];
+            if (pose && p.trailIsRelative && p.step !== currentStep) {
+                Object.assign(p, this.absolutizeRelativeTrailPoint(p));
+            }
             
             // 攻撃が終了した（poseがない）時点で、相対座標の軌跡はワールド座標（絶対座標）に固定し、プレイヤーの手を離れて空間に残るようにする
             if (!pose && p.trailIsRelative) {
@@ -8542,7 +8626,12 @@ export class Player {
                 p.trailIsRelative = false;
             }
 
-            if (pose && p.step === currentStep) {
+            const matchesActiveTrail = (
+                pose &&
+                p.step === currentStep &&
+                (activeTrailId === null || p.trailAttackId === activeTrailId)
+            );
+            if (matchesActiveTrail) {
                 // 現在進行中の段のみ鮮度を保つ（age=0リセット）
                 p.age = 0;
                 // lifeは生成時の値を維持（上書きしない）
@@ -8564,17 +8653,19 @@ export class Player {
             const jumpCutDist = 140;
             let last = points.length > 0 ? points[points.length - 1] : null;
             let dist = last ? Math.hypot(now.x - last.x, now.y - last.y) : Infinity;
-            // 段数が変わった場合は距離が離れていても全クリアしない。
-            // 新しい段の最初のポイントとして追加するだけで、過去の段のデータは保持する。
-            if (last && dist > jumpCutDist && last.step === (pose.comboStep || 0)) {
-                // 同一段内でのテレポートのみクリア（通常はあり得ない）
-                points.length = 0;
-                last = null;
-                dist = Infinity;
-            } else if (last && dist > jumpCutDist) {
-                // 段が変わった場合：過去のデータを保持したまま、lastをnullにして新しいポイントを追加
-                last = null;
-                dist = Infinity;
+            const currentPoseStep = pose.comboStep || 0;
+            if (last && dist > jumpCutDist) {
+                if ((last.step || 0) === currentPoseStep) {
+                    // 同一段内のテレポートは、その段の壊れた点列だけ捨て直す。
+                    // 過去段は残したまま、4段目の縦線量産を防ぐ。
+                    trimTrailingStepPoints(currentPoseStep);
+                    last = points.length > 0 ? points[points.length - 1] : null;
+                    dist = last ? Math.hypot(now.x - last.x, now.y - last.y) : Infinity;
+                } else {
+                    // 段が変わっただけなら旧段は残して、新段の始点を追加する。
+                    last = null;
+                    dist = Infinity;
+                }
             }
             if (!last || points.length < 2 || dist >= 2.6 || nextSampleTimer <= 0) {
                 points.push({
@@ -8598,7 +8689,8 @@ export class Player {
                     trailIsRelative: pose.trailIsRelative,
                     playerX: Number.isFinite(pose.originX) ? pose.originX : this.x,
                     playerY: Number.isFinite(pose.originY) ? pose.originY : this.y,
-                    step: pose.comboStep || 0,
+                    step: currentPoseStep,
+                    trailAttackId: activeTrailId,
                     trailScale: sampleTrailScale,
                     age: 0,
                     life: this.comboSlashTrailActiveLifeMs,
@@ -8626,7 +8718,8 @@ export class Player {
                 last.trailIsRelative = pose.trailIsRelative !== undefined ? pose.trailIsRelative : last.trailIsRelative;
                 last.playerX = Number.isFinite(pose.originX) ? pose.originX : last.playerX;
                 last.playerY = Number.isFinite(pose.originY) ? pose.originY : last.playerY;
-                last.step = pose.comboStep || 0;
+                last.step = currentPoseStep;
+                last.trailAttackId = activeTrailId;
                 last.trailScale = sampleTrailScale;
                 last.age = Math.max(0, last.age - deltaMs * 0.7);
             }
@@ -8671,6 +8764,7 @@ export class Player {
             const pos = this.specialClonePositions[i];
             const isAlive = this.specialCloneAlive && this.specialCloneAlive[i];
             let pose = null;
+            let activeTrailId = null;
 
             if (isAlive && pos) {
                 const isAutoAi = !!this.specialCloneAutoAiEnabled;
@@ -8726,6 +8820,9 @@ export class Player {
                     const attackProfile = isAutoAi
                         ? (this.specialCloneCurrentAttacks[i] || this.getComboAttackProfileByStep(comboStep))
                         : this.currentAttack;
+                    activeTrailId = attackProfile && Number.isFinite(attackProfile.trailAttackId)
+                        ? attackProfile.trailAttackId
+                        : null;
                     const attackTimer = isAutoAi
                         ? (this.specialCloneAttackTimers[i] || 0)
                         : this.attackTimer;
@@ -8754,7 +8851,10 @@ export class Player {
                 this.specialCloneSlashTrailSampleTimers[i],
                 pose,
                 deltaMs,
-                { holdExisting: !!(isAlive && pos && !pose) }
+                {
+                    holdExisting: !!(isAlive && pos && !pose),
+                    activeTrailId
+                }
             );
             if (Array.isArray(this.specialCloneSlashTrailBoostAnchors) && this.specialCloneSlashTrailPoints[i].length < 2) {
                 this.specialCloneSlashTrailBoostAnchors[i] = null;
@@ -9217,8 +9317,12 @@ export class Player {
                 options.forceRelative ||
                 (options.useRelativeIfAvailable && newestSrc.trailIsRelative)
             );
-            const offsetX = isRelative ? (options.offsetX || 0) : 0;
-            const offsetY = isRelative ? (options.offsetY || 0) : 0;
+            const offsetX = isRelative
+                ? (Number.isFinite(newestSrc.playerX) ? newestSrc.playerX : (options.offsetX || 0))
+                : 0;
+            const offsetY = isRelative
+                ? (Number.isFinite(newestSrc.playerY) ? newestSrc.playerY : (options.offsetY || 0))
+                : 0;
             const startX = Number.isFinite(newestSrc.trailCurveStartX) ? newestSrc.trailCurveStartX + offsetX : null;
             const startY = Number.isFinite(newestSrc.trailCurveStartY) ? newestSrc.trailCurveStartY + offsetY : null;
             const controlX = Number.isFinite(newestSrc.trailCurveControlX) ? newestSrc.trailCurveControlX + offsetX : null;
