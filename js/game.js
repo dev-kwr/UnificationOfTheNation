@@ -1721,13 +1721,19 @@ class Game {
                         cloneAttackTimer = this.player.specialCloneAttackTimers[i] || 0;
                         if (cloneAttackTimer <= 0) continue;
                         cloneIsAttacking = true;
-                        cloneComboStep = ((this.player.specialCloneComboSteps[i] || 0) % 5) + 1;
-                        const cloneAttackProfile = (typeof this.player.getComboAttackProfileByStep === 'function')
-                            ? this.player.getComboAttackProfileByStep(cloneComboStep)
-                            : { comboStep: cloneComboStep, durationMs: 420, range: 90 };
+                        const cloneAttackProfile = (
+                            Array.isArray(this.player.specialCloneCurrentAttacks) &&
+                            this.player.specialCloneCurrentAttacks[i]
+                        )
+                            ? this.player.specialCloneCurrentAttacks[i]
+                            : (
+                                typeof this.player.getComboAttackProfileByStep === 'function'
+                                    ? this.player.getComboAttackProfileByStep(this.player.specialCloneComboSteps[i] || 1)
+                                    : { comboStep: this.player.specialCloneComboSteps[i] || 1, durationMs: 420, range: 90 }
+                            );
                         cloneAttackDurationMs = cloneAttackProfile.durationMs;
                         cloneAttackRange = cloneAttackProfile.range || 90;
-                        cloneComboStep = cloneAttackProfile.comboStep || cloneComboStep;
+                        cloneComboStep = cloneAttackProfile.comboStep || (this.player.specialCloneComboSteps[i] || 1);
                     } else {
                         // Lv0〜2: 本体の攻撃状態をコピー
                         if (!this.player.isAttacking || !this.player.currentAttack) continue;
@@ -1747,11 +1753,20 @@ class Game {
                         y: pos.y - this.player.height * 0.62,
                         facingRight: facingRight,
                         isAttacking: cloneIsAttacking,
-                        currentAttack: {
-                            comboStep: cloneComboStep,
-                            durationMs: cloneAttackDurationMs,
-                            range: cloneAttackRange || 90
-                        },
+                        currentAttack: isAutoAi
+                            ? {
+                                ...(Array.isArray(this.player.specialCloneCurrentAttacks) && this.player.specialCloneCurrentAttacks[i]
+                                    ? this.player.specialCloneCurrentAttacks[i]
+                                    : {}),
+                                comboStep: cloneComboStep,
+                                durationMs: cloneAttackDurationMs,
+                                range: cloneAttackRange || 90
+                            }
+                            : {
+                                comboStep: cloneComboStep,
+                                durationMs: cloneAttackDurationMs,
+                                range: cloneAttackRange || 90
+                            },
                         attackTimer: cloneAttackTimer,
                         isCrouching: false
                     };
