@@ -245,66 +245,66 @@ class AudioManager {
         this.init();
         // 変化を 0.1 に強めて、よりはっきり音程が上がるように調整
         const playbackRate = 1.0 + comboNum * 0.1;
-        this.playFileSfx('se/katana.mp3', 0.8, playbackRate, 0.02);
+        this.playFileSfx('se/katana.mp3', 0.8, playbackRate, 0.08);
     }
 
     playDualBladeCombined() {
         this.init();
-        this.playFileSfx('se/combined.mp3', 0.82, 1.0, 0.02);
+        this.playFileSfx('se/combined.mp3', 0.82, 1.0, 0.04);
     }
 
     playExpGain() {
         this.init();
-        this.playFileSfx('se/exp.mp3', 0.42, 1.0, 0.02);
+        this.playFileSfx('se/exp.mp3', 0.42, 1.0, 0.06);
     }
 
     playSkillUp() {
         this.init();
-        this.playFileSfx('se/skillup.mp3', 0.9, 1.0, 0.02);
+        this.playFileSfx('se/skillup.mp3', 0.9, 1.0, 0.04);
     }
 
     playItemPurchase() {
         this.init();
         // 立ち上がりを速くするため、先頭無音を少し飛ばして直接再生を優先
-        this.playFileSfx('se/item.mp3', 0.62, 1.03, 0.03, true);
+        this.playFileSfx('se/item.mp3', 0.62, 1.03, 0.04, true);
     }
 
     playCursor() {
         this.init();
-        this.playFileSfx('se/cursor.mp3', 0.84, 1.06, 0.03);
+        this.playFileSfx('se/cursor.mp3', 0.84, 1.06, 0.04);
     }
 
     playWeaponSwitch() {
         this.init();
         // Dキー切替: 立ち上がり優先、1.5倍速/高めピッチ、音量はやや控えめ
-        this.playFileSfx('se/change.mp3', 0.68, 1.5, 0.045, true);
+        this.playFileSfx('se/change.mp3', 0.68, 1.5, 0.06, true);
     }
 
     playGameStart() {
         this.init();
         // 立ち上がりを速める: 先頭無音を少し飛ばし、プール直再生で遅延を減らす
-        this.playFileSfx('se/gamestart.mp3', 0.82, 1.03, 0.03, true);
+        this.playFileSfx('se/gamestart.mp3', 0.82, 1.03, 0.04, true);
     }
 
     playLevelUpWindow() {
         this.init();
-        this.playFileSfx('se/levelup.mp3', 0.78, 1.0, 0.02);
+        this.playFileSfx('se/levelup.mp3', 0.78, 1.0, 0.04);
     }
     
     playJump() {
         this.init();
-        // 立ち上がり（startTime）を 0.02秒飛ばし、速度を 1.4倍にしてキレを出す
-        this.playFileSfx('se/jump.mp3', 0.65, 1.4, 0.02);
+        // 立ち上がり（startTime）を 0.1秒飛ばし、速度を 1.8倍にしてキレを出す
+        this.playFileSfx('se/jump.mp3', 0.4, 1.8, 0.04);
     }
     playDash() {
         this.init();
         // 1.2倍速で鋭いダッシュ感を出す
-        this.playFileSfx('se/dash.mp3', 0.6, 1.2, 0.02);
+        this.playFileSfx('se/dash.mp3', 0.6, 1.2, 0.04);
     }
     playDamage() {
         this.init();
         // 撃破音と同じ 0.6 に調整
-        this.playFileSfx('se/damage.mp3', 0.6, 1.1, 0.02);
+        this.playFileSfx('se/damage.mp3', 0.6, 1.1, 0.04);
     }
     playHeal() { this.init(); this.playSfx(523.25, 'sine', 0.2, 0.2, 1.2); } // ド
     playPowerUp() {
@@ -335,33 +335,33 @@ class AudioManager {
         this.playNoiseSfx(0.2, 0.5, 500);
         this.playSfx(100, 'sawtooth', 0.15, 0.5, 0.5);
         // special.mp3 を重ねる (音量を抑えつつ高速再生でキレを出す)
-        this.playFileSfx('se/special.mp3', 0.4, 1.3, 0.02);
+        this.playFileSfx('se/special.mp3', 0.4, 1.3, 0.04);
     }
     playDeflect() {
         this.init();
         // 手裏剣などを叩き落とした時の金属的な「キン」
-        this.playFileSfx('se/deflect.mp3', 0.85, 1.0, 0.02);
+        this.playFileSfx('se/deflect.mp3', 0.6, 1.0, 0.04);
     }
     
     playLanding() {
         this.init();
         // わずかに再生速度を上げて立ち上がりを早くする
-        this.playFileSfx('se/landing.mp3', 0.6, 1.1, 0.02);
+        this.playFileSfx('se/landing.mp3', 0.6, 1.1, 0.04);
     }
 
     playSpear() {
         this.init();
-        this.playFileSfx('se/ooyari.mp3', 0.8, 1.0, 0.02);
+        this.playFileSfx('se/ooyari.mp3', 0.8, 1.0, 0.06);
     }
 
     playShuriken() {
         this.init();
-        this.playFileSfx('se/shuriken.mp3', 0.7, 1.0, 0.02);
+        this.playFileSfx('se/shuriken.mp3', 0.7, 1.0, 0.08);
     }
 
     playStageClear() {
         this.init();
-        this.playFileSfx('se/clear.mp3', 0.9, 1.0, 0.02);
+        this.playFileSfx('se/clear.mp3', 0.9, 1.0, 0.04);
     }
     
     playPlayerDeath() {
@@ -373,7 +373,7 @@ class AudioManager {
         volumes.forEach((v, i) => {
             setTimeout(() => {
                 // 回を追うごとに少しずつピッチを下げる
-                this.playFileSfx('se/knockdown.mp3', v * 0.8, 1.0 - i * 0.05, 0.02);
+                this.playFileSfx('se/knockdown.mp3', v * 0.8, 1.0 - i * 0.05, 0.04);
             }, i * 250);
         });
     }
@@ -392,7 +392,7 @@ class AudioManager {
             setTimeout(() => {
                 // 初回は 0.7倍速で巨大な咆哮のようにし、徐々にピッチを戻す（またはさらに下げる）
                 const rate = 0.7 - i * 0.02;
-                this.playFileSfx('se/knockdown.mp3', v, rate, 0.02);
+                this.playFileSfx('se/knockdown.mp3', v, rate, 0.04);
             }, i * 350);
         });
         
