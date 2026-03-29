@@ -2,7 +2,7 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, WORLD_ENTITY_RENDER_SCALE } from './constants.js';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET } from './constants.js';
 import { input } from './input.js';
 import { Player } from './player.js';
 import { createSubWeapon } from './weapon.js';
@@ -2326,7 +2326,7 @@ class Game {
             y: enemy.y + enemy.height * 0.42,
             vx: (Math.random() - 0.5) * 1.6,
             vy: -3.2 - Math.random() * 0.8,
-            size: isBossGem ? 13 : 9,
+            size: isBossGem ? 16 : 11,
             exp: gemExp,
             kind: isBossGem ? 'boss' : 'normal',
             lifeMs: 9000,
@@ -4351,20 +4351,6 @@ class Game {
         }
     }
 
-    renderScaledEntity(ctx, pivotX, pivotY, renderFn, scale = WORLD_ENTITY_RENDER_SCALE) {
-        const appliedScale = Number.isFinite(scale) ? scale : 1;
-        if (Math.abs(appliedScale - 1) < 0.001) {
-            renderFn();
-            return;
-        }
-        ctx.save();
-        ctx.translate(pivotX, pivotY);
-        ctx.scale(appliedScale, appliedScale);
-        ctx.translate(-pivotX, -pivotY);
-        renderFn();
-        ctx.restore();
-    }
-    
     renderPlaying(playerAlpha = 1.0, forceStanding = false) {
         const ctx = this.ctx;
         
@@ -4397,8 +4383,7 @@ class Game {
                 this.stage,
                 this.player,
                 this.stage.getAllEnemies(),
-                this.scrollX,
-                WORLD_ENTITY_RENDER_SCALE
+                this.scrollX
             );
         }
         
@@ -4421,9 +4406,7 @@ class Game {
         // ボス（本体）
         if (this.stage.boss && this.stage.bossSpawned) {
             const boss = this.stage.boss;
-            const bossPivotX = boss.getFootX ? boss.getFootX() : (boss.x + boss.width * 0.5);
-            const bossPivotY = boss.getFootY ? boss.getFootY() : (boss.y + boss.height);
-            this.renderScaledEntity(ctx, bossPivotX, bossPivotY, () => boss.render(ctx));
+            boss.render(ctx);
         }
         
         // 爆弾
@@ -4443,20 +4426,14 @@ class Game {
             if (this.player.isUsingSpecial || this.player.specialSmoke.length > 0) {
                 ctx.save();
                 if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
-                this.player.renderSpecial(ctx, {
-                    scaleEntity: (pivotX, pivotY, renderFn) => this.renderScaledEntity(ctx, pivotX, pivotY, renderFn)
-                });
+                this.player.renderSpecial(ctx);
                 ctx.restore();
             }
             ctx.save();
             if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
-            const playerPivotX = this.player.getFootX ? this.player.getFootX() : (this.player.x + this.player.width * 0.5);
-            const playerPivotY = this.player.getFootY ? this.player.getFootY() : (this.player.y + this.player.height);
-            this.renderScaledEntity(ctx, playerPivotX, playerPivotY, () => {
-                this.player.render(ctx, {
-                    forceStanding: forceStanding,
-                    skipSpecialRender: true
-                });
+            this.player.render(ctx, {
+                forceStanding: forceStanding,
+                skipSpecialRender: true
             });
             ctx.restore();
             
@@ -4522,27 +4499,25 @@ class Game {
         if (!player) return;
 
         const previewCenterX = 280;
-        const previewGroundScreenY = 360; // キャラが切れず、かつ見栄えの良い高さに固定
-        const scale = 3.5;
+        const previewBaseHeight = 60;
+        const previewBaseScale = 3.5;
+        const scale = previewBaseScale * (previewBaseHeight / PLAYER.HEIGHT);
+        const previewGroundScreenY = 360 + LANE_OFFSET * (previewBaseScale - scale); // 足元位置を旧見た目に揃える
 
         ctx.save();
         ctx.translate(previewCenterX, previewGroundScreenY);
         ctx.scale(scale, scale);
         ctx.translate(-(player.x + player.width / 2), -player.groundY);
 
-        const playerPivotX = player.getFootX ? player.getFootX() : (player.x + player.width * 0.5);
-        const playerPivotY = player.getFootY ? player.getFootY() : (player.y + player.height);
-        this.renderScaledEntity(ctx, playerPivotX, playerPivotY, () => {
-            player.render(ctx);
+        player.render(ctx);
 
-            if (
-                player.currentSubWeapon &&
-                !player.subWeaponRenderedInModel &&
-                typeof player.currentSubWeapon.render === 'function'
-            ) {
-                player.currentSubWeapon.render(ctx, player);
-            }
-        }, 1);
+        if (
+            player.currentSubWeapon &&
+            !player.subWeaponRenderedInModel &&
+            typeof player.currentSubWeapon.render === 'function'
+        ) {
+            player.currentSubWeapon.render(ctx, player);
+        }
 
         for (const bomb of this.bombs) {
             bomb.render(ctx);

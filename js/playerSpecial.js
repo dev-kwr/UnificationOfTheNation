@@ -31,6 +31,7 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
         this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
+        this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
 
         const cloneAnchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
         this.specialClonePositions = cloneAnchors.map(a => ({ x: a.x, y: a.y, facingRight: this.facingRight, prevX: a.x }));
@@ -58,6 +59,7 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
         this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
+        this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
         if (clearSmoke) this.specialSmoke = [];
     };
 
@@ -177,6 +179,9 @@ export function applySpecialMixin(PlayerClass) {
             }
             if (Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
                 this.specialCloneSlashTrailBoostAnchors[index] = null;
+            }
+            if (Array.isArray(this.specialCloneMirroredTrailProfiles)) {
+                this.specialCloneMirroredTrailProfiles[index] = null;
             }
             if (
                 this.specialCloneAutoAiEnabled &&
@@ -301,6 +306,7 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
         this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
+        this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
 
         // 戦闘開始時の煙もここでは生成せず、詠唱開始時のみに集約するか、
         // 少なくとも重複は避ける。詠唱終了時の煙は削除。

@@ -13,13 +13,13 @@ export const FRICTION = 0.85;
 // レーンY軸オフセット（groundY からの相対値）
 // プレイヤー・敵・影・分身・ジェム・障害物等の標準接地レーン
 export const LANE_OFFSET = 32;
-// プレイ中ワールド描画の見た目倍率（当たり判定・物理は変更しない）
-export const WORLD_ENTITY_RENDER_SCALE = 1.2;
+// 旧互換用。ワールド側は疑似拡大せず、各エンティティの実寸で大きさを持つ。
+export const WORLD_ENTITY_RENDER_SCALE = 1;
 
 // プレイヤー定数
 export const PLAYER = {
-    WIDTH: 40,
-    HEIGHT: 60,
+    WIDTH: 48,
+    HEIGHT: 72,
     SPEED: 6,
     JUMP_FORCE: -16,
     DOUBLE_JUMP_FORCE: -14,
@@ -47,8 +47,8 @@ export const OBSTACLE_TYPES = {
 
 // 障害物設定
 export const OBSTACLE_SETTINGS = {
-    SPIKE: { WIDTH: 30, HEIGHT: 30, DAMAGE: 5 },
-    ROCK: { WIDTH: 50, HEIGHT: 50, HP: 3 }
+    SPIKE: { WIDTH: 36, HEIGHT: 36, DAMAGE: 5 },
+    ROCK: { WIDTH: 60, HEIGHT: 60, HP: 3 }
 };
 
 // ゲーム状態

@@ -2,7 +2,7 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, WORLD_ENTITY_RENDER_SCALE, STAGE5_FLOOR } from './constants.js';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR } from './constants.js';
 import { createEnemy } from './enemy.js';
 import { createBoss } from './boss.js';
 import { createObstacle } from './obstacle.js';
@@ -1013,10 +1013,16 @@ export class Stage {
         return (enemy.x + enemy.width) < leftBound;
     }
 
+    createGroundedEnemy(type, x) {
+        const enemy = createEnemy(type, x, this.groundY, this.groundY);
+        if (!enemy) return null;
+        enemy.y = this.groundY + LANE_OFFSET - enemy.height;
+        return enemy;
+    }
+
     spawnRecycledEnemyAhead(type) {
         const spawnX = this.progress + CANVAS_WIDTH + 80 + Math.random() * 180;
-        const spawnY = this.groundY - 60;
-        const recycled = createEnemy(type || ENEMY_TYPES.ASHIGARU, spawnX, spawnY, this.groundY);
+        const recycled = this.createGroundedEnemy(type || ENEMY_TYPES.ASHIGARU, spawnX);
         if (!recycled) return null;
         recycled.facingRight = false;
         return recycled;
@@ -1093,9 +1099,8 @@ export class Stage {
                 continue;
             }
             
-            const y = this.groundY - 60;
-            
-            const enemy = createEnemy(type, x, y, this.groundY);
+            const enemy = this.createGroundedEnemy(type, x);
+            if (!enemy) continue;
             enemy.facingRight = facingRight;
             this.enemies.push(enemy);
         }
@@ -1103,9 +1108,8 @@ export class Stage {
     
     spawnMidBoss() {
         const x = this.progress + CANVAS_WIDTH + 50;
-        // 地面に直接配置 (LANE_OFFSET考慮)
-        const y = this.groundY + LANE_OFFSET - 66; // 足元がLANE_OFFSETに来るように高さ分引く
-        const midBoss = createEnemy(ENEMY_TYPES.BUSHO, x, y, this.groundY);
+        const midBoss = this.createGroundedEnemy(ENEMY_TYPES.BUSHO, x);
+        if (!midBoss) return;
         midBoss.hp = Math.round(midBoss.hp * 1.38);
         midBoss.maxHp = Math.round(midBoss.maxHp * 1.38);
         this.enemies.push(midBoss);
@@ -4081,35 +4085,13 @@ export class Stage {
     
     renderEnemies(ctx) {
         for (const enemy of this.enemies) {
-            if (WORLD_ENTITY_RENDER_SCALE !== 1) {
-                const pivotX = enemy.getFootX ? enemy.getFootX() : (enemy.x + enemy.width * 0.5);
-                const pivotY = enemy.getFootY ? enemy.getFootY() : (enemy.y + enemy.height);
-                ctx.save();
-                ctx.translate(pivotX, pivotY);
-                ctx.scale(WORLD_ENTITY_RENDER_SCALE, WORLD_ENTITY_RENDER_SCALE);
-                ctx.translate(-pivotX, -pivotY);
-                enemy.render(ctx);
-                ctx.restore();
-            } else {
-                enemy.render(ctx);
-            }
+            enemy.render(ctx);
         }
     }
 
     renderObstacles(ctx) {
         for (const obs of this.obstacles) {
-            if (WORLD_ENTITY_RENDER_SCALE !== 1) {
-                const pivotX = obs.x + obs.width * 0.5;
-                const pivotY = obs.y + obs.height;
-                ctx.save();
-                ctx.translate(pivotX, pivotY);
-                ctx.scale(WORLD_ENTITY_RENDER_SCALE, WORLD_ENTITY_RENDER_SCALE);
-                ctx.translate(-pivotX, -pivotY);
-                obs.render(ctx);
-                ctx.restore();
-            } else {
-                obs.render(ctx);
-            }
+            obs.render(ctx);
         }
     }
     

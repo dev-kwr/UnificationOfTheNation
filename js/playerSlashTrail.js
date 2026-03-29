@@ -1,6 +1,6 @@
 // Unification of the Nation - 斬撃トレイル mixin
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET, WORLD_ENTITY_RENDER_SCALE } from './constants.js';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js';
 import { audio } from './audio.js';
 import { game } from './game.js';
 import { drawShurikenShape } from './weapon.js';
@@ -212,6 +212,11 @@ export function applySlashTrailMixin(PlayerClass) {
 
     PlayerClass.prototype.buildComboAttackProfileWithTrail = function(step, state = {}) {
         const attackProfile = this.getComboAttackProfileByStep(step);
+        return this.applyComboTrailSpecToAttackProfile(attackProfile, state);
+    };
+
+    PlayerClass.prototype.applyComboTrailSpecToAttackProfile = function(attackProfile, state = {}) {
+        if (!attackProfile || !attackProfile.comboStep) return attackProfile;
         const baseState = {
             x: state.x !== undefined ? state.x : this.x,
             y: state.y !== undefined ? state.y : this.y,
@@ -277,6 +282,40 @@ export function applySlashTrailMixin(PlayerClass) {
         }
 
         return attackProfile;
+    };
+
+    PlayerClass.prototype.getMirroredCloneTrailProfile = function(index, pos, cloneDrawY) {
+        if (!this.currentAttack || !pos) return null;
+        if (!Array.isArray(this.specialCloneMirroredTrailProfiles)) {
+            this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
+        }
+        const activeTrailId = Number.isFinite(this.currentAttack.trailAttackId)
+            ? this.currentAttack.trailAttackId
+            : null;
+        const cached = this.specialCloneMirroredTrailProfiles[index];
+        if (
+            cached &&
+            cached.trailAttackId === activeTrailId &&
+            cached.comboStep === (this.currentAttack.comboStep || 0)
+        ) {
+            return cached;
+        }
+        const profile = this.applyComboTrailSpecToAttackProfile(
+            { ...this.currentAttack },
+            {
+                x: pos.x - this.width * 0.5,
+                y: cloneDrawY,
+                width: this.width,
+                height: PLAYER.HEIGHT,
+                facingRight: pos.facingRight,
+                isCrouching: false,
+                vx: this.vx,
+                vy: this.vy,
+                speed: this.speed
+            }
+        );
+        this.specialCloneMirroredTrailProfiles[index] = profile;
+        return profile;
     };
 
     PlayerClass.prototype.getAttackMotionProgress = function(attack, rawProgress) {
@@ -1525,7 +1564,7 @@ export function applySlashTrailMixin(PlayerClass) {
                         : (this.currentAttack ? this.currentAttack.comboStep || 1 : 1);
                     const attackProfile = isAutoAi
                         ? (this.specialCloneCurrentAttacks[i] || this.getComboAttackProfileByStep(comboStep))
-                        : this.currentAttack;
+                        : this.getMirroredCloneTrailProfile(i, pos, cloneDrawY);
                     activeTrailId = attackProfile && Number.isFinite(attackProfile.trailAttackId)
                         ? attackProfile.trailAttackId
                         : null;
@@ -1544,6 +1583,9 @@ export function applySlashTrailMixin(PlayerClass) {
                     if (!pose && comboStep > 0 && !this.shouldKeepComboTrailDuringReturn(comboStep)) {
                         this.specialCloneSlashTrailPoints[i].length = 0;
                         this.specialCloneSlashTrailSampleTimers[i] = 0;
+                        if (Array.isArray(this.specialCloneMirroredTrailProfiles)) {
+                            this.specialCloneMirroredTrailProfiles[i] = null;
+                        }
                         if (Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
                             this.specialCloneSlashTrailBoostAnchors[i] = null;
                         }
@@ -1564,6 +1606,9 @@ export function applySlashTrailMixin(PlayerClass) {
             );
             if (Array.isArray(this.specialCloneSlashTrailBoostAnchors) && this.specialCloneSlashTrailPoints[i].length < 2) {
                 this.specialCloneSlashTrailBoostAnchors[i] = null;
+            }
+            if ((!isAlive || !pos || !pose) && Array.isArray(this.specialCloneMirroredTrailProfiles) && !this.specialCloneAutoAiEnabled) {
+                this.specialCloneMirroredTrailProfiles[i] = null;
             }
             if (this.specialCloneSlashTrailPoints[i].length > 96) {
                 this.specialCloneSlashTrailPoints[i].splice(0, this.specialCloneSlashTrailPoints[i].length - 96);
@@ -1739,38 +1784,13 @@ export function applySlashTrailMixin(PlayerClass) {
         const bluePalette = { front: [130, 234, 255], back: [76, 154, 226] };
 
         const buildProjected = (pts, projectFn = null) => {
-            const applyWorldScale = (srcPoint) => {
-                if (Math.abs(WORLD_ENTITY_RENDER_SCALE - 1) < 0.001) {
-                    return { x: srcPoint.x, y: srcPoint.y };
-                }
-                const originX = Number.isFinite(srcPoint.playerX) ? srcPoint.playerX : this.x;
-                const originY = Number.isFinite(srcPoint.playerY) ? srcPoint.playerY : this.y;
-                const pivotX = originX + this.width * 0.5;
-                const pivotY = originY + this.height;
-                return {
-                    x: pivotX + (srcPoint.x - pivotX) * WORLD_ENTITY_RENDER_SCALE,
-                    y: pivotY + (srcPoint.y - pivotY) * WORLD_ENTITY_RENDER_SCALE
-                };
-            };
             if (!projectFn) {
-                return pts.map((src) => {
-                    const scaled = applyWorldScale(src);
-                    return {
-                        ...src,
-                        x: scaled.x,
-                        y: scaled.y
-                    };
-                });
+                return pts.map((src) => ({ ...src }));
             }
             const mapped = [];
             for (let i = 0; i < pts.length; i++) {
                 const src = pts[i];
-                const scaledSrc = applyWorldScale(src);
-                const p = projectFn({
-                    ...src,
-                    x: scaledSrc.x,
-                    y: scaledSrc.y
-                });
+                const p = projectFn(src);
                 mapped.push({
                     x: p.x,
                     y: p.y,

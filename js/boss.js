@@ -20,8 +20,8 @@ const SHOGUN_ARM_REACH_SCALE = 1.08;
 // ボスベースクラス
 class Boss extends Enemy {
     init() {
-        this.width = 60;
-        this.height = 90;
+        this.width = 72;
+        this.height = 108;
         this.hp = 240;
         this.maxHp = 240;
         this.damage = 4;
@@ -1049,8 +1049,8 @@ export class OdachiBusho extends Boss {
         this.incomingDamageScale = 0.64;
         this.damage = 5;
         this.speed = 3.2;
-        this.width = 70;
-        this.height = 100;
+        this.width = 84;
+        this.height = 120;
         this.attackRange = 180;
         this.attackPatterns = ['odachi'];
         this.setupWeaponReplica('大太刀');
@@ -1763,12 +1763,8 @@ export class Shogun extends Boss {
             for (let bi = bombsBefore; bi < window.game.bombs.length; bi++) {
                 const b = window.game.bombs[bi];
                 if (!b) continue;
-                if (Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 1) {
-                    if (Number.isFinite(b.radius)) b.radius *= this.scaleMultiplier;
-                    // 将軍もプレイヤーと同様の爆弾仕様。将軍は常にLv3(Tier3)を使用するため sizeUp は true 固定。
-                    const sizeUp = true; 
-                    b.explosionRadius = (sizeUp ? 104 : 70) * this.scaleMultiplier;
-                }
+                // 火薬玉だけ追加拡大すると他の武器とルールがずれるため、
+                // 将軍でも Firebomb 側の標準サイズをそのまま使う。
                 b.isEnemyProjectile = true;
                 b.owner = owner;
                 // game.jsがisEnemyProjectile===trueのbombに呼ぶgetHitbox()を追加

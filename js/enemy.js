@@ -17,8 +17,8 @@ export class Enemy {
         this.groundY = groundY;
         
         // サイズ（タイプによって変更）
-        this.width = 40;
-        this.height = 60;
+        this.width = 48;
+        this.height = 72;
         
         // 速度
         this.vx = 0;
@@ -2760,8 +2760,8 @@ export class Enemy {
 // 足軽（雑魚）
 export class Ashigaru extends Enemy {
     init() {
-        this.width = 35;
-        this.height = 55;
+        this.width = 42;
+        this.height = 66;
         this.hp = 8;      // 一撃で倒せるよう調整
         this.maxHp = 8;
         this.damage = 1;
@@ -2988,8 +2988,8 @@ export class Ashigaru extends Enemy {
 // 侍（普通）
 export class Samurai extends Enemy {
     init() {
-        this.width = 40;
-        this.height = 60;
+        this.width = 48;
+        this.height = 72;
         this.hp = 28;
         this.maxHp = 28;
         this.damage = 2;
@@ -3253,8 +3253,8 @@ export class Samurai extends Enemy {
 // 武将（中ボス）
 export class Busho extends Enemy {
     init() {
-        this.width = 50;
-        this.height = 75;
+        this.width = 60;
+        this.height = 90;
         this.hp = 58;
         this.maxHp = 58;
         this.damage = 2;
@@ -3857,8 +3857,8 @@ export class Busho extends Enemy {
 // 忍者（特殊）
 export class Ninja extends Enemy {
     init() {
-        this.width = 35;
-        this.height = 55;
+        this.width = 42;
+        this.height = 66;
         this.hp = 20;
         this.maxHp = 20;
         this.damage = 1;

@@ -165,6 +165,7 @@ export class Player {
         this.specialCloneSlashTrailPoints = [];
         this.specialCloneSlashTrailSampleTimers = [];
         this.specialCloneSlashTrailBoostAnchors = [];
+        this.specialCloneMirroredTrailProfiles = [];
         this.comboSlashTrailSampleIntervalMs = 14;
         this.comboSlashTrailActiveLifeMs = 800;
         this.comboSlashTrailAttackSerial = 0;
@@ -1168,6 +1169,11 @@ export class Player {
                 this.specialCloneSlashTrailBoostAnchors[i] = null;
             }
         }
+        if (Array.isArray(this.specialCloneMirroredTrailProfiles) && !this.specialCloneAutoAiEnabled) {
+            for (let i = 0; i < this.specialCloneMirroredTrailProfiles.length; i++) {
+                this.specialCloneMirroredTrailProfiles[i] = null;
+            }
+        }
         
         // コンボ進行
         const comboMax = this.getNormalComboMax();
@@ -1823,10 +1829,14 @@ export class Player {
 
         // 地面判定
         if (hangingOnOdachi) {
-            const hangClearance = 30;
-            const hangY = this.groundY + LANE_OFFSET - this.height - hangClearance;
+            const odachi = this.currentSubWeapon;
+            const hangY = (odachi && typeof odachi.getPlantedOwnerY === 'function')
+                ? odachi.getPlantedOwnerY(this)
+                : (this.groundY + LANE_OFFSET - this.height - 30);
             // 刺さっている間は常に同じ吊り位置を維持する
-            this.y = hangY;
+            if (Number.isFinite(hangY)) {
+                this.y = hangY;
+            }
             if (this.vy > 0) {
                 this.vy = 0;
             }

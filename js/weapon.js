@@ -2248,6 +2248,7 @@ export class Kusarigama extends SubWeapon {
         this.echoHitEnemies = new Set();
         this.autoTrackCooldownMs = 95;
         this.nextAutoTrackTime = 0;
+        this.orbitBackAngle = -Math.PI * 0.78;
     }
 
     scaleMotionDuration(baseDurationMs) {
@@ -2396,14 +2397,14 @@ export class Kusarigama extends SubWeapon {
             radius = this.range * this.rangeScale;
             // 前方へ投げ放った後に遠心力を感じるよう、ゆっくり回し始める
             const eased = Math.pow(phaseT, 1.22);
-            angle = 0.05 + (-Math.PI * 1.22 - 0.05) * eased; // 終点を斜め後方 (-1.22PI) まで延長
+            angle = 0.05 + (this.orbitBackAngle - 0.05) * eased; // 終点は後方斜め上で止める
         } else {
             phase = 'retract';
             phaseT = (progress - this.orbitEnd) / (1 - this.orbitEnd);
             // 縮退も常に円弧上（角度と半径を同時補間）
             const eased = 0.5 - Math.cos(phaseT * Math.PI) * 0.5;
             radius = this.range * this.rangeScale * (1 - eased * 0.9);
-            const startAngle = -Math.PI * 1.22; // 回転終点に合わせて開始角も後方にずらす
+            const startAngle = this.orbitBackAngle; // 回転終点に合わせて開始角も後方斜め上へ揃える
             const endAngle = -Math.PI * 0.18;
             angle = startAngle + (endAngle - startAngle) * eased;
         }
@@ -2417,7 +2418,7 @@ export class Kusarigama extends SubWeapon {
         if (phase === 'orbit') {
             const eased = Math.pow(phaseT, 1.22);
             const orbitStart = 0.14;
-            const orbitEnd = -Math.PI * 1.22;
+            const orbitEnd = this.orbitBackAngle;
             const orbit = orbitStart + (orbitEnd - orbitStart) * eased;
             const reach = 20.2;
             handX = shoulderX + direction * (Math.cos(orbit) * reach);
@@ -2425,7 +2426,7 @@ export class Kusarigama extends SubWeapon {
         } else {
             // 回し終わりから収納へ戻す
             const eased = 0.5 - Math.cos(phaseT * Math.PI) * 0.5;
-            const fromOrbit = -Math.PI * 1.22;
+            const fromOrbit = this.orbitBackAngle;
             const fromX = shoulderX + direction * (Math.cos(fromOrbit) * 20.2);
             const fromY = shoulderY + Math.sin(fromOrbit) * 20.2 - 0.4;
             const toX = shoulderX + direction * 6.5;
@@ -2474,6 +2475,32 @@ export class Kusarigama extends SubWeapon {
         return this.getMotionState(player);
     }
 
+    getChainCurveControl(state) {
+        const chainDx = state.tipX - state.handX;
+        const chainDy = state.tipY - state.handY;
+        const chainLen = Math.max(0.001, Math.hypot(chainDx, chainDy));
+        const chainNx = -chainDy / chainLen;
+        const chainNy = chainDx / chainLen;
+        const chainTension = Number.isFinite(state.tension) ? Math.max(0, Math.min(1, state.tension)) : 1;
+        const throwPhase = state.phase === 'throw';
+        const slackScale = throwPhase ? 0.42 : 1.0;
+        const slackBase = (1 - chainTension) * (10 + Math.min(8, chainLen * 0.05)) * slackScale;
+        const midX = (state.handX + state.tipX) * 0.5;
+        const midY = (state.handY + state.tipY) * 0.5;
+        return {
+            chainLen,
+            chainNx,
+            chainNy,
+            chainTension,
+            throwPhase,
+            ctrlX: midX - state.chainDirX * (chainLen * 0.1) + chainNx * (slackBase * (throwPhase ? 0.18 : 0.48)),
+            ctrlY: midY
+                - state.chainDirY * (chainLen * 0.1)
+                + chainNy * (slackBase * (throwPhase ? 0.08 : 0.24))
+                + slackBase * (throwPhase ? 0.24 : 0.62)
+        };
+    }
+
     getSickleGeometry(state) {
         const travelHeading = state.phase === 'orbit'
             ? (state.chainHeading - state.direction * Math.PI * 0.5)
@@ -2508,13 +2535,6 @@ export class Kusarigama extends SubWeapon {
         const st = this.getRenderState(player);
         if (st.radius < 16) return null;
         const sickle = this.getSickleGeometry(st);
-
-        const chainThickness = 12;
-        const minX = Math.min(st.handX, st.tipX) - chainThickness * 0.5;
-        const minY = Math.min(st.handY, st.tipY) - chainThickness * 0.5;
-        const width = Math.max(8, Math.abs(st.tipX - st.handX) + chainThickness);
-        const height = Math.max(8, Math.abs(st.tipY - st.handY) + chainThickness);
-        const chainHitbox = { x: minX, y: minY, width, height, part: 'chain' };
         const sickleTipX = st.tipX + Math.cos(sickle.rotation) * sickle.reach;
         const sickleTipY = st.tipY + Math.sin(sickle.rotation) * sickle.reach;
         const tipRadius = 15;
@@ -2525,7 +2545,34 @@ export class Kusarigama extends SubWeapon {
             height: Math.max(22, Math.abs(sickleTipY - st.tipY) + tipRadius * 2),
             part: 'tip'
         };
-        const hitboxes = [chainHitbox, tipHitbox];
+        const hitboxes = [tipHitbox];
+        const shouldHitWithChain = st.phase === 'orbit' || st.phase === 'retract' || (st.phase === 'throw' && st.phaseT >= 0.72);
+        if (shouldHitWithChain) {
+            const curve = this.getChainCurveControl(st);
+            const chainRadius = st.phase === 'orbit' ? 4.8 : 4.2;
+            const segmentCount = Math.max(5, Math.min(11, Math.round(curve.chainLen / 42)));
+            for (let i = 0; i < segmentCount; i++) {
+                const t0 = i / segmentCount;
+                const t1 = (i + 1) / segmentCount;
+                const m = (t0 + t1) * 0.5;
+                const inv0 = 1 - t0;
+                const inv1 = 1 - t1;
+                const invM = 1 - m;
+                const p0x = inv0 * inv0 * st.handX + 2 * inv0 * t0 * curve.ctrlX + t0 * t0 * st.tipX;
+                const p0y = inv0 * inv0 * st.handY + 2 * inv0 * t0 * curve.ctrlY + t0 * t0 * st.tipY;
+                const p1x = inv1 * inv1 * st.handX + 2 * inv1 * t1 * curve.ctrlX + t1 * t1 * st.tipX;
+                const p1y = inv1 * inv1 * st.handY + 2 * inv1 * t1 * curve.ctrlY + t1 * t1 * st.tipY;
+                const pmx = invM * invM * st.handX + 2 * invM * m * curve.ctrlX + m * m * st.tipX;
+                const pmy = invM * invM * st.handY + 2 * invM * m * curve.ctrlY + m * m * st.tipY;
+                hitboxes.push({
+                    x: Math.min(p0x, p1x, pmx) - chainRadius,
+                    y: Math.min(p0y, p1y, pmy) - chainRadius,
+                    width: Math.max(8, Math.max(p0x, p1x, pmx) - Math.min(p0x, p1x, pmx) + chainRadius * 2),
+                    height: Math.max(8, Math.max(p0y, p1y, pmy) - Math.min(p0y, p1y, pmy) + chainRadius * 2),
+                    part: 'chain'
+                });
+            }
+        }
         // Lvが上がるほど鎌先まわりの追撃判定を増やして制圧力を上げる
         if (this.multiHitCount > 0) {
             const tipReach = 18;
@@ -2615,29 +2662,14 @@ export class Kusarigama extends SubWeapon {
         chainGradient.addColorStop(0, 'rgba(170, 176, 188, 0.95)');
         chainGradient.addColorStop(0.55, 'rgba(128, 136, 150, 0.98)');
         chainGradient.addColorStop(1, 'rgba(92, 102, 118, 0.95)');
-        const chainDx = st.tipX - st.handX;
-        const chainDy = st.tipY - st.handY;
-        const chainLen = Math.max(0.001, Math.hypot(chainDx, chainDy));
-        const chainNx = -chainDy / chainLen;
-        const chainNy = chainDx / chainLen;
-        const chainTension = Number.isFinite(st.tension) ? Math.max(0, Math.min(1, st.tension)) : 1;
-        const throwPhase = st.phase === 'throw';
-        const slackScale = throwPhase ? 0.42 : 1.0;
-        const slackBase = (1 - chainTension) * (10 + Math.min(8, chainLen * 0.05)) * slackScale;
-        const midX = (st.handX + st.tipX) * 0.5;
-        const midY = (st.handY + st.tipY) * 0.5;
-        const ctrlX = midX - st.chainDirX * (chainLen * 0.1) + chainNx * (slackBase * (throwPhase ? 0.18 : 0.48));
-        const ctrlY = midY
-            - st.chainDirY * (chainLen * 0.1)
-            + chainNy * (slackBase * (throwPhase ? 0.08 : 0.24))
-            + slackBase * (throwPhase ? 0.24 : 0.62);
+        const curve = this.getChainCurveControl(st);
         ctx.lineDashOffset = -st.progress * 150; // 鎖が動いているような視覚効果
         ctx.strokeStyle = chainGradient;
         ctx.lineWidth = 2.4;
         ctx.setLineDash([5, 3]);
         ctx.beginPath();
         ctx.moveTo(st.handX, st.handY);
-        ctx.quadraticCurveTo(ctrlX, ctrlY, st.tipX, st.tipY);
+        ctx.quadraticCurveTo(curve.ctrlX, curve.ctrlY, st.tipX, st.tipY);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.strokeStyle = 'rgba(230, 245, 255, 0.45)';
@@ -2645,27 +2677,27 @@ export class Kusarigama extends SubWeapon {
         ctx.beginPath();
         ctx.moveTo(st.handX + st.chainDirY * 1.4, st.handY - st.chainDirX * 1.4);
         ctx.quadraticCurveTo(
-            ctrlX + st.chainDirY * 1.4,
-            ctrlY - st.chainDirX * 1.4,
+            curve.ctrlX + st.chainDirY * 1.4,
+            curve.ctrlY - st.chainDirX * 1.4,
             st.tipX + st.chainDirY * 1.4,
             st.tipY - st.chainDirX * 1.4
         );
         ctx.stroke();
 
         // 鎖コマを等間隔で描いて、金属鎖らしい実体感を出す
-        const chainLinks = Math.max(8, Math.min(24, Math.round(chainLen / 13)));
+        const chainLinks = Math.max(8, Math.min(24, Math.round(curve.chainLen / 13)));
         ctx.fillStyle = 'rgba(106, 114, 128, 0.95)';
         ctx.strokeStyle = 'rgba(220, 230, 244, 0.46)';
         ctx.lineWidth = 0.7;
         for (let i = 1; i < chainLinks; i++) {
             const t = i / chainLinks;
             const inv = 1 - t;
-            const px = inv * inv * st.handX + 2 * inv * t * ctrlX + t * t * st.tipX;
-            const py = inv * inv * st.handY + 2 * inv * t * ctrlY + t * t * st.tipY;
-            const tx = 2 * inv * (ctrlX - st.handX) + 2 * t * (st.tipX - ctrlX);
-            const ty = 2 * inv * (ctrlY - st.handY) + 2 * t * (st.tipY - ctrlY);
+            const px = inv * inv * st.handX + 2 * inv * t * curve.ctrlX + t * t * st.tipX;
+            const py = inv * inv * st.handY + 2 * inv * t * curve.ctrlY + t * t * st.tipY;
+            const tx = 2 * inv * (curve.ctrlX - st.handX) + 2 * t * (st.tipX - curve.ctrlX);
+            const ty = 2 * inv * (curve.ctrlY - st.handY) + 2 * t * (st.tipY - curve.ctrlY);
             const angle = Math.atan2(ty, tx);
-            const linkR = 1.25 + (1 - chainTension) * 0.35;
+            const linkR = 1.25 + (1 - curve.chainTension) * 0.35;
             ctx.save();
             ctx.translate(px, py);
             ctx.rotate(angle);
@@ -2791,6 +2823,10 @@ export class Odachi extends SubWeapon {
         this.plantedTimer = 0;
         this.basePlantedDuration = 320;
         this.plantedDuration = this.basePlantedDuration; // 衝撃波が消えるまで刀を地面に刺したまま見せる
+        this.baseFadeOutDuration = 90;
+        this.fadeOutDuration = this.baseFadeOutDuration;
+        this.fadeOutTimer = 0;
+        this.lastPlantedPose = null;
         this.impactSoundPlayed = false; // 着地爆発音の重複防止
     }
 
@@ -2809,6 +2845,7 @@ export class Odachi extends SubWeapon {
 
         this.impactStart = Math.max(0.78, this.baseImpactStart - this.enhanceTier * 0.025);
         this.plantedDuration = Math.round(this.basePlantedDuration * (1 + this.enhanceTier * 0.12));
+        this.fadeOutDuration = this.baseFadeOutDuration;
     }
     
     use(player) {
@@ -2818,6 +2855,8 @@ export class Odachi extends SubWeapon {
         this.hasImpacted = false;
         this.impactFlashTimer = 0;
         this.plantedTimer = 0;
+        this.fadeOutTimer = 0;
+        this.lastPlantedPose = null;
         this.impactSoundPlayed = false;
         this.groundWaves = [];
         this.impactDebris = [];
@@ -2894,7 +2933,9 @@ export class Odachi extends SubWeapon {
             if (tipY > maxTipY) {
                 adjustedHandY -= (tipY - maxTipY);
             }
-            return { progress, phase, direction, rotation, handX, handY: adjustedHandY, bladeLen };
+            const plantedPose = { progress, phase, direction, rotation, handX, handY: adjustedHandY, bladeLen };
+            this.lastPlantedPose = { ...plantedPose };
+            return plantedPose;
         }
 
         if (progress < this.liftEnd) {
@@ -2941,13 +2982,22 @@ export class Odachi extends SubWeapon {
     }
 
     getHandleMetrics() {
-        const back = -34;
-        const front = 21;
+        const back = -30;
+        const front = 18;
         return {
             back,
             front,
-            center: (back + front) * 0.5
+            center: (back + front) * 0.5,
+            thickness: 10.5
         };
+    }
+
+    getPlantedOwnerY(player) {
+        if (!player) return null;
+        const bladeEnd = (this.range + 18) + 8;
+        const maxTipY = player.groundY + LANE_OFFSET;
+        const handHeightRatio = 0.125;
+        return maxTipY - bladeEnd - (player.height * handHeightRatio);
     }
 
     localToWorldOnPose(pose, localX, localY = 0) {
@@ -2963,9 +3013,10 @@ export class Odachi extends SubWeapon {
         const pose = this.getPose(player);
         const handle = this.getHandleMetrics();
         const centerX = handle.center;
+        const ownerScale = Math.max(1, (player?.height || 60) / 60);
         // 柄の中心付近を両手で挟む配置（長手方向に少しずらし、左右から包む）
-        const halfSpan = 3.2;
-        const pinch = 2.3;
+        const halfSpan = 4.2 * ownerScale;
+        const pinch = 2.8 * ownerScale;
         return {
             center: this.localToWorldOnPose(pose, centerX, 0),
             rear: this.localToWorldOnPose(pose, centerX - halfSpan, -pinch),
@@ -2978,11 +3029,12 @@ export class Odachi extends SubWeapon {
 
     getHandAnchor(player) {
         const pose = this.getPose(player);
+        const ownerScale = Math.max(1, (player?.height || 60) / 60);
         // 刃の部分にかからないよう、柄の端方向（負の方向）へオフセットを拡大
         // ready（構え）時は柄の中央寄りをしっかり握る
-        const gripOffset = (pose.phase === 'plunge' || pose.phase === 'planted') ? -26
-                         : (pose.phase === 'ready') ? -10
-                         : -18;
+        const gripOffset = ((pose.phase === 'plunge' || pose.phase === 'planted') ? -22
+                         : (pose.phase === 'ready') ? -8
+                         : -15) * ownerScale;
         return {
             x: pose.handX + Math.cos(pose.rotation) * gripOffset,
             y: pose.handY + Math.sin(pose.rotation) * gripOffset,
@@ -3060,12 +3112,10 @@ export class Odachi extends SubWeapon {
                 
                 // 接地中はオーナーを「ぶら下がり位置」で空中に固定
                 if (this.owner && this.plantedTimer > 0) {
-                    const bladeEnd = (this.range + 18) + 8;
-                    const maxTipY = this.owner.groundY + LANE_OFFSET;
-                    // オーナーのy = 地面 - 剣の長さ - 肩までのオフセット(比率計算)
-                    const offsetRate = this.owner.isEnemy ? 0.125 : 0.125; // 共通化
-                    const targetY = maxTipY - bladeEnd - (this.owner.height * offsetRate);
-                    this.owner.y = targetY;
+                    const targetY = this.getPlantedOwnerY(this.owner);
+                    if (Number.isFinite(targetY)) {
+                        this.owner.y = targetY;
+                    }
                     this.owner.vy = 0;
                     this.owner.isGrounded = false; // 足元は浮いている
                 }
@@ -3073,6 +3123,7 @@ export class Odachi extends SubWeapon {
                 if (this.plantedTimer <= 0) {
                     this.isAttacking = false;
                     this.plantedTimer = 0;
+                    this.fadeOutTimer = this.fadeOutDuration;
                     this.attackDirection = this.owner && this.owner.facingRight ? 1 : -1;
                 }
             } else {
@@ -3172,6 +3223,13 @@ export class Odachi extends SubWeapon {
             }
         }
 
+        if (!this.isAttacking && this.fadeOutTimer > 0) {
+            this.fadeOutTimer = Math.max(0, this.fadeOutTimer - deltaTime * 1000);
+            if (this.fadeOutTimer <= 0) {
+                this.lastPlantedPose = null;
+            }
+        }
+
         if (this.impactFlashTimer > 0) {
             this.impactFlashTimer -= deltaTime * 1000;
         }
@@ -3239,11 +3297,18 @@ export class Odachi extends SubWeapon {
     
     render(ctx, player) {
         // 攻撃中 OR 刺さり中 OR 強制描画指定時は刀身を描画
-        if (this.isAttacking || (player && player.forceSubWeaponRender)) {
-            const pose = this.getPose(player);
+        const shouldFadeOut = !this.isAttacking && this.fadeOutTimer > 0 && this.lastPlantedPose;
+        if (this.isAttacking || shouldFadeOut || (player && player.forceSubWeaponRender)) {
+            const pose = shouldFadeOut
+                ? this.lastPlantedPose
+                : this.getPose(player);
+            const fadeAlpha = shouldFadeOut
+                ? Math.max(0, Math.min(1, this.fadeOutTimer / Math.max(1, this.fadeOutDuration)))
+                : 1;
             const blade = this.getBladeGeometry(pose);
             const handle = this.getHandleMetrics();
             ctx.save();
+            ctx.globalAlpha *= fadeAlpha;
             ctx.translate(pose.handX, pose.handY);
             ctx.scale(pose.direction, 1);
             ctx.rotate(pose.rotation);
@@ -3251,18 +3316,19 @@ export class Odachi extends SubWeapon {
             // 柄（色を濃く、重厚に）
             const handleBack = handle.back;
             const handleFront = handle.front;
+            const handleHalfH = (handle.thickness || 9) * 0.5;
             ctx.fillStyle = '#3d2310';
             ctx.beginPath();
-            ctx.rect(handleBack, -4.5, handleFront - handleBack, 9);
+            ctx.rect(handleBack, -handleHalfH, handleFront - handleBack, handleHalfH * 2);
             ctx.fill();
 
             // 柄の巻紐表現（ひし形の重なり）
             ctx.fillStyle = '#221105';
             for (let x = handleBack + 4; x < handleFront - 4; x += 8) {
                 ctx.beginPath();
-                ctx.moveTo(x, -4.5);
+                ctx.moveTo(x, -handleHalfH);
                 ctx.lineTo(x + 4, 0);
-                ctx.lineTo(x, 4.5);
+                ctx.lineTo(x, handleHalfH);
                 ctx.lineTo(x - 4, 0);
                 ctx.closePath();
                 ctx.fill();
@@ -3271,7 +3337,7 @@ export class Odachi extends SubWeapon {
             // 柄の縁取り
             ctx.strokeStyle = '#1a0d04';
             ctx.lineWidth = 0.8;
-            ctx.strokeRect(handleBack, -4.5, handleFront - handleBack, 9);
+            ctx.strokeRect(handleBack, -handleHalfH, handleFront - handleBack, handleHalfH * 2);
 
             // 鍔（少し使い込まれた金の色）
             ctx.fillStyle = '#b59345';

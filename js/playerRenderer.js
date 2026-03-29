@@ -16,7 +16,7 @@ export function applyRendererMixin(PlayerClass) {
 
     PlayerClass.prototype.getKatanaBladeLength = function() {
         // 剣筋の弧に刃先が届く長さで統一
-        return 66;
+        return 80;
     };
 
     PlayerClass.prototype.drawKatana = function(
@@ -4177,7 +4177,7 @@ export function applyRendererMixin(PlayerClass) {
                     : (this.currentAttack ? this.currentAttack.comboStep || 1 : 1);
                 const cloneAttackProfile = this.specialCloneAutoAiEnabled
                     ? (this.specialCloneCurrentAttacks[i] || this.getComboAttackProfileByStep(cloneComboStep))
-                    : null;
+                    : this.getMirroredCloneTrailProfile(i, pos, cloneDrawY);
 
                 // 分身の状態をセット
                 this.x = cloneDrawX;
@@ -4214,16 +4214,18 @@ export function applyRendererMixin(PlayerClass) {
                     this.subWeaponPoseOverride = null;
                 }
 
-                if (isCloneAttacking) {
-                    this.isAttacking = true;
-                    this.attackCombo = cloneComboStep;
-                    if (this.specialCloneAutoAiEnabled) {
+                    if (isCloneAttacking) {
+                        this.isAttacking = true;
+                        this.attackCombo = cloneComboStep;
+                    if (this.specialCloneAutoAiEnabled && cloneAttackProfile) {
                         this.currentAttack = {
                             ...cloneAttackProfile,
                             comboStep: cloneComboStep
                         };
-                    } else {
+                    } else if (!this.specialCloneAutoAiEnabled) {
                         this.currentAttack = saved.currentAttack;
+                    } else {
+                        this.currentAttack = null;
                     }
                     this.attackTimer = cloneAttackTimer;
                 } else {
