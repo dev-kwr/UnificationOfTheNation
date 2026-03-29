@@ -1,6 +1,6 @@
 // Unification of the Nation - 斬撃トレイル mixin
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET, WORLD_ENTITY_RENDER_SCALE } from './constants.js';
 import { audio } from './audio.js';
 import { game } from './game.js';
 import { drawShurikenShape } from './weapon.js';
@@ -13,6 +13,35 @@ import {
 } from './playerData.js';
 
 export function applySlashTrailMixin(PlayerClass) {
+
+    PlayerClass.prototype.getKatanaVisualTipOffset = function(
+        angle,
+        dir = 1,
+        bladeLength = this.getKatanaBladeLength(),
+        uprightBlend = 0,
+        scaleY = 1,
+        uprightTarget = -Math.PI / 2
+    ) {
+        const blend = Math.max(0, Math.min(1, uprightBlend));
+        const adjustedAngle = angle + (uprightTarget - angle) * blend;
+        const scale = 0.52;
+        const visualBladeLength = Math.max(18, bladeLength - 5);
+        const bladeReach = visualBladeLength / scale;
+        const gripOffset = 10;
+        const tsubaX = gripOffset;
+        const tsubaRX = 1.8;
+        const habakiX = tsubaX + tsubaRX + 0.4;
+        const bladeStart = habakiX + 2.2;
+        const bladeEnd = Math.max(bladeStart + 10, bladeReach);
+        const bl = bladeEnd - bladeStart;
+        const sori = bl * 0.18;
+        const tipLocalX = bladeEnd * scale * dir;
+        const tipLocalY = (-(sori) + 0.06 - 2.2) * scale * scaleY;
+        return {
+            x: Math.cos(adjustedAngle) * tipLocalX - Math.sin(adjustedAngle) * tipLocalY,
+            y: Math.sin(adjustedAngle) * tipLocalX + Math.cos(adjustedAngle) * tipLocalY
+        };
+    };
 
     PlayerClass.prototype.buildAttackProfile = function(baseAttack, extra = {}) {
         const source = { ...(baseAttack || {}), ...(extra || {}) };
@@ -54,7 +83,12 @@ export function applySlashTrailMixin(PlayerClass) {
         const frozenPoints = stepPoints
             .map((point) => this.absolutizeRelativeTrailPoint(point))
             .filter(Boolean);
-        const frozenCurvePoints = this.buildSampledBezierCurvePoints(frozenPoints);
+        const frozenCurvePoints = frozenPoints.map((point) => ({
+            x: point.x,
+            y: point.y,
+            age: Math.max(0, point.age || 0),
+            life: Math.max(1, point.life || this.comboSlashTrailActiveLifeMs)
+        }));
         if (!frozenCurvePoints || frozenCurvePoints.length < 2) return null;
         return {
             type: 'sampledBezier',
@@ -304,8 +338,8 @@ export function applySlashTrailMixin(PlayerClass) {
 
     PlayerClass.prototype.getComboTrailProgressWindow = function(comboStep) {
         switch (comboStep) {
-            // 剣筋描画調整を一旦リセット
-            case 1: return { start: 0.0, end: 1.0 };
+            // 一段目は振り切り後の戻りを剣筋に含めない
+            case 1: return { start: 0.0, end: 0.82 };
             case 2: return { start: 0.0, end: 1.0 };
             case 3: return { start: 0.0, end: 1.0 };
             case 4: return { start: 0.0, end: 1.0 };
@@ -932,20 +966,16 @@ export function applySlashTrailMixin(PlayerClass) {
                 const wind = Math.max(0, Math.min(1, progress / 0.34));
                 const swing = Math.max(0, Math.min(1, (progress - 0.34) / 0.48)); // 0.82で振り抜き完了
                 const swingEase = swing * swing * (3 - 2 * swing);
-                // 振り抜き後の残身: 腕を前方へ微戻しし、刀角度を自然なホールドへ収める
-                const settle = Math.max(0, Math.min(1, (progress - 0.82) / 0.18));
-                const settleEase = settle * settle * (3 - 2 * settle);
-
                 const baseArmX = centerX + dir * 15;
                 const baseArmY = pivotY + 8.0;
-                swordAngle = idleAngle + wind * (1.0 - idleAngle) + swingEase * 1.7 - settleEase * 0.38;
-                armEndX = idleHandX + wind * (baseArmX - idleHandX) - swingEase * 15.0 * dir + settleEase * 5.5 * dir;
-                armEndY = idleHandY + wind * (baseArmY - idleHandY) + swingEase * 4.2 - settleEase * 2.2;
+                swordAngle = idleAngle + wind * (1.0 - idleAngle) + swingEase * 1.32;
+                armEndX = idleHandX + wind * (baseArmX - idleHandX) - swingEase * 9.5 * dir;
+                armEndY = idleHandY + wind * (baseArmY - idleHandY) + swingEase * 2.0;
 
-                activeLeftShoulderX -= dir * (0.6 * wind + swingEase * 1.6 - settleEase * 0.42);
-                activeLeftShoulderY += (0.2 * wind + swingEase * 0.8 - settleEase * 0.28);
-                activeRightShoulderX -= dir * (0.2 * wind + swingEase * 1.0 - settleEase * 0.28);
-                activeRightShoulderY += (0.2 * wind + swingEase * 0.7 - settleEase * 0.22);
+                activeLeftShoulderX -= dir * (0.6 * wind + swingEase * 1.18);
+                activeLeftShoulderY += (0.2 * wind + swingEase * 0.52);
+                activeRightShoulderX -= dir * (0.2 * wind + swingEase * 0.72);
+                activeRightShoulderY += (0.2 * wind + swingEase * 0.48);
                 break;
             }
             case 3: {
@@ -1085,6 +1115,21 @@ export function applySlashTrailMixin(PlayerClass) {
             supportGripMaxReach += (22.0 - supportGripMaxReach) * recover;
         }
 
+        // レンダラ側と同じ主動作腕のリーチ制限を先に適用し、切っ先と剣筋を一致させる
+        {
+            const standardUpperLen = 13.6;
+            const standardForeLen = 13.2;
+            const mainReachCap = standardUpperLen + standardForeLen;
+            const handDx = armEndX - activeLeftShoulderX;
+            const handDy = armEndY - activeLeftShoulderY;
+            const handDist = Math.hypot(handDx, handDy);
+            if (handDist > mainReachCap && handDist > 0.0001) {
+                const clampRatio = mainReachCap / handDist;
+                armEndX = activeLeftShoulderX + handDx * clampRatio;
+                armEndY = activeLeftShoulderY + handDy * clampRatio;
+            }
+        }
+
         let trailTipExtend = 0;
         let trailCenterX = centerX;
         let trailCenterY = centerY;
@@ -1132,8 +1177,7 @@ export function applySlashTrailMixin(PlayerClass) {
         }
 
         const bladeLen = this.getKatanaBladeLength();
-        const bladeDirX = Math.cos(swordAngle) * dir;
-        const bladeDirY = Math.sin(swordAngle);
+        const visualTipOffset = this.getKatanaVisualTipOffset(swordAngle, dir, bladeLen, 0);
         return {
             attack,
             comboStep: attack.comboStep,
@@ -1155,10 +1199,10 @@ export function applySlashTrailMixin(PlayerClass) {
             supportGripMaxReach,
             allowSupportFrontHand,
             bladeLen,
-            tipX: armEndX + bladeDirX * bladeLen,
-            tipY: armEndY + bladeDirY * bladeLen,
-            trailTipX: armEndX + bladeDirX * (bladeLen + trailTipExtend),
-            trailTipY: armEndY + bladeDirY * (bladeLen + trailTipExtend),
+            tipX: armEndX + visualTipOffset.x,
+            tipY: armEndY + visualTipOffset.y,
+            trailTipX: armEndX + visualTipOffset.x,
+            trailTipY: armEndY + visualTipOffset.y,
             trailArcCenterX,
             trailArcCenterY,
             trailArcStartAngle,
@@ -1589,8 +1633,13 @@ export function applySlashTrailMixin(PlayerClass) {
                 const prev = points[i - 1];
                 const curr = points[i];
                 const dist = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+                const changedAttack = (
+                    Number.isFinite(curr.trailAttackId) &&
+                    Number.isFinite(prev.trailAttackId) &&
+                    curr.trailAttackId !== prev.trailAttackId
+                );
                 // 物理的な断絶（段数違い、またはテレポート距離）があれば別のストリップへ
-                if (curr.step !== prev.step || dist > 140) {
+                if (curr.step !== prev.step || changedAttack || dist > 140) {
                     currentStrip = [curr];
                     rawStrips.push(currentStrip);
                 } else {
@@ -1690,11 +1739,38 @@ export function applySlashTrailMixin(PlayerClass) {
         const bluePalette = { front: [130, 234, 255], back: [76, 154, 226] };
 
         const buildProjected = (pts, projectFn = null) => {
-            if (!projectFn) return pts;
+            const applyWorldScale = (srcPoint) => {
+                if (Math.abs(WORLD_ENTITY_RENDER_SCALE - 1) < 0.001) {
+                    return { x: srcPoint.x, y: srcPoint.y };
+                }
+                const originX = Number.isFinite(srcPoint.playerX) ? srcPoint.playerX : this.x;
+                const originY = Number.isFinite(srcPoint.playerY) ? srcPoint.playerY : this.y;
+                const pivotX = originX + this.width * 0.5;
+                const pivotY = originY + this.height;
+                return {
+                    x: pivotX + (srcPoint.x - pivotX) * WORLD_ENTITY_RENDER_SCALE,
+                    y: pivotY + (srcPoint.y - pivotY) * WORLD_ENTITY_RENDER_SCALE
+                };
+            };
+            if (!projectFn) {
+                return pts.map((src) => {
+                    const scaled = applyWorldScale(src);
+                    return {
+                        ...src,
+                        x: scaled.x,
+                        y: scaled.y
+                    };
+                });
+            }
             const mapped = [];
             for (let i = 0; i < pts.length; i++) {
                 const src = pts[i];
-                const p = projectFn(src);
+                const scaledSrc = applyWorldScale(src);
+                const p = projectFn({
+                    ...src,
+                    x: scaledSrc.x,
+                    y: scaledSrc.y
+                });
                 mapped.push({
                     x: p.x,
                     y: p.y,
@@ -1703,6 +1779,216 @@ export function applySlashTrailMixin(PlayerClass) {
                 });
             }
             return mapped;
+        };
+        const buildChaikinSmoothedStrip = (pts, iterations = 2) => {
+            if (!Array.isArray(pts) || pts.length < 3) return pts;
+            let current = pts.map((p) => ({ ...p }));
+            const rounds = Math.max(1, Math.min(3, Math.floor(iterations) || 1));
+            for (let round = 0; round < rounds; round++) {
+                if (current.length < 3) break;
+                const next = [{ ...current[0] }];
+                for (let i = 0; i < current.length - 1; i++) {
+                    const p0 = current[i];
+                    const p1 = current[i + 1];
+                    next.push({
+                        x: p0.x * 0.75 + p1.x * 0.25,
+                        y: p0.y * 0.75 + p1.y * 0.25,
+                        age: (p0.age || 0) * 0.75 + (p1.age || 0) * 0.25,
+                        life: Math.max(
+                            1,
+                            (p0.life || this.comboSlashTrailActiveLifeMs) * 0.75 +
+                            (p1.life || this.comboSlashTrailActiveLifeMs) * 0.25
+                        )
+                    });
+                    next.push({
+                        x: p0.x * 0.25 + p1.x * 0.75,
+                        y: p0.y * 0.25 + p1.y * 0.75,
+                        age: (p0.age || 0) * 0.25 + (p1.age || 0) * 0.75,
+                        life: Math.max(
+                            1,
+                            (p0.life || this.comboSlashTrailActiveLifeMs) * 0.25 +
+                            (p1.life || this.comboSlashTrailActiveLifeMs) * 0.75
+                        )
+                    });
+                }
+                next.push({ ...current[current.length - 1] });
+                current = next;
+            }
+            return current;
+        };
+        const interpolateProgressStripPoint = (pts, targetProgress) => {
+            if (!Array.isArray(pts) || pts.length === 0) return null;
+            if (pts.length === 1) return { ...pts[0] };
+            const first = pts[0];
+            const last = pts[pts.length - 1];
+            const firstProgress = Number.isFinite(first.progress) ? first.progress : 0;
+            const lastProgress = Number.isFinite(last.progress) ? last.progress : 1;
+            if (targetProgress <= firstProgress) return { ...first };
+            if (targetProgress >= lastProgress) return { ...last };
+            for (let i = 1; i < pts.length; i++) {
+                const prev = pts[i - 1];
+                const curr = pts[i];
+                const prevProgress = Number.isFinite(prev.progress) ? prev.progress : firstProgress;
+                const currProgress = Number.isFinite(curr.progress) ? curr.progress : prevProgress;
+                if (targetProgress > currProgress) continue;
+                const span = Math.max(0.0001, currProgress - prevProgress);
+                const t = Math.max(0, Math.min(1, (targetProgress - prevProgress) / span));
+                return {
+                    ...curr,
+                    x: prev.x + (curr.x - prev.x) * t,
+                    y: prev.y + (curr.y - prev.y) * t,
+                    progress: targetProgress,
+                    age: (prev.age || 0) + ((curr.age || 0) - (prev.age || 0)) * t,
+                    life: Math.max(
+                        1,
+                        (prev.life || this.comboSlashTrailActiveLifeMs) +
+                        ((curr.life || this.comboSlashTrailActiveLifeMs) - (prev.life || this.comboSlashTrailActiveLifeMs)) * t
+                    )
+                };
+            }
+            return { ...last };
+        };
+        const buildProgressResampledStrip = (pts, comboStep = 0, sampleCount = 12) => {
+            if (!Array.isArray(pts) || pts.length < 2) return pts;
+            const pointsWithProgress = pts.filter((p) => Number.isFinite(p.progress));
+            if (pointsWithProgress.length < 2) return pts;
+            const trailWindow = this.getComboTrailProgressWindow(comboStep);
+            const windowStart = Number.isFinite(trailWindow.start) ? trailWindow.start : 0;
+            const windowEnd = Number.isFinite(trailWindow.end) ? trailWindow.end : 1;
+            const firstProgress = Math.max(windowStart, pointsWithProgress[0].progress);
+            const lastProgress = Math.min(windowEnd, pointsWithProgress[pointsWithProgress.length - 1].progress);
+            if (lastProgress - firstProgress < 0.0001) {
+                return pointsWithProgress.map((p) => ({ ...p }));
+            }
+            const divisions = Math.max(4, Math.min(20, Math.floor(sampleCount) || 12));
+            const span = Math.max(0.0001, windowEnd - windowStart);
+            const targets = [];
+            for (let i = 0; i <= divisions; i++) {
+                const progress = windowStart + span * (i / divisions);
+                if (progress + 0.0001 < firstProgress || progress - 0.0001 > lastProgress) continue;
+                targets.push(progress);
+            }
+            if (targets.length === 0 || Math.abs(targets[0] - firstProgress) > 0.0001) {
+                targets.unshift(firstProgress);
+            }
+            if (Math.abs(targets[targets.length - 1] - lastProgress) > 0.0001) {
+                targets.push(lastProgress);
+            }
+            const resampled = [];
+            for (const target of targets) {
+                const point = interpolateProgressStripPoint(pointsWithProgress, target);
+                if (point) resampled.push(point);
+            }
+            return resampled.length >= 2 ? resampled : pts;
+        };
+        const buildThreePointQuadraticStrip = (pts, comboStep = 0) => {
+            if (!Array.isArray(pts) || pts.length < 2) return pts;
+            const stabilizedPts = buildProgressResampledStrip(
+                pts,
+                comboStep,
+                comboStep === 1 ? 10 : 11
+            );
+            if (!Array.isArray(stabilizedPts) || stabilizedPts.length < 2) return pts;
+
+            const firstSrc = stabilizedPts[0];
+            const lastSrc = stabilizedPts[stabilizedPts.length - 1];
+            const lastAnchorSrc = lastSrc && lastSrc.trailIsRelative
+                ? this.absolutizeRelativeTrailPoint(lastSrc)
+                : lastSrc;
+            const trailWindow = this.getComboTrailProgressWindow(comboStep);
+            const windowStart = Number.isFinite(trailWindow.start) ? trailWindow.start : 0;
+            const windowEnd = Number.isFinite(trailWindow.end) ? trailWindow.end : 1;
+            const currentProgress = Number.isFinite(lastSrc.progress) ? lastSrc.progress : windowEnd;
+            const progressT = Math.max(0, Math.min(1, (currentProgress - windowStart) / Math.max(0.0001, windowEnd - windowStart)));
+            const endAnchorReady = currentProgress >= (windowEnd - 0.02);
+            const anchoredStart = (
+                comboStep === 2 &&
+                Number.isFinite(lastAnchorSrc?.trailCurveStartX) &&
+                Number.isFinite(lastAnchorSrc?.trailCurveStartY)
+            )
+                ? {
+                    ...firstSrc,
+                    x: lastAnchorSrc.trailCurveStartX,
+                    y: lastAnchorSrc.trailCurveStartY
+                }
+                : firstSrc;
+            const anchoredEnd = (
+                endAnchorReady &&
+                (comboStep === 1 || comboStep === 2) &&
+                Number.isFinite(lastAnchorSrc?.trailCurveEndX) &&
+                Number.isFinite(lastAnchorSrc?.trailCurveEndY)
+            )
+                ? {
+                    ...lastSrc,
+                    x: lastAnchorSrc.trailCurveEndX,
+                    y: lastAnchorSrc.trailCurveEndY
+                }
+                : lastSrc;
+            const start = anchoredStart;
+            const end = anchoredEnd;
+            const anchorControl = (
+                Number.isFinite(lastAnchorSrc?.trailCurveControlX) &&
+                Number.isFinite(lastAnchorSrc?.trailCurveControlY)
+            )
+                ? { x: lastAnchorSrc.trailCurveControlX, y: lastAnchorSrc.trailCurveControlY }
+                : null;
+            if (stabilizedPts.length === 2) {
+                const liveEnd = { ...lastSrc };
+                const midX = (start.x + liveEnd.x) * 0.5;
+                const midY = (start.y + liveEnd.y) * 0.5;
+                const controlBlend = 0.28 + progressT * 0.52;
+                const controlX = anchorControl
+                    ? midX + (anchorControl.x - midX) * controlBlend
+                    : midX;
+                const controlY = anchorControl
+                    ? midY + (anchorControl.y - midY) * controlBlend
+                    : midY;
+                const segmentCount = 16;
+                const strip = [];
+                for (let i = 0; i < segmentCount; i++) {
+                    const t = i / (segmentCount - 1);
+                    const oneMinusT = 1 - t;
+                    strip.push({
+                        x: oneMinusT * oneMinusT * start.x + 2 * oneMinusT * t * controlX + t * t * liveEnd.x,
+                        y: oneMinusT * oneMinusT * start.y + 2 * oneMinusT * t * controlY + t * t * liveEnd.y,
+                        age: (start.age || 0) + ((liveEnd.age || 0) - (start.age || 0)) * t,
+                        life: Math.max(
+                            1,
+                            (start.life || this.comboSlashTrailActiveLifeMs) +
+                            ((liveEnd.life || this.comboSlashTrailActiveLifeMs) - (start.life || this.comboSlashTrailActiveLifeMs)) * t
+                        )
+                    });
+                }
+                return strip;
+            }
+            const midBias = comboStep === 1 ? 0.44 : 0.56;
+            const midIndex = Math.max(
+                1,
+                Math.min(
+                    stabilizedPts.length - 2,
+                    Math.round((stabilizedPts.length - 1) * midBias)
+                )
+            );
+            const mid = stabilizedPts[midIndex];
+            const controlX = 2 * mid.x - (start.x + end.x) * 0.5;
+            const controlY = 2 * mid.y - (start.y + end.y) * 0.5;
+            const segmentCount = Math.max(16, Math.min(28, stabilizedPts.length * 2 + 8));
+            const strip = [];
+            for (let i = 0; i < segmentCount; i++) {
+                const t = segmentCount <= 1 ? 1 : (i / (segmentCount - 1));
+                const oneMinusT = 1 - t;
+                strip.push({
+                    x: oneMinusT * oneMinusT * start.x + 2 * oneMinusT * t * controlX + t * t * end.x,
+                    y: oneMinusT * oneMinusT * start.y + 2 * oneMinusT * t * controlY + t * t * end.y,
+                    age: (start.age || 0) + ((end.age || 0) - (start.age || 0)) * t,
+                    life: Math.max(
+                        1,
+                        (start.life || this.comboSlashTrailActiveLifeMs) +
+                        ((end.life || this.comboSlashTrailActiveLifeMs) - (start.life || this.comboSlashTrailActiveLifeMs)) * t
+                    )
+                });
+            }
+            return strip;
         };
 
         const normalizeAngleDelta = (current, previous) => {
@@ -1749,7 +2035,10 @@ export function applySlashTrailMixin(PlayerClass) {
             return true;
         };
         const drawGradientLinearTrail = (pts, width, rgb, oldestScale, newestScale, projectFn = null, options = {}) => {
-            const mapped = buildProjected(pts, projectFn);
+            const mappedRaw = buildProjected(pts, projectFn);
+            const mapped = options.smoothEnhanced
+                ? buildChaikinSmoothedStrip(mappedRaw, options.smoothIterations || 2)
+                : mappedRaw;
             if (!mapped || mapped.length < 2) return;
             const oldestSrc = pts[0];
             const newestSrc = pts[pts.length - 1];
@@ -2063,9 +2352,9 @@ export function applySlashTrailMixin(PlayerClass) {
         };
         const drawSampledBezierTrail = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
             if (!pts || pts.length < 2) return;
-            const curvePts = this.buildSampledBezierCurvePoints(pts, options);
-            if (!curvePts || curvePts.length < 2) return;
-            drawBlueTrailLayers(curvePts, baseWidth, oldestScale, newestScale, projectFn);
+            const comboStep = options.comboStep || pts[pts.length - 1]?.step || 0;
+            const curveStrip = buildThreePointQuadraticStrip(pts, comboStep);
+            drawBlueTrailLayers(curveStrip, baseWidth, oldestScale, newestScale, projectFn);
         };
         // 各ストリップ（段ごとの軌跡）を独立して描画
         for (const strip of strips) {
@@ -2162,9 +2451,11 @@ export function applySlashTrailMixin(PlayerClass) {
                 ctx.save();
                 
                 if (fc.type === 'sampledBezier' && Array.isArray(fc.frozenPoints)) {
-                    const pts = Array.isArray(fc.frozenCurvePoints) ? fc.frozenCurvePoints : null;
+                    const pts = Array.isArray(fc.frozenPoints) ? fc.frozenPoints : null;
                     if (!pts || pts.length < 2) { ctx.restore(); continue; }
-                    drawBlueTrailLayers(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha);
+                    drawSampledBezierTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, null, {
+                        comboStep: fc.step
+                    });
                 } else if (fc.type === 'bezier' || !fc.type) {
                     // ベジェ曲線段 (1, 2, 5)
                     if (!Number.isFinite(fc.trailCurveStartX)) { ctx.restore(); continue; }
