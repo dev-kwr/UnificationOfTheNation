@@ -867,14 +867,18 @@ export function applySlashTrailMixin(PlayerClass) {
                     const backT = progress / 0.34;
                     const backEase = backT * backT * (3 - 2 * backT);
                     swordAngle = 2.18 + backEase * 1.34;
-                    armEndX = centerX - dir * (12.0 + backEase * 10.8);
-                    armEndY = pivotY + 7.8 - backEase * 20.4;
+                    // 溜め: 手は利き手側に留める。刃が後方へ向くため体の前で「逆手に引いた」構えになる
+                    armEndX = centerX + dir * (10 - backEase * 2);
+                    armEndY = pivotY + 5.0 + backEase * 3.0; // 胸→みぞおちへ少し下げる
                 } else {
                     const cutT = Math.min(1, (progress - 0.34) / 0.52); // 0.86で斬り抜き完了
                     const cutEase = cutT * cutT * (3 - 2 * cutT);
+                    const settle = Math.max(0, Math.min(1, (progress - 0.86) / 0.14));
+                    const settleEase = settle * settle * (3 - 2 * settle);
                     swordAngle = 3.52 + cutEase * 2.9;
-                    armEndX = centerX - dir * (22.8 - cutEase * 42.2);
-                    armEndY = pivotY - 12.6 + cutEase * 18.2;
+                    // 切り上げ: 引いた位置から前上方へ薙ぎ払い。刃が前を向く終盤まで手は前方へ伸びる
+                    armEndX = centerX + dir * (8 + cutEase * 6 - settleEase * 2);
+                    armEndY = pivotY + 8 - cutEase * 15 + settleEase * 5;
                 }
                 const prepT = Math.max(0, Math.min(1, progress / 0.12));
                 const prepEase = prepT * prepT * (3 - 2 * prepT);
@@ -891,11 +895,33 @@ export function applySlashTrailMixin(PlayerClass) {
                     }
                 );
                 const prevAngle = prevPose ? prevPose.swordAngle : 2.92;
-                const prevHandX = prevPose ? prevPose.armEndX : (centerX - dir * 12.5);
-                const prevHandY = prevPose ? prevPose.armEndY : (pivotY + 16.6);
+                const prevHandX = prevPose ? prevPose.armEndX : (centerX + dir * 5.5);
+                const prevHandY = prevPose ? prevPose.armEndY : (pivotY + 10.0);
                 swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
                 armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
                 armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
+                // 溜め・切り上げに合わせて肩が沈み・前上方へ動く
+                {
+                    const backT2 = Math.max(0, Math.min(1, progress / 0.34));
+                    const backEase2 = backT2 * backT2 * (3 - 2 * backT2);
+                    const cutT2 = Math.max(0, Math.min(1, (progress - 0.34) / 0.52));
+                    const cutEase2 = cutT2 * cutT2 * (3 - 2 * cutT2);
+                    activeLeftShoulderX += dir * cutEase2 * 0.7;
+                    activeLeftShoulderY += backEase2 * 0.5 - cutEase2 * 0.9;
+                    activeRightShoulderX += dir * cutEase2 * 0.4;
+                    activeRightShoulderY += backEase2 * 0.4 - cutEase2 * 0.7;
+                }
+                // 1段目終端との肩位置スナップを解消（prepEase期間中に徐々に移行）
+                if (prepEase < 1) {
+                    const prevLeftShX = prevPose ? prevPose.activeLeftShoulderX : leftShoulderXBase;
+                    const prevLeftShY = prevPose ? prevPose.activeLeftShoulderY : leftShoulderYBase;
+                    const prevRightShX = prevPose ? prevPose.activeRightShoulderX : rightShoulderXBase;
+                    const prevRightShY = prevPose ? prevPose.activeRightShoulderY : rightShoulderYBase;
+                    activeLeftShoulderX = prevLeftShX + (activeLeftShoulderX - prevLeftShX) * prepEase;
+                    activeLeftShoulderY = prevLeftShY + (activeLeftShoulderY - prevLeftShY) * prepEase;
+                    activeRightShoulderX = prevRightShX + (activeRightShoulderX - prevRightShX) * prepEase;
+                    activeRightShoulderY = prevRightShY + (activeRightShoulderY - prevRightShY) * prepEase;
+                }
                 break;
             }
             case 1: {
@@ -906,19 +932,20 @@ export function applySlashTrailMixin(PlayerClass) {
                 const wind = Math.max(0, Math.min(1, progress / 0.34));
                 const swing = Math.max(0, Math.min(1, (progress - 0.34) / 0.48)); // 0.82で振り抜き完了
                 const swingEase = swing * swing * (3 - 2 * swing);
-                
-                // armEndX/Y の計算を整理
-                // 腕は体の中心付近に留め、刀の角度で後ろ下方向に斬りつける
+                // 振り抜き後の残身: 腕を前方へ微戻しし、刀角度を自然なホールドへ収める
+                const settle = Math.max(0, Math.min(1, (progress - 0.82) / 0.18));
+                const settleEase = settle * settle * (3 - 2 * settle);
+
                 const baseArmX = centerX + dir * 15;
                 const baseArmY = pivotY + 8.0;
-                swordAngle = idleAngle + wind * (1.0 - idleAngle) + swingEase * 1.7;
-                armEndX = idleHandX + wind * (baseArmX - idleHandX) - swingEase * 15.0 * dir;
-                armEndY = idleHandY + wind * (baseArmY - idleHandY) + swingEase * 4.2;
+                swordAngle = idleAngle + wind * (1.0 - idleAngle) + swingEase * 1.7 - settleEase * 0.38;
+                armEndX = idleHandX + wind * (baseArmX - idleHandX) - swingEase * 15.0 * dir + settleEase * 5.5 * dir;
+                armEndY = idleHandY + wind * (baseArmY - idleHandY) + swingEase * 4.2 - settleEase * 2.2;
 
-                activeLeftShoulderX -= dir * (0.6 * wind + swingEase * 1.6);
-                activeLeftShoulderY += (0.2 * wind + swingEase * 0.8);
-                activeRightShoulderX -= dir * (0.2 * wind + swingEase * 1.0);
-                activeRightShoulderY += (0.2 * wind + swingEase * 0.7);
+                activeLeftShoulderX -= dir * (0.6 * wind + swingEase * 1.6 - settleEase * 0.42);
+                activeLeftShoulderY += (0.2 * wind + swingEase * 0.8 - settleEase * 0.28);
+                activeRightShoulderX -= dir * (0.2 * wind + swingEase * 1.0 - settleEase * 0.28);
+                activeRightShoulderY += (0.2 * wind + swingEase * 0.7 - settleEase * 0.22);
                 break;
             }
             case 3: {

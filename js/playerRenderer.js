@@ -906,7 +906,11 @@ export function applyRendererMixin(PlayerClass) {
 
         let currentTorsoLean = isNinNinPose ? dir * 0.45 : (isDashLike ? dir * 2.4 : (isRunLike ? dir * 1.6 : dir * 0.45));
         if (comboStepPose === 1) currentTorsoLean = dir * 0.24;
-        if (comboStepPose === 2) currentTorsoLean = dir * 1.2;
+        if (comboStepPose === 2) {
+            const cutT = Math.max(0, Math.min(1, (comboPoseProgress - 0.34) / 0.52));
+            const cutEase = cutT * cutT * (3 - 2 * cutT);
+            currentTorsoLean = dir * (-0.1 + cutEase * 0.5); // 溜め時はほぼ直立、斬り上げで微前傾
+        }
         let torsoShoulderX = centerX + (isCrouchPose ? dir * 4.0 : currentTorsoLean) + dir * crouchLeanShift;
         let torsoHipX = isCrouchPose
             ? (centerX + dir * 1.3 + dir * crouchLeanShift * 0.55)
@@ -2765,15 +2769,16 @@ export function applyRendererMixin(PlayerClass) {
                 rightShoulderMoveX -= dir * (0.1 + slashT * 0.3);
                 rightShoulderMoveY += slashT * 0.12;
             } else if (comboStep === 2) {
-                // 二段: 右刀・逆袈裟 — 右腕を下から上へ跳ね上げ、左腕は少し引き戻す
-                const slashT = smoothStep01(comboProgress / 0.52);
-                const settleT = smoothStep01(Math.max(0, (comboProgress - 0.52) / 0.48));
-                // 右肩: 跳ね上げに合わせて上方・前方へ押し出す
-                rightShoulderMoveX += dir * (0.4 + slashT * 1.6 - settleT * 0.4);
-                rightShoulderMoveY -= slashT * 0.8;
-                // 左肩: 引き付けて体幹の回転を見せる
-                leftShoulderMoveX -= dir * (0.8 + slashT * 1.2);
-                leftShoulderMoveY += slashT * 0.3;
+                // 二段: 右刀・逆袈裟 — 腰に引いてから上へ薙ぎ払い
+                const backT = smoothStep01(Math.min(1, comboProgress / 0.34));
+                const cutT = smoothStep01(Math.max(0, Math.min(1, (comboProgress - 0.34) / 0.52)));
+                const settleT = smoothStep01(Math.max(0, (comboProgress - 0.86) / 0.14));
+                // 右肩: 溜め時に沈み、切り上げで浮き上がる
+                rightShoulderMoveX += dir * (-backT * 0.3 + cutT * 0.7 - settleT * 0.15);
+                rightShoulderMoveY += backT * 0.9 - cutT * 1.3 + settleT * 0.35;
+                // 左肩: 体幹の回転を表現（右が下がる間、左は少し上がる）
+                leftShoulderMoveX += dir * (backT * 0.2 - cutT * 0.3);
+                leftShoulderMoveY -= backT * 0.35 - cutT * 0.45 + settleT * 0.15;
             } else if (comboStep === 3) {
                 // 三段: 両手・交差薙ぎ — 一旦中央に寄せてからX字に展開
                 const gatherT = smoothStep01(comboProgress / 0.22);
@@ -3734,7 +3739,8 @@ export function applyRendererMixin(PlayerClass) {
         };
 
         const rot = swordAngle;
-        const mainBendDir = attack.comboStep === 5
+        // step2の切り上げ終盤でsin(rot)が閾値を超えて肘方向が反転するのを防ぐ
+        const mainBendDir = (attack.comboStep === 5 || attack.comboStep === 2)
             ? -dir
             : (Math.sin(rot) < -0.22 ? -dir : dir);
         const mainReachCap = (standardUpperLen + standardForeLen) * armReachScale;
@@ -3821,8 +3827,8 @@ export function applyRendererMixin(PlayerClass) {
 
         // 剣を描画（共通メソッドで統一）
         // 攻撃時は立たせ補正を切って、切っ先・剣筋・当たり判定を一致させる
-        if (drawBackLayer || (drawFrontLayer && hasDualWeapon)) {
-            // 二刀流の場合、前面フェーズでも奥の手（メイン武器）の刀を描画することで、頭部より前面に出す
+        // 常に front 層で描画（体の手前に刀を重ねる）
+        if (drawFrontLayer) {
             this.drawKatana(ctx, armEndX, armEndY, rot, facingRight ? 1 : -1, swordLen, 0);
         }
         const suppressBaseSlashForXBoost = this.isXAttackBoostActive() && this.isXAttackActionActive();
