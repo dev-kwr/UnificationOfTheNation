@@ -303,89 +303,111 @@ export class Stage {
     // Stage 5 フロア制メソッド群
     // ============================
 
-        /** 階段区間の開始ワールドX座標を返す (常に左端を0, 右端を3000とする) */
-    getStairStartX() {
-        if (this.stageNumber !== 5) return Infinity;
+    /**
+     * 階段描画のワールドX（画像左端）を返す共通ヘルパー。
+     * 右登り: 画像左端 = maxProgress - stairW
+     * 左登り: 画像右端 = 0 なので、反転描画前の左端 = -stairW (ただし反転するので実座標は0)
+     *   ※ 左登りは scale(-1,1) で flip するため、描画の基準右端が worldX=0 になるよう
+     *      imageWorldLeft = -stairW とする。
+     */
+    _getStairImageWorldX(direction) {
         const stairW = this.stairZoneWidth;
-        // 画像内の1段目のオフセット(5.2%)を考慮した、物理的な登り開始点
-        const stairInternalOffset = stairW * 0.052;
-        const imageSlide = 45;
-
-        if (this.floorScrollDirection === 1) {
-            // 右登り: 右端に配置
-            return (this.maxProgress - stairW) + imageSlide + stairInternalOffset;
+        if (direction === 1) {
+            return this.maxProgress - stairW;
         } else {
-            // 左登り: 左端に配置
-            return imageSlide + stairInternalOffset;
+            return -stairW; // flip描画用: 実際に見える右端が worldX=0
         }
     }
 
-    /** 階段区間の終了ワールドX座標を返す */
+    /**
+     * 物理判定の登り始めワールドX。
+     * 画像内で最初の段が始まる位置 = 画像左端 + stairInternalOffset。
+     * (左登りは反転するので 画像の論理左端 = worldX=0 から stairInternalOffset 分内側)
+     */
+    _getStairPhysicalStart(direction) {
+        const stairW = this.stairZoneWidth;
+        const stairInternalOffset = stairW * 0.052;
+        if (direction === 1) {
+            // 右登り: 画像左端(maxProgress - stairW) + offset
+            return (this.maxProgress - stairW) + stairInternalOffset;
+        } else {
+            // 左登り: 反転なので「右から見た登り始め」 = stairW - stairInternalOffset
+            return stairW - stairInternalOffset;
+        }
+    }
+
+    /**
+     * 物理判定の登り終わり（頂上）ワールドX。
+     * 右登り → maxProgress（右端）
+     * 左登り → 0（左端）
+     */
+    _getStairPhysicalEnd(direction) {
+        return direction === 1 ? this.maxProgress : 0;
+    }
+
+    /** 階段区間の開始ワールドX座標（物理的な登り始め） */
+    getStairStartX() {
+        if (this.stageNumber !== 5) return Infinity;
+        return this._getStairPhysicalStart(this.floorScrollDirection);
+    }
+
+    /** 階段区間の終了ワールドX座標（物理的な頂上） */
     getStairEndX() {
         if (this.stageNumber !== 5) return Infinity;
-        return this.maxProgress;
+        return this._getStairPhysicalEnd(this.floorScrollDirection);
     }
 
     /** プレイヤーが階段区間にいるか判定 */
     isInStairZone(playerX) {
         if (this.stageNumber !== 5) return false;
-        
-        const isFinalFloor = this.currentFloor >= this.maxFloor;
-        
-        const stairStart = this.getStairStartX();
-        const stairEnd = this.getStairEndX();
-        if (this.floorScrollDirection === 1) {
-            return playerX >= stairStart && playerX <= stairEnd;
+        const dir = this.floorScrollDirection;
+        const physStart = this._getStairPhysicalStart(dir);
+        const physEnd = this._getStairPhysicalEnd(dir);
+        if (dir === 1) {
+            return playerX >= physStart && playerX <= physEnd;
         } else {
-            // 左方向フロア: 階段は左端にある
-            return playerX <= this.stairZoneWidth && playerX >= 0;
+            // 左登り: physStart > physEnd (start は大きい方)
+            return playerX <= physStart && playerX >= physEnd;
         }
     }
 
-        /** 階段内の登り進行度（0=階段入口, 1=階段頂上）を返す */
+    /** 階段内の登り進行度（0=階段入口, 1=階段頂上）を返す */
     getStairClimbProgress(playerX) {
         if (this.stageNumber !== 5) return 0;
-        const stairW = this.stairZoneWidth;
-        const imageSlide = 45;
-        const stairInternalOffset = stairW * 0.052;
-        
-        if (this.floorScrollDirection === 1) {
-            // 右登り: worldXが大きいほど登っている
-            const start = (this.maxProgress - stairW) + imageSlide + stairInternalOffset;
-            const end = this.maxProgress;
-            return Math.max(0, Math.min(1, (playerX - start) / (end - start)));
+        const dir = this.floorScrollDirection;
+        const physStart = this._getStairPhysicalStart(dir);
+        const physEnd = this._getStairPhysicalEnd(dir);
+        const totalDist = Math.abs(physEnd - physStart);
+        if (totalDist === 0) return 0;
+
+        if (dir === 1) {
+            // 右登り: playerX が大きいほど progress が大きい
+            return Math.max(0, Math.min(1, (playerX - physStart) / totalDist));
         } else {
-            // 左登り: worldXが小さいほど登っている
-            const start = stairW - imageSlide - stairInternalOffset;
-            const end = 0;
-            return Math.max(0, Math.min(1, (playerX - start) / (end - start)));
+            // 左登り: playerX が小さいほど progress が大きい
+            return Math.max(0, Math.min(1, (physStart - playerX) / totalDist));
         }
     }
 
-        /** 階段上のプレイヤー位置に対応する動的groundYを返す */
+    /** 階段上のプレイヤー位置に対応する動的groundYを返す */
     getStairGroundY(playerX) {
         if (this.stageNumber !== 5) return this.groundY;
         if (this.currentFloor >= this.maxFloor) return this.baseGroundY;
-        
-        const direction = this.floorScrollDirection;
-        const stairH = this.stairHeightPx;
-        const stairW = this.stairZoneWidth;
-        const imageSlide = 45;
-        const stairInternalOffset = stairW * 0.052;
 
-        if (direction === 1) {
-            // 右登り
-            const start = (this.maxProgress - stairW) + imageSlide + stairInternalOffset;
-            if (playerX < start) return this.baseGroundY;
-            const progress = Math.max(0, Math.min(1, (playerX - start) / (this.maxProgress - start)));
-            return this.baseGroundY - stairH * progress;
+        const dir = this.floorScrollDirection;
+        const stairH = this.stairHeightPx;
+        const physStart = this._getStairPhysicalStart(dir);
+
+        if (dir === 1) {
+            // 右登り: physStart より左は平地
+            if (playerX < physStart) return this.baseGroundY;
         } else {
-            // 左登り
-            const start = stairW - imageSlide - stairInternalOffset;
-            if (playerX > start) return this.baseGroundY;
-            const progress = Math.max(0, Math.min(1, (start - playerX) / start));
-            return this.baseGroundY - stairH * progress;
+            // 左登り: physStart より右は平地
+            if (playerX > physStart) return this.baseGroundY;
         }
+
+        const progress = this.getStairClimbProgress(playerX);
+        return this.baseGroundY - stairH * progress;
     }
 
     /** フロア遷移を開始する */
@@ -533,84 +555,101 @@ export class Stage {
     /** 階段区間の石段を描画する */
     renderStairZone(ctx, scrollX) {
         if (this.stageNumber !== 5 || !this.stairImage || !this.stairImage.complete) return;
-        
-        const direction = this.floorScrollDirection;
-        const stairW = this.stairZoneWidth;
         if (this.currentFloor >= this.maxFloor) return; // 5Fは階段なし
 
-        // 接地数式: アスペクト比に依存させず、imgHを十分に大きくして埋める
-        const imgH = 512; 
+        const direction = this.floorScrollDirection;
+        const stairW = this.stairZoneWidth;
+
+        // 接地ライン (baseGroundY + LANE_OFFSET) から画像上端を逆算
+        const imgH = 512;
         const step1YRatio = 0.928;
-        // 接地ライン (baseGroundY + 32) から逆算
         const drawY = (this.baseGroundY + LANE_OFFSET) - (imgH * step1YRatio);
-        
-        const imageSlide = 45;
-        let worldX;
+
+        // scale(-1,1) + drawImage(img, tx, y, w, h) の数学:
+        //   canvas上の左端 = -(tx + w)、右端 = -tx
+        // 右登り(dir=1):
+        //   画像の左端(stair底)がworldX = maxProgress-stairW, 右端(頂上)がworldX = maxProgress
+        //   imageWorldLeft = maxProgress - stairW → screenX = maxProgress - stairW - scrollX
+        //   drawImage(img, screenX, ...) → canvas左端 = screenX, 右端 = screenX + stairW
+        // 左登り(dir=-1): scale(-1,1)でflip描画
+        //   頂上(flip後の視覚的左端)がworldX=0、底(flip後の視覚的右端)がworldX=stairW
+        //   canvas左端(視覚的頂上) = 0 - scrollX = -scrollX
+        //   → -(tx + stairW) = -scrollX → tx = scrollX - stairW
+        //   tx = -(screenX + stairW) なので screenX = -scrollX
+        //   → imageWorldLeft = 0
+        let imageWorldLeft;
         if (direction === 1) {
-            worldX = this.maxProgress - stairW + imageSlide;
+            imageWorldLeft = this.maxProgress - stairW;
         } else {
-            worldX = -imageSlide;
+            imageWorldLeft = 0; // flip後: 頂上がworldX=0に来る
         }
 
-        const screenX = worldX - scrollX;
+        const screenX = imageWorldLeft - scrollX;
 
         ctx.save();
         if (direction === 1) {
-            // 右登り
             ctx.drawImage(this.stairImage, screenX, drawY, stairW, imgH);
         } else {
-            // 左登り: 反転
             ctx.scale(-1, 1);
             ctx.drawImage(this.stairImage, -(screenX + stairW), drawY, stairW, imgH);
         }
         ctx.restore();
     }
 
-    /** 前フロア階段残骸（登ってきた口） */
+    /**
+     * 前フロア階段の頂上部分を描画する（登ってきた口）。
+     *
+     * ＜階段の物理的整合性＞
+     * - prevDir=1（前フロアで右へ登った）場合、現フロア(dir=-1)は右端からスタートする。
+     *   つまり、登ってきた「穴」は右端(maxProgress)の背後にあるべき。
+     *   → 右登りの階段画像を描画し、その頂上（画像の右端）が worldX=maxProgress になるように配置する。
+     *
+     * - prevDir=-1（前フロアで左へ登った）場合、現フロア(dir=1)は左端からスタートする。
+     *   つまり、登ってきた「穴」は左端(0)の背後にあるべき。
+     *   → 左登りの階段画像（flip描画）を描画し、その頂上（flip視覚的左端）が worldX=0 になるように配置する。
+     */
     renderPreviousStairTop(ctx, scrollX) {
         if (this.stageNumber !== 5 || !this.showPreviousStair) return;
         if (!this.stairImage || !this.stairImage.complete) return;
-        
+
         const prevDir = this.previousStairDirection;
         const stairW = this.stairZoneWidth;
         const imgH = 512;
         const step1YRatio = 0.928;
-        // 接地ライン (baseGroundY + 32)
         const drawY = (this.baseGroundY + LANE_OFFSET) - (imgH * step1YRatio);
-        const imageSlide = 45;
         
-        // 前フロアから登ってきた口は常にフロアの両端のどちらかにある
-        let worldX;
+        // 穴として見せる横幅
+        const visibleWidth = STAGE5_FLOOR.PREVIOUS_STAIR_VISIBLE_WIDTH || 200;
+
+        let imageWorldLeft;
+        let clipWorldLeft;
+
         if (prevDir === 1) {
-            // 前が右登りなら、現在フロアの左端(0)に頂上が来ているはず
-            // 画像の右端が worldX=0 に重なるように配置
-            worldX = imageSlide - stairW;
+            // 前フロアは右登り → 穴は右端(maxProgress)にある
+            // 右登りの階段を描画。画像右端が maxProgress になるように配置
+            imageWorldLeft = this.maxProgress - stairW;
+            clipWorldLeft = this.maxProgress - visibleWidth;
         } else {
-            // 前が左登りなら、現在フロアの右端(3000)に頂上が来ているはず
-            // 画像の左端(反転込)が worldX=3000 に重なるように配置
-            worldX = this.maxProgress - imageSlide;
+            // 前フロアは左登り → 穴は左端(0)にある
+            // 左登りの階段（flip）を描画。flip後の頂上が 0 になるように配置
+            imageWorldLeft = 0;
+            clipWorldLeft = 0;
         }
 
-        const screenX = worldX - scrollX;
-        const visibleWidth = STAGE5_FLOOR.PREVIOUS_STAIR_VISIBLE_WIDTH || 200;
-        
+        const screenX = imageWorldLeft - scrollX;
+        const clipScreenX = clipWorldLeft - scrollX;
+
         // 描画範囲をクリップ
         ctx.save();
-        let clipX;
-        if (prevDir === 1) {
-            clipX = -scrollX;
-        } else {
-            clipX = this.maxProgress - visibleWidth - scrollX;
-        }
         ctx.beginPath();
-        ctx.rect(clipX, 0, visibleWidth, CANVAS_HEIGHT);
+        ctx.rect(clipScreenX, 0, visibleWidth, CANVAS_HEIGHT);
         ctx.clip();
 
         if (prevDir === 1) {
-            // 右登りの頂上: そのまま描画
+            // 右登り頂上
             ctx.drawImage(this.stairImage, screenX, drawY, stairW, imgH);
         } else {
-            // 左登りの頂上: 反転描画
+            // 左登り頂上（flip描画）
             ctx.scale(-1, 1);
             ctx.drawImage(this.stairImage, -(screenX + stairW), drawY, stairW, imgH);
         }
@@ -619,7 +658,7 @@ export class Stage {
         // 穴の黒塗り
         ctx.save();
         ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
-        ctx.fillRect(clipX, this.baseGroundY, visibleWidth, 80);
+        ctx.fillRect(clipScreenX, this.baseGroundY, visibleWidth, 80);
         ctx.restore();
     }
 

@@ -1960,13 +1960,7 @@ class Game {
                     if (subWeaponCloneActive && !effectiveHitbox._sourceProjectile) {
                         for (const clone of subWeaponCloneOffsets) {
                             const cloneHitboxProfile = resolveHitboxProfile(cloneSubProfile, effectiveHitbox);
-                            const shifted = {
-                                x: effectiveHitbox.x + clone.dx,
-                                y: effectiveHitbox.y + clone.dy,
-                                width: effectiveHitbox.width,
-                                height: effectiveHitbox.height,
-                                part: effectiveHitbox.part
-                            };
+                            const shifted = this.shiftHitbox(effectiveHitbox, clone.dx, clone.dy);
                             if (cloneSpearHitEnemies && !cloneSpearHitEnemies.has(clone.index)) {
                                 cloneSpearHitEnemies.set(clone.index, new Set());
                             }
@@ -2004,45 +1998,6 @@ class Game {
                 }
             }
 
-            // 鎖鎌Lv3: 高速自動追尾で近傍の敵を連続追撃
-            if (
-                    subWeapon.name === '鎖鎌' &&
-                    kusaTier >= 3 &&
-                    subWeapon.isAttacking &&
-                    orderedEnemies.length > 0
-                ) {
-                    const now = Date.now();
-                    if (!Number.isFinite(subWeapon.nextAutoTrackTime) || now >= subWeapon.nextAutoTrackTime) {
-                        const playerCenterX = this.player.x + this.player.width * 0.5;
-                        const playerCenterY = this.player.y + this.player.height * 0.5;
-                        const strikeCount = 2 + Math.min(2, kusaTier - 1);
-                        const autoTargets = orderedEnemies
-                            .slice()
-                            .sort((a, b) => {
-                                const ax = (a.x + a.width * 0.5) - playerCenterX;
-                                const ay = (a.y + a.height * 0.5) - playerCenterY;
-                                const bx = (b.x + b.width * 0.5) - playerCenterX;
-                                const by = (b.y + b.height * 0.5) - playerCenterY;
-                                return (ax * ax + ay * ay) - (bx * bx + by * by);
-                            })
-                            .slice(0, strikeCount);
-                        for (const enemy of autoTargets) {
-                            const attackData = {
-                                source: 'subweapon',
-                                weapon: subWeapon.name,
-                                enhanceTier: kusaTier,
-                                knockbackX: 2,
-                                knockbackY: -2,
-                                slowMultiplier: 0.72,
-                                slowDurationMs: 900,
-                                pullTowardPlayerStrength: 30,
-                                kusarigamaAutoTrack: true
-                            };
-                            this.damageEnemy(enemy, baseSubProfile.damage * 0.62, attackData);
-                        }
-                        subWeapon.nextAutoTrackTime = now + (subWeapon.autoTrackCooldownMs || 95);
-                }
-            }
         }
 
         // 敵攻撃 vs プレイヤー
@@ -2276,10 +2231,88 @@ class Game {
     }
     
     rectIntersects(a, b) {
+        if (a && a.shape === 'circle') return this.circleIntersectsRect(a, b);
+        if (b && b.shape === 'circle') return this.circleIntersectsRect(b, a);
+        if (a && a.shape === 'capsule') return this.capsuleIntersectsRect(a, b);
+        if (b && b.shape === 'capsule') return this.capsuleIntersectsRect(b, a);
         return a.x < b.x + b.width &&
                a.x + a.width > b.x &&
                a.y < b.y + b.height &&
                a.y + a.height > b.y;
+    }
+
+    circleIntersectsRect(circle, rect) {
+        if (!circle || !rect) return false;
+        const closestX = Math.max(rect.x, Math.min(circle.cx, rect.x + rect.width));
+        const closestY = Math.max(rect.y, Math.min(circle.cy, rect.y + rect.height));
+        const dx = circle.cx - closestX;
+        const dy = circle.cy - closestY;
+        return (dx * dx + dy * dy) <= (circle.radius * circle.radius);
+    }
+
+    capsuleIntersectsRect(capsule, rect) {
+        if (!capsule || !rect) return false;
+        const expanded = {
+            x: rect.x - capsule.radius,
+            y: rect.y - capsule.radius,
+            width: rect.width + capsule.radius * 2,
+            height: rect.height + capsule.radius * 2
+        };
+        if (!this.rectIntersects({
+            x: Math.min(capsule.ax, capsule.bx),
+            y: Math.min(capsule.ay, capsule.by),
+            width: Math.abs(capsule.bx - capsule.ax),
+            height: Math.abs(capsule.by - capsule.ay)
+        }, expanded)) {
+            return false;
+        }
+        return this.segmentIntersectsRect(capsule.ax, capsule.ay, capsule.bx, capsule.by, expanded);
+    }
+
+    segmentIntersectsRect(x1, y1, x2, y2, rect) {
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        let tMin = 0;
+        let tMax = 1;
+        const checks = [
+            [-dx, x1 - rect.x],
+            [ dx, rect.x + rect.width - x1],
+            [-dy, y1 - rect.y],
+            [ dy, rect.y + rect.height - y1]
+        ];
+        for (const [p, q] of checks) {
+            if (Math.abs(p) < 1e-8) {
+                if (q < 0) return false;
+                continue;
+            }
+            const t = q / p;
+            if (p < 0) {
+                if (t > tMax) return false;
+                if (t > tMin) tMin = t;
+            } else {
+                if (t < tMin) return false;
+                if (t < tMax) tMax = t;
+            }
+        }
+        return true;
+    }
+
+    shiftHitbox(hitbox, dx, dy) {
+        const shifted = {
+            ...hitbox,
+            x: hitbox.x + dx,
+            y: hitbox.y + dy
+        };
+        if (hitbox.shape === 'circle') {
+            shifted.cx = hitbox.cx + dx;
+            shifted.cy = hitbox.cy + dy;
+        } else if (hitbox.shape === 'capsule') {
+            shifted.ax = hitbox.ax + dx;
+            shifted.ay = hitbox.ay + dy;
+            shifted.bx = hitbox.bx + dx;
+            shifted.by = hitbox.by + dy;
+        }
+        return shifted;
     }
 
     applyFinisherBlowAway(enemy, attackData = null) {

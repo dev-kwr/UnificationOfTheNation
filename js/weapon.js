@@ -2248,7 +2248,7 @@ export class Kusarigama extends SubWeapon {
         this.echoHitEnemies = new Set();
         this.autoTrackCooldownMs = 95;
         this.nextAutoTrackTime = 0;
-        this.orbitBackAngle = -Math.PI * 0.78;
+        this.orbitBackAngle = -Math.PI * 0.99; // 行きすぎたので中間へ戻す
     }
 
     scaleMotionDuration(baseDurationMs) {
@@ -2501,6 +2501,45 @@ export class Kusarigama extends SubWeapon {
         };
     }
 
+    sampleChainPoint(state, curve, t) {
+        const tt = Math.max(0, Math.min(1, t));
+        const inv = 1 - tt;
+        return {
+            x: inv * inv * state.handX + 2 * inv * tt * curve.ctrlX + tt * tt * state.tipX,
+            y: inv * inv * state.handY + 2 * inv * tt * curve.ctrlY + tt * tt * state.tipY
+        };
+    }
+
+    createCircleHitbox(cx, cy, radius, part) {
+        return {
+            x: cx - radius,
+            y: cy - radius,
+            width: radius * 2,
+            height: radius * 2,
+            shape: 'circle',
+            cx,
+            cy,
+            radius,
+            part
+        };
+    }
+
+    createCapsuleHitbox(ax, ay, bx, by, radius, part) {
+        return {
+            x: Math.min(ax, bx) - radius,
+            y: Math.min(ay, by) - radius,
+            width: Math.max(8, Math.abs(bx - ax) + radius * 2),
+            height: Math.max(8, Math.abs(by - ay) + radius * 2),
+            shape: 'capsule',
+            ax,
+            ay,
+            bx,
+            by,
+            radius,
+            part
+        };
+    }
+
     getSickleGeometry(state) {
         const travelHeading = state.phase === 'orbit'
             ? (state.chainHeading - state.direction * Math.PI * 0.5)
@@ -2537,40 +2576,24 @@ export class Kusarigama extends SubWeapon {
         const sickle = this.getSickleGeometry(st);
         const sickleTipX = st.tipX + Math.cos(sickle.rotation) * sickle.reach;
         const sickleTipY = st.tipY + Math.sin(sickle.rotation) * sickle.reach;
-        const tipRadius = 15;
-        const tipHitbox = {
-            x: Math.min(st.tipX, sickleTipX) - tipRadius,
-            y: Math.min(st.tipY, sickleTipY) - tipRadius,
-            width: Math.max(22, Math.abs(sickleTipX - st.tipX) + tipRadius * 2),
-            height: Math.max(22, Math.abs(sickleTipY - st.tipY) + tipRadius * 2),
-            part: 'tip'
-        };
+        const bladeRootX = st.tipX + Math.cos(sickle.rotation) * 4.2;
+        const bladeRootY = st.tipY + Math.sin(sickle.rotation) * 4.2;
+        const tipHitbox = this.createCapsuleHitbox(bladeRootX, bladeRootY, sickleTipX, sickleTipY, 8.8, 'tip');
         const hitboxes = [tipHitbox];
         const shouldHitWithChain = st.phase === 'orbit' || st.phase === 'retract' || (st.phase === 'throw' && st.phaseT >= 0.72);
         if (shouldHitWithChain) {
             const curve = this.getChainCurveControl(st);
-            const chainRadius = st.phase === 'orbit' ? 4.8 : 4.2;
-            const segmentCount = Math.max(5, Math.min(11, Math.round(curve.chainLen / 42)));
-            for (let i = 0; i < segmentCount; i++) {
-                const t0 = i / segmentCount;
-                const t1 = (i + 1) / segmentCount;
-                const m = (t0 + t1) * 0.5;
-                const inv0 = 1 - t0;
-                const inv1 = 1 - t1;
-                const invM = 1 - m;
-                const p0x = inv0 * inv0 * st.handX + 2 * inv0 * t0 * curve.ctrlX + t0 * t0 * st.tipX;
-                const p0y = inv0 * inv0 * st.handY + 2 * inv0 * t0 * curve.ctrlY + t0 * t0 * st.tipY;
-                const p1x = inv1 * inv1 * st.handX + 2 * inv1 * t1 * curve.ctrlX + t1 * t1 * st.tipX;
-                const p1y = inv1 * inv1 * st.handY + 2 * inv1 * t1 * curve.ctrlY + t1 * t1 * st.tipY;
-                const pmx = invM * invM * st.handX + 2 * invM * m * curve.ctrlX + m * m * st.tipX;
-                const pmy = invM * invM * st.handY + 2 * invM * m * curve.ctrlY + m * m * st.tipY;
-                hitboxes.push({
-                    x: Math.min(p0x, p1x, pmx) - chainRadius,
-                    y: Math.min(p0y, p1y, pmy) - chainRadius,
-                    width: Math.max(8, Math.max(p0x, p1x, pmx) - Math.min(p0x, p1x, pmx) + chainRadius * 2),
-                    height: Math.max(8, Math.max(p0y, p1y, pmy) - Math.min(p0y, p1y, pmy) + chainRadius * 2),
-                    part: 'chain'
-                });
+            const chainRadius = st.phase === 'orbit' ? 3.4 : 3.1;
+            const chainLinks = Math.max(8, Math.min(24, Math.round(curve.chainLen / 13)));
+            let prev = null;
+            for (let i = 1; i < chainLinks; i++) {
+                const t = i / chainLinks;
+                const point = this.sampleChainPoint(st, curve, t);
+                hitboxes.push(this.createCircleHitbox(point.x, point.y, chainRadius, 'chain'));
+                if (prev) {
+                    hitboxes.push(this.createCapsuleHitbox(prev.x, prev.y, point.x, point.y, chainRadius * 0.7, 'chain'));
+                }
+                prev = point;
             }
         }
         // Lvが上がるほど鎌先まわりの追撃判定を増やして制圧力を上げる

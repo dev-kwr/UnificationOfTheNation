@@ -1051,18 +1051,35 @@ export class UI {
     drawWeaponIcon(ctx, x, y, size, name) {
         ctx.save();
         ctx.translate(x, y);
-        
+
         const half = size / 2;
-        ctx.lineWidth = 2.5;
+        const bladeGrad = ctx.createLinearGradient(-half, -half, half, half);
+        bladeGrad.addColorStop(0, '#eef6ff');
+        bladeGrad.addColorStop(0.45, '#aebccf');
+        bladeGrad.addColorStop(1, '#465466');
+        const ironGrad = ctx.createLinearGradient(-half, -half, half, half);
+        ironGrad.addColorStop(0, '#dce5ef');
+        ironGrad.addColorStop(0.5, '#7e8c9e');
+        ironGrad.addColorStop(1, '#364354');
+        const woodGrad = ctx.createLinearGradient(-half, half, half, -half);
+        woodGrad.addColorStop(0, '#3f2617');
+        woodGrad.addColorStop(0.45, '#7a4d2e');
+        woodGrad.addColorStop(1, '#b07a4f');
+        const wrapGrad = ctx.createLinearGradient(-half, -half, half, half);
+        wrapGrad.addColorStop(0, '#151922');
+        wrapGrad.addColorStop(0.5, '#3d4657');
+        wrapGrad.addColorStop(1, '#161b24');
+
         ctx.lineCap = 'round';
-        ctx.shadowColor = 'rgba(0,0,0,0.5)';
-        ctx.shadowBlur = 3;
-        
+        ctx.lineJoin = 'round';
+        ctx.shadowColor = 'rgba(0,0,0,0.42)';
+        ctx.shadowBlur = 4;
+
         switch (name) {
             case '手裏剣':
-                ctx.fillStyle = '#c0c8d4';
-                ctx.strokeStyle = '#606878';
-                ctx.lineWidth = 1.2;
+                ctx.fillStyle = ironGrad;
+                ctx.strokeStyle = '#2d3948';
+                ctx.lineWidth = 1.1;
                 ctx.beginPath();
                 for (let i = 0; i < 4; i++) {
                     const angle = (Math.PI / 2) * i;
@@ -1080,95 +1097,165 @@ export class UI {
                 ctx.closePath();
                 ctx.fill();
                 ctx.stroke();
-                // 中心の穴
-                ctx.fillStyle = '#2a2a2a';
+                ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+                ctx.lineWidth = 0.7;
+                for (let i = 0; i < 4; i++) {
+                    const angle = (Math.PI / 2) * i;
+                    ctx.beginPath();
+                    ctx.moveTo(Math.cos(angle) * half * 0.22, Math.sin(angle) * half * 0.22);
+                    ctx.lineTo(Math.cos(angle) * half * 0.68, Math.sin(angle) * half * 0.68);
+                    ctx.stroke();
+                }
+                ctx.fillStyle = '#20242d';
                 ctx.beginPath();
                 ctx.arc(0, 0, half * 0.15, 0, Math.PI * 2);
                 ctx.fill();
                 break;
             case '火薬玉':
-                ctx.fillStyle = '#2d2d2d';
+                ctx.fillStyle = '#14171d';
                 ctx.beginPath();
                 ctx.arc(0, 0, half * 0.62, 0, Math.PI * 2);
                 ctx.fill();
-                ctx.strokeStyle = '#767676';
-                ctx.lineWidth = 1.8;
-                ctx.stroke();
-                ctx.strokeStyle = '#b07a38';
-                ctx.lineWidth = 2;
+                const bombGlow = ctx.createRadialGradient(-half * 0.12, -half * 0.18, 0, -half * 0.12, -half * 0.18, half * 0.75);
+                bombGlow.addColorStop(0, 'rgba(255,255,255,0.26)');
+                bombGlow.addColorStop(0.35, 'rgba(255,255,255,0.08)');
+                bombGlow.addColorStop(1, 'rgba(255,255,255,0)');
+                ctx.fillStyle = bombGlow;
                 ctx.beginPath();
-                ctx.moveTo(half * 0.08, -half * 0.58);
-                ctx.lineTo(half * 0.36, -half * 0.84);
+                ctx.arc(0, 0, half * 0.62, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#6d7685';
+                ctx.lineWidth = 1.2;
                 ctx.stroke();
-                ctx.fillStyle = '#ffb347';
+                ctx.strokeStyle = '#b6854e';
+                ctx.lineWidth = 1.7;
                 ctx.beginPath();
-                ctx.arc(half * 0.4, -half * 0.9, 2.2, 0, Math.PI * 2);
+                ctx.moveTo(half * 0.02, -half * 0.54);
+                ctx.quadraticCurveTo(half * 0.16, -half * 0.84, half * 0.34, -half * 0.9);
+                ctx.stroke();
+                ctx.fillStyle = '#ffcf6b';
+                ctx.beginPath();
+                ctx.arc(half * 0.38, -half * 0.96, 2.3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'rgba(255,160,70,0.65)';
+                ctx.beginPath();
+                ctx.arc(half * 0.48, -half * 1.06, 1.3, 0, Math.PI * 2);
                 ctx.fill();
                 break;
             case '大槍':
-                // 柄
-                ctx.strokeStyle = '#3d2b1f';
-                ctx.lineWidth = 4;
+                ctx.strokeStyle = woodGrad;
+                ctx.lineWidth = 3.4;
                 ctx.beginPath();
-                ctx.moveTo(-half, half);
-                ctx.lineTo(half * 0.4, -half * 0.4);
+                ctx.moveTo(-half * 0.82, half * 0.8);
+                ctx.lineTo(half * 0.34, -half * 0.28);
                 ctx.stroke();
-                
-                // 飾り房
-                ctx.fillStyle = '#d32f2f';
+                ctx.strokeStyle = 'rgba(255,236,210,0.2)';
+                ctx.lineWidth = 0.7;
                 ctx.beginPath();
-                ctx.arc(half * 0.3, -half * 0.3, 3, 0, Math.PI * 2);
-                ctx.fill();
-                
-                // 穂先
-                ctx.fillStyle = '#e0e0e0';
+                ctx.moveTo(-half * 0.72, half * 0.68);
+                ctx.lineTo(half * 0.22, -half * 0.2);
+                ctx.stroke();
+                ctx.fillStyle = '#b8262b';
                 ctx.beginPath();
-                ctx.moveTo(half, -half);
-                ctx.lineTo(half * 0.1, -half * 0.6);
-                ctx.lineTo(half * 0.6, -half * 0.1);
+                ctx.moveTo(half * 0.08, -half * 0.16);
+                ctx.lineTo(half * 0.26, -half * 0.03);
+                ctx.lineTo(half * 0.14, half * 0.11);
                 ctx.closePath();
                 ctx.fill();
+                ctx.fillStyle = bladeGrad;
+                ctx.beginPath();
+                ctx.moveTo(half * 0.82, -half * 0.74);
+                ctx.lineTo(half * 0.16, -half * 0.44);
+                ctx.lineTo(half * 0.42, -half * 0.02);
+                ctx.closePath();
+                ctx.fill();
+                ctx.strokeStyle = '#435062';
+                ctx.lineWidth = 0.9;
+                ctx.stroke();
                 break;
             case '二刀流':
-                ctx.strokeStyle = '#e0e0e0';
-                ctx.lineWidth = 3;
-                // 1本目（右上から左下）
-                ctx.beginPath();
-                ctx.moveTo(half, -half);
-                ctx.lineTo(-half * 0.5, half * 0.5);
-                ctx.stroke();
-                // 2本目（左上から右下）
-                ctx.beginPath();
-                ctx.moveTo(-half, -half);
-                ctx.lineTo(half * 0.5, half * 0.5);
-                ctx.stroke();
+                for (const dir of [-1, 1]) {
+                    ctx.save();
+                    ctx.rotate(dir * 0.72);
+                    ctx.strokeStyle = bladeGrad;
+                    ctx.lineWidth = 2.2;
+                    ctx.beginPath();
+                    ctx.moveTo(0, half * 0.8);
+                    ctx.quadraticCurveTo(half * 0.08, half * 0.1, 0, -half * 0.78);
+                    ctx.stroke();
+                    ctx.strokeStyle = 'rgba(255,255,255,0.42)';
+                    ctx.lineWidth = 0.7;
+                    ctx.beginPath();
+                    ctx.moveTo(half * 0.02, half * 0.5);
+                    ctx.quadraticCurveTo(half * 0.1, 0, half * 0.02, -half * 0.55);
+                    ctx.stroke();
+                    ctx.strokeStyle = wrapGrad;
+                    ctx.lineWidth = 1.4;
+                    ctx.beginPath();
+                    ctx.moveTo(0, half * 0.84);
+                    ctx.lineTo(0, half * 0.46);
+                    ctx.stroke();
+                    ctx.restore();
+                }
                 break;
             case '鎖鎌':
-                ctx.strokeStyle = '#999';
-                ctx.lineWidth = 1.5;
+                ctx.strokeStyle = 'rgba(176,188,204,0.98)';
+                ctx.lineWidth = 1.15;
                 ctx.beginPath();
-                ctx.arc(0, 0, half * 0.8, 0, Math.PI * 1.5); // 鎖の輪
+                ctx.moveTo(-half * 0.62, half * 0.44);
+                ctx.quadraticCurveTo(-half * 0.08, -half * 0.54, half * 0.48, -half * 0.06);
                 ctx.stroke();
-                // 鎌部分
-                ctx.strokeStyle = '#e0e0e0';
-                ctx.lineWidth = 2.5;
+                ctx.strokeStyle = 'rgba(232,242,255,0.35)';
+                ctx.lineWidth = 0.55;
                 ctx.beginPath();
-                ctx.moveTo(-half, -half);
-                ctx.lineTo(0, 0);
+                ctx.moveTo(-half * 0.56, half * 0.36);
+                ctx.quadraticCurveTo(-half * 0.02, -half * 0.58, half * 0.5, -half * 0.1);
+                ctx.stroke();
+                ctx.fillStyle = '#7a8596';
+                ctx.beginPath();
+                ctx.arc(-half * 0.68, half * 0.52, half * 0.17, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = bladeGrad;
+                ctx.beginPath();
+                ctx.moveTo(half * 0.08, -half * 0.06);
+                ctx.quadraticCurveTo(half * 0.46, -half * 0.52, half * 0.78, -half * 0.2);
+                ctx.quadraticCurveTo(half * 0.5, -half * 0.06, half * 0.2, half * 0.2);
+                ctx.closePath();
+                ctx.fill();
+                ctx.strokeStyle = '#3f4d5f';
+                ctx.lineWidth = 0.9;
+                ctx.stroke();
+                ctx.strokeStyle = woodGrad;
+                ctx.lineWidth = 1.8;
+                ctx.beginPath();
+                ctx.moveTo(half * 0.04, half * 0.28);
+                ctx.lineTo(-half * 0.18, half * 0.62);
                 ctx.stroke();
                 break;
             case '大太刀':
-                ctx.strokeStyle = '#e0e0e0';
-                ctx.lineWidth = 4;
+                ctx.strokeStyle = bladeGrad;
+                ctx.lineWidth = 3.3;
                 ctx.beginPath();
-                ctx.moveTo(-half, half);
-                ctx.lineTo(half, -half);
+                ctx.moveTo(-half * 0.56, half * 0.78);
+                ctx.quadraticCurveTo(-half * 0.16, 0, half * 0.52, -half * 0.8);
                 ctx.stroke();
-                // 柄
-                ctx.strokeStyle = '#8b4513';
+                ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+                ctx.lineWidth = 0.75;
                 ctx.beginPath();
-                ctx.moveTo(-half, half);
-                ctx.lineTo(-half/2, half/2);
+                ctx.moveTo(-half * 0.3, half * 0.52);
+                ctx.quadraticCurveTo(0, 0, half * 0.38, -half * 0.56);
+                ctx.stroke();
+                ctx.strokeStyle = woodGrad;
+                ctx.lineWidth = 2.2;
+                ctx.beginPath();
+                ctx.moveTo(-half * 0.74, half * 0.88);
+                ctx.lineTo(-half * 0.44, half * 0.42);
+                ctx.stroke();
+                ctx.strokeStyle = '#b59656';
+                ctx.lineWidth = 1.1;
+                ctx.beginPath();
+                ctx.moveTo(-half * 0.36, half * 0.54);
+                ctx.lineTo(-half * 0.22, half * 0.32);
                 ctx.stroke();
                 break;
             default:
