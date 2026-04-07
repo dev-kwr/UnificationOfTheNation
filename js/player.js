@@ -1873,10 +1873,37 @@ export class Player {
             audio.playLanding();
         }
         
-        // 画面端制限
-        if (this.x < 0) {
-            this.x = 0;
+        // 画面端制限とStage 5穴バリア
+        let leftLimit = 0;
+        let rightLimit = Infinity;
+
+        if (game && game.stage && game.stage.stageNumber === 5) {
+            if (game.stage.floorScrollDirection === -1) {
+                leftLimit = -this.width; // ステージ5左登りのみ、遷移達成のために画面外へ突破を許可
+            }
+
+            if (game.stage.currentFloor > 1) {
+                const holeWidth = 200; // PREVIOUS_STAIR_VISIBLE_WIDTH
+                if (game.stage.floorScrollDirection === 1) {
+                    // 右登り：穴は左端
+                    leftLimit = Math.max(leftLimit, holeWidth);
+                } else {
+                    // 左登り：穴は右端
+                    rightLimit = game.stage.maxProgress - holeWidth - this.width;
+                }
+            }
+        }
+
+        if (this.x < leftLimit) {
+            this.x = leftLimit;
+            // 壁に衝突時、速度を完全に0にして残像の進行を止める
             this.vx = 0;
+            this.ax = 0;
+        }
+        if (this.x > rightLimit) {
+            this.x = rightLimit;
+            this.vx = 0;
+            this.ax = 0;
         }
         // 右端制限は削除（ワールド座標で無限に進めるようにする。ステージ端制限はGame側で管理）
     }

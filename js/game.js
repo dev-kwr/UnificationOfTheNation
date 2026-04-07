@@ -1259,22 +1259,21 @@ class Game {
                 const isRightDir = dir === 1;
                 
                 // 次のフロアの開始位置を決定
-                // dir=1 なら左端(80)から、dir=-1 なら右端(maxProgress - 80)から開始
-                // 速度と向きも完全にリセットして画面外への飛び出しを防止
-                this.player.x = isRightDir ? 80 : this.stage.maxProgress - 80;
+                // 穴の幅(約200)に落ちないよう、端から240pxほど内側にスポーンさせる
+                this.player.x = isRightDir ? 240 : this.stage.maxProgress - 240;
                 this.player.vx = 0;
                 this.player.vy = 0;
                 this.player.facingRight = isRightDir; // 2F(dir=-1)なら左を向く
                 
                 // スクロール位置の決定
-                // dir=1 なら左端(0)固定、dir=-1 なら右端(maxProgress - CANVAS_WIDTH)固定
                 const targetScrollX = isRightDir ? 0 : Math.max(0, this.stage.maxProgress - CANVAS_WIDTH);
                 
                 this.scrollX = targetScrollX;
                 this.stage.progress = targetScrollX;
                 
-                // 接地
-                this.player.groundY = this.stage.getStairGroundY(this.player.x);
+                // 接地（中心で正確に取る）
+                const playerCenterX = this.player.x + this.player.width / 2;
+                this.player.groundY = this.stage.getStairGroundY(playerCenterX);
                 this.player.y = this.player.groundY - this.player.height;
             }
             
@@ -1302,7 +1301,8 @@ class Game {
             // Stage 5 のフロア方向に応じたスクロール
             const dir = this.stage.floorScrollDirection;
             const screenCenter = CANVAS_WIDTH / 2;
-            const stairClimb = this.stage.getStairClimbProgress(this.player.x);
+            const playerCenterX = this.player.x + this.player.width / 2;
+            const stairClimb = this.stage.getStairClimbProgress(playerCenterX);
             
             if (dir === 1) { // 右
                 // 階段を登りきるまでは、プレイヤーが右端に行ってもスクロールを止める
@@ -1347,17 +1347,19 @@ class Game {
         
         // --- Stage 5 各エンティティの物理同期 ---
         if (this.currentStageNumber === 5 && this.stage) {
-            // プレイヤーの接地更新
-            this.player.groundY = this.stage.getStairGroundY(this.player.x);
+            // プレイヤーの接地更新 (体の中心で判定)
+            const playerCenterX = this.player.x + this.player.width / 2;
+            this.player.groundY = this.stage.getStairGroundY(playerCenterX);
             
             // 敵全員の接地更新（踊り場対応）
             const allEnemies = this.stage.getAllEnemies();
             for (const enemy of allEnemies) {
-                enemy.groundY = this.stage.getStairGroundY(enemy.x);
+                const enemyCenterX = enemy.x + enemy.width / 2;
+                enemy.groundY = this.stage.getStairGroundY(enemyCenterX);
             }
             
             // 登りきったら次のフロアへ（最終階を除く）
-            const stairProgress = this.stage.getStairClimbProgress(this.player.x);
+            const stairProgress = this.stage.getStairClimbProgress(playerCenterX);
             if (stairProgress >= 1.0 && !this.stage.isFloorTransitioning && this.stage.currentFloor < this.stage.maxFloor) {
                 this.stage.startFloorTransition();
             }
@@ -1371,7 +1373,7 @@ class Game {
         
         // プレイヤーの移動制限
         if (this.currentStageNumber === 5) {
-            // Stage 5：フロア終端（階段手前）以上には進ませない仕組みが必要であればここに
+            // 移動制限は player.js の applyPhysics 内で物理制限として行う
         } else {
             // 戻りなしスクロール制限
             if (this.player.x < this.scrollX) this.player.x = this.scrollX;

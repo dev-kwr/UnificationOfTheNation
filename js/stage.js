@@ -30,7 +30,7 @@ export class Stage {
             // 奇数フロア=右方向(1), 偶数フロア=左方向(-1)
             this.floorScrollDirection = 1;
             this.stairZoneWidth = STAGE5_FLOOR.STAIR_WIDTH;
-            this.stairHeightPx = STAGE5_FLOOR.STAIR_HEIGHT;
+            this.stairHeightPx = 280;
             this.stairStepCount = STAGE5_FLOOR.STAIR_STEP_COUNT;
             this.baseGroundY = Math.round(CANVAS_HEIGHT * (2 / 3));
             // フロア遷移状態
@@ -304,35 +304,35 @@ export class Stage {
     // ============================
 
     /**
-     * 階段描画のワールドX（画像左端）を返す共通ヘルパー。
-     * 右登り: 画像左端 = maxProgress - stairW
-     * 左登り: 画像右端 = 0 なので、反転描画前の左端 = -stairW (ただし反転するので実座標は0)
-     *   ※ 左登りは scale(-1,1) で flip するため、描画の基準右端が worldX=0 になるよう
-     *      imageWorldLeft = -stairW とする。
+     * 階段描画のワールドX（画像論理左端）を返す共通ヘルパー。
+     * imageSlide = 45px を適用して、画像の左右の端（途切れ）を画面外に隠す。
      */
     _getStairImageWorldX(direction) {
         const stairW = this.stairZoneWidth;
+        const imageSlide = 45; 
         if (direction === 1) {
-            return this.maxProgress - stairW;
+            // 右登り: 画像左端を右へずらし、右端の途切れを隠す
+            return (this.maxProgress - stairW) + imageSlide;
         } else {
-            return -stairW; // flip描画用: 実際に見える右端が worldX=0
+            // 左登り: flip用の視覚的左端。左へずらし、左端の途切れを隠す
+            return -imageSlide;
         }
     }
 
     /**
      * 物理判定の登り始めワールドX。
-     * 画像内で最初の段が始まる位置 = 画像左端 + stairInternalOffset。
-     * (左登りは反転するので 画像の論理左端 = worldX=0 から stairInternalOffset 分内側)
+     * 実際は画像の端（外周）から約55px内側から1段目が始まり、登ることになる。
      */
     _getStairPhysicalStart(direction) {
         const stairW = this.stairZoneWidth;
-        const stairInternalOffset = stairW * 0.052;
+        const stairInternalOffset = 55; 
+        const imageSlide = 45;
         if (direction === 1) {
-            // 右登り: 画像左端(maxProgress - stairW) + offset
-            return (this.maxProgress - stairW) + stairInternalOffset;
+            // 右登り: 画像論理左端 + 初段内部オフセット
+            return (this.maxProgress - stairW) + imageSlide + stairInternalOffset;
         } else {
-            // 左登り: 反転なので「右から見た登り始め」 = stairW - stairInternalOffset
-            return stairW - stairInternalOffset;
+            // 左登り: flip後なので右側から見て計算
+            return stairW - imageSlide - stairInternalOffset;
         }
     }
 
@@ -562,28 +562,10 @@ export class Stage {
 
         // 接地ライン (baseGroundY + LANE_OFFSET) から画像上端を逆算
         const imgH = 512;
-        const step1YRatio = 0.928;
+        const step1YRatio = 0.742; // 画像の正しい接地点 
         const drawY = (this.baseGroundY + LANE_OFFSET) - (imgH * step1YRatio);
 
-        // scale(-1,1) + drawImage(img, tx, y, w, h) の数学:
-        //   canvas上の左端 = -(tx + w)、右端 = -tx
-        // 右登り(dir=1):
-        //   画像の左端(stair底)がworldX = maxProgress-stairW, 右端(頂上)がworldX = maxProgress
-        //   imageWorldLeft = maxProgress - stairW → screenX = maxProgress - stairW - scrollX
-        //   drawImage(img, screenX, ...) → canvas左端 = screenX, 右端 = screenX + stairW
-        // 左登り(dir=-1): scale(-1,1)でflip描画
-        //   頂上(flip後の視覚的左端)がworldX=0、底(flip後の視覚的右端)がworldX=stairW
-        //   canvas左端(視覚的頂上) = 0 - scrollX = -scrollX
-        //   → -(tx + stairW) = -scrollX → tx = scrollX - stairW
-        //   tx = -(screenX + stairW) なので screenX = -scrollX
-        //   → imageWorldLeft = 0
-        let imageWorldLeft;
-        if (direction === 1) {
-            imageWorldLeft = this.maxProgress - stairW;
-        } else {
-            imageWorldLeft = 0; // flip後: 頂上がworldX=0に来る
-        }
-
+        let imageWorldLeft = this._getStairImageWorldX(direction);
         const screenX = imageWorldLeft - scrollX;
 
         ctx.save();
@@ -615,50 +597,59 @@ export class Stage {
         const prevDir = this.previousStairDirection;
         const stairW = this.stairZoneWidth;
         const imgH = 512;
-        const step1YRatio = 0.928;
-        const drawY = (this.baseGroundY + LANE_OFFSET) - (imgH * step1YRatio);
+        // 頂上の接続位置を合わせるため、登りと同じ画像比率(0.742)を利用
+        const step1YRatio = 0.742;
         
         // 穴として見せる横幅
         const visibleWidth = STAGE5_FLOOR.PREVIOUS_STAIR_VISIBLE_WIDTH || 200;
 
-        let imageWorldLeft;
         let clipWorldLeft;
+        let isFlippedDraw = false;
+        let imageWorldLeft; // 視覚的な左端
 
         if (prevDir === 1) {
-            // 前フロアは右登り → 穴は右端(maxProgress)にある
-            // 右登りの階段を描画。画像右端が maxProgress になるように配置
-            imageWorldLeft = this.maxProgress - stairW;
+            // 前が右登り → 穴は右端。
             clipWorldLeft = this.maxProgress - visibleWidth;
+            // 45pxは木材ではなく透明な余白なので、余白分をシフトさせて階段本体を畳に合体させる
+            const imageSlide = 45;
+            imageWorldLeft = clipWorldLeft - imageSlide;
+            isFlippedDraw = true;
         } else {
-            // 前フロアは左登り → 穴は左端(0)にある
-            // 左登りの階段（flip）を描画。flip後の頂上が 0 になるように配置
-            imageWorldLeft = 0;
+            // 前が左登り → 穴は左端。
             clipWorldLeft = 0;
+            const imageSlide = 45;
+            imageWorldLeft = visibleWidth + imageSlide - stairW;
+            isFlippedDraw = false;
         }
 
-        const screenX = imageWorldLeft - scrollX;
+        const screenLeft = imageWorldLeft - scrollX;
         const clipScreenX = clipWorldLeft - scrollX;
 
-        // 描画範囲をクリップ
+        // 床から下を黒塗り（穴の表現）
         ctx.save();
-        ctx.beginPath();
-        ctx.rect(clipScreenX, 0, visibleWidth, CANVAS_HEIGHT);
-        ctx.clip();
-
-        if (prevDir === 1) {
-            // 右登り頂上
-            ctx.drawImage(this.stairImage, screenX, drawY, stairW, imgH);
-        } else {
-            // 左登り頂上（flip描画）
-            ctx.scale(-1, 1);
-            ctx.drawImage(this.stairImage, -(screenX + stairW), drawY, stairW, imgH);
-        }
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.95)';
+        // 穴は畳の端(clipScreenX)からにきっちり合わせる（広げると透明な余白が黒い隙間になってしまうため）
+        ctx.fillRect(clipScreenX, this.baseGroundY, visibleWidth, CANVAS_HEIGHT - this.baseGroundY);
         ctx.restore();
 
-        // 穴の黒塗り
+        // 階段の描画
         ctx.save();
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
-        ctx.fillRect(clipScreenX, this.baseGroundY, visibleWidth, 80);
+        ctx.beginPath();
+        // 切り抜き限界を上と左右に大きく拡張し、手すりや柱が自然に畳や壁の上へ「はみ出す」ようにする
+        ctx.rect(clipScreenX - 60, this.baseGroundY - 150, visibleWidth + 120, CANVAS_HEIGHT - this.baseGroundY + 150);
+        ctx.clip();
+
+        // ほぼ頂上が baseGroundY に接するように（LANE_OFFSETによる余計な沈み込みを排除）
+        const topStepYOffset = (imgH * step1YRatio) - this.stairHeightPx;
+        const drawY = this.baseGroundY - topStepYOffset;
+
+        if (!isFlippedDraw) {
+            ctx.drawImage(this.stairImage, screenLeft, drawY, stairW, imgH);
+        } else {
+            ctx.scale(-1, 1);
+            // 視覚的左端が screenLeft の場合、tx は -(screenLeft + stairW)
+            ctx.drawImage(this.stairImage, -(screenLeft + stairW), drawY, stairW, imgH);
+        }
         ctx.restore();
     }
 
@@ -1167,14 +1158,21 @@ export class Stage {
             x = this.progress + CANVAS_WIDTH + 50 + Math.random() * 100;
         }
 
-        // Stage 5: 階段区間およびフロア端には障害物を置かない
+        // Stage 5: 階段区間およびフロア端には障害物(竹槍等)を置かない
         if (this.stageNumber === 5) {
-            // 階段ゾーン、またはフロアの開始/終了地点に近い場合はキャンセル
-            const isNearStart = x < 150;
-            // 5F目（最終回）は登れないがビジュアル階段があるので、
-            // その土台に罠が埋まらないよう広めに(300px)確保する
+            // 階段のかなり手前（250px）およびフロア端（最上階用300px）をセーフゾーン化
+            const isNearStart = x < 250;
             const isNearEnd = x > this.maxProgress - 300;
-            if (this.isInStairZone(x) || isNearStart || isNearEnd) {
+            
+            // 物理的な階段範囲外でも、画面に映る幅を考慮して±150px程度のアソビを持たせる
+            const stairPhysStart = this.getStairStartX();
+            const stairPhysEnd = this.getStairEndX();
+            const buffer = 150;
+            const inExtendedStairZone = 
+                (this.floorScrollDirection === 1 && x >= stairPhysStart - buffer && x <= stairPhysEnd + buffer) ||
+                (this.floorScrollDirection === -1 && x >= stairPhysEnd - buffer && x <= stairPhysStart + buffer);
+
+            if (inExtendedStairZone || isNearStart || isNearEnd) {
                 return;
             }
         }
@@ -3602,14 +3600,14 @@ export class Stage {
         ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
 
         const tatamiWidth = 200;
-        const scroll = renderProgress * 0.95;
+        const scroll = renderProgress; // 完全に物理座標と同期させるためパララックスを廃止(1.0倍)
         const start = Math.floor((scroll - 250) / tatamiWidth);
         const end = Math.ceil((scroll + CANVAS_WIDTH + 250) / tatamiWidth);
         ctx.strokeStyle = this.interpolateColor('#2d3a24', '#0a1005', darken * 0.82);
         ctx.lineWidth = 5;
         for (let i = start; i <= end; i++) {
             const tx = i * tatamiWidth - scroll;
-            const bottomX = tx - 100;
+            const bottomX = tx; // 斜めの3Dパースを排除し、完全な垂直線(2Dサイドビュー)にする
             ctx.beginPath(); ctx.moveTo(tx, horizonY); ctx.lineTo(bottomX, bottomY); ctx.stroke();
         }
         
