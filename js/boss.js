@@ -1868,6 +1868,11 @@ export class Shogun extends Boss {
             armReachScale: SHOGUN_ARM_REACH_SCALE,
             // throw時は通常のプレイヤー投擲姿勢（奥手の刀＋手前手投擲）を使う
             forceSubWeaponRender: (this._subTimer > 0 && this._subAction != null && this._subAction !== 'throw'),
+            // ── 将軍専用: パーツ単位で素体を鎧・兜の見た目に差し替え ──
+            drawTorsoOverride: (ctx, p) => this._drawShogunTorso(ctx, p),
+            drawHeadOverride:  (ctx, p) => this._drawShogunHead(ctx, p),
+            drawArmOverride:   (ctx, p) => this._drawShogunArm(ctx, p),
+            drawLegOverride:   (ctx, p) => this._drawShogunLeg(ctx, p),
         };
 
         // 将軍は戦闘判定レンジを拡大しているため、
@@ -2042,8 +2047,330 @@ export class Shogun extends Boss {
         this.actor.height               = saved.height;
         this.actor.forceSubWeaponRender = saved.forceSubWeaponRender;
     }
-}
 
+    // ═══════════════════════════════════════════════════════
+    // 将軍専用: 素体パーツを鎧・兜に差し替える描画メソッド
+    // renderModel 内のフック (drawTorsoOverride / drawHeadOverride) から呼ばれる
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * 胴体パーツ：黒き巨大な塊と一筋の金
+     */
+    _drawShogunTorso(ctx, p) {
+        const { torsoShoulderX, bodyTopY, torsoHipX, hipY, dir, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand, withOutline } = p;
+        const cArmor = '#101014'; // 漆黒
+        const cGold  = '#dcb854'; // 黄金
+        const cCloth = '#202020'; // インナー
+
+        const dx = torsoHipX - torsoShoulderX;
+        const dy = hipY - bodyTopY;
+        const torsoLen = Math.hypot(dx, dy) || 1;
+        const ux = dx / torsoLen;
+        const uy = dy / torsoLen;
+        const nx = -uy;
+        const ny = ux;
+
+        // 威圧的な逆三角形の胴体
+        const wF = 6.5; 
+        const wB = 4.5; 
+
+        if (withOutline && silhouetteOutlineEnabled) {
+            ctx.strokeStyle = silhouetteOutlineColor;
+            ctx.lineWidth = 12 + outlineExpand;
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            ctx.beginPath(); ctx.moveTo(torsoShoulderX, bodyTopY); ctx.lineTo(torsoHipX, hipY); ctx.stroke();
+        }
+
+        // 漆黒の強固な胸当て
+        ctx.fillStyle = cArmor;
+        ctx.beginPath();
+        ctx.moveTo(torsoShoulderX + nx * wF * dir, bodyTopY + ny * wF * dir);
+        ctx.lineTo(torsoShoulderX - nx * wB * dir, bodyTopY - ny * wB * dir);
+        ctx.lineTo(torsoHipX - nx * wB * dir, hipY - ny * wB * dir);
+        ctx.lineTo(torsoHipX + nx * wF * dir, hipY + ny * wF * dir);
+        ctx.fill();
+
+        // 胸元の大きな黄金の紋章（単一の強烈なアクセント）
+        const cx = torsoShoulderX + dx * 0.3 + nx * 2.0 * dir;
+        const cy = bodyTopY + dy * 0.3 + ny * 2.0 * dir;
+        ctx.fillStyle = cGold;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - 4.5);
+        ctx.lineTo(cx + dir * 4.5, cy);
+        ctx.lineTo(cx, cy + 4.5);
+        ctx.lineTo(cx - dir * 4.5, cy);
+        ctx.fill();
+
+        // 草摺（腰から垂れる装甲板）- シンプルな斜めのブロック
+        const kusaL = 7.5;
+        ctx.fillStyle = cArmor;
+        ctx.beginPath();
+        ctx.moveTo(torsoHipX + nx * dir * 2.0, hipY);
+        // 後ろ斜めに流れる
+        ctx.lineTo(torsoHipX + nx * dir * 8.0, hipY + 1.0);
+        ctx.lineTo(torsoHipX + dx * 0.5 + nx * dir * 6.5, hipY + kusaL);
+        ctx.lineTo(torsoHipX + nx * dir * 1.0, hipY + kusaL - 1.0);
+        ctx.closePath();
+        ctx.fill();
+
+        // 草摺の裾にある一本の太い金縁
+        ctx.strokeStyle = cGold;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(torsoHipX + nx * dir * 8.0, hipY + 1.0);
+        ctx.lineTo(torsoHipX + dx * 0.5 + nx * dir * 6.5, hipY + kusaL);
+        ctx.stroke();
+    }
+
+    /**
+     * 頭部パーツ：戦国武将の兜とのっぺらぼうの顔
+     * 顔周りの装飾を排除し、極力シンプルで丁寧なデフォルメに
+     */
+    _drawShogunHead(ctx, p) {
+        const { headCenterX, headY, headRadius, dir, silhouetteColor,
+                silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand } = p;
+        const hx = headCenterX;
+        const hy = headY;
+        const hr = headRadius;
+
+        // ── カラーパレット ──
+        const cHelmTop = '#2e3140'; // 兜上部
+        const cHelmBot = '#0e0e14'; // 兜下部・錣
+        const cGold    = '#c8a951'; // 洗練された金
+        const cGoldSub = '#8c7335'; // 影やライン用の暗い金
+
+        // ── 1. 頭ベース（のっぺらぼう）──
+        // 完全に真ん丸のシルエットのみ。顔周りには一切装飾しない。
+        if (silhouetteOutlineEnabled) {
+            ctx.strokeStyle = silhouetteOutlineColor;
+            ctx.lineWidth   = outlineExpand;
+            ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI * 2); ctx.stroke();
+        }
+        ctx.fillStyle = silhouetteColor;
+        ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI * 2); ctx.fill();
+
+        // ── 2. 錣（しころ：後頭部のガード）──
+        // スマイルマークにならないよう、円弧(arc)をやめ、後ろ側にのみポリゴンで描画。
+        ctx.fillStyle = cHelmBot;
+        ctx.beginPath();
+        // 兜の後ろ頂上付近から
+        ctx.moveTo(hx - dir * hr * 0.2, hy - hr * 0.8);
+        // 後ろへ張り出しながら下がる
+        ctx.lineTo(hx - dir * hr * 1.5, hy + hr * 0.2);
+        // 首の後ろあたりへ
+        ctx.lineTo(hx - dir * hr * 0.8, hy + hr * 0.8);
+        // 顔の内部（のっぺらぼうの後ろに隠れる）へ
+        ctx.lineTo(hx, hy);
+        ctx.closePath();
+        ctx.fill();
+
+        // 錣の段ライン（後ろ側のみ）
+        ctx.strokeStyle = cGoldSub;
+        ctx.lineWidth = Math.max(1.5, hr * 0.06);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(hx - dir * hr * 0.6, hy - hr * 0.1);
+        ctx.lineTo(hx - dir * hr * 1.4, hy + hr * 0.2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(hx - dir * hr * 0.4, hy + hr * 0.4);
+        ctx.lineTo(hx - dir * hr * 1.1, hy + hr * 0.6);
+        ctx.stroke();
+
+        // ── 3. 兜の鉢（頭頂部）──
+        // シンプルなドーム型で頭に乗せるだけ
+        const helmGrad = ctx.createLinearGradient(hx, hy - hr * 1.2, hx, hy);
+        helmGrad.addColorStop(0, cHelmTop);
+        helmGrad.addColorStop(1, cHelmBot);
+        ctx.fillStyle = helmGrad;
+        
+        ctx.beginPath();
+        const frontX = hx + dir * hr * 0.7; // 額の端
+        const frontY = hy - hr * 0.4;
+        const backX  = hx - dir * hr * 0.9; // 後頭部の端
+        const backY  = hy - hr * 0.1;
+        
+        ctx.moveTo(frontX, frontY);
+        ctx.quadraticCurveTo(hx, hy - hr * 1.5, backX, backY);
+        ctx.lineTo(hx, hy); // ドームの底辺
+        ctx.closePath();
+        ctx.fill();
+
+        // ── 4. 前立（兜飾り）──
+        // ガンダムのアンテナのような線形の角をやめ、
+        // 威厳があり面として認識できる「巨大な三日月」に変更。
+        const crestX = frontX;
+        const crestY = frontY;
+        const moonW = hr * 1.8;
+        const moonH = hr * 0.6;
+
+        ctx.save();
+        ctx.translate(crestX, crestY);
+        ctx.scale(dir, 1);
+        ctx.rotate(0.08); // 少し上を向かせる
+
+        // 三日月の本体
+        ctx.fillStyle = cGold;
+        ctx.beginPath();
+        // 外側のカーブ
+        ctx.moveTo(-moonW * 0.5, -moonH * 0.5);
+        ctx.quadraticCurveTo(0, moonH * 1.4, moonW * 0.5, -moonH * 0.5);
+        // 内側のカーブ（鋭く戻る）
+        ctx.quadraticCurveTo(0, moonH * 0.15, -moonW * 0.5, -moonH * 0.5);
+        ctx.fill();
+
+        // 縁取りで立体感を出す
+        ctx.strokeStyle = '#6e5223';
+        ctx.lineWidth = Math.max(1, hr * 0.04);
+        ctx.stroke();
+
+        // ハイライト
+        ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+        ctx.lineWidth = Math.max(1, hr * 0.03);
+        ctx.beginPath();
+        ctx.moveTo(-moonW * 0.35, -moonH * 0.1);
+        ctx.quadraticCurveTo(0, moonH * 1.0, moonW * 0.35, -moonH * 0.1);
+        ctx.stroke();
+
+        ctx.restore();
+
+        // ── 5. 前立の台座 ──
+        ctx.fillStyle = cGold;
+        ctx.beginPath();
+        ctx.arc(crestX, crestY, hr * 0.18, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = cHelmBot;
+        ctx.beginPath();
+        ctx.arc(crestX, crestY, hr * 0.08, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+
+    /**
+     * 腕パーツ：質実剛健の籠手
+     */
+    _drawShogunArm(ctx, p) {
+        const { shoulderX, shoulderY, handX, handY, bendDir, bendScale, dir, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand, optionsInner } = p;
+        const dx = handX - shoulderX; const dy = handY - shoulderY;
+        const dist = Math.hypot(dx, dy);
+        const nx = -dy / dist; const ny = dx / dist;
+        const closeT = Math.max(0, Math.min(1, (14.5 - dist) / 14.5));
+        const bend = Math.min(2.5, dist * bendScale * (0.38 + closeT * 0.62));
+        const bendSign = -bendDir;
+        
+        let elbowX = shoulderX + dx * 0.54;
+        let elbowY = shoulderY + dy * 0.54 + 0.2;
+        if (optionsInner && optionsInner.preferUpwardElbow) {
+            elbowX += nx * bend * bendSign * 0.22;
+            elbowY -= bend * 0.96;
+        } else {
+            elbowX += nx * bend * bendSign;
+            elbowY += ny * bend * bendSign;
+        }
+
+        const wristToHandDist = 1.35;
+        const wristX = handX - (dx / dist) * wristToHandDist;
+        const wristY = handY - (dy / dist) * wristToHandDist;
+        const inset = (fx, fy, tx, ty, px) => {
+            const l = Math.hypot(tx-fx, ty-fy); if(l < 0.001) return {x:fx, y:fy};
+            const r = Math.min(1, px/l); return {x:fx+(tx-fx)*r, y:fy+(ty-fy)*r};
+        };
+        const armStart = inset(shoulderX, shoulderY, elbowX, elbowY, 1.2);
+
+        const cArmor = '#101014'; const cGold = '#dcb854'; const cCloth = '#202020';
+
+        if (silhouetteOutlineEnabled) {
+            ctx.strokeStyle = silhouetteOutlineColor;
+            ctx.lineWidth = 5.0 + outlineExpand;
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            ctx.beginPath(); ctx.moveTo(armStart.x, armStart.y); ctx.lineTo(elbowX, elbowY); ctx.lineTo(wristX, wristY); ctx.lineTo(handX, handY); ctx.stroke();
+        }
+
+        // ベースの下地
+        ctx.strokeStyle = cCloth;
+        ctx.lineWidth = 5.0;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath(); ctx.moveTo(armStart.x, armStart.y); ctx.lineTo(elbowX, elbowY); ctx.lineTo(wristX, wristY); ctx.stroke();
+
+        // 前腕を覆う強固な籠手（ポリゴンブロック）
+        ctx.fillStyle = cArmor;
+        ctx.beginPath();
+        const hW = 3.0; // 少し太め
+        ctx.moveTo(elbowX - nx * hW, elbowY - ny * hW);
+        ctx.lineTo(elbowX + nx * hW, elbowY + ny * hW);
+        ctx.lineTo(wristX + nx * (hW - 0.5), wristY + ny * (hW - 0.5));
+        ctx.lineTo(wristX - nx * (hW - 0.5), wristY - ny * (hW - 0.5));
+        ctx.fill();
+
+        // 籠手のエッジにある鋭い金線一本
+        ctx.strokeStyle = cGold;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(elbowX + nx * hW, elbowY + ny * hW);
+        ctx.lineTo(wristX + nx * (hW - 0.5), wristY + ny * (hW - 0.5));
+        ctx.stroke();
+
+        if (optionsInner) optionsInner.lastHandConnectFrom = { x: wristX, y: wristY };
+        return true;
+    }
+
+    /**
+     * 脚パーツ：一本の金のラインが走る太い袴と臑当
+     */
+    _drawShogunLeg(ctx, p) {
+        const { hipX, hipYLocal, kneeX, kneeY, footX, footY, isFrontLeg, dir, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand } = p;
+        const thighW = isFrontLeg ? 6.0 : 5.5; // 少し太めにしてドッシリと
+        const shinW  = isFrontLeg ? 5.5 : 5.0;
+        const cArmor = '#101014'; const cGold = '#dcb854'; const cCloth = '#202020';
+
+        if (silhouetteOutlineEnabled) {
+            ctx.strokeStyle = silhouetteOutlineColor;
+            ctx.lineWidth = thighW + outlineExpand;
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            ctx.beginPath(); ctx.moveTo(hipX, hipYLocal); ctx.lineTo(kneeX, kneeY); ctx.lineTo(footX, footY); ctx.stroke();
+        }
+
+        // 袴
+        ctx.strokeStyle = cCloth;
+        ctx.lineWidth = thighW;
+        ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath(); ctx.moveTo(hipX, hipYLocal); ctx.lineTo(kneeX, kneeY); ctx.stroke();
+        ctx.lineWidth = shinW;
+        ctx.beginPath(); ctx.moveTo(kneeX, kneeY); ctx.stroke();
+        ctx.lineTo(footX, footY); ctx.stroke();
+
+        // 臑当（脛を覆う強固なブロック）
+        const dxS = footX - kneeX; const dyS = footY - kneeY;
+        const dist = Math.hypot(dxS, dyS) || 1;
+        const sNX = -dyS / dist; const sNY = dxS / dist;
+        
+        ctx.fillStyle = cArmor;
+        ctx.beginPath();
+        const hw = shinW * 0.6;
+        ctx.moveTo(kneeX - sNX * hw, kneeY - sNY * hw);
+        ctx.lineTo(kneeX + sNX * hw, kneeY + sNY * hw);
+        ctx.lineTo(footX + sNX * hw, footY + sNY * hw);
+        ctx.lineTo(footX - sNX * hw, footY - sNY * hw);
+        ctx.fill();
+
+        // ボスらしい鋭角の膝当て
+        ctx.beginPath();
+        ctx.moveTo(kneeX - sNX * hw, kneeY - sNY * hw);
+        ctx.lineTo(kneeX + sNX * (hw + 1.5), kneeY + sNY * (hw + 1.5));
+        ctx.lineTo(kneeX - dxS * 0.2 + sNX * hw, kneeY - dyS * 0.2 + sNY * hw);
+        ctx.fill();
+
+        // 脛を走る一本の金の輝き
+        ctx.strokeStyle = cGold;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(kneeX + sNX * hw, kneeY + sNY * hw);
+        ctx.lineTo(footX + sNX * hw, footY + sNY * hw);
+        ctx.stroke();
+
+        return true;
+    }
+}
 // ボスファクトリー
 export function createBoss(stageNumber, x, y, groundY) {
     switch (stageNumber) {

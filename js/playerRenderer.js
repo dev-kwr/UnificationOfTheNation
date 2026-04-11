@@ -1225,6 +1225,15 @@ export function applyRendererMixin(PlayerClass) {
 	        
 	        const drawTorsoSegment = (withOutline = true, alphaVal = alpha) => {
             if (alphaVal <= 0) return;
+            // 将軍等のパーツ差し替えフック
+            if (typeof options.drawTorsoOverride === 'function') {
+                options.drawTorsoOverride(ctx, {
+                    torsoShoulderX, bodyTopY, torsoHipX, hipY, dir,
+                    silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor,
+                    outlineExpand, withOutline, alpha: alphaVal
+                });
+                return;
+            }
             if (withOutline && silhouetteOutlineEnabled) {
                 ctx.strokeStyle = silhouetteOutlineColor;
                 ctx.lineWidth = 10 + outlineExpand;
@@ -1262,7 +1271,25 @@ export function applyRendererMixin(PlayerClass) {
         ) => {
             if (alpha <= 0) return;
             const defaultOverlayInFront = ((hipX - torsoHipX) * dir) <= 0;
-            if (storeForOverlay && (overlayInFront === null ? defaultOverlayInFront : overlayInFront)) {
+            const willOverlay = storeForOverlay && (overlayInFront === null ? defaultOverlayInFront : overlayInFront);
+
+            // 将軍などの特殊パーツ用オーバーライドフック
+            if (typeof options.drawLegOverride === 'function') {
+                if (options.drawLegOverride(ctx, {
+                    hipX, hipYLocal, kneeX, kneeY, footX, footY,
+                    isFrontLeg, bendBias, bendDirSign, storeForOverlay,
+                    withOutline, alpha, dir,
+                    silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand
+                })) {
+                    // カスタム描画が実行された場合、後段オーバーレイのためにキューへ登録してスキップ
+                    if (willOverlay) {
+                        backLegOverlayQueue.push([hipX, hipYLocal, kneeX, kneeY, footX, footY, isFrontLeg, bendBias, bendDirSign]);
+                    }
+                    return;
+                }
+            }
+
+            if (willOverlay) {
                 backLegOverlayQueue.push([hipX, hipYLocal, kneeX, kneeY, footX, footY, isFrontLeg, bendBias, bendDirSign]);
             }
             const thighWidth = isFrontLeg ? 4.8 : 4.6;
@@ -1892,6 +1919,16 @@ export function applyRendererMixin(PlayerClass) {
         };
         const drawHeadSilhouetteWithOutline = () => {
             if (alpha <= 0) return;
+            // 将軍等のパーツ差し替えフック
+            if (typeof options.drawHeadOverride === 'function') {
+                options.drawHeadOverride(ctx, {
+                    headCenterX, headY, headRadius, dir,
+                    torsoShoulderX, bodyTopY,
+                    silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor,
+                    outlineExpand, alpha
+                });
+                return;
+            }
             if (silhouetteOutlineEnabled) {
                 const TAU = Math.PI * 2;
                 const normalizeAngle = (angle) => {
@@ -2113,9 +2150,17 @@ export function applyRendererMixin(PlayerClass) {
             bendDir = 1,
             bendScale = 0.14,
             elbowRadius = 2.15,
-            options = {}
+            optionsInner = {}
         ) => {
             if (alpha <= 0) return;
+
+            // 特殊パーツ用オーバーライド（籠手など）
+            if (typeof options.drawArmOverride === 'function') {
+                if (options.drawArmOverride(ctx, {
+                    shoulderX, shoulderY, handX, handY, bendDir, bendScale, elbowRadius, optionsInner,
+                    alpha, dir, silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand
+                })) return;
+            }
             const dx = handX - shoulderX;
             const dy = handY - shoulderY;
             const dist = Math.hypot(dx, dy);

@@ -710,14 +710,27 @@ class Game {
         // ─── デバッグ：ボス部屋からスタート ───────────────────────────
         if (this.debugBossRoomStart) {
             this.debugBossRoomStart = false;
-            // スクロールをステージ末端まで飛ばしてボス出現条件を満たす
-            this.scrollX = this.stage.maxProgress;
+            
+            // カメラをボス戦の固定位置（右端から画面1枚分引いた場所）に即セット
+            this.scrollX = Math.max(0, this.stage.maxProgress - CANVAS_WIDTH);
             this.stage.progress = this.stage.maxProgress;
             this.stage.lastProgress = this.stage.maxProgress;
             this.stage.midBossSpawned = true; // 中ボスをスキップ
             this.stage.enemies = [];          // 雑魚敵をクリア
             this.stage.obstacles = [];        // 障害物をクリア
+
+            // Stage 5 の場合は強制的に最上階(5F)状態へワープ
+            if (this.currentStageNumber === 5 && this.stage.stageNumber === 5) {
+                this.stage.currentFloor = this.stage.maxFloor;
+                // 5Fは通常奇数フロアなので右方向(1)。また、4Fから上がってくるのでprevDir=-1
+                this.stage.floorScrollDirection = 1;
+                this.stage.previousStairDirection = -1;
+            }
+
             this.stage.spawnBoss();           // ボス即スポーン
+
+            // プレイヤーをボス部屋の本来のカメラ到達時の立ち位置（画面左から30%）へ配置
+            this.player.x = this.scrollX + CANVAS_WIDTH * 0.3;
         }
         // ─────────────────────────────────────────────────────────────
         
@@ -1259,8 +1272,9 @@ class Game {
                 const isRightDir = dir === 1;
                 
                 // 次のフロアの開始位置を決定
-                // 穴の幅(約200)に落ちないよう、端から240pxほど内側にスポーンさせる
-                this.player.x = isRightDir ? 240 : this.stage.maxProgress - 240;
+                // 前フロアから登ってきた階段（穴）の斜面途中からスタートし、登りきらせる
+                const spawnOffset = 80; // 穴の幅(200)の内側
+                this.player.x = isRightDir ? spawnOffset : this.stage.maxProgress - spawnOffset;
                 this.player.vx = 0;
                 this.player.vy = 0;
                 this.player.facingRight = isRightDir; // 2F(dir=-1)なら左を向く
@@ -1274,11 +1288,13 @@ class Game {
                 // 接地（中心で正確に取る）
                 const playerCenterX = this.player.x + this.player.width / 2;
                 this.player.groundY = this.stage.getStairGroundY(playerCenterX);
-                this.player.y = this.player.groundY - this.player.height;
+                this.player.y = this.player.groundY + LANE_OFFSET - this.player.height;
+                this.player.isGrounded = true; // 念のため接地フラグもオンにしておく
             }
             
             // 遷移中も接地判定だけは最新の座標で更新し続ける（操作不能スタック防止）
-            this.player.groundY = this.stage.getStairGroundY(this.player.x);
+            const tpCenterX = this.player.x + this.player.width / 2;
+            this.player.groundY = this.stage.getStairGroundY(tpCenterX);
             this.stage.update(this.deltaTime, this.player);
             
             // 遷移が完了したフレーム(Phase 3 -> 0)
@@ -1356,6 +1372,12 @@ class Game {
             for (const enemy of allEnemies) {
                 const enemyCenterX = enemy.x + enemy.width / 2;
                 enemy.groundY = this.stage.getStairGroundY(enemyCenterX);
+            }
+            
+            // update boss groundY
+            if (this.stage.bossSpawned && this.stage.boss) {
+                const bossCenterX = this.stage.boss.x + this.stage.boss.width / 2;
+                this.stage.boss.groundY = this.stage.getStairGroundY(bossCenterX);
             }
             
             // 登りきったら次のフロアへ（最終階を除く）
@@ -4466,6 +4488,7 @@ class Game {
             }
             ctx.save();
             if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
+
             this.player.render(ctx, {
                 forceStanding: forceStanding,
                 skipSpecialRender: true

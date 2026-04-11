@@ -1882,16 +1882,8 @@ export class Player {
                 leftLimit = -this.width; // ステージ5左登りのみ、遷移達成のために画面外へ突破を許可
             }
 
-            if (game.stage.currentFloor > 1) {
-                const holeWidth = 200; // PREVIOUS_STAIR_VISIBLE_WIDTH
-                if (game.stage.floorScrollDirection === 1) {
-                    // 右登り：穴は左端
-                    leftLimit = Math.max(leftLimit, holeWidth);
-                } else {
-                    // 左登り：穴は右端
-                    rightLimit = game.stage.maxProgress - holeWidth - this.width;
-                }
-            }
+            // 以前あった穴の幅(200px)に対する見えない壁（進入禁止制限）を解除
+            // これにより、前フロアから続く階段の斜面へ自由に移動・昇降が可能となる
         }
 
         if (this.x < leftLimit) {

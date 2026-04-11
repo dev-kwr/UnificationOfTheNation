@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>階段プレビュー - 2.5D木造階段</title>
+<style>
+body {
+  margin: 0; padding: 20px;
+  background: #1a1a1a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: sans-serif;
+  color: #ccc;
+}
+h2 { margin-bottom: 8px; }
+.panel { text-align: center; margin-bottom: 20px; }
+.panel p { font-size: 13px; color: #888; margin-top: 4px; }
+img { max-width: 800px; border: 1px solid #333; display: block; background: #fff; }
+canvas { border: 1px solid #333; display: block; }
+
+.controls {
+  display: flex; flex-wrap: wrap; gap: 12px 24px;
+  background: #2a2a2a; padding: 12px 18px; border-radius: 8px;
+  margin-bottom: 16px; max-width: 800px;
+}
+.ctrl-group {
+  display: flex; flex-direction: column; align-items: flex-start;
+}
+.ctrl-group label { font-size: 11px; color: #999; margin-bottom: 2px; }
+.ctrl-group input[type="range"] { width: 120px; }
+.ctrl-group .val { font-size: 11px; color: #6cf; font-family: monospace; }
+</style>
+</head>
+<body>
+<h2>階段 2.5D プレビュー</h2>
+
+<div class="controls" id="controls">
+  <div class="ctrl-group">
+    <label>パース強度</label>
+    <input type="range" id="slScale" min="5" max="60" value="60" step="1">
+    <span class="val" id="vScale">0.60</span>
+  </div>
+  <div class="ctrl-group">
+    <label>桁太さ</label>
+    <input type="range" id="slBeam" min="3" max="40" value="40" step="1">
+    <span class="val" id="vBeam">40</span>
+  </div>
+  <div class="ctrl-group">
+    <label>段数</label>
+    <input type="range" id="slSteps" min="10" max="25" value="20" step="1">
+    <span class="val" id="vSteps">20</span>
+  </div>
+  <div class="ctrl-group">
+    <label>段の奥行き</label>
+    <input type="range" id="slRun" min="15" max="45" value="45" step="1">
+    <span class="val" id="vRun">45</span>
+  </div>
+  <div class="ctrl-group">
+    <label>段の高さ</label>
+    <input type="range" id="slRise" min="8" max="40" value="40" step="1">
+    <span class="val" id="vRise">40</span>
+  </div>
+
+  <div class="ctrl-group">
+    <label>踏み板厚</label>
+    <input type="range" id="slTread" min="2" max="15" value="15" step="1">
+    <span class="val" id="vTread">15</span>
+  </div>
+</div>
+
+<!-- Canvas上段 -->
+<div class="panel">
+  <canvas id="stairCanvas" width="800" height="520"></canvas>
+  <p>2.5D再現（Canvas）- ササラ桁＋踏み板のみ</p>
+</div>
+
+<!-- 元画像下段 -->
+<div class="panel">
+  <img src="images/stairs.png" alt="元画像" />
+  <p>元画像 (stairs.png)</p>
+</div>
+
+<script>
+(function() {
+  const canvas = document.getElementById('stairCanvas');
+  const ctx = canvas.getContext('2d');
+
+  function render() {
+    const scalePct = +document.getElementById('slScale').value;
+    const BEAM     = +document.getElementById('slBeam').value;
+    const STEPS    = +document.getElementById('slSteps').value;
+    const STEP_RUN = +document.getElementById('slRun').value;
+    const STEP_RISE= +document.getElementById('slRise').value;
+    const TREAD_T  = +document.getElementById('slTread').value;
+    const DEPTH    = 230;  // 115から230に変更し、階段全体の奥行き（幅）を広げました
+    const angleDeg = 90;   // 固定
+
+    document.getElementById('vScale').textContent = (scalePct / 100).toFixed(2);
+    document.getElementById('vBeam').textContent = BEAM;
+    document.getElementById('vSteps').textContent = STEPS;
+    document.getElementById('vRun').textContent = STEP_RUN;
+    document.getElementById('vRise').textContent = STEP_RISE;
+    document.getElementById('vTread').textContent = TREAD_T;
+
+    const D_ANG = angleDeg * Math.PI / 180;
+    const D_SCL = scalePct / 100;
+    const cosA = Math.cos(D_ANG);
+    const sinA = Math.sin(D_ANG);
+
+    const TOTAL_L = STEPS * STEP_RUN;
+    const TOTAL_H = STEPS * STEP_RISE;
+
+    // 自動スケーリング
+    const maxX = TOTAL_L + DEPTH * Math.abs(cosA) * D_SCL + BEAM * 2;
+    const maxY = TOTAL_H + DEPTH * sinA * D_SCL + BEAM * 2;
+    const scaleF = Math.min((canvas.width - 40) / maxX, (canvas.height - 40) / maxY);
+    const OX = 20;
+    const OY = canvas.height - 20;
+
+    function proj(x, y, z) {
+      return [
+        OX + (x + z * cosA * D_SCL) * scaleF,
+        OY - (y + z * sinA * D_SCL) * scaleF
+      ];
+    }
+
+    // ===== 色（ダークオーク系 - 暗すぎず明るすぎない） =====
+    const C = {
+      trdF: '#453022',  trdT: '#5e422f',  trdS: '#36251a',
+      risF: '#36251a',  risS: '#21160f',
+      strF: '#2b1d14',  strT: '#453022',
+    };
+
+    // ===== 描画ヘルパー =====
+    function face(pts, color, doStroke) {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.closePath();
+      ctx.fill();
+      if (doStroke !== false) {
+        ctx.strokeStyle = 'rgba(5, 2, 0, 0.4)';
+        ctx.lineWidth = 0.7;
+        ctx.stroke();
+      }
+    }
+
+    function drawBox(x, y, z, w, h, d, cf, ct, cs, doGrain = false) {
+      const v = [
+        proj(x,y,z),     proj(x+w,y,z),     proj(x+w,y+h,z),     proj(x,y+h,z),
+        proj(x,y,z+d),   proj(x+w,y,z+d),   proj(x+w,y+h,z+d),   proj(x,y+h,z+d)
+      ];
+
+      // --- 上面 (グラデーション: 手前が明るく、奥が暗い) ---
+      const gradT = ctx.createLinearGradient(v[3][0], v[3][1], v[7][0], v[7][1]);
+      gradT.addColorStop(0, ct); 
+      // 奥はベース色より一段暗い茶色に
+      gradT.addColorStop(1, '#3a281c');
+
+      ctx.fillStyle = gradT;
+      ctx.beginPath();
+      ctx.moveTo(v[3][0], v[3][1]);
+      ctx.lineTo(v[2][0], v[2][1]);
+      ctx.lineTo(v[6][0], v[6][1]);
+      ctx.lineTo(v[7][0], v[7][1]);
+      ctx.closePath();
+      ctx.fill();
+
+      // --- 木目 (Grain) ---
+      if (doGrain) {
+        ctx.save();
+        // はみ出さないように確実にクリップ領域を再定義
+        ctx.beginPath();
+        ctx.moveTo(v[3][0], v[3][1]);
+        ctx.lineTo(v[2][0], v[2][1]);
+        ctx.lineTo(v[6][0], v[6][1]);
+        ctx.lineTo(v[7][0], v[7][1]);
+        ctx.closePath();
+        ctx.clip();
+
+        // 非常に薄い黒で、なじむように描画
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.12)';
+        ctx.lineWidth = 1.0;
+        ctx.beginPath();
+        
+        const lines = 4;
+        for (let i = 1; i <= lines; i++) {
+          const f = i / (lines + 1);
+          // 始点(Z=0側のXエッジ)
+          let sx = v[3][0] + (v[2][0] - v[3][0]) * f;
+          let sy = v[3][1] + (v[2][1] - v[3][1]) * f;
+          // 終点(Z=奥行き側のXエッジ)
+          let ex = v[7][0] + (v[6][0] - v[7][0]) * f;
+          let ey = v[7][1] + (v[6][1] - v[7][1]) * f;
+          
+          ctx.moveTo(sx, sy);
+          
+          // 曲線の波を全ラインで統一（線が交差して汚くなるのを防ぐ）
+          // わずか数ピクセルの穏やかな波
+          let wave1X = Math.sin((x + y) * 0.1) * 2.5;
+          let wave2X = Math.cos((x + y) * 0.1) * 2.5;
+          
+          const cx1 = sx + (ex - sx) * 0.33 + wave1X;
+          const cy1 = sy + (ey - sy) * 0.33;
+          const cx2 = sx + (ex - sx) * 0.67 + wave2X;
+          const cy2 = sy + (ey - sy) * 0.67;
+          
+          ctx.bezierCurveTo(cx1, cy1, cx2, cy2, ex, ey);
+        }
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      ctx.strokeStyle = 'rgba(5, 2, 0, 0.4)';
+      ctx.lineWidth = 0.7;
+      ctx.stroke();
+
+      // --- 上面の手前エッジにハイライト（面取りと光の反射） ---
+      if (doGrain) {
+        ctx.beginPath();
+        ctx.moveTo(v[3][0], v[3][1]);
+        ctx.lineTo(v[2][0], v[2][1]);
+        ctx.strokeStyle = 'rgba(255, 180, 120, 0.15)'; // 白っぽい反射光
+        ctx.lineWidth = 1.0;
+        ctx.stroke();
+      }
+
+      // --- 右側面 ---
+      face([v[1],v[5],v[6],v[2]], cs);
+
+      // --- 正面 (踏み板の厚み or 蹴込板) ---
+      // 影グラデーション: 上部（踏み板の影になる部分）を暗くする
+      const gradF = ctx.createLinearGradient(v[3][0], v[3][1], v[0][0], v[0][1]);
+      // もしdoGrain（踏み板）でなければ、落ち影を作る
+      if (!doGrain) {
+        gradF.addColorStop(0, '#180f08'); // 蹴込板に落ちる濃い影
+        gradF.addColorStop(0.3, cf);
+        gradF.addColorStop(1, cf);
+      } else {
+        gradF.addColorStop(0, cf);
+        gradF.addColorStop(1, '#2d1f15'); // 踏み板前面の下部
+      }
+      
+      ctx.fillStyle = gradF;
+      ctx.beginPath();
+      ctx.moveTo(v[0][0], v[0][1]);
+      ctx.lineTo(v[1][0], v[1][1]);
+      ctx.lineTo(v[2][0], v[2][1]);
+      ctx.lineTo(v[3][0], v[3][1]);
+      ctx.closePath();
+      ctx.fill();
+      
+      ctx.strokeStyle = 'rgba(5, 2, 0, 0.4)';
+      ctx.stroke();
+    }
+
+    // ===== 描画開始 =====
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#faf6f0';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const treadZ = 0;
+    const treadD = DEPTH;
+    const strThick = BEAM * 0.85;
+    const strDepth = 5;
+    // 下辺がY=0を超えるX位置（最下段は床面で水平）
+    const floorX = strThick * TOTAL_L / TOTAL_H;
+
+    // ============================================================
+    // 描画順（ペインターアルゴリズム）
+    //   1. 奥ササラ桁
+    //   2. 手前ササラ桁（ジグザグポリゴン）
+    //   3. ステップ（蹴込板 + 踏板、最前面に配置）
+    // ============================================================
+
+    // --- 0. 全体の影（床へのドロップシャドウ） ---
+    {
+      ctx.save();
+      ctx.filter = 'blur(10px)'; // ぼかしを少し抑える
+      ctx.fillStyle = 'rgba(10, 5, 0, 0.4)'; 
+      
+      // 完全に90度の正面(または真横)視点のため、斜めに伸びる(ssX, ssZ)影はパースを崩す。
+      // 光が真上・正面から当たっているとし、階段の真下の床面 (Y=0, X=0〜TOTAL_L) にそのまま落とす。
+      
+      const sp1 = proj(0, 0, 0);                 // 左下の起点(手前)
+      const sp2 = proj(TOTAL_L, 0, 0);           // 右側の終端の真下(手前)
+      const sp3 = proj(TOTAL_L, 0, treadD);      // 右側の終端の真下(奥)
+      const sp4 = proj(0, 0, treadD);            // 左下の起点の真下(奥)
+      
+      ctx.beginPath();
+      ctx.moveTo(sp1[0], sp1[1]);
+      ctx.lineTo(sp2[0], sp2[1]);
+      ctx.lineTo(sp3[0], sp3[1]);
+      ctx.lineTo(sp4[0], sp4[1]);
+      ctx.closePath();
+      ctx.fill();
+      
+      ctx.restore();
+    }
+
+    // --- 1. 奥のササラ桁（ジグザグポリゴン、Z=DEPTH-BEAM面） ---
+    {
+      const zBack = DEPTH - BEAM;
+      const pts = [];
+
+      // ジグザグ上辺
+      for (let i = 0; i < STEPS; i++) {
+        pts.push(proj(i * STEP_RUN, i * STEP_RISE, zBack));
+        pts.push(proj(i * STEP_RUN, (i + 1) * STEP_RISE, zBack));
+      }
+      pts.push(proj(TOTAL_L, TOTAL_H, zBack));
+
+      // 下辺（右→左、最下段は床面Y=0で水平）
+      pts.push(proj(TOTAL_L, TOTAL_H - strThick, zBack));
+      pts.push(proj(floorX, 0, zBack));
+      pts.push(proj(0, 0, zBack));
+
+      face(pts, C.strF, true);
+
+      // 奥ササラ桁の下辺の奥行き上面（水平部分＋斜め部分）
+      face([
+        proj(0, 0, zBack),
+        proj(floorX, 0, zBack),
+        proj(TOTAL_L, TOTAL_H - strThick, zBack),
+        proj(TOTAL_L, TOTAL_H - strThick, zBack + BEAM),
+        proj(floorX, 0, zBack + BEAM),
+        proj(0, 0, zBack + BEAM)
+      ], C.strT);
+    }
+
+    // --- 2. 手前ササラ桁（ジグザグポリゴン、Z=0面） ---
+    {
+      const pts = [];
+
+      // ジグザグ上辺（左下→右上）
+      for (let i = 0; i < STEPS; i++) {
+        pts.push(proj(i * STEP_RUN, i * STEP_RISE, 0));
+        pts.push(proj(i * STEP_RUN, (i + 1) * STEP_RISE, 0));
+      }
+      pts.push(proj(TOTAL_L, TOTAL_H, 0));
+
+      // 下辺（右→左、最下段は床面Y=0で水平）
+      pts.push(proj(TOTAL_L, TOTAL_H - strThick, 0));
+      pts.push(proj(floorX, 0, 0));
+      pts.push(proj(0, 0, 0));
+
+      face(pts, C.strF, true);
+
+      // 手前ササラ桁の下辺の奥行き上面（水平部分＋斜め部分）
+      face([
+        proj(0, 0, 0),
+        proj(floorX, 0, 0),
+        proj(TOTAL_L, TOTAL_H - strThick, 0),
+        proj(TOTAL_L, TOTAL_H - strThick, strDepth),
+        proj(floorX, 0, strDepth),
+        proj(0, 0, strDepth)
+      ], C.strT);
+    }
+
+    // --- 3. ステップ（蹴込板 + 踏板、最前面に配置） ---
+    for (let i = 0; i < STEPS; i++) {
+      const tx = i * STEP_RUN;
+      const ty = i * STEP_RISE;
+
+      // 蹴込板
+      drawBox(tx, ty, treadZ, 3, STEP_RISE, treadD, C.risF, C.trdT, C.risS);
+
+      // 踏板 (doGrain=trueで木目を描画)
+      drawBox(tx, ty + STEP_RISE - TREAD_T, treadZ, STEP_RUN, TREAD_T, treadD, C.trdF, C.trdT, C.trdS, true);
+    } // <--- 追加
+
+    // --- 4. ノイズテクスチャ（ピクセル描画のような手描き感を出す） ---
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imgData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      // 完全に不透明な木材部分にのみノイズを乗せる（半透明なドロップシャドウには乗せない）
+      if (data[i + 3] > 240) {
+        const noise = (Math.random() - 0.5) * 16; 
+        data[i] = Math.max(0, Math.min(255, data[i] + noise));     // R
+        data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise)); // G
+        data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise)); // B
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+  }
+
+  document.querySelectorAll('.controls input').forEach(input => {
+    input.addEventListener('input', render);
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

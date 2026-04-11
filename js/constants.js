@@ -184,8 +184,8 @@ export const VIRTUAL_PAD = {
 export const STAGE5_FLOOR = {
     COUNT: 5,
     PROGRESS_PER_FLOOR: 3000,
-    STAIR_WIDTH: 600,               // 階段区間の幅（急勾配にするため短縮）
-    STAIR_HEIGHT: 380,              // 階段で登る高さ（画像角度 約0.75倍に最適化）
+    STAIR_WIDTH: 360,               // 階段区間の幅（プレビュー画像を drawScale=0.4 で描画）
+    STAIR_HEIGHT: 320,              // 階段で登る高さ（= 800 * 0.4 : プレビューのアスペクト比を維持）
     STAIR_STEP_COUNT: 36,           // 段数（密度を大幅に増加）
     TRANSITION_FADE_MS: 400,
     TRANSITION_WAIT_MS: 600,
