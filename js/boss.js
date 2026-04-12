@@ -2241,7 +2241,7 @@ export class Shogun extends Boss {
 
     /**
      * 頭部パーツ：戦国武将の兜とのっぺらぼうの顔
-     * 黒ベース・兜飾りのみ金アクセント
+     * 黒ベース・兜飾り（三日月前立て）のみ金アクセント
      */
     _drawShogunHead(ctx, p) {
         const { headCenterX, headY, headRadius, dir, silhouetteColor,
@@ -2264,37 +2264,93 @@ export class Shogun extends Boss {
         ctx.scale(dir, 1);
 
         // ── 基準値 ──
-        // helmBaseY = ドームの底辺＝しころの上辺（共有ライン・隙間なし）
-        const helmBaseY = -hr * 0.10;
+        const helmBaseY = -hr * 0.15; // ドームを高くするので基準位置を少し戻す
 
         // ── 色（黒ベース） ──
-        const cDome   = '#1c1c22'; // 鉢: 黒ベース
-        const cDomeHi = '#2c2c34'; // 鉢: 筋のわずかなハイライト
-        const cEdge   = '#0c0c10'; // 鉢の下縁帯・眉庇
-        const cShik   = '#161618'; // しころ
-        const cShikHi = '#1e1e22'; // しころ最上段
-        const cShikLn = '#0c0c10'; // しころ段線
+        const cDome   = '#111116'; // 鉢: 黒
+        const cSuji   = '#222228'; // 筋のハイライト
+        const cSujiDk = '#0a0a0e'; // 筋の溝（暗い線）
+        const cEdge   = '#0a0a0e'; // 鉢下縁帯・眉庇
+        const cShik   = '#131316'; // しころ
+        const cShikLn = '#0a0a0e'; // しころ段線
 
         // ═════════════════════════════════
-        //  1. しころ — 鉢底辺から直接ぶら下がる
-        //     helmBaseY を共有起点にして隙間ゼロ
+        //  1. 鉢（ドーム）＋ まびさし（ヘルメット一体型）
+        //     段差をなくし、頂点から先端まで滑らかに続く流線型
         // ═════════════════════════════════
-        const shkSteps  = 3;
-        const shkStepH  = hr * 0.28;
-        const shkSpread = hr * 0.16;
-        // 前端は domeW 付近から、後端は後頭部方向へ
-        const shkFwdBase  = hr * 0.25;
-        const shkBackBase = -hr * 0.70;
+        const domeW = hr * 1.15;
+        const domeH = hr * 1.15; // 高さを出す（おにぎり・ヘルメット型）
+        const domeTopY = helmBaseY - domeH;
+
+        // まびさし先端への突き出し
+        const vEndX   = domeW + hr * 0.30;
+        const vEndY   = helmBaseY + hr * 0.15;
+        const vThick  = hr * 0.12;
+
+        // 一体化したヘルメット本体のパス
+        ctx.fillStyle = cDome;
+        ctx.beginPath();
+        // ①後頭部の始点
+        ctx.moveTo(-domeW, helmBaseY);
+        
+        // ②後頭部からドーム頂点へのカーブ
+        ctx.bezierCurveTo(
+            -domeW * 1.02, helmBaseY - domeH * 0.50,
+            -domeW * 0.85, helmBaseY - domeH * 0.90,
+            -domeW * 0.10, domeTopY
+        );
+        
+        // ③頂点から まびさし先端 へ一直線/滑らかに降りるカーブ（流線型）
+        ctx.bezierCurveTo(
+            domeW * 0.80, helmBaseY - domeH * 0.85,
+            domeW * 1.10, helmBaseY - domeH * 0.20,
+            vEndX, vEndY
+        );
+
+        // ④先端の厚み
+        ctx.lineTo(vEndX - hr * 0.05, vEndY + vThick);
+
+        // ⑤先端下部から後頭部へ緩やかに戻る底面のカーブ
+        ctx.quadraticCurveTo(
+            domeW * 0.20, helmBaseY + hr * 0.05,
+            -domeW, helmBaseY
+        );
+        ctx.closePath();
+        ctx.fill();
+
+        // --- ヘルメット下辺（ツバの裏側と底面）のエッジ影 ---
+        ctx.strokeStyle = '#050508';
+        ctx.lineWidth = 1.0;
+        ctx.beginPath();
+        ctx.moveTo(vEndX - hr * 0.05, vEndY + vThick);
+        ctx.quadraticCurveTo(domeW * 0.20, helmBaseY + hr * 0.05, -domeW, helmBaseY);
+        ctx.stroke();
+
+        // ── 筋兜の縦筋は削除済（ソリッドなドームのみ） ──
+        // 鉢下縁帯は廃止（一体型になったため不要）
+
+        // ═════════════════════════════════
+        //  2. しころ — ヘルメットの上（外側）に被るように描画順を変更し、高い位置から開始
+        // ═════════════════════════════════
+        const shkSteps  = 5;              // 下に伸ばすため段数を追加
+        const shkStepH  = hr * 0.32;      // 縦に長く
+        const shkSpreadBack = hr * 0.15;  // 後ろ側の斜めへの広がり
+        const shkSpreadFwd  = hr * 0.02;  // 左側（顔側）の広がりを抑え、ほぼ直線（垂直）に落とす
+        const shkFwdBase  = hr * 0.25;    // 左（顔側）に幅を大きく広げる
+        const shkBackBase = -hr * 1.15;   // ドームの後端
+        const shkStartY   = helmBaseY - hr * 0.40; // 上へあげてヘルメットに少し被せる
 
         for (let s = shkSteps - 1; s >= 0; s--) {
-            const y0 = helmBaseY + shkStepH * s;
-            const y1 = helmBaseY + shkStepH * (s + 1);
-            const xF0 = shkFwdBase  - shkSpread * s * 0.12;
-            const xB0 = shkBackBase - shkSpread * s;
-            const xF1 = shkFwdBase  - shkSpread * (s + 1) * 0.12;
-            const xB1 = shkBackBase - shkSpread * (s + 1);
+            const y0  = shkStartY + shkStepH * s;
+            const y1  = shkStartY + shkStepH * (s + 1);
+            
+            // 左側（前）はほぼ直線的に、右側（後ろ）は斜めに広がる形にする
+            const xF0 = shkFwdBase  - shkSpreadFwd * s;
+            const xB0 = shkBackBase - shkSpreadBack * s;
+            const xF1 = shkFwdBase  - shkSpreadFwd * (s + 1);
+            const xB1 = shkBackBase - shkSpreadBack * (s + 1);
 
-            ctx.fillStyle = (s === 0) ? cShikHi : cShik;
+            ctx.fillStyle = cShik;
             ctx.beginPath();
             ctx.moveTo(xF0, y0);
             ctx.lineTo(xB0, y0);
@@ -2303,7 +2359,6 @@ export class Shogun extends Boss {
             ctx.closePath();
             ctx.fill();
 
-            // 段の区切りライン
             ctx.strokeStyle = cShikLn;
             ctx.lineWidth = 1.0;
             ctx.beginPath();
@@ -2311,13 +2366,13 @@ export class Shogun extends Boss {
             ctx.lineTo(xB0, y0);
             ctx.stroke();
         }
-        // 最下辺ライン
+        // 最下辺
         {
-            const yB  = helmBaseY + shkStepH * shkSteps;
-            const xFB = shkFwdBase  - shkSpread * shkSteps * 0.12;
-            const xBB = shkBackBase - shkSpread * shkSteps;
-            ctx.strokeStyle = cShikLn;
-            ctx.lineWidth = 1.0;
+            const yB  = shkStartY + shkStepH * shkSteps;
+            const xFB = shkFwdBase  - shkSpreadFwd * shkSteps; 
+            const xBB = shkBackBase - shkSpreadBack * shkSteps;
+            ctx.strokeStyle = '#dcb854'; // 最下部だけ金の装飾線
+            ctx.lineWidth = 1.5;         // 少し太めに
             ctx.beginPath();
             ctx.moveTo(xFB, yB);
             ctx.lineTo(xBB, yB);
@@ -2325,182 +2380,66 @@ export class Shogun extends Boss {
         }
 
         // ═════════════════════════════════
-        //  2. 鉢（ドーム）— 黒ベースのベル型
-        //     底辺 = helmBaseY（しころと共有）
-        // ═════════════════════════════════
-        const domeW = hr * 1.15;
-        const domeH = hr * 1.25;
-        const domeTopY = helmBaseY - domeH;
-
-        ctx.fillStyle = cDome;
-        ctx.beginPath();
-        ctx.moveTo(-domeW, helmBaseY);
-        ctx.bezierCurveTo(
-            -domeW * 1.02, helmBaseY - domeH * 0.50,
-            -domeW * 0.80, helmBaseY - domeH * 0.85,
-            0, domeTopY
-        );
-        ctx.bezierCurveTo(
-            domeW * 0.80, helmBaseY - domeH * 0.85,
-            domeW * 1.02, helmBaseY - domeH * 0.50,
-            domeW, helmBaseY
-        );
-        ctx.closePath();
-        ctx.fill();
-
-        // 筋（縦の筋線、控えめ）
-        ctx.lineWidth = Math.max(0.7, hr * 0.04);
-        for (let i = 1; i < 6; i++) {
-            const t = i / 6;
-            const sx = -domeW + domeW * 2 * t;
-            const ex = sx * 0.06;
-            const ey = domeTopY + domeH * 0.04;
-            const mx = sx * 0.50;
-            const my = helmBaseY - domeH * 0.52;
-            ctx.strokeStyle = cDomeHi;
-            ctx.beginPath();
-            ctx.moveTo(sx, helmBaseY);
-            ctx.quadraticCurveTo(mx, my, ex, ey);
-            ctx.stroke();
-        }
-
-        // 鉢下縁帯（helmBaseYに太い黒帯）
-        ctx.strokeStyle = cEdge;
-        ctx.lineWidth = hr * 0.14;
-        ctx.lineCap = 'butt';
-        ctx.beginPath();
-        ctx.moveTo(-domeW - 1, helmBaseY);
-        ctx.lineTo( domeW + 1, helmBaseY);
-        ctx.stroke();
-
-        // ═════════════════════════════════
-        //  3. 眉庇（まびさし/鍔）
-        //     鉢下縁からクリーンに前方へ突き出す
-        //     しっかりした台形、上面と下面で厚み
-        // ═════════════════════════════════
-        const vStartX = domeW * 0.55;        // ドーム前面のやや内側から
-        const vEndX   = domeW + hr * 0.35;   // 先端
-        const vThick  = hr * 0.14;           // 厚み
-
-        ctx.fillStyle = cEdge;
-        ctx.beginPath();
-        // 上面ライン（少し上に反る）
-        ctx.moveTo(vStartX, helmBaseY - vThick * 0.3);
-        ctx.lineTo(vEndX,   helmBaseY);
-        // 下面ライン
-        ctx.lineTo(vEndX - hr * 0.04, helmBaseY + vThick);
-        ctx.lineTo(vStartX,           helmBaseY + vThick * 0.5);
-        ctx.closePath();
-        ctx.fill();
-
-        // 下面にわずかなエッジ
-        ctx.strokeStyle = '#060608';
-        ctx.lineWidth = 0.8;
-        ctx.beginPath();
-        ctx.moveTo(vStartX, helmBaseY + vThick * 0.5);
-        ctx.lineTo(vEndX - hr * 0.04, helmBaseY + vThick);
-        ctx.stroke();
-
-        // ═════════════════════════════════
-        //  4. 前立て（兜飾り）— Y字フォーク型
-        //     参考画像: ドーム前面から1本の茎が上へ、
-        //     途中で二股に分かれて先端が外側へ開く
-        //     金色、シンプルで力強い形
+        //  4. 前立て — 三日月（みかづき）🌙
+        //     美しいU字カーブの三日月
+        //     2.5Dパース: 左右の高さの差はほんの少し。
         // ═════════════════════════════════
         const cGold     = '#dcb854';
         const cGoldDk   = '#a08832';
         const cGoldEdge = '#6e5223';
 
-        // 飾りの起点（ドーム前面の鉢金帯の上）
-        const forkX = domeW * 0.35;
-        const forkY = helmBaseY - hr * 0.08;
-        // 茎（1本の柱）の高さ
-        const stemH = hr * 0.50;
-        // フォーク部分
-        const forkH = hr * 1.10;  // 二股の高さ
-        const forkW = hr * 0.50;  // 二股の広がり幅
-        const prongThick = hr * 0.08; // 各ツノの太さ
+        // 取付位置（前面・もっと左寄りへ = +x方向に移動）
+        const crescentX = domeW * 0.95; // さらに左（前方）に移動
+        const crescentY = helmBaseY - hr * 0.35;
 
         ctx.save();
-        ctx.translate(forkX, forkY);
+        ctx.translate(crescentX, crescentY);
 
-        // --- 茎（根元の1本柱） ---
-        const stemW2 = hr * 0.07;
-        ctx.fillStyle = cGold;
+        // ── 三日月の寸法 ──
+        const cW = hr * 0.55; // 幅をほんの少し小さく
+        const cH = hr * 1.05; // 高さを小さく
+        const baseThick = hr * 0.20; // 底部中央の太さも細く
+
+        // ── 左右の先端座標 ──
+        // 進行方向側（左・奥）=+x方向 : 手前側と高さを近くする
+        const tipFarX =  cW * 0.75;
+        const tipFarY = -cH * 0.85;
+        
+        // ビューア側（右・手前）=-x方向
+        const tipNearX = -cW * 0.90;
+        const tipNearY = -cH * 1.0;
+
+        // ── カーブの制御点 ──
+        const outCp1X =  cW * 0.40;
+        const outCp1Y =  baseThick * 1.2;
+        const outCp2X = -cW * 0.50;
+        const outCp2Y =  baseThick * 1.5;
+
+        const inCp1X = -cW * 0.40;
+        const inCp1Y = -baseThick * 0.3;
+        const inCp2X =  cW * 0.30;
+        const inCp2Y = -baseThick * 0.1;
+
+        // グラデーション（左＝奥を暗く、右＝手前を明るく）
+        const grad = ctx.createLinearGradient(cW * 0.6, 0, -cW * 1.0, 0);
+        grad.addColorStop(0, cGoldDk);
+        grad.addColorStop(0.4, cGold);
+        grad.addColorStop(1, '#ffdf70');
+
+        // --- ベース描画 ---
+        ctx.fillStyle = grad;
         ctx.beginPath();
-        ctx.moveTo(-stemW2,  0);
-        ctx.lineTo( stemW2,  0);
-        ctx.lineTo( stemW2 * 0.7, -stemH);
-        ctx.lineTo(-stemW2 * 0.7, -stemH);
+        ctx.moveTo(tipFarX, tipFarY);
+        // 外弧: 奥(+x) → 手前(-x)
+        ctx.bezierCurveTo(outCp1X, outCp1Y, outCp2X, outCp2Y, tipNearX, tipNearY);
+        // 内弧: 手前(-x) → 奥(+x)
+        ctx.bezierCurveTo(inCp1X, inCp1Y, inCp2X, inCp2Y, tipFarX, tipFarY);
         ctx.closePath();
         ctx.fill();
 
-        // --- 手前のツノ（右方向・大きい方） ---
-        ctx.fillStyle = cGold;
-        ctx.beginPath();
-        ctx.moveTo( prongThick * 0.3, -stemH);
-        ctx.quadraticCurveTo(
-            forkW * 0.30, -stemH - forkH * 0.45,
-            forkW * 0.75, -stemH - forkH
-        );
-        // 先端を少し太く→内側に戻る
-        ctx.lineTo(forkW * 0.62, -stemH - forkH * 0.93);
-        ctx.quadraticCurveTo(
-            forkW * 0.15, -stemH - forkH * 0.35,
-            -prongThick * 0.2, -stemH * 0.92
-        );
-        ctx.closePath();
-        ctx.fill();
+        // （輪郭線を描画しないことで、兜飾りの境界をなくす）
 
-        // --- 奥のツノ（左方向・パースで少し短い） ---
-        ctx.fillStyle = cGoldDk;
-        ctx.beginPath();
-        ctx.moveTo(-prongThick * 0.3, -stemH);
-        ctx.quadraticCurveTo(
-            -forkW * 0.22, -stemH - forkH * 0.38,
-            -forkW * 0.55, -stemH - forkH * 0.80
-        );
-        ctx.lineTo(-forkW * 0.44, -stemH - forkH * 0.74);
-        ctx.quadraticCurveTo(
-            -forkW * 0.10, -stemH - forkH * 0.28,
-            prongThick * 0.2, -stemH * 0.92
-        );
-        ctx.closePath();
-        ctx.fill();
-
-        // --- 輪郭線 ---
-        ctx.strokeStyle = cGoldEdge;
-        ctx.lineWidth = Math.max(1.0, hr * 0.03);
-        ctx.lineJoin = 'round';
-        ctx.lineCap  = 'round';
-        // 茎
-        ctx.beginPath();
-        ctx.moveTo(-stemW2, 0);
-        ctx.lineTo(-stemW2 * 0.7, -stemH);
-        ctx.moveTo( stemW2, 0);
-        ctx.lineTo( stemW2 * 0.7, -stemH);
-        ctx.stroke();
-        // 手前ツノ外側
-        ctx.beginPath();
-        ctx.moveTo(prongThick * 0.3, -stemH);
-        ctx.quadraticCurveTo(forkW * 0.30, -stemH - forkH * 0.45, forkW * 0.75, -stemH - forkH);
-        ctx.stroke();
-        // 奥ツノ外側
-        ctx.beginPath();
-        ctx.moveTo(-prongThick * 0.3, -stemH);
-        ctx.quadraticCurveTo(-forkW * 0.22, -stemH - forkH * 0.38, -forkW * 0.55, -stemH - forkH * 0.80);
-        ctx.stroke();
-
-        // --- ハイライト ---
-        ctx.strokeStyle = 'rgba(255,255,220,0.35)';
-        ctx.lineWidth = Math.max(0.6, hr * 0.015);
-        // 手前ツノ中央ライン
-        ctx.beginPath();
-        ctx.moveTo(prongThick * 0.1, -stemH * 1.1);
-        ctx.quadraticCurveTo(forkW * 0.22, -stemH - forkH * 0.40, forkW * 0.65, -stemH - forkH * 0.90);
-        ctx.stroke();
-
-        ctx.restore(); // fork座標系
+        ctx.restore(); // crescentX, Y
 
         ctx.restore(); // dir/hx,hy座標系
     }
@@ -2576,35 +2515,44 @@ export class Shogun extends Boss {
             ctx.stroke();
         }
 
-        // ── 大袖（肩当て）── 腕の付け根を覆う装甲板
-        const sdx = elbowX - shoulderX;
-        const sdy = elbowY - shoulderY;
-        const sDist = Math.hypot(sdx, sdy) || 1;
-        const sNX = -sdy / sDist;
-        const sNY = sdx / sDist;
-        const padW = 4.5;
-        const padLen = sDist * 0.42;
-        const padPx = shoulderX + sdx * 0.02;
-        const padPy = shoulderY + sdy * 0.02;
-        const padEx = shoulderX + sdx * 0.02 + (sdx / sDist) * padLen;
-        const padEy = shoulderY + sdy * 0.02 + (sdy / sDist) * padLen;
+        // ── 大袖（肩当て / 袖）── 腕の付け根から真下へ四角く垂れる段々の鎧
+        const sodeSteps = 5;
+        const sodeW = 5.0; // 一定の幅（末広がりをやめ、真っ直ぐな四角にする）
+        const sodeH = 13.5; // 腕の長さに合わせて真下に長く（上に上げた分少し伸ばす）
+        
+        // 肩の中心から少しだけ外側・背中側へずらし、肩の上から覆い被せるように高くする
+        const padPx = shoulderX - dir * 1.5;
+        const padPy = shoulderY - 2.5;
 
-        ctx.fillStyle = '#101014';
-        ctx.beginPath();
-        ctx.moveTo(padPx - sNX * padW, padPy - sNY * padW);
-        ctx.lineTo(padPx + sNX * padW, padPy + sNY * padW);
-        ctx.lineTo(padEx + sNX * (padW - 0.8), padEy + sNY * (padW - 0.8));
-        ctx.lineTo(padEx - sNX * (padW - 0.8), padEy - sNY * (padW - 0.8));
-        ctx.closePath();
-        ctx.fill();
-
-        // 肩当ての下端に控えめな金縁のみ
-        ctx.strokeStyle = 'rgba(180, 155, 70, 0.45)';
-        ctx.lineWidth = 1.0;
-        ctx.beginPath();
-        ctx.moveTo(padEx + sNX * (padW - 0.8), padEy + sNY * (padW - 0.8));
-        ctx.lineTo(padEx - sNX * (padW - 0.8), padEy - sNY * (padW - 0.8));
-        ctx.stroke();
+        for (let s = 0; s < sodeSteps; s++) {
+            const y0 = padPy + (sodeH / sodeSteps) * s;
+            const y1 = padPy + (sodeH / sodeSteps) * (s + 1);
+            
+            // 鎧の板（しころと同じ黒）
+            ctx.fillStyle = '#131316';
+            ctx.beginPath();
+            ctx.moveTo(padPx - sodeW, y0);
+            ctx.lineTo(padPx + sodeW, y0);
+            ctx.lineTo(padPx + sodeW, y1);
+            ctx.lineTo(padPx - sodeW, y1);
+            ctx.closePath();
+            ctx.fill();
+            
+            // 段の下端の線
+            if (s === sodeSteps - 1) {
+                // 最下段のみ金の装飾線
+                ctx.strokeStyle = '#dcb854';
+                ctx.lineWidth = 1.5;
+            } else {
+                ctx.strokeStyle = '#0a0a0e';
+                ctx.lineWidth = 1.0;
+            }
+            
+            ctx.beginPath();
+            ctx.moveTo(padPx - sodeW, y1);
+            ctx.lineTo(padPx + sodeW, y1);
+            ctx.stroke();
+        }
 
         if (optionsInner) optionsInner.lastHandConnectFrom = { x: wristX, y: wristY };
         return true;
@@ -2630,9 +2578,7 @@ export class Shogun extends Boss {
         ctx.lineTo(xPos, yPos + handRad * 0.6);
         ctx.lineTo(xPos - dir * handRad * 0.5, yPos);
         ctx.fill();
-        ctx.strokeStyle = '#6e5223';
-        ctx.lineWidth = 1.0;
-        ctx.stroke();
+        // 塗りだけでボーダーをなくす
 
         return true;
     }
@@ -2727,11 +2673,7 @@ export class Shogun extends Boss {
         ctx.beginPath();
         ctx.ellipse(bootCX + dir * bootW * 0.5, bY - bootH * 0.4, bootW * 0.5, bootH * 0.5, 0, 0, Math.PI * 2);
         ctx.fill();
-        
-        // 装甲の境界線
-        ctx.strokeStyle = '#6e5223';
-        ctx.lineWidth = 1.0;
-        ctx.stroke();
+        // 塗りだけでボーダーをなくす
 
         return true;
     }
