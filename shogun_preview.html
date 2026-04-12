@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>将軍（ラスボス）プレビュー</title>
+    <style>
+        body { 
+            background-color: #1a1a1a; 
+            color: #eee; 
+            text-align: center; 
+            font-family: sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+        canvas { 
+            background-color: #2a2a2a; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.8); 
+            margin-top: 10px;
+            border: 1px solid #444;
+        }
+        .controls { 
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+        button { 
+            padding: 10px 20px; 
+            background-color: #444;
+            color: #fff;
+            border: 1px solid #666;
+            border-radius: 4px;
+            cursor: pointer; 
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #555;
+        }
+        .note {
+            margin-top: 15px;
+            color: #aaa;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <h2>将軍（ラスボス）プレビュー画面</h2>
+    <div class="controls">
+        <button id="btnIdle">待機 (Idle)</button>
+        <button id="btnWalk">歩行 (Walk)</button>
+        <button id="btnAttack">攻撃モーション (Combo)</button>
+        <button id="btnSub">サブウェポン切替</button>
+    </div>
+    <canvas id="previewCanvas" width="800" height="500"></canvas>
+    
+    <div class="note">
+        ※ ラスボスの見た目の調整に特化したプレビューツールです。<br>
+        js/boss.jsやjs/player.jsを変更し、ブラウザをリロードすることで即座にデザインを確認・調整できます。
+    </div>
+
+    <script type="module">
+        import { Shogun } from './js/boss.js';
+
+        // ゲームオブジェクトの簡易モック
+        window.game = { 
+            scrollX: 0, 
+            groundY: 350, 
+            difficulty: { id: 'normal' },
+            audio: { play: () => {}, tryPlay: () => {} } // エラー回避用
+        };
+        
+        const canvas = document.getElementById('previewCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // 将軍インスタンスの生成
+        const shogun = new Shogun(canvas.width / 2, window.game.groundY, 'boss', window.game.groundY);
+        shogun.init(); // 一度初期化
+        
+        // init後にサイズ等が決まるので再度センタリング
+        shogun.x = (canvas.width - shogun.width) / 2;
+        shogun.y = window.game.groundY - shogun.height;
+        shogun.groundY = window.game.groundY; // 念のため明示的に設定
+        shogun.facingRight = false;
+        // プレビュー用に無限HP
+        shogun.hp = 99999;
+        
+        // 状態フラグ
+        let lastTime = performance.now();
+        let isWalking = false;
+
+        document.getElementById('btnIdle').addEventListener('click', () => {
+            isWalking = false;
+            shogun.vx = 0;
+            shogun._attackTimer = 0;
+            shogun._subTimer = 0;
+            shogun.isAttacking = false;
+            // 座標リセット
+            shogun.x = (canvas.width - shogun.width) / 2;
+        });
+
+        document.getElementById('btnWalk').addEventListener('click', () => {
+            isWalking = !isWalking;
+            shogun._attackTimer = 0;
+            shogun._subTimer = 0;
+            shogun.isAttacking = false;
+        });
+
+        document.getElementById('btnAttack').addEventListener('click', () => {
+            isWalking = false;
+            shogun.vx = 0;
+            shogun._comboStep = (shogun._comboStep + 1) % 4; // コンボステップを適当に進める
+            shogun._attackTimer = 600; 
+            shogun.isAttacking = true;
+        });
+
+        const subWeapons = [null, 'shuriken', 'bomb', 'spear', 'dual', 'kusarigama', 'odachi'];
+        let subIndex = 0;
+        document.getElementById('btnSub').addEventListener('click', () => {
+             isWalking = false;
+             shogun.vx = 0;
+             subIndex = (subIndex + 1) % subWeapons.length;
+             const w = subWeapons[subIndex];
+             if (w) {
+                 shogun._subWeaponKey = w;
+                 shogun._subTimer = 2000; // 長めに構える
+                 // サブウェポンのアクション名を簡易エミュレート
+                 const actionMap = {
+                     'shuriken': 'throw',
+                     'bomb': 'throw',
+                     'spear': '大槍',
+                     'dual': '二刀_合体',
+                     'kusarigama': '鎖鎌',
+                     'odachi': '大太刀'
+                 };
+                 shogun._subAction = actionMap[w] || null;
+                 console.log("武器プレビュー:", w);
+             } else {
+                 shogun._subTimer = 0;
+                 shogun._subWeaponKey = null;
+                 shogun._subAction = null;
+                 console.log("武器プレビュー: なし");
+             }
+        });
+
+        function loop(time) {
+            const dt = Math.min((time - lastTime) / 1000, 0.1);
+            lastTime = time;
+
+            // 歩行ロジックの簡易エミュレート
+            if (isWalking) {
+                shogun.vx = -1.8;
+                shogun.x += shogun.vx;
+                // 画面端ループ
+                if (shogun.x < 100) {
+                    shogun.x = canvas.width - 100;
+                }
+            } else {
+                // 歩行から復帰するときに滑らないよう減速
+                shogun.vx *= 0.8;
+            }
+
+            // update
+            shogun.update(dt, null);
+
+            // 描画
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 地面の描画
+            ctx.fillStyle = '#3a3a3a';
+            ctx.fillRect(0, window.game.groundY, canvas.width, canvas.height - window.game.groundY);
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, window.game.groundY);
+            ctx.lineTo(canvas.width, window.game.groundY);
+            ctx.stroke();
+
+            // 基準線の描画（中心）
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 0);
+            ctx.lineTo(canvas.width / 2, canvas.height);
+            ctx.stroke();
+
+            ctx.save();
+            shogun.renderBody(ctx);
+            ctx.restore();
+
+            requestAnimationFrame(loop);
+        }
+
+        requestAnimationFrame(loop);
+    </script>
+</body>
+</html>

@@ -1894,6 +1894,15 @@ export function applyRendererMixin(PlayerClass) {
         for (const legArgs of backLegOverlayQueue) {
             drawJointedLeg(...legArgs, false, null, false);
         }
+
+        // 脚描画完了後に胴体の上にパーツを重ねるオーバーレイフック（脚付け根を覆う草摺など）
+        if (typeof options.drawTorsoOverlayOverride === 'function') {
+            options.drawTorsoOverlayOverride(ctx, {
+                torsoShoulderX, bodyTopY, torsoHipX, hipY, dir,
+                silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor,
+                outlineExpand, alpha
+            });
+        }
         
         const renderHair = options.renderHair !== false;
         const accessoryRoots = this.getAccessoryRootAnchors(headCenterX, headY, headRadius, facingRight, headSpinAngle);
@@ -2213,6 +2222,15 @@ export function applyRendererMixin(PlayerClass) {
         };
         const drawHand = (xPos, yPos, radius = 4.5, connectFrom = null) => {
             if (alpha <= 0) return;
+            if (typeof options.drawHandOverride === 'function') {
+                if (options.drawHandOverride(ctx, { 
+                    xPos, yPos, radius, connectFrom, alpha, dir, 
+                    silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand 
+                })) {
+                    lastHandConnectFrom = null;
+                    return;
+                }
+            }
             const handR = radius * handRadiusScale;
             const connectAnchor = connectFrom || lastHandConnectFrom;
             drawConnectedHandOutline(xPos, yPos, handR, connectAnchor);
@@ -3686,6 +3704,15 @@ export function applyRendererMixin(PlayerClass) {
         };
         const drawAttackHand = (xPos, yPos, radius = 4.8 * attackHandRadiusScale, connectFrom = null) => {
             if (alpha <= 0) return;
+            if (typeof options.drawHandOverride === 'function') {
+                if (options.drawHandOverride(ctx, { 
+                    xPos, yPos, radius, connectFrom, alpha, dir, 
+                    silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand, isAttackArm: true
+                })) {
+                    lastAttackHandConnectFrom = null;
+                    return;
+                }
+            }
             const connectAnchor = connectFrom || lastAttackHandConnectFrom;
             drawConnectedAttackHandOutline(xPos, yPos, radius, connectAnchor);
             ctx.fillStyle = silhouetteColor;
@@ -3727,6 +3754,15 @@ export function applyRendererMixin(PlayerClass) {
             foreLen = standardForeLen
         ) => {
             if (alpha <= 0) return;
+
+            // 特殊パーツ用オーバーライド（攻撃中も籠手を描画するため）
+            if (typeof options.drawArmOverride === 'function') {
+                if (options.drawArmOverride(ctx, {
+                    shoulderX, shoulderY, handX, handY, bendDir, bendScale: 0.14, elbowRadius: width * 0.5, optionsInner: { lastHandConnectFrom: lastAttackHandConnectFrom },
+                    alpha, dir, silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand, isAttackArm: true
+                })) return;
+            }
+
             const dx = handX - shoulderX;
             const dy = handY - shoulderY;
             const distRaw = Math.hypot(dx, dy);
