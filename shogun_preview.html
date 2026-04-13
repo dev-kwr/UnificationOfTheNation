@@ -41,6 +41,45 @@
             color: #aaa;
             font-size: 13px;
         }
+    
+        .tuning-panel {
+            background-color: #222;
+            padding: 15px;
+            margin: 20px auto;
+            width: 800px;
+            border: 1px solid #444;
+            display: flex;
+            justify-content: space-between;
+            text-align: left;
+        }
+        .tuning-col {
+            width: 48%;
+        }
+        .tuning-col h4 {
+            margin-top: 0;
+            color: #dcb854;
+            border-bottom: 1px solid #555;
+            padding-bottom: 5px;
+        }
+        .param-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+        .param-row label {
+            width: 170px; white-space: nowrap;
+        }
+        .param-row input[type=range] {
+            flex-grow: 1;
+            margin-right: 10px;
+        }
+        .param-row span {
+            width: 40px;
+            text-align: right;
+            font-family: monospace;
+        }
+
     </style>
 </head>
 <body>
@@ -53,6 +92,31 @@
     </div>
     <canvas id="previewCanvas" width="800" height="500"></canvas>
     
+    
+        <div class="tuning-panel">
+        <div class="tuning-col">
+            <h4>奥の角 (Far Horn)</h4>
+            <div class="param-row"><label>根元X位置 (farBaseX)</label><input type="range" id="farBaseX" min="-1.0" max="1.0" step="0.01" value="-0.03"><span id="val_farBaseX">-0.03</span></div>
+            <div class="param-row"><label>根元Y位置 (farBaseY)</label><input type="range" id="farBaseY" min="0.0" max="1.5" step="0.01" value="0.18"><span id="val_farBaseY">0.18</span></div>
+            <div class="param-row"><label>角度(度) (farAngle)</label><input type="range" id="farAngle" min="-180" max="180" step="1" value="7"><span id="val_farAngle">7</span></div>
+            <div class="param-row"><label>先端X offset (farTipX)</label><input type="range" id="farTipX" min="-0.5" max="0.5" step="0.01" value="0.20"><span id="val_farTipX">0.20</span></div>
+            <div class="param-row"><label>前カーブ (farFront)</label><input type="range" id="farFront" min="-0.5" max="0.5" step="0.01" value="0.40"><span id="val_farFront">0.40</span></div>
+            <div class="param-row"><label>後カーブ (farBack)</label><input type="range" id="farBack" min="-0.5" max="0.5" step="0.01" value="-0.14"><span id="val_farBack">-0.14</span></div>
+            <div class="param-row"><label>長さ (farLength)</label><input type="range" id="farLength" min="0.5" max="5.0" step="0.05" value="2.60"><span id="val_farLength">2.60</span></div>
+            <div class="param-row"><label>根元丸み (farRoot)</label><input type="range" id="farRoot" min="-2.0" max="2.0" step="0.01" value="2.00"><span id="val_farRoot">2.00</span></div>
+        </div>
+        <div class="tuning-col">
+            <h4>手前の角 (Near Horn)</h4>
+            <div class="param-row"><label>根元X位置 (nearBaseX)</label><input type="range" id="nearBaseX" min="-1.0" max="1.0" step="0.01" value="-0.24"><span id="val_nearBaseX">-0.24</span></div>
+            <div class="param-row"><label>根元Y位置 (nearBaseY)</label><input type="range" id="nearBaseY" min="0.0" max="1.5" step="0.01" value="0.69"><span id="val_nearBaseY">0.69</span></div>
+            <div class="param-row"><label>角度(度) (nearAngle)</label><input type="range" id="nearAngle" min="-180" max="180" step="1" value="-7"><span id="val_nearAngle">-7</span></div>
+            <div class="param-row"><label>先端X offset (nearTipX)</label><input type="range" id="nearTipX" min="-1.0" max="1.0" step="0.01" value="0.22"><span id="val_nearTipX">0.22</span></div>
+            <div class="param-row"><label>前カーブ (nearFront)</label><input type="range" id="nearFront" min="-0.5" max="1.0" step="0.01" value="-0.10"><span id="val_nearFront">-0.10</span></div>
+            <div class="param-row"><label>後カーブ (nearBack)</label><input type="range" id="nearBack" min="-0.5" max="1.0" step="0.01" value="0.28"><span id="val_nearBack">0.28</span></div>
+            <div class="param-row"><label>長さ (nearLength)</label><input type="range" id="nearLength" min="0.5" max="5.0" step="0.05" value="2.60"><span id="val_nearLength">2.60</span></div>
+            <div class="param-row"><label>根元丸み (nearRoot)</label><input type="range" id="nearRoot" min="-2.0" max="2.0" step="0.01" value="2.00"><span id="val_nearRoot">2.00</span></div>
+        </div>
+    </div>
     <div class="note">
         ※ ラスボスの見た目の調整に特化したプレビューツールです。<br>
         js/boss.jsやjs/player.jsを変更し、ブラウザをリロードすることで即座にデザインを確認・調整できます。
@@ -69,6 +133,24 @@
             audio: { play: () => {}, tryPlay: () => {} } // エラー回避用
         };
         
+        
+        // 動的パラメータ設定
+        window.hornParams = {
+                farBaseX: -0.03, farBaseY: 0.18, farAngle: 7.00, farTipX: 0.20, farFront: 0.40, farBack: -0.14, farLength: 2.60, farRoot: 2.00,
+                nearBaseX: -0.24, nearBaseY: 0.69, nearAngle: -7.00, nearTipX: 0.22, nearFront: -0.10, nearBack: 0.28, nearLength: 2.60, nearRoot: 2.00
+            };
+
+        const paramNames = ['farBaseX', 'farBaseY', 'farTipX', 'farFront', 'farBack', 'farLength', 'farAngle', 'farRoot', 'nearBaseX', 'nearBaseY', 'nearTipX', 'nearFront', 'nearBack', 'nearLength', 'nearAngle', 'nearRoot'];
+        paramNames.forEach(name => {
+            const el = document.getElementById(name);
+            const valEl = document.getElementById('val_' + name);
+            el.addEventListener('input', (e) => {
+                const v = parseFloat(e.target.value);
+                window.hornParams[name] = v;
+                valEl.innerText = v.toFixed(2);
+            });
+        });
+
         const canvas = document.getElementById('previewCanvas');
         const ctx = canvas.getContext('2d');
 
