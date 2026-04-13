@@ -1981,7 +1981,8 @@ export class Shogun extends Boss {
         // ── 陣羽織（じんばおり）背面描画 ──
         // 戦国武将らしい和風の外套。キャラの背後に垂れる布として描画。
         renderWithShogunTransform(() => {
-            this._drawJinbaori(ctx, actorRenderX, actorRenderY, actorRenderW, actorRenderH, this.facingRight);
+            // 一旦マント（陣羽織）を非表示化
+            // this._drawJinbaori(ctx, actorRenderX, actorRenderY, actorRenderW, actorRenderH, this.facingRight);
         });
 
         renderWithShogunTransform(() => {

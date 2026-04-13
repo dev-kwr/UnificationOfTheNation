@@ -235,13 +235,34 @@
              isWalking = false;
              shogun.vx = 0;
              if (shogun._subWeaponKey) {
-                 // 実際のゲームと同様に、プレイヤーのサブウェポンタイマーをセットしてボスのトリガーを引く
-                 if (window.game.player) {
-                     window.game.player.subWeaponTimer = 100; // ボスの攻撃条件を満たすためのダミー
+                 const type = shogun._subWeaponKey;
+                 
+                 // BossのAIと同じようにタイマーとアクションをセットして発動
+                 const durationMap = { odachi: 540, kusarigama: 440, spear: 300, bomb: 150 };
+                 const actionMap = { 'shuriken': 'throw', 'bomb': 'throw', 'spear': '大槍', 'dual': '二刀_合体', 'kusarigama': '鎖鎌', 'odachi': '大太刀' };
+                 
+                 const duration = durationMap[type] || 300;
+                 shogun._subTimer = duration;
+                 shogun.attackTimer = duration;
+                 shogun._attackTimer = duration;
+                 
+                 if (typeof shogun._fireSubWeapon === 'function') {
+                     if (type === 'shuriken' || type === 'bomb') {
+                         shogun._fireSubWeapon(type);
+                         shogun._subAction = 'throw';
+                         if (type === 'shuriken') {
+                             shogun._shurikenVisualTimer = 150;
+                             shogun._subTimer = 1400;
+                         }
+                     } else {
+                         shogun._fireSubWeapon(type);
+                         shogun._subAction = actionMap[type] || null;
+                     }
+                 } else {
+                     shogun.isAttacking = true;
                  }
-                 // さらに念のため手動で発動状態にもする
-                 shogun._subTimer = 600;
-                 console.log("サブ武器アクション発動:", shogun._subWeaponKey);
+                 
+                 console.log("サブ武器アクション発動:", type);
              } else {
                  console.log("サブ武器が装備されていません");
              }
