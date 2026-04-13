@@ -88,7 +88,8 @@
         <button id="btnIdle">待機 (Idle)</button>
         <button id="btnWalk">歩行 (Walk)</button>
         <button id="btnAttack">攻撃モーション (Combo)</button>
-        <button id="btnSub">サブウェポン切替</button>
+        <button id="btnSub">サブ武器 持替え</button>
+        <button id="btnSubAction">サブ武器 発動 (Xボタン)</button>
     </div>
     <canvas id="previewCanvas" width="800" height="500"></canvas>
     
@@ -130,7 +131,12 @@
             scrollX: 0, 
             groundY: 350, 
             difficulty: { id: 'normal' },
-            audio: { play: () => {}, tryPlay: () => {} } // エラー回避用
+            audio: { play: () => {}, tryPlay: () => {} }, // エラー回避用
+            player: { 
+                x: 100, y: 350, width: 40, height: 60,
+                get centerX() { return this.x + 20; },
+                get centerY() { return this.y + 30; }
+            }
         };
         
         
@@ -224,6 +230,23 @@
              }
         });
 
+        
+        document.getElementById('btnSubAction').addEventListener('click', () => {
+             isWalking = false;
+             shogun.vx = 0;
+             if (shogun._subWeaponKey) {
+                 // 実際のゲームと同様に、プレイヤーのサブウェポンタイマーをセットしてボスのトリガーを引く
+                 if (window.game.player) {
+                     window.game.player.subWeaponTimer = 100; // ボスの攻撃条件を満たすためのダミー
+                 }
+                 // さらに念のため手動で発動状態にもする
+                 shogun._subTimer = 600;
+                 console.log("サブ武器アクション発動:", shogun._subWeaponKey);
+             } else {
+                 console.log("サブ武器が装備されていません");
+             }
+        });
+        
         function loop(time) {
             const dt = Math.min((time - lastTime) / 1000, 0.1);
             lastTime = time;

@@ -2400,37 +2400,32 @@ export class Shogun extends Boss {
         }
 
         // ═════════════════════════════════
-        //  2. 鉢（ドーム）本体 と ツバ（まびさし）
+        //  2. 鉢（ドーム）本体 と 鳥のくちばし状のツバを一体化
         // ═════════════════════════════════
-        // ツバを前下がりではなく、普通のキャップのように平行（水平）にする
-        const vStartX = domeW * 0.45; // 兜の額部分からスタート
-        const vStartY = helmBaseY - hr * 0.15; // 付根の高さ
-        const vEndX   = domeW * 1.05;  // 前方に突き出す
-        const vEndY   = helmBaseY - hr * 0.15; // 付根と同じ高さで平行（水平）
-        const vThick  = hr * 0.08; // ツバの厚み
-
         ctx.fillStyle = cDome;
-        
-        // ツバの描画
         ctx.beginPath();
-        ctx.moveTo(vStartX, vStartY);
-        // 上側のエッジ（まっすぐ前へ）
-        ctx.quadraticCurveTo(domeW * 0.75, vStartY - hr * 0.05, vEndX, vEndY);
-        // 先端から下側のエッジへ折り返し
-        ctx.lineTo(vEndX - hr * 0.02, vEndY + vThick);
-        // 下側のエッジ（並行して戻る）
-        ctx.quadraticCurveTo(domeW * 0.75, vStartY + vThick - hr * 0.05, vStartX, vStartY + vThick * 1.5);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.beginPath();
+        // 後頭部下からスタート
         ctx.moveTo(-domeW, helmBaseY); 
+        // 頭頂部へ丸く登る
         ctx.bezierCurveTo(-domeW * 1.15, helmBaseY - domeH * 0.6, -domeW * 0.4, domeTopY, 0, domeTopY);
-        // ドームの前側を下まで伸ばし、ツバの根本(vStartY)に綺麗に接続する
-        ctx.bezierCurveTo(domeW * 0.3, domeTopY, domeW * 0.6, helmBaseY - domeH * 0.4, vStartX, vStartY);
-        // おでこが丸出しにならないよう、ツバの根本から下（helmBaseY）まで塗りつぶす
-        ctx.lineTo(vStartX, helmBaseY); 
-        ctx.lineTo(0, helmBaseY); 
+        
+        // 頭頂部からおでこ〜くちばしの根本上部へ滑らかに降りる
+        const beakRootTopX = domeW * 0.90;
+        const beakRootTopY = helmBaseY - hr * 0.25;
+        // しっかりとおでこを膨らませて顔面をカバーする
+        ctx.bezierCurveTo(domeW * 0.6, domeTopY, domeW * 0.95, helmBaseY - domeH * 0.4, beakRootTopX, beakRootTopY);
+        
+        // くちばし上部エッジ（短めに、少し水平ぎみに前へ）
+        const beakTipX = domeW * 1.25;
+        const beakTipY = helmBaseY - hr * 0.15;
+        ctx.quadraticCurveTo(domeW * 1.1, beakRootTopY - hr * 0.02, beakTipX, beakTipY);
+        
+        // くちばしの下部エッジ（先端から太く滑らかに兜の顔面へ戻る）
+        // 戻る位置は domeW * 0.95 で、顔の輪郭線を確実に覆い隠す
+        ctx.bezierCurveTo(domeW * 1.15, beakTipY + hr * 0.08, domeW * 1.05, helmBaseY, domeW * 0.95, helmBaseY);
+        
+        // ヘルメットの下辺（首元へ向けてまっすぐ閉じる）
+        ctx.lineTo(0, helmBaseY);
         ctx.closePath();
         ctx.fill();
 
