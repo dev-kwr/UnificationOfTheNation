@@ -1987,12 +1987,6 @@ export class Shogun extends Boss {
 
         renderWithShogunTransform(() => {
             this.actor.renderModel(ctx, actorRenderX, actorRenderY, this.facingRight, 1.0, true, renderOpts);
-            
-            // 腕（大袖）などを描画し終わった後で、兜としころを最前面に描画して重ね順を解決する
-            if (this._lastHeadParams) {
-                this._drawShogunHelmetOverlay(ctx, this._lastHeadParams);
-                this._lastHeadParams = null;
-            }
         });
 
         if (this._subTimer > 0 && this._subWeaponKey === 'kusarigama') {
@@ -2266,8 +2260,8 @@ export class Shogun extends Boss {
         ctx.fillStyle = silhouetteColor;
         ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI * 2); ctx.fill();
 
-        // 描画パラメータを保存して、あとで腕（大袖）より前面に描画する
-        this._lastHeadParams = p;
+        // 兜としころをここで直接描画し、前面の腕(front arm)よりも奥のレイヤーになるようにする
+        this._drawShogunHelmetOverlay(ctx, p);
         return true;
     }
 

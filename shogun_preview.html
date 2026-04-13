@@ -85,11 +85,11 @@
 <body>
     <h2>将軍（ラスボス）プレビュー画面</h2>
     <div class="controls">
-        <button id="btnIdle">待機 (Idle)</button>
-        <button id="btnWalk">歩行 (Walk)</button>
-        <button id="btnAttack">攻撃モーション (Combo)</button>
-        <button id="btnSub">サブ武器 持替え</button>
-        <button id="btnSubAction">サブ武器 発動 (Xボタン)</button>
+        <button id="btnIdle" class="btn">待機 (Idle)</button>
+        <button id="btnWalk" class="btn">歩行 (Walk)</button>
+        <button id="btnAttack" class="btn">通常攻撃 (Z)</button>
+        <button id="btnSub" class="btn">サブ武器 (持替)</button>
+        <button id="btnSubAction" class="btn">サブ武器 (発動)</button>
     </div>
     <canvas id="previewCanvas" width="800" height="500"></canvas>
     
@@ -207,21 +207,11 @@
              isWalking = false;
              shogun.vx = 0;
              subIndex = (subIndex + 1) % subWeapons.length;
-             const w = subWeapons[subIndex];
-             if (w) {
-                 shogun._subWeaponKey = w;
-                 shogun._subTimer = 2000; // 長めに構える
-                 // サブウェポンのアクション名を簡易エミュレート
-                 const actionMap = {
-                     'shuriken': 'throw',
-                     'bomb': 'throw',
-                     'spear': '大槍',
-                     'dual': '二刀_合体',
-                     'kusarigama': '鎖鎌',
-                     'odachi': '大太刀'
-                 };
-                 shogun._subAction = actionMap[w] || null;
-                 console.log("武器プレビュー:", w);
+             window._previewWeapon = subWeapons[subIndex]; // Store in global for the loop to hold it
+             if (window._previewWeapon) {
+                 shogun._subWeaponKey = window._previewWeapon;
+                 shogun._subTimer = 10;
+                 console.log("武器プレビュー:", window._previewWeapon);
              } else {
                  shogun._subTimer = 0;
                  shogun._subWeaponKey = null;
@@ -237,30 +227,27 @@
              if (shogun._subWeaponKey) {
                  const type = shogun._subWeaponKey;
                  
-                 // BossのAIと同じようにタイマーとアクションをセットして発動
-                 const durationMap = { odachi: 540, kusarigama: 440, spear: 300, bomb: 150 };
+                 const durationMap = { odachi: 540, kusarigama: 440, spear: 300, bomb: 150, dual: 800 };
                  const actionMap = { 'shuriken': 'throw', 'bomb': 'throw', 'spear': '大槍', 'dual': '二刀_合体', 'kusarigama': '鎖鎌', 'odachi': '大太刀' };
-                 
                  const duration = durationMap[type] || 300;
+                 
+                 // 正しくサブ武器のアクション状態を設定
                  shogun._subTimer = duration;
-                 shogun.attackTimer = duration;
-                 shogun._attackTimer = duration;
+                 // ※ _attackTimer は通常攻撃コンボを誘発するため設定しない！
+                 shogun.isAttacking = false;
                  
                  if (typeof shogun._fireSubWeapon === 'function') {
-                     if (type === 'shuriken' || type === 'bomb') {
-                         shogun._fireSubWeapon(type);
-                         shogun._subAction = 'throw';
-                         if (type === 'shuriken') {
-                             shogun._shurikenVisualTimer = 150;
-                             shogun._subTimer = 1400;
-                         }
-                     } else {
-                         shogun._fireSubWeapon(type);
-                         shogun._subAction = actionMap[type] || null;
+                     shogun._fireSubWeapon(type);
+                     shogun._subAction = actionMap[type] || null;
+                     
+                     if (type === 'shuriken') {
+                         shogun._shurikenVisualTimer = 150;
+                         shogun._subTimer = 1400; // projectiles消滅まで長めに
                      }
-                 } else {
-                     shogun.isAttacking = true;
                  }
+                 
+                 // Action後も武器プレビューを維持
+                 window._previewWeapon = type;
                  
                  console.log("サブ武器アクション発動:", type);
              } else {
@@ -287,6 +274,19 @@
 
             // update
             shogun.update(dt, null);
+
+            // プレビュー武器の強制維持 (boss.jsのupdateAttackでクリアされるのを防ぐ)
+            if (window._previewWeapon && !shogun.isAttacking && shogun._subTimer <= 0) {
+                 const actionMap = { 'spear': '大槍', 'dual': '二刀_合体', 'kusarigama': '鎖鎌', 'odachi': '大太刀' };
+                 shogun._subWeaponKey = window._previewWeapon;
+                 shogun._subAction = actionMap[window._previewWeapon] || null;
+                 // forceActive helps drawing it in some cases
+                 if (shogun._subWeaponInstances[window._previewWeapon]) {
+                     shogun._subWeaponInstances[window._previewWeapon]._renderForceActive = true;
+                     // 念のため isAttacking も落としておく（アイドル描画用）
+                     shogun._subWeaponInstances[window._previewWeapon].isAttacking = false;
+                 }
+            }
 
             // 描画
             ctx.clearRect(0, 0, canvas.width, canvas.height);

@@ -3206,8 +3206,8 @@ export function applyRendererMixin(PlayerClass) {
                 drawBentArmSegment(bsx, bsy, bx, by, standardUpperLen, standardForeLen, -dir, 5.3);
                 drawHand(bx, by, standardLeftHandRadius);
             }
-            // 奥の刀 (前面レイヤー, 通常描画)
-            if (drawFrontLayer && renderWeaponVisuals) {
+            // 奥の刀 (背面レイヤーへ変更)
+            if (drawBackLayer && renderWeaponVisuals) {
                 drawSubWeaponKatana(bx, by, ba, dir, 0.02, 'all');
             }
             // 手前手 (前面レイヤー)
