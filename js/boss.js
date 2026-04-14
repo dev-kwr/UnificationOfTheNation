@@ -2086,13 +2086,45 @@ export class Shogun extends Boss {
         // 胴周りのグレーの残骸（素体のアウトライン）は将軍では不要なので描画しない
 
         // 漆黒の強固な胸当て
+        // nx は ~ -1 なので、前方(進行方向 dir)は -nx*dir、後方は +nx*dir となる
         ctx.fillStyle = cArmor;
         ctx.beginPath();
-        ctx.moveTo(torsoShoulderX + nx * wF * dir, bodyTopY + ny * wF * dir);
-        ctx.lineTo(torsoShoulderX - nx * wB * dir, bodyTopY - ny * wB * dir);
-        ctx.lineTo(torsoHipX - nx * wB * dir, hipY - ny * wB * dir);
-        ctx.lineTo(torsoHipX + nx * wF * dir, hipY + ny * wF * dir);
+        // 前肩
+        ctx.moveTo(torsoShoulderX - nx * wF * dir, bodyTopY - ny * wF * dir);
+        // 後肩
+        ctx.lineTo(torsoShoulderX + nx * wB * dir, bodyTopY + ny * wB * dir);
+        // 後腰
+        ctx.lineTo(torsoHipX + nx * wB * dir, hipY + ny * wB * dir);
+        // 前腰
+        ctx.lineTo(torsoHipX - nx * wF * dir, hipY - ny * wF * dir);
         ctx.fill();
+
+        // 背中の鎧の出っ張り（背板）と金縁：マントなしでも甲冑感がでるように段（だん）を表現する
+        const backX = (r) => (torsoShoulderX + nx * wB * dir) * (1 - r) + (torsoHipX + nx * wB * dir) * r;
+        const backY = (r) => (bodyTopY + ny * wB * dir) * (1 - r) + (hipY + ny * wB * dir) * r;
+        
+        // 3つの段を重ねるように描画し、日本甲冑らしい段重ね（板札）の背中を表現
+        for (let i = 0; i < 3; i++) {
+            const startR = i * 0.33;
+            const endR = (i + 1) * 0.33;
+            const midR = startR + 0.165;
+            
+            ctx.fillStyle = '#0a0a0d';
+            ctx.beginPath();
+            ctx.moveTo(backX(startR), backY(startR));
+            // 少し後方（+nx*dir）へ膨らませるカーブ
+            ctx.quadraticCurveTo(backX(midR) + nx * dir * 1.8, backY(midR), backX(endR), backY(endR));
+            ctx.lineTo(backX(endR) - nx * dir * 0.5, backY(endR));
+            ctx.lineTo(backX(startR) - nx * dir * 0.5, backY(startR));
+            ctx.fill();
+            
+            ctx.strokeStyle = '#b09240'; // 金色の縁
+            ctx.lineWidth = 1.0;
+            ctx.beginPath();
+            ctx.moveTo(backX(startR), backY(startR));
+            ctx.quadraticCurveTo(backX(midR) + nx * dir * 2.0, backY(midR), backX(endR), backY(endR));
+            ctx.stroke();
+        }
 
 
 
@@ -2190,37 +2222,41 @@ export class Shogun extends Boss {
         const ny = dx / torsoLen;
 
         // ── 佩楯・草摺（腰から大腿部を覆う防具） ──
-        // 脚の付け根を完全に隠すため、脚が全て描画された後にこの層で描画する
-        const skirtLen = 13.0;  // 足をしっかり隠す長さに延長
+        const skirtLen = 13.0;
         const skirtSpread = 6.0;
 
-        const drawKusazuriPanel = (startX, startY, endXOffset, endY, widthA, widthB, color, edgeColor) => {
+        const drawKusazuriPanel = (startX, startY, endXOffset, endY, widthBack, widthFront, color, edgeColor) => {
+            const bX = nx * dir;
+            const bY = ny * dir;
+            const fX = -nx * dir;
+            const fY = -ny * dir;
+            
             ctx.fillStyle = color;
             ctx.beginPath();
-            ctx.moveTo(startX - nx * dir * widthA, startY - ny * dir * widthA);
-            ctx.lineTo(startX + nx * dir * widthB, startY + ny * dir * widthB);
-            ctx.lineTo(startX + endXOffset + nx * dir * (widthB + 1), startY + endY + ny * dir * widthB);
-            ctx.lineTo(startX + endXOffset - nx * dir * (widthA + 1), startY + endY - ny * dir * widthA);
+            ctx.moveTo(startX + bX * widthBack, startY + bY * widthBack);
+            ctx.lineTo(startX + fX * widthFront, startY + fY * widthFront);
+            ctx.lineTo(startX + endXOffset + fX * (widthFront + 1), startY + endY + fY * widthFront);
+            ctx.lineTo(startX + endXOffset + bX * (widthBack + 1), startY + endY + bY * widthBack);
             ctx.closePath();
             ctx.fill();
 
-            // 裾の金縁（控えめ）
+            // 裾の金縁
             ctx.strokeStyle = edgeColor;
             ctx.lineWidth = 1.0;
             ctx.beginPath();
-            ctx.moveTo(startX + endXOffset + nx * dir * (widthB + 1), startY + endY + ny * dir * widthB);
-            ctx.lineTo(startX + endXOffset - nx * dir * (widthA + 1), startY + endY - ny * dir * widthA);
+            ctx.moveTo(startX + endXOffset + fX * (widthFront + 1), startY + endY + fY * widthFront);
+            ctx.lineTo(startX + endXOffset + bX * (widthBack + 1), startY + endY + bY * widthBack);
             ctx.stroke();
         };
 
         const baseY = hipY - 4.5;
         
-        // 1. 後方の草摺（奥側・非常に薄い）
+        // 1. 後方の草摺（背中側・隙間を埋めるように幅広に、位置は後方(+nx*dir)へシフト）
         drawKusazuriPanel(
-            torsoHipX + nx * dir * 2.5, baseY, 
-            nx * dir * skirtSpread * 0.6 - dir * 1.0, skirtLen, 
-            0.3, 0.8, 
-            cArmor, cGold
+            torsoHipX + nx * dir * 2.2, baseY, 
+            nx * dir * skirtSpread * 0.75 - dir * 1.0, skirtLen, 
+            1.5, 1.8, 
+            cArmor, '#b09240'
         );
 
         // 2. 側面の草摺（主要パネル・分厚い）
@@ -2231,12 +2267,12 @@ export class Shogun extends Boss {
             '#0a0a0d', '#b09240'
         );
 
-        // 3. 前方の草摺（手前側・非常に薄い）
+        // 3. 前方の草摺（手前側・バランスに合わせて、位置は前方(-nx*dir)へシフト）
         drawKusazuriPanel(
-            torsoHipX - nx * dir * 2.5, baseY, 
+            torsoHipX - nx * dir * 2.4, baseY, 
             -nx * dir * skirtSpread * 0.4 + dir * 1.5, skirtLen, 
-            0.4, 1.0, 
-            cArmor, cGold
+            1.0, 1.2, 
+            cArmor, '#b09240'
         );
     }
 
