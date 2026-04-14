@@ -19,9 +19,31 @@
             border: 1px solid #444;
         }
         .controls { 
-            margin-top: 20px;
+            width: 800px;
+            margin: 20px auto 0;
+            padding: 10px 14px;
+            box-sizing: border-box;
+            background: linear-gradient(180deg, rgba(45, 45, 45, 0.95), rgba(25, 25, 25, 0.95));
+            border: 1px solid #4a4a4a;
+            border-radius: 8px;
             display: flex;
-            justify-content: center;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+        .preview-status {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .preview-status strong {
+            color: #f0d27a;
+            font-size: 16px;
+            letter-spacing: 0.04em;
+        }
+        .control-buttons {
+            display: flex;
+            align-items: center;
             gap: 10px;
         }
         button { 
@@ -36,12 +58,6 @@
         button:hover {
             background-color: #555;
         }
-        .note {
-            margin-top: 15px;
-            color: #aaa;
-            font-size: 13px;
-        }
-    
         .tuning-panel {
             background-color: #222;
             padding: 15px;
@@ -83,13 +99,14 @@
     </style>
 </head>
 <body>
-    <h2>将軍（ラスボス）プレビュー画面</h2>
     <div class="controls">
-        <button id="btnIdle" class="btn">待機</button>
-        <button id="btnWalk" class="btn">歩行</button>
-        <button id="btnAttack" class="btn">Z</button>
-        <button id="btnSub" class="btn">X</button>
-        <button id="btnSubAction" class="btn">C</button>
+        <div class="preview-status">
+            <strong id="selectedSubWeapon">手裏剣</strong>
+        </div>
+        <div class="control-buttons">
+            <button id="btnIdle" class="btn">待機</button>
+            <button id="btnWalk" class="btn">歩行</button>
+        </div>
     </div>
     <canvas id="previewCanvas" width="800" height="500"></canvas>
     
@@ -118,11 +135,6 @@
             <div class="param-row"><label>根元丸み (nearRoot)</label><input type="range" id="nearRoot" min="-2.0" max="2.0" step="0.01" value="2.00"><span id="val_nearRoot">2.00</span></div>
         </div>
     </div>
-    <div class="note">
-        ※ ラスボスの見た目の調整に特化したプレビューツールです。<br>
-        js/boss.jsやjs/player.jsを変更し、ブラウザをリロードすることで即座にデザインを確認・調整できます。
-    </div>
-
     <script type="module">
         import { Shogun } from './js/boss.js';
 
@@ -178,100 +190,316 @@
         // 状態フラグ
         let lastTime = performance.now();
         let isWalking = false;
-
-        document.getElementById('btnIdle').addEventListener('click', () => {
+        let walkDirection = 0;
+        let previewComboStep = 0;
+        let previewComboResetTimer = 0;
+        let queuedDualAttack = false;
+        const heldMoveKeys = new Set();
+        const subWeapons = ['shuriken', 'bomb', 'spear', 'dual', 'kusarigama', 'odachi']; // 解除状態はなし（6種類）
+        let subIndex = 0;
+        const selectedSubWeaponLabel = document.getElementById('selectedSubWeapon');
+        const getPreviewWeaponName = (key) => {
+            const inst = key ? shogun._subWeaponInstances[key] : null;
+            return inst ? inst.name : 'なし';
+        };
+        const syncPreviewWeaponDisplay = () => {
+            selectedSubWeaponLabel.textContent = getPreviewWeaponName(window._previewWeapon);
+        };
+        const syncSubIndexFromPreviewWeapon = () => {
+            const idx = subWeapons.indexOf(window._previewWeapon);
+            subIndex = idx >= 0 ? idx : 0;
+        };
+        const resetAttackState = () => {
+            shogun._attackTimer = 0;
+            shogun._comboStep = 0;
+            shogun._currentComboStep = 1;
+            shogun._comboPendingSteps = [];
+            shogun._dualZPendingSteps = null;
+            shogun._subTimer = 0;
+            shogun._subAction = null;
+            shogun._shurikenVisualTimer = 0;
+            shogun.isAttacking = false;
+        };
+        const resetPreviewComboState = () => {
+            previewComboStep = 0;
+            previewComboResetTimer = 0;
+            queuedDualAttack = false;
+            const dual = shogun._subWeaponInstances.dual;
+            if (dual) {
+                dual.mainComboLinkTimer = 0;
+                dual.comboIndex = 0;
+            }
+        };
+        const stopMovement = () => {
+            isWalking = false;
+            walkDirection = 0;
+            heldMoveKeys.clear();
+            shogun.vx = 0;
+        };
+        const isBusyWithAnotherAction = () => (
+            shogun._attackTimer > 0 ||
+            (shogun._subTimer > 0 && shogun._subAction !== '二刀_Z')
+        );
+        const getPreviewSubActionDuration = (type) => {
+            const inst = shogun._subWeaponInstances[type];
+            if (!inst) return 300;
+            if (type === 'shuriken') return 1400;
+            if (type === 'bomb') {
+                return Math.max(150, inst.totalDuration || inst.cooldown || 150);
+            }
+            if (type === 'dual') {
+                const projLife = 600 + (inst.enhanceTier || 3) * 60;
+                const activeCombined = Math.max(124, Math.round((inst.combinedDuration || 515) * 0.76));
+                return activeCombined + projLife + 60;
+            }
+            if (inst.totalDuration && inst.plantedDuration) {
+                return inst.totalDuration + inst.plantedDuration + (inst.fadeOutDuration || 0) + 60;
+            }
+            if (inst.totalDuration) {
+                return inst.totalDuration + (inst.fadeOutDuration || 0) + 40;
+            }
+            if (inst.attackDuration) {
+                return inst.attackDuration + 40;
+            }
+            return 300;
+        };
+        const triggerNormalAttack = () => {
+            if (shogun._subTimer > 0) return;
             isWalking = false;
             shogun.vx = 0;
-            shogun._attackTimer = 0;
-            shogun._subTimer = 0;
-            shogun.isAttacking = false;
+            shogun._subWeaponKey = window._previewWeapon;
+            if (shogun._attackTimer > 0) {
+                const currentStep = shogun._currentComboStep || 0;
+                const queuedStep = Array.isArray(shogun._comboPendingSteps) && shogun._comboPendingSteps.length > 0
+                    ? shogun._comboPendingSteps[0]
+                    : 0;
+                if (queuedStep > 0) {
+                    previewComboStep = queuedStep;
+                    previewComboResetTimer = 460;
+                    return;
+                }
+                const nextStep = Math.min(5, currentStep + 1);
+                if (nextStep <= currentStep) return;
+                previewComboStep = nextStep;
+                previewComboResetTimer = 460;
+                shogun._comboPendingSteps = [nextStep];
+                return;
+            }
+            const nextStep = previewComboResetTimer > 0 && previewComboStep > 0
+                ? ((previewComboStep % 5) + 1)
+                : 1;
+            previewComboStep = nextStep;
+            previewComboResetTimer = 460;
+            shogun._comboPendingSteps = [nextStep];
+            shogun._startNextComboStep();
+        };
+        const canTriggerDualFollowUp = () => {
+            const dual = shogun._subWeaponInstances.dual;
+            if (!dual || shogun._subAction !== '二刀_Z') return true;
+            if (typeof dual.getMainSwingPose !== 'function') {
+                return shogun._subTimer <= 20;
+            }
+            const pose = dual.getMainSwingPose({
+                comboIndex: dual.comboIndex,
+                attackTimer: dual.attackTimer
+            });
+            return (pose.progress || 0) >= 0.9 || shogun._subTimer <= 20;
+        };
+        const fireDualSwing = () => {
+            const dual = shogun._subWeaponInstances.dual;
+            if (!dual) return;
+            if (typeof dual.applyEnhanceTier === 'function') {
+                dual.applyEnhanceTier(3, shogun);
+            }
+            const prevSubWeapon = shogun.currentSubWeapon;
+            shogun.currentSubWeapon = dual;
+            dual.use(shogun, 'main');
+            shogun.currentSubWeapon = prevSubWeapon;
+            const duration = Math.max(112, dual.mainDuration || 204);
+            shogun._subAction = '二刀_Z';
+            shogun._subWeaponKey = 'dual';
+            shogun._subTimer = duration;
+            shogun.attackTimer = duration;
+            shogun.isAttacking = true;
+            shogun._dualZPendingSteps = null;
+            shogun._shurikenVisualTimer = 0;
+        };
+        const triggerDualAttack = () => {
+            if (shogun._attackTimer > 0) return;
+            if (shogun._subTimer > 0 && shogun._subAction && shogun._subAction !== '二刀_Z') return;
+            isWalking = false;
+            shogun.vx = 0;
+            shogun._subWeaponKey = 'dual';
+            if (shogun._subTimer > 0 && shogun._subAction === '二刀_Z' && !canTriggerDualFollowUp()) {
+                queuedDualAttack = true;
+                return;
+            }
+            queuedDualAttack = false;
+            fireDualSwing();
+        };
+        const triggerAttack = () => {
+            if (window._previewWeapon === 'dual') {
+                triggerDualAttack();
+            } else {
+                triggerNormalAttack();
+            }
+        };
+        const cycleSubWeapon = () => {
+            stopMovement();
+            resetAttackState();
+            resetPreviewComboState();
+            subIndex = (subIndex + 1) % subWeapons.length;
+            window._previewWeapon = subWeapons[subIndex];
+            shogun._subWeaponKey = window._previewWeapon;
+            shogun._subTimer = 10;
+            syncPreviewWeaponDisplay();
+            console.log("武器プレビュー:", window._previewWeapon);
+        };
+        const triggerSubAction = () => {
+            if (!shogun._subWeaponKey || isBusyWithAnotherAction()) return;
+            isWalking = false;
+            shogun.vx = 0;
+            resetPreviewComboState();
+            const type = shogun._subWeaponKey;
+            const subInst = shogun._subWeaponInstances[type];
+            if (subInst && typeof subInst.canUse === 'function' && !subInst.canUse()) {
+                console.log("サブ武器がまだ使用可能状態ではありません:", type);
+                return;
+            }
+            const actionMap = {
+                shuriken: 'throw',
+                bomb: 'throw',
+                spear: '大槍',
+                dual: '二刀_合体',
+                kusarigama: '鎖鎌',
+                odachi: '大太刀'
+            };
+            const duration = getPreviewSubActionDuration(type);
+            shogun.isAttacking = true;
+            if (typeof shogun._fireSubWeapon === 'function') {
+                shogun._fireSubWeapon(type);
+                shogun._subAction = actionMap[type] || null;
+                shogun._subTimer = duration;
+                shogun._subWeaponKey = type;
+                if (type === 'shuriken') {
+                    shogun._shurikenVisualTimer = 150;
+                } else {
+                    shogun._shurikenVisualTimer = 0;
+                }
+            }
+            window._previewWeapon = type;
+            syncSubIndexFromPreviewWeapon();
+            syncPreviewWeaponDisplay();
+            console.log("サブ武器アクション発動:", type);
+        };
+        const syncWalkDirectionFromKeys = () => {
+            const leftActive = heldMoveKeys.has('arrowleft') || heldMoveKeys.has('a');
+            const rightActive = heldMoveKeys.has('arrowright') || heldMoveKeys.has('d');
+            walkDirection = leftActive === rightActive ? 0 : (leftActive ? -1 : 1);
+            if (walkDirection !== 0) {
+                shogun.facingRight = walkDirection > 0;
+            }
+        };
+        const shouldIgnoreKeyboardInput = (event) => {
+            if (event.ctrlKey || event.metaKey || event.altKey) return true;
+            const target = event.target;
+            if (!target || !target.tagName) return false;
+            return ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(target.tagName);
+        };
+        const triggerJump = () => {
+            if (!shogun.isGrounded) return;
+            shogun.vy = -14;
+            shogun.isGrounded = false;
+        };
+
+        document.getElementById('btnIdle').addEventListener('click', () => {
+            stopMovement();
+            resetAttackState();
+            resetPreviewComboState();
+            shogun._subWeaponKey = window._previewWeapon;
             // 座標リセット
             shogun.x = (canvas.width - shogun.width) / 2;
         });
 
         document.getElementById('btnWalk').addEventListener('click', () => {
             isWalking = !isWalking;
-            shogun._attackTimer = 0;
-            shogun._subTimer = 0;
-            shogun.isAttacking = false;
+            if (!isWalking) {
+                walkDirection = 0;
+            } else if (walkDirection === 0) {
+                walkDirection = shogun.facingRight ? 1 : -1;
+            }
+            resetAttackState();
+            resetPreviewComboState();
+            shogun._subWeaponKey = window._previewWeapon;
         });
 
-        document.getElementById('btnAttack').addEventListener('click', () => {
-            isWalking = false;
-            shogun.vx = 0;
-            shogun._comboStep = (shogun._comboStep + 1) % 4; // コンボステップを適当に進める
-            shogun._attackTimer = 600; 
-            shogun.isAttacking = true;
+        window.addEventListener('keydown', (event) => {
+            if (shouldIgnoreKeyboardInput(event)) return;
+            const key = event.key.toLowerCase();
+            if (['z', 'x', 'c', ' ', 'arrowleft', 'arrowright', 'a', 'd'].includes(key)) {
+                event.preventDefault();
+            }
+            if (key === 'z') {
+                if (!event.repeat) triggerAttack();
+                return;
+            }
+            if (key === 'x') {
+                if (!event.repeat) triggerSubAction();
+                return;
+            }
+            if (key === 'c') {
+                if (!event.repeat) cycleSubWeapon();
+                return;
+            }
+            if (key === ' ') {
+                if (!event.repeat) triggerJump();
+                return;
+            }
+            if (key === 'arrowleft' || key === 'a' || key === 'arrowright' || key === 'd') {
+                heldMoveKeys.add(key);
+                syncWalkDirectionFromKeys();
+            }
         });
 
-        const subWeapons = ['shuriken', 'bomb', 'spear', 'dual', 'kusarigama', 'odachi']; // 解除状態はなし（6種類）
-        let subIndex = 0;
-        document.getElementById('btnSub').addEventListener('click', () => {
-             isWalking = false;
-             shogun.vx = 0;
-             subIndex = (subIndex + 1) % subWeapons.length;
-             window._previewWeapon = subWeapons[subIndex]; // Store in global for the loop to hold it
-             if (window._previewWeapon) {
-                 shogun._subWeaponKey = window._previewWeapon;
-                 shogun._subTimer = 10;
-                 console.log("武器プレビュー:", window._previewWeapon);
-             } else {
-                 shogun._subTimer = 0;
-                 shogun._subWeaponKey = null;
-                 shogun._subAction = null;
-                 console.log("武器プレビュー: なし");
-             }
-        });
-
-        
-        document.getElementById('btnSubAction').addEventListener('click', () => {
-             isWalking = false;
-             shogun.vx = 0;
-             if (shogun._subWeaponKey) {
-                 const type = shogun._subWeaponKey;
-                 
-                 const durationMap = { odachi: 540, kusarigama: 440, spear: 300, bomb: 150, dual: 800 };
-                 const actionMap = { 'shuriken': 'throw', 'bomb': 'throw', 'spear': '大槍', 'dual': '二刀_合体', 'kusarigama': '鎖鎌', 'odachi': '大太刀' };
-                 const duration = durationMap[type] || 300;
-                 
-                 // 正しくサブ武器のアクション状態を設定
-                 shogun._subTimer = duration;
-                 shogun.isAttacking = true; // falseにするとprogressが進まないためtrueにする
-                 
-                 if (typeof shogun._fireSubWeapon === 'function') {
-                     shogun._fireSubWeapon(type);
-                     shogun._subAction = actionMap[type] || null;
-                     
-                     if (type === 'shuriken') {
-                         shogun._shurikenVisualTimer = 150;
-                         shogun._subTimer = 1400; // projectiles消滅まで長めに
-                     }
-                 }
-                 
-                 // Action後も武器プレビューを維持
-                 window._previewWeapon = type;
-                 
-                 console.log("サブ武器アクション発動:", type);
-             } else {
-                 console.log("サブ武器が装備されていません");
-             }
+        window.addEventListener('keyup', (event) => {
+            const key = event.key.toLowerCase();
+            if (key === 'arrowleft' || key === 'a' || key === 'arrowright' || key === 'd') {
+                heldMoveKeys.delete(key);
+                syncWalkDirectionFromKeys();
+            }
         });
 
         // 初期状態で最初のサブ武器を持たせる
         window._previewWeapon = subWeapons[0];
         shogun._subWeaponKey = window._previewWeapon;
+        syncSubIndexFromPreviewWeapon();
+        syncPreviewWeaponDisplay();
         
         function loop(time) {
             const dt = Math.min((time - lastTime) / 1000, 0.1);
             lastTime = time;
+            const deltaMs = dt * 1000;
+
+            if (previewComboResetTimer > 0) {
+                previewComboResetTimer = Math.max(0, previewComboResetTimer - deltaMs);
+                if (previewComboResetTimer <= 0 && shogun._attackTimer <= 0) {
+                    previewComboStep = 0;
+                }
+            }
 
             // 歩行ロジックの簡易エミュレート
-            if (isWalking) {
-                shogun.vx = -1.8;
+            const activeWalkDirection = walkDirection !== 0
+                ? walkDirection
+                : (isWalking ? (shogun.facingRight ? 1 : -1) : 0);
+            if (activeWalkDirection !== 0) {
+                shogun.facingRight = activeWalkDirection > 0;
+                shogun.vx = activeWalkDirection * 1.8;
                 shogun.x += shogun.vx;
                 // 画面端ループ
                 if (shogun.x < 100) {
                     shogun.x = canvas.width - 100;
+                } else if (shogun.x > canvas.width - 100) {
+                    shogun.x = 100;
                 }
             } else {
                 // 歩行から復帰するときに滑らないよう減速
@@ -281,11 +509,15 @@
             // update
             shogun.update(dt, null);
 
-            // プレビュー武器の強制維持 (boss.jsのupdateAttackでクリアされるのを防ぐ)
+            if (queuedDualAttack && shogun._subAction === '二刀_Z' && canTriggerDualFollowUp()) {
+                queuedDualAttack = false;
+                fireDualSwing();
+            }
+
+            // プレビュー武器の強制維持
             if (window._previewWeapon && shogun._subTimer <= 0) {
                  shogun._subWeaponKey = window._previewWeapon;
-                 shogun._subAction = null; // 発動時以外はnullにしてZ攻撃やアイドル描画を邪魔しない
-                 // forceActive helps drawing it in some cases
+                 shogun._subAction = null;
                  if (shogun._subWeaponInstances[window._previewWeapon]) {
                      shogun._subWeaponInstances[window._previewWeapon]._renderForceActive = true;
                      shogun._subWeaponInstances[window._previewWeapon].isAttacking = false;
@@ -295,7 +527,7 @@
             // モックの更新処理（爆弾などの寿命を進める）
             if (window.game.bombs.length > 0) {
                 window.game.bombs.forEach(b => {
-                    if (b.update) b.update(dt);
+                    if (b.update) b.update(dt, window.game.groundY, []);
                 });
                 window.game.bombs = window.game.bombs.filter(b => !b.isDestroyed);
             }

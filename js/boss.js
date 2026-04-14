@@ -1262,8 +1262,10 @@ export class Shogun extends Boss {
 
         this._attackTimer      = 0;
         this._comboStep        = 0;
-        this._currentComboStep = 1;
+        this._currentComboStep = 0;
+        this._currentAttackProfile = null;
         this._comboPendingSteps = [];
+        this._comboFinisherAirLockTimer = 0;
         this._subTimer         = 0;
         this._subAction        = null;
         this._subWeaponKey     = null;
@@ -1375,6 +1377,9 @@ export class Shogun extends Boss {
         // （isAttackingが先にfalseになると_subTimerが減らず行動停止するため）
         if (this._attackTimer > 0 || this._subTimer > 0) {
             this.isAttacking = true;
+        }
+        if (this._comboFinisherAirLockTimer > 0) {
+            this._comboFinisherAirLockTimer = Math.max(0, this._comboFinisherAirLockTimer - deltaTime * 1000);
         }
 
         const shouldRemove = super.update(deltaTime, player);
@@ -1508,27 +1513,13 @@ export class Shogun extends Boss {
             spear: '大槍', kusarigama: '鎖鎌',
             odachi: '大太刀', dual: '二刀_合体', dual_z: '二刀_Z',
         };
-        const getDuration = (key) => {
-            const inst = this._subWeaponInstances[key];
-            if (!inst) return 300;
-            if (inst.totalDuration && inst.plantedDuration) return inst.totalDuration + inst.plantedDuration + 60;
-            if (inst.totalDuration) return inst.totalDuration + 60;
-            if (inst.attackDuration) return inst.attackDuration + 60;
-            return 300;
-        };
-        const getDualCombinedDuration = () => {
-            const inst = this._subWeaponInstances['dual'];
-            if (!inst) return 900;
-            const projLife = 600 + (inst.enhanceTier || 3) * 60;
-            const activeCombined = Math.max(124, Math.round(inst.combinedDuration * 0.76));
-            return activeCombined + projLife + 60;
-        };
         const durationMap = {
-            shuriken: 150, bomb: 150,
-            spear:    getDuration('spear'),
-            kusarigama: getDuration('kusarigama'),
-            odachi:   getDuration('odachi'),
-            dual:     getDualCombinedDuration(),
+            shuriken: this._getSubActionDurationMs('throw', 'shuriken'),
+            bomb:     this._getSubActionDurationMs('throw', 'bomb'),
+            spear:    this._getSubActionDurationMs('大槍', 'spear'),
+            kusarigama: this._getSubActionDurationMs('鎖鎌', 'kusarigama'),
+            odachi:   this._getSubActionDurationMs('大太刀', 'odachi'),
+            dual:     this._getSubActionDurationMs('二刀_合体', 'dual'),
         };
 
         let type;
@@ -1552,26 +1543,16 @@ export class Shogun extends Boss {
         }
 
         if (type === 'shuriken' || type === 'bomb') {
+            const throwDuration = durationMap[type] || 50;
             this._fireSubWeapon(type);
             this.subWeaponAction = null;
-            if (type === 'shuriken') {
-                // _subWeaponKey='shuriken'を維持してupdate内でhit判定・renderを機能させる
-                this._subAction    = 'throw';
-                this._subWeaponKey = 'shuriken';
-                this._subTimer     = 1400; // 手裏剣の寿命より長く（projectiles消滅で終了）
-                this._shurikenVisualTimer = 150;
-                this.attackTimer   = 200;
-                this._attackTimer  = 200;
-            } else {
-                this._subAction    = null;
-                this._subWeaponKey = null;
-                this._subTimer     = 0;
-                this._shurikenVisualTimer = 0;
-                this.attackTimer   = 150;
-                this._attackTimer  = 150;
-            }
+            this._subAction    = 'throw';
+            this._subWeaponKey = type;
+            this._subTimer     = throwDuration;
+            this.attackTimer   = throwDuration;
+            this._attackTimer  = 0;
+            this._shurikenVisualTimer = (type === 'shuriken') ? throwDuration : 0;
             this.attackCooldown = 400;
-            audio.playSlash(0);
             return;
         } else if (type === 'dual_z') {
             // 二刀流Zコンボ: 5段を1段ずつ_fireDualZNextStepで連続発動
@@ -1591,7 +1572,6 @@ export class Shogun extends Boss {
             this._fireSubWeapon(type);
             // _fireSubWeapon呼び出し後にactionをセット（dualの場合はcombinedを保証）
             this._subAction = (type === 'dual') ? '二刀_合体' : (actionMap[type] || null);
-            audio.playSlash(2);
         }
     }
 
@@ -1615,12 +1595,13 @@ export class Shogun extends Boss {
         if (typeof dual.applyEnhanceTier === 'function') dual.applyEnhanceTier(3, this);
         const prevSubWeapon = this.currentSubWeapon;
         this.currentSubWeapon = dual;
-        dual.use(this, 'main'); // 1段発動（内部でcomboIndexを進める）
+        this._useSubWeaponAsPlayerStyle(dual, 'main'); // 1段発動（内部でcomboIndexを進める）
         this.currentSubWeapon = prevSubWeapon;
         // この段のduration分だけ_subTimerをセット
         const dur = Math.max(112, dual.mainDuration || 204);
         this._subTimer   = dur;
         this.attackTimer = dur;
+        this._applyDualZMotion(dual.comboIndex || 0);
     }
 
     _startNextComboStep() {
@@ -1628,57 +1609,186 @@ export class Shogun extends Boss {
         if (step == null) {
             this._attackTimer = 0;
             this.isAttacking  = false;
+            this._comboStep = 0;
+            this._currentComboStep = 0;
+            this._currentAttackProfile = null;
+            this._comboFinisherAirLockTimer = 0;
             this.attackCooldown = 480;
             return;
         }
-        const COMBO_DURATIONS = [182, 138, 208, 248, 336];
-        const dur = COMBO_DURATIONS[step - 1] || 200;
+        const profile = this.actor.getComboAttackProfileByStep(step);
+        const dur = Math.max(1, profile.durationMs || 200);
         this._currentComboStep = step;
-        this._comboStep = step % 5;
+        this._comboStep = step;
+        this._currentAttackProfile = profile;
         this._attackTimer = dur;
         this.attackTimer  = dur;
         this.isAttacking  = true;
-        this.attackCooldown = Math.max(100, dur * 0.5);
-        // player.jsのattack()と同じstepごとのvx/vyを再現
+        this.attackCooldown = Math.max(28, dur * (profile.cooldownScale || 1));
+        if (step === 5) {
+            this._currentAttackProfile.knockbackX = 16;
+            this._currentAttackProfile.knockbackY = -7;
+            this._currentAttackProfile.range = Math.max(this._currentAttackProfile.range || 0, 128);
+            this._comboFinisherAirLockTimer = Math.max(this._comboFinisherAirLockTimer, 2200);
+        }
+        // player.jsのattack()と同じstepごとの初速を再現
         const dir = this.facingRight ? 1 : -1;
-        const impulse = this.speed;
+        const impulse = (profile.impulse || 1) * this.speed;
         if (step === 1) {
-            this.vx = this.vx * 0.2 + dir * impulse * 0.94;
-            if (this.isGrounded) { this.vy = 0; }
-            else { this.vy = Math.max(this.vy, -0.8); }
+            const groundedAtStart = this.isGrounded;
+            this.vx *= 0.12;
+            if (Math.abs(this.vx) < 0.2) this.vx = 0;
+            if (groundedAtStart) {
+                this.vy = 0;
+                this.isGrounded = true;
+            } else {
+                this.vy = Math.max(this.vy, -0.8);
+            }
         } else if (step === 2) {
             this.vx = this.vx * 0.16 + dir * impulse * 0.9;
-            if (this.isGrounded) { this.vy = 0; }
-            else { this.vy = Math.min(this.vy, -1.2); }
+            if (this.isGrounded) {
+                this.vy = 0;
+                this.isGrounded = true;
+            } else {
+                this.vy = Math.min(this.vy, -1.2);
+            }
         } else if (step === 3) {
-            this.vx = this.vx * 0.12 + dir * impulse;
+            this.vx = this.vx * 0.12 + dir * impulse * 1.71;
             this.vy = Math.min(this.vy, -8.2);
             this.isGrounded = false;
         } else if (step === 4) {
             this.vx = this.vx * 0.24 + dir * impulse * 0.42;
-            this.vy = Math.min(this.vy, -14.4);
+            this.vy = Math.min(this.vy, -10.6);
             this.isGrounded = false;
         } else if (step === 5) {
             this.vx = this.vx * 0.18;
-            this.vy = Math.max(this.vy, 3.4); // 落下断ち: 下に飛ぶ
+            this.vy = Math.max(this.vy, 3.4);
             this.isGrounded = false;
         }
+        this.animState = this._currentAttackProfile.type;
         audio.playSlash(Math.min(4, step));
     }
 
     updateAttack(deltaTime) {
         const deltaMs = deltaTime * 1000;
+        const activeAttack = this._currentAttackProfile;
 
         if (this._attackTimer > 0) {
-            // vx/vyはstep開始時に_startNextComboStepで設定済み
-            this.vx *= 0.92;
+            if (activeAttack) {
+                const duration = Math.max(1, activeAttack.durationMs || this._attackTimer);
+                const motionCapMs = activeAttack.comboStep === 4
+                    ? Math.min(deltaMs, 1000 / 58)
+                    : deltaMs;
+                const prevMotionElapsed = Number.isFinite(activeAttack.motionElapsedMs) ? activeAttack.motionElapsedMs : 0;
+                activeAttack.motionElapsedMs = Math.max(0, Math.min(duration, prevMotionElapsed + motionCapMs));
+            }
+
+            if (activeAttack && activeAttack.comboStep && this.isGrounded) {
+                this.vx *= 0.965;
+            }
+            if (activeAttack && activeAttack.comboStep === 1) {
+                const direction = this.facingRight ? 1 : -1;
+                const targetVx = 0;
+                this.vx = this.vx * 0.62 + targetVx * 0.38;
+                if (this.vx * direction < 0) this.vx = 0;
+                if (Math.abs(this.vx) < 0.18) this.vx = 0;
+                if (this.isGrounded) {
+                    this.vy = 0;
+                } else {
+                    this.vy = Math.max(this.vy, 1.2);
+                }
+            } else if (activeAttack && activeAttack.comboStep === 4) {
+                const duration = Math.max(1, activeAttack.durationMs || this._attackTimer);
+                const progress = Number.isFinite(activeAttack.motionElapsedMs)
+                    ? Math.max(0, Math.min(1, activeAttack.motionElapsedMs / duration))
+                    : Math.max(0, Math.min(1, 1 - (this._attackTimer / duration)));
+                const direction = this.facingRight ? 1 : -1;
+                const z4HeightScale = 0.96;
+
+                if (progress < 0.42) {
+                    const t = progress / 0.42;
+                    this.vx = this.vx * 0.52 + direction * this.speed * (0.2 - t * 0.08);
+                    this.vy = (-20.4 + t * 2.6) * z4HeightScale;
+                } else if (progress < 0.9) {
+                    const t = (progress - 0.42) / 0.48;
+                    const backSpeed = this.speed * (0.66 + t * 0.94);
+                    const holdVy = (-0.9 + t * 1.18) * z4HeightScale;
+                    this.vx = this.vx * 0.4 + (-direction * backSpeed) * 0.6;
+                    this.vy = Math.max(-1.0, Math.min(0.95, holdVy));
+                } else {
+                    this.vx *= 0.78;
+                    this.vy = Math.min(this.vy, 0.55);
+                }
+                if (progress < 0.72) {
+                    const riseLockT = Math.max(0, Math.min(1, progress / 0.72));
+                    const minRiseVy = (-18.8 + riseLockT * 14.8) * z4HeightScale;
+                    this.vy = Math.min(this.vy, minRiseVy);
+                    this.isGrounded = false;
+                }
+                this.isGrounded = false;
+            } else if (activeAttack && activeAttack.comboStep === 5 && (this._attackTimer > 0 || !this.isGrounded)) {
+                const duration = Math.max(1, activeAttack.durationMs || this._attackTimer);
+                const progress = Math.max(0, Math.min(1, 1 - (this._attackTimer / duration)));
+                const direction = this.facingRight ? 1 : -1;
+                if (progress < 0.26) {
+                    this.vx *= 0.82;
+                    this.vy = Math.min(this.vy, -1.2);
+                } else if (progress < 0.76) {
+                    const fallT = (progress - 0.26) / 0.5;
+                    this.vx = this.vx * 0.7 + direction * this.speed * 0.08;
+                    this.vy = this.vy * 0.34 + (9.8 + fallT * 19.8) * 0.66;
+                } else {
+                    this.vx *= 0.64;
+                    if (!this.isGrounded) {
+                        this.vy = Math.max(this.vy, 13.4);
+                    }
+                }
+            } else {
+                this.vx *= 0.92;
+            }
+
             this._attackTimer -= deltaMs;
+            if (this._attackTimer <= deltaMs + 0.001) {
+                const minCompletion = (activeAttack && activeAttack.comboStep === 4) ? 0.99 : 0.98;
+                const duration = Math.max(1, activeAttack?.durationMs || this._attackTimer || 1);
+                const progress = Number.isFinite(activeAttack?.motionElapsedMs)
+                    ? activeAttack.motionElapsedMs / duration
+                    : 1.0;
+                if (progress < minCompletion) {
+                    this._attackTimer = deltaMs + 1;
+                    return;
+                }
+            }
             if (this._attackTimer <= 0) {
+                if (
+                    activeAttack &&
+                    activeAttack.comboStep === 4 &&
+                    Number.isFinite(activeAttack.motionElapsedMs)
+                ) {
+                    const duration = Math.max(1, activeAttack.durationMs || 1);
+                    if (activeAttack.motionElapsedMs < duration - 0.5) {
+                        this._attackTimer = 1;
+                        return;
+                    }
+                }
+                if (
+                    activeAttack &&
+                    activeAttack.comboStep === 5 &&
+                    !this.isGrounded &&
+                    this._comboFinisherAirLockTimer > 0
+                ) {
+                    this._attackTimer = 1;
+                    return;
+                }
                 this._attackTimer = 0;
                 if (this._comboPendingSteps && this._comboPendingSteps.length > 0) {
                     this._startNextComboStep();
                 } else {
                     this.isAttacking  = false;
+                    this._comboStep = 0;
+                    this._currentComboStep = 0;
+                    this._currentAttackProfile = null;
+                    this._comboFinisherAirLockTimer = 0;
                     this.attackCooldown = Math.max(this.attackCooldown, 480);
                 }
             }
@@ -1710,6 +1820,7 @@ export class Shogun extends Boss {
                     this._dualZPendingSteps = null;
                 }
                 this.isAttacking   = false;
+                this._currentAttackProfile = null;
                 this.attackCooldown = Math.max(this.attackCooldown, 300);
             }
         } else if (this._subWeaponKey === 'dual') {
@@ -1723,6 +1834,7 @@ export class Shogun extends Boss {
             this.isAttacking = false;
         } else {
             this.isAttacking = false;
+            this._currentAttackProfile = null;
         }
     }
 
@@ -1740,20 +1852,15 @@ export class Shogun extends Boss {
         this.currentSubWeapon = subInst;
         this.attackCombo      = this._comboStep;
 
-        const prevVx = this.vx;
-        const isSpear = (resolvedKey === 'spear');
-
         const useMode = type === 'dual' ? 'combined' : (type === 'dual_z' ? 'main' : undefined);
 
         // bomb発射前のg.bombs長さを記録
         const bombsBefore = (resolvedKey === 'bomb' && window.game && window.game.bombs)
             ? window.game.bombs.length : -1;
 
-        subInst.use(this, useMode);
-
-        if (isSpear) {
-            const dir = this.facingRight ? 1 : -1;
-            this.vx = prevVx + dir * this.speed * 3.5;
+        this._useSubWeaponAsPlayerStyle(subInst, useMode);
+        if (resolvedKey === 'dual' && type === 'dual') {
+            this.vx = 0;
         }
 
         // bomb: 新しく追加されたbombに敵弾フラグとgetHitboxを付ける
@@ -1791,6 +1898,63 @@ export class Shogun extends Boss {
 
         this.currentSubWeapon = prevSubWeapon;
         this.attackCombo      = prevAttackCombo;
+    }
+
+    _getSubActionDurationMs(actionName, key) {
+        const weapon = key ? this._subWeaponInstances[key] : null;
+        if (!weapon || !this.actor || typeof this.actor.getSubWeaponActionDurationMs !== 'function') {
+            return 300;
+        }
+        return this.actor.getSubWeaponActionDurationMs(actionName, weapon);
+    }
+
+    _useSubWeaponAsPlayerStyle(subInst, useMode) {
+        if (!subInst || typeof subInst.use !== 'function') return;
+        const prevIsEnemy = this.isEnemy;
+        this.isEnemy = false;
+        try {
+            subInst.use(this, useMode);
+        } finally {
+            this.isEnemy = prevIsEnemy;
+        }
+    }
+
+    _applyDualZMotion(step) {
+        const direction = this.facingRight ? 1 : -1;
+        const wasGrounded = this.isGrounded;
+        if (step === 1) {
+            this.vx = direction * this.speed * 0.32;
+            if (wasGrounded) {
+                this.vy = 0;
+                this.isGrounded = true;
+            }
+        } else if (step === 2) {
+            this.vx = direction * this.speed * 0.48;
+            if (wasGrounded) {
+                this.vy = 0;
+                this.isGrounded = true;
+            } else {
+                this.vy = Math.min(this.vy, -0.4);
+            }
+        } else if (step === 3) {
+            this.vx = direction * this.speed * 0.88;
+            if (wasGrounded) {
+                this.vy = -0.6;
+                this.isGrounded = false;
+            }
+        } else if (step === 4) {
+            this.vx = direction * this.speed * 0.92;
+            if (wasGrounded) {
+                this.vy = -6.2;
+                this.isGrounded = false;
+            } else {
+                this.vy = Math.min(this.vy, -5.1);
+            }
+        } else {
+            this.vx = direction * this.speed * 0.22;
+            this.vy = Math.min(this.vy, -1.8);
+            this.isGrounded = false;
+        }
     }
 
     getAttackHitbox() {
@@ -1889,8 +2053,8 @@ export class Shogun extends Boss {
         }
 
         if (this._attackTimer > 0) {
-            const comboStep = this._currentComboStep || ((this._comboStep % 5) + 1);
-            const profile   = this.actor.getComboAttackProfileByStep(comboStep);
+            const comboStep = this._currentComboStep || this._comboStep || 1;
+            const profile   = this._currentAttackProfile || this.actor.getComboAttackProfileByStep(comboStep);
             this.actor.isAttacking    = true;
             this.actor.attackCombo    = comboStep;
             this.actor.currentAttack  = { ...profile, comboStep };
@@ -1911,9 +2075,12 @@ export class Shogun extends Boss {
             this.actor.currentAttack   = null;
             this.actor.attackTimer     = 0;
             const isThrowAction = this._subAction === 'throw';
-            const throwPoseActive = isThrowAction && this._shurikenVisualTimer > 0;
+            const throwPoseActive = isThrowAction && (
+                (this._subWeaponKey === 'bomb' && this._subTimer > 0) ||
+                this._shurikenVisualTimer > 0
+            );
             const displaySubTimer = throwPoseActive
-                ? Math.max(1, this._shurikenVisualTimer)
+                ? Math.max(1, this._subWeaponKey === 'bomb' ? this._subTimer : this._shurikenVisualTimer)
                 : Math.max(1, this._subTimer);
             this.actor.subWeaponTimer  = throwPoseActive ? displaySubTimer : (isThrowAction ? 0 : displaySubTimer);
             this.actor.subWeaponAction = throwPoseActive ? 'throw' : (isThrowAction ? null : this._subAction);
@@ -1938,7 +2105,9 @@ export class Shogun extends Boss {
             this.actor.attackTimer     = 0;
             this.actor.subWeaponTimer  = 0;
             this.actor.subWeaponAction = null;
-            this.actor.currentSubWeapon = null;
+            this.actor.currentSubWeapon = this._subWeaponKey === 'dual'
+                ? this._subWeaponInstances['dual']
+                : null;
         }
 
         const renderWithShogunTransform = (drawFn) => {
@@ -2103,17 +2272,17 @@ export class Shogun extends Boss {
         const backX = (r) => (torsoShoulderX + nx * wB * dir) * (1 - r) + (torsoHipX + nx * wB * dir) * r;
         const backY = (r) => (bodyTopY + ny * wB * dir) * (1 - r) + (hipY + ny * wB * dir) * r;
         
-        // 3つの段を重ねるように描画し、日本甲冑らしい段重ね（板札）の背中を表現
-        for (let i = 0; i < 3; i++) {
-            const startR = i * 0.33;
-            const endR = (i + 1) * 0.33;
-            const midR = startR + 0.165;
+        // 4つの段を重ねるように描画し、日本甲冑らしい段重ね（板札）の背中を表現
+        for (let i = 0; i < 4; i++) {
+            const startR = i * 0.25;
+            const endR = (i + 1) * 0.25;
+            const midR = startR + 0.125;
             
             ctx.fillStyle = '#0a0a0d';
             ctx.beginPath();
             ctx.moveTo(backX(startR), backY(startR));
             // 少し後方（+nx*dir）へ膨らませるカーブ
-            ctx.quadraticCurveTo(backX(midR) + nx * dir * 1.8, backY(midR), backX(endR), backY(endR));
+            ctx.quadraticCurveTo(backX(midR) + nx * dir * 3.5, backY(midR), backX(endR), backY(endR));
             ctx.lineTo(backX(endR) - nx * dir * 0.5, backY(endR));
             ctx.lineTo(backX(startR) - nx * dir * 0.5, backY(startR));
             ctx.fill();
@@ -2122,7 +2291,7 @@ export class Shogun extends Boss {
             ctx.lineWidth = 1.0;
             ctx.beginPath();
             ctx.moveTo(backX(startR), backY(startR));
-            ctx.quadraticCurveTo(backX(midR) + nx * dir * 2.0, backY(midR), backX(endR), backY(endR));
+            ctx.quadraticCurveTo(backX(midR) + nx * dir * 3.5, backY(midR), backX(endR), backY(endR));
             ctx.stroke();
         }
 
@@ -2253,25 +2422,25 @@ export class Shogun extends Boss {
         
         // 1. 後方の草摺（背中側・隙間を埋めるように幅広に、位置は後方(+nx*dir)へシフト）
         drawKusazuriPanel(
-            torsoHipX + nx * dir * 2.2, baseY, 
-            nx * dir * skirtSpread * 0.75 - dir * 1.0, skirtLen, 
-            1.5, 1.8, 
+            torsoHipX + nx * dir * 1.5, baseY,
+            nx * dir * skirtSpread * 0.4 - dir * 0.5, skirtLen,
+            2.0, 2.0,
             cArmor, '#b09240'
         );
 
         // 2. 側面の草摺（主要パネル・分厚い）
         drawKusazuriPanel(
             torsoHipX, baseY, 
-            0, skirtLen, 
-            2.8, 2.8, 
+            -nx * dir * skirtSpread * 0.1, skirtLen,
+            3.2, 3.2,
             '#0a0a0d', '#b09240'
         );
 
         // 3. 前方の草摺（手前側・バランスに合わせて、位置は前方(-nx*dir)へシフト）
         drawKusazuriPanel(
-            torsoHipX - nx * dir * 2.4, baseY, 
-            -nx * dir * skirtSpread * 0.4 + dir * 1.5, skirtLen, 
-            1.0, 1.2, 
+            torsoHipX - nx * dir * 1.8, baseY,
+            -nx * dir * skirtSpread * 0.3 + dir * 1.0, skirtLen,
+            1.5, 1.5,
             cArmor, '#b09240'
         );
     }
