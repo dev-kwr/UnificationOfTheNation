@@ -4497,6 +4497,7 @@ class Game {
             
             // 剣筋をワールド座標（スケール影響外）で描画
             this.player.renderComboSlashTrail(ctx);
+            this.player.renderDualBladeSlashTrails(ctx);
 
             if (
                 this.player.currentSubWeapon &&

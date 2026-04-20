@@ -162,6 +162,11 @@ export class Player {
         this.comboSlashTrailPoints = [];
         this.comboSlashTrailSampleTimer = 0;
         this.comboSlashTrailBoostAnchor = null;
+        // 二刀流コンボ用トレイルバッファ（奥刀=青、手前刀=赤）
+        this.dualBladeBackTrailPoints = [];
+        this.dualBladeFrontTrailPoints = [];
+        this.dualBladeBackTrailSampleTimer = 0;
+        this.dualBladeFrontTrailSampleTimer = 0;
         this.specialCloneSlashTrailPoints = [];
         this.specialCloneSlashTrailSampleTimers = [];
         this.specialCloneSlashTrailBoostAnchors = [];
@@ -718,6 +723,7 @@ export class Player {
             this.updateAttack(deltaTime);
         }
         this.updateComboSlashTrail(deltaMs);
+        this.updateDualBladeSlashTrails(deltaMs);
 
         // サブウェポンの状態更新（アニメーション進行など）
         if (this.currentSubWeapon && this.currentSubWeapon.update) {
@@ -1514,37 +1520,37 @@ export class Player {
         const blend = (current, target) => current + (target - current) * lerpRate;
 
         if (step === 1) {
-            // 1撃目: 前のめりにならないよう、移動は最小限に抑える
-            const targetVx = direction * this.speed * (0.04 + Math.sin(p * Math.PI) * 0.12);
+            // 1撃目: 踏み込んで一閃 — 前方に体重移動
+            const targetVx = direction * this.speed * (0.14 + Math.sin(p * Math.PI) * 0.28);
             this.vx = blend(this.vx, targetVx);
             if (!this.isGrounded) {
                 this.vy = blend(this.vy, p < 0.5 ? -0.2 : 0.8);
             }
         } else if (step === 2) {
-            // 2撃目: 引いて溜め、腰を返して前後へ打ち分ける
+            // 2撃目: 最小限の引きから即座に前方へ打ち込む
             let targetVx;
-            if (p < 0.18) {
-                targetVx = -direction * this.speed * (0.22 + p * 0.3);
-            } else if (p < 0.54) {
-                targetVx = direction * this.speed * (0.18 + (p - 0.18) * 1.34);
+            if (p < 0.08) {
+                targetVx = -direction * this.speed * (0.12 + p * 0.2);
+            } else if (p < 0.48) {
+                targetVx = direction * this.speed * (0.24 + (p - 0.08) * 1.8);
             } else {
-                targetVx = direction * this.speed * (0.66 - (p - 0.54) * 1.18);
+                targetVx = direction * this.speed * (0.96 - (p - 0.48) * 1.6);
             }
             this.vx = blend(this.vx, targetVx);
             if (!this.isGrounded) {
                 this.vy = blend(this.vy, p < 0.42 ? -1.0 : 2.6);
             }
         } else if (step === 3) {
-            // 3撃目: クロスステップでしっかり前へ抜ける
+            // 3撃目: X字交差で前方に押し出す
             let targetVx;
-            if (p < 0.14) {
-                targetVx = -direction * this.speed * (0.34 - p * 0.2);
-            } else if (p < 0.34) {
-                targetVx = direction * this.speed * (0.16 + (p - 0.14) * 2.4);
-            } else if (p < 0.8) {
-                targetVx = direction * this.speed * (0.64 + (p - 0.34) * 1.9);
+            if (p < 0.06) {
+                targetVx = -direction * this.speed * (0.18 - p * 0.3);
+            } else if (p < 0.28) {
+                targetVx = direction * this.speed * (0.22 + (p - 0.06) * 2.8);
+            } else if (p < 0.76) {
+                targetVx = direction * this.speed * (0.84 + (p - 0.28) * 1.6);
             } else {
-                targetVx = direction * this.speed * (1.52 - (p - 0.8) * 2.6);
+                targetVx = direction * this.speed * (1.60 - (p - 0.76) * 3.2);
             }
             this.vx = blend(this.vx, targetVx);
             if (this.isGrounded) {

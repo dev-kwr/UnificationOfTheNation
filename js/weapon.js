@@ -1252,9 +1252,9 @@ export class DualBlades extends SubWeapon {
     getMainDurationByStep(step) {
         let base = 220;
         switch (step) {
-            case 1: base = 196; break; // 初段: 左刀・袈裟斬り（上→下）
-            case 2: base = 220; break; // 二段: 右刀・逆袈裟（下→上）
-            case 3: base = 236; break; // 三段: 両手・交差薙ぎ
+            case 1: base = 120; break; // 初段: 奥手・袈裟斬り — 一閃
+            case 2: base = 130; break; // 二段: 手前手・逆袈裟 — 跳ね上げ
+            case 3: base = 150; break; // 三段: 両手・X字交差 — 爆発
             case 4: base = 338; break; // 四段: 天穿・並行切り上げ
             default: base = 358; break; // 五段(0): 叩きつけ
         }
@@ -1311,67 +1311,59 @@ export class DualBlades extends SubWeapon {
     remapMainSwingProgress(step, progress, side = 'right') {
         const p = Math.max(0, Math.min(1, progress));
         if (step === 1) {
-            // 1撃目: 左刀が主役で袈裟斬り。右刀は小さく追従するだけ
+            // 1撃目: 奥手（左刀）のみで急降下袈裟斬り — 手前刀は完全静止
             if (side === 'left') {
-                // 左刀メイン: 即座に振り下ろし、終盤で少し留まる
-                if (p < 0.56) {
-                    const t = p / 0.56;
-                    return t * t * (3 - 2 * t) * 0.88;
+                // 奥刀: 爆速で振り下ろし
+                if (p < 0.32) {
+                    const t = p / 0.32;
+                    return t * t * (3 - 2 * t) * 0.96;
                 }
-                const settle = (p - 0.56) / 0.44;
-                return 0.88 + settle * settle * (3 - 2 * settle) * 0.12;
+                const settle = (p - 0.32) / 0.68;
+                return 0.96 + settle * 0.04;
             } else {
-                // 右刀サブ: わずかに遅れて小さく動く
-                if (p < 0.14) return 0;
-                const t = Math.max(0, Math.min(1, (p - 0.14) / 0.86));
-                return t * t * (3 - 2 * t) * 0.35;
+                // 手前刀: 完全静止
+                return 0;
             }
         }
         if (step === 2) {
-            // 2撃目: 右刀が主役で逆袈裟。左刀は追従で小さく動く
+            // 2撃目: 手前手（右刀）のみで急上昇逆袈裟 — 奥刀は完全静止
             if (side === 'right') {
-                // 右刀メイン: 下から上へ跳ね上げ
-                if (p < 0.52) {
-                    const t = p / 0.52;
-                    return t * t * (3 - 2 * t) * 0.86;
+                // 手前刀: 爆速で切り上げ
+                if (p < 0.30) {
+                    const t = p / 0.30;
+                    return t * t * (3 - 2 * t) * 0.95;
                 }
-                const settle = (p - 0.52) / 0.48;
-                return 0.86 + settle * settle * (3 - 2 * settle) * 0.14;
+                const settle = (p - 0.30) / 0.70;
+                return 0.95 + settle * 0.05;
             } else {
-                // 左刀サブ: 少し引き戻す（次段の交差に備える）
-                if (p < 0.12) return 0;
-                const t = Math.max(0, Math.min(1, (p - 0.12) / 0.88));
-                return t * t * (3 - 2 * t) * 0.42;
+                // 奥刀: 完全静止
+                return 0;
             }
         }
         if (step === 3) {
-            // 3撃目: 両刀を一旦寄せてからX字に開く
+            // 3撃目: 両刀を瞬時に中央へ寄せ、X字に爆発的に開く
             if (side === 'left') {
-                // 左刀: 体の前で一旦止まり、そこから外へ薙ぐ
-                if (p < 0.22) {
-                    const gather = p / 0.22;
-                    return gather * gather * (3 - 2 * gather) * 0.18;
+                if (p < 0.10) {
+                    const gather = p / 0.10;
+                    return gather * gather * 0.10;
                 }
-                if (p < 0.62) {
-                    const slash = (p - 0.22) / 0.40;
+                if (p < 0.50) {
+                    const slash = (p - 0.10) / 0.40;
                     const eased = slash * slash * (3 - 2 * slash);
-                    return 0.18 + eased * 0.72;
+                    return 0.10 + eased * 0.88;
                 }
-                const settle = (p - 0.62) / 0.38;
-                return 0.90 + settle * settle * (3 - 2 * settle) * 0.10;
+                return 0.98 + ((p - 0.50) / 0.50) * 0.02;
             }
-            // 右刀: 同時に寄せてから反対方向へ薙ぐ
-            if (p < 0.20) {
-                const gather = p / 0.20;
-                return gather * gather * (3 - 2 * gather) * 0.16;
+            if (p < 0.08) {
+                const gather = p / 0.08;
+                return gather * gather * 0.08;
             }
-            if (p < 0.58) {
-                const slash = (p - 0.20) / 0.38;
+            if (p < 0.48) {
+                const slash = (p - 0.08) / 0.40;
                 const eased = slash * slash * (3 - 2 * slash);
-                return 0.16 + eased * 0.74;
+                return 0.08 + eased * 0.90;
             }
-            const settle = (p - 0.58) / 0.42;
-            return 0.90 + settle * settle * (3 - 2 * settle) * 0.10;
+            return 0.98 + ((p - 0.48) / 0.52) * 0.02;
         }
         if (step === 4) {
             // 4撃目: 天穿・並行切り上げ
@@ -1389,33 +1381,26 @@ export class DualBlades extends SubWeapon {
         switch (index) {
             case 1:
                 return {
-                    // 1撃目: 左刀・袈裟斬り（構え位置から右上→左下へ振り下ろす）
-                    // 左刀メイン: アイドル構え角度(-0.65)付近 → 下方(1.4)へ
-                    // 右刀サブ: 後方待機角度(2.14)付近で微動
-                    leftStart: -0.65, leftEnd: 1.42,
-                    rightStart: 2.14, rightEnd: 1.68,
-                    effectRadius: 88,
+                    // 1撃目: 奥手のみ — 高い位置から深く振り下ろす
+                    leftStart: -0.85, leftEnd: 1.75,
+                    rightStart: 2.14, rightEnd: 2.14,  // 手前刀は動かない
+                    effectRadius: 92,
                     hit: 'leftKesa'
                 };
             case 2:
                 return {
-                    // 2撃目: 右刀・逆袈裟（1段目終了位置から下→上へ跳ね上げ）
-                    // 右刀メイン: 1段終了位置(1.68)付近 → 上方(-1.2)へ
-                    // 左刀サブ: 1段終了位置(1.42)から少し引き戻す
-                    rightStart: 1.68, rightEnd: -1.22,
-                    leftStart: 1.42, leftEnd: 0.72,
-                    effectRadius: 90,
+                    // 2撃目: 手前手のみ — 下から大きく跳ね上げ
+                    rightStart: 1.75, rightEnd: -1.55,
+                    leftStart: 1.75, leftEnd: 1.75,  // 奥刀は動かない
+                    effectRadius: 92,
                     hit: 'rightGyakuKesa'
                 };
             case 3:
                 return {
-                    // 3撃目: 両手・交差薙ぎ（一旦中央に寄せてからX字に開く）
-                    // 左刀: 2段終了(0.72) → 一旦中央寄せ → 前方展開(1.62)
-                    // 右刀: 2段終了(-1.22) → 一旦中央寄せ → 前方上方展開(-1.48)
-                    // 終了時は体の前方に両刀が自然に収まり、4段目の並行切り上げに繋がる
-                    leftStart: 0.72, leftEnd: 1.62,
-                    rightStart: -1.22, rightEnd: -1.48,
-                    effectRadius: 100,
+                    // 3撃目: 両手 X字交差 — 爆発的に開く
+                    leftStart: 0.40, leftEnd: 2.10,
+                    rightStart: -0.90, rightEnd: -2.00,
+                    effectRadius: 108,
                     hit: 'crossNagi'
                 };
             case 4:
@@ -1889,216 +1874,8 @@ export class DualBlades extends SubWeapon {
         const isMain = this.attackType === 'main';
         const isCombined = this.attackType === 'combined';
         if (isMain) {
-            const liveTrailSnapshot = [];
-            const centerX = player.x + player.width / 2;
-            const centerY = player.y + player.height / 2;
-            const boostHitboxCenter = xTrailBoost > 1.001
-                ? resolveHitboxCenter(this.getHitbox(player))
-                : null;
-            const poseOptions = (
-                player &&
-                player.subWeaponAction === '二刀_Z' &&
-                player.subWeaponPoseOverride
-            ) ? player.subWeaponPoseOverride : undefined;
-            const pose = this.getMainSwingPose(poseOptions || {});
-            const alpha = Math.max(0.38, 1 - pose.progress * 0.42);
-            const toAdjustedAngle = (rawAngle) => rawAngle + ((-Math.PI / 2) - rawAngle) * 0.28;
-            const trailAnchorPack = (
-                player &&
-                player.subWeaponAction === '二刀_Z' &&
-                player.dualBladeTrailAnchors &&
-                player.dualBladeTrailAnchors.direction === direction
-            ) ? player.dualBladeTrailAnchors : null;
-            const backTrailAnchor = trailAnchorPack ? trailAnchorPack.back : null;
-            const frontTrailAnchor = trailAnchorPack ? trailAnchorPack.front : null;
-
-            const drawTrackedArcSlash = (
-                palette,
-                currentAngle,
-                swingDelta,
-                traversedSpan,
-                fullSwingSpan,
-                radius,
-                width,
-                yOffset = 0,
-                spanGain = 1,
-                xOffset = 0,
-                tipAnchor = null,
-                completeThenTrim = false,
-                trailBackScale = 1.55,
-                leadScale = 1,
-                sweepSign = 0,
-                startAnchorAngle = null
-            ) => {
-                const swingSpeed = Math.abs(swingDelta);
-                const motionProgress = Math.max(0, Math.min(1, pose.progress));
-                const visibilityPhase = Math.max(0, Math.sin(motionProgress * Math.PI));
-                if (swingSpeed < 0.004 && visibilityPhase < 0.28) return;
-
-                const tipLocked = !boostHitboxCenter && !!(
-                    tipAnchor &&
-                    Number.isFinite(tipAnchor.tipX) &&
-                    Number.isFinite(tipAnchor.tipY)
-                );
-                if (tipLocked && Number.isFinite(tipAnchor.angle)) {
-                    // 腕描画と同じ角度を優先し、剣筋の先端を切っ先へ正確に合わせる
-                    currentAngle = tipAnchor.angle;
-                }
-                const mainArcCenterX = -5 + xOffset;
-                const mainArcCenterY = 0;
-                let pivotX = centerX;
-                let pivotY = centerY + yOffset;
-                if (boostHitboxCenter) {
-                    pivotX = boostHitboxCenter.x;
-                    pivotY = boostHitboxCenter.y + yOffset;
-                } else if (tipLocked) {
-                    const tipLocalX = mainArcCenterX + Math.cos(currentAngle) * radius;
-                    const tipLocalY = mainArcCenterY + Math.sin(currentAngle) * radius;
-                    pivotX = tipAnchor.tipX - direction * tipLocalX;
-                    pivotY = tipAnchor.tipY - tipLocalY;
-                }
-
-                ctx.save();
-                ctx.translate(pivotX, pivotY);
-                ctx.scale(direction, 1);
-                ctx.lineCap = 'round';
-                const movingForward = (Number.isFinite(sweepSign) && Math.abs(sweepSign) > 0.001)
-                    ? (sweepSign >= 0)
-                    : (swingDelta >= 0);
-                const dynamicSpan = swingSpeed * 14.6 * spanGain;
-                const lingerSpan = (0.18 + visibilityPhase * 0.28) * spanGain;
-                const desiredBackSpan = Math.min(1.28, Math.max(lingerSpan, dynamicSpan));
-                const traversed = Math.max(0.001, Number.isFinite(traversedSpan) ? traversedSpan : desiredBackSpan);
-                const fullSpan = Math.max(
-                    traversed + 0.001,
-                    Number.isFinite(fullSwingSpan) ? Math.abs(fullSwingSpan) : traversed
-                );
-                let backSpan = Math.min(desiredBackSpan, traversed + 0.02);
-                if (completeThenTrim) {
-                    // モーション中は通過済み角度を保持し、途中で縮まないようにする
-                    backSpan = Math.max(backSpan, traversed);
-                    backSpan = Math.min(backSpan, fullSpan + 0.03);
-                }
-                const leadRatio = Math.max(0, Number.isFinite(leadScale) ? leadScale : 1);
-                const leadCap = leadRatio > 0
-                    ? Math.min(0.014, Math.max(0.0025, traversed * 0.06))
-                    : 0;
-                const leadSpan = leadRatio > 0
-                    ? Math.min(
-                        leadCap,
-                        Math.max(0.0002, backSpan * (0.06 + visibilityPhase * 0.04) * leadRatio)
-                    )
-                    : 0;
-                let start = movingForward ? (currentAngle - backSpan) : (currentAngle - leadSpan);
-                let end = movingForward ? (currentAngle + leadSpan) : (currentAngle + backSpan);
-                if (completeThenTrim && Number.isFinite(startAnchorAngle)) {
-                    const full = Math.PI * 2;
-                    let anchored = startAnchorAngle;
-                    while (anchored - currentAngle > Math.PI) anchored -= full;
-                    while (anchored - currentAngle < -Math.PI) anchored += full;
-                    if (movingForward) start = anchored;
-                    else end = anchored;
-                }
-                const ccw = end < start;
-                const backAlpha = alpha * 0.42;
-                const frontAlpha = alpha;
-                const segment = {
-                    pivotX,
-                    pivotY,
-                    direction,
-                    localCenterX: -5 + xOffset,
-                    radius,
-                    start,
-                    end,
-                    ccw,
-                    width,
-                    frontColor: palette.front,
-                    frontAlpha,
-                    fadeLifeScale: 1
-                };
-                liveTrailSnapshot.push(segment);
-
-                // ctx.shadowBlur = 0;
-                ctx.strokeStyle = `rgba(${palette.front[0]}, ${palette.front[1]}, ${palette.front[2]}, ${frontAlpha})`;
-                ctx.lineWidth = width;
-                ctx.beginPath();
-                ctx.arc(-5 + xOffset, 0, radius, start, end, ccw);
-                ctx.stroke();
-
-                ctx.strokeStyle = `rgba(255, 255, 255, ${frontAlpha * 0.46})`;
-                ctx.lineWidth = Math.max(1.4, width * 0.18);
-                ctx.beginPath();
-                ctx.arc(-3.6 + xOffset, -1.2, Math.max(2, radius - 2.2), start + 0.03, end + 0.03, ccw);
-                ctx.stroke();
-                ctx.restore();
-            };
-
-            const bluePalette = { front: [130, 234, 255], back: [76, 154, 226] };
-            const redPalette = { front: [255, 90, 90], back: [214, 74, 74] };
-            const sampleStep = 0.055;
-            const prevProgress = Math.max(0, pose.progress - sampleStep);
-            const prevRemappedRight = this.remapMainSwingProgress(pose.comboIndex, prevProgress, 'right');
-            const prevRemappedLeft = this.remapMainSwingProgress(pose.comboIndex, prevProgress, 'left');
-            const prevRightRaw = pose.arcs.rightStart + (pose.arcs.rightEnd - pose.arcs.rightStart) * prevRemappedRight;
-            const prevLeftRaw = pose.arcs.leftStart + (pose.arcs.leftEnd - pose.arcs.leftStart) * prevRemappedLeft;
-            const backAngle = toAdjustedAngle(pose.leftAngle);
-            const frontAngle = toAdjustedAngle(pose.rightAngle);
-            const prevBackAngle = toAdjustedAngle(prevLeftRaw);
-            const prevFrontAngle = toAdjustedAngle(prevRightRaw);
-            const backStartAngle = toAdjustedAngle(pose.arcs.leftStart);
-            const frontStartAngle = toAdjustedAngle(pose.arcs.rightStart);
-            const backEndAngle = toAdjustedAngle(pose.arcs.leftEnd);
-            const frontEndAngle = toAdjustedAngle(pose.arcs.rightEnd);
-            const backDelta = backAngle - prevBackAngle;
-            const frontDelta = frontAngle - prevFrontAngle;
-            const backFullSpanSigned = backEndAngle - backStartAngle;
-            const frontFullSpanSigned = frontEndAngle - frontStartAngle;
-            const backFullSpan = Math.abs(backFullSpanSigned);
-            const frontFullSpan = Math.abs(frontFullSpanSigned);
-            const backTraversed = Math.min(backFullSpan, Math.max(0, Math.abs(backAngle - backStartAngle)));
-            const frontTraversed = Math.min(frontFullSpan, Math.max(0, Math.abs(frontAngle - frontStartAngle)));
-            const backSweepSign = Math.sign(backFullSpanSigned) || Math.sign(backDelta) || 1;
-            const frontSweepSign = Math.sign(frontFullSpanSigned) || Math.sign(frontDelta) || 1;
-            const dualTrailWidth = 13.8 * trailScale;
-            const redRadiusScale = 0.56;
-            const redYOffsetBias = -34;
-            const redSpanScale = 0.82;
-            const redXOffsetBias = 18;
-            const redLeadScale = 0.1;
-            const risingRedRadiusScale = redRadiusScale * 1.58;
-            const risingRedSpanScale = redSpanScale * 1.44;
-            const risingBlueRadiusScale = 0.9;
-            const risingBlueSpanGain = 0.66;
-            const risingBlueTrailBackScale = 1.2;
-            const fallingBlueRadiusScale = 0.78;
-            const fallingBlueSpanGain = 0.66;
-            const fallingBlueTrailBackScale = 1.12;
-            if (pose.arcs.hit === 'leftKesa') {
-                drawTrackedArcSlash(bluePalette, backAngle, backDelta, backTraversed, backFullSpan, (pose.arcs.effectRadius + 12) * trailScale, dualTrailWidth, -8, 0.84, 2, backTrailAnchor, true, 1.55, 0, backSweepSign, backStartAngle);
-                drawTrackedArcSlash(redPalette, frontAngle, frontDelta, frontTraversed, frontFullSpan, (pose.arcs.effectRadius + 3) * trailScale * redRadiusScale, dualTrailWidth, 6 + redYOffsetBias, 0.7 * redSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, frontSweepSign, frontStartAngle);
-            } else if (pose.arcs.hit === 'rightGyakuKesa') {
-                drawTrackedArcSlash(redPalette, frontAngle, frontDelta, frontTraversed, frontFullSpan, (pose.arcs.effectRadius + 9) * trailScale * redRadiusScale, dualTrailWidth, -4 + redYOffsetBias, 0.9 * redSpanScale, 16, frontTrailAnchor, true, 1.48, redLeadScale, frontSweepSign, frontStartAngle);
-                drawTrackedArcSlash(bluePalette, backAngle, backDelta, backTraversed, backFullSpan, (pose.arcs.effectRadius - 8) * trailScale, dualTrailWidth, -2, 0.52, -10, backTrailAnchor, false, 1.12, 0, backSweepSign, backStartAngle);
-            } else if (pose.arcs.hit === 'crossNagi') {
-                drawTrackedArcSlash(bluePalette, backAngle, backDelta, backTraversed, backFullSpan, (pose.arcs.effectRadius - 6) * trailScale, dualTrailWidth, -4, 0.48, -6, backTrailAnchor, false, 1.08, 0, backSweepSign, backStartAngle);
-                drawTrackedArcSlash(redPalette, frontAngle, frontDelta, frontTraversed, frontFullSpan, (pose.arcs.effectRadius + 16) * trailScale * redRadiusScale, dualTrailWidth, 3 + redYOffsetBias, 0.76 * redSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, frontSweepSign, frontStartAngle);
-            } else if (pose.arcs.hit === 'risingX') {
-                drawTrackedArcSlash(bluePalette, backAngle, backDelta, backTraversed, backFullSpan, (pose.arcs.effectRadius + 10) * trailScale * risingBlueRadiusScale, dualTrailWidth, -10, risingBlueSpanGain, 0, backTrailAnchor, true, risingBlueTrailBackScale, 0, backSweepSign, backStartAngle);
-                drawTrackedArcSlash(redPalette, frontAngle, frontDelta, frontTraversed, frontFullSpan, (pose.arcs.effectRadius + 7) * trailScale * risingRedRadiusScale, dualTrailWidth, -3 + redYOffsetBias, 0.76 * risingRedSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, frontSweepSign, frontStartAngle);
-            } else if (pose.arcs.hit === 'fallingBreak') {
-                drawTrackedArcSlash(bluePalette, backAngle, backDelta, backTraversed, backFullSpan, (pose.arcs.effectRadius + 16) * trailScale * fallingBlueRadiusScale, dualTrailWidth, -5, fallingBlueSpanGain, 0, backTrailAnchor, true, fallingBlueTrailBackScale, 0, backSweepSign, backStartAngle);
-                drawTrackedArcSlash(redPalette, frontAngle, frontDelta, frontTraversed, frontFullSpan, (pose.arcs.effectRadius + 12) * trailScale * redRadiusScale, dualTrailWidth, 5 + redYOffsetBias, 0.86 * redSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, frontSweepSign, frontStartAngle);
-            } else {
-                drawTrackedArcSlash(bluePalette, backAngle, backDelta, backTraversed, backFullSpan, (pose.arcs.effectRadius + 16) * trailScale, dualTrailWidth, -5, 0.84, 0, backTrailAnchor, true, 1.55, 0, backSweepSign, backStartAngle);
-                drawTrackedArcSlash(redPalette, frontAngle, frontDelta, frontTraversed, frontFullSpan, (pose.arcs.effectRadius + 12) * trailScale * redRadiusScale, dualTrailWidth, 5 + redYOffsetBias, 0.86 * redSpanScale, redXOffsetBias, frontTrailAnchor, true, 1.55, redLeadScale, frontSweepSign, frontStartAngle);
-            }
-            this.mainTrailFadeMaxScale = liveTrailSnapshot.reduce((max, seg) => {
-                const s = Number.isFinite(seg.fadeLifeScale) ? seg.fadeLifeScale : 1;
-                return Math.max(max, s);
-            }, 1);
-            this.mainTrailFadeSnapshot = liveTrailSnapshot;
-            this.mainTrailFadeAgeMs = 0;
-            this.mainTrailFadeActive = liveTrailSnapshot.length > 0;
+            // 二刀Z連撃の剣筋は playerSlashTrail.js の共通トレイルパイプラインで描画
+            this.mainTrailFadeActive = false;
             return;
         }
 

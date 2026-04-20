@@ -1386,6 +1386,7 @@ export class Shogun extends Boss {
         if (shouldRemove) return true;
 
         const deltaMs = deltaTime * 1000;
+        this._lastDeltaMs = deltaMs;
         if (this._shurikenVisualTimer > 0) {
             this._shurikenVisualTimer = Math.max(0, this._shurikenVisualTimer - deltaMs);
         }
@@ -1793,7 +1794,78 @@ export class Shogun extends Boss {
                 }
             }
         } else if (this._subTimer > 0) {
-            this.vx *= 0.92;
+            // 二刀流Zコンボ中はプレイヤーと同じプログレスベース移動
+            if (this._subAction === '二刀_Z') {
+                const dual = this._subWeaponInstances['dual'];
+                if (dual && typeof dual.getMainSwingPose === 'function') {
+                    const pose = dual.getMainSwingPose();
+                    const step = pose.comboIndex || 0;
+                    const p = Math.max(0, Math.min(1, pose.progress || 0));
+                    const direction = this.facingRight ? 1 : -1;
+                    const lerpRate = Math.max(0.08, Math.min(0.42, (deltaMs / 1000) * 13));
+                    const blend = (cur, tgt) => cur + (tgt - cur) * lerpRate;
+
+                    if (step === 1) {
+                        const targetVx = direction * this.speed * (0.14 + Math.sin(p * Math.PI) * 0.28);
+                        this.vx = blend(this.vx, targetVx);
+                    } else if (step === 2) {
+                        let targetVx;
+                        if (p < 0.08) {
+                            targetVx = -direction * this.speed * (0.12 + p * 0.2);
+                        } else if (p < 0.48) {
+                            targetVx = direction * this.speed * (0.24 + (p - 0.08) * 1.8);
+                        } else {
+                            targetVx = direction * this.speed * (0.96 - (p - 0.48) * 1.6);
+                        }
+                        this.vx = blend(this.vx, targetVx);
+                    } else if (step === 3) {
+                        let targetVx;
+                        if (p < 0.06) {
+                            targetVx = -direction * this.speed * (0.18 - p * 0.3);
+                        } else if (p < 0.28) {
+                            targetVx = direction * this.speed * (0.22 + (p - 0.06) * 2.8);
+                        } else if (p < 0.76) {
+                            targetVx = direction * this.speed * (0.84 + (p - 0.28) * 1.6);
+                        } else {
+                            targetVx = direction * this.speed * (1.60 - (p - 0.76) * 3.2);
+                        }
+                        this.vx = blend(this.vx, targetVx);
+                    } else if (step === 4) {
+                        let targetVx;
+                        if (p < 0.68) {
+                            const t = p / 0.68;
+                            targetVx = direction * this.speed * (0.72 + t * 0.2);
+                            this.vy = this.vy * 0.42 + (-15.2 + t * 6.2) * 0.58;
+                        } else {
+                            const t = (p - 0.68) / 0.32;
+                            targetVx = direction * this.speed * (0.92 - t * 0.58);
+                            this.vy = this.vy * 0.56 + (-3.8 + t * 3.6) * 0.44;
+                            if (p > 0.82) this.vy = Math.min(this.vy, 0.65);
+                        }
+                        this.vx = blend(this.vx, targetVx);
+                        this.isGrounded = false;
+                    } else {
+                        // 五段: 叩きつけ
+                        if (p < 0.24) {
+                            this.vx = blend(this.vx, direction * this.speed * 0.2);
+                            this.vy = Math.min(this.vy, -2.4 + (p / 0.24) * 1.0);
+                        } else if (p < 0.78) {
+                            const dive = (p - 0.24) / 0.54;
+                            this.vx = blend(this.vx, direction * this.speed * (0.36 + dive * 0.46));
+                            this.vy = Math.max(this.vy, 9.0 + dive * 20.6);
+                        } else {
+                            const t = (p - 0.78) / 0.22;
+                            this.vx = blend(this.vx, direction * this.speed * (0.8 - t * 0.56));
+                            this.vy = Math.max(this.vy, 20.4 - t * 4.4);
+                        }
+                        if (this.isGrounded && p > 0.58) this.vx *= 0.5;
+                    }
+                } else {
+                    this.vx *= 0.92;
+                }
+            } else {
+                this.vx *= 0.92;
+            }
             this._subTimer -= deltaMs;
             if (this._subTimer <= 0) {
                 this._subTimer = 0;
@@ -2010,13 +2082,12 @@ export class Shogun extends Boss {
         // 2Dモデルを等比拡大した後も足元が地面に合うよう、元モデル座標を補正
         const actorRenderX = this.x + (this.width - actorRenderW) * 0.5;
         const actorRenderY = this.y + (this.height - actorRenderH) * 0.62;
-
         this.actor.x           = actorRenderX;
         this.actor.y           = actorRenderY;
         this.actor.vx          = this.vx;
         this.actor.vy          = this.vy;
         this.actor.isGrounded  = this.isGrounded;
-        this.actor.isCrouching = false;
+        this.actor.isCrouching = this.isCrouching;
         this.actor.isDashing   = false;
         this.actor.motionTime  = this.motionTime;
         this.actor.width       = actorRenderW;
@@ -2030,6 +2101,7 @@ export class Shogun extends Boss {
             headScale: SHOGUN_HEAD_SCALE,
             hipLiftPx: SHOGUN_HIP_LIFT_PX,
             armReachScale: SHOGUN_ARM_REACH_SCALE,
+            crouchIntensity: 0.35, // ボスは頭身が高いので控えめにしゃがむ
             // throw時は通常のプレイヤー投擲姿勢（奥手の刀＋手前手投擲）を使う
             forceSubWeaponRender: (this._subTimer > 0 && this._subAction != null && this._subAction !== 'throw'),
             // ── 将軍専用: パーツ単位で素体を鎧・兜の見た目に差し替え ──
@@ -2144,6 +2216,18 @@ export class Shogun extends Boss {
                     trailWidthScale: trailScale,
                     boostActive: trailScale > 1.01 && this._attackTimer > 0,
                 });
+            });
+        }
+
+        // 二刀流Zコンボのトレイル（プレイヤーと同じパイプライン）
+        // 攻撃終了後もフェードアウトのため常時更新・描画
+        if (typeof this.actor.updateDualBladeSlashTrails === 'function') {
+            const deltaMs = (typeof this._lastDeltaMs === 'number') ? this._lastDeltaMs : 16;
+            this.actor.updateDualBladeSlashTrails(deltaMs);
+        }
+        if (typeof this.actor.renderDualBladeSlashTrails === 'function') {
+            renderWithShogunTransform(() => {
+                this.actor.renderDualBladeSlashTrails(ctx);
             });
         }
 

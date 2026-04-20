@@ -1781,7 +1781,7 @@ export function applySlashTrailMixin(PlayerClass) {
 
         const baseOldestAlpha = 0.1;
         const baseNewestAlpha = 0.82;
-        const bluePalette = { front: [130, 234, 255], back: [76, 154, 226] };
+        const bluePalette = options.palette || { front: [130, 234, 255], back: [76, 154, 226] };
 
         const buildProjected = (pts, projectFn = null) => {
             if (!projectFn) {
@@ -2376,10 +2376,12 @@ export function applySlashTrailMixin(PlayerClass) {
             const curveStrip = buildThreePointQuadraticStrip(pts, comboStep);
             drawBlueTrailLayers(curveStrip, baseWidth, oldestScale, newestScale, projectFn);
         };
+        const forceLinearSmooth = !!options.forceLinearSmooth;
         // 各ストリップ（段ごとの軌跡）を独立して描画
         for (const strip of strips) {
             const stripStep = strip[strip.length - 1]?.step || 0;
-            if (strip.length < 1 || (strip.length < 2 && ![1, 2, 4, 5].includes(stripStep))) continue;
+            if (strip.length < 1) continue;
+            if (strip.length < 2 && (forceLinearSmooth || ![1, 2, 4, 5].includes(stripStep))) continue;
 
             // 描画関数内部で age/life に基づく線形フェードが掛かるため、スケールは固定値を渡す
             const outerOldestAlpha = baseOldestAlpha;
@@ -2387,6 +2389,12 @@ export function applySlashTrailMixin(PlayerClass) {
 
             // 重複描画防止のためのスキップ処理は撤廃。
             // freezing時にメインバッファを空にする仕組みに変更したため、現在メインバッファにいる軌跡は正真正銘の「新しい攻撃」の軌跡。
+            if (forceLinearSmooth) {
+                // 二刀流用: Chaikin平滑化 + スムーズ曲線描画
+                const smoothed = buildChaikinSmoothedStrip(strip, 2);
+                drawBlueTrailLayers(smoothed, 13.8 * visualWidthScale, outerOldestAlpha, outerNewestAlpha, null, { smooth: true });
+                continue;
+            }
             if (!boostActive) {
                 // 通常時描画
                 if (stripStep === 5) {
@@ -2547,5 +2555,112 @@ export function applySlashTrailMixin(PlayerClass) {
         // 大凪時の追加外周帯は通常コンボで二重線に見えやすいため廃止
 
         ctx.restore();
+    };
+
+    // === 二刀流コンボ用トレイル関数群 ===
+
+    /**
+     * dualBladeTrailAnchors（playerRenderer.jsで毎フレーム計算済み）から
+     * updateSlashTrailBuffer が期待するポーズ形式に変換する。
+     * @param {'back'|'front'} side - 奥刀 or 手前刀
+     */
+    PlayerClass.prototype.getDualBladePoseForTrail = function(side) {
+        const anchors = this.dualBladeTrailAnchors;
+        if (!anchors) return null;
+
+        const blade = (side === 'back') ? anchors.back : anchors.front;
+        if (!blade || !Number.isFinite(blade.tipX) || !Number.isFinite(blade.tipY)) return null;
+
+        const dualBlade = this.currentSubWeapon;
+        if (!dualBlade || dualBlade.name !== '二刀流') return null;
+
+        const comboIndex = dualBlade.comboIndex || 0;
+        // comboIndex → comboStep マッピング: 0(五段)→5, 1→1, 2→2, 3→3, 4→4
+        const comboStep = comboIndex === 0 ? 5 : comboIndex;
+        const progress = typeof dualBlade.getMainSwingProgress === 'function'
+            ? dualBlade.getMainSwingProgress()
+            : 0;
+
+        return {
+            tipX: blade.tipX,
+            tipY: blade.tipY,
+            dir: anchors.direction,
+            comboStep: comboStep,
+            progress: progress,
+            centerX: blade.handX,
+            centerY: blade.handY,
+            originX: this.x + this.width * 0.5,
+            originY: this.y + this.height * 0.5
+        };
+    };
+
+    /**
+     * 二刀流Zコンボ中、奥刀・手前刀それぞれのトレイルバッファを
+     * 通常コンボと同じ updateSlashTrailBuffer で更新する。
+     */
+    PlayerClass.prototype.updateDualBladeSlashTrails = function(deltaMs) {
+        const isDualZ = !!(
+            this.subWeaponAction === '二刀_Z' &&
+            this.subWeaponTimer > 0 &&
+            this.currentSubWeapon &&
+            this.currentSubWeapon.name === '二刀流'
+        );
+
+        const backPose = isDualZ ? this.getDualBladePoseForTrail('back') : null;
+        const frontPose = isDualZ ? this.getDualBladePoseForTrail('front') : null;
+
+        const dualBlade = (isDualZ && this.currentSubWeapon) ? this.currentSubWeapon : null;
+        const comboIndex = dualBlade ? (dualBlade.comboIndex || 0) : 0;
+        const comboStep = comboIndex === 0 ? 5 : comboIndex;
+        // 1-2撃目: 静止側のトレイルは生成しない（null poseで自然フェードアウト）
+        const suppressBack = isDualZ && comboStep === 2;  // 2撃目: 奥刀は静止
+        const suppressFront = isDualZ && comboStep === 1; // 1撃目: 手前刀は静止
+        const activeTrailId = isDualZ ? comboStep : null;
+
+        this.dualBladeBackTrailSampleTimer = this.updateSlashTrailBuffer(
+            this.dualBladeBackTrailPoints,
+            this.dualBladeBackTrailSampleTimer,
+            suppressBack ? null : backPose,
+            deltaMs,
+            { holdExisting: false, activeTrailId: activeTrailId }
+        );
+
+        this.dualBladeFrontTrailSampleTimer = this.updateSlashTrailBuffer(
+            this.dualBladeFrontTrailPoints,
+            this.dualBladeFrontTrailSampleTimer,
+            suppressFront ? null : frontPose,
+            deltaMs,
+            { holdExisting: false, activeTrailId: activeTrailId }
+        );
+    };
+
+    /**
+     * 二刀流コンボのトレイルを描画する。
+     * 奥刀 = 青、手前刀 = 赤で、renderComboSlashTrail の描画インフラを再利用。
+     */
+    PlayerClass.prototype.renderDualBladeSlashTrails = function(ctx) {
+        const bluePalette = { front: [130, 234, 255], back: [76, 154, 226] };
+        const redPalette = { front: [255, 90, 90], back: [214, 74, 74] };
+        const isDualZActive = !!(
+            this.subWeaponAction === '二刀_Z' &&
+            this.subWeaponTimer > 0
+        );
+
+        if (this.dualBladeBackTrailPoints.length >= 2) {
+            this.renderComboSlashTrail(ctx, {
+                points: this.dualBladeBackTrailPoints,
+                palette: bluePalette,
+                forceLinearSmooth: true,
+                isAttacking: isDualZActive
+            });
+        }
+        if (this.dualBladeFrontTrailPoints.length >= 2) {
+            this.renderComboSlashTrail(ctx, {
+                points: this.dualBladeFrontTrailPoints,
+                palette: redPalette,
+                forceLinearSmooth: true,
+                isAttacking: isDualZActive
+            });
+        }
     };
 }

@@ -883,20 +883,28 @@ export function applyRendererMixin(PlayerClass) {
 
         const headRatio = options.headRatio || (14 * 2 / 60); // デフォルトは約2.1頭身（チビキャラ）
         const headScale = options.headScale || 1.0;
-        // しゃがみ中はthis.heightが半分になるため、PLAYER.HEIGHTを基準にして
-        // 頭が極端に小さくならないよう0.80倍でほどよい大きさにする
-        const baseHeightForHead = isCrouching ? PLAYER.HEIGHT : this.height; // しゃがみ時も頭サイズを変えない
+        // しゃがみ中の頭サイズ:
+        // プレイヤー: heightが半分になるのでPLAYER.HEIGHTで補正
+        // ボス(headScale<1): heightは変わらないのでそのまま使用
+        const baseHeightForHead = isCrouching
+            ? (headScale < 1.0 ? this.height : Math.max(this.height, PLAYER.HEIGHT))
+            : this.height;
         const headRadius = (baseHeightForHead * headRatio * 0.5) * headScale;
         
-        let headY = isCrouchPose
-            ? (bottomY - headRadius * 2.2 + bob)
-            : (y + headRadius * 1.1 + bob - (isSpearThrustPose ? spearDrive * 2.0 : 0));
-            
-        // 頭が胴体へ食い込んで見えないよう、胴体の起点を頭の下端寄りに下げる
-        let bodyTopY = headY + (isCrouchPose ? headRadius * 1.01 : headRadius * 1.03);
-        let hipY = isCrouchPose
-            ? (bottomY - headRadius * 0.95 + bob * 0.45)
-            : (bottomY - headRadius * 1.43 - (isSpearThrustPose ? spearDrive * 1.7 : 0));
+        // しゃがみの圧縮強度（1.0=プレイヤー用フル圧縮, 0.35=ボス用控えめ）
+        const crouchIntensity = isCrouchPose ? (options.crouchIntensity ?? 1.0) : 0;
+        
+        // 立ちポーズの基本位置
+        const standHeadY = y + headRadius * 1.1 + bob - (isSpearThrustPose ? spearDrive * 2.0 : 0);
+        const standHipY = bottomY - headRadius * 1.43 - (isSpearThrustPose ? spearDrive * 1.7 : 0);
+        // しゃがみポーズの基本位置
+        const crouchHeadY = bottomY - headRadius * 2.2 + bob;
+        const crouchHipY = bottomY - headRadius * 0.95 + bob * 0.45;
+        
+        // ブレンド補間
+        let headY = standHeadY + (crouchHeadY - standHeadY) * crouchIntensity;
+        let bodyTopY = headY + headRadius * (1.03 - 0.02 * crouchIntensity);
+        let hipY = standHipY + (crouchHipY - standHipY) * crouchIntensity;
 
         // 腰を上げるほど「胴が短く脚が長い」比率になる（主にボス向けの見た目調整）
         const hipLiftPx = Number.isFinite(options.hipLiftPx) ? options.hipLiftPx : 0;
@@ -2808,55 +2816,71 @@ export function applyRendererMixin(PlayerClass) {
 
             let leftReach = 19.2;
             let rightReach = 18.8;
-            let leftTargetX = leftShoulderMoveX + Math.cos(pose.leftAngle) * leftReach * dir;
-            let leftTargetY = leftShoulderMoveY + Math.sin(pose.leftAngle) * leftReach;
-            let rightTargetX = rightShoulderMoveX + Math.cos(pose.rightAngle) * rightReach * dir;
-            let rightTargetY = rightShoulderMoveY + Math.sin(pose.rightAngle) * rightReach;
+            const idleArmWaveLocal = Math.sin(this.motionTime * 0.01);
+            // アイドル時の各手の基準位置
+            const idleLeftHandX = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
+            const idleLeftHandY = leftShoulderY + (isCrouchPose ? 6.2 : 7.8) + idleArmWaveLocal * (isCrouchPose ? 0.8 : 1.7);
+            const idleRightHandX = centerX - dir * (isCrouchPose ? 4.6 : 7.2);
+            const idleRightHandY = rightShoulderY + (isCrouchPose ? 6.8 : 8.5) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? 0.8 : 1.7);
+
+            // 1-2撃目: 動かない方の手はアイドル位置に固定
+            let leftTargetX, leftTargetY, rightTargetX, rightTargetY;
+            if (comboStep === 1) {
+                // 奥手(左)のみ攻撃 — 手前手(右)はアイドル位置
+                leftTargetX = leftShoulderMoveX + Math.cos(pose.leftAngle) * leftReach * dir;
+                leftTargetY = leftShoulderMoveY + Math.sin(pose.leftAngle) * leftReach;
+                rightTargetX = idleRightHandX;
+                rightTargetY = idleRightHandY;
+            } else if (comboStep === 2) {
+                // 手前手(右)のみ攻撃 — 奥手(左)はアイドル位置
+                leftTargetX = idleLeftHandX;
+                leftTargetY = idleLeftHandY;
+                rightTargetX = rightShoulderMoveX + Math.cos(pose.rightAngle) * rightReach * dir;
+                rightTargetY = rightShoulderMoveY + Math.sin(pose.rightAngle) * rightReach;
+            } else {
+                // 3撃目以降: 両手ともpose角度で制御
+                leftTargetX = leftShoulderMoveX + Math.cos(pose.leftAngle) * leftReach * dir;
+                leftTargetY = leftShoulderMoveY + Math.sin(pose.leftAngle) * leftReach;
+                rightTargetX = rightShoulderMoveX + Math.cos(pose.rightAngle) * rightReach * dir;
+                rightTargetY = rightShoulderMoveY + Math.sin(pose.rightAngle) * rightReach;
+            }
             let skipPoseReachAdjustment = false;
             let comboStep4LoadBlend = 0;
             let comboStep4AngleDive = 0;
-            const idleArmWaveLocal = Math.sin(this.motionTime * 0.01);
-            const singleKatanaLeftHandXLocal = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
-            const singleKatanaLeftHandYLocal = leftShoulderY + (isCrouchPose ? 6.2 : 7.8) + idleArmWaveLocal * (isCrouchPose ? 0.8 : 1.7);
-            const dualWieldRightHandXLocal = centerX - dir * (isCrouchPose ? 4.6 : 7.2);
-            const dualWieldRightHandYLocal = rightShoulderY + (isCrouchPose ? 6.8 : 8.5) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? 0.8 : 1.7);
+            const singleKatanaLeftHandXLocal = idleLeftHandX;
+            const singleKatanaLeftHandYLocal = idleLeftHandY;
+            const dualWieldRightHandXLocal = idleRightHandX;
+            const dualWieldRightHandYLocal = idleRightHandY;
 
             if (comboStep === 1) {
-                // 一段: 左刀・袈裟斬り — アイドル構えから左腕を振り下ろし、右腕は待機位置で微動
-                const slashT = smoothStep01(comboProgress / 0.56);
-                const settleT = smoothStep01(Math.max(0, (comboProgress - 0.56) / 0.44));
-                // 左肩: 斬撃に合わせて前方へ押し出す
-                leftShoulderMoveX += dir * (0.3 + slashT * 1.8 - settleT * 0.6);
-                leftShoulderMoveY += slashT * 0.4;
-                // 右肩: 微動で体の回転を表現
-                rightShoulderMoveX -= dir * (0.1 + slashT * 0.3);
-                rightShoulderMoveY += slashT * 0.12;
+                // 一段: 奥手のみ袈裟斬り — 手前手はアイドル位置に固定済み
+                const slashT = smoothStep01(comboProgress / 0.32);
+                const settleT = smoothStep01(Math.max(0, (comboProgress - 0.32) / 0.68));
+                // 左肩(奥手): 踏み込んで振り下ろし
+                leftShoulderMoveX += dir * (0.5 + slashT * 2.4 - settleT * 0.8);
+                leftShoulderMoveY += slashT * 0.6;
+                // 右肩(手前手): 完全静止
             } else if (comboStep === 2) {
-                // 二段: 右刀・逆袈裟 — 腰に引いてから上へ薙ぎ払い
-                const backT = smoothStep01(Math.min(1, comboProgress / 0.34));
-                const cutT = smoothStep01(Math.max(0, Math.min(1, (comboProgress - 0.34) / 0.52)));
-                const settleT = smoothStep01(Math.max(0, (comboProgress - 0.86) / 0.14));
-                // 右肩: 溜め時に沈み、切り上げで浮き上がる
-                rightShoulderMoveX += dir * (-backT * 0.3 + cutT * 0.7 - settleT * 0.15);
-                rightShoulderMoveY += backT * 0.9 - cutT * 1.3 + settleT * 0.35;
-                // 左肩: 体幹の回転を表現（右が下がる間、左は少し上がる）
-                leftShoulderMoveX += dir * (backT * 0.2 - cutT * 0.3);
-                leftShoulderMoveY -= backT * 0.35 - cutT * 0.45 + settleT * 0.15;
+                // 二段: 手前手のみ逆袈裟 — 大きく切り上げ
+                const cutT = smoothStep01(comboProgress / 0.28);
+                const settleT = smoothStep01(Math.max(0, (comboProgress - 0.28) / 0.72));
+                // 右肩(手前手): 前方へ突き出しながら大きく上へ跳ね上げ
+                rightShoulderMoveX += dir * (0.4 + cutT * 1.8 - settleT * 0.6);
+                rightShoulderMoveY += -cutT * 2.8 + settleT * 0.8;
+                // 左肩(奥手): 完全静止
             } else if (comboStep === 3) {
-                // 三段: 両手・交差薙ぎ — 一旦中央に寄せてからX字に展開
-                const gatherT = smoothStep01(comboProgress / 0.22);
-                const slashT = smoothStep01(Math.max(0, (comboProgress - 0.22) / 0.40));
-                const settleT = smoothStep01(Math.max(0, (comboProgress - 0.62) / 0.38));
-                // 収束フェーズ: 両肩を中央へ寄せる
-                leftShoulderMoveX += dir * (gatherT * 1.8 - slashT * 2.2);
-                leftShoulderMoveY -= gatherT * 0.5 - slashT * 0.2;
-                rightShoulderMoveX -= dir * (gatherT * 1.4 - slashT * 2.8);
-                rightShoulderMoveY -= gatherT * 0.4 - slashT * 0.3;
-                // 展開後は少し収束（4段目の並行切り上げへ繋ぐ）
-                leftShoulderMoveX -= dir * settleT * 1.2;
-                leftShoulderMoveY += settleT * 0.6;
-                rightShoulderMoveX += dir * settleT * 1.4;
-                rightShoulderMoveY += settleT * 0.5;
+                // 三段: 両手X字交差 — 瞬時に寄せて爆発的に開く
+                const gatherT = smoothStep01(comboProgress / 0.10);
+                const slashT = smoothStep01(Math.max(0, (comboProgress - 0.10) / 0.40));
+                const settleT = smoothStep01(Math.max(0, (comboProgress - 0.50) / 0.50));
+                leftShoulderMoveX += dir * (gatherT * 2.2 - slashT * 2.8);
+                leftShoulderMoveY -= gatherT * 0.6 - slashT * 0.3;
+                rightShoulderMoveX -= dir * (gatherT * 1.8 - slashT * 3.2);
+                rightShoulderMoveY -= gatherT * 0.5 - slashT * 0.4;
+                leftShoulderMoveX -= dir * settleT * 1.4;
+                leftShoulderMoveY += settleT * 0.7;
+                rightShoulderMoveX += dir * settleT * 1.6;
+                rightShoulderMoveY += settleT * 0.6;
 
             } else if (comboStep === 4) {
                 // 四段: 前方斜め下から切り上げ、終端は平行維持のまま溜め姿勢
@@ -2926,16 +2950,26 @@ export function applyRendererMixin(PlayerClass) {
             rightShoulderMoveX = clamp(rightShoulderMoveX, rightShoulderBaseX - shoulderMaxDriftX, rightShoulderBaseX + shoulderMaxDriftX);
             rightShoulderMoveY = clamp(rightShoulderMoveY, rightShoulderBaseY - shoulderMaxDriftY, rightShoulderBaseY + shoulderMaxDriftY);
 
-            // 肩移動の差分を手先ターゲットへ反映
-            leftTargetX += leftShoulderMoveX - leftShoulderBaseX;
-            leftTargetY += leftShoulderMoveY - leftShoulderBaseY;
-            rightTargetX += rightShoulderMoveX - rightShoulderBaseX;
-            rightTargetY += rightShoulderMoveY - rightShoulderBaseY;
+            // 肩移動の差分を手先ターゲットへ反映（1-2撃で静止側はスキップ）
+            const applyLeftShoulderOffset = !(comboStep === 2); // 2撃目の奥手はアイドル固定
+            const applyRightShoulderOffset = !(comboStep === 1); // 1撃目の手前手はアイドル固定
+            if (applyLeftShoulderOffset) {
+                leftTargetX += leftShoulderMoveX - leftShoulderBaseX;
+                leftTargetY += leftShoulderMoveY - leftShoulderBaseY;
+            }
+            if (applyRightShoulderOffset) {
+                rightTargetX += rightShoulderMoveX - rightShoulderBaseX;
+                rightTargetY += rightShoulderMoveY - rightShoulderBaseY;
+            }
             if (!skipPoseReachAdjustment) {
-                leftTargetX += Math.cos(pose.leftAngle) * (leftReach - 21.8) * dir;
-                leftTargetY += Math.sin(pose.leftAngle) * (leftReach - 21.8);
-                rightTargetX += Math.cos(pose.rightAngle) * (rightReach - 21.2) * dir;
-                rightTargetY += Math.sin(pose.rightAngle) * (rightReach - 21.2);
+                if (applyLeftShoulderOffset) {
+                    leftTargetX += Math.cos(pose.leftAngle) * (leftReach - 21.8) * dir;
+                    leftTargetY += Math.sin(pose.leftAngle) * (leftReach - 21.8);
+                }
+                if (applyRightShoulderOffset) {
+                    rightTargetX += Math.cos(pose.rightAngle) * (rightReach - 21.2) * dir;
+                    rightTargetY += Math.sin(pose.rightAngle) * (rightReach - 21.2);
+                }
             }
 
             let dualBackReachCap = Math.min(standardLeftReach, 20.8);
@@ -2953,7 +2987,22 @@ export function applyRendererMixin(PlayerClass) {
                 dualFrontReachCap = Math.min(standardRightReach + 4.2, 24.2);
             }
             let leftHand = clampArmReach(leftShoulderMoveX, leftShoulderMoveY, leftTargetX, leftTargetY, dualBackReachCap);
-            const rightHand = clampArmReach(rightShoulderMoveX, rightShoulderMoveY, rightTargetX, rightTargetY, dualFrontReachCap);
+            let rightHand = clampArmReach(rightShoulderMoveX, rightShoulderMoveY, rightTargetX, rightTargetY, dualFrontReachCap);
+
+            // フレーム間lerp: ステップ間遷移・idle復帰を全て滑らかに
+            const lerpSpeed = (comboStep === 3 || comboStep === 4 || comboStep === 0) ? 0.38 : 0.28;
+            if (this._dualZLastLeftHand && this._dualZLastRightHand) {
+                leftHand = {
+                    x: this._dualZLastLeftHand.x + (leftHand.x - this._dualZLastLeftHand.x) * lerpSpeed,
+                    y: this._dualZLastLeftHand.y + (leftHand.y - this._dualZLastLeftHand.y) * lerpSpeed
+                };
+                rightHand = {
+                    x: this._dualZLastRightHand.x + (rightHand.x - this._dualZLastRightHand.x) * lerpSpeed,
+                    y: this._dualZLastRightHand.y + (rightHand.y - this._dualZLastRightHand.y) * lerpSpeed
+                };
+            }
+            this._dualZLastLeftHand = { x: leftHand.x, y: leftHand.y };
+            this._dualZLastRightHand = { x: rightHand.x, y: rightHand.y };
             // 五段目は奥行き感を保つため、奥手が手前手より下に落ちないように固定
             if (comboStep === 0) {
                 const minBackAboveGap = isCrouchPose ? 0.7 : 1.2;
@@ -2976,8 +3025,21 @@ export function applyRendererMixin(PlayerClass) {
             const katanaLength = this.getKatanaBladeLength();
             const uprightBlend = 0.28;
             const uprightTarget = -Math.PI / 2;
-            const leftWeaponAngleRaw = pose.leftAngle - comboStep4AngleDive;
-            const rightWeaponAngleRaw = pose.rightAngle - comboStep4AngleDive;
+            // アイドル時の刀角度（しゃがみ対応）
+            const idleLeftBladeAngle = isCrouchPose ? -0.32 : -0.65;
+            const idleRightBladeAngle = isCrouchPose ? -0.82 : -1.1;
+            // 1-2撃目: 静止側の刀はアイドル角度を維持
+            let leftWeaponAngleRaw, rightWeaponAngleRaw;
+            if (comboStep === 1) {
+                leftWeaponAngleRaw = pose.leftAngle - comboStep4AngleDive;
+                rightWeaponAngleRaw = idleRightBladeAngle; // 手前刀はアイドル角度
+            } else if (comboStep === 2) {
+                leftWeaponAngleRaw = idleLeftBladeAngle; // 奥刀はアイドル角度
+                rightWeaponAngleRaw = pose.rightAngle - comboStep4AngleDive;
+            } else {
+                leftWeaponAngleRaw = pose.leftAngle - comboStep4AngleDive;
+                rightWeaponAngleRaw = pose.rightAngle - comboStep4AngleDive;
+            }
             // 4撃目終盤は「刀見た目の溜め角度」と「剣筋追従角度」を分離して、
             // 下側に飛ぶ異常剣筋を抑える (ここも左右を入れ替え)
             const leftTrailAngleRaw = (comboStep === 4) ? pose.leftAngle : leftWeaponAngleRaw;
@@ -3061,10 +3123,21 @@ export function applyRendererMixin(PlayerClass) {
             const rightAngle = lastPose.rightAngle + (idleRightBladeAngle - lastPose.rightAngle) * easeT;
 
             // 各手の位置を再計算（肩の位置 + リーチ + 補間された角度）
-            const leftHandX = leftShoulderX + Math.cos(leftAngle) * dir * 21.8;
-            const leftHandY = leftShoulderY + Math.sin(leftAngle) * 21.8;
-            const rightHandX = rightShoulderX + Math.cos(rightAngle) * dir * 21.2;
-            const rightHandY = rightShoulderY + Math.sin(rightAngle) * 21.2;
+            let leftHandX = leftShoulderX + Math.cos(leftAngle) * dir * 21.8;
+            let leftHandY = leftShoulderY + Math.sin(leftAngle) * 21.8;
+            let rightHandX = rightShoulderX + Math.cos(rightAngle) * dir * 21.2;
+            let rightHandY = rightShoulderY + Math.sin(rightAngle) * 21.2;
+
+            // lerpバッファ経由でさらにスムーズに
+            if (this._dualZLastLeftHand && this._dualZLastRightHand) {
+                const recoverLerp = 0.22;
+                leftHandX = this._dualZLastLeftHand.x + (leftHandX - this._dualZLastLeftHand.x) * recoverLerp;
+                leftHandY = this._dualZLastLeftHand.y + (leftHandY - this._dualZLastLeftHand.y) * recoverLerp;
+                rightHandX = this._dualZLastRightHand.x + (rightHandX - this._dualZLastRightHand.x) * recoverLerp;
+                rightHandY = this._dualZLastRightHand.y + (rightHandY - this._dualZLastRightHand.y) * recoverLerp;
+            }
+            this._dualZLastLeftHand = { x: leftHandX, y: leftHandY };
+            this._dualZLastRightHand = { x: rightHandX, y: rightHandY };
 
             if (drawBackLayer) {
                 drawBentArmSegment(leftShoulderX, leftShoulderY, leftHandX, leftHandY, standardUpperLen, standardForeLen, -dir, 5.3);

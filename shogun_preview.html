@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>将軍（ラスボス）プレビュー</title>
+    <title>将軍(ラスボス)プレビュー</title>
     <style>
         body { 
             background-color: #1a1a1a; 
@@ -436,7 +436,7 @@
         window.addEventListener('keydown', (event) => {
             if (shouldIgnoreKeyboardInput(event)) return;
             const key = event.key.toLowerCase();
-            if (['z', 'x', 'c', ' ', 'arrowleft', 'arrowright', 'a', 'd'].includes(key)) {
+            if (['z', 'x', 'c', ' ', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'a', 'd'].includes(key)) {
                 event.preventDefault();
             }
             if (key === 'z') {
@@ -451,12 +451,21 @@
                 if (!event.repeat) cycleSubWeapon();
                 return;
             }
-            if (key === ' ') {
+            if (key === ' ' || key === 'arrowup') {
                 if (!event.repeat) triggerJump();
+                return;
+            }
+            if (key === 'arrowdown') {
+                if (!shogun.isCrouching && shogun.isGrounded) {
+                    shogun.isCrouching = true;
+                    // ボスは高さを変えない（レンダリングスケール崩壊防止）
+                    // actorのisCrouchingでポーズがしゃがみに変わる
+                }
                 return;
             }
             if (key === 'arrowleft' || key === 'a' || key === 'arrowright' || key === 'd') {
                 heldMoveKeys.add(key);
+                isWalking = true;
                 syncWalkDirectionFromKeys();
             }
         });
@@ -466,6 +475,15 @@
             if (key === 'arrowleft' || key === 'a' || key === 'arrowright' || key === 'd') {
                 heldMoveKeys.delete(key);
                 syncWalkDirectionFromKeys();
+                if (heldMoveKeys.size === 0) {
+                    isWalking = false;
+                    walkDirection = 0;
+                }
+            }
+            if (key === 'arrowdown') {
+                if (shogun.isCrouching) {
+                    shogun.isCrouching = false;
+                }
             }
         });
 
