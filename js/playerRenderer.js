@@ -2476,6 +2476,13 @@ export function applyRendererMixin(PlayerClass) {
             if (alpha <= 0) return;
             // 微小な距離（0.1未満）の場合は描画をスキップして不要な点（lineCapによるもの）を防ぐ
             if (Math.hypot(toX - fromX, toY - fromY) < 0.1) return;
+            if (typeof options.drawArmOverride === 'function') {
+                const headDir = Math.sign(toX - fromX) || 1;
+                if (options.drawArmOverride(ctx, {
+                    shoulderX: fromX, shoulderY: fromY, handX: toX, handY: toY, bendDir: headDir, bendScale: 0.0, elbowRadius: width * 0.5, optionsInner: null,
+                    alpha, dir, silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand
+                })) return;
+            }
 
             if (withOutline && silhouetteOutlineEnabled) {
                 ctx.strokeStyle = silhouetteOutlineColor;
@@ -2503,6 +2510,14 @@ export function applyRendererMixin(PlayerClass) {
             upperWidth = 6,
             foreWidth = 5.2
         ) => {
+            if (alpha <= 0) return;
+            if (typeof options.drawArmOverride === 'function') {
+                const headDir = Math.sign(handX - shoulderX) || 1;
+                if (options.drawArmOverride(ctx, {
+                    shoulderX, shoulderY: shoulderYLocal, handX, handY, bendDir: headDir, bendScale: 0.14, elbowRadius: 2.35, optionsInner: null,
+                    alpha, dir, silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand
+                })) return;
+            }
             lastHandConnectFrom = { x: elbowX, y: elbowY };
             const armStart = insetAlongSegment(shoulderX, shoulderYLocal, elbowX, elbowY, 1.2);
             drawArmPolylineOutline([
@@ -2531,6 +2546,13 @@ export function applyRendererMixin(PlayerClass) {
             width = 5.6,
             bendScale = 1
         ) => {
+            if (alpha <= 0) return;
+            if (typeof options.drawArmOverride === 'function') {
+                if (options.drawArmOverride(ctx, {
+                    shoulderX, shoulderY: shoulderYLocal, handX, handY, bendDir, bendScale, elbowRadius: width * 0.5, optionsInner: { preferUpwardElbow: true },
+                    alpha, dir, silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand
+                })) return;
+            }
             const dx = handX - shoulderX;
             const dy = handY - shoulderYLocal;
             const distRaw = Math.hypot(dx, dy);
@@ -2643,6 +2665,13 @@ export function applyRendererMixin(PlayerClass) {
             alpha = 1.0
         ) => {
             if (alpha <= 0) return;
+            if (typeof options.drawArmOverride === 'function') {
+                const t = Math.max(0, Math.min(1, straightenT));
+                if (options.drawArmOverride(ctx, {
+                    shoulderX, shoulderY: shoulderYLocal, handX, handY, bendDir, bendScale: 1 - t, elbowRadius: 2.35, optionsInner: null,
+                    alpha, dir, silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand
+                })) return;
+            }
             const dx = handX - shoulderX;
             const dy = handY - shoulderYLocal;
             const dist = Math.hypot(dx, dy);
@@ -2853,34 +2882,38 @@ export function applyRendererMixin(PlayerClass) {
             const dualWieldRightHandYLocal = idleRightHandY;
 
             if (comboStep === 1) {
-                // 一段: 奥手のみ袈裟斬り — 手前手はアイドル位置に固定済み
-                const slashT = smoothStep01(comboProgress / 0.32);
-                const settleT = smoothStep01(Math.max(0, (comboProgress - 0.32) / 0.68));
-                // 左肩(奥手): 踏み込んで振り下ろし
-                leftShoulderMoveX += dir * (0.5 + slashT * 2.4 - settleT * 0.8);
-                leftShoulderMoveY += slashT * 0.6;
-                // 右肩(手前手): 完全静止
+                // 一段: 奥手のみ袈裟斬り — 引き→踏み込み→振り下ろし
+                const windT = smoothStep01(comboProgress / 0.12);       // 構え(0-12%)
+                const slashT = smoothStep01((comboProgress - 0.12) / 0.38); // 斬り(12-50%)
+                const settleT = smoothStep01(Math.min(1, Math.max(0, (comboProgress - 0.50) / 0.20))); // 余韻保持(50-70%)
+                const recoverT = Math.pow(Math.max(0, (comboProgress - 0.70) / 0.30), 1.5); // 戻り(70-100%)
+                // 左肩(奥手): 引いてから前方へ踏み込み、最後は戻る
+                leftShoulderMoveX += dir * (-windT * 0.6 + slashT * 3.2 - settleT * 1.2) * (1 - recoverT);
+                leftShoulderMoveY += (-windT * 0.8 + slashT * 1.8 - settleT * 0.4) * (1 - recoverT);
+                // 右肩(手前手): 反動で軽く引く
+                rightShoulderMoveX += dir * (-slashT * 0.3 + settleT * 0.2) * (1 - recoverT);
             } else if (comboStep === 2) {
-                // 二段: 手前手のみ逆袈裟 — 大きく切り上げ
-                const cutT = smoothStep01(comboProgress / 0.28);
-                const settleT = smoothStep01(Math.max(0, (comboProgress - 0.28) / 0.72));
-                // 右肩(手前手): 前方へ突き出しながら大きく上へ跳ね上げ
-                rightShoulderMoveX += dir * (0.4 + cutT * 1.8 - settleT * 0.6);
-                rightShoulderMoveY += -cutT * 2.8 + settleT * 0.8;
-                // 左肩(奥手): 完全静止
+                // 二段: 手前手のみ切り上げ — 沈み→爆発的上昇
+                const dipT = smoothStep01(comboProgress / 0.10);        // 沈み(0-10%)
+                const slashT = smoothStep01((comboProgress - 0.10) / 0.38); // 斬り(10-48%)
+                const settleT = smoothStep01(Math.min(1, Math.max(0, (comboProgress - 0.48) / 0.22))); // 余韻保持(48-70%)
+                const recoverT = Math.pow(Math.max(0, (comboProgress - 0.70) / 0.30), 1.5); // 戻り(70-100%)
+                // 右肩(手前手): 前へ踏み込みながら大きく上へ
+                rightShoulderMoveX += dir * (dipT * 0.3 + slashT * 2.0 - settleT * 0.8) * (1 - recoverT);
+                rightShoulderMoveY += (dipT * 0.6 - slashT * 3.4 + settleT * 1.0) * (1 - recoverT);
+                // 左肩(奥手): 反動で軽く後退
+                leftShoulderMoveX += dir * (-slashT * 0.3 + settleT * 0.2) * (1 - recoverT);
             } else if (comboStep === 3) {
-                // 三段: 両手X字交差 — 瞬時に寄せて爆発的に開く
-                const gatherT = smoothStep01(comboProgress / 0.10);
-                const slashT = smoothStep01(Math.max(0, (comboProgress - 0.10) / 0.40));
-                const settleT = smoothStep01(Math.max(0, (comboProgress - 0.50) / 0.50));
-                leftShoulderMoveX += dir * (gatherT * 2.2 - slashT * 2.8);
-                leftShoulderMoveY -= gatherT * 0.6 - slashT * 0.3;
-                rightShoulderMoveX -= dir * (gatherT * 1.8 - slashT * 3.2);
-                rightShoulderMoveY -= gatherT * 0.5 - slashT * 0.4;
-                leftShoulderMoveX -= dir * settleT * 1.4;
-                leftShoulderMoveY += settleT * 0.7;
-                rightShoulderMoveX += dir * settleT * 1.6;
-                rightShoulderMoveY += settleT * 0.6;
+                // 三段: 両手十字斬り — 寄せ→爆発的に開く
+                const gatherT = smoothStep01(comboProgress / 0.15);     // 寄せ(0-15%)
+                const slashT = smoothStep01((comboProgress - 0.15) / 0.40); // 斬り(15-55%)
+                const settleT = smoothStep01(Math.min(1, Math.max(0, (comboProgress - 0.55) / 0.20))); // 余韻保持(55-75%)
+                const recoverT = Math.pow(Math.max(0, (comboProgress - 0.75) / 0.25), 1.5); // 戻り(75-100%)
+                // 両肩を中央に寄せてから左右に爆発
+                leftShoulderMoveX += dir * (gatherT * 2.0 - slashT * 3.6 + settleT * 0.8) * (1 - recoverT);
+                leftShoulderMoveY += (-gatherT * 0.4 - slashT * 1.2 + settleT * 1.0) * (1 - recoverT);
+                rightShoulderMoveX -= dir * (gatherT * 1.6 - slashT * 3.8 + settleT * 1.0) * (1 - recoverT);
+                rightShoulderMoveY += (gatherT * 0.2 + slashT * 1.4 - settleT * 1.0) * (1 - recoverT);
 
             } else if (comboStep === 4) {
                 // 四段: 前方斜め下から切り上げ、終端は平行維持のまま溜め姿勢
@@ -3798,6 +3831,13 @@ export function applyRendererMixin(PlayerClass) {
             if (alpha <= 0) return;
             // 微小な距離（0.1未満）の場合は描画をスキップ
             if (Math.hypot(toX - fromX, toY - fromY) < 0.1) return;
+            if (typeof options.drawArmOverride === 'function') {
+                const headDir = Math.sign(toX - fromX) || 1;
+                if (options.drawArmOverride(ctx, {
+                    shoulderX: fromX, shoulderY: fromY, handX: toX, handY: toY, bendDir: headDir, bendScale: 0.0, elbowRadius: width * 0.5, optionsInner: null,
+                    alpha, dir, silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand, isAttackArm: true
+                })) return;
+            }
 
             if (withOutline && silhouetteOutlineEnabled) {
                 ctx.strokeStyle = silhouetteOutlineColor;

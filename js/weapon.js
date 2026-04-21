@@ -1240,6 +1240,7 @@ export class DualBlades extends SubWeapon {
         this.motionScale = 1.0;
         this.xMotionScale = 1.0;
         this.xSizeUp = (this.enhanceTier >= 3);
+        this._swingId = 0; // 攻撃ごとにインクリメント（トレイルID用）
         
         // 合体技の動作時間をLv別に短縮（一律15ms刻み）
         const combinedDurations = [560, 545, 530, 515];
@@ -1252,9 +1253,9 @@ export class DualBlades extends SubWeapon {
     getMainDurationByStep(step) {
         let base = 220;
         switch (step) {
-            case 1: base = 120; break; // 初段: 奥手・袈裟斬り — 一閃
-            case 2: base = 130; break; // 二段: 手前手・逆袈裟 — 跳ね上げ
-            case 3: base = 150; break; // 三段: 両手・X字交差 — 爆発
+            case 1: base = 190; break; // 初段: 奥手・袈裟斬り
+            case 2: base = 195; break; // 二段: 手前手・切り上げ
+            case 3: base = 230; break; // 三段: 両手・十字斬り
             case 4: base = 338; break; // 四段: 天穿・並行切り上げ
             default: base = 358; break; // 五段(0): 叩きつけ
         }
@@ -1311,59 +1312,74 @@ export class DualBlades extends SubWeapon {
     remapMainSwingProgress(step, progress, side = 'right') {
         const p = Math.max(0, Math.min(1, progress));
         if (step === 1) {
-            // 1撃目: 奥手（左刀）のみで急降下袈裟斬り — 手前刀は完全静止
+            // 1撃目: 奥手のみ袈裟斬り
             if (side === 'left') {
-                // 奥刀: 爆速で振り下ろし
-                if (p < 0.32) {
-                    const t = p / 0.32;
-                    return t * t * (3 - 2 * t) * 0.96;
+                // 引き(0-12%) → 斬り(12-50%) → 余韻保持(50-70%) → 戻り(70-100%)
+                if (p < 0.12) return 0; // 構え維持
+                if (p < 0.50) {
+                    const t = (p - 0.12) / 0.38;
+                    return t * t * (3 - 2 * t) * 0.94;
                 }
-                const settle = (p - 0.32) / 0.68;
-                return 0.96 + settle * 0.04;
-            } else {
-                // 手前刀: 完全静止
-                return 0;
+                if (p < 0.70) {
+                    return 0.94 + ((p - 0.50) / 0.20) * 0.06;
+                }
+                const recoverT = Math.pow((p - 0.70) / 0.30, 1.5);
+                return 1.0 * (1 - recoverT); // 1.0から0へ戻る
             }
+            return 0; // 手前刀: 静止
         }
         if (step === 2) {
-            // 2撃目: 手前手（右刀）のみで急上昇逆袈裟 — 奥刀は完全静止
+            // 2撃目: 手前手のみ切り上げ
             if (side === 'right') {
-                // 手前刀: 爆速で切り上げ
-                if (p < 0.30) {
-                    const t = p / 0.30;
-                    return t * t * (3 - 2 * t) * 0.95;
+                // 引き(0-10%) → 斬り(10-48%) → 余韻保持(48-70%) → 戻り(70-100%)
+                if (p < 0.10) return 0;
+                if (p < 0.48) {
+                    const t = (p - 0.10) / 0.38;
+                    return t * t * (3 - 2 * t) * 0.93;
                 }
-                const settle = (p - 0.30) / 0.70;
-                return 0.95 + settle * 0.05;
-            } else {
-                // 奥刀: 完全静止
-                return 0;
+                if (p < 0.70) {
+                    return 0.93 + ((p - 0.48) / 0.22) * 0.07;
+                }
+                const recoverT = Math.pow((p - 0.70) / 0.30, 1.5);
+                return 1.0 * (1 - recoverT);
             }
+            return 0; // 奥刀: 静止
         }
         if (step === 3) {
-            // 3撃目: 両刀を瞬時に中央へ寄せ、X字に爆発的に開く
+            // 3撃目: 両刀十字斬り — 寄せ → 爆発的に開く
+            const gather = 0.15; // 寄せフェーズ
+            const slash = 0.55;  // 斬りフェーズ終了
             if (side === 'left') {
-                if (p < 0.10) {
-                    const gather = p / 0.10;
-                    return gather * gather * 0.10;
+                if (p < gather) {
+                    const t = p / gather;
+                    return t * t * 0.08;
                 }
-                if (p < 0.50) {
-                    const slash = (p - 0.10) / 0.40;
-                    const eased = slash * slash * (3 - 2 * slash);
-                    return 0.10 + eased * 0.88;
+                if (p < slash) {
+                    const t = (p - gather) / (slash - gather);
+                    return 0.08 + t * t * (3 - 2 * t) * 0.88;
                 }
-                return 0.98 + ((p - 0.50) / 0.50) * 0.02;
+                if (p < 0.75) {
+                    return 0.96 + ((p - slash) / (0.75 - slash)) * 0.04;
+                }
+                const recoverT = Math.pow((p - 0.75) / 0.25, 1.5);
+                return 1.0 * (1 - recoverT);
             }
-            if (p < 0.08) {
-                const gather = p / 0.08;
-                return gather * gather * 0.08;
+            // right: わずかにずらしてタイミングに差をつける
+            const gatherR = 0.12;
+            const slashR = 0.52;
+            if (p < gatherR) {
+                const t = p / gatherR;
+                return t * t * 0.06;
             }
-            if (p < 0.48) {
-                const slash = (p - 0.08) / 0.40;
-                const eased = slash * slash * (3 - 2 * slash);
-                return 0.08 + eased * 0.90;
+            if (p < slashR) {
+                const t = (p - gatherR) / (slashR - gatherR);
+                return 0.06 + t * t * (3 - 2 * t) * 0.90;
             }
-            return 0.98 + ((p - 0.48) / 0.52) * 0.02;
+            if (p < 0.72) {
+                return 0.96 + ((p - slashR) / (0.72 - slashR)) * 0.04;
+            }
+            const recoverTR = Math.pow((p - 0.72) / 0.28, 1.5);
+            return 1.0 * (1 - recoverTR);
         }
         if (step === 4) {
             // 4撃目: 天穿・並行切り上げ
@@ -1378,29 +1394,30 @@ export class DualBlades extends SubWeapon {
 
     getMainSwingArcs(options = {}) {
         const index = options.comboIndex !== undefined ? options.comboIndex : this.comboIndex;
+        // アイドル角度: 奥刀(left)=-0.65, 手前刀(right)=-1.1
         switch (index) {
             case 1:
                 return {
-                    // 1撃目: 奥手のみ — 高い位置から深く振り下ろす
-                    leftStart: -0.85, leftEnd: 1.75,
-                    rightStart: 2.14, rightEnd: 2.14,  // 手前刀は動かない
+                    // 1撃目: 奥手のみ袈裟斬り — アイドルから振り下ろし
+                    leftStart: -0.65, leftEnd: 1.60,   // idle → 下前方へ
+                    rightStart: -1.1, rightEnd: -1.1,  // 手前刀: idle固定
                     effectRadius: 92,
                     hit: 'leftKesa'
                 };
             case 2:
                 return {
-                    // 2撃目: 手前手のみ — 下から大きく跳ね上げ
-                    rightStart: 1.75, rightEnd: -1.55,
-                    leftStart: 1.75, leftEnd: 1.75,  // 奥刀は動かない
-                    effectRadius: 92,
+                    // 2撃目: 手前手のみ切り上げ — アイドルから跳ね上げ
+                    rightStart: -1.1, rightEnd: -2.85,  // idle → 上方へ大きく
+                    leftStart: -0.65, leftEnd: -0.65,   // 奥刀: idle固定
+                    effectRadius: 96,
                     hit: 'rightGyakuKesa'
                 };
             case 3:
                 return {
-                    // 3撃目: 両手 X字交差 — 爆発的に開く
-                    leftStart: 0.40, leftEnd: 2.10,
-                    rightStart: -0.90, rightEnd: -2.00,
-                    effectRadius: 108,
+                    // 3撃目: 両刀十字斬り — 寄せてから左右に爆発
+                    leftStart: 0.20, leftEnd: -1.40,   // 中央→斜め上へ
+                    rightStart: -0.20, rightEnd: 1.40,  // 中央→斜め下へ
+                    effectRadius: 110,
                     hit: 'crossNagi'
                 };
             case 4:
@@ -1471,6 +1488,7 @@ export class DualBlades extends SubWeapon {
             this.comboIndex = 0;
         }
         this.comboIndex = (this.comboIndex + 1) % this.comboDamages.length;
+        this._swingId = (this._swingId || 0) + 1;
         const damage = this.comboDamages[this.comboIndex] || this.comboDamages[0];
         this.mainDuration = Math.max(
             112,

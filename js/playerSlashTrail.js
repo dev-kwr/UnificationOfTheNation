@@ -2615,12 +2615,38 @@ export function applySlashTrailMixin(PlayerClass) {
         // 1-2撃目: 静止側のトレイルは生成しない（null poseで自然フェードアウト）
         const suppressBack = isDualZ && comboStep === 2;  // 2撃目: 奥刀は静止
         const suppressFront = isDualZ && comboStep === 1; // 1撃目: 手前刀は静止
-        const activeTrailId = isDualZ ? comboStep : null;
+
+        // 余韻フェーズ（アイドル復帰中）は活動側も剣筋を出さない
+        let settleSuppress = false;
+        if (isDualZ && dualBlade) {
+            const pose = typeof dualBlade.getMainSwingPose === 'function'
+                ? dualBlade.getMainSwingPose({}) : null;
+            if (pose) {
+                const p = pose.progress || 0;
+                if (comboStep === 1 && p > 0.50) settleSuppress = true;
+                if (comboStep === 2 && p > 0.48) settleSuppress = true;
+                if (comboStep === 3 && p > 0.55) settleSuppress = true;
+            }
+        }
+        // 同じ段数を繰り返してもトレイルが前回と繋がらないよう、
+        // _swingId で毎回ユニークなIDにする（通常コンボと同じ挙動）
+        const swingId = dualBlade ? (dualBlade._swingId || 0) : 0;
+        const activeTrailId = isDualZ ? (comboStep * 10000 + swingId) : null;
+
+        // swingIdが変わったら前回のトレイルを即座にクリア
+        if (isDualZ && this._lastDualSwingId !== swingId) {
+            this.dualBladeBackTrailPoints.length = 0;
+            this.dualBladeFrontTrailPoints.length = 0;
+            this._lastDualSwingId = swingId;
+        }
+        if (!isDualZ) {
+            this._lastDualSwingId = -1;
+        }
 
         this.dualBladeBackTrailSampleTimer = this.updateSlashTrailBuffer(
             this.dualBladeBackTrailPoints,
             this.dualBladeBackTrailSampleTimer,
-            suppressBack ? null : backPose,
+            (suppressBack || settleSuppress) ? null : backPose,
             deltaMs,
             { holdExisting: false, activeTrailId: activeTrailId }
         );
@@ -2628,7 +2654,7 @@ export function applySlashTrailMixin(PlayerClass) {
         this.dualBladeFrontTrailSampleTimer = this.updateSlashTrailBuffer(
             this.dualBladeFrontTrailPoints,
             this.dualBladeFrontTrailSampleTimer,
-            suppressFront ? null : frontPose,
+            (suppressFront || settleSuppress) ? null : frontPose,
             deltaMs,
             { holdExisting: false, activeTrailId: activeTrailId }
         );
