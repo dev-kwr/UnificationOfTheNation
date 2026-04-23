@@ -578,6 +578,11 @@
             ctx.lineTo(canvas.width / 2, canvas.height);
             ctx.stroke();
 
+            // ポーズ中はrenderBody内で行われるトレイルの寿命更新を停止する
+            if (isPreviewPaused) {
+                shogun._lastDeltaMs = 0;
+            }
+
             ctx.save();
             shogun.renderBody(ctx);
             ctx.restore();

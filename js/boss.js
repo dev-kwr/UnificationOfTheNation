@@ -2840,7 +2840,7 @@ export class Shogun extends Boss {
      * 手パーツ：丸い手に小手（手甲）を被せる
      */
     _drawShogunHand(ctx, p) {
-        const { xPos, yPos, radius, dir } = p;
+        const { xPos, yPos, radius, dir, isBackHand } = p;
         const handRad = radius * 0.95; 
         
         ctx.fillStyle = '#101014'; 
@@ -2848,15 +2848,16 @@ export class Shogun extends Boss {
         ctx.arc(xPos, yPos, handRad, 0, Math.PI * 2);
         ctx.fill();
         
-        // 小手の装甲板（菱形ベースの分厚いプレート）
-        ctx.fillStyle = '#b3943d';
-        ctx.beginPath();
-        ctx.moveTo(xPos, yPos - handRad * 0.6);
-        ctx.lineTo(xPos + dir * handRad * 0.5, yPos);
-        ctx.lineTo(xPos, yPos + handRad * 0.6);
-        ctx.lineTo(xPos - dir * handRad * 0.5, yPos);
-        ctx.fill();
-        // 塗りだけでボーダーをなくす
+        if (!isBackHand) {
+            // 小手の装甲板（菱形ベースの分厚いプレート）
+            ctx.fillStyle = '#b3943d';
+            ctx.beginPath();
+            ctx.moveTo(xPos, yPos - handRad * 0.6);
+            ctx.lineTo(xPos + dir * handRad * 0.5, yPos);
+            ctx.lineTo(xPos, yPos + handRad * 0.6);
+            ctx.lineTo(xPos - dir * handRad * 0.5, yPos);
+            ctx.fill();
+        }
 
         return true;
     }

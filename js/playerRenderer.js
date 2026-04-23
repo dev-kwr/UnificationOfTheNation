@@ -1199,36 +1199,64 @@ export function applyRendererMixin(PlayerClass) {
                 preElbowY += preNY * preBend * dir + 0.25;
         }
         const idleLeftBladeAnglePre = isCrouchPose ? -0.32 : -0.65;
-	        if (alpha > 0) {
-	            const preArmStart = insetAlongSegmentPre(leftShoulderXPre, leftShoulderYPre, preElbowX, preElbowY, 1.2);
-	            if (silhouetteOutlineEnabled) {
-                ctx.strokeStyle = silhouetteOutlineColor;
-                ctx.lineWidth = 4.8 + outlineExpand;
+        if (alpha > 0) {
+            let armOverridden = false;
+            if (typeof options.drawArmOverride === 'function') {
+                if (options.drawArmOverride(ctx, {
+                    shoulderX: leftShoulderXPre, shoulderY: leftShoulderYPre,
+                    handX: idleLeftHandPre.x, handY: idleLeftHandPre.y,
+                    bendDir: -dir, bendScale: isCrouchPose ? 0.11 : 0.15, elbowRadius: 2.15, optionsInner: { isBackHand: true },
+                    alpha, dir, silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand
+                })) {
+                    armOverridden = true;
+                }
+            }
+            if (!armOverridden) {
+                const preArmStart = insetAlongSegmentPre(leftShoulderXPre, leftShoulderYPre, preElbowX, preElbowY, 1.2);
+                if (silhouetteOutlineEnabled) {
+                    ctx.strokeStyle = silhouetteOutlineColor;
+                    ctx.lineWidth = 4.8 + outlineExpand;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(preArmStart.x, preArmStart.y);
+                    ctx.lineTo(preElbowX, preElbowY);
+                    ctx.lineTo(idleLeftHandPre.x, idleLeftHandPre.y);
+                    ctx.stroke();
+                }
+                ctx.strokeStyle = silhouetteColor;
+                ctx.lineWidth = 4.8;
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
                 ctx.beginPath();
-                ctx.moveTo(preArmStart.x, preArmStart.y);
+                ctx.moveTo(leftShoulderXPre, leftShoulderYPre);
                 ctx.lineTo(preElbowX, preElbowY);
                 ctx.lineTo(idleLeftHandPre.x, idleLeftHandPre.y);
                 ctx.stroke();
             }
-            ctx.strokeStyle = silhouetteColor;
-            ctx.lineWidth = 4.8;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.beginPath();
-            ctx.moveTo(leftShoulderXPre, leftShoulderYPre);
-            ctx.lineTo(preElbowX, preElbowY);
-            ctx.lineTo(idleLeftHandPre.x, idleLeftHandPre.y);
-            ctx.stroke();
-            ctx.fillStyle = silhouetteColor;
-            ctx.beginPath();
-            ctx.arc(idleLeftHandPre.x, idleLeftHandPre.y, 4.8 * handRadiusScalePre, 0, Math.PI * 2);
-            ctx.fill();
-	            if (!isNinNinPose) {
-	                this.drawKatana(ctx, idleLeftHandPre.x, idleLeftHandPre.y, idleLeftBladeAnglePre, dir);
-	            }
-	        }
+
+            let handOverridden = false;
+            if (typeof options.drawHandOverride === 'function') {
+                if (options.drawHandOverride(ctx, { 
+                    xPos: idleLeftHandPre.x, yPos: idleLeftHandPre.y, radius: 4.8 * handRadiusScalePre,
+                    connectFrom: null, alpha, dir, 
+                    silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand,
+                    isBackHand: true
+                })) {
+                    handOverridden = true;
+                }
+            }
+            if (!handOverridden) {
+                ctx.fillStyle = silhouetteColor;
+                ctx.beginPath();
+                ctx.arc(idleLeftHandPre.x, idleLeftHandPre.y, 4.8 * handRadiusScalePre, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            if (!isNinNinPose) {
+                this.drawKatana(ctx, idleLeftHandPre.x, idleLeftHandPre.y, idleLeftBladeAnglePre, dir);
+            }
+        }
 	        }
 	        
 	        const drawTorsoSegment = (withOutline = true, alphaVal = alpha) => {
@@ -2234,12 +2262,13 @@ export function applyRendererMixin(PlayerClass) {
                 ctx.fill();
             }
         };
-        const drawHand = (xPos, yPos, radius = 4.5, connectFrom = null) => {
+        const drawHand = (xPos, yPos, radius = 4.5, connectFrom = null, isBackHand = false) => {
             if (alpha <= 0) return;
             if (typeof options.drawHandOverride === 'function') {
                 if (options.drawHandOverride(ctx, { 
                     xPos, yPos, radius, connectFrom, alpha, dir, 
-                    silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand 
+                    silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand,
+                    isBackHand
                 })) {
                     lastHandConnectFrom = null;
                     return;
@@ -2297,7 +2326,7 @@ export function applyRendererMixin(PlayerClass) {
                     -dir,
                     isCrouchPose ? 0.11 : 0.15
                 );
-                drawHand(idleLeftHand.x, idleLeftHand.y, 4.8);
+                drawHand(idleLeftHand.x, idleLeftHand.y, 4.8, null, true);
                 this.drawKatana(ctx, idleLeftHand.x, idleLeftHand.y, idleLeftBladeAngle, dir);
             }
 
@@ -3132,7 +3161,7 @@ export function applyRendererMixin(PlayerClass) {
             };
             const drawBackArmWeapon = () => {
                 drawBentArmSegment(leftShoulderMoveX, leftShoulderMoveY, leftHand.x, leftHand.y, standardUpperLen, standardForeLen, leftArmBendDir, 5.3, leftArmBendScale);
-                drawHand(leftHand.x, leftHand.y, standardLeftHandRadius);
+                drawHand(leftHand.x, leftHand.y, standardLeftHandRadius, null, true);
                 if (renderWeaponVisuals) {
                     drawSubWeaponKatana(leftHand.x, leftHand.y, leftWeaponAngleRaw, dir);
                 }
