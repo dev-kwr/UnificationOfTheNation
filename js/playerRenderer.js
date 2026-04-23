@@ -1844,6 +1844,11 @@ export function applyRendererMixin(PlayerClass) {
             }
         }
 
+        // アイドル時の両手の正確な座標（IK・伸び縮み反映済み）をサブ武器アームアニメーション等で利用するため共有
+        const globalIdleLeftHand = getSingleKatanaIdleHandPose().leftHand;
+        const globalIdleRightHandForDual = stretchFromShoulder(rightShoulderXShared, rightShoulderYShared, dualWieldRightHandXShared, dualWieldRightHandYShared);
+        const globalIdleHands = { left: globalIdleLeftHand, right: globalIdleRightHandForDual };
+
         // 奥側の腕/武器は描画順だけで胴体の裏へ回す（オクルーダー不使用）
         const dualBladeLayer = (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') ? this.currentSubWeapon : null;
         const dualPoseOverrideLayer = (
@@ -1891,6 +1896,7 @@ export function applyRendererMixin(PlayerClass) {
                         rightX: rightShoulderXShared,
                         rightY: rightShoulderYShared
                     },
+                    idleHands: globalIdleHands,
                     layerPhase: 'back'
                 }
             );
@@ -2362,6 +2368,7 @@ export function applyRendererMixin(PlayerClass) {
                         rightX: rightShoulderX,
                         rightY: rightShoulderY
                     },
+                    idleHands: globalIdleHands,
                     layerPhase: 'front'
                 }
 	            );
@@ -2386,7 +2393,7 @@ export function applyRendererMixin(PlayerClass) {
         const durationWeapon = this.subWeaponAction === '二刀_Z' ? dualBlade : this.currentSubWeapon;
         const subDuration = this.getSubWeaponActionDurationMs(this.subWeaponAction, durationWeapon);
         const sourceTimer =
-            (dualBlade && (this.subWeaponAction === '二刀_合体' || this.subWeaponAction === '二刀_Z'))
+            (dualBlade && this.subWeaponAction === '二刀_Z')
                 ? ((dualPoseOverride && Number.isFinite(dualPoseOverride.attackTimer))
                     ? dualPoseOverride.attackTimer
                     : dualBlade.attackTimer)
@@ -2535,6 +2542,7 @@ export function applyRendererMixin(PlayerClass) {
             }
         };
 
+
         const drawBentArmSegment = (
             shoulderX,
             shoulderYLocal,
@@ -2600,6 +2608,15 @@ export function applyRendererMixin(PlayerClass) {
         const drawHand = (xPos, yPos, radius = 4.8, connectFrom = null) => {
             if (alpha <= 0) return;
             const handR = radius * handRadiusScale;
+            if (typeof options.drawHandOverride === 'function') {
+                if (options.drawHandOverride(ctx, { 
+                    xPos, yPos, radius: handR, connectFrom, alpha, dir, 
+                    silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand, isAttackArm: false
+                })) {
+                    lastHandConnectFrom = null;
+                    return;
+                }
+            }
             const connectAnchor = connectFrom || lastHandConnectFrom;
             drawConnectedHandOutline(xPos, yPos, handR, connectAnchor);
             ctx.fillStyle = silhouetteColor;
@@ -3209,11 +3226,17 @@ export function applyRendererMixin(PlayerClass) {
             const lerp = (a, b, t) => a + (b - a) * t;
 
             // --- 二刀流アイドル座標・角度 ---
-            const idleArmWave = Math.sin(this.motionTime * 0.01);
-            const singleKatanaLeftHandX = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
-            const singleKatanaLeftHandY = leftShoulderY + (isCrouchPose ? 6.2 : 7.8) + idleArmWave * (isCrouchPose ? 0.8 : 1.7);
-            const dualWieldRightHandX = centerX - dir * (isCrouchPose ? 4.6 : 7.2);
-            const dualWieldRightHandY = rightShoulderY + (isCrouchPose ? 6.8 : 8.5) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? 0.8 : 1.7);
+            let singleKatanaLeftHandX = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
+            let singleKatanaLeftHandY = leftShoulderY + (isCrouchPose ? 6.2 : 7.8);
+            let dualWieldRightHandX = centerX - dir * (isCrouchPose ? 4.6 : 7.2);
+            let dualWieldRightHandY = rightShoulderY + (isCrouchPose ? 6.8 : 8.5);
+            if (options.idleHands) {
+                singleKatanaLeftHandX = options.idleHands.left.x;
+                singleKatanaLeftHandY = options.idleHands.left.y;
+                dualWieldRightHandX = options.idleHands.right.x;
+                dualWieldRightHandY = options.idleHands.right.y;
+            }
+            
             const singleKatanaLeftBladeAngle = isCrouchPose ? -0.32 : -0.65;
             const dualWieldRightBladeAngle = isCrouchPose ? -0.82 : -1.1;
 
@@ -3283,7 +3306,9 @@ export function applyRendererMixin(PlayerClass) {
                     fa = lerp(xFrontAngle, slashFrontAngle, eT);
                 } else {
                     // 2. 余韻とアイドル復帰を統合し、ゆっくり戻す
-                    const t = (relProgress - 0.22) / 0.78;
+                    let t = (relProgress - 0.22) / 0.78;
+                    // アニメーション終了直前でアイドル位置にスナップさせ、タイマー切れ時のカクつきを完全に防止する
+                    if (t > 0.95) t = 1.0;
                     const eT = t * t * (3 - 2 * t);
                     // 振り抜き終点からアイドルへ
                     bx = lerp(slashBackHandX, singleKatanaLeftHandX, eT);
@@ -3295,11 +3320,36 @@ export function applyRendererMixin(PlayerClass) {
                 }
             }
 
+            let shoulderFactor = easeGather;
+            if (clamped >= gatherPhase + holdPhase) {
+                const relProgress = easeRelease;
+                if (relProgress >= 0.22) {
+                    let t = (relProgress - 0.22) / 0.78;
+                    if (t > 0.95) t = 1.0;
+                    const eT = t * t * (3 - 2 * t);
+                    shoulderFactor = easeGather * (1 - eT);
+                }
+            }
+
             // 肩の微動
-            const bsx = leftShoulderX + dir * easeGather * 0.4;
-            const bsy = leftShoulderY - easeGather * 0.3;
-            const fsx = rightShoulderX + dir * easeGather * 0.3;
-            const fsy = rightShoulderY - easeGather * 0.25;
+            const bsx = leftShoulderX + dir * shoulderFactor * 0.4;
+            const bsy = leftShoulderY - shoulderFactor * 0.3;
+            const fsx = rightShoulderX + dir * shoulderFactor * 0.3;
+            const fsy = rightShoulderY - shoulderFactor * 0.25;
+            
+            // 刀のuprightBlendの微動
+            let currentUprightBlend = 0.02;
+            let currentEtForArm = 0; // 腕の補間用
+            if (clamped >= gatherPhase + holdPhase) {
+                const relProgress = easeRelease;
+                if (relProgress >= 0.22) {
+                    let t = (relProgress - 0.22) / 0.78;
+                    if (t > 0.95) t = 1.0;
+                    const eT = t * t * (3 - 2 * t);
+                    currentUprightBlend = lerp(0.02, 0.28, eT);
+                    currentEtForArm = eT;
+                }
+            }
 
             // --- エネルギー蓄積エフェクト ---
             const energyIntensity = clamped < gatherPhase
@@ -3309,22 +3359,23 @@ export function applyRendererMixin(PlayerClass) {
             // --- 描画 ---
             // 奥手 (背面レイヤー)
             if (drawBackLayer) {
+                // eTが1.0に近づくにつれて、drawBentArmSegmentでの曲がりを自然に調整(必要であれば)
                 drawBentArmSegment(bsx, bsy, bx, by, standardUpperLen, standardForeLen, -dir, 5.3);
                 drawHand(bx, by, standardLeftHandRadius);
             }
             // 奥の刀 (背面レイヤーへ変更)
             if (drawBackLayer && renderWeaponVisuals) {
-                drawSubWeaponKatana(bx, by, ba, dir, 0.02, 'all');
+                drawSubWeaponKatana(bx, by, ba, dir, currentUprightBlend, 'all');
             }
             // 手前手 (前面レイヤー)
             if (drawFrontLayer) {
                 drawBentArmSegment(fsx, fsy, fx, fy, standardUpperLen, standardForeLen, -dir, 5.2);
                 if (renderWeaponVisuals) {
-                    drawSubWeaponKatana(fx, fy, fa, dir, 0.02, 'handle');
+                    drawSubWeaponKatana(fx, fy, fa, dir, currentUprightBlend, 'handle');
                 }
                 drawHand(fx, fy, standardRightHandRadius);
                 if (renderWeaponVisuals) {
-                    drawSubWeaponKatana(fx, fy, fa, dir, 0.02, 'blade');
+                    drawSubWeaponKatana(fx, fy, fa, dir, currentUprightBlend, 'blade');
                 }
             }
 

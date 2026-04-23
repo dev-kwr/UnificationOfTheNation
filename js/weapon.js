@@ -1524,8 +1524,8 @@ export class DualBlades extends SubWeapon {
         }
 
         if (this.isAttacking) {
-            // 合体攻撃は前半を溜め、新タイミング（0.68: 振り下ろし開始）の瞬間に飛翔斬撃を出す
-            if (this.attackType === 'combined' && this.pendingCombinedProjectile && this.getCombinedSwingProgress() >= 0.68) {
+            // 合体攻撃は前半を溜め、新タイミング（0.73: 振り下ろし中〜直後）の瞬間に飛翔斬撃を出す
+            if (this.attackType === 'combined' && this.pendingCombinedProjectile && this.getCombinedSwingProgress() >= 0.73) {
                 const p = this.pendingCombinedProjectile;
                 const owner = p._owner;
                 if (owner) {

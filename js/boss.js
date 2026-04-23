@@ -1564,15 +1564,15 @@ export class Shogun extends Boss {
             this._dualZPendingSteps = [1, 2, 3, 4, 5];
             this._fireDualZNextStep();
         } else {
-            const duration     = durationMap[type] || 300;
             this._subWeaponKey = type;
+            this._fireSubWeapon(type);
+            // _fireSubWeapon呼び出し後にactionとdurationをセット（dualの場合はcombinedを保証し、速度補正を正しく取得）
+            this._subAction = (type === 'dual') ? '二刀_合体' : (actionMap[type] || null);
+            const duration     = type === 'dual' ? this._getSubActionDurationMs('二刀_合体', 'dual') : (durationMap[type] || 300);
             this._subTimer     = duration;
             this._shurikenVisualTimer = 0;
             this.attackTimer   = duration;
             this.attackCooldown = 400;
-            this._fireSubWeapon(type);
-            // _fireSubWeapon呼び出し後にactionをセット（dualの場合はcombinedを保証）
-            this._subAction = (type === 'dual') ? '二刀_合体' : (actionMap[type] || null);
         }
     }
 

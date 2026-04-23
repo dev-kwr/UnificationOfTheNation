@@ -189,6 +189,7 @@
         
         // 状態フラグ
         let lastTime = performance.now();
+        let isPreviewPaused = false;
         let isWalking = false;
         let walkDirection = 0;
         let previewComboStep = 0;
@@ -248,9 +249,7 @@
                 return Math.max(150, inst.totalDuration || inst.cooldown || 150);
             }
             if (type === 'dual') {
-                const projLife = 600 + (inst.enhanceTier || 3) * 60;
-                const activeCombined = Math.max(124, Math.round((inst.combinedDuration || 515) * 0.76));
-                return activeCombined + projLife + 60;
+                return shogun._getSubActionDurationMs('二刀_合体', 'dual');
             }
             if (inst.totalDuration && inst.plantedDuration) {
                 return inst.totalDuration + inst.plantedDuration + (inst.fadeOutDuration || 0) + 60;
@@ -374,11 +373,11 @@
                 kusarigama: '鎖鎌',
                 odachi: '大太刀'
             };
-            const duration = getPreviewSubActionDuration(type);
-            shogun.isAttacking = true;
             if (typeof shogun._fireSubWeapon === 'function') {
+                shogun.isAttacking = true;
                 shogun._fireSubWeapon(type);
                 shogun._subAction = actionMap[type] || null;
+                const duration = getPreviewSubActionDuration(type);
                 shogun._subTimer = duration;
                 shogun._subWeaponKey = type;
                 if (type === 'shuriken') {
@@ -436,8 +435,12 @@
         window.addEventListener('keydown', (event) => {
             if (shouldIgnoreKeyboardInput(event)) return;
             const key = event.key.toLowerCase();
-            if (['z', 'x', 'c', ' ', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'a', 'd'].includes(key)) {
+            if (['z', 'x', 'c', ' ', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'a', 'd', 'escape'].includes(key)) {
                 event.preventDefault();
+            }
+            if (key === 'escape') {
+                if (!event.repeat) isPreviewPaused = !isPreviewPaused;
+                return;
             }
             if (key === 'z') {
                 if (!event.repeat) triggerAttack();
@@ -496,58 +499,63 @@
         function loop(time) {
             const dt = Math.min((time - lastTime) / 1000, 0.1);
             lastTime = time;
-            const deltaMs = dt * 1000;
+            
+            if (!isPreviewPaused) {
+                const deltaMs = dt * 1000;
 
-            if (previewComboResetTimer > 0) {
-                previewComboResetTimer = Math.max(0, previewComboResetTimer - deltaMs);
-                if (previewComboResetTimer <= 0 && shogun._attackTimer <= 0) {
-                    previewComboStep = 0;
+                if (previewComboResetTimer > 0) {
+                    previewComboResetTimer = Math.max(0, previewComboResetTimer - deltaMs);
+                    if (previewComboResetTimer <= 0 && shogun._attackTimer <= 0) {
+                        previewComboStep = 0;
+                    }
                 }
-            }
 
-            // 歩行ロジックの簡易エミュレート
-            const activeWalkDirection = walkDirection !== 0
-                ? walkDirection
-                : (isWalking ? (shogun.facingRight ? 1 : -1) : 0);
-            if (activeWalkDirection !== 0) {
-                shogun.facingRight = activeWalkDirection > 0;
-                shogun.vx = activeWalkDirection * 1.8;
-                shogun.x += shogun.vx;
-                // 画面端ループ
-                if (shogun.x < 100) {
-                    shogun.x = canvas.width - 100;
-                } else if (shogun.x > canvas.width - 100) {
-                    shogun.x = 100;
+                // 歩行ロジックの簡易エミュレート
+                const activeWalkDirection = walkDirection !== 0
+                    ? walkDirection
+                    : (isWalking ? (shogun.facingRight ? 1 : -1) : 0);
+                if (activeWalkDirection !== 0) {
+                    shogun.facingRight = activeWalkDirection > 0;
+                    shogun.vx = activeWalkDirection * 1.8;
+                    shogun.x += shogun.vx;
+                    // 画面端ループ
+                    if (shogun.x < 100) {
+                        shogun.x = canvas.width - 100;
+                    } else if (shogun.x > canvas.width - 100) {
+                        shogun.x = 100;
+                    }
+                } else {
+                    // 歩行から復帰するときに滑らないよう減速
+                    shogun.vx *= 0.8;
                 }
-            } else {
-                // 歩行から復帰するときに滑らないよう減速
-                shogun.vx *= 0.8;
+
+                // update
+                shogun.update(dt, null);
             }
 
-            // update
-            shogun.update(dt, null);
+            if (!isPreviewPaused) {
+                if (queuedDualAttack && shogun._subAction === '二刀_Z' && canTriggerDualFollowUp()) {
+                    queuedDualAttack = false;
+                    fireDualSwing();
+                }
 
-            if (queuedDualAttack && shogun._subAction === '二刀_Z' && canTriggerDualFollowUp()) {
-                queuedDualAttack = false;
-                fireDualSwing();
-            }
+                // プレビュー武器の強制維持
+                if (window._previewWeapon && shogun._subTimer <= 0) {
+                     shogun._subWeaponKey = window._previewWeapon;
+                     shogun._subAction = null;
+                     if (shogun._subWeaponInstances[window._previewWeapon]) {
+                         shogun._subWeaponInstances[window._previewWeapon]._renderForceActive = true;
+                         shogun._subWeaponInstances[window._previewWeapon].isAttacking = false;
+                     }
+                }
 
-            // プレビュー武器の強制維持
-            if (window._previewWeapon && shogun._subTimer <= 0) {
-                 shogun._subWeaponKey = window._previewWeapon;
-                 shogun._subAction = null;
-                 if (shogun._subWeaponInstances[window._previewWeapon]) {
-                     shogun._subWeaponInstances[window._previewWeapon]._renderForceActive = true;
-                     shogun._subWeaponInstances[window._previewWeapon].isAttacking = false;
-                 }
-            }
-
-            // モックの更新処理（爆弾などの寿命を進める）
-            if (window.game.bombs.length > 0) {
-                window.game.bombs.forEach(b => {
-                    if (b.update) b.update(dt, window.game.groundY, []);
-                });
-                window.game.bombs = window.game.bombs.filter(b => !b.isDestroyed);
+                // モックの更新処理（爆弾などの寿命を進める）
+                if (window.game.bombs.length > 0) {
+                    window.game.bombs.forEach(b => {
+                        if (b.update) b.update(dt, window.game.groundY, []);
+                    });
+                    window.game.bombs = window.game.bombs.filter(b => !b.isDestroyed);
+                }
             }
 
             // 描画
