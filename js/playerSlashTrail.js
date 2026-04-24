@@ -35,11 +35,13 @@ export function applySlashTrailMixin(PlayerClass) {
         const bladeEnd = Math.max(bladeStart + 10, bladeReach);
         const bl = bladeEnd - bladeStart;
         const sori = bl * 0.18;
-        const tipLocalX = bladeEnd * scale * dir;
-        const tipLocalY = (-(sori) + 0.06 - 2.2) * scale * scaleY;
+        const tipLocalXBase = bladeEnd * scale;
+        const tipLocalYBase = (-(sori) + 0.06 - 2.2) * scale * scaleY;
+        const rotX = Math.cos(adjustedAngle) * tipLocalXBase - Math.sin(adjustedAngle) * tipLocalYBase;
+        const rotY = Math.sin(adjustedAngle) * tipLocalXBase + Math.cos(adjustedAngle) * tipLocalYBase;
         return {
-            x: Math.cos(adjustedAngle) * tipLocalX - Math.sin(adjustedAngle) * tipLocalY,
-            y: Math.sin(adjustedAngle) * tipLocalX + Math.cos(adjustedAngle) * tipLocalY
+            x: rotX * dir,
+            y: rotY
         };
     };
 
@@ -440,10 +442,10 @@ export function applySlashTrailMixin(PlayerClass) {
             ((1 - midT) * (1 - midT) * start.y) -
             (midT * midT * end.y)
         ) / midFactor;
-        const controlXMin = Math.min(start.x, mid.x, end.x) - 18;
-        const controlXMax = Math.max(start.x, mid.x, end.x) + 18;
-        const controlYMin = Math.min(start.y, mid.y, end.y) - 18;
-        const controlYMax = Math.max(start.y, mid.y, end.y) + 18;
+        const controlXMin = Math.min(start.x, mid.x, end.x) - 160;
+        const controlXMax = Math.max(start.x, mid.x, end.x) + 160;
+        const controlYMin = Math.min(start.y, mid.y, end.y) - 160;
+        const controlYMax = Math.max(start.y, mid.y, end.y) + 160;
         controlX = Math.max(controlXMin, Math.min(controlXMax, controlX));
         controlY = Math.max(controlYMin, Math.min(controlYMax, controlY));
         return {
@@ -555,10 +557,10 @@ export function applySlashTrailMixin(PlayerClass) {
             ((1 - midT) * (1 - midT) * start.y) -
             (midT * midT * end.y)
         ) / midFactor;
-        const controlXMin = Math.min(start.x, mid.x, end.x) - 18;
-        const controlXMax = Math.max(start.x, mid.x, end.x) + 18;
-        const controlYMin = Math.min(start.y, mid.y, end.y) - 18;
-        const controlYMax = Math.max(start.y, mid.y, end.y) + 18;
+        const controlXMin = Math.min(start.x, mid.x, end.x) - 160;
+        const controlXMax = Math.max(start.x, mid.x, end.x) + 160;
+        const controlYMin = Math.min(start.y, mid.y, end.y) - 160;
+        const controlYMax = Math.max(start.y, mid.y, end.y) + 160;
         controlX = Math.max(controlXMin, Math.min(controlXMax, controlX));
         controlY = Math.max(controlYMin, Math.min(controlYMax, controlY));
         return {
@@ -648,10 +650,10 @@ export function applySlashTrailMixin(PlayerClass) {
             ((1 - midT) * (1 - midT) * start.y) -
             (midT * midT * end.y)
         ) / midFactor;
-        const controlXMin = Math.min(start.x, midPoint.x, end.x) - 18;
-        const controlXMax = Math.max(start.x, midPoint.x, end.x) + 18;
-        const controlYMin = Math.min(start.y, midPoint.y, end.y) - 18;
-        const controlYMax = Math.max(start.y, midPoint.y, end.y) + 18;
+        const controlXMin = Math.min(start.x, midPoint.x, end.x) - 160;
+        const controlXMax = Math.max(start.x, midPoint.x, end.x) + 160;
+        const controlYMin = Math.min(start.y, midPoint.y, end.y) - 160;
+        const controlYMax = Math.max(start.y, midPoint.y, end.y) + 160;
         controlX = Math.max(controlXMin, Math.min(controlXMax, controlX));
         controlY = Math.max(controlYMin, Math.min(controlYMax, controlY));
         const stripCount = Math.max(10, Math.min(22, points.length + 8));
@@ -2387,40 +2389,18 @@ export function applySlashTrailMixin(PlayerClass) {
             const outerOldestAlpha = baseOldestAlpha;
             const outerNewestAlpha = baseNewestAlpha;
 
-            // 重複描画防止のためのスキップ処理は撤廃。
-            // freezing時にメインバッファを空にする仕組みに変更したため、現在メインバッファにいる軌跡は正真正銘の「新しい攻撃」の軌跡。
-            if (forceLinearSmooth) {
-                // 二刀流用: Chaikin平滑化 + スムーズ曲線描画
-                const smoothed = buildChaikinSmoothedStrip(strip, 2);
-                drawBlueTrailLayers(smoothed, 13.8 * visualWidthScale, outerOldestAlpha, outerNewestAlpha, null, { smooth: true });
-                continue;
-            }
-            if (!boostActive) {
-                // 通常時描画
-                if (stripStep === 5) {
-                    drawFixedBezierTrail(strip, 13.8 * visualWidthScale, outerOldestAlpha, outerNewestAlpha, null, { 
-                        comboStep: 5, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y, trimEnd: true, trimFactor: 0.24 
-                    });
-                } else if (stripStep === 1 || stripStep === 2) {
-                    drawSampledBezierTrail(strip, 13.8 * visualWidthScale, outerOldestAlpha, outerNewestAlpha, null, {
-                        comboStep: stripStep, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y 
-                    });
-                } else if (stripStep === 4) {
-                    drawStep4AnchoredArcTrail(strip, 13.8 * visualWidthScale, outerOldestAlpha, outerNewestAlpha);
-                } else if (stripStep === 3) {
-                    drawDualBlueLinearTrail(strip, 13.8 * visualWidthScale, outerOldestAlpha, outerNewestAlpha, null, { straighten: true });
-                } else {
-                    drawDualBlueArcTrail(strip, 13.8 * visualWidthScale, outerOldestAlpha, outerNewestAlpha);
-                }
-            } else {
-                // ブースト時描画
+            let projFn = null;
+            let activeWidthScale = visualWidthScale;
+            let boostOldest = outerOldestAlpha;
+
+            if (boostActive) {
                 let baseCenterX = trailCenterX;
                 let baseCenterY = trailCenterY;
                 let projectedCenterX = trailCenterX;
                 let projectedCenterY = trailCenterY;
                 let currentBoostScale = Math.max(1.02, 1 + (trailWidthScale - 1) * 0.74);
 
-                if (boostAnchor && (!sourceIsAttacking || (strip[strip.length - 1].age || 0) > 0.001)) {
+                if (boostAnchor && boostAnchor.step === stripStep) {
                     baseCenterX = boostAnchor.baseCenterX;
                     baseCenterY = boostAnchor.baseCenterY;
                     projectedCenterX = boostAnchor.projectedCenterX;
@@ -2436,11 +2416,11 @@ export function applySlashTrailMixin(PlayerClass) {
                         projectedCenterY = hitboxCenter.y;
                     }
                     setBoostAnchor({
-                        baseCenterX, baseCenterY, projectedCenterX, projectedCenterY, boostScale: currentBoostScale
+                        baseCenterX, baseCenterY, projectedCenterX, projectedCenterY, boostScale: currentBoostScale, step: stripStep
                     });
                 }
 
-                const projectOut = (p) => {
+                projFn = (p) => {
                     const vx = p.x - baseCenterX;
                     const vy = p.y - baseCenterY;
                     return {
@@ -2448,23 +2428,34 @@ export function applySlashTrailMixin(PlayerClass) {
                         y: projectedCenterY + vy * currentBoostScale
                     };
                 };
+                activeWidthScale = trailWidthScale;
+                boostOldest = outerOldestAlpha * 0.35;
+            }
 
-                const boostOldest = outerOldestAlpha * 0.35;
-                if (stripStep === 5) {
-                    drawFixedBezierTrail(strip, 13.8 * trailWidthScale, boostOldest, outerNewestAlpha, projectOut, { 
-                        comboStep: 5, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y, trimEnd: true, trimFactor: 0.24 
-                    });
-                } else if (stripStep === 1 || stripStep === 2) {
-                    drawSampledBezierTrail(strip, 13.8 * trailWidthScale, boostOldest, outerNewestAlpha, projectOut, {
-                        comboStep: stripStep, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y 
-                    });
-                } else if (stripStep === 4) {
-                    drawStep4AnchoredArcTrail(strip, 13.8 * trailWidthScale, boostOldest, outerNewestAlpha, projectOut, { includeGhost: false });
-                } else if (stripStep === 3) {
-                    drawDualBlueLinearTrail(strip, 13.8 * trailWidthScale, boostOldest, outerNewestAlpha, projectOut, { includeGhost: false, straighten: true });
-                } else {
-                    drawDualBlueArcTrail(strip, 13.8 * trailWidthScale, boostOldest, outerNewestAlpha, projectOut, { includeGhost: false });
-                }
+            // 重複描画防止のためのスキップ処理は撤廃。
+            // freezing時にメインバッファを空にする仕組みに変更したため、現在メインバッファにいる軌跡は正真正銘の「新しい攻撃」の軌跡。
+            if (forceLinearSmooth) {
+                // 二刀流用: Chaikin平滑化 + スムーズ曲線描画
+                const smoothed = buildChaikinSmoothedStrip(strip, 2);
+                drawBlueTrailLayers(smoothed, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { smooth: true });
+                continue;
+            }
+            
+            // 通常時 or ブースト時 共通描画
+            if (stripStep === 5) {
+                drawFixedBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { 
+                    comboStep: 5, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y, trimEnd: true, trimFactor: 0.24 
+                });
+            } else if (stripStep === 1 || stripStep === 2) {
+                drawSampledBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
+                    comboStep: stripStep, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y 
+                });
+            } else if (stripStep === 4) {
+                drawStep4AnchoredArcTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { includeGhost: false });
+            } else if (stripStep === 3) {
+                drawDualBlueLinearTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { includeGhost: false, straighten: true });
+            } else {
+                drawDualBlueArcTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { includeGhost: false });
             }
         }
 
@@ -2616,16 +2607,26 @@ export function applySlashTrailMixin(PlayerClass) {
         const suppressBack = isDualZ && comboStep === 2;  // 2撃目: 奥刀は静止
         const suppressFront = isDualZ && comboStep === 1; // 1撃目: 手前刀は静止
 
-        // 余韻フェーズ（アイドル復帰中）は活動側も剣筋を出さない
+        // 振りかぶりフェーズや余韻フェーズ（アイドル復帰中）は剣筋を出さない
+        let startSuppress = false;
         let settleSuppress = false;
         if (isDualZ && dualBlade) {
             const pose = typeof dualBlade.getMainSwingPose === 'function'
                 ? dualBlade.getMainSwingPose({}) : null;
             if (pose) {
                 const p = pose.progress || 0;
+                // 振りかぶりやスナップ移動による初期の折れ曲がり（ヘアピン）を防ぐ
+                if (comboStep === 2 && p < 0.15) startSuppress = true;
+                if (comboStep === 3 && p < 0.15) startSuppress = true;
+                if (comboStep === 4 && p < 0.05) startSuppress = true; // 天穿は溜めが短いが極初期だけ抑制
+                if (comboStep === 5 && p < 0.18) startSuppress = true;
+
+                // 振り抜き後の余韻は軌跡を残さない
                 if (comboStep === 1 && p > 0.50) settleSuppress = true;
                 if (comboStep === 2 && p > 0.48) settleSuppress = true;
                 if (comboStep === 3 && p > 0.55) settleSuppress = true;
+                if (comboStep === 4 && p > 0.65) settleSuppress = true;
+                if (comboStep === 5 && p > 0.72) settleSuppress = true;
             }
         }
         // 同じ段数を繰り返してもトレイルが前回と繋がらないよう、
@@ -2634,10 +2635,12 @@ export function applySlashTrailMixin(PlayerClass) {
         const activeTrailId = isDualZ ? (comboStep * 10000 + swingId) : null;
 
         // swingIdが変わったら前回のトレイルを即座にクリア
+        let skipSampleThisFrame = false;
         if (isDualZ && this._lastDualSwingId !== swingId) {
             this.dualBladeBackTrailPoints.length = 0;
             this.dualBladeFrontTrailPoints.length = 0;
             this._lastDualSwingId = swingId;
+            skipSampleThisFrame = true; // アンカーが更新されるまで1フレーム待つ
         }
         if (!isDualZ) {
             this._lastDualSwingId = -1;
@@ -2646,7 +2649,7 @@ export function applySlashTrailMixin(PlayerClass) {
         this.dualBladeBackTrailSampleTimer = this.updateSlashTrailBuffer(
             this.dualBladeBackTrailPoints,
             this.dualBladeBackTrailSampleTimer,
-            (suppressBack || settleSuppress) ? null : backPose,
+            (suppressBack || startSuppress || settleSuppress || skipSampleThisFrame) ? null : backPose,
             deltaMs,
             { holdExisting: false, activeTrailId: activeTrailId }
         );
@@ -2654,7 +2657,7 @@ export function applySlashTrailMixin(PlayerClass) {
         this.dualBladeFrontTrailSampleTimer = this.updateSlashTrailBuffer(
             this.dualBladeFrontTrailPoints,
             this.dualBladeFrontTrailSampleTimer,
-            (suppressFront || settleSuppress) ? null : frontPose,
+            (suppressFront || startSuppress || settleSuppress || skipSampleThisFrame) ? null : frontPose,
             deltaMs,
             { holdExisting: false, activeTrailId: activeTrailId }
         );

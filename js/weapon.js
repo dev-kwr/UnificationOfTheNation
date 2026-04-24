@@ -1312,12 +1312,11 @@ export class DualBlades extends SubWeapon {
     remapMainSwingProgress(step, progress, side = 'right') {
         const p = Math.max(0, Math.min(1, progress));
         if (step === 1) {
-            // 1撃目: 奥手のみ袈裟斬り
+            // 1撃目: 奥手のみ袈裟斬り — アイドル状態から直接振り下ろす
             if (side === 'left') {
-                // 引き(0-12%) → 斬り(12-50%) → 余韻保持(50-70%) → 戻り(70-100%)
-                if (p < 0.12) return 0; // 構え維持
+                // 斬り(0-50%) → 余韻保持(50-70%) → 戻り(70-100%)
                 if (p < 0.50) {
-                    const t = (p - 0.12) / 0.38;
+                    const t = p / 0.50;
                     return t * t * (3 - 2 * t) * 0.94;
                 }
                 if (p < 0.70) {

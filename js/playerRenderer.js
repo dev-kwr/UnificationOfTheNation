@@ -1252,10 +1252,10 @@ export function applyRendererMixin(PlayerClass) {
                 ctx.arc(idleLeftHandPre.x, idleLeftHandPre.y, 4.8 * handRadiusScalePre, 0, Math.PI * 2);
                 ctx.fill();
             }
-
-            if (!isNinNinPose) {
-                this.drawKatana(ctx, idleLeftHandPre.x, idleLeftHandPre.y, idleLeftBladeAnglePre, dir);
-            }
+        }
+        
+        if (!isNinNinPose) {
+            this.drawKatana(ctx, idleLeftHandPre.x, idleLeftHandPre.y, idleLeftBladeAnglePre, dir);
         }
 	        }
 	        
@@ -2902,8 +2902,9 @@ export function applyRendererMixin(PlayerClass) {
             let leftTargetX, leftTargetY, rightTargetX, rightTargetY;
             if (comboStep === 1) {
                 // 奥手(左)のみ攻撃 — 手前手(右)はアイドル位置
-                leftTargetX = leftShoulderMoveX + Math.cos(pose.leftAngle) * leftReach * dir;
-                leftTargetY = leftShoulderMoveY + Math.sin(pose.leftAngle) * leftReach;
+                // アイドル時の手の位置を基準に、肩の踏み込み（移動量）だけを足してそのまま振り下ろす
+                leftTargetX = idleLeftHandX + (leftShoulderMoveX - leftShoulderBaseX);
+                leftTargetY = idleLeftHandY + (leftShoulderMoveY - leftShoulderBaseY);
                 rightTargetX = idleRightHandX;
                 rightTargetY = idleRightHandY;
             } else if (comboStep === 2) {
@@ -2928,14 +2929,13 @@ export function applyRendererMixin(PlayerClass) {
             const dualWieldRightHandYLocal = idleRightHandY;
 
             if (comboStep === 1) {
-                // 一段: 奥手のみ袈裟斬り — 引き→踏み込み→振り下ろし
-                const windT = smoothStep01(comboProgress / 0.12);       // 構え(0-12%)
-                const slashT = smoothStep01((comboProgress - 0.12) / 0.38); // 斬り(12-50%)
+                // 一段: 奥手のみ袈裟斬り — アイドル状態から直接踏み込み・振り下ろし
+                const slashT = smoothStep01(comboProgress / 0.50); // 斬り(0-50%)
                 const settleT = smoothStep01(Math.min(1, Math.max(0, (comboProgress - 0.50) / 0.20))); // 余韻保持(50-70%)
                 const recoverT = Math.pow(Math.max(0, (comboProgress - 0.70) / 0.30), 1.5); // 戻り(70-100%)
-                // 左肩(奥手): 引いてから前方へ踏み込み、最後は戻る
-                leftShoulderMoveX += dir * (-windT * 0.6 + slashT * 3.2 - settleT * 1.2) * (1 - recoverT);
-                leftShoulderMoveY += (-windT * 0.8 + slashT * 1.8 - settleT * 0.4) * (1 - recoverT);
+                // 左肩(奥手): 前方へ踏み込み、最後は戻る
+                leftShoulderMoveX += dir * (slashT * 2.6 - settleT * 1.2) * (1 - recoverT);
+                leftShoulderMoveY += (slashT * 1.8 - settleT * 0.4) * (1 - recoverT);
                 // 右肩(手前手): 反動で軽く引く
                 rightShoulderMoveX += dir * (-slashT * 0.3 + settleT * 0.2) * (1 - recoverT);
             } else if (comboStep === 2) {
@@ -2960,7 +2960,6 @@ export function applyRendererMixin(PlayerClass) {
                 leftShoulderMoveY += (-gatherT * 0.4 - slashT * 1.2 + settleT * 1.0) * (1 - recoverT);
                 rightShoulderMoveX -= dir * (gatherT * 1.6 - slashT * 3.8 + settleT * 1.0) * (1 - recoverT);
                 rightShoulderMoveY += (gatherT * 0.2 + slashT * 1.4 - settleT * 1.0) * (1 - recoverT);
-
             } else if (comboStep === 4) {
                 // 四段: 前方斜め下から切り上げ、終端は平行維持のまま溜め姿勢
                 const phase = smoothStep01(comboProgress);
@@ -3068,6 +3067,15 @@ export function applyRendererMixin(PlayerClass) {
             let leftHand = clampArmReach(leftShoulderMoveX, leftShoulderMoveY, leftTargetX, leftTargetY, dualBackReachCap);
             let rightHand = clampArmReach(rightShoulderMoveX, rightShoulderMoveY, rightTargetX, rightTargetY, dualFrontReachCap);
 
+            // スイングIDが変わった（新しい攻撃が始まった）かの判定
+            const currentDualSwingId = this.currentSubWeapon ? this.currentSubWeapon._swingId : 0;
+            // 1段目の開始時（キャンセル連打を含む）は、手が前の位置からlerpで引きずられるのを防ぐためスナップさせる
+            if (comboStep === 1 && this._dualZLastSwingId !== currentDualSwingId) {
+                this._dualZLastLeftHand = null;
+                this._dualZLastRightHand = null;
+            }
+            this._dualZLastSwingId = currentDualSwingId;
+
             // フレーム間lerp: ステップ間遷移・idle復帰を全て滑らかに
             const lerpSpeed = (comboStep === 3 || comboStep === 4 || comboStep === 0) ? 0.38 : 0.28;
             if (this._dualZLastLeftHand && this._dualZLastRightHand) {
@@ -3138,10 +3146,19 @@ export function applyRendererMixin(PlayerClass) {
                 leftArmBendScale = 1 + bendBlend * 1.95;
                 rightArmBendScale = 1 + bendBlend * 2.08;
             }
-            const leftTipX = leftHand.x + Math.cos(leftAdjustedAngle) * dir * katanaLength;
-            const leftTipY = leftHand.y + Math.sin(leftAdjustedAngle) * katanaLength;
-            const rightTipX = rightHand.x + Math.cos(rightAdjustedAngle) * dir * katanaLength;
-            const rightTipY = rightHand.y + Math.sin(rightAdjustedAngle) * katanaLength;
+            // 切っ先座標は刀の反りや実際の描画サイズを考慮したオフセット関数を使用する
+            const leftVisualOffset = typeof this.getKatanaVisualTipOffset === 'function'
+                ? this.getKatanaVisualTipOffset(leftTrailAngleRaw, dir, katanaLength, uprightBlend)
+                : { x: Math.cos(leftAdjustedAngle) * dir * katanaLength, y: Math.sin(leftAdjustedAngle) * katanaLength };
+            const rightVisualOffset = typeof this.getKatanaVisualTipOffset === 'function'
+                ? this.getKatanaVisualTipOffset(rightTrailAngleRaw, dir, katanaLength, uprightBlend)
+                : { x: Math.cos(rightAdjustedAngle) * dir * katanaLength, y: Math.sin(rightAdjustedAngle) * katanaLength };
+
+            const leftTipX = leftHand.x + leftVisualOffset.x;
+            const leftTipY = leftHand.y + leftVisualOffset.y;
+            const rightTipX = rightHand.x + rightVisualOffset.x;
+            const rightTipY = rightHand.y + rightVisualOffset.y;
+
             this.dualBladeTrailAnchors = {
                 direction: dir,
                 back: {

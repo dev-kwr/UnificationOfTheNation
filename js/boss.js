@@ -2203,12 +2203,26 @@ export class Shogun extends Boss {
             ctx.restore();
         };
 
+
+        const renderTrailWithShogunTransform = (drawFn) => {
+            const pivotX = this.x + this.width * 0.5;
+            const pivotY = this.y + this.height * 0.62;
+            ctx.save();
+            if (Math.abs(renderScale - 1) > 0.001) {
+                ctx.translate(pivotX, pivotY);
+                ctx.scale(renderScale, renderScale);
+                ctx.translate(-pivotX, -pivotY);
+            }
+            drawFn();
+            ctx.restore();
+        };
+
         const trailPoints = this.actor.specialCloneSlashTrailPoints[i];
         if (trailPoints && trailPoints.length > 1) {
             const trailScale = typeof this.actor.getXAttackTrailWidthScale === 'function'
                 ? this.actor.getXAttackTrailWidthScale()
                 : 1.0;
-            renderWithShogunTransform(() => {
+            renderTrailWithShogunTransform(() => {
                 this.actor.renderComboSlashTrail(ctx, {
                     points: trailPoints,
                     centerX: this.x + this.width * 0.5,
@@ -2226,7 +2240,7 @@ export class Shogun extends Boss {
             this.actor.updateDualBladeSlashTrails(deltaMs);
         }
         if (typeof this.actor.renderDualBladeSlashTrails === 'function') {
-            renderWithShogunTransform(() => {
+            renderTrailWithShogunTransform(() => {
                 this.actor.renderDualBladeSlashTrails(ctx);
             });
         }

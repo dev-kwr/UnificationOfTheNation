@@ -2061,14 +2061,14 @@ export class Stage {
                     const sw = 5;
                     ctx.fillStyle = '#3a4830';
                     ctx.fillRect(sx + sw * 0.5 - 1, gY - sh, sw, sh);
-                    for (let l = 0; l < 4; l++) {
-                        const lw = 32 - l * 6;
-                        const ly = gY - sh + l * (sh / 4.5);
+                    for (let l = 3; l >= 0; l--) {
+                        const lw = 14 + l * 6;
+                        const ly = gY - sh + l * (sh / 5.2);
                         ctx.fillStyle = this.interpolateColor('#4e6a3c', '#2e4228', 0.3 + l * 0.15);
                         ctx.beginPath();
-                        ctx.moveTo(sx + sw * 0.5, ly - 18);
-                        ctx.lineTo(sx + sw * 0.5 - lw * 0.5, ly + 8);
-                        ctx.lineTo(sx + sw * 0.5 + lw * 0.5, ly + 8);
+                        ctx.moveTo(sx + sw * 0.5, ly - 26);
+                        ctx.lineTo(sx + sw * 0.5 - lw * 0.5, ly + 12);
+                        ctx.lineTo(sx + sw * 0.5 + lw * 0.5, ly + 12);
                         ctx.closePath();
                         ctx.fill();
                     }
@@ -2410,7 +2410,7 @@ export class Stage {
                     const crownTop = ridgeTopY - trunkH;
                     const tierBase = 18 + this.noise1D(seed + 16.8) * 14;
                     const tiers = 2 + Math.floor(this.noise1D(seed + 17.4) * 2);
-                    for (let tier = 0; tier < tiers; tier++) {
+                    for (let tier = tiers - 1; tier >= 0; tier--) {
                         const y = crownTop + tier * (trunkH * 0.24);
                         const w = tierBase + tier * (10 + this.noise1D(seed + 18.1 + tier) * 6);
                         const h = 10 + this.noise1D(seed + 19.2 + tier) * 9;
@@ -2761,18 +2761,18 @@ export class Stage {
                     ctx.fillRect(baseX, baseY - trunkH, trunkW, trunkH);
 
                     const layers = 4 + Math.floor(this.noise1D(seed + 2.4) * 2);
-                    for (let l = 0; l < layers; l++) {
-                        const ly = baseY - trunkH + l * (trunkH / (layers + 0.3));
-                        const width = (68 - l * 10 + this.noiseSigned(seed + 3.3 + l) * 8) * scale;
-                        const peak = (34 + this.noise1D(seed + 4.6 + l) * 20) * scale;
+                    for (let l = layers - 1; l >= 0; l--) {
+                        const ly = baseY - trunkH + l * (trunkH / (layers + 0.8));
+                        const width = (28 + l * 12 + this.noiseSigned(seed + 3.3 + l) * 8) * scale;
+                        const peak = (46 + this.noise1D(seed + 4.6 + l) * 24) * scale;
                         const grad = ctx.createLinearGradient(baseX - width * 0.55, ly, baseX + trunkW + width * 0.55, ly);
                         grad.addColorStop(0, '#2d4a35');
                         grad.addColorStop(0.5, '#4d7652');
                         grad.addColorStop(1, '#223a2a');
                         ctx.fillStyle = grad;
                         ctx.beginPath();
-                        ctx.moveTo(baseX - width * 0.52, ly + 10 * scale);
-                        ctx.quadraticCurveTo(baseX + trunkW * 0.5, ly - peak, baseX + trunkW + width * 0.52, ly + 10 * scale);
+                        ctx.moveTo(baseX - width * 0.52, ly + 14 * scale);
+                        ctx.quadraticCurveTo(baseX + trunkW * 0.5, ly - peak, baseX + trunkW + width * 0.52, ly + 14 * scale);
                         ctx.closePath();
                         ctx.fill();
                     }
