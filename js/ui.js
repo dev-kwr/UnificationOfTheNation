@@ -587,9 +587,29 @@ export class UI {
         ctx.font = '700 15px sans-serif';
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'left';
-        ctx.shadowColor = 'rgba(0,0,0,0.65)';
-        ctx.shadowBlur = 5;
-        ctx.fillStyle = '#fff';
+        
+        if (isSpReady) {
+            const t = Date.now() * 0.005;
+            const pulse = (Math.sin(t) + 1) / 2; // 0.0 ~ 1.0
+            
+            // ゲージ上に輝くオーバーレイを重ねる
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            ctx.fillStyle = `rgba(255, 210, 80, ${0.15 + pulse * 0.35})`;
+            drawRoundedRectPath(barX, spY, spBarWidth, spBarHeight, Math.floor(spBarHeight / 2));
+            ctx.fill();
+            ctx.restore();
+            
+            // 文字を光らせる
+            ctx.shadowColor = `rgba(255, 210, 80, ${0.4 + pulse * 0.6})`;
+            ctx.shadowBlur = 8 + pulse * 10;
+            ctx.fillStyle = '#fff9e6';
+        } else {
+            ctx.shadowColor = 'rgba(0,0,0,0.65)';
+            ctx.shadowBlur = 5;
+            ctx.fillStyle = '#fff';
+        }
+
         ctx.fillText('奥義', x, spY + spBarHeight / 2);
         ctx.shadowBlur = 0;
 
@@ -869,6 +889,18 @@ export class UI {
         this.drawActionCircleButton(
             ctx, rightX + pad.SUB_WEAPON.x, bottomY + pad.SUB_WEAPON.y, auxRadius, 'sub', input.isAction('SUB_WEAPON')
         );
+        
+        if (isSpecialReady) {
+            const t = Date.now() * 0.005;
+            const pulse = (Math.sin(t) + 1) / 2;
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(rightX + pad.SPECIAL.x, bottomY + pad.SPECIAL.y, auxRadius + 4 + pulse * 6, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255, 210, 80, ${0.15 + pulse * 0.25})`;
+            ctx.fill();
+            ctx.restore();
+        }
+
         this.drawActionCircleButton(
             ctx, rightX + pad.SPECIAL.x, bottomY + pad.SPECIAL.y, auxRadius, 'special', input.isAction('SPECIAL'), !isSpecialReady
         );

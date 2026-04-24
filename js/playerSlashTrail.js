@@ -125,10 +125,19 @@ export function applySlashTrailMixin(PlayerClass) {
             stepGroups.get(step).push(point);
         }
         
+        const frozenTrailCenterX = this.x + this.width * 0.5;
+        const frozenTrailCenterY = this.y + this.height * 0.5;
+        const frozenBoostAnchor = this.comboSlashTrailBoostAnchor ? { ...this.comboSlashTrailBoostAnchor } : null;
+
         for (const [stepNum, stepPoints] of stepGroups) {
             if ([1, 2].includes(stepNum)) {
                 const frozenSnapshot = this.buildFrozenSampledBezierSnapshot(stepNum, stepPoints);
-                if (frozenSnapshot) this.comboSlashTrailFrozenCurves.push(frozenSnapshot);
+                if (frozenSnapshot) {
+                    frozenSnapshot.boostAnchor = frozenBoostAnchor;
+                    frozenSnapshot.frozenTrailCenterX = frozenTrailCenterX;
+                    frozenSnapshot.frozenTrailCenterY = frozenTrailCenterY;
+                    this.comboSlashTrailFrozenCurves.push(frozenSnapshot);
+                }
             } else if ([5].includes(stepNum)) {
                 // ベジェ曲線段: 最新のパラメータを保存
                 const lastPt = stepPoints.length > 0 ? stepPoints[stepPoints.length - 1] : null;
@@ -154,7 +163,10 @@ export function applySlashTrailMixin(PlayerClass) {
                         age: Math.max(0, lastPt.age || 0), // 新しい（剣先の）フェードアウト度合い
                         oldestAge: Math.max(0, firstPt ? firstPt.age : (lastPt.age || 0)), // 古い（根本の）フェードアウト度合い
                         life: Math.max(1, lastPt.life || this.comboSlashTrailActiveLifeMs),
-                        trailCurveFrozen: true
+                        trailCurveFrozen: true,
+                        boostAnchor: frozenBoostAnchor,
+                        frozenTrailCenterX: frozenTrailCenterX,
+                        frozenTrailCenterY: frozenTrailCenterY
                     });
                 }
             } else {
@@ -173,7 +185,10 @@ export function applySlashTrailMixin(PlayerClass) {
                         frozenFootY: footY,
                         age: Math.max(0, lastPt.age || 0), // 新しい（剣先の）フェードアウト度合い
                         oldestAge: Math.max(0, firstPt.age || 0), // 古い（根本の）フェードアウト度合い
-                        life: Math.max(1, lastPt.life || this.comboSlashTrailActiveLifeMs)
+                        life: Math.max(1, lastPt.life || this.comboSlashTrailActiveLifeMs),
+                        boostAnchor: frozenBoostAnchor,
+                        frozenTrailCenterX: frozenTrailCenterX,
+                        frozenTrailCenterY: frozenTrailCenterY
                     });
                 }
             }
@@ -2421,8 +2436,14 @@ export function applySlashTrailMixin(PlayerClass) {
                 }
 
                 projFn = (p) => {
-                    const vx = p.x - baseCenterX;
-                    const vy = p.y - baseCenterY;
+                    // プレイヤーの移動分（落下等）を相殺し、空間に完全に固定する
+                    const fallDiffX = trailCenterX - baseCenterX;
+                    const fallDiffY = trailCenterY - baseCenterY;
+                    const fixedPx = p.x - fallDiffX;
+                    const fixedPy = p.y - fallDiffY;
+                    
+                    const vx = fixedPx - baseCenterX;
+                    const vy = fixedPy - baseCenterY;
                     return {
                         x: projectedCenterX + vx * currentBoostScale,
                         y: projectedCenterY + vy * currentBoostScale
@@ -2472,7 +2493,24 @@ export function applySlashTrailMixin(PlayerClass) {
                 if (fc.type === 'sampledBezier' && Array.isArray(fc.frozenPoints)) {
                     const pts = Array.isArray(fc.frozenPoints) ? fc.frozenPoints : null;
                     if (!pts || pts.length < 2) { ctx.restore(); continue; }
-                    drawSampledBezierTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, null, {
+                    
+                    let projFnFrozen = null;
+                    if (fc.boostAnchor) {
+                        projFnFrozen = (p) => {
+                            const fallDiffX = fc.frozenTrailCenterX - fc.boostAnchor.baseCenterX;
+                            const fallDiffY = fc.frozenTrailCenterY - fc.boostAnchor.baseCenterY;
+                            const fixedPx = p.x - fallDiffX;
+                            const fixedPy = p.y - fallDiffY;
+                            const vx = fixedPx - fc.boostAnchor.baseCenterX;
+                            const vy = fixedPy - fc.boostAnchor.baseCenterY;
+                            return {
+                                x: fc.boostAnchor.projectedCenterX + vx * fc.boostAnchor.boostScale,
+                                y: fc.boostAnchor.projectedCenterY + vy * fc.boostAnchor.boostScale
+                            };
+                        };
+                    }
+
+                    drawSampledBezierTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
                         comboStep: fc.step
                     });
                 } else if (fc.type === 'bezier' || !fc.type) {
@@ -2506,7 +2544,23 @@ export function applySlashTrailMixin(PlayerClass) {
                     const offsetX = fc.trailIsRelative ? (fc.playerX || 0) : 0;
                     const offsetY = fc.trailIsRelative ? (fc.playerY || 0) : 0;
                     
-                    drawFixedBezierTrail([frozenPtOld, frozenPtNew], 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, null, {
+                    let projFnFrozen = null;
+                    if (fc.boostAnchor) {
+                        projFnFrozen = (p) => {
+                            const fallDiffX = fc.frozenTrailCenterX - fc.boostAnchor.baseCenterX;
+                            const fallDiffY = fc.frozenTrailCenterY - fc.boostAnchor.baseCenterY;
+                            const fixedPx = p.x - fallDiffX;
+                            const fixedPy = p.y - fallDiffY;
+                            const vx = fixedPx - fc.boostAnchor.baseCenterX;
+                            const vy = fixedPy - fc.boostAnchor.baseCenterY;
+                            return {
+                                x: fc.boostAnchor.projectedCenterX + vx * fc.boostAnchor.boostScale,
+                                y: fc.boostAnchor.projectedCenterY + vy * fc.boostAnchor.boostScale
+                            };
+                        };
+                    }
+                    
+                    drawFixedBezierTrail([frozenPtOld, frozenPtNew], 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
                         comboStep: fc.step,
                         forceRelative: true,
                         useRelativeIfAvailable: true,
@@ -2526,12 +2580,28 @@ export function applySlashTrailMixin(PlayerClass) {
                     trailCenterX = currentFootX;
                     trailCenterY = currentFootY - this.height * 0.5;
 
+                    let projFnFrozen = null;
+                    if (fc.boostAnchor) {
+                        projFnFrozen = (p) => {
+                            const fallDiffX = fc.frozenTrailCenterX - fc.boostAnchor.baseCenterX;
+                            const fallDiffY = fc.frozenTrailCenterY - fc.boostAnchor.baseCenterY;
+                            const fixedPx = p.x - fallDiffX;
+                            const fixedPy = p.y - fallDiffY;
+                            const vx = fixedPx - fc.boostAnchor.baseCenterX;
+                            const vy = fixedPy - fc.boostAnchor.baseCenterY;
+                            return {
+                                x: fc.boostAnchor.projectedCenterX + vx * fc.boostAnchor.boostScale,
+                                y: fc.boostAnchor.projectedCenterY + vy * fc.boostAnchor.boostScale
+                            };
+                        };
+                    }
+
                     if (fc.step === 4) {
-                        drawStep4AnchoredArcTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha);
+                        drawStep4AnchoredArcTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
                     } else if (fc.step === 3) {
-                        drawDualBlueLinearTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, null, { straighten: true });
+                        drawDualBlueLinearTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, { straighten: true });
                     } else {
-                        drawDualBlueArcTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha);
+                        drawDualBlueArcTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
                     }
                     
                     trailCenterX = savedCenterX;
