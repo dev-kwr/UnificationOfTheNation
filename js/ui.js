@@ -597,28 +597,27 @@ export class UI {
             const t = Date.now() * 0.005;
             const pulse = (Math.sin(t) + 1) / 2; // 0.0 ~ 1.0
             
-            // ゲージ上に輝くオーバーレイを重ねる
+            // メーター自体を光らせる（外側の発光）
             ctx.save();
+            ctx.shadowColor = `rgba(255, 210, 80, ${0.6 + pulse * 0.4})`;
+            ctx.shadowBlur = 10 + pulse * 15;
+            
+            // ゲージ上に輝くオーバーレイを重ねる
             ctx.globalCompositeOperation = 'screen';
             if (burstAlpha > 0) {
                 ctx.fillStyle = `rgba(255, 255, 255, ${burstAlpha})`;
             } else {
-                ctx.fillStyle = `rgba(255, 210, 80, ${0.15 + pulse * 0.35})`;
+                ctx.fillStyle = `rgba(255, 210, 80, ${0.25 + pulse * 0.45})`;
             }
             drawRoundedRectPath(barX, spY, spBarWidth, spBarHeight, Math.floor(spBarHeight / 2));
             ctx.fill();
             ctx.restore();
-            
-            // 文字を光らせる
-            ctx.shadowColor = `rgba(255, 210, 80, ${0.4 + pulse * 0.6})`;
-            ctx.shadowBlur = 8 + pulse * 10;
-            ctx.fillStyle = '#fff9e6';
-        } else {
-            ctx.shadowColor = 'rgba(0,0,0,0.65)';
-            ctx.shadowBlur = 5;
-            ctx.fillStyle = '#fff';
         }
 
+        // テキストは光らせず常に通常表示
+        ctx.shadowColor = 'rgba(0,0,0,0.65)';
+        ctx.shadowBlur = 5;
+        ctx.fillStyle = '#fff';
         ctx.fillText('奥義', x, spY + spBarHeight / 2);
         ctx.shadowBlur = 0;
 

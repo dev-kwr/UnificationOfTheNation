@@ -181,8 +181,8 @@ export function applySlashTrailMixin(PlayerClass) {
                         step: stepNum,
                         // メインバッファでの年齢を引き継ぐ
                         frozenPoints: stepPoints.map(p => ({ ...p, age: p.age || 0 })),
-                        frozenFootX: footX,
                         frozenFootY: footY,
+                        trailIsRelative: !!lastPt.trailIsRelative,
                         age: Math.max(0, lastPt.age || 0), // 新しい（剣先の）フェードアウト度合い
                         oldestAge: Math.max(0, firstPt.age || 0), // 古い（根本の）フェードアウト度合い
                         life: Math.max(1, lastPt.life || this.comboSlashTrailActiveLifeMs),
@@ -2434,11 +2434,13 @@ export function applySlashTrailMixin(PlayerClass) {
                         baseCenterX, baseCenterY, projectedCenterX, projectedCenterY, boostScale: currentBoostScale, step: stripStep
                     });
                 }
+                const isRelativeStrip = strip.length > 0 && !!strip[strip.length - 1].trailIsRelative;
 
                 projFn = (p) => {
-                    // プレイヤーの移動分（落下等）を相殺し、空間に完全に固定する
-                    const fallDiffX = trailCenterX - baseCenterX;
-                    const fallDiffY = trailCenterY - baseCenterY;
+                    // 相対座標（ベジェ系など、プレイヤーと共に移動するポイント）の場合は、プレイヤーの移動分を相殺する
+                    // 絶対座標（二刀流などの軌跡）は既にワールド座標なので、プレイヤーの移動による相殺は不要（0にする）
+                    const fallDiffX = isRelativeStrip ? (trailCenterX - baseCenterX) : 0;
+                    const fallDiffY = isRelativeStrip ? (trailCenterY - baseCenterY) : 0;
                     const fixedPx = p.x - fallDiffX;
                     const fixedPy = p.y - fallDiffY;
                     
@@ -2464,13 +2466,62 @@ export function applySlashTrailMixin(PlayerClass) {
             
             // 通常時 or ブースト時 共通描画
             if (stripStep === 5) {
-                drawFixedBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { 
-                    comboStep: 5, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y, trimEnd: true, trimFactor: 0.24 
-                });
+                if (boostActive && boostAnchor && boostAnchor.step === stripStep) {
+                    const savedX = this.x;
+                    const savedY = this.y;
+                    const anchorPlayerX = boostAnchor.baseCenterX - this.width * 0.5;
+                    const anchorPlayerY = boostAnchor.baseCenterY - this.height * 0.5;
+                    this.x = anchorPlayerX;
+                    this.y = anchorPlayerY;
+                    const scaleProjFn = (p) => {
+                        const vx = p.x - boostAnchor.projectedCenterX;
+                        const vy = p.y - boostAnchor.projectedCenterY;
+                        return {
+                            x: boostAnchor.projectedCenterX + vx * boostAnchor.boostScale,
+                            y: boostAnchor.projectedCenterY + vy * boostAnchor.boostScale
+                        };
+                    };
+                    drawFixedBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, scaleProjFn, { 
+                        comboStep: 5, useRelativeIfAvailable: true, offsetX: anchorPlayerX, offsetY: anchorPlayerY, trimEnd: true, trimFactor: 0.24 
+                    });
+                    this.x = savedX;
+                    this.y = savedY;
+                } else {
+                    drawFixedBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { 
+                        comboStep: 5, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y, trimEnd: true, trimFactor: 0.24 
+                    });
+                }
             } else if (stripStep === 1 || stripStep === 2) {
-                drawSampledBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
-                    comboStep: stripStep, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y 
-                });
+                if (boostActive && boostAnchor && boostAnchor.step === stripStep) {
+                    // 大凪ブースト時: ストリップをアンカー時のプレイヤー位置に固定してから描画する
+                    // buildThreePointQuadraticStrip内部のabsolutizeがthis.x/yを使うため、
+                    // 一時的にthis.x/yをアンカー時の値に書き換えて座標を固定する
+                    const savedX = this.x;
+                    const savedY = this.y;
+                    const anchorPlayerX = boostAnchor.baseCenterX - this.width * 0.5;
+                    const anchorPlayerY = boostAnchor.baseCenterY - this.height * 0.5;
+                    this.x = anchorPlayerX;
+                    this.y = anchorPlayerY;
+                    
+                    // アンカー中心からの単純スケーリングprojFn
+                    const scaleProjFn = (p) => {
+                        const vx = p.x - boostAnchor.projectedCenterX;
+                        const vy = p.y - boostAnchor.projectedCenterY;
+                        return {
+                            x: boostAnchor.projectedCenterX + vx * boostAnchor.boostScale,
+                            y: boostAnchor.projectedCenterY + vy * boostAnchor.boostScale
+                        };
+                    };
+                    drawSampledBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, scaleProjFn, {
+                        comboStep: stripStep, useRelativeIfAvailable: true, offsetX: anchorPlayerX, offsetY: anchorPlayerY
+                    });
+                    this.x = savedX;
+                    this.y = savedY;
+                } else {
+                    drawSampledBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
+                        comboStep: stripStep, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y 
+                    });
+                }
             } else if (stripStep === 4) {
                 drawStep4AnchoredArcTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { includeGhost: false });
             } else if (stripStep === 3) {
@@ -2494,15 +2545,13 @@ export function applySlashTrailMixin(PlayerClass) {
                     const pts = Array.isArray(fc.frozenPoints) ? fc.frozenPoints : null;
                     if (!pts || pts.length < 2) { ctx.restore(); continue; }
                     
+                    // 凍結時にabsolutizeRelativeTrailPoint済みなので、
+                    // 単純なアンカー中心からのスケーリングのみ
                     let projFnFrozen = null;
                     if (fc.boostAnchor) {
                         projFnFrozen = (p) => {
-                            const fallDiffX = fc.frozenTrailCenterX - fc.boostAnchor.baseCenterX;
-                            const fallDiffY = fc.frozenTrailCenterY - fc.boostAnchor.baseCenterY;
-                            const fixedPx = p.x - fallDiffX;
-                            const fixedPy = p.y - fallDiffY;
-                            const vx = fixedPx - fc.boostAnchor.baseCenterX;
-                            const vy = fixedPy - fc.boostAnchor.baseCenterY;
+                            const vx = p.x - fc.boostAnchor.projectedCenterX;
+                            const vy = p.y - fc.boostAnchor.projectedCenterY;
                             return {
                                 x: fc.boostAnchor.projectedCenterX + vx * fc.boostAnchor.boostScale,
                                 y: fc.boostAnchor.projectedCenterY + vy * fc.boostAnchor.boostScale
@@ -2547,12 +2596,8 @@ export function applySlashTrailMixin(PlayerClass) {
                     let projFnFrozen = null;
                     if (fc.boostAnchor) {
                         projFnFrozen = (p) => {
-                            const fallDiffX = fc.frozenTrailCenterX - fc.boostAnchor.baseCenterX;
-                            const fallDiffY = fc.frozenTrailCenterY - fc.boostAnchor.baseCenterY;
-                            const fixedPx = p.x - fallDiffX;
-                            const fixedPy = p.y - fallDiffY;
-                            const vx = fixedPx - fc.boostAnchor.baseCenterX;
-                            const vy = fixedPy - fc.boostAnchor.baseCenterY;
+                            const vx = p.x - fc.boostAnchor.projectedCenterX;
+                            const vy = p.y - fc.boostAnchor.projectedCenterY;
                             return {
                                 x: fc.boostAnchor.projectedCenterX + vx * fc.boostAnchor.boostScale,
                                 y: fc.boostAnchor.projectedCenterY + vy * fc.boostAnchor.boostScale
@@ -2583,12 +2628,8 @@ export function applySlashTrailMixin(PlayerClass) {
                     let projFnFrozen = null;
                     if (fc.boostAnchor) {
                         projFnFrozen = (p) => {
-                            const fallDiffX = fc.frozenTrailCenterX - fc.boostAnchor.baseCenterX;
-                            const fallDiffY = fc.frozenTrailCenterY - fc.boostAnchor.baseCenterY;
-                            const fixedPx = p.x - fallDiffX;
-                            const fixedPy = p.y - fallDiffY;
-                            const vx = fixedPx - fc.boostAnchor.baseCenterX;
-                            const vy = fixedPy - fc.boostAnchor.baseCenterY;
+                            const vx = p.x - fc.boostAnchor.projectedCenterX;
+                            const vy = p.y - fc.boostAnchor.projectedCenterY;
                             return {
                                 x: fc.boostAnchor.projectedCenterX + vx * fc.boostAnchor.boostScale,
                                 y: fc.boostAnchor.projectedCenterY + vy * fc.boostAnchor.boostScale
@@ -2744,13 +2785,17 @@ export function applySlashTrailMixin(PlayerClass) {
             this.subWeaponAction === '二刀_Z' &&
             this.subWeaponTimer > 0
         );
+        const dualTrailWidthScale = this.getXAttackTrailWidthScale();
 
         if (this.dualBladeBackTrailPoints.length >= 2) {
             this.renderComboSlashTrail(ctx, {
                 points: this.dualBladeBackTrailPoints,
                 palette: bluePalette,
                 forceLinearSmooth: true,
-                isAttacking: isDualZActive
+                isAttacking: isDualZActive,
+                trailWidthScale: dualTrailWidthScale,
+                getBoostAnchor: () => this._dualBackBoostAnchor || null,
+                setBoostAnchor: (v) => { this._dualBackBoostAnchor = v; }
             });
         }
         if (this.dualBladeFrontTrailPoints.length >= 2) {
@@ -2758,7 +2803,10 @@ export function applySlashTrailMixin(PlayerClass) {
                 points: this.dualBladeFrontTrailPoints,
                 palette: redPalette,
                 forceLinearSmooth: true,
-                isAttacking: isDualZActive
+                isAttacking: isDualZActive,
+                trailWidthScale: dualTrailWidthScale,
+                getBoostAnchor: () => this._dualFrontBoostAnchor || null,
+                setBoostAnchor: (v) => { this._dualFrontBoostAnchor = v; }
             });
         }
     };

@@ -657,6 +657,15 @@ export function applyRendererMixin(PlayerClass) {
 
         const damageFlashActive = this.damageFlashTimer > 0;
 
+        // 奥義MAX到達時の発光エフェクト
+        if (this.specialReadyGlowTimer > 0) {
+            const glowProgress = this.specialReadyGlowTimer / 1000;
+            const glowAlpha = Math.sin(glowProgress * Math.PI); // 0 -> 1 -> 0
+            const blurAmount = 4 + glowAlpha * 12;
+            filterParts.push(`drop-shadow(0 0 ${blurAmount}px rgba(255, 210, 80, ${glowAlpha * 0.8}))`);
+            filterParts.push(`brightness(${100 + glowAlpha * 30}%)`);
+        }
+
         // 隠れ身の術中は本体のみ透明化（全体フィルタは重いので適用しない）
         if (filterParts.length > 0) {
             ctx.filter = filterParts.join(' ');

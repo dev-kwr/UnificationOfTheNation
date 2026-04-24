@@ -602,6 +602,11 @@ export class Player {
         const deltaMs = deltaTime * 1000;
         this.updateTemporaryNinjutsu(deltaMs);
 
+        // 発光エフェクト更新
+        if (this.specialReadyGlowTimer > 0) {
+            this.specialReadyGlowTimer -= deltaMs;
+        }
+
         // 無敵時間更新
         if (this.invincibleTimer > 0) {
             this.invincibleTimer -= deltaTime * 1000;
@@ -2028,17 +2033,9 @@ export class Player {
             }
             if (typeof window !== 'undefined' && window.game) {
                 window.game.specialReadyFlashTime = Date.now();
-                if (Array.isArray(window.game.damageNumbers)) {
-                    window.game.damageNumbers.push({
-                        x: this.x + this.width / 2,
-                        y: this.y - 20,
-                        damage: "MAX!",
-                        isCritical: true,
-                        life: 1.5,
-                        maxLife: 1.5
-                    });
-                }
             }
+            // プレイヤー発光エフェクト（1秒間）
+            this.specialReadyGlowTimer = 1000;
         }
     }
     
