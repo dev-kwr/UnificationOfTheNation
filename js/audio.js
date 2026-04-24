@@ -263,6 +263,12 @@ class AudioManager {
         this.playFileSfx('se/skillup.mp3', 0.9, 1.0, 0.04);
     }
 
+    playSpecialReady() {
+        this.init();
+        this.playSfx(523.25, 'sine', 0.1, 0.1, 1.0);
+        setTimeout(() => this.playSfx(1046.50, 'sine', 0.2, 0.2, 1.5), 100);
+    }
+
     playItemPurchase() {
         this.init();
         // 立ち上がりを速くするため、先頭無音を少し飛ばして直接再生を優先

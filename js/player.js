@@ -2018,7 +2018,28 @@ export class Player {
     }
     
     addSpecialGauge(amount) {
+        const wasReady = this.specialGauge >= this.maxSpecialGauge;
         this.specialGauge = Math.min(this.specialGauge + amount, this.maxSpecialGauge);
+        const isReady = this.specialGauge >= this.maxSpecialGauge;
+        
+        if (!wasReady && isReady) {
+            if (typeof audio !== 'undefined' && typeof audio.playSpecialReady === 'function') {
+                audio.playSpecialReady();
+            }
+            if (typeof window !== 'undefined' && window.game) {
+                window.game.specialReadyFlashTime = Date.now();
+                if (Array.isArray(window.game.damageNumbers)) {
+                    window.game.damageNumbers.push({
+                        x: this.x + this.width / 2,
+                        y: this.y - 20,
+                        damage: "MAX!",
+                        isCritical: true,
+                        life: 1.5,
+                        maxLife: 1.5
+                    });
+                }
+            }
+        }
     }
     
     clampMoneyValue(amount) {

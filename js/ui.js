@@ -589,13 +589,22 @@ export class UI {
         ctx.textAlign = 'left';
         
         if (isSpReady) {
+            const timeSinceReady = typeof window !== 'undefined' && window.game && window.game.specialReadyFlashTime 
+                ? Date.now() - window.game.specialReadyFlashTime 
+                : Infinity;
+            const burstAlpha = Math.max(0, 1 - timeSinceReady / 500); // 500ms flash
+
             const t = Date.now() * 0.005;
             const pulse = (Math.sin(t) + 1) / 2; // 0.0 ~ 1.0
             
             // ゲージ上に輝くオーバーレイを重ねる
             ctx.save();
             ctx.globalCompositeOperation = 'screen';
-            ctx.fillStyle = `rgba(255, 210, 80, ${0.15 + pulse * 0.35})`;
+            if (burstAlpha > 0) {
+                ctx.fillStyle = `rgba(255, 255, 255, ${burstAlpha})`;
+            } else {
+                ctx.fillStyle = `rgba(255, 210, 80, ${0.15 + pulse * 0.35})`;
+            }
             drawRoundedRectPath(barX, spY, spBarWidth, spBarHeight, Math.floor(spBarHeight / 2));
             ctx.fill();
             ctx.restore();
