@@ -674,9 +674,7 @@ export function applySpecialMixin(PlayerClass) {
             }
 
             const frameDeltaX = pos.x - frameStartX;
-            // スクロール速度を加算：ワールドX座標が変わらなくても画面上では動いて見えるため
-            // renderVxをピクセル/フレーム単位に変換して scrollVxPerFrame を足す
-            pos.renderVx = frameDeltaX / Math.max(0.016, deltaTime * 60) + scrollVxPerFrame;
+            pos.renderVx = frameDeltaX / Math.max(0.016, deltaTime * 60);
 
             // 分身独自のlegPhase/legAngleを毎フレーム更新（本体/分身で共通式）
             const cloneLegMotion = this.updateLegLocomotion({

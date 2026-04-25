@@ -3106,17 +3106,22 @@ export function applyRendererMixin(PlayerClass) {
             // フレーム間lerp: ステップ間遷移・idle復帰を全て滑らかに
             const lerpSpeed = (comboStep === 3 || comboStep === 4 || comboStep === 0) ? 0.38 : 0.28;
             if (dualZCache.left && dualZCache.right) {
+                // 肩相対座標→絶対座標に復元してlerpすることで走り時の伸び防止
+                const cachedLeftX = dualZCache.left.x + leftShoulderX;
+                const cachedLeftY = dualZCache.left.y + leftShoulderY;
+                const cachedRightX = dualZCache.right.x + rightShoulderX;
+                const cachedRightY = dualZCache.right.y + rightShoulderY;
                 leftHand = {
-                    x: dualZCache.left.x + (leftHand.x - dualZCache.left.x) * lerpSpeed,
-                    y: dualZCache.left.y + (leftHand.y - dualZCache.left.y) * lerpSpeed
+                    x: cachedLeftX + (leftHand.x - cachedLeftX) * lerpSpeed,
+                    y: cachedLeftY + (leftHand.y - cachedLeftY) * lerpSpeed
                 };
                 rightHand = {
-                    x: dualZCache.right.x + (rightHand.x - dualZCache.right.x) * lerpSpeed,
-                    y: dualZCache.right.y + (rightHand.y - dualZCache.right.y) * lerpSpeed
+                    x: cachedRightX + (rightHand.x - cachedRightX) * lerpSpeed,
+                    y: cachedRightY + (rightHand.y - cachedRightY) * lerpSpeed
                 };
             }
-            dualZCache.left = { x: leftHand.x, y: leftHand.y };
-            dualZCache.right = { x: rightHand.x, y: rightHand.y };
+            dualZCache.left = { x: leftHand.x - leftShoulderX, y: leftHand.y - leftShoulderY };
+            dualZCache.right = { x: rightHand.x - rightShoulderX, y: rightHand.y - rightShoulderY };
             this._dualZHandCache[dualZCacheKey] = dualZCache;
             // 五段目は奥行き感を保つため、奥手が手前手より下に落ちないように固定
             if (comboStep === 0) {
@@ -3258,13 +3263,18 @@ export function applyRendererMixin(PlayerClass) {
             const recoverCache = this._dualZHandCache[recoverCacheKey] || { left: null, right: null, lastComboStep: -1 };
             if (recoverCache.left && recoverCache.right) {
                 const recoverLerp = 0.22;
-                leftHandX = recoverCache.left.x + (leftHandX - recoverCache.left.x) * recoverLerp;
-                leftHandY = recoverCache.left.y + (leftHandY - recoverCache.left.y) * recoverLerp;
-                rightHandX = recoverCache.right.x + (rightHandX - recoverCache.right.x) * recoverLerp;
-                rightHandY = recoverCache.right.y + (rightHandY - recoverCache.right.y) * recoverLerp;
+                const cachedLeftX = recoverCache.left.x + leftShoulderX;
+                const cachedLeftY = recoverCache.left.y + leftShoulderY;
+                const cachedRightX = recoverCache.right.x + rightShoulderX;
+                const cachedRightY = recoverCache.right.y + rightShoulderY;
+                leftHandX = cachedLeftX + (leftHandX - cachedLeftX) * recoverLerp;
+                leftHandY = cachedLeftY + (leftHandY - cachedLeftY) * recoverLerp;
+                rightHandX = cachedRightX + (rightHandX - cachedRightX) * recoverLerp;
+                rightHandY = cachedRightY + (rightHandY - cachedRightY) * recoverLerp;
             }
-            recoverCache.left = { x: leftHandX, y: leftHandY };
-            recoverCache.right = { x: rightHandX, y: rightHandY };
+            recoverCache.left = { x: leftHandX - leftShoulderX, y: leftHandY - leftShoulderY };
+            recoverCache.right = { x: rightHandX - rightShoulderX, y: rightHandY - rightShoulderY };
+            recoverCache.lastComboStep = -1;
             this._dualZHandCache[recoverCacheKey] = recoverCache;
 
             if (drawBackLayer) {
