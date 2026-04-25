@@ -60,11 +60,11 @@ export function applySlashTrailMixin(PlayerClass) {
         };
     };
 
-    PlayerClass.prototype.absolutizeRelativeTrailPoint = function(point, fallbackX = this.x, fallbackY = this.y) {
+    PlayerClass.prototype.absolutizeRelativeTrailPoint = function(point, fallbackX = this.x, fallbackY = this.y, forceOffsetX = null, forceOffsetY = null) {
         if (!point) return null;
         const isRelative = !!point.trailIsRelative;
-        const offsetX = isRelative ? (Number.isFinite(point.playerX) ? point.playerX : fallbackX) : 0;
-        const offsetY = isRelative ? (Number.isFinite(point.playerY) ? point.playerY : fallbackY) : 0;
+        const offsetX = isRelative ? (Number.isFinite(forceOffsetX) ? forceOffsetX : (Number.isFinite(point.playerX) ? point.playerX : fallbackX)) : 0;
+        const offsetY = isRelative ? (Number.isFinite(forceOffsetY) ? forceOffsetY : (Number.isFinite(point.playerY) ? point.playerY : fallbackY)) : 0;
         return {
             ...point,
             age: point.age || 0,
@@ -78,12 +78,12 @@ export function applySlashTrailMixin(PlayerClass) {
         };
     };
 
-    PlayerClass.prototype.buildFrozenSampledBezierSnapshot = function(stepNum, stepPoints) {
+    PlayerClass.prototype.buildFrozenSampledBezierSnapshot = function(stepNum, stepPoints, forceOffsetX = null, forceOffsetY = null) {
         if (!Array.isArray(stepPoints) || stepPoints.length < 2) return null;
         const lastPt = stepPoints[stepPoints.length - 1];
         const firstPt = stepPoints[0];
         const frozenPoints = stepPoints
-            .map((point) => this.absolutizeRelativeTrailPoint(point))
+            .map((point) => this.absolutizeRelativeTrailPoint(point, this.x, this.y, forceOffsetX, forceOffsetY))
             .filter(Boolean);
         const frozenCurvePoints = frozenPoints.map((point) => ({
             x: point.x,
@@ -127,11 +127,17 @@ export function applySlashTrailMixin(PlayerClass) {
         
         const frozenTrailCenterX = this.x + this.width * 0.5;
         const frozenTrailCenterY = this.y + this.height * 0.5;
-        const frozenBoostAnchor = this.comboSlashTrailBoostAnchor ? { ...this.comboSlashTrailBoostAnchor } : null;
-
         for (const [stepNum, stepPoints] of stepGroups) {
+            const lastPt = stepPoints[stepPoints.length - 1];
+            const stripTrailId = lastPt?.trailAttackId || stepNum;
+            const frozenBoostAnchor = (this.comboSlashTrailBoostAnchors && this.comboSlashTrailBoostAnchors[stripTrailId]) 
+                ? { ...this.comboSlashTrailBoostAnchors[stripTrailId] } 
+                : null;
+            const forceOffsetX = frozenBoostAnchor ? frozenBoostAnchor.baseCenterX - this.width * 0.5 : null;
+            const forceOffsetY = frozenBoostAnchor ? frozenBoostAnchor.baseCenterY - this.height * 0.5 : null;
+
             if ([1, 2].includes(stepNum)) {
-                const frozenSnapshot = this.buildFrozenSampledBezierSnapshot(stepNum, stepPoints);
+                const frozenSnapshot = this.buildFrozenSampledBezierSnapshot(stepNum, stepPoints, forceOffsetX, forceOffsetY);
                 if (frozenSnapshot) {
                     frozenSnapshot.boostAnchor = frozenBoostAnchor;
                     frozenSnapshot.frozenTrailCenterX = frozenTrailCenterX;
@@ -158,8 +164,8 @@ export function applySlashTrailMixin(PlayerClass) {
                         dir: lastPt.dir,
                         progress: Number.isFinite(lastPt.progress) ? lastPt.progress : 1.0, // 実際の進行度で凍結させる
                         trailIsRelative: !!lastPt.trailIsRelative,
-                        playerX: this.x,
-                        playerY: this.y,
+                        playerX: Number.isFinite(forceOffsetX) ? forceOffsetX : this.x,
+                        playerY: Number.isFinite(forceOffsetY) ? forceOffsetY : this.y,
                         age: Math.max(0, lastPt.age || 0), // 新しい（剣先の）フェードアウト度合い
                         oldestAge: Math.max(0, firstPt ? firstPt.age : (lastPt.age || 0)), // 古い（根本の）フェードアウト度合い
                         life: Math.max(1, lastPt.life || this.comboSlashTrailActiveLifeMs),
@@ -1639,10 +1645,13 @@ export function applySlashTrailMixin(PlayerClass) {
         const points = usesExternalPoints ? options.points : this.comboSlashTrailPoints;
         const getBoostAnchor = typeof options.getBoostAnchor === 'function'
             ? options.getBoostAnchor
-            : (() => this.comboSlashTrailBoostAnchor);
+            : ((step) => this.comboSlashTrailBoostAnchors ? this.comboSlashTrailBoostAnchors[step] : null);
         const setBoostAnchor = typeof options.setBoostAnchor === 'function'
             ? options.setBoostAnchor
-            : ((value) => { this.comboSlashTrailBoostAnchor = value; });
+            : ((step, value) => { 
+                if (!this.comboSlashTrailBoostAnchors) this.comboSlashTrailBoostAnchors = {};
+                this.comboSlashTrailBoostAnchors[step] = value; 
+              });
         const sourceIsAttacking = options.isAttacking !== undefined
             ? !!options.isAttacking
             : this.isAttacking;
@@ -1665,16 +1674,17 @@ export function applySlashTrailMixin(PlayerClass) {
             ? options.trailWidthScale
             : Math.max(liveTrailScale, storedTrailScale);
         const normalWidthScale = 1.0;
-        const boostAnchor = getBoostAnchor();
         const hasStoredBoostTrail = trailWidthScale > 1.01;
-        const boostActive = options.boostActive !== undefined
+        const baseBoostActive = options.boostActive !== undefined
             ? !!options.boostActive
-            : (hasStoredBoostTrail && (sourceIsAttacking || !!boostAnchor));
-        const visualWidthScale = (!boostActive && trailWidthScale > 1.01)
+            : (hasStoredBoostTrail && sourceIsAttacking);
+        const visualWidthScale = (!baseBoostActive && trailWidthScale > 1.01)
             ? trailWidthScale
             : normalWidthScale;
-        if (!boostActive) {
-            setBoostAnchor(null);
+        if (!baseBoostActive && !hasStoredBoostTrail) {
+            if (this.comboSlashTrailBoostAnchors && !usesExternalPoints) {
+                this.comboSlashTrailBoostAnchors = {};
+            }
         }
         let trailCenterX = Number.isFinite(options.centerX)
             ? options.centerX
@@ -1918,7 +1928,7 @@ export function applySlashTrailMixin(PlayerClass) {
             }
             return resampled.length >= 2 ? resampled : pts;
         };
-        const buildThreePointQuadraticStrip = (pts, comboStep = 0) => {
+        const buildThreePointQuadraticStrip = (pts, comboStep = 0, options = {}) => {
             if (!Array.isArray(pts) || pts.length < 2) return pts;
             const stabilizedPts = buildProgressResampledStrip(
                 pts,
@@ -1930,7 +1940,7 @@ export function applySlashTrailMixin(PlayerClass) {
             const firstSrc = stabilizedPts[0];
             const lastSrc = stabilizedPts[stabilizedPts.length - 1];
             const lastAnchorSrc = lastSrc && lastSrc.trailIsRelative
-                ? this.absolutizeRelativeTrailPoint(lastSrc)
+                ? this.absolutizeRelativeTrailPoint(lastSrc, this.x, this.y, options.forceOffsetX, options.forceOffsetY)
                 : lastSrc;
             const trailWindow = this.getComboTrailProgressWindow(comboStep);
             const windowStart = Number.isFinite(trailWindow.start) ? trailWindow.start : 0;
@@ -2306,10 +2316,10 @@ export function applySlashTrailMixin(PlayerClass) {
                 (options.useRelativeIfAvailable && newestSrc.trailIsRelative)
             );
             const offsetX = isRelative
-                ? (Number.isFinite(newestSrc.playerX) ? newestSrc.playerX : (options.offsetX || 0))
+                ? (Number.isFinite(options.forceOffsetX) ? options.forceOffsetX : (Number.isFinite(newestSrc.playerX) ? newestSrc.playerX : (options.offsetX || 0)))
                 : 0;
             const offsetY = isRelative
-                ? (Number.isFinite(newestSrc.playerY) ? newestSrc.playerY : (options.offsetY || 0))
+                ? (Number.isFinite(options.forceOffsetY) ? options.forceOffsetY : (Number.isFinite(newestSrc.playerY) ? newestSrc.playerY : (options.offsetY || 0)))
                 : 0;
             const startX = Number.isFinite(newestSrc.trailCurveStartX) ? newestSrc.trailCurveStartX + offsetX : null;
             const startY = Number.isFinite(newestSrc.trailCurveStartY) ? newestSrc.trailCurveStartY + offsetY : null;
@@ -2390,7 +2400,7 @@ export function applySlashTrailMixin(PlayerClass) {
         const drawSampledBezierTrail = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
             if (!pts || pts.length < 2) return;
             const comboStep = options.comboStep || pts[pts.length - 1]?.step || 0;
-            const curveStrip = buildThreePointQuadraticStrip(pts, comboStep);
+            const curveStrip = buildThreePointQuadraticStrip(pts, comboStep, options);
             drawBlueTrailLayers(curveStrip, baseWidth, oldestScale, newestScale, projectFn);
         };
         const forceLinearSmooth = !!options.forceLinearSmooth;
@@ -2408,6 +2418,10 @@ export function applySlashTrailMixin(PlayerClass) {
             let activeWidthScale = visualWidthScale;
             let boostOldest = outerOldestAlpha;
 
+            const stripTrailId = strip[strip.length - 1]?.trailAttackId || stripStep;
+            const boostAnchor = getBoostAnchor(stripTrailId);
+            const boostActive = baseBoostActive || !!boostAnchor;
+
             if (boostActive) {
                 let baseCenterX = trailCenterX;
                 let baseCenterY = trailCenterY;
@@ -2415,7 +2429,7 @@ export function applySlashTrailMixin(PlayerClass) {
                 let projectedCenterY = trailCenterY;
                 let currentBoostScale = Math.max(1.02, 1 + (trailWidthScale - 1) * 0.74);
 
-                if (boostAnchor && boostAnchor.step === stripStep) {
+                if (boostAnchor && boostAnchor.trailId === stripTrailId) {
                     baseCenterX = boostAnchor.baseCenterX;
                     baseCenterY = boostAnchor.baseCenterY;
                     projectedCenterX = boostAnchor.projectedCenterX;
@@ -2430,8 +2444,8 @@ export function applySlashTrailMixin(PlayerClass) {
                         projectedCenterX = hitboxCenter.x;
                         projectedCenterY = hitboxCenter.y;
                     }
-                    setBoostAnchor({
-                        baseCenterX, baseCenterY, projectedCenterX, projectedCenterY, boostScale: currentBoostScale, step: stripStep
+                    setBoostAnchor(stripTrailId, {
+                        baseCenterX, baseCenterY, projectedCenterX, projectedCenterY, boostScale: currentBoostScale, step: stripStep, trailId: stripTrailId
                     });
                 }
                 const isRelativeStrip = strip.length > 0 && !!strip[strip.length - 1].trailIsRelative;
@@ -2467,25 +2481,19 @@ export function applySlashTrailMixin(PlayerClass) {
             // 通常時 or ブースト時 共通描画
             if (stripStep === 5) {
                 if (boostActive && boostAnchor && boostAnchor.step === stripStep) {
-                    const savedX = this.x;
-                    const savedY = this.y;
                     const anchorPlayerX = boostAnchor.baseCenterX - this.width * 0.5;
                     const anchorPlayerY = boostAnchor.baseCenterY - this.height * 0.5;
-                    this.x = anchorPlayerX;
-                    this.y = anchorPlayerY;
                     const scaleProjFn = (p) => {
-                        const vx = p.x - boostAnchor.projectedCenterX;
-                        const vy = p.y - boostAnchor.projectedCenterY;
+                        const vx = p.x - boostAnchor.baseCenterX;
+                        const vy = p.y - boostAnchor.baseCenterY;
                         return {
-                            x: boostAnchor.projectedCenterX + vx * boostAnchor.boostScale,
-                            y: boostAnchor.projectedCenterY + vy * boostAnchor.boostScale
+                            x: boostAnchor.baseCenterX + vx * boostAnchor.boostScale,
+                            y: boostAnchor.baseCenterY + vy * boostAnchor.boostScale
                         };
                     };
                     drawFixedBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, scaleProjFn, { 
-                        comboStep: 5, useRelativeIfAvailable: true, offsetX: anchorPlayerX, offsetY: anchorPlayerY, trimEnd: true, trimFactor: 0.24 
+                        comboStep: 5, useRelativeIfAvailable: true, offsetX: anchorPlayerX, offsetY: anchorPlayerY, forceOffsetX: anchorPlayerX, forceOffsetY: anchorPlayerY, trimEnd: true, trimFactor: 0.24 
                     });
-                    this.x = savedX;
-                    this.y = savedY;
                 } else {
                     drawFixedBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { 
                         comboStep: 5, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y, trimEnd: true, trimFactor: 0.24 
@@ -2493,30 +2501,23 @@ export function applySlashTrailMixin(PlayerClass) {
                 }
             } else if (stripStep === 1 || stripStep === 2) {
                 if (boostActive && boostAnchor && boostAnchor.step === stripStep) {
-                    // 大凪ブースト時: ストリップをアンカー時のプレイヤー位置に固定してから描画する
-                    // buildThreePointQuadraticStrip内部のabsolutizeがthis.x/yを使うため、
-                    // 一時的にthis.x/yをアンカー時の値に書き換えて座標を固定する
-                    const savedX = this.x;
-                    const savedY = this.y;
+                    // 大凪ブースト時: forceOffsetX/forceOffsetYを使って、過去のプレイヤー位置を上書きしてアンカー位置に固定する
                     const anchorPlayerX = boostAnchor.baseCenterX - this.width * 0.5;
                     const anchorPlayerY = boostAnchor.baseCenterY - this.height * 0.5;
-                    this.x = anchorPlayerX;
-                    this.y = anchorPlayerY;
                     
                     // アンカー中心からの単純スケーリングprojFn
                     const scaleProjFn = (p) => {
-                        const vx = p.x - boostAnchor.projectedCenterX;
-                        const vy = p.y - boostAnchor.projectedCenterY;
+                        // p.x/p.yはforceOffsetX/Y（baseCenterX基準）で生成されているため、そのままbaseCenterX基準でスケールする
+                        const vx = p.x - boostAnchor.baseCenterX;
+                        const vy = p.y - boostAnchor.baseCenterY;
                         return {
-                            x: boostAnchor.projectedCenterX + vx * boostAnchor.boostScale,
-                            y: boostAnchor.projectedCenterY + vy * boostAnchor.boostScale
+                            x: boostAnchor.baseCenterX + vx * boostAnchor.boostScale,
+                            y: boostAnchor.baseCenterY + vy * boostAnchor.boostScale
                         };
                     };
                     drawSampledBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, scaleProjFn, {
-                        comboStep: stripStep, useRelativeIfAvailable: true, offsetX: anchorPlayerX, offsetY: anchorPlayerY
+                        comboStep: stripStep, useRelativeIfAvailable: true, offsetX: anchorPlayerX, offsetY: anchorPlayerY, forceOffsetX: anchorPlayerX, forceOffsetY: anchorPlayerY
                     });
-                    this.x = savedX;
-                    this.y = savedY;
                 } else {
                     drawSampledBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
                         comboStep: stripStep, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y 
@@ -2757,12 +2758,14 @@ export function applySlashTrailMixin(PlayerClass) {
             this._lastDualSwingId = -1;
         }
 
+        const dualSampleTrailScale = this.getXAttackTrailWidthScale();
+
         this.dualBladeBackTrailSampleTimer = this.updateSlashTrailBuffer(
             this.dualBladeBackTrailPoints,
             this.dualBladeBackTrailSampleTimer,
             (suppressBack || startSuppress || settleSuppress || skipSampleThisFrame) ? null : backPose,
             deltaMs,
-            { holdExisting: false, activeTrailId: activeTrailId }
+            { holdExisting: false, activeTrailId: activeTrailId, sampleTrailScale: dualSampleTrailScale }
         );
 
         this.dualBladeFrontTrailSampleTimer = this.updateSlashTrailBuffer(
@@ -2770,7 +2773,7 @@ export function applySlashTrailMixin(PlayerClass) {
             this.dualBladeFrontTrailSampleTimer,
             (suppressFront || startSuppress || settleSuppress || skipSampleThisFrame) ? null : frontPose,
             deltaMs,
-            { holdExisting: false, activeTrailId: activeTrailId }
+            { holdExisting: false, activeTrailId: activeTrailId, sampleTrailScale: dualSampleTrailScale }
         );
     };
 
@@ -2785,7 +2788,6 @@ export function applySlashTrailMixin(PlayerClass) {
             this.subWeaponAction === '二刀_Z' &&
             this.subWeaponTimer > 0
         );
-        const dualTrailWidthScale = this.getXAttackTrailWidthScale();
 
         if (this.dualBladeBackTrailPoints.length >= 2) {
             this.renderComboSlashTrail(ctx, {
@@ -2793,9 +2795,8 @@ export function applySlashTrailMixin(PlayerClass) {
                 palette: bluePalette,
                 forceLinearSmooth: true,
                 isAttacking: isDualZActive,
-                trailWidthScale: dualTrailWidthScale,
-                getBoostAnchor: () => this._dualBackBoostAnchor || null,
-                setBoostAnchor: (v) => { this._dualBackBoostAnchor = v; }
+                getBoostAnchor: (step) => this._dualBackBoostAnchor || null,
+                setBoostAnchor: (step, v) => { this._dualBackBoostAnchor = v; }
             });
         }
         if (this.dualBladeFrontTrailPoints.length >= 2) {
@@ -2804,9 +2805,8 @@ export function applySlashTrailMixin(PlayerClass) {
                 palette: redPalette,
                 forceLinearSmooth: true,
                 isAttacking: isDualZActive,
-                trailWidthScale: dualTrailWidthScale,
-                getBoostAnchor: () => this._dualFrontBoostAnchor || null,
-                setBoostAnchor: (v) => { this._dualFrontBoostAnchor = v; }
+                getBoostAnchor: (step) => this._dualFrontBoostAnchor || null,
+                setBoostAnchor: (step, v) => { this._dualFrontBoostAnchor = v; }
             });
         }
     };

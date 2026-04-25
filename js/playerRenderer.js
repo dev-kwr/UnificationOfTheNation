@@ -657,13 +657,27 @@ export function applyRendererMixin(PlayerClass) {
 
         const damageFlashActive = this.damageFlashTimer > 0;
 
-        // 奥義MAX到達時の発光エフェクト
-        if (this.specialReadyGlowTimer > 0) {
-            const glowProgress = this.specialReadyGlowTimer / 1000;
-            const glowAlpha = Math.sin(glowProgress * Math.PI); // 0 -> 1 -> 0
-            const blurAmount = 4 + glowAlpha * 12;
-            filterParts.push(`drop-shadow(0 0 ${blurAmount}px rgba(255, 210, 80, ${glowAlpha * 0.8}))`);
-            filterParts.push(`brightness(${100 + glowAlpha * 30}%)`);
+        // 奥義MAX到達時の発光エフェクト (軽量化: radialGradientを使用)
+        if (this.specialGauge >= this.maxSpecialGauge && !this.isDefeated) {
+            const glowProgress = (Date.now() % 2000) / 2000;
+            const glowAlpha = (Math.sin(glowProgress * Math.PI * 2) + 1) / 2; // 0 -> 1 -> 0 pulse
+            
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            const centerX = this.x + this.width / 2;
+            const centerY = this.y + this.height / 2;
+            const radius = Math.max(this.width, this.height) * 1.15;
+            
+            const grad = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+            grad.addColorStop(0, `rgba(255, 230, 100, ${0.4 + glowAlpha * 0.3})`);
+            grad.addColorStop(0.5, `rgba(255, 210, 80, ${0.1 + glowAlpha * 0.15})`);
+            grad.addColorStop(1, 'rgba(255, 210, 80, 0)');
+            
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
         }
 
         // 隠れ身の術中は本体のみ透明化（全体フィルタは重いので適用しない）
