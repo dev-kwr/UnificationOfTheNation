@@ -658,7 +658,8 @@ export function applyRendererMixin(PlayerClass) {
         const damageFlashActive = this.damageFlashTimer > 0;
 
         // 奥義MAX到達時の発光エフェクト (軽量化: radialGradientを使用)
-        if (this.specialGauge >= this.maxSpecialGauge && !this.isDefeated) {
+        const skipGlow = options.skipGlow === true;
+        if (!skipGlow && this.specialGauge >= this.maxSpecialGauge && !this.isDefeated) {
             const glowProgress = (Date.now() % 2000) / 2000;
             const glowAlpha = (Math.sin(glowProgress * Math.PI * 2) + 1) / 2; // 0 -> 1 -> 0 pulse
             
@@ -3092,27 +3093,32 @@ export function applyRendererMixin(PlayerClass) {
 
             // スイングIDが変わった（新しい攻撃が始まった）かの判定
             const currentDualSwingId = this.currentSubWeapon ? this.currentSubWeapon._swingId : 0;
+            // 分身ごとに独立したlerpキャッシュを使う（本体 = key '_body'、分身 = key cloneIndex）
+            const dualZCacheKey = (options.isClone && options.cloneIndex != null) ? options.cloneIndex : '_body';
+            if (!this._dualZHandCache) this._dualZHandCache = {};
+            const dualZCache = this._dualZHandCache[dualZCacheKey] || { left: null, right: null, swingId: 0 };
             // 1段目の開始時（キャンセル連打を含む）は、手が前の位置からlerpで引きずられるのを防ぐためスナップさせる
-            if (comboStep === 1 && this._dualZLastSwingId !== currentDualSwingId) {
-                this._dualZLastLeftHand = null;
-                this._dualZLastRightHand = null;
+            if (comboStep === 1 && dualZCache.swingId !== currentDualSwingId) {
+                dualZCache.left = null;
+                dualZCache.right = null;
             }
-            this._dualZLastSwingId = currentDualSwingId;
+            dualZCache.swingId = currentDualSwingId;
 
             // フレーム間lerp: ステップ間遷移・idle復帰を全て滑らかに
             const lerpSpeed = (comboStep === 3 || comboStep === 4 || comboStep === 0) ? 0.38 : 0.28;
-            if (this._dualZLastLeftHand && this._dualZLastRightHand) {
+            if (dualZCache.left && dualZCache.right) {
                 leftHand = {
-                    x: this._dualZLastLeftHand.x + (leftHand.x - this._dualZLastLeftHand.x) * lerpSpeed,
-                    y: this._dualZLastLeftHand.y + (leftHand.y - this._dualZLastLeftHand.y) * lerpSpeed
+                    x: dualZCache.left.x + (leftHand.x - dualZCache.left.x) * lerpSpeed,
+                    y: dualZCache.left.y + (leftHand.y - dualZCache.left.y) * lerpSpeed
                 };
                 rightHand = {
-                    x: this._dualZLastRightHand.x + (rightHand.x - this._dualZLastRightHand.x) * lerpSpeed,
-                    y: this._dualZLastRightHand.y + (rightHand.y - this._dualZLastRightHand.y) * lerpSpeed
+                    x: dualZCache.right.x + (rightHand.x - dualZCache.right.x) * lerpSpeed,
+                    y: dualZCache.right.y + (rightHand.y - dualZCache.right.y) * lerpSpeed
                 };
             }
-            this._dualZLastLeftHand = { x: leftHand.x, y: leftHand.y };
-            this._dualZLastRightHand = { x: rightHand.x, y: rightHand.y };
+            dualZCache.left = { x: leftHand.x, y: leftHand.y };
+            dualZCache.right = { x: rightHand.x, y: rightHand.y };
+            this._dualZHandCache[dualZCacheKey] = dualZCache;
             // 五段目は奥行き感を保つため、奥手が手前手より下に落ちないように固定
             if (comboStep === 0) {
                 const minBackAboveGap = isCrouchPose ? 0.7 : 1.2;
@@ -3247,16 +3253,20 @@ export function applyRendererMixin(PlayerClass) {
             let rightHandX = rightShoulderX + Math.cos(rightAngle) * dir * 21.2;
             let rightHandY = rightShoulderY + Math.sin(rightAngle) * 21.2;
 
-            // lerpバッファ経由でさらにスムーズに
-            if (this._dualZLastLeftHand && this._dualZLastRightHand) {
+            // lerpバッファ経由でさらにスムーズに（分身ごとに独立したキャッシュを使用）
+            const recoverCacheKey = (options.isClone && options.cloneIndex != null) ? options.cloneIndex : '_body';
+            if (!this._dualZHandCache) this._dualZHandCache = {};
+            const recoverCache = this._dualZHandCache[recoverCacheKey] || { left: null, right: null, swingId: 0 };
+            if (recoverCache.left && recoverCache.right) {
                 const recoverLerp = 0.22;
-                leftHandX = this._dualZLastLeftHand.x + (leftHandX - this._dualZLastLeftHand.x) * recoverLerp;
-                leftHandY = this._dualZLastLeftHand.y + (leftHandY - this._dualZLastLeftHand.y) * recoverLerp;
-                rightHandX = this._dualZLastRightHand.x + (rightHandX - this._dualZLastRightHand.x) * recoverLerp;
-                rightHandY = this._dualZLastRightHand.y + (rightHandY - this._dualZLastRightHand.y) * recoverLerp;
+                leftHandX = recoverCache.left.x + (leftHandX - recoverCache.left.x) * recoverLerp;
+                leftHandY = recoverCache.left.y + (leftHandY - recoverCache.left.y) * recoverLerp;
+                rightHandX = recoverCache.right.x + (rightHandX - recoverCache.right.x) * recoverLerp;
+                rightHandY = recoverCache.right.y + (rightHandY - recoverCache.right.y) * recoverLerp;
             }
-            this._dualZLastLeftHand = { x: leftHandX, y: leftHandY };
-            this._dualZLastRightHand = { x: rightHandX, y: rightHandY };
+            recoverCache.left = { x: leftHandX, y: leftHandY };
+            recoverCache.right = { x: rightHandX, y: rightHandY };
+            this._dualZHandCache[recoverCacheKey] = recoverCache;
 
             if (drawBackLayer) {
                 drawBentArmSegment(leftShoulderX, leftShoulderY, leftHandX, leftHandY, standardUpperLen, standardForeLen, -dir, 5.3);
@@ -4510,7 +4520,8 @@ export function applyRendererMixin(PlayerClass) {
                     this.legPhase = pos.legPhase || 0;
                     this.legAngle = pos.legAngle || 0;
                     this.subWeaponTimer = this.specialCloneSubWeaponTimers[i] || 0;
-                    this.subWeaponAction = this.specialCloneSubWeaponActions[i] || null;
+                    // タイマーが切れていればアクションをクリアして二刀_Z描画ブランチに入らないようにする
+                    this.subWeaponAction = this.subWeaponTimer > 0 ? (this.specialCloneSubWeaponActions[i] || null) : null;
                     this.subWeaponPoseOverride = cloneUsesDualZ
                         ? {
                             comboIndex: this.specialCloneComboSteps[i] || 0,
@@ -4570,37 +4581,66 @@ export function applyRendererMixin(PlayerClass) {
                     const cloneTrailPoints = Array.isArray(this.specialCloneSlashTrailPoints)
                         ? this.specialCloneSlashTrailPoints[i]
                         : null;
-                    if (cloneTrailPoints && cloneTrailPoints.length > 1) {
-                        const trailScale = this.getXAttackTrailWidthScale();
-                        if (!cloneUsesDualZ) {
-                            const cloneAttackState = {
-                                x: this.x,
-                                y: this.y,
-                                facingRight: this.facingRight,
-                                isAttacking: this.isAttacking,
-                                currentAttack: this.currentAttack,
-                                attackTimer: this.attackTimer,
-                                isCrouching: this.isCrouching
-                            };
+                    if (cloneUsesDualZ) {
+                        // 二刀Z分身: 奥刀（青）・手前刀（赤）の専用トレイルバッファを描画
+                        const bluePalette = { front: [130, 234, 255], back: [76, 154, 226] };
+                        const redPalette = { front: [255, 90, 90], back: [214, 74, 74] };
+                        const isDualZActive = cloneUsesDualZ;
+                        const backPoints = Array.isArray(this.specialCloneDualBackTrailPoints)
+                            ? this.specialCloneDualBackTrailPoints[i]
+                            : null;
+                        const frontPoints = Array.isArray(this.specialCloneDualFrontTrailPoints)
+                            ? this.specialCloneDualFrontTrailPoints[i]
+                            : null;
+                        if (backPoints && backPoints.length >= 2) {
                             this.renderComboSlashTrail(ctx, {
-                                points: cloneTrailPoints,
-                                trailWidthScale: trailScale,
-                                boostActive: trailScale > 1.01 && isCloneAttacking,
-                                isAttacking: isCloneAttacking,
-                                attackState: cloneAttackState,
-                                getBoostAnchor: () => (
-                                    Array.isArray(this.specialCloneSlashTrailBoostAnchors)
-                                        ? this.specialCloneSlashTrailBoostAnchors[i]
-                                        : null
-                                ),
-                                setBoostAnchor: (value) => {
-                                    if (!Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
-                                        this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
-                                    }
-                                    this.specialCloneSlashTrailBoostAnchors[i] = value;
-                                }
+                                points: backPoints,
+                                palette: bluePalette,
+                                forceLinearSmooth: true,
+                                isAttacking: isDualZActive,
+                                getBoostAnchor: () => null,
+                                setBoostAnchor: () => {}
                             });
                         }
+                        if (frontPoints && frontPoints.length >= 2) {
+                            this.renderComboSlashTrail(ctx, {
+                                points: frontPoints,
+                                palette: redPalette,
+                                forceLinearSmooth: true,
+                                isAttacking: isDualZActive,
+                                getBoostAnchor: () => null,
+                                setBoostAnchor: () => {}
+                            });
+                        }
+                    } else if (cloneTrailPoints && cloneTrailPoints.length > 1) {
+                        const trailScale = 1;
+                        const cloneAttackState = {
+                            x: this.x,
+                            y: this.y,
+                            facingRight: this.facingRight,
+                            isAttacking: this.isAttacking,
+                            currentAttack: this.currentAttack,
+                            attackTimer: this.attackTimer,
+                            isCrouching: this.isCrouching
+                        };
+                        this.renderComboSlashTrail(ctx, {
+                            points: cloneTrailPoints,
+                            trailWidthScale: trailScale,
+                            boostActive: trailScale > 1.01 && isCloneAttacking,
+                            isAttacking: isCloneAttacking,
+                            attackState: cloneAttackState,
+                            getBoostAnchor: () => (
+                                Array.isArray(this.specialCloneSlashTrailBoostAnchors)
+                                    ? this.specialCloneSlashTrailBoostAnchors[i]
+                                    : null
+                            ),
+                            setBoostAnchor: (value) => {
+                                if (!Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
+                                    this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
+                                }
+                                this.specialCloneSlashTrailBoostAnchors[i] = value;
+                            }
+                        });
                     }
 
                     const cloneScarfNodes = this.specialCloneScarfNodes[i] || null;

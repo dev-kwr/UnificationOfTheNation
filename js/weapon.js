@@ -1406,7 +1406,7 @@ export class DualBlades extends SubWeapon {
             case 2:
                 return {
                     // 2撃目: 手前手のみ切り上げ — アイドルから跳ね上げ
-                    rightStart: -1.1, rightEnd: -2.85,  // idle → 上方へ大きく
+                    rightStart: -1.1, rightEnd: -3.25,  // idle → 上方へ大きく (さらに後方まで)
                     leftStart: -0.65, leftEnd: -0.65,   // 奥刀: idle固定
                     effectRadius: 96,
                     hit: 'rightGyakuKesa'
@@ -1599,9 +1599,9 @@ export class DualBlades extends SubWeapon {
                         height: 72
                     });
                     hitboxes.push({
-                        x: backX - this.range * 0.1,
+                        x: backX - this.range * 0.5,
                         y: centerY - 48,
-                        width: this.range * 1.14,
+                        width: this.range * 1.54,
                         height: 96
                     });
                     hitboxes.push({

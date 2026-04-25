@@ -2781,14 +2781,16 @@ class Game {
                 this.player.isXAttackBoostActive() &&
                 typeof this.player.getXAttackHitboxScale === 'function'
             ) ? Math.max(1, this.player.getXAttackHitboxScale()) : 1;
+            // specialCloneComboSteps は 1〜5 で循環するため、配列インデックス(0〜4)に変換
+            const dualStepIdx = comboIndex >= 1 ? Math.min(4, comboIndex - 1) : 4;
             const attackRange = dualCloneSwinging
-                ? dualRangeByStep[comboIndex] * (xAttackScale > 1.001 ? (1 + (xAttackScale - 1) * 0.82) : 1)
+                ? dualRangeByStep[dualStepIdx] * (xAttackScale > 1.001 ? (1 + (xAttackScale - 1) * 0.82) : 1)
                 : 100;
             const strikeDamage = dualCloneSwinging
-                ? Math.round(baseDamage * dualDamageByStep[comboIndex])
+                ? Math.round(baseDamage * dualDamageByStep[dualStepIdx])
                 : baseDamage;
-            const strikeKnockbackX = dualCloneSwinging ? dualKnockbackXByStep[comboIndex] : 6;
-            const strikeKnockbackY = dualCloneSwinging ? dualKnockbackYByStep[comboIndex] : -5;
+            const strikeKnockbackX = dualCloneSwinging ? dualKnockbackXByStep[dualStepIdx] : 6;
+            const strikeKnockbackY = dualCloneSwinging ? dualKnockbackYByStep[dualStepIdx] : -5;
 
             if (dualCloneSwinging) {
                 const dualHitboxes = buildDualCloneMainHitboxes(pos, comboIndex, pos.facingRight, xAttackScale);
@@ -4568,7 +4570,7 @@ class Game {
         ctx.scale(scale, scale);
         ctx.translate(-(player.x + player.width / 2), -player.groundY);
 
-        player.render(ctx);
+        player.render(ctx, { skipGlow: true });
 
         if (
             player.currentSubWeapon &&
