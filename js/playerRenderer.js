@@ -3091,18 +3091,17 @@ export function applyRendererMixin(PlayerClass) {
             let leftHand = clampArmReach(leftShoulderMoveX, leftShoulderMoveY, leftTargetX, leftTargetY, dualBackReachCap);
             let rightHand = clampArmReach(rightShoulderMoveX, rightShoulderMoveY, rightTargetX, rightTargetY, dualFrontReachCap);
 
-            // スイングIDが変わった（新しい攻撃が始まった）かの判定
-            const currentDualSwingId = this.currentSubWeapon ? this.currentSubWeapon._swingId : 0;
             // 分身ごとに独立したlerpキャッシュを使う（本体 = key '_body'、分身 = key cloneIndex）
             const dualZCacheKey = (options.isClone && options.cloneIndex != null) ? options.cloneIndex : '_body';
             if (!this._dualZHandCache) this._dualZHandCache = {};
-            const dualZCache = this._dualZHandCache[dualZCacheKey] || { left: null, right: null, swingId: 0 };
-            // 1段目の開始時（キャンセル連打を含む）は、手が前の位置からlerpで引きずられるのを防ぐためスナップさせる
-            if (comboStep === 1 && dualZCache.swingId !== currentDualSwingId) {
+            const dualZCache = this._dualZHandCache[dualZCacheKey] || { left: null, right: null, lastComboStep: -1 };
+            // step1への遷移を「新しい攻撃サイクル開始」と見なしてキャッシュをリセットする。
+            // _swingIdは本体武器と共有されるため分身の開始検出に使えず、step変化で判定する。
+            if (comboStep === 1 && dualZCache.lastComboStep !== 1) {
                 dualZCache.left = null;
                 dualZCache.right = null;
             }
-            dualZCache.swingId = currentDualSwingId;
+            dualZCache.lastComboStep = comboStep;
 
             // フレーム間lerp: ステップ間遷移・idle復帰を全て滑らかに
             const lerpSpeed = (comboStep === 3 || comboStep === 4 || comboStep === 0) ? 0.38 : 0.28;
@@ -3256,7 +3255,7 @@ export function applyRendererMixin(PlayerClass) {
             // lerpバッファ経由でさらにスムーズに（分身ごとに独立したキャッシュを使用）
             const recoverCacheKey = (options.isClone && options.cloneIndex != null) ? options.cloneIndex : '_body';
             if (!this._dualZHandCache) this._dualZHandCache = {};
-            const recoverCache = this._dualZHandCache[recoverCacheKey] || { left: null, right: null, swingId: 0 };
+            const recoverCache = this._dualZHandCache[recoverCacheKey] || { left: null, right: null, lastComboStep: -1 };
             if (recoverCache.left && recoverCache.right) {
                 const recoverLerp = 0.22;
                 leftHandX = recoverCache.left.x + (leftHandX - recoverCache.left.x) * recoverLerp;
@@ -4598,6 +4597,7 @@ export function applyRendererMixin(PlayerClass) {
                                 palette: bluePalette,
                                 forceLinearSmooth: true,
                                 isAttacking: isDualZActive,
+                                trailWidthScale: 1,
                                 getBoostAnchor: () => null,
                                 setBoostAnchor: () => {}
                             });
@@ -4608,6 +4608,7 @@ export function applyRendererMixin(PlayerClass) {
                                 palette: redPalette,
                                 forceLinearSmooth: true,
                                 isAttacking: isDualZActive,
+                                trailWidthScale: 1,
                                 getBoostAnchor: () => null,
                                 setBoostAnchor: () => {}
                             });
