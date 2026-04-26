@@ -40,24 +40,38 @@ window.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('unhandledrejection', onStartupRejected);
 
     try {
-        // ゲーム初期化
-        game.init(canvas);
+        // フォントの読み込み完了を待機（タイトルロゴのフラッシング防止）
+        const fontReadyPromise = (document.fonts && document.fonts.ready) 
+            ? document.fonts.ready 
+            : Promise.resolve();
+        
+        // 念のため最大2秒でタイムアウトするようにしておく
+        const timeoutPromise = new Promise(resolve => setTimeout(resolve, 2000));
 
-        // 初回フレーム描画が終わってから表示
-        requestAnimationFrame((t) => {
-            try {
-                if (startupFailed) return;
-                game.loop(t);
+        Promise.race([fontReadyPromise, timeoutPromise]).then(() => {
+            if (startupFailed) return;
+            
+            // ゲーム初期化
+            game.init(canvas);
 
-                requestAnimationFrame(() => {
+            // 初回フレーム描画が終わってから表示
+            requestAnimationFrame((t) => {
+                try {
                     if (startupFailed) return;
-                    document.body.classList.add('game-ready');
-                    cleanupStartupGuards();
-                    console.log('Unification of the Nation - Game Loaded!');
-                });
-            } catch (err) {
-                failStartup('first-frame', err);
-            }
+                    game.loop(t);
+
+                    requestAnimationFrame(() => {
+                        if (startupFailed) return;
+                        document.body.classList.add('game-ready');
+                        cleanupStartupGuards();
+                        console.log('Unification of the Nation - Game Loaded!');
+                    });
+                } catch (err) {
+                    failStartup('first-frame', err);
+                }
+            });
+        }).catch(err => {
+            failStartup('font-load', err);
         });
     } catch (err) {
         failStartup('init', err);
