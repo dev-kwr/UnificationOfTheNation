@@ -2666,7 +2666,7 @@ export class Odachi extends SubWeapon {
 
         this.damage = damages[this.enhanceTier] || damages[0];
         // 待機時間を撤廃し、モーション時間自体をCDとする
-        this.cooldown = cooldowns[this.enhanceTier] || cooldowns[0];
+        this.cooldown = this.isShogunOdachi ? 1100 : (cooldowns[this.enhanceTier] || cooldowns[0]);
         this.totalDuration = this.cooldown;
         this.odachiJumpVy = jumps[this.enhanceTier] || jumps[0];
 

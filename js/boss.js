@@ -1279,6 +1279,7 @@ export class Shogun extends Boss {
             kusarigama: createSubWeapon('鎖鎌'),
             odachi:     createSubWeapon('大太刀'),
         };
+        this._subWeaponInstances.odachi.isShogunOdachi = true;
         this.applyScaleToSubWeapons();
 
         this.isCrouching  = false;
@@ -1391,7 +1392,12 @@ export class Shogun extends Boss {
     update(deltaTime, player) {
         // サブ技タイマーが残っている間は必ず攻撃更新を継続する
         // （isAttackingが先にfalseになると_subTimerが減らず行動停止するため）
-        if (this._attackTimer > 0 || this._subTimer > 0) {
+        const odachi = this._subWeaponInstances.odachi;
+        const kusa = this._subWeaponInstances.kusarigama;
+        const isLingeringSub = (this._subWeaponKey === 'odachi' && odachi && odachi.isAttacking) ||
+                              (this._subWeaponKey === 'kusarigama' && kusa && kusa.isAttacking);
+
+        if (this._attackTimer > 0 || this._subTimer > 0 || isLingeringSub) {
             this.isAttacking = true;
         }
         if (this._comboFinisherAirLockTimer > 0) {
@@ -1948,8 +1954,8 @@ export class Shogun extends Boss {
                     this._subAction    = null;
                     this._subWeaponKey = null;
                     this._dualZPendingSteps = null;
+                    this.isAttacking   = false;
                 }
-                this.isAttacking   = false;
                 this._currentAttackProfile = null;
                 this.attackCooldown = Math.max(this.attackCooldown, 300);
             }
@@ -2117,6 +2123,10 @@ export class Shogun extends Boss {
     }
 
     renderBody(ctx) {
+        const odachi = this._subWeaponInstances.odachi;
+        const kusa = this._subWeaponInstances.kusarigama;
+        const isLingeringSub = (this._subWeaponKey === 'odachi' && odachi && odachi.isAttacking) ||
+                              (this._subWeaponKey === 'kusarigama' && kusa && kusa.isAttacking);
         const i = 0;
 
         const saved = {
@@ -2212,7 +2222,7 @@ export class Shogun extends Boss {
             this.actor.subWeaponAction = null;
             this.actor.currentSubWeapon = null;
 
-        } else if (this._subTimer > 0 && this._subAction) {
+        } else if ((this._subTimer > 0 || isLingeringSub) && this._subAction) {
             const subInst = this._subWeaponKey
                 ? this._subWeaponInstances[this._subWeaponKey]
                 : (() => {
