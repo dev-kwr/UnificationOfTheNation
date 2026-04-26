@@ -1223,7 +1223,7 @@ export function applyRendererMixin(PlayerClass) {
                 preElbowY += preNY * preBend * dir + 0.25;
         }
         const idleLeftBladeAnglePre = isCrouchPose ? -0.32 : -0.65;
-        if (alpha > 0) {
+        if (alpha > 0 && !options.hideBodyParts) {
             let armOverridden = false;
             if (typeof options.drawArmOverride === 'function') {
                 if (options.drawArmOverride(ctx, {
@@ -1285,6 +1285,7 @@ export function applyRendererMixin(PlayerClass) {
 	        
 	        const drawTorsoSegment = (withOutline = true, alphaVal = alpha) => {
             if (alphaVal <= 0) return;
+            if (options.hideBodyParts) return;
             // 将軍等のパーツ差し替えフック
             if (typeof options.drawTorsoOverride === 'function') {
                 options.drawTorsoOverride(ctx, {
@@ -1330,6 +1331,7 @@ export function applyRendererMixin(PlayerClass) {
             withOutline = true
         ) => {
             if (alpha <= 0) return;
+            if (options.hideBodyParts) return;
             const defaultOverlayInFront = ((hipX - torsoHipX) * dir) <= 0;
             const willOverlay = storeForOverlay && (overlayInFront === null ? defaultOverlayInFront : overlayInFront);
 
@@ -1962,7 +1964,7 @@ export function applyRendererMixin(PlayerClass) {
         }
 
         // 脚描画完了後に胴体の上にパーツを重ねるオーバーレイフック（脚付け根を覆う草摺など）
-        if (typeof options.drawTorsoOverlayOverride === 'function') {
+        if (!options.hideBodyParts && typeof options.drawTorsoOverlayOverride === 'function') {
             options.drawTorsoOverlayOverride(ctx, {
                 torsoShoulderX, bodyTopY, torsoHipX, hipY, dir,
                 silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor,
@@ -1994,6 +1996,7 @@ export function applyRendererMixin(PlayerClass) {
         };
         const drawHeadSilhouetteWithOutline = () => {
             if (alpha <= 0) return;
+            if (options.hideBodyParts) return;
             // 将軍等のパーツ差し替えフック
             if (typeof options.drawHeadOverride === 'function') {
                 options.drawHeadOverride(ctx, {
@@ -2228,6 +2231,7 @@ export function applyRendererMixin(PlayerClass) {
             optionsInner = {}
         ) => {
             if (alpha <= 0) return;
+            if (options.hideBodyParts) return;
 
             // 特殊パーツ用オーバーライド（籠手など）
             if (typeof options.drawArmOverride === 'function') {
@@ -2288,6 +2292,7 @@ export function applyRendererMixin(PlayerClass) {
         };
         const drawHand = (xPos, yPos, radius = 4.5, connectFrom = null, isBackHand = false) => {
             if (alpha <= 0) return;
+            if (options.hideBodyParts) return;
             if (typeof options.drawHandOverride === 'function') {
                 if (options.drawHandOverride(ctx, { 
                     xPos, yPos, radius, connectFrom, alpha, dir, 
@@ -2570,6 +2575,7 @@ export function applyRendererMixin(PlayerClass) {
             upperWidth = 6,
             foreWidth = 5.2
         ) => {
+            if (options.hideBodyParts) return;
             if (alpha <= 0) return;
             if (typeof options.drawArmOverride === 'function') {
                 const headDir = Math.sign(handX - shoulderX) || 1;
@@ -2608,7 +2614,9 @@ export function applyRendererMixin(PlayerClass) {
             bendScale = 1
         ) => {
             if (alpha <= 0) return;
+            if (options.hideBodyParts) return;
             if (typeof options.drawArmOverride === 'function') {
+
                 if (options.drawArmOverride(ctx, {
                     shoulderX, shoulderY: shoulderYLocal, handX, handY, bendDir, bendScale, elbowRadius: width * 0.5, optionsInner: { preferUpwardElbow: true },
                     alpha, dir, silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand
@@ -2660,6 +2668,7 @@ export function applyRendererMixin(PlayerClass) {
 
         const drawHand = (xPos, yPos, radius = 4.8, connectFrom = null) => {
             if (alpha <= 0) return;
+            if (options.hideBodyParts) return;
             const handR = radius * handRadiusScale;
             if (typeof options.drawHandOverride === 'function') {
                 if (options.drawHandOverride(ctx, { 
@@ -2735,6 +2744,7 @@ export function applyRendererMixin(PlayerClass) {
             alpha = 1.0
         ) => {
             if (alpha <= 0) return;
+            if (options.hideBodyParts) return;
             if (typeof options.drawArmOverride === 'function') {
                 const t = Math.max(0, Math.min(1, straightenT));
                 if (options.drawArmOverride(ctx, {
@@ -2863,7 +2873,21 @@ export function applyRendererMixin(PlayerClass) {
 
             // 槍本体は奥手と手前手の間に描画する
             if (drawFrontLayer && renderWeaponVisuals && this.currentSubWeapon && typeof this.currentSubWeapon.render === 'function') {
-                this.currentSubWeapon.render(ctx, this);
+                // weaponRenderScale: 将軍の2.5D拡大スケールのエフェクトをプレイヤー相当に補正
+                const weaponRenderScale = options.weaponRenderScale;
+                if (weaponRenderScale && Math.abs(weaponRenderScale - 1) > 0.001) {
+                    const invS = 1 / weaponRenderScale;
+                    const anchorX = this.x + this.width * 0.5;
+                    const anchorY = this.y + this.height * 0.5;
+                    ctx.save();
+                    ctx.translate(anchorX, anchorY);
+                    ctx.scale(invS, invS);
+                    ctx.translate(-anchorX, -anchorY);
+                    this.currentSubWeapon.render(ctx, this);
+                    ctx.restore();
+                } else {
+                    this.currentSubWeapon.render(ctx, this);
+                }
                 this.subWeaponRenderedInModel = true;
             }
 
@@ -3604,7 +3628,21 @@ export function applyRendererMixin(PlayerClass) {
 
             // 本体の手前に持つ見た目を作るため、奥手の後に大太刀を描く
             if (drawFrontLayer && renderWeaponVisuals && odachi && typeof odachi.render === 'function') {
-                odachi.render(ctx, this);
+                // yawSkewCancel: 将軍の2.5D変換で生じる傾きをキャンセルして大太刀を垂直に描画
+                // renderWithShogunTransform は Shear(-yawSkew/0.982) · Scale(1/0.982) を適用するので
+                // 逆変換は Scale(0.982) · Shear(+yawSkew/0.982) となる
+                const yawSkewCancel = options.yawSkewCancel;
+                if (yawSkewCancel) {
+                    ctx.save();
+                    ctx.translate(yawSkewCancel.pivotX, yawSkewCancel.pivotY);
+                    ctx.scale(0.982, 1);
+                    ctx.transform(1, 0, yawSkewCancel.yawSkew / 0.982, 1, 0, 0);
+                    ctx.translate(-yawSkewCancel.pivotX, -yawSkewCancel.pivotY);
+                    odachi.render(ctx, this);
+                    ctx.restore();
+                } else {
+                    odachi.render(ctx, this);
+                }
                 this.subWeaponRenderedInModel = true;
             }
 
@@ -3949,6 +3987,7 @@ export function applyRendererMixin(PlayerClass) {
         };
         const drawAttackHand = (xPos, yPos, radius = 4.8 * attackHandRadiusScale, connectFrom = null) => {
             if (alpha <= 0) return;
+            if (options.hideBodyParts) return;
             if (typeof options.drawHandOverride === 'function') {
                 if (options.drawHandOverride(ctx, { 
                     xPos, yPos, radius, connectFrom, alpha, dir, 
@@ -3968,6 +4007,7 @@ export function applyRendererMixin(PlayerClass) {
         };
         const drawAttackArmSegment = (fromX, fromY, toX, toY, width = attackArmStrokeWidth, withOutline = true) => {
             if (alpha <= 0) return;
+            if (options.hideBodyParts) return;
             // 微小な距離（0.1未満）の場合は描画をスキップ
             if (Math.hypot(toX - fromX, toY - fromY) < 0.1) return;
             if (typeof options.drawArmOverride === 'function') {
@@ -4006,6 +4046,7 @@ export function applyRendererMixin(PlayerClass) {
             foreLen = standardForeLen
         ) => {
             if (alpha <= 0) return;
+            if (options.hideBodyParts) return;
 
             // 特殊パーツ用オーバーライド（攻撃中も籠手を描画するため）
             if (typeof options.drawArmOverride === 'function') {

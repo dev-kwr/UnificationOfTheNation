@@ -385,19 +385,29 @@ export class ShurikenProjectile {
         this.rotation += this.rotationSpeed * dt;
         this.life -= dt * 1000;
 
-        // --- 地面判定（少し余裕を持たせる） ---
-        const groundY = (window.game && window.game.groundY) ? window.game.groundY : 480;
-        if (this.y >= groundY + LANE_OFFSET) this.isDestroyed = true;
+        // --- 地面・画面外判定 ---
+        // プレビューモード時は groundY が画面上端付近に設定されるため判定をスキップする
+        const isPreviewMode = !!(window.game && window.game.player && window.game.player.previewMode);
+        if (!isPreviewMode) {
+            const groundY = (window.game && window.game.groundY) ? window.game.groundY : 480;
+            if (this.y >= groundY + LANE_OFFSET) this.isDestroyed = true;
 
-        // --- 画面外判定（左右） ---
-        const scrollX = (window.game && window.game.scrollX) || 0;
-        if (this.x < scrollX - 40 || this.x > scrollX + CANVAS_WIDTH + 40) {
-            this.isDestroyed = true;
-        }
+            // --- 画面外判定（左右） ---
+            const scrollX = (window.game && window.game.scrollX) || 0;
+            if (this.x < scrollX - 40 || this.x > scrollX + CANVAS_WIDTH + 40) {
+                this.isDestroyed = true;
+            }
 
-        // ★追尾中は地面スレスレで下向き速度を抑える（突き刺さり防止）
-        if (this.homing && (groundY - this.y) < 50 && this.vy > 0) {
-            this.vy *= 0.3;
+            // ★追尾中は地面スレスレで下向き速度を抑える（突き刺さり防止）
+            if (this.homing && (groundY - this.y) < 50 && this.vy > 0) {
+                this.vy *= 0.3;
+            }
+        } else {
+            // プレビューモード：画面ワールド端（スケール3.5を考慮した描画範囲外）で消滅
+            const scrollX = (window.game && window.game.scrollX) || 0;
+            if (this.x < scrollX - 200 || this.x > scrollX + CANVAS_WIDTH + 200) {
+                this.isDestroyed = true;
+            }
         }
 
         if (this.life <= 0) this.isDestroyed = true;

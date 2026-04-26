@@ -11,15 +11,17 @@
             font-family: sans-serif;
             margin: 0;
             padding: 20px;
+            box-sizing: border-box;
         }
         canvas { 
             background-color: #2a2a2a; 
             box-shadow: 0 4px 12px rgba(0,0,0,0.8); 
-            margin-top: 10px;
+            margin: 10px auto 0;
             border: 1px solid #444;
+            display: block;
         }
         .controls { 
-            width: 800px;
+            width: 100%;
             margin: 20px auto 0;
             padding: 10px 14px;
             box-sizing: border-box;
@@ -45,6 +47,7 @@
             display: flex;
             align-items: center;
             gap: 10px;
+            flex-wrap: wrap;
         }
         button { 
             padding: 10px 20px; 
@@ -54,6 +57,7 @@
             border-radius: 4px;
             cursor: pointer; 
             font-size: 14px;
+            user-select: none;
         }
         button:hover {
             background-color: #555;
@@ -62,7 +66,8 @@
             background-color: #222;
             padding: 15px;
             margin: 20px auto;
-            width: 800px;
+            width: 100%;
+            box-sizing: border-box;
             border: 1px solid #444;
             display: flex;
             justify-content: space-between;
@@ -106,6 +111,7 @@
         <div class="control-buttons">
             <button id="btnIdle" class="btn">待機</button>
             <button id="btnWalk" class="btn">歩行</button>
+            <button id="btnHideBody" class="btn">キャラ非表示</button>
         </div>
     </div>
     <canvas id="previewCanvas" width="800" height="500"></canvas>
@@ -190,12 +196,18 @@
         // 状態フラグ
         let lastTime = performance.now();
         let isPreviewPaused = false;
+        let isBodyHidden = false;
         let isWalking = false;
         let walkDirection = 0;
         let previewComboStep = 0;
         let previewComboResetTimer = 0;
         let queuedDualAttack = false;
         const heldMoveKeys = new Set();
+        let isDashing = false;
+        let isShiftHeld = false;
+        let lastTapTime = 0;
+        let lastTapKey = '';
+        const DOUBLE_TAP_THRESHOLD = 250;
         const subWeapons = ['shuriken', 'bomb', 'spear', 'dual', 'kusarigama', 'odachi']; // 解除状態はなし（6種類）
         let subIndex = 0;
         const selectedSubWeaponLabel = document.getElementById('selectedSubWeapon');
@@ -403,13 +415,22 @@
             if (event.ctrlKey || event.metaKey || event.altKey) return true;
             const target = event.target;
             if (!target || !target.tagName) return false;
-            return ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(target.tagName);
+            // ボタンはmousedownのpreventDefaultでfocusを防いでいるので除外不要
+            return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
         };
         const triggerJump = () => {
             if (!shogun.isGrounded) return;
             shogun.vy = -14;
             shogun.isGrounded = false;
         };
+
+        document.getElementById('btnHideBody').addEventListener('click', () => {
+            isBodyHidden = !isBodyHidden;
+            shogun.hideBody = isBodyHidden;
+            const btn = document.getElementById('btnHideBody');
+            btn.style.background = isBodyHidden ? '#664' : '';
+            btn.style.color = isBodyHidden ? '#ffd' : '';
+        });
 
         document.getElementById('btnIdle').addEventListener('click', () => {
             stopMovement();
@@ -435,11 +456,16 @@
         window.addEventListener('keydown', (event) => {
             if (shouldIgnoreKeyboardInput(event)) return;
             const key = event.key.toLowerCase();
-            if (['z', 'x', 'c', ' ', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'a', 'd', 'escape'].includes(key)) {
+            if (['z', 'x', 'c', ' ', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'a', 'd', 'escape', 'shift'].includes(key)) {
                 event.preventDefault();
             }
             if (key === 'escape') {
                 if (!event.repeat) isPreviewPaused = !isPreviewPaused;
+                return;
+            }
+            if (key === 'shift') {
+                isShiftHeld = true;
+                isDashing = true;
                 return;
             }
             if (key === 'z') {
@@ -467,6 +493,15 @@
                 return;
             }
             if (key === 'arrowleft' || key === 'a' || key === 'arrowright' || key === 'd') {
+                if (!event.repeat) {
+                    const now = performance.now();
+                    const moveKeyGroup = (key === 'arrowleft' || key === 'a') ? 'left' : 'right';
+                    if (lastTapKey === moveKeyGroup && (now - lastTapTime) < DOUBLE_TAP_THRESHOLD) {
+                        isDashing = true;
+                    }
+                    lastTapTime = now;
+                    lastTapKey = moveKeyGroup;
+                }
                 heldMoveKeys.add(key);
                 isWalking = true;
                 syncWalkDirectionFromKeys();
@@ -475,12 +510,23 @@
 
         window.addEventListener('keyup', (event) => {
             const key = event.key.toLowerCase();
+            if (key === 'shift') {
+                isShiftHeld = false;
+                isDashing = false;
+                shogun.isDashing = false;
+                return;
+            }
             if (key === 'arrowleft' || key === 'a' || key === 'arrowright' || key === 'd') {
                 heldMoveKeys.delete(key);
                 syncWalkDirectionFromKeys();
                 if (heldMoveKeys.size === 0) {
                     isWalking = false;
                     walkDirection = 0;
+                    // Shiftが押されていない場合のみダッシュ解除
+                    if (!isShiftHeld) {
+                        isDashing = false;
+                        shogun.isDashing = false;
+                    }
                 }
             }
             if (key === 'arrowdown') {
@@ -495,7 +541,21 @@
         shogun._subWeaponKey = window._previewWeapon;
         syncSubIndexFromPreviewWeapon();
         syncPreviewWeaponDisplay();
-        
+
+        // ボタンクリック時にフォーカスを奪われないようにする
+        document.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('mousedown', e => e.preventDefault());
+        });
+
+        // キャンバス横幅をウィンドウ幅に合わせる（縦は500固定）
+        function resizeCanvas() {
+            const newW = Math.max(600, window.innerWidth - 48);
+            canvas.width = newW;
+            // 将軍をキャンバス中央に再配置
+            shogun.x = (canvas.width - shogun.width) / 2;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
         function loop(time) {
             const dt = Math.min((time - lastTime) / 1000, 0.1);
             lastTime = time;
@@ -515,8 +575,10 @@
                     ? walkDirection
                     : (isWalking ? (shogun.facingRight ? 1 : -1) : 0);
                 if (activeWalkDirection !== 0) {
+                    const walkSpeed = isDashing ? 4.0 : 1.8;
                     shogun.facingRight = activeWalkDirection > 0;
-                    shogun.vx = activeWalkDirection * 1.8;
+                    shogun.isDashing = isDashing;
+                    shogun.vx = activeWalkDirection * walkSpeed;
                     shogun.x += shogun.vx;
                     // 画面端ループ
                     if (shogun.x < 100) {

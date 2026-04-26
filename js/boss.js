@@ -1290,6 +1290,9 @@ export class Shogun extends Boss {
         this.getSubWeaponCloneOffsets = () => [];
         this.triggerCloneSubWeapon    = () => {};
         this.getFootY = () => this.y + this.height;
+
+        // 直前に使用した攻撃種別（連続同技防止）
+        this._lastAttackType = null;
     }
 
     applyScaleToSubWeapons() {
@@ -1358,15 +1361,28 @@ export class Shogun extends Boss {
             return;
         }
         // 遠距離(>300)ではフェイントのみ、中近距離では接近
+        // feintDirがプレイヤーと逆方向（-dir）の場合は逆方向には向かわず小さく留まる
         let desiredVX = 0;
         if (absX > 300) {
-            desiredVX = this.feintDir * this.speed * 0.35;
+            // フェイントがプレイヤー方向なら通常、逆なら減衰させてプレイヤーと反対側に行かせない
+            const feintContrib = this.feintDir * dir > 0
+                ? this.feintDir * this.speed * 0.35
+                : this.feintDir * this.speed * 0.10;
+            desiredVX = feintContrib;
+            // 遠距離でもプレイヤー方向に緩やかに近づく
+            desiredVX += dir * this.speed * 0.28;
         } else if (absX > this.attackRange * 1.05) {
             desiredVX = this.speed * 1.14 * dir;
         } else if (absX > this.attackRange * 0.55) {
             desiredVX = this.speed * 0.92 * dir;
         }
-        if (absX <= this.attackRange * 2.0) desiredVX += this.feintDir * this.speed * 0.44;
+        // 近距離フェイントも逆方向には行かない
+        if (absX <= this.attackRange * 2.0) {
+            const nearFeint = this.feintDir * dir > 0
+                ? this.feintDir * this.speed * 0.44
+                : this.feintDir * this.speed * 0.12;
+            desiredVX += nearFeint;
+        }
         desiredVX = Math.max(-this.speed * 1.42, Math.min(this.speed * 1.42, desiredVX));
         this.applyDesiredVx(desiredVX, 0.46);
         if (absX > this.attackRange * 1.08 && absX <= 300) this.tryJump(0.022, -15, 400);
@@ -1494,6 +1510,21 @@ export class Shogun extends Boss {
             }
         }
 
+        // 大太刀: _subTimer終了後も isAttacking=true の間（plantedTimer消化中）は
+        // update() を継続し、刺さり演出を最後まで再生する
+        {
+            const odachiInst = this._subWeaponInstances['odachi'];
+            if (odachiInst && typeof odachiInst.update === 'function') {
+                if (this._subWeaponKey === 'odachi' && this._subTimer <= 0 && odachiInst.isAttacking) {
+                    odachiInst.update(deltaTime);
+                    if (!odachiInst.isAttacking) {
+                        this._subAction    = null;
+                        this._subWeaponKey = null;
+                    }
+                }
+            }
+        }
+
         return false;
     }
 
@@ -1523,24 +1554,44 @@ export class Shogun extends Boss {
             dual:     this._getSubActionDurationMs('二刀_合体', 'dual'),
         };
 
+        // 重複なし選択ヘルパー: 前回と同じ技を除外してランダム選択
+        const pickFrom = (choices) => {
+            const filtered = choices.filter(c => c !== this._lastAttackType);
+            const pool = filtered.length > 0 ? filtered : choices;
+            return pool[Math.floor(Math.random() * pool.length)];
+        };
+
         let type;
-        if (dist > 300) {
-            // 遠距離: 手裏剣・二刀流X斬撃で牽制
-            type = Math.random() < 0.55 ? 'shuriken' : 'dual';
+        // 画面の端と端ほどの超遠距離（≈900px以上）: 大槍を強制使用
+        if (dist >= 900) {
+            type = 'spear';
+        } else if (dist > 300) {
+            // 遠距離: 手裏剣・二刀流X・鎖鎌
+            type = pickFrom(['shuriken', 'dual', 'kusarigama']);
         } else if (dist > 150) {
-            // 中距離: 爆弾・大槍・鎖鎌
-            const choices = ['bomb', 'bomb', 'spear', 'kusarigama', 'shuriken'];
-            type = choices[Math.floor(Math.random() * choices.length)];
+            // 中距離: 爆弾・大太刀
+            type = pickFrom(['bomb', 'odachi']);
         } else {
-            // 近距離: 通常Zコンボ・二刀流Z・大太刀・鎖鎌
-            const r = Math.random();
-            if (r < 0.38) {
+            // 近距離: 通常Zコンボ・二刀流Z（重複防止のため前回がcomboならdual_zを選ぶ）
+            const lastWasCombo = this._lastAttackType === 'combo';
+            const lastWasDualZ = this._lastAttackType === 'dual_z';
+            if (lastWasCombo) {
+                type = 'dual_z';
+            } else if (lastWasDualZ) {
                 this._comboPendingSteps = [1, 2, 3, 4, 5];
+                this._lastAttackType = 'combo';
                 this._startNextComboStep();
                 return;
+            } else {
+                // 初回またはその他 → ランダム
+                if (Math.random() < 0.5) {
+                    this._comboPendingSteps = [1, 2, 3, 4, 5];
+                    this._lastAttackType = 'combo';
+                    this._startNextComboStep();
+                    return;
+                }
+                type = 'dual_z';
             }
-            const choices = ['dual_z', 'dual_z', 'odachi', 'kusarigama', 'bomb'];
-            type = choices[Math.floor(Math.random() * choices.length)];
         }
 
         if (type === 'shuriken' || type === 'bomb') {
@@ -1554,6 +1605,7 @@ export class Shogun extends Boss {
             this._attackTimer  = 0;
             this._shurikenVisualTimer = (type === 'shuriken') ? throwDuration : 0;
             this.attackCooldown = 400;
+            this._lastAttackType = type;
             return;
         } else if (type === 'dual_z') {
             // 二刀流Zコンボ: 5段を1段ずつ_fireDualZNextStepで連続発動
@@ -1562,6 +1614,7 @@ export class Shogun extends Boss {
             this._shurikenVisualTimer = 0;
             this.attackCooldown = 500;
             this._dualZPendingSteps = [1, 2, 3, 4, 5];
+            this._lastAttackType = 'dual_z';
             this._fireDualZNextStep();
         } else {
             this._subWeaponKey = type;
@@ -1573,6 +1626,7 @@ export class Shogun extends Boss {
             this._shurikenVisualTimer = 0;
             this.attackTimer   = duration;
             this.attackCooldown = 400;
+            this._lastAttackType = type;
         }
     }
 
@@ -1886,7 +1940,11 @@ export class Shogun extends Boss {
                     && dualInst && dualInst.projectiles.length > 0;
                 // 手裏剣: projectile飛翔中は維持（update内でキーをクリアする）
                 const keepForShuriken = this._subWeaponKey === 'shuriken';
-                if (!keepForDual && !keepForShuriken) {
+                // 大太刀: plantedTimer消化中（isAttacking=true）は維持（update内でキーをクリアする）
+                const odachiInst2 = this._subWeaponInstances['odachi'];
+                const keepForOdachi = this._subWeaponKey === 'odachi'
+                    && odachiInst2 && odachiInst2.isAttacking;
+                if (!keepForDual && !keepForShuriken && !keepForOdachi) {
                     this._subAction    = null;
                     this._subWeaponKey = null;
                     this._dualZPendingSteps = null;
@@ -1902,6 +1960,15 @@ export class Shogun extends Boss {
                 this._subAction    = null;
                 this._subWeaponKey = null;
                 this._dualZPendingSteps = null;
+            }
+            this.isAttacking = false;
+        } else if (this._subWeaponKey === 'odachi') {
+            // subTimer=0でもplantedTimer消化中（isAttacking=true）は描画キー保持
+            // （isAttacking=falseになったらupdate内でキーをクリア済み）
+            const odachiInst3 = this._subWeaponInstances['odachi'];
+            if (!odachiInst3 || !odachiInst3.isAttacking) {
+                this._subAction    = null;
+                this._subWeaponKey = null;
             }
             this.isAttacking = false;
         } else {
@@ -2111,6 +2178,16 @@ export class Shogun extends Boss {
             drawArmOverride:          (ctx, p) => this._drawShogunArm(ctx, p),
             drawHandOverride:         (ctx, p) => this._drawShogunHand(ctx, p),
             drawLegOverride:          (ctx, p) => this._drawShogunLeg(ctx, p),
+            // 大太刀の傾きをキャンセルするための yawSkew 逆変換情報
+            yawSkewCancel: (() => {
+                const dir2d = this.facingRight ? 1 : -1;
+                const pivotX = this.x + this.width * 0.5;
+                const pivotY = this.y + this.height * 0.62;
+                const moveBias = Math.min(0.024, Math.abs(this.vx || 0) * 0.0038);
+                const attackBias = this.isAttacking ? 0.013 : 0;
+                const yawSkew = dir2d * (0.046 + moveBias + attackBias);
+                return { pivotX, pivotY, yawSkew };
+            })(),
         };
 
         // 将軍は戦闘判定レンジを拡大しているため、
@@ -2217,8 +2294,9 @@ export class Shogun extends Boss {
             ctx.restore();
         };
 
+        // コンボ斬撃トレイル（常時）
         const trailPoints = this.actor.specialCloneSlashTrailPoints[i];
-        if (trailPoints && trailPoints.length > 1) {
+        if (!this.hideBody && trailPoints && trailPoints.length > 1) {
             const trailScale = typeof this.actor.getXAttackTrailWidthScale === 'function'
                 ? this.actor.getXAttackTrailWidthScale()
                 : 1.0;
@@ -2239,22 +2317,28 @@ export class Shogun extends Boss {
             const deltaMs = (typeof this._lastDeltaMs === 'number') ? this._lastDeltaMs : 16;
             this.actor.updateDualBladeSlashTrails(deltaMs);
         }
-        if (typeof this.actor.renderDualBladeSlashTrails === 'function') {
+        if (!this.hideBody && typeof this.actor.renderDualBladeSlashTrails === 'function') {
             renderTrailWithShogunTransform(() => {
                 this.actor.renderDualBladeSlashTrails(ctx);
             });
         }
 
         // ── 陣羽織（じんばおり）背面描画 ──
-        // 戦国武将らしい和風の外套。キャラの背後に垂れる布として描画。
+        if (!this.hideBody) {
+            renderWithShogunTransform(() => {
+                // this._drawJinbaori(...)
+            });
+        }
+
+        // キャラ本体描画（hideBody時は hideBodyParts: true で体シルエットのみ非表示）
         renderWithShogunTransform(() => {
-            // 一旦マント（陣羽織）を非表示化
-            // this._drawJinbaori(ctx, actorRenderX, actorRenderY, actorRenderW, actorRenderH, this.facingRight);
+            this.actor.renderModel(ctx, actorRenderX, actorRenderY, this.facingRight, 1.0, true, {
+                ...renderOpts,
+                hideBodyParts: !!this.hideBody,
+            });
         });
 
-        renderWithShogunTransform(() => {
-            this.actor.renderModel(ctx, actorRenderX, actorRenderY, this.facingRight, 1.0, true, renderOpts);
-        });
+
 
         if (this._subTimer > 0 && this._subWeaponKey === 'kusarigama') {
             const kusaInst = this._subWeaponInstances['kusarigama'];
