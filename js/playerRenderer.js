@@ -637,12 +637,19 @@ export function applyRendererMixin(PlayerClass) {
     };
 
     PlayerClass.prototype.render = function(ctx, options = {}) {
+        const ghostVeilActive = options.ghostVeilActive || false;
+        const skipSpecialRender = options.skipSpecialRender || false;
+
+        // 将軍モード時は独自描画のみを行い、忍者の描画（残像含む）を一切スキップする
+        if (this.characterType === 'shogun') {
+            this._renderShogunBody(ctx, ghostVeilActive);
+            return;
+        }
+
         ctx.save();
         this.subWeaponRenderedInModel = false;
         this.dualBladeTrailAnchors = null;
-        const skipSpecialRender = options.skipSpecialRender === true;
         const filterParts = [];
-        const ghostVeilActive = this.isGhostVeilActive();
         const ghostSilhouetteAlpha = ghostVeilActive
             ? (
                 this.subWeaponAction === '大太刀' && this.subWeaponTimer > 0
