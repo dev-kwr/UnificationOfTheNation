@@ -763,52 +763,55 @@ export function applyRendererMixin(PlayerClass) {
     // shogun.renderBody(ctx) をそのまま呼び出す。
     // ═══════════════════════════════════════════════════════════════
     PlayerClass.prototype._renderShogunBody = function(ctx, ghostVeilActive) {
-        // _shogunBossInstance は shogunCombatHelper.js の initShogunInstances で生成済み
         if (!this._shogunBossInstance) return;
 
         const boss = this._shogunBossInstance;
+        const actor = boss.actor;
 
-        // ── プレイヤーの状態をボスに同期（プレビューと同じ原理） ──
+        // ── プレイヤーの状態をボスに同期 ──
         boss.x = this.x;
-        boss.y = this.y;
-        boss.width = this.width;
-        boss.height = this.height;
-        boss.vx = this.vx;
-        boss.vy = this.vy;
+        boss.y = this.y - 24; 
         boss.facingRight = this.facingRight;
         boss.isGrounded = this.isGrounded;
-        boss.isCrouching = this.isCrouching;
-        boss.isDashing = this.isDashing;
         boss.motionTime = this.motionTime;
         boss.groundY = this.groundY;
-        boss.hideBody = false;
 
-        // 攻撃状態の同期
+        if (actor) {
+            actor.groundY = this.groundY;
+            actor.isAttacking = this.isAttacking;
+            actor.facingRight = this.facingRight;
+        }
+
         boss.isAttacking = this.isAttacking;
         boss._attackTimer = this._shogunAttackTimer || 0;
         boss._comboStep = this._shogunComboStep || 0;
         boss._currentComboStep = this._shogunCurrentComboStep || 0;
-        boss._currentAttackProfile = this.currentAttack || null;
-        boss._comboPendingSteps = this._shogunComboPendingSteps || [];
-
-        // サブ武器状態の同期
         boss._subTimer = this._shogunSubTimer || 0;
         boss._subAction = this._shogunSubAction || null;
         boss._subWeaponKey = this._shogunSubWeaponKey || null;
-        boss._shurikenVisualTimer = this._shogunShurikenVisualTimer || 0;
 
-        // サブ武器インスタンスの共有（同一オブジェクトを参照）
+        if (ghostVeilActive) boss.hideBody = true;
+        else boss.hideBody = false;
+
         if (this._shogunSubWeaponInstances) {
             boss._subWeaponInstances = this._shogunSubWeaponInstances;
+            const currentSub = this._shogunSubWeaponKey ? this._shogunSubWeaponInstances[this._shogunSubWeaponKey] : null;
+            if (currentSub) {
+                currentSub._renderForceActive = true;
+            }
         }
 
-        // 透明化対応
-        if (ghostVeilActive) {
-            boss.hideBody = true;
-        }
-
-        // ── ボスの renderBody をそのまま呼ぶ ──
+        // ボスの renderBody をそのまま呼び出し
         boss.renderBody(ctx);
+
+        // 状態のリセット
+        if (this._shogunSubWeaponInstances) {
+            for (const key in this._shogunSubWeaponInstances) {
+                if (this._shogunSubWeaponInstances[key]) {
+                    delete this._shogunSubWeaponInstances[key]._renderForceActive;
+                }
+            }
+        }
     };
 
     PlayerClass.prototype.renderModel = function(ctx, x, y, facingRight, alpha = 1.0, renderSubWeaponVisualsInput = true, options = {}) {
