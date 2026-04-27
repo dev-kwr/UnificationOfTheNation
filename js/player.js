@@ -847,13 +847,18 @@ export class Player {
             if (!this.isCrouching) {
                 this.isCrouching = true;
                 // 高さが半分になるので、足元を合わせるためにyを下げる
-                this.y += PLAYER.HEIGHT / 2;
+                // 将軍は高さを変えないのでY補正も不要
+                if (this.characterType !== 'shogun') {
+                    this.y += PLAYER.HEIGHT / 2;
+                }
             }
             // しゃがみ歩き速度制限は移動コード側で適用（下記参照）
         } else if (this.isCrouching) {
             this.isCrouching = false;
             // 高さが戻るので、足元を合わせるためにyを上げる
-            this.y -= PLAYER.HEIGHT / 2;
+            if (this.characterType !== 'shogun') {
+                this.y -= PLAYER.HEIGHT / 2;
+            }
         }
         
         // 忍具（Xキー）
@@ -1675,7 +1680,10 @@ export class Player {
             if (!this.isGrounded) {
                 this.vy += GRAVITY;
             }
-            this.height = this.isCrouching ? PLAYER.HEIGHT / 2 : PLAYER.HEIGHT;
+            // 将軍は高さを変えない（レンダリングスケール崩壊防止）
+            if (this.characterType !== 'shogun') {
+                this.height = this.isCrouching ? PLAYER.HEIGHT / 2 : PLAYER.HEIGHT;
+            }
             this.vx *= 0.88;
             this.x += this.vx;
             this.y += this.vy;
@@ -1711,7 +1719,10 @@ export class Player {
         }
         
         // しゃがみ中は高さを半分に
-        this.height = this.isCrouching ? PLAYER.HEIGHT / 2 : PLAYER.HEIGHT;
+        // 将軍は高さを変えない（レンダリングスケール崩壊防止）
+        if (this.characterType !== 'shogun') {
+            this.height = this.isCrouching ? PLAYER.HEIGHT / 2 : PLAYER.HEIGHT;
+        }
 
         const colliders = Array.isArray(walls) ? walls : [];
         const comboStep = this.currentAttack ? (this.currentAttack.comboStep || 0) : 0;

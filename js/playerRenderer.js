@@ -729,11 +729,13 @@ export function applyRendererMixin(PlayerClass) {
         }
 
         // 本体描画
-        if (this.isUsingSpecial && this.specialCastTimer > 0) {
+        if (this.characterType === 'shogun') {
+            // ── 将軍モード: boss.js Shogun.renderBody と同一のパイプラインで描画 ──
+            this._renderShogunBody(ctx, ghostVeilActive);
+        } else if (this.isUsingSpecial && this.specialCastTimer > 0) {
             const castOptions = ghostVeilActive
                 ? { palette: { silhouette: `rgba(26, 26, 26, 0.0)` } }
                 : {};
-            // 隠れ身の術中は本体の色を透明にするため 0.0 を渡す。globalAlphaには影響させないことでアクセサリを維持。
             this.renderModel(ctx, this.x, this.y, this.facingRight, ghostVeilActive ? 0.0 : 1.0, false, {
                 ...castOptions,
                 ninNinPose: true,
@@ -743,7 +745,6 @@ export function applyRendererMixin(PlayerClass) {
             const renderOptions = ghostVeilActive
                 ? { palette: { silhouette: `rgba(26, 26, 26, 0.0)` } }
                 : {};
-            // 隠れ身の術中は本体の色を透明にするため 0.0 を渡す。globalAlphaには影響させないことでアクセサリを維持。
             this.renderModel(ctx, this.x, this.y, this.facingRight, ghostVeilActive ? 0.0 : 1.0, true, {
                 ...renderOptions,
                 headbandAlpha: ghostVeilActive ? 1.0 : undefined
@@ -753,6 +754,61 @@ export function applyRendererMixin(PlayerClass) {
         ctx.restore();
         ctx.filter = 'none';
         ctx.shadowBlur = 0;
+    };
+
+    // ═══════════════════════════════════════════════════════════════
+    // 将軍モード本体描画
+    // shogun_preview.html と同一の原理:
+    // 内部に Shogun ボスインスタンスを保持し、プレイヤーの状態を同期した上で
+    // shogun.renderBody(ctx) をそのまま呼び出す。
+    // ═══════════════════════════════════════════════════════════════
+    PlayerClass.prototype._renderShogunBody = function(ctx, ghostVeilActive) {
+        // _shogunBossInstance は shogunCombatHelper.js の initShogunInstances で生成済み
+        if (!this._shogunBossInstance) return;
+
+        const boss = this._shogunBossInstance;
+
+        // ── プレイヤーの状態をボスに同期（プレビューと同じ原理） ──
+        boss.x = this.x;
+        boss.y = this.y;
+        boss.width = this.width;
+        boss.height = this.height;
+        boss.vx = this.vx;
+        boss.vy = this.vy;
+        boss.facingRight = this.facingRight;
+        boss.isGrounded = this.isGrounded;
+        boss.isCrouching = this.isCrouching;
+        boss.isDashing = this.isDashing;
+        boss.motionTime = this.motionTime;
+        boss.groundY = this.groundY;
+        boss.hideBody = false;
+
+        // 攻撃状態の同期
+        boss.isAttacking = this.isAttacking;
+        boss._attackTimer = this._shogunAttackTimer || 0;
+        boss._comboStep = this._shogunComboStep || 0;
+        boss._currentComboStep = this._shogunCurrentComboStep || 0;
+        boss._currentAttackProfile = this.currentAttack || null;
+        boss._comboPendingSteps = this._shogunComboPendingSteps || [];
+
+        // サブ武器状態の同期
+        boss._subTimer = this._shogunSubTimer || 0;
+        boss._subAction = this._shogunSubAction || null;
+        boss._subWeaponKey = this._shogunSubWeaponKey || null;
+        boss._shurikenVisualTimer = this._shogunShurikenVisualTimer || 0;
+
+        // サブ武器インスタンスの共有（同一オブジェクトを参照）
+        if (this._shogunSubWeaponInstances) {
+            boss._subWeaponInstances = this._shogunSubWeaponInstances;
+        }
+
+        // 透明化対応
+        if (ghostVeilActive) {
+            boss.hideBody = true;
+        }
+
+        // ── ボスの renderBody をそのまま呼ぶ ──
+        boss.renderBody(ctx);
     };
 
     PlayerClass.prototype.renderModel = function(ctx, x, y, facingRight, alpha = 1.0, renderSubWeaponVisualsInput = true, options = {}) {
@@ -775,10 +831,11 @@ export function applyRendererMixin(PlayerClass) {
         const accessoryHairNodes = Array.isArray(options.hairNodes) ? options.hairNodes : this.hairNodes;
         const accessoryScarfNodes = Array.isArray(options.scarfNodes) ? options.scarfNodes : this.scarfNodes;
 
-        const useShogunTransform = this.characterType === 'shogun';
+        // 将軍の変換は render() 側で外部適用するため、renderModel内部では適用しない
+        const useShogunTransform = (this.characterType === 'shogun') && !options._shogunExternalTransform;
         const scale = this.scaleMultiplier || 1.0;
         
-        // 描画用の基準サイズ（ボスの元サイズである 48x72 に固定）
+        // 描画用の基準サイズ（常に標準プレイヤーサイズ 48x72）
         const drawW = 48;
         const drawH = 72;
 
@@ -797,11 +854,11 @@ export function applyRendererMixin(PlayerClass) {
             options.renderScarf = false;
             options.headbandAlpha = 0;
 
-            // 将軍は頭身を高く（ボス仕様: 直径比 0.188*2=0.376）
-            options.headRatio = options.headRatio || (0.188 * 2);
-            options.headScale = options.headScale || 1.0;
-            options.hipLiftPx = options.hipLiftPx || 1.5;
-            options.armReachScale = options.armReachScale || 1.25;
+            // 将軍の頭身パラメータ（boss.js renderBody の renderOpts と完全一致）
+            // headRatio はボスと同じくデフォルト値(14*2/60)を使用（明示指定しない）
+            options.headScale = options.headScale || 0.80;
+            options.hipLiftPx = options.hipLiftPx || 8.00;
+            options.armReachScale = options.armReachScale || 1.08;
             options.crouchIntensity = 0.35;
         }
 
@@ -810,10 +867,13 @@ export function applyRendererMixin(PlayerClass) {
         const originalW = this.width;
         const originalH = this.height;
 
-        // 将軍モードの場合、物理サイズ(105x158)と描画サイズ(48x72)の差分を考慮して描画位置をオフセット
-        // これにより、足元が地面にピッタリ合うようになる
-        const renderX = useShogunTransform ? (x + (this.width - drawW) * 0.5) : x;
-        const renderY = useShogunTransform ? (y + (this.height - drawH) * 0.62) : y;
+        // 将軍モードの場合、actorBase(40x60)を基準にオフセットを計算（boss.js renderBody と同一式）
+        // renderModel内部でwidth/heightは drawW/drawH (48x72) に上書きされるが、
+        // 配置はボスの actorBaseWidth/Height 基準で行う
+        const SHOGUN_ACTOR_BASE_W = 40;
+        const SHOGUN_ACTOR_BASE_H = 60;
+        const renderX = useShogunTransform ? (x + (this.width - SHOGUN_ACTOR_BASE_W) * 0.5) : x;
+        const renderY = useShogunTransform ? (y + (this.height - SHOGUN_ACTOR_BASE_H) * 0.62) : y;
 
         this.x = renderX;
         this.y = renderY;
