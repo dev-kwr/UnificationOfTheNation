@@ -11,8 +11,10 @@ import {
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
 } from './playerData.js';
+import { applyShogunRendererMixin } from './shogunRendererHelper.js';
 
 export function applyRendererMixin(PlayerClass) {
+    applyShogunRendererMixin(PlayerClass);
 
     PlayerClass.prototype.getKatanaBladeLength = function() {
         // 剣筋の弧に刃先が届く長さで統一
@@ -773,18 +775,75 @@ export function applyRendererMixin(PlayerClass) {
         const accessoryHairNodes = Array.isArray(options.hairNodes) ? options.hairNodes : this.hairNodes;
         const accessoryScarfNodes = Array.isArray(options.scarfNodes) ? options.scarfNodes : this.scarfNodes;
 
+        const useShogunTransform = this.characterType === 'shogun';
+        const scale = this.scaleMultiplier || 1.0;
+        
+        // 描画用の基準サイズ（ボスの元サイズである 48x72 に固定）
+        const drawW = 48;
+        const drawH = 72;
+
+        if (useShogunTransform) {
+            options.drawTorsoOverride = options.drawTorsoOverride || ((ctx, p) => this._drawShogunTorso(ctx, p));
+            options.drawTorsoOverlayOverride = options.drawTorsoOverlayOverride || ((ctx, p) => this._drawShogunTorsoOverlay(ctx, p));
+            options.drawHeadOverride = options.drawHeadOverride || ((ctx, p) => this._drawShogunHead(ctx, p));
+            options.drawArmOverride = options.drawArmOverride || ((ctx, p) => this._drawShogunArm(ctx, p));
+            options.drawHandOverride = options.drawHandOverride || ((ctx, p) => this._drawShogunHand(ctx, p));
+            options.drawLegOverride = options.drawLegOverride || ((ctx, p) => this._drawShogunLeg(ctx, p));
+            
+            // 将軍は鉢巻や髪を描画しない
+            options.renderHeadband = false;
+            options.renderHeadbandTail = false;
+            options.renderHair = false;
+            options.renderScarf = false;
+            options.headbandAlpha = 0;
+
+            // 将軍は頭身を高く（ボス仕様: 直径比 0.188*2=0.376）
+            options.headRatio = options.headRatio || (0.188 * 2);
+            options.headScale = options.headScale || 1.0;
+            options.hipLiftPx = options.hipLiftPx || 1.5;
+            options.armReachScale = options.armReachScale || 1.25;
+            options.crouchIntensity = 0.35;
+        }
+
         const originalX = this.x;
         const originalY = this.y;
-        this.x = x;
-        this.y = y;
+        const originalW = this.width;
+        const originalH = this.height;
+
+        // 将軍モードの場合、物理サイズ(105x158)と描画サイズ(48x72)の差分を考慮して描画位置をオフセット
+        // これにより、足元が地面にピッタリ合うようになる
+        const renderX = useShogunTransform ? (x + (this.width - drawW) * 0.5) : x;
+        const renderY = useShogunTransform ? (y + (this.height - drawH) * 0.62) : y;
+
+        this.x = renderX;
+        this.y = renderY;
+        this.width = drawW;
+        this.height = drawH;
+
+        if (useShogunTransform) {
+            const pivotX = x + originalW * 0.5;
+            const pivotY = y + originalH * 0.62;
+            const yawSkew = this.shogunYawSkew || 0;
+
+            ctx.save();
+            ctx.translate(pivotX, pivotY);
+            // 将軍特有の斜めパース変形
+            ctx.transform(1, 0, -yawSkew / 0.982, 1, 0, 0);
+            ctx.scale(scale / 0.982, scale);
+            ctx.translate(-pivotX, -pivotY);
+
+            // 陣羽織（背面）
+            this._drawShogunJinbaori(ctx, renderX, renderY, drawW, drawH, facingRight);
+        }
+
         this.forceSubWeaponRender = forceSubWeaponRender;
 
         const isSilhouetteMode = options.silhouetteMode === true;
         const isNinNinPose = options.ninNinPose === true;
 
         // 変数定義
-        const centerX = x + this.width / 2;
-        const bottomY = y + this.height - 2;
+        const centerX = renderX + drawW / 2;
+        const bottomY = renderY + drawH - 2;
         const dir = facingRight ? 1 : -1;
         const state = options.state || this;
         const time = state.motionTime !== undefined ? state.motionTime : this.motionTime;
@@ -2434,6 +2493,11 @@ export function applyRendererMixin(PlayerClass) {
 
 	    this.x = originalX;
     this.y = originalY;
+    this.width = originalW;
+    this.height = originalH;
+    if (this.characterType === 'shogun') {
+        ctx.restore();
+    }
     ctx.restore();
 }
 
@@ -4852,5 +4916,51 @@ export function applyRendererMixin(PlayerClass) {
 
 
         ctx.restore();
+    };
+
+    // 陣羽織（じんばおり）
+    PlayerClass.prototype._drawShogunJinbaori = function(ctx, x, y, width, height, facingRight) {
+        const dir = facingRight ? 1 : -1;
+        const centerX = x + width * 0.5;
+        const shoulderY = y + height * 0.35; 
+        const hemY = y + height * 0.92;
+        const backDir = -dir;
+        const shoulderBackX = centerX + backDir * width * 0.22;
+        const shoulderFrontX = centerX + backDir * width * 0.04;
+        const hemBackX = shoulderBackX + backDir * width * 0.12;
+        const hemFrontX = shoulderFrontX - backDir * width * 0.04;
+
+        const grad = ctx.createLinearGradient(centerX, shoulderY, centerX, hemY);
+        grad.addColorStop(0, '#0c0c12');
+        grad.addColorStop(0.6, '#0e1018');
+        grad.addColorStop(1, '#12141e');
+
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(shoulderFrontX, shoulderY);
+        ctx.lineTo(shoulderBackX, shoulderY - 0.5);
+        ctx.quadraticCurveTo(hemBackX + backDir * 2, shoulderY + (hemY - shoulderY) * 0.5, hemBackX, hemY);
+        ctx.lineTo(hemFrontX, hemY);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.strokeStyle = '#dcb854';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(hemBackX, hemY);
+        ctx.lineTo(hemFrontX, hemY);
+        ctx.stroke();
+
+        const monX = (shoulderBackX + shoulderFrontX) * 0.5 + backDir * 1.5;
+        const monY = shoulderY + (hemY - shoulderY) * 0.4;
+        const monSize = 3.5;
+        ctx.fillStyle = 'rgba(220, 184, 84, 0.22)';
+        ctx.beginPath();
+        ctx.moveTo(monX, monY - monSize);
+        ctx.lineTo(monX + monSize * 0.8, monY);
+        ctx.lineTo(monX, monY + monSize);
+        ctx.lineTo(monX - monSize * 0.8, monY);
+        ctx.closePath();
+        ctx.fill();
     };
 }

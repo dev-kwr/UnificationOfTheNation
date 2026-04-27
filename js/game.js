@@ -13,6 +13,7 @@ import { saveManager } from './save.js';
 import { shop } from './shop.js';
 import { audio } from './audio.js';
 import { ShadowRenderer } from './shadow.js';
+import { applyShogunCombat } from './shogunCombatHelper.js';
 
 const DAMAGE_NUMBER_DESCENT_FADE_MIN_SPAN = 24;
 const DAMAGE_NUMBER_GROUND_Y_OFFSET = 2;
@@ -263,6 +264,7 @@ class Game {
             specialClone: 0,
             money: 0,
             startWeapon: '手裏剣',
+            characterType: 'ninja',
             ownedWeapons: {
                 '手裏剣': true,
                 '火薬玉': false,
@@ -453,6 +455,13 @@ class Game {
                 }
             },
             {
+                label: '操作キャラ',
+                getValue: () => (cfg.characterType === 'shogun' ? '将軍' : '忍者'),
+                change: (delta) => {
+                    cfg.characterType = cfg.characterType === 'shogun' ? 'ninja' : 'shogun';
+                }
+            },
+            {
                 label: 'ステータス画面表示',
                 getValue: () => '実行',
                 action: () => {
@@ -524,6 +533,15 @@ class Game {
         const cfg = this.titleDebugConfig;
 
         this.player.progression.normalCombo = Math.max(0, Math.min(3, cfg.normalCombo || 0));
+        
+        // 操作キャラ反映
+        const prevType = this.player.characterType;
+        this.player.characterType = cfg.characterType || 'ninja';
+        if (this.player.characterType !== prevType) {
+            // 再適用（スケールやステータスの更新）
+            applyShogunCombat(this.player);
+        }
+
         this.player.progression.subWeapon = Math.max(0, Math.min(3, cfg.subWeapon || 0));
         this.player.progression.specialClone = Math.max(0, Math.min(3, cfg.specialClone || 0));
         if (typeof this.player.rebuildSpecialCloneSlots === 'function') this.player.rebuildSpecialCloneSlots();
@@ -910,10 +928,12 @@ class Game {
             audio.playSelect();
             return;
         }
-        if (input.isActionJustPressed('LEFT') || input.isActionJustPressed('RIGHT')) {
-            if (this.hasSave) {
-                this.difficultyIndex = (this.difficultyIndex + 1) % this.difficultyKeys.length;
-                this.updateDifficulty();
+        
+        // 操作キャラ切り替え (クリア済みの場合)
+        const globalData = saveManager.loadGlobal();
+        if (globalData.isGameCleared) {
+            if (input.isActionJustPressed('SWITCH_WEAPON')) {
+                this.titleDebugConfig.characterType = this.titleDebugConfig.characterType === 'shogun' ? 'ninja' : 'shogun';
                 audio.playSelect();
                 return;
             }
@@ -991,6 +1011,18 @@ class Game {
                 this.updateDifficulty();
                 audio.playSelect();
                 return;
+            }
+
+            // 操作キャラ変更エリア判定 (クリア済みの場合)
+            const globalData = saveManager.loadGlobal();
+            if (globalData.isGameCleared && layout.characterY) {
+                const charHalfW = layout.diffButton.width * 0.5 + 17;
+                const charHalfH = layout.diffButton.height * 0.5 + 10;
+                if (Math.abs(tX - centerX) <= charHalfW && Math.abs(tY - layout.characterY) <= charHalfH) {
+                    this.titleDebugConfig.characterType = this.titleDebugConfig.characterType === 'shogun' ? 'ninja' : 'shogun';
+                    audio.playSelect();
+                    return;
+                }
             }
 
             // 開始ボタン押下時のみ開始 (判定を広めに)
@@ -3926,6 +3958,9 @@ class Game {
         if (this.player && typeof this.player.resetTemporaryNinjutsuTimers === 'function') {
             this.player.resetTemporaryNinjutsuTimers();
         }
+        
+        // クリアフラグをグローバル保存
+        saveManager.saveGlobal({ isGameCleared: true });
     }
 
     resetStageClearAutoSubWeaponTimer(isPhaseOne = false) {
@@ -4017,7 +4052,7 @@ class Game {
 
         switch (this.state) {
             case GAME_STATE.TITLE:
-                renderTitleScreen(this.ctx, this.difficulty, this.titleMenuIndex, this.hasSave);
+                renderTitleScreen(this.ctx, this.difficulty, this.titleMenuIndex, this.hasSave, this.titleDebugConfig.characterType);
                 if (this.titleDebugOpen) {
                     const entries = this.getTitleDebugEntries().map((entry) => ({
                         label: entry.label,

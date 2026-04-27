@@ -177,6 +177,28 @@ export class SaveManager {
             unlockedWeapons: saveData.progress.unlockedWeapons,
         };
     }
+
+    // グローバル設定（クリアフラグ等）の保存
+    saveGlobal(data) {
+        try {
+            const current = this.loadGlobal();
+            const next = { ...current, ...data };
+            localStorage.setItem('ninjaActionGlobal', JSON.stringify(next));
+        } catch (e) {
+            console.error('Failed to save global data:', e);
+        }
+    }
+
+    // グローバル設定のロード
+    loadGlobal() {
+        try {
+            const globalString = localStorage.getItem('ninjaActionGlobal');
+            return globalString ? JSON.parse(globalString) : { isGameCleared: false };
+        } catch (e) {
+            console.error('Failed to load global data:', e);
+            return { isGameCleared: false };
+        }
+    }
 }
 
 // シングルトンインスタンス

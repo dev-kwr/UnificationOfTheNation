@@ -18,16 +18,24 @@ import {
 import { applyRendererMixin }    from './playerRenderer.js';
 import { applySlashTrailMixin }  from './playerSlashTrail.js';
 import { applySpecialMixin }     from './playerSpecial.js';
+import { applyShogunCombat }    from './shogunCombatHelper.js';
 
 export { ANIM_STATE };
 
 export class Player {
     constructor(x, y, groundY) {
+        // キャラクタータイプ ('ninja' or 'shogun')
+        this.characterType = 'ninja';
+        this.scaleMultiplier = 1.0;
+        
         // 位置・サイズ
         this.x = x;
         this.y = y;
         this.width = PLAYER.WIDTH;
         this.height = PLAYER.HEIGHT;
+
+        // 将軍コンバットの適用（メソッド上書きなどの準備）
+        applyShogunCombat(this);
         
         // 速度
         this.vx = 0;

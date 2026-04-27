@@ -5,6 +5,7 @@
 import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD } from './constants.js';
 import { input } from './input.js';
 import { audio } from './audio.js';
+import { saveManager } from './save.js';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -446,12 +447,15 @@ export function getTitleScreenLayout() {
     const diffY = CANVAS_HEIGHT / 2 + 64;
     const startY = diffY + 108;
     const buttonGap = 64;
+    const isGameCleared = typeof saveManager !== 'undefined' && saveManager.loadGlobal().isGameCleared;
+    
     return {
         centerX,
         diffY,
-        startY,
-        newGameY: startY + buttonGap,
-        singleStartY: startY + buttonGap * 0.5,
+        characterY: isGameCleared ? diffY + 54 : null,
+        startY: isGameCleared ? startY + 54 : startY,
+        newGameY: (isGameCleared ? startY + 54 : startY) + buttonGap,
+        singleStartY: (isGameCleared ? startY + 54 : startY) + buttonGap * 0.5,
         diffButton: { width: 230, height: 44 },
         actionButton: { width: 280, height: 48 }
     };
@@ -1311,7 +1315,7 @@ export class UI {
 }
 
 // タイトル画面描画
-export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, hasSave = false) {
+export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, hasSave = false, characterType = 'ninja') {
     const time = Date.now();
     const t = time * 0.001;
 
@@ -1443,6 +1447,24 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
             font: '700 21px sans-serif'
         }
     );
+
+    const globalData = saveManager.loadGlobal();
+    if (globalData.isGameCleared && layout.characterY) {
+        const isShogun = characterType === 'shogun';
+        drawRoundedFlatTitleButton(
+            ctx,
+            layout.centerX,
+            layout.characterY,
+            layout.diffButton.width,
+            layout.diffButton.height,
+            isShogun ? '操作キャラ: 将軍' : '操作キャラ: 忍者',
+            {
+                fill: isShogun ? '#aa4444' : '#4444aa',
+                border: 'rgba(245, 246, 255, 0.5)',
+                font: '700 18px sans-serif'
+            }
+        );
+    }
 
     // 開始ボタン（続きから / 最初から）
     const startY = layout.startY;
