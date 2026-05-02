@@ -810,6 +810,7 @@ export function applyRendererMixin(PlayerClass) {
 
         // ボスの renderBody をそのまま呼び出し
         boss.renderBody(ctx);
+        this.subWeaponRenderedInModel = true;
 
         // 状態のリセット
         if (this._shogunSubWeaponInstances) {
