@@ -360,6 +360,7 @@ export class ShurikenProjectile {
                         closest = e;
                     }
                 }
+                if (Math.random() < 0.1) console.log('[手裏剣DEBUG] homing target found:', closest);
                 const dx = (closest.x + (closest.width || 30) / 2) - this.x;
                 const dy = (closest.y + (closest.height || 30) / 2) - this.y;
                 const targetAngle = Math.atan2(dy, dx);

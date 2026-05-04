@@ -1389,7 +1389,7 @@ export class Shogun extends Boss {
         if (absX > this.attackRange * 1.08 && absX <= 300) this.tryJump(0.022, -15, 400);
     }
 
-    update(deltaTime, player) {
+    update(deltaTime, player, enemies = []) {
         // サブ技タイマーが残っている間は必ず攻撃更新を継続する
         // （isAttackingが先にfalseになると_subTimerが減らず行動停止するため）
         const odachi = this._subWeaponInstances.odachi;
@@ -1442,7 +1442,7 @@ export class Shogun extends Boss {
             if (subInst && typeof subInst.update === 'function') {
                 if (this._subWeaponKey === 'shuriken') {
                     // enemies引数にプレイヤーを渡してhomingさせる（当たり判定は別途自前処理）
-                    const enemyArg = this.targetPlayer ? [this.targetPlayer] : [];
+                    const enemyArg = this.isEnemy ? (this.targetPlayer ? [this.targetPlayer] : []) : enemies;
                     subInst.update(deltaTime, enemyArg);
                 } else {
                     subInst.update(deltaTime);
@@ -1459,7 +1459,7 @@ export class Shogun extends Boss {
         }
 
         // 手裏剣: projectilesの当たり判定（ShurikenProjectileはdamageを与えないため自前実装）
-        {
+        if (this.isEnemy) {
             const shurikenInst = this._subWeaponInstances['shuriken'];
             if (shurikenInst && Array.isArray(shurikenInst.projectiles)) {
                 const p = this.targetPlayer;
@@ -1483,12 +1483,14 @@ export class Shogun extends Boss {
                         }
                     }
                 }
+            }
+        }
                 // _subTimerが切れた後もprojectilesが残っていれば更新を継続
                 // （_subWeaponKey==='shuriken'のままでも寿命を進めないと空中で停止する）
                 const shouldTickShuriken = shurikenInst.projectiles.length > 0
                     && (this._subWeaponKey !== 'shuriken' || this._subTimer <= 0);
                 if (shouldTickShuriken) {
-                    const enemyArg = this.targetPlayer ? [this.targetPlayer] : [];
+                    const enemyArg = this.isEnemy ? (this.targetPlayer ? [this.targetPlayer] : []) : enemies;
                     shurikenInst.update(deltaTime, enemyArg);
                 }
                 // projectilesが全消滅したらキーをクリア

@@ -601,6 +601,8 @@ export function applyShogunCombat(player) {
             const cx = boss.x + boss.width / 2;
             const cy = boss.y + boss.height / 2;
             for (const e of enemies) {
+                // ボス自身（または紐づくactor）は除外
+                if (e === boss || e === boss.actor) continue;
                 if (!e.isAlive || e.isDying) continue;
                 const dx = (e.x + e.width / 2) - cx;
                 const dy = (e.y + e.height / 2) - cy;
