@@ -36,9 +36,12 @@ export function applyShogunCombat(player) {
         p.width = Math.round(40 * SHOGUN_SCALE);
         p.height = Math.round(60 * SHOGUN_SCALE);
         p.speed = SHOGUN_SPEED;
+        // height 変更に合わせて y を補正（startStage は忍者の高さで設定済み）
+        const groundY = p.groundY || 480;
+        p.y = groundY + LANE_OFFSET - p.height;
+        p.isGrounded = true;
         p._shogunInited = true;
 
-        const groundY = p.groundY || 480;
         p._shogunBossInstance = new Shogun(p.x, p.y, 'boss', groundY);
         p._shogunBossInstance.init();
         p._shogunBossInstance.hp = 99999;
@@ -255,7 +258,7 @@ export function applyShogunCombat(player) {
         this.vx = 0;
         boss.vx = 0;
 
-        // BUG 2 FIX: preview line 281 — 装備中武器キーをセット（renderBody で正しい武器を描画）
+        // 装備中武器キーをセット（renderBody で正しい武器を描画）
         this._shogunGetterBypass = 'real';
         const realWeapon = this.currentSubWeapon;
         this._shogunGetterBypass = false;
@@ -269,14 +272,21 @@ export function applyShogunCombat(player) {
         }
 
         if (boss._attackTimer > 0) {
-            // コンボ中: 次段をキューに積む
+            // コンボ中: 次段をキューに積む（preview line 282-297）
             const currentStep = boss._currentComboStep || 0;
             const queuedStep = Array.isArray(boss._comboPendingSteps) && boss._comboPendingSteps.length > 0
                 ? boss._comboPendingSteps[0]
                 : 0;
-            if (queuedStep > 0) return;
+            if (queuedStep > 0) {
+                // 既にキューがある — コンボステップとタイマーだけ更新
+                this._shogunComboStep = queuedStep;
+                this._shogunComboWindowTimer = 460;
+                return;
+            }
             const nextStep = Math.min(5, currentStep + 1);
             if (nextStep <= currentStep) return;
+            this._shogunComboStep = nextStep;
+            this._shogunComboWindowTimer = 460;
             boss._comboPendingSteps = [nextStep];
             console.log('[将軍DEBUG] combo queued step:', nextStep, 'current:', currentStep);
             return;
@@ -288,16 +298,18 @@ export function applyShogunCombat(player) {
         boss.isGrounded = this.isGrounded;
         boss.groundY = this.groundY;
 
-        const nextStep = (boss._currentComboStep && boss._currentComboStep < 5)
-            ? (boss._currentComboStep % 5) + 1
+        // preview line 299-301: コンボ継続ウィンドウ内なら次段、そうでなければ1段目
+        const nextStep = (this._shogunComboWindowTimer > 0 && this._shogunComboStep > 0)
+            ? ((this._shogunComboStep % 5) + 1)
             : 1;
+        this._shogunComboStep = nextStep;
+        this._shogunComboWindowTimer = 460;
         boss._comboPendingSteps = [nextStep];
         boss._startNextComboStep();
         console.log('[将軍DEBUG] combo started step:', nextStep, {
             '_attackTimer': boss._attackTimer,
             '_currentComboStep': boss._currentComboStep,
-            'isAttacking': boss.isAttacking,
-            'vx': boss.vx, 'vy': boss.vy
+            'comboWindow': this._shogunComboWindowTimer,
         });
     };
 
@@ -543,6 +555,14 @@ export function applyShogunCombat(player) {
             if (this.dashTimer <= 0) { this.dashTimer = 0; this.isDashing = false; }
         }
         this.motionTime = (this.motionTime || 0) + deltaMs;
+        // コンボ継続ウィンドウ（preview: previewComboResetTimer）
+        if (this._shogunComboWindowTimer > 0) {
+            this._shogunComboWindowTimer -= deltaMs;
+            if (this._shogunComboWindowTimer <= 0) {
+                this._shogunComboWindowTimer = 0;
+                this._shogunComboStep = 0;
+            }
+        }
         this.updateTemporaryNinjutsu(deltaMs);
         this.updateSpecial(dt);
 
@@ -573,6 +593,22 @@ export function applyShogunCombat(player) {
         boss.groundY = this.groundY;
 
         // ── ボスの update（唯一の物理処理 — preview と同一） ──
+        // 手裏剣ホーミング用: 最も近い敵を targetPlayer にセット
+        if (window.game && window.game.stage) {
+            const enemies = window.game.stage.getAllEnemies();
+            let nearest = null;
+            let nearestDist = Infinity;
+            const cx = boss.x + boss.width / 2;
+            const cy = boss.y + boss.height / 2;
+            for (const e of enemies) {
+                if (!e.isAlive || e.isDying) continue;
+                const dx = (e.x + e.width / 2) - cx;
+                const dy = (e.y + e.height / 2) - cy;
+                const d = dx * dx + dy * dy;
+                if (d < nearestDist) { nearestDist = d; nearest = e; }
+            }
+            boss.targetPlayer = nearest;
+        }
         boss.update(dt, null);
 
         // ── 二刀流Zコンボの先行入力消化 ──
@@ -596,12 +632,6 @@ export function applyShogunCombat(player) {
         this.attackTimer = bossActiveAfter ? 50 : 0;
         this.subWeaponTimer = boss._subTimer;
         this.subWeaponAction = boss._subAction;
-        this._shogunAttackTimer = boss._attackTimer;
-        this._shogunComboStep = boss._comboStep;
-        this._shogunCurrentComboStep = boss._currentComboStep;
-        this._shogunSubTimer = boss._subTimer;
-        this._shogunSubAction = boss._subAction;
-        this._shogunSubWeaponKey = boss._subWeaponKey;
 
         // ── アイドル時の武器表示キー維持（preview line 605-611 相当） ──
         if (!bossActiveAfter) {
@@ -617,7 +647,6 @@ export function applyShogunCombat(player) {
                 if (idleKey) {
                     boss._subWeaponKey = idleKey;
                     boss._subAction = null;
-                    this._shogunSubWeaponKey = idleKey;
                     const idleInst = boss._subWeaponInstances[idleKey];
                     if (idleInst) {
                         idleInst._renderForceActive = true;
@@ -640,6 +669,24 @@ export function applyShogunCombat(player) {
         const moveBias = Math.min(0.024, Math.abs(this.vx || 0) * 0.0038);
         const attackBias = this.isAttacking ? 0.013 : 0;
         this.shogunYawSkew = dir2d * (0.046 + moveBias + attackBias);
+
+        // 地面デバッグ（2秒ごと）
+        this._groundDebugTimer = (this._groundDebugTimer || 0) + deltaMs;
+        if (this._groundDebugTimer > 2000) {
+            this._groundDebugTimer = 0;
+            const expectedFeet = this.groundY + LANE_OFFSET;
+            console.log('[将軍GROUND]', {
+                'player.y': Math.round(this.y),
+                'player.h': this.height,
+                'feet': Math.round(this.y + this.height),
+                'boss.y': Math.round(boss.y),
+                'boss.h': boss.height,
+                'bossFeet': Math.round(boss.y + boss.height),
+                'groundY': this.groundY,
+                'expected': expectedFeet,
+                'diff': Math.round(this.y + this.height - expectedFeet),
+            });
+        }
     };
 
     // ================================================================

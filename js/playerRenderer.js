@@ -773,11 +773,8 @@ export function applyRendererMixin(PlayerClass) {
         if (!this._shogunBossInstance) return;
 
         const boss = this._shogunBossInstance;
-        const actor = boss.actor;
 
-        // ── プレイヤーの状態をボスに同期（描画用） ──
-        // 攻撃中はボスが自前の物理で位置を管理しているため、
-        // 位置・速度・isGrounded を上書きしない
+        // ── 位置・向きの同期のみ（攻撃状態はボスが管理） ──
         const bossIsActive = boss._attackTimer > 0 || boss._subTimer > 0 || boss.isAttacking;
         if (!bossIsActive) {
             boss.x = this.x;
@@ -787,44 +784,12 @@ export function applyRendererMixin(PlayerClass) {
         boss.facingRight = this.facingRight;
         boss.groundY = this.groundY;
 
-        if (actor) {
-            actor.groundY = this.groundY;
-            actor.isAttacking = this.isAttacking;
-            actor.facingRight = this.facingRight;
-        }
-
-        // 攻撃状態は _shogun* プロパティから復元（update で同期済み）
-        boss.isAttacking = this.isAttacking;
-        boss._attackTimer = this._shogunAttackTimer || 0;
-        boss._comboStep = this._shogunComboStep || 0;
-        boss._currentComboStep = this._shogunCurrentComboStep || 0;
-        boss._subTimer = this._shogunSubTimer || 0;
-        boss._subAction = this._shogunSubAction || null;
-        boss._subWeaponKey = this._shogunSubWeaponKey || null;
-
         if (ghostVeilActive) boss.hideBody = true;
         else boss.hideBody = false;
 
-        if (this._shogunSubWeaponInstances) {
-            boss._subWeaponInstances = this._shogunSubWeaponInstances;
-            const currentSub = this._shogunSubWeaponKey ? this._shogunSubWeaponInstances[this._shogunSubWeaponKey] : null;
-            if (currentSub) {
-                currentSub._renderForceActive = true;
-            }
-        }
-
-        // ボスの renderBody をそのまま呼び出し
+        // ボスの renderBody をそのまま呼び出し（プレビューと同一）
         boss.renderBody(ctx);
         this.subWeaponRenderedInModel = true;
-
-        // 状態のリセット
-        if (this._shogunSubWeaponInstances) {
-            for (const key in this._shogunSubWeaponInstances) {
-                if (this._shogunSubWeaponInstances[key]) {
-                    delete this._shogunSubWeaponInstances[key]._renderForceActive;
-                }
-            }
-        }
     };
 
     PlayerClass.prototype.renderModel = function(ctx, x, y, facingRight, alpha = 1.0, renderSubWeaponVisualsInput = true, options = {}) {

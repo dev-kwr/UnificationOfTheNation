@@ -2157,8 +2157,12 @@ export class Shogun extends Boss {
         const actorRenderW = this.actorBaseWidth || Math.max(1, Math.round(this.width / renderScale));
         const actorRenderH = this.actorBaseHeight || Math.max(1, Math.round(this.height / renderScale));
         // 2Dモデルを等比拡大した後も足元が地面に合うよう、元モデル座標を補正
+        // renderModel は内部で drawH=72, bottomY=renderY+70 で足を描画するが、
+        // actorRenderH=60 を基準にピボットを計算するため、差分 (70-60)=10px を引いて補正
+        const RENDER_MODEL_FOOT_BOTTOM = 70; // drawH(72) - bottomMargin(2)
+        const footOverhang = RENDER_MODEL_FOOT_BOTTOM - actorRenderH;
         const actorRenderX = this.x + (this.width - actorRenderW) * 0.5;
-        const actorRenderY = this.y + (this.height - actorRenderH) * 0.62;
+        const actorRenderY = this.y + (this.height - actorRenderH) * 0.62 - footOverhang;
         this.actor.x           = actorRenderX;
         this.actor.y           = actorRenderY;
         this.actor.vx          = this.vx;
