@@ -775,12 +775,16 @@ export function applyRendererMixin(PlayerClass) {
         const boss = this._shogunBossInstance;
         const actor = boss.actor;
 
-        // ── プレイヤーの状態をボスに同期 ──
-        boss.x = this.x;
-        boss.y = this.y - 24; 
+        // ── プレイヤーの状態をボスに同期（描画用） ──
+        // 攻撃中はボスが自前の物理で位置を管理しているため、
+        // 位置・速度・isGrounded を上書きしない
+        const bossIsActive = boss._attackTimer > 0 || boss._subTimer > 0 || boss.isAttacking;
+        if (!bossIsActive) {
+            boss.x = this.x;
+            boss.y = this.y;
+            boss.isGrounded = this.isGrounded;
+        }
         boss.facingRight = this.facingRight;
-        boss.isGrounded = this.isGrounded;
-        boss.motionTime = this.motionTime;
         boss.groundY = this.groundY;
 
         if (actor) {
@@ -789,6 +793,7 @@ export function applyRendererMixin(PlayerClass) {
             actor.facingRight = this.facingRight;
         }
 
+        // 攻撃状態は _shogun* プロパティから復元（update で同期済み）
         boss.isAttacking = this.isAttacking;
         boss._attackTimer = this._shogunAttackTimer || 0;
         boss._comboStep = this._shogunComboStep || 0;
