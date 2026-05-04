@@ -46,6 +46,7 @@ export function applyShogunCombat(player) {
         p._shogunBossInstance.init();
         p._shogunBossInstance.hp = 99999;
         p._shogunBossInstance.updateAI = function() { /* AI無効 */ };
+        p._shogunBossInstance.isEnemy = false;
 
         // Shogun.init() で生成＆スケール済みのインスタンスをそのまま使う
         // （以前は差し替えていたため applyScaleToSubWeapons の効果が消えていた）
@@ -86,16 +87,6 @@ export function applyShogunCombat(player) {
                 }
             }
         };
-
-        // ── 手裏剣の追尾対象を敵に変更 ──
-        const shurikenInst = p._shogunSubWeaponInstances['shuriken'];
-        if (shurikenInst) {
-            const origShurikenUpdate = shurikenInst.update;
-            shurikenInst.update = function(dt, enemiesArg) {
-                const gameEnemies = window.game ? window.game.enemies : [];
-                return origShurikenUpdate.call(this, dt, gameEnemies);
-            };
-        }
 
         // ── game.jsの当たり判定ループ用: currentSubWeapon getter ──
         // 攻撃中はボスの武器インスタンスを返す（getHitbox を持つもの）
@@ -536,7 +527,7 @@ export function applyShogunCombat(player) {
     //   我々もそれに倣い、originalUpdate を**呼ばない**。
     //   必要な player.js のタイマー管理だけを cherry-pick する。
     // ================================================================
-    player.update = function(dt, stage) {
+    player.update = function(dt, walls = [], enemies = []) {
         if (this.characterType !== 'shogun') return originalUpdate.apply(this, arguments);
 
         initShogunInstances(this);
@@ -593,25 +584,7 @@ export function applyShogunCombat(player) {
         boss.groundY = this.groundY;
 
         // ── ボスの update（唯一の物理処理 — preview と同一） ──
-        // 手裏剣ホーミング用: 最も近い敵を targetPlayer にセット
-        if (window.game && window.game.stage) {
-            const enemies = window.game.stage.getAllEnemies();
-            let nearest = null;
-            let nearestDist = Infinity;
-            const cx = boss.x + boss.width / 2;
-            const cy = boss.y + boss.height / 2;
-            for (const e of enemies) {
-                // ボス自身（または紐づくactor）は除外
-                if (e === boss || e === boss.actor) continue;
-                if (!e.isAlive || e.isDying) continue;
-                const dx = (e.x + e.width / 2) - cx;
-                const dy = (e.y + e.height / 2) - cy;
-                const d = dx * dx + dy * dy;
-                if (d < nearestDist) { nearestDist = d; nearest = e; }
-            }
-            boss.targetPlayer = nearest;
-        }
-        boss.update(dt, null);
+        boss.update(dt, null, enemies);
 
         // ── 二刀流Zコンボの先行入力消化 ──
         if (this._shogunQueuedDualAttack && boss._subAction === '二刀_Z') {

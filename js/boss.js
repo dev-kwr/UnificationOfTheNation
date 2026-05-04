@@ -1442,7 +1442,8 @@ export class Shogun extends Boss {
             if (subInst && typeof subInst.update === 'function') {
                 if (this._subWeaponKey === 'shuriken') {
                     // enemies引数にプレイヤーを渡してhomingさせる（当たり判定は別途自前処理）
-                    const enemyArg = this.isEnemy ? (this.targetPlayer ? [this.targetPlayer] : []) : enemies;
+                    const filteredEnemies = enemies.filter(e => e !== this && e !== this.actor);
+                    const enemyArg = this.isEnemy ? (this.targetPlayer ? [this.targetPlayer] : []) : filteredEnemies;
                     subInst.update(deltaTime, enemyArg);
                 } else {
                     subInst.update(deltaTime);
@@ -1458,41 +1459,45 @@ export class Shogun extends Boss {
             }
         }
 
-        // 手裏剣: projectilesの当たり判定（ShurikenProjectileはdamageを与えないため自前実装）
-        if (this.isEnemy) {
+        // 手裏剣の更新と当たり判定
+        {
             const shurikenInst = this._subWeaponInstances['shuriken'];
             if (shurikenInst && Array.isArray(shurikenInst.projectiles)) {
-                const p = this.targetPlayer;
-                if (p && (p.invincibleTimer || 0) <= 0) {
-                    for (const proj of shurikenInst.projectiles) {
-                        if (proj.isDestroyed) continue;
-                        const px = p.x + p.width / 2;
-                        const py = p.y + p.height / 2;
-                        const dx = px - proj.x;
-                        const dy = py - proj.y;
-                        const hitR = (proj.radius || 8) + Math.min(p.width, p.height) * 0.5;
-                        if (dx * dx + dy * dy < hitR * hitR) {
-                            proj.isDestroyed = true;
-                            if (typeof p.takeDamage === 'function') {
-                                p.takeDamage(this.damage, {
-                                    sourceX: proj.x,
-                                    knockbackX: proj.vx > 0 ? 6 : -6,
-                                    knockbackY: -4
-                                });
+                // ボス（敵）として投げた手裏剣がプレイヤーに当たる処理
+                if (this.isEnemy) {
+                    const p = this.targetPlayer;
+                    if (p && (p.invincibleTimer || 0) <= 0) {
+                        for (const proj of shurikenInst.projectiles) {
+                            if (proj.isDestroyed) continue;
+                            const px = p.x + p.width / 2;
+                            const py = p.y + p.height / 2;
+                            const dx = px - proj.x;
+                            const dy = py - proj.y;
+                            const hitR = (proj.radius || 8) + Math.min(p.width, p.height) * 0.5;
+                            if (dx * dx + dy * dy < hitR * hitR) {
+                                proj.isDestroyed = true;
+                                if (typeof p.takeDamage === 'function') {
+                                    p.takeDamage(this.damage, {
+                                        sourceX: proj.x,
+                                        knockbackX: proj.vx > 0 ? 6 : -6,
+                                        knockbackY: -4
+                                    });
+                                }
                             }
                         }
                     }
                 }
-            }
-        }
+
                 // _subTimerが切れた後もprojectilesが残っていれば更新を継続
                 // （_subWeaponKey==='shuriken'のままでも寿命を進めないと空中で停止する）
                 const shouldTickShuriken = shurikenInst.projectiles.length > 0
                     && (this._subWeaponKey !== 'shuriken' || this._subTimer <= 0);
                 if (shouldTickShuriken) {
-                    const enemyArg = this.isEnemy ? (this.targetPlayer ? [this.targetPlayer] : []) : enemies;
+                    const filteredEnemies = enemies.filter(e => e !== this && e !== this.actor);
+                    const enemyArg = this.isEnemy ? (this.targetPlayer ? [this.targetPlayer] : []) : filteredEnemies;
                     shurikenInst.update(deltaTime, enemyArg);
                 }
+                
                 // projectilesが全消滅したらキーをクリア
                 if (this._subWeaponKey === 'shuriken' && shurikenInst.projectiles.length === 0
                     && this._subTimer <= 0) {
