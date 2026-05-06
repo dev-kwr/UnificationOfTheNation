@@ -2333,14 +2333,27 @@ export class Shogun extends Boss {
                 : 1.0;
 
             // 剣筋が将軍のジャンプ（Y移動）に合わせて上下してしまうのを防ぐため、
-            // キャンバス全体をスケーリングするのではなく、軌跡データ自体を生成時のY座標を中心にスケーリングして絶対座標化します。
+            // ストリップ（コンボの段）ごとにスケーリングの基準点（最新のプレイヤー座標）を統一する。
+            // これにより、突進中などに軌跡の始点と中間点でスケーリング中心がズレて形が歪む（V字になる等）のを防ぐ。
+            const stripPivots = {};
+            const fallbackX = this.x + this.width * 0.5;
+            const fallbackY = groundActorRenderY;
+            for (let i = trailPoints.length - 1; i >= 0; i--) {
+                const p = trailPoints[i];
+                if (p && p.step !== undefined && !stripPivots[p.step]) {
+                    stripPivots[p.step] = {
+                        ox: Number.isFinite(p.playerX) ? p.playerX : fallbackX,
+                        oy: Number.isFinite(p.playerY) ? p.playerY : fallbackY
+                    };
+                }
+            }
+
             const absolutePoints = trailPoints.map(p => {
                 if (!p) return p;
 
-                const fallbackX = this.x + this.width * 0.5;
-                const fallbackY = groundActorRenderY;
-                const ox = Number.isFinite(p.playerX) ? p.playerX : fallbackX;
-                const oy = Number.isFinite(p.playerY) ? p.playerY : fallbackY;
+                const pivot = (p.step !== undefined && stripPivots[p.step]) ? stripPivots[p.step] : { ox: fallbackX, oy: fallbackY };
+                const ox = pivot.ox;
+                const oy = pivot.oy;
 
                 const scalePtX = (px) => ox + (px - ox) * sizeMultiplier;
                 const scalePtY = (py) => oy + (py - oy) * sizeMultiplier;

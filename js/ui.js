@@ -558,15 +558,20 @@ export class UI {
             [1, '#47e08d']
         ]);
 
-        ctx.fillStyle = '#fff';
         ctx.font = '700 16px sans-serif';
-        ctx.textAlign = 'left';
-        ctx.shadowColor = 'rgba(0,0,0,0.65)';
-        ctx.shadowBlur = 5;
-        ctx.fillText(`体力：${player.hp} / ${player.maxHp}`, x, y - 8);
-        ctx.shadowBlur = 0;
-
         const levelKanji = toKanjiNumber(player.level);
+        
+        // 影（軽量化）
+        ctx.fillStyle = 'rgba(0,0,0,0.65)';
+        ctx.textAlign = 'left';
+        ctx.fillText(`体力：${player.hp} / ${player.maxHp}`, x + 1, y - 7);
+        ctx.textAlign = 'right';
+        ctx.fillText(`${levelKanji}段`, x + hpBarWidth + 1, y - 7);
+        
+        // 本体
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'left';
+        ctx.fillText(`体力：${player.hp} / ${player.maxHp}`, x, y - 8);
         ctx.textAlign = 'right';
         ctx.fillText(`${levelKanji}段`, x + hpBarWidth, y - 8);
         ctx.textAlign = 'left';
@@ -621,12 +626,11 @@ export class UI {
             ctx.restore();
         }
 
-        // テキストは光らせず常に通常表示
-        ctx.shadowColor = 'rgba(0,0,0,0.65)';
-        ctx.shadowBlur = 5;
+        // テキストは光らせず常に通常表示（影も軽量化）
+        ctx.fillStyle = 'rgba(0,0,0,0.65)';
+        ctx.fillText('奥義', x + 1, spY + spBarHeight / 2 + 1);
         ctx.fillStyle = '#fff';
         ctx.fillText('奥義', x, spY + spBarHeight / 2);
-        ctx.shadowBlur = 0;
 
         const expBarWidth = 250;
         const expBarHeight = 15;
@@ -639,11 +643,10 @@ export class UI {
         ctx.font = '700 15px sans-serif';
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'left';
-        ctx.shadowColor = 'rgba(0,0,0,0.65)';
-        ctx.shadowBlur = 5;
+        ctx.fillStyle = 'rgba(0,0,0,0.65)';
+        ctx.fillText('熟練', x + 1, expY + expBarHeight / 2 + 1);
         ctx.fillStyle = '#fff';
         ctx.fillText('熟練', x, expY + expBarHeight / 2);
-        ctx.shadowBlur = 0;
         
         // --- Stage Info + マネー（右上） ---
         const stageFloorKanji = toKanjiNumber(stage?.stageNumber || 1);
@@ -659,15 +662,14 @@ export class UI {
         const coinSize = 9;
 
         ctx.textBaseline = 'middle';
-        ctx.shadowColor = 'rgba(0,0,0,0.62)';
-        ctx.shadowBlur = 5;
-
-        // ステージ名（BGMボタン左側）
-        ctx.fillStyle = '#fff';
         ctx.textAlign = 'right';
         ctx.font = `900 ${stageFontPx}px sans-serif`;
+
+        // ステージ名（BGMボタン左側）影を軽量化
+        ctx.fillStyle = 'rgba(0,0,0,0.62)';
+        ctx.fillText(stageLabel, stageRightX + 1, stageTextY + 1);
+        ctx.fillStyle = '#fff';
         ctx.fillText(stageLabel, stageRightX, stageTextY);
-        ctx.shadowBlur = 0;
         
         // --- 装備中のサブ武器表示 (Icon Slot Style) ---
         if (player.currentSubWeapon) {
@@ -705,19 +707,24 @@ export class UI {
             // 小判＋所持金（サブ武器行の右端）
             const panelRightX = panelX + panelW;
             const moneyRightX = panelRightX - panelPadding;
-            ctx.fillStyle = COLORS.MONEY;
             ctx.textAlign = 'right';
             ctx.textBaseline = 'middle';
             ctx.font = `900 ${moneyFontPx}px sans-serif`;
-            ctx.shadowColor = 'rgba(0,0,0,0.62)';
-            ctx.shadowBlur = 5;
             const moneyWidth = ctx.measureText(moneyText).width;
             const coinGap = 9;
             const coinHalfW = coinSize * 0.7;
             const coinX = moneyRightX - moneyWidth - coinGap - coinHalfW;
+            
+            // 影（軽量化）
+            ctx.fillStyle = 'rgba(0,0,0,0.62)';
+            ctx.fillText(moneyText, moneyRightX + 1, slotY + slotSize / 2 + 1);
+            
+            // 小判は影なしで描画
             this.drawKoban(ctx, coinX, slotY + slotSize / 2, coinSize);
+            
+            // テキスト本体
+            ctx.fillStyle = COLORS.MONEY;
             ctx.fillText(moneyText, moneyRightX, slotY + slotSize / 2);
-            ctx.shadowBlur = 0;
             
             // 武器切替ヒントの個別表示は廃止（下部マニュアルへ統一）
         }

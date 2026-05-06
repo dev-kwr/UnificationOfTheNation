@@ -3828,10 +3828,9 @@ export class Stage {
                     ctx.fillStyle = `rgba(255, ${140 + seed % 100}, 40, ${blend * twinkle})`;
                     ctx.fillRect(x, y, r, r);
                     if (twinkle > 0.8) {
-                        ctx.shadowBlur = 6;
-                        ctx.shadowColor = '#ff4400';
-                        ctx.fillRect(x - 1, y - 1, r + 2, r + 2);
-                        ctx.shadowBlur = 0;
+                        // 重いshadowBlurを避け、半透明の大きな矩形で発光を表現
+                        ctx.fillStyle = `rgba(255, 68, 0, ${0.4 * blend * twinkle})`;
+                        ctx.fillRect(x - r, y - r, r * 3, r * 3);
                     }
                 }
                 break;
@@ -3885,10 +3884,10 @@ export class Stage {
                     const alpha = blend * (0.3 + Math.sin(pMod * 4 + seed) * 0.7);
                     
                     ctx.fillStyle = `rgba(255, 230, 100, ${alpha})`;
-                    ctx.shadowBlur = 8;
-                    ctx.shadowColor = '#ffd700';
                     ctx.fillRect(x, y, r, r * 8);
-                    ctx.shadowBlur = 0;
+                    // 重いshadowBlurを避け、半透明の矩形で発光を表現
+                    ctx.fillStyle = `rgba(255, 215, 0, ${alpha * 0.4})`;
+                    ctx.fillRect(x - r, y - r * 2, r * 3, r * 12);
                 }
                 break;
             }
