@@ -601,13 +601,16 @@ export class UI {
             const t = Date.now() * 0.005;
             const pulse = (Math.sin(t) + 1) / 2; // 0.0 ~ 1.0
             
-            // メーター自体を光らせる（外側の発光）
             ctx.save();
-            ctx.shadowColor = `rgba(255, 210, 80, ${0.6 + pulse * 0.4})`;
-            ctx.shadowBlur = 10 + pulse * 15;
-            
-            // ゲージ上に輝くオーバーレイを重ねる
             ctx.globalCompositeOperation = 'screen';
+            
+            // iPad等での重いshadowBlurを避け、半透明の太線で発光を軽量に表現
+            ctx.strokeStyle = `rgba(255, 210, 80, ${0.3 + pulse * 0.3})`;
+            ctx.lineWidth = 4 + pulse * 2;
+            drawRoundedRectPath(barX, spY, spBarWidth, spBarHeight, Math.floor(spBarHeight / 2));
+            ctx.stroke();
+
+            // ゲージ上に輝くオーバーレイを重ねる
             if (burstAlpha > 0) {
                 ctx.fillStyle = `rgba(255, 255, 255, ${burstAlpha})`;
             } else {

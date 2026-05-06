@@ -2333,40 +2333,58 @@ export class Shogun extends Boss {
                 : 1.0;
 
             // 剣筋が将軍のジャンプ（Y移動）に合わせて上下してしまうのを防ぐため、
-            // 描画用のポイント配列を生成し、相対座標を「地上に足がついた状態」として絶対座標に変換する
+            // キャンバス全体をスケーリングするのではなく、軌跡データ自体を生成時のY座標を中心にスケーリングして絶対座標化します。
             const absolutePoints = trailPoints.map(p => {
-                if (p && p.trailIsRelative) {
-                    const fallbackX = this.x + this.width * 0.5;
-                    const fallbackY = groundActorRenderY;
-                    const ox = Number.isFinite(p.playerX) ? p.playerX : fallbackX;
-                    const oy = Number.isFinite(p.playerY) ? p.playerY : fallbackY;
+                if (!p) return p;
+
+                const fallbackX = this.x + this.width * 0.5;
+                const fallbackY = groundActorRenderY;
+                const ox = Number.isFinite(p.playerX) ? p.playerX : fallbackX;
+                const oy = Number.isFinite(p.playerY) ? p.playerY : fallbackY;
+
+                const scalePtX = (px) => ox + (px - ox) * sizeMultiplier;
+                const scalePtY = (py) => oy + (py - oy) * sizeMultiplier;
+
+                if (p.trailIsRelative) {
                     return {
                         ...p,
-                        trailCurveStartX: Number.isFinite(p.trailCurveStartX) ? p.trailCurveStartX + ox : p.trailCurveStartX,
-                        trailCurveStartY: Number.isFinite(p.trailCurveStartY) ? p.trailCurveStartY + oy : p.trailCurveStartY,
-                        trailCurveControlX: Number.isFinite(p.trailCurveControlX) ? p.trailCurveControlX + ox : p.trailCurveControlX,
-                        trailCurveControlY: Number.isFinite(p.trailCurveControlY) ? p.trailCurveControlY + oy : p.trailCurveControlY,
-                        trailCurveEndX: Number.isFinite(p.trailCurveEndX) ? p.trailCurveEndX + ox : p.trailCurveEndX,
-                        trailCurveEndY: Number.isFinite(p.trailCurveEndY) ? p.trailCurveEndY + oy : p.trailCurveEndY,
+                        trailCurveStartX: Number.isFinite(p.trailCurveStartX) ? scalePtX(p.trailCurveStartX + ox) : p.trailCurveStartX,
+                        trailCurveStartY: Number.isFinite(p.trailCurveStartY) ? scalePtY(p.trailCurveStartY + oy) : p.trailCurveStartY,
+                        trailCurveControlX: Number.isFinite(p.trailCurveControlX) ? scalePtX(p.trailCurveControlX + ox) : p.trailCurveControlX,
+                        trailCurveControlY: Number.isFinite(p.trailCurveControlY) ? scalePtY(p.trailCurveControlY + oy) : p.trailCurveControlY,
+                        trailCurveEndX: Number.isFinite(p.trailCurveEndX) ? scalePtX(p.trailCurveEndX + ox) : p.trailCurveEndX,
+                        trailCurveEndY: Number.isFinite(p.trailCurveEndY) ? scalePtY(p.trailCurveEndY + oy) : p.trailCurveEndY,
+                        x: Number.isFinite(p.x) ? scalePtX(p.x + ox) : p.x,
+                        y: Number.isFinite(p.y) ? scalePtY(p.y + oy) : p.y,
                         trailIsRelative: false
                     };
+                } else {
+                    return {
+                        ...p,
+                        trailCurveStartX: Number.isFinite(p.trailCurveStartX) ? scalePtX(p.trailCurveStartX) : p.trailCurveStartX,
+                        trailCurveStartY: Number.isFinite(p.trailCurveStartY) ? scalePtY(p.trailCurveStartY) : p.trailCurveStartY,
+                        trailCurveControlX: Number.isFinite(p.trailCurveControlX) ? scalePtX(p.trailCurveControlX) : p.trailCurveControlX,
+                        trailCurveControlY: Number.isFinite(p.trailCurveControlY) ? scalePtY(p.trailCurveControlY) : p.trailCurveControlY,
+                        trailCurveEndX: Number.isFinite(p.trailCurveEndX) ? scalePtX(p.trailCurveEndX) : p.trailCurveEndX,
+                        trailCurveEndY: Number.isFinite(p.trailCurveEndY) ? scalePtY(p.trailCurveEndY) : p.trailCurveEndY,
+                        x: Number.isFinite(p.x) ? scalePtX(p.x) : p.x,
+                        y: Number.isFinite(p.y) ? scalePtY(p.y) : p.y
+                    };
                 }
-                return p;
             });
 
-            renderTrailWithShogunTransform(() => {
-                this.actor.renderComboSlashTrail(ctx, {
-                    points: absolutePoints,
-                    centerX: this.x + this.width * 0.5,
-                    centerY: this.y + this.height * 0.62, // 刀のpivotY(0.62)と合わせる（現在のY）
-                    trailWidthScale: baseTrailScale,
-                    boostActive: baseTrailScale > 1.01 && this._attackTimer > 0,
-                    attackState: {
-                        isAttacking: this.isAttacking,
-                        currentAttack: this._currentAttackProfile,
-                        attackTimer: this._attackTimer
-                    }
-                });
+            this.actor.renderComboSlashTrail(ctx, {
+                points: absolutePoints,
+                centerX: this.x + this.width * 0.5,
+                centerY: this.y + this.height * 0.62,
+                trailWidthScale: baseTrailScale,
+                physicalScale: sizeMultiplier,
+                boostActive: baseTrailScale > 1.01 && this._attackTimer > 0,
+                attackState: {
+                    isAttacking: this.isAttacking,
+                    currentAttack: this._currentAttackProfile,
+                    attackTimer: this._attackTimer
+                }
             });
         }
 
