@@ -1684,16 +1684,34 @@ export function applySlashTrailMixin(PlayerClass) {
                         );
                         continue;
                     }
-                    const comboStep = isAutoAi
+                    const hasOverride = !isAutoAi && this.specialCloneCurrentAttacks[i] != null;
+                    const comboStep = (isAutoAi || hasOverride)
                         ? (this.specialCloneComboSteps[i] || 1)
                         : (this.currentAttack ? this.currentAttack.comboStep || 1 : 1);
-                    const attackProfile = isAutoAi
-                        ? (this.specialCloneCurrentAttacks[i] || this.getComboAttackProfileByStep(comboStep))
-                        : this.getMirroredCloneTrailProfile(i, pos, cloneDrawY);
+                    let attackProfile;
+                    if (isAutoAi || hasOverride) {
+                        const baseProfile = this.specialCloneCurrentAttacks[i] || this.getComboAttackProfileByStep(comboStep);
+                        attackProfile = this.applyComboTrailSpecToAttackProfile(
+                            { ...baseProfile },
+                            {
+                                x: pos.x - this.width * 0.5,
+                                y: cloneDrawY,
+                                width: this.width,
+                                height: PLAYER.HEIGHT,
+                                facingRight: pos.facingRight,
+                                isCrouching: false,
+                                vx: Number.isFinite(pos.cloneVx) ? pos.cloneVx : this.vx,
+                                vy: Number.isFinite(pos.cloneVy) ? pos.cloneVy : this.vy,
+                                speed: this.speed
+                            }
+                        );
+                    } else {
+                        attackProfile = this.getMirroredCloneTrailProfile(i, pos, cloneDrawY);
+                    }
                     activeTrailId = attackProfile && Number.isFinite(attackProfile.trailAttackId)
                         ? attackProfile.trailAttackId
                         : null;
-                    const attackTimer = isAutoAi
+                    const attackTimer = (isAutoAi || hasOverride)
                         ? (this.specialCloneAttackTimers[i] || 0)
                         : this.attackTimer;
                     pose = this.getComboSwordPoseForTrail({
@@ -1781,6 +1799,7 @@ export function applySlashTrailMixin(PlayerClass) {
         const trailWidthScale = Number.isFinite(options.trailWidthScale)
             ? options.trailWidthScale
             : Math.max(liveTrailScale, storedTrailScale);
+        const physicalScale = Number.isFinite(options.physicalScale) ? options.physicalScale : 1.0;
         const normalWidthScale = 1.0;
         const hasStoredBoostTrail = trailWidthScale > 1.01;
         const baseBoostActive = options.boostActive !== undefined
@@ -2523,7 +2542,7 @@ export function applySlashTrailMixin(PlayerClass) {
             const outerNewestAlpha = baseNewestAlpha;
 
             let projFn = null;
-            let activeWidthScale = visualWidthScale;
+            let activeWidthScale = visualWidthScale * physicalScale;
             let boostOldest = outerOldestAlpha;
 
             const stripTrailId = strip[strip.length - 1]?.trailAttackId || stripStep;
@@ -2573,7 +2592,7 @@ export function applySlashTrailMixin(PlayerClass) {
                         y: projectedCenterY + vy * currentBoostScale
                     };
                 };
-                activeWidthScale = trailWidthScale;
+                activeWidthScale = trailWidthScale * physicalScale;
                 boostOldest = outerOldestAlpha * 0.35;
             }
 
@@ -2668,7 +2687,7 @@ export function applySlashTrailMixin(PlayerClass) {
                         };
                     }
 
-                    drawSampledBezierTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
+                    drawSampledBezierTrail(pts, 13.8 * visualWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
                         comboStep: fc.step
                     });
                 } else if (fc.type === 'bezier' || !fc.type) {

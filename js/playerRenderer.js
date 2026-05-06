@@ -873,8 +873,7 @@ export function applyRendererMixin(PlayerClass) {
             ctx.scale(scale / 0.982, scale);
             ctx.translate(-pivotX, -pivotY);
 
-            // 陣羽織（背面）
-            this._drawShogunJinbaori(ctx, renderX, renderY, drawW, drawH, facingRight);
+            // 陣羽織（背面）は boss.js 側で描画するためここでは描画しない
         }
 
         this.forceSubWeaponRender = forceSubWeaponRender;
@@ -4959,49 +4958,4 @@ export function applyRendererMixin(PlayerClass) {
         ctx.restore();
     };
 
-    // 陣羽織（じんばおり）
-    PlayerClass.prototype._drawShogunJinbaori = function(ctx, x, y, width, height, facingRight) {
-        const dir = facingRight ? 1 : -1;
-        const centerX = x + width * 0.5;
-        const shoulderY = y + height * 0.35; 
-        const hemY = y + height * 0.92;
-        const backDir = -dir;
-        const shoulderBackX = centerX + backDir * width * 0.22;
-        const shoulderFrontX = centerX + backDir * width * 0.04;
-        const hemBackX = shoulderBackX + backDir * width * 0.12;
-        const hemFrontX = shoulderFrontX - backDir * width * 0.04;
-
-        const grad = ctx.createLinearGradient(centerX, shoulderY, centerX, hemY);
-        grad.addColorStop(0, '#0c0c12');
-        grad.addColorStop(0.6, '#0e1018');
-        grad.addColorStop(1, '#12141e');
-
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.moveTo(shoulderFrontX, shoulderY);
-        ctx.lineTo(shoulderBackX, shoulderY - 0.5);
-        ctx.quadraticCurveTo(hemBackX + backDir * 2, shoulderY + (hemY - shoulderY) * 0.5, hemBackX, hemY);
-        ctx.lineTo(hemFrontX, hemY);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.strokeStyle = '#dcb854';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(hemBackX, hemY);
-        ctx.lineTo(hemFrontX, hemY);
-        ctx.stroke();
-
-        const monX = (shoulderBackX + shoulderFrontX) * 0.5 + backDir * 1.5;
-        const monY = shoulderY + (hemY - shoulderY) * 0.4;
-        const monSize = 3.5;
-        ctx.fillStyle = 'rgba(220, 184, 84, 0.22)';
-        ctx.beginPath();
-        ctx.moveTo(monX, monY - monSize);
-        ctx.lineTo(monX + monSize * 0.8, monY);
-        ctx.lineTo(monX, monY + monSize);
-        ctx.lineTo(monX - monSize * 0.8, monY);
-        ctx.closePath();
-        ctx.fill();
-    };
 }

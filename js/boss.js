@@ -2315,19 +2315,57 @@ export class Shogun extends Boss {
             ctx.restore();
         };
 
-        // コンボ斬撃トレイル（常時）
-        const trailPoints = this.actor.specialCloneSlashTrailPoints[i];
-        if (!this.hideBody && trailPoints && trailPoints.length > 1) {
-            const trailScale = typeof this.actor.getXAttackTrailWidthScale === 'function'
+        // 剣筋が将軍のジャンプ（Y移動）に合わせて上下してしまうのを防ぐため、
+        // 描画の瞬間だけ、actor.y を「地上にいる時のY」に固定し、相対座標を地に足がついた状態として計算させる。
+        const groundY = this.groundY || (typeof window !== 'undefined' && window.game && window.game.groundY) || 480;
+        const groundActorRenderY = (groundY - this.height) + (this.height - actorRenderH) * 0.62 - footOverhang;
+        const savedActorY = this.actor.y;
+
+        // コンボ斬撃トレイル（大太刀等）
+        // 将軍のZコンボの軌跡は updateSpecialCloneSlashTrails(deltaMs) を通じて specialCloneSlashTrailPoints[0] に生成されます。
+        const trailPoints = Array.isArray(this.actor.specialCloneSlashTrailPoints) ? this.actor.specialCloneSlashTrailPoints[0] : null;
+        if (!this.hideBody && trailPoints && trailPoints.length > 0) {
+            const sizeMultiplier = this.width / 40; // 将軍のサイズ倍率（約2.2倍）
+            
+            // バフによるスケール（通常時は1.0）
+            const baseTrailScale = typeof this.actor.getXAttackTrailWidthScale === 'function'
                 ? this.actor.getXAttackTrailWidthScale()
                 : 1.0;
+
+            // 剣筋が将軍のジャンプ（Y移動）に合わせて上下してしまうのを防ぐため、
+            // 描画用のポイント配列を生成し、相対座標を「地上に足がついた状態」として絶対座標に変換する
+            const absolutePoints = trailPoints.map(p => {
+                if (p && p.trailIsRelative) {
+                    const fallbackX = this.x + this.width * 0.5;
+                    const fallbackY = groundActorRenderY;
+                    const ox = Number.isFinite(p.playerX) ? p.playerX : fallbackX;
+                    const oy = Number.isFinite(p.playerY) ? p.playerY : fallbackY;
+                    return {
+                        ...p,
+                        trailCurveStartX: Number.isFinite(p.trailCurveStartX) ? p.trailCurveStartX + ox : p.trailCurveStartX,
+                        trailCurveStartY: Number.isFinite(p.trailCurveStartY) ? p.trailCurveStartY + oy : p.trailCurveStartY,
+                        trailCurveControlX: Number.isFinite(p.trailCurveControlX) ? p.trailCurveControlX + ox : p.trailCurveControlX,
+                        trailCurveControlY: Number.isFinite(p.trailCurveControlY) ? p.trailCurveControlY + oy : p.trailCurveControlY,
+                        trailCurveEndX: Number.isFinite(p.trailCurveEndX) ? p.trailCurveEndX + ox : p.trailCurveEndX,
+                        trailCurveEndY: Number.isFinite(p.trailCurveEndY) ? p.trailCurveEndY + oy : p.trailCurveEndY,
+                        trailIsRelative: false
+                    };
+                }
+                return p;
+            });
+
             renderTrailWithShogunTransform(() => {
                 this.actor.renderComboSlashTrail(ctx, {
-                    points: trailPoints,
+                    points: absolutePoints,
                     centerX: this.x + this.width * 0.5,
-                    centerY: this.y + this.height * 0.5,
-                    trailWidthScale: trailScale,
-                    boostActive: trailScale > 1.01 && this._attackTimer > 0,
+                    centerY: this.y + this.height * 0.62, // 刀のpivotY(0.62)と合わせる（現在のY）
+                    trailWidthScale: baseTrailScale,
+                    boostActive: baseTrailScale > 1.01 && this._attackTimer > 0,
+                    attackState: {
+                        isAttacking: this.isAttacking,
+                        currentAttack: this._currentAttackProfile,
+                        attackTimer: this._attackTimer
+                    }
                 });
             });
         }
@@ -2338,6 +2376,7 @@ export class Shogun extends Boss {
             const deltaMs = (typeof this._lastDeltaMs === 'number') ? this._lastDeltaMs : 16;
             this.actor.updateDualBladeSlashTrails(deltaMs);
         }
+        
         if (!this.hideBody && typeof this.actor.renderDualBladeSlashTrails === 'function') {
             renderTrailWithShogunTransform(() => {
                 this.actor.renderDualBladeSlashTrails(ctx);

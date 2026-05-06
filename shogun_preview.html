@@ -587,8 +587,12 @@
                         shogun.x = 100;
                     }
                 } else {
-                    // 歩行から復帰するときに滑らないよう減速
-                    shogun.vx *= 0.8;
+                    // 歩行から復帰するときに滑らないよう減速（攻撃中はボス自身の物理に委ねる）
+                    const bossIsActive = shogun._attackTimer > 0 || shogun._subTimer > 0 || shogun.isAttacking || !shogun.isGrounded;
+                    if (!bossIsActive) {
+                        shogun.vx *= 0.8;
+                        if (Math.abs(shogun.vx) < 0.1) shogun.vx = 0;
+                    }
                 }
 
                 // update
