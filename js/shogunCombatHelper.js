@@ -703,12 +703,17 @@ export function applyShogunCombat(player) {
         }
 
         // ── ボスの結果をプレイヤーに反映 ──
+        const wasPlayerGrounded = this.isGrounded;
         const bossActiveAfter = boss._attackTimer > 0 || boss._subTimer > 0 || boss.isAttacking;
         this.vx = boss.vx;
         this.vy = boss.vy;
         this.x = boss.x;
         this.y = boss.y;
         this.isGrounded = boss.isGrounded;
+        if (this.isGrounded) {
+            this.jumpCount = 0;
+        }
+        this.justLanded = !wasPlayerGrounded && this.isGrounded;
 
         this.isAttacking = bossActiveAfter;
         this.attackTimer = bossActiveAfter ? 50 : 0;

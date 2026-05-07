@@ -1381,6 +1381,54 @@ export class Shogun extends Boss {
         };
     }
 
+    transformActorTrailPointToWorld(point, renderScale, actorFootGroundOffset = 2) {
+        if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return point;
+        const scale = Number.isFinite(renderScale) && renderScale > 0 ? renderScale : 1;
+        if (Math.abs(scale - 1) <= 0.001) return { ...point };
+        const fallbackPivotX = this.x + this.width * 0.5;
+        const fallbackPivotY = this.y + this.height * 0.62;
+        const pivotX = Number.isFinite(point.playerX) ? point.playerX : fallbackPivotX;
+        const pivotY = Number.isFinite(point.playerY)
+            ? point.playerY + PLAYER.HEIGHT * (0.62 - 0.5) - actorFootGroundOffset
+            : fallbackPivotY;
+        return {
+            ...point,
+            x: pivotX + (point.x - pivotX) * scale,
+            y: pivotY + (point.y - pivotY) * scale,
+            centerX: Number.isFinite(point.centerX)
+                ? pivotX + (point.centerX - pivotX) * scale
+                : point.centerX,
+            centerY: Number.isFinite(point.centerY)
+                ? pivotY + (point.centerY - pivotY) * scale
+                : point.centerY
+        };
+    }
+
+    renderDualBladeSlashTrailsAnchored(ctx, renderScale, actorFootGroundOffset = 2) {
+        if (!this.actor || typeof this.actor.renderComboSlashTrail !== 'function') return;
+        const bluePalette = { front: [130, 234, 255], back: [76, 154, 226] };
+        const redPalette = { front: [255, 90, 90], back: [214, 74, 74] };
+        const isDualZActive = !!(
+            this.actor.subWeaponAction === '二刀_Z' &&
+            this.actor.subWeaponTimer > 0
+        );
+        const drawTrail = (points, palette, key) => {
+            if (!Array.isArray(points) || points.length < 2) return;
+            const renderPoints = points.map((p) => this.transformActorTrailPointToWorld(p, renderScale, actorFootGroundOffset));
+            this.actor.renderComboSlashTrail(ctx, {
+                points: renderPoints,
+                palette,
+                forceLinearSmooth: true,
+                isAttacking: isDualZActive,
+                physicalScale: Math.max(1, renderScale),
+                getBoostAnchor: () => this[`_${key}BoostAnchor`] || null,
+                setBoostAnchor: (_step, value) => { this[`_${key}BoostAnchor`] = value; }
+            });
+        };
+        drawTrail(this.actor.dualBladeBackTrailPoints, bluePalette, 'shogunDualBack');
+        drawTrail(this.actor.dualBladeFrontTrailPoints, redPalette, 'shogunDualFront');
+    }
+
     getThrowableVisualScale(type) {
         const renderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
             ? this.scaleMultiplier
@@ -2819,9 +2867,7 @@ export class Shogun extends Boss {
         }
         
         if (!this.hideBody && typeof this.actor.renderDualBladeSlashTrails === 'function') {
-            renderTrailWithShogunTransform(() => {
-                this.actor.renderDualBladeSlashTrails(ctx);
-            });
+            this.renderDualBladeSlashTrailsAnchored(ctx, renderScale, actorFootGroundOffset);
         }
 
         // ── 陣羽織（じんばおり）背面描画 ──

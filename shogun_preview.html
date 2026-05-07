@@ -612,7 +612,9 @@
                 }
 
                 // プレビュー武器の強制維持
-                if (window._previewWeapon && shogun._subTimer <= 0) {
+                // ゲーム内同様、大太刀の刺さり/ぶら下がり/衝撃波などの継続演出中は待機表示へ戻さない
+                const previewActionActive = shogun._attackTimer > 0 || shogun._subTimer > 0 || shogun.isAttacking;
+                if (window._previewWeapon && !previewActionActive) {
                      shogun._subWeaponKey = window._previewWeapon;
                      shogun._subAction = null;
                      if (shogun._subWeaponInstances[window._previewWeapon]) {
