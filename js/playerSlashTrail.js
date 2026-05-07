@@ -1690,26 +1690,25 @@ export function applySlashTrailMixin(PlayerClass) {
                         : (this.currentAttack ? this.currentAttack.comboStep || 1 : 1);
                     let attackProfile;
                     if (isAutoAi || hasOverride) {
-                        const baseProfile = this.specialCloneCurrentAttacks[i] || this.getComboAttackProfileByStep(comboStep);
-                        const sizeScale = this.width / 40; // 将軍のスケール(約2.2)
-                        attackProfile = this.applyComboTrailSpecToAttackProfile(
-                            { 
-                                ...baseProfile,
-                                // シミュレーション内部でリーチを2.2倍にするためのフラグ
-                                trailPhysicalScale: sizeScale 
-                            },
-                            {
-                                x: pos.x - this.width * 0.5,
-                                y: cloneDrawY,
-                                width: this.width,
-                                height: PLAYER.HEIGHT * sizeScale,
-                                facingRight: pos.facingRight,
-                                isCrouching: false,
-                                vx: Number.isFinite(pos.cloneVx) ? pos.cloneVx : this.vx,
-                                vy: Number.isFinite(pos.cloneVy) ? pos.cloneVy : this.vy,
-                                speed: this.speed
-                            }
-                        );
+                        const cachedProfile = this.specialCloneCurrentAttacks[i] || null;
+                        if (cachedProfile) {
+                            attackProfile = cachedProfile;
+                        } else {
+                            attackProfile = this.applyComboTrailSpecToAttackProfile(
+                                this.getComboAttackProfileByStep(comboStep),
+                                {
+                                    x: pos.x - this.width * 0.5,
+                                    y: cloneDrawY,
+                                    width: this.width,
+                                    height: PLAYER.HEIGHT,
+                                    facingRight: pos.facingRight,
+                                    isCrouching: false,
+                                    vx: Number.isFinite(pos.cloneVx) ? pos.cloneVx : this.vx,
+                                    vy: Number.isFinite(pos.cloneVy) ? pos.cloneVy : this.vy,
+                                    speed: this.speed
+                                }
+                            );
+                        }
                     } else {
                         attackProfile = this.getMirroredCloneTrailProfile(i, pos, cloneDrawY);
                     }

@@ -1681,15 +1681,30 @@ export class Shogun extends Boss {
             this._comboStep = 0;
             this._currentComboStep = 0;
             this._currentAttackProfile = null;
+            this.actor.specialCloneCurrentAttacks[0] = null;
             this._comboFinisherAirLockTimer = 0;
             this.attackCooldown = 480;
             return;
         }
-        const profile = this.actor.getComboAttackProfileByStep(step);
+        const actorX = this.x + this.width * 0.5 - this.actorBaseWidth * 0.5;
+        const actorY = this.y + this.height * 0.62 - PLAYER.HEIGHT * 0.62;
+        const profile = this.actor.buildComboAttackProfileWithTrail(step, {
+            x: actorX,
+            y: actorY,
+            width: this.actorBaseWidth,
+            height: PLAYER.HEIGHT,
+            facingRight: this.facingRight,
+            isCrouching: false,
+            vx: this.vx,
+            vy: this.vy,
+            speed: this.speed
+        });
+        profile.trailAttackId = ++this.actor.comboSlashTrailAttackSerial;
         const dur = Math.max(1, profile.durationMs || 200);
         this._currentComboStep = step;
         this._comboStep = step;
         this._currentAttackProfile = profile;
+        this.actor.specialCloneCurrentAttacks[0] = profile;
         this._attackTimer = dur;
         this.attackTimer  = dur;
         this.isAttacking  = true;
@@ -1722,8 +1737,8 @@ export class Shogun extends Boss {
                 this.vy = Math.min(this.vy, -1.2);
             }
         } else if (step === 3) {
-            // 将軍は巨体で重いため、忍者のスピード（3.8）相当＋αの推進力を与えて突進距離を伸ばす
-            const shogunImpulse = impulse * (3.8 / this.speed) * 1.15;
+            // 忍者の三段目と同じ式を、将軍の見た目スケール分だけ拡大して突進量を揃える
+            const shogunImpulse = impulse * (Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1);
             this.vx = this.vx * 0.12 + dir * shogunImpulse * 1.71;
             this.vy = Math.min(this.vy, -8.2);
             this.isGrounded = false;
@@ -1814,7 +1829,7 @@ export class Shogun extends Boss {
                         this.vy = Math.max(this.vy, 13.4);
                     }
                 }
-            } else {
+            } else if (!(activeAttack && activeAttack.comboStep)) {
                 this.vx *= 0.92;
             }
 
@@ -1859,6 +1874,7 @@ export class Shogun extends Boss {
                     this._comboStep = 0;
                     this._currentComboStep = 0;
                     this._currentAttackProfile = null;
+                    this.actor.specialCloneCurrentAttacks[0] = null;
                     this._comboFinisherAirLockTimer = 0;
                     this.attackCooldown = Math.max(this.attackCooldown, 480);
                 }
@@ -2322,76 +2338,25 @@ export class Shogun extends Boss {
         // 将軍のZコンボの軌跡は updateSpecialCloneSlashTrails(deltaMs) を通じて specialCloneSlashTrailPoints[0] に生成されます。
         const trailPoints = Array.isArray(this.actor.specialCloneSlashTrailPoints) ? this.actor.specialCloneSlashTrailPoints[0] : null;
         if (!this.hideBody && trailPoints && trailPoints.length > 0) {
-            const sizeMultiplier = this.width / 40; // 将軍のサイズ倍率（約2.2倍）
-            
             // バフによるスケール（通常時は1.0）
             const baseTrailScale = typeof this.actor.getXAttackTrailWidthScale === 'function'
                 ? this.actor.getXAttackTrailWidthScale()
                 : 1.0;
 
-            const fallbackX = this.x + this.width * 0.5;
-            const fallbackY = this.y + this.height * 0.62;
-            const getTrailPivot = (p) => {
-                const originX = Number.isFinite(p && p.playerX) ? p.playerX : (fallbackX - actorRenderW * 0.5);
-                const originY = Number.isFinite(p && p.playerY) ? p.playerY : (fallbackY - PLAYER.HEIGHT * 0.62);
-                return {
-                    x: originX + actorRenderW * 0.5,
-                    y: originY + PLAYER.HEIGHT * 0.62,
-                    originX,
-                    originY
-                };
-            };
-            const scaleFromPivot = (value, pivot) => Number.isFinite(value)
-                ? pivot + (value - pivot) * sizeMultiplier
-                : value;
-
-            const absolutePoints = trailPoints.map(p => {
-                if (!p) return p;
-
-                const pivot = getTrailPivot(p);
-                const scalePtX = (px) => scaleFromPivot(px, pivot.x);
-                const scalePtY = (py) => scaleFromPivot(py, pivot.y);
-
-                if (p.trailIsRelative) {
-                    return {
-                        ...p,
-                        trailCurveStartX: Number.isFinite(p.trailCurveStartX) ? scalePtX(p.trailCurveStartX + pivot.originX) : p.trailCurveStartX,
-                        trailCurveStartY: Number.isFinite(p.trailCurveStartY) ? scalePtY(p.trailCurveStartY + pivot.originY) : p.trailCurveStartY,
-                        trailCurveControlX: Number.isFinite(p.trailCurveControlX) ? scalePtX(p.trailCurveControlX + pivot.originX) : p.trailCurveControlX,
-                        trailCurveControlY: Number.isFinite(p.trailCurveControlY) ? scalePtY(p.trailCurveControlY + pivot.originY) : p.trailCurveControlY,
-                        trailCurveEndX: Number.isFinite(p.trailCurveEndX) ? scalePtX(p.trailCurveEndX + pivot.originX) : p.trailCurveEndX,
-                        trailCurveEndY: Number.isFinite(p.trailCurveEndY) ? scalePtY(p.trailCurveEndY + pivot.originY) : p.trailCurveEndY,
-                        x: Number.isFinite(p.x) ? scalePtX(p.x + pivot.originX) : p.x,
-                        y: Number.isFinite(p.y) ? scalePtY(p.y + pivot.originY) : p.y,
-                        trailIsRelative: false
-                    };
-                } else {
-                    return {
-                        ...p,
-                        trailCurveStartX: Number.isFinite(p.trailCurveStartX) ? scalePtX(p.trailCurveStartX) : p.trailCurveStartX,
-                        trailCurveStartY: Number.isFinite(p.trailCurveStartY) ? scalePtY(p.trailCurveStartY) : p.trailCurveStartY,
-                        trailCurveControlX: Number.isFinite(p.trailCurveControlX) ? scalePtX(p.trailCurveControlX) : p.trailCurveControlX,
-                        trailCurveControlY: Number.isFinite(p.trailCurveControlY) ? scalePtY(p.trailCurveControlY) : p.trailCurveControlY,
-                        trailCurveEndX: Number.isFinite(p.trailCurveEndX) ? scalePtX(p.trailCurveEndX) : p.trailCurveEndX,
-                        trailCurveEndY: Number.isFinite(p.trailCurveEndY) ? scalePtY(p.trailCurveEndY) : p.trailCurveEndY,
-                        x: Number.isFinite(p.x) ? scalePtX(p.x) : p.x,
-                        y: Number.isFinite(p.y) ? scalePtY(p.y) : p.y
-                    };
-                }
-            });
-
-            this.actor.renderComboSlashTrail(ctx, {
-                points: absolutePoints,
-                centerX: this.x + this.width * 0.5,
-                centerY: this.y + this.height * 0.62,
-                trailWidthScale: baseTrailScale,
-                physicalScale: sizeMultiplier,
-                boostActive: baseTrailScale > 1.01 && this._attackTimer > 0,
-                attackState: {
-                    isAttacking: this.isAttacking,
-                    currentAttack: this._currentAttackProfile,
-                    attackTimer: this._attackTimer
-                }
+            renderTrailWithShogunTransform(() => {
+                this.actor.renderComboSlashTrail(ctx, {
+                    points: trailPoints,
+                    centerX: actorRenderX + actorRenderW * 0.5,
+                    centerY: actorRenderY + actorRenderH * 0.62,
+                    trailWidthScale: baseTrailScale,
+                    physicalScale: 1,
+                    boostActive: baseTrailScale > 1.01 && this._attackTimer > 0,
+                    attackState: {
+                        isAttacking: this.isAttacking,
+                        currentAttack: this._currentAttackProfile,
+                        attackTimer: this._attackTimer
+                    }
+                });
             });
         }
 
