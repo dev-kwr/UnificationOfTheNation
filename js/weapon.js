@@ -503,6 +503,7 @@ export class Shuriken extends SubWeapon {
 
     canUse() {
         // 画面上の在空数が最大数未満なら使用可能
+        this.projectiles = this.projectiles.filter(p => p && !p.isDestroyed);
         return this.projectiles.length < this.maxOnScreen;
     }
 
@@ -525,6 +526,7 @@ export class Shuriken extends SubWeapon {
             const cloneOffsets = player.getSubWeaponCloneOffsets();
             if (Array.isArray(cloneOffsets) && cloneOffsets.length > 0) {
                 for (const clone of cloneOffsets) {
+                    if (this.projectiles.length >= this.maxOnScreen) break;
                     player.triggerCloneSubWeapon(clone.index);
                     this._spawnProjectile(
                         baseX + clone.dx, baseY + clone.dy,
@@ -2663,11 +2665,14 @@ export class Odachi extends SubWeapon {
         
         const damages = [34, 40, 43, 46];
         const cooldowns = [580, 565, 550, 535];
+        const shogunCooldowns = [1180, 1150, 1125, 1100];
         const jumps = [-22, -26, -28, -30];
 
         this.damage = damages[this.enhanceTier] || damages[0];
         // 待機時間を撤廃し、モーション時間自体をCDとする
-        this.cooldown = this.isShogunOdachi ? 1100 : (cooldowns[this.enhanceTier] || cooldowns[0]);
+        this.cooldown = this.isShogunOdachi
+            ? (shogunCooldowns[this.enhanceTier] || shogunCooldowns[0])
+            : (cooldowns[this.enhanceTier] || cooldowns[0]);
         this.totalDuration = this.cooldown;
         this.odachiJumpVy = jumps[this.enhanceTier] || jumps[0];
 
@@ -3124,9 +3129,10 @@ export class Odachi extends SubWeapon {
     }
     
     render(ctx, player) {
+        const groundOnly = !!this.renderOnlyGroundEffects;
         // 攻撃中 OR 刺さり中 OR 強制描画指定時は刀身を描画
         const shouldFadeOut = !this.isAttacking && this.fadeOutTimer > 0 && this.lastPlantedPose;
-        if (this.isAttacking || shouldFadeOut || (player && player.forceSubWeaponRender)) {
+        if (!groundOnly && (this.isAttacking || shouldFadeOut || (player && player.forceSubWeaponRender))) {
             const pose = shouldFadeOut
                 ? this.lastPlantedPose
                 : this.getPose(player);
@@ -3303,7 +3309,7 @@ export class Odachi extends SubWeapon {
         }
 
         // 着地インパクト
-        if (this.impactFlashTimer > 0) {
+        if (!this.suppressGroundEffectsRender && this.impactFlashTimer > 0) {
             const alpha = Math.max(0, this.impactFlashTimer / 170);
             ctx.save();
             ctx.globalCompositeOperation = 'lighter';
@@ -3323,7 +3329,7 @@ export class Odachi extends SubWeapon {
         }
 
         // 衝撃波
-        if (this.groundWaves && this.groundWaves.length > 0) {
+        if (!this.suppressGroundEffectsRender && this.groundWaves && this.groundWaves.length > 0) {
             for (let i = 0; i < this.groundWaves.length; i++) {
                 const sw = this.groundWaves[i];
                 if (!sw) continue;
@@ -3363,7 +3369,7 @@ export class Odachi extends SubWeapon {
             }
         }
 
-        if (this.impactDebris.length > 0) {
+        if (!this.suppressGroundEffectsRender && this.impactDebris.length > 0) {
             for (const p of this.impactDebris) {
                 const life = Math.max(0, p.life / p.maxLife);
                 ctx.save();

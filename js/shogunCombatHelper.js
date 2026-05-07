@@ -1,5 +1,5 @@
 import { audio } from './audio.js';
-import { PLAYER, GRAVITY, LANE_OFFSET } from './constants.js';
+import { PLAYER, GRAVITY, LANE_OFFSET, CANVAS_WIDTH } from './constants.js';
 import { input } from './input.js';
 import { Shogun } from './boss.js';
 
@@ -27,6 +27,83 @@ export function applyShogunCombat(player) {
     player._shogunInited = false;
     player._shogunSubWeaponInstances = null;
 
+    const clampShogunTier = (value) => Math.max(0, Math.min(3, Math.floor(Number(value) || 0)));
+    const getShogunSubWeaponTier = (p) => {
+        if (p && typeof p.getSubWeaponEnhanceTier === 'function') {
+            return clampShogunTier(p.getSubWeaponEnhanceTier());
+        }
+        return clampShogunTier(p?.progression?.subWeapon);
+    };
+    const getShogunNormalComboTier = (p) => clampShogunTier(p?.progression?.normalCombo);
+    const getShogunNormalComboMax = (p) => {
+        if (p && typeof p.getNormalComboMax === 'function') {
+            return Math.max(2, Math.min(5, Math.floor(p.getNormalComboMax())));
+        }
+        return Math.max(2, Math.min(5, 2 + getShogunNormalComboTier(p)));
+    };
+    const syncShogunProgression = (p, boss) => {
+        if (!p || !boss) return;
+        const subTier = getShogunSubWeaponTier(p);
+        const normalTier = getShogunNormalComboTier(p);
+        boss.progression = { ...(boss.progression || {}), subWeapon: subTier, normalCombo: normalTier };
+        boss.getSubWeaponEnhanceTier = () => subTier;
+        if (boss.actor) {
+            boss.actor.progression = {
+                ...(boss.actor.progression || {}),
+                subWeapon: subTier,
+                normalCombo: normalTier,
+                specialClone: clampShogunTier(p?.progression?.specialClone),
+            };
+        }
+        if (boss._subWeaponInstances && boss._shogunSyncedSubWeaponTier !== subTier) {
+            for (const inst of Object.values(boss._subWeaponInstances)) {
+                if (!inst) continue;
+                if (typeof inst.applyEnhanceTier === 'function') {
+                    inst.applyEnhanceTier(subTier, boss);
+                } else if (Object.prototype.hasOwnProperty.call(inst, 'enhanceTier')) {
+                    inst.enhanceTier = subTier;
+                }
+            }
+            boss._shogunSyncedSubWeaponTier = subTier;
+        }
+    };
+    const getShogunSolidColliders = (p, boss, walls) => {
+        const colliders = Array.isArray(walls) ? walls : [];
+        const comboStep = boss && boss._currentAttackProfile ? (boss._currentAttackProfile.comboStep || 0) : 0;
+        return colliders.filter((wall) => {
+            if (!wall || wall.isDestroyed) return false;
+            if (
+                typeof wall.x !== 'number' ||
+                typeof wall.y !== 'number' ||
+                typeof wall.width !== 'number' ||
+                typeof wall.height !== 'number'
+            ) {
+                return false;
+            }
+            if (typeof wall.type !== 'string') return true;
+            if (wall.type === 'rock') return comboStep !== 4;
+            if (wall.type === 'spike') return !!(p && typeof p.isGhostVeilActive === 'function' && p.isGhostVeilActive());
+            return false;
+        });
+    };
+    const clampShogunToCameraBounds = (p, boss) => {
+        const g = typeof window !== 'undefined' ? window.game : null;
+        const scrollX = Number.isFinite(g?.scrollX) ? g.scrollX : 0;
+        const currentStageNumber = Number.isFinite(g?.currentStageNumber) ? g.currentStageNumber : 0;
+        const minX = currentStageNumber === 5 ? -boss.width : scrollX;
+        const maxX = scrollX + CANVAS_WIDTH - boss.width;
+        if (boss.x < minX) {
+            boss.x = minX;
+            if (boss.vx < 0) boss.vx = 0;
+        }
+        if (boss.x > maxX) {
+            boss.x = maxX;
+            if (boss.vx > 0) boss.vx = 0;
+        }
+        p.x = boss.x;
+        p.vx = boss.vx;
+    };
+
     // ================================================================
     // 初期化: ボスインスタンスとサブ武器の生成
     // ================================================================
@@ -51,6 +128,7 @@ export function applyShogunCombat(player) {
         // Shogun.init() で生成＆スケール済みのインスタンスをそのまま使う
         // （以前は差し替えていたため applyScaleToSubWeapons の効果が消えていた）
         p._shogunSubWeaponInstances = p._shogunBossInstance._subWeaponInstances;
+        syncShogunProgression(p, p._shogunBossInstance);
 
         // ── 当たり判定を敵に向ける ──
         p._shogunBossInstance.checkPlayerCollision = function(rect, damage, pushback) {
@@ -99,7 +177,35 @@ export function applyShogunCombat(player) {
                     const key = this._shogunBossInstance._subWeaponKey;
                     const inst = this._shogunBossInstance._subWeaponInstances[key];
                     if (inst && typeof inst.getHitbox === 'function') {
-                        return inst;
+                        if (!this._shogunSubWeaponCollisionProxy) {
+                            this._shogunSubWeaponCollisionProxy = new Proxy({}, {
+                                get: (_target, prop) => {
+                                    const boss = this._shogunBossInstance;
+                                    const activeKey = boss && boss._subWeaponKey;
+                                    const activeInst = activeKey && boss._subWeaponInstances
+                                        ? boss._subWeaponInstances[activeKey]
+                                        : null;
+                                    if (prop === 'getHitbox') {
+                                        return () => boss && typeof boss.getSubWeaponHitbox === 'function'
+                                            ? boss.getSubWeaponHitbox()
+                                            : null;
+                                    }
+                                    if (!activeInst) return undefined;
+                                    const value = activeInst[prop];
+                                    return typeof value === 'function' ? value.bind(activeInst) : value;
+                                },
+                                set: (_target, prop, value) => {
+                                    const boss = this._shogunBossInstance;
+                                    const activeKey = boss && boss._subWeaponKey;
+                                    const activeInst = activeKey && boss._subWeaponInstances
+                                        ? boss._subWeaponInstances[activeKey]
+                                        : null;
+                                    if (activeInst) activeInst[prop] = value;
+                                    return true;
+                                }
+                            });
+                        }
+                        return this._shogunSubWeaponCollisionProxy;
                     }
                 }
                 return realSub;
@@ -144,6 +250,7 @@ export function applyShogunCombat(player) {
         initShogunInstances(this);
         const boss = this._shogunBossInstance;
         if (!boss) return originalHandleInput.apply(this, arguments);
+        syncShogunProgression(this, boss);
 
         // ── 武器切り替え（C キー）──
         if (input.isActionJustPressed('SWITCH_WEAPON')) {
@@ -274,7 +381,15 @@ export function applyShogunCombat(player) {
                 this._shogunComboWindowTimer = 460;
                 return;
             }
-            const nextStep = Math.min(5, currentStep + 1);
+            const currentAttack = boss._currentAttackProfile || null;
+            const duration = Math.max(1, currentAttack?.durationMs || boss._attackTimer || 1);
+            const remaining = Math.max(0, boss._attackTimer || 0);
+            const bufferMs = currentStep === 4
+                ? Math.max(420, Math.min(620, duration * 1.25))
+                : Math.max(80, Math.min(240, duration * 0.82));
+            if (remaining > bufferMs) return;
+            const comboMax = getShogunNormalComboMax(this);
+            const nextStep = Math.min(comboMax, currentStep + 1);
             if (nextStep <= currentStep) return;
             this._shogunComboStep = nextStep;
             this._shogunComboWindowTimer = 460;
@@ -290,8 +405,9 @@ export function applyShogunCombat(player) {
         boss.groundY = this.groundY;
 
         // preview line 299-301: コンボ継続ウィンドウ内なら次段、そうでなければ1段目
+        const comboMax = getShogunNormalComboMax(this);
         const nextStep = (this._shogunComboWindowTimer > 0 && this._shogunComboStep > 0)
-            ? ((this._shogunComboStep % 5) + 1)
+            ? ((this._shogunComboStep % comboMax) + 1)
             : 1;
         this._shogunComboStep = nextStep;
         this._shogunComboWindowTimer = 460;
@@ -339,8 +455,12 @@ export function applyShogunCombat(player) {
             boss.isGrounded = this.isGrounded;
             boss.groundY = this.groundY;
         }
+        syncShogunProgression(this, boss);
+        const tier = getShogunSubWeaponTier(this);
         if (typeof dualInst.applyEnhanceTier === 'function') {
-            dualInst.applyEnhanceTier(3, boss);
+            dualInst.applyEnhanceTier(tier, boss);
+        } else if (Object.prototype.hasOwnProperty.call(dualInst, 'enhanceTier')) {
+            dualInst.enhanceTier = tier;
         }
         // preview と同一: currentSubWeapon を一時セットし、isEnemy はそのまま
         const prevSubWeapon = boss.currentSubWeapon;
@@ -417,6 +537,7 @@ export function applyShogunCombat(player) {
         }
 
         const inst = boss._subWeaponInstances[weaponKey];
+        syncShogunProgression(this, boss);
         if (inst && typeof inst.canUse === 'function' && !inst.canUse()) {
             console.log('[将軍DEBUG] triggerSubAction: canUse() returned false for', weaponKey);
             return;
@@ -431,29 +552,10 @@ export function applyShogunCombat(player) {
         boss._fireSubWeapon(weaponKey);
         boss._subAction = actionMap[weaponKey] || null;
 
-        // preview の getPreviewSubActionDuration と同一
-        let duration = 300;
-        if (weaponKey === 'shuriken') {
-            duration = 1400;
-            boss._shurikenVisualTimer = 150;
-        } else if (weaponKey === 'bomb') {
-            duration = Math.max(150, inst?.totalDuration || inst?.cooldown || 150);
-            boss._shurikenVisualTimer = 0;
-        } else if (weaponKey === 'dual') {
-            duration = boss._getSubActionDurationMs ? boss._getSubActionDurationMs('二刀_合体', 'dual') : 850;
-            boss._shurikenVisualTimer = 0;
-        } else {
-            boss._shurikenVisualTimer = 0;
-            if (inst) {
-                if (inst.totalDuration && inst.plantedDuration) {
-                    duration = inst.totalDuration + inst.plantedDuration + (inst.fadeOutDuration || 0) + 60;
-                } else if (inst.totalDuration) {
-                    duration = inst.totalDuration + (inst.fadeOutDuration || 0) + 40;
-                } else if (inst.attackDuration) {
-                    duration = inst.attackDuration + 40;
-                }
-            }
-        }
+        const duration = boss._getSubActionDurationMs
+            ? boss._getSubActionDurationMs(actionMap[weaponKey] || realWeapon.name, weaponKey)
+            : 300;
+        boss._shurikenVisualTimer = weaponKey === 'shuriken' ? 150 : 0;
 
         boss._subTimer = duration;
         boss._subWeaponKey = weaponKey;
@@ -533,6 +635,7 @@ export function applyShogunCombat(player) {
         initShogunInstances(this);
         const boss = this._shogunBossInstance;
         if (!boss) return originalUpdate.apply(this, arguments);
+        syncShogunProgression(this, boss);
 
         const deltaMs = dt * 1000;
 
@@ -583,8 +686,10 @@ export function applyShogunCombat(player) {
         boss.isCrouching = this.isCrouching;
         boss.groundY = this.groundY;
 
-        // ── ボスの update（唯一の物理処理 — preview と同一） ──
-        boss.update(dt, null, enemies);
+        // ── ボスの update（唯一の物理処理）──
+        const solidColliders = getShogunSolidColliders(this, boss, walls);
+        boss.update(dt, null, solidColliders, enemies);
+        clampShogunToCameraBounds(this, boss);
 
         // ── 二刀流Zコンボの先行入力消化 ──
         if (this._shogunQueuedDualAttack && boss._subAction === '二刀_Z') {

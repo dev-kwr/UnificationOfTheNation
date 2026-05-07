@@ -2,7 +2,7 @@
 // Unification of the Nation - ボスクラス
 // ============================================
 
-import { CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js';
+import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY } from './constants.js';
 import { Enemy } from './enemy.js';
 import { createSubWeapon } from './weapon.js';
 import { audio } from './audio.js';
@@ -72,7 +72,7 @@ class Boss extends Enemy {
         this.damage = Math.max(1, Math.round(this.damage * scale));
     }
     
-    update(deltaTime, player) {
+    update(deltaTime, player, obstacles = []) {
         this.targetPlayer = player || null;
         const deltaMs = deltaTime * 1000;
 
@@ -88,7 +88,7 @@ class Boss extends Enemy {
             this.feintTimerMs = 180 + Math.random() * 260;
         }
 
-        const shouldRemove = super.update(deltaTime, player);
+        const shouldRemove = super.update(deltaTime, player, obstacles);
         if (!shouldRemove && !this.isEntering && this.isAlive && !this.isDying) {
             const scrollX = window.game ? window.game.scrollX : 0;
             const minX = scrollX;
@@ -1322,6 +1322,176 @@ export class Shogun extends Boss {
         }
     }
 
+    getActorSpaceState() {
+        const renderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
+            ? this.scaleMultiplier
+            : 1;
+        const actorW = this.actorBaseWidth || Math.max(1, Math.round(this.width / renderScale));
+        const actorH = this.actorBaseHeight || Math.max(1, Math.round(this.height / renderScale));
+        return {
+            x: this.x + (this.width - actorW) * 0.5,
+            y: this.y + (this.height - actorH) * 0.62 + 2,
+            width: actorW,
+            height: actorH,
+            groundY: this.groundY,
+            facingRight: this.facingRight,
+            isGrounded: this.isGrounded,
+            motionTime: this.motionTime,
+            bob: 0,
+            isEnemy: false,
+            getSubWeaponCloneOffsets: () => [],
+            triggerCloneSubWeapon: () => {},
+        };
+    }
+
+    getThrowOwnerState() {
+        return {
+            x: this.x,
+            y: this.groundY + LANE_OFFSET - PLAYER.HEIGHT,
+            width: this.width,
+            height: PLAYER.HEIGHT,
+            groundY: this.groundY,
+            facingRight: this.facingRight,
+            isGrounded: this.isGrounded,
+            motionTime: this.motionTime,
+            isEnemy: false,
+            getSubWeaponCloneOffsets: () => [],
+            triggerCloneSubWeapon: () => {},
+        };
+    }
+
+    transformActorHitboxToWorld(box) {
+        const renderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
+            ? this.scaleMultiplier
+            : 1;
+        const pivotX = this.x + this.width * 0.5;
+        const pivotY = this.y + this.height * 0.62;
+        const dir2d = this.facingRight ? 1 : -1;
+        const moveBias = Math.min(0.024, Math.abs(this.vx || 0) * 0.0038);
+        const attackBias = this.isAttacking ? 0.013 : 0;
+        const yawSkew = dir2d * (0.046 + moveBias + attackBias);
+        const skew = yawSkew / 0.982;
+        const xScale = 1 / 0.982;
+        const corners = [
+            [box.x, box.y],
+            [box.x + box.width, box.y],
+            [box.x, box.y + box.height],
+            [box.x + box.width, box.y + box.height],
+        ].map(([x, y]) => {
+            let tx = pivotX + (x - pivotX) * renderScale;
+            let ty = pivotY + (y - pivotY) * renderScale;
+            const dx = tx - pivotX;
+            const dy = ty - pivotY;
+            tx = pivotX + dx * xScale - skew * dy;
+            return { x: tx, y: ty };
+        });
+        const xs = corners.map(p => p.x);
+        const ys = corners.map(p => p.y);
+        const minX = Math.min(...xs);
+        const minY = Math.min(...ys);
+        const maxX = Math.max(...xs);
+        const maxY = Math.max(...ys);
+        return {
+            ...box,
+            x: minX,
+            y: minY,
+            width: Math.max(1, maxX - minX),
+            height: Math.max(1, maxY - minY),
+        };
+    }
+
+    getSubWeaponHitbox() {
+        if (!this._subWeaponKey) return null;
+        const subInst = this._subWeaponInstances[this._subWeaponKey];
+        if (!subInst || typeof subInst.getHitbox !== 'function') return null;
+
+        const actorSpaceKeys = new Set(['spear', 'kusarigama', 'dual']);
+        const useActorSpace = actorSpaceKeys.has(this._subWeaponKey);
+        const owner = useActorSpace ? this.getActorSpaceState() : this;
+        let rangeBackup = null;
+        if (useActorSpace && Number.isFinite(subInst.range) && Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0) {
+            rangeBackup = subInst.range;
+            subInst.range = subInst.range / this.scaleMultiplier;
+        }
+        const hb = subInst.getHitbox(owner);
+        if (rangeBackup !== null) subInst.range = rangeBackup;
+        if (!hb) return null;
+
+        const boxes = Array.isArray(hb) ? hb : [hb];
+        return useActorSpace
+            ? boxes.map(box => this.transformActorHitboxToWorld(box))
+            : boxes;
+    }
+
+    applyPhysics(obstacles = []) {
+        if (!this.isGrounded) {
+            this.vy += GRAVITY;
+        }
+
+        this.isGrounded = false;
+        this.oldX = this.x;
+        this.oldY = this.y;
+
+        let nextX = this.x + this.vx;
+        if (this.vx !== 0 && Array.isArray(obstacles)) {
+            const sweepTop = Math.min(this.y, this.y + this.vy);
+            const sweepBottom = Math.max(this.y + this.height, this.y + this.vy + this.height);
+            const edgeTolerance = 2;
+
+            if (this.vx > 0) {
+                const currentRight = this.x + this.width;
+                for (const obs of obstacles) {
+                    if (!obs || obs.isDestroyed) continue;
+                    const overlapY = Math.min(sweepBottom, obs.y + obs.height) - Math.max(sweepTop, obs.y);
+                    if (overlapY <= edgeTolerance) continue;
+                    if (currentRight <= obs.x + 0.5 && nextX + this.width > obs.x) {
+                        nextX = Math.min(nextX, obs.x - this.width - 0.01);
+                        this.vx = 0;
+                    }
+                }
+            } else {
+                const currentLeft = this.x;
+                for (const obs of obstacles) {
+                    if (!obs || obs.isDestroyed) continue;
+                    const overlapY = Math.min(sweepBottom, obs.y + obs.height) - Math.max(sweepTop, obs.y);
+                    if (overlapY <= edgeTolerance) continue;
+                    const obsRight = obs.x + obs.width;
+                    if (currentLeft >= obsRight - 0.5 && nextX < obsRight) {
+                        nextX = Math.max(nextX, obsRight + 0.01);
+                        this.vx = 0;
+                    }
+                }
+            }
+        }
+
+        this.x = nextX;
+        this.y += this.vy;
+
+        for (const obs of obstacles) {
+            if (!obs || obs.isDestroyed || !this.intersects(obs)) continue;
+            if (this.vy >= 0 && this.oldY + this.height <= obs.y + 10) {
+                this.y = obs.y - this.height;
+                this.vy = 0;
+                this.isGrounded = true;
+            } else if (this.vy < 0 && this.oldY >= obs.y + obs.height - 10) {
+                this.y = obs.y + obs.height;
+                this.vy = 0;
+            } else if (this.oldX + this.width <= obs.x + 5) {
+                this.x = obs.x - this.width;
+                this.vx = 0;
+            } else if (this.oldX >= obs.x + obs.width - 5) {
+                this.x = obs.x + obs.width;
+                this.vx = 0;
+            }
+        }
+
+        if (this.y + this.height >= this.groundY + LANE_OFFSET) {
+            this.y = this.groundY + LANE_OFFSET - this.height;
+            this.vy = 0;
+            this.isGrounded = true;
+        }
+    }
+
     updateAI(deltaTime, player) {
         if (!player) return;
         const scrollX = window.game ? window.game.scrollX : 0;
@@ -1394,7 +1564,13 @@ export class Shogun extends Boss {
         if (absX > this.attackRange * 1.08 && absX <= 300) this.tryJump(0.022, -15, 400);
     }
 
-    update(deltaTime, player, enemies = []) {
+    update(deltaTime, player, obstaclesOrEnemies = [], enemiesOrNull = null) {
+        const obstacles = Array.isArray(enemiesOrNull)
+            ? (Array.isArray(obstaclesOrEnemies) ? obstaclesOrEnemies : [])
+            : (this.isEnemy ? (Array.isArray(obstaclesOrEnemies) ? obstaclesOrEnemies : []) : []);
+        const enemies = Array.isArray(enemiesOrNull)
+            ? enemiesOrNull
+            : (this.isEnemy ? [] : (Array.isArray(obstaclesOrEnemies) ? obstaclesOrEnemies : []));
         // サブ技タイマーが残っている間は必ず攻撃更新を継続する
         // （isAttackingが先にfalseになると_subTimerが減らず行動停止するため）
         const odachi = this._subWeaponInstances.odachi;
@@ -1409,7 +1585,7 @@ export class Shogun extends Boss {
             this._comboFinisherAirLockTimer = Math.max(0, this._comboFinisherAirLockTimer - deltaTime * 1000);
         }
 
-        const shouldRemove = super.update(deltaTime, player);
+        const shouldRemove = super.update(deltaTime, player, obstacles);
         if (shouldRemove) return true;
 
         const deltaMs = deltaTime * 1000;
@@ -1665,7 +1841,14 @@ export class Shogun extends Boss {
             }
             return;
         }
-        if (typeof dual.applyEnhanceTier === 'function') dual.applyEnhanceTier(3, this);
+        const enhanceTier = typeof this.getSubWeaponEnhanceTier === 'function'
+            ? Math.max(0, Math.min(3, Math.floor(this.getSubWeaponEnhanceTier())))
+            : 3;
+        if (typeof dual.applyEnhanceTier === 'function') {
+            dual.applyEnhanceTier(enhanceTier, this);
+        } else if (Object.prototype.hasOwnProperty.call(dual, 'enhanceTier')) {
+            dual.enhanceTier = enhanceTier;
+        }
         const prevSubWeapon = this.currentSubWeapon;
         this.currentSubWeapon = dual;
         this._useSubWeaponAsPlayerStyle(dual, 'main'); // 1段発動（内部でcomboIndexを進める）
@@ -2046,10 +2229,13 @@ export class Shogun extends Boss {
         const resolvedKey = type === 'dual_z' ? 'dual' : type;
         const subInst = this._subWeaponInstances[resolvedKey];
         if (!subInst) return;
+        const enhanceTier = typeof this.getSubWeaponEnhanceTier === 'function'
+            ? Math.max(0, Math.min(3, Math.floor(this.getSubWeaponEnhanceTier())))
+            : 3;
         if (typeof subInst.applyEnhanceTier === 'function') {
-            subInst.applyEnhanceTier(3, this);
+            subInst.applyEnhanceTier(enhanceTier, this);
         } else {
-            subInst.enhanceTier = 3;
+            subInst.enhanceTier = enhanceTier;
         }
         const prevSubWeapon  = this.currentSubWeapon;
         const prevAttackCombo = this.attackCombo;
@@ -2062,7 +2248,8 @@ export class Shogun extends Boss {
         const bombsBefore = (resolvedKey === 'bomb' && window.game && window.game.bombs)
             ? window.game.bombs.length : -1;
 
-        this._useSubWeaponAsPlayerStyle(subInst, useMode);
+        const useOwner = resolvedKey === 'shuriken' ? this.getThrowOwnerState() : this;
+        this._useSubWeaponAsPlayerStyle(subInst, useMode, useOwner);
         if (resolvedKey === 'dual' && type === 'dual') {
             this.vx = 0;
         }
@@ -2112,12 +2299,12 @@ export class Shogun extends Boss {
         return this.actor.getSubWeaponActionDurationMs(actionName, weapon);
     }
 
-    _useSubWeaponAsPlayerStyle(subInst, useMode) {
+    _useSubWeaponAsPlayerStyle(subInst, useMode, owner = this) {
         if (!subInst || typeof subInst.use !== 'function') return;
         const prevIsEnemy = this.isEnemy;
         this.isEnemy = false;
         try {
-            subInst.use(this, useMode);
+            subInst.use(owner, useMode);
         } finally {
             this.isEnemy = prevIsEnemy;
         }
@@ -2206,12 +2393,9 @@ export class Shogun extends Boss {
                 height: this.height * 0.8,
             }];
         }
-        if (this._subTimer > 0 && this._subWeaponKey) {
-            const subInst = this._subWeaponInstances[this._subWeaponKey];
-            if (subInst && typeof subInst.getHitbox === 'function') {
-                const hb = subInst.getHitbox(this);
-                if (hb) return Array.isArray(hb) ? hb : [hb];
-            }
+        if (this._subWeaponKey) {
+            const hb = this.getSubWeaponHitbox();
+            if (hb) return Array.isArray(hb) ? hb : [hb];
         }
         return null;
     }
@@ -2572,6 +2756,13 @@ export class Shogun extends Boss {
             });
         }
 
+        const odachiGroundRenderInst = this._subWeaponKey === 'odachi'
+            ? this._subWeaponInstances.odachi
+            : null;
+        if (odachiGroundRenderInst) {
+            odachiGroundRenderInst.suppressGroundEffectsRender = true;
+        }
+
         // キャラ本体描画（hideBody時は hideBodyParts: true で体シルエットのみ非表示）
         renderWithShogunTransform(() => {
             const alpha = typeof this.ghostVeilAlpha === 'number' ? this.ghostVeilAlpha : 1.0;
@@ -2580,6 +2771,13 @@ export class Shogun extends Boss {
                 hideBodyParts: !!this.hideBody,
             });
         });
+
+        if (odachiGroundRenderInst && typeof odachiGroundRenderInst.render === 'function') {
+            odachiGroundRenderInst.suppressGroundEffectsRender = false;
+            odachiGroundRenderInst.renderOnlyGroundEffects = true;
+            odachiGroundRenderInst.render(ctx, this);
+            odachiGroundRenderInst.renderOnlyGroundEffects = false;
+        }
 
 
 
