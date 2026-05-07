@@ -1230,6 +1230,9 @@ export class Shogun extends Boss {
         this.maxHp = 4500;
         this.damage = 6;
         this.speed = 3.8;
+        this.speedVarianceRange = 0;
+        this.speedVarianceBias = 0;
+        this.movementTempo = 1;
         this.attackRange = Math.round(120 * this.scaleMultiplier);
         this.incomingDamageScale = 0.55;
         this.weaponReplica = null;

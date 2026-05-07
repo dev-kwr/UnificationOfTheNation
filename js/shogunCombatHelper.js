@@ -561,7 +561,7 @@ export function applyShogunCombat(player) {
         this.handleInput();
 
         // ── 移動がなければ減速（preview line 591: shogun.vx *= 0.8） ──
-        const bossIsActive = boss._attackTimer > 0 || boss._subTimer > 0 || boss.isAttacking;
+        const bossIsActive = boss._attackTimer > 0 || boss._subTimer > 0 || boss.isAttacking || !boss.isGrounded;
         if (!bossIsActive && !this.isDashing) {
             const moveDir = input.isAction('LEFT') ? -1 : (input.isAction('RIGHT') ? 1 : 0);
             if (moveDir === 0) {
