@@ -34,6 +34,8 @@ export function applyRendererMixin(PlayerClass) {
         uprightTarget = -Math.PI / 2
     ) {
         ctx.save();
+        // 武器は本体の透明度（Ghost Veil等）の影響を受けず、常に不透明で描画する
+        ctx.globalAlpha = 1.0;
         ctx.translate(x, y);
         ctx.scale(scaleDir, scaleY);
         // 垂直方向(uprightTarget)へ角度を寄せて、刀全体を立たせる
@@ -642,7 +644,7 @@ export function applyRendererMixin(PlayerClass) {
 
         // 将軍モード時は独自描画のみを行い、忍者の描画（残像含む）を一切スキップする
         if (this.characterType === 'shogun') {
-            this._renderShogunBody(ctx, ghostVeilActive);
+            this._renderShogunBody(ctx, ghostVeilActive, ghostVeilActive ? 0.0 : 1.0);
             return;
         }
 
@@ -650,13 +652,7 @@ export function applyRendererMixin(PlayerClass) {
         this.subWeaponRenderedInModel = false;
         this.dualBladeTrailAnchors = null;
         const filterParts = [];
-        const ghostSilhouetteAlpha = ghostVeilActive
-            ? (
-                this.subWeaponAction === '大太刀' && this.subWeaponTimer > 0
-                    ? Math.max(0.1, this.getGhostVeilAlpha() * 0.78)
-                    : this.getGhostVeilAlpha()
-            )
-            : 1.0;
+        const ghostSilhouetteAlpha = ghostVeilActive ? this.getGhostVeilAlpha() : 1.0;
 
         // 必殺技詠唱中は軽く明るくする
         if (this.isUsingSpecial && this.specialCastTimer > 0) {
@@ -708,22 +704,19 @@ export function applyRendererMixin(PlayerClass) {
         // 残像
         const isOdachiJumping = this.isOdachiJumpAfterimageActive();
         const isSpearThrusting = this.isSpearThrustAfterimageActive();
-        if (this.isDashing || Math.abs(this.vx) > PLAYER.SPEED * 1.5 || isOdachiJumping || isSpearThrusting) {
-            const sampleStep = ghostVeilActive
-                ? 4
-                : 2;
-            for (let i = 0; i < this.afterImages.length; i += sampleStep) {
+        const shouldRenderAfterImages =
+            !ghostVeilActive &&
+            (this.isDashing || Math.abs(this.vx) > PLAYER.SPEED * 1.5 || isOdachiJumping || isSpearThrusting);
+        if (shouldRenderAfterImages) {
+            for (let i = 0; i < this.afterImages.length; i += 2) {
                 const img = this.afterImages[i];
                 if (!img) continue;
                 const depthFade = (1 - i / this.afterImages.length);
                 const isSpecialShadow = img.type === 'special_shadow';
-                const ghostTrailAlphaScale = ghostVeilActive
-                    ? (isSpecialShadow ? 0.45 : 0.18)
-                    : 1.0;
-                const alpha = (isSpecialShadow ? 1.0 : (0.3 * depthFade)) * ghostTrailAlphaScale;
+                const alpha = isSpecialShadow ? 1.0 : (0.3 * depthFade);
                 this.renderModel(ctx, img.x, img.y, img.facingRight, alpha, false, {
                     useLiveAccessories: false,
-                    renderHeadband: !ghostVeilActive,
+                    renderHeadband: true,
                     renderHeadbandTail: false,
                     renderHair: false
                 });
@@ -738,23 +731,19 @@ export function applyRendererMixin(PlayerClass) {
         // 本体描画
         if (this.characterType === 'shogun') {
             // ── 将軍モード: boss.js Shogun.renderBody と同一のパイプラインで描画 ──
-            this._renderShogunBody(ctx, ghostVeilActive);
+            const ghostAlpha = ghostVeilActive ? 0.0 : 1.0;
+            this._renderShogunBody(ctx, ghostVeilActive, ghostAlpha);
         } else if (this.isUsingSpecial && this.specialCastTimer > 0) {
-            const castOptions = ghostVeilActive
-                ? { palette: { silhouette: `rgba(26, 26, 26, 0.0)` } }
-                : {};
-            this.renderModel(ctx, this.x, this.y, this.facingRight, ghostVeilActive ? 0.0 : 1.0, false, {
-                ...castOptions,
+            this.renderModel(ctx, this.x, this.y, this.facingRight, ghostSilhouetteAlpha, false, {
                 ninNinPose: true,
-                headbandAlpha: ghostVeilActive ? 1.0 : undefined
+                headbandAlpha: 1.0
             });
         } else {
-            const renderOptions = ghostVeilActive
-                ? { palette: { silhouette: `rgba(26, 26, 26, 0.0)` } }
-                : {};
-            this.renderModel(ctx, this.x, this.y, this.facingRight, ghostVeilActive ? 0.0 : 1.0, true, {
-                ...renderOptions,
-                headbandAlpha: ghostVeilActive ? 1.0 : undefined
+            this.renderModel(ctx, this.x, this.y, this.facingRight, ghostSilhouetteAlpha, true, {
+                headbandAlpha: 1.0, // 鉢巻は不透明を維持
+                crouchIntensity: this.isCrouching
+                    ? (typeof this.getCrouchRenderIntensity === 'function' ? this.getCrouchRenderIntensity() : 0.35)
+                    : 0 // 将軍の姿勢に近い、重心を落とすポーズを適用
             });
         }
 
@@ -769,7 +758,7 @@ export function applyRendererMixin(PlayerClass) {
     // 内部に Shogun ボスインスタンスを保持し、プレイヤーの状態を同期した上で
     // shogun.renderBody(ctx) をそのまま呼び出す。
     // ═══════════════════════════════════════════════════════════════
-    PlayerClass.prototype._renderShogunBody = function(ctx, ghostVeilActive) {
+    PlayerClass.prototype._renderShogunBody = function(ctx, ghostVeilActive, ghostAlpha = 1.0) {
         if (!this._shogunBossInstance) return;
 
         const boss = this._shogunBossInstance;
@@ -784,8 +773,9 @@ export function applyRendererMixin(PlayerClass) {
         boss.facingRight = this.facingRight;
         boss.groundY = this.groundY;
 
-        if (ghostVeilActive) boss.hideBody = true;
-        else boss.hideBody = false;
+        boss.hideBody = false;
+
+        boss.ghostVeilAlpha = ghostAlpha; // 透明度を同期
 
         // ボスの renderBody をそのまま呼び出し（プレビューと同一）
         boss.renderBody(ctx);
@@ -798,7 +788,8 @@ export function applyRendererMixin(PlayerClass) {
         // 本体パーツの個別の描画内部でチェックを行う。
 
         // alpha が正数かつ1.0未満のフェードイン/アウトなどの場合のみ全体の透明度に掛ける
-        if (alpha > 0 && alpha !== 1.0) ctx.globalAlpha *= alpha;
+        // alpha が 1.0 以外のときは全体の透明度に掛ける（0.0 の場合も含め、本体を透明化する）
+        if (alpha !== 1.0) ctx.globalAlpha *= alpha;
 
         // 点滅はrender()側で一元管理する（剣筋との位相ズレを防ぐ）
 
@@ -854,7 +845,8 @@ export function applyRendererMixin(PlayerClass) {
         const SHOGUN_ACTOR_BASE_W = 40;
         const SHOGUN_ACTOR_BASE_H = 60;
         const renderX = useShogunTransform ? (x + (this.width - SHOGUN_ACTOR_BASE_W) * 0.5) : x;
-        const renderY = useShogunTransform ? (y + (this.height - SHOGUN_ACTOR_BASE_H) * 0.62) : y;
+        // 地面（底辺）を基準に描画位置を決定する。これによりしゃがみ等で collider height が変わってもめり込まない。
+        const renderY = useShogunTransform ? (y + (this.height - SHOGUN_ACTOR_BASE_H) * 0.62) : (y + this.height - drawH);
 
         this.x = renderX;
         this.y = renderY;
@@ -908,6 +900,7 @@ export function applyRendererMixin(PlayerClass) {
             : this.comboStep5RecoveryAttack;
         const comboStep5RecoveryDuration = 180; // recoveryMsと一致させる
         const clamp01 = (value) => Math.max(0, Math.min(1, value));
+        const lerp = (from, to, t) => from + (to - from) * t;
 
         const isMoving = Math.abs(vx) > 0.1 || !isGrounded;
 // ---
@@ -1016,6 +1009,8 @@ export function applyRendererMixin(PlayerClass) {
         
         // しゃがみの圧縮強度（1.0=プレイヤー用フル圧縮, 0.35=ボス用控えめ）
         const crouchIntensity = isCrouchPose ? (options.crouchIntensity ?? 1.0) : 0;
+        const crouchPoseT = crouchIntensity;
+        const crouchPick = (standValue, crouchValue) => isCrouchPose ? lerp(standValue, crouchValue, crouchPoseT) : standValue;
         
         // 立ちポーズの基本位置
         const standHeadY = y + headRadius * 1.1 + bob - (isSpearThrustPose ? spearDrive * 2.0 : 0);
@@ -1042,9 +1037,10 @@ export function applyRendererMixin(PlayerClass) {
             const cutEase = cutT * cutT * (3 - 2 * cutT);
             currentTorsoLean = dir * (-0.1 + cutEase * 0.5); // 溜め時はほぼ直立、斬り上げで微前傾
         }
-        let torsoShoulderX = centerX + (isCrouchPose ? dir * 4.0 : currentTorsoLean) + dir * crouchLeanShift;
+        const crouchShoulderLean = dir * 4.0 + dir * crouchLeanShift;
+        let torsoShoulderX = centerX + (isCrouchPose ? lerp(currentTorsoLean, crouchShoulderLean, crouchPoseT) : currentTorsoLean);
         let torsoHipX = isCrouchPose
-            ? (centerX + dir * 1.3 + dir * crouchLeanShift * 0.55)
+            ? lerp(centerX + dir * 0.2, centerX + dir * 1.3 + dir * crouchLeanShift * 0.55, crouchPoseT)
             : (centerX + dir * 0.2);
         let headCenterX = centerX;
         let headSpinAngle = 0;
@@ -1134,7 +1130,7 @@ export function applyRendererMixin(PlayerClass) {
                 // 二刀Z中は頭を胴体の肩位置へ追従させ、首が常に接続されるようにする
                 const shoulderShiftX = torsoShoulderX - baseTorsoShoulderXForHeadTrack;
                 headCenterX += shoulderShiftX * 0.72;
-                bodyTopY = headY + (isCrouchPose ? headRadius * 1.01 : headRadius * 1.03);
+                bodyTopY = headY + (isCrouchPose ? crouchPick(headRadius * 1.03, headRadius * 1.01) : headRadius * 1.03);
             }
             if (isSpearThrustPose) {
                 // 大槍中は頭を胴（肩）移動へ追従させ、首元のズレを防ぐ
@@ -1189,28 +1185,28 @@ export function applyRendererMixin(PlayerClass) {
         }
 
         // 肩アンカーを胴体ライン上に固定し、腕の付け根が肩から自然に繋がるようにする
-        const shoulderAttachT = isCrouchPose ? 0.12 : 0.15;
+        const shoulderAttachT = isCrouchPose ? lerp(0.15, 0.12, crouchPoseT) : 0.15;
         const shoulderAnchorX = torsoShoulderX + (torsoHipX - torsoShoulderX) * shoulderAttachT;
-        const shoulderAnchorY = bodyTopY + (hipY - bodyTopY) * (isCrouchPose ? 0.09 : 0.11);
+        const shoulderAnchorY = bodyTopY + (hipY - bodyTopY) * (isCrouchPose ? lerp(0.11, 0.09, crouchPoseT) : 0.11);
         let leftShoulderXShared = shoulderAnchorX + dir * 0.18;
-        let leftShoulderYShared = shoulderAnchorY + (isCrouchPose ? 0.35 : 0.45);
-        let rightShoulderXShared = shoulderAnchorX - dir * (isCrouchPose ? 0.28 : 0.38);
-        let rightShoulderYShared = shoulderAnchorY + (isCrouchPose ? 0.55 : 0.65);
+        let leftShoulderYShared = shoulderAnchorY + (isCrouchPose ? lerp(0.45, 0.35, crouchPoseT) : 0.45);
+        let rightShoulderXShared = shoulderAnchorX - dir * (isCrouchPose ? lerp(0.38, 0.28, crouchPoseT) : 0.38);
+        let rightShoulderYShared = shoulderAnchorY + (isCrouchPose ? lerp(0.65, 0.55, crouchPoseT) : 0.65);
         if (isDualZComboPose) {
             // 二刀流通常コンボでも、合体技に近い前後差を肩・胸に残して2.5D感を出す
             leftShoulderXShared += dir * (0.26 + dualZShoulderDepth * 0.34);
-            leftShoulderYShared -= dualZShoulderDepth * (isCrouchPose ? 0.2 : 0.28);
+            leftShoulderYShared -= dualZShoulderDepth * crouchPick(0.28, 0.2);
             rightShoulderXShared -= dir * (0.34 + dualZShoulderDepth * 0.52);
-            rightShoulderYShared += dualZShoulderDepth * (isCrouchPose ? 0.26 : 0.34);
+            rightShoulderYShared += dualZShoulderDepth * crouchPick(0.34, 0.26);
             headCenterX -= dir * dualZHeadParallax;
             torsoHipX -= dir * dualZHipDepth * 0.12;
         }
         const idleArmWave = Math.sin(this.motionTime * 0.01);
-        const singleKatanaLeftHandXShared = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
-        const singleKatanaLeftHandYShared = leftShoulderYShared + (isCrouchPose ? 6.2 : 7.8) + idleArmWave * (isCrouchPose ? 0.8 : 1.7);
+        const singleKatanaLeftHandXShared = centerX + dir * (isCrouchPose ? lerp(14.0, 11.5, crouchPoseT) : 14.0);
+        const singleKatanaLeftHandYShared = leftShoulderYShared + (isCrouchPose ? lerp(7.8, 6.2, crouchPoseT) : 7.8) + idleArmWave * (isCrouchPose ? lerp(1.7, 0.8, crouchPoseT) : 1.7);
         // 真のアイドル基準は片刀構え。二刀流の右手だけ別基準にする
-        const dualWieldRightHandXShared = centerX - dir * (isCrouchPose ? 4.6 : 7.2);
-        const dualWieldRightHandYShared = rightShoulderYShared + (isCrouchPose ? 6.8 : 8.5) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? 0.8 : 1.7);
+        const dualWieldRightHandXShared = centerX - dir * (isCrouchPose ? lerp(7.2, 4.6, crouchPoseT) : 7.2);
+        const dualWieldRightHandYShared = rightShoulderYShared + (isCrouchPose ? lerp(8.5, 6.8, crouchPoseT) : 8.5) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? lerp(1.7, 0.8, crouchPoseT) : 1.7);
         const armReachScale = Number.isFinite(options.armReachScale) ? options.armReachScale : 1.0;
         const stretchFromShoulder = (shoulderX, shoulderY, targetX, targetY) => {
             if (Math.abs(armReachScale - 1.0) < 0.001) return { x: targetX, y: targetY };
@@ -1245,7 +1241,7 @@ export function applyRendererMixin(PlayerClass) {
                 singleKatanaLeftHandXShared,
                 singleKatanaLeftHandYShared
             );
-            const bladeAngle = isCrouchPose ? -0.32 : -0.65;
+            const bladeAngle = isCrouchPose ? lerp(-0.65, -0.32, crouchPoseT) : -0.65;
             const bladeDirX = Math.cos(bladeAngle) * dir;
             const bladeDirY = Math.sin(bladeAngle);
             const perpX = -bladeDirY;
@@ -1316,19 +1312,19 @@ export function applyRendererMixin(PlayerClass) {
             if (preArmDist > 0.001) {
                 const preNX = -preArmDY / preArmDist;
                 const preNY = preArmDX / preArmDist;
-                const preBendScale = isCrouchPose ? 0.11 : 0.15;
+                const preBendScale = crouchPick(0.15, 0.11);
                 const preBend = preArmDist * preBendScale;
                 preElbowX += preNX * preBend * dir;
                 preElbowY += preNY * preBend * dir + 0.25;
         }
-        const idleLeftBladeAnglePre = isCrouchPose ? -0.32 : -0.65;
+        const idleLeftBladeAnglePre = crouchPick(-0.65, -0.32);
         if (alpha > 0 && !options.hideBodyParts) {
             let armOverridden = false;
             if (typeof options.drawArmOverride === 'function') {
                 if (options.drawArmOverride(ctx, {
                     shoulderX: leftShoulderXPre, shoulderY: leftShoulderYPre,
                     handX: idleLeftHandPre.x, handY: idleLeftHandPre.y,
-                    bendDir: -dir, bendScale: isCrouchPose ? 0.11 : 0.15, elbowRadius: 2.15, optionsInner: { isBackHand: true },
+                    bendDir: -dir, bendScale: crouchPick(0.15, 0.11), elbowRadius: 2.15, optionsInner: { isBackHand: true },
                     alpha, dir, silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand
                 })) {
                     armOverridden = true;
@@ -1458,7 +1454,7 @@ export function applyRendererMixin(PlayerClass) {
             // 膝丸は脚線幅を超過させない（接続を真っ直ぐ見せる）
             const kneeRadius = Math.min(thighWidth, shinWidth) * 0.5;
             // 脚の付け根を胴体下端へ寄せて接続を自然にし、腿長をやや短くする
-            const hipAttachBlendY = isCrouchPose ? 0.18 : 0.1;
+            const hipAttachBlendY = crouchPick(0.1, 0.18);
             // 付け根が胴体へめり込まないよう、わずかに外側へ逃がす
             const hipOutSign = (hipX >= torsoHipX) ? 1 : -1;
             const hipRootX = hipX + hipOutSign * 1.05;
@@ -1896,16 +1892,26 @@ export function applyRendererMixin(PlayerClass) {
             drawJointedLeg(leftHipX, hipLocalY + 0.35, leftKneeX, leftKneeY, leftFootX, leftFootY, false, 1.12);
             drawJointedLeg(rightHipX, hipLocalY + 0.12, rightKneeX, rightKneeY, rightFootX, rightFootY, true, 1.06);
         } else if (isCrouchPose) {
-            const crouchStride = crouchWalkPhase * 3.4;
-            const crouchLift = Math.abs(crouchWalkPhase) * 1.8;
-            const leftHipX = torsoHipX + dir * 1.15; const rightHipX = torsoHipX - dir * 1.35;
-            const leftHipYL = hipY + 0.4; const rightHipYL = hipY + 0.2;
+            const crouchStride = crouchWalkPhase * 3.4 * crouchPoseT;
+            const crouchLift = Math.abs(crouchWalkPhase) * 1.8 * crouchPoseT;
+            const idlePhase = Math.sin(this.motionTime * 0.0042);
+            const idleSpread = 2.5 + Math.abs(idlePhase) * 0.3;
+            const leftHipX = lerp(torsoHipX + dir * 1.35, torsoHipX + dir * 1.15, crouchPoseT);
+            const rightHipX = lerp(torsoHipX - dir * 1.25, torsoHipX - dir * 1.35, crouchPoseT);
+            const leftHipYL = hipY + lerp(0.22, 0.4, crouchPoseT);
+            const rightHipYL = hipY + lerp(0.14, 0.2, crouchPoseT);
             // 膝はhipYからbottomYの範囲に収まるよう clamp する
             const kneeYMax = bottomY - 4;
-            const leftKneeY  = Math.min(kneeYMax, hipY + 6.0 + Math.max(0, -crouchWalkPhase) * 1.2);
-            const rightKneeY = Math.min(kneeYMax, hipY + 6.4 + Math.max(0,  crouchWalkPhase) * 1.2);
-            drawJointedLeg(leftHipX,  leftHipYL,  leftHipX  + dir * (3.0 + crouchStride * 0.5), leftKneeY,  centerX + dir * (6.5 + crouchStride), bottomY - 0.6 + crouchLift * 0.15, false, 1.0);
-            drawJointedLeg(rightHipX, rightHipYL, rightHipX - dir * (3.6 - crouchStride * 0.5), rightKneeY, centerX - dir * (7.2 - crouchStride), bottomY - 0.2,                     true,  1.02);
+            const leftKneeX = lerp(leftHipX + dir * 0.55, leftHipX + dir * (3.0 + crouchStride * 0.5), crouchPoseT);
+            const leftKneeY = Math.min(kneeYMax, lerp(hipY + 9.9, hipY + 6.0 + Math.max(0, -crouchWalkPhase) * 1.2, crouchPoseT));
+            const leftFootX = lerp(centerX + dir * idleSpread, centerX + dir * (6.5 + crouchStride), crouchPoseT);
+            const leftFootY = lerp(bottomY + 0.1, bottomY - 0.6 + crouchLift * 0.15, crouchPoseT);
+            const rightKneeX = lerp(rightHipX + dir * 0.6, rightHipX - dir * (3.6 - crouchStride * 0.5), crouchPoseT);
+            const rightKneeY = Math.min(kneeYMax, lerp(hipY + 9.6, hipY + 6.4 + Math.max(0, crouchWalkPhase) * 1.2, crouchPoseT));
+            const rightFootX = lerp(centerX - dir * idleSpread, centerX - dir * (7.2 - crouchStride), crouchPoseT);
+            const rightFootY = lerp(bottomY - 0.1, bottomY - 0.2, crouchPoseT);
+            drawJointedLeg(leftHipX, leftHipYL, leftKneeX, leftKneeY, leftFootX, leftFootY, false, lerp(0.0, 1.0, crouchPoseT));
+            drawJointedLeg(rightHipX, rightHipYL, rightKneeX, rightKneeY, rightFootX, rightFootY, true, lerp(0.18, 1.02, crouchPoseT));
         } else if (isSpearThrustPose) {
             // 横っ飛び: 後ろ足で蹴り、前足を畳む（脚長が伸びすぎない長さ）
             const rearDrive = Math.max(0, Math.sin(Math.max(0, Math.min(1, (spearPoseProgress - 0.16) / 0.62)) * Math.PI * 0.5));
@@ -2190,6 +2196,7 @@ export function applyRendererMixin(PlayerClass) {
             const bCtrlY = headY + (ctrlLocalX * ctrlSin + ctrlLocalY * ctrlCos);
 
             ctx.save();
+            ctx.globalAlpha = 1.0;
             if (headbandAlpha !== 1.0) ctx.globalAlpha *= headbandAlpha;
             ctx.beginPath();
             ctx.arc(headCenterX, headY, bandMaskRadius, 0, Math.PI * 2);
@@ -2232,11 +2239,15 @@ export function applyRendererMixin(PlayerClass) {
             const clippedBandCenterRadius = (clippedBandInner + clippedBandOuter) * 0.5;
             const headbandTailRootX = headCenterX + Math.cos(bandBackAngle) * clippedBandCenterRadius + dir * 0.34;
             const headbandTailRootY = headY + Math.sin(bandBackAngle) * clippedBandCenterRadius - 0.08;
-            this.renderHeadbandTail(ctx, headbandTailRootX, headbandTailRootY, dir, headbandAlpha, accentColor, time, {
+            // 鉢巻テールも不透明度を維持
+            ctx.save();
+            ctx.globalAlpha = headbandAlpha;
+            this.renderHeadbandTail(ctx, headbandTailRootX, headbandTailRootY, dir, 1.0, accentColor, time, {
                 ...options,
                 isMoving,
                 scarfNodes: accessoryScarfNodes
             });
+            ctx.restore();
         }
 
         // 最前面: 鉢巻（接点を完全に重ねる）
@@ -2425,8 +2436,8 @@ export function applyRendererMixin(PlayerClass) {
             dualWieldRightHandXShared,
             dualWieldRightHandYShared
         );
-        const idleLeftBladeAngle = isCrouchPose ? -0.32 : -0.65;
-        const idleRightBladeAngle = isCrouchPose ? -0.82 : -1.1;
+        const idleLeftBladeAngle = crouchPick(-0.65, -0.32);
+        const idleRightBladeAngle = crouchPick(-1.1, -0.82);
         const singleKatanaRightHand = singleKatanaIdlePose.rightHand;
 
         const isIdleForceRender = forceSubWeaponRender && !subWeaponAction && subWeaponTimer <= 0;
@@ -2437,7 +2448,7 @@ export function applyRendererMixin(PlayerClass) {
                 singleKatanaRightHand.x,
                 singleKatanaRightHand.y,
                 -dir,
-                isCrouchPose ? 0.09 : 0.13
+                crouchPick(0.13, 0.09)
             );
             drawHand(singleKatanaRightHand.x, singleKatanaRightHand.y, 4.5);
         } else if (!isActuallyAttacking && (!forceSubWeaponRender || isIdleForceRender)) {
@@ -2452,7 +2463,7 @@ export function applyRendererMixin(PlayerClass) {
                     idleLeftHand.x,
                     idleLeftHand.y,
                     -dir,
-                    isCrouchPose ? 0.11 : 0.15
+                    crouchPick(0.15, 0.11)
                 );
                 drawHand(idleLeftHand.x, idleLeftHand.y, 4.8, null, true);
                 this.drawKatana(ctx, idleLeftHand.x, idleLeftHand.y, idleLeftBladeAngle, dir);
@@ -2468,7 +2479,7 @@ export function applyRendererMixin(PlayerClass) {
                         dualWieldRightHand.x,
                         dualWieldRightHand.y,
                         -dir,
-                        isCrouchPose ? 0.1 : 0.14
+                        crouchPick(0.14, 0.1)
                     );
                     // 2. 柄 (腕よりも前面)
                     this.drawKatana(ctx, dualWieldRightHand.x, dualWieldRightHand.y, idleRightBladeAngle, dir, this.getKatanaBladeLength(), 0.28, 'handle');
@@ -2483,7 +2494,7 @@ export function applyRendererMixin(PlayerClass) {
                         singleKatanaRightHand.x,
                         singleKatanaRightHand.y,
                         -dir,
-                        isCrouchPose ? 0.09 : 0.13
+                        crouchPick(0.13, 0.09)
                     );
                     drawHand(singleKatanaRightHand.x, singleKatanaRightHand.y, 4.5);
                 }
@@ -2582,6 +2593,12 @@ export function applyRendererMixin(PlayerClass) {
             : (leftShoulderY + 1.0);
         const shoulderY = leftShoulderY;
         const isCrouchPose = !!this.isCrouching;
+        const crouchPoseT = isCrouchPose
+            ? (Number.isFinite(options.crouchIntensity) ? options.crouchIntensity : 0.22)
+            : 0;
+        const crouchPick = (standValue, crouchValue) => isCrouchPose
+            ? standValue + (crouchValue - standValue) * crouchPoseT
+            : standValue;
         const standardUpperLen = 13.6;
         const standardForeLen = 13.2;
         const standardLeftHandRadius = 4.8;
@@ -2984,13 +3001,17 @@ export function applyRendererMixin(PlayerClass) {
                     const anchorX = this.x + this.width * 0.5;
                     const anchorY = this.y + this.height * 0.5;
                     ctx.save();
+                    ctx.globalAlpha = 1.0;
                     ctx.translate(anchorX, anchorY);
                     ctx.scale(invS, invS);
                     ctx.translate(-anchorX, -anchorY);
                     this.currentSubWeapon.render(ctx, this);
                     ctx.restore();
                 } else {
+                    ctx.save();
+                    ctx.globalAlpha = 1.0;
                     this.currentSubWeapon.render(ctx, this);
+                    ctx.restore();
                 }
                 this.subWeaponRenderedInModel = true;
             }
@@ -3045,10 +3066,10 @@ export function applyRendererMixin(PlayerClass) {
             let rightReach = 18.8;
             const idleArmWaveLocal = Math.sin(this.motionTime * 0.01);
             // アイドル時の各手の基準位置
-            const idleLeftHandX = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
-            const idleLeftHandY = leftShoulderY + (isCrouchPose ? 6.2 : 7.8) + idleArmWaveLocal * (isCrouchPose ? 0.8 : 1.7);
-            const idleRightHandX = centerX - dir * (isCrouchPose ? 4.6 : 7.2);
-            const idleRightHandY = rightShoulderY + (isCrouchPose ? 6.8 : 8.5) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? 0.8 : 1.7);
+            const idleLeftHandX = centerX + dir * crouchPick(14.0, 11.5);
+            const idleLeftHandY = leftShoulderY + crouchPick(7.8, 6.2) + idleArmWaveLocal * crouchPick(1.7, 0.8);
+            const idleRightHandX = centerX - dir * crouchPick(7.2, 4.6);
+            const idleRightHandY = rightShoulderY + crouchPick(8.5, 6.8) + Math.sin(this.motionTime * 0.01 + 0.5) * crouchPick(1.7, 0.8);
 
             // 1-2撃目: 動かない方の手はアイドル位置に固定
             let leftTargetX, leftTargetY, rightTargetX, rightTargetY;
@@ -3120,16 +3141,16 @@ export function applyRendererMixin(PlayerClass) {
                 const endBend = smoothStep01((comboProgress - 0.8) / 0.2);
                 comboStep4LoadBlend = smoothStep01((comboProgress - 0.72) / 0.28);
                 comboStep4AngleDive = comboStep4LoadBlend * 0.78;
-                const baseReach = isCrouchPose ? 18.9 : 20.8;
+                const baseReach = crouchPick(20.8, 18.9);
                 const reachScale = 1 - 0.18 * endBend;
                 const backSweepReach = baseReach * reachScale;
                 const frontSweepReach = (baseReach - 0.4) * reachScale;
 
                 skipPoseReachAdjustment = true;
-                leftShoulderMoveX += dir * (0.44 + (phase - 0.48) * 1.18) - dir * (isCrouchPose ? 0.62 : 0.92) * comboStep4LoadBlend;
-                rightShoulderMoveX -= dir * (0.04 + phase * 0.42) + dir * (isCrouchPose ? 0.9 : 1.24) * comboStep4LoadBlend;
-                leftShoulderMoveY -= 0.3 + phase * 1.62 + comboStep4LoadBlend * (isCrouchPose ? 0.12 : 0.2);
-                rightShoulderMoveY -= 0.28 + phase * 1.52 + comboStep4LoadBlend * (isCrouchPose ? 0.08 : 0.16);
+                leftShoulderMoveX += dir * (0.44 + (phase - 0.48) * 1.18) - dir * crouchPick(0.92, 0.62) * comboStep4LoadBlend;
+                rightShoulderMoveX -= dir * (0.04 + phase * 0.42) + dir * crouchPick(1.24, 0.9) * comboStep4LoadBlend;
+                leftShoulderMoveY -= 0.3 + phase * 1.62 + comboStep4LoadBlend * crouchPick(0.2, 0.12);
+                rightShoulderMoveY -= 0.28 + phase * 1.52 + comboStep4LoadBlend * crouchPick(0.16, 0.08);
 
                 leftTargetX = leftShoulderMoveX + Math.cos(backAngle) * backSweepReach * dir;
                 leftTargetY = leftShoulderMoveY + Math.sin(backAngle) * backSweepReach;
@@ -3137,17 +3158,17 @@ export function applyRendererMixin(PlayerClass) {
                 rightTargetY = rightShoulderMoveY + Math.sin(frontAngle) * frontSweepReach;
 
                 // 奥行き: 手前手は下、奥手は上を維持しつつ、刀は平行のまま溜める
-                rightTargetY += (isCrouchPose ? 1.28 : 1.82) + comboStep4LoadBlend * (isCrouchPose ? 0.16 : 0.28);
-                leftTargetY -= (isCrouchPose ? 0.86 : 1.24) + comboStep4LoadBlend * (isCrouchPose ? 0.06 : 0.12);
-                rightTargetX -= dir * ((isCrouchPose ? 0.86 : 1.22) + comboStep4LoadBlend * (isCrouchPose ? 0.44 : 0.68));
-                leftTargetX += dir * ((isCrouchPose ? 0.28 : 0.46) - comboStep4LoadBlend * (isCrouchPose ? 0.06 : 0.1));
+                rightTargetY += crouchPick(1.82, 1.28) + comboStep4LoadBlend * crouchPick(0.28, 0.16);
+                leftTargetY -= crouchPick(1.24, 0.86) + comboStep4LoadBlend * crouchPick(0.12, 0.06);
+                rightTargetX -= dir * (crouchPick(1.22, 0.86) + comboStep4LoadBlend * crouchPick(0.68, 0.44));
+                leftTargetX += dir * (crouchPick(0.46, 0.28) - comboStep4LoadBlend * crouchPick(0.1, 0.06));
             } else if (comboStep === 0) {
                 // 五段: 海老反りクロスから腕を左右に開きつつ叩きつける
                 const phase = smoothStep01(comboProgress);
                 const backAngle = pose.leftAngle;
                 const frontAngle = pose.rightAngle;
                 const startBend = 1 - smoothStep01(comboProgress / 0.24);
-                const baseReach = isCrouchPose ? 18.9 : 20.8;
+                const baseReach = crouchPick(20.8, 18.9);
                 const reachScale = 1 - 0.12 * startBend;
                 const backSweepReach = baseReach * reachScale;
                 const frontSweepReach = (baseReach - 0.4) * reachScale;
@@ -3164,12 +3185,12 @@ export function applyRendererMixin(PlayerClass) {
                 rightTargetY = rightShoulderMoveY + Math.sin(frontAngle) * frontSweepReach;
 
                 // 開始はクロス寄り、終盤で左右へ開く
-                rightTargetY += (isCrouchPose ? 1.1 : 1.55) + phase * 0.52;
-                leftTargetY -= (isCrouchPose ? 0.62 : 0.9) - phase * 0.2;
+                rightTargetY += crouchPick(1.55, 1.1) + phase * 0.52;
+                leftTargetY -= crouchPick(0.9, 0.62) - phase * 0.2;
                 // 叩きつけ終盤で左右展開。奥の手は抑えめにして破綻を防ぐ
                 const spreadBlend = smoothStep01((comboProgress - 0.46) / 0.54);
-                rightTargetX -= dir * ((isCrouchPose ? 0.62 : 0.95) + spreadBlend * 2.35);
-                leftTargetX += dir * ((isCrouchPose ? 0.24 : 0.42) + spreadBlend * 0.95);
+                rightTargetX -= dir * (crouchPick(0.95, 0.62) + spreadBlend * 2.35);
+                leftTargetX += dir * (crouchPick(0.42, 0.24) + spreadBlend * 0.95);
             }
 
             const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
@@ -3253,7 +3274,7 @@ export function applyRendererMixin(PlayerClass) {
             this._dualZHandCache[dualZCacheKey] = dualZCache;
             // 五段目は奥行き感を保つため、奥手が手前手より下に落ちないように固定
             if (comboStep === 0) {
-                const minBackAboveGap = isCrouchPose ? 0.7 : 1.2;
+                const minBackAboveGap = crouchPick(1.2, 0.7);
                 const maxBackY = rightHand.y - minBackAboveGap;
                 if (leftHand.y > maxBackY) {
                     const correctedBack = clampArmReach(
@@ -3274,8 +3295,8 @@ export function applyRendererMixin(PlayerClass) {
             const uprightBlend = 0.28;
             const uprightTarget = -Math.PI / 2;
             // アイドル時の刀角度（しゃがみ対応）
-            const idleLeftBladeAngle = isCrouchPose ? -0.32 : -0.65;
-            const idleRightBladeAngle = isCrouchPose ? -0.82 : -1.1;
+            const idleLeftBladeAngle = crouchPick(-0.65, -0.32);
+            const idleRightBladeAngle = crouchPick(-1.1, -0.82);
             // 1-2撃目: 静止側の刀はアイドル角度を維持
             let leftWeaponAngleRaw, rightWeaponAngleRaw;
             if (comboStep === 1) {
@@ -3366,8 +3387,8 @@ export function applyRendererMixin(PlayerClass) {
             const easeT = t * t * (3 - 2 * t);
             
             // アイドル時の基本角度
-            const idleLeftBladeAngle = isCrouchPose ? -0.32 : -0.65;
-            const idleRightBladeAngle = isCrouchPose ? -0.82 : -1.1;
+            const idleLeftBladeAngle = crouchPick(-0.65, -0.32);
+            const idleRightBladeAngle = crouchPick(-1.1, -0.82);
             
             // コンボ最終段の姿勢を取得（getMainSwingPoseを使用）
             const lastPose = this.currentSubWeapon.getMainSwingPose({
@@ -3442,10 +3463,10 @@ export function applyRendererMixin(PlayerClass) {
             const lerp = (a, b, t) => a + (b - a) * t;
 
             // --- 二刀流アイドル座標・角度 ---
-            let singleKatanaLeftHandX = centerX + dir * (isCrouchPose ? 11.5 : 14.0);
-            let singleKatanaLeftHandY = leftShoulderY + (isCrouchPose ? 6.2 : 7.8);
-            let dualWieldRightHandX = centerX - dir * (isCrouchPose ? 4.6 : 7.2);
-            let dualWieldRightHandY = rightShoulderY + (isCrouchPose ? 6.8 : 8.5);
+            let singleKatanaLeftHandX = centerX + dir * crouchPick(14.0, 11.5);
+            let singleKatanaLeftHandY = leftShoulderY + crouchPick(7.8, 6.2);
+            let dualWieldRightHandX = centerX - dir * crouchPick(7.2, 4.6);
+            let dualWieldRightHandY = rightShoulderY + crouchPick(8.5, 6.8);
             if (options.idleHands) {
                 singleKatanaLeftHandX = options.idleHands.left.x;
                 singleKatanaLeftHandY = options.idleHands.left.y;
@@ -3453,13 +3474,13 @@ export function applyRendererMixin(PlayerClass) {
                 dualWieldRightHandY = options.idleHands.right.y;
             }
             
-            const singleKatanaLeftBladeAngle = isCrouchPose ? -0.32 : -0.65;
-            const dualWieldRightBladeAngle = isCrouchPose ? -0.82 : -1.1;
+            const singleKatanaLeftBladeAngle = crouchPick(-0.65, -0.32);
+            const dualWieldRightBladeAngle = crouchPick(-1.1, -0.82);
 
             // --- X構えの幾何学的設計 ---
             // 交差点: 顔の前方
-            const crossX = centerX + dir * (isCrouchPose ? 5 : 7);
-            const crossY = pivotY - (isCrouchPose ? 1 : 3);
+            const crossX = centerX + dir * crouchPick(7, 5);
+            const crossY = pivotY - crouchPick(3, 1);
             // 垂直を中心に対称に開く角度
             const openAngle = 0.48;
             // 刃の中心までの距離 (手前=通常, 奥=短縮で奥行き表現)
@@ -3481,12 +3502,12 @@ export function applyRendererMixin(PlayerClass) {
             // 交差状態から両刃が開くように振り抜く:
             //   奥の剣: 上左方向 → 前下方向へ斬り抜け (手が前に出て下がる)
             //   手前の剣: 上右方向 → 後ろ下方向へ斬り抜け (手が後ろに引かれ下がる)
-            const slashBackHandX = centerX + dir * (isCrouchPose ? 15 : 18);
-            const slashBackHandY = pivotY + (isCrouchPose ? 12 : 14);
-            const slashBackAngle = isCrouchPose ? 0.5 : 0.65;
-            const slashFrontHandX = centerX - dir * (isCrouchPose ? 7 : 10);
-            const slashFrontHandY = pivotY + (isCrouchPose ? 13 : 15);
-            const slashFrontAngle = isCrouchPose ? 2.3 : 2.5;
+            const slashBackHandX = centerX + dir * crouchPick(18, 15);
+            const slashBackHandY = pivotY + crouchPick(14, 12);
+            const slashBackAngle = crouchPick(0.65, 0.5);
+            const slashFrontHandX = centerX - dir * crouchPick(10, 7);
+            const slashFrontHandY = pivotY + crouchPick(15, 13);
+            const slashFrontAngle = crouchPick(2.5, 2.3);
 
             // --- アニメーション補間 ---
             let bx, by, fx, fy, ba, fa;
@@ -3738,6 +3759,7 @@ export function applyRendererMixin(PlayerClass) {
                 const yawSkewCancel = options.yawSkewCancel;
                 if (yawSkewCancel) {
                     ctx.save();
+                    ctx.globalAlpha = 1.0;
                     ctx.translate(yawSkewCancel.pivotX, yawSkewCancel.pivotY);
                     ctx.scale(0.982, 1);
                     ctx.transform(1, 0, yawSkewCancel.yawSkew / 0.982, 1, 0, 0);
@@ -3745,7 +3767,10 @@ export function applyRendererMixin(PlayerClass) {
                     odachi.render(ctx, this);
                     ctx.restore();
                 } else {
+                    ctx.save();
+                    ctx.globalAlpha = 1.0;
                     odachi.render(ctx, this);
+                    ctx.restore();
                 }
                 this.subWeaponRenderedInModel = true;
             }

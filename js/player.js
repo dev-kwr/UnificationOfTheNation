@@ -379,12 +379,13 @@ export class Player {
         // 1フレーム目の位置ズレを防ぐため、実際の根元アンカー位置を取得して初期化
         const modelBottomY = this.y + this.height - 2;
         const modelBob = 0; // 初期値なので0
-        const modelHeadY = this.isCrouching
-            ? (modelBottomY - PLAYER.HEIGHT * (14 * 2 / 60) * 0.5 * 2.2 + modelBob)
-            : (this.y + 15 + modelBob);
         const headCenterX = this.x + this.width / 2;
         const baseHeightForHead = this.isCrouching ? PLAYER.HEIGHT : this.height;
         const headRadius = (baseHeightForHead * (14 * 2 / 60) * 0.5);
+        const standHeadY = this.y + headRadius * 1.1 + modelBob;
+        const crouchHeadY = modelBottomY - headRadius * 2.2 + modelBob;
+        const crouchIntensity = this.isCrouching ? this.getCrouchRenderIntensity() : 0;
+        const modelHeadY = standHeadY + (crouchHeadY - standHeadY) * crouchIntensity;
         const anchorRoots = this.getAccessoryRootAnchors(headCenterX, modelHeadY, headRadius, this.facingRight);
 
         this.scarfNodes = [];
@@ -846,19 +847,10 @@ export class Player {
         if (wantsCrouch) {
             if (!this.isCrouching) {
                 this.isCrouching = true;
-                // 高さが半分になるので、足元を合わせるためにyを下げる
-                // 将軍は高さを変えないのでY補正も不要
-                if (this.characterType !== 'shogun') {
-                    this.y += PLAYER.HEIGHT / 2;
-                }
             }
             // しゃがみ歩き速度制限は移動コード側で適用（下記参照）
         } else if (this.isCrouching) {
             this.isCrouching = false;
-            // 高さが戻るので、足元を合わせるためにyを上げる
-            if (this.characterType !== 'shogun') {
-                this.y -= PLAYER.HEIGHT / 2;
-            }
         }
         
         // 忍具（Xキー）
@@ -1682,7 +1674,13 @@ export class Player {
             }
             // 将軍は高さを変えない（レンダリングスケール崩壊防止）
             if (this.characterType !== 'shogun') {
-                this.height = this.isCrouching ? PLAYER.HEIGHT / 2 : PLAYER.HEIGHT;
+                const targetHeight = this.isCrouching ? this.getCrouchCollisionHeight() : PLAYER.HEIGHT;
+                if (this.height !== targetHeight) {
+                    if (this.isGrounded) {
+                        this.y += (this.height - targetHeight);
+                    }
+                    this.height = targetHeight;
+                }
             }
             this.vx *= 0.88;
             this.x += this.vx;
@@ -1718,10 +1716,16 @@ export class Player {
             if (Math.abs(this.vx) < 0.1) this.vx = 0;
         }
         
-        // しゃがみ中は高さを半分に
-        // 将軍は高さを変えない（レンダリングスケール崩壊防止）
+        // しゃがみ中は重心を下げる姿勢をとる（将軍同様、極端に高さを変えない）
         if (this.characterType !== 'shogun') {
-            this.height = this.isCrouching ? PLAYER.HEIGHT / 2 : PLAYER.HEIGHT;
+            const targetHeight = this.isCrouching ? this.getCrouchCollisionHeight() : PLAYER.HEIGHT;
+            if (this.height !== targetHeight) {
+                // 接地している場合、足元が浮いたり沈んだりしないよう座標を調整
+                if (this.isGrounded) {
+                    this.y += (this.height - targetHeight);
+                }
+                this.height = targetHeight;
+            }
         }
 
         const colliders = Array.isArray(walls) ? walls : [];
@@ -2158,6 +2162,15 @@ export class Player {
         return this.isXAttackActionActive() ? 2.35 : 1.0;
     }
 
+    getCrouchCollisionHeight() {
+        return PLAYER.HEIGHT * 0.86;
+    }
+
+    getCrouchRenderIntensity() {
+        // 将軍式の重心移動を忍者の頭身に合わせて控えめに適用する
+        return this.characterType === 'shogun' ? 0.35 : 0.22;
+    }
+
     isGhostVeilActive() {
         return this.getTempNinjutsuRemainingMs('ghostVeil') > 0;
     }
@@ -2338,15 +2351,13 @@ export class Player {
         }
 
         const modelBottomY = this.y + this.height - 2;
-        // しゃがみ中のheadYはrenderModel内の算出式と合わせる
-        // headRadius_crouch = PLAYER.HEIGHT * headRatio * 0.5
-        // headY = bottomY - headRadius_crouch * 2.2
-        const modelHeadY = this.isCrouching
-            ? (modelBottomY - PLAYER.HEIGHT * (14 * 2 / 60) * 0.5 * 2.2 + modelBob)
-            : (this.y + 15 + modelBob);
         const headCenterX = this.x + this.width / 2;
         const baseHeightForHead = this.isCrouching ? PLAYER.HEIGHT : this.height;
         const headRadius = (baseHeightForHead * (14 * 2 / 60) * 0.5);
+        const standHeadY = this.y + headRadius * 1.1 + modelBob;
+        const crouchHeadY = modelBottomY - headRadius * 2.2 + modelBob;
+        const crouchIntensity = this.isCrouching ? this.getCrouchRenderIntensity() : 0;
+        const modelHeadY = standHeadY + (crouchHeadY - standHeadY) * crouchIntensity;
         const anchorRoots = this.getAccessoryRootAnchors(headCenterX, modelHeadY, headRadius, this.facingRight);
         const targetX = anchorRoots.knotX;
         const targetY = anchorRoots.knotY;

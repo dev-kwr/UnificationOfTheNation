@@ -1691,13 +1691,18 @@ export function applySlashTrailMixin(PlayerClass) {
                     let attackProfile;
                     if (isAutoAi || hasOverride) {
                         const baseProfile = this.specialCloneCurrentAttacks[i] || this.getComboAttackProfileByStep(comboStep);
+                        const sizeScale = this.width / 40; // 将軍のスケール(約2.2)
                         attackProfile = this.applyComboTrailSpecToAttackProfile(
-                            { ...baseProfile },
+                            { 
+                                ...baseProfile,
+                                // シミュレーション内部でリーチを2.2倍にするためのフラグ
+                                trailPhysicalScale: sizeScale 
+                            },
                             {
                                 x: pos.x - this.width * 0.5,
                                 y: cloneDrawY,
                                 width: this.width,
-                                height: PLAYER.HEIGHT,
+                                height: PLAYER.HEIGHT * sizeScale,
                                 facingRight: pos.facingRight,
                                 isCrouching: false,
                                 vx: Number.isFinite(pos.cloneVx) ? pos.cloneVx : this.vx,
@@ -1723,6 +1728,10 @@ export function applySlashTrailMixin(PlayerClass) {
                         y: cloneDrawY,
                         isCrouching: false
                     });
+                    if (pose) {
+                        pose.originX = pos.x - this.width * 0.5;
+                        pose.originY = cloneDrawY;
+                    }
                     if (!pose && comboStep > 0 && !this.shouldKeepComboTrailDuringReturn(comboStep)) {
                         this.specialCloneSlashTrailPoints[i].length = 0;
                         this.specialCloneSlashTrailSampleTimers[i] = 0;

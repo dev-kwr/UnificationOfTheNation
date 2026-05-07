@@ -1426,14 +1426,18 @@ class Game {
         }
         
         // プレイヤーの移動制限
-        if (this.currentStageNumber === 5) {
-            // 移動制限は player.js の applyPhysics 内で物理制限として行う
-        } else {
-            // 戻りなしスクロール制限
-            if (this.player.x < this.scrollX) this.player.x = this.scrollX;
+        // 戻りなしスクロール制限（Stage 5以外）
+        if (this.currentStageNumber !== 5) {
+            if (this.player.x < this.scrollX) {
+                this.player.x = this.scrollX;
+                if (this.player.vx < 0) this.player.vx = 0;
+            }
         }
-        if (this.player.x > this.scrollX + CANVAS_WIDTH) {
-            this.player.x = this.scrollX + CANVAS_WIDTH;
+        // 右端の制限（常に適用）
+        const maxX = this.scrollX + CANVAS_WIDTH - this.player.width;
+        if (this.player.x > maxX) {
+            this.player.x = maxX;
+            if (this.player.vx > 0) this.player.vx = 0;
         }
 
         // 当たり判定対象の再構築
@@ -4528,7 +4532,8 @@ class Game {
 
             this.player.render(ctx, {
                 forceStanding: forceStanding,
-                skipSpecialRender: true
+                skipSpecialRender: true,
+                ghostVeilActive: this.player.isGhostVeilActive()
             });
             ctx.restore();
             

@@ -457,16 +457,17 @@ class AudioManager {
             const parsedStage = Number.isFinite(stageNum) ? Math.floor(stageNum) : 1;
             const normalizedStage = Math.max(1, Math.min(6, parsedStage));
             targetType = `stage_${normalizedStage}`;
-            if (this.currentBgmType === targetType) return;
+            // 同じ曲の場合はあえて return せず、クロスフェード（ループの繋ぎを滑らかにする効果）を許容する
+            // if (this.currentBgmType === targetType) return;
             this.currentBgmType = targetType;
             filePath = this.bgmFiles[targetType];
         } else if (type === 'boss') {
             targetType = stageNum === 6 ? 'lastboss' : 'boss';
-            if (this.currentBgmType === targetType) return;
+            // if (this.currentBgmType === targetType) return;
             this.currentBgmType = targetType;
             filePath = this.bgmFiles[targetType];
         } else {
-            if (this.currentBgmType === targetType) return;
+            // if (this.currentBgmType === targetType) return;
             this.currentBgmType = targetType;
             filePath = this.bgmFiles[targetType];
         }

@@ -2,7 +2,7 @@
 // Unification of the Nation - ボスクラス
 // ============================================
 
-import { CANVAS_WIDTH, LANE_OFFSET } from './constants.js';
+import { CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js';
 import { Enemy } from './enemy.js';
 import { createSubWeapon } from './weapon.js';
 import { audio } from './audio.js';
@@ -1352,7 +1352,8 @@ export class Shogun extends Boss {
         }
         if (this.isAttacking) {
             if (typeof this.attackFacingRight === 'boolean') this.facingRight = this.attackFacingRight;
-            if (Math.abs(this.vx) < this.speed * 1.8) this.applyDesiredVx(0, 0.34);
+            const normalComboActive = this._attackTimer > 0 && this._currentAttackProfile && this._currentAttackProfile.comboStep;
+            if (!normalComboActive && Math.abs(this.vx) < this.speed * 1.8) this.applyDesiredVx(0, 0.34);
             return;
         }
         // クールダウン終了 → 距離に関係なく攻撃（技選択はstartAttack内で距離判定）
@@ -1721,7 +1722,9 @@ export class Shogun extends Boss {
                 this.vy = Math.min(this.vy, -1.2);
             }
         } else if (step === 3) {
-            this.vx = this.vx * 0.12 + dir * impulse * 1.71;
+            // 将軍は巨体で重いため、忍者のスピード（3.8）相当＋αの推進力を与えて突進距離を伸ばす
+            const shogunImpulse = impulse * (3.8 / this.speed) * 1.15;
+            this.vx = this.vx * 0.12 + dir * shogunImpulse * 1.71;
             this.vy = Math.min(this.vy, -8.2);
             this.isGrounded = false;
         } else if (step === 4) {
@@ -2315,12 +2318,6 @@ export class Shogun extends Boss {
             ctx.restore();
         };
 
-        // 剣筋が将軍のジャンプ（Y移動）に合わせて上下してしまうのを防ぐため、
-        // 描画の瞬間だけ、actor.y を「地上にいる時のY」に固定し、相対座標を地に足がついた状態として計算させる。
-        const groundY = this.groundY || (typeof window !== 'undefined' && window.game && window.game.groundY) || 480;
-        const groundActorRenderY = (groundY - this.height) + (this.height - actorRenderH) * 0.62 - footOverhang;
-        const savedActorY = this.actor.y;
-
         // コンボ斬撃トレイル（大太刀等）
         // 将軍のZコンボの軌跡は updateSpecialCloneSlashTrails(deltaMs) を通じて specialCloneSlashTrailPoints[0] に生成されます。
         const trailPoints = Array.isArray(this.actor.specialCloneSlashTrailPoints) ? this.actor.specialCloneSlashTrailPoints[0] : null;
@@ -2332,43 +2329,40 @@ export class Shogun extends Boss {
                 ? this.actor.getXAttackTrailWidthScale()
                 : 1.0;
 
-            // 剣筋が将軍のジャンプ（Y移動）に合わせて上下してしまうのを防ぐため、
-            // ストリップ（コンボの段）ごとにスケーリングの基準点（最新のプレイヤー座標）を統一する。
-            // これにより、突進中などに軌跡の始点と中間点でスケーリング中心がズレて形が歪む（V字になる等）のを防ぐ。
-            const stripPivots = {};
             const fallbackX = this.x + this.width * 0.5;
-            const fallbackY = groundActorRenderY;
-            for (let i = trailPoints.length - 1; i >= 0; i--) {
-                const p = trailPoints[i];
-                if (p && p.step !== undefined && !stripPivots[p.step]) {
-                    stripPivots[p.step] = {
-                        ox: Number.isFinite(p.playerX) ? p.playerX : fallbackX,
-                        oy: Number.isFinite(p.playerY) ? p.playerY : fallbackY
-                    };
-                }
-            }
+            const fallbackY = this.y + this.height * 0.62;
+            const getTrailPivot = (p) => {
+                const originX = Number.isFinite(p && p.playerX) ? p.playerX : (fallbackX - actorRenderW * 0.5);
+                const originY = Number.isFinite(p && p.playerY) ? p.playerY : (fallbackY - PLAYER.HEIGHT * 0.62);
+                return {
+                    x: originX + actorRenderW * 0.5,
+                    y: originY + PLAYER.HEIGHT * 0.62,
+                    originX,
+                    originY
+                };
+            };
+            const scaleFromPivot = (value, pivot) => Number.isFinite(value)
+                ? pivot + (value - pivot) * sizeMultiplier
+                : value;
 
             const absolutePoints = trailPoints.map(p => {
                 if (!p) return p;
 
-                const pivot = (p.step !== undefined && stripPivots[p.step]) ? stripPivots[p.step] : { ox: fallbackX, oy: fallbackY };
-                const ox = pivot.ox;
-                const oy = pivot.oy;
-
-                const scalePtX = (px) => ox + (px - ox) * sizeMultiplier;
-                const scalePtY = (py) => oy + (py - oy) * sizeMultiplier;
+                const pivot = getTrailPivot(p);
+                const scalePtX = (px) => scaleFromPivot(px, pivot.x);
+                const scalePtY = (py) => scaleFromPivot(py, pivot.y);
 
                 if (p.trailIsRelative) {
                     return {
                         ...p,
-                        trailCurveStartX: Number.isFinite(p.trailCurveStartX) ? scalePtX(p.trailCurveStartX + ox) : p.trailCurveStartX,
-                        trailCurveStartY: Number.isFinite(p.trailCurveStartY) ? scalePtY(p.trailCurveStartY + oy) : p.trailCurveStartY,
-                        trailCurveControlX: Number.isFinite(p.trailCurveControlX) ? scalePtX(p.trailCurveControlX + ox) : p.trailCurveControlX,
-                        trailCurveControlY: Number.isFinite(p.trailCurveControlY) ? scalePtY(p.trailCurveControlY + oy) : p.trailCurveControlY,
-                        trailCurveEndX: Number.isFinite(p.trailCurveEndX) ? scalePtX(p.trailCurveEndX + ox) : p.trailCurveEndX,
-                        trailCurveEndY: Number.isFinite(p.trailCurveEndY) ? scalePtY(p.trailCurveEndY + oy) : p.trailCurveEndY,
-                        x: Number.isFinite(p.x) ? scalePtX(p.x + ox) : p.x,
-                        y: Number.isFinite(p.y) ? scalePtY(p.y + oy) : p.y,
+                        trailCurveStartX: Number.isFinite(p.trailCurveStartX) ? scalePtX(p.trailCurveStartX + pivot.originX) : p.trailCurveStartX,
+                        trailCurveStartY: Number.isFinite(p.trailCurveStartY) ? scalePtY(p.trailCurveStartY + pivot.originY) : p.trailCurveStartY,
+                        trailCurveControlX: Number.isFinite(p.trailCurveControlX) ? scalePtX(p.trailCurveControlX + pivot.originX) : p.trailCurveControlX,
+                        trailCurveControlY: Number.isFinite(p.trailCurveControlY) ? scalePtY(p.trailCurveControlY + pivot.originY) : p.trailCurveControlY,
+                        trailCurveEndX: Number.isFinite(p.trailCurveEndX) ? scalePtX(p.trailCurveEndX + pivot.originX) : p.trailCurveEndX,
+                        trailCurveEndY: Number.isFinite(p.trailCurveEndY) ? scalePtY(p.trailCurveEndY + pivot.originY) : p.trailCurveEndY,
+                        x: Number.isFinite(p.x) ? scalePtX(p.x + pivot.originX) : p.x,
+                        y: Number.isFinite(p.y) ? scalePtY(p.y + pivot.originY) : p.y,
                         trailIsRelative: false
                     };
                 } else {
@@ -2423,7 +2417,8 @@ export class Shogun extends Boss {
 
         // キャラ本体描画（hideBody時は hideBodyParts: true で体シルエットのみ非表示）
         renderWithShogunTransform(() => {
-            this.actor.renderModel(ctx, actorRenderX, actorRenderY, this.facingRight, 1.0, true, {
+            const alpha = typeof this.ghostVeilAlpha === 'number' ? this.ghostVeilAlpha : 1.0;
+            this.actor.renderModel(ctx, actorRenderX, actorRenderY, this.facingRight, alpha, true, {
                 ...renderOpts,
                 hideBodyParts: !!this.hideBody,
             });
