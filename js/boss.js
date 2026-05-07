@@ -1266,6 +1266,7 @@ export class Shogun extends Boss {
         this._currentAttackProfile = null;
         this._comboPendingSteps = [];
         this._comboFinisherAirLockTimer = 0;
+        this._comboTrailRenderAnchors = new Map();
         this._subTimer         = 0;
         this._subAction        = null;
         this._subWeaponKey     = null;
@@ -1686,8 +1687,12 @@ export class Shogun extends Boss {
             this.attackCooldown = 480;
             return;
         }
+        const renderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
+            ? this.scaleMultiplier
+            : 1;
+        const actorFootGroundOffset = 2;
         const actorX = this.x + this.width * 0.5 - this.actorBaseWidth * 0.5;
-        const actorY = this.y + this.height * 0.62 - PLAYER.HEIGHT * 0.62;
+        const actorY = this.y + this.height * 0.62 - PLAYER.HEIGHT * 0.62 + actorFootGroundOffset;
         const profile = this.actor.buildComboAttackProfileWithTrail(step, {
             x: actorX,
             y: actorY,
@@ -1699,6 +1704,31 @@ export class Shogun extends Boss {
             vy: this.vy,
             speed: this.speed
         });
+        if ((step === 4 || step === 5) && renderScale > 1.001) {
+            const sweepScale = 1 / renderScale;
+            const pivotX = actorX + this.actorBaseWidth * 0.5;
+            const pivotY = actorY + PLAYER.HEIGHT * 0.62;
+            if (Number.isFinite(pivotX) && Number.isFinite(pivotY)) {
+                if (Number.isFinite(profile.trailCurveStartX)) {
+                    profile.trailCurveStartX = pivotX + (profile.trailCurveStartX - pivotX) * sweepScale;
+                }
+                if (Number.isFinite(profile.trailCurveStartY)) {
+                    profile.trailCurveStartY = pivotY + (profile.trailCurveStartY - pivotY) * sweepScale;
+                }
+                if (Number.isFinite(profile.trailCurveControlX)) {
+                    profile.trailCurveControlX = pivotX + (profile.trailCurveControlX - pivotX) * sweepScale;
+                }
+                if (Number.isFinite(profile.trailCurveControlY)) {
+                    profile.trailCurveControlY = pivotY + (profile.trailCurveControlY - pivotY) * sweepScale;
+                }
+                if (Number.isFinite(profile.trailCurveEndX)) {
+                    profile.trailCurveEndX = pivotX + (profile.trailCurveEndX - pivotX) * sweepScale;
+                }
+                if (Number.isFinite(profile.trailCurveEndY)) {
+                    profile.trailCurveEndY = pivotY + (profile.trailCurveEndY - pivotY) * sweepScale;
+                }
+            }
+        }
         profile.trailAttackId = ++this.actor.comboSlashTrailAttackSerial;
         const dur = Math.max(1, profile.durationMs || 200);
         this._currentComboStep = step;
@@ -2129,6 +2159,41 @@ export class Shogun extends Boss {
     }
 
     getAttackHitbox() {
+        if (this._attackTimer > 0 && this._currentAttackProfile && this._currentAttackProfile.comboStep) {
+            const renderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
+                ? this.scaleMultiplier
+                : 1;
+            const actorW = this.actorBaseWidth || Math.max(1, Math.round(this.width / renderScale));
+            const actorFootGroundOffset = 2;
+            const actorX = this.x + this.width * 0.5 - actorW * 0.5;
+            const actorY = this.y + this.height * 0.62 - PLAYER.HEIGHT * 0.62 + actorFootGroundOffset;
+            const actorBoxes = this.actor.getAttackHitbox({
+                state: {
+                    isAttacking: true,
+                    currentAttack: this._currentAttackProfile,
+                    attackTimer: this._attackTimer,
+                    x: actorX,
+                    y: actorY,
+                    width: actorW,
+                    height: PLAYER.HEIGHT,
+                    facingRight: this.facingRight,
+                    isCrouching: false
+                }
+            });
+            if (actorBoxes) {
+                const pivotX = actorX + actorW * 0.5;
+                const pivotY = actorY + PLAYER.HEIGHT * 0.62;
+                const toWorldBox = (box) => ({
+                    ...box,
+                    x: pivotX + (box.x - pivotX) * renderScale,
+                    y: pivotY + (box.y - pivotY) * renderScale,
+                    width: box.width * renderScale,
+                    height: box.height * renderScale
+                });
+                const arr = Array.isArray(actorBoxes) ? actorBoxes : [actorBoxes];
+                return arr.map(toWorldBox);
+            }
+        }
         if (this._attackTimer > 0) {
             const dir = this.facingRight ? 1 : -1;
             return [{
@@ -2182,13 +2247,9 @@ export class Shogun extends Boss {
             : 1;
         const actorRenderW = this.actorBaseWidth || Math.max(1, Math.round(this.width / renderScale));
         const actorRenderH = this.actorBaseHeight || Math.max(1, Math.round(this.height / renderScale));
-        // 2Dモデルを等比拡大した後も足元が地面に合うよう、元モデル座標を補正
-        // renderModel は内部で drawH=72, bottomY=renderY+70 で足を描画するが、
-        // actorRenderH=60 を基準にピボットを計算するため、差分 (70-60)=10px を引いて補正
-        const RENDER_MODEL_FOOT_BOTTOM = 70; // drawH(72) - bottomMargin(2)
-        const footOverhang = RENDER_MODEL_FOOT_BOTTOM - actorRenderH;
+        const actorFootGroundOffset = 2;
         const actorRenderX = this.x + (this.width - actorRenderW) * 0.5;
-        const actorRenderY = this.y + (this.height - actorRenderH) * 0.62 - footOverhang;
+        const actorRenderY = this.y + (this.height - actorRenderH) * 0.62 + actorFootGroundOffset;
         this.actor.x           = actorRenderX;
         this.actor.y           = actorRenderY;
         this.actor.vx          = this.vx;
@@ -2343,11 +2404,103 @@ export class Shogun extends Boss {
                 ? this.actor.getXAttackTrailWidthScale()
                 : 1.0;
 
-            renderTrailWithShogunTransform(() => {
+            const fallbackX = this.x + this.width * 0.5;
+            const fallbackY = this.y + this.height * 0.62;
+            const getTrailKey = (p) => Number.isFinite(p && p.trailAttackId)
+                ? `attack:${p.trailAttackId}`
+                : `step:${p && p.step || 0}`;
+            const groupedTrails = new Map();
+            const activeTrailKeys = new Set();
+            for (const p of trailPoints) {
+                if (!p) continue;
+                const key = getTrailKey(p);
+                if (!groupedTrails.has(key)) groupedTrails.set(key, []);
+                groupedTrails.get(key).push(p);
+                activeTrailKeys.add(key);
+            }
+            if (!(this._comboTrailRenderAnchors instanceof Map)) {
+                this._comboTrailRenderAnchors = new Map();
+            }
+            for (const key of this._comboTrailRenderAnchors.keys()) {
+                if (!activeTrailKeys.has(key)) this._comboTrailRenderAnchors.delete(key);
+            }
+            const alignFixedCurveToSampledTip = (points) => {
+                if (!Array.isArray(points) || points.length === 0) return points;
+                const newest = points[points.length - 1];
+                const step = newest && newest.step;
+                if (step !== 5) return points;
+                if (
+                    !Number.isFinite(newest.x) ||
+                    !Number.isFinite(newest.y) ||
+                    !Number.isFinite(newest.trailCurveStartX) ||
+                    !Number.isFinite(newest.trailCurveStartY) ||
+                    !Number.isFinite(newest.trailCurveControlX) ||
+                    !Number.isFinite(newest.trailCurveControlY) ||
+                    !Number.isFinite(newest.trailCurveEndX) ||
+                    !Number.isFinite(newest.trailCurveEndY)
+                ) {
+                    return points;
+                }
+                const smooth = (v) => {
+                    const t = Math.max(0, Math.min(1, v));
+                    return t * t * (3 - 2 * t);
+                };
+                const progress = Number.isFinite(newest.progress) ? Math.max(0, Math.min(1, newest.progress)) : 1;
+                let growth = 1;
+                if (step === 4) {
+                    if (progress <= 0.08) growth = 0;
+                    else if (progress >= 0.42) growth = 1;
+                    else growth = smooth((progress - 0.08) / 0.34);
+                } else {
+                    if (progress <= 0.15) growth = 0;
+                    else if (progress >= 0.9) growth = 1;
+                    else growth = (progress - 0.15) / 0.75;
+                }
+                if (growth <= 0.001) return points;
+                const t = Math.max(0, Math.min(1, growth));
+                const u = 1 - t;
+                const curveTipX = u * u * newest.trailCurveStartX + 2 * u * t * newest.trailCurveControlX + t * t * newest.trailCurveEndX;
+                const curveTipY = u * u * newest.trailCurveStartY + 2 * u * t * newest.trailCurveControlY + t * t * newest.trailCurveEndY;
+                const dx = newest.x - curveTipX;
+                const dy = newest.y - curveTipY;
+                if (!Number.isFinite(dx) || !Number.isFinite(dy) || (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01)) {
+                    return points;
+                }
+                return points.map((p) => ({
+                    ...p,
+                    trailCurveStartX: Number.isFinite(p.trailCurveStartX) ? p.trailCurveStartX + dx : p.trailCurveStartX,
+                    trailCurveStartY: Number.isFinite(p.trailCurveStartY) ? p.trailCurveStartY + dy : p.trailCurveStartY,
+                    trailCurveControlX: Number.isFinite(p.trailCurveControlX) ? p.trailCurveControlX + dx : p.trailCurveControlX,
+                    trailCurveControlY: Number.isFinite(p.trailCurveControlY) ? p.trailCurveControlY + dy : p.trailCurveControlY,
+                    trailCurveEndX: Number.isFinite(p.trailCurveEndX) ? p.trailCurveEndX + dx : p.trailCurveEndX,
+                    trailCurveEndY: Number.isFinite(p.trailCurveEndY) ? p.trailCurveEndY + dy : p.trailCurveEndY
+                }));
+            };
+            for (const [key, groupPoints] of groupedTrails.entries()) {
+                if (!groupPoints || groupPoints.length === 0) continue;
+                const anchorPoint = groupPoints[0];
+                if (!this._comboTrailRenderAnchors.has(key)) {
+                    const originX = Number.isFinite(anchorPoint.playerX) ? anchorPoint.playerX : (fallbackX - actorRenderW * 0.5);
+                    const originY = Number.isFinite(anchorPoint.playerY) ? anchorPoint.playerY : (fallbackY - PLAYER.HEIGHT * 0.62);
+                    this._comboTrailRenderAnchors.set(key, {
+                        pivotX: originX + actorRenderW * 0.5,
+                        pivotY: originY + PLAYER.HEIGHT * 0.62
+                    });
+                }
+                const anchor = this._comboTrailRenderAnchors.get(key);
+                const pivotX = anchor.pivotX;
+                const pivotY = anchor.pivotY;
+                ctx.save();
+                if (Math.abs(renderScale - 1) > 0.001) {
+                    ctx.translate(pivotX, pivotY);
+                    ctx.scale(renderScale, renderScale);
+                    ctx.translate(-pivotX, -pivotY);
+                }
+                const renderPoints = alignFixedCurveToSampledTip(groupPoints);
                 this.actor.renderComboSlashTrail(ctx, {
-                    points: trailPoints,
-                    centerX: actorRenderX + actorRenderW * 0.5,
-                    centerY: actorRenderY + actorRenderH * 0.62,
+                    points: renderPoints,
+                    centerX: pivotX,
+                    centerY: pivotY,
                     trailWidthScale: baseTrailScale,
                     physicalScale: 1,
                     boostActive: baseTrailScale > 1.01 && this._attackTimer > 0,
@@ -2357,7 +2510,8 @@ export class Shogun extends Boss {
                         attackTimer: this._attackTimer
                     }
                 });
-            });
+                ctx.restore();
+            }
         }
 
         // 二刀流Zコンボのトレイル（プレイヤーと同じパイプライン）
