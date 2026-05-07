@@ -1345,10 +1345,18 @@ export class Shogun extends Boss {
     }
 
     getThrowOwnerState() {
+        const renderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
+            ? this.scaleMultiplier
+            : 1;
+        const actorRenderW = this.actorBaseWidth || Math.max(1, Math.round(this.width / renderScale));
+        const actorRenderH = this.actorBaseHeight || Math.max(1, Math.round(this.height / renderScale));
+        const actorFootGroundOffset = 2;
+        const actorRenderX = this.x + (this.width - actorRenderW) * 0.5;
+        const actorRenderY = this.y + (this.height - actorRenderH) * 0.62 + actorFootGroundOffset;
         return {
-            x: this.x,
-            y: this.groundY + LANE_OFFSET - PLAYER.HEIGHT,
-            width: this.width,
+            x: actorRenderX,
+            y: actorRenderY,
+            width: actorRenderW,
             height: PLAYER.HEIGHT,
             groundY: this.groundY,
             facingRight: this.facingRight,
@@ -1358,6 +1366,41 @@ export class Shogun extends Boss {
             getSubWeaponCloneOffsets: () => [],
             triggerCloneSubWeapon: () => {},
         };
+    }
+
+    transformActorProjectilePointToWorld(x, y) {
+        const renderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
+            ? this.scaleMultiplier
+            : 1;
+        if (Math.abs(renderScale - 1) <= 0.001) return { x, y };
+        const pivotX = this.x + this.width * 0.5;
+        const pivotY = this.y + this.height * 0.62;
+        return {
+            x: pivotX + (x - pivotX) * renderScale,
+            y: pivotY + (y - pivotY) * renderScale
+        };
+    }
+
+    getThrowableVisualScale(type) {
+        const renderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
+            ? this.scaleMultiplier
+            : 1;
+        if (type === 'bomb') return Math.max(1, Math.min(1.35, 1 + (renderScale - 1) * 0.28));
+        if (type === 'shuriken') return Math.max(1, Math.min(1.42, 1 + (renderScale - 1) * 0.32));
+        return 1;
+    }
+
+    hasOdachiLingeringVisuals(odachi) {
+        return !!(
+            odachi && (
+                odachi.isAttacking ||
+                (odachi.plantedTimer || 0) > 0 ||
+                (odachi.fadeOutTimer || 0) > 0 ||
+                (odachi.impactFlashTimer || 0) > 0 ||
+                (Array.isArray(odachi.groundWaves) && odachi.groundWaves.length > 0) ||
+                (Array.isArray(odachi.impactDebris) && odachi.impactDebris.length > 0)
+            )
+        );
     }
 
     transformActorHitboxToWorld(box) {
@@ -1575,10 +1618,11 @@ export class Shogun extends Boss {
         // （isAttackingが先にfalseになると_subTimerが減らず行動停止するため）
         const odachi = this._subWeaponInstances.odachi;
         const kusa = this._subWeaponInstances.kusarigama;
-        const isLingeringSub = (this._subWeaponKey === 'odachi' && odachi && odachi.isAttacking) ||
+        const isLingeringSub = (this._subWeaponKey === 'odachi' && this.hasOdachiLingeringVisuals(odachi)) ||
                               (this._subWeaponKey === 'kusarigama' && kusa && kusa.isAttacking);
+        const isThrowPoseLingering = this._subAction === 'throw' && this._shurikenVisualTimer > 0;
 
-        if (this._attackTimer > 0 || this._subTimer > 0 || isLingeringSub) {
+        if (this._attackTimer > 0 || this._subTimer > 0 || isLingeringSub || isThrowPoseLingering) {
             this.isAttacking = true;
         }
         if (this._comboFinisherAirLockTimer > 0) {
@@ -1630,7 +1674,7 @@ export class Shogun extends Boss {
                     subInst.update(deltaTime);
                 }
                 if (
-                    (this._subWeaponKey === 'kusarigama' || this._subWeaponKey === 'odachi') &&
+                    this._subWeaponKey === 'kusarigama' &&
                     !subInst.isAttacking
                 ) {
                     this._subTimer = 0;
@@ -1709,9 +1753,9 @@ export class Shogun extends Boss {
         {
             const odachiInst = this._subWeaponInstances['odachi'];
             if (odachiInst && typeof odachiInst.update === 'function') {
-                if (this._subWeaponKey === 'odachi' && this._subTimer <= 0 && odachiInst.isAttacking) {
+                if (this._subWeaponKey === 'odachi' && this._subTimer <= 0 && this.hasOdachiLingeringVisuals(odachiInst)) {
                     odachiInst.update(deltaTime);
-                    if (!odachiInst.isAttacking) {
+                    if (!this.hasOdachiLingeringVisuals(odachiInst)) {
                         this._subAction    = null;
                         this._subWeaponKey = null;
                     }
@@ -1797,7 +1841,9 @@ export class Shogun extends Boss {
             this._subTimer     = throwDuration;
             this.attackTimer   = throwDuration;
             this._attackTimer  = 0;
-            this._shurikenVisualTimer = (type === 'shuriken') ? throwDuration : 0;
+            this._shurikenVisualTimer = type === 'shuriken'
+                ? (durationMap.bomb || 72)
+                : 0;
             this.attackCooldown = 400;
             this._lastAttackType = type;
             return;
@@ -2191,8 +2237,9 @@ export class Shogun extends Boss {
                 // 大太刀: plantedTimer消化中（isAttacking=true）は維持（update内でキーをクリアする）
                 const odachiInst2 = this._subWeaponInstances['odachi'];
                 const keepForOdachi = this._subWeaponKey === 'odachi'
-                    && odachiInst2 && odachiInst2.isAttacking;
-                if (!keepForDual && !keepForShuriken && !keepForOdachi) {
+                    && this.hasOdachiLingeringVisuals(odachiInst2);
+                const keepForThrowPose = this._subAction === 'throw' && this._shurikenVisualTimer > 0;
+                if (!keepForDual && !keepForShuriken && !keepForOdachi && !keepForThrowPose) {
                     this._subAction    = null;
                     this._subWeaponKey = null;
                     this._dualZPendingSteps = null;
@@ -2214,11 +2261,13 @@ export class Shogun extends Boss {
             // subTimer=0でもplantedTimer消化中（isAttacking=true）は描画キー保持
             // （isAttacking=falseになったらupdate内でキーをクリア済み）
             const odachiInst3 = this._subWeaponInstances['odachi'];
-            if (!odachiInst3 || !odachiInst3.isAttacking) {
+            if (!this.hasOdachiLingeringVisuals(odachiInst3)) {
                 this._subAction    = null;
                 this._subWeaponKey = null;
             }
-            this.isAttacking = false;
+            this.isAttacking = this.hasOdachiLingeringVisuals(odachiInst3);
+        } else if (this._subAction === 'throw' && this._shurikenVisualTimer > 0) {
+            this.isAttacking = true;
         } else {
             this.isAttacking = false;
             this._currentAttackProfile = null;
@@ -2244,6 +2293,10 @@ export class Shogun extends Boss {
 
         const useMode = type === 'dual' ? 'combined' : (type === 'dual_z' ? 'main' : undefined);
 
+        const shurikenProjectilesBefore = (resolvedKey === 'shuriken' && subInst && Array.isArray(subInst.projectiles))
+            ? subInst.projectiles.length
+            : -1;
+
         // bomb発射前のg.bombs長さを記録
         const bombsBefore = (resolvedKey === 'bomb' && window.game && window.game.bombs)
             ? window.game.bombs.length : -1;
@@ -2254,17 +2307,39 @@ export class Shogun extends Boss {
             this.vx = 0;
         }
 
+        if (resolvedKey === 'shuriken' && shurikenProjectilesBefore >= 0 && Array.isArray(subInst.projectiles)) {
+            const scale = this.getThrowableVisualScale('shuriken');
+            for (let pi = shurikenProjectilesBefore; pi < subInst.projectiles.length; pi++) {
+                const proj = subInst.projectiles[pi];
+                if (proj && Number.isFinite(proj.x) && Number.isFinite(proj.y)) {
+                    const worldPoint = this.transformActorProjectilePointToWorld(proj.x, proj.y);
+                    proj.x = worldPoint.x;
+                    proj.y = worldPoint.y;
+                    proj.prevX = worldPoint.x;
+                    proj.prevY = worldPoint.y;
+                }
+                if (proj && Number.isFinite(proj.radius)) {
+                    proj.radius = Math.round(proj.radius * scale * 10) / 10;
+                }
+            }
+        }
+
         // bomb: 新しく追加されたbombに敵弾フラグとgetHitboxを付ける
         // （game.jsのupdateBombsはisEnemyProjectile===trueのbombにgetHitbox()を呼ぶため必須）
         if (resolvedKey === 'bomb' && bombsBefore >= 0 && window.game && window.game.bombs) {
             const owner = this;
+            const bombScale = this.getThrowableVisualScale('bomb');
             for (let bi = bombsBefore; bi < window.game.bombs.length; bi++) {
                 const b = window.game.bombs[bi];
                 if (!b) continue;
-                // 火薬玉だけ追加拡大すると他の武器とルールがずれるため、
-                // 将軍でも Firebomb 側の標準サイズをそのまま使う。
                 b.isEnemyProjectile = true;
                 b.owner = owner;
+                if (Number.isFinite(b.radius)) {
+                    b.radius = Math.round(b.radius * bombScale * 10) / 10;
+                }
+                if (Number.isFinite(b.explosionRadius)) {
+                    b.explosionRadius = Math.round(b.explosionRadius * bombScale);
+                }
                 // game.jsがisEnemyProjectile===trueのbombに呼ぶgetHitbox()を追加
                 b.getHitbox = function() {
                     if (this.isExploding) {
@@ -2500,7 +2575,7 @@ export class Shogun extends Boss {
             this.actor.subWeaponAction = null;
             this.actor.currentSubWeapon = null;
 
-        } else if ((this._subTimer > 0 || isLingeringSub) && this._subAction) {
+        } else if ((this._subTimer > 0 || isLingeringSub || this._shurikenVisualTimer > 0) && this._subAction) {
             const subInst = this._subWeaponKey
                 ? this._subWeaponInstances[this._subWeaponKey]
                 : (() => {
@@ -2517,7 +2592,7 @@ export class Shogun extends Boss {
                 this._shurikenVisualTimer > 0
             );
             const displaySubTimer = throwPoseActive
-                ? Math.max(1, this._subWeaponKey === 'bomb' ? this._subTimer : this._shurikenVisualTimer)
+                ? Math.max(1, this._subTimer, this._shurikenVisualTimer)
                 : Math.max(1, this._subTimer);
             this.actor.subWeaponTimer  = throwPoseActive ? displaySubTimer : (isThrowAction ? 0 : displaySubTimer);
             this.actor.subWeaponAction = throwPoseActive ? 'throw' : (isThrowAction ? null : this._subAction);

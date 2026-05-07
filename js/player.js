@@ -1290,8 +1290,7 @@ export class Player {
     getSubWeaponActionDurationMs(actionName, weapon = this.currentSubWeapon) {
         const name = actionName || (weapon && weapon.name) || '';
         if (name === 'throw') {
-            if (weapon && weapon.name === '火薬玉') return 72;
-            return 50;
+            return 72;
         }
         if (name === '二刀_合体') {
             const dual = (weapon && weapon.name === '二刀流') ? weapon : this.currentSubWeapon;

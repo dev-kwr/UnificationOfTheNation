@@ -555,7 +555,9 @@ export function applyShogunCombat(player) {
         const duration = boss._getSubActionDurationMs
             ? boss._getSubActionDurationMs(actionMap[weaponKey] || realWeapon.name, weaponKey)
             : 300;
-        boss._shurikenVisualTimer = weaponKey === 'shuriken' ? 150 : 0;
+        boss._shurikenVisualTimer = weaponKey === 'shuriken' && boss._getSubActionDurationMs
+            ? boss._getSubActionDurationMs('throw', 'bomb')
+            : 0;
 
         boss._subTimer = duration;
         boss._subWeaponKey = weaponKey;

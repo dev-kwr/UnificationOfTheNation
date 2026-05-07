@@ -351,9 +351,14 @@ export class ShurikenProjectile {
                 // 最も近い敵を追尾
                 let closest = validEnemies[0];
                 let closestDist = Infinity;
+                const getTargetPoint = (e) => ({
+                    x: e.x + (e.width || 30) / 2,
+                    y: e.y + (e.height || 30) * (e.isCrouching ? 0.30 : 0.38)
+                });
                 for (const e of validEnemies) {
-                    const ex = (e.x + (e.width || 30) / 2) - this.x;
-                    const ey = (e.y + (e.height || 30) / 2) - this.y;
+                    const target = getTargetPoint(e);
+                    const ex = target.x - this.x;
+                    const ey = target.y - this.y;
                     const d = ex * ex + ey * ey;
                     if (d < closestDist) {
                         closestDist = d;
@@ -361,8 +366,9 @@ export class ShurikenProjectile {
                     }
                 }
                 if (Math.random() < 0.1) console.log('[手裏剣DEBUG] homing target found:', closest);
-                const dx = (closest.x + (closest.width || 30) / 2) - this.x;
-                const dy = (closest.y + (closest.height || 30) / 2) - this.y;
+                const target = getTargetPoint(closest);
+                const dx = target.x - this.x;
+                const dy = target.y - this.y;
                 const targetAngle = Math.atan2(dy, dx);
                 const currentAngle = Math.atan2(this.vy, this.vx);
                 let angleDiff = targetAngle - currentAngle;
@@ -378,6 +384,12 @@ export class ShurikenProjectile {
             }
         }
 
+        const isPreviewMode = !!(window.game && window.game.player && window.game.player.previewMode);
+        const groundY = (window.game && window.game.groundY) ? window.game.groundY : 480;
+        if (!isPreviewMode && this.homing && (groundY - this.y) < 80 && this.vy > 0) {
+            this.vy *= 0.45;
+        }
+
         // --- 移動 ---
         this.prevX = this.x;
         this.prevY = this.y;
@@ -388,9 +400,7 @@ export class ShurikenProjectile {
 
         // --- 地面・画面外判定 ---
         // プレビューモード時は groundY が画面上端付近に設定されるため判定をスキップする
-        const isPreviewMode = !!(window.game && window.game.player && window.game.player.previewMode);
         if (!isPreviewMode) {
-            const groundY = (window.game && window.game.groundY) ? window.game.groundY : 480;
             if (this.y >= groundY + LANE_OFFSET) this.isDestroyed = true;
 
             // --- 画面外判定（左右） ---
@@ -638,9 +648,9 @@ export class Firebomb extends SubWeapon {
         let bombY = player.y + 10;
 
         if (player.isCrouching) {
-            vx = direction * 8;
-            vy = -4.0;
-            bombY = player.y + player.height - 15;
+            vx = direction * 8.5;
+            vy = -6.2;
+            bombY = player.y + player.height - 30;
         }
 
         const tier = this.enhanceTier;

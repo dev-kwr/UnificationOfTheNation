@@ -392,11 +392,9 @@
                 const duration = getPreviewSubActionDuration(type);
                 shogun._subTimer = duration;
                 shogun._subWeaponKey = type;
-                if (type === 'shuriken') {
-                    shogun._shurikenVisualTimer = 150;
-                } else {
-                    shogun._shurikenVisualTimer = 0;
-                }
+                shogun._shurikenVisualTimer = type === 'shuriken'
+                    ? getPreviewSubActionDuration('bomb')
+                    : 0;
             }
             window._previewWeapon = type;
             syncSubIndexFromPreviewWeapon();
