@@ -2424,6 +2424,37 @@ export class Shogun extends Boss {
             for (const key of this._comboTrailRenderAnchors.keys()) {
                 if (!activeTrailKeys.has(key)) this._comboTrailRenderAnchors.delete(key);
             }
+            const scaleSampledTrailPoints = (points) => {
+                if (!Array.isArray(points) || points.length === 0 || Math.abs(renderScale - 1) <= 0.001) {
+                    return points;
+                }
+                const latestStep = points[points.length - 1] && points[points.length - 1].step;
+                if (latestStep !== 3) return points;
+                return points.map((p) => {
+                    if (
+                        !p ||
+                        !Number.isFinite(p.x) ||
+                        !Number.isFinite(p.y)
+                    ) {
+                        return p;
+                    }
+                    const originX = Number.isFinite(p.playerX) ? p.playerX : (fallbackX - actorRenderW * 0.5);
+                    const originY = Number.isFinite(p.playerY) ? p.playerY : (fallbackY - PLAYER.HEIGHT * 0.62);
+                    const pivotX = originX + actorRenderW * 0.5;
+                    const pivotY = originY + PLAYER.HEIGHT * 0.62;
+                    return {
+                        ...p,
+                        x: pivotX + (p.x - pivotX) * renderScale,
+                        y: pivotY + (p.y - pivotY) * renderScale,
+                        centerX: Number.isFinite(p.centerX)
+                            ? pivotX + (p.centerX - pivotX) * renderScale
+                            : p.centerX,
+                        centerY: Number.isFinite(p.centerY)
+                            ? pivotY + (p.centerY - pivotY) * renderScale
+                            : p.centerY
+                    };
+                });
+            };
             const alignFixedCurveToSampledTip = (points) => {
                 if (!Array.isArray(points) || points.length === 0) return points;
                 const newest = points[points.length - 1];
@@ -2490,19 +2521,23 @@ export class Shogun extends Boss {
                 const anchor = this._comboTrailRenderAnchors.get(key);
                 const pivotX = anchor.pivotX;
                 const pivotY = anchor.pivotY;
+                const step = groupPoints[groupPoints.length - 1] && groupPoints[groupPoints.length - 1].step;
+                const usesPerSampleScale = step === 3;
                 ctx.save();
-                if (Math.abs(renderScale - 1) > 0.001) {
+                if (!usesPerSampleScale && Math.abs(renderScale - 1) > 0.001) {
                     ctx.translate(pivotX, pivotY);
                     ctx.scale(renderScale, renderScale);
                     ctx.translate(-pivotX, -pivotY);
                 }
-                const renderPoints = alignFixedCurveToSampledTip(groupPoints);
+                const renderPoints = usesPerSampleScale
+                    ? scaleSampledTrailPoints(groupPoints)
+                    : alignFixedCurveToSampledTip(groupPoints);
                 this.actor.renderComboSlashTrail(ctx, {
                     points: renderPoints,
                     centerX: pivotX,
                     centerY: pivotY,
                     trailWidthScale: baseTrailScale,
-                    physicalScale: 1,
+                    physicalScale: usesPerSampleScale ? renderScale : 1,
                     boostActive: baseTrailScale > 1.01 && this._attackTimer > 0,
                     attackState: {
                         isAttacking: this.isAttacking,
