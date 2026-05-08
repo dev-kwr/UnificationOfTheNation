@@ -1415,10 +1415,21 @@ export class Shogun extends Boss {
         const pose = odachi.getPose(this.actor);
         if (!pose || pose.phase !== 'planted') return null;
         const bladeEnd = (pose.bladeLen || 0) + 8;
-        const visualTip = odachi.localToWorldOnPose(pose, bladeEnd + 5.0, -0.8);
-        const renderedTip = this.transformActorRenderPointToWorld(visualTip.x, visualTip.y, renderScale);
+        const visualTip = odachi.localToWorldOnPose(pose, bladeEnd + 5.0, 0);
+        const scale = Number.isFinite(renderScale) && renderScale > 0 ? renderScale : 1;
+        const pivotX = this.x + this.width * 0.5;
+        const pivotY = this.y + this.height * 0.62;
+        // 大太刀本体は playerRenderer 側で将軍の yawSkew をキャンセルして描く。
+        // 衝撃波も同じ見た目の切先へ合わせるため、ここでは拡大のみを反映する。
+        const renderedTip = {
+            x: pivotX + (visualTip.x - pivotX) * scale,
+            y: pivotY + (visualTip.y - pivotY) * scale
+        };
+        // 実描画では鎺と刃の外形がわずかに画面右へ重く見えるため、
+        // 衝撃波の中心も切先の見た目に合わせて少しだけ右へ寄せる。
+        const tipVisualNudgeX = 2.2 * scale;
         return {
-            x: renderedTip.x - odachi.impactX,
+            x: renderedTip.x + tipVisualNudgeX - odachi.impactX,
             y: renderedTip.y - odachi.impactY
         };
     }

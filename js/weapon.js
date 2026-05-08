@@ -3157,111 +3157,229 @@ export class Odachi extends SubWeapon {
             ctx.scale(pose.direction, 1);
             ctx.rotate(pose.rotation);
 
-            // 柄（色を濃く、重厚に）
+            // 柄: 刀身を邪魔しない程度に抑えた柄巻きと金具
             const handleBack = handle.back;
             const handleFront = handle.front;
             const handleHalfH = (handle.thickness || 9) * 0.5;
-            ctx.fillStyle = '#3d2310';
+            const handleLength = handleFront - handleBack;
+            const handleGrad = ctx.createLinearGradient(handleBack, -handleHalfH, handleFront, handleHalfH);
+            handleGrad.addColorStop(0.00, '#2a190b');
+            handleGrad.addColorStop(0.42, '#5b3919');
+            handleGrad.addColorStop(0.68, '#44260f');
+            handleGrad.addColorStop(1.00, '#241105');
+            ctx.fillStyle = handleGrad;
             ctx.beginPath();
-            ctx.rect(handleBack, -handleHalfH, handleFront - handleBack, handleHalfH * 2);
+            ctx.moveTo(handleBack + 3.5, -handleHalfH);
+            ctx.lineTo(handleFront - 2.0, -handleHalfH);
+            ctx.quadraticCurveTo(handleFront + 0.8, 0, handleFront - 2.0, handleHalfH);
+            ctx.lineTo(handleBack + 3.5, handleHalfH);
+            ctx.quadraticCurveTo(handleBack - 0.8, 0, handleBack + 3.5, -handleHalfH);
+            ctx.closePath();
             ctx.fill();
 
-            // 柄の巻紐表現（ひし形の重なり）
-            ctx.fillStyle = '#221105';
-            for (let x = handleBack + 4; x < handleFront - 4; x += 8) {
+            // 柄巻き: 交差する帯と中央の菱目
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(handleBack + 1.5, -handleHalfH - 0.8, handleLength - 2.5, handleHalfH * 2 + 1.6);
+            ctx.clip();
+            ctx.lineWidth = 1.55;
+            ctx.lineCap = 'round';
+            for (let x = handleBack - 6; x < handleFront + 8; x += 8.2) {
+                ctx.strokeStyle = 'rgba(25, 14, 7, 0.58)';
                 ctx.beginPath();
-                ctx.moveTo(x, -handleHalfH);
-                ctx.lineTo(x + 4, 0);
-                ctx.lineTo(x, handleHalfH);
-                ctx.lineTo(x - 4, 0);
+                ctx.moveTo(x, -handleHalfH - 0.9);
+                ctx.lineTo(x + 8.6, handleHalfH + 0.9);
+                ctx.stroke();
+                ctx.strokeStyle = 'rgba(123, 85, 43, 0.30)';
+                ctx.beginPath();
+                ctx.moveTo(x + 4.0, handleHalfH + 0.8);
+                ctx.lineTo(x + 12.2, -handleHalfH - 0.8);
+                ctx.stroke();
+            }
+            ctx.fillStyle = 'rgba(224, 181, 105, 0.08)';
+            for (let x = handleBack + 6; x < handleFront - 6; x += 16.4) {
+                ctx.beginPath();
+                ctx.moveTo(x, -2.1);
+                ctx.lineTo(x + 4.2, 0);
+                ctx.lineTo(x, 2.1);
+                ctx.lineTo(x - 4.2, 0);
                 ctx.closePath();
                 ctx.fill();
             }
+            ctx.restore();
 
-            // 柄の縁取り
-            ctx.strokeStyle = '#1a0d04';
-            ctx.lineWidth = 0.8;
-            ctx.strokeRect(handleBack, -handleHalfH, handleFront - handleBack, handleHalfH * 2);
-
-            // 鍔（少し使い込まれた金の色）
-            ctx.fillStyle = '#b59345';
+            // 柄頭と縁金
+            const metalGrad = ctx.createLinearGradient(handleBack, -handleHalfH, handleFront, handleHalfH);
+            metalGrad.addColorStop(0, '#70521e');
+            metalGrad.addColorStop(0.42, '#c7a750');
+            metalGrad.addColorStop(0.78, '#806026');
+            metalGrad.addColorStop(1, '#d7bd68');
+            ctx.fillStyle = metalGrad;
             ctx.beginPath();
-            ctx.moveTo(16.5, -5.8);
-            ctx.quadraticCurveTo(21.5, -8.0, 24.5, -1.1);
-            ctx.quadraticCurveTo(21.5, 5.8, 16.2, 5.2);
-            ctx.closePath();
+            ctx.roundRect(handleBack - 3.2, -handleHalfH - 0.7, 6.2, handleHalfH * 2 + 1.4, 1.8);
             ctx.fill();
-            
-            // 鍔の厚み表現
-            ctx.fillStyle = '#8c6b2a';
-            ctx.fillRect(13.2, -4.8, 3.2, 9.6);
-
-            // 鎺（はばき）
-            ctx.fillStyle = '#c2a762';
             ctx.beginPath();
-            ctx.moveTo(18.8, -5.0);
-            ctx.lineTo(22.2, -4.0);
-            ctx.lineTo(22.2, 4.0);
-            ctx.lineTo(18.8, 5.0);
-            ctx.closePath();
+            ctx.roundRect(handleFront - 4.4, -handleHalfH - 0.8, 5.4, handleHalfH * 2 + 1.6, 1.5);
             ctx.fill();
-            ctx.strokeStyle = 'rgba(255, 233, 185, 0.58)';
-            ctx.lineWidth = 0.7;
+
+            ctx.strokeStyle = 'rgba(255, 226, 142, 0.24)';
+            ctx.lineWidth = 0.65;
+            ctx.beginPath();
+            ctx.moveTo(handleBack + 2.5, -handleHalfH + 1.0);
+            ctx.lineTo(handleFront - 5.2, -handleHalfH + 0.9);
+            ctx.stroke();
+            ctx.strokeStyle = 'rgba(14, 8, 3, 0.78)';
+            ctx.lineWidth = 0.75;
+            ctx.beginPath();
+            ctx.moveTo(handleBack + 3.4, -handleHalfH);
+            ctx.lineTo(handleFront - 2.5, -handleHalfH);
+            ctx.quadraticCurveTo(handleFront + 1.4, 0, handleFront - 2.5, handleHalfH);
+            ctx.lineTo(handleBack + 3.4, handleHalfH);
+            ctx.quadraticCurveTo(handleBack - 1.4, 0, handleBack + 3.4, -handleHalfH);
+            ctx.closePath();
             ctx.stroke();
 
-            // 刀身
-            const bladeStart = blade.bladeStart;
-            const bladeEnd = blade.bladeEnd;
-            const bladeGrad = ctx.createLinearGradient(bladeStart, -6, bladeEnd, 6);
-            bladeGrad.addColorStop(0, '#e5e7eb');
-            bladeGrad.addColorStop(0.15, '#9ca3af');
-            bladeGrad.addColorStop(0.4, '#ffffff');
-            bladeGrad.addColorStop(0.7, '#4b5563');
-            bladeGrad.addColorStop(1, '#1f2937');
-            
-            ctx.fillStyle = bladeGrad;
+            // 鍔: 根元で主張しすぎない薄めの受け
+            const tsubaGrad = ctx.createLinearGradient(15.0, -4.8, 22.0, 4.8);
+            tsubaGrad.addColorStop(0, '#7d5c20');
+            tsubaGrad.addColorStop(0.45, '#d5b85f');
+            tsubaGrad.addColorStop(1, '#6c4a19');
+            ctx.fillStyle = tsubaGrad;
             ctx.beginPath();
-            const tipX = blade.bladeEnd + 5.0;
-            const tipY = -0.8;
-            ctx.moveTo(blade.bladeStart, -5.2);
-            // 峰側（上側）を切先に向かって収束させる
-            ctx.quadraticCurveTo(blade.bladeStart + 28, -12.4, blade.bladeEnd - 18, -6.8);
-            ctx.quadraticCurveTo(blade.bladeEnd - 4.2, -4.2, tipX, tipY);
-            // 刃側（下側）も同じ切先へ収束させ、二股に見える形状を避ける
-            ctx.quadraticCurveTo(blade.bladeEnd - 4.8, 2.6, blade.bladeEnd - 22, 6.3);
-            ctx.quadraticCurveTo(blade.bladeStart + 38, 8.4, blade.bladeStart + 7, 5.8);
-            ctx.quadraticCurveTo(blade.bladeStart - 2, 2.8, blade.bladeStart, -5.2);
+            ctx.moveTo(15.2, -3.9);
+            ctx.bezierCurveTo(18.0, -5.2, 21.4, -4.6, 22.2, -0.9);
+            ctx.bezierCurveTo(21.8, 3.3, 18.0, 4.8, 15.0, 3.7);
+            ctx.bezierCurveTo(16.0, 1.4, 16.0, -1.7, 15.2, -3.9);
             ctx.closePath();
             ctx.fill();
-            
-            ctx.strokeStyle = '#374151';
-            ctx.lineWidth = 1.0;
+            ctx.strokeStyle = '#2c1d09';
+            ctx.lineWidth = 0.75;
+            ctx.stroke();
+            ctx.strokeStyle = 'rgba(255, 237, 166, 0.28)';
+            ctx.lineWidth = 0.45;
+            ctx.beginPath();
+            ctx.moveTo(16.7, -2.8);
+            ctx.bezierCurveTo(18.6, -3.5, 20.6, -3.0, 21.4, -1.2);
+            ctx.stroke();
+
+            // 刀身: 忍者標準サイズを基準に、刃形状でクリップして反射/刃文がはみ出ないように描く
+            const bladeStart = blade.bladeStart;
+            const bladeEnd = blade.bladeEnd;
+            const tipX = blade.bladeEnd + 5.0;
+            const tipY = 0.0;
+            const drawBladePath = () => {
+                ctx.beginPath();
+                ctx.moveTo(bladeStart + 1.8, -4.8);
+                ctx.bezierCurveTo(bladeStart + 20, -8.6, bladeEnd - 26, -8.4, tipX, tipY);
+                ctx.bezierCurveTo(bladeEnd - 26, 8.4, bladeStart + 20, 8.6, bladeStart + 1.8, 4.8);
+                ctx.quadraticCurveTo(bladeStart - 0.6, 0, bladeStart + 1.8, -4.8);
+                ctx.closePath();
+            };
+            const bladeGrad = ctx.createLinearGradient(bladeStart, -7, bladeEnd, 7);
+            bladeGrad.addColorStop(0.00, '#b8c0ca');
+            bladeGrad.addColorStop(0.14, '#eef3f8');
+            bladeGrad.addColorStop(0.34, '#ffffff');
+            bladeGrad.addColorStop(0.55, '#cbd3dd');
+            bladeGrad.addColorStop(0.76, '#778391');
+            bladeGrad.addColorStop(1.00, '#1e2b3b');
+
+            ctx.fillStyle = bladeGrad;
+            drawBladePath();
+            ctx.fill();
+
+            ctx.save();
+            drawBladePath();
+            ctx.clip();
+
+            // 峰側の重い陰影
+            const spineGrad = ctx.createLinearGradient(bladeStart, -10, bladeEnd, -3);
+            spineGrad.addColorStop(0, 'rgba(79, 91, 108, 0.22)');
+            spineGrad.addColorStop(0.7, 'rgba(27, 42, 61, 0.58)');
+            spineGrad.addColorStop(1, 'rgba(13, 26, 42, 0.72)');
+            ctx.fillStyle = spineGrad;
+            ctx.beginPath();
+            ctx.moveTo(bladeStart + 3, -4.9);
+            ctx.bezierCurveTo(bladeStart + 28, -7.4, bladeEnd - 30, -7.3, tipX - 1.2, -0.2);
+            ctx.bezierCurveTo(bladeEnd - 18, -3.0, bladeStart + 38, -2.6, bladeStart + 8, -1.0);
+            ctx.closePath();
+            ctx.fill();
+
+            // 刃側の明るい面
+            const edgeGrad = ctx.createLinearGradient(bladeStart, 3, bladeEnd, 7);
+            edgeGrad.addColorStop(0, 'rgba(255, 255, 255, 0.18)');
+            edgeGrad.addColorStop(0.45, 'rgba(255, 255, 255, 0.40)');
+            edgeGrad.addColorStop(1, 'rgba(219, 230, 243, 0.06)');
+            ctx.fillStyle = edgeGrad;
+            ctx.beginPath();
+            ctx.moveTo(bladeStart + 5, 4.6);
+            ctx.bezierCurveTo(bladeStart + 38, 6.2, bladeEnd - 30, 4.8, tipX - 8, 1.6);
+            ctx.bezierCurveTo(bladeEnd - 34, 2.0, bladeStart + 42, 1.3, bladeStart + 9, 1.7);
+            ctx.closePath();
+            ctx.fill();
+
+            // 中央の反射筋
+            const shineGrad = ctx.createLinearGradient(bladeStart + 12, 0, bladeEnd - 10, 0);
+            shineGrad.addColorStop(0, 'rgba(255, 255, 255, 0.08)');
+            shineGrad.addColorStop(0.45, 'rgba(255, 255, 255, 0.56)');
+            shineGrad.addColorStop(1, 'rgba(255, 255, 255, 0.05)');
+            ctx.strokeStyle = shineGrad;
+            ctx.lineWidth = 1.8;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(bladeStart + 15, 1.9);
+            ctx.bezierCurveTo(bladeStart + 36, 1.1, bladeEnd - 58, 0.8, bladeEnd - 42, -0.35);
+            ctx.stroke();
+
+            // 控えめな刃文
+            ctx.strokeStyle = 'rgba(231, 240, 250, 0.30)';
+            ctx.lineWidth = 0.85;
+            ctx.beginPath();
+            ctx.moveTo(bladeStart + 14, 3.7);
+            ctx.bezierCurveTo(bladeStart + 36, 4.5, bladeStart + 52, 3.4, bladeStart + 68, 3.8);
+            ctx.bezierCurveTo(bladeStart + 86, 4.2, bladeEnd - 48, 2.7, bladeEnd - 36, 1.7);
+            ctx.stroke();
+
+            // 根元の磨き残し
+            ctx.fillStyle = 'rgba(80, 92, 106, 0.18)';
+            ctx.beginPath();
+            ctx.moveTo(bladeStart, -3.7);
+            ctx.lineTo(bladeStart + 13, -3.0);
+            ctx.lineTo(bladeStart + 13, 3.9);
+            ctx.lineTo(bladeStart + 1, 4.4);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+
+            drawBladePath();
+            ctx.strokeStyle = '#243244';
+            ctx.lineWidth = 1.1;
             ctx.lineJoin = 'round';
             ctx.miterLimit = 2;
             ctx.stroke();
 
-            // 峰のハイライト
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-            ctx.lineWidth = 0.8;
+            // 刀身描画後に鎺を一枚だけ重ね、刃元の接合を整理する
+            const rootSleeveGrad = ctx.createLinearGradient(18.4, -4.8, 26.2, 4.8);
+            rootSleeveGrad.addColorStop(0, '#6e4b18');
+            rootSleeveGrad.addColorStop(0.42, '#d9bd6d');
+            rootSleeveGrad.addColorStop(0.82, '#8e6923');
+            rootSleeveGrad.addColorStop(1, '#4c3210');
+            ctx.fillStyle = rootSleeveGrad;
             ctx.beginPath();
-            ctx.moveTo(blade.bladeStart + 10, -2.5);
-            ctx.quadraticCurveTo(blade.bladeStart + 60, -5.0, blade.bladeEnd - 15, -1.5);
+            ctx.moveTo(18.4, -3.7);
+            ctx.lineTo(bladeStart + 4.2, -4.4);
+            ctx.lineTo(bladeStart + 4.2, 4.4);
+            ctx.lineTo(18.4, 3.7);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(39, 24, 7, 0.62)';
+            ctx.lineWidth = 0.55;
             ctx.stroke();
-
-            // 刃文（はもん）
-            ctx.strokeStyle = 'rgba(219, 232, 246, 0.56)';
-            ctx.lineWidth = 0.85;
+            ctx.strokeStyle = 'rgba(255, 233, 178, 0.22)';
+            ctx.lineWidth = 0.45;
             ctx.beginPath();
-            ctx.moveTo(blade.bladeStart + 12, 2.4);
-            ctx.quadraticCurveTo(blade.bladeStart + 44, 4.1, blade.bladeStart + 70, 2.8);
-            ctx.quadraticCurveTo(blade.bladeStart + 94, 1.7, blade.bladeEnd - 14, 3.2);
+            ctx.moveTo(19.6, -2.5);
+            ctx.lineTo(bladeStart + 3.1, -3.1);
             ctx.stroke();
-
-            // 切先の一点ハイライト（削除）
-            // ctx.fillStyle = 'rgba(255, 255, 255, 0.66)';
-            // ctx.beginPath();
-            // ctx.arc(bladeEnd + 2.8, -0.75, 1.3, 0, Math.PI * 2);
-            // ctx.fill();
 
             ctx.restore();
 
