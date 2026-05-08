@@ -1381,6 +1381,48 @@ export class Shogun extends Boss {
         };
     }
 
+    transformActorRenderPointToWorld(x, y, renderScale) {
+        const scale = Number.isFinite(renderScale) && renderScale > 0 ? renderScale : 1;
+        const pivotX = this.x + this.width * 0.5;
+        const pivotY = this.y + this.height * 0.62;
+        const dir2d = this.facingRight ? 1 : -1;
+        const moveBias = Math.min(0.024, Math.abs(this.vx || 0) * 0.0038);
+        const attackBias = this.isAttacking ? 0.013 : 0;
+        const yawSkew = dir2d * (0.046 + moveBias + attackBias);
+
+        const scaledX = pivotX + (x - pivotX) * scale;
+        const scaledY = pivotY + (y - pivotY) * scale;
+        const dx = scaledX - pivotX;
+        const dy = scaledY - pivotY;
+
+        return {
+            x: pivotX + (dx / 0.982) + ((-yawSkew / 0.982) * dy),
+            y: pivotY + dy
+        };
+    }
+
+    getRenderedOdachiImpactOffset(odachi, renderScale) {
+        if (
+            !odachi ||
+            !this.actor ||
+            !Number.isFinite(odachi.impactX) ||
+            !Number.isFinite(odachi.impactY) ||
+            typeof odachi.getPose !== 'function' ||
+            typeof odachi.localToWorldOnPose !== 'function'
+        ) {
+            return null;
+        }
+        const pose = odachi.getPose(this.actor);
+        if (!pose || pose.phase !== 'planted') return null;
+        const bladeEnd = (pose.bladeLen || 0) + 8;
+        const visualTip = odachi.localToWorldOnPose(pose, bladeEnd + 5.0, -0.8);
+        const renderedTip = this.transformActorRenderPointToWorld(visualTip.x, visualTip.y, renderScale);
+        return {
+            x: renderedTip.x - odachi.impactX,
+            y: renderedTip.y - odachi.impactY
+        };
+    }
+
     transformActorTrailPointToWorld(point, renderScale, actorFootGroundOffset = 2) {
         if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return point;
         const scale = Number.isFinite(renderScale) && renderScale > 0 ? renderScale : 1;
@@ -2896,7 +2938,20 @@ export class Shogun extends Boss {
         if (odachiGroundRenderInst && typeof odachiGroundRenderInst.render === 'function') {
             odachiGroundRenderInst.suppressGroundEffectsRender = false;
             odachiGroundRenderInst.renderOnlyGroundEffects = true;
+            const impactOffset = this.getRenderedOdachiImpactOffset(odachiGroundRenderInst, renderScale);
+            ctx.save();
+            if (impactOffset && Number.isFinite(impactOffset.x) && Number.isFinite(impactOffset.y)) {
+                ctx.translate(impactOffset.x, impactOffset.y);
+            }
+            if (renderScale > 1.001) {
+                const impactX = Number.isFinite(odachiGroundRenderInst.impactX) ? odachiGroundRenderInst.impactX : (this.x + this.width * 0.5);
+                const impactY = Number.isFinite(odachiGroundRenderInst.impactY) ? odachiGroundRenderInst.impactY : (this.groundY + LANE_OFFSET);
+                ctx.translate(impactX, impactY);
+                ctx.scale(renderScale, renderScale);
+                ctx.translate(-impactX, -impactY);
+            }
             odachiGroundRenderInst.render(ctx, this);
+            ctx.restore();
             odachiGroundRenderInst.renderOnlyGroundEffects = false;
         }
 
