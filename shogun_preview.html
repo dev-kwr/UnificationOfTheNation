@@ -125,15 +125,26 @@
             <strong id="selectedSubWeapon">手裏剣</strong>
         </div>
         <div class="control-buttons">
+            <label style="font-size: 14px; margin-right: -4px;">スキルLv</label>
+            <select id="selSkillLv" style="padding: 6px; background-color: #444; color: #fff; border: 1px solid #666; border-radius: 4px; font-size: 14px;">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+            </select>
             <button id="btnIdle" class="btn">待機</button>
             <button id="btnWalk" class="btn">歩行</button>
+            <button id="btnOugi" class="btn">奥義 (S)</button>
+            <button id="btnOonagi" class="btn">大薙</button>
+            <button id="btnKakuremi" class="btn">隠れ身</button>
             <button id="btnHideBody" class="btn">キャラ非表示</button>
         </div>
     </div>
     <canvas id="previewCanvas" width="800" height="500"></canvas>
     
     
-        <div class="tuning-panel">
+    <details>
+        <summary style="cursor: pointer; padding: 10px; color: #dcb854; text-align: left; background: #222; border: 1px solid #444; border-radius: 4px; margin-top: 20px;">角の調整 (Horn Parameters)</summary>
+        <div class="tuning-panel" style="margin-top: 0; border-top: none;">
         <div class="tuning-col">
             <h4>奥の角 (Far Horn)</h4>
             <div class="param-row"><label>根元X位置 (farBaseX)</label><input type="range" id="farBaseX" min="-1.0" max="1.0" step="0.01" value="-0.03"><span id="val_farBaseX">-0.03</span></div>
@@ -157,6 +168,7 @@
             <div class="param-row"><label>根元丸み (nearRoot)</label><input type="range" id="nearRoot" min="-2.0" max="2.0" step="0.01" value="2.00"><span id="val_nearRoot">2.00</span></div>
         </div>
     </div>
+    </details>
     <script type="module">
         import { Shogun } from './js/boss.js';
         import { Player } from './js/player.js';
@@ -612,6 +624,50 @@
             btn.style.color = isBodyHidden ? '#ffd' : '';
         });
 
+        document.getElementById('selSkillLv').addEventListener('change', (e) => {
+            const lv = parseInt(e.target.value);
+            ninja.progression.normalCombo = lv;
+            ninja.progression.subWeapon = lv;
+            ninja.progression.specialClone = lv;
+            ninja.refreshSubWeaponScaling();
+        });
+
+        const triggerOugi = () => {
+            if (isShogunMode()) return;
+            ninja.specialGauge = ninja.maxSpecialGauge;
+            ninja.useSpecial();
+        };
+
+        const toggleOonagi = () => {
+            if (isShogunMode()) return;
+            if (ninja.getTempNinjutsuRemainingMs('xAttack') > 0) {
+                ninja.tempNinjutsuTimers.xAttack = 0;
+                document.getElementById('btnOonagi').style.background = '';
+                document.getElementById('btnOonagi').style.color = '#fff';
+            } else {
+                ninja.tempNinjutsuTimers.xAttack = 60000;
+                document.getElementById('btnOonagi').style.background = '#9ec7ff';
+                document.getElementById('btnOonagi').style.color = '#000';
+            }
+        };
+
+        const toggleKakuremi = () => {
+            if (isShogunMode()) return;
+            if (ninja.getTempNinjutsuRemainingMs('ghostVeil') > 0) {
+                ninja.tempNinjutsuTimers.ghostVeil = 0;
+                document.getElementById('btnKakuremi').style.background = '';
+                document.getElementById('btnKakuremi').style.color = '#fff';
+            } else {
+                ninja.tempNinjutsuTimers.ghostVeil = 60000;
+                document.getElementById('btnKakuremi').style.background = '#b7d5ff';
+                document.getElementById('btnKakuremi').style.color = '#000';
+            }
+        };
+
+        document.getElementById('btnOugi').addEventListener('click', triggerOugi);
+        document.getElementById('btnOonagi').addEventListener('click', toggleOonagi);
+        document.getElementById('btnKakuremi').addEventListener('click', toggleKakuremi);
+
         document.getElementById('btnIdle').addEventListener('click', () => {
             stopMovement();
             resetAttackState();
@@ -642,7 +698,7 @@
         window.addEventListener('keydown', (event) => {
             if (shouldIgnoreKeyboardInput(event)) return;
             const key = event.key.toLowerCase();
-            if (['z', 'x', 'c', ' ', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'a', 'd', 'escape', 'shift'].includes(key)) {
+            if (['z', 'x', 'c', ' ', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'a', 'd', 'escape', 'shift', 's'].includes(key)) {
                 event.preventDefault();
             }
             if (key === 'escape') {
@@ -664,6 +720,10 @@
             }
             if (key === 'c') {
                 if (!event.repeat) cycleSubWeapon();
+                return;
+            }
+            if (key === 's') {
+                if (!event.repeat) triggerOugi();
                 return;
             }
             if (key === ' ' || key === 'arrowup') {
@@ -867,10 +927,7 @@
             if (isShogunMode()) {
                 shogun.renderBody(ctx);
             } else {
-                ninja.render(ctx, {
-                    forceSubWeaponRender: true,
-                    skipSpecialRender: true
-                });
+                ninja.render(ctx, {});
                 if (typeof ninja.renderComboSlashTrail === 'function') {
                     ninja.renderComboSlashTrail(ctx);
                 }
