@@ -89,7 +89,7 @@ class Boss extends Enemy {
         }
 
         const shouldRemove = super.update(deltaTime, player, obstacles);
-        if (!shouldRemove && !this.isEntering && this.isAlive && !this.isDying) {
+        if (!shouldRemove && !this.isEntering && this.isAlive && !this.isDying && !this.previewMode) {
             const scrollX = window.game ? window.game.scrollX : 0;
             const minX = scrollX;
             const maxX = scrollX + CANVAS_WIDTH - this.width;
@@ -2345,8 +2345,9 @@ export class Shogun extends Boss {
                 const keepForDual = this._subWeaponKey === 'dual'
                     && dualInst && (dualInst.projectiles && dualInst.projectiles.length > 0);
                 // 手裏剣: projectile飛翔中は維持（update内でキーをクリアする）
+                const shurikenInst = this._subWeaponInstances['shuriken'];
                 const keepForShuriken = this._subWeaponKey === 'shuriken'
-                    && subInst && subInst.projectiles && subInst.projectiles.length > 0;
+                    && shurikenInst && shurikenInst.projectiles && shurikenInst.projectiles.length > 0;
                 // 大太刀: plantedTimer消化中（isAttacking=true）は維持（update内でキーをクリアする）
                 const odachiInst2 = this._subWeaponInstances['odachi'];
                 const keepForOdachi = this._subWeaponKey === 'odachi'
@@ -2355,7 +2356,9 @@ export class Shogun extends Boss {
 
                 if (!keepForDual && !keepForShuriken && !keepForOdachi && !keepForThrowPose) {
                     this._subAction    = null;
-                    this._subWeaponKey = null;
+                    if (!this._keepSubWeaponKey) {
+                        this._subWeaponKey = null;
+                    }
                     this._dualZPendingSteps = null;
                     this.isAttacking   = false;
                 } else {
