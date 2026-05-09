@@ -2354,8 +2354,10 @@ export class Shogun extends Boss {
             const dualInst = this._subWeaponInstances['dual'];
             if (!dualInst || !Array.isArray(dualInst.projectiles) || dualInst.projectiles.length === 0) {
                 this._subAction    = null;
-                this._subWeaponKey = null;
-                this._dualZPendingSteps = null;
+                if (!this._keepSubWeaponKey) {
+                    this._subWeaponKey = null;
+                    this._dualZPendingSteps = null;
+                }
             }
             this.isAttacking = false;
         } else if (this._subWeaponKey === 'odachi') {
@@ -2371,7 +2373,10 @@ export class Shogun extends Boss {
             this.isAttacking = true;
         } else {
             this.isAttacking = false;
-            this._currentAttackProfile = null;
+            // プレビューモード等のために、projectileがなくても _subWeaponKey が明示的にセットされている間はクリアしない
+            if (!this._keepSubWeaponKey) {
+                this._currentAttackProfile = null;
+            }
         }
     }
 
@@ -2634,7 +2639,8 @@ export class Shogun extends Boss {
             armReachScale: SHOGUN_ARM_REACH_SCALE,
             crouchIntensity: 0.35, // ボスは頭身が高いので控えめにしゃがむ
             // throw時は通常のプレイヤー投擲姿勢（奥手の刀＋手前手投擲）を使う
-            forceSubWeaponRender: (this._subTimer > 0 && this._subAction != null && this._subAction !== 'throw'),
+            subWeaponAction:      this._subAction,
+            forceSubWeaponRender: (this._subTimer > 0 && this._subAction != null && this._subAction !== 'throw') || (this.currentSubWeapon && (this.currentSubWeapon.name === '二刀流' || this.currentSubWeapon.name === '鎖鎌')),
             // ── 将軍専用: パーツ単位で素体を鎧・兜の見た目に差し替え ──
             drawTorsoOverride:        (ctx, p) => this._drawShogunTorso(ctx, p),
             drawTorsoOverlayOverride: (ctx, p) => this._drawShogunTorsoOverlay(ctx, p),

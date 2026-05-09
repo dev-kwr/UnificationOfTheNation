@@ -672,7 +672,9 @@ export class Firebomb extends SubWeapon {
     }
 
     render(ctx, handX, handY, scale) {
-        if (handX !== undefined) this.renderHeld(ctx, handX, handY, scale);
+        if (typeof handX === 'number' && typeof handY === 'number') {
+            this.renderHeld(ctx, handX, handY, scale);
+        }
     }
 
     use(player) {

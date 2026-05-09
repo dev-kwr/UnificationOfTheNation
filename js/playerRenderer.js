@@ -639,7 +639,9 @@ export function applyRendererMixin(PlayerClass) {
     };
 
     PlayerClass.prototype.render = function(ctx, options = {}) {
-        const ghostVeilActive = options.ghostVeilActive || false;
+        const ghostVeilActive = options.ghostVeilActive !== undefined 
+            ? options.ghostVeilActive 
+            : (typeof this.isGhostVeilActive === 'function' ? this.isGhostVeilActive() : false);
         const skipSpecialRender = options.skipSpecialRender || false;
 
         // 将軍モード時は独自描画のみを行い、忍者の描画（残像含む）を一切スキップする
