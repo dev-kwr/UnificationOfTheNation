@@ -124,19 +124,20 @@
             </div>
             <strong id="selectedSubWeapon">手裏剣</strong>
         </div>
-        <div class="control-buttons">
+        <div class="control-buttons" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <label style="font-size: 14px; margin-right: -4px;">スキルLv</label>
             <select id="selSkillLv" style="padding: 6px; background-color: #444; color: #fff; border: 1px solid #666; border-radius: 4px; font-size: 14px;">
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="3" selected>3</option>
+                <option value="0">Lv1 (初期)</option>
+                <option value="1">Lv2</option>
+                <option value="2">Lv3</option>
+                <option value="3" selected>Lv4 (MAX)</option>
             </select>
+            <button id="btnCycleWeapon" class="btn">武器切替</button>
             <button id="btnIdle" class="btn">待機</button>
             <button id="btnWalk" class="btn">歩行</button>
-            <button id="btnOugi" class="btn">奥義 (S)</button>
+            <button id="btnOugi" class="btn">奥義</button>
             <button id="btnOonagi" class="btn">大薙</button>
             <button id="btnKakuremi" class="btn">隠れ身</button>
-            <button id="btnHideBody" class="btn">キャラ非表示</button>
         </div>
     </div>
     <canvas id="previewCanvas" width="800" height="500"></canvas>
@@ -616,13 +617,7 @@
         modeShogunButton.addEventListener('click', () => setPreviewCharacter('shogun'));
         modeNinjaButton.addEventListener('click', () => setPreviewCharacter('ninja'));
 
-        document.getElementById('btnHideBody').addEventListener('click', () => {
-            isBodyHidden = !isBodyHidden;
-            shogun.hideBody = isBodyHidden;
-            const btn = document.getElementById('btnHideBody');
-            btn.style.background = isBodyHidden ? '#664' : '';
-            btn.style.color = isBodyHidden ? '#ffd' : '';
-        });
+        // キャラ非表示機能は隠れ身の術に統合されたため削除
 
         document.getElementById('selSkillLv').addEventListener('change', (e) => {
             const lv = parseInt(e.target.value);
@@ -630,40 +625,65 @@
             ninja.progression.subWeapon = lv;
             ninja.progression.specialClone = lv;
             ninja.refreshSubWeaponScaling();
+            if(typeof ninja.rebuildSpecialCloneSlots === 'function') ninja.rebuildSpecialCloneSlots();
+            
+            shogun.actor.progression.normalCombo = lv;
+            shogun.actor.progression.subWeapon = lv;
+            shogun.actor.progression.specialClone = lv;
+            if(typeof shogun.actor.rebuildSpecialCloneSlots === 'function') shogun.actor.rebuildSpecialCloneSlots();
         });
 
         const triggerOugi = () => {
-            if (isShogunMode()) return;
-            ninja.specialGauge = ninja.maxSpecialGauge;
-            ninja.useSpecial();
+            const btn = document.getElementById('btnOugi');
+            const isActive = !!btn.style.background;
+            if (isActive) {
+                ninja.clearSpecialState(true);
+                shogun.actor.isUsingSpecial = false;
+                btn.style.background = '';
+                btn.style.color = '';
+            } else {
+                ninja.specialGauge = ninja.maxSpecialGauge;
+                ninja.useSpecial();
+                shogun.actor.isUsingSpecial = true;
+                btn.style.background = '#b58900';
+                btn.style.color = '#000';
+            }
         };
 
         const toggleOonagi = () => {
-            if (isShogunMode()) return;
-            if (ninja.getTempNinjutsuRemainingMs('xAttack') > 0) {
+            const btn = document.getElementById('btnOonagi');
+            const isActive = !!btn.style.background;
+            if (isActive) {
                 ninja.tempNinjutsuTimers.xAttack = 0;
-                document.getElementById('btnOonagi').style.background = '';
-                document.getElementById('btnOonagi').style.color = '#fff';
+                if(shogun.tempNinjutsuTimers) shogun.tempNinjutsuTimers.xAttack = 0;
+                btn.style.background = '';
+                btn.style.color = '';
             } else {
                 ninja.tempNinjutsuTimers.xAttack = 60000;
-                document.getElementById('btnOonagi').style.background = '#9ec7ff';
-                document.getElementById('btnOonagi').style.color = '#000';
+                shogun.tempNinjutsuTimers = { xAttack: 60000 };
+                shogun.getTempNinjutsuRemainingMs = (k) => shogun.tempNinjutsuTimers[k];
+                btn.style.background = '#9ec7ff';
+                btn.style.color = '#000';
             }
         };
 
         const toggleKakuremi = () => {
-            if (isShogunMode()) return;
-            if (ninja.getTempNinjutsuRemainingMs('ghostVeil') > 0) {
+            const btn = document.getElementById('btnKakuremi');
+            const isActive = !!btn.style.background;
+            if (isActive) {
                 ninja.tempNinjutsuTimers.ghostVeil = 0;
-                document.getElementById('btnKakuremi').style.background = '';
-                document.getElementById('btnKakuremi').style.color = '#fff';
+                shogun.ghostVeilAlpha = 1.0;
+                btn.style.background = '';
+                btn.style.color = '';
             } else {
                 ninja.tempNinjutsuTimers.ghostVeil = 60000;
-                document.getElementById('btnKakuremi').style.background = '#b7d5ff';
-                document.getElementById('btnKakuremi').style.color = '#000';
+                shogun.ghostVeilAlpha = 0.0;
+                btn.style.background = '#b7d5ff';
+                btn.style.color = '#000';
             }
         };
 
+        document.getElementById('btnCycleWeapon').addEventListener('click', cycleSubWeapon);
         document.getElementById('btnOugi').addEventListener('click', triggerOugi);
         document.getElementById('btnOonagi').addEventListener('click', toggleOonagi);
         document.getElementById('btnKakuremi').addEventListener('click', toggleKakuremi);
@@ -927,7 +947,7 @@
             if (isShogunMode()) {
                 shogun.renderBody(ctx);
             } else {
-                ninja.render(ctx, {});
+                ninja.render(ctx, { ghostVeilActive: ninja.isGhostVeilActive() });
                 if (typeof ninja.renderComboSlashTrail === 'function') {
                     ninja.renderComboSlashTrail(ctx);
                 }
@@ -939,10 +959,7 @@
                     !ninja.subWeaponRenderedInModel &&
                     typeof ninja.currentSubWeapon.render === 'function'
                 ) {
-                    const savedForceSubWeaponRender = ninja.forceSubWeaponRender;
-                    ninja.forceSubWeaponRender = true;
                     ninja.currentSubWeapon.render(ctx, ninja);
-                    ninja.forceSubWeaponRender = savedForceSubWeaponRender;
                 }
             }
             ctx.restore();

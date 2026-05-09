@@ -705,8 +705,7 @@ export function applyRendererMixin(PlayerClass) {
         const isOdachiJumping = this.isOdachiJumpAfterimageActive();
         const isSpearThrusting = this.isSpearThrustAfterimageActive();
         const shouldRenderAfterImages =
-            !ghostVeilActive &&
-            (this.isDashing || Math.abs(this.vx) > PLAYER.SPEED * 1.5 || isOdachiJumping || isSpearThrusting);
+            !ghostVeilActive && (isOdachiJumping || isSpearThrusting);
         if (shouldRenderAfterImages) {
             for (let i = 0; i < this.afterImages.length; i += 2) {
                 const img = this.afterImages[i];
