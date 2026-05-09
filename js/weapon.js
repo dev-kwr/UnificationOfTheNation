@@ -2737,7 +2737,8 @@ export class Odachi extends SubWeapon {
         
         const damages = [34, 40, 43, 46];
         const cooldowns = [580, 565, 550, 535];
-        const shogunCooldowns = [1180, 1150, 1125, 1100];
+        // 将軍用の独自遅延を撤廃し、忍者と同一の軽快なモーション速度に同期（もっさり感の解消）
+        const shogunCooldowns = [580, 565, 550, 535];
         const jumps = [-22, -26, -28, -30];
 
         this.damage = damages[this.enhanceTier] || damages[0];

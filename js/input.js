@@ -109,6 +109,12 @@ class InputManager {
     }
     
     onMouseDown(e) {
+        // UI要素（SELECT, BUTTON, INPUT等）をクリックした場合は、キャンバスへのフォーカス移動をスキップする
+        const interactiveTags = ['SELECT', 'BUTTON', 'INPUT', 'A', 'SUMMARY', 'LABEL', 'OPTION'];
+        if (interactiveTags.includes(e.target.tagName) || e.target.closest('button, select, input, a, summary, label')) {
+            return;
+        }
+
         // Forced Reflow 回避: フォーカスが必要な場合のみ非同期で実行
         if (this.canvas) {
             setTimeout(() => {

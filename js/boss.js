@@ -1291,7 +1291,7 @@ export class Shogun extends Boss {
         this.subWeaponAction  = null;
         this.subWeaponTimer   = 0;
         this.currentSubWeapon = null;
-        this.getSubWeaponEnhanceTier  = () => 3;
+        this.getSubWeaponEnhanceTier  = () => this.progression.subWeapon;
         this.getSubWeaponCloneOffsets = () => [];
         this.triggerCloneSubWeapon    = () => {};
         this.getFootY = () => this.y + this.height;
@@ -2326,6 +2326,9 @@ export class Shogun extends Boss {
             } else {
                 this.vx *= 0.92;
             }
+            const isDualZ = (this._subWeaponKey === 'dual' && this._subAction === '二刀_Z');
+            // 開始時に既に getSubWeaponActionDurationMs() でスケール済みのため、
+            // ここでは生の時間 (deltaMs) で減算し、二重スケール（もっさり化）を防止する
             this._subTimer -= deltaMs;
             if (this._subTimer <= 0) {
                 this._subTimer = 0;
@@ -2428,6 +2431,10 @@ export class Shogun extends Boss {
 
         const useOwner = resolvedKey === 'shuriken' ? this.getThrowOwnerState() : this;
         this._useSubWeaponAsPlayerStyle(subInst, useMode, useOwner);
+        if (resolvedKey === 'odachi') {
+            // 跳躍力も忍者に合わせて復旧（もっさり感の解消）
+            this.vy = -12.5;
+        }
         if (resolvedKey === 'dual' && type === 'dual') {
             this.vx = 0;
         }

@@ -627,9 +627,9 @@ export class Player {
         const subWeaponScale = isDualZAction ? 1 : Math.max(1, this.subWeaponMotionScale || 1);
         const subWeaponDeltaMs = (deltaTime * 1000) / subWeaponScale;
         
-        // サブ武器タイマー更新
+        // サブ武器タイマー更新 (開始時にスケール済みのため、生の時間で減算して二重スケールを防止)
         if (this.subWeaponTimer > 0) {
-            this.subWeaponTimer -= subWeaponDeltaMs;
+            this.subWeaponTimer -= (deltaTime * 1000);
             if (this.subWeaponTimer <= 0) {
                 const holdDualZPose = !!(
                     this.currentSubWeapon &&

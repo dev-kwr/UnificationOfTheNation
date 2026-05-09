@@ -113,6 +113,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            user-select: none;
             cursor: pointer;
             transition: all 0.1s ease;
         }
@@ -644,6 +645,7 @@
                     shogun.actor.progression.subWeapon = t;
                     shogun.actor.progression.normalCombo = t;
                     shogun.actor.progression.specialClone = t;
+                    if (typeof shogun.actor.refreshSubWeaponScaling === 'function') shogun.actor.refreshSubWeaponScaling();
                 }
                 Object.values(shogun._subWeaponInstances).forEach(inst => {
                     if (inst && typeof inst.applyEnhanceTier === 'function') inst.applyEnhanceTier(t);
@@ -688,7 +690,7 @@
                     if (input.isActionJustPressed('ATTACK')) triggerAttack();
                     if (input.isActionJustPressed('JUMP')) {
                         if (shogun.isGrounded) {
-                            shogun.vy = -13.5;
+                            shogun.vy = -13.5; // 通常ジャンプ力を忍者に合わせて復旧
                             shogun.isGrounded = false;
                         }
                     }
@@ -720,6 +722,25 @@
                         shogun.actor.updateTemporaryNinjutsu(dt * 1000);
                     }
                 } else {
+                    // 忍者も手動で入力を処理 (previewModeによる制限を回避)
+                    if (input.isActionJustPressed('JUMP') && ninja.isGrounded) {
+                        ninja.vy = -13.5;
+                        ninja.isGrounded = false;
+                    }
+                    ninja.isCrouching = input.isAction('DOWN');
+
+                    const ninjaDash = isDashing || (typeof input.isKeyboardDashHeld === 'function' && input.isKeyboardDashHeld(moveDir));
+                    if (isWalking && walkDirection !== 0) {
+                        const speed = ninjaDash ? 8 : 5.2;
+                        ninja.vx = walkDirection * speed;
+                        ninja.facingRight = walkDirection > 0;
+                    } else {
+                        if (ninja.isGrounded) {
+                            ninja.vx *= 0.8;
+                            if (Math.abs(ninja.vx) < 0.1) ninja.vx = 0;
+                        }
+                    }
+
                     // 忍者の更新。サブ武器の更新も内部で完結。
                     ninja.update(dt, [], []); 
 
