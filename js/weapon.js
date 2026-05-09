@@ -547,6 +547,9 @@ export class Shuriken extends SubWeapon {
         }
 
         player.subWeaponAction = 'throw';
+        player.subWeaponTimer = (typeof player.getSubWeaponActionDurationMs === 'function')
+            ? player.getSubWeaponActionDurationMs('throw')
+            : 72;
         audio.playShuriken();
     }
 
@@ -632,8 +635,44 @@ export class Firebomb extends SubWeapon {
         return this.trackedBombs.length < this.maxOnScreen;
     }
 
-    render() {
-        return;
+    renderHeld(ctx, handX, handY, scale = 1.0) {
+        const r = (this.enhanceTier >= 3 ? 12 : 9.4) * scale;
+        const color = '#3d444d'; // 金属感のある暗いグレー
+        
+        ctx.save();
+        ctx.translate(handX, handY);
+        
+        // 導火線
+        ctx.strokeStyle = '#5c5248';
+        ctx.lineWidth = 1.8 * scale;
+        ctx.beginPath();
+        ctx.moveTo(0, -r * 0.8);
+        ctx.quadraticCurveTo(r * 0.4, -r * 1.5, r * 1.1, -r * 0.7);
+        ctx.stroke();
+
+        // 本体（少しザラついた質感）
+        const grad = ctx.createRadialGradient(-r*0.2, -r*0.3, r*0.1, 0, 0, r);
+        grad.addColorStop(0, '#5a6370');
+        grad.addColorStop(0.6, color);
+        grad.addColorStop(1, '#1a1d21');
+        
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 表面の反射
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.lineWidth = 1.2 * scale;
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.8, -Math.PI * 0.7, -Math.PI * 0.4);
+        ctx.stroke();
+
+        ctx.restore();
+    }
+
+    render(ctx, handX, handY, scale) {
+        if (handX !== undefined) this.renderHeld(ctx, handX, handY, scale);
     }
 
     use(player) {
@@ -692,6 +731,10 @@ export class Firebomb extends SubWeapon {
                 }
             }
         }
+        player.subWeaponAction = 'throw';
+        player.subWeaponTimer = (typeof player.getSubWeaponActionDurationMs === 'function')
+            ? player.getSubWeaponActionDurationMs('throw')
+            : 72;
         audio.playDash();
     }
 
@@ -746,6 +789,10 @@ export class Spear extends SubWeapon {
         
         // Lvごとの横っ飛び差を強く出す
         player.vx += this.attackDirection * this.dashBoost;
+        player.subWeaponAction = '大槍';
+        player.subWeaponTimer = (typeof player.getSubWeaponActionDurationMs === 'function')
+            ? player.getSubWeaponActionDurationMs('大槍')
+            : this.attackDuration;
 
         // 分身連動
         if (player && typeof player.getSubWeaponCloneOffsets === 'function') {
@@ -1810,7 +1857,7 @@ export class DualBlades extends SubWeapon {
     }
     
     render(ctx, player) {
-        const direction = this.isAttacking ? this.attackDirection : (player.facingRight ? 1 : -1);
+        const direction = this.isAttacking ? this.attackDirection : (player && player.facingRight ? 1 : -1);
         const enemyTrailBoost = player && player.type === 'boss' ? 1.2 : 1;
         const xTrailBoost = (
             player &&
