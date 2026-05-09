@@ -1552,7 +1552,7 @@ export class DualBlades extends SubWeapon {
                 sizeScale: this.enhanceTier >= 3 ? 1.14 : 1.0,
                 _owner: player // 発射時に座標を取得するために保持
             };
-            audio.playDualBladeCombined();
+            // 効果音は発射のタイミングに合わせて鳴らすため、ここでは鳴らさない
         } else if (type === 'main') {
         // 5段コンボのループ
         if (this.mainComboLinkTimer <= 0) {
@@ -1606,6 +1606,8 @@ export class DualBlades extends SubWeapon {
                 }
                 this.projectiles.push(p);
                 this.pendingCombinedProjectile = null;
+                // 発射の瞬間に効果音を鳴らす
+                audio.playDualBladeCombined();
             }
             this.attackTimer -= deltaTime * 1000;
             if (this.attackTimer <= 20) { // わずかなマージンを持たせて終了判定
@@ -2162,7 +2164,8 @@ export class Kusarigama extends SubWeapon {
         const init = this.getMotionState(player);
         this.tipX = init.tipX;
         this.tipY = init.tipY;
-        audio.playDash(); // 鎖のシュルシュル音代用
+        this._hasPlayedThrowSound = false;
+        // audio.playDash(); // 投擲の瞬間に鳴らすためここではコメントアウト
 
         // 分身連動
         if (player && typeof player.getSubWeaponCloneOffsets === 'function') {
@@ -2422,6 +2425,16 @@ export class Kusarigama extends SubWeapon {
                 // 先端位置は常に円弧式から直接決定（直線ドリフトを防止）
                 this.tipX = st.tipX;
                 this.tipY = st.tipY;
+
+                // 投擲開始の瞬間に音を鳴らす (holdが終わって鎖が伸び始める瞬間)
+                if (!this._hasPlayedThrowSound && st.phase === 'throw') {
+                    const throwRaw = (st.progress - this.windupEnd) / Math.max(0.001, (this.extendEnd - this.windupEnd));
+                    const holdRatio = Math.max(0.28, Math.min(0.62, (this.throwHoldRatio || 0) + 0.24));
+                    if (throwRaw >= holdRatio) {
+                        audio.playDash();
+                        this._hasPlayedThrowSound = true;
+                    }
+                }
             }
 
             this.attackTimer -= deltaTime * 1000;

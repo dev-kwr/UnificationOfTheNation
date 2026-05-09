@@ -1763,27 +1763,33 @@ export class Shogun extends Boss {
 
         this.actor.updateSpecialCloneSlashTrails(deltaMs);
 
-        if (this._subTimer > 0 && this._subWeaponKey) {
-            const subInst = this._subWeaponInstances[this._subWeaponKey];
-            if (subInst && typeof subInst.update === 'function') {
-                if (this._subWeaponKey === 'shuriken') {
-                    // enemies引数にプレイヤーを渡してhomingさせる（当たり判定は別途自前処理）
+        // 全てのサブ武器インスタンスを巡回し、弾道や継続中のアクションがあれば更新する
+        Object.entries(this._subWeaponInstances).forEach(([key, inst]) => {
+            if (!inst || typeof inst.update !== 'function') return;
+            
+            // 現在選択中のサブ武器、または弾が残っている、または武器自体が動作中の場合に更新
+            const isCurrent = (key === this._subWeaponKey);
+            const hasProjectiles = (inst.projectiles && inst.projectiles.length > 0);
+            const isActing = inst.isAttacking || (key === 'odachi' && this.hasOdachiLingeringVisuals(inst));
+            
+            if (isCurrent || hasProjectiles || isActing) {
+                if (key === 'shuriken') {
                     const filteredEnemies = enemies.filter(e => e !== this && e !== this.actor);
                     const enemyArg = this.isEnemy ? (this.targetPlayer ? [this.targetPlayer] : []) : filteredEnemies;
-                    subInst.update(deltaTime, enemyArg);
+                    inst.update(deltaTime, enemyArg);
                 } else {
-                    subInst.update(deltaTime);
+                    inst.update(deltaTime);
                 }
-                if (
-                    this._subWeaponKey === 'kusarigama' &&
-                    !subInst.isAttacking
-                ) {
-                    this._subTimer = 0;
-                    this._subAction = null;
-                    this._subWeaponKey = null;
+                
+                // 鎖鎌などの個別終了処理
+                if (key === 'kusarigama' && !inst.isAttacking && this._subTimer <= 0) {
+                    if (isCurrent) {
+                        this._subAction = null;
+                        this._subWeaponKey = null;
+                    }
                 }
             }
-        }
+        });
 
         // 手裏剣の更新と当たり判定
         {
@@ -1975,6 +1981,11 @@ export class Shogun extends Boss {
     _fireDualZNextStep() {
         const dual = this._subWeaponInstances['dual'];
         if (!dual) return;
+        
+        // アクション名とキーを保証（プレビュー画面からの直接呼び出し時などに必要）
+        this._subAction    = '二刀_Z';
+        this._subWeaponKey = 'dual';
+        this.isAttacking   = true;
         const step = this._dualZPendingSteps && this._dualZPendingSteps.length > 0
             ? this._dualZPendingSteps.shift() : null;
         if (step == null) {
@@ -2329,22 +2340,27 @@ export class Shogun extends Boss {
                     this._fireDualZNextStep(); // 終了処理
                     return;
                 }
-                // 二刀流X: projectile飛翔中は描画キーを維持
+                // 二刀流Z: projectile飛翔中も描画キーを維持
                 const dualInst = this._subWeaponInstances['dual'];
                 const keepForDual = this._subWeaponKey === 'dual'
-                    && dualInst && dualInst.projectiles.length > 0;
+                    && dualInst && (dualInst.projectiles && dualInst.projectiles.length > 0);
                 // 手裏剣: projectile飛翔中は維持（update内でキーをクリアする）
-                const keepForShuriken = this._subWeaponKey === 'shuriken';
+                const keepForShuriken = this._subWeaponKey === 'shuriken'
+                    && subInst && subInst.projectiles && subInst.projectiles.length > 0;
                 // 大太刀: plantedTimer消化中（isAttacking=true）は維持（update内でキーをクリアする）
                 const odachiInst2 = this._subWeaponInstances['odachi'];
                 const keepForOdachi = this._subWeaponKey === 'odachi'
                     && this.hasOdachiLingeringVisuals(odachiInst2);
                 const keepForThrowPose = this._subAction === 'throw' && this._shurikenVisualTimer > 0;
+
                 if (!keepForDual && !keepForShuriken && !keepForOdachi && !keepForThrowPose) {
                     this._subAction    = null;
                     this._subWeaponKey = null;
                     this._dualZPendingSteps = null;
                     this.isAttacking   = false;
+                } else {
+                    // 維持する場合でも _subTimer は 0 に固定
+                    this._subTimer = 0;
                 }
                 this._currentAttackProfile = null;
                 this.attackCooldown = Math.max(this.attackCooldown, 300);

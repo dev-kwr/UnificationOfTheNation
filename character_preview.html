@@ -17,6 +17,11 @@
             --btn-active: #735c21;
         }
 
+        :focus {
+            outline: none !important;
+            box-shadow: none !important;
+        }
+
         body.mode-ninja {
             --accent: #00bfff; /* 忍者の鉢巻色 (DeepSkyBlue) */
             --accent-glow: rgba(0, 191, 255, 0.4);
@@ -81,6 +86,11 @@
             aspect-ratio: 800 / 500;
             image-rendering: pixelated;
             outline: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        :focus {
+            outline: none !important;
         }
 
         .weapon-info {
@@ -469,7 +479,7 @@
             if (key === 'dual') {
                 // 二刀流Zコンボを発動
                 shogun._dualZPendingSteps = [1, 2, 3, 4, 5];
-                shogun._fireDualZNextStep();
+                shogun._fireDualZNextStep(); // boss.js側で_subActionセットされるように修正済み
                 return;
             }
             // 将軍通常コンボ (discreteトリガー復旧)
@@ -669,12 +679,9 @@
                         actor.vx *= 0.8;
                     }
                     shogun.update(dt, null, [], []); 
-                    // shogun.update 内部で this.x += this.vx されるので、ここでは追加しない
-                    Object.values(shogun._subWeaponInstances).forEach(inst => {
-                        if (inst && inst.projectiles && typeof inst.update === 'function') inst.update(dt, []);
-                    });
+                    // サブ武器のインスタンス更新は shogun.update 内部に集約されました
                 } else {
-                    // 忍者は ninja.update -> input に任せる
+                    // 忍者の更新。サブ武器の更新も内部で完結。
                     ninja.update(dt, [], []); 
 
                     // 忍者の忍具切り替えを監視してUI同期
@@ -690,9 +697,6 @@
                             shogun._subWeaponKey = targetKey;
                         }
                         updateUI();
-                    }
-                    if (ninja.currentSubWeapon && typeof ninja.currentSubWeapon.update === 'function') {
-                        ninja.currentSubWeapon.update(dt, []);
                     }
                 }
 
