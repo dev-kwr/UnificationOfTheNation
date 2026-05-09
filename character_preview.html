@@ -23,20 +23,21 @@
         .controls { 
             width: 100%;
             margin: 20px auto 0;
-            padding: 10px 14px;
+            padding: 12px 16px;
             box-sizing: border-box;
             background: linear-gradient(180deg, rgba(45, 45, 45, 0.95), rgba(25, 25, 25, 0.95));
             border: 1px solid #4a4a4a;
             border-radius: 8px;
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 10px;
+            flex-direction: column;
+            gap: 12px;
         }
-        .preview-status {
+        .status-row {
             display: flex;
             align-items: center;
-            gap: 12px;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
         }
         .mode-buttons {
             display: flex;
@@ -50,16 +51,57 @@
             border-color: #d0ad4b;
             color: #ffe8a0;
         }
-        .preview-status strong {
+        .weapon-label {
             color: #f0d27a;
             font-size: 16px;
             letter-spacing: 0.04em;
+            background: #2a2a2a;
+            padding: 4px 12px;
+            border-radius: 4px;
+            border: 1px solid #555;
         }
-        .control-buttons {
+        .skill-group {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 6px;
+            background: #333;
+            padding: 4px 10px;
+            border-radius: 4px;
+            border: 1px solid #555;
+        }
+        .skill-group label {
+            font-size: 13px;
+            color: #ddd;
+        }
+        .skill-group select {
+            background-color: #444;
+            color: #fff;
+            border: 1px solid #666;
+            border-radius: 4px;
+            font-size: 13px;
+            padding: 4px;
+        }
+        .sys-buttons {
+            display: flex;
+            gap: 6px;
+            margin-left: auto;
+        }
+        .btn-sys {
+            background-color: #4a4a4a;
+            border-color: #666;
+            color: #ccc;
+            padding: 8px 14px;
+            font-size: 13px;
+        }
+        .action-row {
+            display: flex;
             flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+        }
+        .action-btn {
+            font-weight: bold;
+            padding: 10px 24px;
         }
         button { 
             padding: 10px 20px; 
@@ -117,34 +159,37 @@
 </head>
 <body>
     <div class="controls">
-        <div class="preview-status">
+        <div class="status-row">
             <div class="mode-buttons">
                 <button id="btnModeShogun" class="active">将軍</button>
                 <button id="btnModeNinja">忍者</button>
             </div>
-            <strong id="selectedSubWeapon">手裏剣</strong>
+            <strong id="selectedSubWeapon" class="weapon-label">手裏剣</strong>
+            <div class="skill-group">
+                <select id="selSkillLv">
+                    <option value="0">Lv1 (初期)</option>
+                    <option value="1">Lv2</option>
+                    <option value="2">Lv3</option>
+                    <option value="3" selected>Lv4 (MAX)</option>
+                </select>
+            </div>
+            <div class="sys-buttons">
+                <button id="btnIdle" class="btn btn-sys">待機</button>
+                <button id="btnWalk" class="btn btn-sys">歩行</button>
+            </div>
         </div>
-        <div class="control-buttons" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-            <label style="font-size: 14px; margin-right: -4px;">スキルLv</label>
-            <select id="selSkillLv" style="padding: 6px; background-color: #444; color: #fff; border: 1px solid #666; border-radius: 4px; font-size: 14px;">
-                <option value="0">Lv1 (初期)</option>
-                <option value="1">Lv2</option>
-                <option value="2">Lv3</option>
-                <option value="3" selected>Lv4 (MAX)</option>
-            </select>
+        <div class="action-row">
             <button id="btnCycleWeapon" class="btn">武器切替</button>
-            <button id="btnIdle" class="btn">待機</button>
-            <button id="btnWalk" class="btn">歩行</button>
-            <button id="btnOugi" class="btn">奥義</button>
-            <button id="btnOonagi" class="btn">大薙</button>
-            <button id="btnKakuremi" class="btn">隠れ身</button>
+            <button id="btnOugi" class="btn action-btn">奥義</button>
+            <button id="btnOonagi" class="btn action-btn">大薙</button>
+            <button id="btnKakuremi" class="btn action-btn">隠れ身</button>
         </div>
     </div>
     <canvas id="previewCanvas" width="800" height="500"></canvas>
     
     
     <details>
-        <summary style="cursor: pointer; padding: 10px; color: #dcb854; text-align: left; background: #222; border: 1px solid #444; border-radius: 4px; margin-top: 20px;">角の調整 (Horn Parameters)</summary>
+        <summary style="cursor: pointer; padding: 10px; color: #dcb854; text-align: left; background: #222; border: 1px solid #444; border-radius: 4px; margin-top: 20px;">角の調整</summary>
         <div class="tuning-panel" style="margin-top: 0; border-top: none;">
         <div class="tuning-col">
             <h4>奥の角 (Far Horn)</h4>
@@ -225,6 +270,9 @@
         // プレビュー用に無限HP
         shogun.hp = 99999;
         shogun.isEnemy = false;
+        
+        shogun.actor.characterType = 'shogun';
+        shogun.actor.scaleMultiplier = 1.5;
 
         const ninja = new Player(canvas.width / 2 - 20, window.game.groundY - 60, window.game.groundY);
         ninja.previewMode = true;
@@ -289,6 +337,12 @@
             ninja.subWeaponIndex = weaponIndex;
             ninja.currentSubWeapon = ninja.subWeapons[weaponIndex];
             ninja.refreshSubWeaponScaling();
+            
+            if (shogun && shogun.actor) {
+                shogun.actor.subWeaponIndex = weaponIndex;
+                shogun.actor.currentSubWeapon = ninja.subWeapons[weaponIndex];
+                shogun.actor.refreshSubWeaponScaling();
+            }
         };
         const getPreviewWeaponName = (key) => {
             if (!isShogunMode()) {
@@ -480,8 +534,8 @@
             resetAttackState();
             resetPreviewComboState();
             subIndex = (subIndex + 1) % subWeapons.length;
+            setNinjaWeaponByKey(subWeapons[subIndex]);
             if (!isShogunMode()) {
-                setNinjaWeaponByKey(subWeapons[subIndex]);
                 syncPreviewWeaponDisplay();
                 console.log("忍者武器プレビュー:", subWeapons[subIndex]);
                 return;
@@ -621,6 +675,16 @@
 
         document.getElementById('selSkillLv').addEventListener('change', (e) => {
             const lv = parseInt(e.target.value);
+            
+            // 奥義発動中にLv変更すると表示がおかしくなるため解除する
+            const ougiBtn = document.getElementById('btnOugi');
+            if (ougiBtn.style.background) {
+                ninja.clearSpecialState(true);
+                shogun.actor.clearSpecialState(true);
+                ougiBtn.style.background = '';
+                ougiBtn.style.color = '';
+            }
+
             ninja.progression.normalCombo = lv;
             ninja.progression.subWeapon = lv;
             ninja.progression.specialClone = lv;
@@ -809,6 +873,7 @@
         shogun._subWeaponKey = window._previewWeapon;
         window.game.player = previewPlayerMock;
         syncSubIndexFromPreviewWeapon();
+        setNinjaWeaponByKey(window._previewWeapon);
         syncModeButtons();
         syncPreviewWeaponDisplay();
 
@@ -875,6 +940,12 @@
                 if (isShogunMode()) {
                     window.game.player = previewPlayerMock;
                     shogun.update(dt, null, [], []);
+                    if (shogun.actor && typeof shogun.actor.updateSpecial === 'function') {
+                        shogun.actor.x = shogun.x + (shogun.width - shogun.actor.width) / 2;
+                        shogun.actor.y = shogun.groundY - shogun.actor.height;
+                        shogun.actor.facingRight = shogun.facingRight;
+                        shogun.actor.updateSpecial(dt);
+                    }
                 } else {
                     window.game.player = ninja;
                     input.update();
@@ -945,6 +1016,9 @@
 
             ctx.save();
             if (isShogunMode()) {
+                if (shogun.actor && (shogun.actor.isUsingSpecial || (shogun.actor.specialSmoke && shogun.actor.specialSmoke.length > 0))) {
+                    shogun.actor.renderSpecial(ctx, {});
+                }
                 shogun.renderBody(ctx);
             } else {
                 ninja.render(ctx, { ghostVeilActive: ninja.isGhostVeilActive() });
