@@ -2652,6 +2652,7 @@ export class Shogun extends Boss {
                 const yawSkew = dir2d * (0.046 + moveBias + attackBias);
                 return { pivotX, pivotY, yawSkew };
             })(),
+            _shogunExternalTransform: true,
         };
 
         // 将軍は戦闘判定レンジを拡大しているため、

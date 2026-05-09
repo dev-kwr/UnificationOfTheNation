@@ -2,1052 +2,551 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>将軍(ラスボス)プレビュー</title>
+    <title>将軍 & 忍者 プレビューツール</title>
     <style>
+        :root {
+            --bg: #0d0d0d;
+            --panel: #1a1a1a;
+            --accent: #dcb854; /* 将軍ゴールド */
+            --accent-glow: rgba(220, 184, 84, 0.4);
+            --text: #e0e0e0;
+            --text-muted: #888;
+            --border: #333;
+            --btn: #2a2a2a;
+            --btn-hover: #3a3a3a;
+            --btn-active: #735c21;
+        }
+
+        body.mode-ninja {
+            --accent: #00bfff; /* 忍者の鉢巻色 (DeepSkyBlue) */
+            --accent-glow: rgba(0, 191, 255, 0.4);
+            --btn-active: #0080af;
+        }
+
         body { 
-            background-color: #1a1a1a; 
-            color: #eee; 
+            background-color: var(--bg); 
+            color: var(--text); 
             text-align: center; 
-            font-family: sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
-            padding: 20px;
+            padding: 12px;
             box-sizing: border-box;
+            overflow-x: hidden;
         }
-        canvas { 
-            background-color: #2a2a2a; 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.8); 
-            margin: 10px auto 0;
-            border: 1px solid #444;
-            display: block;
-        }
-        .controls { 
-            width: 100%;
-            margin: 20px auto 0;
-            padding: 12px 16px;
-            box-sizing: border-box;
-            background: linear-gradient(180deg, rgba(45, 45, 45, 0.95), rgba(25, 25, 25, 0.95));
-            border: 1px solid #4a4a4a;
-            border-radius: 8px;
+
+        .preview-app {
+            max-width: 1000px;
+            margin: 0 auto;
             display: flex;
             flex-direction: column;
             gap: 12px;
         }
-        .status-row {
+
+        .top-panel {
+            padding: 12px 0;
             display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
+            flex-direction: column;
             gap: 10px;
         }
-        .mode-buttons {
-            display: flex;
-            gap: 6px;
-        }
-        .mode-buttons button {
-            padding: 8px 14px;
-        }
-        .mode-buttons button.active {
-            background: #735c21;
-            border-color: #d0ad4b;
-            color: #ffe8a0;
-        }
-        .weapon-label {
-            color: #f0d27a;
-            font-size: 16px;
-            letter-spacing: 0.04em;
-            background: #2a2a2a;
-            padding: 4px 12px;
-            border-radius: 4px;
-            border: 1px solid #555;
-        }
-        .skill-group {
+
+        .panel-row {
             display: flex;
             align-items: center;
-            gap: 6px;
-            background: #333;
-            padding: 4px 10px;
-            border-radius: 4px;
-            border: 1px solid #555;
-        }
-        .skill-group label {
-            font-size: 13px;
-            color: #ddd;
-        }
-        .skill-group select {
-            background-color: #444;
-            color: #fff;
-            border: 1px solid #666;
-            border-radius: 4px;
-            font-size: 13px;
-            padding: 4px;
-        }
-        .sys-buttons {
-            display: flex;
-            gap: 6px;
-            margin-left: auto;
-        }
-        .btn-sys {
-            background-color: #4a4a4a;
-            border-color: #666;
-            color: #ccc;
-            padding: 8px 14px;
-            font-size: 13px;
-        }
-        .action-row {
-            display: flex;
+            gap: 12px;
+            justify-content: center;
             flex-wrap: wrap;
-            gap: 8px;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .canvas-container {
+            position: relative;
+            background: linear-gradient(to bottom, #777, #555); /* 明るいグラデーション */
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        canvas { 
+            display: block;
+            width: 100%;
+            height: auto;
+            aspect-ratio: 800 / 500;
+            image-rendering: pixelated;
+        }
+
+        .weapon-info {
+            background: #111;
+            border: 1px solid var(--border);
+            padding: 0 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: bold;
+            color: var(--accent);
+            min-width: 100px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.1s ease;
+        }
+
+        button:not(.pill-toggle button), .weapon-info, select, .pill-toggle {
+            height: 35px !important;
+            min-height: 35px !important;
+            max-height: 35px !important;
+            box-sizing: border-box !important;
+            margin: 0 !important;
+        }
+
+        button:not(.pill-toggle button) { 
+            background: var(--btn);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0 14px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer; 
+            transition: all 0.1s ease;
+            outline: none;
+            user-select: none;
+            display: flex;
+            align-items: center;
             justify-content: center;
         }
-        .action-btn {
-            font-weight: bold;
-            padding: 10px 24px;
+
+        button:hover, .weapon-info:hover, select:hover, .pill-toggle button:hover {
+            filter: brightness(1.2);
+            border-color: #777 !important;
         }
-        button { 
-            padding: 10px 20px; 
-            background-color: #444;
-            color: #fff;
-            border: 1px solid #666;
-            border-radius: 4px;
-            cursor: pointer; 
-            font-size: 14px;
-            user-select: none;
+
+        button:active, .weapon-info:active, .pill-toggle button:active {
+            transform: scale(0.97);
+            filter: brightness(0.9);
         }
-        button:hover {
-            background-color: #555;
+
+        button.active {
+            background: var(--btn-active) !important;
+            border-color: var(--accent) !important;
+            color: #fff !important;
+            box-shadow: 0 0 12px var(--accent-glow);
         }
-        .tuning-panel {
-            background-color: #222;
-            padding: 15px;
-            margin: 20px auto;
-            width: 100%;
-            box-sizing: border-box;
-            border: 1px solid #444;
+
+        /* ピル型トグル */
+        .pill-toggle {
+            position: relative;
             display: flex;
-            justify-content: space-between;
+            background: rgba(0,0,0,0.4);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 1px;
+            gap: 0;
+            overflow: hidden;
+            width: 140px;
+            flex-shrink: 0;
+        }
+
+        .pill-toggle .pill-bg {
+            position: absolute;
+            top: 1px;
+            left: 1px;
+            width: calc(50% - 1px);
+            height: calc(100% - 2px);
+            background: var(--accent);
+            border-radius: 18px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 0;
+        }
+
+        body.mode-ninja .pill-toggle .pill-bg {
+            transform: translateX(100%);
+            background: var(--accent);
+        }
+
+        .pill-toggle button {
+            position: relative;
+            flex: 1;
+            border: none;
+            border-radius: 18px;
+            padding: 0;
+            height: 100% !important;
+            min-height: 0;
+            font-size: 13px;
+            font-weight: 600;
+            background: transparent !important;
+            color: #888;
+            z-index: 1;
+            transition: all 0.2s ease;
+            box-shadow: none !important;
+            cursor: pointer;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .pill-toggle button.active {
+            color: #000 !important;
+            background: transparent !important;
+            box-shadow: none !important;
+        }
+
+        select {
+            background: #222;
+            color: #fff;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0 10px;
+            font-size: 13px;
+            outline: none;
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23888%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C/polyline%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 8px center;
+            background-size: 16px;
+            padding-right: 30px;
+        }
+
+        summary {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px 16px;
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
             text-align: left;
         }
-        .tuning-col {
-            width: 48%;
+
+        .tuning-grid {
+            background: #111;
+            border: 1px solid var(--border);
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            padding: 16px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            text-align: left;
         }
-        .tuning-col h4 {
-            margin-top: 0;
-            color: #dcb854;
-            border-bottom: 1px solid #555;
-            padding-bottom: 5px;
+
+        .param-col h4 {
+            margin: 0 0 10px 0;
+            color: var(--accent);
+            font-size: 11px;
+            text-transform: uppercase;
+            border-bottom: 1px solid #222;
+            padding-bottom: 4px;
         }
+
         .param-row {
             display: flex;
             align-items: center;
+            gap: 10px;
             margin-bottom: 8px;
-            font-size: 13px;
-        }
-        .param-row label {
-            width: 170px; white-space: nowrap;
-        }
-        .param-row input[type=range] {
-            flex-grow: 1;
-            margin-right: 10px;
-        }
-        .param-row span {
-            width: 40px;
-            text-align: right;
-            font-family: monospace;
+            font-size: 11px;
         }
 
+        .param-row label { width: 130px; color: #999; }
+        .param-row input { flex: 1; accent-color: var(--accent); }
+        .param-row span { width: 40px; text-align: right; color: var(--accent); font-family: monospace; font-weight: bold; }
+
+        .sys-group {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 8px;
+        }
     </style>
 </head>
 <body>
-    <div class="controls">
-        <div class="status-row">
-            <div class="mode-buttons">
-                <button id="btnModeShogun" class="active">将軍</button>
-                <button id="btnModeNinja">忍者</button>
+    <div class="preview-app">
+        <header class="top-panel">
+            <div class="panel-row">
+                <div class="pill-toggle">
+                    <div class="pill-bg"></div>
+                    <button id="btnModeShogun" class="active">将軍</button>
+                    <button id="btnModeNinja">忍者</button>
+                </div>
+                <div class="control-group">
+                    <select id="selSkillLv">
+                        <option value="0">初級</option>
+                        <option value="1">中級</option>
+                        <option value="2">上級</option>
+                        <option value="3" selected>特級</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <div id="selectedSubWeapon" class="weapon-info" title="クリックで忍具切替">---</div>
+                </div>
+                <button id="btnOugi" class="action-btn">奥義</button>
+                <button id="btnOonagi">大薙</button>
+                <button id="btnKakuremi">隠れ身</button>
+                <button id="btnRestart" style="background:#442222; border-color: var(--border); height: 35px;">リセット</button>
             </div>
-            <strong id="selectedSubWeapon" class="weapon-label">手裏剣</strong>
-            <div class="skill-group">
-                <select id="selSkillLv">
-                    <option value="0">Lv1 (初期)</option>
-                    <option value="1">Lv2</option>
-                    <option value="2">Lv3</option>
-                    <option value="3" selected>Lv4 (MAX)</option>
-                </select>
-            </div>
-            <div class="sys-buttons">
-                <button id="btnIdle" class="btn btn-sys">待機</button>
-                <button id="btnWalk" class="btn btn-sys">歩行</button>
-            </div>
+        </header>
+
+        <div class="canvas-container">
+            <canvas id="previewCanvas" width="800" height="500"></canvas>
         </div>
-        <div class="action-row">
-            <button id="btnCycleWeapon" class="btn">武器切替</button>
-            <button id="btnOugi" class="btn action-btn">奥義</button>
-            <button id="btnOonagi" class="btn action-btn">大薙</button>
-            <button id="btnKakuremi" class="btn action-btn">隠れ身</button>
-        </div>
+
+        <details id="tuningSection" class="tuning-section" open>
+            <summary>将軍の角調整</summary>
+            <div class="tuning-grid">
+                <div class="param-col">
+                    <h4>奥の角 (Far Horn)</h4>
+                    <div class="param-row"><label>根元X</label><input type="range" id="farBaseX" min="-1.0" max="1.0" step="0.01" value="-0.03"><span id="val_farBaseX">-0.03</span></div>
+                    <div class="param-row"><label>根元Y</label><input type="range" id="farBaseY" min="0.0" max="1.5" step="0.01" value="0.18"><span id="val_farBaseY">0.18</span></div>
+                    <div class="param-row"><label>角度</label><input type="range" id="farAngle" min="-180" max="180" step="1" value="7"><span id="val_farAngle">7</span></div>
+                    <div class="param-row"><label>先端X</label><input type="range" id="farTipX" min="-0.5" max="0.5" step="0.01" value="0.20"><span id="val_farTipX">0.20</span></div>
+                    <div class="param-row"><label>前カーブ</label><input type="range" id="farFront" min="-0.5" max="0.5" step="0.01" value="0.40"><span id="val_farFront">0.40</span></div>
+                    <div class="param-row"><label>後カーブ</label><input type="range" id="farBack" min="-0.5" max="0.5" step="0.01" value="-0.14"><span id="val_farBack">-0.14</span></div>
+                    <div class="param-row"><label>長さ</label><input type="range" id="farLength" min="0.5" max="5.0" step="0.05" value="2.60"><span id="val_farLength">2.60</span></div>
+                    <div class="param-row"><label>根元丸み</label><input type="range" id="farRoot" min="-2.0" max="2.0" step="0.01" value="2.00"><span id="val_farRoot">2.00</span></div>
+                </div>
+                <div class="param-col">
+                    <h4>手前の角 (Near Horn)</h4>
+                    <div class="param-row"><label>根元X</label><input type="range" id="nearBaseX" min="-1.0" max="1.0" step="0.01" value="-0.24"><span id="val_nearBaseX">-0.24</span></div>
+                    <div class="param-row"><label>根元Y</label><input type="range" id="nearBaseY" min="0.0" max="1.5" step="0.01" value="0.69"><span id="val_nearBaseY">0.69</span></div>
+                    <div class="param-row"><label>角度</label><input type="range" id="nearAngle" min="-180" max="180" step="1" value="-7"><span id="val_nearAngle">-7</span></div>
+                    <div class="param-row"><label>先端X</label><input type="range" id="nearTipX" min="-1.0" max="1.0" step="0.01" value="0.22"><span id="val_nearTipX">0.22</span></div>
+                    <div class="param-row"><label>前カーブ</label><input type="range" id="nearFront" min="-0.5" max="1.0" step="0.01" value="-0.10"><span id="val_nearFront">-0.10</span></div>
+                    <div class="param-row"><label>後カーブ</label><input type="range" id="nearBack" min="-0.5" max="1.0" step="0.01" value="0.28"><span id="val_nearBack">0.28</span></div>
+                    <div class="param-row"><label>長さ</label><input type="range" id="nearLength" min="0.5" max="5.0" step="0.05" value="2.60"><span id="val_nearLength">2.60</span></div>
+                    <div class="param-row"><label>根元丸み</label><input type="range" id="nearRoot" min="-2.0" max="2.0" step="0.01" value="2.00"><span id="val_nearRoot">2.00</span></div>
+                </div>
+            </div>
+        </details>
     </div>
-    <canvas id="previewCanvas" width="800" height="500"></canvas>
-    
-    
-    <details>
-        <summary style="cursor: pointer; padding: 10px; color: #dcb854; text-align: left; background: #222; border: 1px solid #444; border-radius: 4px; margin-top: 20px;">角の調整</summary>
-        <div class="tuning-panel" style="margin-top: 0; border-top: none;">
-        <div class="tuning-col">
-            <h4>奥の角 (Far Horn)</h4>
-            <div class="param-row"><label>根元X位置 (farBaseX)</label><input type="range" id="farBaseX" min="-1.0" max="1.0" step="0.01" value="-0.03"><span id="val_farBaseX">-0.03</span></div>
-            <div class="param-row"><label>根元Y位置 (farBaseY)</label><input type="range" id="farBaseY" min="0.0" max="1.5" step="0.01" value="0.18"><span id="val_farBaseY">0.18</span></div>
-            <div class="param-row"><label>角度(度) (farAngle)</label><input type="range" id="farAngle" min="-180" max="180" step="1" value="7"><span id="val_farAngle">7</span></div>
-            <div class="param-row"><label>先端X offset (farTipX)</label><input type="range" id="farTipX" min="-0.5" max="0.5" step="0.01" value="0.20"><span id="val_farTipX">0.20</span></div>
-            <div class="param-row"><label>前カーブ (farFront)</label><input type="range" id="farFront" min="-0.5" max="0.5" step="0.01" value="0.40"><span id="val_farFront">0.40</span></div>
-            <div class="param-row"><label>後カーブ (farBack)</label><input type="range" id="farBack" min="-0.5" max="0.5" step="0.01" value="-0.14"><span id="val_farBack">-0.14</span></div>
-            <div class="param-row"><label>長さ (farLength)</label><input type="range" id="farLength" min="0.5" max="5.0" step="0.05" value="2.60"><span id="val_farLength">2.60</span></div>
-            <div class="param-row"><label>根元丸み (farRoot)</label><input type="range" id="farRoot" min="-2.0" max="2.0" step="0.01" value="2.00"><span id="val_farRoot">2.00</span></div>
-        </div>
-        <div class="tuning-col">
-            <h4>手前の角 (Near Horn)</h4>
-            <div class="param-row"><label>根元X位置 (nearBaseX)</label><input type="range" id="nearBaseX" min="-1.0" max="1.0" step="0.01" value="-0.24"><span id="val_nearBaseX">-0.24</span></div>
-            <div class="param-row"><label>根元Y位置 (nearBaseY)</label><input type="range" id="nearBaseY" min="0.0" max="1.5" step="0.01" value="0.69"><span id="val_nearBaseY">0.69</span></div>
-            <div class="param-row"><label>角度(度) (nearAngle)</label><input type="range" id="nearAngle" min="-180" max="180" step="1" value="-7"><span id="val_nearAngle">-7</span></div>
-            <div class="param-row"><label>先端X offset (nearTipX)</label><input type="range" id="nearTipX" min="-1.0" max="1.0" step="0.01" value="0.22"><span id="val_nearTipX">0.22</span></div>
-            <div class="param-row"><label>前カーブ (nearFront)</label><input type="range" id="nearFront" min="-0.5" max="1.0" step="0.01" value="-0.10"><span id="val_nearFront">-0.10</span></div>
-            <div class="param-row"><label>後カーブ (nearBack)</label><input type="range" id="nearBack" min="-0.5" max="1.0" step="0.01" value="0.28"><span id="val_nearBack">0.28</span></div>
-            <div class="param-row"><label>長さ (nearLength)</label><input type="range" id="nearLength" min="0.5" max="5.0" step="0.05" value="2.60"><span id="val_nearLength">2.60</span></div>
-            <div class="param-row"><label>根元丸み (nearRoot)</label><input type="range" id="nearRoot" min="-2.0" max="2.0" step="0.01" value="2.00"><span id="val_nearRoot">2.00</span></div>
-        </div>
-    </div>
-    </details>
+
     <script type="module">
         import { Shogun } from './js/boss.js';
         import { Player } from './js/player.js';
         import { createSubWeapon } from './js/weapon.js';
         import { input } from './js/input.js';
 
-        // ゲームオブジェクトの簡易モック
-        window.game = { 
-            scrollX: 0, 
-            groundY: 350, 
-            difficulty: { id: 'normal' },
-            audio: { play: () => {}, tryPlay: () => {} }, // エラー回避用
-            player: { 
-                x: 100, y: 350, width: 40, height: 60,
-                get centerX() { return this.x + 20; },
-                get centerY() { return this.y + 30; },
-                takeDamage: () => {} // 被弾エラー回避
-            },
-            bombs: [],          // 火薬玉エラー回避用
-            projectiles: []     // 手裏剣などエラー回避用
-        };
-        
-        
-        // 動的パラメータ設定
         window.hornParams = {
-                farBaseX: -0.03, farBaseY: 0.18, farAngle: 7.00, farTipX: 0.20, farFront: 0.40, farBack: -0.14, farLength: 2.60, farRoot: 2.00,
-                nearBaseX: -0.24, nearBaseY: 0.69, nearAngle: -7.00, nearTipX: 0.22, nearFront: -0.10, nearBack: 0.28, nearLength: 2.60, nearRoot: 2.00
-            };
-
-        const paramNames = ['farBaseX', 'farBaseY', 'farTipX', 'farFront', 'farBack', 'farLength', 'farAngle', 'farRoot', 'nearBaseX', 'nearBaseY', 'nearTipX', 'nearFront', 'nearBack', 'nearLength', 'nearAngle', 'nearRoot'];
-        paramNames.forEach(name => {
-            const el = document.getElementById(name);
-            const valEl = document.getElementById('val_' + name);
-            el.addEventListener('input', (e) => {
-                const v = parseFloat(e.target.value);
-                window.hornParams[name] = v;
-                valEl.innerText = v.toFixed(2);
-            });
-        });
+            farBaseX: -0.03, farBaseY: 0.18, farAngle: 7.00, farTipX: 0.20, farFront: 0.40, farBack: -0.14, farLength: 2.60, farRoot: 2.00,
+            nearBaseX: -0.24, nearBaseY: 0.69, nearAngle: -7.00, nearTipX: 0.22, nearFront: -0.10, nearBack: 0.28, nearLength: 2.60, nearRoot: 2.00
+        };
 
         const canvas = document.getElementById('previewCanvas');
         const ctx = canvas.getContext('2d');
-
-        // 将軍インスタンスの生成
-        const shogun = new Shogun(canvas.width / 2, window.game.groundY, 'boss', window.game.groundY);
-        shogun.init(); // 一度初期化
         
-        // init後にサイズ等が決まるので再度センタリング
-        shogun.x = (canvas.width - shogun.width) / 2;
-        shogun.y = window.game.groundY - shogun.height;
-        shogun.groundY = window.game.groundY; // 念のため明示的に設定
-        shogun.facingRight = false;
-        // プレビュー用に無限HP
+        // 高解像度（Retina）対応
+        const dpr = window.devicePixelRatio || 1;
+        const logicalW = 800;
+        const logicalH = 500;
+        canvas.width = logicalW * dpr;
+        canvas.height = logicalH * dpr;
+        ctx.scale(dpr, dpr);
+        
+        window.game = {
+            scrollX: 0,
+            groundY: 400,
+            projectiles: [],
+            camera: { x: 0, y: 0 },
+            difficulty: { id: 'normal' },
+            audio: { play: () => {}, tryPlay: () => {}, stop: () => {}, setVolume: () => {} }
+        };
+        const shogun = new Shogun(logicalW / 2, window.game.groundY, 'boss', window.game.groundY);
+        shogun.init();
         shogun.hp = 99999;
         shogun.isEnemy = false;
-        
+        shogun.facingRight = true;
         shogun.actor.characterType = 'shogun';
-        shogun.actor.scaleMultiplier = 1.5;
+        shogun.actor.scaleMultiplier = 1.0; 
 
-        const ninja = new Player(canvas.width / 2 - 20, window.game.groundY - 60, window.game.groundY);
+        const ninja = new Player(logicalW / 2, window.game.groundY, window.game.groundY);
         ninja.previewMode = true;
-        ninja.facingRight = false;
-        ninja.isGrounded = true;
-        ninja.progression.normalCombo = 3;
-        ninja.progression.subWeapon = 3;
-        ninja.progression.specialClone = 3;
-        const subWeaponNames = {
-            shuriken: '手裏剣',
-            bomb: '火薬玉',
-            spear: '大槍',
-            dual: '二刀流',
-            kusarigama: '鎖鎌',
-            odachi: '大太刀'
-        };
-        const subWeapons = ['shuriken', 'bomb', 'spear', 'dual', 'kusarigama', 'odachi']; // 解除状態はなし（6種類）
-        ninja.subWeapons = subWeapons.map(key => createSubWeapon(subWeaponNames[key])).filter(Boolean);
-        ninja.currentSubWeapon = ninja.subWeapons[0] || null;
-        ninja.subWeaponIndex = 0;
-        ninja.refreshSubWeaponScaling();
-        const previewPlayerMock = window.game.player;
+        ninja.facingRight = true;
+        ninja.progression = { normalCombo: 3, subWeapon: 3, specialClone: 3 };
         
-        // 状態フラグ
+        const subWeaponNames = {
+            shuriken: '手裏剣', bomb: '火薬玉', spear: '大槍', dual: '二刀流', kusarigama: '鎖鎌', odachi: '大太刀'
+        };
+        const subWeapons = ['shuriken', 'bomb', 'spear', 'dual', 'kusarigama', 'odachi'];
+        ninja.subWeapons = subWeapons.map(key => createSubWeapon(subWeaponNames[key])).filter(Boolean);
+        ninja.currentSubWeapon = ninja.subWeapons[0];
+        
         let lastTime = performance.now();
         let isPreviewPaused = false;
-        let isBodyHidden = false;
         let isWalking = false;
-        let walkDirection = 0;
-        let previewComboStep = 0;
-        let previewComboResetTimer = 0;
-        let queuedDualAttack = false;
-        const heldMoveKeys = new Set();
         let isDashing = false;
-        let isShiftHeld = false;
-        let lastTapTime = 0;
-        let lastTapKey = '';
-        const DOUBLE_TAP_THRESHOLD = 250;
-        let subIndex = 0;
+        let walkDirection = 0;
         let previewCharacter = 'shogun';
-        const selectedSubWeaponLabel = document.getElementById('selectedSubWeapon');
-        const modeShogunButton = document.getElementById('btnModeShogun');
-        const modeNinjaButton = document.getElementById('btnModeNinja');
-        const isShogunMode = () => previewCharacter === 'shogun';
-        const getActiveActor = () => isShogunMode() ? shogun : ninja;
-        const getNinjaWeaponKey = () => {
-            const weapon = ninja.currentSubWeapon;
-            if (!weapon) return subWeapons[subIndex] || 'shuriken';
-            return subWeapons.find(key => subWeaponNames[key] === weapon.name) || 'shuriken';
-        };
-        const setNinjaWeaponByKey = (key) => {
-            const idx = subWeapons.indexOf(key);
-            const weaponName = subWeaponNames[key];
-            if (idx < 0 || !weaponName) return;
-            let weaponIndex = ninja.subWeapons.findIndex(w => w && w.name === weaponName);
-            if (weaponIndex < 0) {
-                const weapon = createSubWeapon(weaponName);
-                if (!weapon) return;
-                ninja.subWeapons.push(weapon);
-                weaponIndex = ninja.subWeapons.length - 1;
-            }
-            ninja.subWeaponIndex = weaponIndex;
-            ninja.currentSubWeapon = ninja.subWeapons[weaponIndex];
-            ninja.refreshSubWeaponScaling();
+        let subIndex = 0;
+        const heldKeys = new Set();
+
+        const updateUI = () => {
+            const weaponLabel = document.getElementById('selectedSubWeapon');
+            weaponLabel.textContent = subWeaponNames[subWeapons[subIndex]] || '---';
+            document.getElementById('btnModeShogun').classList.toggle('active', previewCharacter === 'shogun');
+            document.getElementById('btnModeNinja').classList.toggle('active', previewCharacter === 'ninja');
+            const actor = previewCharacter === 'shogun' ? shogun : ninja;
+            const ougiActive = previewCharacter === 'shogun' ? shogun._ougiActive : (ninja.specialActive || ninja.specialCasting);
+            document.getElementById('btnOugi').classList.toggle('active', !!ougiActive);
             
-            if (shogun && shogun.actor) {
-                shogun.actor.subWeaponIndex = weaponIndex;
-                shogun.actor.currentSubWeapon = ninja.subWeapons[weaponIndex];
-                shogun.actor.refreshSubWeaponScaling();
-            }
+            // モードに応じたUIカラーの変更
+            document.body.classList.toggle('mode-ninja', previewCharacter === 'ninja');
+            // 将軍のパラメータ調整エリアの表示制御
+            document.getElementById('tuningSection').style.display = previewCharacter === 'shogun' ? 'block' : 'none';
         };
-        const getPreviewWeaponName = (key) => {
-            if (!isShogunMode()) {
-                return (ninja.currentSubWeapon && ninja.currentSubWeapon.name) || subWeaponNames[key] || 'なし';
-            }
-            const inst = key ? shogun._subWeaponInstances[key] : null;
-            return inst ? inst.name : 'なし';
-        };
-        const syncPreviewWeaponDisplay = () => {
-            const key = isShogunMode() ? window._previewWeapon : getNinjaWeaponKey();
-            selectedSubWeaponLabel.textContent = getPreviewWeaponName(key);
-        };
-        const syncSubIndexFromPreviewWeapon = () => {
-            const key = isShogunMode() ? window._previewWeapon : getNinjaWeaponKey();
-            const idx = subWeapons.indexOf(key);
-            subIndex = idx >= 0 ? idx : 0;
-        };
-        const resetAttackState = () => {
-            if (!isShogunMode()) {
-                ninja.isAttacking = false;
-                ninja.attackCombo = 0;
-                ninja.attackTimer = 0;
-                ninja.attackCooldown = 0;
-                ninja.currentAttack = null;
-                ninja.attackBuffered = false;
-                ninja.attackBufferTimer = 0;
-                ninja.comboResetTimer = 0;
-                ninja.subWeaponTimer = 0;
-                ninja.subWeaponAction = null;
-                ninja.subWeaponCrouchLock = false;
-                if (ninja.currentSubWeapon) {
-                    ninja.currentSubWeapon.isAttacking = false;
-                    ninja.currentSubWeapon.attackTimer = 0;
-                    ninja.currentSubWeapon.fadeOutTimer = 0;
-                }
-                return;
-            }
-            shogun._attackTimer = 0;
-            shogun._comboStep = 0;
-            shogun._currentComboStep = 1;
-            shogun._comboPendingSteps = [];
-            shogun._dualZPendingSteps = null;
-            shogun._subTimer = 0;
-            shogun._subAction = null;
-            shogun._shurikenVisualTimer = 0;
-            shogun.isAttacking = false;
-        };
-        const resetPreviewComboState = () => {
-            previewComboStep = 0;
-            previewComboResetTimer = 0;
-            queuedDualAttack = false;
-            const dual = shogun._subWeaponInstances.dual;
-            if (dual) {
-                dual.mainComboLinkTimer = 0;
-                dual.comboIndex = 0;
-            }
-        };
-        const stopMovement = () => {
-            isWalking = false;
-            walkDirection = 0;
-            heldMoveKeys.clear();
-            getActiveActor().vx = 0;
-        };
-        const isBusyWithAnotherAction = () => (
-            isShogunMode() && (
-                shogun._attackTimer > 0 ||
-                (shogun._subTimer > 0 && shogun._subAction !== '二刀_Z')
-            )
-        );
-        const getPreviewSubActionDuration = (type) => {
-            const actionMap = {
-                shuriken: 'throw',
-                bomb: 'throw',
-                spear: '大槍',
-                dual: '二刀_合体',
-                kusarigama: '鎖鎌',
-                odachi: '大太刀'
-            };
-            return typeof shogun._getSubActionDurationMs === 'function'
-                ? shogun._getSubActionDurationMs(actionMap[type] || null, type)
-                : 300;
-        };
-        const triggerNormalAttack = () => {
-            if (!isShogunMode()) {
-                if (ninja.subWeaponTimer > 0 && ninja.subWeaponAction && ninja.subWeaponAction !== 'throw') return;
-                isWalking = false;
-                ninja.vx = 0;
-                if (ninja.isAttacking) {
-                    ninja.bufferNextAttack();
-                } else {
-                    ninja.attack();
-                }
-                return;
-            }
-            if (shogun._subTimer > 0) return;
-            isWalking = false;
-            shogun.vx = 0;
-            shogun._subWeaponKey = window._previewWeapon;
-            if (shogun._attackTimer > 0) {
-                const currentStep = shogun._currentComboStep || 0;
-                const queuedStep = Array.isArray(shogun._comboPendingSteps) && shogun._comboPendingSteps.length > 0
-                    ? shogun._comboPendingSteps[0]
-                    : 0;
-                if (queuedStep > 0) {
-                    previewComboStep = queuedStep;
-                    previewComboResetTimer = 460;
-                    return;
-                }
-                const currentAttack = shogun._currentAttackProfile || null;
-                const duration = Math.max(1, currentAttack?.durationMs || shogun._attackTimer || 1);
-                const remaining = Math.max(0, shogun._attackTimer || 0);
-                const bufferMs = currentStep === 4
-                    ? Math.max(420, Math.min(620, duration * 1.25))
-                    : Math.max(80, Math.min(240, duration * 0.82));
-                if (remaining > bufferMs) return;
-                const nextStep = Math.min(5, currentStep + 1);
-                if (nextStep <= currentStep) return;
-                previewComboStep = nextStep;
-                previewComboResetTimer = 460;
-                shogun._comboPendingSteps = [nextStep];
-                return;
-            }
-            const nextStep = previewComboResetTimer > 0 && previewComboStep > 0
-                ? ((previewComboStep % 5) + 1)
-                : 1;
-            previewComboStep = nextStep;
-            previewComboResetTimer = 460;
-            shogun._comboPendingSteps = [nextStep];
-            shogun._startNextComboStep();
-        };
-        const canTriggerDualFollowUp = () => {
-            const dual = shogun._subWeaponInstances.dual;
-            if (!dual || shogun._subAction !== '二刀_Z') return true;
-            if (typeof dual.getMainSwingPose !== 'function') {
-                return shogun._subTimer <= 20;
-            }
-            const pose = dual.getMainSwingPose({
-                comboIndex: dual.comboIndex,
-                attackTimer: dual.attackTimer
-            });
-            return (pose.progress || 0) >= 0.9 || shogun._subTimer <= 20;
-        };
-        const fireDualSwing = () => {
-            const dual = shogun._subWeaponInstances.dual;
-            if (!dual) return;
-            if (typeof dual.applyEnhanceTier === 'function') {
-                dual.applyEnhanceTier(3, shogun);
-            }
-            const prevSubWeapon = shogun.currentSubWeapon;
-            shogun.currentSubWeapon = dual;
-            dual.use(shogun, 'main');
-            shogun.currentSubWeapon = prevSubWeapon;
-            const duration = Math.max(112, dual.mainDuration || 204);
-            shogun._subAction = '二刀_Z';
-            shogun._subWeaponKey = 'dual';
-            shogun._subTimer = duration;
-            shogun.attackTimer = duration;
-            shogun.isAttacking = true;
-            shogun._dualZPendingSteps = null;
-            shogun._shurikenVisualTimer = 0;
-        };
-        const triggerDualAttack = () => {
-            if (!isShogunMode()) {
-                triggerNormalAttack();
-                return;
-            }
-            if (shogun._attackTimer > 0) return;
-            if (shogun._subTimer > 0 && shogun._subAction && shogun._subAction !== '二刀_Z') return;
-            isWalking = false;
-            shogun.vx = 0;
-            shogun._subWeaponKey = 'dual';
-            if (shogun._subTimer > 0 && shogun._subAction === '二刀_Z' && !canTriggerDualFollowUp()) {
-                queuedDualAttack = true;
-                return;
-            }
-            queuedDualAttack = false;
-            fireDualSwing();
-        };
-        const triggerAttack = () => {
-            const key = isShogunMode() ? window._previewWeapon : getNinjaWeaponKey();
-            if (key === 'dual') {
-                triggerDualAttack();
-            } else {
-                triggerNormalAttack();
-            }
-        };
-        const cycleSubWeapon = () => {
-            stopMovement();
-            resetAttackState();
-            resetPreviewComboState();
-            subIndex = (subIndex + 1) % subWeapons.length;
-            setNinjaWeaponByKey(subWeapons[subIndex]);
-            if (!isShogunMode()) {
-                syncPreviewWeaponDisplay();
-                console.log("忍者武器プレビュー:", subWeapons[subIndex]);
-                return;
-            }
-            window._previewWeapon = subWeapons[subIndex];
-            shogun._subWeaponKey = window._previewWeapon;
-            shogun._subTimer = 10;
-            syncPreviewWeaponDisplay();
-            console.log("武器プレビュー:", window._previewWeapon);
-        };
-        const triggerSubAction = () => {
-            if (!isShogunMode()) {
-                if (!ninja.currentSubWeapon || ninja.subWeaponTimer > 0) return;
-                isWalking = false;
-                ninja.vx = 0;
-                resetPreviewComboState();
-                if (ninja.currentSubWeapon.canUse && !ninja.currentSubWeapon.canUse()) {
-                    console.log("忍者サブ武器がまだ使用可能状態ではありません:", ninja.currentSubWeapon.name);
-                    return;
-                }
-                if (ninja.currentSubWeapon.name === '二刀流') {
-                    ninja.currentSubWeapon.use(ninja, 'combined');
-                    ninja.subWeaponTimer = ninja.getSubWeaponActionDurationMs('二刀_合体', ninja.currentSubWeapon);
-                    ninja.subWeaponAction = '二刀_合体';
-                } else {
-                    ninja.useSubWeapon();
-                    const weaponName = ninja.currentSubWeapon.name;
-                    const isThrow = weaponName === '火薬玉' || weaponName === '手裏剣';
-                    ninja.subWeaponTimer = ninja.getSubWeaponActionDurationMs(isThrow ? 'throw' : weaponName, ninja.currentSubWeapon);
-                    ninja.subWeaponAction = isThrow ? 'throw' : weaponName;
-                }
-                syncSubIndexFromPreviewWeapon();
-                syncPreviewWeaponDisplay();
-                console.log("忍者サブ武器アクション発動:", ninja.currentSubWeapon.name);
-                return;
-            }
-            if (!shogun._subWeaponKey || isBusyWithAnotherAction()) return;
-            isWalking = false;
-            shogun.vx = 0;
-            resetPreviewComboState();
-            const type = shogun._subWeaponKey;
-            const subInst = shogun._subWeaponInstances[type];
-            if (subInst && typeof subInst.canUse === 'function' && !subInst.canUse()) {
-                console.log("サブ武器がまだ使用可能状態ではありません:", type);
-                return;
-            }
-            const actionMap = {
-                shuriken: 'throw',
-                bomb: 'throw',
-                spear: '大槍',
-                dual: '二刀_合体',
-                kusarigama: '鎖鎌',
-                odachi: '大太刀'
-            };
-            if (typeof shogun._fireSubWeapon === 'function') {
-                shogun.isAttacking = true;
-                shogun._fireSubWeapon(type);
-                shogun._subAction = actionMap[type] || null;
-                const duration = getPreviewSubActionDuration(type);
-                shogun._subTimer = duration;
-                shogun._subWeaponKey = type;
-                shogun._shurikenVisualTimer = type === 'shuriken'
-                    ? getPreviewSubActionDuration('bomb')
-                    : 0;
-            }
-            window._previewWeapon = type;
-            syncSubIndexFromPreviewWeapon();
-            syncPreviewWeaponDisplay();
-            console.log("サブ武器アクション発動:", type);
-        };
-        const syncWalkDirectionFromKeys = () => {
-            const leftActive = heldMoveKeys.has('arrowleft') || heldMoveKeys.has('a');
-            const rightActive = heldMoveKeys.has('arrowright') || heldMoveKeys.has('d');
-            walkDirection = leftActive === rightActive ? 0 : (leftActive ? -1 : 1);
-            if (walkDirection !== 0) {
-                getActiveActor().facingRight = walkDirection > 0;
-            }
-        };
-        const shouldIgnoreKeyboardInput = (event) => {
-            if (event.ctrlKey || event.metaKey || event.altKey) return true;
-            const target = event.target;
-            if (!target || !target.tagName) return false;
-            // ボタンはmousedownのpreventDefaultでfocusを防いでいるので除外不要
-            return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
-        };
-        const triggerJump = () => {
-            const actor = getActiveActor();
-            if (!actor.isGrounded) return;
-            actor.vy = -14;
-            actor.isGrounded = false;
-            if (!isShogunMode()) actor.jumpCount = 1;
-        };
-        const syncModeButtons = () => {
-            modeShogunButton.classList.toggle('active', isShogunMode());
-            modeNinjaButton.classList.toggle('active', !isShogunMode());
-        };
-        const resetActorPosition = (actor) => {
-            if (actor === shogun) {
-                shogun.x = (canvas.width - shogun.width) / 2;
-                shogun.y = window.game.groundY - shogun.height;
-                shogun.groundY = window.game.groundY;
-            } else {
-                ninja.x = (canvas.width - ninja.width) / 2;
-                ninja.y = window.game.groundY - ninja.height;
-                ninja.groundY = window.game.groundY;
-                ninja.isGrounded = true;
-                ninja.vx = 0;
-                ninja.vy = 0;
-            }
-        };
-        const setPreviewCharacter = (mode) => {
-            if (previewCharacter === mode) return;
-            stopMovement();
-            resetAttackState();
-            resetPreviewComboState();
+
+        const switchChar = (mode) => {
             previewCharacter = mode;
-            resetAttackState();
-            const key = subWeapons[subIndex] || 'shuriken';
-            if (isShogunMode()) {
-                window.game.player = previewPlayerMock;
-                window._previewWeapon = key;
-                shogun._subWeaponKey = key;
-                resetActorPosition(shogun);
-            } else {
-                window.game.player = ninja;
-                setNinjaWeaponByKey(key);
-                resetActorPosition(ninja);
-            }
-            syncModeButtons();
-            syncPreviewWeaponDisplay();
+            window.game.player = previewCharacter === 'shogun' ? shogun : ninja;
+            window.game.player.x = (logicalW - window.game.player.width) / 2;
+            window.game.player.y = window.game.groundY - window.game.player.height;
+            if (previewCharacter === 'shogun') { shogun._subWeaponKey = subWeapons[subIndex]; }
+            updateUI();
         };
 
-        modeShogunButton.addEventListener('click', () => setPreviewCharacter('shogun'));
-        modeNinjaButton.addEventListener('click', () => setPreviewCharacter('ninja'));
+        document.getElementById('btnModeShogun').addEventListener('click', () => switchChar('shogun'));
+        document.getElementById('btnModeNinja').addEventListener('click', () => switchChar('ninja'));
+        
+        document.getElementById('selectedSubWeapon').addEventListener('click', () => {
+            subIndex = (subIndex + 1) % subWeapons.length;
+            if (previewCharacter === 'shogun') { shogun._subWeaponKey = subWeapons[subIndex]; }
+            else {
+                const name = subWeaponNames[subWeapons[subIndex]];
+                const idx = ninja.subWeapons.findIndex(w => w.name === name);
+                if (idx >= 0) { ninja.subWeaponIndex = idx; ninja.currentSubWeapon = ninja.subWeapons[idx]; }
+            }
+            updateUI();
+        });
 
-        // キャラ非表示機能は隠れ身の術に統合されたため削除
+        document.getElementById('btnOugi').addEventListener('click', () => {
+            if (previewCharacter === 'shogun') {
+                shogun._ougiActive = !shogun._ougiActive;
+                if (shogun._ougiActive) shogun.actor.rebuildSpecialCloneSlots();
+            } else {
+                if (ninja.specialActive) ninja.clearSpecialState(true);
+                else { ninja.specialGauge = 100; ninja.useSpecial(); }
+            }
+            updateUI();
+        });
+
+        document.getElementById('btnOonagi').addEventListener('click', (e) => {
+            const active = e.currentTarget.classList.toggle('active');
+            ninja.tempNinjutsuTimers.xAttack = active ? 60000 : 0;
+            shogun.tempNinjutsuTimers = { xAttack: active ? 60000 : 0 };
+        });
+
+        document.getElementById('btnKakuremi').addEventListener('click', (e) => {
+            const active = e.currentTarget.classList.toggle('active');
+            ninja.tempNinjutsuTimers.ghostVeil = active ? 60000 : 0;
+            shogun.ghostVeilAlpha = active ? 0.0 : 1.0;
+        });
 
         document.getElementById('selSkillLv').addEventListener('change', (e) => {
             const lv = parseInt(e.target.value);
-            
-            // 奥義発動中にLv変更すると表示がおかしくなるため解除する
-            const ougiBtn = document.getElementById('btnOugi');
-            if (ougiBtn.style.background) {
-                ninja.clearSpecialState(true);
-                shogun.actor.clearSpecialState(true);
-                ougiBtn.style.background = '';
-                ougiBtn.style.color = '';
-            }
-
-            ninja.progression.normalCombo = lv;
-            ninja.progression.subWeapon = lv;
-            ninja.progression.specialClone = lv;
-            ninja.refreshSubWeaponScaling();
-            if(typeof ninja.rebuildSpecialCloneSlots === 'function') ninja.rebuildSpecialCloneSlots();
-            
-            shogun.actor.progression.normalCombo = lv;
-            shogun.actor.progression.subWeapon = lv;
-            shogun.actor.progression.specialClone = lv;
-            if(typeof shogun.actor.rebuildSpecialCloneSlots === 'function') shogun.actor.rebuildSpecialCloneSlots();
+            [ninja, shogun.actor].forEach(a => {
+                a.progression = { normalCombo: lv, subWeapon: lv, specialClone: lv };
+                if (a.refreshSubWeaponScaling) a.refreshSubWeaponScaling();
+                if (a.rebuildSpecialCloneSlots) a.rebuildSpecialCloneSlots();
+            });
+            e.target.blur();
         });
 
-        const triggerOugi = () => {
-            const btn = document.getElementById('btnOugi');
-            const isActive = !!btn.style.background;
-            if (isActive) {
-                ninja.clearSpecialState(true);
-                shogun.actor.isUsingSpecial = false;
-                btn.style.background = '';
-                btn.style.color = '';
-            } else {
-                ninja.specialGauge = ninja.maxSpecialGauge;
-                ninja.useSpecial();
-                shogun.actor.isUsingSpecial = true;
-                btn.style.background = '#b58900';
-                btn.style.color = '#000';
-            }
-        };
-
-        const toggleOonagi = () => {
-            const btn = document.getElementById('btnOonagi');
-            const isActive = !!btn.style.background;
-            if (isActive) {
-                ninja.tempNinjutsuTimers.xAttack = 0;
-                if(shogun.tempNinjutsuTimers) shogun.tempNinjutsuTimers.xAttack = 0;
-                btn.style.background = '';
-                btn.style.color = '';
-            } else {
-                ninja.tempNinjutsuTimers.xAttack = 60000;
-                shogun.tempNinjutsuTimers = { xAttack: 60000 };
-                shogun.getTempNinjutsuRemainingMs = (k) => shogun.tempNinjutsuTimers[k];
-                btn.style.background = '#9ec7ff';
-                btn.style.color = '#000';
-            }
-        };
-
-        const toggleKakuremi = () => {
-            const btn = document.getElementById('btnKakuremi');
-            const isActive = !!btn.style.background;
-            if (isActive) {
-                ninja.tempNinjutsuTimers.ghostVeil = 0;
-                shogun.ghostVeilAlpha = 1.0;
-                btn.style.background = '';
-                btn.style.color = '';
-            } else {
-                ninja.tempNinjutsuTimers.ghostVeil = 60000;
-                shogun.ghostVeilAlpha = 0.0;
-                btn.style.background = '#b7d5ff';
-                btn.style.color = '#000';
-            }
-        };
-
-        document.getElementById('btnCycleWeapon').addEventListener('click', cycleSubWeapon);
-        document.getElementById('btnOugi').addEventListener('click', triggerOugi);
-        document.getElementById('btnOonagi').addEventListener('click', toggleOonagi);
-        document.getElementById('btnKakuremi').addEventListener('click', toggleKakuremi);
-
-        document.getElementById('btnIdle').addEventListener('click', () => {
-            stopMovement();
-            resetAttackState();
-            resetPreviewComboState();
-            if (isShogunMode()) {
-                shogun._subWeaponKey = window._previewWeapon;
-                resetActorPosition(shogun);
-            } else {
-                setNinjaWeaponByKey(subWeapons[subIndex]);
-                resetActorPosition(ninja);
+        Object.keys(window.hornParams).forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.addEventListener('input', (e) => {
+                    const v = parseFloat(e.target.value);
+                    window.hornParams[id] = v;
+                    document.getElementById('val_' + id).textContent = v.toFixed(2);
+                });
             }
         });
 
-        document.getElementById('btnWalk').addEventListener('click', () => {
-            isWalking = !isWalking;
-            if (!isWalking) {
-                walkDirection = 0;
-            } else if (walkDirection === 0) {
-                walkDirection = getActiveActor().facingRight ? 1 : -1;
-            }
-            resetAttackState();
-            resetPreviewComboState();
-            if (isShogunMode()) {
-                shogun._subWeaponKey = window._previewWeapon;
-            }
+        document.getElementById('btnRestart').addEventListener('click', () => location.reload());
+
+        // ゲーム準拠のキーボード操作
+        window.addEventListener('keydown', (e) => {
+            if (['INPUT', 'SELECT'].includes(document.activeElement.tagName)) return;
+            const k = e.key.toLowerCase();
+            heldKeys.add(k);
+            if (k === 'z') { if (previewCharacter === 'shogun') shogun._startNextComboStep(); else ninja.attack(); e.preventDefault(); }
+            if (k === 'x') { if (previewCharacter === 'shogun') shogun._fireSubWeapon(shogun._subWeaponKey); else ninja.useSubWeapon(); e.preventDefault(); }
+            if (k === 's') { document.getElementById('btnOugi').click(); e.preventDefault(); }
+            if (k === 'c') { document.getElementById('selectedSubWeapon').click(); e.preventDefault(); }
+            if (k === 'shift') { isDashing = true; isWalking = true; walkDirection = window.game.player.facingRight ? 1 : -1; e.preventDefault(); }
+            if (k === 'arrowleft') { walkDirection = -1; isWalking = true; e.preventDefault(); }
+            if (k === 'arrowright') { walkDirection = 1; isWalking = true; e.preventDefault(); }
+            if (k === 'arrowup' || e.key === ' ') { if (window.game.player.isGrounded) { window.game.player.vy = -14; window.game.player.isGrounded = false; } e.preventDefault(); }
+            if (k === 'arrowdown') { isWalking = false; walkDirection = 0; e.preventDefault(); }
+            updateUI();
         });
 
-        window.addEventListener('keydown', (event) => {
-            if (shouldIgnoreKeyboardInput(event)) return;
-            const key = event.key.toLowerCase();
-            if (['z', 'x', 'c', ' ', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'a', 'd', 'escape', 'shift', 's'].includes(key)) {
-                event.preventDefault();
+        window.addEventListener('keyup', (e) => {
+            const k = e.key.toLowerCase();
+            heldKeys.delete(k);
+            if (k === 'shift') isDashing = false;
+            if (k === 'arrowleft' || k === 'arrowright') {
+                if (!heldKeys.has('arrowleft') && !heldKeys.has('arrowright')) { isWalking = false; walkDirection = 0; }
             }
-            if (key === 'escape') {
-                if (!event.repeat) isPreviewPaused = !isPreviewPaused;
-                return;
-            }
-            if (key === 'shift') {
-                isShiftHeld = true;
-                isDashing = true;
-                return;
-            }
-            if (key === 'z') {
-                if (!event.repeat) triggerAttack();
-                return;
-            }
-            if (key === 'x') {
-                if (!event.repeat) triggerSubAction();
-                return;
-            }
-            if (key === 'c') {
-                if (!event.repeat) cycleSubWeapon();
-                return;
-            }
-            if (key === 's') {
-                if (!event.repeat) triggerOugi();
-                return;
-            }
-            if (key === ' ' || key === 'arrowup') {
-                if (!event.repeat) triggerJump();
-                return;
-            }
-            if (key === 'arrowdown') {
-                const actor = getActiveActor();
-                if (!actor.isCrouching && actor.isGrounded) {
-                    actor.isCrouching = true;
-                    // ボスは高さを変えない（レンダリングスケール崩壊防止）
-                    // actorのisCrouchingでポーズがしゃがみに変わる
-                }
-                return;
-            }
-            if (key === 'arrowleft' || key === 'a' || key === 'arrowright' || key === 'd') {
-                if (!event.repeat) {
-                    const now = performance.now();
-                    const moveKeyGroup = (key === 'arrowleft' || key === 'a') ? 'left' : 'right';
-                    if (lastTapKey === moveKeyGroup && (now - lastTapTime) < DOUBLE_TAP_THRESHOLD) {
-                        isDashing = true;
-                    }
-                    lastTapTime = now;
-                    lastTapKey = moveKeyGroup;
-                }
-                heldMoveKeys.add(key);
-                isWalking = true;
-                syncWalkDirectionFromKeys();
-            }
+            updateUI();
         });
 
-        window.addEventListener('keyup', (event) => {
-            const key = event.key.toLowerCase();
-            if (key === 'shift') {
-                isShiftHeld = false;
-                isDashing = false;
-                getActiveActor().isDashing = false;
-                return;
-            }
-            if (key === 'arrowleft' || key === 'a' || key === 'arrowright' || key === 'd') {
-                heldMoveKeys.delete(key);
-                syncWalkDirectionFromKeys();
-                if (heldMoveKeys.size === 0) {
-                    isWalking = false;
-                    walkDirection = 0;
-                    // Shiftが押されていない場合のみダッシュ解除
-                    if (!isShiftHeld) {
-                        isDashing = false;
-                        getActiveActor().isDashing = false;
-                    }
-                }
-            }
-            if (key === 'arrowdown') {
-                const actor = getActiveActor();
-                if (actor.isCrouching) {
-                    actor.isCrouching = false;
-                }
-            }
+        document.querySelectorAll('button').forEach(el => {
+            el.addEventListener('mouseup', () => el.blur());
+        });
+        document.querySelectorAll('select, input').forEach(el => {
+            el.addEventListener('change', () => el.blur());
         });
 
-        // 初期状態で最初のサブ武器を持たせる
-        window._previewWeapon = subWeapons[0];
-        shogun._subWeaponKey = window._previewWeapon;
-        window.game.player = previewPlayerMock;
-        syncSubIndexFromPreviewWeapon();
-        setNinjaWeaponByKey(window._previewWeapon);
-        syncModeButtons();
-        syncPreviewWeaponDisplay();
-
-        // ボタンクリック時にフォーカスを奪われないようにする
-        document.querySelectorAll('button').forEach(btn => {
-            btn.addEventListener('mousedown', e => e.preventDefault());
-        });
-
-        // キャンバス横幅をウィンドウ幅に合わせる（縦は500固定）
-        function resizeCanvas() {
-            const newW = Math.max(600, window.innerWidth - 48);
-            canvas.width = newW;
-            resetActorPosition(getActiveActor());
-        }
-        resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
         function loop(time) {
             const dt = Math.min((time - lastTime) / 1000, 0.1);
             lastTime = time;
-            
             if (!isPreviewPaused) {
-                const deltaMs = dt * 1000;
-
-                if (isShogunMode() && previewComboResetTimer > 0) {
-                    previewComboResetTimer = Math.max(0, previewComboResetTimer - deltaMs);
-                    if (previewComboResetTimer <= 0 && shogun._attackTimer <= 0) {
-                        previewComboStep = 0;
-                    }
-                }
-
-                // 歩行ロジックの簡易エミュレート
-                const activeActor = getActiveActor();
-                const activeWalkDirection = walkDirection !== 0
-                    ? walkDirection
-                    : (isWalking ? (activeActor.facingRight ? 1 : -1) : 0);
-                if (activeWalkDirection !== 0) {
-                    const walkSpeed = isShogunMode()
-                        ? (isDashing ? 4.0 : 1.8)
-                        : (isDashing ? 7.0 : 4.2);
-                    activeActor.facingRight = activeWalkDirection > 0;
-                    activeActor.isDashing = isDashing;
-                    activeActor.vx = activeWalkDirection * walkSpeed;
-                    if (isShogunMode()) {
-                        shogun.x += shogun.vx;
-                    }
-                    // 画面端ループ
-                    if (activeActor.x < 100) {
-                        activeActor.x = canvas.width - 100;
-                    } else if (activeActor.x > canvas.width - 100) {
-                        activeActor.x = 100;
-                    }
-                } else {
-                    // 歩行から復帰するときに滑らないよう減速（攻撃中はボス自身の物理に委ねる）
-                    const actorIsActive = isShogunMode()
-                        ? (shogun._attackTimer > 0 || shogun._subTimer > 0 || shogun.isAttacking || !shogun.isGrounded)
-                        : (ninja.isAttacking || ninja.subWeaponTimer > 0 || !ninja.isGrounded);
-                    if (!actorIsActive) {
-                        activeActor.vx *= 0.8;
-                        if (Math.abs(activeActor.vx) < 0.1) activeActor.vx = 0;
-                    }
-                }
-
-                // update
-                if (isShogunMode()) {
-                    window.game.player = previewPlayerMock;
-                    shogun.update(dt, null, [], []);
-                    if (shogun.actor && typeof shogun.actor.updateSpecial === 'function') {
-                        shogun.actor.x = shogun.x + (shogun.width - shogun.actor.width) / 2;
-                        shogun.actor.y = shogun.groundY - shogun.actor.height;
-                        shogun.actor.facingRight = shogun.facingRight;
-                        shogun.actor.updateSpecial(dt);
-                    }
-                } else {
-                    window.game.player = ninja;
-                    input.update();
-                    ninja.update(dt, [], []);
-                }
-                const updatedActor = getActiveActor();
-                const maxX = canvas.width - updatedActor.width;
-                if (updatedActor.x < 0) {
-                    updatedActor.x = 0;
-                    if (updatedActor.vx < 0) updatedActor.vx = 0;
-                } else if (updatedActor.x > maxX) {
-                    updatedActor.x = maxX;
-                    if (updatedActor.vx > 0) updatedActor.vx = 0;
-                }
+                const actor = window.game.player;
+                if (isWalking && walkDirection !== 0) {
+                    actor.vx = walkDirection * (isDashing ? 8 : 4);
+                    actor.facingRight = walkDirection > 0;
+                } else { actor.vx *= 0.8; }
+                if (previewCharacter === 'shogun') shogun.update(dt, null, [], []);
+                else ninja.update(dt, [], []);
+                if (actor.x < -100) actor.x = logicalW + 100;
+                if (actor.x > logicalW + 100) actor.x = -100;
+                window.game.projectiles.forEach(p => { if (p.update) p.update(dt, window.game.groundY, []); });
+                window.game.projectiles = window.game.projectiles.filter(p => !p.isDead && !p.isDestroyed);
             }
-
-            if (!isPreviewPaused) {
-                if (isShogunMode() && queuedDualAttack && shogun._subAction === '二刀_Z' && canTriggerDualFollowUp()) {
-                    queuedDualAttack = false;
-                    fireDualSwing();
-                }
-
-                // プレビュー武器の強制維持
-                // ゲーム内同様、大太刀の刺さり/ぶら下がり/衝撃波などの継続演出中は待機表示へ戻さない
-                const previewActionActive = isShogunMode() && (shogun._attackTimer > 0 || shogun._subTimer > 0 || shogun.isAttacking);
-                if (isShogunMode() && window._previewWeapon && !previewActionActive) {
-                     shogun._subWeaponKey = window._previewWeapon;
-                     shogun._subAction = null;
-                     if (shogun._subWeaponInstances[window._previewWeapon]) {
-                         shogun._subWeaponInstances[window._previewWeapon]._renderForceActive = true;
-                         shogun._subWeaponInstances[window._previewWeapon].isAttacking = false;
-                     }
-                }
-
-                // モックの更新処理（爆弾などの寿命を進める）
-                if (window.game.bombs.length > 0) {
-                    window.game.bombs.forEach(b => {
-                        if (b.update) b.update(dt, window.game.groundY, []);
-                    });
-                    window.game.bombs = window.game.bombs.filter(b => !b.isDestroyed && !b.isDead);
-                }
-            }
-
-            // 描画
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // 背景・空 (少し明るめに調整)
+            ctx.fillStyle = '#2a2a2a';
+            ctx.fillRect(0, 0, logicalW, logicalH);
+            // 地面 (空より明るめ)
+            ctx.fillStyle = '#444';
+            ctx.fillRect(0, window.game.groundY, logicalW, logicalH - window.game.groundY);
             
-            // 地面の描画
-            ctx.fillStyle = '#3a3a3a';
-            ctx.fillRect(0, window.game.groundY, canvas.width, canvas.height - window.game.groundY);
-            ctx.strokeStyle = '#555';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(0, window.game.groundY);
-            ctx.lineTo(canvas.width, window.game.groundY);
-            ctx.stroke();
-
-            // 基準線の描画（中心）
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
-            ctx.beginPath();
-            ctx.moveTo(canvas.width / 2, 0);
-            ctx.lineTo(canvas.width / 2, canvas.height);
-            ctx.stroke();
-
-            // ポーズ中はrenderBody内で行われるトレイルの寿命更新を停止する
-            if (isPreviewPaused && isShogunMode()) {
-                shogun._lastDeltaMs = 0;
-            }
-
-            ctx.save();
-            if (isShogunMode()) {
-                if (shogun.actor && (shogun.actor.isUsingSpecial || (shogun.actor.specialSmoke && shogun.actor.specialSmoke.length > 0))) {
-                    shogun.actor.renderSpecial(ctx, {});
-                }
+            // ガイド線 (中心線)
+            ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+            ctx.lineWidth = 1;
+            // 垂直中心線
+            ctx.beginPath(); ctx.moveTo(logicalW / 2, 0); ctx.lineTo(logicalW / 2, logicalH); ctx.stroke();
+            // 地面水平線
+            ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+            ctx.beginPath(); ctx.moveTo(0, window.game.groundY); ctx.lineTo(logicalW, window.game.groundY); ctx.stroke();
+            window.game.projectiles.forEach(p => { if (p.render) p.render(ctx); });
+            if (previewCharacter === 'shogun') {
                 shogun.renderBody(ctx);
-            } else {
-                ninja.render(ctx, { ghostVeilActive: ninja.isGhostVeilActive() });
-                if (typeof ninja.renderComboSlashTrail === 'function') {
-                    ninja.renderComboSlashTrail(ctx);
-                }
-                if (typeof ninja.renderDualBladeSlashTrails === 'function') {
-                    ninja.renderDualBladeSlashTrails(ctx);
-                }
-                if (
-                    ninja.currentSubWeapon &&
-                    !ninja.subWeaponRenderedInModel &&
-                    typeof ninja.currentSubWeapon.render === 'function'
-                ) {
-                    ninja.currentSubWeapon.render(ctx, ninja);
-                }
-            }
-            ctx.restore();
-            
-            // 爆弾などの描画
-            if (window.game.bombs.length > 0) {
-                window.game.bombs.forEach(b => {
-                    if (b.render) b.render(ctx);
-                });
-            }
-
+                if (shogun._ougiActive && shogun.actor) shogun.actor.renderSpecial(ctx, {});
+            } else ninja.render(ctx);
             requestAnimationFrame(loop);
         }
-
+        switchChar('shogun');
         requestAnimationFrame(loop);
     </script>
 </body>

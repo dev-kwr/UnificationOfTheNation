@@ -2545,7 +2545,7 @@ export function applyRendererMixin(PlayerClass) {
     this.y = originalY;
     this.width = originalW;
     this.height = originalH;
-    if (this.characterType === 'shogun') {
+    if (useShogunTransform) {
         ctx.restore();
     }
     ctx.restore();
@@ -4850,40 +4850,8 @@ export function applyRendererMixin(PlayerClass) {
                         scarfNodes: cloneScarfNodes || undefined,
                         hairNodes: cloneHairNodes || undefined
                     });
-                    if (
-                        cloneUsesDualZ &&
-                        this.currentSubWeapon &&
-                        this.currentSubWeapon.name === '二刀流' &&
-                        typeof this.currentSubWeapon.render === 'function'
-                    ) {
-                        const dualBlade = this.currentSubWeapon;
-                        const dualSaved = {
-                            isAttacking: dualBlade.isAttacking,
-                            attackType: dualBlade.attackType,
-                            attackTimer: dualBlade.attackTimer,
-                            attackDirection: dualBlade.attackDirection,
-                            comboIndex: dualBlade.comboIndex,
-                            projectiles: dualBlade.projectiles
-                        };
-                        const dualComboIndex = this.specialCloneAutoAiEnabled
-                            ? (this.specialCloneComboSteps[i] || 0)
-                            : (dualBlade.comboIndex || 0);
-                        const dualAttackTimer = this.specialCloneAutoAiEnabled
-                            ? (this.specialCloneSubWeaponTimers[i] || 0)
-                            : (this.subWeaponTimer || dualBlade.attackTimer || 0);
-                        dualBlade.isAttacking = true;
-                        dualBlade.attackType = 'main';
-                        dualBlade.attackDirection = this.facingRight ? 1 : -1;
-                        dualBlade.comboIndex = dualComboIndex;
-                        dualBlade.attackTimer = dualAttackTimer;
-                        dualBlade.projectiles = [];
-                        dualBlade.render(ctx, this);
-                        dualBlade.isAttacking = dualSaved.isAttacking;
-                        dualBlade.attackType = dualSaved.attackType;
-                        dualBlade.attackTimer = dualSaved.attackTimer;
-                        dualBlade.attackDirection = dualSaved.attackDirection;
-                        dualBlade.comboIndex = dualSaved.comboIndex;
-                        dualBlade.projectiles = dualSaved.projectiles;
+                    if (this.specialCloneSubWeaponInstances && this.specialCloneSubWeaponInstances[i] && typeof this.specialCloneSubWeaponInstances[i].render === 'function') {
+                        this.specialCloneSubWeaponInstances[i].render(ctx, this);
                     }
 
                     ctx.restore();

@@ -3,7 +3,7 @@
 import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js';
 import { audio } from './audio.js';
 import { game } from './game.js';
-import { drawShurikenShape } from './weapon.js';
+import { drawShurikenShape, createSubWeapon } from './weapon.js';
 import {
     ANIM_STATE, COMBO_ATTACKS, PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
@@ -146,6 +146,30 @@ export function applySpecialMixin(PlayerClass) {
 
         if (this.isUsingSpecial) {
             this.updateSpecialCloneSlashTrails(deltaMs);
+            if (this.specialCloneSubWeaponInstances) {
+                for (let i = 0; i < this.specialCloneSubWeaponInstances.length; i++) {
+                    const inst = this.specialCloneSubWeaponInstances[i];
+                    if (inst) {
+                        const pos = this.specialClonePositions ? this.specialClonePositions[i] : null;
+                        const dummyClone = {
+                            x: pos ? pos.x - this.width / 2 : this.x,
+                            y: pos ? this.getSpecialCloneDrawY(pos.y) : this.y,
+                            width: this.width,
+                            height: this.height,
+                            vx: 0, vy: 0,
+                            groundY: this.groundY,
+                            facingRight: pos ? pos.facingRight : this.facingRight,
+                            isEnemy: false,
+                            isDashing: false,
+                            isGrounded: true,
+                            isXAttackBoostActive: () => false,
+                            currentSubWeapon: inst,
+                            subWeaponAction: this.specialCloneSubWeaponActions ? this.specialCloneSubWeaponActions[i] : null
+                        };
+                        inst.update(deltaTime, dummyClone);
+                    }
+                }
+            }
         }
 
         for (const puff of this.specialSmoke) {
@@ -198,6 +222,7 @@ export function applySpecialMixin(PlayerClass) {
                 this.specialCloneSubWeaponActions[index] = '二刀_Z';
                 // 二刀流の合間も少し長め（本体合わせ）に猶予を持たせる
                 this.specialCloneComboResetTimers[index] = dualDuration + 210 + 60;
+                this.activateCloneSubWeaponInstance(index, 'main');
                 return;
             }
             let nextStep = (this.specialCloneComboSteps[index] || 0) + 1;
@@ -272,6 +297,36 @@ export function applySpecialMixin(PlayerClass) {
             this.currentSubWeapon
         );
         this.specialCloneSubWeaponActions[index] = weaponName === '火薬玉' ? 'throw' : weaponName;
+        this.activateCloneSubWeaponInstance(index);
+    };
+
+    PlayerClass.prototype.activateCloneSubWeaponInstance = function(index, overrideAttackType = null) {
+        if (!this.currentSubWeapon || !this.specialCloneSubWeaponInstances) return;
+        const weaponName = this.currentSubWeapon.name;
+        if (!this.specialCloneSubWeaponInstances[index] || this.specialCloneSubWeaponInstances[index].name !== weaponName) {
+            this.specialCloneSubWeaponInstances[index] = createSubWeapon(weaponName);
+            if (this.specialCloneSubWeaponInstances[index] && typeof this.specialCloneSubWeaponInstances[index].applyEnhanceTier === 'function') {
+                this.specialCloneSubWeaponInstances[index].applyEnhanceTier(this.enhanceTier || 0);
+            }
+        }
+        if (this.specialCloneSubWeaponInstances[index]) {
+            const clonePos = this.specialClonePositions[index];
+            if (!clonePos) return;
+            const dummyClone = {
+                x: clonePos.x - this.width / 2,
+                y: this.getSpecialCloneDrawY(clonePos.y),
+                width: this.width,
+                height: this.height,
+                facingRight: clonePos.facingRight,
+                isEnemy: false
+            };
+            const attackType = overrideAttackType || this.currentSubWeapon.attackType || 'main';
+            if (weaponName === '二刀流') {
+                this.specialCloneSubWeaponInstances[index].use(dummyClone, attackType);
+            } else {
+                this.specialCloneSubWeaponInstances[index].use(dummyClone);
+            }
+        }
     };
 
     PlayerClass.prototype.onSpecialCloneStarted = function() {
@@ -307,6 +362,7 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
         this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
         this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
+        this.specialCloneSubWeaponInstances = this.specialCloneSlots.map(() => null);
 
         // 戦闘開始時の煙もここでは生成せず、詠唱開始時のみに集約するか、
         // 少なくとも重複は避ける。詠唱終了時の煙は削除。
