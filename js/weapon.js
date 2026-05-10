@@ -2981,10 +2981,13 @@ export class Odachi extends SubWeapon {
         const tierSpeedScale = [1.0, 1.08, 1.2, 1.5][subWeaponTier];
         const speedScale = 1 + (rangeScale - 1) * 0.9;
         const lifeScale = 1 + (rangeScale - 1) * 1.25;
+        // 将軍は scale(2.2) で描画されるため world speed を renderScale で割って視覚速度を忍者と揃える
+        const ownerRenderScale = (this.isShogunOdachi && this.owner?.scaleMultiplier > 1)
+            ? this.owner.scaleMultiplier : 1;
         const mainLife = Math.round(420 * lifeScale * tierLifeScale);
         const subLife = Math.round(320 * lifeScale * tierLifeScale);
-        const mainSpeed = 7.8 * speedScale * tierSpeedScale;
-        const subSpeed = 9.4 * speedScale * tierSpeedScale;
+        const mainSpeed = 7.8 * speedScale * tierSpeedScale / ownerRenderScale;
+        const subSpeed = 9.4 * speedScale * tierSpeedScale / ownerRenderScale;
         this.groundWaves.push(
             { x: this.impactX, y: this.impactY, dir: -1, life: mainLife, maxLife: mainLife, speed: mainSpeed, thickness: 28, core: 11 },
             { x: this.impactX, y: this.impactY, dir: 1, life: mainLife, maxLife: mainLife, speed: mainSpeed, thickness: 28, core: 11 },
