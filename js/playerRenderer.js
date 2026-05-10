@@ -1893,7 +1893,9 @@ export function applyRendererMixin(PlayerClass) {
             drawJointedLeg(leftHipX, hipLocalY + 0.35, leftKneeX, leftKneeY, leftFootX, leftFootY, false, 1.12);
             drawJointedLeg(rightHipX, hipLocalY + 0.12, rightKneeX, rightKneeY, rightFootX, rightFootY, true, 1.06);
         } else if (isCrouchPose) {
-            const crouchStride = crouchWalkPhase * 3.4 * crouchPoseT;
+            // strideとliftはcrouchPoseTに関係なく常にフルで効かせる（crouchIntensity=0.35の将軍でも歩行が見えるように）
+            const crouchStrideRaw = crouchWalkPhase * 2.0;
+            const crouchStride = crouchStrideRaw; // foot position lerp用（両端に加算するので crouchPoseT 乗算不要）
             const idlePhase = Math.sin(this.motionTime * 0.0042);
             const idleSpread = 2.5 + Math.abs(idlePhase) * 0.3;
             const leftHipX = lerp(torsoHipX + dir * 1.35, torsoHipX + dir * 1.15, crouchPoseT);
@@ -1902,17 +1904,19 @@ export function applyRendererMixin(PlayerClass) {
             const rightHipYL = hipY + lerp(0.14, 0.2, crouchPoseT);
             // 膝はhipYからbottomYの範囲に収まるよう clamp する
             const kneeYMax = bottomY - 4;
-            // 交互に足を持ち上げる: 片足が前に出るときに対応する足を持ち上げる
-            const leftLift = Math.max(0, -crouchWalkPhase) * 3.2 * crouchPoseT;
-            const rightLift = Math.max(0, crouchWalkPhase) * 3.2 * crouchPoseT;
-            const leftKneeX = lerp(leftHipX + dir * 0.55, leftHipX + dir * (3.0 + crouchStride * 0.5), crouchPoseT);
+            // 交互に足を持ち上げる: crouchPoseTに依存せずフルの振れ幅で持ち上げる
+            const leftLift = Math.max(0, -crouchWalkPhase) * 3.0;
+            const rightLift = Math.max(0, crouchWalkPhase) * 3.0;
+            const leftKneeX = lerp(leftHipX + dir * (0.55 + crouchStride * 0.25), leftHipX + dir * (3.0 + crouchStride * 0.5), crouchPoseT);
             const leftKneeY = Math.min(kneeYMax, lerp(hipY + 9.9, hipY + 6.0 + Math.max(0, -crouchWalkPhase) * 1.8, crouchPoseT));
-            const leftFootX = lerp(centerX + dir * idleSpread, centerX + dir * (6.5 + crouchStride), crouchPoseT);
-            const leftFootY = lerp(bottomY + 0.1, bottomY - 0.6 - leftLift, crouchPoseT);
-            const rightKneeX = lerp(rightHipX + dir * 0.6, rightHipX - dir * (3.6 - crouchStride * 0.5), crouchPoseT);
+            const leftFootXBase = lerp(centerX + dir * idleSpread, centerX + dir * 6.5, crouchPoseT);
+            const leftFootX = leftFootXBase + dir * crouchStride;
+            const leftFootY = lerp(bottomY + 0.1, bottomY - 0.6, crouchPoseT) - leftLift;
+            const rightKneeX = lerp(rightHipX + dir * (0.6 - crouchStride * 0.25), rightHipX - dir * (3.6 - crouchStride * 0.5), crouchPoseT);
             const rightKneeY = Math.min(kneeYMax, lerp(hipY + 9.6, hipY + 6.4 + Math.max(0, crouchWalkPhase) * 1.8, crouchPoseT));
-            const rightFootX = lerp(centerX - dir * idleSpread, centerX - dir * (7.2 - crouchStride), crouchPoseT);
-            const rightFootY = lerp(bottomY - 0.1, bottomY - 0.2 - rightLift, crouchPoseT);
+            const rightFootXBase = lerp(centerX - dir * idleSpread, centerX - dir * 7.2, crouchPoseT);
+            const rightFootX = rightFootXBase + dir * crouchStride;
+            const rightFootY = lerp(bottomY - 0.1, bottomY - 0.2, crouchPoseT) - rightLift;
             drawJointedLeg(leftHipX, leftHipYL, leftKneeX, leftKneeY, leftFootX, leftFootY, false, lerp(0.0, 1.0, crouchPoseT));
             drawJointedLeg(rightHipX, rightHipYL, rightKneeX, rightKneeY, rightFootX, rightFootY, true, lerp(0.18, 1.02, crouchPoseT));
         } else if (isSpearThrustPose) {

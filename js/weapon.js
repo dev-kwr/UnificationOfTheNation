@@ -2738,7 +2738,8 @@ export class Odachi extends SubWeapon {
         const damages = [34, 40, 43, 46];
         const cooldowns = [580, 565, 550, 535];
         // 将軍用の独自遅延を撤廃し、忍者と同一の軽快なモーション速度に同期（もっさり感の解消）
-        const shogunCooldowns = [580, 565, 550, 535];
+        // 将軍は2.2倍スケールなのでモーション時間をsqrt(2.2)≈1.483倍にして視覚的比率を一致させる
+        const shogunCooldowns = [860, 838, 816, 794];
         const jumps = [-22, -26, -28, -30];
 
         this.damage = damages[this.enhanceTier] || damages[0];
@@ -2829,7 +2830,10 @@ export class Odachi extends SubWeapon {
         if (this.hasImpacted) {
             phase = 'planted';
             rotation = Math.PI * 0.5;
-            const handX = centerX + direction * (player.width * 0.325);
+            // impactFrozen.pivotX を使うことで、planted中にボスが横移動してもX位置がずれない
+            const frozenCenterX = (this.impactFrozen && Number.isFinite(this.impactFrozen.pivotX))
+                ? this.impactFrozen.pivotX : centerX;
+            const handX = frozenCenterX + direction * (player.width * 0.325);
             // 身長比率に基づいて手の高さを計算 (プレイヤー 60px に対し 7.5px = 0.125)
             const handY = player.y + player.height * 0.125;
             
@@ -3023,6 +3027,7 @@ export class Odachi extends SubWeapon {
                         this.owner.y = targetY;
                     }
                     this.owner.vy = 0;
+                    this.owner.vx = 0; // planted中は横ドリフトもロック（フェードアウト時のX位置ずれ防止）
                     this.owner.isGrounded = false; // 足元は浮いている
                 }
 
@@ -3036,7 +3041,10 @@ export class Odachi extends SubWeapon {
                 if (this.owner) {
                     // 1. 上昇時 (rise フェーズ): Lv に応じて物理的に上昇
                     if (progress < this.liftEnd) {
-                        const liftPower = -12 - (subWeaponTier * 8.5); // Lv3 で最大上昇力
+                        // 将軍は2.2倍スケールなので、同じ視覚的高さに見せるためliftPowerをsqrt(2.2)倍にする
+                        const ownerScaleSqrt = (this.isShogunOdachi && this.owner?.scaleMultiplier > 1)
+                            ? Math.sqrt(this.owner.scaleMultiplier) : 1;
+                        const liftPower = (-12 - (subWeaponTier * 8.5)) * ownerScaleSqrt; // Lv3 で最大上昇力
                         // 最初の一撃で勢いをつけ、残りは維持
                         if (progress < 0.1) {
                             this.owner.vy = liftPower;
@@ -3073,12 +3081,14 @@ export class Odachi extends SubWeapon {
                             this.owner.vy = 0;
                             this.hasImpacted = true;
                             this.plantedTimer = this.plantedDuration;
-                            this.impactX = pose.handX + Math.cos(pose.rotation) * bladeEnd;
-                            this.impactY = maxTipY;
                             this.impactFrozen = {
                                 pivotX: this.owner.x + this.owner.width * 0.5,
                                 pivotY: this.owner.y + this.owner.height * 0.62
                             };
+                            // renderModel は常に drawW=48 で描くため、視覚的な手元位置に合わせる
+                            const _impactDrawW0 = this.isShogunOdachi ? 48 : this.owner.width;
+                            this.impactX = this.impactFrozen.pivotX + pose.direction * (_impactDrawW0 * 0.325);
+                            this.impactY = maxTipY;
                             this.impactFlashTimer = 170;
                             this.spawnImpactWaves();
                             this.spawnImpactDebris();
@@ -3098,9 +3108,15 @@ export class Odachi extends SubWeapon {
                     this.hasImpacted = true;
                     this.plantedTimer = this.plantedDuration;
                     if (this.owner) {
+                        if (!this.impactFrozen) {
+                            this.impactFrozen = {
+                                pivotX: this.owner.x + this.owner.width * 0.5,
+                                pivotY: this.owner.y + this.owner.height * 0.62
+                            };
+                        }
                         const pose = this.getPose(this.owner);
-                        const bladeEnd = pose.bladeLen + 8;
-                        this.impactX = pose.handX + Math.cos(pose.rotation) * bladeEnd;
+                        const _impactDrawW1 = this.isShogunOdachi ? 48 : this.owner.width;
+                        this.impactX = this.impactFrozen.pivotX + pose.direction * (_impactDrawW1 * 0.325);
                         this.impactY = this.owner.groundY + LANE_OFFSET;
                     }
                     this.impactFlashTimer = 170;
@@ -3117,9 +3133,15 @@ export class Odachi extends SubWeapon {
                     this.hasImpacted = true;
                     this.plantedTimer = this.plantedDuration;
                     if (this.owner) {
+                        if (!this.impactFrozen) {
+                            this.impactFrozen = {
+                                pivotX: this.owner.x + this.owner.width * 0.5,
+                                pivotY: this.owner.y + this.owner.height * 0.62
+                            };
+                        }
                         const pose = this.getPose(this.owner);
-                        const bladeEnd = pose.bladeLen + 8;
-                        this.impactX = pose.handX + Math.cos(pose.rotation) * bladeEnd;
+                        const _impactDrawW2 = this.isShogunOdachi ? 48 : this.owner.width;
+                        this.impactX = this.impactFrozen.pivotX + pose.direction * (_impactDrawW2 * 0.325);
                         this.impactY = this.owner.groundY + LANE_OFFSET;
                     }
                     this.impactFlashTimer = 170;

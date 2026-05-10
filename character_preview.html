@@ -266,9 +266,15 @@
             font-size: 11px;
         }
 
-        .param-row label { width: 130px; color: #999; }
-        .param-row input { flex: 1; accent-color: var(--accent); }
-        .param-row span { width: 40px; text-align: right; color: var(--accent); font-family: monospace; font-weight: bold; }
+        .param-row label { width: 130px; color: #999; flex-shrink: 0; }
+        .param-row input { flex: 1; min-width: 60px; accent-color: var(--accent); }
+        .param-row span { width: 40px; text-align: right; color: var(--accent); font-family: monospace; font-weight: bold; flex-shrink: 0; }
+
+        @media (max-width: 700px) {
+            .tuning-grid {
+                grid-template-columns: 1fr;
+            }
+        }
     </style>
 </head>
 <body>

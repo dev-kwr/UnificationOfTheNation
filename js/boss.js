@@ -1553,7 +1553,8 @@ export class Shogun extends Boss {
         const useActorSpace = actorSpaceKeys.has(this._subWeaponKey);
         const owner = useActorSpace ? this.getActorSpaceState() : this;
         let rangeBackup = null;
-        if (useActorSpace && Number.isFinite(subInst.range) && Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0) {
+        // 鎖鎌はビジュアルスケール分の当たり判定をそのまま残す（range除算するとスケール後で相殺されて忍者と同サイズになる）
+        if (useActorSpace && this._subWeaponKey !== 'kusarigama' && Number.isFinite(subInst.range) && Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0) {
             rangeBackup = subInst.range;
             subInst.range = subInst.range / this.scaleMultiplier;
         }
@@ -2706,11 +2707,14 @@ export class Shogun extends Boss {
         };
 
         // 将軍は戦闘判定レンジを拡大しているため、
-        // 描画時だけ逆補正しないと槍/鎖鎌/大太刀の見た目が過剰に伸びる。
+        // 描画時だけ逆補正しないと槍/大太刀の見た目が過剰に伸びる。
+        // 鎖鎌は除外: renderWithShogunTransform(×2.2)内でそのまま描くと
+        // chain が 340×2.2=748px になり、ヒットボックス(748px)とも一致する
         const scaledRangeBackups = [];
         if (Math.abs(renderScale - 1) > 0.001 && this._subWeaponInstances) {
-            for (const inst of Object.values(this._subWeaponInstances)) {
+            for (const [key, inst] of Object.entries(this._subWeaponInstances)) {
                 if (!inst || !Number.isFinite(inst.range)) continue;
+                if (key === 'kusarigama') continue; // 鎖鎌はビジュアルスケールをそのまま利用
                 scaledRangeBackups.push([inst, inst.range]);
                 inst.range = inst.range / renderScale;
             }
@@ -2989,10 +2993,12 @@ export class Shogun extends Boss {
 
         if (odachiGroundRenderInst) {
             odachiGroundRenderInst.suppressGroundEffectsRender = true;
-            // fadeout開始前のフレームでpivotを保存（fadeout中はbosspivotが変わるため固定が必要）
+            // fadeout開始前のフレームでpivotとactor位置を保存（fadeout中はbosspivotが変わるため固定が必要）
             if ((odachiGroundRenderInst.fadeOutTimer || 0) <= 0) {
                 odachiGroundRenderInst._lastPlantedPivotX = this.x + this.width * 0.5;
                 odachiGroundRenderInst._lastPlantedPivotY = this.y + this.height * 0.62;
+                odachiGroundRenderInst._lastPlantedActorX = actorRenderX;
+                odachiGroundRenderInst._lastPlantedActorY = actorRenderY;
             }
         }
 
@@ -3008,17 +3014,20 @@ export class Shogun extends Boss {
         if (odachiGroundRenderInst && typeof odachiGroundRenderInst.render === 'function') {
             odachiGroundRenderInst.suppressGroundEffectsRender = false;
             odachiGroundRenderInst.renderOnlyGroundEffects = true;
-            const impactOffset = this.getRenderedOdachiImpactOffset(odachiGroundRenderInst, renderScale);
             ctx.save();
-            if (impactOffset && Number.isFinite(impactOffset.x) && Number.isFinite(impactOffset.y)) {
-                ctx.translate(impactOffset.x, impactOffset.y);
-            }
             if (renderScale > 1.001) {
-                const impactX = Number.isFinite(odachiGroundRenderInst.impactX) ? odachiGroundRenderInst.impactX : (this.x + this.width * 0.5);
-                const impactY = Number.isFinite(odachiGroundRenderInst.impactY) ? odachiGroundRenderInst.impactY : (this.groundY + LANE_OFFSET);
-                ctx.translate(impactX, impactY);
+                // X は剣と同じ pivot (bossCenter) で scale → fadeout 中の波紋X位置ずれを防ぐ。
+                // Y は impactY (地面接触点) で scale → 波紋が地面から大きく外れるのを防ぐ。
+                const isFadeOut = (odachiGroundRenderInst.fadeOutTimer || 0) > 0;
+                const wavePivotX = (isFadeOut && Number.isFinite(odachiGroundRenderInst._lastPlantedPivotX))
+                    ? odachiGroundRenderInst._lastPlantedPivotX
+                    : (this.x + this.width * 0.5);
+                const wavePivotY = Number.isFinite(odachiGroundRenderInst.impactY)
+                    ? odachiGroundRenderInst.impactY
+                    : (this.groundY + LANE_OFFSET);
+                ctx.translate(wavePivotX, wavePivotY);
                 ctx.scale(renderScale, renderScale);
-                ctx.translate(-impactX, -impactY);
+                ctx.translate(-wavePivotX, -wavePivotY);
             }
             odachiGroundRenderInst.render(ctx, this);
             ctx.restore();
@@ -3078,6 +3087,13 @@ export class Shogun extends Boss {
             const fadePivotX = odachiGroundRenderInst._lastPlantedPivotX ?? (this.x + this.width * 0.5);
             const fadePivotY = odachiGroundRenderInst._lastPlantedPivotY ?? (this.y + this.height * 0.62);
             odachiGroundRenderInst.suppressGroundEffectsRender = true;
+            // fadeout中はactor位置を植え込み時の位置に固定してX/Yずれを防ぐ
+            const savedFadeActorX = this.actor.x;
+            const savedFadeActorY = this.actor.y;
+            if (odachiGroundRenderInst._lastPlantedActorX !== undefined) {
+                this.actor.x = odachiGroundRenderInst._lastPlantedActorX;
+                this.actor.y = odachiGroundRenderInst._lastPlantedActorY;
+            }
             ctx.save();
             if (Math.abs(renderScale - 1) > 0.001) {
                 ctx.translate(fadePivotX, fadePivotY);
@@ -3086,6 +3102,8 @@ export class Shogun extends Boss {
             }
             odachiGroundRenderInst.render(ctx, this.actor);
             ctx.restore();
+            this.actor.x = savedFadeActorX;
+            this.actor.y = savedFadeActorY;
             odachiGroundRenderInst.suppressGroundEffectsRender = false;
         }
 
