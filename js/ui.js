@@ -1459,18 +1459,21 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     );
 
     const globalData = saveManager.loadGlobal();
+    const focusedFill = 'rgba(116, 166, 255, 0.78)';
+    const focusedBorder = 'rgba(238, 246, 255, 0.98)';
     if (globalData.isGameCleared && layout.characterY) {
         const isShogun = characterType === 'shogun';
+        const isCharFocused = titleMenuIndex === 0;
         drawRoundedFlatTitleButton(
             ctx,
             layout.centerX,
             layout.characterY,
             layout.diffButton.width,
             layout.diffButton.height,
-            isShogun ? '操作キャラ: 将軍' : '操作キャラ: 忍者',
+            isShogun ? '将軍' : '標準',
             {
-                fill: isShogun ? '#aa4444' : '#4444aa',
-                border: 'rgba(245, 246, 255, 0.5)',
+                fill: isCharFocused ? '#5858c0' : '#4444aa',
+                border: isCharFocused ? focusedBorder : 'rgba(245, 246, 255, 0.5)',
                 font: '700 18px sans-serif'
             }
         );
@@ -1480,8 +1483,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     const startY = layout.startY;
     const actionW = layout.actionButton.width;
     const actionH = layout.actionButton.height;
-    const focusedFill = 'rgba(116, 166, 255, 0.78)';
-    const focusedBorder = 'rgba(238, 246, 255, 0.98)';
+    const charOffset = globalData.isGameCleared ? 1 : 0;
     if (hasSave) {
         drawRoundedFlatTitleButton(
             ctx,
@@ -1491,8 +1493,8 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
             actionH,
             '続きから',
             {
-                fill: titleMenuIndex === 0 ? focusedFill : titleActionFill,
-                border: titleMenuIndex === 0 ? focusedBorder : titleActionStroke,
+                fill: titleMenuIndex === charOffset ? focusedFill : titleActionFill,
+                border: titleMenuIndex === charOffset ? focusedBorder : titleActionStroke,
                 font: '700 22px sans-serif'
             }
         );
@@ -1504,8 +1506,8 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
             actionH,
             '最初から',
             {
-                fill: titleMenuIndex === 1 ? focusedFill : titleActionFill,
-                border: titleMenuIndex === 1 ? focusedBorder : titleActionStroke,
+                fill: titleMenuIndex === charOffset + 1 ? focusedFill : titleActionFill,
+                border: titleMenuIndex === charOffset + 1 ? focusedBorder : titleActionStroke,
                 font: '700 22px sans-serif'
             }
         );
@@ -1518,8 +1520,8 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
             actionH,
             '出陣',
             {
-                fill: focusedFill,
-                border: focusedBorder,
+                fill: titleMenuIndex === charOffset ? focusedFill : titleActionFill,
+                border: titleMenuIndex === charOffset ? focusedBorder : titleActionStroke,
                 font: '700 22px sans-serif'
             }
         );
@@ -1805,7 +1807,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
             { label: '小判', value: `${formatMoney(player.money)} 枚`, color: '#ffd700' },
             { label: '剛力', value: `${(player.attackPower || 1.0).toFixed(1)}倍`, color: '#ffae70' },
             { label: '韋駄天', value: player.permanentDash ? '習得済' : '未習得', color: '#7affae' },
-            { label: '跳躍', value: `${player.maxJumps || 1}段`, color: '#7ab5ff' }
+            { label: '跳躍', value: `${toKanjiNumber(player.maxJumps || 1)}段`, color: '#7ab5ff' }
         ];
 
         const statsBottomY = rowStartY + statRows.length * (rowH + rowGap) - rowGap;

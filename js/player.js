@@ -9,7 +9,7 @@ import { game } from './game.js';
 import { drawShurikenShape } from './weapon.js';
 import {
     ANIM_STATE, COMBO_ATTACKS, calcExpToNextForLevel,
-    BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN,
+    BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN, LEVEL_UP_ATK_GAIN,
     PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
@@ -132,6 +132,7 @@ export class Player {
         this.attackPower = 1;
         this.baseAttackPower = 1;
         this.atkLv = 0;
+        this.levelAtkBonus = 0;
         
         // 武器
         this.currentSubWeapon = null;
@@ -1290,7 +1291,7 @@ export class Player {
     getSubWeaponActionDurationMs(actionName, weapon = this.currentSubWeapon) {
         const name = actionName || (weapon && weapon.name) || '';
         if (name === 'throw') {
-            return 72;
+            return 130;
         }
         if (name === '二刀_合体') {
             const dual = (weapon && weapon.name === '二刀流') ? weapon : this.currentSubWeapon;
@@ -2031,6 +2032,7 @@ export class Player {
     levelUp() {
         this.level++;
         this.maxHp = Math.max(1, this.maxHp + LEVEL_UP_MAX_HP_GAIN);
+        this.levelAtkBonus += LEVEL_UP_ATK_GAIN;
         this.expToNext = calcExpToNextForLevel(this.level);
         this.hp = this.maxHp;
     }

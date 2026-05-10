@@ -257,6 +257,17 @@ export function applyShogunCombat(player) {
             this.switchSubWeapon();
         }
 
+        // プレビューモードは攻撃・忍具のみ（移動・ジャンプなし）
+        if (this.previewMode) {
+            if (input.isActionJustPressed('SUB_WEAPON')) {
+                this._shogunTriggerSubAction(boss);
+            }
+            if (input.isActionJustPressed('ATTACK')) {
+                this._shogunTriggerAttack(boss);
+            }
+            return;
+        }
+
         // ── しゃがみ（↓キー）──
         const wantsCrouch = this.isGrounded && input.isAction('DOWN');
         if (wantsCrouch) {
@@ -290,6 +301,10 @@ export function applyShogunCombat(player) {
         const moveDir = input.isAction('LEFT') ? -1 : (input.isAction('RIGHT') ? 1 : 0);
 
         // ── ダッシュ ──
+        // 将軍の通常速度(3.8)は遅いため、ダッシュ速度は固定値で体感できる差を確保する
+        const SHOGUN_DASH_VX = SHOGUN_SPEED * 2.6;   // ≈9.9 px/frame
+        const SHOGUN_PERM_VX = SHOGUN_SPEED * 1.7;   // ≈6.5 px/frame（韋駄天常時ダッシュ）
+
         const touchDashHeld = typeof input.isTouchDashActive === 'function' && input.isTouchDashActive();
         const keyboardDashHeld = typeof input.isKeyboardDashHeld === 'function' && input.isKeyboardDashHeld(moveDir);
         const sustainedDashHeld = touchDashHeld || keyboardDashHeld;
@@ -308,11 +323,11 @@ export function applyShogunCombat(player) {
         }
 
         if (this.isDashing) {
-            this.vx = this.dashDirection * (this.speed * this.dashSpeedMultiplier);
+            this.vx = this.dashDirection * SHOGUN_DASH_VX;
             this.facingRight = this.dashDirection > 0;
         } else if (moveDir !== 0) {
             if (this.permanentDash) {
-                this.vx = moveDir * (this.speed * this.dashSpeedMultiplier);
+                this.vx = moveDir * SHOGUN_PERM_VX;
                 this.isDashing = true;
                 this.dashDirection = moveDir >= 0 ? 1 : -1;
                 this.dashTimer = Math.max(this.dashTimer, this.dashDuration * 0.5);
@@ -665,9 +680,9 @@ export function applyShogunCombat(player) {
         // ── 入力処理（handleInput は将軍専用にオーバーライド済み） ──
         this.handleInput();
 
-        // ── 移動がなければ減速（preview line 591: shogun.vx *= 0.8） ──
-        const bossIsActive = boss._attackTimer > 0 || boss._subTimer > 0 || boss.isAttacking || !boss.isGrounded;
-        if (!bossIsActive && !this.isDashing) {
+        // ── 移動がなければ減速（地上のみ）──
+        const bossIsActive = boss._attackTimer > 0 || boss._subTimer > 0 || boss.isAttacking;
+        if (!bossIsActive && boss.isGrounded && !this.isDashing) {
             const moveDir = input.isAction('LEFT') ? -1 : (input.isAction('RIGHT') ? 1 : 0);
             if (moveDir === 0) {
                 this.vx *= 0.8;
@@ -675,7 +690,7 @@ export function applyShogunCombat(player) {
             }
         }
 
-        // ── プレイヤーの状態をボスに同期 ──
+        // ── プレイヤーの状態をボスに同期（攻撃中以外は常に同期） ──
         if (!bossIsActive) {
             boss.x = this.x;
             boss.y = this.y;

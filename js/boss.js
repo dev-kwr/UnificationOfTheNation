@@ -1353,9 +1353,11 @@ export class Shogun extends Boss {
         const actorFootGroundOffset = 2;
         const actorRenderX = this.x + (this.width - actorRenderW) * 0.5;
         const actorRenderY = this.y + (this.height - actorRenderH) * 0.62 + actorFootGroundOffset;
+        // しゃがみ時のみY下方オフセット（立ち投げは元の位置）
+        const throwLaunchYOffset = this.isCrouching ? (this.height - 60) * 0.25 : 0;
         return {
             x: actorRenderX,
-            y: actorRenderY,
+            y: actorRenderY + throwLaunchYOffset,
             width: actorRenderW,
             height: PLAYER.HEIGHT,
             groundY: this.groundY,
@@ -1425,9 +1427,7 @@ export class Shogun extends Boss {
             x: pivotX + (visualTip.x - pivotX) * scale,
             y: pivotY + (visualTip.y - pivotY) * scale
         };
-        // 実描画では鎺と刃の外形がわずかに画面右へ重く見えるため、
-        // 衝撃波の中心も切先の見た目に合わせて少しだけ右へ寄せる。
-        const tipVisualNudgeX = 2.2 * scale;
+        const tipVisualNudgeX = 0;
         return {
             x: renderedTip.x + tipVisualNudgeX - odachi.impactX,
             y: renderedTip.y - odachi.impactY
@@ -1612,18 +1612,25 @@ export class Shogun extends Boss {
         this.y += this.vy;
 
         for (const obs of obstacles) {
-            if (!obs || obs.isDestroyed || !this.intersects(obs)) continue;
-            if (this.vy >= 0 && this.oldY + this.height <= obs.y + 10) {
+            if (!obs || obs.isDestroyed) continue;
+            const feetY = this.y + this.height;
+            const prevFeetY = this.oldY + this.height;
+            // 上着地: intersectsが境界で false になるケースをスナップで吸収
+            const hOverlap = this.x + this.width > obs.x + 1 && this.x < obs.x + obs.width - 1;
+            if (this.vy >= 0 && prevFeetY <= obs.y + 10 && feetY >= obs.y - 1 && hOverlap) {
                 this.y = obs.y - this.height;
                 this.vy = 0;
                 this.isGrounded = true;
-            } else if (this.vy < 0 && this.oldY >= obs.y + obs.height - 10) {
+                continue;
+            }
+            if (!this.intersects(obs)) continue;
+            if (this.vy < 0 && this.oldY >= obs.y + obs.height - 10) {
                 this.y = obs.y + obs.height;
                 this.vy = 0;
-            } else if (this.oldX + this.width <= obs.x + 5) {
+            } else if (this.vx > 0 && this.oldX + this.width <= obs.x + 5) {
                 this.x = obs.x - this.width;
                 this.vx = 0;
-            } else if (this.oldX >= obs.x + obs.width - 5) {
+            } else if (this.vx < 0 && this.oldX >= obs.x + obs.width - 5) {
                 this.x = obs.x + obs.width;
                 this.vx = 0;
             }
@@ -2432,8 +2439,8 @@ export class Shogun extends Boss {
         const useOwner = resolvedKey === 'shuriken' ? this.getThrowOwnerState() : this;
         this._useSubWeaponAsPlayerStyle(subInst, useMode, useOwner);
         if (resolvedKey === 'odachi') {
-            // 跳躍力も忍者に合わせて復旧（もっさり感の解消）
-            this.vy = -12.5;
+            // 将軍はサイズが大きい分だけ跳躍力を増やし、視覚的な飛翔の高さを忍者と揃える
+            this.vy = -22 * Math.sqrt(this.scaleMultiplier || 1);
         }
         if (resolvedKey === 'dual' && type === 'dual') {
             this.vx = 0;
@@ -2655,6 +2662,14 @@ export class Shogun extends Boss {
         this.actor.width       = actorRenderW;
         this.actor.height      = actorRenderH;
         this.actor.facingRight = this.facingRight;
+        
+        const pivotY = this.y + this.height * 0.62;
+        // actor.groundY + LANE_OFFSETがrenderScale倍後に視覚的地面(groundY+LANE_OFFSET)と一致するよう逆算する
+        this.actor.groundY = pivotY + (this.groundY + LANE_OFFSET - pivotY) / renderScale - LANE_OFFSET;
+
+        const odachiGroundRenderInst = this._subWeaponKey === 'odachi'
+            ? this._subWeaponInstances.odachi
+            : (this.currentSubWeapon && this.currentSubWeapon.name === '大太刀' ? this.currentSubWeapon : null);
 
         const renderOpts = {
             renderHeadbandTail: false,
@@ -2685,6 +2700,9 @@ export class Shogun extends Boss {
                 return { pivotX, pivotY, yawSkew };
             })(),
             _shogunExternalTransform: true,
+            // fadeOutTimer中はrenderSubWeaponArm内の大太刀render（isAttacking=true強制）を抑制し
+            // renderBody末尾の専用フェードアウトブロックのみで描画する
+            isOdachiPlantedOrFade: odachiGroundRenderInst ? (odachiGroundRenderInst.fadeOutTimer || 0) > 0 : false,
         };
 
         // 将軍は戦闘判定レンジを拡大しているため、
@@ -2732,6 +2750,7 @@ export class Shogun extends Boss {
             this.actor.subWeaponAction = throwPoseActive ? 'throw' : (isThrowAction ? null : this._subAction);
             // throw時に手持ち忍具アイコンが残らないよう、モデル上は通常刀扱いにする
             this.actor.currentSubWeapon = isThrowAction ? null : (subInst || null);
+            this.actor.throwSubWeaponInstance = isThrowAction ? (subInst || null) : null;
 
             if (subInst) {
                 const isDualBlade = subInst.name === '二刀流';
@@ -2751,9 +2770,14 @@ export class Shogun extends Boss {
             this.actor.attackTimer     = 0;
             this.actor.subWeaponTimer  = 0;
             this.actor.subWeaponAction = null;
-            this.actor.currentSubWeapon = this._subWeaponKey === 'dual'
-                ? this._subWeaponInstances['dual']
-                : null;
+            // 鎖鎌アイドル時: actor.currentSubWeaponを維持してrenderSubWeaponArm内の判定を通す
+            if (this.currentSubWeapon && this.currentSubWeapon.name === '鎖鎌') {
+                this.actor.currentSubWeapon = this.currentSubWeapon;
+            } else {
+                this.actor.currentSubWeapon = this._subWeaponKey === 'dual'
+                    ? this._subWeaponInstances['dual']
+                    : null;
+            }
         }
 
         const renderWithShogunTransform = (drawFn) => {
@@ -2963,11 +2987,13 @@ export class Shogun extends Boss {
             });
         }
 
-        const odachiGroundRenderInst = this._subWeaponKey === 'odachi'
-            ? this._subWeaponInstances.odachi
-            : null;
         if (odachiGroundRenderInst) {
             odachiGroundRenderInst.suppressGroundEffectsRender = true;
+            // fadeout開始前のフレームでpivotを保存（fadeout中はbosspivotが変わるため固定が必要）
+            if ((odachiGroundRenderInst.fadeOutTimer || 0) <= 0) {
+                odachiGroundRenderInst._lastPlantedPivotX = this.x + this.width * 0.5;
+                odachiGroundRenderInst._lastPlantedPivotY = this.y + this.height * 0.62;
+            }
         }
 
         // キャラ本体描画（hideBody時は hideBodyParts: true で体シルエットのみ非表示）
@@ -3040,6 +3066,27 @@ export class Shogun extends Boss {
                 subInstForRestore.isAttacking = false;
                 delete subInstForRestore._renderForceActive;
             }
+        }
+
+        // 大太刀フェードアウト: plantedTimer終了後のフェード
+        // renderSubWeaponArm内の描画はisOdachiPlantedOrFadeで抑制済み。
+        // renderWithShogunTransform(shear+scale)とyawSkewCancel(shear逆)は互いにシアが打ち消しあい
+        // 結果はscale(renderScale)のみとなる。fadeout時はbossが着地してpivotYが変わるため
+        // plantedTimer中に保存したpivotを使いscaleのみ適用することで位置ずれを防ぐ。
+        if (odachiGroundRenderInst && (odachiGroundRenderInst.fadeOutTimer || 0) > 0
+            && typeof odachiGroundRenderInst.render === 'function') {
+            const fadePivotX = odachiGroundRenderInst._lastPlantedPivotX ?? (this.x + this.width * 0.5);
+            const fadePivotY = odachiGroundRenderInst._lastPlantedPivotY ?? (this.y + this.height * 0.62);
+            odachiGroundRenderInst.suppressGroundEffectsRender = true;
+            ctx.save();
+            if (Math.abs(renderScale - 1) > 0.001) {
+                ctx.translate(fadePivotX, fadePivotY);
+                ctx.scale(renderScale, renderScale);
+                ctx.translate(-fadePivotX, -fadePivotY);
+            }
+            odachiGroundRenderInst.render(ctx, this.actor);
+            ctx.restore();
+            odachiGroundRenderInst.suppressGroundEffectsRender = false;
         }
 
         if (scaledRangeBackups.length > 0) {
@@ -3633,7 +3680,7 @@ export class Shogun extends Boss {
 
         // 足首のあたりで線を止めることで、はみ出る丸いカカト（浮遊感の原因）を消す
         const tLen = Math.hypot(footX - kneeX, footY - kneeY) || 1;
-        const shorten = 3.5; // 足首より少し上で止める
+        const shorten = 1.5; // 足首より少し上で止める（大き過ぎると脛が短く見える）
         const ankleX = footX - (footX - kneeX) / tLen * shorten;
         const ankleY = footY - (footY - kneeY) / tLen * shorten;
 

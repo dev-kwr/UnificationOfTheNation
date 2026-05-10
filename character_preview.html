@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>天下統一 - キャラクタプレビュー (最新)</title>
+    <title>天下統一 - キャラクタープレビュー</title>
     <style>
         :root {
             --bg: #0d0d0d;
@@ -446,6 +446,8 @@
                     window._previewWeapon = subWeapons[subIndex];
                     shogun._subWeaponKey = window._previewWeapon;
                     shogun._keepSubWeaponKey = true; // アイドルポーズ維持
+                    shogun.currentSubWeapon = shogun._subWeaponInstances[window._previewWeapon] || null;
+                    if (shogun.actor) shogun.actor.currentSubWeapon = shogun.currentSubWeapon;
                 }
             }
 
@@ -532,10 +534,14 @@
 
         const triggerSubAction = () => {
             if (isShogunMode()) {
+                if (shogun._subTimer > 0 || shogun._attackTimer > 0 || shogun.isAttacking || shogun.attackCooldown > 0) return;
                 const type = window._previewWeapon;
+                // ゲーム内 _shogunTriggerSubAction 相当: canUse() 失敗時は腕のモーションも起こさない
+                const inst = shogun._subWeaponInstances[type];
+                if (inst && typeof inst.canUse === 'function' && !inst.canUse()) return;
                 shogun._subWeaponKey = type;
                 shogun._fireSubWeapon(type);
-                
+
                 // 将軍のモーション再生に必要なタイマーとステートを明示的にセット
                 const durationMap = {
                     shuriken: shogun._getSubActionDurationMs('throw', 'shuriken'),
@@ -550,17 +556,19 @@
                     spear: '大槍', kusarigama: '鎖鎌',
                     odachi: '大太刀', dual: '二刀_合体'
                 };
-                
+
                 if (type === 'dual') {
                     shogun._subAction = '二刀_合体';
                     shogun._subTimer = durationMap.dual;
                 } else if (type === 'shuriken' || type === 'bomb') {
                     shogun._subAction = 'throw';
-                    shogun._subTimer = 100; // 忍者の実効速度(97ms)に合わせる
-                    shogun._shurikenVisualTimer = 100;
+                    shogun._subTimer = durationMap[type] || 100;
+                    shogun._shurikenVisualTimer = shogun._subTimer;
+                    shogun.attackCooldown = 400;
                 } else {
                     shogun._subAction = actionMap[type] || null;
                     shogun._subTimer = durationMap[type] || 300;
+                    shogun.attackCooldown = 400;
                 }
                 shogun.attackTimer = shogun._subTimer;
                 shogun.isAttacking = false; // サブ武器発動時はisAttacking(通常コンボ)を優先させない
@@ -623,7 +631,12 @@
             }
             updateUI();
         });
-        document.getElementById('btnRestart').addEventListener('click', () => location.reload());
+        document.getElementById('btnRestart').addEventListener('click', () => {
+            // ESモジュールのキャッシュをバイパスするためURLにタイムスタンプを付与
+            const url = new URL(location.href);
+            url.searchParams.set('_t', Date.now());
+            location.replace(url.toString());
+        });
         document.getElementById('selectedSubWeapon').addEventListener('click', cycleSubWeapon);
 
         // --- 強化レベル同期 ---
@@ -716,10 +729,24 @@
                             if (Math.abs(shogun.vx) < 0.1) shogun.vx = 0;
                         }
                     }
-                    shogun.update(dt, null, [], []); 
+                    shogun.update(dt, null, [], []);
                     // 将軍モード時もアクターの忍術タイマーを更新させる
                     if (shogun.actor && typeof shogun.actor.updateTemporaryNinjutsu === 'function') {
                         shogun.actor.updateTemporaryNinjutsu(dt * 1000);
+                    }
+                    // ── アイドル時の武器表示キー維持（shogunCombatHelper.js 724-743 相当） ──
+                    const bossActive = shogun._attackTimer > 0 || shogun._subTimer > 0 || shogun.isAttacking;
+                    if (!bossActive && window._previewWeapon) {
+                        shogun._subWeaponKey = window._previewWeapon;
+                        shogun._subAction = null;
+                        const idleInst = shogun._subWeaponInstances[window._previewWeapon];
+                        if (idleInst) {
+                            idleInst.isAttacking = false;
+                        }
+                        shogun.currentSubWeapon = idleInst || null;
+                        if (shogun.actor) {
+                            shogun.actor.currentSubWeapon = shogun.currentSubWeapon;
+                        }
                     }
                 } else {
                     // 忍者も手動で入力を処理 (previewModeによる制限を回避)
@@ -784,9 +811,8 @@
             ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1;
             ctx.beginPath(); ctx.moveTo(logicalW / 2, 0); ctx.lineTo(logicalW / 2, logicalH); ctx.stroke();
             
-            if (window.game.bombs) window.game.bombs.forEach(b => { if (b.render) b.render(ctx); });
             window.game.projectiles.forEach(p => { if (p.render) p.render(ctx); });
-            
+
             if (isShogunMode()) {
                 shogun.renderBody(ctx); // 将軍内部で剣筋・手裏剣・二刀流・大太刀も描画される
                 if (shogun._ougiActive && shogun.actor) shogun.actor.renderSpecial(ctx, {});
@@ -798,6 +824,8 @@
                     ninja.currentSubWeapon.render(ctx, ninja);
                 }
             }
+            // 火薬玉はキャラクターより前面に描画する
+            if (window.game.bombs) window.game.bombs.forEach(b => { if (b.render) b.render(ctx); });
             
             // UIの同期
             updateUI();

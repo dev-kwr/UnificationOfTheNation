@@ -30,6 +30,7 @@ export const COMBO_ATTACKS = [
 export const BASE_EXP_TO_NEXT = 100;
 export const TEMP_NINJUTSU_MAX_STACK_MS = 300000;
 export const LEVEL_UP_MAX_HP_GAIN = 2;
+export const LEVEL_UP_ATK_GAIN = 1;
 export const PLAYER_HEADBAND_LINE_WIDTH = 4.2;
 export const PLAYER_SPECIAL_HEADBAND_LINE_WIDTH = 5.4;
 export const PLAYER_PONYTAIL_CONNECT_LIFT_Y = 2.2;

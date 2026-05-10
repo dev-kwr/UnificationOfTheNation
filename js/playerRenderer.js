@@ -1894,7 +1894,6 @@ export function applyRendererMixin(PlayerClass) {
             drawJointedLeg(rightHipX, hipLocalY + 0.12, rightKneeX, rightKneeY, rightFootX, rightFootY, true, 1.06);
         } else if (isCrouchPose) {
             const crouchStride = crouchWalkPhase * 3.4 * crouchPoseT;
-            const crouchLift = Math.abs(crouchWalkPhase) * 1.8 * crouchPoseT;
             const idlePhase = Math.sin(this.motionTime * 0.0042);
             const idleSpread = 2.5 + Math.abs(idlePhase) * 0.3;
             const leftHipX = lerp(torsoHipX + dir * 1.35, torsoHipX + dir * 1.15, crouchPoseT);
@@ -1903,14 +1902,17 @@ export function applyRendererMixin(PlayerClass) {
             const rightHipYL = hipY + lerp(0.14, 0.2, crouchPoseT);
             // 膝はhipYからbottomYの範囲に収まるよう clamp する
             const kneeYMax = bottomY - 4;
+            // 交互に足を持ち上げる: 片足が前に出るときに対応する足を持ち上げる
+            const leftLift = Math.max(0, -crouchWalkPhase) * 3.2 * crouchPoseT;
+            const rightLift = Math.max(0, crouchWalkPhase) * 3.2 * crouchPoseT;
             const leftKneeX = lerp(leftHipX + dir * 0.55, leftHipX + dir * (3.0 + crouchStride * 0.5), crouchPoseT);
-            const leftKneeY = Math.min(kneeYMax, lerp(hipY + 9.9, hipY + 6.0 + Math.max(0, -crouchWalkPhase) * 1.2, crouchPoseT));
+            const leftKneeY = Math.min(kneeYMax, lerp(hipY + 9.9, hipY + 6.0 + Math.max(0, -crouchWalkPhase) * 1.8, crouchPoseT));
             const leftFootX = lerp(centerX + dir * idleSpread, centerX + dir * (6.5 + crouchStride), crouchPoseT);
-            const leftFootY = lerp(bottomY + 0.1, bottomY - 0.6 + crouchLift * 0.15, crouchPoseT);
+            const leftFootY = lerp(bottomY + 0.1, bottomY - 0.6 - leftLift, crouchPoseT);
             const rightKneeX = lerp(rightHipX + dir * 0.6, rightHipX - dir * (3.6 - crouchStride * 0.5), crouchPoseT);
-            const rightKneeY = Math.min(kneeYMax, lerp(hipY + 9.6, hipY + 6.4 + Math.max(0, crouchWalkPhase) * 1.2, crouchPoseT));
+            const rightKneeY = Math.min(kneeYMax, lerp(hipY + 9.6, hipY + 6.4 + Math.max(0, crouchWalkPhase) * 1.8, crouchPoseT));
             const rightFootX = lerp(centerX - dir * idleSpread, centerX - dir * (7.2 - crouchStride), crouchPoseT);
-            const rightFootY = lerp(bottomY - 0.1, bottomY - 0.2, crouchPoseT);
+            const rightFootY = lerp(bottomY - 0.1, bottomY - 0.2 - rightLift, crouchPoseT);
             drawJointedLeg(leftHipX, leftHipYL, leftKneeX, leftKneeY, leftFootX, leftFootY, false, lerp(0.0, 1.0, crouchPoseT));
             drawJointedLeg(rightHipX, rightHipYL, rightKneeX, rightKneeY, rightFootX, rightFootY, true, lerp(0.18, 1.02, crouchPoseT));
         } else if (isSpearThrustPose) {
@@ -1943,7 +1945,8 @@ export function applyRendererMixin(PlayerClass) {
                 const rise = this.vy < 0 ? Math.min(1, Math.abs(this.vy) / 14) : 0;
                 const descend = this.vy > 0 ? Math.min(1, this.vy / 13) : 0;
                 const apex = Math.max(0, 1 - Math.min(1, Math.abs(this.vy) / 4.4));
-                const tuck = Math.max(rise * 0.74, apex * 0.92) * (1 - descend * 0.26);
+                const tuckBase = Math.max(rise * 0.74, apex * 0.92) * (1 - descend * 0.26);
+                const tuck = useShogunTransform ? tuckBase * 0.35 : tuckBase;
                 const open = descend * 0.62;
                 const settle = Math.max(0, Math.min(1, (descend - 0.28) / 0.72));
                 const leftHipX = torsoHipX + dir * 1.28;
@@ -1959,6 +1962,17 @@ export function applyRendererMixin(PlayerClass) {
                 let rightKneeY = hipY + 8.88 - tuck * 1.02 + open * 0.98;
                 let rightFootX = rightKneeX - dir * (3.72 + tuck * 1.35 - open * 0.62) - dir * drift * 0.02;
                 let rightFootY = rightKneeY + 7.28 - tuck * 0.35 + open * 1.82;
+
+                // 将軍は脚が長いため空中姿勢でも足先を下方に延ばす
+                // ボス描画時は _shogunExternalTransform:true が設定されるため useShogunTransform は false
+                const isShogunAirborne = useShogunTransform || options._shogunExternalTransform;
+                if (isShogunAirborne) {
+                    const extend = 7.0 * (1 - settle);
+                    leftKneeY += extend * 0.5;
+                    leftFootY += extend;
+                    rightKneeY += extend * 0.5;
+                    rightFootY += extend;
+                }
 
                 // 接地直前は地上待機姿勢へ自然に戻す
                 leftKneeX += (leftHipX + dir * 0.62 - leftKneeX) * (settle * 0.64);
@@ -2471,8 +2485,9 @@ export function applyRendererMixin(PlayerClass) {
             }
 
             if (!isThrowing) {
-                if (hasDualSubWeapon) {
-                    // 二刀前手: 描画順序を「腕→柄→手」に統一。
+                if (hasDualSubWeapon && !isIdleForceRender) {
+                    // 二刀前手: renderSubWeaponArmが呼ばれない場合のみここで描画
+                    // (isIdleForceRender=trueの場合はrenderSubWeaponArm側が担う)
                     // 1. 腕
                     drawArmWithSoftElbow(
                         rightShoulderX,
@@ -2488,7 +2503,7 @@ export function applyRendererMixin(PlayerClass) {
                     drawHand(dualWieldRightHand.x, dualWieldRightHand.y, 4.5);
                     // 4. 刀身 (手の前面)
                     this.drawKatana(ctx, dualWieldRightHand.x, dualWieldRightHand.y, idleRightBladeAngle, dir, this.getKatanaBladeLength(), 0.28, 'blade');
-                } else {
+                } else if (!hasDualSubWeapon) {
                     drawArmWithSoftElbow(
                         rightShoulderX,
                         rightShoulderY,
@@ -2521,7 +2536,7 @@ export function applyRendererMixin(PlayerClass) {
         }
 
         // サブ武器アーム描画
-	        if ((effectiveSubWeaponTimer > 0 || (forceSubWeaponRender && subWeaponAction)) && !effectiveIsAttacking && !isNinNinPose) {
+	        if ((effectiveSubWeaponTimer > 0 || forceSubWeaponRender) && !effectiveIsAttacking && !isNinNinPose) {
 	            this.renderSubWeaponArm(
                 ctx,
                 centerX,
@@ -2564,7 +2579,9 @@ export function applyRendererMixin(PlayerClass) {
             this.subWeaponPoseOverride &&
             this.subWeaponAction === '二刀_Z'
         ) ? this.subWeaponPoseOverride : null;
-        const durationWeapon = this.subWeaponAction === '二刀_Z' ? dualBlade : this.currentSubWeapon;
+        const durationWeapon = (this.subWeaponAction === 'throw' && this.throwSubWeaponInstance)
+            ? this.throwSubWeaponInstance
+            : (this.subWeaponAction === '二刀_Z' ? dualBlade : this.currentSubWeapon);
         const subDuration = this.getSubWeaponActionDurationMs(this.subWeaponAction, durationWeapon);
         const sourceTimer =
             (dualBlade && this.subWeaponAction === '二刀_Z')
@@ -3753,7 +3770,7 @@ export function applyRendererMixin(PlayerClass) {
             }
 
             // 本体の手前に持つ見た目を作るため、奥手の後に大太刀を描く
-            if (drawFrontLayer && renderWeaponVisuals && odachi && typeof odachi.render === 'function') {
+            if (!options.isOdachiPlantedOrFade && drawFrontLayer && renderWeaponVisuals && odachi && typeof odachi.render === 'function') {
                 // yawSkewCancel: 将軍の2.5D変換で生じる傾きをキャンセルして大太刀を垂直に描画
                 // renderWithShogunTransform は Shear(-yawSkew/0.982) · Scale(1/0.982) を適用するので
                 // 逆変換は Scale(0.982) · Shear(+yawSkew/0.982) となる
@@ -3830,6 +3847,39 @@ export function applyRendererMixin(PlayerClass) {
                 }
                 drawHand(mainHand.x, mainHand.y, standardRightHandRadius);
             }
+        } else if (!this.subWeaponAction && this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
+            // === 二刀流の非攻撃時（アイドル姿勢） ===
+            const holdProgress = (Date.now() % 3000) / 3000;
+            const holdPulse = Math.sin(holdProgress * Math.PI * 2) * 0.1;
+
+            let bx = centerX + dir * crouchPick(14.0, 11.5) + holdPulse * 0.2;
+            let by = leftShoulderY + crouchPick(7.8, 6.2) - holdPulse * 0.1;
+            let fx = centerX - dir * crouchPick(7.2, 4.6) - holdPulse * 0.15;
+            let fy = rightShoulderY + crouchPick(8.5, 6.8) + holdPulse * 0.08;
+            if (options.idleHands) {
+                bx = options.idleHands.left.x + holdPulse * 0.2;
+                by = options.idleHands.left.y - holdPulse * 0.1;
+                fx = options.idleHands.right.x - holdPulse * 0.15;
+                fy = options.idleHands.right.y + holdPulse * 0.08;
+            }
+            const ba = crouchPick(-0.65, -0.32) + holdPulse * 0.015;
+            const fa = crouchPick(-1.1, -0.82) - holdPulse * 0.015;
+
+            if (drawBackLayer) {
+                drawBentArmSegment(leftShoulderX, leftShoulderY, bx, by, standardUpperLen, standardForeLen, dir, 5.3);
+                drawHand(bx, by, standardLeftHandRadius);
+                if (renderWeaponVisuals) drawSubWeaponKatana(bx, by, ba, dir);
+            }
+            if (drawFrontLayer) {
+                drawBentArmSegment(rightShoulderX, rightShoulderY, fx, fy, standardUpperLen, standardForeLen, -dir, 5.2);
+                drawHand(fx, fy, standardRightHandRadius);
+                if (renderWeaponVisuals) {
+                    drawSubWeaponKatana(fx, fy, fa, dir, 0.28, 'handle');
+                    drawSubWeaponKatana(fx, fy, fa, dir, 0.28, 'blade');
+                }
+            }
+        } else if (this.currentSubWeapon && this.currentSubWeapon.name === '鎖鎌' && !this.subWeaponAction) {
+            // 鎖鎌アイドル時: 通常アイドル姿勢がすでに描画済みなので追加の腕は不要
         } else {
             // その他（デフォルト突き）
             const armEndX = centerX + dir * 20;

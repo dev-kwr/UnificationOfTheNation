@@ -2725,7 +2725,7 @@ export class Odachi extends SubWeapon {
         this.plantedTimer = 0;
         this.basePlantedDuration = 320;
         this.plantedDuration = this.basePlantedDuration; // 衝撃波が消えるまで刀を地面に刺したまま見せる
-        this.baseFadeOutDuration = 90;
+        this.baseFadeOutDuration = 350;
         this.fadeOutDuration = this.baseFadeOutDuration;
         this.fadeOutTimer = 0;
         this.lastPlantedPose = null;
@@ -3075,6 +3075,10 @@ export class Odachi extends SubWeapon {
                             this.plantedTimer = this.plantedDuration;
                             this.impactX = pose.handX + Math.cos(pose.rotation) * bladeEnd;
                             this.impactY = maxTipY;
+                            this.impactFrozen = {
+                                pivotX: this.owner.x + this.owner.width * 0.5,
+                                pivotY: this.owner.y + this.owner.height * 0.62
+                            };
                             this.impactFlashTimer = 170;
                             this.spawnImpactWaves();
                             this.spawnImpactDebris();

@@ -264,7 +264,7 @@ class Game {
             specialClone: 0,
             money: 0,
             startWeapon: '手裏剣',
-            characterType: 'ninja',
+            characterType: saveManager.loadGlobal().isGameCleared ? 'shogun' : 'ninja',
             ownedWeapons: {
                 '手裏剣': true,
                 '火薬玉': false,
@@ -875,7 +875,10 @@ class Game {
             this.hasSave = saveManager.hasSave();
             this.titleSaveCheckTimerMs = 700;
         }
-        const titleOptionCount = this.hasSave ? 2 : 1;
+        const globalData = saveManager.loadGlobal();
+        const isCleared = globalData.isGameCleared;
+        const characterOffset = isCleared ? 1 : 0;
+        const titleOptionCount = (this.hasSave ? 2 : 1) + characterOffset;
         this.titleMenuIndex = Math.max(0, Math.min(titleOptionCount - 1, this.titleMenuIndex));
         if (this.titleDebugOpen) {
             this.updateTitleDebug();
@@ -915,37 +918,40 @@ class Game {
             }
         }
 
-        // 難易度選択（左右キー）
+        // 難易度選択（左右キー）/ 操作キャラ行フォーカス時はキャラトグル
         if (input.isActionJustPressed('LEFT')) {
-            this.difficultyIndex = (this.difficultyIndex - 1 + this.difficultyKeys.length) % this.difficultyKeys.length;
-            this.updateDifficulty();
+            if (isCleared && this.titleMenuIndex === 0) {
+                this.titleDebugConfig.characterType = this.titleDebugConfig.characterType === 'shogun' ? 'ninja' : 'shogun';
+            } else {
+                this.difficultyIndex = (this.difficultyIndex - 1 + this.difficultyKeys.length) % this.difficultyKeys.length;
+                this.updateDifficulty();
+            }
             audio.playSelect();
             return;
         }
         if (input.isActionJustPressed('RIGHT')) {
-            this.difficultyIndex = (this.difficultyIndex + 1) % this.difficultyKeys.length;
-            this.updateDifficulty();
+            if (isCleared && this.titleMenuIndex === 0) {
+                this.titleDebugConfig.characterType = this.titleDebugConfig.characterType === 'shogun' ? 'ninja' : 'shogun';
+            } else {
+                this.difficultyIndex = (this.difficultyIndex + 1) % this.difficultyKeys.length;
+                this.updateDifficulty();
+            }
             audio.playSelect();
             return;
         }
         
-        // 操作キャラ切り替え (クリア済みの場合)
-        const globalData = saveManager.loadGlobal();
-        if (globalData.isGameCleared) {
-            if (input.isActionJustPressed('SWITCH_WEAPON')) {
+        // ENTERで開始 (デバッグメニューが開いている時はデバッグ適用、閉じている時は通常開始)
+        if (input.isActionJustPressed('DEBUG_START')) {
+            if (isCleared && this.titleMenuIndex === 0) {
                 this.titleDebugConfig.characterType = this.titleDebugConfig.characterType === 'shogun' ? 'ninja' : 'shogun';
                 audio.playSelect();
                 return;
             }
-        }
-        
-        // ENTERで開始 (デバッグメニューが開いている時はデバッグ適用、閉じている時は通常開始)
-        if (input.isActionJustPressed('DEBUG_START')) {
             // メニューが閉じている時の Enter は通常開始とする（ユーザーの明示的意図がない限りデバッグ設定はオフ）
             this.titleDebugApplyOnStart = false;
-            
+            const gameMenuIndex = this.titleMenuIndex - characterOffset;
             if (this.hasSave) {
-                if (this.titleMenuIndex === 0) {
+                if (gameMenuIndex === 0) {
                     this.continueGame(saveManager.load());
                 } else {
                     saveManager.deleteSave();
@@ -960,9 +966,15 @@ class Game {
 
         // SPACEで決定 (Zキーを除外)
         if (input.isActionJustPressed('JUMP')) {
+            if (isCleared && this.titleMenuIndex === 0) {
+                this.titleDebugConfig.characterType = this.titleDebugConfig.characterType === 'shogun' ? 'ninja' : 'shogun';
+                audio.playSelect();
+                return;
+            }
             this.titleDebugApplyOnStart = false; // 通常開始時はデバッグOFF
+            const gameMenuIndex = this.titleMenuIndex - characterOffset;
             if (this.hasSave) {
-                if (this.titleMenuIndex === 0) {
+                if (gameMenuIndex === 0) {
                     this.continueGame(saveManager.load());
                 } else {
                     saveManager.deleteSave();
@@ -1189,6 +1201,11 @@ class Game {
         // デバッグ用：ボス部屋スタートフラグを保持（applyTitleDebugSetupToNewGame より前に確定）
         this.debugBossRoomStart = !!(this.titleDebugApplyOnStart && this.titleDebugConfig.bossRoom);
         this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
+        // クリア済みの場合、選択キャラタイプを反映（titleDebugApplyOnStartに関わらず）
+        if (saveManager.loadGlobal().isGameCleared && this.titleDebugConfig.characterType === 'shogun') {
+            this.player.characterType = 'shogun';
+            applyShogunCombat(this.player);
+        }
         this.player.unlockedWeapons = [];
         this.pendingLevelUpChoices = 0;
         // this.levelUpChoiceIndex = 0; // フェードアウト完了まで位置を維持
@@ -1671,7 +1688,8 @@ class Game {
 
     buildPlayerAttackDamage() {
         const attackMultiplier = this.getPlayerAttackMultiplier();
-        const baseDamage = (10 + this.player.attackCombo * 2 + 3) * attackMultiplier;
+        const levelBonus = Number(this.player.levelAtkBonus) || 0;
+        const baseDamage = (10 + this.player.attackCombo * 2 + 3 + levelBonus) * attackMultiplier;
         const attack = this.player.currentAttack;
         if (attack && attack.comboStep === 5) {
             const finisherDamage = baseDamage * 1.45;
@@ -4026,6 +4044,7 @@ class Game {
             saveManager.deleteSave();
             this.state = GAME_STATE.TITLE;
             this.titleMenuIndex = 0;
+            this.titleDebugConfig.characterType = 'shogun'; // クリア直後は将軍がデフォルト
             audio.playBgm('title');
         }
     }
@@ -4507,18 +4526,13 @@ class Game {
             boss.render(ctx);
         }
         
-        // 爆弾
-        for (const bomb of this.bombs) {
-            bomb.render(ctx);
-        }
-        
         // 衝撃波
         if (this.shockwaves) {
             for (const sw of this.shockwaves) {
                 sw.render(ctx);
             }
         }
-        
+
         // プレイヤー
         if (playerAlpha > 0) {
             if (this.player.isUsingSpecial || this.player.specialSmoke.length > 0) {
@@ -4551,6 +4565,11 @@ class Game {
                 this.player.currentSubWeapon.render(ctx, this.player);
                 ctx.restore();
             }
+        }
+
+        // 火薬玉はキャラクターより前面に描画する
+        for (const bomb of this.bombs) {
+            bomb.render(ctx);
         }
 
         // ヒット演出（世界座標）
