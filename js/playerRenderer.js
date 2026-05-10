@@ -4645,10 +4645,20 @@ export function applyRendererMixin(PlayerClass) {
             }
             renderFn();
         };
+        const skipSlotIndices = Array.isArray(options.skipSlotIndices) ? options.skipSlotIndices : [];
+        const keepActorHeight = !!options.keepActorHeight;
+        const suppressMist = !!options.suppressMist;
+        const _cloneModelOptionsSrc = options.cloneModelOptions || {};
+        const resolveCloneModelOptions = typeof _cloneModelOptionsSrc === 'function'
+            ? _cloneModelOptionsSrc
+            : () => _cloneModelOptionsSrc;
 
         ctx.save();
 
-        if (this.isUsingSpecial && this.specialCastTimer > 0) {
+        // 将軍のクローンボディはboss.renderBody内のactor.renderSpecialで描画するためスキップ
+        const isShogunPlayer = this.characterType === 'shogun';
+
+        if (!isShogunPlayer && this.isUsingSpecial && this.specialCastTimer > 0) {
             for (const anchor of anchors) {
                 if (anchor.alpha <= 0.02) continue;
                 const cloneScarfNodes = this.specialCloneScarfNodes[anchor.index] || null;
@@ -4674,10 +4684,11 @@ export function applyRendererMixin(PlayerClass) {
                     );
                 });
             }
-        } else if (this.isSpecialCloneCombatActive()) {
+        } else if (!isShogunPlayer && this.isSpecialCloneCombatActive()) {
             for (const anchor of anchors) {
                 if (anchor.alpha <= 0.02) continue;
                 const i = anchor.index;
+                if (skipSlotIndices.includes(i)) continue;
                 const pos = this.specialClonePositions[i];
                 if (!pos) continue;
 
@@ -4740,7 +4751,7 @@ export function applyRendererMixin(PlayerClass) {
                 // 分身の状態をセット
                 this.x = cloneDrawX;
                 this.y = cloneDrawY;
-                this.height = PLAYER.HEIGHT;
+                if (!keepActorHeight) this.height = PLAYER.HEIGHT;
                 this.facingRight = pos.facingRight;
                 this.motionTime = saved.motionTime;
 
@@ -4794,20 +4805,22 @@ export function applyRendererMixin(PlayerClass) {
                 }
 
                 renderScaled(pos.x, this.getSpecialCloneFootY(pos.y), () => {
-                    // 霧エフェクト（描画座標に追従・キャッシュCanvasを利用して軽量化）
-                    const mistCenterY = cloneDrawY + PLAYER.HEIGHT * 0.45;
-                    ctx.save();
-                    ctx.globalAlpha = cloneAlpha * 0.4;
-                    if (this.mistCacheCanvas) {
-                        const size = this.mistCacheCanvas.width;
-                        ctx.drawImage(this.mistCacheCanvas, pos.x - size / 2, mistCenterY - size / 2);
-                    } else {
-                        ctx.fillStyle = `rgba(180, 214, 246, 1.0)`;
-                        ctx.beginPath();
-                        ctx.arc(pos.x, mistCenterY, 34, 0, Math.PI * 2);
-                        ctx.fill();
+                    // 霧エフェクト（suppressMist=true の場合はスキップ）
+                    if (!suppressMist) {
+                        const mistCenterY = cloneDrawY + PLAYER.HEIGHT * 0.45;
+                        ctx.save();
+                        ctx.globalAlpha = cloneAlpha * 0.4;
+                        if (this.mistCacheCanvas) {
+                            const size = this.mistCacheCanvas.width;
+                            ctx.drawImage(this.mistCacheCanvas, pos.x - size / 2, mistCenterY - size / 2);
+                        } else {
+                            ctx.fillStyle = `rgba(180, 214, 246, 1.0)`;
+                            ctx.beginPath();
+                            ctx.arc(pos.x, mistCenterY, 34, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
+                        ctx.restore();
                     }
-                    ctx.restore();
 
                     ctx.save();
                     ctx.globalAlpha = cloneAlpha;
@@ -4899,6 +4912,7 @@ export function applyRendererMixin(PlayerClass) {
                     }
 
                     this.renderModel(ctx, this.x, this.y, this.facingRight, 1.0, true, {
+                        ...resolveCloneModelOptions(pos, i),
                         useLiveAccessories: true,
                         renderHeadbandTail: true,
                         isClone: true,

@@ -677,6 +677,9 @@ export function applyShogunCombat(player) {
         this.updateTemporaryNinjutsu(deltaMs);
         this.updateSpecial(dt);
 
+        // 奥義状態をボスに同期（分身クローンの描画はboss.renderBody内で行う）
+        boss._ougiActive = !!(this.isUsingSpecial && this.specialCloneCombatStarted);
+
         // ── 入力処理（handleInput は将軍専用にオーバーライド済み） ──
         this.handleInput();
 

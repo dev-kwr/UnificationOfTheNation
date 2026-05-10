@@ -1259,9 +1259,18 @@ export class Shogun extends Boss {
         this.actor.specialCloneComboSteps         = [0];
         this.actor.specialCloneSlashTrailPoints   = [[]];
         this.actor.specialCloneSlashTrailSampleTimers = [0];
-        this.actor.specialCloneAutoAiEnabled      = true;
+        this.actor.specialCloneAutoAiEnabled      = true;   // specialCloneAttackTimers[0]でupdate中の剣筋サンプリングが正しく動作する
+        this.actor.specialCloneSpacing            = 180;   // 忍者と同じ間隔
+        this.actor.specialCloneScarfNodes         = [null];
+        this.actor.specialCloneHairNodes          = [null];
+        this.actor.specialCloneInvincibleTimers   = [0];
+        this.actor.specialCloneTargets            = [null];
+        this.actor.specialCloneReturnToAnchor     = [false];
         this.actor.isUsingSpecial                 = true;
         this.actor.specialCloneCombatStarted      = true;
+
+        this._ougiActive    = false;
+        this._ougiWasActive = false;
 
         this._attackTimer      = 0;
         this._comboStep        = 0;
@@ -1760,6 +1769,55 @@ export class Shogun extends Boss {
         this.actor.specialCloneComboSteps[0]       = this._comboStep;
         this.actor.specialCloneSubWeaponTimers[0]  = this._subTimer;
         this.actor.specialCloneSubWeaponActions[0] = this._subAction;
+
+        // 奥義スロット管理（起動/停止イベント駆動 + ゲーム内自動トリガー）
+        {
+            // ゲーム内トリガー: 敵ボスとしてHP50%以下で奥義を自動発動（プレイヤー将軍は除外）
+            if (!this._ougiActive && this.isEnemy && this.hp > 0 && this.maxHp > 0 && this.hp <= this.maxHp * 0.5) {
+                this._ougiActive = true;
+            }
+
+            const _ougiTierMap = [[1], [-1, 1], [-2, -1, 1, 2], [-2, -1, 1, 2]];
+            const _ougiTier = Math.max(0, Math.min(3,
+                this.getSubWeaponEnhanceTier ? this.getSubWeaponEnhanceTier() : 0));
+            const _ougiUnits = _ougiTierMap[_ougiTier] || [];
+            const _targetSlots = this._ougiActive ? [0, ..._ougiUnits] : [0];
+
+            if (this._ougiActive !== this._ougiWasActive || this.actor.specialCloneSlots.length !== _targetSlots.length) {
+                const _initPos = (i) => (this.actor.specialClonePositions && this.actor.specialClonePositions[i])
+                    ? this.actor.specialClonePositions[i]
+                    : { x: this.x + this.width * 0.5, y: 0, facingRight: this.facingRight, prevX: this.x + this.width * 0.5 };
+                this.actor.specialCloneSlots                  = _targetSlots;
+                this.actor.specialCloneAlive                  = _targetSlots.map(() => true);
+                this.actor.specialClonePositions              = _targetSlots.map((_, i) => _initPos(i));
+                this.actor.specialCloneAttackTimers           = _targetSlots.map(() => 0);
+                this.actor.specialCloneSubWeaponTimers        = _targetSlots.map(() => 0);
+                this.actor.specialCloneSubWeaponActions       = _targetSlots.map(() => null);
+                this.actor.specialCloneComboSteps             = _targetSlots.map(() => 0);
+                this.actor.specialCloneSlashTrailPoints       = _targetSlots.map(() => []);
+                this.actor.specialCloneSlashTrailSampleTimers = _targetSlots.map(() => 0);
+                this.actor.specialCloneScarfNodes             = _targetSlots.map(() => null);
+                this.actor.specialCloneHairNodes              = _targetSlots.map(() => null);
+                this.actor.specialCloneInvincibleTimers       = _targetSlots.map(() => 0);
+                this.actor.specialCloneTargets                = _targetSlots.map(() => null);
+                this.actor.specialCloneReturnToAnchor         = _targetSlots.map(() => false);
+
+                if (this._ougiActive && !this._ougiWasActive) {
+                    audio.playSpecial();
+                    if (typeof this.actor.initMistCache === 'function') this.actor.initMistCache();
+                }
+            }
+            this._ougiWasActive = this._ougiActive;
+        }
+
+        // 全スロットの攻撃状態を同期（reinit後も含め確実に反映させる）
+        for (let _si = 0; _si < this.actor.specialCloneSlots.length; _si++) {
+            this.actor.specialCloneAttackTimers[_si]     = this._attackTimer;
+            this.actor.specialCloneComboSteps[_si]       = this._comboStep;
+            this.actor.specialCloneSubWeaponTimers[_si]  = this._subTimer;
+            this.actor.specialCloneSubWeaponActions[_si] = this._subAction;
+        }
+
         this.actor.motionTime = this.motionTime;
         this.actor.speed      = this.speed;
         this.actor.width      = this.actorBaseWidth;
@@ -3010,6 +3068,58 @@ export class Shogun extends Boss {
                 hideBodyParts: !!this.hideBody,
             });
         });
+
+        // 奥義クローン位置の更新（renderBodyでactorRenderXY確定後に設定）
+        if (this._ougiActive && this.actor.specialCloneSlots.length > 1) {
+            const _oSpacing  = this.actor.specialCloneSpacing || 180;
+            const _oCenterX  = actorRenderX + actorRenderW * 0.5;
+            const _oAnchorY  = actorRenderY + PLAYER.HEIGHT * 0.62;
+            for (let _oi = 0; _oi < this.actor.specialCloneSlots.length; _oi++) {
+                const _oUnit = this.actor.specialCloneSlots[_oi];
+                const _oPos  = this.actor.specialClonePositions[_oi];
+                if (_oPos) {
+                    _oPos.x          = _oCenterX + _oUnit * _oSpacing;
+                    _oPos.y          = _oAnchorY;
+                    _oPos.facingRight = this.facingRight;
+                    _oPos.prevX      = _oPos.x;
+                    _oPos.jumping    = !this.isGrounded;
+                    _oPos.cloneVy    = this.vy;
+                    _oPos.renderVx   = 0;
+                }
+            }
+        }
+
+        // 奥義・分身: renderSpecial を使用（忍者と同一システム）
+        if (this._ougiActive) {
+            const _ougiYawSkew    = renderOpts.yawSkewCancel.yawSkew;
+            const _ougiPivotY     = renderOpts.yawSkewCancel.pivotY;
+            this.actor.renderSpecial(ctx, {
+                skipSlotIndices: [0],
+                keepActorHeight: true,
+                suppressMist: true,
+                scaleEntity: (clonePivotX, _footY, fn) => {
+                    ctx.save();
+                    ctx.globalAlpha *= 0.72;
+                    ctx.translate(clonePivotX, _ougiPivotY);
+                    ctx.transform(1, 0, -_ougiYawSkew / 0.982, 1, 0, 0);
+                    ctx.scale(1 / 0.982, 1);
+                    ctx.translate(-clonePivotX, -_ougiPivotY);
+                    if (renderScale > 1.001) {
+                        ctx.translate(clonePivotX, _ougiPivotY);
+                        ctx.scale(renderScale, renderScale);
+                        ctx.translate(-clonePivotX, -_ougiPivotY);
+                    }
+                    fn();
+                    ctx.restore();
+                },
+                cloneModelOptions: (pos) => ({
+                    ...renderOpts,
+                    yawSkewCancel: { pivotX: pos.x, pivotY: _ougiPivotY, yawSkew: _ougiYawSkew },
+                    forceSubWeaponRender: false,
+                    isOdachiPlantedOrFade: false,
+                }),
+            });
+        }
 
         if (odachiGroundRenderInst && typeof odachiGroundRenderInst.render === 'function') {
             odachiGroundRenderInst.suppressGroundEffectsRender = false;

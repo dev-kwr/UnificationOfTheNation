@@ -604,7 +604,7 @@
         document.getElementById('btnOugi').addEventListener('click', () => {
             if (isShogunMode()) {
                 shogun._ougiActive = !shogun._ougiActive;
-                if (shogun.actor) shogun.actor.isUsingSpecial = shogun._ougiActive;
+                // actor.isUsingSpecial は常に true のままにする（アニメーション継続のため）
             } else {
                 if (ninja.isUsingSpecial || ninja.specialActive || ninja.specialCasting) {
                     ninja.clearSpecialState(true);
@@ -760,6 +760,7 @@
                         ninja.vy = -13.5;
                         ninja.isGrounded = false;
                     }
+                    if (input.isActionJustPressed('SPECIAL')) document.getElementById('btnOugi').click();
                     ninja.isCrouching = input.isAction('DOWN');
 
                     const ninjaDash = isDashing || (typeof input.isKeyboardDashHeld === 'function' && input.isKeyboardDashHeld(moveDir));
@@ -820,8 +821,7 @@
             window.game.projectiles.forEach(p => { if (p.render) p.render(ctx); });
 
             if (isShogunMode()) {
-                shogun.renderBody(ctx); // 将軍内部で剣筋・手裏剣・二刀流・大太刀も描画される
-                if (shogun._ougiActive && shogun.actor) shogun.actor.renderSpecial(ctx, {});
+                shogun.renderBody(ctx); // 将軍内部で剣筋・手裏剣・二刀流・大太刀・奥義分身も描画される
             } else {
                 if (ninja.renderComboSlashTrail) ninja.renderComboSlashTrail(ctx);
                 if (ninja.renderDualBladeSlashTrails) ninja.renderDualBladeSlashTrails(ctx);
