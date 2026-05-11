@@ -310,7 +310,7 @@ export function applySpecialMixin(PlayerClass) {
         // Lv3（自律AI）の分身は外部からのサブ武器発動を無視
         if (this.specialCloneAutoAiEnabled) return;
 
-        if (!this.currentSubWeapon || this.specialCloneSubWeaponTimers[index] > 0 || this.specialCloneAttackTimers[index] > 0) return;
+        if (!this.currentSubWeapon || this.specialCloneSubWeaponTimers[index] > 0) return;
         
         const weaponName = this.currentSubWeapon.name;
         this.specialCloneSubWeaponTimers[index] = this.getSubWeaponActionDurationMs(
@@ -1028,20 +1028,43 @@ export function applySpecialMixin(PlayerClass) {
             ? Math.max(0, Math.min(3, this.progression.specialClone))
             : 0;
         const count = this.getSpecialCloneCountByTier(tier);
+        const prevCount = this.specialCloneSlots ? this.specialCloneSlots.length : 0;
+        
         this.specialCloneSlots = this.buildCloneSlotLayout(count);
         this.specialCloneSpacing = 172 + tier * 8;
-        if (tier >= 3) {
-            this.specialCloneAutoAiEnabled = true;
-        } else {
-            this.specialCloneAutoAiEnabled = false;
-        }
-        this.specialCloneAlive = this.specialCloneSlots.map(() => false);
-        this.specialCloneInvincibleTimers = this.specialCloneSlots.map(() => 0);
-        this.specialCloneAutoCooldowns = this.specialCloneSlots.map(() => 0);
-        this.specialCloneDurability = this.specialCloneSlots.map(() => 0);
+        this.specialCloneAutoAiEnabled = (tier >= 3);
+        
+        const isActive = this.isUsingSpecial;
+        this.specialCloneAlive = this.specialCloneSlots.map(() => isActive);
+        
+        // 配列の初期化（以前の値を引き継ぐのではなく、新しいカウントでクリア）
+        this.specialCloneInvincibleTimers = this.specialCloneSlots.map(() => isActive ? 1000 : 0);
+        this.specialCloneAutoCooldowns = this.specialCloneSlots.map((_, i) => isActive ? i * 40 : 0);
+        
+        const durability = this.getSpecialCloneDurabilityPerUnit();
+        this.specialCloneDurability = this.specialCloneSlots.map(() => isActive ? durability : 0);
+        
         this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
         this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
+        this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
+        this.specialCloneScarfNodes = this.specialCloneSlots.map(() => null);
+        this.specialCloneHairNodes = this.specialCloneSlots.map(() => null);
+
+        // 位置情報の再構築
+        if (isActive) {
+            const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
+            this.specialClonePositions = anchors.map(a => ({
+                x: a.x, y: a.y, facingRight: this.facingRight, prevX: a.x,
+                cloneVy: 0, jumping: false, legPhase: 0, legAngle: 0
+            }));
+            // アクセサリノードの初期化
+            for (let i = 0; i < this.specialCloneSlots.length; i++) {
+                this.initCloneAccessoryNodes(i);
+            }
+        } else {
+            this.specialClonePositions = this.specialCloneSlots.map(() => null);
+        }
     };
 
     PlayerClass.prototype.getSpecialCloneCountByTier = function(tier) {

@@ -4658,7 +4658,7 @@ export function applyRendererMixin(PlayerClass) {
         // 将軍のクローンボディはboss.renderBody内のactor.renderSpecialで描画するためスキップ
         const isShogunPlayer = this.characterType === 'shogun';
 
-        if (!isShogunPlayer && this.isUsingSpecial && this.specialCastTimer > 0) {
+        if (this.isUsingSpecial && this.specialCastTimer > 0) {
             for (const anchor of anchors) {
                 if (anchor.alpha <= 0.02) continue;
                 const cloneScarfNodes = this.specialCloneScarfNodes[anchor.index] || null;

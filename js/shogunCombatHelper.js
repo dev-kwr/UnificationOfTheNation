@@ -48,12 +48,17 @@ export function applyShogunCombat(player) {
         boss.progression = { ...(boss.progression || {}), subWeapon: subTier, normalCombo: normalTier };
         boss.getSubWeaponEnhanceTier = () => subTier;
         if (boss.actor) {
+            const oldTier = boss.actor.progression ? boss.actor.progression.specialClone : -1;
+            const newTier = clampShogunTier(p?.progression?.specialClone);
             boss.actor.progression = {
                 ...(boss.actor.progression || {}),
                 subWeapon: subTier,
                 normalCombo: normalTier,
-                specialClone: clampShogunTier(p?.progression?.specialClone),
+                specialClone: newTier,
             };
+            if (oldTier !== newTier && typeof boss.actor.rebuildSpecialCloneSlots === 'function') {
+                boss.actor.rebuildSpecialCloneSlots();
+            }
         }
         if (boss._subWeaponInstances && boss._shogunSyncedSubWeaponTier !== subTier) {
             for (const inst of Object.values(boss._subWeaponInstances)) {

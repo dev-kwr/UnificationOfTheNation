@@ -664,6 +664,7 @@
                     shogun.actor.progression.subWeapon = t;
                     shogun.actor.progression.normalCombo = t;
                     shogun.actor.progression.specialClone = t;
+                    if (typeof shogun.actor.rebuildSpecialCloneSlots === 'function') shogun.actor.rebuildSpecialCloneSlots();
                     if (typeof shogun.actor.refreshSubWeaponScaling === 'function') shogun.actor.refreshSubWeaponScaling();
                 }
                 Object.values(shogun._subWeaponInstances).forEach(inst => {

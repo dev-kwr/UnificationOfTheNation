@@ -1250,24 +1250,11 @@ export class Shogun extends Boss {
             subWeapon:   3,
             specialClone: 3,
         };
-        this.actor.specialCloneSlots              = [0];
-        this.actor.specialCloneAlive              = [true];
-        this.actor.specialClonePositions          = [{ x: this.x, y: this.y, facingRight: false, prevX: this.x }];
-        this.actor.specialCloneAttackTimers       = [0];
-        this.actor.specialCloneSubWeaponTimers    = [0];
-        this.actor.specialCloneSubWeaponActions   = [null];
-        this.actor.specialCloneComboSteps         = [0];
-        this.actor.specialCloneSlashTrailPoints   = [[]];
-        this.actor.specialCloneSlashTrailSampleTimers = [0];
-        this.actor.specialCloneAutoAiEnabled      = true;   // specialCloneAttackTimers[0]でupdate中の剣筋サンプリングが正しく動作する
-        this.actor.specialCloneSpacing            = 180;   // 忍者と同じ間隔
-        this.actor.specialCloneScarfNodes         = [null];
-        this.actor.specialCloneHairNodes          = [null];
-        this.actor.specialCloneInvincibleTimers   = [0];
-        this.actor.specialCloneTargets            = [null];
-        this.actor.specialCloneReturnToAnchor     = [false];
         this.actor.isUsingSpecial                 = true;
         this.actor.specialCloneCombatStarted      = true;
+        if (typeof this.actor.rebuildSpecialCloneSlots === 'function') {
+            this.actor.rebuildSpecialCloneSlots();
+        }
 
         this._ougiActive    = false;
         this._ougiWasActive = false;
