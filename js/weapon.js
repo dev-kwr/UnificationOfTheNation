@@ -3109,7 +3109,7 @@ export class Odachi extends SubWeapon {
                     }
                 }
 
-                const landed = this.owner && this.owner.isGrounded;
+                const landed = this.owner && this.owner.isGrounded && progress >= this.flipEnd;
                 if (!this.hasImpacted && (landed || progress >= 0.98)) {
                     this.hasImpacted = true;
                     this.plantedTimer = this.plantedDuration;

@@ -4684,7 +4684,7 @@ export function applyRendererMixin(PlayerClass) {
                     );
                 });
             }
-        } else if (!isShogunPlayer && this.isSpecialCloneCombatActive()) {
+        } else if (this.isSpecialCloneCombatActive()) {
             for (const anchor of anchors) {
                 if (anchor.alpha <= 0.02) continue;
                 const i = anchor.index;

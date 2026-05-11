@@ -161,11 +161,17 @@ export function applySpecialMixin(PlayerClass) {
                             facingRight: pos ? pos.facingRight : this.facingRight,
                             isEnemy: false,
                             isDashing: false,
-                            isGrounded: true,
+                            isGrounded: pos ? !(pos.jumping) : this.isGrounded,
                             isXAttackBoostActive: () => false,
                             currentSubWeapon: inst,
                             subWeaponAction: this.specialCloneSubWeaponActions ? this.specialCloneSubWeaponActions[i] : null
                         };
+                        // owner参照型の武器(大太刀・鎖鎌)は毎フレームclone位置に同期
+                        // ただし大太刀が着地後(planted/fadeOut)は位置を固定する
+                        if (inst.owner !== undefined &&
+                            !(inst.hasImpacted && ((inst.plantedTimer || 0) > 0 || (inst.fadeOutTimer || 0) > 0))) {
+                            inst.owner = dummyClone;
+                        }
                         inst.update(deltaTime, dummyClone);
                     }
                 }
@@ -213,14 +219,29 @@ export function applySpecialMixin(PlayerClass) {
                 this.currentSubWeapon.name === '二刀流' &&
                 typeof this.currentSubWeapon.getMainDurationByStep === 'function'
             ) {
-                const nextComboIndex = ((this.specialCloneComboSteps[index] || 0) % 5) + 1;
+                const prevStep = this.specialCloneComboSteps[index] || 0;
+                const maxSteps = (this.currentSubWeapon.comboDamages || []).length || 5;
+                // 5連コンボ完了後は飛翔斬撃（combined）を発動
+                if (prevStep >= maxSteps) {
+                    const combinedDuration = Math.max(170, Math.round(
+                        this.currentSubWeapon.combinedDuration || 560
+                    ));
+                    this.specialCloneComboSteps[index] = 0;
+                    this.specialCloneCurrentAttacks[index] = null;
+                    this.specialCloneAttackTimers[index] = combinedDuration;
+                    this.specialCloneSubWeaponTimers[index] = combinedDuration;
+                    this.specialCloneSubWeaponActions[index] = '二刀_合体';
+                    this.specialCloneComboResetTimers[index] = combinedDuration + 210 + 60;
+                    this.activateCloneSubWeaponInstance(index, 'combined');
+                    return;
+                }
+                const nextComboIndex = prevStep + 1;
                 const dualDuration = Math.max(1, this.currentSubWeapon.getMainDurationByStep(nextComboIndex - 1));
                 this.specialCloneComboSteps[index] = nextComboIndex;
                 this.specialCloneCurrentAttacks[index] = null;
                 this.specialCloneAttackTimers[index] = dualDuration;
                 this.specialCloneSubWeaponTimers[index] = dualDuration;
                 this.specialCloneSubWeaponActions[index] = '二刀_Z';
-                // 二刀流の合間も少し長め（本体合わせ）に猶予を持たせる
                 this.specialCloneComboResetTimers[index] = dualDuration + 210 + 60;
                 this.activateCloneSubWeaponInstance(index, 'main');
                 return;
@@ -317,14 +338,28 @@ export function applySpecialMixin(PlayerClass) {
                 y: this.getSpecialCloneDrawY(clonePos.y),
                 width: this.width,
                 height: this.height,
+                vx: 0,
+                vy: clonePos.cloneVy || 0,
+                groundY: this.groundY,
                 facingRight: clonePos.facingRight,
+                isGrounded: !(clonePos.jumping),
                 isEnemy: false
             };
             const attackType = overrideAttackType || this.currentSubWeapon.attackType || 'main';
             if (weaponName === '二刀流') {
+                // combined発動前に前回プロジェクタイルをクリア（2回目以降も飛翔斬撃を出すため）
+                if (attackType === 'combined' && Array.isArray(this.specialCloneSubWeaponInstances[index].projectiles)) {
+                    this.specialCloneSubWeaponInstances[index].projectiles.length = 0;
+                    this.specialCloneSubWeaponInstances[index].pendingCombinedProjectile = null;
+                }
                 this.specialCloneSubWeaponInstances[index].use(dummyClone, attackType);
             } else {
                 this.specialCloneSubWeaponInstances[index].use(dummyClone);
+            }
+            // 大太刀: use()がdummyCloneにジャンプを設定するので、クローンの物理状態に伝搬
+            if (weaponName === '大太刀' && clonePos) {
+                clonePos.jumping = true;
+                clonePos.cloneVy = dummyClone.vy || -30;
             }
         }
     };
@@ -527,7 +562,7 @@ export function applySpecialMixin(PlayerClass) {
                         // 奥義（忍術）の追加発動
                         const weaponName = subWeapon ? subWeapon.name : '';
                         const direction = pos.facingRight ? 1 : -1;
-                        if (tier >= 1 && weaponName !== '火薬玉' && Math.random() < odachiRate) {
+                        if (tier >= 0 && weaponName !== '火薬玉' && Math.random() < odachiRate) {
                             this.useNinjutsu(i, weaponName, direction);
                         }
                     }
@@ -1055,5 +1090,28 @@ export function applySpecialMixin(PlayerClass) {
         if (!Array.isArray(this.specialCloneAutoCooldowns)) return;
         if (index < 0 || index >= this.specialCloneAutoCooldowns.length) return;
         this.specialCloneAutoCooldowns[index] = this.specialCloneAutoStrikeCooldownMs;
+    };
+
+    /**
+     * Lv3 AI分身がサブ武器（忍術）を独立発動する
+     * triggerCloneAttackとは別系統のため、近接攻撃中でも発動可能
+     */
+    PlayerClass.prototype.useNinjutsu = function(cloneIndex, weaponName, direction) {
+        if (!this.currentSubWeapon || this.currentSubWeapon.name !== weaponName) return;
+        if ((this.specialCloneSubWeaponTimers[cloneIndex] || 0) > 0) return;
+        const pos = this.specialClonePositions && this.specialClonePositions[cloneIndex];
+        if (!pos) return;
+
+        pos.facingRight = direction > 0;
+        this.activateCloneSubWeaponInstance(cloneIndex);
+
+        const actionName = (weaponName === '火薬玉') ? 'throw' :
+                           (weaponName === '手裏剣') ? 'throw' : weaponName;
+        const durationMs = (typeof this.getSubWeaponActionDurationMs === 'function')
+            ? this.getSubWeaponActionDurationMs(actionName, this.currentSubWeapon)
+            : 300;
+        this.specialCloneSubWeaponTimers[cloneIndex] = Math.max(1, durationMs);
+        this.specialCloneSubWeaponActions[cloneIndex] = actionName;
+        this.resetCloneAutoStrikeCooldown(cloneIndex);
     };
 }
