@@ -3131,7 +3131,9 @@ export class Shogun extends Boss {
                 const isFadeOut = (odachiGroundRenderInst.fadeOutTimer || 0) > 0;
                 const wavePivotX = (isFadeOut && Number.isFinite(odachiGroundRenderInst._lastPlantedPivotX))
                     ? odachiGroundRenderInst._lastPlantedPivotX
-                    : (this.x + this.width * 0.5);
+                    : (Number.isFinite(odachiGroundRenderInst.impactFrozen?.pivotX)
+                        ? odachiGroundRenderInst.impactFrozen.pivotX
+                        : (this.x + this.width * 0.5));
                 const wavePivotY = Number.isFinite(odachiGroundRenderInst.impactY)
                     ? odachiGroundRenderInst.impactY
                     : (this.groundY + LANE_OFFSET);

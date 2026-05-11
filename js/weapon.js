@@ -2767,6 +2767,8 @@ export class Odachi extends SubWeapon {
         this.impactSoundPlayed = false;
         this.groundWaves = [];
         this.impactDebris = [];
+        this.impactFrozen = null; // 前回の着地位置をリセット（2回目以降で古い位置が使い回されるのを防ぐ）
+        this.impactX = null;
         this.attackDirection = player.facingRight ? 1 : -1;
 
         // ボス（敵）の場合は跳躍力を抑える
@@ -2830,7 +2832,7 @@ export class Odachi extends SubWeapon {
         if (this.hasImpacted) {
             phase = 'planted';
             rotation = Math.PI * 0.5;
-            // impactFrozen.pivotX を使うことで、planted中にボスが横移動してもX位置がずれない
+            // frozenCenterX（着地時に固定）を使って剣と衝撃波の基準点を一致させる
             const frozenCenterX = (this.impactFrozen && Number.isFinite(this.impactFrozen.pivotX))
                 ? this.impactFrozen.pivotX : centerX;
             const handX = frozenCenterX + direction * (player.width * 0.325);
@@ -3082,13 +3084,14 @@ export class Odachi extends SubWeapon {
                         if (this.owner.y > targetY) {
                             this.owner.y = targetY;
                             this.owner.vy = 0;
+                            this.owner.vx = 0; // impactFrozen保存前に vx をゼロにして applyPhysics() によるズレを防ぐ
                             this.hasImpacted = true;
                             this.plantedTimer = this.plantedDuration;
                             this.impactFrozen = {
                                 pivotX: this.owner.x + this.owner.width * 0.5,
                                 pivotY: this.owner.y + this.owner.height * 0.62
                             };
-                            // renderModel は常に drawW=48 で描くため、視覚的な手元位置に合わせる
+                            // handX と impactX を一致させるため player.width ベースで計算
                             const _impactDrawW0 = this.isShogunOdachi ? 48 : this.owner.width;
                             this.impactX = this.impactFrozen.pivotX + pose.direction * (_impactDrawW0 * 0.325);
                             this.impactY = maxTipY;
@@ -3112,6 +3115,7 @@ export class Odachi extends SubWeapon {
                     this.plantedTimer = this.plantedDuration;
                     if (this.owner) {
                         if (!this.impactFrozen) {
+                            this.owner.vx = 0; // impactFrozen保存前に vx をゼロにして applyPhysics() によるズレを防ぐ
                             this.impactFrozen = {
                                 pivotX: this.owner.x + this.owner.width * 0.5,
                                 pivotY: this.owner.y + this.owner.height * 0.62
@@ -3137,6 +3141,7 @@ export class Odachi extends SubWeapon {
                     this.plantedTimer = this.plantedDuration;
                     if (this.owner) {
                         if (!this.impactFrozen) {
+                            this.owner.vx = 0; // impactFrozen保存前に vx をゼロにして applyPhysics() によるズレを防ぐ
                             this.impactFrozen = {
                                 pivotX: this.owner.x + this.owner.width * 0.5,
                                 pivotY: this.owner.y + this.owner.height * 0.62
