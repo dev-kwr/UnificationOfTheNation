@@ -132,6 +132,9 @@ export function applySpecialMixin(PlayerClass) {
                         this.specialClonePositions[i].facingRight = anchors[i].facingRight;
 
                         const pos = this.specialClonePositions[i];
+                        if (typeof this.constrainSpecialClonePosition === 'function') {
+                            this.constrainSpecialClonePosition(pos);
+                        }
                         this.updateSpecialCloneAccessoryNodes(i, pos, deltaTime, {
                             cloneVx: this.vx,
                             motionTime: this.motionTime,
@@ -808,33 +811,7 @@ export function applySpecialMixin(PlayerClass) {
                 pos.y = cloneRestY;
             }
 
-            if (stageObstacles.length > 0) {
-                for (const obs of stageObstacles) {
-                    if (!obs || obs.isDestroyed || obs.x === undefined) continue;
-                    const obsLeft = obs.x;
-                    const obsRight = obs.x + (obs.width || 30);
-                    const obsTop = (obs.y !== undefined) ? obs.y : (this.groundY - (obs.height || 30));
-                    const obsBottom = obsTop + (obs.height || 30);
-
-                    const cloneHalfW = this.width * 0.4;
-                    const cloneLeft = pos.x - cloneHalfW;
-                    const cloneRight = pos.x + cloneHalfW;
-                    const cloneDrawY = this.getSpecialCloneDrawY(pos.y);
-                    const cloneBottom = cloneDrawY + this.height;
-                    const cloneTop = cloneDrawY;
-
-                    if (cloneRight > obsLeft && cloneLeft < obsRight &&
-                        cloneBottom > obsTop && cloneTop < obsBottom) {
-                        const overlapLeft = cloneRight - obsLeft;
-                        const overlapRight = obsRight - cloneLeft;
-                        if (overlapLeft < overlapRight) {
-                            pos.x -= overlapLeft;
-                        } else {
-                            pos.x += overlapRight;
-                        }
-                    }
-                }
-            }
+            this.constrainSpecialClonePosition(pos);
 
             if (Math.abs(pos.y - prevY) > 40) {
                 this.initCloneAccessoryNodes(i);
@@ -912,6 +889,42 @@ export function applySpecialMixin(PlayerClass) {
         }
     };
 
+    PlayerClass.prototype.constrainSpecialClonePosition = function(pos) {
+        if (!pos) return;
+        const stage = (window.game && window.game.stage) ? window.game.stage : null;
+        const stageObstacles = (stage && Array.isArray(stage.obstacles)) ? stage.obstacles : [];
+        if (stageObstacles.length <= 0) return;
+
+        const cloneHalfW = this.width * 0.4;
+        const cloneLeft = pos.x - cloneHalfW;
+        const cloneRight = pos.x + cloneHalfW;
+        const cloneDrawY = this.getSpecialCloneDrawY(pos.y);
+        const cloneBottom = cloneDrawY + this.height;
+        const cloneTop = cloneDrawY;
+
+        for (const obs of stageObstacles) {
+            if (!obs || obs.isDestroyed || obs.type !== 'rock' || obs.x === undefined) continue;
+            const obsLeft = obs.x;
+            const obsRight = obs.x + (obs.width || 30);
+            const obsTop = (obs.y !== undefined) ? obs.y : (this.groundY - (obs.height || 30));
+            const obsBottom = obsTop + (obs.height || 30);
+            if (
+                cloneRight > obsLeft &&
+                cloneLeft < obsRight &&
+                cloneBottom > obsTop + 6 &&
+                cloneTop < obsBottom - 6
+            ) {
+                const overlapLeft = cloneRight - obsLeft;
+                const overlapRight = obsRight - cloneLeft;
+                if (overlapLeft < overlapRight) {
+                    pos.x -= overlapLeft;
+                } else {
+                    pos.x += overlapRight;
+                }
+            }
+        }
+    };
+
     PlayerClass.prototype.findNearestEnemy = function(x, y, enemies, maxDist) {
         let bestTarget = null;
         let bestDistSq = maxDist * maxDist;
@@ -940,7 +953,26 @@ export function applySpecialMixin(PlayerClass) {
         if (mirrorPlayerMotion) {
             return this.getFootY() - PLAYER.HEIGHT * 0.38;
         }
-        return this.groundY + LANE_OFFSET - PLAYER.HEIGHT * 0.38;
+        return this.getSpecialCloneAnchorYAtX(this.x + this.width * 0.5);
+    };
+
+    PlayerClass.prototype.getSpecialCloneGroundYAtX = function(worldX = this.x + this.width * 0.5) {
+        const stage = (window.game && window.game.stage) ? window.game.stage : null;
+        if (stage && typeof stage.getStairGroundY === 'function') {
+            return stage.getStairGroundY(worldX);
+        }
+        return this.groundY;
+    };
+
+    PlayerClass.prototype.getSpecialCloneAnchorYAtX = function(worldX = this.x + this.width * 0.5) {
+        return this.getSpecialCloneGroundYAtX(worldX) + LANE_OFFSET - PLAYER.HEIGHT * 0.38;
+    };
+
+    PlayerClass.prototype.getSpecialCloneSpacing = function() {
+        const baseSpacing = 180;
+        return this.characterType === 'shogun'
+            ? Math.round(baseSpacing * 1.2)
+            : baseSpacing;
     };
 
     PlayerClass.prototype.getSpecialCloneDrawY = function(anchorY) {
@@ -977,10 +1009,19 @@ export function applySpecialMixin(PlayerClass) {
     };
 
     PlayerClass.prototype.calculateSpecialCloneAnchors = function(centerX, centerY) {
-        const spacing = this.specialCloneSpacing || 180;
+        const spacing = typeof this.getSpecialCloneSpacing === 'function'
+            ? this.getSpecialCloneSpacing()
+            : (this.specialCloneSpacing || 180);
+        const useCloneGround = this.specialCloneCombatStarted && this.specialCastTimer <= 0;
+        const resolveY = (x, unit) => {
+            const baseY = useCloneGround && typeof this.getSpecialCloneAnchorYAtX === 'function'
+                ? this.getSpecialCloneAnchorYAtX(x)
+                : centerY;
+            return baseY + (Math.abs(unit) - 1.5) * 1.6 + 1.2;
+        };
         const anchors = this.specialCloneSlots.map((unit, index) => ({
             x: centerX + unit * spacing,
-            y: centerY + (Math.abs(unit) - 1.5) * 1.6 + 1.2,
+            y: resolveY(centerX + unit * spacing, unit),
             facingRight: this.facingRight,
             alpha: this.specialCloneAlive[index] ? 1.0 : 0,
             index
@@ -992,9 +1033,10 @@ export function applySpecialMixin(PlayerClass) {
         for (let i = 0; i < aliveIndices.length; i++) {
             const index = aliveIndices[i];
             const unit = activeUnits[i];
+            const x = centerX + unit * spacing;
             anchors[index] = {
-                x: centerX + unit * spacing,
-                y: centerY + (Math.abs(unit) - 1.5) * 1.6 + 1.2,
+                x,
+                y: resolveY(x, unit),
                 facingRight: this.facingRight,
                 alpha: 1.0,
                 index
@@ -1108,7 +1150,9 @@ export function applySpecialMixin(PlayerClass) {
         const prevCount = this.specialCloneSlots ? this.specialCloneSlots.length : 0;
         
         this.specialCloneSlots = this.buildCloneSlotLayout(count);
-        this.specialCloneSpacing = 180;
+        this.specialCloneSpacing = typeof this.getSpecialCloneSpacing === 'function'
+            ? this.getSpecialCloneSpacing()
+            : 180;
         this.specialCloneAutoAiEnabled = (tier >= 3);
         
         const isActive = this.isUsingSpecial;

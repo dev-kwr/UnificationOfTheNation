@@ -1822,24 +1822,28 @@ export class Shogun extends Boss {
         this.actor.motionTime = this.motionTime;
         this.actor.speed = this.speed;
 
-        const _oSpacing  = this.actor.specialCloneSpacing || 180;
+        const _oSpacing  = typeof this.actor.getSpecialCloneSpacing === 'function'
+            ? this.actor.getSpecialCloneSpacing()
+            : (this.actor.specialCloneSpacing || 180);
         const _oCenterX  = actorRenderX + actorRenderW * 0.5;
         const _oAnchorY  = actorRenderY + PLAYER.HEIGHT * 0.62;
-        const _oGroundY = Number.isFinite(this.groundY)
-            ? this.groundY
-            : (Number.isFinite(this.actor.groundY) ? this.actor.groundY : _oAnchorY);
-        const _oStableAnchorY = _oGroundY + LANE_OFFSET - PLAYER.HEIGHT * 0.38;
-        const _oCloneAnchorY = !this.isEnemy ? _oStableAnchorY : _oAnchorY;
+        this.actor.groundY = this.groundY;
+        const _getCloneAnchorY = (x) => typeof this.actor.getSpecialCloneAnchorYAtX === 'function'
+            ? this.actor.getSpecialCloneAnchorYAtX(x)
+            : (this.groundY + LANE_OFFSET - PLAYER.HEIGHT * 0.38);
 
-        const _initPos = (unit) => ({
-            x: _oCenterX + unit * _oSpacing,
-            y: _oCloneAnchorY,
-            facingRight: this.facingRight,
-            prevX: _oCenterX + unit * _oSpacing,
-            jumping: this.isEnemy ? !this.isGrounded : false,
-            cloneVy: this.isEnemy ? this.vy : 0,
-            renderVx: this.vx,
-        });
+        const _initPos = (unit) => {
+            const x = _oCenterX + unit * _oSpacing;
+            return {
+                x,
+                y: !this.isEnemy ? _getCloneAnchorY(x) : _oAnchorY,
+                facingRight: this.facingRight,
+                prevX: x,
+                jumping: this.isEnemy ? !this.isGrounded : false,
+                cloneVy: this.isEnemy ? this.vy : 0,
+                renderVx: this.vx,
+            };
+        };
 
         // 奥義スロット管理（起動/停止イベント駆動 + ゲーム内自動トリガー）
         {
@@ -1894,7 +1898,7 @@ export class Shogun extends Boss {
                     if (pos) {
                         pos.prevX = pos.x;
                         pos.x = _oCenterX + this.actor.specialCloneSlots[i] * _oSpacing;
-                        pos.y = _oCloneAnchorY;
+                        pos.y = !this.isEnemy ? _getCloneAnchorY(pos.x) : _oAnchorY;
                         pos.facingRight = this.facingRight;
                         pos.jumping = this.isEnemy ? !this.isGrounded : false;
                         pos.cloneVy = this.isEnemy ? this.vy : 0;
@@ -1919,7 +1923,7 @@ export class Shogun extends Boss {
                     this.actor.specialClonePositions[ai] = ownerPos
                         ? {
                             ...ownerPos,
-                            y: _oCloneAnchorY,
+                            y: _getCloneAnchorY(ownerPos.x),
                             jumping: false,
                             cloneVy: 0
                         }
@@ -3018,7 +3022,13 @@ export class Shogun extends Boss {
             }
         }
 
-        if (this._ougiActive && typeof this.actor.updateSpecialCloneSlashTrails === 'function') {
+        const bodyTrailPoints = Array.isArray(this.actor.specialCloneSlashTrailPoints)
+            ? this.actor.specialCloneSlashTrailPoints[0]
+            : null;
+        const shouldUpdateBodyTrail = this._ougiActive ||
+            this._attackTimer > 0 ||
+            (Array.isArray(bodyTrailPoints) && bodyTrailPoints.length > 0);
+        if (shouldUpdateBodyTrail && typeof this.actor.updateSpecialCloneSlashTrails === 'function') {
             const trailDeltaMs = (typeof this._lastDeltaMs === 'number') ? this._lastDeltaMs : 16;
             this.actor.updateSpecialCloneSlashTrails(trailDeltaMs);
         }
@@ -3060,7 +3070,7 @@ export class Shogun extends Boss {
 
         // コンボ斬撃トレイル（大太刀等）
         // 将軍のZコンボの軌跡は updateSpecialCloneSlashTrails(deltaMs) を通じて specialCloneSlashTrailPoints[0] に生成されます。
-        const trailPoints = Array.isArray(this.actor.specialCloneSlashTrailPoints) ? this.actor.specialCloneSlashTrailPoints[0] : null;
+        const trailPoints = bodyTrailPoints;
         if (!this.hideBody && trailPoints && trailPoints.length > 0) {
             // バフによるスケール（通常時は1.0）
             const baseTrailScale = typeof this.actor.getXAttackTrailWidthScale === 'function'
@@ -3250,20 +3260,21 @@ export class Shogun extends Boss {
 
         // 奥義クローン位置の更新（renderBodyでactorRenderXY確定後に設定）
         if (this._ougiActive && this.actor.specialCloneSlots.length > 1 && !(this._playableOwner && !this.isEnemy)) {
-            const _oSpacing  = this.actor.specialCloneSpacing || 180;
+            const _oSpacing  = typeof this.actor.getSpecialCloneSpacing === 'function'
+                ? this.actor.getSpecialCloneSpacing()
+                : (this.actor.specialCloneSpacing || 180);
             const _oCenterX  = actorRenderX + actorRenderW * 0.5;
             const _oAnchorY  = actorRenderY + PLAYER.HEIGHT * 0.62;
-            const _oGroundY = Number.isFinite(this.groundY)
-                ? this.groundY
-                : (Number.isFinite(this.actor.groundY) ? this.actor.groundY : _oAnchorY);
-            const _oStableAnchorY = _oGroundY + LANE_OFFSET - PLAYER.HEIGHT * 0.38;
-            const _oCloneAnchorY = !this.isEnemy ? _oStableAnchorY : _oAnchorY;
+            this.actor.groundY = this.groundY;
+            const _getCloneAnchorY = (x) => typeof this.actor.getSpecialCloneAnchorYAtX === 'function'
+                ? this.actor.getSpecialCloneAnchorYAtX(x)
+                : (this.groundY + LANE_OFFSET - PLAYER.HEIGHT * 0.38);
             for (let _oi = 0; _oi < this.actor.specialCloneSlots.length; _oi++) {
                 const _oUnit = this.actor.specialCloneSlots[_oi];
                 const _oPos  = this.actor.specialClonePositions[_oi];
                 if (_oPos) {
                     _oPos.x          = _oCenterX + _oUnit * _oSpacing;
-                    _oPos.y          = _oCloneAnchorY;
+                    _oPos.y          = !this.isEnemy ? _getCloneAnchorY(_oPos.x) : _oAnchorY;
                     _oPos.facingRight = this.facingRight;
                     _oPos.prevX      = _oPos.x;
                     _oPos.jumping    = this.isEnemy ? !this.isGrounded : false;

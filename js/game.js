@@ -1755,6 +1755,30 @@ class Game {
             width: this.player.width - 10,
             height: this.player.height - 10
         }));
+        const damageRocksWithHitboxes = (hitboxes, damage, fallbackX = null, fallbackY = null) => {
+            const boxes = Array.isArray(hitboxes) ? hitboxes : (hitboxes ? [hitboxes] : []);
+            if (boxes.length === 0) return false;
+            const rockDamage = Math.max(1, Math.round(damage || 1));
+            let didHit = false;
+            for (const obs of obstacleList) {
+                if (!obs || obs.isDestroyed || obs.type !== OBSTACLE_TYPES.ROCK) continue;
+                for (const box of boxes) {
+                    if (!box || !this.rectIntersects(box, obs)) continue;
+                    didHit = true;
+                    const impactX = Number.isFinite(box.x) && Number.isFinite(box.width)
+                        ? box.x + box.width * 0.5
+                        : fallbackX;
+                    const impactY = Number.isFinite(box.y) && Number.isFinite(box.height)
+                        ? box.y + box.height * 0.5
+                        : fallbackY;
+                    if (obs.takeDamage(rockDamage)) {
+                        this.spawnRockBreakEffect(obs, impactX, impactY);
+                    }
+                    break;
+                }
+            }
+            return didHit;
+        };
 
         const subWeaponCloneOffsets = (this.player && typeof this.player.getSubWeaponCloneOffsets === 'function')
             ? this.player.getSubWeaponCloneOffsets()
@@ -1861,6 +1885,12 @@ class Game {
                                 });
                             }
                         }
+                        damageRocksWithHitboxes(
+                            attackHitboxes,
+                            1,
+                            cloneState.x + this.player.width * 0.68,
+                            cloneState.y + this.player.height * 0.46
+                        );
                     }
                 }
             }
@@ -2076,6 +2106,59 @@ class Game {
                 }
             }
 
+        }
+
+        if (
+            this.player &&
+            Array.isArray(this.player.specialCloneSubWeaponInstances) &&
+            Array.isArray(this.player.specialClonePositions)
+        ) {
+            for (let i = 0; i < this.player.specialCloneSubWeaponInstances.length; i++) {
+                const inst = this.player.specialCloneSubWeaponInstances[i];
+                const pos = this.player.specialClonePositions[i];
+                if (!inst || !pos || typeof inst.getHitbox !== 'function') continue;
+                if (this.player.specialCloneAlive && this.player.specialCloneAlive[i] === false) continue;
+                const cloneTimer = this.player.specialCloneSubWeaponTimers
+                    ? (this.player.specialCloneSubWeaponTimers[i] || 0)
+                    : 0;
+                const hasLiveProjectile = Array.isArray(inst.projectiles) && inst.projectiles.length > 0;
+                const hasPlantedOdachi = inst.name === '大太刀' && ((inst.plantedTimer || 0) > 0 || (inst.fadeOutTimer || 0) > 0);
+                if (cloneTimer <= 0 && !hasLiveProjectile && !hasPlantedOdachi) continue;
+                const cloneOwner = {
+                    x: pos.x - this.player.width * 0.5,
+                    y: typeof this.player.getSpecialCloneDrawY === 'function'
+                        ? this.player.getSpecialCloneDrawY(pos.y)
+                        : pos.y - this.player.height * 0.62,
+                    width: this.player.width,
+                    height: this.player.height,
+                    groundY: typeof this.player.getSpecialCloneGroundYAtX === 'function'
+                        ? this.player.getSpecialCloneGroundYAtX(pos.x)
+                        : this.player.groundY,
+                    facingRight: pos.facingRight,
+                    isGrounded: !pos.jumping,
+                    isEnemy: false,
+                    currentSubWeapon: inst,
+                    subWeaponAction: this.player.specialCloneSubWeaponActions
+                        ? this.player.specialCloneSubWeaponActions[i]
+                        : null,
+                    subWeaponTimer: cloneTimer,
+                    isXAttackBoostActive: () => false
+                };
+                let cloneHitboxes = inst.getHitbox(cloneOwner);
+                if (!cloneHitboxes) continue;
+                cloneHitboxes = Array.isArray(cloneHitboxes) ? cloneHitboxes : [cloneHitboxes];
+                for (const hitbox of cloneHitboxes) {
+                    let rockDamage = Math.max(1, Math.floor((inst.damage || 1) * 0.45) || 1);
+                    if (inst.name === '二刀流' && hitbox && hitbox.part === 'projectile') {
+                        rockDamage = Math.max(1, Math.floor((inst.xDamage || inst.damage || 1) * 0.45));
+                    }
+                    const hitRock = damageRocksWithHitboxes(hitbox, rockDamage);
+                    const proj = hitbox && hitbox._sourceProjectile;
+                    if (hitRock && proj && !proj.pierce) {
+                        proj.isDestroyed = true;
+                    }
+                }
+            }
         }
 
         // 敵攻撃 vs プレイヤー
