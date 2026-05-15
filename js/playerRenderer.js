@@ -4851,8 +4851,9 @@ export function applyRendererMixin(PlayerClass) {
                         : null;
                 } else {
                     this.vx = saved.vx;
-                    this.vy = saved.vy;
-                    this.isGrounded = saved.isGrounded;
+                    this.vy = cloneHasPlantedOdachi ? 0 : saved.vy;
+                    // 大太刀のぶら下がり中は空中ポーズ（isGrounded=false）で描画
+                    this.isGrounded = cloneHasPlantedOdachi ? false : saved.isGrounded;
                     this.isCrouching = saved.isCrouching;
                     this.isDashing = saved.isDashing;
                     this.subWeaponTimer = cloneSubWeaponActive ? cloneSubWeaponTimer : saved.subWeaponTimer;

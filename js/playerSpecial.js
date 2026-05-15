@@ -146,17 +146,21 @@ export function applySpecialMixin(PlayerClass) {
                         if (typeof this.constrainSpecialClonePosition === 'function') {
                             this.constrainSpecialClonePosition(pos);
                         }
-                        this.updateSpecialCloneAccessoryNodes(i, pos, deltaTime, {
-                            cloneVx: this.vx,
-                            motionTime: this.motionTime,
-                            isMoving: Math.abs(this.vx) > 0.5 || !this.isGrounded,
-                            drawX: pos.x - this.width * 0.5,
-                            footY: this.getSpecialCloneFootY(pos.y),
-                            height: this.height,
-                            isDashing: this.isDashing,
-                            isCrouching: this.isCrouching,
-                            legPhase: this.legPhase || this.motionTime * 0.012
-                        });
+                        // 大太刀アクティブ時はサブ武器更新後にpos.yが確定するためここではスキップ
+                        const odachiActive = odachiInst && odachiInst.name === '大太刀' && odachiInst.isAttacking;
+                        if (!odachiActive) {
+                            this.updateSpecialCloneAccessoryNodes(i, pos, deltaTime, {
+                                cloneVx: this.vx,
+                                motionTime: this.motionTime,
+                                isMoving: Math.abs(this.vx) > 0.5 || !this.isGrounded,
+                                drawX: pos.x - this.width * 0.5,
+                                footY: this.getSpecialCloneFootY(pos.y),
+                                height: this.height,
+                                isDashing: this.isDashing,
+                                isCrouching: this.isCrouching,
+                                legPhase: this.legPhase || this.motionTime * 0.012
+                            });
+                        }
                     }
                 }
             }
@@ -174,9 +178,8 @@ export function applySpecialMixin(PlayerClass) {
                         !(inst.hasImpacted && ((inst.plantedTimer || 0) > 0 || (inst.fadeOutTimer || 0) > 0))) {
                         inst.owner = dummyClone;
                     }
-                    const subWeaponScale = inst.name === '二刀流'
-                        ? 1
-                        : Math.max(1, this.subWeaponMotionScale || 1);
+                    // 二刀流は常にScale=1（combined含む）、他の武器はMotionScale適用
+                    const subWeaponScale = inst.name === '二刀流' ? 1 : Math.max(1, this.subWeaponMotionScale || 1);
                     inst.update(deltaTime / subWeaponScale, enemies);
                     // 非AIモード（Lv1-2）ではupdateSpecialCloneAiが呼ばれないためここでタイマーを減算
                     if (!this.specialCloneAutoAiEnabled && this.specialCloneSubWeaponTimers && this.specialCloneSubWeaponTimers[i] > 0) {
@@ -194,9 +197,13 @@ export function applySpecialMixin(PlayerClass) {
                         pos.jumping = false;
                         pos.cloneVy = 0;
                     }
+                    // 大太刀: isAttacking中またはfadeOut中はタイマー切れでも維持（本体のkeepOdachiPoseと同様）
+                    const odachiAlive = inst.name === '大太刀' &&
+                        (inst.isAttacking || (inst.fadeOutTimer || 0) > 0);
                     if (
                         cloneTimer <= 0 &&
                         !hasLiveProjectile &&
+                        !odachiAlive &&
                         (inst.name === '二刀流' || inst.name === '鎖鎌' || inst.name === '大太刀' || inst.name === '大槍')
                     ) {
                         inst.isAttacking = false;
@@ -211,6 +218,27 @@ export function applySpecialMixin(PlayerClass) {
                             this.specialCloneSubWeaponOwners[i] = null;
                         }
                     }
+                }
+            }
+        }
+
+        // Lv1-2: 大太刀アクティブ中はサブ武器更新後（pos.y確定後）にアクセサリを更新
+        if (!this.specialCloneAutoAiEnabled && this.specialCloneCombatStarted && this.specialCloneSubWeaponInstances) {
+            for (let i = 0; i < this.specialCloneSlots.length; i++) {
+                const inst = this.specialCloneSubWeaponInstances[i];
+                const pos = this.specialClonePositions && this.specialClonePositions[i];
+                if (pos && inst && inst.name === '大太刀' && inst.isAttacking) {
+                    this.updateSpecialCloneAccessoryNodes(i, pos, deltaTime, {
+                        cloneVx: this.vx,
+                        motionTime: this.motionTime,
+                        isMoving: Math.abs(this.vx) > 0.5 || !this.isGrounded,
+                        drawX: pos.x - this.width * 0.5,
+                        footY: this.getSpecialCloneFootY(pos.y),
+                        height: this.height,
+                        isDashing: this.isDashing,
+                        isCrouching: this.isCrouching,
+                        legPhase: this.legPhase || this.motionTime * 0.012
+                    });
                 }
             }
         }
@@ -364,6 +392,10 @@ export function applySpecialMixin(PlayerClass) {
         if (this.progression && Number.isFinite(this.progression.subWeapon)) {
             return Math.max(0, Math.min(3, Math.floor(this.progression.subWeapon) || 0));
         }
+        // progression未設定環境: 本体武器のenhanceTierを直接参照
+        if (this.currentSubWeapon && Number.isFinite(this.currentSubWeapon.enhanceTier)) {
+            return Math.max(0, Math.min(3, this.currentSubWeapon.enhanceTier));
+        }
         if (Number.isFinite(this.enhanceTier)) {
             return Math.max(0, Math.min(3, Math.floor(this.enhanceTier) || 0));
         }
@@ -416,7 +448,7 @@ export function applySpecialMixin(PlayerClass) {
             owner = fresh;
             this.specialCloneSubWeaponOwners[index] = owner;
         } else {
-            const odachiLocked = inst && inst.name === '大太刀' && inst.isAttacking;
+            const odachiLocked = inst && inst.name === '大太刀' && inst.isAttacking && inst.hasImpacted;
             owner.x = fresh.x;
             if (!odachiLocked) {
                 owner.y = fresh.y;

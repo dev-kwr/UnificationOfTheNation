@@ -112,6 +112,7 @@ function drawRoundedFlatTitleButton(ctx, x, y, width, height, label, options = {
     const textColor = options.textColor || '#f3f7ff';
     const radius = Number.isFinite(options.radius) ? options.radius : 14;
     const font = options.font || '700 20px sans-serif';
+    const lineWidth = Number.isFinite(options.lineWidth) ? options.lineWidth : 1.4;
 
     const left = x - width * 0.5;
     const top = y - height * 0.5;
@@ -121,7 +122,7 @@ function drawRoundedFlatTitleButton(ctx, x, y, width, height, label, options = {
     ctx.fill();
     drawRoundedRectPath(ctx, left, top, width, height, radius);
     ctx.strokeStyle = border;
-    ctx.lineWidth = 1.4;
+    ctx.lineWidth = lineWidth;
     ctx.stroke();
     if (label) {
         ctx.fillStyle = textColor;
@@ -1325,7 +1326,7 @@ export class UI {
 }
 
 // タイトル画面描画
-export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, hasSave = false, characterType = 'ninja') {
+export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, hasSave = false) {
     const time = Date.now();
     const t = time * 0.001;
 
@@ -1447,7 +1448,6 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     const globalData = saveManager.loadGlobal();
     const focusedFill = 'rgba(116, 166, 255, 0.78)';
     const focusedBorder = 'rgba(238, 246, 255, 0.98)';
-    const isDiffFocused = titleMenuIndex === 0;
     drawRoundedFlatTitleButton(
         ctx,
         layout.centerX,
@@ -1457,75 +1457,52 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
         currentDifficulty ? currentDifficulty.name : '普 (NORMAL)',
         {
             fill: diffColor,
-            border: isDiffFocused ? focusedBorder : 'rgba(245, 246, 255, 0.5)',
+            border: 'rgba(245, 246, 255, 0.5)',
             font: '700 21px sans-serif'
         }
     );
 
-    if (globalData.isGameCleared && layout.characterY) {
-        const isShogun = characterType === 'shogun';
-        const isCharFocused = titleMenuIndex === 1;
-        drawRoundedFlatTitleButton(
-            ctx,
-            layout.centerX,
-            layout.characterY,
-            layout.diffButton.width,
-            layout.diffButton.height,
-            isShogun ? '将軍' : '標準',
-            {
-                fill: '#4444aa',
-                border: isCharFocused ? focusedBorder : 'rgba(245, 246, 255, 0.5)',
-                font: '700 19px sans-serif'
-            }
-        );
-    }
-
-    // 開始ボタン（続きから / 最初から）
+    // 開始ボタン
     const startY = layout.startY;
     const actionW = layout.actionButton.width;
     const actionH = layout.actionButton.height;
-    const charOffset = (globalData.isGameCleared ? 1 : 0) + 1;
+    const isCleared = globalData.isGameCleared;
+    const goldOutsideFill = 'rgba(10, 10, 15, 0.82)';
+    const goldOutsideFocusedFill = 'rgba(10, 10, 15, 0.82)';
+
+    const btnFocFill   = 'rgba(74, 122, 220, 0.52)';
+    const btnDimFill   = 'rgba(30, 58, 116, 0.4)';
+    const btnFocBorder = 'rgba(225, 239, 255, 0.92)';
+    const btnDimBorder = 'rgba(163, 194, 244, 0.36)';
+    const focusedLineW = 2.0;
+    const normalLineW  = 1.3;
+    const focusedTextColor = '#fff';
+    const dimTextColor     = 'rgba(255, 255, 255, 0.8)';
+    const dimBlackFill = 'rgba(10, 10, 15, 0.45)';
+
+    const actionOpts = (focused) => ({
+        fill:      focused ? btnFocFill : btnDimFill,
+        border:    focused ? btnFocBorder : btnDimBorder,
+        lineWidth: focused ? focusedLineW : normalLineW,
+        textColor: focused ? focusedTextColor : dimTextColor,
+        font:      focused ? '700 22px sans-serif' : '600 22px sans-serif'
+    });
+    const blackOpts = (focused) => ({
+        fill:      focused ? goldOutsideFocusedFill : dimBlackFill,
+        border:    focused ? btnFocBorder : btnDimBorder,
+        lineWidth: focused ? focusedLineW : normalLineW,
+        textColor: focused ? focusedTextColor : dimTextColor,
+        font:      focused ? '700 22px sans-serif' : '600 22px sans-serif'
+    });
+
     if (hasSave) {
-        drawRoundedFlatTitleButton(
-            ctx,
-            layout.centerX,
-            startY,
-            actionW,
-            actionH,
-            '続きから',
-            {
-                fill: titleMenuIndex === charOffset ? focusedFill : titleActionFill,
-                border: titleMenuIndex === charOffset ? focusedBorder : titleActionStroke,
-                font: '700 22px sans-serif'
-            }
-        );
-        drawRoundedFlatTitleButton(
-            ctx,
-            layout.centerX,
-            layout.newGameY,
-            actionW,
-            actionH,
-            '最初から',
-            {
-                fill: titleMenuIndex === charOffset + 1 ? focusedFill : titleActionFill,
-                border: titleMenuIndex === charOffset + 1 ? focusedBorder : titleActionStroke,
-                font: '700 22px sans-serif'
-            }
-        );
+        drawRoundedFlatTitleButton(ctx, layout.centerX, startY,         actionW, actionH, '続きから', actionOpts(titleMenuIndex === 0));
+        drawRoundedFlatTitleButton(ctx, layout.centerX, layout.newGameY, actionW, actionH, '最初から', actionOpts(titleMenuIndex === 1));
+    } else if (isCleared) {
+        drawRoundedFlatTitleButton(ctx, layout.centerX, startY,         actionW, actionH, '出陣', blackOpts(titleMenuIndex === 0));
+        drawRoundedFlatTitleButton(ctx, layout.centerX, layout.newGameY, actionW, actionH, '出陣', actionOpts(titleMenuIndex === 1));
     } else {
-        drawRoundedFlatTitleButton(
-            ctx,
-            layout.centerX,
-            layout.singleStartY,
-            actionW,
-            actionH,
-            '出陣',
-            {
-                fill: titleMenuIndex === charOffset ? focusedFill : titleActionFill,
-                border: titleMenuIndex === charOffset ? focusedBorder : titleActionStroke,
-                font: '700 22px sans-serif'
-            }
-        );
+        drawRoundedFlatTitleButton(ctx, layout.centerX, layout.singleStartY, actionW, actionH, '出陣', actionOpts(true));
     }
     
     // 不要な描画コード削除

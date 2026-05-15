@@ -616,6 +616,11 @@ class Game {
             this.currentStageNumber = saveData.progress.currentStage;
             this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
             saveManager.applyToPlayer(this.player, saveData);
+            const savedCharType = saveManager.loadGlobal().characterType || 'ninja';
+            if (savedCharType === 'shogun') {
+                this.player.characterType = 'shogun';
+                applyShogunCombat(this.player);
+            }
             
             // 所持武器リストの復元
             this.unlockedWeapons = saveData.progress.unlockedWeapons || [];
@@ -877,8 +882,7 @@ class Game {
         }
         const globalData = saveManager.loadGlobal();
         const isCleared = globalData.isGameCleared;
-        const characterOffset = isCleared ? 1 : 0;
-        const titleOptionCount = (this.hasSave ? 2 : 1) + characterOffset + 1;
+        const titleOptionCount = (this.hasSave || isCleared) ? 2 : 1;
         this.titleMenuIndex = Math.max(0, Math.min(titleOptionCount - 1, this.titleMenuIndex));
         if (this.titleDebugOpen) {
             this.updateTitleDebug();
@@ -918,80 +922,30 @@ class Game {
             }
         }
 
-        // 難易度選択（左右キー）/ 操作キャラ行フォーカス時はキャラトグル
+        // 難易度選択（左右キー）
         if (input.isActionJustPressed('LEFT')) {
-            if (isCleared && this.titleMenuIndex === 1) {
-                this.titleDebugConfig.characterType = this.titleDebugConfig.characterType === 'shogun' ? 'ninja' : 'shogun';
-            } else {
-                this.difficultyIndex = (this.difficultyIndex - 1 + this.difficultyKeys.length) % this.difficultyKeys.length;
-                this.updateDifficulty();
-            }
+            this.difficultyIndex = (this.difficultyIndex - 1 + this.difficultyKeys.length) % this.difficultyKeys.length;
+            this.updateDifficulty();
             audio.playSelect();
             return;
         }
         if (input.isActionJustPressed('RIGHT')) {
-            if (isCleared && this.titleMenuIndex === 1) {
-                this.titleDebugConfig.characterType = this.titleDebugConfig.characterType === 'shogun' ? 'ninja' : 'shogun';
-            } else {
-                this.difficultyIndex = (this.difficultyIndex + 1) % this.difficultyKeys.length;
-                this.updateDifficulty();
-            }
+            this.difficultyIndex = (this.difficultyIndex + 1) % this.difficultyKeys.length;
+            this.updateDifficulty();
             audio.playSelect();
-            return;
         }
         
-        // ENTERで開始 (デバッグメニューが開いている時はデバッグ適用、閉じている時は通常開始)
+        // ENTERで開始
         if (input.isActionJustPressed('DEBUG_START')) {
-            if (isCleared && this.titleMenuIndex === 1) {
-                this.titleDebugConfig.characterType = this.titleDebugConfig.characterType === 'shogun' ? 'ninja' : 'shogun';
-                audio.playSelect();
-                return;
-            }
-            if (this.titleMenuIndex === 0) {
-                audio.playSelect();
-                return;
-            }
-            // メニューが閉じている時の Enter は通常開始とする（ユーザーの明示的意図がない限りデバッグ設定はオフ）
             this.titleDebugApplyOnStart = false;
-            const gameMenuIndex = this.titleMenuIndex - characterOffset - 1;
-            if (this.hasSave) {
-                if (gameMenuIndex === 0) {
-                    this.continueGame(saveManager.load());
-                } else {
-                    saveManager.deleteSave();
-                    this.startNewGame();
-                }
-            } else {
-                this.startNewGame();
-            }
-            audio.playGameStart();
+            this._handleTitleConfirm(isCleared);
             return;
         }
 
-        // SPACEで決定 (Zキーを除外)
+        // SPACEで決定
         if (input.isActionJustPressed('JUMP')) {
-            if (isCleared && this.titleMenuIndex === 1) {
-                this.titleDebugConfig.characterType = this.titleDebugConfig.characterType === 'shogun' ? 'ninja' : 'shogun';
-                audio.playSelect();
-                return;
-            }
-            if (this.titleMenuIndex === 0) {
-                audio.playSelect();
-                return;
-            }
-            this.titleDebugApplyOnStart = false; // 通常開始時はデバッグOFF
-            const gameMenuIndex = this.titleMenuIndex - characterOffset - 1;
-            if (this.hasSave) {
-                if (gameMenuIndex === 0) {
-                    this.continueGame(saveManager.load());
-                } else {
-                    saveManager.deleteSave();
-                    this.startNewGame();
-                }
-            } else {
-                this.startNewGame();
-            }
-            audio.playGameStart();
+            this.titleDebugApplyOnStart = false;
+            this._handleTitleConfirm(isCleared);
             return;
         }
         
@@ -1033,27 +987,34 @@ class Game {
                 return;
             }
 
-            // 操作キャラ変更エリア判定 (クリア済みの場合)
-            const globalData = saveManager.loadGlobal();
-            if (globalData.isGameCleared && layout.characterY) {
-                const charHalfW = layout.diffButton.width * 0.5 + 17;
-                const charHalfH = layout.diffButton.height * 0.5 + 10;
-                if (Math.abs(tX - centerX) <= charHalfW && Math.abs(tY - layout.characterY) <= charHalfH) {
-                    this.titleDebugConfig.characterType = this.titleDebugConfig.characterType === 'shogun' ? 'ninja' : 'shogun';
-                    audio.playSelect();
-                    return;
-                }
-            }
-
             // 開始ボタン押下時のみ開始 (判定を広めに)
+            const globalData = saveManager.loadGlobal();
+            const isCleared = globalData.isGameCleared;
             const startY = layout.startY;
             const startHalfW = layout.actionButton.width * 0.6 + 15;
             const startHalfH = layout.actionButton.height * 0.6 + 15;
 
-            if (this.hasSave) {
+            if (isCleared && !this.hasSave) {
+                // ゴールド出陣（将軍）
+                if (Math.abs(tX - centerX) <= startHalfW && Math.abs(tY - layout.startY) <= startHalfH) {
+                    saveManager.saveGlobal({ characterType: 'shogun' });
+                    this.titleDebugConfig.characterType = 'shogun';
+                    this.startNewGame();
+                    audio.playGameStart();
+                    return;
+                }
+                // 通常出陣（忍者）
+                if (Math.abs(tX - centerX) <= startHalfW && Math.abs(tY - layout.newGameY) <= startHalfH) {
+                    saveManager.saveGlobal({ characterType: 'ninja' });
+                    this.titleDebugConfig.characterType = 'ninja';
+                    this.startNewGame();
+                    audio.playGameStart();
+                    return;
+                }
+            } else if (this.hasSave) {
                 const continueY = startY;
                 const newGameY = layout.newGameY;
-                
+
                 // 続きから
                 if (Math.abs(tX - centerX) <= startHalfW && Math.abs(tY - continueY) <= startHalfH) {
                     this.titleMenuIndex = 0;
@@ -1066,7 +1027,11 @@ class Game {
                 if (Math.abs(tX - centerX) <= startHalfW && Math.abs(tY - newGameY) <= startHalfH) {
                     this.titleMenuIndex = 1;
                     this.titleDebugApplyOnStart = false;
+                    if (isCleared) {
+                        saveManager.saveGlobal({ isGameCleared: false, characterType: 'ninja' });
+                    }
                     saveManager.deleteSave();
+                    this.titleDebugConfig.characterType = 'ninja';
                     this.startNewGame();
                     audio.playGameStart();
                     return;
@@ -1082,6 +1047,37 @@ class Game {
             }
             return;
         }
+    }
+
+    _handleTitleConfirm(isCleared) {
+        if (isCleared && !this.hasSave) {
+            if (this.titleMenuIndex === 0) {
+                saveManager.saveGlobal({ characterType: 'shogun' });
+                this.titleDebugConfig.characterType = 'shogun';
+            } else {
+                saveManager.saveGlobal({ characterType: 'ninja' });
+                this.titleDebugConfig.characterType = 'ninja';
+            }
+            this.startNewGame();
+            audio.playGameStart();
+            return;
+        }
+        if (this.hasSave) {
+            if (this.titleMenuIndex === 0) {
+                this.continueGame(saveManager.load());
+            } else {
+                if (isCleared) {
+                    saveManager.saveGlobal({ isGameCleared: false, characterType: 'ninja' });
+                }
+                saveManager.deleteSave();
+                this.titleDebugConfig.characterType = 'ninja';
+                this.startNewGame();
+            }
+            audio.playGameStart();
+            return;
+        }
+        this.startNewGame();
+        audio.playGameStart();
     }
 
     updateTitleDebug() {
@@ -4220,7 +4216,7 @@ class Game {
 
         switch (this.state) {
             case GAME_STATE.TITLE:
-                renderTitleScreen(this.ctx, this.difficulty, this.titleMenuIndex, this.hasSave, this.titleDebugConfig.characterType);
+                renderTitleScreen(this.ctx, this.difficulty, this.titleMenuIndex, this.hasSave);
                 if (this.titleDebugOpen) {
                     const entries = this.getTitleDebugEntries().map((entry) => ({
                         label: entry.label,

@@ -626,7 +626,13 @@ export class Player {
             this.currentSubWeapon &&
             this.currentSubWeapon.name === '二刀流'
         );
-        const subWeaponScale = isDualZAction ? 1 : Math.max(1, this.subWeaponMotionScale || 1);
+        // 二刀流はZ攻撃・飛翔斬撃ともにScale=1（分身と速度を合わせる）
+        const isDualBladeAction = !!(
+            this.currentSubWeapon &&
+            this.currentSubWeapon.name === '二刀流' &&
+            (this.subWeaponAction === '二刀_Z' || this.subWeaponAction === '二刀_合体')
+        );
+        const subWeaponScale = isDualBladeAction ? 1 : Math.max(1, this.subWeaponMotionScale || 1);
         const subWeaponDeltaMs = (deltaTime * 1000) / subWeaponScale;
         
         // サブ武器タイマー更新 (開始時にスケール済みのため、生の時間で減算して二重スケールを防止)
