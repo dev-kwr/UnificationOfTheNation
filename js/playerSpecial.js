@@ -132,6 +132,8 @@ export function applySpecialMixin(PlayerClass) {
                         this.specialClonePositions[i].x = anchors[i].x;
                         this.specialClonePositions[i].y = anchors[i].y;
                         this.specialClonePositions[i].facingRight = anchors[i].facingRight;
+                        this.specialClonePositions[i].jumping = !this.isGrounded;
+                        this.specialClonePositions[i].cloneVy = this.vy;
 
                         const pos = this.specialClonePositions[i];
                         if (typeof this.constrainSpecialClonePosition === 'function') {
@@ -169,9 +171,17 @@ export function applySpecialMixin(PlayerClass) {
                         ? 1
                         : Math.max(1, this.subWeaponMotionScale || 1);
                     inst.update(deltaTime / subWeaponScale, enemies);
+                    // 非AIモード（Lv1-2）ではupdateSpecialCloneAiが呼ばれないためここでタイマーを減算
+                    if (!this.specialCloneAutoAiEnabled && this.specialCloneSubWeaponTimers && this.specialCloneSubWeaponTimers[i] > 0) {
+                        this.specialCloneSubWeaponTimers[i] = Math.max(0, this.specialCloneSubWeaponTimers[i] - deltaMs);
+                        if (this.specialCloneSubWeaponTimers[i] <= 0) {
+                            this.specialCloneSubWeaponActions[i] = null;
+                        }
+                    }
                     const cloneTimer = this.specialCloneSubWeaponTimers ? (this.specialCloneSubWeaponTimers[i] || 0) : 0;
                     const hasLiveProjectile = Array.isArray(inst.projectiles) && inst.projectiles.length > 0;
-                    if (inst.name === '大太刀' && dummyClone && this.specialClonePositions[i]) {
+                    // Lv3 AIモードのみdummyCloneのy/jumpingをposに反映（Lv1-2は本体追従のためanchorで管理）
+                    if (inst.name === '大太刀' && dummyClone && this.specialClonePositions[i] && this.specialCloneAutoAiEnabled) {
                         const pos = this.specialClonePositions[i];
                         pos.y = dummyClone.y + this.height * 0.62;
                         pos.jumping = !dummyClone.isGrounded;
@@ -399,7 +409,7 @@ export function applySpecialMixin(PlayerClass) {
             owner = fresh;
             this.specialCloneSubWeaponOwners[index] = owner;
         } else {
-            const odachiLocked = inst && inst.name === '大太刀' && inst.isAttacking;
+            const odachiLocked = inst && inst.name === '大太刀' && inst.isAttacking && this.specialCloneAutoAiEnabled;
             owner.x = fresh.x;
             if (!odachiLocked) {
                 owner.y = fresh.y;
