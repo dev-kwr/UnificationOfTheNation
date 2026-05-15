@@ -33,6 +33,7 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
         this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
         this.specialCloneDualTrailAnchors = this.specialCloneSlots.map(() => null);
+        this.specialCloneSubWeaponOwners = this.specialCloneSlots.map(() => null);
 
         const cloneAnchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
         this.specialClonePositions = cloneAnchors.map(a => ({ x: a.x, y: a.y, facingRight: this.facingRight, prevX: a.x }));
@@ -62,6 +63,7 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
         this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
         this.specialCloneDualTrailAnchors = this.specialCloneSlots.map(() => null);
+        this.specialCloneSubWeaponOwners = this.specialCloneSlots.map(() => null);
         if (clearSmoke) this.specialSmoke = [];
     };
 
@@ -155,26 +157,8 @@ export function applySpecialMixin(PlayerClass) {
             for (let i = 0; i < this.specialCloneSubWeaponInstances.length; i++) {
                 const inst = this.specialCloneSubWeaponInstances[i];
                 if (inst) {
-                    const pos = this.specialClonePositions ? this.specialClonePositions[i] : null;
-                    const dummyClone = {
-                        x: pos ? pos.x - this.width / 2 : this.x,
-                        y: pos ? this.getSpecialCloneDrawY(pos.y) : this.y,
-                        width: this.width,
-                        height: this.height,
-                        vx: 0, vy: 0,
-                        groundY: this.groundY,
-                        facingRight: pos ? pos.facingRight : this.facingRight,
-                        isEnemy: false,
-                        isDashing: this.isDashing,
-                        isCrouching: this.isCrouching,
-                        isGrounded: pos ? !(pos.jumping) : this.isGrounded,
-                        speed: this.speed,
-                        motionTime: this.motionTime,
-                        attackMotionScale: this.attackMotionScale,
-                        isXAttackBoostActive: () => false,
-                        currentSubWeapon: inst,
-                        subWeaponAction: this.specialCloneSubWeaponActions ? this.specialCloneSubWeaponActions[i] : null
-                    };
+                    const dummyClone = this.syncSpecialCloneSubWeaponOwner(i, inst);
+                    if (!dummyClone) continue;
                     // owner参照型の武器(大太刀・鎖鎌)は毎フレームclone位置に同期
                     // ただし大太刀が着地後(planted/fadeOut)は位置を固定する
                     if (inst.owner !== undefined &&
@@ -185,6 +169,31 @@ export function applySpecialMixin(PlayerClass) {
                         ? 1
                         : Math.max(1, this.subWeaponMotionScale || 1);
                     inst.update(deltaTime / subWeaponScale, enemies);
+                    const cloneTimer = this.specialCloneSubWeaponTimers ? (this.specialCloneSubWeaponTimers[i] || 0) : 0;
+                    const hasLiveProjectile = Array.isArray(inst.projectiles) && inst.projectiles.length > 0;
+                    if (inst.name === '大太刀' && dummyClone && this.specialClonePositions[i]) {
+                        const pos = this.specialClonePositions[i];
+                        pos.y = dummyClone.y + this.height * 0.62;
+                        pos.jumping = !dummyClone.isGrounded;
+                        pos.cloneVy = dummyClone.vy || 0;
+                    }
+                    if (
+                        cloneTimer <= 0 &&
+                        !hasLiveProjectile &&
+                        (inst.name === '二刀流' || inst.name === '鎖鎌' || inst.name === '大太刀')
+                    ) {
+                        inst.isAttacking = false;
+                        inst.attackTimer = 0;
+                        if (inst.name === '大太刀') {
+                            inst.plantedTimer = 0;
+                            inst.fadeOutTimer = 0;
+                            inst.lastPlantedPose = null;
+                        }
+                        this.specialCloneSubWeaponInstances[i] = null;
+                        if (Array.isArray(this.specialCloneSubWeaponOwners)) {
+                            this.specialCloneSubWeaponOwners[i] = null;
+                        }
+                    }
                 }
             }
         }
@@ -344,6 +353,83 @@ export function applySpecialMixin(PlayerClass) {
         return 0;
     };
 
+    PlayerClass.prototype.buildSpecialCloneSubWeaponOwner = function(index, inst = null) {
+        const pos = this.specialClonePositions ? this.specialClonePositions[index] : null;
+        if (!pos) return null;
+        const cloneGroundY = typeof this.getSpecialCloneGroundYAtX === 'function'
+            ? this.getSpecialCloneGroundYAtX(pos.x)
+            : this.groundY;
+        return {
+            _specialCloneOwner: true,
+            _specialCloneIndex: index,
+            x: pos.x - this.width / 2,
+            y: this.getSpecialCloneDrawY(pos.y),
+            width: this.width,
+            height: this.height,
+            vx: 0,
+            vy: pos.cloneVy || 0,
+            groundY: cloneGroundY,
+            facingRight: pos.facingRight,
+            isGrounded: !(pos.jumping),
+            isCrouching: this.isCrouching,
+            isDashing: this.isDashing,
+            isEnemy: false,
+            speed: this.speed,
+            motionTime: this.motionTime,
+            attackMotionScale: this.attackMotionScale,
+            subWeaponMotionScale: this.subWeaponMotionScale,
+            progression: this.progression,
+            getSubWeaponEnhanceTier: () => this.getCurrentSubWeaponEnhanceTier(),
+            currentSubWeapon: inst,
+            subWeaponAction: this.specialCloneSubWeaponActions ? this.specialCloneSubWeaponActions[index] : null,
+            subWeaponTimer: this.specialCloneSubWeaponTimers ? (this.specialCloneSubWeaponTimers[index] || 0) : 0,
+            forceSubWeaponRender: true,
+            isXAttackBoostActive: () => false
+        };
+    };
+
+    PlayerClass.prototype.syncSpecialCloneSubWeaponOwner = function(index, inst = null, resetPosition = false) {
+        if (!Array.isArray(this.specialCloneSubWeaponOwners)) {
+            this.specialCloneSubWeaponOwners = this.specialCloneSlots.map(() => null);
+        }
+        const fresh = this.buildSpecialCloneSubWeaponOwner(index, inst);
+        if (!fresh) return null;
+        let owner = this.specialCloneSubWeaponOwners[index];
+        if (!owner || resetPosition) {
+            owner = fresh;
+            this.specialCloneSubWeaponOwners[index] = owner;
+        } else {
+            const odachiLocked = inst && inst.name === '大太刀' && inst.isAttacking;
+            owner.x = fresh.x;
+            if (!odachiLocked) {
+                owner.y = fresh.y;
+                owner.vx = fresh.vx;
+                owner.vy = fresh.vy;
+                owner.isGrounded = fresh.isGrounded;
+            }
+            owner.width = fresh.width;
+            owner.height = fresh.height;
+            owner.groundY = fresh.groundY;
+            owner.facingRight = fresh.facingRight;
+            owner.isCrouching = fresh.isCrouching;
+            owner.isDashing = fresh.isDashing;
+            owner.speed = fresh.speed;
+            owner.motionTime = fresh.motionTime;
+            owner.attackMotionScale = fresh.attackMotionScale;
+            owner.subWeaponMotionScale = fresh.subWeaponMotionScale;
+            owner.progression = fresh.progression;
+            owner.getSubWeaponEnhanceTier = fresh.getSubWeaponEnhanceTier;
+            owner.currentSubWeapon = inst;
+            owner.subWeaponAction = fresh.subWeaponAction;
+            owner.subWeaponTimer = fresh.subWeaponTimer;
+            owner.forceSubWeaponRender = true;
+        }
+        if (inst) {
+            inst.owner = owner;
+        }
+        return owner;
+    };
+
     PlayerClass.prototype.triggerCloneSubWeapon = function(index) {
         if (this.specialCloneAutoAiEnabled) return;
         if (!Number.isFinite(index) || index < 0) return;
@@ -353,7 +439,9 @@ export function applySpecialMixin(PlayerClass) {
         
         const actionName = this.getCloneSubWeaponActionName(this.currentSubWeapon);
         if (!actionName) return;
-        const allowRestart = this.currentSubWeapon.name === '二刀流' && actionName === '二刀_Z';
+        const allowRestart = this.currentSubWeapon.name === '二刀流' ||
+            this.currentSubWeapon.name === '鎖鎌' ||
+            this.currentSubWeapon.name === '大太刀';
         const existingInst = this.specialCloneSubWeaponInstances && this.specialCloneSubWeaponInstances[index];
         const needsInstanceRefresh = !existingInst || existingInst.name !== this.currentSubWeapon.name;
         if (!allowRestart && this.specialCloneSubWeaponTimers[index] > 0 && !needsInstanceRefresh) return;
@@ -373,37 +461,22 @@ export function applySpecialMixin(PlayerClass) {
         if (!Array.isArray(this.specialCloneSlots) || index < 0 || index >= this.specialCloneSlots.length) return;
         if (Array.isArray(this.specialCloneAlive) && this.specialCloneAlive[index] === false) return;
         const weaponName = this.currentSubWeapon.name;
-        if (!this.specialCloneSubWeaponInstances[index] || this.specialCloneSubWeaponInstances[index].name !== weaponName) {
+        const attackType = overrideAttackType || this.currentSubWeapon.attackType || 'main';
+        const recreateOnUse = weaponName === '鎖鎌' ||
+            weaponName === '大太刀' ||
+            (weaponName === '二刀流' && attackType === 'combined');
+        if (recreateOnUse || !this.specialCloneSubWeaponInstances[index] || this.specialCloneSubWeaponInstances[index].name !== weaponName) {
             this.specialCloneSubWeaponInstances[index] = createSubWeapon(weaponName);
-            if (this.specialCloneSubWeaponInstances[index] && typeof this.specialCloneSubWeaponInstances[index].applyEnhanceTier === 'function') {
-                this.specialCloneSubWeaponInstances[index].applyEnhanceTier(this.getCurrentSubWeaponEnhanceTier());
-            }
+        }
+        if (this.specialCloneSubWeaponInstances[index] && typeof this.specialCloneSubWeaponInstances[index].applyEnhanceTier === 'function') {
+            this.specialCloneSubWeaponInstances[index].applyEnhanceTier(this.getCurrentSubWeaponEnhanceTier());
         }
         if (this.specialCloneSubWeaponInstances[index]) {
             const inst = this.specialCloneSubWeaponInstances[index];
             const clonePos = this.specialClonePositions[index];
             if (!clonePos) return;
-            const dummyClone = {
-                x: clonePos.x - this.width / 2,
-                y: this.getSpecialCloneDrawY(clonePos.y),
-                width: this.width,
-                height: this.height,
-                vx: 0,
-                vy: clonePos.cloneVy || 0,
-                groundY: this.groundY,
-                facingRight: clonePos.facingRight,
-                isGrounded: !(clonePos.jumping),
-                isCrouching: this.isCrouching,
-                isDashing: this.isDashing,
-                isEnemy: false,
-                speed: this.speed,
-                motionTime: this.motionTime,
-                attackMotionScale: this.attackMotionScale,
-                currentSubWeapon: inst,
-                subWeaponAction: this.specialCloneSubWeaponActions ? this.specialCloneSubWeaponActions[index] : null,
-                isXAttackBoostActive: () => false
-            };
-            const attackType = overrideAttackType || this.currentSubWeapon.attackType || 'main';
+            const dummyClone = this.syncSpecialCloneSubWeaponOwner(index, inst, true);
+            if (!dummyClone) return;
             if (weaponName === '二刀流') {
                 if (Number.isFinite(this.currentSubWeapon.mainMotionSpeedScale)) {
                     inst.mainMotionSpeedScale = this.currentSubWeapon.mainMotionSpeedScale;
@@ -478,6 +551,7 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
         this.specialCloneDualTrailAnchors = this.specialCloneSlots.map(() => null);
         this.specialCloneSubWeaponInstances = this.specialCloneSlots.map(() => null);
+        this.specialCloneSubWeaponOwners = this.specialCloneSlots.map(() => null);
 
         // 戦闘開始時の煙もここでは生成せず、詠唱開始時のみに集約するか、
         // 少なくとも重複は避ける。詠唱終了時の煙は削除。
@@ -630,21 +704,7 @@ export function applySpecialMixin(PlayerClass) {
                     const canAttack = this.specialCloneAttackTimers[i] <= 0
                         && this.specialCloneSubWeaponTimers[i] <= 0;
                     if (canAttack) {
-                        const subWeapon = this.currentSubWeapon;
-                        const tier = (typeof resolveSubWeaponEnhanceTier === 'function') 
-                            ? resolveSubWeaponEnhanceTier(this, subWeapon.enhanceTier) 
-                            : 0;
-                        const isOdachi = subWeapon && subWeapon.name === '大太刀';
-                        const odachiRate = isOdachi ? 0.7 : 1.0;
-
                         this.triggerCloneAttack(i);
-                        
-                        // 奥義（忍術）の追加発動
-                        const weaponName = subWeapon ? subWeapon.name : '';
-                        const direction = pos.facingRight ? 1 : -1;
-                        if (tier >= 0 && weaponName !== '火薬玉' && Math.random() < odachiRate) {
-                            this.useNinjutsu(i, weaponName, direction);
-                        }
                     }
                 }
                 this.specialCloneReturnToAnchor[i] = false;
@@ -895,15 +955,15 @@ export function applySpecialMixin(PlayerClass) {
         const stageObstacles = (stage && Array.isArray(stage.obstacles)) ? stage.obstacles : [];
         if (stageObstacles.length <= 0) return;
 
-        const cloneHalfW = this.width * 0.4;
-        const cloneLeft = pos.x - cloneHalfW;
-        const cloneRight = pos.x + cloneHalfW;
+        const cloneHalfW = this.width * 0.5 + 6;
         const cloneDrawY = this.getSpecialCloneDrawY(pos.y);
         const cloneBottom = cloneDrawY + this.height;
         const cloneTop = cloneDrawY;
 
         for (const obs of stageObstacles) {
             if (!obs || obs.isDestroyed || obs.type !== 'rock' || obs.x === undefined) continue;
+            const cloneLeft = pos.x - cloneHalfW;
+            const cloneRight = pos.x + cloneHalfW;
             const obsLeft = obs.x;
             const obsRight = obs.x + (obs.width || 30);
             const obsTop = (obs.y !== undefined) ? obs.y : (this.groundY - (obs.height || 30));
@@ -1014,10 +1074,9 @@ export function applySpecialMixin(PlayerClass) {
             : (this.specialCloneSpacing || 180);
         const useCloneGround = this.specialCloneCombatStarted && this.specialCastTimer <= 0;
         const resolveY = (x, unit) => {
-            const baseY = useCloneGround && typeof this.getSpecialCloneAnchorYAtX === 'function'
+            return useCloneGround && typeof this.getSpecialCloneAnchorYAtX === 'function'
                 ? this.getSpecialCloneAnchorYAtX(x)
                 : centerY;
-            return baseY + (Math.abs(unit) - 1.5) * 1.6 + 1.2;
         };
         const anchors = this.specialCloneSlots.map((unit, index) => ({
             x: centerX + unit * spacing,
@@ -1171,6 +1230,7 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
         this.specialCloneDualTrailAnchors = this.specialCloneSlots.map(() => null);
         this.specialCloneSubWeaponInstances = this.specialCloneSlots.map(() => null);
+        this.specialCloneSubWeaponOwners = this.specialCloneSlots.map(() => null);
         this.specialCloneScarfNodes = this.specialCloneSlots.map(() => null);
         this.specialCloneHairNodes = this.specialCloneSlots.map(() => null);
 

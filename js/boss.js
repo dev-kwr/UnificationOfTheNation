@@ -1347,6 +1347,17 @@ export class Shogun extends Boss {
         }
     }
 
+    getActorGroundYForRenderScale(_renderScale = this.scaleMultiplier, actorRenderY = null, actorRenderH = this.actorBaseHeight, actorFootGroundOffset = 2) {
+        if (this.isEnemy) return this.groundY;
+
+        const modelHeight = Number.isFinite(actorRenderH) && actorRenderH > 0 ? actorRenderH : this.actorBaseHeight;
+        const footOffset = Number.isFinite(actorFootGroundOffset) ? actorFootGroundOffset : 0;
+        const drawY = Number.isFinite(actorRenderY)
+            ? actorRenderY
+            : this.y + (this.height - modelHeight) * 0.62 + footOffset;
+        return drawY + PLAYER.HEIGHT - footOffset - LANE_OFFSET;
+    }
+
     getActorSpaceState() {
         const renderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
             ? this.scaleMultiplier
@@ -1821,16 +1832,22 @@ export class Shogun extends Boss {
         this.actor.isGrounded = this.isGrounded;
         this.actor.motionTime = this.motionTime;
         this.actor.speed = this.speed;
+        if (!this.isEnemy) {
+            this.actor.characterType = 'shogun';
+        }
 
         const _oSpacing  = typeof this.actor.getSpecialCloneSpacing === 'function'
             ? this.actor.getSpecialCloneSpacing()
             : (this.actor.specialCloneSpacing || 180);
         const _oCenterX  = actorRenderX + actorRenderW * 0.5;
         const _oAnchorY  = actorRenderY + PLAYER.HEIGHT * 0.62;
-        this.actor.groundY = this.groundY;
-        const _getCloneAnchorY = (x) => typeof this.actor.getSpecialCloneAnchorYAtX === 'function'
-            ? this.actor.getSpecialCloneAnchorYAtX(x)
-            : (this.groundY + LANE_OFFSET - PLAYER.HEIGHT * 0.38);
+        this.actor.groundY = this.getActorGroundYForRenderScale(renderScale, actorRenderY, actorRenderH, actorFootGroundOffset);
+        const _getCloneAnchorY = (x) => {
+            const anchorY = typeof this.actor.getSpecialCloneAnchorYAtX === 'function'
+                ? this.actor.getSpecialCloneAnchorYAtX(x)
+                : (this.groundY + LANE_OFFSET - PLAYER.HEIGHT * 0.38);
+            return !this.isEnemy ? anchorY + actorFootGroundOffset : anchorY;
+        };
 
         const _initPos = (unit) => {
             const x = _oCenterX + unit * _oSpacing;
@@ -1933,10 +1950,16 @@ export class Shogun extends Boss {
                     this.actor.specialCloneComboSteps[ai] = (_playableOwner.specialCloneComboSteps && _playableOwner.specialCloneComboSteps[oi]) || 0;
                     this.actor.specialCloneComboResetTimers[ai] = (_playableOwner.specialCloneComboResetTimers && _playableOwner.specialCloneComboResetTimers[oi]) || 0;
                     this.actor.specialCloneInvincibleTimers[ai] = (_playableOwner.specialCloneInvincibleTimers && _playableOwner.specialCloneInvincibleTimers[oi]) || 0;
-                    if (this.actor.specialCloneAutoAiEnabled) {
+                    const shouldMirrorOwnerCloneSubWeapons = this.actor.specialCloneAutoAiEnabled &&
+                        !(_playableOwner && _playableOwner.characterType === 'shogun');
+                    if (shouldMirrorOwnerCloneSubWeapons) {
                         this.actor.specialCloneSubWeaponTimers[ai] = (_playableOwner.specialCloneSubWeaponTimers && _playableOwner.specialCloneSubWeaponTimers[oi]) || 0;
                         this.actor.specialCloneSubWeaponActions[ai] = (_playableOwner.specialCloneSubWeaponActions && _playableOwner.specialCloneSubWeaponActions[oi]) || null;
                         this.actor.specialCloneSubWeaponInstances[ai] = (_playableOwner.specialCloneSubWeaponInstances && _playableOwner.specialCloneSubWeaponInstances[oi]) || null;
+                    } else {
+                        this.actor.specialCloneSubWeaponTimers[ai] = 0;
+                        this.actor.specialCloneSubWeaponActions[ai] = null;
+                        this.actor.specialCloneSubWeaponInstances[ai] = null;
                     }
                 }
             }
@@ -2902,9 +2925,8 @@ export class Shogun extends Boss {
         this.actor.height      = actorRenderH;
         this.actor.facingRight = this.facingRight;
         
-        const pivotY = this.y + this.height * 0.62;
-        // actor.groundY + LANE_OFFSETがrenderScale倍後に視覚的地面(groundY+LANE_OFFSET)と一致するよう逆算する
-        this.actor.groundY = pivotY + (this.groundY + LANE_OFFSET - pivotY) / renderScale - LANE_OFFSET;
+        // 共通分身のanchor計算から出るcloneDrawYを、将軍本体のactorRenderYへ一致させる。
+        this.actor.groundY = this.getActorGroundYForRenderScale(renderScale, actorRenderY, actorRenderH, actorFootGroundOffset);
 
         const odachiGroundRenderInst = this._subWeaponKey === 'odachi'
             ? this._subWeaponInstances.odachi
@@ -3265,10 +3287,13 @@ export class Shogun extends Boss {
                 : (this.actor.specialCloneSpacing || 180);
             const _oCenterX  = actorRenderX + actorRenderW * 0.5;
             const _oAnchorY  = actorRenderY + PLAYER.HEIGHT * 0.62;
-            this.actor.groundY = this.groundY;
-            const _getCloneAnchorY = (x) => typeof this.actor.getSpecialCloneAnchorYAtX === 'function'
-                ? this.actor.getSpecialCloneAnchorYAtX(x)
-                : (this.groundY + LANE_OFFSET - PLAYER.HEIGHT * 0.38);
+            this.actor.groundY = this.getActorGroundYForRenderScale(renderScale, actorRenderY, actorRenderH, actorFootGroundOffset);
+            const _getCloneAnchorY = (x) => {
+                const anchorY = typeof this.actor.getSpecialCloneAnchorYAtX === 'function'
+                    ? this.actor.getSpecialCloneAnchorYAtX(x)
+                    : (this.groundY + LANE_OFFSET - PLAYER.HEIGHT * 0.38);
+                return !this.isEnemy ? anchorY + actorFootGroundOffset : anchorY;
+            };
             for (let _oi = 0; _oi < this.actor.specialCloneSlots.length; _oi++) {
                 const _oUnit = this.actor.specialCloneSlots[_oi];
                 const _oPos  = this.actor.specialClonePositions[_oi];
@@ -3288,6 +3313,11 @@ export class Shogun extends Boss {
         if (this._ougiActive) {
             const _ougiYawSkew    = renderOpts.yawSkewCancel.yawSkew;
             const _ougiPivotY     = renderOpts.yawSkewCancel.pivotY;
+            const _cloneTransformPivotOffsetY = _ougiPivotY - actorRenderY;
+            const _getCloneTransformPivotY = (cloneFootY) => {
+                if (!Number.isFinite(cloneFootY)) return _ougiPivotY;
+                return cloneFootY - PLAYER.HEIGHT + _cloneTransformPivotOffsetY;
+            };
             this.actor.renderSpecial(ctx, {
                 skipSlotIndices: [0],
                 keepActorHeight: true,
@@ -3295,24 +3325,31 @@ export class Shogun extends Boss {
                 scaleEntity: (clonePivotX, _footY, fn) => {
                     ctx.save();
                     ctx.globalAlpha *= 0.72;
-                    ctx.translate(clonePivotX, _ougiPivotY);
+                    const clonePivotY = _getCloneTransformPivotY(_footY);
+                    ctx.translate(clonePivotX, clonePivotY);
                     ctx.transform(1, 0, -_ougiYawSkew / 0.982, 1, 0, 0);
                     ctx.scale(1 / 0.982, 1);
-                    ctx.translate(-clonePivotX, -_ougiPivotY);
+                    ctx.translate(-clonePivotX, -clonePivotY);
                     if (renderScale > 1.001) {
-                        ctx.translate(clonePivotX, _ougiPivotY);
+                        ctx.translate(clonePivotX, clonePivotY);
                         ctx.scale(renderScale, renderScale);
-                        ctx.translate(-clonePivotX, -_ougiPivotY);
+                        ctx.translate(-clonePivotX, -clonePivotY);
                     }
                     fn();
                     ctx.restore();
                 },
-                cloneModelOptions: (pos) => ({
-                    ...renderOpts,
-                    yawSkewCancel: { pivotX: pos.x, pivotY: _ougiPivotY, yawSkew: _ougiYawSkew },
-                    forceSubWeaponRender: false,
-                    isOdachiPlantedOrFade: false,
-                }),
+                cloneModelOptions: (pos) => {
+                    const cloneFootY = typeof this.actor.getSpecialCloneFootY === 'function'
+                        ? this.actor.getSpecialCloneFootY(pos.y)
+                        : _ougiPivotY;
+                    const clonePivotY = _getCloneTransformPivotY(cloneFootY);
+                    return {
+                        ...renderOpts,
+                        yawSkewCancel: { pivotX: pos.x, pivotY: clonePivotY, yawSkew: _ougiYawSkew },
+                        forceSubWeaponRender: false,
+                        isOdachiPlantedOrFade: false,
+                    };
+                },
             });
         }
 

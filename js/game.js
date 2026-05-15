@@ -1430,7 +1430,10 @@ class Game {
             }
             
             // 登りきったら次のフロアへ（最終階を除く）
-            const stairProgress = this.stage.getStairClimbProgress(playerCenterX);
+            const transitionProbeX = this.stage.floorScrollDirection === 1
+                ? this.player.x + this.player.width
+                : this.player.x;
+            const stairProgress = this.stage.getStairClimbProgress(transitionProbeX);
             if (stairProgress >= 1.0 && !this.stage.isFloorTransitioning && this.stage.currentFloor < this.stage.maxFloor) {
                 this.stage.startFloorTransition();
             }
@@ -2124,26 +2127,33 @@ class Game {
                 const hasLiveProjectile = Array.isArray(inst.projectiles) && inst.projectiles.length > 0;
                 const hasPlantedOdachi = inst.name === '大太刀' && ((inst.plantedTimer || 0) > 0 || (inst.fadeOutTimer || 0) > 0);
                 if (cloneTimer <= 0 && !hasLiveProjectile && !hasPlantedOdachi) continue;
-                const cloneOwner = {
-                    x: pos.x - this.player.width * 0.5,
-                    y: typeof this.player.getSpecialCloneDrawY === 'function'
-                        ? this.player.getSpecialCloneDrawY(pos.y)
-                        : pos.y - this.player.height * 0.62,
-                    width: this.player.width,
-                    height: this.player.height,
-                    groundY: typeof this.player.getSpecialCloneGroundYAtX === 'function'
-                        ? this.player.getSpecialCloneGroundYAtX(pos.x)
-                        : this.player.groundY,
-                    facingRight: pos.facingRight,
-                    isGrounded: !pos.jumping,
-                    isEnemy: false,
-                    currentSubWeapon: inst,
-                    subWeaponAction: this.player.specialCloneSubWeaponActions
-                        ? this.player.specialCloneSubWeaponActions[i]
-                        : null,
-                    subWeaponTimer: cloneTimer,
-                    isXAttackBoostActive: () => false
-                };
+                const cloneOwner = inst.owner && inst.owner._specialCloneOwner
+                    ? inst.owner
+                    : {
+                        x: pos.x - this.player.width * 0.5,
+                        y: typeof this.player.getSpecialCloneDrawY === 'function'
+                            ? this.player.getSpecialCloneDrawY(pos.y)
+                            : pos.y - this.player.height * 0.62,
+                        width: this.player.width,
+                        height: this.player.height,
+                        groundY: typeof this.player.getSpecialCloneGroundYAtX === 'function'
+                            ? this.player.getSpecialCloneGroundYAtX(pos.x)
+                            : this.player.groundY,
+                        facingRight: pos.facingRight,
+                        isGrounded: !pos.jumping,
+                        isEnemy: false,
+                        currentSubWeapon: inst,
+                        subWeaponAction: this.player.specialCloneSubWeaponActions
+                            ? this.player.specialCloneSubWeaponActions[i]
+                            : null,
+                        subWeaponTimer: cloneTimer,
+                        isXAttackBoostActive: () => false
+                    };
+                cloneOwner.currentSubWeapon = inst;
+                cloneOwner.subWeaponAction = this.player.specialCloneSubWeaponActions
+                    ? this.player.specialCloneSubWeaponActions[i]
+                    : cloneOwner.subWeaponAction;
+                cloneOwner.subWeaponTimer = cloneTimer;
                 let cloneHitboxes = inst.getHitbox(cloneOwner);
                 if (!cloneHitboxes) continue;
                 cloneHitboxes = Array.isArray(cloneHitboxes) ? cloneHitboxes : [cloneHitboxes];
@@ -2823,7 +2833,11 @@ class Game {
     updateSpecialCloneAutoCombat(activeEnemies = []) {
         if (!this.player || !this.player.isSpecialCloneCombatActive || !this.player.isSpecialCloneCombatActive()) return;
         if (!this.player.specialCloneAutoAiEnabled) return;
-        if (!Array.isArray(activeEnemies) || activeEnemies.length === 0) return;
+        if (!Array.isArray(activeEnemies)) activeEnemies = [];
+        const rockTargets = (this.stage && Array.isArray(this.stage.obstacles))
+            ? this.stage.obstacles.filter((obs) => obs && !obs.isDestroyed && obs.type === OBSTACLE_TYPES.ROCK)
+            : [];
+        if (activeEnemies.length === 0 && rockTargets.length === 0) return;
 
         const cloneOffsets = this.player.getSpecialCloneOffsets ? this.player.getSpecialCloneOffsets() : [];
         if (!cloneOffsets.length) return;
@@ -2831,6 +2845,14 @@ class Game {
         const baseDamage = Math.max(10, Math.round((12 + 2) * attackMultiplier));
         const subWeapon = this.player.currentSubWeapon || null;
         const weaponName = subWeapon ? subWeapon.name : '奥義';
+        const damageRockTarget = (rock, damage, impactX, impactY) => {
+            if (!rock || rock.isDestroyed || rock.type !== OBSTACLE_TYPES.ROCK) return false;
+            const rockDamage = Math.max(1, Math.round((damage || 1) * 0.35));
+            if (rock.takeDamage(rockDamage)) {
+                this.spawnRockBreakEffect(rock, impactX, impactY);
+            }
+            return true;
+        };
         const buildDualCloneMainHitboxes = (clonePos, comboIndex, facingRight, scale = 1) => {
             if (!subWeapon || subWeapon.name !== '二刀流' || typeof subWeapon.getMainSwingArcs !== 'function') return [];
             const range = Number.isFinite(subWeapon.range) ? subWeapon.range : 64;
@@ -2943,6 +2965,16 @@ class Game {
                         knockbackY: strikeKnockbackY
                     });
                 }
+                for (const rock of rockTargets) {
+                    const hitbox = dualHitboxes.find((hb) => this.rectIntersects(hb, rock));
+                    if (!hitbox) continue;
+                    didHit = damageRockTarget(
+                        rock,
+                        strikeDamage,
+                        hitbox.x + hitbox.width * 0.5,
+                        hitbox.y + hitbox.height * 0.5
+                    ) || didHit;
+                }
                 // 二刀流分身は「1コンボ1回」の当たり判定評価に寄せる
                 this.player.resetCloneAutoStrikeCooldown(clone.index);
                 if (Array.isArray(this.player.specialCloneAutoCooldowns)) {
@@ -2970,6 +3002,28 @@ class Game {
                     bestDistanceSq = distSq;
                     target = enemy;
                 }
+            }
+            let targetRock = null;
+            for (const rock of rockTargets) {
+                const rockCenterX = rock.x + rock.width * 0.5;
+                const rockCenterY = rock.y + rock.height * 0.5;
+                const dx = rockCenterX - cloneCenterX;
+                const dy = rockCenterY - cloneCenterY;
+                const distSq = dx * dx + dy * dy;
+                if (distSq > attackRange * attackRange || distSq >= bestDistanceSq) continue;
+                bestDistanceSq = distSq;
+                target = null;
+                targetRock = rock;
+            }
+            if (targetRock) {
+                damageRockTarget(
+                    targetRock,
+                    strikeDamage,
+                    targetRock.x + targetRock.width * 0.5,
+                    targetRock.y + targetRock.height * 0.5
+                );
+                this.player.resetCloneAutoStrikeCooldown(clone.index);
+                continue;
             }
             if (!target) continue;
             this.damageEnemy(target, strikeDamage, {

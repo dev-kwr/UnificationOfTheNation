@@ -3024,6 +3024,9 @@ export function applyRendererMixin(PlayerClass) {
             if (drawFrontLayer && renderWeaponVisuals && this.currentSubWeapon && typeof this.currentSubWeapon.render === 'function') {
                 // weaponRenderScale: 将軍の2.5D拡大スケールのエフェクトをプレイヤー相当に補正
                 const weaponRenderScale = options.weaponRenderScale;
+                const weaponOwner = this.currentSubWeapon.owner && this.currentSubWeapon.owner._specialCloneOwner
+                    ? this.currentSubWeapon.owner
+                    : this;
                 if (weaponRenderScale && Math.abs(weaponRenderScale - 1) > 0.001) {
                     const invS = 1 / weaponRenderScale;
                     const anchorX = this.x + this.width * 0.5;
@@ -3033,12 +3036,12 @@ export function applyRendererMixin(PlayerClass) {
                     ctx.translate(anchorX, anchorY);
                     ctx.scale(invS, invS);
                     ctx.translate(-anchorX, -anchorY);
-                    this.currentSubWeapon.render(ctx, this);
+                    this.currentSubWeapon.render(ctx, weaponOwner);
                     ctx.restore();
                 } else {
                     ctx.save();
                     ctx.globalAlpha = 1.0;
-                    this.currentSubWeapon.render(ctx, this);
+                    this.currentSubWeapon.render(ctx, weaponOwner);
                     ctx.restore();
                 }
                 this.subWeaponRenderedInModel = true;
@@ -4754,6 +4757,30 @@ export function applyRendererMixin(PlayerClass) {
                     this.specialCloneSubWeaponInstances &&
                     this.specialCloneSubWeaponInstances[i]
                 ) ? this.specialCloneSubWeaponInstances[i] : null;
+                const cloneSubWeaponTimer = this.specialCloneSubWeaponTimers
+                    ? (this.specialCloneSubWeaponTimers[i] || 0)
+                    : 0;
+                const cloneSubWeaponAction = this.specialCloneSubWeaponActions
+                    ? this.specialCloneSubWeaponActions[i]
+                    : null;
+                const cloneHasLiveProjectile = !!(
+                    cloneSubWeaponInstance &&
+                    Array.isArray(cloneSubWeaponInstance.projectiles) &&
+                    cloneSubWeaponInstance.projectiles.length > 0
+                );
+                const cloneHasPlantedOdachi = !!(
+                    cloneSubWeaponInstance &&
+                    cloneSubWeaponInstance.name === '大太刀' &&
+                    (
+                        cloneSubWeaponInstance.hasImpacted ||
+                        (cloneSubWeaponInstance.plantedTimer || 0) > 0 ||
+                        (cloneSubWeaponInstance.fadeOutTimer || 0) > 0
+                    )
+                );
+                const cloneSubWeaponActive = !!(
+                    cloneSubWeaponInstance &&
+                    (cloneSubWeaponTimer > 0 || cloneHasLiveProjectile || cloneHasPlantedOdachi || cloneSubWeaponInstance.isAttacking)
+                );
                 const shouldMirrorSavedSubWeapon = !!(
                     !this.specialCloneAutoAiEnabled &&
                     saved.currentSubWeapon &&
@@ -4771,10 +4798,14 @@ export function applyRendererMixin(PlayerClass) {
                     (
                         this.specialCloneAutoAiEnabled
                             ? (
-                                this.specialCloneSubWeaponActions[i] === '二刀_Z' &&
-                                (this.specialCloneSubWeaponTimers[i] || 0) > 0
+                                cloneSubWeaponAction === '二刀_Z' &&
+                                cloneSubWeaponTimer > 0
                             )
-                            : (this.subWeaponAction === '二刀_Z' && (this.subWeaponTimer || 0) > 0)
+                            : (
+                                cloneSubWeaponActive
+                                    ? (cloneSubWeaponAction === '二刀_Z' && cloneSubWeaponTimer > 0)
+                                    : (this.subWeaponAction === '二刀_Z' && (this.subWeaponTimer || 0) > 0)
+                            )
                     )
                 );
                 const isCloneAttacking = this.specialCloneAutoAiEnabled
@@ -4809,13 +4840,13 @@ export function applyRendererMixin(PlayerClass) {
                     this.isDashing = false;
                     this.legPhase = pos.legPhase || 0;
                     this.legAngle = pos.legAngle || 0;
-                    this.subWeaponTimer = this.specialCloneSubWeaponTimers[i] || 0;
+                    this.subWeaponTimer = cloneSubWeaponTimer;
                     // タイマーが切れていればアクションをクリアして二刀_Z描画ブランチに入らないようにする
-                    this.subWeaponAction = this.subWeaponTimer > 0 ? (this.specialCloneSubWeaponActions[i] || null) : null;
+                    this.subWeaponAction = this.subWeaponTimer > 0 ? (cloneSubWeaponAction || null) : null;
                     this.subWeaponPoseOverride = cloneUsesDualZ
                         ? {
                             comboIndex: this.specialCloneComboSteps[i] || 0,
-                            attackTimer: this.specialCloneSubWeaponTimers[i] || 0
+                            attackTimer: cloneSubWeaponTimer
                         }
                         : null;
                 } else {
@@ -4824,8 +4855,8 @@ export function applyRendererMixin(PlayerClass) {
                     this.isGrounded = saved.isGrounded;
                     this.isCrouching = saved.isCrouching;
                     this.isDashing = saved.isDashing;
-                    this.subWeaponTimer = saved.subWeaponTimer;
-                    this.subWeaponAction = saved.subWeaponAction;
+                    this.subWeaponTimer = cloneSubWeaponActive ? cloneSubWeaponTimer : saved.subWeaponTimer;
+                    this.subWeaponAction = cloneSubWeaponActive ? cloneSubWeaponAction : saved.subWeaponAction;
                     this.subWeaponPoseOverride = null;
                 }
 
@@ -4889,10 +4920,13 @@ export function applyRendererMixin(PlayerClass) {
                         this.syncAccessoryRootNodes(cloneScarfNodes, cloneHairNodes, anchorCalc);
                     }
 
-                    this.renderModel(ctx, this.x, this.y, this.facingRight, 1.0, true, {
-                        ...resolveCloneModelOptions(pos, i),
+                    const cloneModelOptions = resolveCloneModelOptions(pos, i);
+                    const cloneUsesDualWeapon = cloneSubWeaponInstance && cloneSubWeaponInstance.name === '二刀流';
+                    this.renderModel(ctx, this.x, this.y, this.facingRight, 1.0, !cloneSubWeaponActive || cloneUsesDualWeapon, {
+                        ...cloneModelOptions,
                         useLiveAccessories: true,
                         renderHeadbandTail: true,
+                        forceSubWeaponRender: !!(cloneModelOptions.forceSubWeaponRender || cloneUsesDualWeapon),
                         isClone: true,
                         cloneIndex: i,
                         scarfNodes: cloneScarfNodes || undefined,
@@ -4980,12 +5014,20 @@ export function applyRendererMixin(PlayerClass) {
                         }
                     }
 
-                    if (
+                    if (cloneSubWeaponActive && cloneSubWeaponInstance && typeof cloneSubWeaponInstance.render === 'function') {
+                        const subWeaponOwner = cloneSubWeaponInstance.owner && cloneSubWeaponInstance.owner._specialCloneOwner
+                            ? cloneSubWeaponInstance.owner
+                            : this;
+                        cloneSubWeaponInstance.render(ctx, subWeaponOwner);
+                    } else if (
                         this.currentSubWeapon &&
                         !this.subWeaponRenderedInModel &&
                         typeof this.currentSubWeapon.render === 'function'
                     ) {
-                        this.currentSubWeapon.render(ctx, this);
+                        const subWeaponOwner = this.currentSubWeapon.owner && this.currentSubWeapon.owner._specialCloneOwner
+                            ? this.currentSubWeapon.owner
+                            : this;
+                        this.currentSubWeapon.render(ctx, subWeaponOwner);
                     }
 
                     ctx.restore();
