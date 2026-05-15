@@ -1923,7 +1923,7 @@ export class Shogun extends Boss {
                     this.actor.specialClonePositions[ai] = ownerPos
                         ? {
                             ...ownerPos,
-                            y: _getCloneAnchorY(ownerPos.x),
+                            y: this.actor.y + PLAYER.HEIGHT * 0.62,
                             jumping: false,
                             cloneVy: 0
                         }
