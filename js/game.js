@@ -4272,7 +4272,8 @@ class Game {
         if (!this.player) return 1.0;
         const power = Number(this.player.attackPower);
         if (!Number.isFinite(power)) return 1.0;
-        return Math.max(1.0, power);
+        const characterScale = this.player.characterType === 'shogun' ? 1.2 : 1.0;
+        return Math.max(1.0, power) * characterScale;
     }
 
     queueHitFeedback(shake = 0, hitStopMs = 0, force = false) {

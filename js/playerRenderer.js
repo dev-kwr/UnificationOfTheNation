@@ -951,6 +951,7 @@ export function applyRendererMixin(PlayerClass) {
             subWeaponAction === '二刀_Z' &&
             this.currentSubWeapon &&
             this.currentSubWeapon.name === '二刀流' &&
+            this.currentSubWeapon.isAttacking &&
             typeof this.currentSubWeapon.getMainSwingPose === 'function'
         );
 
@@ -2579,16 +2580,21 @@ export function applyRendererMixin(PlayerClass) {
         const dir = facingRight ? 1 : -1;
         const armReachScale = Number.isFinite(options.armReachScale) ? options.armReachScale : 1.0;
         const dualBlade = (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') ? this.currentSubWeapon : null;
+        const renderSubWeaponAction = (
+            this.subWeaponAction === '二刀_Z' &&
+            dualBlade &&
+            !dualBlade.isAttacking
+        ) ? null : this.subWeaponAction;
         const dualPoseOverride = (
             this.subWeaponPoseOverride &&
-            this.subWeaponAction === '二刀_Z'
+            renderSubWeaponAction === '二刀_Z'
         ) ? this.subWeaponPoseOverride : null;
-        const durationWeapon = (this.subWeaponAction === 'throw' && this.throwSubWeaponInstance)
+        const durationWeapon = (renderSubWeaponAction === 'throw' && this.throwSubWeaponInstance)
             ? this.throwSubWeaponInstance
-            : (this.subWeaponAction === '二刀_Z' ? dualBlade : this.currentSubWeapon);
-        const subDuration = this.getSubWeaponActionDurationMs(this.subWeaponAction, durationWeapon);
+            : (renderSubWeaponAction === '二刀_Z' ? dualBlade : this.currentSubWeapon);
+        const subDuration = this.getSubWeaponActionDurationMs(renderSubWeaponAction, durationWeapon);
         const sourceTimer =
-            (dualBlade && this.subWeaponAction === '二刀_Z')
+            (dualBlade && renderSubWeaponAction === '二刀_Z')
                 ? ((dualPoseOverride && Number.isFinite(dualPoseOverride.attackTimer))
                     ? dualPoseOverride.attackTimer
                     : dualBlade.attackTimer)
@@ -2957,7 +2963,7 @@ export function applyRendererMixin(PlayerClass) {
             };
         };
 
-        if (this.subWeaponAction === 'throw') {
+        if (renderSubWeaponAction === 'throw') {
             // 手前手で投げる（手持ち武器は描画しない）
             const easedProgress = Math.pow(progress, 0.55); // イージングで初速を速く
             const armAngle = -Math.PI * 0.8 + easedProgress * Math.PI * 0.8;
@@ -2979,7 +2985,7 @@ export function applyRendererMixin(PlayerClass) {
                 );
                 drawHand(throwHand.x, throwHand.y, standardRightHandRadius);
             }
-        } else if (this.subWeaponAction === '大槍') {
+        } else if (renderSubWeaponAction === '大槍') {
             // 突き: いったん引いて腕を曲げ、押し込みで腕を伸ばす
             const spear = (this.currentSubWeapon && this.currentSubWeapon.name === '大槍') ? this.currentSubWeapon : null;
             const grips = (spear && typeof spear.getGripAnchors === 'function')
@@ -3063,7 +3069,7 @@ export function applyRendererMixin(PlayerClass) {
                 );
                 drawHand(rightHand.x, rightHand.y, standardRightHandRadius);
             }
-        } else if (this.subWeaponAction === '二刀_Z') {
+        } else if (renderSubWeaponAction === '二刀_Z') {
             // 二刀Z: 段別の軌道は維持しつつ、肩起点/腕長を通常基準に統一
             const blade = dualBlade;
             const pose = (blade && typeof blade.getMainSwingPose === 'function')
@@ -3223,9 +3229,25 @@ export function applyRendererMixin(PlayerClass) {
             rightShoulderMoveX = clamp(rightShoulderMoveX, rightShoulderBaseX - shoulderMaxDriftX, rightShoulderBaseX + shoulderMaxDriftX);
             rightShoulderMoveY = clamp(rightShoulderMoveY, rightShoulderBaseY - shoulderMaxDriftY, rightShoulderBaseY + shoulderMaxDriftY);
 
+            const lockLeftIdle = comboStep === 2;   // 2撃目の奥手は完全にアイドル固定
+            const lockRightIdle = comboStep === 1;  // 1撃目の手前手は完全にアイドル固定
+
+            if (lockLeftIdle) {
+                leftShoulderMoveX = leftShoulderBaseX;
+                leftShoulderMoveY = leftShoulderBaseY;
+                leftTargetX = idleLeftHandX;
+                leftTargetY = idleLeftHandY;
+            }
+            if (lockRightIdle) {
+                rightShoulderMoveX = rightShoulderBaseX;
+                rightShoulderMoveY = rightShoulderBaseY;
+                rightTargetX = idleRightHandX;
+                rightTargetY = idleRightHandY;
+            }
+
             // 肩移動の差分を手先ターゲットへ反映（1-2撃で静止側はスキップ）
-            const applyLeftShoulderOffset = !(comboStep === 2); // 2撃目の奥手はアイドル固定
-            const applyRightShoulderOffset = !(comboStep === 1); // 1撃目の手前手はアイドル固定
+            const applyLeftShoulderOffset = !lockLeftIdle;
+            const applyRightShoulderOffset = !lockRightIdle;
             if (applyLeftShoulderOffset) {
                 leftTargetX += leftShoulderMoveX - leftShoulderBaseX;
                 leftTargetY += leftShoulderMoveY - leftShoulderBaseY;
@@ -3282,14 +3304,18 @@ export function applyRendererMixin(PlayerClass) {
                 const cachedLeftY = dualZCache.left.y + leftShoulderY;
                 const cachedRightX = dualZCache.right.x + rightShoulderX;
                 const cachedRightY = dualZCache.right.y + rightShoulderY;
-                leftHand = {
-                    x: cachedLeftX + (leftHand.x - cachedLeftX) * lerpSpeed,
-                    y: cachedLeftY + (leftHand.y - cachedLeftY) * lerpSpeed
-                };
-                rightHand = {
-                    x: cachedRightX + (rightHand.x - cachedRightX) * lerpSpeed,
-                    y: cachedRightY + (rightHand.y - cachedRightY) * lerpSpeed
-                };
+                if (!lockLeftIdle) {
+                    leftHand = {
+                        x: cachedLeftX + (leftHand.x - cachedLeftX) * lerpSpeed,
+                        y: cachedLeftY + (leftHand.y - cachedLeftY) * lerpSpeed
+                    };
+                }
+                if (!lockRightIdle) {
+                    rightHand = {
+                        x: cachedRightX + (rightHand.x - cachedRightX) * lerpSpeed,
+                        y: cachedRightY + (rightHand.y - cachedRightY) * lerpSpeed
+                    };
+                }
             }
             dualZCache.left = { x: leftHand.x - leftShoulderX, y: leftHand.y - leftShoulderY };
             dualZCache.right = { x: rightHand.x - rightShoulderX, y: rightHand.y - rightShoulderY };
@@ -3411,38 +3437,38 @@ export function applyRendererMixin(PlayerClass) {
             // アイドル時の基本角度
             const idleLeftBladeAngle = crouchPick(-0.65, -0.32);
             const idleRightBladeAngle = crouchPick(-1.1, -0.82);
+            const idleLeftHand = options.idleHands && options.idleHands.left
+                ? options.idleHands.left
+                : {
+                    x: centerX + dir * crouchPick(14.0, 11.5),
+                    y: leftShoulderY + crouchPick(7.8, 6.2)
+                };
+            const idleRightHand = options.idleHands && options.idleHands.right
+                ? options.idleHands.right
+                : {
+                    x: centerX - dir * crouchPick(7.2, 4.6),
+                    y: rightShoulderY + crouchPick(8.5, 6.8)
+                };
             
-            // コンボ最終段の姿勢を取得（getMainSwingPoseを使用）
-            const lastPose = this.currentSubWeapon.getMainSwingPose({
-                comboIndex: this.currentSubWeapon.comboIndex || 1,
-                progress: 1.0 // 終端姿勢
-            });
+            const leftAngle = idleLeftBladeAngle;
+            const rightAngle = idleRightBladeAngle;
 
-            // 角度を補間
-            const leftAngle = lastPose.leftAngle + (idleLeftBladeAngle - lastPose.leftAngle) * easeT;
-            const rightAngle = lastPose.rightAngle + (idleRightBladeAngle - lastPose.rightAngle) * easeT;
-
-            // 各手の位置を再計算（肩の位置 + リーチ + 補間された角度）
-            let leftHandX = leftShoulderX + Math.cos(leftAngle) * dir * 21.8;
-            let leftHandY = leftShoulderY + Math.sin(leftAngle) * 21.8;
-            let rightHandX = rightShoulderX + Math.cos(rightAngle) * dir * 21.2;
-            let rightHandY = rightShoulderY + Math.sin(rightAngle) * 21.2;
-
-            // lerpバッファ経由でさらにスムーズに（分身ごとに独立したキャッシュを使用）
+            // 腕の手位置は刀角度から作らず、直前の手位置から二刀流アイドル手位置へ戻す
             const recoverCacheKey = (options.isClone && options.cloneIndex != null) ? options.cloneIndex : '_body';
             if (!this._dualZHandCache) this._dualZHandCache = {};
             const recoverCache = this._dualZHandCache[recoverCacheKey] || { left: null, right: null, lastComboStep: -1 };
+            let leftHandX = idleLeftHand.x;
+            let leftHandY = idleLeftHand.y;
+            let rightHandX = idleRightHand.x;
+            let rightHandY = idleRightHand.y;
             if (recoverCache.left && recoverCache.right) {
-                const recoverLerp = 0.22;
                 const cachedLeftX = recoverCache.left.x + leftShoulderX;
                 const cachedLeftY = recoverCache.left.y + leftShoulderY;
-                const cachedRightX = recoverCache.right.x + rightShoulderX;
-                const cachedRightY = recoverCache.right.y + rightShoulderY;
-                leftHandX = cachedLeftX + (leftHandX - cachedLeftX) * recoverLerp;
-                leftHandY = cachedLeftY + (leftHandY - cachedLeftY) * recoverLerp;
-                rightHandX = cachedRightX + (rightHandX - cachedRightX) * recoverLerp;
-                rightHandY = cachedRightY + (rightHandY - cachedRightY) * recoverLerp;
+                leftHandX = cachedLeftX + (idleLeftHand.x - cachedLeftX) * easeT;
+                leftHandY = cachedLeftY + (idleLeftHand.y - cachedLeftY) * easeT;
             }
+            rightHandX = idleRightHand.x;
+            rightHandY = idleRightHand.y;
             recoverCache.left = { x: leftHandX - leftShoulderX, y: leftHandY - leftShoulderY };
             recoverCache.right = { x: rightHandX - rightShoulderX, y: rightHandY - rightShoulderY };
             recoverCache.lastComboStep = -1;
@@ -3461,7 +3487,7 @@ export function applyRendererMixin(PlayerClass) {
                 drawHand(rightHandX, rightHandY, standardRightHandRadius);
                 if (renderWeaponVisuals) drawSubWeaponKatana(rightHandX, rightHandY, rightAngle, dir, 0.28, 'blade');
             }
-        } else if (this.subWeaponAction === '二刀_合体') {
+        } else if (renderSubWeaponAction === '二刀_合体') {
             // === 二刀合体: X構え → X斬撃 → アイドル復帰 ===
             const clamped = Math.min(1, Math.max(0, progress));
             
@@ -3747,7 +3773,7 @@ export function applyRendererMixin(PlayerClass) {
 
                 ctx.restore();
             }
-        } else if (this.subWeaponAction === '大太刀') {
+        } else if (renderSubWeaponAction === '大太刀') {
             // 大太刀: 柄の中心付近を両手で挟む専用グリップ
             const odachi = (this.currentSubWeapon && this.currentSubWeapon.name === '大太刀') ? this.currentSubWeapon : null;
             const grips = (odachi && typeof odachi.getDualGripAnchors === 'function')
@@ -3802,7 +3828,7 @@ export function applyRendererMixin(PlayerClass) {
                 drawBentArmSegment(frontShoulderGripX, frontShoulderGripY, rightHand.x, rightHand.y, standardUpperLen, standardForeLen, -dir, 5.2);
                 drawHand(rightHand.x, rightHand.y, standardRightHandRadius);
             }
-        } else if (this.subWeaponAction === '鎖鎌') {
+        } else if (renderSubWeaponAction === '鎖鎌') {
             // 鎖鎌: 振りかぶり -> 前方へ投げ放つ -> その後に回す
             const kusa = (this.currentSubWeapon && this.currentSubWeapon.name === '鎖鎌') ? this.currentSubWeapon : null;
             const anchor = (kusa && typeof kusa.getHandAnchor === 'function')
@@ -3851,7 +3877,7 @@ export function applyRendererMixin(PlayerClass) {
                 }
                 drawHand(mainHand.x, mainHand.y, standardRightHandRadius);
             }
-        } else if (!this.subWeaponAction && this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
+        } else if (!renderSubWeaponAction && this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
             // === 二刀流の非攻撃時（アイドル姿勢） ===
             const holdProgress = (Date.now() % 3000) / 3000;
             const holdPulse = Math.sin(holdProgress * Math.PI * 2) * 0.1;
@@ -3882,7 +3908,7 @@ export function applyRendererMixin(PlayerClass) {
                     drawSubWeaponKatana(fx, fy, fa, dir, 0.28, 'blade');
                 }
             }
-        } else if (this.currentSubWeapon && this.currentSubWeapon.name === '鎖鎌' && !this.subWeaponAction) {
+        } else if (this.currentSubWeapon && this.currentSubWeapon.name === '鎖鎌' && !renderSubWeaponAction) {
             // 鎖鎌アイドル時: 通常アイドル姿勢がすでに描画済みなので追加の腕は不要
         } else {
             // その他（デフォルト突き）
@@ -4716,11 +4742,27 @@ export function applyRendererMixin(PlayerClass) {
                     subWeaponPoseOverride: this.subWeaponPoseOverride,
                     height: this.height,
                     legPhase: this.legPhase,
-                    legAngle: this.legAngle
+                    legAngle: this.legAngle,
+                    currentSubWeapon: this.currentSubWeapon,
+                    subWeaponRenderedInModel: this.subWeaponRenderedInModel,
+                    dualBladeTrailAnchors: this.dualBladeTrailAnchors
                 };
 
                 const cloneDrawX = pos.x - this.width * 0.5;
                 const cloneDrawY = this.getSpecialCloneDrawY(pos.y);
+                const cloneSubWeaponInstance = (
+                    this.specialCloneSubWeaponInstances &&
+                    this.specialCloneSubWeaponInstances[i]
+                ) ? this.specialCloneSubWeaponInstances[i] : null;
+                const shouldMirrorSavedSubWeapon = !!(
+                    !this.specialCloneAutoAiEnabled &&
+                    saved.currentSubWeapon &&
+                    (
+                        saved.currentSubWeapon.name === '二刀流' ||
+                        (saved.subWeaponTimer || 0) > 0 ||
+                        saved.subWeaponAction
+                    )
+                );
 
                 // Lv0〜2は本体の攻撃状態に同期、Lv3は独自タイマー
                 const cloneUsesDualZ = !!(
@@ -4754,6 +4796,9 @@ export function applyRendererMixin(PlayerClass) {
                 if (!keepActorHeight) this.height = PLAYER.HEIGHT;
                 this.facingRight = pos.facingRight;
                 this.motionTime = saved.motionTime;
+                this.currentSubWeapon = cloneSubWeaponInstance || (shouldMirrorSavedSubWeapon ? saved.currentSubWeapon : null);
+                this.subWeaponRenderedInModel = false;
+                this.dualBladeTrailAnchors = null;
 
                 if (this.specialCloneAutoAiEnabled) {
                     const rawRenderVx = pos.renderVx || 0;
@@ -4825,43 +4870,52 @@ export function applyRendererMixin(PlayerClass) {
                     ctx.save();
                     ctx.globalAlpha = cloneAlpha;
 
+                    const cloneScarfNodes = this.specialCloneScarfNodes[i] || null;
+                    const cloneHairNodes = this.specialCloneHairNodes[i] || null;
+
+                    if (cloneScarfNodes && cloneHairNodes) {
+                        const footY = this.y + this.height;
+                        const cloneMotionTime = saved.motionTime;
+                        const cloneIsMoving = this.specialCloneAutoAiEnabled
+                            ? (Math.abs(pos.prevX - pos.x) > 0.5)
+                            : (Math.abs(saved.vx) > 0.5 || !saved.isGrounded);
+                        const anchorCalc = this.calculateAccessoryAnchor(
+                            pos.x - this.width * 0.5, footY, this.height,
+                            cloneMotionTime, cloneIsMoving,
+                            false, false,
+                            this.legPhase || cloneMotionTime * 0.012,
+                            pos.facingRight
+                        );
+                        this.syncAccessoryRootNodes(cloneScarfNodes, cloneHairNodes, anchorCalc);
+                    }
+
+                    this.renderModel(ctx, this.x, this.y, this.facingRight, 1.0, true, {
+                        ...resolveCloneModelOptions(pos, i),
+                        useLiveAccessories: true,
+                        renderHeadbandTail: true,
+                        isClone: true,
+                        cloneIndex: i,
+                        scarfNodes: cloneScarfNodes || undefined,
+                        hairNodes: cloneHairNodes || undefined
+                    });
+
+                    if (!Array.isArray(this.specialCloneDualTrailAnchors)) {
+                        this.specialCloneDualTrailAnchors = [];
+                    }
+                    this.specialCloneDualTrailAnchors[i] = this.dualBladeTrailAnchors
+                        ? {
+                            direction: this.dualBladeTrailAnchors.direction,
+                            back: this.dualBladeTrailAnchors.back ? { ...this.dualBladeTrailAnchors.back } : null,
+                            front: this.dualBladeTrailAnchors.front ? { ...this.dualBladeTrailAnchors.front } : null,
+                            originX: this.x + this.width * 0.5,
+                            originY: this.y + this.height * 0.5
+                        }
+                        : null;
+
                     const cloneTrailPoints = Array.isArray(this.specialCloneSlashTrailPoints)
                         ? this.specialCloneSlashTrailPoints[i]
                         : null;
-                    if (cloneUsesDualZ) {
-                        // 二刀Z分身: 奥刀（青）・手前刀（赤）の専用トレイルバッファを描画
-                        const bluePalette = { front: [130, 234, 255], back: [76, 154, 226] };
-                        const redPalette = { front: [255, 90, 90], back: [214, 74, 74] };
-                        const isDualZActive = cloneUsesDualZ;
-                        const backPoints = Array.isArray(this.specialCloneDualBackTrailPoints)
-                            ? this.specialCloneDualBackTrailPoints[i]
-                            : null;
-                        const frontPoints = Array.isArray(this.specialCloneDualFrontTrailPoints)
-                            ? this.specialCloneDualFrontTrailPoints[i]
-                            : null;
-                        if (backPoints && backPoints.length >= 2) {
-                            this.renderComboSlashTrail(ctx, {
-                                points: backPoints,
-                                palette: bluePalette,
-                                forceLinearSmooth: true,
-                                isAttacking: isDualZActive,
-                                trailWidthScale: 1,
-                                getBoostAnchor: () => null,
-                                setBoostAnchor: () => {}
-                            });
-                        }
-                        if (frontPoints && frontPoints.length >= 2) {
-                            this.renderComboSlashTrail(ctx, {
-                                points: frontPoints,
-                                palette: redPalette,
-                                forceLinearSmooth: true,
-                                isAttacking: isDualZActive,
-                                trailWidthScale: 1,
-                                getBoostAnchor: () => null,
-                                setBoostAnchor: () => {}
-                            });
-                        }
-                    } else if (cloneTrailPoints && cloneTrailPoints.length > 1) {
+                    if (cloneTrailPoints && cloneTrailPoints.length > 1 && !cloneUsesDualZ) {
                         const trailScale = 1;
                         const cloneAttackState = {
                             x: this.x,
@@ -4892,36 +4946,46 @@ export function applyRendererMixin(PlayerClass) {
                         });
                     }
 
-                    const cloneScarfNodes = this.specialCloneScarfNodes[i] || null;
-                    const cloneHairNodes = this.specialCloneHairNodes[i] || null;
-
-                    if (cloneScarfNodes && cloneHairNodes) {
-                        const footY = this.y + this.height;
-                        const cloneMotionTime = saved.motionTime;
-                        const cloneIsMoving = this.specialCloneAutoAiEnabled
-                            ? (Math.abs(pos.prevX - pos.x) > 0.5)
-                            : (Math.abs(saved.vx) > 0.5 || !saved.isGrounded);
-                        const anchorCalc = this.calculateAccessoryAnchor(
-                            pos.x - this.width * 0.5, footY, this.height,
-                            cloneMotionTime, cloneIsMoving,
-                            false, false,
-                            this.legPhase || cloneMotionTime * 0.012,
-                            pos.facingRight
-                        );
-                        this.syncAccessoryRootNodes(cloneScarfNodes, cloneHairNodes, anchorCalc);
+                    if (cloneUsesDualZ) {
+                        // 二刀Z分身: 奥刀（青）・手前刀（赤）の専用トレイルバッファを本体後に描画
+                        const bluePalette = { front: [130, 234, 255], back: [76, 154, 226] };
+                        const redPalette = { front: [255, 90, 90], back: [214, 74, 74] };
+                        const backPoints = Array.isArray(this.specialCloneDualBackTrailPoints)
+                            ? this.specialCloneDualBackTrailPoints[i]
+                            : null;
+                        const frontPoints = Array.isArray(this.specialCloneDualFrontTrailPoints)
+                            ? this.specialCloneDualFrontTrailPoints[i]
+                            : null;
+                        if (backPoints && backPoints.length >= 2) {
+                            this.renderComboSlashTrail(ctx, {
+                                points: backPoints,
+                                palette: bluePalette,
+                                forceLinearSmooth: true,
+                                isAttacking: true,
+                                trailWidthScale: 1,
+                                getBoostAnchor: () => null,
+                                setBoostAnchor: () => {}
+                            });
+                        }
+                        if (frontPoints && frontPoints.length >= 2) {
+                            this.renderComboSlashTrail(ctx, {
+                                points: frontPoints,
+                                palette: redPalette,
+                                forceLinearSmooth: true,
+                                isAttacking: true,
+                                trailWidthScale: 1,
+                                getBoostAnchor: () => null,
+                                setBoostAnchor: () => {}
+                            });
+                        }
                     }
 
-                    this.renderModel(ctx, this.x, this.y, this.facingRight, 1.0, true, {
-                        ...resolveCloneModelOptions(pos, i),
-                        useLiveAccessories: true,
-                        renderHeadbandTail: true,
-                        isClone: true,
-                        cloneIndex: i,
-                        scarfNodes: cloneScarfNodes || undefined,
-                        hairNodes: cloneHairNodes || undefined
-                    });
-                    if (this.specialCloneSubWeaponInstances && this.specialCloneSubWeaponInstances[i] && typeof this.specialCloneSubWeaponInstances[i].render === 'function') {
-                        this.specialCloneSubWeaponInstances[i].render(ctx, this);
+                    if (
+                        this.currentSubWeapon &&
+                        !this.subWeaponRenderedInModel &&
+                        typeof this.currentSubWeapon.render === 'function'
+                    ) {
+                        this.currentSubWeapon.render(ctx, this);
                     }
 
                     ctx.restore();
@@ -4947,6 +5011,9 @@ export function applyRendererMixin(PlayerClass) {
                 this.height = saved.height;
                 this.legPhase = saved.legPhase;
                 this.legAngle = saved.legAngle;
+                this.currentSubWeapon = saved.currentSubWeapon;
+                this.subWeaponRenderedInModel = saved.subWeaponRenderedInModel;
+                this.dualBladeTrailAnchors = saved.dualBladeTrailAnchors;
             }
         }
 

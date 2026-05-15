@@ -23,6 +23,7 @@ export function applyShogunCombat(player) {
 
     const SHOGUN_SCALE = 2.2;
     const SHOGUN_SPEED = 3.8;
+    const SHOGUN_ATTACK_POWER_SCALE = 1.2;
 
     player._shogunInited = false;
     player._shogunSubWeaponInstances = null;
@@ -41,12 +42,100 @@ export function applyShogunCombat(player) {
         }
         return Math.max(2, Math.min(5, 2 + getShogunNormalComboTier(p)));
     };
+    const SHOGUN_WEAPON_KEY_BY_NAME = {
+        '手裏剣': 'shuriken',
+        '火薬玉': 'bomb',
+        '大槍': 'spear',
+        '二刀流': 'dual',
+        '鎖鎌': 'kusarigama',
+        '大太刀': 'odachi'
+    };
+    const SHOGUN_CALC_PROPS = [
+        'damage',
+        'baseDamage',
+        'range',
+        'baseRange',
+        'xDamage',
+        'comboDamages',
+        'enhanceTier'
+    ];
+    const getPlayableShogunRealSubWeapon = (p) => {
+        if (!p) return null;
+        if (typeof p._getShogunRealSubWeapon === 'function') {
+            return p._getShogunRealSubWeapon();
+        }
+        return null;
+    };
+    const getShogunSubWeaponCalculationSource = (p, boss, key) => {
+        const activeInst = boss && key && boss._subWeaponInstances
+            ? boss._subWeaponInstances[key]
+            : null;
+        if (!activeInst) return null;
+        const selected = getPlayableShogunRealSubWeapon(p);
+        if (selected && selected.name === activeInst.name) return selected;
+        if (Array.isArray(p?.subWeapons)) {
+            return p.subWeapons.find((weapon) => weapon && weapon.name === activeInst.name) || null;
+        }
+        return null;
+    };
+    const syncShogunSubWeaponCalculation = (p, boss, key = null) => {
+        if (!p || !boss || !boss._subWeaponInstances) return null;
+        const activeKey = key || boss._subWeaponKey;
+        const activeInst = activeKey ? boss._subWeaponInstances[activeKey] : null;
+        const source = getShogunSubWeaponCalculationSource(p, boss, activeKey);
+        if (!activeInst || !source || source === activeInst) return null;
+
+        const snapshot = {};
+        for (const prop of SHOGUN_CALC_PROPS) {
+            const value = source[prop];
+            if (Array.isArray(value)) {
+                activeInst[prop] = value.slice();
+                snapshot[prop] = value.slice();
+            } else if (Number.isFinite(value)) {
+                activeInst[prop] = value;
+                snapshot[prop] = value;
+            }
+        }
+        if (!p._shogunSubWeaponCalcSnapshots) p._shogunSubWeaponCalcSnapshots = {};
+        p._shogunSubWeaponCalcSnapshots[activeKey] = snapshot;
+        return snapshot;
+    };
+    const syncPlayableShogunAttackCalculation = (p, boss) => {
+        if (!p || !boss) return false;
+        const profile = boss._currentAttackProfile || null;
+        const comboStep = boss._attackTimer > 0 && profile && profile.comboStep
+            ? Math.max(1, Math.min(5, Math.floor(profile.comboStep)))
+            : 0;
+        if (!comboStep) {
+            p.attackCombo = 0;
+            p.currentAttack = null;
+            p.attackTimer = 0;
+            return false;
+        }
+        const ninjaProfile = typeof p.getComboAttackProfileByStep === 'function'
+            ? p.getComboAttackProfileByStep(comboStep)
+            : { ...profile, comboStep, source: 'main' };
+        p.attackCombo = comboStep;
+        p.currentAttack = {
+            ...ninjaProfile,
+            comboStep,
+            source: 'main',
+            knockbackX: profile.knockbackX,
+            knockbackY: profile.knockbackY,
+            range: comboStep === 5 && Number.isFinite(profile.range)
+                ? profile.range
+                : (Number.isFinite(ninjaProfile.range) ? ninjaProfile.range : profile.range)
+        };
+        p.attackTimer = Math.max(0, boss._attackTimer || 0);
+        return true;
+    };
     const syncShogunProgression = (p, boss) => {
         if (!p || !boss) return;
         const subTier = getShogunSubWeaponTier(p);
         const normalTier = getShogunNormalComboTier(p);
         boss.progression = { ...(boss.progression || {}), subWeapon: subTier, normalCombo: normalTier };
         boss.getSubWeaponEnhanceTier = () => subTier;
+        boss.attackPower = Math.max(1.0, Number(p.attackPower) || 1.0) * SHOGUN_ATTACK_POWER_SCALE;
         if (boss.actor) {
             const oldTier = boss.actor.progression ? boss.actor.progression.specialClone : -1;
             const newTier = clampShogunTier(p?.progression?.specialClone);
@@ -161,8 +250,31 @@ export function applyShogunCombat(player) {
         // ── 火薬玉をプレイヤーの攻撃として扱う ──
         const origFireSubWeapon = p._shogunBossInstance._fireSubWeapon;
         p._shogunBossInstance._fireSubWeapon = function(type) {
+            const resolvedKey = type === 'dual_z' ? 'dual' : type;
+            const inst = resolvedKey && this._subWeaponInstances
+                ? this._subWeaponInstances[resolvedKey]
+                : null;
+            const originalApplyEnhanceTier = inst && typeof inst.applyEnhanceTier === 'function'
+                ? inst.applyEnhanceTier
+                : null;
             const bombsBefore = (window.game && window.game.bombs) ? window.game.bombs.length : 0;
-            origFireSubWeapon.apply(this, arguments);
+            if (originalApplyEnhanceTier) {
+                inst.applyEnhanceTier = function(...args) {
+                    const result = originalApplyEnhanceTier.apply(this, args);
+                    syncShogunSubWeaponCalculation(p, p._shogunBossInstance, resolvedKey);
+                    return result;
+                };
+            } else {
+                syncShogunSubWeaponCalculation(p, p._shogunBossInstance, resolvedKey);
+            }
+            try {
+                origFireSubWeapon.apply(this, arguments);
+            } finally {
+                if (originalApplyEnhanceTier) {
+                    inst.applyEnhanceTier = originalApplyEnhanceTier;
+                }
+            }
+            syncShogunSubWeaponCalculation(p, p._shogunBossInstance, resolvedKey);
             if (type === 'bomb' && window.game && window.game.bombs) {
                 for (let bi = bombsBefore; bi < window.game.bombs.length; bi++) {
                     const b = window.game.bombs[bi];
@@ -175,6 +287,7 @@ export function applyShogunCombat(player) {
         // 攻撃中はボスの武器インスタンスを返す（getHitbox を持つもの）
         // _shogunGetterBypass === 'real' の間は realSub を返す（handleInput内での武器名判定用）
         let realSub = p.currentSubWeapon;
+        p._getShogunRealSubWeapon = () => realSub;
         Object.defineProperty(p, 'currentSubWeapon', {
             get: function() {
                 if (this._shogunGetterBypass === 'real') return realSub;
@@ -191,11 +304,18 @@ export function applyShogunCombat(player) {
                                         ? boss._subWeaponInstances[activeKey]
                                         : null;
                                     if (prop === 'getHitbox') {
-                                        return () => boss && typeof boss.getSubWeaponHitbox === 'function'
-                                            ? boss.getSubWeaponHitbox()
-                                            : null;
+                                        return () => {
+                                            if (!boss || typeof boss.getSubWeaponHitbox !== 'function') return null;
+                                            syncShogunSubWeaponCalculation(this, boss, activeKey);
+                                            return boss.getSubWeaponHitbox();
+                                        };
                                     }
                                     if (!activeInst) return undefined;
+                                    const snapshot = this._shogunSubWeaponCalcSnapshots &&
+                                        this._shogunSubWeaponCalcSnapshots[activeKey];
+                                    if (snapshot && Object.prototype.hasOwnProperty.call(snapshot, prop)) {
+                                        return snapshot[prop];
+                                    }
                                     const value = activeInst[prop];
                                     return typeof value === 'function' ? value.bind(activeInst) : value;
                                 },
@@ -381,11 +501,7 @@ export function applyShogunCombat(player) {
         const realWeapon = this.currentSubWeapon;
         this._shogunGetterBypass = false;
         if (realWeapon) {
-            const typeMap = {
-                '手裏剣': 'shuriken', '火薬玉': 'bomb', '大槍': 'spear',
-                '二刀流': 'dual', '鎖鎌': 'kusarigama', '大太刀': 'odachi'
-            };
-            const wk = typeMap[realWeapon.name];
+            const wk = SHOGUN_WEAPON_KEY_BY_NAME[realWeapon.name];
             if (wk) boss._subWeaponKey = wk;
         }
 
@@ -482,6 +598,7 @@ export function applyShogunCombat(player) {
         } else if (Object.prototype.hasOwnProperty.call(dualInst, 'enhanceTier')) {
             dualInst.enhanceTier = tier;
         }
+        syncShogunSubWeaponCalculation(this, boss, 'dual');
         // preview と同一: currentSubWeapon を一時セットし、isEnemy はそのまま
         const prevSubWeapon = boss.currentSubWeapon;
         boss.currentSubWeapon = dualInst;
@@ -546,11 +663,7 @@ export function applyShogunCombat(player) {
             dualForReset.comboIndex = 0;
         }
 
-        const typeMap = {
-            '手裏剣': 'shuriken', '火薬玉': 'bomb', '大槍': 'spear',
-            '二刀流': 'dual', '鎖鎌': 'kusarigama', '大太刀': 'odachi'
-        };
-        const weaponKey = typeMap[realWeapon.name];
+        const weaponKey = SHOGUN_WEAPON_KEY_BY_NAME[realWeapon.name];
         if (!weaponKey) {
             console.log('[将軍DEBUG] triggerSubAction: unknown weapon name:', realWeapon.name);
             return;
@@ -569,6 +682,7 @@ export function applyShogunCombat(player) {
         };
 
         boss.isAttacking = true;
+        syncShogunSubWeaponCalculation(this, boss, weaponKey);
         boss._fireSubWeapon(weaponKey);
         boss._subAction = actionMap[weaponKey] || null;
 
@@ -605,14 +719,21 @@ export function applyShogunCombat(player) {
         const boss = this._shogunBossInstance;
         if (!boss) return null;
 
-        if (boss._attackTimer > 0) {
-            const dir = boss.facingRight ? 1 : -1;
-            return [{
-                x: boss.x + (dir > 0 ? boss.width * 0.4 : -boss.width * 1.2),
-                y: boss.y + boss.height * 0.1,
-                width: boss.width * 1.8,
-                height: boss.height * 0.8,
-            }];
+        if (syncPlayableShogunAttackCalculation(this, boss)) {
+            const state = options && options.state ? options.state : {
+                x: this.x + (this.width - PLAYER.WIDTH) * 0.5,
+                y: this.y + this.height - PLAYER.HEIGHT,
+                width: PLAYER.WIDTH,
+                height: PLAYER.HEIGHT,
+                facingRight: boss.facingRight,
+                isCrouching: false,
+                isAttacking: true,
+                currentAttack: this.currentAttack,
+                attackTimer: this.attackTimer
+            };
+            return originalGetAttackHitbox
+                ? originalGetAttackHitbox.call(this, { state })
+                : null;
         }
         return null;
     };
@@ -738,8 +859,8 @@ export function applyShogunCombat(player) {
         }
         this.justLanded = !wasPlayerGrounded && this.isGrounded;
 
-        this.isAttacking = bossActiveAfter;
-        this.attackTimer = bossActiveAfter ? 50 : 0;
+        const normalAttackActive = syncPlayableShogunAttackCalculation(this, boss);
+        this.isAttacking = normalAttackActive;
         this.subWeaponTimer = boss._subTimer;
         this.subWeaponAction = boss._subAction;
 
@@ -749,11 +870,7 @@ export function applyShogunCombat(player) {
             const realWeapon = this.currentSubWeapon;
             this._shogunGetterBypass = false;
             if (realWeapon) {
-                const typeMap = {
-                    '手裏剣': 'shuriken', '火薬玉': 'bomb', '大槍': 'spear',
-                    '二刀流': 'dual', '鎖鎌': 'kusarigama', '大太刀': 'odachi'
-                };
-                const idleKey = typeMap[realWeapon.name];
+                const idleKey = SHOGUN_WEAPON_KEY_BY_NAME[realWeapon.name];
                 if (idleKey) {
                     boss._subWeaponKey = idleKey;
                     boss._subAction = null;

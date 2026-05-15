@@ -32,6 +32,7 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
         this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
         this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
+        this.specialCloneDualTrailAnchors = this.specialCloneSlots.map(() => null);
 
         const cloneAnchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
         this.specialClonePositions = cloneAnchors.map(a => ({ x: a.x, y: a.y, facingRight: this.facingRight, prevX: a.x }));
@@ -60,11 +61,14 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
         this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
         this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
+        this.specialCloneDualTrailAnchors = this.specialCloneSlots.map(() => null);
         if (clearSmoke) this.specialSmoke = [];
     };
 
     PlayerClass.prototype.updateSpecial = function(deltaTime) {
         const deltaMs = deltaTime * 1000;
+        const enemies = (window.game && window.game.enemies) || [];
+
         if (this.isUsingSpecial) {
             if (this.specialCastTimer > 0) {
                 const previousCastTimer = this.specialCastTimer;
@@ -144,36 +148,40 @@ export function applySpecialMixin(PlayerClass) {
             }
         }
 
-        if (this.isUsingSpecial) {
-            this.updateSpecialCloneSlashTrails(deltaMs);
-            if (this.specialCloneSubWeaponInstances) {
-                for (let i = 0; i < this.specialCloneSubWeaponInstances.length; i++) {
-                    const inst = this.specialCloneSubWeaponInstances[i];
-                    if (inst) {
-                        const pos = this.specialClonePositions ? this.specialClonePositions[i] : null;
-                        const dummyClone = {
-                            x: pos ? pos.x - this.width / 2 : this.x,
-                            y: pos ? this.getSpecialCloneDrawY(pos.y) : this.y,
-                            width: this.width,
-                            height: this.height,
-                            vx: 0, vy: 0,
-                            groundY: this.groundY,
-                            facingRight: pos ? pos.facingRight : this.facingRight,
-                            isEnemy: false,
-                            isDashing: false,
-                            isGrounded: pos ? !(pos.jumping) : this.isGrounded,
-                            isXAttackBoostActive: () => false,
-                            currentSubWeapon: inst,
-                            subWeaponAction: this.specialCloneSubWeaponActions ? this.specialCloneSubWeaponActions[i] : null
-                        };
-                        // owner参照型の武器(大太刀・鎖鎌)は毎フレームclone位置に同期
-                        // ただし大太刀が着地後(planted/fadeOut)は位置を固定する
-                        if (inst.owner !== undefined &&
-                            !(inst.hasImpacted && ((inst.plantedTimer || 0) > 0 || (inst.fadeOutTimer || 0) > 0))) {
-                            inst.owner = dummyClone;
-                        }
-                        inst.update(deltaTime, dummyClone);
+        if (this.specialCloneSubWeaponInstances) {
+            for (let i = 0; i < this.specialCloneSubWeaponInstances.length; i++) {
+                const inst = this.specialCloneSubWeaponInstances[i];
+                if (inst) {
+                    const pos = this.specialClonePositions ? this.specialClonePositions[i] : null;
+                    const dummyClone = {
+                        x: pos ? pos.x - this.width / 2 : this.x,
+                        y: pos ? this.getSpecialCloneDrawY(pos.y) : this.y,
+                        width: this.width,
+                        height: this.height,
+                        vx: 0, vy: 0,
+                        groundY: this.groundY,
+                        facingRight: pos ? pos.facingRight : this.facingRight,
+                        isEnemy: false,
+                        isDashing: this.isDashing,
+                        isCrouching: this.isCrouching,
+                        isGrounded: pos ? !(pos.jumping) : this.isGrounded,
+                        speed: this.speed,
+                        motionTime: this.motionTime,
+                        attackMotionScale: this.attackMotionScale,
+                        isXAttackBoostActive: () => false,
+                        currentSubWeapon: inst,
+                        subWeaponAction: this.specialCloneSubWeaponActions ? this.specialCloneSubWeaponActions[i] : null
+                    };
+                    // owner参照型の武器(大太刀・鎖鎌)は毎フレームclone位置に同期
+                    // ただし大太刀が着地後(planted/fadeOut)は位置を固定する
+                    if (inst.owner !== undefined &&
+                        !(inst.hasImpacted && ((inst.plantedTimer || 0) > 0 || (inst.fadeOutTimer || 0) > 0))) {
+                        inst.owner = dummyClone;
                     }
+                    const subWeaponScale = inst.name === '二刀流'
+                        ? 1
+                        : Math.max(1, this.subWeaponMotionScale || 1);
+                    inst.update(deltaTime / subWeaponScale, enemies);
                 }
             }
         }
@@ -306,31 +314,68 @@ export function applySpecialMixin(PlayerClass) {
         }
     };
 
-    PlayerClass.prototype.triggerCloneSubWeapon = function(index) {
-        // Lv3（自律AI）の分身は外部からのサブ武器発動を無視
-        if (this.specialCloneAutoAiEnabled) return;
+    PlayerClass.prototype.getCloneSubWeaponActionName = function(weapon = this.currentSubWeapon) {
+        if (!weapon || !weapon.name) return null;
+        if (weapon.name === '手裏剣' || weapon.name === '火薬玉') return 'throw';
+        if (weapon.name === '二刀流') {
+            return weapon.attackType === 'combined' ? '二刀_合体' : '二刀_Z';
+        }
+        return weapon.name;
+    };
 
-        if (!this.currentSubWeapon || this.specialCloneSubWeaponTimers[index] > 0) return;
+    PlayerClass.prototype.getCloneSubWeaponAttackType = function(actionName, weapon = this.currentSubWeapon) {
+        if (!weapon || weapon.name !== '二刀流') return null;
+        return actionName === '二刀_合体' ? 'combined' : 'main';
+    };
+
+    PlayerClass.prototype.getCurrentSubWeaponEnhanceTier = function() {
+        if (typeof this.getSubWeaponEnhanceTier === 'function') {
+            return Math.max(0, Math.min(3, Math.floor(this.getSubWeaponEnhanceTier()) || 0));
+        }
+        if (this.progression && Number.isFinite(this.progression.subWeapon)) {
+            return Math.max(0, Math.min(3, Math.floor(this.progression.subWeapon) || 0));
+        }
+        if (Number.isFinite(this.enhanceTier)) {
+            return Math.max(0, Math.min(3, Math.floor(this.enhanceTier) || 0));
+        }
+        return 0;
+    };
+
+    PlayerClass.prototype.triggerCloneSubWeapon = function(index) {
+        if (this.specialCloneAutoAiEnabled) return;
+        if (!Number.isFinite(index) || index < 0) return;
+        if (!Array.isArray(this.specialCloneSlots) || index >= this.specialCloneSlots.length) return;
+        if (Array.isArray(this.specialCloneAlive) && this.specialCloneAlive[index] === false) return;
+        if (!this.currentSubWeapon) return;
         
-        const weaponName = this.currentSubWeapon.name;
+        const actionName = this.getCloneSubWeaponActionName(this.currentSubWeapon);
+        if (!actionName) return;
+        const allowRestart = this.currentSubWeapon.name === '二刀流' && actionName === '二刀_Z';
+        if (!allowRestart && this.specialCloneSubWeaponTimers[index] > 0) return;
         this.specialCloneSubWeaponTimers[index] = this.getSubWeaponActionDurationMs(
-            weaponName === '火薬玉' ? 'throw' : weaponName,
+            actionName,
             this.currentSubWeapon
         );
-        this.specialCloneSubWeaponActions[index] = weaponName === '火薬玉' ? 'throw' : weaponName;
-        this.activateCloneSubWeaponInstance(index);
+        this.specialCloneSubWeaponActions[index] = actionName;
+        this.activateCloneSubWeaponInstance(
+            index,
+            this.getCloneSubWeaponAttackType(actionName, this.currentSubWeapon)
+        );
     };
 
     PlayerClass.prototype.activateCloneSubWeaponInstance = function(index, overrideAttackType = null) {
         if (!this.currentSubWeapon || !this.specialCloneSubWeaponInstances) return;
+        if (!Array.isArray(this.specialCloneSlots) || index < 0 || index >= this.specialCloneSlots.length) return;
+        if (Array.isArray(this.specialCloneAlive) && this.specialCloneAlive[index] === false) return;
         const weaponName = this.currentSubWeapon.name;
         if (!this.specialCloneSubWeaponInstances[index] || this.specialCloneSubWeaponInstances[index].name !== weaponName) {
             this.specialCloneSubWeaponInstances[index] = createSubWeapon(weaponName);
             if (this.specialCloneSubWeaponInstances[index] && typeof this.specialCloneSubWeaponInstances[index].applyEnhanceTier === 'function') {
-                this.specialCloneSubWeaponInstances[index].applyEnhanceTier(this.enhanceTier || 0);
+                this.specialCloneSubWeaponInstances[index].applyEnhanceTier(this.getCurrentSubWeaponEnhanceTier());
             }
         }
         if (this.specialCloneSubWeaponInstances[index]) {
+            const inst = this.specialCloneSubWeaponInstances[index];
             const clonePos = this.specialClonePositions[index];
             if (!clonePos) return;
             const dummyClone = {
@@ -343,18 +388,36 @@ export function applySpecialMixin(PlayerClass) {
                 groundY: this.groundY,
                 facingRight: clonePos.facingRight,
                 isGrounded: !(clonePos.jumping),
-                isEnemy: false
+                isCrouching: this.isCrouching,
+                isDashing: this.isDashing,
+                isEnemy: false,
+                speed: this.speed,
+                motionTime: this.motionTime,
+                attackMotionScale: this.attackMotionScale,
+                currentSubWeapon: inst,
+                subWeaponAction: this.specialCloneSubWeaponActions ? this.specialCloneSubWeaponActions[index] : null,
+                isXAttackBoostActive: () => false
             };
             const attackType = overrideAttackType || this.currentSubWeapon.attackType || 'main';
             if (weaponName === '二刀流') {
-                // combined発動前に前回プロジェクタイルをクリア（2回目以降も飛翔斬撃を出すため）
-                if (attackType === 'combined' && Array.isArray(this.specialCloneSubWeaponInstances[index].projectiles)) {
-                    this.specialCloneSubWeaponInstances[index].projectiles.length = 0;
-                    this.specialCloneSubWeaponInstances[index].pendingCombinedProjectile = null;
+                if (Number.isFinite(this.currentSubWeapon.mainMotionSpeedScale)) {
+                    inst.mainMotionSpeedScale = this.currentSubWeapon.mainMotionSpeedScale;
                 }
-                this.specialCloneSubWeaponInstances[index].use(dummyClone, attackType);
+                if (attackType === 'main' && Number.isFinite(this.currentSubWeapon.comboIndex)) {
+                    const maxSteps = (this.currentSubWeapon.comboDamages || []).length || 5;
+                    inst.comboIndex = (this.currentSubWeapon.comboIndex - 1 + maxSteps) % maxSteps;
+                    inst.mainComboLinkTimer = this.currentSubWeapon.mainComboLinkTimer || 0;
+                }
+                // combined発動前に前回プロジェクタイルをクリア（2回目以降も飛翔斬撃を出すため）
+                if (attackType === 'combined' && Array.isArray(inst.projectiles)) {
+                    inst.projectiles.length = 0;
+                    inst.pendingCombinedProjectile = null;
+                }
+                inst.use(dummyClone, attackType);
+            } else if (weaponName === '手裏剣' || weaponName === '火薬玉') {
+                inst.owner = dummyClone;
             } else {
-                this.specialCloneSubWeaponInstances[index].use(dummyClone);
+                inst.use(dummyClone);
             }
             // 大太刀: use()がdummyCloneにジャンプを設定するので、クローンの物理状態に伝搬
             if (weaponName === '大太刀' && clonePos) {
@@ -397,6 +460,7 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
         this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
         this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
+        this.specialCloneDualTrailAnchors = this.specialCloneSlots.map(() => null);
         this.specialCloneSubWeaponInstances = this.specialCloneSlots.map(() => null);
 
         // 戦闘開始時の煙もここでは生成せず、詠唱開始時のみに集約するか、
@@ -1031,7 +1095,7 @@ export function applySpecialMixin(PlayerClass) {
         const prevCount = this.specialCloneSlots ? this.specialCloneSlots.length : 0;
         
         this.specialCloneSlots = this.buildCloneSlotLayout(count);
-        this.specialCloneSpacing = 172 + tier * 8;
+        this.specialCloneSpacing = 180;
         this.specialCloneAutoAiEnabled = (tier >= 3);
         
         const isActive = this.isUsingSpecial;
@@ -1048,6 +1112,7 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
         this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
         this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
+        this.specialCloneDualTrailAnchors = this.specialCloneSlots.map(() => null);
         this.specialCloneScarfNodes = this.specialCloneSlots.map(() => null);
         this.specialCloneHairNodes = this.specialCloneSlots.map(() => null);
 

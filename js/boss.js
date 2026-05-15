@@ -1288,22 +1288,32 @@ export class Shogun extends Boss {
         this.subWeaponTimer   = 0;
         this.currentSubWeapon = null;
         this.getSubWeaponEnhanceTier  = () => this.progression.subWeapon;
-        this.getSubWeaponCloneOffsets = () => [];
+        this.getSubWeaponCloneOffsets = () => this.getActorSubWeaponCloneOffsets(this);
         this.triggerCloneSubWeapon    = (index) => {
+            if (!Number.isFinite(index) || index < 0) return;
+            if (this.getActorSpecialCloneTier() >= 3) return;
             if (this.actor && this.currentSubWeapon) {
+                if (this.actor.specialCloneAlive && this.actor.specialCloneAlive[index] === false) return;
+                if (this.actor.specialCloneSlots && this.actor.specialCloneSlots[index] === 0) return;
                 // ボス本体のcurrentSubWeaponを一時的に分身に渡して初期化
                 const prev = this.actor.currentSubWeapon;
                 this.actor.currentSubWeapon = this.currentSubWeapon;
                 
-                // AIが無効な場合のみtriggerCloneSubWeaponが効くため、ここでは直接呼び出す
+                // 将軍の分身も忍者と同じ分身用インスタンス経路で起こす
                 if (typeof this.actor.activateCloneSubWeaponInstance === 'function') {
+                    const actionName = typeof this.actor.getCloneSubWeaponActionName === 'function'
+                        ? this.actor.getCloneSubWeaponActionName(this.currentSubWeapon)
+                        : (this.currentSubWeapon.name === '火薬玉' || this.currentSubWeapon.name === '手裏剣' ? 'throw' : this.currentSubWeapon.name);
+                    const attackType = typeof this.actor.getCloneSubWeaponAttackType === 'function'
+                        ? this.actor.getCloneSubWeaponAttackType(actionName, this.currentSubWeapon)
+                        : null;
                     // 分身用のタイマーとアクションをセット（updateOugiで上書きされるが発動判定に必要）
                     this.actor.specialCloneSubWeaponTimers[index] = this.actor.getSubWeaponActionDurationMs(
-                        this.currentSubWeapon.name === '火薬玉' ? 'throw' : this.currentSubWeapon.name,
+                        actionName,
                         this.currentSubWeapon
                     );
-                    this.actor.specialCloneSubWeaponActions[index] = this.currentSubWeapon.name === '火薬玉' ? 'throw' : this.currentSubWeapon.name;
-                    this.actor.activateCloneSubWeaponInstance(index);
+                    this.actor.specialCloneSubWeaponActions[index] = actionName;
+                    this.actor.activateCloneSubWeaponInstance(index, attackType);
                 }
                 
                 this.actor.currentSubWeapon = prev;
@@ -1343,7 +1353,7 @@ export class Shogun extends Boss {
             : 1;
         const actorW = this.actorBaseWidth || Math.max(1, Math.round(this.width / renderScale));
         const actorH = this.actorBaseHeight || Math.max(1, Math.round(this.height / renderScale));
-        return {
+        const state = {
             x: this.x + (this.width - actorW) * 0.5,
             y: this.y + (this.height - actorH) * 0.62 + 2,
             width: actorW,
@@ -1354,9 +1364,40 @@ export class Shogun extends Boss {
             motionTime: this.motionTime,
             bob: 0,
             isEnemy: false,
-            getSubWeaponCloneOffsets: () => [],
+            getSubWeaponCloneOffsets: () => this.getActorSubWeaponCloneOffsets(state),
             triggerCloneSubWeapon: (idx) => this.triggerCloneSubWeapon(idx),
         };
+        return state;
+    }
+
+    getActorSubWeaponCloneOffsets(owner = null) {
+        if (!this._ougiActive || !this.actor || !Array.isArray(this.actor.specialClonePositions)) return [];
+        if (this.getActorSpecialCloneTier() >= 3) return [];
+        const ref = owner || this;
+        const centerX = ref.x + ref.width * 0.5;
+        const centerY = ref.y + ref.height * 0.55;
+        const offsets = [];
+        for (let index = 0; index < this.actor.specialClonePositions.length; index++) {
+            if (this.actor.specialCloneSlots && this.actor.specialCloneSlots[index] === 0) continue;
+            if (this.actor.specialCloneAlive && !this.actor.specialCloneAlive[index]) continue;
+            const pos = this.actor.specialClonePositions[index];
+            if (!pos) continue;
+            offsets.push({
+                index,
+                dx: pos.x - centerX,
+                dy: pos.y - centerY
+            });
+        }
+        return offsets;
+    }
+
+    getActorSpecialCloneTier() {
+        const rawTier = this.actor && this.actor.progression && Number.isFinite(this.actor.progression.specialClone)
+            ? this.actor.progression.specialClone
+            : (this.progression && Number.isFinite(this.progression.specialClone)
+                ? this.progression.specialClone
+                : 0);
+        return Math.max(0, Math.min(3, Math.floor(rawTier) || 0));
     }
 
     getThrowOwnerState() {
@@ -1370,7 +1411,7 @@ export class Shogun extends Boss {
         const actorRenderY = this.y + (this.height - actorRenderH) * 0.62 + actorFootGroundOffset;
         // しゃがみ時のみY下方オフセット（立ち投げは元の位置）
         const throwLaunchYOffset = this.isCrouching ? (this.height - 60) * 0.25 : 0;
-        return {
+        const state = {
             x: actorRenderX,
             y: actorRenderY + throwLaunchYOffset,
             width: actorRenderW,
@@ -1380,9 +1421,10 @@ export class Shogun extends Boss {
             isGrounded: this.isGrounded,
             motionTime: this.motionTime,
             isEnemy: false,
-            getSubWeaponCloneOffsets: () => [],
+            getSubWeaponCloneOffsets: () => this.getActorSubWeaponCloneOffsets(state),
             triggerCloneSubWeapon: (idx) => this.triggerCloneSubWeapon(idx),
         };
+        return state;
     }
 
     transformActorProjectilePointToWorld(x, y) {
@@ -1802,8 +1844,7 @@ export class Shogun extends Boss {
             }
 
             const _ougiTierMap = [[1], [-1, 1], [-2, -1, 1, 2], [-2, -1, 1, 2]];
-            const _ougiTier = Math.max(0, Math.min(3,
-                this.getSubWeaponEnhanceTier ? this.getSubWeaponEnhanceTier() : 0));
+            const _ougiTier = this.getActorSpecialCloneTier();
             const _ougiUnits = _ougiTierMap[_ougiTier] || [];
             const _targetSlots = this._ougiActive ? [0, ..._ougiUnits] : [0];
 
@@ -1817,6 +1858,7 @@ export class Shogun extends Boss {
                 this.actor.specialCloneComboSteps             = _targetSlots.map(() => 0);
                 this.actor.specialCloneSlashTrailPoints       = _targetSlots.map(() => []);
                 this.actor.specialCloneSlashTrailSampleTimers = _targetSlots.map(() => 0);
+                this.actor.specialCloneDualTrailAnchors       = _targetSlots.map(() => null);
                 this.actor.specialCloneScarfNodes             = _targetSlots.map(() => null);
                 this.actor.specialCloneHairNodes              = _targetSlots.map(() => null);
                 this.actor.specialCloneInvincibleTimers       = _targetSlots.map(() => 0);
@@ -1864,10 +1906,6 @@ export class Shogun extends Boss {
             ? this._subWeaponInstances['dual']
             : null;
 
-        if (typeof this.actor.updateSpecialCloneSlashTrails === 'function') {
-            this.actor.updateSpecialCloneSlashTrails(deltaMs);
-        }
-
         // smokeの寿命更新と移動処理（updateSpecialをスキップしたため手動で全て行う）
         if (this.actor.specialSmoke) {
             for (const puff of this.actor.specialSmoke) {
@@ -1895,7 +1933,10 @@ export class Shogun extends Boss {
         if (this.actor.specialCloneSubWeaponInstances) {
             for (const inst of this.actor.specialCloneSubWeaponInstances) {
                 if (inst && typeof inst.update === 'function') {
-                    inst.update(deltaMs, enemies, this.actor, this.actor);
+                    const subWeaponScale = inst.name === '二刀流'
+                        ? 1
+                        : Math.max(1, this.actor.subWeaponMotionScale || 1);
+                    inst.update((deltaMs / 1000) / subWeaponScale, enemies);
                 }
             }
         }
@@ -2913,6 +2954,11 @@ export class Shogun extends Boss {
             }
         }
 
+        if (this._ougiActive && typeof this.actor.updateSpecialCloneSlashTrails === 'function') {
+            const trailDeltaMs = (typeof this._lastDeltaMs === 'number') ? this._lastDeltaMs : 16;
+            this.actor.updateSpecialCloneSlashTrails(trailDeltaMs);
+        }
+
         const renderWithShogunTransform = (drawFn) => {
             const dir2d = this.facingRight ? 1 : -1;
             const pivotX = this.x + this.width * 0.5;
@@ -3102,17 +3148,6 @@ export class Shogun extends Boss {
             }
         }
 
-        // 二刀流Zコンボのトレイル（プレイヤーと同じパイプライン）
-        // 攻撃終了後もフェードアウトのため常時更新・描画
-        if (typeof this.actor.updateDualBladeSlashTrails === 'function') {
-            const deltaMs = (typeof this._lastDeltaMs === 'number') ? this._lastDeltaMs : 16;
-            this.actor.updateDualBladeSlashTrails(deltaMs);
-        }
-        
-        if (!this.hideBody && typeof this.actor.renderDualBladeSlashTrails === 'function') {
-            this.renderDualBladeSlashTrailsAnchored(ctx, renderScale, actorFootGroundOffset);
-        }
-
         // ── 陣羽織（じんばおり）背面描画 ──
         if (!this.hideBody) {
             renderWithShogunTransform(() => {
@@ -3139,6 +3174,15 @@ export class Shogun extends Boss {
                 hideBodyParts: !!this.hideBody,
             });
         });
+
+        // 二刀流Zコンボのトレイル（本体描画で得た刀アンカーを使って本体と同じ順で描画）
+        if (typeof this.actor.updateDualBladeSlashTrails === 'function') {
+            const deltaMs = (typeof this._lastDeltaMs === 'number') ? this._lastDeltaMs : 16;
+            this.actor.updateDualBladeSlashTrails(deltaMs);
+        }
+        if (!this.hideBody && typeof this.actor.renderDualBladeSlashTrails === 'function') {
+            this.renderDualBladeSlashTrailsAnchored(ctx, renderScale, actorFootGroundOffset);
+        }
 
         // 奥義クローン位置の更新（renderBodyでactorRenderXY確定後に設定）
         if (this._ougiActive && this.actor.specialCloneSlots.length > 1) {

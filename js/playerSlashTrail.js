@@ -1564,50 +1564,40 @@ export function applySlashTrailMixin(PlayerClass) {
                     )
                 );
                 if (dualActionActive) {
-                    const comboStep = isAutoAi ? (this.specialCloneComboSteps[i] || 1) : (dualBlade.comboIndex || 1);
+                    const comboStep = isAutoAi
+                        ? (Number.isFinite(this.specialCloneComboSteps[i]) ? this.specialCloneComboSteps[i] : 1)
+                        : (Number.isFinite(dualBlade.comboIndex) ? dualBlade.comboIndex : 1);
                     const progress = dualBlade.getMainSwingProgress({ attackTimer: dualTimer });
                     let backPose = null;
                     let frontPose = null;
-                    
-                    // dualBladeTrailAnchors は本体の描画時に生成されるが、
-                    // 分身は自分自身の位置で描画するため、trailAnchorではなく
-                    // 直接 getMainSwingPose を使って刃先の座標を手動で復元する
-                    const rawPose = dualBlade.getMainSwingPose({ comboIndex: comboStep, progress });
-                    const katanaLength = this.getKatanaBladeLength ? this.getKatanaBladeLength() : 38;
-                    const dir = pos.facingRight ? 1 : -1;
-                    const cloneDrawX = pos.x - this.width * 0.5;
-                    const centerX = cloneDrawX + this.width * 0.5;
-                    
-                    // 肩位置の簡易近似（renderModelと完全一致は難しいが、剣筋としては十分）
-                    const leftShoulderX = centerX + dir * 4;
-                    const rightShoulderX = centerX - dir * 3;
-                    const shoulderY = cloneDrawY + 2 + this.height * 0.11;
+                    const liveAnchors = Array.isArray(this.specialCloneDualTrailAnchors)
+                        ? this.specialCloneDualTrailAnchors[i]
+                        : null;
 
-                    // リーチ
-                    const baseReach = 21.0;
-
-                    // 手先の位置（角度から）
-                    const leftHandX = leftShoulderX + Math.cos(rawPose.leftAngle) * baseReach * dir;
-                    const leftHandY = shoulderY + Math.sin(rawPose.leftAngle) * baseReach;
-                    const rightHandX = rightShoulderX + Math.cos(rawPose.rightAngle) * baseReach * dir;
-                    const rightHandY = shoulderY + Math.sin(rawPose.rightAngle) * baseReach;
-
-                    // 刃先の位置
-                    const leftTipX = leftHandX + Math.cos(rawPose.leftAngle) * dir * katanaLength;
-                    const leftTipY = leftHandY + Math.sin(rawPose.leftAngle) * katanaLength;
-                    const rightTipX = rightHandX + Math.cos(rawPose.rightAngle) * dir * katanaLength;
-                    const rightTipY = rightHandY + Math.sin(rawPose.rightAngle) * katanaLength;
-
-                    backPose = {
-                        handX: leftHandX, handY: leftHandY,
-                        tipX: leftTipX, tipY: leftTipY,
-                        angle: rawPose.leftAngle
-                    };
-                    frontPose = {
-                        handX: rightHandX, handY: rightHandY,
-                        tipX: rightTipX, tipY: rightTipY,
-                        angle: rawPose.rightAngle
-                    };
+                    if (liveAnchors && liveAnchors.back && liveAnchors.front) {
+                        backPose = {
+                            tipX: liveAnchors.back.tipX,
+                            tipY: liveAnchors.back.tipY,
+                            dir: liveAnchors.direction,
+                            comboStep,
+                            progress,
+                            centerX: liveAnchors.back.handX,
+                            centerY: liveAnchors.back.handY,
+                            originX: Number.isFinite(liveAnchors.originX) ? liveAnchors.originX : pos.x,
+                            originY: Number.isFinite(liveAnchors.originY) ? liveAnchors.originY : (cloneDrawY + this.height * 0.5)
+                        };
+                        frontPose = {
+                            tipX: liveAnchors.front.tipX,
+                            tipY: liveAnchors.front.tipY,
+                            dir: liveAnchors.direction,
+                            comboStep,
+                            progress,
+                            centerX: liveAnchors.front.handX,
+                            centerY: liveAnchors.front.handY,
+                            originX: Number.isFinite(liveAnchors.originX) ? liveAnchors.originX : pos.x,
+                            originY: Number.isFinite(liveAnchors.originY) ? liveAnchors.originY : (cloneDrawY + this.height * 0.5)
+                        };
+                    }
                     
                     let suppressBack = false;
                     let suppressFront = false;
@@ -1667,7 +1657,7 @@ export function applySlashTrailMixin(PlayerClass) {
                         : !!this.isAttacking;
                     if (!isAttacking) {
                         const lastStep = this.specialCloneSlashTrailPoints[i][this.specialCloneSlashTrailPoints[i].length - 1]?.step || 0;
-                        if (lastStep > 0 && !this.shouldKeepComboTrailDuringReturn(lastStep)) {
+                        if (isAutoAi && lastStep > 0 && !this.shouldKeepComboTrailDuringReturn(lastStep)) {
                             this.specialCloneSlashTrailPoints[i].length = 0;
                             this.specialCloneSlashTrailSampleTimers[i] = 0;
                             if (Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
@@ -1731,7 +1721,7 @@ export function applySlashTrailMixin(PlayerClass) {
                         pose.originX = pos.x - this.width * 0.5;
                         pose.originY = cloneDrawY;
                     }
-                    if (!pose && comboStep > 0 && !this.shouldKeepComboTrailDuringReturn(comboStep)) {
+                    if (isAutoAi && !pose && comboStep > 0 && !this.shouldKeepComboTrailDuringReturn(comboStep)) {
                         this.specialCloneSlashTrailPoints[i].length = 0;
                         this.specialCloneSlashTrailSampleTimers[i] = 0;
                         if (Array.isArray(this.specialCloneMirroredTrailProfiles)) {

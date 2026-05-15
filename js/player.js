@@ -180,6 +180,7 @@ export class Player {
         this.specialCloneSlashTrailSampleTimers = [];
         this.specialCloneSlashTrailBoostAnchors = [];
         this.specialCloneMirroredTrailProfiles = [];
+        this.specialCloneDualTrailAnchors = [];
         this.comboSlashTrailSampleIntervalMs = 14;
         this.comboSlashTrailActiveLifeMs = 800;
         this.comboSlashTrailAttackSerial = 0;
@@ -658,10 +659,6 @@ export class Player {
                     }
                     this.subWeaponCrouchLock = false;
 
-                    // リニューアル：二刀流コンボ終了時にリカバリーフェーズを設定
-                    if (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流' && lastAction === '二刀_Z') {
-                        this.comboStep1IdleTransitionTimer = 180; // 約0.18秒
-                    }
                 }
             }
         }
@@ -734,10 +731,26 @@ export class Player {
         }
         this.updateComboSlashTrail(deltaMs);
         this.updateDualBladeSlashTrails(deltaMs);
+        if (this.isUsingSpecial) {
+            this.updateSpecialCloneSlashTrails(deltaMs);
+        }
 
         // サブウェポンの状態更新（アニメーション進行など）
         if (this.currentSubWeapon && this.currentSubWeapon.update) {
             this.currentSubWeapon.update(deltaTime / subWeaponScale, enemies);
+        }
+
+        if (
+            this.currentSubWeapon &&
+            this.currentSubWeapon.name === '二刀流' &&
+            this.subWeaponAction === '二刀_Z' &&
+            !this.currentSubWeapon.isAttacking &&
+            (this.currentSubWeapon.mainComboLinkTimer || 0) <= 0 &&
+            !this.attackBuffered
+        ) {
+            this.subWeaponTimer = 0;
+            this.subWeaponAction = null;
+            this.subWeaponCrouchLock = false;
         }
 
         // 鎖鎌・大太刀は武器側の攻撃終了を優先して即座に通常状態へ戻す
@@ -1164,28 +1177,6 @@ export class Player {
         this.pinSlashTrailPoints(this.comboSlashTrailPoints);
         this.isAttacking = true;
         this.comboSlashTrailSampleTimer = 0;
-        if (Array.isArray(this.specialCloneSlashTrailPoints) && !this.specialCloneAutoAiEnabled) {
-            for (let i = 0; i < this.specialCloneSlashTrailPoints.length; i++) {
-                if (Array.isArray(this.specialCloneSlashTrailPoints[i])) {
-                    this.specialCloneSlashTrailPoints[i].length = 0;
-                }
-            }
-        }
-        if (Array.isArray(this.specialCloneSlashTrailSampleTimers) && !this.specialCloneAutoAiEnabled) {
-            for (let i = 0; i < this.specialCloneSlashTrailSampleTimers.length; i++) {
-                this.specialCloneSlashTrailSampleTimers[i] = 0;
-            }
-        }
-        if (Array.isArray(this.specialCloneSlashTrailBoostAnchors) && !this.specialCloneAutoAiEnabled) {
-            for (let i = 0; i < this.specialCloneSlashTrailBoostAnchors.length; i++) {
-                this.specialCloneSlashTrailBoostAnchors[i] = null;
-            }
-        }
-        if (Array.isArray(this.specialCloneMirroredTrailProfiles) && !this.specialCloneAutoAiEnabled) {
-            for (let i = 0; i < this.specialCloneMirroredTrailProfiles.length; i++) {
-                this.specialCloneMirroredTrailProfiles[i] = null;
-            }
-        }
         
         // コンボ進行
         const comboMax = this.getNormalComboMax();

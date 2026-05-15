@@ -401,6 +401,81 @@
 
         const isShogunMode = () => previewCharacter === 'shogun';
         const getActiveActor = () => isShogunMode() ? (shogun ? shogun.actor : null) : ninja;
+        const getPreviewCloneAction = (weapon, action, timer) => {
+            if (!weapon || !(timer > 0)) return null;
+            if (action) return action;
+            if (weapon.name === '手裏剣' || weapon.name === '火薬玉') return 'throw';
+            if (weapon.name === '二刀流') return '二刀_Z';
+            return weapon.name;
+        };
+        const getPreviewCloneAttackType = (weapon, actionName) => {
+            if (!weapon || weapon.name !== '二刀流') return null;
+            return actionName === '二刀_合体' ? 'combined' : 'main';
+        };
+        const shouldKeepPreviewCloneInstance = (inst) => !!(
+            inst &&
+            (
+                (Array.isArray(inst.projectiles) && inst.projectiles.length > 0) ||
+                inst.pendingCombinedProjectile ||
+                inst.isAttacking ||
+                (inst.attackTimer || 0) > 0 ||
+                (inst.plantedTimer || 0) > 0 ||
+                (inst.fadeOutTimer || 0) > 0
+            )
+        );
+        const syncPreviewCloneSubWeapons = (actor, weapon, timer, action) => {
+            if (!actor || !Array.isArray(actor.specialCloneSlots)) return;
+            if (actor.specialCloneAutoAiEnabled) return;
+            const count = actor.specialCloneSlots.length;
+            if (!Array.isArray(actor.specialCloneSubWeaponInstances)) actor.specialCloneSubWeaponInstances = actor.specialCloneSlots.map(() => null);
+            if (!Array.isArray(actor.specialCloneSubWeaponTimers)) actor.specialCloneSubWeaponTimers = actor.specialCloneSlots.map(() => 0);
+            if (!Array.isArray(actor.specialCloneSubWeaponActions)) actor.specialCloneSubWeaponActions = actor.specialCloneSlots.map(() => null);
+            if (!Array.isArray(actor._previewCloneSubWeaponTokens)) actor._previewCloneSubWeaponTokens = actor.specialCloneSlots.map(() => null);
+
+            const actionName = getPreviewCloneAction(weapon, action, timer);
+            const activeNow = !!(weapon && actionName && timer > 0);
+            const activeKey = activeNow ? `${weapon.name}:${actionName}` : '';
+            const syncState = actor._previewCloneSubWeaponSync || { active: false, key: '', timer: 0, serial: 0 };
+            if (activeNow && (!syncState.active || syncState.key !== activeKey || timer > syncState.timer + 12)) {
+                syncState.serial += 1;
+            }
+            syncState.active = activeNow;
+            syncState.key = activeKey;
+            syncState.timer = timer || 0;
+            actor._previewCloneSubWeaponSync = syncState;
+
+            for (let i = 0; i < count; i++) {
+                const isBodySlot = actor.characterType === 'shogun' && actor.specialCloneSlots[i] === 0;
+                const alive = !actor.specialCloneAlive || actor.specialCloneAlive[i] !== false;
+                if (!alive || isBodySlot) {
+                    actor.specialCloneSubWeaponTimers[i] = 0;
+                    actor.specialCloneSubWeaponActions[i] = null;
+                    actor._previewCloneSubWeaponTokens[i] = null;
+                    continue;
+                }
+
+                if (activeNow) {
+                    actor.specialCloneSubWeaponTimers[i] = timer;
+                    actor.specialCloneSubWeaponActions[i] = actionName;
+                    const token = `${activeKey}:${syncState.serial}`;
+                    const inst = actor.specialCloneSubWeaponInstances[i];
+                    if (actor._previewCloneSubWeaponTokens[i] !== token || !inst || inst.name !== weapon.name) {
+                        const prevWeapon = actor.currentSubWeapon;
+                        actor.currentSubWeapon = weapon;
+                        actor.activateCloneSubWeaponInstance(i, getPreviewCloneAttackType(weapon, actionName));
+                        actor.currentSubWeapon = prevWeapon;
+                        actor._previewCloneSubWeaponTokens[i] = token;
+                    }
+                } else {
+                    actor.specialCloneSubWeaponTimers[i] = 0;
+                    actor.specialCloneSubWeaponActions[i] = null;
+                    actor._previewCloneSubWeaponTokens[i] = null;
+                    if (!shouldKeepPreviewCloneInstance(actor.specialCloneSubWeaponInstances[i])) {
+                        actor.specialCloneSubWeaponInstances[i] = null;
+                    }
+                }
+            }
+        };
 
         const updateUI = () => {
             document.getElementById('btnModeShogun').classList.toggle('active', isShogunMode());
@@ -755,6 +830,12 @@
                             shogun.actor.currentSubWeapon = shogun.currentSubWeapon;
                         }
                     }
+                    syncPreviewCloneSubWeapons(
+                        shogun.actor,
+                        shogun.currentSubWeapon || (window._previewWeapon ? shogun._subWeaponInstances[window._previewWeapon] : null),
+                        shogun._subTimer,
+                        shogun._subAction
+                    );
                 } else {
                     // 忍者も手動で入力を処理 (previewModeによる制限を回避)
                     if (input.isActionJustPressed('JUMP') && ninja.isGrounded) {
@@ -778,6 +859,7 @@
 
                     // 忍者の更新。サブ武器の更新も内部で完結。
                     ninja.update(dt, [], []); 
+                    syncPreviewCloneSubWeapons(ninja, ninja.currentSubWeapon, ninja.subWeaponTimer, ninja.subWeaponAction);
 
                     // 忍者の忍具切り替えを監視してUI同期
                     if (ninja.subWeaponIndex !== window.lastNinjaSubIndex) {
@@ -824,9 +906,9 @@
             if (isShogunMode()) {
                 shogun.renderBody(ctx); // 将軍内部で剣筋・手裏剣・二刀流・大太刀・奥義分身も描画される
             } else {
+                ninja.render(ctx);
                 if (ninja.renderComboSlashTrail) ninja.renderComboSlashTrail(ctx);
                 if (ninja.renderDualBladeSlashTrails) ninja.renderDualBladeSlashTrails(ctx);
-                ninja.render(ctx);
                 if (ninja.currentSubWeapon && !ninja.subWeaponRenderedInModel && ninja.currentSubWeapon.render) {
                     ninja.currentSubWeapon.render(ctx, ninja);
                 }
