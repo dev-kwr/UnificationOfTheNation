@@ -185,7 +185,10 @@ export function applySpecialMixin(PlayerClass) {
                     if (!this.specialCloneAutoAiEnabled && this.specialCloneSubWeaponTimers && this.specialCloneSubWeaponTimers[i] > 0) {
                         this.specialCloneSubWeaponTimers[i] = Math.max(0, this.specialCloneSubWeaponTimers[i] - deltaMs);
                         if (this.specialCloneSubWeaponTimers[i] <= 0) {
-                            this.specialCloneSubWeaponActions[i] = null;
+                            // 武器がまだアニメーション中（isAttacking）はactionを保持してポーズを維持する
+                            if (!inst.isAttacking && !((inst.fadeOutTimer || 0) > 0)) {
+                                this.specialCloneSubWeaponActions[i] = null;
+                            }
                         }
                     }
                     const cloneTimer = this.specialCloneSubWeaponTimers ? (this.specialCloneSubWeaponTimers[i] || 0) : 0;
@@ -202,6 +205,7 @@ export function applySpecialMixin(PlayerClass) {
                         (inst.isAttacking || (inst.fadeOutTimer || 0) > 0);
                     if (
                         cloneTimer <= 0 &&
+                        !inst.isAttacking &&
                         !hasLiveProjectile &&
                         !odachiAlive &&
                         (inst.name === '二刀流' || inst.name === '鎖鎌' || inst.name === '大太刀' || inst.name === '大槍')
@@ -519,6 +523,13 @@ export function applySpecialMixin(PlayerClass) {
         }
         if (this.specialCloneSubWeaponInstances[index] && typeof this.specialCloneSubWeaponInstances[index].applyEnhanceTier === 'function') {
             this.specialCloneSubWeaponInstances[index].applyEnhanceTier(this.getCurrentSubWeaponEnhanceTier());
+        }
+        // refreshSubWeaponScaling() でスケール済みの range を本体武器から同期する
+        // （createSubWeapon は base range で作成されるため適用漏れが生じる）
+        const cloneInst = this.specialCloneSubWeaponInstances[index];
+        if (cloneInst && this.currentSubWeapon && cloneInst.name === this.currentSubWeapon.name &&
+            Number.isFinite(this.currentSubWeapon.range)) {
+            cloneInst.range = this.currentSubWeapon.range;
         }
         if (this.specialCloneSubWeaponInstances[index]) {
             const inst = this.specialCloneSubWeaponInstances[index];

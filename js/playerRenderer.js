@@ -4777,6 +4777,13 @@ export function applyRendererMixin(PlayerClass) {
                         (cloneSubWeaponInstance.fadeOutTimer || 0) > 0
                     )
                 );
+                // ぶら下がりポーズは isAttacking 中のみ（本体と同じく plantedTimer 切れで終了）
+                const cloneOdachiHanging = !!(
+                    cloneSubWeaponInstance &&
+                    cloneSubWeaponInstance.name === '大太刀' &&
+                    cloneSubWeaponInstance.isAttacking &&
+                    cloneSubWeaponInstance.hasImpacted
+                );
                 const cloneSubWeaponActive = !!(
                     cloneSubWeaponInstance &&
                     (cloneSubWeaponTimer > 0 || cloneHasLiveProjectile || cloneHasPlantedOdachi || cloneSubWeaponInstance.isAttacking)
@@ -4851,13 +4858,16 @@ export function applyRendererMixin(PlayerClass) {
                         : null;
                 } else {
                     this.vx = saved.vx;
-                    this.vy = cloneHasPlantedOdachi ? 0 : saved.vy;
+                    this.vy = cloneOdachiHanging ? 0 : saved.vy;
                     // 大太刀のぶら下がり中は空中ポーズ（isGrounded=false）で描画
-                    this.isGrounded = cloneHasPlantedOdachi ? false : saved.isGrounded;
+                    this.isGrounded = cloneOdachiHanging ? false : saved.isGrounded;
                     this.isCrouching = saved.isCrouching;
                     this.isDashing = saved.isDashing;
-                    this.subWeaponTimer = cloneSubWeaponActive ? cloneSubWeaponTimer : saved.subWeaponTimer;
-                    this.subWeaponAction = cloneSubWeaponActive ? cloneSubWeaponAction : saved.subWeaponAction;
+                    // 大太刀着地後はタイマー/actionがnullになっていてもぶら下がりポーズを強制する（isAttacking中のみ）
+                    const effectiveSubWeaponAction = cloneOdachiHanging ? '大太刀' : cloneSubWeaponAction;
+                    const effectiveSubWeaponTimer = cloneOdachiHanging ? 1 : cloneSubWeaponTimer;
+                    this.subWeaponTimer = cloneSubWeaponActive ? effectiveSubWeaponTimer : saved.subWeaponTimer;
+                    this.subWeaponAction = cloneSubWeaponActive ? effectiveSubWeaponAction : saved.subWeaponAction;
                     this.subWeaponPoseOverride = null;
                 }
 
@@ -4923,7 +4933,7 @@ export function applyRendererMixin(PlayerClass) {
 
                     const cloneModelOptions = resolveCloneModelOptions(pos, i);
                     const cloneUsesDualWeapon = cloneSubWeaponInstance && cloneSubWeaponInstance.name === '二刀流';
-                    this.renderModel(ctx, this.x, this.y, this.facingRight, 1.0, !cloneSubWeaponActive || cloneUsesDualWeapon, {
+                    this.renderModel(ctx, this.x, this.y, this.facingRight, 1.0, !cloneUsesDualWeapon, {
                         ...cloneModelOptions,
                         useLiveAccessories: true,
                         renderHeadbandTail: true,
@@ -5015,7 +5025,7 @@ export function applyRendererMixin(PlayerClass) {
                         }
                     }
 
-                    if (cloneSubWeaponActive && cloneSubWeaponInstance && typeof cloneSubWeaponInstance.render === 'function') {
+                    if (cloneSubWeaponActive && cloneSubWeaponInstance && !this.subWeaponRenderedInModel && typeof cloneSubWeaponInstance.render === 'function') {
                         const subWeaponOwner = cloneSubWeaponInstance.owner && cloneSubWeaponInstance.owner._specialCloneOwner
                             ? cloneSubWeaponInstance.owner
                             : this;

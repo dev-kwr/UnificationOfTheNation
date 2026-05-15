@@ -1527,12 +1527,12 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
     if (!Array.isArray(entries) || entries.length === 0) return;
     const panelW = 540;
     const panelX = CANVAS_WIDTH - panelW - 40;
-    const panelY = 40;
-    const rowH = 26; // 少し詰める
-    const headerH = 40; // タイトル削除に伴い大幅に削減
+    const rowH = 26;
+    const headerH = 40;
     const spacingH = 10;
     const entriesCount = entries.length;
-    const panelH = headerH + spacingH + entriesCount * rowH + 10; // 項目数にぴったり合わせる
+    const panelH = headerH + spacingH + entriesCount * rowH + 10;
+    const panelY = Math.max(10, Math.round((CANVAS_HEIGHT - panelH) / 2));
     const maxRows = entriesCount; 
     const clampedCursor = Math.max(0, Math.min(entries.length - 1, cursor));
     const start = Math.max(0, Math.min(clampedCursor - Math.floor(maxRows / 2), Math.max(0, entries.length - maxRows)));

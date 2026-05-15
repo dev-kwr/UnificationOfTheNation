@@ -651,8 +651,15 @@ export class Player {
                     this.subWeaponAction === '大太刀' &&
                     this.currentSubWeapon.isAttacking
                 );
-                if (holdDualZPose || keepOdachiPose) {
-                    // 刀が地面から消えるまでは「ぶら下がり姿勢」を維持する
+                // 鎖鎌は武器が1.35倍遅く動くためtimerが先に切れる→isAttacking中はポーズ保持
+                const keepKusaPose = !!(
+                    this.currentSubWeapon &&
+                    this.currentSubWeapon.name === '鎖鎌' &&
+                    this.subWeaponAction === '鎖鎌' &&
+                    this.currentSubWeapon.isAttacking
+                );
+                if (holdDualZPose || keepOdachiPose || keepKusaPose) {
+                    // 武器アニメーションが終わるまでポーズを維持する
                     this.subWeaponTimer = 1;
                 } else {
                     const lastAction = this.subWeaponAction;
@@ -728,20 +735,33 @@ export class Player {
             }
         }
         
-        // 必殺技（分身）更新: 操作はロックせず継続
-        this.updateSpecial(deltaTime);
-        
         // 攻撃中の処理
         if (this.isAttacking) {
             this.updateAttack(deltaTime);
         }
         this.updateComboSlashTrail(deltaMs);
         this.updateDualBladeSlashTrails(deltaMs);
-        if (this.isUsingSpecial) {
-            this.updateSpecialCloneSlashTrails(deltaMs);
+
+        // サブ武器使用中も他の操作を一部制限
+        if (this.subWeaponTimer > 200) { // 出始めは移動制限
+            this.vx *= 0.5;
         }
 
-        // サブウェポンの状態更新（アニメーション進行など）
+        // 二刀Z連撃中は入力移動ではなく専用運動で体を運ぶ
+        this.updateDualBladeComboMotion(deltaTime);
+
+        // 二刀Zは終端到達後にだけ次段入力を消化する
+        this.tryConsumeDualBladeBufferedAttack();
+
+        // 入力処理 (handleInput内でタイマーをセットするように修正が必要)
+        this.handleInput();
+
+        // 物理演算（ヒットストップ中は位置更新をスキップして、アニメーションとの同期を維持する）
+        if (deltaTime > 0) {
+            this.applyPhysics(walls);
+        }
+
+        // サブウェポンの状態更新: handleInput後・分身更新前に実行して本体と分身の発射タイミングを揃える
         if (this.currentSubWeapon && this.currentSubWeapon.update) {
             this.currentSubWeapon.update(deltaTime / subWeaponScale, enemies);
         }
@@ -771,25 +791,12 @@ export class Player {
             this.subWeaponCrouchLock = false;
         }
 
-        // サブ武器使用中も他の操作を一部制限
-        if (this.subWeaponTimer > 200) { // 出始めは移動制限
-            this.vx *= 0.5;
+        // 必殺技（分身）更新: 物理後に実行してクローン座標をプレイヤー着地と同期させる
+        this.updateSpecial(deltaTime);
+        if (this.isUsingSpecial) {
+            this.updateSpecialCloneSlashTrails(deltaMs);
         }
 
-        // 二刀Z連撃中は入力移動ではなく専用運動で体を運ぶ
-        this.updateDualBladeComboMotion(deltaTime);
-
-        // 二刀Zは終端到達後にだけ次段入力を消化する
-        this.tryConsumeDualBladeBufferedAttack();
-        
-        // 入力処理 (handleInput内でタイマーをセットするように修正が必要)
-        this.handleInput();
-        
-        // 物理演算（ヒットストップ中は位置更新をスキップして、アニメーションとの同期を維持する）
-        if (deltaTime > 0) {
-            this.applyPhysics(walls);
-        }
-        
         // アニメーション更新
         this.updateAnimation(deltaTime);
         
@@ -2236,7 +2243,7 @@ export class Player {
                 rangeScale = 1 + tier * 0.14;
             } else if (weapon.name === '大太刀') {
                 damageScale = 1 + tier * 0.15;
-                rangeScale = 1 + tier * 0.1;
+                rangeScale = 1; // 刀身の長さは固定（applyEnhanceTierで個別管理）
             } else if (weapon.name === '二刀流') {
                 damageScale = 1 + tier * 0.11;
                 rangeScale = 1 + tier * 0.09;
