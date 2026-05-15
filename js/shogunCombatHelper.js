@@ -59,6 +59,10 @@ export function applyShogunCombat(player) {
         'comboDamages',
         'enhanceTier'
     ];
+    const syncShogunDualMainSpeed = (p, dualInst) => {
+        if (!p || !dualInst || typeof dualInst.mainMotionSpeedScale !== 'number') return;
+        dualInst.mainMotionSpeedScale = Math.max(0.78, (p.attackMotionScale || 1) * 0.78);
+    };
     const getPlayableShogunRealSubWeapon = (p) => {
         if (!p) return null;
         if (typeof p._getShogunRealSubWeapon === 'function') {
@@ -309,6 +313,9 @@ export function applyShogunCombat(player) {
                                             syncShogunSubWeaponCalculation(this, boss, activeKey);
                                             return boss.getSubWeaponHitbox();
                                         };
+                                    }
+                                    if (prop === 'name') {
+                                        return (activeInst && activeInst.name) || (realSub && realSub.name) || null;
                                     }
                                     if (!activeInst) return undefined;
                                     const snapshot = this._shogunSubWeaponCalcSnapshots &&
@@ -599,6 +606,7 @@ export function applyShogunCombat(player) {
             dualInst.enhanceTier = tier;
         }
         syncShogunSubWeaponCalculation(this, boss, 'dual');
+        syncShogunDualMainSpeed(this, dualInst);
         // preview と同一: currentSubWeapon を一時セットし、isEnemy はそのまま
         const prevSubWeapon = boss.currentSubWeapon;
         boss.currentSubWeapon = dualInst;
@@ -805,6 +813,7 @@ export function applyShogunCombat(player) {
 
         // 奥義状態をボスに同期（分身クローンの描画はboss.renderBody内で行う）
         boss._ougiActive = !!(this.isUsingSpecial && this.specialCloneCombatStarted);
+        boss._playableOwner = this;
 
         // ── 入力処理（handleInput は将軍専用にオーバーライド済み） ──
         this.handleInput();

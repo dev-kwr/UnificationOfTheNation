@@ -820,6 +820,7 @@ export class Player {
                     this.currentSubWeapon.use(this, 'combined');
                     this.subWeaponTimer = this.getSubWeaponActionDurationMs('二刀_合体', this.currentSubWeapon);
                     this.subWeaponAction = '二刀_合体';
+                    if (typeof this.syncManualCloneSubWeaponUse === 'function') this.syncManualCloneSubWeaponUse();
                     this.vx = 0;
                 } else {
                     // canUse() チェック（手裏剣・火薬玉の画面上最大数制限）
@@ -829,6 +830,7 @@ export class Player {
                     const isThrow = weaponName === '火薬玉' || weaponName === '手裏剣';
                     this.subWeaponTimer = this.getSubWeaponActionDurationMs(isThrow ? 'throw' : weaponName, this.currentSubWeapon);
                     this.subWeaponAction = isThrow ? 'throw' : weaponName;
+                    if (typeof this.syncManualCloneSubWeaponUse === 'function') this.syncManualCloneSubWeaponUse();
                 }
             }
             if (input.isActionJustPressed('ATTACK')) {
@@ -879,6 +881,7 @@ export class Player {
                 this.currentSubWeapon.use(this, 'combined');
                 this.subWeaponTimer = this.getSubWeaponActionDurationMs('二刀_合体', this.currentSubWeapon);
                 this.subWeaponAction = '二刀_合体';
+                if (typeof this.syncManualCloneSubWeaponUse === 'function') this.syncManualCloneSubWeaponUse();
                 this.vx = 0; // 完全に停止
             } else {
                 // canUse() チェック（手裏剣・火薬玉の画面上最大数制限）
@@ -888,6 +891,7 @@ export class Player {
                 const isThrow = weaponName === '火薬玉' || weaponName === '手裏剣';
                 this.subWeaponTimer = this.getSubWeaponActionDurationMs(isThrow ? 'throw' : weaponName, this.currentSubWeapon);
                 this.subWeaponAction = isThrow ? 'throw' : weaponName;
+                if (typeof this.syncManualCloneSubWeaponUse === 'function') this.syncManualCloneSubWeaponUse();
             }
         }
         

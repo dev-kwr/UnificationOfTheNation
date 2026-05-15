@@ -1825,14 +1825,19 @@ export class Shogun extends Boss {
         const _oSpacing  = this.actor.specialCloneSpacing || 180;
         const _oCenterX  = actorRenderX + actorRenderW * 0.5;
         const _oAnchorY  = actorRenderY + PLAYER.HEIGHT * 0.62;
+        const _oGroundY = Number.isFinite(this.groundY)
+            ? this.groundY
+            : (Number.isFinite(this.actor.groundY) ? this.actor.groundY : _oAnchorY);
+        const _oStableAnchorY = _oGroundY + LANE_OFFSET - PLAYER.HEIGHT * 0.38;
+        const _oCloneAnchorY = !this.isEnemy ? _oStableAnchorY : _oAnchorY;
 
         const _initPos = (unit) => ({
             x: _oCenterX + unit * _oSpacing,
-            y: _oAnchorY,
+            y: _oCloneAnchorY,
             facingRight: this.facingRight,
             prevX: _oCenterX + unit * _oSpacing,
-            jumping: !this.isGrounded,
-            cloneVy: this.vy,
+            jumping: this.isEnemy ? !this.isGrounded : false,
+            cloneVy: this.isEnemy ? this.vy : 0,
             renderVx: this.vx,
         });
 
@@ -1843,9 +1848,14 @@ export class Shogun extends Boss {
                 this._ougiActive = true;
             }
 
+            const _playableOwner = (!this.isEnemy && this._playableOwner && this._playableOwner.isSpecialCloneCombatActive && this._playableOwner.isSpecialCloneCombatActive())
+                ? this._playableOwner
+                : null;
             const _ougiTierMap = [[1], [-1, 1], [-2, -1, 1, 2], [-2, -1, 1, 2]];
             const _ougiTier = this.getActorSpecialCloneTier();
-            const _ougiUnits = _ougiTierMap[_ougiTier] || [];
+            const _ougiUnits = _playableOwner && Array.isArray(_playableOwner.specialCloneSlots)
+                ? _playableOwner.specialCloneSlots.slice()
+                : (_ougiTierMap[_ougiTier] || []);
             const _targetSlots = this._ougiActive ? [0, ..._ougiUnits] : [0];
 
             if (this._ougiActive !== this._ougiWasActive || this.actor.specialCloneSlots.length !== _targetSlots.length) {
@@ -1856,9 +1866,12 @@ export class Shogun extends Boss {
                 this.actor.specialCloneSubWeaponTimers        = _targetSlots.map(() => 0);
                 this.actor.specialCloneSubWeaponActions       = _targetSlots.map(() => null);
                 this.actor.specialCloneComboSteps             = _targetSlots.map(() => 0);
+                this.actor.specialCloneComboResetTimers       = _targetSlots.map(() => 0);
+                this.actor.specialCloneCurrentAttacks         = _targetSlots.map(() => null);
                 this.actor.specialCloneSlashTrailPoints       = _targetSlots.map(() => []);
                 this.actor.specialCloneSlashTrailSampleTimers = _targetSlots.map(() => 0);
                 this.actor.specialCloneDualTrailAnchors       = _targetSlots.map(() => null);
+                this.actor.specialCloneSubWeaponInstances     = _targetSlots.map(() => null);
                 this.actor.specialCloneScarfNodes             = _targetSlots.map(() => null);
                 this.actor.specialCloneHairNodes              = _targetSlots.map(() => null);
                 this.actor.specialCloneInvincibleTimers       = _targetSlots.map(() => 0);
@@ -1875,17 +1888,51 @@ export class Shogun extends Boss {
                         this.actor.spawnSpecialSmoke('appear', this.actor.specialClonePositions.slice(1));
                     }
                 }
-            } else if (this._ougiActive) {
+            } else if (this._ougiActive && !_playableOwner) {
                 for (let i = 0; i < this.actor.specialCloneSlots.length; i++) {
                     const pos = this.actor.specialClonePositions[i];
                     if (pos) {
                         pos.prevX = pos.x;
                         pos.x = _oCenterX + this.actor.specialCloneSlots[i] * _oSpacing;
-                        pos.y = _oAnchorY;
+                        pos.y = _oCloneAnchorY;
                         pos.facingRight = this.facingRight;
-                        pos.jumping = !this.isGrounded;
-                        pos.cloneVy = this.vy;
+                        pos.jumping = this.isEnemy ? !this.isGrounded : false;
+                        pos.cloneVy = this.isEnemy ? this.vy : 0;
                         pos.renderVx = this.vx;
+                    }
+                }
+            }
+            this.actor.specialCloneAutoAiEnabled = _playableOwner
+                ? !!_playableOwner.specialCloneAutoAiEnabled
+                : this.getActorSpecialCloneTier() >= 3;
+            this.actor.isUsingSpecial = this._ougiActive;
+            this.actor.specialCloneCombatStarted = this._ougiActive;
+
+            if (_playableOwner && this._ougiActive) {
+                this.actor.specialCloneAlive[0] = true;
+                this.actor.specialClonePositions[0] = _initPos(0);
+                const ownerCount = Array.isArray(_playableOwner.specialCloneSlots) ? _playableOwner.specialCloneSlots.length : 0;
+                for (let oi = 0; oi < ownerCount; oi++) {
+                    const ai = oi + 1;
+                    const ownerPos = _playableOwner.specialClonePositions && _playableOwner.specialClonePositions[oi];
+                    this.actor.specialCloneAlive[ai] = !_playableOwner.specialCloneAlive || _playableOwner.specialCloneAlive[oi] !== false;
+                    this.actor.specialClonePositions[ai] = ownerPos
+                        ? {
+                            ...ownerPos,
+                            y: _oCloneAnchorY,
+                            jumping: false,
+                            cloneVy: 0
+                        }
+                        : _initPos(_targetSlots[ai] || 0);
+                    this.actor.specialCloneAttackTimers[ai] = (_playableOwner.specialCloneAttackTimers && _playableOwner.specialCloneAttackTimers[oi]) || 0;
+                    this.actor.specialCloneCurrentAttacks[ai] = (_playableOwner.specialCloneCurrentAttacks && _playableOwner.specialCloneCurrentAttacks[oi]) || null;
+                    this.actor.specialCloneComboSteps[ai] = (_playableOwner.specialCloneComboSteps && _playableOwner.specialCloneComboSteps[oi]) || 0;
+                    this.actor.specialCloneComboResetTimers[ai] = (_playableOwner.specialCloneComboResetTimers && _playableOwner.specialCloneComboResetTimers[oi]) || 0;
+                    this.actor.specialCloneInvincibleTimers[ai] = (_playableOwner.specialCloneInvincibleTimers && _playableOwner.specialCloneInvincibleTimers[oi]) || 0;
+                    if (this.actor.specialCloneAutoAiEnabled) {
+                        this.actor.specialCloneSubWeaponTimers[ai] = (_playableOwner.specialCloneSubWeaponTimers && _playableOwner.specialCloneSubWeaponTimers[oi]) || 0;
+                        this.actor.specialCloneSubWeaponActions[ai] = (_playableOwner.specialCloneSubWeaponActions && _playableOwner.specialCloneSubWeaponActions[oi]) || null;
+                        this.actor.specialCloneSubWeaponInstances[ai] = (_playableOwner.specialCloneSubWeaponInstances && _playableOwner.specialCloneSubWeaponInstances[oi]) || null;
                     }
                 }
             }
@@ -1893,13 +1940,26 @@ export class Shogun extends Boss {
         }
 
         // 将軍の分身には忍者用のポニーテールは不要なため、更新処理を削除
+        const _useIndependentAutoCloneState = !!(!this.isEnemy && this.actor.specialCloneAutoAiEnabled);
+
+        if (this.actor.specialCloneSlots.length > 0) {
+            this.actor.specialCloneAttackTimers[0]     = this._attackTimer;
+            this.actor.specialCloneComboSteps[0]       = this._comboStep;
+            this.actor.specialCloneSubWeaponTimers[0]  = this._subTimer;
+            this.actor.specialCloneSubWeaponActions[0] = this._subAction;
+            this.actor.specialCloneCurrentAttacks[0]   = this._currentAttackProfile || null;
+            this.actor.specialCloneComboResetTimers[0] = this._attackTimer > 0 ? 0 : (this.actor.specialCloneComboResetTimers[0] || 0);
+        }
 
         // 全スロットの攻撃状態を同期（reinit後も含め確実に反映させる）
-        for (let _si = 0; _si < this.actor.specialCloneSlots.length; _si++) {
-            this.actor.specialCloneAttackTimers[_si]     = this._attackTimer;
-            this.actor.specialCloneComboSteps[_si]       = this._comboStep;
-            this.actor.specialCloneSubWeaponTimers[_si]  = this._subTimer;
-            this.actor.specialCloneSubWeaponActions[_si] = this._subAction;
+        if (!_useIndependentAutoCloneState) {
+            for (let _si = 1; _si < this.actor.specialCloneSlots.length; _si++) {
+                this.actor.specialCloneAttackTimers[_si]     = this._attackTimer;
+                this.actor.specialCloneComboSteps[_si]       = this._comboStep;
+                this.actor.specialCloneSubWeaponTimers[_si]  = this._subTimer;
+                this.actor.specialCloneSubWeaponActions[_si] = this._subAction;
+                this.actor.specialCloneCurrentAttacks[_si]   = this._currentAttackProfile || null;
+            }
         }
 
         this.actor.currentSubWeapon = (this._subWeaponKey === 'dual')
@@ -1930,7 +1990,7 @@ export class Shogun extends Boss {
         }
 
         // 分身のサブ武器インスタンス（手裏剣などの弾道）を更新する
-        if (this.actor.specialCloneSubWeaponInstances) {
+        if (this.actor.specialCloneSubWeaponInstances && !_useIndependentAutoCloneState) {
             for (const inst of this.actor.specialCloneSubWeaponInstances) {
                 if (inst && typeof inst.update === 'function') {
                     const subWeaponScale = inst.name === '二刀流'
@@ -2184,6 +2244,10 @@ export class Shogun extends Boss {
             dual.applyEnhanceTier(enhanceTier, this);
         } else if (Object.prototype.hasOwnProperty.call(dual, 'enhanceTier')) {
             dual.enhanceTier = enhanceTier;
+        }
+        if (!this.isEnemy && typeof dual.mainMotionSpeedScale === 'number') {
+            const ownerMotionScale = (this._playableOwner && this._playableOwner.attackMotionScale) || this.attackMotionScale || 1;
+            dual.mainMotionSpeedScale = Math.max(0.78, ownerMotionScale * 0.78);
         }
         const prevSubWeapon = this.currentSubWeapon;
         this.currentSubWeapon = dual;
@@ -3185,20 +3249,25 @@ export class Shogun extends Boss {
         }
 
         // 奥義クローン位置の更新（renderBodyでactorRenderXY確定後に設定）
-        if (this._ougiActive && this.actor.specialCloneSlots.length > 1) {
+        if (this._ougiActive && this.actor.specialCloneSlots.length > 1 && !(this._playableOwner && !this.isEnemy)) {
             const _oSpacing  = this.actor.specialCloneSpacing || 180;
             const _oCenterX  = actorRenderX + actorRenderW * 0.5;
             const _oAnchorY  = actorRenderY + PLAYER.HEIGHT * 0.62;
+            const _oGroundY = Number.isFinite(this.groundY)
+                ? this.groundY
+                : (Number.isFinite(this.actor.groundY) ? this.actor.groundY : _oAnchorY);
+            const _oStableAnchorY = _oGroundY + LANE_OFFSET - PLAYER.HEIGHT * 0.38;
+            const _oCloneAnchorY = !this.isEnemy ? _oStableAnchorY : _oAnchorY;
             for (let _oi = 0; _oi < this.actor.specialCloneSlots.length; _oi++) {
                 const _oUnit = this.actor.specialCloneSlots[_oi];
                 const _oPos  = this.actor.specialClonePositions[_oi];
                 if (_oPos) {
                     _oPos.x          = _oCenterX + _oUnit * _oSpacing;
-                    _oPos.y          = _oAnchorY;
+                    _oPos.y          = _oCloneAnchorY;
                     _oPos.facingRight = this.facingRight;
                     _oPos.prevX      = _oPos.x;
-                    _oPos.jumping    = !this.isGrounded;
-                    _oPos.cloneVy    = this.vy;
+                    _oPos.jumping    = this.isEnemy ? !this.isGrounded : false;
+                    _oPos.cloneVy    = this.isEnemy ? this.vy : 0;
                     _oPos.renderVx   = 0;
                 }
             }

@@ -351,7 +351,9 @@ export function applySpecialMixin(PlayerClass) {
         const actionName = this.getCloneSubWeaponActionName(this.currentSubWeapon);
         if (!actionName) return;
         const allowRestart = this.currentSubWeapon.name === '二刀流' && actionName === '二刀_Z';
-        if (!allowRestart && this.specialCloneSubWeaponTimers[index] > 0) return;
+        const existingInst = this.specialCloneSubWeaponInstances && this.specialCloneSubWeaponInstances[index];
+        const needsInstanceRefresh = !existingInst || existingInst.name !== this.currentSubWeapon.name;
+        if (!allowRestart && this.specialCloneSubWeaponTimers[index] > 0 && !needsInstanceRefresh) return;
         this.specialCloneSubWeaponTimers[index] = this.getSubWeaponActionDurationMs(
             actionName,
             this.currentSubWeapon
@@ -424,6 +426,17 @@ export function applySpecialMixin(PlayerClass) {
                 clonePos.jumping = true;
                 clonePos.cloneVy = dummyClone.vy || -30;
             }
+        }
+    };
+
+    PlayerClass.prototype.syncManualCloneSubWeaponUse = function() {
+        if (this.specialCloneAutoAiEnabled) return;
+        if (!this.currentSubWeapon || typeof this.getSubWeaponCloneOffsets !== 'function') return;
+        const actionName = this.getCloneSubWeaponActionName(this.currentSubWeapon);
+        if (!actionName || actionName === '二刀_Z') return;
+        const cloneOffsets = this.getSubWeaponCloneOffsets();
+        for (const clone of cloneOffsets) {
+            this.triggerCloneSubWeapon(clone.index);
         }
     };
 
@@ -1113,6 +1126,7 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
         this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
         this.specialCloneDualTrailAnchors = this.specialCloneSlots.map(() => null);
+        this.specialCloneSubWeaponInstances = this.specialCloneSlots.map(() => null);
         this.specialCloneScarfNodes = this.specialCloneSlots.map(() => null);
         this.specialCloneHairNodes = this.specialCloneSlots.map(() => null);
 

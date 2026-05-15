@@ -4536,7 +4536,10 @@ class Game {
 
         // プレイヤー
         if (playerAlpha > 0) {
-            if (this.player.isUsingSpecial || this.player.specialSmoke.length > 0) {
+            if (
+                this.player.characterType !== 'shogun' &&
+                (this.player.isUsingSpecial || this.player.specialSmoke.length > 0)
+            ) {
                 ctx.save();
                 if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
                 this.player.renderSpecial(ctx);
