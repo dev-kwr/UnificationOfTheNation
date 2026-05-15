@@ -878,7 +878,7 @@ class Game {
         const globalData = saveManager.loadGlobal();
         const isCleared = globalData.isGameCleared;
         const characterOffset = isCleared ? 1 : 0;
-        const titleOptionCount = (this.hasSave ? 2 : 1) + characterOffset;
+        const titleOptionCount = (this.hasSave ? 2 : 1) + characterOffset + 1;
         this.titleMenuIndex = Math.max(0, Math.min(titleOptionCount - 1, this.titleMenuIndex));
         if (this.titleDebugOpen) {
             this.updateTitleDebug();
@@ -920,7 +920,7 @@ class Game {
 
         // 難易度選択（左右キー）/ 操作キャラ行フォーカス時はキャラトグル
         if (input.isActionJustPressed('LEFT')) {
-            if (isCleared && this.titleMenuIndex === 0) {
+            if (isCleared && this.titleMenuIndex === 1) {
                 this.titleDebugConfig.characterType = this.titleDebugConfig.characterType === 'shogun' ? 'ninja' : 'shogun';
             } else {
                 this.difficultyIndex = (this.difficultyIndex - 1 + this.difficultyKeys.length) % this.difficultyKeys.length;
@@ -930,7 +930,7 @@ class Game {
             return;
         }
         if (input.isActionJustPressed('RIGHT')) {
-            if (isCleared && this.titleMenuIndex === 0) {
+            if (isCleared && this.titleMenuIndex === 1) {
                 this.titleDebugConfig.characterType = this.titleDebugConfig.characterType === 'shogun' ? 'ninja' : 'shogun';
             } else {
                 this.difficultyIndex = (this.difficultyIndex + 1) % this.difficultyKeys.length;
@@ -942,14 +942,18 @@ class Game {
         
         // ENTERで開始 (デバッグメニューが開いている時はデバッグ適用、閉じている時は通常開始)
         if (input.isActionJustPressed('DEBUG_START')) {
-            if (isCleared && this.titleMenuIndex === 0) {
+            if (isCleared && this.titleMenuIndex === 1) {
                 this.titleDebugConfig.characterType = this.titleDebugConfig.characterType === 'shogun' ? 'ninja' : 'shogun';
+                audio.playSelect();
+                return;
+            }
+            if (this.titleMenuIndex === 0) {
                 audio.playSelect();
                 return;
             }
             // メニューが閉じている時の Enter は通常開始とする（ユーザーの明示的意図がない限りデバッグ設定はオフ）
             this.titleDebugApplyOnStart = false;
-            const gameMenuIndex = this.titleMenuIndex - characterOffset;
+            const gameMenuIndex = this.titleMenuIndex - characterOffset - 1;
             if (this.hasSave) {
                 if (gameMenuIndex === 0) {
                     this.continueGame(saveManager.load());
@@ -966,13 +970,17 @@ class Game {
 
         // SPACEで決定 (Zキーを除外)
         if (input.isActionJustPressed('JUMP')) {
-            if (isCleared && this.titleMenuIndex === 0) {
+            if (isCleared && this.titleMenuIndex === 1) {
                 this.titleDebugConfig.characterType = this.titleDebugConfig.characterType === 'shogun' ? 'ninja' : 'shogun';
                 audio.playSelect();
                 return;
             }
+            if (this.titleMenuIndex === 0) {
+                audio.playSelect();
+                return;
+            }
             this.titleDebugApplyOnStart = false; // 通常開始時はデバッグOFF
-            const gameMenuIndex = this.titleMenuIndex - characterOffset;
+            const gameMenuIndex = this.titleMenuIndex - characterOffset - 1;
             if (this.hasSave) {
                 if (gameMenuIndex === 0) {
                     this.continueGame(saveManager.load());

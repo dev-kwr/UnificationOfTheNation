@@ -453,9 +453,9 @@ export function getTitleScreenLayout() {
         centerX,
         diffY,
         characterY: isGameCleared ? diffY + 54 : null,
-        startY: isGameCleared ? startY + 54 : startY,
-        newGameY: (isGameCleared ? startY + 54 : startY) + buttonGap,
-        singleStartY: (isGameCleared ? startY + 54 : startY) + buttonGap * 0.5,
+        startY: startY + buttonGap * 0.5,
+        newGameY: startY + buttonGap * 0.5 + buttonGap,
+        singleStartY: startY + buttonGap * 0.5,
         diffButton: { width: 230, height: 44 },
         actionButton: { width: 280, height: 48 }
     };
@@ -1444,6 +1444,10 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     let diffColor = '#ddaa00'; // Normal
     if (currentDifficulty && currentDifficulty.id === 'easy') diffColor = '#44aa44';
     if (currentDifficulty && currentDifficulty.id === 'hard') diffColor = '#aa4444';
+    const globalData = saveManager.loadGlobal();
+    const focusedFill = 'rgba(116, 166, 255, 0.78)';
+    const focusedBorder = 'rgba(238, 246, 255, 0.98)';
+    const isDiffFocused = titleMenuIndex === 0;
     drawRoundedFlatTitleButton(
         ctx,
         layout.centerX,
@@ -1453,17 +1457,14 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
         currentDifficulty ? currentDifficulty.name : '普 (NORMAL)',
         {
             fill: diffColor,
-            border: 'rgba(245, 246, 255, 0.5)',
+            border: isDiffFocused ? focusedBorder : 'rgba(245, 246, 255, 0.5)',
             font: '700 21px sans-serif'
         }
     );
 
-    const globalData = saveManager.loadGlobal();
-    const focusedFill = 'rgba(116, 166, 255, 0.78)';
-    const focusedBorder = 'rgba(238, 246, 255, 0.98)';
     if (globalData.isGameCleared && layout.characterY) {
         const isShogun = characterType === 'shogun';
-        const isCharFocused = titleMenuIndex === 0;
+        const isCharFocused = titleMenuIndex === 1;
         drawRoundedFlatTitleButton(
             ctx,
             layout.centerX,
@@ -1472,9 +1473,9 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
             layout.diffButton.height,
             isShogun ? '将軍' : '標準',
             {
-                fill: isCharFocused ? '#5858c0' : '#4444aa',
+                fill: '#4444aa',
                 border: isCharFocused ? focusedBorder : 'rgba(245, 246, 255, 0.5)',
-                font: '700 18px sans-serif'
+                font: '700 19px sans-serif'
             }
         );
     }
@@ -1483,7 +1484,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     const startY = layout.startY;
     const actionW = layout.actionButton.width;
     const actionH = layout.actionButton.height;
-    const charOffset = globalData.isGameCleared ? 1 : 0;
+    const charOffset = (globalData.isGameCleared ? 1 : 0) + 1;
     if (hasSave) {
         drawRoundedFlatTitleButton(
             ctx,

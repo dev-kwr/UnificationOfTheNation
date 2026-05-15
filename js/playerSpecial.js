@@ -129,11 +129,18 @@ export function applySpecialMixin(PlayerClass) {
                 const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
                 for (let i = 0; i < this.specialCloneSlots.length; i++) {
                     if (this.specialClonePositions[i]) {
+                        const odachiInst = this.specialCloneSubWeaponInstances && this.specialCloneSubWeaponInstances[i];
+                        const odachiFlying = odachiInst && odachiInst.name === '大太刀' && odachiInst.isAttacking && !odachiInst.hasImpacted;
                         this.specialClonePositions[i].x = anchors[i].x;
-                        this.specialClonePositions[i].y = anchors[i].y;
+                        if (odachiFlying) {
+                            // 大太刀飛翔中: プレイヤーy追従でアクセサリのズレを防ぐ
+                            this.specialClonePositions[i].y = this.getSpecialCloneAnchorY();
+                            this.specialClonePositions[i].jumping = !this.isGrounded;
+                            this.specialClonePositions[i].cloneVy = this.vy;
+                        } else {
+                            this.specialClonePositions[i].y = anchors[i].y;
+                        }
                         this.specialClonePositions[i].facingRight = anchors[i].facingRight;
-                        this.specialClonePositions[i].jumping = !this.isGrounded;
-                        this.specialClonePositions[i].cloneVy = this.vy;
 
                         const pos = this.specialClonePositions[i];
                         if (typeof this.constrainSpecialClonePosition === 'function') {
@@ -180,17 +187,17 @@ export function applySpecialMixin(PlayerClass) {
                     }
                     const cloneTimer = this.specialCloneSubWeaponTimers ? (this.specialCloneSubWeaponTimers[i] || 0) : 0;
                     const hasLiveProjectile = Array.isArray(inst.projectiles) && inst.projectiles.length > 0;
-                    // Lv3 AIモードのみdummyCloneのy/jumpingをposに反映（Lv1-2は本体追従のためanchorで管理）
-                    if (inst.name === '大太刀' && dummyClone && this.specialClonePositions[i] && this.specialCloneAutoAiEnabled) {
+                    // 大太刀着地後: dummyCloneのplanted位置をposに反映
+                    if (inst.name === '大太刀' && inst.hasImpacted && dummyClone && this.specialClonePositions[i]) {
                         const pos = this.specialClonePositions[i];
                         pos.y = dummyClone.y + this.height * 0.62;
-                        pos.jumping = !dummyClone.isGrounded;
-                        pos.cloneVy = dummyClone.vy || 0;
+                        pos.jumping = false;
+                        pos.cloneVy = 0;
                     }
                     if (
                         cloneTimer <= 0 &&
                         !hasLiveProjectile &&
-                        (inst.name === '二刀流' || inst.name === '鎖鎌' || inst.name === '大太刀')
+                        (inst.name === '二刀流' || inst.name === '鎖鎌' || inst.name === '大太刀' || inst.name === '大槍')
                     ) {
                         inst.isAttacking = false;
                         inst.attackTimer = 0;
@@ -409,7 +416,7 @@ export function applySpecialMixin(PlayerClass) {
             owner = fresh;
             this.specialCloneSubWeaponOwners[index] = owner;
         } else {
-            const odachiLocked = inst && inst.name === '大太刀' && inst.isAttacking && this.specialCloneAutoAiEnabled;
+            const odachiLocked = inst && inst.name === '大太刀' && inst.isAttacking;
             owner.x = fresh.x;
             if (!odachiLocked) {
                 owner.y = fresh.y;
