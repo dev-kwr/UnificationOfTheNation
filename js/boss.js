@@ -2979,6 +2979,15 @@ export class Shogun extends Boss {
                 inst.range = inst.range / renderScale;
             }
         }
+        // 分身の武器も同様にrange補正（鎖鎌以外）
+        if (Math.abs(renderScale - 1) > 0.001 && Array.isArray(this.actor.specialCloneSubWeaponInstances)) {
+            for (const inst of this.actor.specialCloneSubWeaponInstances) {
+                if (!inst || !Number.isFinite(inst.range)) continue;
+                if (inst.name === '鎖鎌') continue;
+                scaledRangeBackups.push([inst, inst.range]);
+                inst.range = inst.range / renderScale;
+            }
+        }
 
         if (this._attackTimer > 0) {
             const comboStep = this._currentComboStep || this._comboStep || 1;

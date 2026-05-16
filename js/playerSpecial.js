@@ -197,8 +197,27 @@ export function applySpecialMixin(PlayerClass) {
                     if (inst.name === '大太刀' && inst.hasImpacted && dummyClone && this.specialClonePositions[i]) {
                         const pos = this.specialClonePositions[i];
                         pos.y = dummyClone.y + this.height * 0.62;
-                        pos.jumping = false;
-                        pos.cloneVy = 0;
+                        if (this.specialCloneAutoAiEnabled) {
+                            pos.jumping = false;
+                            pos.cloneVy = 0;
+                        } else if (inst.isAttacking) {
+                            // ぶら下がり中: 位置固定
+                            pos.jumping = false;
+                            pos.cloneVy = 0;
+                            pos.odachiWasHanging = true;
+                            pos.odachiLandingTimer = 0;
+                        } else {
+                            // ぶら下がり終了直後: 本体の落下フレームに合わせた着地遷移
+                            if (pos.odachiWasHanging) {
+                                pos.odachiLandingTimer = 160;
+                                pos.odachiWasHanging = false;
+                            }
+                            if ((pos.odachiLandingTimer || 0) > 0) {
+                                pos.odachiLandingTimer = Math.max(0, pos.odachiLandingTimer - deltaMs);
+                            }
+                            pos.jumping = (pos.odachiLandingTimer || 0) > 0;
+                            pos.cloneVy = pos.jumping ? 2 : 0;
+                        }
                     }
                     // 大太刀: isAttacking中またはfadeOut中はタイマー切れでも維持（本体のkeepOdachiPoseと同様）
                     const odachiAlive = inst.name === '大太刀' &&

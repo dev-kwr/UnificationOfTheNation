@@ -4858,14 +4858,23 @@ export function applyRendererMixin(PlayerClass) {
                         : null;
                 } else {
                     this.vx = saved.vx;
-                    this.vy = cloneOdachiHanging ? 0 : saved.vy;
-                    // 大太刀のぶら下がり中は空中ポーズ（isGrounded=false）で描画
-                    this.isGrounded = cloneOdachiHanging ? false : saved.isGrounded;
+                    // ぶら下がり終了後の着地遷移中も空中ポーズを維持（本体の落下フレームに合わせる）
+                    const cloneOdachiFalling = !cloneOdachiHanging && ((pos.odachiLandingTimer || 0) > 0);
+                    this.vy = cloneOdachiHanging ? 0 : (cloneOdachiFalling ? 2 : saved.vy);
+                    // 大太刀のぶら下がり中・着地遷移中は空中ポーズ（isGrounded=false）で描画
+                    this.isGrounded = cloneOdachiHanging ? false : (cloneOdachiFalling ? false : saved.isGrounded);
                     this.isCrouching = saved.isCrouching;
                     this.isDashing = saved.isDashing;
                     // 大太刀着地後はタイマー/actionがnullになっていてもぶら下がりポーズを強制する（isAttacking中のみ）
                     const effectiveSubWeaponAction = cloneOdachiHanging ? '大太刀' : cloneSubWeaponAction;
-                    const effectiveSubWeaponTimer = cloneOdachiHanging ? 1 : cloneSubWeaponTimer;
+                    // 鎖鎌: タイマー切れでもisAttacking中はタイマーを1に保持（isActuallyAttackingPreをtrueに維持し腕をアイドルに戻さない）
+                    const cloneKusaStillAttacking = !!(
+                        cloneSubWeaponInstance &&
+                        cloneSubWeaponInstance.name === '鎖鎌' &&
+                        cloneSubWeaponInstance.isAttacking &&
+                        cloneSubWeaponTimer <= 0
+                    );
+                    const effectiveSubWeaponTimer = cloneOdachiHanging ? 1 : (cloneKusaStillAttacking ? 1 : cloneSubWeaponTimer);
                     this.subWeaponTimer = cloneSubWeaponActive ? effectiveSubWeaponTimer : saved.subWeaponTimer;
                     this.subWeaponAction = cloneSubWeaponActive ? effectiveSubWeaponAction : saved.subWeaponAction;
                     this.subWeaponPoseOverride = null;
