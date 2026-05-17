@@ -2373,15 +2373,29 @@ export class Player {
 
         // ステージ遷移や瞬間移動で履歴ノードが大きく離れている場合は破綻防止で再初期化
         const root = this.scarfNodes[0];
-        if (!Number.isFinite(root.x) || !Number.isFinite(root.y) || Math.hypot(root.x - targetX, root.y - targetY) > 120) {
+        const rootDist = (Number.isFinite(root.x) && Number.isFinite(root.y))
+            ? Math.hypot(root.x - targetX, root.y - targetY)
+            : Infinity;
+        if (!Number.isFinite(rootDist) || rootDist > 120) {
             this.resetVisualTrails();
         }
         
         // 1. 根元の位置固定
-        this.scarfNodes[0].x = targetX;
-        this.scarfNodes[0].y = targetY;
-        this.hairNodes[0].x = anchorRoots.hairRootX;
-        this.hairNodes[0].y = anchorRoots.hairRootY;
+        // 大太刀着地などで頭位置が急変する場合は補間して鉢巻/髪の物理が破綻しないようにする
+        const smoothThreshold = 20;
+        if (rootDist > smoothThreshold && rootDist <= 120) {
+            const lerpRate = Math.min(1, 0.35 + deltaTime * 18);
+            this.scarfNodes[0].x += (targetX - root.x) * lerpRate;
+            this.scarfNodes[0].y += (targetY - root.y) * lerpRate;
+            const hairRoot = this.hairNodes[0];
+            hairRoot.x += (anchorRoots.hairRootX - hairRoot.x) * lerpRate;
+            hairRoot.y += (anchorRoots.hairRootY - hairRoot.y) * lerpRate;
+        } else {
+            this.scarfNodes[0].x = targetX;
+            this.scarfNodes[0].y = targetY;
+            this.hairNodes[0].x = anchorRoots.hairRootX;
+            this.hairNodes[0].y = anchorRoots.hairRootY;
+        }
 
         // 分身・本体共通の一元化された物理演算を呼び出す
         this.updateAccessoryNodes(

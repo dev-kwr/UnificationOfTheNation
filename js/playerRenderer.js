@@ -4777,7 +4777,7 @@ export function applyRendererMixin(PlayerClass) {
                         (cloneSubWeaponInstance.fadeOutTimer || 0) > 0
                     )
                 );
-                // ぶら下がりポーズ: Lv1-2は本体の武器状態に同期（タイミングを完全一致させる）
+                // ぶら下がりポーズ: Lv1-2は本体の武器状態と分身自身の武器状態のOR（どちらかがぶら下がり中ならポーズ維持）
                 // Lv3+は分身自身の武器状態を使用
                 const cloneOdachiHanging = !!(
                     cloneSubWeaponInstance &&
@@ -4785,10 +4785,11 @@ export function applyRendererMixin(PlayerClass) {
                     (
                         this.specialCloneAutoAiEnabled
                             ? (cloneSubWeaponInstance.isAttacking && cloneSubWeaponInstance.hasImpacted)
-                            : (saved.currentSubWeapon &&
+                            : ((saved.currentSubWeapon &&
                                saved.currentSubWeapon.name === '大太刀' &&
                                saved.currentSubWeapon.isAttacking &&
-                               saved.currentSubWeapon.hasImpacted)
+                               saved.currentSubWeapon.hasImpacted) ||
+                               (cloneSubWeaponInstance.isAttacking && cloneSubWeaponInstance.hasImpacted))
                     )
                 );
                 const cloneSubWeaponActive = !!(

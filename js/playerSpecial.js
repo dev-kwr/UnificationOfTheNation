@@ -147,7 +147,13 @@ export function applySpecialMixin(PlayerClass) {
                             this.constrainSpecialClonePosition(pos);
                         }
                         // 大太刀アクティブ時はサブ武器更新後にpos.yが確定するためここではスキップ
-                        const odachiActive = odachiInst && odachiInst.name === '大太刀' && odachiInst.isAttacking;
+                        // Lv1-2: 本体の大太刀がぶら下がり中も分身のアクセサリ更新を遅延させる
+                        const playerOdachiActiveForAccessory = !this.specialCloneAutoAiEnabled &&
+                            this.currentSubWeapon &&
+                            this.currentSubWeapon.name === '大太刀' &&
+                            this.currentSubWeapon.isAttacking &&
+                            this.currentSubWeapon.hasImpacted;
+                        const odachiActive = (odachiInst && odachiInst.name === '大太刀' && odachiInst.isAttacking) || playerOdachiActiveForAccessory;
                         if (!odachiActive) {
                             this.updateSpecialCloneAccessoryNodes(i, pos, deltaTime, {
                                 cloneVx: this.vx,
@@ -268,7 +274,12 @@ export function applySpecialMixin(PlayerClass) {
             for (let i = 0; i < this.specialCloneSlots.length; i++) {
                 const inst = this.specialCloneSubWeaponInstances[i];
                 const pos = this.specialClonePositions && this.specialClonePositions[i];
-                if (pos && inst && inst.name === '大太刀' && inst.isAttacking) {
+                // Lv1-2: 本体の大太刀がぶら下がり中も分身のアクセサリを更新する
+                const playerOdachiHanging = this.currentSubWeapon &&
+                    this.currentSubWeapon.name === '大太刀' &&
+                    this.currentSubWeapon.isAttacking &&
+                    this.currentSubWeapon.hasImpacted;
+                if (pos && inst && inst.name === '大太刀' && (inst.isAttacking || playerOdachiHanging)) {
                     this.updateSpecialCloneAccessoryNodes(i, pos, deltaTime, {
                         cloneVx: this.vx,
                         motionTime: this.motionTime,
@@ -1176,7 +1187,8 @@ export function applySpecialMixin(PlayerClass) {
         const spacing = typeof this.getSpecialCloneSpacing === 'function'
             ? this.getSpecialCloneSpacing()
             : (this.specialCloneSpacing || 180);
-        const useCloneGround = this.specialCloneCombatStarted && this.specialCastTimer <= 0;
+        // Lv1-2はプレイヤー追従（centerY）を使用し、Lv3+のみ地面ベースのY座標を使用する
+        const useCloneGround = this.specialCloneCombatStarted && this.specialCastTimer <= 0 && this.specialCloneAutoAiEnabled;
         const resolveY = (x, unit) => {
             return useCloneGround && typeof this.getSpecialCloneAnchorYAtX === 'function'
                 ? this.getSpecialCloneAnchorYAtX(x)
