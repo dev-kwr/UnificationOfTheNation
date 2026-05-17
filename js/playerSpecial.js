@@ -219,9 +219,9 @@ export function applySpecialMixin(PlayerClass) {
                             pos.cloneVy = pos.jumping ? 2 : 0;
                         }
                     }
-                    // 大太刀: isAttacking中またはfadeOut中はタイマー切れでも維持（本体のkeepOdachiPoseと同様）
+                    // 大太刀: isAttacking中・planted中・fadeOut中はタイマー切れでも維持（本体のkeepOdachiPoseと同様）
                     const odachiAlive = inst.name === '大太刀' &&
-                        (inst.isAttacking || (inst.fadeOutTimer || 0) > 0);
+                        (inst.isAttacking || (inst.plantedTimer || 0) > 0 || (inst.fadeOutTimer || 0) > 0);
                     if (
                         cloneTimer <= 0 &&
                         !inst.isAttacking &&
@@ -472,8 +472,15 @@ export function applySpecialMixin(PlayerClass) {
             this.specialCloneSubWeaponOwners[index] = owner;
         } else {
             const odachiLocked = inst && inst.name === '大太刀' && inst.isAttacking && inst.hasImpacted;
+            // Lv1-2: 本体の武器がぶら下がり中も分身のy位置をロック
+            const playerOdachiLocked = !this.specialCloneAutoAiEnabled &&
+                this.currentSubWeapon &&
+                this.currentSubWeapon.name === '大太刀' &&
+                this.currentSubWeapon.isAttacking &&
+                this.currentSubWeapon.hasImpacted;
+            const effectiveOdachiLocked = odachiLocked || playerOdachiLocked;
             owner.x = fresh.x;
-            if (!odachiLocked) {
+            if (!effectiveOdachiLocked) {
                 owner.y = fresh.y;
                 owner.vx = fresh.vx;
                 owner.vy = fresh.vy;

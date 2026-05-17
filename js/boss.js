@@ -1910,6 +1910,7 @@ export class Shogun extends Boss {
                     }
                 }
             } else if (this._ougiActive && !_playableOwner) {
+                const _isAutoAiTier = this.getActorSpecialCloneTier() >= 3;
                 for (let i = 0; i < this.actor.specialCloneSlots.length; i++) {
                     const pos = this.actor.specialClonePositions[i];
                     if (pos) {
@@ -1917,8 +1918,9 @@ export class Shogun extends Boss {
                         pos.x = _oCenterX + this.actor.specialCloneSlots[i] * _oSpacing;
                         pos.y = !this.isEnemy ? _getCloneAnchorY(pos.x) : _oAnchorY;
                         pos.facingRight = this.facingRight;
-                        pos.jumping = this.isEnemy ? !this.isGrounded : false;
-                        pos.cloneVy = this.isEnemy ? this.vy : 0;
+                        // Lv3+自律クローンは本体の物理状態に連動させない
+                        pos.jumping = (!_isAutoAiTier && this.isEnemy) ? !this.isGrounded : false;
+                        pos.cloneVy = (!_isAutoAiTier && this.isEnemy) ? this.vy : 0;
                         pos.renderVx = this.vx;
                     }
                 }
@@ -2979,15 +2981,9 @@ export class Shogun extends Boss {
                 inst.range = inst.range / renderScale;
             }
         }
-        // 分身の武器も同様にrange補正（鎖鎌以外）
-        if (Math.abs(renderScale - 1) > 0.001 && Array.isArray(this.actor.specialCloneSubWeaponInstances)) {
-            for (const inst of this.actor.specialCloneSubWeaponInstances) {
-                if (!inst || !Number.isFinite(inst.range)) continue;
-                if (inst.name === '鎖鎌') continue;
-                scaledRangeBackups.push([inst, inst.range]);
-                inst.range = inst.range / renderScale;
-            }
-        }
+        // 分身の大太刀は applyScaleToSubWeapons() の対象外（range=74のまま）で
+        // scaleEntity(2.2) 内で描画すると 74*2.2=163px になり本体と同サイズになる。
+        // 追加補正は不要のためここでは処理しない。
 
         if (this._attackTimer > 0) {
             const comboStep = this._currentComboStep || this._comboStep || 1;
@@ -3311,8 +3307,10 @@ export class Shogun extends Boss {
                     _oPos.y          = !this.isEnemy ? _getCloneAnchorY(_oPos.x) : _oAnchorY;
                     _oPos.facingRight = this.facingRight;
                     _oPos.prevX      = _oPos.x;
-                    _oPos.jumping    = this.isEnemy ? !this.isGrounded : false;
-                    _oPos.cloneVy    = this.isEnemy ? this.vy : 0;
+                    // Lv3+自律クローンは本体の物理状態に連動させない（飛翔モーションが伝播しないよう）
+                    const _oIsAutoAi = this.actor.specialCloneAutoAiEnabled;
+                    _oPos.jumping    = (!_oIsAutoAi && this.isEnemy) ? !this.isGrounded : false;
+                    _oPos.cloneVy    = (!_oIsAutoAi && this.isEnemy) ? this.vy : 0;
                     _oPos.renderVx   = 0;
                 }
             }

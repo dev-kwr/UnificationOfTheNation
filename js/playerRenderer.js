@@ -4777,16 +4777,23 @@ export function applyRendererMixin(PlayerClass) {
                         (cloneSubWeaponInstance.fadeOutTimer || 0) > 0
                     )
                 );
-                // ぶら下がりポーズは isAttacking 中のみ（本体と同じく plantedTimer 切れで終了）
+                // ぶら下がりポーズ: Lv1-2は本体の武器状態に同期（タイミングを完全一致させる）
+                // Lv3+は分身自身の武器状態を使用
                 const cloneOdachiHanging = !!(
                     cloneSubWeaponInstance &&
                     cloneSubWeaponInstance.name === '大太刀' &&
-                    cloneSubWeaponInstance.isAttacking &&
-                    cloneSubWeaponInstance.hasImpacted
+                    (
+                        this.specialCloneAutoAiEnabled
+                            ? (cloneSubWeaponInstance.isAttacking && cloneSubWeaponInstance.hasImpacted)
+                            : (saved.currentSubWeapon &&
+                               saved.currentSubWeapon.name === '大太刀' &&
+                               saved.currentSubWeapon.isAttacking &&
+                               saved.currentSubWeapon.hasImpacted)
+                    )
                 );
                 const cloneSubWeaponActive = !!(
                     cloneSubWeaponInstance &&
-                    (cloneSubWeaponTimer > 0 || cloneHasLiveProjectile || cloneHasPlantedOdachi || cloneSubWeaponInstance.isAttacking)
+                    (cloneSubWeaponTimer > 0 || cloneHasLiveProjectile || cloneHasPlantedOdachi || cloneSubWeaponInstance.isAttacking || cloneOdachiHanging)
                 );
                 const shouldMirrorSavedSubWeapon = !!(
                     !this.specialCloneAutoAiEnabled &&
@@ -4858,11 +4865,9 @@ export function applyRendererMixin(PlayerClass) {
                         : null;
                 } else {
                     this.vx = saved.vx;
-                    // ぶら下がり終了後の着地遷移中も空中ポーズを維持（本体の落下フレームに合わせる）
-                    const cloneOdachiFalling = !cloneOdachiHanging && ((pos.odachiLandingTimer || 0) > 0);
-                    this.vy = cloneOdachiHanging ? 0 : (cloneOdachiFalling ? 2 : saved.vy);
-                    // 大太刀のぶら下がり中・着地遷移中は空中ポーズ（isGrounded=false）で描画
-                    this.isGrounded = cloneOdachiHanging ? false : (cloneOdachiFalling ? false : saved.isGrounded);
+                    // ぶら下がり中のみ空中ポーズを強制。着地後は本体のvy/isGroundedに完全追従させる
+                    this.vy = cloneOdachiHanging ? 0 : saved.vy;
+                    this.isGrounded = cloneOdachiHanging ? false : saved.isGrounded;
                     this.isCrouching = saved.isCrouching;
                     this.isDashing = saved.isDashing;
                     // 大太刀着地後はタイマー/actionがnullになっていてもぶら下がりポーズを強制する（isAttacking中のみ）
