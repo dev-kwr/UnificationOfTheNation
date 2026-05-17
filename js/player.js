@@ -2371,31 +2371,35 @@ export class Player {
         const targetX = anchorRoots.knotX;
         const targetY = anchorRoots.knotY;
 
-        // ステージ遷移や瞬間移動で履歴ノードが大きく離れている場合は破綻防止で再初期化
+        // ステージ遷移や瞬間移動で履歴ノードが大きく離れている場合の処理
         const root = this.scarfNodes[0];
-        const rootDist = (Number.isFinite(root.x) && Number.isFinite(root.y))
-            ? Math.hypot(root.x - targetX, root.y - targetY)
-            : Infinity;
-        if (!Number.isFinite(rootDist) || rootDist > 120) {
+        if (!Number.isFinite(root.x) || !Number.isFinite(root.y)) {
+            // NaNや未初期化の場合のみ完全リセット
             this.resetVisualTrails();
+        } else {
+            const dx = targetX - root.x;
+            const dy = targetY - root.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > 120) {
+                // 大太刀刺さり等によるテレポート：全ノードを差分だけ平行移動して物理形状を保持
+                for (let i = 0; i < this.scarfNodes.length; i++) {
+                    this.scarfNodes[i].x += dx;
+                    this.scarfNodes[i].y += dy;
+                }
+                const hDx = anchorRoots.hairRootX - this.hairNodes[0].x;
+                const hDy = anchorRoots.hairRootY - this.hairNodes[0].y;
+                for (let i = 0; i < this.hairNodes.length; i++) {
+                    this.hairNodes[i].x += hDx;
+                    this.hairNodes[i].y += hDy;
+                }
+            }
         }
         
         // 1. 根元の位置固定
-        // 大太刀着地などで頭位置が急変する場合は補間して鉢巻/髪の物理が破綻しないようにする
-        const smoothThreshold = 20;
-        if (rootDist > smoothThreshold && rootDist <= 120) {
-            const lerpRate = Math.min(1, 0.35 + deltaTime * 18);
-            this.scarfNodes[0].x += (targetX - root.x) * lerpRate;
-            this.scarfNodes[0].y += (targetY - root.y) * lerpRate;
-            const hairRoot = this.hairNodes[0];
-            hairRoot.x += (anchorRoots.hairRootX - hairRoot.x) * lerpRate;
-            hairRoot.y += (anchorRoots.hairRootY - hairRoot.y) * lerpRate;
-        } else {
-            this.scarfNodes[0].x = targetX;
-            this.scarfNodes[0].y = targetY;
-            this.hairNodes[0].x = anchorRoots.hairRootX;
-            this.hairNodes[0].y = anchorRoots.hairRootY;
-        }
+        this.scarfNodes[0].x = targetX;
+        this.scarfNodes[0].y = targetY;
+        this.hairNodes[0].x = anchorRoots.hairRootX;
+        this.hairNodes[0].y = anchorRoots.hairRootY;
 
         // 分身・本体共通の一元化された物理演算を呼び出す
         this.updateAccessoryNodes(
