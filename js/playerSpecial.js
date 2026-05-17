@@ -196,12 +196,26 @@ export function applySpecialMixin(PlayerClass) {
                     // 大太刀着地後: dummyCloneのplanted位置をposに反映
                     if (inst.name === '大太刀' && inst.hasImpacted && dummyClone && this.specialClonePositions[i]) {
                         const pos = this.specialClonePositions[i];
-                        pos.y = dummyClone.y + this.height * 0.62;
+                        // Lv1-2: 本体のぶら下がり状態を優先参照（分身のisAttackingより早く解除されるため）
+                        const playerIsHanging = !this.specialCloneAutoAiEnabled &&
+                            this.currentSubWeapon &&
+                            this.currentSubWeapon.name === '大太刀' &&
+                            this.currentSubWeapon.isAttacking &&
+                            this.currentSubWeapon.hasImpacted;
+                        const isHanging = this.specialCloneAutoAiEnabled ? inst.isAttacking : (playerIsHanging || inst.isAttacking);
+                        // ぶら下がり中: pos.yを本体のanchor位置に同期（分身自身のowner.yではなく）
+                        pos.y = isHanging
+                            ? (this.y + this.height * 0.62)
+                            : (dummyClone.y + this.height * 0.62);
                         if (this.specialCloneAutoAiEnabled) {
                             pos.jumping = false;
                             pos.cloneVy = 0;
+                        } else if (playerIsHanging) {
+                            pos.jumping = false;
+                            pos.cloneVy = 0;
+                            pos.odachiWasHanging = true;
+                            pos.odachiLandingTimer = 0;
                         } else if (inst.isAttacking) {
-                            // ぶら下がり中: 位置固定
                             pos.jumping = false;
                             pos.cloneVy = 0;
                             pos.odachiWasHanging = true;
@@ -219,9 +233,13 @@ export function applySpecialMixin(PlayerClass) {
                             pos.cloneVy = pos.jumping ? 2 : 0;
                         }
                     }
-                    // 大太刀: isAttacking中・planted中・fadeOut中はタイマー切れでも維持（本体のkeepOdachiPoseと同様）
+                    // 大太刀: isAttacking中・planted中・fadeOut中・本体ぶら下がり中はタイマー切れでも維持
+                    const playerOdachiActive = !this.specialCloneAutoAiEnabled &&
+                        this.currentSubWeapon &&
+                        this.currentSubWeapon.name === '大太刀' &&
+                        this.currentSubWeapon.isAttacking;
                     const odachiAlive = inst.name === '大太刀' &&
-                        (inst.isAttacking || (inst.plantedTimer || 0) > 0 || (inst.fadeOutTimer || 0) > 0);
+                        (inst.isAttacking || (inst.plantedTimer || 0) > 0 || (inst.fadeOutTimer || 0) > 0 || playerOdachiActive);
                     if (
                         cloneTimer <= 0 &&
                         !inst.isAttacking &&

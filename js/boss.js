@@ -3268,6 +3268,11 @@ export class Shogun extends Boss {
         }
 
         // キャラ本体描画（hideBody時は hideBodyParts: true で体シルエットのみ非表示）
+        // 大太刀blade描画用に正しいactor.groundYを一時設定（自キャラ・敵共通: scale逆算式）
+        // actor.groundY + LANE_OFFSETがscale(renderScale)後に視覚的地面(this.groundY+LANE_OFFSET)と一致するよう逆算
+        const _savedActorGroundY = this.actor.groundY;
+        const _oShogunPivotY = this.y + this.height * 0.62;
+        this.actor.groundY = _oShogunPivotY + (this.groundY + LANE_OFFSET - _oShogunPivotY) / renderScale - LANE_OFFSET;
         renderWithShogunTransform(() => {
             const alpha = typeof this.ghostVeilAlpha === 'number' ? this.ghostVeilAlpha : 1.0;
             this.actor.renderModel(ctx, actorRenderX, actorRenderY, this.facingRight, alpha, true, {
@@ -3275,6 +3280,7 @@ export class Shogun extends Boss {
                 hideBodyParts: !!this.hideBody,
             });
         });
+        this.actor.groundY = _savedActorGroundY;
 
         // 二刀流Zコンボのトレイル（本体描画で得た刀アンカーを使って本体と同じ順で描画）
         if (typeof this.actor.updateDualBladeSlashTrails === 'function') {
@@ -3342,7 +3348,11 @@ export class Shogun extends Boss {
                         ctx.scale(renderScale, renderScale);
                         ctx.translate(-clonePivotX, -clonePivotY);
                     }
+                    // 分身の大太刀blade用groundY（自キャラ・敵共通式、pivotはclone個別）
+                    const _cloneSavedGroundY = this.actor.groundY;
+                    this.actor.groundY = clonePivotY + (this.groundY + LANE_OFFSET - clonePivotY) / renderScale - LANE_OFFSET;
                     fn();
+                    this.actor.groundY = _cloneSavedGroundY;
                     ctx.restore();
                 },
                 cloneModelOptions: (pos) => {
