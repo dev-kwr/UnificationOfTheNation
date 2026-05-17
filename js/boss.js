@@ -2977,13 +2977,11 @@ export class Shogun extends Boss {
             for (const [key, inst] of Object.entries(this._subWeaponInstances)) {
                 if (!inst || !Number.isFinite(inst.range)) continue;
                 if (key === 'kusarigama') continue; // 鎖鎌はビジュアルスケールをそのまま利用
+                if (key === 'odachi') continue; // 大太刀はmaxTipY制限で地面に揃えるためrange縮小不要
                 scaledRangeBackups.push([inst, inst.range]);
                 inst.range = inst.range / renderScale;
             }
         }
-        // 分身の大太刀は applyScaleToSubWeapons() の対象外（range=74のまま）で
-        // scaleEntity(2.2) 内で描画すると 74*2.2=163px になり本体と同サイズになる。
-        // 追加補正は不要のためここでは処理しない。
 
         if (this._attackTimer > 0) {
             const comboStep = this._currentComboStep || this._comboStep || 1;
