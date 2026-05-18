@@ -803,16 +803,13 @@ export function applyRendererMixin(PlayerClass) {
         const renderSubWeaponVisuals = renderSubWeaponVisualsInput;
         const accessoryHairNodes = Array.isArray(options.hairNodes) ? options.hairNodes : this.hairNodes;
         const accessoryScarfNodes = Array.isArray(options.scarfNodes) ? options.scarfNodes : this.scarfNodes;
-
-        // 将軍の変換は render() 側で外部適用するため、renderModel内部では適用しない
-        const useShogunTransform = (this.characterType === 'shogun') && !options._shogunExternalTransform;
-        const scale = this.scaleMultiplier || 1.0;
         
         // 描画用の基準サイズ（常に標準プレイヤーサイズ 48x72）
         const drawW = 48;
         const drawH = 72;
 
-        if (useShogunTransform) {
+        const isShogunMode = this.characterType === 'shogun';
+        if (isShogunMode) {
             options.drawTorsoOverride = options.drawTorsoOverride || ((ctx, p) => this._drawShogunTorso(ctx, p));
             options.drawTorsoOverlayOverride = options.drawTorsoOverlayOverride || ((ctx, p) => this._drawShogunTorsoOverlay(ctx, p));
             options.drawHeadOverride = options.drawHeadOverride || ((ctx, p) => this._drawShogunHead(ctx, p));
@@ -840,30 +837,44 @@ export function applyRendererMixin(PlayerClass) {
         const originalW = this.width;
         const originalH = this.height;
 
+        // 将軍のパース変形は render() 側で外部適用する場合があるため、その時は内部で適用しない
+        const applyShogunShear = isShogunMode && !options._shogunExternalTransform;
+        const scale = this.scaleMultiplier || 1.0;
+
         // 将軍モードの場合、actorBase(40x60)を基準にオフセットを計算（boss.js renderBody と同一式）
-        // renderModel内部でwidth/heightは drawW/drawH (48x72) に上書きされるが、
-        // 配置はボスの actorBaseWidth/Height 基準で行う
         const SHOGUN_ACTOR_BASE_W = 40;
         const SHOGUN_ACTOR_BASE_H = 60;
-        const renderX = useShogunTransform ? (x + (this.width - SHOGUN_ACTOR_BASE_W) * 0.5) : x;
-        // 地面（底辺）を基準に描画位置を決定する。これによりしゃがみ等で collider height が変わってもめり込まない。
-        const renderY = useShogunTransform ? (y + (this.height - SHOGUN_ACTOR_BASE_H) * 0.62) : (y + this.height - drawH);
-
+        const renderX = isShogunMode ? (x + (this.width - SHOGUN_ACTOR_BASE_W) * 0.5) : x;
+        const renderY = isShogunMode ? (y + (this.height - SHOGUN_ACTOR_BASE_H) * 0.62) : (y + this.height - drawH);
+        
         this.x = renderX;
         this.y = renderY;
         this.width = drawW;
         this.height = drawH;
 
-        if (useShogunTransform) {
+        const applyScaleTransform = scale !== 1.0;
+        const needsContextTransform = applyShogunShear || applyScaleTransform;
+
+        if (needsContextTransform) {
             const pivotX = x + originalW * 0.5;
             const pivotY = y + originalH * 0.62;
-            const yawSkew = this.shogunYawSkew || 0;
+            const yawSkew = applyShogunShear ? (this.shogunYawSkew || 0) : 0;
+
+            if (applyShogunShear && !options.yawSkewCancel) {
+                options.yawSkewCancel = { pivotX, pivotY, yawSkew };
+            }
 
             ctx.save();
             ctx.translate(pivotX, pivotY);
-            // 将軍特有の斜めパース変形
-            ctx.transform(1, 0, -yawSkew / 0.982, 1, 0, 0);
-            ctx.scale(scale / 0.982, scale);
+            
+            if (applyShogunShear) {
+                // 将軍特有の斜めパース変形
+                ctx.transform(1, 0, -yawSkew / 0.982, 1, 0, 0);
+                ctx.scale(scale / 0.982, scale);
+            } else {
+                ctx.scale(scale, scale);
+            }
+            
             ctx.translate(-pivotX, -pivotY);
 
             // 陣羽織（背面）は boss.js 側で描画するためここでは描画しない
@@ -1951,7 +1962,7 @@ export function applyRendererMixin(PlayerClass) {
                 const descend = this.vy > 0 ? Math.min(1, this.vy / 13) : 0;
                 const apex = Math.max(0, 1 - Math.min(1, Math.abs(this.vy) / 4.4));
                 const tuckBase = Math.max(rise * 0.74, apex * 0.92) * (1 - descend * 0.26);
-                const tuck = useShogunTransform ? tuckBase * 0.35 : tuckBase;
+                const tuck = isShogunMode ? tuckBase * 0.35 : tuckBase;
                 const open = descend * 0.62;
                 const settle = Math.max(0, Math.min(1, (descend - 0.28) / 0.72));
                 const leftHipX = torsoHipX + dir * 1.28;
@@ -1969,9 +1980,7 @@ export function applyRendererMixin(PlayerClass) {
                 let rightFootY = rightKneeY + 7.28 - tuck * 0.35 + open * 1.82;
 
                 // 将軍は脚が長いため空中姿勢でも足先を下方に延ばす
-                // ボス描画時は _shogunExternalTransform:true が設定されるため useShogunTransform は false
-                const isShogunAirborne = useShogunTransform || options._shogunExternalTransform;
-                if (isShogunAirborne) {
+                if (isShogunMode) {
                     const extend = 7.0 * (1 - settle);
                     leftKneeY += extend * 0.5;
                     leftFootY += extend;
@@ -2567,7 +2576,7 @@ export function applyRendererMixin(PlayerClass) {
     this.y = originalY;
     this.width = originalW;
     this.height = originalH;
-    if (useShogunTransform) {
+    if (applyShogunShear || (scale !== 1.0)) {
         ctx.restore();
     }
     ctx.restore();
@@ -3807,13 +3816,21 @@ export function applyRendererMixin(PlayerClass) {
                 // yawSkewCancel: 将軍の2.5D変換で生じる傾きをキャンセルして大太刀を垂直に描画
                 // renderWithShogunTransform は Shear(-yawSkew/0.982) · Scale(1/0.982) を適用するので
                 // 逆変換は Scale(0.982) · Shear(+yawSkew/0.982) となる
+                // ただし _shogunExternalTransform=true の場合、renderModel内部ではシアが適用されず
+                // 均等スケールのみなので、yawSkewCancelのシア逆変換は不要（適用すると逆に傾く）
                 const yawSkewCancel = options.yawSkewCancel;
-                if (yawSkewCancel) {
+                const skipShearCancel = !!options._shogunExternalTransform;
+                if (yawSkewCancel && !skipShearCancel) {
                     ctx.save();
                     ctx.globalAlpha = 1.0;
                     ctx.translate(yawSkewCancel.pivotX, yawSkewCancel.pivotY);
-                    ctx.scale(0.982, 1);
-                    ctx.transform(1, 0, yawSkewCancel.yawSkew / 0.982, 1, 0, 0);
+                    if (yawSkewCancel.type === 'enemyInverse') {
+                        ctx.scale(1 / 0.982, 1);
+                        ctx.transform(1, 0, -yawSkewCancel.yawSkew, 1, 0, 0);
+                    } else {
+                        ctx.scale(0.982, 1);
+                        ctx.transform(1, 0, yawSkewCancel.yawSkew / 0.982, 1, 0, 0);
+                    }
                     ctx.translate(-yawSkewCancel.pivotX, -yawSkewCancel.pivotY);
                     odachi.render(ctx, this);
                     ctx.restore();
@@ -4752,31 +4769,21 @@ export function applyRendererMixin(PlayerClass) {
                 };
 
                 const cloneDrawX = pos.x - this.width * 0.5;
-                const cloneDrawY = this.getSpecialCloneDrawY(pos.y);
                 const cloneSubWeaponInstance = (
                     this.specialCloneSubWeaponInstances &&
                     this.specialCloneSubWeaponInstances[i]
-                ) ? this.specialCloneSubWeaponInstances[i] : null;
-                const cloneSubWeaponTimer = this.specialCloneSubWeaponTimers
-                    ? (this.specialCloneSubWeaponTimers[i] || 0)
-                    : 0;
-                const cloneSubWeaponAction = this.specialCloneSubWeaponActions
-                    ? this.specialCloneSubWeaponActions[i]
-                    : null;
-                const cloneHasLiveProjectile = !!(
-                    cloneSubWeaponInstance &&
-                    Array.isArray(cloneSubWeaponInstance.projectiles) &&
-                    cloneSubWeaponInstance.projectiles.length > 0
-                );
-                const cloneHasPlantedOdachi = !!(
-                    cloneSubWeaponInstance &&
-                    cloneSubWeaponInstance.name === '大太刀' &&
-                    (
-                        cloneSubWeaponInstance.hasImpacted ||
-                        (cloneSubWeaponInstance.plantedTimer || 0) > 0 ||
-                        (cloneSubWeaponInstance.fadeOutTimer || 0) > 0
-                    )
-                );
+                ) || null;
+                const cloneSubWeaponAction = (
+                    this.specialCloneSubWeaponActions &&
+                    this.specialCloneSubWeaponActions[i]
+                ) || null;
+                const cloneSubWeaponTimer = (
+                    this.specialCloneSubWeaponTimers &&
+                    this.specialCloneSubWeaponTimers[i]
+                ) || 0;
+
+
+
                 // ぶら下がりポーズ: Lv1-2は本体の武器状態と分身自身の武器状態のOR（どちらかがぶら下がり中ならポーズ維持）
                 // Lv3+は分身自身の武器状態を使用
                 const cloneOdachiHanging = !!(
@@ -4792,6 +4799,32 @@ export function applyRendererMixin(PlayerClass) {
                                (cloneSubWeaponInstance.isAttacking && cloneSubWeaponInstance.hasImpacted))
                     )
                 );
+
+                let cloneDrawY = this.getSpecialCloneDrawY(pos.y);
+                if (cloneOdachiHanging && cloneSubWeaponInstance && typeof cloneSubWeaponInstance.getPlantedOwnerY === 'function') {
+                    const virtualPlayer = {
+                        groundY: this.groundY,
+                        height: this.height,
+                        scaleMultiplier: this.scaleMultiplier || 1.0
+                    };
+                    cloneDrawY = cloneSubWeaponInstance.getPlantedOwnerY(virtualPlayer);
+                }
+
+                const cloneHasLiveProjectile = !!(
+                    cloneSubWeaponInstance &&
+                    Array.isArray(cloneSubWeaponInstance.projectiles) &&
+                    cloneSubWeaponInstance.projectiles.length > 0
+                );
+                const cloneHasPlantedOdachi = !!(
+                    cloneSubWeaponInstance &&
+                    cloneSubWeaponInstance.name === '大太刀' &&
+                    (
+                        cloneSubWeaponInstance.hasImpacted ||
+                        (cloneSubWeaponInstance.plantedTimer || 0) > 0 ||
+                        (cloneSubWeaponInstance.fadeOutTimer || 0) > 0
+                    )
+                );
+
                 const cloneSubWeaponActive = !!(
                     cloneSubWeaponInstance &&
                     (cloneSubWeaponTimer > 0 || cloneHasLiveProjectile || cloneHasPlantedOdachi || cloneSubWeaponInstance.isAttacking || cloneOdachiHanging)

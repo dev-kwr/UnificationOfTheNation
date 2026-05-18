@@ -1243,6 +1243,8 @@ export class Shogun extends Boss {
         this.height = Math.round(this.actorBaseHeight * this.scaleMultiplier);
 
         this.actor = new Player(0, 0, this.groundY);
+        this.actor.characterType = 'shogun';
+        this.actor.scaleMultiplier = this.scaleMultiplier;
         this.actor.width  = this.actorBaseWidth;
         this.actor.height = this.actorBaseHeight;
         this.actor.progression = {
@@ -1336,6 +1338,7 @@ export class Shogun extends Boss {
 
         for (const inst of Object.values(this._subWeaponInstances)) {
             if (!inst) continue;
+            if (inst.name === '大太刀') continue; // 大太刀は描画スケール・接地基準補正が武器側で完結するためレンジ拡大対象外
             scaleNum(inst, 'range');
             scaleNum(inst, 'baseRange');
         }
@@ -1347,8 +1350,10 @@ export class Shogun extends Boss {
         }
     }
 
-    getActorGroundYForRenderScale(_renderScale = this.scaleMultiplier, actorRenderY = null, actorRenderH = this.actorBaseHeight, actorFootGroundOffset = 2) {
-        if (this.isEnemy) return this.groundY;
+    getActorGroundYForRenderScale(_renderScale = this.scaleMultiplier, actorRenderY = null, actorRenderH = this.actorBaseHeight, actorFootGroundOffset = 0) {
+        // 敵ボスおよびプレイヤー操作将軍の両方で同一の groundY を使用する
+        // （プレイヤー将軍は isEnemy=false だが、描画座標系は敵と同一であるべき）
+        if (this.isEnemy || this._playableOwner) return this.groundY;
 
         const modelHeight = Number.isFinite(actorRenderH) && actorRenderH > 0 ? actorRenderH : this.actorBaseHeight;
         const footOffset = Number.isFinite(actorFootGroundOffset) ? actorFootGroundOffset : 0;
@@ -1417,7 +1422,7 @@ export class Shogun extends Boss {
             : 1;
         const actorRenderW = this.actorBaseWidth || Math.max(1, Math.round(this.width / renderScale));
         const actorRenderH = this.actorBaseHeight || Math.max(1, Math.round(this.height / renderScale));
-        const actorFootGroundOffset = 2;
+        const actorFootGroundOffset = 0;
         const actorRenderX = this.x + (this.width - actorRenderW) * 0.5;
         const actorRenderY = this.y + (this.height - actorRenderH) * 0.62 + actorFootGroundOffset;
         // しゃがみ時のみY下方オフセット（立ち投げは元の位置）
@@ -1502,7 +1507,7 @@ export class Shogun extends Boss {
         };
     }
 
-    transformActorTrailPointToWorld(point, renderScale, actorFootGroundOffset = 2) {
+    transformActorTrailPointToWorld(point, renderScale, actorFootGroundOffset = 0) {
         if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return point;
         const scale = Number.isFinite(renderScale) && renderScale > 0 ? renderScale : 1;
         if (Math.abs(scale - 1) <= 0.001) return { ...point };
@@ -1525,7 +1530,7 @@ export class Shogun extends Boss {
         };
     }
 
-    renderDualBladeSlashTrailsAnchored(ctx, renderScale, actorFootGroundOffset = 2) {
+    renderDualBladeSlashTrailsAnchored(ctx, renderScale, actorFootGroundOffset = 0) {
         if (!this.actor || typeof this.actor.renderComboSlashTrail !== 'function') return;
         const bluePalette = { front: [130, 234, 255], back: [76, 154, 226] };
         const redPalette = { front: [255, 90, 90], back: [214, 74, 74] };
@@ -1818,7 +1823,7 @@ export class Shogun extends Boss {
         const renderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0 ? this.scaleMultiplier : 1;
         const actorRenderW = this.actorBaseWidth || Math.max(1, Math.round(this.width / renderScale));
         const actorRenderH = this.actorBaseHeight || Math.max(1, Math.round(this.height / renderScale));
-        const actorFootGroundOffset = 2;
+        const actorFootGroundOffset = 0;
         const actorRenderX = this.x + (this.width - actorRenderW) * 0.5;
         const actorRenderY = this.y + (this.height - actorRenderH) * 0.62 + actorFootGroundOffset;
 
@@ -1832,9 +1837,6 @@ export class Shogun extends Boss {
         this.actor.isGrounded = this.isGrounded;
         this.actor.motionTime = this.motionTime;
         this.actor.speed = this.speed;
-        if (!this.isEnemy) {
-            this.actor.characterType = 'shogun';
-        }
 
         const _oSpacing  = typeof this.actor.getSpecialCloneSpacing === 'function'
             ? this.actor.getSpecialCloneSpacing()
@@ -2305,7 +2307,7 @@ export class Shogun extends Boss {
         const renderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
             ? this.scaleMultiplier
             : 1;
-        const actorFootGroundOffset = 2;
+        const actorFootGroundOffset = 0;
         const actorX = this.x + this.width * 0.5 - this.actorBaseWidth * 0.5;
         const actorY = this.y + this.height * 0.62 - PLAYER.HEIGHT * 0.62 + actorFootGroundOffset;
         const profile = this.actor.buildComboAttackProfileWithTrail(step, {
@@ -2832,7 +2834,7 @@ export class Shogun extends Boss {
                 ? this.scaleMultiplier
                 : 1;
             const actorW = this.actorBaseWidth || Math.max(1, Math.round(this.width / renderScale));
-            const actorFootGroundOffset = 2;
+            const actorFootGroundOffset = 0;
             const actorX = this.x + this.width * 0.5 - actorW * 0.5;
             const actorY = this.y + this.height * 0.62 - PLAYER.HEIGHT * 0.62 + actorFootGroundOffset;
             const actorBoxes = this.actor.getAttackHitbox({
@@ -2878,6 +2880,55 @@ export class Shogun extends Boss {
         return null;
     }
 
+    // Enemy.render() は全敵共通の2.5Dシア変換 (ctx.transform(1,0,yawSkew,1,0,0)) を適用するが、
+    // 将軍は renderBody 内で独自のパースペクティブ変換を管理するため、
+    // 外部シアをスキップしてプレイヤー将軍と同一の垂直描画を行う。
+    render(ctx) {
+        if (!this.isAlive && !this.isDying) return;
+
+        ctx.save();
+
+        // 死亡演出中
+        if (this.isDying) {
+            const progress = this.deathTimer / this.deathDuration;
+            ctx.globalAlpha = 0.7 * (1 - progress);
+            this.renderAscensionEffect(ctx);
+            ctx.restore();
+            return;
+        }
+
+        // 被弾フラッシュ
+        if (this.hitTimer > 0) {
+            const hitRatio = Math.max(0, Math.min(1, this.hitTimer / 140));
+            const brightness = 150 + hitRatio * 130;
+            const saturation = Math.max(30, 100 - hitRatio * 60);
+            ctx.filter = `brightness(${brightness}%) saturate(${saturation}%)`;
+        }
+        // 無敵点滅
+        if (this.invincibleTimer > 0 && Math.floor(this.invincibleTimer / 70) % 2 === 0) {
+            ctx.globalAlpha *= 0.75;
+        }
+
+        // ── 2.5Dシア変換をスキップし、renderBody を直接呼び出す ──
+        this.renderBody(ctx);
+
+        // 成仏エフェクト
+        if (this.isDying) {
+            this.renderAscensionEffect(ctx);
+        }
+
+        // HPバー（ボスは画面上に巨大ゲージがあるため非表示）
+
+        // 飛び道具描画
+        if (this.projectiles) {
+            for (const p of this.projectiles) p.render(ctx);
+        }
+
+        ctx.filter = 'none';
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.restore();
+    }
+
     renderBody(ctx) {
         const odachi = this._subWeaponInstances.odachi;
         const kusa = this._subWeaponInstances.kusarigama;
@@ -2912,7 +2963,7 @@ export class Shogun extends Boss {
             : 1;
         const actorRenderW = this.actorBaseWidth || Math.max(1, Math.round(this.width / renderScale));
         const actorRenderH = this.actorBaseHeight || Math.max(1, Math.round(this.height / renderScale));
-        const actorFootGroundOffset = 2;
+        const actorFootGroundOffset = 0;
         const actorRenderX = this.x + (this.width - actorRenderW) * 0.5;
         const actorRenderY = this.y + (this.height - actorRenderH) * 0.62 + actorFootGroundOffset;
         this.actor.x           = actorRenderX;
@@ -2934,7 +2985,16 @@ export class Shogun extends Boss {
             ? this._subWeaponInstances.odachi
             : (this.currentSubWeapon && this.currentSubWeapon.name === '大太刀' ? this.currentSubWeapon : null);
 
+        const dir2d = this.facingRight ? 1 : -1;
+        const moveBias = Math.min(0.024, Math.abs(this.vx || 0) * 0.0038);
+        const attackBias = this.isAttacking ? 0.013 : 0;
+        const yawSkew = dir2d * (0.046 + moveBias + attackBias);
+        const pivotX = this.x + this.width * 0.5;
+        const pivotY = this.y + this.height * 0.62;
+
         const renderOpts = {
+            yawSkewCancel: { pivotX, pivotY, yawSkew, type: 'enemyInverse' },
+            _shogunExternalTransform: true,
             renderHeadbandTail: false,
             renderHeadband:     false,
             useLiveAccessories: false,
@@ -2952,17 +3012,6 @@ export class Shogun extends Boss {
             drawArmOverride:          (ctx, p) => this._drawShogunArm(ctx, p),
             drawHandOverride:         (ctx, p) => this._drawShogunHand(ctx, p),
             drawLegOverride:          (ctx, p) => this._drawShogunLeg(ctx, p),
-            // 大太刀の傾きをキャンセルするための yawSkew 逆変換情報
-            yawSkewCancel: (() => {
-                const dir2d = this.facingRight ? 1 : -1;
-                const pivotX = this.x + this.width * 0.5;
-                const pivotY = this.y + this.height * 0.62;
-                const moveBias = Math.min(0.024, Math.abs(this.vx || 0) * 0.0038);
-                const attackBias = this.isAttacking ? 0.013 : 0;
-                const yawSkew = dir2d * (0.046 + moveBias + attackBias);
-                return { pivotX, pivotY, yawSkew };
-            })(),
-            _shogunExternalTransform: true,
             // fadeOutTimer中はrenderSubWeaponArm内の大太刀render（isAttacking=true強制）を抑制し
             // renderBody末尾の専用フェードアウトブロックのみで描画する
             isOdachiPlantedOrFade: odachiGroundRenderInst ? (odachiGroundRenderInst.fadeOutTimer || 0) > 0 : false,
@@ -3266,19 +3315,13 @@ export class Shogun extends Boss {
         }
 
         // キャラ本体描画（hideBody時は hideBodyParts: true で体シルエットのみ非表示）
-        // 大太刀blade描画用に正しいactor.groundYを一時設定（自キャラ・敵共通: scale逆算式）
-        // actor.groundY + LANE_OFFSETがscale(renderScale)後に視覚的地面(this.groundY+LANE_OFFSET)と一致するよう逆算
-        const _savedActorGroundY = this.actor.groundY;
-        const _oShogunPivotY = this.y + this.height * 0.62;
-        this.actor.groundY = _oShogunPivotY + (this.groundY + LANE_OFFSET - _oShogunPivotY) / renderScale - LANE_OFFSET;
-        renderWithShogunTransform(() => {
-            const alpha = typeof this.ghostVeilAlpha === 'number' ? this.ghostVeilAlpha : 1.0;
-            this.actor.renderModel(ctx, actorRenderX, actorRenderY, this.facingRight, alpha, true, {
-                ...renderOpts,
-                hideBodyParts: !!this.hideBody,
-            });
+
+        this.actor.shogunYawSkew = dir2d * (0.046 + moveBias + attackBias);
+        const alpha = typeof this.ghostVeilAlpha === 'number' ? this.ghostVeilAlpha : 1.0;
+        this.actor.renderModel(ctx, actorRenderX, actorRenderY, this.facingRight, alpha, true, {
+            ...renderOpts,
+            hideBodyParts: !!this.hideBody,
         });
-        this.actor.groundY = _savedActorGroundY;
 
         // 二刀流Zコンボのトレイル（本体描画で得た刀アンカーを使って本体と同じ順で描画）
         if (typeof this.actor.updateDualBladeSlashTrails === 'function') {
@@ -3322,8 +3365,11 @@ export class Shogun extends Boss {
 
         // 奥義・分身: renderSpecial を使用（忍者と同一システム）
         if (this._ougiActive) {
-            const _ougiYawSkew    = renderOpts.yawSkewCancel.yawSkew;
-            const _ougiPivotY     = renderOpts.yawSkewCancel.pivotY;
+            const dir2d = this.facingRight ? 1 : -1;
+            const moveBias = Math.min(0.024, Math.abs(this.vx || 0) * 0.0038);
+            const attackBias = this.isAttacking ? 0.013 : 0;
+            const _ougiYawSkew    = dir2d * (0.046 + moveBias + attackBias);
+            const _ougiPivotY     = this.y + this.height * 0.62;
             const _cloneTransformPivotOffsetY = _ougiPivotY - actorRenderY;
             const _getCloneTransformPivotY = (cloneFootY) => {
                 if (!Number.isFinite(cloneFootY)) return _ougiPivotY;
@@ -3338,19 +3384,13 @@ export class Shogun extends Boss {
                     ctx.globalAlpha *= 0.72;
                     const clonePivotY = _getCloneTransformPivotY(_footY);
                     ctx.translate(clonePivotX, clonePivotY);
-                    ctx.transform(1, 0, -_ougiYawSkew / 0.982, 1, 0, 0);
-                    ctx.scale(1 / 0.982, 1);
+                    // 以前はここで独自に斜めパース(yawSkew)とスケール(1/0.982)をかけていたが、
+                    // 現在はrenderModel内部で将軍パースが自動適用されるため、ここでは適用しない。
                     ctx.translate(-clonePivotX, -clonePivotY);
-                    if (renderScale > 1.001) {
-                        ctx.translate(clonePivotX, clonePivotY);
-                        ctx.scale(renderScale, renderScale);
-                        ctx.translate(-clonePivotX, -clonePivotY);
-                    }
-                    // 分身の大太刀blade用groundY（自キャラ・敵共通式、pivotはclone個別）
-                    const _cloneSavedGroundY = this.actor.groundY;
-                    this.actor.groundY = clonePivotY + (this.groundY + LANE_OFFSET - clonePivotY) / renderScale - LANE_OFFSET;
+                    // 以前はここでrenderScale(2.2)をかけていたが、
+                    // renderModel内部でthis.scaleMultiplier(2.2)が再度かかるため二重拡大(4.84倍)になってしまう。
+                    // したがってここではスケールを適用しない。
                     fn();
-                    this.actor.groundY = _cloneSavedGroundY;
                     ctx.restore();
                 },
                 cloneModelOptions: (pos) => {
@@ -3360,9 +3400,10 @@ export class Shogun extends Boss {
                     const clonePivotY = _getCloneTransformPivotY(cloneFootY);
                     return {
                         ...renderOpts,
-                        yawSkewCancel: { pivotX: pos.x, pivotY: clonePivotY, yawSkew: _ougiYawSkew },
+                        yawSkewCancel: { pivotX: pos.x, pivotY: clonePivotY, yawSkew: _ougiYawSkew, type: 'enemyInverse' },
                         forceSubWeaponRender: false,
                         isOdachiPlantedOrFade: false,
+                        renderScale: 1.0
                     };
                 },
             });

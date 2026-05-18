@@ -2811,7 +2811,17 @@ export class Odachi extends SubWeapon {
 
         // --- 地面判定の基準 ---
         const baseGroundY = (player.previewMode && typeof player.groundY === 'number') ? player.groundY : player.groundY;
-        const maxTipY = baseGroundY + LANE_OFFSET;
+        const rawMaxTipY = baseGroundY + LANE_OFFSET;
+        
+        // --- 描画スケール補正 ---
+        // プレイヤーが描画時に拡大縮小される場合(scaleMultiplier)、地面(maxTipY)もpivotを基準に
+        // 視覚的に上下にずれるため、そのズレを逆算して物理的な目標Y座標を求める
+        const scale = player.scaleMultiplier || 1.0;
+        let maxTipY = rawMaxTipY;
+        if (Math.abs(scale - 1.0) > 0.001) {
+            const pivotY = player.y + player.height * 0.62;
+            maxTipY = pivotY + (rawMaxTipY - pivotY) / scale;
+        }
 
         // 非攻撃時は「構え」ポーズ
         if (!this.isAttacking) {
@@ -2909,7 +2919,9 @@ export class Odachi extends SubWeapon {
         const bladeEnd = (this.range + 18) + 8;
         const maxTipY = player.groundY + LANE_OFFSET;
         const handHeightRatio = 0.125;
-        return maxTipY - bladeEnd - (player.height * handHeightRatio);
+        const scale = player.scaleMultiplier || 1.0;
+        const scaledBladeEnd = bladeEnd * scale;
+        return maxTipY - scaledBladeEnd - (player.height * handHeightRatio * scale);
     }
 
     localToWorldOnPose(pose, localX, localY = 0) {
@@ -2983,8 +2995,8 @@ export class Odachi extends SubWeapon {
         const tierSpeedScale = [1.0, 1.08, 1.2, 1.5][subWeaponTier];
         const speedScale = 1 + (rangeScale - 1) * 0.9;
         const lifeScale = 1 + (rangeScale - 1) * 1.25;
-        // 将軍は scale(2.2) で描画されるため world speed を renderScale で割って視覚速度を忍者と揃える
-        const ownerRenderScale = (this.isShogunOdachi && this.owner?.scaleMultiplier > 1)
+        // 描画時にスケールされる場合、world speed を renderScale で割って視覚速度を揃える
+        const ownerRenderScale = (this.owner && this.owner.scaleMultiplier > 1)
             ? this.owner.scaleMultiplier : 1;
         const mainLife = Math.round(420 * lifeScale * tierLifeScale);
         const subLife = Math.round(320 * lifeScale * tierLifeScale);
@@ -3046,8 +3058,8 @@ export class Odachi extends SubWeapon {
                 if (this.owner) {
                     // 1. 上昇時 (rise フェーズ): Lv に応じて物理的に上昇
                     if (progress < this.liftEnd) {
-                        // 将軍は2.2倍スケールなので、同じ視覚的高さに見せるためliftPowerをsqrt(2.2)倍にする
-                        const ownerScaleSqrt = (this.isShogunOdachi && this.owner?.scaleMultiplier > 1)
+                        // 描画スケールに合わせて持ち上げ量も調整する
+                        const ownerScaleSqrt = (this.owner && this.owner.scaleMultiplier > 1)
                             ? Math.sqrt(this.owner.scaleMultiplier) : 1;
                         const liftPower = (-12 - (subWeaponTier * 8.5)) * ownerScaleSqrt; // Lv3 で最大上昇力
                         // 最初の一撃で勢いをつけ、残りは維持
@@ -3080,7 +3092,10 @@ export class Odachi extends SubWeapon {
 
                     if (tipY >= maxTipY - 2) {
                         // 接地した瞬間に「ぶら下がり高度」で停止
-                        const targetY = maxTipY - bladeEnd - (pose.phase === 'plunge' ? 16 : 7.5);
+                        const ownerScale = this.owner.scaleMultiplier || 1.0;
+                        const scaledBladeEnd = bladeEnd * ownerScale;
+                        const handOffsetUnscaled = (pose.phase === 'plunge' ? 16 : 7.5);
+                        const targetY = maxTipY - scaledBladeEnd - (handOffsetUnscaled - 12) * ownerScale;
                         if (this.owner.y > targetY) {
                             this.owner.y = targetY;
                             this.owner.vy = 0;
@@ -3091,8 +3106,8 @@ export class Odachi extends SubWeapon {
                                 pivotX: this.owner.x + this.owner.width * 0.5,
                                 pivotY: this.owner.y + this.owner.height * 0.62
                             };
-                            // handX と impactX を一致させるため player.width ベースで計算
-                            const _impactDrawW0 = this.isShogunOdachi ? 48 : this.owner.width;
+                            // handX と impactX を一致させるため player.width ではなく 48 (actorRenderW相当)をベースに計算
+                            const _impactDrawW0 = (this.owner && this.owner.characterType === 'shogun') ? 48 : this.owner.width;
                             this.impactX = this.impactFrozen.pivotX + pose.direction * (_impactDrawW0 * 0.325);
                             this.impactY = maxTipY;
                             this.impactFlashTimer = 170;
@@ -3122,7 +3137,7 @@ export class Odachi extends SubWeapon {
                             };
                         }
                         const pose = this.getPose(this.owner);
-                        const _impactDrawW1 = this.isShogunOdachi ? 48 : this.owner.width;
+                        const _impactDrawW1 = (this.owner && this.owner.characterType === 'shogun') ? 48 : this.owner.width;
                         this.impactX = this.impactFrozen.pivotX + pose.direction * (_impactDrawW1 * 0.325);
                         this.impactY = this.owner.groundY + LANE_OFFSET;
                     }
@@ -3148,7 +3163,7 @@ export class Odachi extends SubWeapon {
                             };
                         }
                         const pose = this.getPose(this.owner);
-                        const _impactDrawW2 = this.isShogunOdachi ? 48 : this.owner.width;
+                        const _impactDrawW2 = (this.owner && this.owner.characterType === 'shogun') ? 48 : this.owner.width;
                         this.impactX = this.impactFrozen.pivotX + pose.direction * (_impactDrawW2 * 0.325);
                         this.impactY = this.owner.groundY + LANE_OFFSET;
                     }
