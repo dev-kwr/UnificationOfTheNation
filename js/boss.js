@@ -2958,7 +2958,12 @@ export class Shogun extends Boss {
             : 1;
         const actorRenderW = this.actorBaseWidth || Math.max(1, Math.round(this.width / renderScale));
         const actorRenderH = this.actorBaseHeight || Math.max(1, Math.round(this.height / renderScale));
-        const actorFootGroundOffset = 0;
+        // Scale変換後の視覚的足元を物理的足元に合わせる補正
+        const _drawH = PLAYER.HEIGHT;
+        const _pivotH = actorRenderH * 0.62;
+        const actorFootGroundOffset = (renderScale > 1.001)
+            ? this.height * 0.38 - (_drawH - _pivotH) * renderScale
+            : 0;
         const actorRenderX = this.x + (this.width - actorRenderW) * 0.5;
         const actorRenderY = this.y + (this.height - actorRenderH) * 0.62 + actorFootGroundOffset;
         this.actor.x           = actorRenderX;
@@ -3307,7 +3312,8 @@ export class Shogun extends Boss {
             // fadeout開始前のフレームでpivotとactor位置を保存（fadeout中はbosspivotが変わるため固定が必要）
             if ((odachiGroundRenderInst.fadeOutTimer || 0) <= 0) {
                 odachiGroundRenderInst._lastPlantedPivotX = this.x + this.width * 0.5;
-                odachiGroundRenderInst._lastPlantedPivotY = this.y + this.height * 0.62;
+                // renderModel の実際の scale pivot を保存（footOffset 込み）
+                odachiGroundRenderInst._lastPlantedPivotY = actorRenderY + actorRenderH * 0.62;
                 odachiGroundRenderInst._lastPlantedActorX = actorRenderX;
                 odachiGroundRenderInst._lastPlantedActorY = actorRenderY;
             }

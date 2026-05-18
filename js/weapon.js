@@ -2924,7 +2924,16 @@ export class Odachi extends SubWeapon {
         const handHeightRatio = 0.125;
         const scale = player.scaleMultiplier || 1.0;
         const scaledBladeEnd = bladeEnd * scale;
-        return maxTipY - scaledBladeEnd - (player.height * handHeightRatio * scale);
+        let result = maxTipY - scaledBladeEnd - (player.height * handHeightRatio * scale);
+        // renderBody の actorFootGroundOffset がactorを上方にずらす場合、
+        // その分 boss.y を下げて相殺し、剣先が地面に届くようにする
+        if (scale > 1.001 && player.actorBaseHeight) {
+            const _drawH = 72; // PLAYER.HEIGHT
+            const _pivotH = player.actorBaseHeight * 0.62;
+            const footOffset = player.height * 0.38 - (_drawH - _pivotH) * scale;
+            result -= footOffset; // footOffset は負値なので boss.y を下げる
+        }
+        return result;
     }
 
     localToWorldOnPose(pose, localX, localY = 0) {
