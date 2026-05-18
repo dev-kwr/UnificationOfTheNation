@@ -1866,10 +1866,7 @@ export class Shogun extends Boss {
 
         // 奥義スロット管理（起動/停止イベント駆動 + ゲーム内自動トリガー）
         {
-            // ゲーム内トリガー: 敵ボスとしてHP50%以下で奥義を自動発動（プレイヤー将軍は除外）
-            if (!this._ougiActive && this.isEnemy && this.hp > 0 && this.maxHp > 0 && this.hp <= this.maxHp * 0.5) {
-                this._ougiActive = true;
-            }
+            // 敵ボスの自動奥義発動は無効（分身はプレイヤー将軍のみ使用）
 
             const _playableOwner = (!this.isEnemy && this._playableOwner && this._playableOwner.isSpecialCloneCombatActive && this._playableOwner.isSpecialCloneCombatActive())
                 ? this._playableOwner
@@ -2963,7 +2960,14 @@ export class Shogun extends Boss {
             : 1;
         const actorRenderW = this.actorBaseWidth || Math.max(1, Math.round(this.width / renderScale));
         const actorRenderH = this.actorBaseHeight || Math.max(1, Math.round(this.height / renderScale));
-        const actorFootGroundOffset = 0;
+        // Scale変換後の視覚的足元が物理的足元(this.y + this.height)と一致するよう補正する。
+        // renderModel のpivotは actorRenderY + actorRenderH * 0.62 に置かれるため、
+        // scale > 1 のとき pivot以下の描画領域が拡大され足元が下方にずれる。
+        const drawH = PLAYER.HEIGHT; // renderModel のデフォルト drawH = 72
+        const pivotH = actorRenderH * 0.62;
+        const actorFootGroundOffset = (renderScale > 1.001)
+            ? this.height * 0.38 - (drawH - pivotH) * renderScale
+            : 0;
         const actorRenderX = this.x + (this.width - actorRenderW) * 0.5;
         const actorRenderY = this.y + (this.height - actorRenderH) * 0.62 + actorFootGroundOffset;
         this.actor.x           = actorRenderX;

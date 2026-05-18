@@ -2842,10 +2842,10 @@ export class Odachi extends SubWeapon {
         if (this.hasImpacted) {
             phase = 'planted';
             rotation = Math.PI * 0.5;
-            // frozenCenterX（着地時に固定）を使って剣と衝撃波の基準点を一致させる
-            const frozenCenterX = (this.impactFrozen && Number.isFinite(this.impactFrozen.pivotX))
-                ? this.impactFrozen.pivotX : centerX;
-            const handX = frozenCenterX + direction * (player.width * 0.325);
+            // 大太刀のhandXはボディの視覚中心(centerX)を基準にする。
+            // frozenCenterX(=scale pivot)はoriginalW/2基準でdrawW/2と4pxずれるため
+            // スケール後に左右非対称(8.8px差)を生む。
+            const handX = centerX + direction * (player.width * 0.325);
             // 身長比率に基づいて手の高さを計算 (プレイヤー 60px に対し 7.5px = 0.125)
             const handY = player.y + player.height * 0.125;
             
@@ -3106,9 +3106,9 @@ export class Odachi extends SubWeapon {
                                 pivotX: this.owner.x + this.owner.width * 0.5,
                                 pivotY: this.owner.y + this.owner.height * 0.62
                             };
-                            // handX と impactX を一致させるため player.width ではなく 48 (actorRenderW相当)をベースに計算
-                            const _impactDrawW0 = (this.owner && this.owner.characterType === 'shogun') ? 48 : this.owner.width;
-                            this.impactX = this.impactFrozen.pivotX + pose.direction * (_impactDrawW0 * 0.325);
+                            // planted状態のhandXを取得してimpactXと一致させる
+                            const plantedPose = this.getPose(this.owner);
+                            this.impactX = plantedPose.handX;
                             this.impactY = maxTipY;
                             this.impactFlashTimer = 170;
                             this.spawnImpactWaves();
@@ -3137,8 +3137,7 @@ export class Odachi extends SubWeapon {
                             };
                         }
                         const pose = this.getPose(this.owner);
-                        const _impactDrawW1 = (this.owner && this.owner.characterType === 'shogun') ? 48 : this.owner.width;
-                        this.impactX = this.impactFrozen.pivotX + pose.direction * (_impactDrawW1 * 0.325);
+                        this.impactX = pose.handX;
                         this.impactY = this.owner.groundY + LANE_OFFSET;
                     }
                     this.impactFlashTimer = 170;
@@ -3163,8 +3162,7 @@ export class Odachi extends SubWeapon {
                             };
                         }
                         const pose = this.getPose(this.owner);
-                        const _impactDrawW2 = (this.owner && this.owner.characterType === 'shogun') ? 48 : this.owner.width;
-                        this.impactX = this.impactFrozen.pivotX + pose.direction * (_impactDrawW2 * 0.325);
+                        this.impactX = pose.handX;
                         this.impactY = this.owner.groundY + LANE_OFFSET;
                     }
                     this.impactFlashTimer = 170;
