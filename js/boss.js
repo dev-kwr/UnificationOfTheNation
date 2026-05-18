@@ -1351,9 +1351,7 @@ export class Shogun extends Boss {
     }
 
     getActorGroundYForRenderScale(_renderScale = this.scaleMultiplier, actorRenderY = null, actorRenderH = this.actorBaseHeight, actorFootGroundOffset = 0) {
-        // 敵ボスおよびプレイヤー操作将軍の両方で同一の groundY を使用する
-        // （プレイヤー将軍は isEnemy=false だが、描画座標系は敵と同一であるべき）
-        if (this.isEnemy || this._playableOwner) return this.groundY;
+        if (this.isEnemy) return this.groundY;
 
         const modelHeight = Number.isFinite(actorRenderH) && actorRenderH > 0 ? actorRenderH : this.actorBaseHeight;
         const footOffset = Number.isFinite(actorFootGroundOffset) ? actorFootGroundOffset : 0;
@@ -2960,14 +2958,7 @@ export class Shogun extends Boss {
             : 1;
         const actorRenderW = this.actorBaseWidth || Math.max(1, Math.round(this.width / renderScale));
         const actorRenderH = this.actorBaseHeight || Math.max(1, Math.round(this.height / renderScale));
-        // Scale変換後の視覚的足元が物理的足元(this.y + this.height)と一致するよう補正する。
-        // renderModel のpivotは actorRenderY + actorRenderH * 0.62 に置かれるため、
-        // scale > 1 のとき pivot以下の描画領域が拡大され足元が下方にずれる。
-        const drawH = PLAYER.HEIGHT; // renderModel のデフォルト drawH = 72
-        const pivotH = actorRenderH * 0.62;
-        const actorFootGroundOffset = (renderScale > 1.001)
-            ? this.height * 0.38 - (drawH - pivotH) * renderScale
-            : 0;
+        const actorFootGroundOffset = 0;
         const actorRenderX = this.x + (this.width - actorRenderW) * 0.5;
         const actorRenderY = this.y + (this.height - actorRenderH) * 0.62 + actorFootGroundOffset;
         this.actor.x           = actorRenderX;
@@ -2984,6 +2975,10 @@ export class Shogun extends Boss {
         
         // 共通分身のanchor計算から出るcloneDrawYを、将軍本体のactorRenderYへ一致させる。
         this.actor.groundY = this.getActorGroundYForRenderScale(renderScale, actorRenderY, actorRenderH, actorFootGroundOffset);
+        // 大太刀getPoseのscale補正用：ワールド座標のgroundYと実際のscale pivot高さを渡す
+        // （actor.groundYはactor座標系、_worldGroundYはワールド座標系で用途が異なる）
+        this.actor._worldGroundY = this.groundY;
+        this.actor._scalePivotH = actorRenderH * 0.62; // renderModelの実際のpivot = originalH * 0.62 = 37.2
 
         const odachiGroundRenderInst = this._subWeaponKey === 'odachi'
             ? this._subWeaponInstances.odachi

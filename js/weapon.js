@@ -2810,16 +2810,19 @@ export class Odachi extends SubWeapon {
         const bladeEnd = bladeLen + 8; // getBladeGeometry と完全に同期
 
         // --- 地面判定の基準 ---
-        const baseGroundY = (player.previewMode && typeof player.groundY === 'number') ? player.groundY : player.groundY;
+        // _worldGroundY が利用可能な場合はワールド座標のgroundYを使用する
+        // （actor.groundY はactor座標系で通常描画用、大太刀はワールド座標が必要）
+        const baseGroundY = Number.isFinite(player._worldGroundY) ? player._worldGroundY : player.groundY;
         const rawMaxTipY = baseGroundY + LANE_OFFSET;
         
         // --- 描画スケール補正 ---
-        // プレイヤーが描画時に拡大縮小される場合(scaleMultiplier)、地面(maxTipY)もpivotを基準に
-        // 視覚的に上下にずれるため、そのズレを逆算して物理的な目標Y座標を求める
+        // renderModel は originalH * 0.62 を pivot にして scale する。
+        // _scalePivotH が渡されている場合はそれを使用（drawH * 0.62 ではなく originalH * 0.62）
         const scale = player.scaleMultiplier || 1.0;
         let maxTipY = rawMaxTipY;
         if (Math.abs(scale - 1.0) > 0.001) {
-            const pivotY = player.y + player.height * 0.62;
+            const pivotH = Number.isFinite(player._scalePivotH) ? player._scalePivotH : (player.height * 0.62);
+            const pivotY = player.y + pivotH;
             maxTipY = pivotY + (rawMaxTipY - pivotY) / scale;
         }
 
@@ -3106,9 +3109,11 @@ export class Odachi extends SubWeapon {
                                 pivotX: this.owner.x + this.owner.width * 0.5,
                                 pivotY: this.owner.y + this.owner.height * 0.62
                             };
-                            // planted状態のhandXを取得してimpactXと一致させる
-                            const plantedPose = this.getPose(this.owner);
-                            this.impactX = plantedPose.handX;
+                            // impactX は描画時のactor座標系で計算する（renderModel内のgetPoseと一致させる）
+                            // actor centerX = pivotX + (drawW/2 - originalW/2) = pivotX + 4
+                            // handX = actor centerX + direction * drawW * 0.325
+                            const _actorCenterX = this.impactFrozen.pivotX + ((this.owner.actorBaseWidth ? 48 : this.owner.width) - (this.owner.actorBaseWidth || this.owner.width)) * 0.5;
+                            this.impactX = _actorCenterX + pose.direction * ((this.owner.actorBaseWidth ? 48 : this.owner.width) * 0.325);
                             this.impactY = maxTipY;
                             this.impactFlashTimer = 170;
                             this.spawnImpactWaves();
@@ -3137,7 +3142,8 @@ export class Odachi extends SubWeapon {
                             };
                         }
                         const pose = this.getPose(this.owner);
-                        this.impactX = pose.handX;
+                        const _actorCenterX1 = this.impactFrozen.pivotX + ((this.owner.actorBaseWidth ? 48 : this.owner.width) - (this.owner.actorBaseWidth || this.owner.width)) * 0.5;
+                        this.impactX = _actorCenterX1 + pose.direction * ((this.owner.actorBaseWidth ? 48 : this.owner.width) * 0.325);
                         this.impactY = this.owner.groundY + LANE_OFFSET;
                     }
                     this.impactFlashTimer = 170;
@@ -3161,8 +3167,9 @@ export class Odachi extends SubWeapon {
                                 pivotY: this.owner.y + this.owner.height * 0.62
                             };
                         }
-                        const pose = this.getPose(this.owner);
-                        this.impactX = pose.handX;
+                        const pose2 = this.getPose(this.owner);
+                        const _actorCenterX2 = this.impactFrozen.pivotX + ((this.owner.actorBaseWidth ? 48 : this.owner.width) - (this.owner.actorBaseWidth || this.owner.width)) * 0.5;
+                        this.impactX = _actorCenterX2 + pose2.direction * ((this.owner.actorBaseWidth ? 48 : this.owner.width) * 0.325);
                         this.impactY = this.owner.groundY + LANE_OFFSET;
                     }
                     this.impactFlashTimer = 170;
