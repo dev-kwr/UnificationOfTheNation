@@ -365,7 +365,7 @@ export class ShurikenProjectile {
                         closest = e;
                     }
                 }
-                if (Math.random() < 0.1) console.log('[手裏剣DEBUG] homing target found:', closest);
+                // (debug log removed)
                 const target = getTargetPoint(closest);
                 const dx = target.x - this.x;
                 const dy = target.y - this.y;

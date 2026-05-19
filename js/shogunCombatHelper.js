@@ -495,7 +495,6 @@ export function applyShogunCombat(player) {
     // ── 通常Zコンボ（preview: triggerNormalAttack） ──
     player._shogunTriggerNormalAttack = function(boss) {
         if (boss._subTimer > 0) {
-            console.log('[将軍DEBUG] triggerNormalAttack blocked by _subTimer:', boss._subTimer);
             return;
         }
 
@@ -537,7 +536,6 @@ export function applyShogunCombat(player) {
             this._shogunComboStep = nextStep;
             this._shogunComboWindowTimer = 460;
             boss._comboPendingSteps = [nextStep];
-            console.log('[将軍DEBUG] combo queued step:', nextStep, 'current:', currentStep);
             return;
         }
 
@@ -556,11 +554,6 @@ export function applyShogunCombat(player) {
         this._shogunComboWindowTimer = 460;
         boss._comboPendingSteps = [nextStep];
         boss._startNextComboStep();
-        console.log('[将軍DEBUG] combo started step:', nextStep, {
-            '_attackTimer': boss._attackTimer,
-            '_currentComboStep': boss._currentComboStep,
-            'comboWindow': this._shogunComboWindowTimer,
-        });
     };
 
     // ── 二刀流Zコンボ（preview: triggerDualAttack + fireDualSwing） ──
@@ -642,7 +635,6 @@ export function applyShogunCombat(player) {
     player._shogunTriggerSubAction = function(boss) {
         // 他のアクション中は発動不可（preview: isBusyWithAnotherAction）
         if (boss._attackTimer > 0 || (boss._subTimer > 0 && boss._subAction !== '二刀_Z')) {
-            console.log('[将軍DEBUG] triggerSubAction blocked:', { _attackTimer: boss._attackTimer, _subTimer: boss._subTimer, _subAction: boss._subAction });
             return;
         }
 
@@ -651,7 +643,6 @@ export function applyShogunCombat(player) {
         const realWeapon = this.currentSubWeapon;
         this._shogunGetterBypass = false;
         if (!realWeapon) {
-            console.log('[将軍DEBUG] triggerSubAction: no realWeapon');
             return;
         }
 
@@ -673,14 +664,12 @@ export function applyShogunCombat(player) {
 
         const weaponKey = SHOGUN_WEAPON_KEY_BY_NAME[realWeapon.name];
         if (!weaponKey) {
-            console.log('[将軍DEBUG] triggerSubAction: unknown weapon name:', realWeapon.name);
             return;
         }
 
         const inst = boss._subWeaponInstances[weaponKey];
         syncShogunProgression(this, boss);
         if (inst && typeof inst.canUse === 'function' && !inst.canUse()) {
-            console.log('[将軍DEBUG] triggerSubAction: canUse() returned false for', weaponKey);
             return;
         }
 
@@ -703,19 +692,6 @@ export function applyShogunCombat(player) {
 
         boss._subTimer = duration;
         boss._subWeaponKey = weaponKey;
-
-        console.log('[将軍DEBUG] triggerSubAction SUCCESS:', {
-            weaponKey,
-            duration,
-            'inst.isAttacking': inst?.isAttacking,
-            'inst.totalDuration': inst?.totalDuration,
-            'inst.attackTimer': inst?.attackTimer,
-            'boss._subTimer': boss._subTimer,
-            'boss._subAction': boss._subAction,
-            'boss.isAttacking': boss.isAttacking,
-            'boss.vy': boss.vy,
-            'boss.isGrounded': boss.isGrounded,
-        });
     };
 
     // ================================================================
@@ -905,24 +881,6 @@ export function applyShogunCombat(player) {
         const moveBias = Math.min(0.024, Math.abs(this.vx || 0) * 0.0038);
         const attackBias = this.isAttacking ? 0.013 : 0;
         this.shogunYawSkew = dir2d * (0.046 + moveBias + attackBias);
-
-        // 地面デバッグ（2秒ごと）
-        this._groundDebugTimer = (this._groundDebugTimer || 0) + deltaMs;
-        if (this._groundDebugTimer > 2000) {
-            this._groundDebugTimer = 0;
-            const expectedFeet = this.groundY + LANE_OFFSET;
-            console.log('[将軍GROUND]', {
-                'player.y': Math.round(this.y),
-                'player.h': this.height,
-                'feet': Math.round(this.y + this.height),
-                'boss.y': Math.round(boss.y),
-                'boss.h': boss.height,
-                'bossFeet': Math.round(boss.y + boss.height),
-                'groundY': this.groundY,
-                'expected': expectedFeet,
-                'diff': Math.round(this.y + this.height - expectedFeet),
-            });
-        }
     };
 
     // ================================================================

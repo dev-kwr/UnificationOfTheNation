@@ -1922,6 +1922,19 @@ export class Shogun extends Boss {
                     }
                 }
             }
+            // slot[0]（本体）の位置は奥義の有無に関わらず毎フレーム更新する。
+            // updateSpecialCloneSlashTrails がトレイルの座標基準として参照するため、
+            // 更新しないとステージ開始時の座標で固定され剣筋がずれる。
+            {
+                const pos0 = this.actor.specialClonePositions[0];
+                if (pos0) {
+                    pos0.prevX = pos0.x;
+                    pos0.x = actorRenderX + actorRenderW * 0.5;
+                    pos0.y = actorRenderY;
+                    pos0.facingRight = this.facingRight;
+                    pos0.renderVx = this.vx;
+                }
+            }
             this.actor.specialCloneAutoAiEnabled = _playableOwner
                 ? !!_playableOwner.specialCloneAutoAiEnabled
                 : this.getActorSpecialCloneTier() >= 3;
@@ -3210,8 +3223,8 @@ export class Shogun extends Boss {
                 if (!Array.isArray(points) || points.length === 0 || Math.abs(renderScale - 1) <= 0.001) {
                     return points;
                 }
-                const latestStep = points[points.length - 1] && points[points.length - 1].step;
-                if (latestStep !== 3) return points;
+                // 全ステップでポイントごとにscaleを適用（忍者と同じ方式）
+                // 各ポイントの記録時のplayer位置をpivotにして拡大する
                 return points.map((p) => {
                     if (
                         !p ||
@@ -3233,7 +3246,20 @@ export class Shogun extends Boss {
                             : p.centerX,
                         centerY: Number.isFinite(p.centerY)
                             ? pivotY + (p.centerY - pivotY) * renderScale
-                            : p.centerY
+                            : p.centerY,
+                        // ベジェ曲線制御点もscale
+                        trailCurveStartX: Number.isFinite(p.trailCurveStartX)
+                            ? pivotX + (p.trailCurveStartX - pivotX) * renderScale : p.trailCurveStartX,
+                        trailCurveStartY: Number.isFinite(p.trailCurveStartY)
+                            ? pivotY + (p.trailCurveStartY - pivotY) * renderScale : p.trailCurveStartY,
+                        trailCurveControlX: Number.isFinite(p.trailCurveControlX)
+                            ? pivotX + (p.trailCurveControlX - pivotX) * renderScale : p.trailCurveControlX,
+                        trailCurveControlY: Number.isFinite(p.trailCurveControlY)
+                            ? pivotY + (p.trailCurveControlY - pivotY) * renderScale : p.trailCurveControlY,
+                        trailCurveEndX: Number.isFinite(p.trailCurveEndX)
+                            ? pivotX + (p.trailCurveEndX - pivotX) * renderScale : p.trailCurveEndX,
+                        trailCurveEndY: Number.isFinite(p.trailCurveEndY)
+                            ? pivotY + (p.trailCurveEndY - pivotY) * renderScale : p.trailCurveEndY,
                     };
                 });
             };
@@ -3291,35 +3317,19 @@ export class Shogun extends Boss {
             };
             for (const [key, groupPoints] of groupedTrails.entries()) {
                 if (!groupPoints || groupPoints.length === 0) continue;
-                const anchorPoint = groupPoints[0];
-                if (!this._comboTrailRenderAnchors.has(key)) {
-                    const originX = Number.isFinite(anchorPoint.playerX) ? anchorPoint.playerX : (fallbackX - actorRenderW * 0.5);
-                    const originY = Number.isFinite(anchorPoint.playerY) ? anchorPoint.playerY : (fallbackY - PLAYER.HEIGHT * 0.62);
-                    this._comboTrailRenderAnchors.set(key, {
-                        pivotX: originX + actorRenderW * 0.5,
-                        pivotY: originY + PLAYER.HEIGHT * 0.62
-                    });
-                }
-                const anchor = this._comboTrailRenderAnchors.get(key);
-                const pivotX = anchor.pivotX;
-                const pivotY = anchor.pivotY;
-                const step = groupPoints[groupPoints.length - 1] && groupPoints[groupPoints.length - 1].step;
-                const usesPerSampleScale = step === 3;
+                // 全ステップでポイントごとのscaleを適用（ctx.scaleは使わない）
+                const renderPoints = scaleSampledTrailPoints(
+                    alignFixedCurveToSampledTip(groupPoints)
+                );
+                const pivotX = this.x + this.width * 0.5;
+                const pivotY = actorRenderY + actorRenderH * 0.62;
                 ctx.save();
-                if (!usesPerSampleScale && Math.abs(renderScale - 1) > 0.001) {
-                    ctx.translate(pivotX, pivotY);
-                    ctx.scale(renderScale, renderScale);
-                    ctx.translate(-pivotX, -pivotY);
-                }
-                const renderPoints = usesPerSampleScale
-                    ? scaleSampledTrailPoints(groupPoints)
-                    : alignFixedCurveToSampledTip(groupPoints);
                 this.actor.renderComboSlashTrail(ctx, {
                     points: renderPoints,
                     centerX: pivotX,
                     centerY: pivotY,
                     trailWidthScale: baseTrailScale,
-                    physicalScale: usesPerSampleScale ? renderScale : 1,
+                    physicalScale: renderScale,
                     boostActive: baseTrailScale > 1.01 && this._attackTimer > 0,
                     attackState: {
                         isAttacking: this.isAttacking,
