@@ -1814,6 +1814,17 @@ export class Shogun extends Boss {
 
         const deltaMs = deltaTime * 1000;
         this._lastDeltaMs = deltaMs;
+
+        if (typeof this.actor.updateComboSlashTrail === 'function') {
+            this.actor.updateComboSlashTrail(deltaMs);
+        }
+        if (typeof this.actor.updateDualBladeSlashTrails === 'function') {
+            this.actor.updateDualBladeSlashTrails(deltaMs);
+        }
+        if (typeof this.actor.updateSpecialCloneSlashTrails === 'function') {
+            this.actor.updateSpecialCloneSlashTrails(deltaMs);
+        }
+
         if (this._shurikenVisualTimer > 0) {
             this._shurikenVisualTimer = Math.max(0, this._shurikenVisualTimer - deltaMs);
         }
@@ -2317,43 +2328,19 @@ export class Shogun extends Boss {
             : 1;
         const actorFootGroundOffset = 0;
         const actorX = this.x + this.width * 0.5 - this.actorBaseWidth * 0.5;
-        const actorY = this.y + this.height * 0.62 - PLAYER.HEIGHT * 0.62 + actorFootGroundOffset;
+        const actorH = this.actorBaseHeight || Math.max(1, Math.round(this.height / renderScale));
+        const actorY = this.y + this.height * 0.62 - actorH * 0.62 + actorFootGroundOffset;
         const profile = this.actor.buildComboAttackProfileWithTrail(step, {
             x: actorX,
             y: actorY,
             width: this.actorBaseWidth,
-            height: PLAYER.HEIGHT,
+            height: actorH,
             facingRight: this.facingRight,
             isCrouching: false,
             vx: this.vx,
             vy: this.vy,
             speed: this.speed
         });
-        if ((step === 4 || step === 5) && renderScale > 1.001) {
-            const sweepScale = 1 / renderScale;
-            const pivotX = actorX + this.actorBaseWidth * 0.5;
-            const pivotY = actorY + PLAYER.HEIGHT * 0.62;
-            if (Number.isFinite(pivotX) && Number.isFinite(pivotY)) {
-                if (Number.isFinite(profile.trailCurveStartX)) {
-                    profile.trailCurveStartX = pivotX + (profile.trailCurveStartX - pivotX) * sweepScale;
-                }
-                if (Number.isFinite(profile.trailCurveStartY)) {
-                    profile.trailCurveStartY = pivotY + (profile.trailCurveStartY - pivotY) * sweepScale;
-                }
-                if (Number.isFinite(profile.trailCurveControlX)) {
-                    profile.trailCurveControlX = pivotX + (profile.trailCurveControlX - pivotX) * sweepScale;
-                }
-                if (Number.isFinite(profile.trailCurveControlY)) {
-                    profile.trailCurveControlY = pivotY + (profile.trailCurveControlY - pivotY) * sweepScale;
-                }
-                if (Number.isFinite(profile.trailCurveEndX)) {
-                    profile.trailCurveEndX = pivotX + (profile.trailCurveEndX - pivotX) * sweepScale;
-                }
-                if (Number.isFinite(profile.trailCurveEndY)) {
-                    profile.trailCurveEndY = pivotY + (profile.trailCurveEndY - pivotY) * sweepScale;
-                }
-            }
-        }
         profile.trailAttackId = ++this.actor.comboSlashTrailAttackSerial;
         const dur = Math.max(1, profile.durationMs || 200);
         this._currentComboStep = step;
@@ -2681,6 +2668,7 @@ export class Shogun extends Boss {
                 this._currentAttackProfile = null;
             }
         }
+
     }
 
     _fireSubWeapon(type) {
@@ -2842,9 +2830,10 @@ export class Shogun extends Boss {
                 ? this.scaleMultiplier
                 : 1;
             const actorW = this.actorBaseWidth || Math.max(1, Math.round(this.width / renderScale));
+            const actorH = this.actorBaseHeight || Math.max(1, Math.round(this.height / renderScale));
             const actorFootGroundOffset = 0;
             const actorX = this.x + this.width * 0.5 - actorW * 0.5;
-            const actorY = this.y + this.height * 0.62 - PLAYER.HEIGHT * 0.62 + actorFootGroundOffset;
+            const actorY = this.y + this.height * 0.62 - actorH * 0.62 + actorFootGroundOffset;
             const actorBoxes = this.actor.getAttackHitbox({
                 state: {
                     isAttacking: true,
@@ -2853,14 +2842,14 @@ export class Shogun extends Boss {
                     x: actorX,
                     y: actorY,
                     width: actorW,
-                    height: PLAYER.HEIGHT,
+                    height: actorH,
                     facingRight: this.facingRight,
                     isCrouching: false
                 }
             });
             if (actorBoxes) {
                 const pivotX = actorX + actorW * 0.5;
-                const pivotY = actorY + PLAYER.HEIGHT * 0.62;
+                const pivotY = actorY + actorH * 0.62;
                 const toWorldBox = (box) => ({
                     ...box,
                     x: pivotX + (box.x - pivotX) * renderScale,
@@ -3150,10 +3139,6 @@ export class Shogun extends Boss {
         const shouldUpdateBodyTrail = this._ougiActive ||
             this._attackTimer > 0 ||
             (Array.isArray(bodyTrailPoints) && bodyTrailPoints.length > 0);
-        if (shouldUpdateBodyTrail && typeof this.actor.updateSpecialCloneSlashTrails === 'function') {
-            const trailDeltaMs = (typeof this._lastDeltaMs === 'number') ? this._lastDeltaMs : 16;
-            this.actor.updateSpecialCloneSlashTrails(trailDeltaMs);
-        }
 
         const renderWithShogunTransform = (drawFn) => {
             const dir2d = this.facingRight ? 1 : -1;
@@ -3234,9 +3219,9 @@ export class Shogun extends Boss {
                         return p;
                     }
                     const originX = Number.isFinite(p.playerX) ? p.playerX : (fallbackX - actorRenderW * 0.5);
-                    const originY = Number.isFinite(p.playerY) ? p.playerY : (fallbackY - PLAYER.HEIGHT * 0.62);
+                    const originY = Number.isFinite(p.playerY) ? p.playerY : (fallbackY - actorRenderH * 0.62);
                     const pivotX = originX + actorRenderW * 0.5;
-                    const pivotY = originY + PLAYER.HEIGHT * 0.62;
+                    const pivotY = originY + actorRenderH * 0.62;
                     return {
                         ...p,
                         x: pivotX + (p.x - pivotX) * renderScale,
@@ -3248,18 +3233,16 @@ export class Shogun extends Boss {
                             ? pivotY + (p.centerY - pivotY) * renderScale
                             : p.centerY,
                         // ベジェ曲線制御点もscale
-                        trailCurveStartX: Number.isFinite(p.trailCurveStartX)
-                            ? pivotX + (p.trailCurveStartX - pivotX) * renderScale : p.trailCurveStartX,
-                        trailCurveStartY: Number.isFinite(p.trailCurveStartY)
-                            ? pivotY + (p.trailCurveStartY - pivotY) * renderScale : p.trailCurveStartY,
-                        trailCurveControlX: Number.isFinite(p.trailCurveControlX)
-                            ? pivotX + (p.trailCurveControlX - pivotX) * renderScale : p.trailCurveControlX,
-                        trailCurveControlY: Number.isFinite(p.trailCurveControlY)
-                            ? pivotY + (p.trailCurveControlY - pivotY) * renderScale : p.trailCurveControlY,
-                        trailCurveEndX: Number.isFinite(p.trailCurveEndX)
-                            ? pivotX + (p.trailCurveEndX - pivotX) * renderScale : p.trailCurveEndX,
-                        trailCurveEndY: Number.isFinite(p.trailCurveEndY)
-                            ? pivotY + (p.trailCurveEndY - pivotY) * renderScale : p.trailCurveEndY,
+                        // trailCurveStartX 等は静的な絶対座標であり、各点ごとの現在位置(pivotX)でスケーリングすると
+                        // ボスが移動した際に基準点がずれ、激しく過去方向へ吹き飛んで逆N字型の歪み（自己交差）を引き起こす。
+                        // これらのプロパティを undefined にすることで、描画関数側が正しく「動的にサンプリングした最初の点」を
+                        // 曲線の開始点として利用するようになり、歪みが完全に解消される。
+                        trailCurveStartX: undefined,
+                        trailCurveStartY: undefined,
+                        trailCurveControlX: undefined,
+                        trailCurveControlY: undefined,
+                        trailCurveEndX: undefined,
+                        trailCurveEndY: undefined,
                     };
                 });
             };
@@ -3370,10 +3353,6 @@ export class Shogun extends Boss {
         });
 
         // 二刀流Zコンボのトレイル（本体描画で得た刀アンカーを使って本体と同じ順で描画）
-        if (typeof this.actor.updateDualBladeSlashTrails === 'function') {
-            const deltaMs = (typeof this._lastDeltaMs === 'number') ? this._lastDeltaMs : 16;
-            this.actor.updateDualBladeSlashTrails(deltaMs);
-        }
         if (!this.hideBody && typeof this.actor.renderDualBladeSlashTrails === 'function') {
             this.renderDualBladeSlashTrailsAnchored(ctx, renderScale, actorFootGroundOffset);
         }

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head><style>canvas { border: 1px solid black; background: #333; }</style></head>
+<body>
+<canvas id="c" width="800" height="500"></canvas>
+<script>
+    const ctx = document.getElementById('c').getContext('2d');
+    ctx.translate(400, 250); // center
+
+    const start = {x: -64, y: -16};
+    const mid = {x: 1.9, y: -77.2};
+    const end = {x: 92, y: 1};
+    
+    // Scale for Shogun
+    const scale = 1.666;
+    start.x *= scale; start.y *= scale;
+    mid.x *= scale; mid.y *= scale;
+    end.x *= scale; end.y *= scale;
+
+    const controlX = 2 * mid.x - (start.x + end.x) * 0.5;
+    const controlY = 2 * mid.y - (start.y + end.y) * 0.5;
+
+    ctx.strokeStyle = 'rgba(100, 200, 255, 1)';
+    ctx.lineWidth = 13.8 * scale;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    const segmentCount = 16;
+    const pts = [];
+    for (let i = 0; i < segmentCount; i++) {
+        const t = i / (segmentCount - 1);
+        const oneMinusT = 1 - t;
+        pts.push({
+            x: oneMinusT * oneMinusT * start.x + 2 * oneMinusT * t * controlX + t * t * end.x,
+            y: oneMinusT * oneMinusT * start.y + 2 * oneMinusT * t * controlY + t * t * end.y
+        });
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length - 1; i++) {
+        const midX = (pts[i].x + pts[i + 1].x) * 0.5;
+        const midY = (pts[i].y + pts[i + 1].y) * 0.5;
+        ctx.quadraticCurveTo(pts[i].x, pts[i].y, midX, midY);
+    }
+    const last = pts.length - 1;
+    ctx.quadraticCurveTo(pts[last - 1].x, pts[last - 1].y, pts[last].x, pts[last].y);
+    ctx.stroke();
+
+    // Draw points
+    ctx.fillStyle = 'red';
+    for (const p of pts) {
+        ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI*2); ctx.fill();
+    }
+</script>
+</body>
+</html>
