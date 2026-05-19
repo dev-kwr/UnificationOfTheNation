@@ -2953,12 +2953,43 @@ export class Shogun extends Boss {
             forceSubWeaponRender: this.actor.forceSubWeaponRender,
         };
 
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // 将軍レンダリング座標系アーキテクチャ（変更時は必ず全体を理解すること）
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //
+        // ■ 二つの座標系:
+        //   1. ワールド座標系: boss.x/y, boss.groundY — 物理演算・当たり判定で使用
+        //   2. Actor座標系: actorRenderX/Y (40×60) — renderModel 内で使用、scale(2.2)で拡大
+        //
+        // ■ renderModel の scale 変換:
+        //   pivot = (actorRenderX + actorRenderW*0.5, actorRenderY + actorRenderH*0.62)
+        //   ※ drawW=48, drawH=72 はpivot計算に使われない（originalW/H = actorRenderW/H を使用）
+        //
+        // ■ actorFootGroundOffset:
+        //   scale(2.2)のpivotが足元でないため、足元が下方にずれる問題を補正。
+        //   actorRenderY を上にシフトし、scale後の視覚的足元 = physics足元 にする。
+        //   ※ このオフセットは getPlantedOwnerY() にも反映済み（weapon.js）
+        //   ※ フェードアウト用 _lastPlantedPivotY にも反映済み（下記 L3313-3318）
+        //
+        // ■ actor.groundY vs actor._worldGroundY:
+        //   - groundY: actor座標系での地面位置。通常描画(影等)で使用
+        //   - _worldGroundY: ワールド座標の地面位置。大太刀 getPose() の scale補正で使用
+        //   これらを混同すると将軍のY位置が壊れる（絶対に統一してはならない）
+        //
+        // ■ actor._scalePivotH:
+        //   renderModel の実際の scale pivot高さ (= actorRenderH * 0.62 = 37.2)。
+        //   getPose() は drawH*0.62=44.64 を使いがちだが、実際は originalH*0.62=37.2。
+        //   この差を無視すると大太刀の刺さり位置が地面からずれる。
+        //
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         const renderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
             ? this.scaleMultiplier
             : 1;
         const actorRenderW = this.actorBaseWidth || Math.max(1, Math.round(this.width / renderScale));
         const actorRenderH = this.actorBaseHeight || Math.max(1, Math.round(this.height / renderScale));
-        // Scale変換後の視覚的足元を物理的足元に合わせる補正
+        // actorFootGroundOffset: scale変換後の視覚的足元を物理的足元に合わせる
+        // 公式: boss.height * 0.38 - (drawH - actorRenderH*0.62) * renderScale
+        // Shogun: 132*0.38 - (72 - 37.2)*2.2 = 50.16 - 76.56 = -26.4px
         const _drawH = PLAYER.HEIGHT;
         const _pivotH = actorRenderH * 0.62;
         const actorFootGroundOffset = (renderScale > 1.001)
@@ -2978,12 +3009,12 @@ export class Shogun extends Boss {
         this.actor.height      = actorRenderH;
         this.actor.facingRight = this.facingRight;
         
-        // 共通分身のanchor計算から出るcloneDrawYを、将軍本体のactorRenderYへ一致させる。
+        // actor.groundY: actor座標系の地面（通常描画用。大太刀には使わない）
         this.actor.groundY = this.getActorGroundYForRenderScale(renderScale, actorRenderY, actorRenderH, actorFootGroundOffset);
-        // 大太刀getPoseのscale補正用：ワールド座標のgroundYと実際のscale pivot高さを渡す
-        // （actor.groundYはactor座標系、_worldGroundYはワールド座標系で用途が異なる）
+        // _worldGroundY: ワールド座標の地面（大太刀 getPose の scale補正専用）
         this.actor._worldGroundY = this.groundY;
-        this.actor._scalePivotH = actorRenderH * 0.62; // renderModelの実際のpivot = originalH * 0.62 = 37.2
+        // _scalePivotH: renderModel の実際の scale pivot 高さ（originalH*0.62, NOT drawH*0.62）
+        this.actor._scalePivotH = actorRenderH * 0.62;
 
         const odachiGroundRenderInst = this._subWeaponKey === 'odachi'
             ? this._subWeaponInstances.odachi
