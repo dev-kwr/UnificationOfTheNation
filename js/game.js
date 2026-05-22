@@ -4696,8 +4696,11 @@ class Game {
             });
             ctx.restore();
             
-            // 剣筋をワールド座標（スケール影響外）で描画
-            this.player.renderComboSlashTrail(ctx);
+            // 将軍の通常コンボ剣筋は _renderShogunBody -> boss.renderBody 側で
+            // 体格補正込みの座標へ投影して描画する。
+            if (this.player.characterType !== 'shogun') {
+                this.player.renderComboSlashTrail(ctx);
+            }
             this.player.renderDualBladeSlashTrails(ctx);
 
             if (

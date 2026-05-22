@@ -2,7 +2,7 @@
 // Unification of the Nation - ボスクラス
 // ============================================
 
-import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY } from './constants.js';
+import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js';
 import { Enemy } from './enemy.js';
 import { createSubWeapon } from './weapon.js';
 import { audio } from './audio.js';
@@ -1512,9 +1512,11 @@ export class Shogun extends Boss {
         const fallbackPivotX = this.x + this.width * 0.5;
         const fallbackPivotY = this.y + this.height * 0.62;
         const pivotX = Number.isFinite(point.playerX) ? point.playerX : fallbackPivotX;
+        const actorReferenceHeight = this.actorBaseHeight || this.height || PLAYER.HEIGHT;
         const pivotY = Number.isFinite(point.playerY)
-            ? point.playerY + PLAYER.HEIGHT * (0.62 - 0.5) - actorFootGroundOffset
+            ? point.playerY + actorReferenceHeight * (0.62 - 0.5) - actorFootGroundOffset
             : fallbackPivotY;
+
         return {
             ...point,
             x: pivotX + (point.x - pivotX) * scale,
@@ -1818,12 +1820,6 @@ export class Shogun extends Boss {
         if (typeof this.actor.updateComboSlashTrail === 'function') {
             this.actor.updateComboSlashTrail(deltaMs);
         }
-        if (typeof this.actor.updateDualBladeSlashTrails === 'function') {
-            this.actor.updateDualBladeSlashTrails(deltaMs);
-        }
-        if (typeof this.actor.updateSpecialCloneSlashTrails === 'function') {
-            this.actor.updateSpecialCloneSlashTrails(deltaMs);
-        }
 
         if (this._shurikenVisualTimer > 0) {
             this._shurikenVisualTimer = Math.max(0, this._shurikenVisualTimer - deltaMs);
@@ -1941,7 +1937,7 @@ export class Shogun extends Boss {
                 if (pos0) {
                     pos0.prevX = pos0.x;
                     pos0.x = actorRenderX + actorRenderW * 0.5;
-                    pos0.y = actorRenderY;
+                    pos0.y = actorRenderY + actorRenderH * 0.62;
                     pos0.facingRight = this.facingRight;
                     pos0.renderVx = this.vx;
                 }
@@ -2323,20 +2319,19 @@ export class Shogun extends Boss {
             this.attackCooldown = 480;
             return;
         }
-        const renderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
-            ? this.scaleMultiplier
-            : 1;
         const actorFootGroundOffset = 0;
-        const actorX = this.x + this.width * 0.5 - this.actorBaseWidth * 0.5;
-        const actorH = this.actorBaseHeight || Math.max(1, Math.round(this.height / renderScale));
-        const actorY = this.y + this.height * 0.62 - actorH * 0.62 + actorFootGroundOffset;
+        const actorCenterX = this.x + this.width * 0.5;
+        const actorPivotY = this.y + this.height * 0.62 + actorFootGroundOffset;
+        const bodyPoseX = actorCenterX - PLAYER.WIDTH * 0.5;
+        const bodyPoseY = actorPivotY - PLAYER.HEIGHT * 0.62;
         const profile = this.actor.buildComboAttackProfileWithTrail(step, {
-            x: actorX,
-            y: actorY,
-            width: this.actorBaseWidth,
-            height: actorH,
+            x: bodyPoseX,
+            y: bodyPoseY,
+            width: PLAYER.WIDTH,
+            height: PLAYER.HEIGHT,
             facingRight: this.facingRight,
             isCrouching: false,
+            isGrounded: this.isGrounded,
             vx: this.vx,
             vy: this.vy,
             speed: this.speed
@@ -2926,7 +2921,12 @@ export class Shogun extends Boss {
         ctx.restore();
     }
 
-    renderBody(ctx) {
+    renderBody(ctx, options = {}) {
+        const renderPaused = !!options.paused || !!(
+            typeof window !== 'undefined' &&
+            window.game &&
+            window.game.state === GAME_STATE.PAUSED
+        );
         const odachi = this._subWeaponInstances.odachi;
         const kusa = this._subWeaponInstances.kusarigama;
         const isLingeringSub = (this._subWeaponKey === 'odachi' && odachi && odachi.isAttacking) ||
@@ -3139,6 +3139,7 @@ export class Shogun extends Boss {
         const shouldUpdateBodyTrail = this._ougiActive ||
             this._attackTimer > 0 ||
             (Array.isArray(bodyTrailPoints) && bodyTrailPoints.length > 0);
+        let bodyTrailUpdatedBeforeRender = false;
 
         const renderWithShogunTransform = (drawFn) => {
             const dir2d = this.facingRight ? 1 : -1;
@@ -3177,6 +3178,22 @@ export class Shogun extends Boss {
 
         // コンボ斬撃トレイル（大太刀等）
         // 将軍のZコンボの軌跡は updateSpecialCloneSlashTrails(deltaMs) を通じて specialCloneSlashTrailPoints[0] に生成されます。
+        const isDualZTrailSource = !!(
+            this.actor.currentSubWeapon &&
+            this.actor.currentSubWeapon.name === '二刀流' &&
+            this.actor.subWeaponAction === '二刀_Z' &&
+            this.actor.subWeaponTimer > 0
+        );
+        if (
+            !renderPaused &&
+            !isDualZTrailSource &&
+            shouldUpdateBodyTrail &&
+            typeof this.actor.updateSpecialCloneSlashTrails === 'function'
+        ) {
+            const trailDeltaMs = (typeof this._lastDeltaMs === 'number') ? this._lastDeltaMs : 16;
+            this.actor.updateSpecialCloneSlashTrails(trailDeltaMs);
+            bodyTrailUpdatedBeforeRender = true;
+        }
         const trailPoints = bodyTrailPoints;
         if (!this.hideBody && trailPoints && trailPoints.length > 0) {
             // バフによるスケール（通常時は1.0）
@@ -3184,8 +3201,8 @@ export class Shogun extends Boss {
                 ? this.actor.getXAttackTrailWidthScale()
                 : 1.0;
 
-            const fallbackX = this.x + this.width * 0.5;
-            const fallbackY = this.y + this.height * 0.62;
+            const fallbackOriginX = actorRenderX;
+            const fallbackOriginY = actorRenderY;
             const getTrailKey = (p) => Number.isFinite(p && p.trailAttackId)
                 ? `attack:${p.trailAttackId}`
                 : `step:${p && p.step || 0}`;
@@ -3204,115 +3221,97 @@ export class Shogun extends Boss {
             for (const key of this._comboTrailRenderAnchors.keys()) {
                 if (!activeTrailKeys.has(key)) this._comboTrailRenderAnchors.delete(key);
             }
-            const scaleSampledTrailPoints = (points) => {
-                if (!Array.isArray(points) || points.length === 0 || Math.abs(renderScale - 1) <= 0.001) {
+            const projectTrailPointsToRenderSpace = (points) => {
+                if (!Array.isArray(points) || points.length === 0) {
                     return points;
                 }
-                // 全ステップでポイントごとにscaleを適用（忍者と同じ方式）
-                // 各ポイントの記録時のplayer位置をpivotにして拡大する
                 return points.map((p) => {
-                    if (
-                        !p ||
-                        !Number.isFinite(p.x) ||
-                        !Number.isFinite(p.y)
-                    ) {
-                        return p;
-                    }
-                    const originX = Number.isFinite(p.playerX) ? p.playerX : (fallbackX - actorRenderW * 0.5);
-                    const originY = Number.isFinite(p.playerY) ? p.playerY : (fallbackY - actorRenderH * 0.62);
+                    if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return p;
+                    const originX = Number.isFinite(p.playerX) ? p.playerX : fallbackOriginX;
+                    const originY = Number.isFinite(p.playerY) ? p.playerY : fallbackOriginY;
                     const pivotX = originX + actorRenderW * 0.5;
                     const pivotY = originY + actorRenderH * 0.62;
-                    return {
-                        ...p,
-                        x: pivotX + (p.x - pivotX) * renderScale,
-                        y: pivotY + (p.y - pivotY) * renderScale,
-                        centerX: Number.isFinite(p.centerX)
-                            ? pivotX + (p.centerX - pivotX) * renderScale
-                            : p.centerX,
-                        centerY: Number.isFinite(p.centerY)
-                            ? pivotY + (p.centerY - pivotY) * renderScale
-                            : p.centerY,
-                        // ベジェ曲線制御点もscale
-                        // trailCurveStartX 等は静的な絶対座標であり、各点ごとの現在位置(pivotX)でスケーリングすると
-                        // ボスが移動した際に基準点がずれ、激しく過去方向へ吹き飛んで逆N字型の歪み（自己交差）を引き起こす。
-                        // これらのプロパティを undefined にすることで、描画関数側が正しく「動的にサンプリングした最初の点」を
-                        // 曲線の開始点として利用するようになり、歪みが完全に解消される。
-                        trailCurveStartX: undefined,
-                        trailCurveStartY: undefined,
-                        trailCurveControlX: undefined,
-                        trailCurveControlY: undefined,
-                        trailCurveEndX: undefined,
-                        trailCurveEndY: undefined,
+                    const project = (x, y, relative = false) => {
+                        const sourceX = relative ? originX + x : x;
+                        const sourceY = relative ? originY + y : y;
+                        return {
+                            x: pivotX + (sourceX - pivotX) * renderScale,
+                            y: pivotY + (sourceY - pivotY) * renderScale
+                        };
                     };
+                    const tip = project(p.x, p.y);
+                    const center = (Number.isFinite(p.centerX) && Number.isFinite(p.centerY))
+                        ? project(p.centerX, p.centerY, !!p.trailIsRelative)
+                        : null;
+                    const arcCenter = (Number.isFinite(p.trailArcCenterX) && Number.isFinite(p.trailArcCenterY))
+                        ? project(p.trailArcCenterX, p.trailArcCenterY, !!p.trailIsRelative)
+                        : null;
+                    const transformed = {
+                        ...p,
+                        x: tip.x,
+                        y: tip.y,
+                        centerX: center
+                            ? center.x
+                            : p.centerX,
+                        centerY: center
+                            ? center.y
+                            : p.centerY,
+                        trailIsRelative: false,
+                        trailArcCenterX: arcCenter ? arcCenter.x : p.trailArcCenterX,
+                        trailArcCenterY: arcCenter ? arcCenter.y : p.trailArcCenterY,
+                        trailRadius: Number.isFinite(p.trailRadius) ? p.trailRadius * renderScale : p.trailRadius,
+                        trailArcRadius: Number.isFinite(p.trailArcRadius) ? p.trailArcRadius * renderScale : p.trailArcRadius
+                    };
+                    const curveIsRelative = !!p.trailIsRelative;
+                    if (Number.isFinite(p.trailCurveStartX) && Number.isFinite(p.trailCurveStartY)) {
+                        const start = project(p.trailCurveStartX, p.trailCurveStartY, curveIsRelative);
+                        transformed.trailCurveStartX = start.x;
+                        transformed.trailCurveStartY = start.y;
+                    }
+                    if (Number.isFinite(p.trailCurveControlX) && Number.isFinite(p.trailCurveControlY)) {
+                        const control = project(p.trailCurveControlX, p.trailCurveControlY, curveIsRelative);
+                        transformed.trailCurveControlX = control.x;
+                        transformed.trailCurveControlY = control.y;
+                    }
+                    if (Number.isFinite(p.trailCurveEndX) && Number.isFinite(p.trailCurveEndY)) {
+                        const end = project(p.trailCurveEndX, p.trailCurveEndY, curveIsRelative);
+                        transformed.trailCurveEndX = end.x;
+                        transformed.trailCurveEndY = end.y;
+                    }
+                    return transformed;
                 });
-            };
-            const alignFixedCurveToSampledTip = (points) => {
-                if (!Array.isArray(points) || points.length === 0) return points;
-                const newest = points[points.length - 1];
-                const step = newest && newest.step;
-                if (step !== 5) return points;
-                if (
-                    !Number.isFinite(newest.x) ||
-                    !Number.isFinite(newest.y) ||
-                    !Number.isFinite(newest.trailCurveStartX) ||
-                    !Number.isFinite(newest.trailCurveStartY) ||
-                    !Number.isFinite(newest.trailCurveControlX) ||
-                    !Number.isFinite(newest.trailCurveControlY) ||
-                    !Number.isFinite(newest.trailCurveEndX) ||
-                    !Number.isFinite(newest.trailCurveEndY)
-                ) {
-                    return points;
-                }
-                const smooth = (v) => {
-                    const t = Math.max(0, Math.min(1, v));
-                    return t * t * (3 - 2 * t);
-                };
-                const progress = Number.isFinite(newest.progress) ? Math.max(0, Math.min(1, newest.progress)) : 1;
-                let growth = 1;
-                if (step === 4) {
-                    if (progress <= 0.08) growth = 0;
-                    else if (progress >= 0.42) growth = 1;
-                    else growth = smooth((progress - 0.08) / 0.34);
-                } else {
-                    if (progress <= 0.15) growth = 0;
-                    else if (progress >= 0.9) growth = 1;
-                    else growth = (progress - 0.15) / 0.75;
-                }
-                if (growth <= 0.001) return points;
-                const t = Math.max(0, Math.min(1, growth));
-                const u = 1 - t;
-                const curveTipX = u * u * newest.trailCurveStartX + 2 * u * t * newest.trailCurveControlX + t * t * newest.trailCurveEndX;
-                const curveTipY = u * u * newest.trailCurveStartY + 2 * u * t * newest.trailCurveControlY + t * t * newest.trailCurveEndY;
-                const dx = newest.x - curveTipX;
-                const dy = newest.y - curveTipY;
-                if (!Number.isFinite(dx) || !Number.isFinite(dy) || (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01)) {
-                    return points;
-                }
-                return points.map((p) => ({
-                    ...p,
-                    trailCurveStartX: Number.isFinite(p.trailCurveStartX) ? p.trailCurveStartX + dx : p.trailCurveStartX,
-                    trailCurveStartY: Number.isFinite(p.trailCurveStartY) ? p.trailCurveStartY + dy : p.trailCurveStartY,
-                    trailCurveControlX: Number.isFinite(p.trailCurveControlX) ? p.trailCurveControlX + dx : p.trailCurveControlX,
-                    trailCurveControlY: Number.isFinite(p.trailCurveControlY) ? p.trailCurveControlY + dy : p.trailCurveControlY,
-                    trailCurveEndX: Number.isFinite(p.trailCurveEndX) ? p.trailCurveEndX + dx : p.trailCurveEndX,
-                    trailCurveEndY: Number.isFinite(p.trailCurveEndY) ? p.trailCurveEndY + dy : p.trailCurveEndY
-                }));
             };
             for (const [key, groupPoints] of groupedTrails.entries()) {
                 if (!groupPoints || groupPoints.length === 0) continue;
-                // 全ステップでポイントごとのscaleを適用（ctx.scaleは使わない）
-                const renderPoints = scaleSampledTrailPoints(
-                    alignFixedCurveToSampledTip(groupPoints)
-                );
-                const pivotX = this.x + this.width * 0.5;
-                const pivotY = actorRenderY + actorRenderH * 0.62;
+                const anchorPoint = groupPoints[0];
+                if (!this._comboTrailRenderAnchors.has(key)) {
+                    const originX = Number.isFinite(anchorPoint.playerX) ? anchorPoint.playerX : fallbackOriginX;
+                    const originY = Number.isFinite(anchorPoint.playerY) ? anchorPoint.playerY : fallbackOriginY;
+                    this._comboTrailRenderAnchors.set(key, {
+                        pivotX: originX + actorRenderW * 0.5,
+                        pivotY: originY + actorRenderH * 0.62
+                    });
+                }
+                const anchor = this._comboTrailRenderAnchors.get(key);
+                const pivotX = anchor.pivotX;
+                const pivotY = anchor.pivotY;
+                const step = groupPoints[groupPoints.length - 1] && groupPoints[groupPoints.length - 1].step;
+                const usesPerSampleScale = step === 3;
+                const renderPoints = usesPerSampleScale
+                    ? projectTrailPointsToRenderSpace(groupPoints)
+                    : groupPoints;
                 ctx.save();
+                if (!usesPerSampleScale && Math.abs(renderScale - 1) > 0.001) {
+                    ctx.translate(pivotX, pivotY);
+                    ctx.scale(renderScale, renderScale);
+                    ctx.translate(-pivotX, -pivotY);
+                }
                 this.actor.renderComboSlashTrail(ctx, {
                     points: renderPoints,
                     centerX: pivotX,
                     centerY: pivotY,
                     trailWidthScale: baseTrailScale,
-                    physicalScale: renderScale,
+                    physicalScale: usesPerSampleScale ? renderScale : 1,
                     boostActive: baseTrailScale > 1.01 && this._attackTimer > 0,
                     attackState: {
                         isAttacking: this.isAttacking,
@@ -3351,6 +3350,12 @@ export class Shogun extends Boss {
             ...renderOpts,
             hideBodyParts: !!this.hideBody,
         });
+
+        // 描画によって得られた dualBladeTrailAnchors を使用してトレイルバッファを更新
+        if (!renderPaused && typeof this.actor.updateDualBladeSlashTrails === 'function') {
+            const deltaMs = (typeof this._lastDeltaMs === 'number') ? this._lastDeltaMs : 16;
+            this.actor.updateDualBladeSlashTrails(deltaMs);
+        }
 
         // 二刀流Zコンボのトレイル（本体描画で得た刀アンカーを使って本体と同じ順で描画）
         if (!this.hideBody && typeof this.actor.renderDualBladeSlashTrails === 'function') {
@@ -3432,6 +3437,12 @@ export class Shogun extends Boss {
                     };
                 },
             });
+
+        }
+
+        if (!renderPaused && !bodyTrailUpdatedBeforeRender && shouldUpdateBodyTrail && typeof this.actor.updateSpecialCloneSlashTrails === 'function') {
+            const trailDeltaMs = (typeof this._lastDeltaMs === 'number') ? this._lastDeltaMs : 16;
+            this.actor.updateSpecialCloneSlashTrails(trailDeltaMs);
         }
 
         if (odachiGroundRenderInst && typeof odachiGroundRenderInst.render === 'function') {

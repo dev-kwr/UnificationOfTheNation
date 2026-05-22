@@ -343,6 +343,7 @@
         window.game = { 
             scrollX: 0, 
             groundY: groundY, 
+            state: 'playing',
             difficulty: { id: 'normal' },
             audio: { play: () => {}, tryPlay: () => {}, stop: () => {}, setVolume: () => {} },
             player: previewPlayerMock,
@@ -766,6 +767,7 @@
             const dt = Math.min((time - lastTime) / 1000, 0.1);
             lastTime = time;
             const deltaMs = dt * 1000;
+            window.game.state = isPaused ? 'paused' : 'playing';
             
             if (typeof lastNinjaSubIndex === 'undefined') window.lastNinjaSubIndex = -1;
 
@@ -904,7 +906,7 @@
             window.game.projectiles.forEach(p => { if (p.render) p.render(ctx); });
 
             if (isShogunMode()) {
-                shogun.renderBody(ctx); // 将軍内部で剣筋・手裏剣・二刀流・大太刀・奥義分身も描画される
+                shogun.renderBody(ctx, { paused: isPaused }); // 将軍内部で剣筋・手裏剣・二刀流・大太刀・奥義分身も描画される
             } else {
                 ninja.render(ctx);
                 if (ninja.renderComboSlashTrail) ninja.renderComboSlashTrail(ctx);

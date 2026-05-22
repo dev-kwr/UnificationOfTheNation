@@ -247,6 +247,7 @@ export function applySlashTrailMixin(PlayerClass) {
             height: Number.isFinite(state.height) ? state.height : this.height,
             facingRight: state.facingRight !== undefined ? state.facingRight : this.facingRight,
             isCrouching: state.isCrouching !== undefined ? state.isCrouching : this.isCrouching,
+            isGrounded: state.isGrounded !== undefined ? state.isGrounded : this.isGrounded,
             vx: Number.isFinite(state.vx) ? state.vx : this.vx,
             vy: Number.isFinite(state.vy) ? state.vy : this.vy,
             speed: Number.isFinite(state.speed) ? state.speed : this.speed
@@ -323,13 +324,20 @@ export function applySlashTrailMixin(PlayerClass) {
         ) {
             return cached;
         }
+        const isShogunBodySlot = !!(
+            this.characterType === 'shogun' &&
+            Array.isArray(this.specialCloneSlots) &&
+            this.specialCloneSlots[index] === 0
+        );
+        const poseWidth = isShogunBodySlot ? PLAYER.WIDTH : this.width;
+        const poseHeight = PLAYER.HEIGHT;
         const profile = this.applyComboTrailSpecToAttackProfile(
             { ...this.currentAttack },
             {
-                x: pos.x - this.width * 0.5,
+                x: pos.x - poseWidth * 0.5,
                 y: cloneDrawY,
-                width: this.width,
-                height: PLAYER.HEIGHT,
+                width: poseWidth,
+                height: poseHeight,
                 facingRight: pos.facingRight,
                 isCrouching: false,
                 vx: this.vx,
@@ -1670,6 +1678,15 @@ export function applySlashTrailMixin(PlayerClass) {
                         );
                         continue;
                     }
+                    const isShogunBodySlot = !!(
+                        this.characterType === 'shogun' &&
+                        Array.isArray(this.specialCloneSlots) &&
+                        this.specialCloneSlots[i] === 0
+                    );
+                    const poseWidth = isShogunBodySlot ? PLAYER.WIDTH : this.width;
+                    const poseHeight = PLAYER.HEIGHT;
+                    const poseOriginX = pos.x - poseWidth * 0.5;
+                    const poseOriginY = cloneDrawY;
                     const hasOverride = !isAutoAi && this.specialCloneCurrentAttacks[i] != null;
                     const comboStep = (isAutoAi || hasOverride)
                         ? (this.specialCloneComboSteps[i] || 1)
@@ -1683,10 +1700,10 @@ export function applySlashTrailMixin(PlayerClass) {
                             attackProfile = this.applyComboTrailSpecToAttackProfile(
                                 this.getComboAttackProfileByStep(comboStep),
                                 {
-                                    x: pos.x - this.width * 0.5,
-                                    y: cloneDrawY,
-                                    width: this.width,
-                                    height: PLAYER.HEIGHT,
+                                    x: poseOriginX,
+                                    y: poseOriginY,
+                                    width: poseWidth,
+                                    height: poseHeight,
                                     facingRight: pos.facingRight,
                                     isCrouching: false,
                                     vx: Number.isFinite(pos.cloneVx) ? pos.cloneVx : this.vx,
@@ -1709,13 +1726,15 @@ export function applySlashTrailMixin(PlayerClass) {
                         currentAttack: attackProfile,
                         attackTimer,
                         facingRight: pos.facingRight,
-                        x: pos.x - this.width * 0.5,
-                        y: cloneDrawY,
+                        x: poseOriginX,
+                        y: poseOriginY,
+                        width: poseWidth,
+                        height: poseHeight,
                         isCrouching: false
                     });
                     if (pose) {
-                        pose.originX = pos.x - this.width * 0.5;
-                        pose.originY = cloneDrawY;
+                        pose.originX = poseOriginX;
+                        pose.originY = poseOriginY;
                     }
                     if (isAutoAi && !pose && comboStep > 0 && !this.shouldKeepComboTrailDuringReturn(comboStep)) {
                         this.specialCloneSlashTrailPoints[i].length = 0;
@@ -2640,7 +2659,6 @@ export function applySlashTrailMixin(PlayerClass) {
                 if (fc.type === 'sampledBezier' && Array.isArray(fc.frozenPoints)) {
                     const pts = Array.isArray(fc.frozenPoints) ? fc.frozenPoints : null;
                     if (!pts || pts.length < 2) { ctx.restore(); continue; }
-                    
                     // 凍結時にabsolutizeRelativeTrailPoint済みなので、
                     // 単純なアンカー中心からのスケーリングのみ
                     let projFnFrozen = null;

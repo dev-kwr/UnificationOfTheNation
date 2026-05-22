@@ -1125,8 +1125,9 @@ export function applySpecialMixin(PlayerClass) {
 
     PlayerClass.prototype.getSpecialCloneAnchorY = function() {
         const mirrorPlayerMotion = !this.specialCloneAutoAiEnabled || this.specialCastTimer > 0;
+        const h = Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT;
         if (mirrorPlayerMotion) {
-            return this.getFootY() - PLAYER.HEIGHT * 0.38;
+            return this.getFootY() - h * 0.38;
         }
         return this.getSpecialCloneAnchorYAtX(this.x + this.width * 0.5);
     };
@@ -1140,7 +1141,8 @@ export function applySpecialMixin(PlayerClass) {
     };
 
     PlayerClass.prototype.getSpecialCloneAnchorYAtX = function(worldX = this.x + this.width * 0.5) {
-        return this.getSpecialCloneGroundYAtX(worldX) + LANE_OFFSET - PLAYER.HEIGHT * 0.38;
+        const h = Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT;
+        return this.getSpecialCloneGroundYAtX(worldX) + LANE_OFFSET - h * 0.38;
     };
 
     PlayerClass.prototype.getSpecialCloneSpacing = function() {
@@ -1151,11 +1153,13 @@ export function applySpecialMixin(PlayerClass) {
     };
 
     PlayerClass.prototype.getSpecialCloneDrawY = function(anchorY) {
-        return anchorY - PLAYER.HEIGHT * 0.62;
+        const h = Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT;
+        return anchorY - h * 0.62;
     };
 
     PlayerClass.prototype.getSpecialCloneFootY = function(anchorY) {
-        return anchorY + PLAYER.HEIGHT * 0.38;
+        const h = Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT;
+        return anchorY + h * 0.38;
     };
 
     PlayerClass.prototype.getSpecialCloneDurabilityPerUnit = function() {
