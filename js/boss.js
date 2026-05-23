@@ -1950,7 +1950,16 @@ export class Shogun extends Boss {
 
             if (_playableOwner && this._ougiActive) {
                 this.actor.specialCloneAlive[0] = true;
-                this.actor.specialClonePositions[0] = _initPos(0);
+                const playableCloneAnchorY = actorRenderY + actorRenderH * 0.62;
+                this.actor.specialClonePositions[0] = {
+                    ..._initPos(0),
+                    x: actorRenderX + actorRenderW * 0.5,
+                    y: playableCloneAnchorY,
+                    facingRight: this.facingRight,
+                    jumping: false,
+                    cloneVy: 0,
+                    renderVx: this.vx
+                };
                 const ownerCount = Array.isArray(_playableOwner.specialCloneSlots) ? _playableOwner.specialCloneSlots.length : 0;
                 for (let oi = 0; oi < ownerCount; oi++) {
                     const ai = oi + 1;
@@ -1959,7 +1968,7 @@ export class Shogun extends Boss {
                     this.actor.specialClonePositions[ai] = ownerPos
                         ? {
                             ...ownerPos,
-                            y: this.actor.y + PLAYER.HEIGHT * 0.62,
+                            y: playableCloneAnchorY,
                             jumping: false,
                             cloneVy: 0
                         }
@@ -3176,6 +3185,22 @@ export class Shogun extends Boss {
             ctx.restore();
         };
 
+        if (this._ougiActive && this.actor.specialCloneSlots.length > 1 && this._playableOwner && !this.isEnemy) {
+            const playableCloneAnchorY = actorRenderY + actorRenderH * 0.62;
+            for (let _oi = 0; _oi < this.actor.specialCloneSlots.length; _oi++) {
+                const _oPos = this.actor.specialClonePositions[_oi];
+                if (!_oPos) continue;
+                _oPos.y = playableCloneAnchorY;
+                _oPos.facingRight = this.facingRight;
+                _oPos.jumping = false;
+                _oPos.cloneVy = 0;
+                _oPos.renderVx = _oi === 0 ? this.vx : (_oPos.renderVx || 0);
+                if (_oi === 0) {
+                    _oPos.x = actorRenderX + actorRenderW * 0.5;
+                }
+            }
+        }
+
         // コンボ斬撃トレイル（大太刀等）
         // 将軍のZコンボの軌跡は updateSpecialCloneSlashTrails(deltaMs) を通じて specialCloneSlashTrailPoints[0] に生成されます。
         const isDualZTrailSource = !!(
@@ -3392,7 +3417,6 @@ export class Shogun extends Boss {
                 }
             }
         }
-
         // 奥義・分身: renderSpecial を使用（忍者と同一システム）
         if (this._ougiActive) {
             const dir2d = this.facingRight ? 1 : -1;

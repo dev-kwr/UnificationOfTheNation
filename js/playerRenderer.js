@@ -4701,9 +4701,6 @@ export function applyRendererMixin(PlayerClass) {
 
         ctx.save();
 
-        // 将軍のクローンボディはboss.renderBody内のactor.renderSpecialで描画するためスキップ
-        const isShogunPlayer = this.characterType === 'shogun';
-
         if (this.isUsingSpecial && this.specialCastTimer > 0) {
             for (const anchor of anchors) {
                 if (anchor.alpha <= 0.02) continue;
@@ -4942,7 +4939,7 @@ export function applyRendererMixin(PlayerClass) {
                 renderScaled(pos.x, this.getSpecialCloneFootY(pos.y), () => {
                     // 霧エフェクト（suppressMist=true の場合はスキップ）
                     if (!suppressMist) {
-                        const mistCenterY = cloneDrawY + PLAYER.HEIGHT * 0.45;
+                        const mistCenterY = cloneDrawY + this.height * 0.45;
                         ctx.save();
                         ctx.globalAlpha = cloneAlpha * 0.4;
                         if (this.mistCacheCanvas) {

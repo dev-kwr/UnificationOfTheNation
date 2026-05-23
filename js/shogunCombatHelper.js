@@ -315,7 +315,8 @@ export function applyShogunCombat(player) {
                                         };
                                     }
                                     if (prop === 'name') {
-                                        return (activeInst && activeInst.name) || (realSub && realSub.name) || null;
+                                        const fallbackSub = realSub === this._shogunSubWeaponCollisionProxy ? null : realSub;
+                                        return (activeInst && activeInst.name) || (fallbackSub && fallbackSub.name) || null;
                                     }
                                     if (!activeInst) return undefined;
                                     const snapshot = this._shogunSubWeaponCalcSnapshots &&
@@ -526,9 +527,10 @@ export function applyShogunCombat(player) {
             const currentAttack = boss._currentAttackProfile || null;
             const duration = Math.max(1, currentAttack?.durationMs || boss._attackTimer || 1);
             const remaining = Math.max(0, boss._attackTimer || 0);
+            const chainWindowMs = Number.isFinite(currentAttack?.chainWindowMs) ? currentAttack.chainWindowMs : 0;
             const bufferMs = currentStep === 4
                 ? Math.max(420, Math.min(620, duration * 1.25))
-                : Math.max(80, Math.min(240, duration * 0.82));
+                : chainWindowMs > 0 ? chainWindowMs : Math.max(80, Math.min(240, duration * 0.82));
             if (remaining > bufferMs) return;
             const comboMax = getShogunNormalComboMax(this);
             const nextStep = Math.min(comboMax, currentStep + 1);

@@ -370,7 +370,7 @@ export function applySpecialMixin(PlayerClass) {
                 x: clonePos ? (clonePos.x - this.width * 0.5) : this.x,
                 y: clonePos ? this.getSpecialCloneDrawY(clonePos.y) : this.y,
                 width: this.width,
-                height: PLAYER.HEIGHT,
+                height: this.height,
                 facingRight: clonePos ? clonePos.facingRight : this.facingRight,
                 isCrouching: false,
                 vx: clonePos ? (clonePos.renderVx || 0) : this.vx,
@@ -726,10 +726,11 @@ export function applySpecialMixin(PlayerClass) {
         // 戦闘開始後のLv3はpos.yが地面基準固定値なのでそちらから算出。
         // Lv0〜2はthis.yがしゃがみ時にheight=HEIGHT/2分ずれるため、足元(this.y+this.height)から逆算。
         const isCastPhase = this.specialCastTimer > 0;
+        const h = Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT;
         const footY = (this.specialCloneAutoAiEnabled && !isCastPhase)
-            ? (pos.y + PLAYER.HEIGHT * 0.38)  // Lv3戦闘中: pos.yは体中心なので足元を算出
-            : (this.y + this.height);           // 詠唱中 or Lv0〜2: 本体の足元を使用
-        const baseDrawY = footY - PLAYER.HEIGHT;
+            ? this.getSpecialCloneFootY(pos.y)  // Lv3戦闘中: pos.yはアンカーなので足元を算出
+            : (this.y + this.height);            // 詠唱中 or Lv0〜2: 本体の足元を使用
+        const baseDrawY = footY - h;
         const headY = baseDrawY + 16; // renderModel / renderSpecialCastPose の headY に合わせる
 
         const knotOffsetX = pos.facingRight ? -12 : 12;
@@ -784,10 +785,13 @@ export function applySpecialMixin(PlayerClass) {
 
         for (let i = 0; i < this.specialCloneSlots.length; i++) {
             if (!this.specialCloneAlive[i]) continue;
-            
+
             const pos = this.specialClonePositions[i];
             const anchor = anchors[i];
-            const cloneRestY = anchor.y;
+            // Lv3分身が独立移動している場合、実際のX位置の地面Yを使う（プレイヤー相対のanchor.yではなく）
+            const cloneRestY = typeof this.getSpecialCloneAnchorYAtX === 'function'
+                ? this.getSpecialCloneAnchorYAtX(pos.x)
+                : anchor.y;
             const prevY = pos.y;
 
             const frameStartX = pos.x;
@@ -961,7 +965,7 @@ export function applySpecialMixin(PlayerClass) {
 
                     if (!isAhead) continue;
 
-                    const cloneFootY = pos.y + PLAYER.HEIGHT * 0.38;
+                    const cloneFootY = this.getSpecialCloneFootY(pos.y);
                     if (hTop < cloneFootY) {
                         shouldJump = true;
                         break;
@@ -1125,9 +1129,8 @@ export function applySpecialMixin(PlayerClass) {
 
     PlayerClass.prototype.getSpecialCloneAnchorY = function() {
         const mirrorPlayerMotion = !this.specialCloneAutoAiEnabled || this.specialCastTimer > 0;
-        const h = Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT;
         if (mirrorPlayerMotion) {
-            return this.getFootY() - h * 0.38;
+            return this.getFootY() - this._getCloneFootOffset();
         }
         return this.getSpecialCloneAnchorYAtX(this.x + this.width * 0.5);
     };
@@ -1141,8 +1144,7 @@ export function applySpecialMixin(PlayerClass) {
     };
 
     PlayerClass.prototype.getSpecialCloneAnchorYAtX = function(worldX = this.x + this.width * 0.5) {
-        const h = Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT;
-        return this.getSpecialCloneGroundYAtX(worldX) + LANE_OFFSET - h * 0.38;
+        return this.getSpecialCloneGroundYAtX(worldX) + LANE_OFFSET - this._getCloneFootOffset();
     };
 
     PlayerClass.prototype.getSpecialCloneSpacing = function() {
@@ -1158,8 +1160,22 @@ export function applySpecialMixin(PlayerClass) {
     };
 
     PlayerClass.prototype.getSpecialCloneFootY = function(anchorY) {
+        return anchorY + this._getCloneFootOffset();
+    };
+
+    // 分身の視覚的足元オフセット（アンカーYから足元Yまでの距離）
+    // 将軍は scaleMultiplier と shogun モードの renderY 式を考慮した値を使う
+    PlayerClass.prototype._getCloneFootOffset = function() {
+        if (this.characterType === 'shogun') {
+            // renderY = y + (h - SHOGUN_BASE_H) * 0.62  → sprite bottom = renderY + 72
+            // visual_foot = pivot + (sprite_bottom - pivot) * scale
+            // = pos.y + (cloneDrawY + (h-60)*0.62 + 72 - pos.y) * scale
+            // = pos.y + (72 - 60*0.62) * scale  (h terms cancel)
+            const scale = this.scaleMultiplier || 1.0;
+            return (72 - 60 * 0.62) * scale; // = 34.8 * scale
+        }
         const h = Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT;
-        return anchorY + h * 0.38;
+        return h * 0.38;
     };
 
     PlayerClass.prototype.getSpecialCloneDurabilityPerUnit = function() {

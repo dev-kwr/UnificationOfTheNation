@@ -330,7 +330,7 @@ export function applySlashTrailMixin(PlayerClass) {
             this.specialCloneSlots[index] === 0
         );
         const poseWidth = isShogunBodySlot ? PLAYER.WIDTH : this.width;
-        const poseHeight = PLAYER.HEIGHT;
+        const poseHeight = this.height;
         const profile = this.applyComboTrailSpecToAttackProfile(
             { ...this.currentAttack },
             {
@@ -1066,7 +1066,13 @@ export function applySlashTrailMixin(PlayerClass) {
                 const prevAngle = prevPose ? prevPose.swordAngle : 0.1368;
                 const prevHandX = prevPose ? prevPose.armEndX : (centerX + dir * 19.4 * scale);
                 const prevHandY = prevPose ? prevPose.armEndY : (pivotY + 5.6 * scale);
-                swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
+                // 角度補間を最短パス（|diff| ≤ π）で行う
+                // 2撃目終了角(≈0.14+2π=6.42)→3撃目開始角(-0.22)をそのまま補間すると
+                // 剣が約2π回転してしまい短い縦線アーティファクトが生じるため正規化する
+                let _angleDiff3 = swordAngle - prevAngle;
+                while (_angleDiff3 > Math.PI) _angleDiff3 -= Math.PI * 2;
+                while (_angleDiff3 < -Math.PI) _angleDiff3 += Math.PI * 2;
+                swordAngle = prevAngle + _angleDiff3 * prepEase;
                 armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
                 armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
                 break;
@@ -1684,7 +1690,7 @@ export function applySlashTrailMixin(PlayerClass) {
                         this.specialCloneSlots[i] === 0
                     );
                     const poseWidth = isShogunBodySlot ? PLAYER.WIDTH : this.width;
-                    const poseHeight = PLAYER.HEIGHT;
+                    const poseHeight = this.height;
                     const poseOriginX = pos.x - poseWidth * 0.5;
                     const poseOriginY = cloneDrawY;
                     const hasOverride = !isAutoAi && this.specialCloneCurrentAttacks[i] != null;
