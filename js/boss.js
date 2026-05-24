@@ -2409,7 +2409,8 @@ export class Shogun extends Boss {
                 this.vy = Math.max(this.vy, -0.8);
             }
         } else if (step === 2) {
-            this.vx = this.vx * 0.16 + dir * impulse * 0.9;
+            // 二撃目は斬りの重心移動を見せる程度に抑え、歩き過ぎに見える前進を避ける。
+            this.vx = this.vx * 0.16 + dir * impulse * 0.48;
             if (this.isGrounded) {
                 this.vy = 0;
                 this.isGrounded = true;
