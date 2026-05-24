@@ -1229,7 +1229,13 @@ export class Shogun extends Boss {
         this.hp = 4500;
         this.maxHp = 4500;
         this.damage = 6;
-        this.speed = 3.8;
+        // 将軍は scaleMultiplier(2.2x) で描画されるが、ボディ実サイズ比は this.height/PLAYER.HEIGHT
+        // (= 132/72 ≈ 1.833) になる。忍者と同じ durationMs で相対的に同等な突進距離（body width 比）
+        // を実現するため、speed は body サイズ比で増やす。これで _startNextComboStep / updateAttack の
+        // 横の動き(vx)式は忍者と完全同一の数式・コードで運用しつつ、画面上は body サイズに比例した
+        // 突進距離・動きが得られる。
+        this.speed = PLAYER.SPEED * (this.height / PLAYER.HEIGHT);
+        this._baseSpeed = this.speed;
         this.speedVarianceRange = 0;
         this.speedVarianceBias = 0;
         this.movementTempo = 1;
@@ -1817,6 +1823,22 @@ export class Shogun extends Boss {
         const deltaMs = deltaTime * 1000;
         this._lastDeltaMs = deltaMs;
 
+        // ── 将軍コンボ剣筋 suppress フラグ（updateComboSlashTrail用）──
+        // renderBody より先に updateComboSlashTrail が呼ばれるため、
+        // update 内でフレーム同期して設定する（renderBody の設定は1フレーム遅延がある）。
+        // Step4（天穿返り）序盤/余韻・Step5（天地颪）振りかぶりPhaseで剣先が上空に飛ぶのを防ぐ。
+        if (this.actor) {
+            let _suppress = false;
+            if (this._attackTimer > 0 && this._currentAttackProfile) {
+                const _step = this._comboStep;
+                const _dur  = Math.max(1, this._currentAttackProfile.durationMs);
+                const _prog = Math.max(0, Math.min(1, 1 - (this._attackTimer / _dur)));
+                if (_step === 4 && (_prog < 0.06 || _prog > 0.82)) _suppress = true;
+                if (_step === 5 && (_prog < 0.26 || _prog > 0.72)) _suppress = true;
+            }
+            this.actor._shogunComboTrailSuppressed = _suppress;
+        }
+
         if (typeof this.actor.updateComboSlashTrail === 'function') {
             this.actor.updateComboSlashTrail(deltaMs);
         }
@@ -2328,16 +2350,28 @@ export class Shogun extends Boss {
             this.attackCooldown = 480;
             return;
         }
-        const actorFootGroundOffset = 0;
+        // ベジェ曲線specは描画時(renderBody)と完全に同じ座標系で焼かないと、
+        // ctx.scale(renderScale) で増幅されて剣筋が空中に飛ぶ。
+        // - renderBody: actorRenderY = this.y + (this.height - actorRenderH) * 0.62 + actorFootGroundOffset
+        // - actorFootGroundOffset = this.height * 0.38 - (PLAYER.HEIGHT - actorRenderH * 0.62) * renderScale  (将軍で-26.4)
+        // - updateSpecialCloneSlashTrails の poseOriginY = actorRenderY (pos.y - height*0.62 と同値)
+        // _startNextComboStep でも renderBody と同じ式で bodyPoseY を計算する。
+        const _specRenderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
+            ? this.scaleMultiplier
+            : 1;
+        const _specHeight = this.actorBaseHeight || Math.max(1, Math.round(this.height / _specRenderScale));
+        const _specActorFootGroundOffset = (_specRenderScale > 1.001)
+            ? this.height * 0.38 - (PLAYER.HEIGHT - _specHeight * 0.62) * _specRenderScale
+            : 0;
         const actorCenterX = this.x + this.width * 0.5;
-        const actorPivotY = this.y + this.height * 0.62 + actorFootGroundOffset;
+        // renderBody と同じ actorRenderY 計算を行い、それを bodyPoseY とする（pose origin と完全一致）
         const bodyPoseX = actorCenterX - PLAYER.WIDTH * 0.5;
-        const bodyPoseY = actorPivotY - PLAYER.HEIGHT * 0.62;
+        const bodyPoseY = this.y + (this.height - _specHeight) * 0.62 + _specActorFootGroundOffset;
         const profile = this.actor.buildComboAttackProfileWithTrail(step, {
             x: bodyPoseX,
             y: bodyPoseY,
             width: PLAYER.WIDTH,
-            height: PLAYER.HEIGHT,
+            height: _specHeight,
             facingRight: this.facingRight,
             isCrouching: false,
             isGrounded: this.isGrounded,
@@ -2383,9 +2417,7 @@ export class Shogun extends Boss {
                 this.vy = Math.min(this.vy, -1.2);
             }
         } else if (step === 3) {
-            // 忍者の三段目と同じ式を、将軍の見た目スケール分だけ拡大して突進量を揃える
-            const shogunImpulse = impulse * (Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1);
-            this.vx = this.vx * 0.12 + dir * shogunImpulse * 1.71;
+            this.vx = this.vx * 0.12 + dir * impulse * 1.71;
             this.vy = Math.min(this.vy, -8.2);
             this.isGrounded = false;
         } else if (step === 4) {
@@ -3209,6 +3241,21 @@ export class Shogun extends Boss {
             this.actor.subWeaponAction === '二刀_Z' &&
             this.actor.subWeaponTimer > 0
         );
+        // ── 将軍コンボ剣筋 suppress フラグ（ラスボス/プレイヤー共通） ──
+        // Step4（天穿返り）の序盤/余韻・Step5（天地颪）の振りかぶりPhaseは
+        // 腕が高く上がるため剣先が上空に飛ぶ。これをsuppress対象としてactorに伝える。
+        // playerSlashTrail.jsはこのフラグをisShogunBodySlotで参照する。
+        {
+            let _suppress = false;
+            if (this._attackTimer > 0 && this._currentAttackProfile) {
+                const _step = this._comboStep;
+                const _dur  = Math.max(1, this._currentAttackProfile.durationMs);
+                const _prog = Math.max(0, Math.min(1, 1 - (this._attackTimer / _dur)));
+                if (_step === 4 && (_prog < 0.06 || _prog > 0.82)) _suppress = true;
+                if (_step === 5 && (_prog < 0.26 || _prog > 0.72)) _suppress = true;
+            }
+            this.actor._shogunComboTrailSuppressed = _suppress;
+        }
         if (
             !renderPaused &&
             !isDualZTrailSource &&

@@ -59,6 +59,14 @@ export function applyShogunCombat(player) {
         'comboDamages',
         'enhanceTier'
     ];
+    const shouldSyncShogunSubWeaponCalcProp = (activeInst, prop) => {
+        // 大槍のrange/baseRangeは将軍側で体格スケール済み。
+        // 忍者値で上書きすると柄と判定が短くなるため、ダメージ系だけ同期する。
+        if (activeInst && activeInst.name === '大槍' && (prop === 'range' || prop === 'baseRange')) {
+            return false;
+        }
+        return true;
+    };
     const syncShogunDualMainSpeed = (p, dualInst) => {
         if (!p || !dualInst || typeof dualInst.mainMotionSpeedScale !== 'number') return;
         dualInst.mainMotionSpeedScale = Math.max(0.78, (p.attackMotionScale || 1) * 0.78);
@@ -91,6 +99,7 @@ export function applyShogunCombat(player) {
 
         const snapshot = {};
         for (const prop of SHOGUN_CALC_PROPS) {
+            if (!shouldSyncShogunSubWeaponCalcProp(activeInst, prop)) continue;
             const value = source[prop];
             if (Array.isArray(value)) {
                 activeInst[prop] = value.slice();
@@ -222,6 +231,7 @@ export function applyShogunCombat(player) {
         p._shogunBossInstance.hp = 99999;
         p._shogunBossInstance.updateAI = function() { /* AI無効 */ };
         p._shogunBossInstance.isEnemy = false;
+
 
         // Shogun.init() で生成＆スケール済みのインスタンスをそのまま使う
         // （以前は差し替えていたため applyScaleToSubWeapons の効果が消えていた）
@@ -499,9 +509,13 @@ export function applyShogunCombat(player) {
             return;
         }
 
-        // preview line 279-280: 常に停止
-        this.vx = 0;
-        boss.vx = 0;
+        // 新規コンボ開始時のみ停止する。攻撃中（連打で次段キュー）は突進速度を保持しないと、
+        // Step3 突進中に Z 連打で vx=0 にされ、その後の Step4 が momentum を失う。
+        // 忍者の attack() は vx をリセットしない設計で、それと挙動を揃える。
+        if (boss._attackTimer <= 0) {
+            this.vx = 0;
+            boss.vx = 0;
+        }
 
         // 装備中武器キーをセット（renderBody で正しい武器を描画）
         this._shogunGetterBypass = 'real';
@@ -850,6 +864,22 @@ export function applyShogunCombat(player) {
         this.isAttacking = normalAttackActive;
         this.subWeaponTimer = boss._subTimer;
         this.subWeaponAction = boss._subAction;
+
+        // ── プレイヤー将軍コンボ剣筋 suppress フラグ ──
+        // p.updateComboSlashTrail() は player.js で p 自身が呼ぶため、
+        // suppress フラグは p（=this）に直接設定する必要がある。
+        // boss.actor（内部インスタンス）に設定しても p には届かない。
+        {
+            let _suppress = false;
+            if (boss._attackTimer > 0 && boss._currentAttackProfile) {
+                const _step = boss._comboStep;
+                const _dur  = Math.max(1, boss._currentAttackProfile.durationMs);
+                const _prog = Math.max(0, Math.min(1, 1 - (boss._attackTimer / _dur)));
+                if (_step === 4 && (_prog < 0.06 || _prog > 0.82)) _suppress = true;
+                if (_step === 5 && (_prog < 0.26 || _prog > 0.72)) _suppress = true;
+            }
+            this._shogunComboTrailSuppressed = _suppress;
+        }
 
         // ── アイドル時の武器表示キー維持（preview line 605-611 相当） ──
         if (!bossActiveAfter) {
