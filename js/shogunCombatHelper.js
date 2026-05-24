@@ -865,22 +865,6 @@ export function applyShogunCombat(player) {
         this.subWeaponTimer = boss._subTimer;
         this.subWeaponAction = boss._subAction;
 
-        // ── プレイヤー将軍コンボ剣筋 suppress フラグ ──
-        // p.updateComboSlashTrail() は player.js で p 自身が呼ぶため、
-        // suppress フラグは p（=this）に直接設定する必要がある。
-        // boss.actor（内部インスタンス）に設定しても p には届かない。
-        // Step4は忍者と共通の剣筋生成に任せ、Step5の振りかぶりだけ抑制する。
-        {
-            let _suppress = false;
-            if (boss._attackTimer > 0 && boss._currentAttackProfile) {
-                const _step = boss._comboStep;
-                const _dur  = Math.max(1, boss._currentAttackProfile.durationMs);
-                const _prog = Math.max(0, Math.min(1, 1 - (boss._attackTimer / _dur)));
-                if (_step === 5 && _prog < 0.26) _suppress = true;
-            }
-            this._shogunComboTrailSuppressed = _suppress;
-        }
-
         // ── アイドル時の武器表示キー維持（preview line 605-611 相当） ──
         if (!bossActiveAfter) {
             this._shogunGetterBypass = 'real';

@@ -1824,21 +1824,6 @@ export class Shogun extends Boss {
         const deltaMs = deltaTime * 1000;
         this._lastDeltaMs = deltaMs;
 
-        // ── 将軍コンボ剣筋 suppress フラグ（updateComboSlashTrail用）──
-        // renderBody より先に updateComboSlashTrail が呼ばれるため、
-        // update 内でフレーム同期して設定する（renderBody の設定は1フレーム遅延がある）。
-        // Step5（天地颪）振りかぶりPhaseで剣先が上空に飛ぶのを防ぐ。
-        if (this.actor) {
-            let _suppress = false;
-            if (this._attackTimer > 0 && this._currentAttackProfile) {
-                const _step = this._comboStep;
-                const _dur  = Math.max(1, this._currentAttackProfile.durationMs);
-                const _prog = Math.max(0, Math.min(1, 1 - (this._attackTimer / _dur)));
-                if (_step === 5 && _prog < 0.26) _suppress = true;
-            }
-            this.actor._shogunComboTrailSuppressed = _suppress;
-        }
-
         if (typeof this.actor.updateComboSlashTrail === 'function') {
             this.actor.updateComboSlashTrail(deltaMs);
         }
@@ -3242,20 +3227,6 @@ export class Shogun extends Boss {
             this.actor.subWeaponAction === '二刀_Z' &&
             this.actor.subWeaponTimer > 0
         );
-        // ── 将軍コンボ剣筋 suppress フラグ（ラスボス/プレイヤー共通） ──
-        // Step5（天地颪）の振りかぶりPhaseは腕が高く上がるため剣先が上空に飛ぶ。
-        // これをsuppress対象としてactorに伝える。Step4は忍者と共通の剣筋生成に任せる。
-        // playerSlashTrail.jsはこのフラグをisShogunBodySlotで参照する。
-        {
-            let _suppress = false;
-            if (this._attackTimer > 0 && this._currentAttackProfile) {
-                const _step = this._comboStep;
-                const _dur  = Math.max(1, this._currentAttackProfile.durationMs);
-                const _prog = Math.max(0, Math.min(1, 1 - (this._attackTimer / _dur)));
-                if (_step === 5 && _prog < 0.26) _suppress = true;
-            }
-            this.actor._shogunComboTrailSuppressed = _suppress;
-        }
         if (
             !renderPaused &&
             !isDualZTrailSource &&

@@ -413,7 +413,7 @@ export function applySlashTrailMixin(PlayerClass) {
             case 2: return { start: 0.0, end: 1.0 };
             case 3: return { start: 0.0, end: 1.0 };
             case 4: return { start: 0.0, end: 1.0 };
-            case 5: return { start: 0.15, end: 1.0 };
+            case 5: return { start: 0.15, end: 0.94 };
             default: return { start: 0, end: 1 };
         }
     };
@@ -724,29 +724,12 @@ export function applySlashTrailMixin(PlayerClass) {
         const attack = state.attack || this.currentAttack || null;
         const dir = facingRight ? 1 : -1;
         const bladeLen = this.getKatanaBladeLength();
-        const isShogun = this.characterType === 'shogun';
         const durationMs = Math.max(1, attack?.durationMs || PLAYER.ATTACK_COOLDOWN);
         const smooth = (t) => {
             const v = Math.max(0, Math.min(1, t));
             return v * v * (3 - 2 * v);
         };
-        const shogunPointAt = (progress, bodyX = x, bodyY = y) => {
-            const pose = this.getComboSwordPoseState({
-                x: bodyX,
-                y: bodyY,
-                width,
-                height,
-                facingRight,
-                isCrouching,
-                currentAttack: attack,
-                attackTimer: durationMs * (1 - Math.max(0, Math.min(1, progress))),
-                recoveryBlend: 0
-            });
-            return pose
-                ? { x: pose.trailTipX, y: pose.trailTipY }
-                : { x: bodyX + width * 0.5, y: bodyY + height * 0.5 };
-        };
-        const ninjaPointAt = (progress, bodyX = x, bodyY = y) => {
+        const pointAt = (progress, bodyX = x, bodyY = y) => {
             const centerX = bodyX + width * 0.5;
             const pivotY = bodyY + (isCrouching ? height * 0.58 : height * 0.43);
             let swordAngle;
@@ -782,10 +765,7 @@ export function applySlashTrailMixin(PlayerClass) {
                 y: armEndY + Math.sin(swordAngle) * bladeLen
             };
         };
-        const pointAt = isShogun ? shogunPointAt : ninjaPointAt;
-        const sampleTargets = isShogun
-            ? [0.26, 0.50, 1.0]
-            : [0.06, 0.38, 0.62, 0.78];
+        const sampleTargets = [0.06, 0.38, 0.62, 0.78];
         const sampledBodies = [];
         const frameMs = 1000 / 60;
         let simX = x;
@@ -794,12 +774,6 @@ export function applySlashTrailMixin(PlayerClass) {
         let simVy = Math.min(Number.isFinite(state.vy) ? state.vy : this.vy, -1.2);
         let timerMs = durationMs;
         let sampleIndex = 0;
-        if (isShogun) {
-            for (let i = 0; i < sampleTargets.length; i++) {
-                sampledBodies[i] = { x: simX, y: simY };
-            }
-            sampleIndex = sampleTargets.length;
-        }
         while (sampleIndex < sampleTargets.length) {
             const progress = Math.max(0, Math.min(1, 1 - (timerMs / durationMs)));
             while (sampleIndex < sampleTargets.length && progress >= sampleTargets[sampleIndex] - 0.0001) {
@@ -835,22 +809,14 @@ export function applySlashTrailMixin(PlayerClass) {
         const start = pointAt(sampleTargets[0], startBody.x, startBody.y);
         const mid = pointAt(sampleTargets[1], midBody.x, midBody.y);
         const end = pointAt(sampleTargets[2], endBody.x, endBody.y);
-        if (isShogun) {
-            const finalTip = shogunPointAt(1.0, x, y);
-            end.x = finalTip.x;
-            end.y = finalTip.y;
-        } else {
-            const settleTip = pointAt(sampleTargets[3], settleBody.x, settleBody.y);
-            const groundY = Number.isFinite(state.groundY) ? state.groundY : this.groundY;
-            const slashFloorY = Number.isFinite(groundY)
-                ? (groundY + LANE_OFFSET) - Math.max(10, height * 0.1)
-                : Infinity;
-            end.y = Math.min(end.y, slashFloorY, settleTip.y);
-        }
+        const settleTip = pointAt(sampleTargets[3], settleBody.x, settleBody.y);
+        const groundY = Number.isFinite(state.groundY) ? state.groundY : this.groundY;
+        const slashFloorY = Number.isFinite(groundY)
+            ? (groundY + LANE_OFFSET) - Math.max(10, height * 0.1)
+            : Infinity;
+        end.y = Math.min(end.y, slashFloorY, settleTip.y);
         mid.y = Math.min(mid.y, start.y + (end.y - start.y) * 0.54);
-        const midT = isShogun
-            ? Math.max(0.08, Math.min(0.92, (sampleTargets[1] - sampleTargets[0]) / (sampleTargets[2] - sampleTargets[0])))
-            : Math.max(0.08, Math.min(0.92, (0.38 - 0.16) / (0.62 - 0.16)));
+        const midT = Math.max(0.08, Math.min(0.92, (0.38 - 0.16) / (0.62 - 0.16)));
         const midFactor = 2 * (1 - midT) * midT;
         let controlX = (mid.x - ((1 - midT) * (1 - midT) * start.x) - (midT * midT * end.x)) / midFactor;
         let controlY = (mid.y - ((1 - midT) * (1 - midT) * start.y) - (midT * midT * end.y)) / midFactor;
@@ -860,7 +826,7 @@ export function applySlashTrailMixin(PlayerClass) {
         const controlYMax = Math.max(start.y, end.y);
         controlX = Math.max(controlXMin, Math.min(controlXMax, controlX));
         controlY = Math.max(controlYMin, Math.min(controlYMax, controlY));
-        const spec = {
+        return {
             trailCurveStartX: start.x,
             trailCurveStartY: start.y,
             trailCurveControlX: controlX,
@@ -868,17 +834,6 @@ export function applySlashTrailMixin(PlayerClass) {
             trailCurveEndX: end.x,
             trailCurveEndY: end.y
         };
-        if (isShogun) {
-            // 将軍は落下中も終端を現在モーションの最終切先へ追従させる。
-            spec.trailCurveStartX -= x;
-            spec.trailCurveStartY -= y;
-            spec.trailCurveControlX -= x;
-            spec.trailCurveControlY -= y;
-            spec.trailCurveEndX -= x;
-            spec.trailCurveEndY -= y;
-            spec.trailIsRelative = true;
-        }
-        return spec;
     };
 
     PlayerClass.prototype.getComboSwordPoseState = function(state, options = {}) {
@@ -1307,14 +1262,6 @@ export function applySlashTrailMixin(PlayerClass) {
     PlayerClass.prototype.updateComboSlashTrail = function(deltaMs) {
         if (deltaMs <= 0) return;
         let pose = this.getComboSwordPoseForTrail();
-
-        // 将軍コンボ剣筋の suppress チェック
-        // boss.js update() が _shogunComboTrailSuppressed をフレーム同期で設定する。
-        // Step5振りかぶり（progress<0.26）で剣先が上空に飛ぶのを防ぐため、
-        // このフェーズ中は pose を null にしてトレイルを記録しない。
-        if (pose && this._shogunComboTrailSuppressed) {
-            pose = null;
-        }
 
         const comboStep = this.currentAttack ? (this.currentAttack.comboStep || 0) : 0;
         
