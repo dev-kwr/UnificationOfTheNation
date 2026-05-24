@@ -8,7 +8,7 @@ import { audio } from './audio.js';
 import { game } from './game.js';
 import { drawShurikenShape } from './weapon.js';
 import {
-    ANIM_STATE, COMBO_ATTACKS, calcExpToNextForLevel,
+    ANIM_STATE, COMBO_ATTACKS, NORMAL_COMBO_STEP3_LAUNCH_VY, calcExpToNextForLevel,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN, LEVEL_UP_ATK_GAIN,
     PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
@@ -1270,7 +1270,7 @@ export class Player {
             }
         } else if (step === 3) {
             this.vx = this.vx * 0.12 + direction * impulse * 1.71;
-            this.vy = Math.min(this.vy, -8.2);
+            this.vy = Math.min(this.vy, NORMAL_COMBO_STEP3_LAUNCH_VY);
             this.isGrounded = false;
         } else if (step === 4) {
             this.vx = this.vx * 0.24 + direction * impulse * 0.42;

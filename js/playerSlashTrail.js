@@ -164,8 +164,8 @@ export function applySlashTrailMixin(PlayerClass) {
                         dir: lastPt.dir,
                         progress: Number.isFinite(lastPt.progress) ? lastPt.progress : 1.0, // 実際の進行度で凍結させる
                         trailIsRelative: !!lastPt.trailIsRelative,
-                        playerX: Number.isFinite(forceOffsetX) ? forceOffsetX : this.x,
-                        playerY: Number.isFinite(forceOffsetY) ? forceOffsetY : this.y,
+                        playerX: Number.isFinite(forceOffsetX) ? forceOffsetX : (Number.isFinite(lastPt.playerX) ? lastPt.playerX : this.x),
+                        playerY: Number.isFinite(forceOffsetY) ? forceOffsetY : (Number.isFinite(lastPt.playerY) ? lastPt.playerY : this.y),
                         age: Math.max(0, lastPt.age || 0), // 新しい（剣先の）フェードアウト度合い
                         oldestAge: Math.max(0, firstPt ? firstPt.age : (lastPt.age || 0)), // 古い（根本の）フェードアウト度合い
                         life: Math.max(1, lastPt.life || this.comboSlashTrailActiveLifeMs),
@@ -413,7 +413,7 @@ export function applySlashTrailMixin(PlayerClass) {
             case 2: return { start: 0.0, end: 1.0 };
             case 3: return { start: 0.0, end: 1.0 };
             case 4: return { start: 0.0, end: 1.0 };
-            case 5: return { start: 0.15, end: 0.9 };
+            case 5: return { start: 0.15, end: 1.0 };
             default: return { start: 0, end: 1 };
         }
     };
@@ -613,52 +613,38 @@ export function applySlashTrailMixin(PlayerClass) {
         const attack = state.attack || this.currentAttack || null;
         const dir = facingRight ? 1 : -1;
         const bladeLen = this.getKatanaBladeLength();
+        let renderScale = 1;
+        if (Number.isFinite(state.renderScale)) {
+            renderScale = state.renderScale;
+        } else if (Number.isFinite(state.scaleMultiplier)) {
+            renderScale = state.scaleMultiplier;
+        } else if (Number.isFinite(this.scaleMultiplier)) {
+            renderScale = this.scaleMultiplier;
+        }
+        renderScale = Math.max(1, renderScale);
+        const bodyMotionScale = 1 / renderScale;
         const smooth = (t) => {
             const v = Math.max(0, Math.min(1, t));
             return v * v * (3 - 2 * v);
         };
-        const _isShogun4 = this.characterType === 'shogun';
-        const _dur4 = Math.max(1, attack?.durationMs || PLAYER.ATTACK_COOLDOWN);
-        // 忍者は元の独自pointAt式を使用（既に正常動作している）。
-        // 将軍のみ getComboSwordPoseState 経由（ctx.scale 2.2x との整合を取るため）。
-        const pointAt = _isShogun4
-            ? (progress, bodyX = x, bodyY = y) => {
-                const pose = this.getComboSwordPoseState({
-                    x: bodyX,
-                    y: bodyY,
-                    width,
-                    height,
-                    facingRight,
-                    isCrouching,
-                    currentAttack: attack,
-                    attackTimer: _dur4 * (1 - Math.max(0, Math.min(1, progress))),
-                    recoveryBlend: 0
-                });
-                return pose
-                    ? { x: pose.trailTipX, y: pose.trailTipY }
-                    : { x: bodyX + width * 0.5, y: bodyY + height * 0.5 };
-            }
-            : (progress, bodyX = x, bodyY = y) => {
-                const centerX = bodyX + width * 0.5;
-                const pivotY = bodyY + (isCrouching ? height * 0.58 : height * 0.43);
-                const clamped = Math.max(0, Math.min(0.42, progress));
-                const rise = smooth(clamped / 0.42);
-                const prepEase = smooth(clamped / 0.18);
-                const rawAngle = -0.22 + (-0.74 + 0.22) * rise;
-                const rawHandX = centerX + dir * (26 + (8.0 - 26) * rise);
-                const rawHandY = pivotY + 5 + (-24.0 - 5) * rise;
-                const handX = centerX + dir * 26 + (rawHandX - (centerX + dir * 26)) * prepEase;
-                const handY = pivotY + 5 + (rawHandY - (pivotY + 5)) * prepEase;
-                const angle = -0.22 + (rawAngle - (-0.22)) * prepEase;
-                return {
-                    x: handX + Math.cos(angle) * bladeLen * dir,
-                    y: handY + Math.sin(angle) * bladeLen
-                };
+        const pointAt = (progress, bodyX = x, bodyY = y) => {
+            const centerX = bodyX + width * 0.5;
+            const pivotY = bodyY + (isCrouching ? height * 0.58 : height * 0.43);
+            const clamped = Math.max(0, Math.min(0.42, progress));
+            const rise = smooth(clamped / 0.42);
+            const prepEase = smooth(clamped / 0.18);
+            const rawAngle = -0.22 + (-0.74 + 0.22) * rise;
+            const rawHandX = centerX + dir * (26 + (8.0 - 26) * rise);
+            const rawHandY = pivotY + 5 + (-24.0 - 5) * rise;
+            const handX = centerX + dir * 26 + (rawHandX - (centerX + dir * 26)) * prepEase;
+            const handY = pivotY + 5 + (rawHandY - (pivotY + 5)) * prepEase;
+            const angle = -0.22 + (rawAngle - (-0.22)) * prepEase;
+            return {
+                x: handX + Math.cos(angle) * bladeLen * dir,
+                y: handY + Math.sin(angle) * bladeLen
             };
-        // 将軍は振り下ろしphase（input progress 0.42以降）をサンプリングして縦の振り抜き感を出す
-        const sampleTargets = _isShogun4
-            ? [0.45, 0.58, 0.72]
-            : [0.0, 0.24, 0.42];
+        };
+        const sampleTargets = [0.0, 0.24, 0.42];
         const sampledBodies = [];
         const durationMs = Math.max(1, attack?.durationMs || PLAYER.ATTACK_COOLDOWN);
         const frameMs = 1000 / 60;
@@ -673,15 +659,6 @@ export function applySlashTrailMixin(PlayerClass) {
             : Math.min(Number.isFinite(state.vy) ? state.vy : this.vy, -10.6);
         let timerMs = durationMs;
         let sampleIndex = 0;
-        // 将軍はctx.scale(2.2)が掛かるため、body simulationの上方移動量が
-        // 増幅されて剣筋が遥か上空に飛ぶ。将軍はsimulationを無効化し、
-        // 現在のbody位置を全サンプルで使用する（描画時のscale pivotと整合）。
-        if (_isShogun4) {
-            for (let _i = 0; _i < sampleTargets.length; _i++) {
-                sampledBodies[_i] = { x: simX, y: simY };
-            }
-            sampleIndex = sampleTargets.length;
-        }
         while (sampleIndex < sampleTargets.length) {
             const progress = Math.max(0, Math.min(1, 1 - (timerMs / durationMs)));
             while (sampleIndex < sampleTargets.length && progress >= sampleTargets[sampleIndex] - 0.0001) {
@@ -696,8 +673,8 @@ export function applySlashTrailMixin(PlayerClass) {
             const riseLockT = Math.max(0, Math.min(1, progress / 0.72));
             const minRiseVy = (-16.2 + riseLockT * 13.5) * z4HeightScale;
             simVy = Math.min(simVy, minRiseVy);
-            simX += simVx;
-            simY += simVy;
+            simX += simVx * bodyMotionScale;
+            simY += simVy * bodyMotionScale;
             timerMs = Math.max(0, timerMs - frameMs);
         }
         while (sampleIndex < sampleTargets.length) {
@@ -710,6 +687,12 @@ export function applySlashTrailMixin(PlayerClass) {
         const start = pointAt(0.0, startBody.x, startBody.y);
         const mid = pointAt(0.24, midBody.x, midBody.y);
         const end = pointAt(0.42, endBody.x, endBody.y);
+        const verticalSpan = Math.abs(end.y - start.y);
+        const maxHorizontalSpan = Math.max(1.2, Math.min(3.2, verticalSpan * 0.014));
+        const clampHorizontal = (v) => Math.max(-maxHorizontalSpan, Math.min(maxHorizontalSpan, v));
+        end.x = start.x + clampHorizontal(end.x - start.x);
+        const midLineX = start.x + (end.x - start.x) * 0.5;
+        mid.x = midLineX + clampHorizontal(mid.x - midLineX);
         const chordX = end.x - start.x;
         const chordY = end.y - start.y;
         const chordLen = Math.max(1, Math.hypot(chordX, chordY));
@@ -743,64 +726,65 @@ export function applySlashTrailMixin(PlayerClass) {
         const bladeLen = this.getKatanaBladeLength();
         const isShogun = this.characterType === 'shogun';
         const durationMs = Math.max(1, attack?.durationMs || PLAYER.ATTACK_COOLDOWN);
-        // 忍者は元の独自pointAt式を使用（既に正常動作している）。
-        // 将軍のみ getComboSwordPoseState 経由（ctx.scale 2.2x との整合を取るため）。
-        const pointAt = isShogun
-            ? (progress, bodyX = x, bodyY = y) => {
-                const pose = this.getComboSwordPoseState({
-                    x: bodyX,
-                    y: bodyY,
-                    width,
-                    height,
-                    facingRight,
-                    isCrouching,
-                    currentAttack: attack,
-                    attackTimer: durationMs * (1 - Math.max(0, Math.min(1, progress))),
-                    recoveryBlend: 0
-                });
-                return pose
-                    ? { x: pose.trailTipX, y: pose.trailTipY }
-                    : { x: bodyX + width * 0.5, y: bodyY + height * 0.5 };
+        const smooth = (t) => {
+            const v = Math.max(0, Math.min(1, t));
+            return v * v * (3 - 2 * v);
+        };
+        const shogunPointAt = (progress, bodyX = x, bodyY = y) => {
+            const pose = this.getComboSwordPoseState({
+                x: bodyX,
+                y: bodyY,
+                width,
+                height,
+                facingRight,
+                isCrouching,
+                currentAttack: attack,
+                attackTimer: durationMs * (1 - Math.max(0, Math.min(1, progress))),
+                recoveryBlend: 0
+            });
+            return pose
+                ? { x: pose.trailTipX, y: pose.trailTipY }
+                : { x: bodyX + width * 0.5, y: bodyY + height * 0.5 };
+        };
+        const ninjaPointAt = (progress, bodyX = x, bodyY = y) => {
+            const centerX = bodyX + width * 0.5;
+            const pivotY = bodyY + (isCrouching ? height * 0.58 : height * 0.43);
+            let swordAngle;
+            let armEndX;
+            let armEndY;
+            if (progress < 0.26) {
+                const t = progress / 0.26;
+                swordAngle = -1.45 + t * 0.3;
+                armEndX = centerX - dir * (4.0 - t * 8.0);
+                armEndY = pivotY - 18 - t * 5.0;
+            } else if (progress < 0.78) {
+                const t = (progress - 0.26) / 0.52;
+                const fallEase = smooth(t);
+                swordAngle = 0.1 + fallEase * 0.08;
+                armEndX = centerX + dir * (15.6 + fallEase * 1.8);
+                armEndY = pivotY + 12.8 + fallEase * 1.4;
+            } else {
+                const t = (progress - 0.78) / 0.22;
+                const settle = smooth(t);
+                swordAngle = 0.18 - settle * 0.04;
+                armEndX = centerX + dir * (17.4 - settle * 0.8);
+                armEndY = pivotY + 14.2 - settle * 0.8;
             }
-            : (progress, bodyX = x, bodyY = y) => {
-                const centerX = bodyX + width * 0.5;
-                const pivotY = bodyY + (isCrouching ? height * 0.58 : height * 0.43);
-                let swordAngle;
-                let armEndX;
-                let armEndY;
-                if (progress < 0.26) {
-                    const t = progress / 0.26;
-                    swordAngle = -1.45 + t * 0.3;
-                    armEndX = centerX - dir * (4.0 - t * 8.0);
-                    armEndY = pivotY - 18 - t * 5.0;
-                } else if (progress < 0.78) {
-                    const t = (progress - 0.26) / 0.52;
-                    const fallEase = t * t * (3 - 2 * t);
-                    swordAngle = 0.1 + fallEase * 0.08;
-                    armEndX = centerX + dir * (15.6 + fallEase * 1.8);
-                    armEndY = pivotY + 12.8 + fallEase * 1.4;
-                } else {
-                    const t = (progress - 0.78) / 0.22;
-                    const settle = t * t * (3 - 2 * t);
-                    swordAngle = 0.18 - settle * 0.04;
-                    armEndX = centerX + dir * (17.4 - settle * 0.8);
-                    armEndY = pivotY + 14.2 - settle * 0.8;
-                }
-                const prepT = Math.max(0, Math.min(1, progress / 0.2));
-                const prepEase = prepT * prepT * (3 - 2 * prepT);
-                const prevAngle = -2.7;
-                const prevHandX = centerX - dir * 4.0;
-                const prevHandY = pivotY - 18.0;
-                swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
-                armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
-                armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
-                return {
-                    x: armEndX + Math.cos(swordAngle) * bladeLen * dir,
-                    y: armEndY + Math.sin(swordAngle) * bladeLen
-                };
+            const prepEase = smooth(progress / 0.2);
+            const prevAngle = -2.7;
+            const prevHandX = centerX - dir * 4.0;
+            const prevHandY = pivotY - 18.0;
+            swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
+            armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
+            armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
+            return {
+                x: armEndX + Math.cos(swordAngle) * bladeLen * dir,
+                y: armEndY + Math.sin(swordAngle) * bladeLen
             };
+        };
+        const pointAt = isShogun ? shogunPointAt : ninjaPointAt;
         const sampleTargets = isShogun
-            ? [0.34, 0.50, 0.64, 0.78]
+            ? [0.26, 0.50, 1.0]
             : [0.06, 0.38, 0.62, 0.78];
         const sampledBodies = [];
         const frameMs = 1000 / 60;
@@ -810,11 +794,9 @@ export function applySlashTrailMixin(PlayerClass) {
         let simVy = Math.min(Number.isFinite(state.vy) ? state.vy : this.vy, -1.2);
         let timerMs = durationMs;
         let sampleIndex = 0;
-        // 将軍はctx.scale(2.2)が掛かるためsimulationの移動量が増幅されて剣筋が空に飛ぶ。
-        // 将軍はsimulation無効化し、現在のbody位置で固定する（描画時のscale pivotと整合）。
         if (isShogun) {
-            for (let _i = 0; _i < sampleTargets.length; _i++) {
-                sampledBodies[_i] = { x: simX, y: simY };
+            for (let i = 0; i < sampleTargets.length; i++) {
+                sampledBodies[i] = { x: simX, y: simY };
             }
             sampleIndex = sampleTargets.length;
         }
@@ -853,11 +835,22 @@ export function applySlashTrailMixin(PlayerClass) {
         const start = pointAt(sampleTargets[0], startBody.x, startBody.y);
         const mid = pointAt(sampleTargets[1], midBody.x, midBody.y);
         const end = pointAt(sampleTargets[2], endBody.x, endBody.y);
-        const settleTip = pointAt(sampleTargets[3], settleBody.x, settleBody.y);
-        const slashFloorY = (this.groundY + LANE_OFFSET) - Math.max(10, height * 0.1);
-        end.y = Math.min(end.y, slashFloorY, settleTip.y);
+        if (isShogun) {
+            const finalTip = shogunPointAt(1.0, x, y);
+            end.x = finalTip.x;
+            end.y = finalTip.y;
+        } else {
+            const settleTip = pointAt(sampleTargets[3], settleBody.x, settleBody.y);
+            const groundY = Number.isFinite(state.groundY) ? state.groundY : this.groundY;
+            const slashFloorY = Number.isFinite(groundY)
+                ? (groundY + LANE_OFFSET) - Math.max(10, height * 0.1)
+                : Infinity;
+            end.y = Math.min(end.y, slashFloorY, settleTip.y);
+        }
         mid.y = Math.min(mid.y, start.y + (end.y - start.y) * 0.54);
-        const midT = Math.max(0.08, Math.min(0.92, (0.38 - 0.16) / (0.62 - 0.16)));
+        const midT = isShogun
+            ? Math.max(0.08, Math.min(0.92, (sampleTargets[1] - sampleTargets[0]) / (sampleTargets[2] - sampleTargets[0])))
+            : Math.max(0.08, Math.min(0.92, (0.38 - 0.16) / (0.62 - 0.16)));
         const midFactor = 2 * (1 - midT) * midT;
         let controlX = (mid.x - ((1 - midT) * (1 - midT) * start.x) - (midT * midT * end.x)) / midFactor;
         let controlY = (mid.y - ((1 - midT) * (1 - midT) * start.y) - (midT * midT * end.y)) / midFactor;
@@ -867,7 +860,7 @@ export function applySlashTrailMixin(PlayerClass) {
         const controlYMax = Math.max(start.y, end.y);
         controlX = Math.max(controlXMin, Math.min(controlXMax, controlX));
         controlY = Math.max(controlYMin, Math.min(controlYMax, controlY));
-        return {
+        const spec = {
             trailCurveStartX: start.x,
             trailCurveStartY: start.y,
             trailCurveControlX: controlX,
@@ -875,6 +868,17 @@ export function applySlashTrailMixin(PlayerClass) {
             trailCurveEndX: end.x,
             trailCurveEndY: end.y
         };
+        if (isShogun) {
+            // 将軍は落下中も終端を現在モーションの最終切先へ追従させる。
+            spec.trailCurveStartX -= x;
+            spec.trailCurveStartY -= y;
+            spec.trailCurveControlX -= x;
+            spec.trailCurveControlY -= y;
+            spec.trailCurveEndX -= x;
+            spec.trailCurveEndY -= y;
+            spec.trailIsRelative = true;
+        }
+        return spec;
     };
 
     PlayerClass.prototype.getComboSwordPoseState = function(state, options = {}) {
@@ -1257,10 +1261,28 @@ export function applySlashTrailMixin(PlayerClass) {
         if (!swordPose) return null;
         const trailWindow = this.getComboTrailProgressWindow(swordPose.comboStep);
         if (swordPose.progress < trailWindow.start || swordPose.progress > trailWindow.end) return null;
+        let tipX = swordPose.trailTipX;
+        let tipY = swordPose.trailTipY;
+        // 3撃目の終端だけ少し内側へ寄せ、4撃目の縦剣筋と自然に交差させる。
+        if (swordPose.comboStep === 3 && Number.isFinite(tipX)) {
+            let renderScale = 1;
+            if (Number.isFinite(state.renderScale)) {
+                renderScale = state.renderScale;
+            } else if (Number.isFinite(state.scaleMultiplier)) {
+                renderScale = state.scaleMultiplier;
+            } else if (Number.isFinite(this.scaleMultiplier)) {
+                renderScale = this.scaleMultiplier;
+            }
+            renderScale = Math.max(1, renderScale);
+            const trimStart = 0.72;
+            const trimT = Math.max(0, Math.min(1, (swordPose.progress - trimStart) / (1 - trimStart)));
+            const trimEase = trimT * trimT * (3 - 2 * trimT);
+            tipX -= swordPose.dir * (14 / renderScale) * trimEase;
+        }
         return {
             comboStep: swordPose.comboStep,
-            tipX: swordPose.trailTipX,
-            tipY: swordPose.trailTipY,
+            tipX,
+            tipY,
             originX: state.x,
             originY: state.y,
             dir: swordPose.dir,
@@ -1288,8 +1310,8 @@ export function applySlashTrailMixin(PlayerClass) {
 
         // 将軍コンボ剣筋の suppress チェック
         // boss.js update() が _shogunComboTrailSuppressed をフレーム同期で設定する。
-        // Step4序盤/余韻（progress<0.06 or >0.82）・Step5振りかぶり（progress<0.26 or >0.72）で
-        // 剣先が上空に飛ぶのを防ぐため、このフェーズ中は pose を null にしてトレイルを記録しない。
+        // Step5振りかぶり（progress<0.26）で剣先が上空に飛ぶのを防ぐため、
+        // このフェーズ中は pose を null にしてトレイルを記録しない。
         if (pose && this._shogunComboTrailSuppressed) {
             pose = null;
         }

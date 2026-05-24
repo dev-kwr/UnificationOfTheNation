@@ -27,6 +27,7 @@ export const COMBO_ATTACKS = [
     { type: ANIM_STATE.ATTACK_DOWN, name: '五ノ太刀・落天水平叩き', damage: 2.52, range: 112, durationMs: 336, cooldownScale: 0.72, chainWindowMs: 136, impulse: 0.2 }
 ];
 
+export const NORMAL_COMBO_STEP3_LAUNCH_VY = -6.0;
 export const BASE_EXP_TO_NEXT = 100;
 export const TEMP_NINJUTSU_MAX_STACK_MS = 300000;
 export const LEVEL_UP_MAX_HP_GAIN = 2;

@@ -7,6 +7,7 @@ import { Enemy } from './enemy.js';
 import { createSubWeapon } from './weapon.js';
 import { audio } from './audio.js';
 import { Player } from './player.js';
+import { NORMAL_COMBO_STEP3_LAUNCH_VY } from './playerData.js';
 
 // ラスボス（将軍）の全体スケール。ここだけ変更すれば倍率調整できる。
 const SHOGUN_SCALE = 2.2;
@@ -1826,15 +1827,14 @@ export class Shogun extends Boss {
         // ── 将軍コンボ剣筋 suppress フラグ（updateComboSlashTrail用）──
         // renderBody より先に updateComboSlashTrail が呼ばれるため、
         // update 内でフレーム同期して設定する（renderBody の設定は1フレーム遅延がある）。
-        // Step4（天穿返り）序盤/余韻・Step5（天地颪）振りかぶりPhaseで剣先が上空に飛ぶのを防ぐ。
+        // Step5（天地颪）振りかぶりPhaseで剣先が上空に飛ぶのを防ぐ。
         if (this.actor) {
             let _suppress = false;
             if (this._attackTimer > 0 && this._currentAttackProfile) {
                 const _step = this._comboStep;
                 const _dur  = Math.max(1, this._currentAttackProfile.durationMs);
                 const _prog = Math.max(0, Math.min(1, 1 - (this._attackTimer / _dur)));
-                if (_step === 4 && (_prog < 0.06 || _prog > 0.82)) _suppress = true;
-                if (_step === 5 && (_prog < 0.26 || _prog > 0.72)) _suppress = true;
+                if (_step === 5 && _prog < 0.26) _suppress = true;
             }
             this.actor._shogunComboTrailSuppressed = _suppress;
         }
@@ -2419,7 +2419,7 @@ export class Shogun extends Boss {
             }
         } else if (step === 3) {
             this.vx = this.vx * 0.12 + dir * impulse * 1.71;
-            this.vy = Math.min(this.vy, -8.2);
+            this.vy = Math.min(this.vy, NORMAL_COMBO_STEP3_LAUNCH_VY);
             this.isGrounded = false;
         } else if (step === 4) {
             this.vx = this.vx * 0.24 + dir * impulse * 0.42;
@@ -3243,8 +3243,8 @@ export class Shogun extends Boss {
             this.actor.subWeaponTimer > 0
         );
         // ── 将軍コンボ剣筋 suppress フラグ（ラスボス/プレイヤー共通） ──
-        // Step4（天穿返り）の序盤/余韻・Step5（天地颪）の振りかぶりPhaseは
-        // 腕が高く上がるため剣先が上空に飛ぶ。これをsuppress対象としてactorに伝える。
+        // Step5（天地颪）の振りかぶりPhaseは腕が高く上がるため剣先が上空に飛ぶ。
+        // これをsuppress対象としてactorに伝える。Step4は忍者と共通の剣筋生成に任せる。
         // playerSlashTrail.jsはこのフラグをisShogunBodySlotで参照する。
         {
             let _suppress = false;
@@ -3252,8 +3252,7 @@ export class Shogun extends Boss {
                 const _step = this._comboStep;
                 const _dur  = Math.max(1, this._currentAttackProfile.durationMs);
                 const _prog = Math.max(0, Math.min(1, 1 - (this._attackTimer / _dur)));
-                if (_step === 4 && (_prog < 0.06 || _prog > 0.82)) _suppress = true;
-                if (_step === 5 && (_prog < 0.26 || _prog > 0.72)) _suppress = true;
+                if (_step === 5 && _prog < 0.26) _suppress = true;
             }
             this.actor._shogunComboTrailSuppressed = _suppress;
         }
