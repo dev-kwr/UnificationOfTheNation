@@ -2344,19 +2344,25 @@ export class Shogun extends Boss {
         const _specRenderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
             ? this.scaleMultiplier
             : 1;
+        const _specWidth = this.actorBaseWidth || Math.max(1, Math.round(this.width / _specRenderScale));
         const _specHeight = this.actorBaseHeight || Math.max(1, Math.round(this.height / _specRenderScale));
         const _specActorFootGroundOffset = (_specRenderScale > 1.001)
             ? this.height * 0.38 - (PLAYER.HEIGHT - _specHeight * 0.62) * _specRenderScale
             : 0;
-        const actorCenterX = this.x + this.width * 0.5;
-        // renderBody と同じ actorRenderY 計算を行い、それを bodyPoseY とする（pose origin と完全一致）
-        const bodyPoseX = actorCenterX - PLAYER.WIDTH * 0.5;
+        const _specPoseHeight = PLAYER.HEIGHT;
+        // renderBody と同じ actorRenderX/Y 計算を行い、それを bodyPose の origin とする
+        const bodyPoseX = this.x + (this.width - _specWidth) * 0.5;
         const bodyPoseY = this.y + (this.height - _specHeight) * 0.62 + _specActorFootGroundOffset;
+        const bodyPoseGroundY = this.getActorGroundYForRenderScale(_specRenderScale, bodyPoseY, _specHeight, _specActorFootGroundOffset);
         const profile = this.actor.buildComboAttackProfileWithTrail(step, {
             x: bodyPoseX,
             y: bodyPoseY,
             width: PLAYER.WIDTH,
-            height: _specHeight,
+            height: _specPoseHeight,
+            groundY: bodyPoseGroundY,
+            renderScale: _specRenderScale,
+            scaleMultiplier: _specRenderScale,
+            step2TrailImpulseScale: step === 2 ? 0.48 : undefined,
             facingRight: this.facingRight,
             isCrouching: false,
             isGrounded: this.isGrounded,
@@ -3264,30 +3270,34 @@ export class Shogun extends Boss {
             for (const key of this._comboTrailRenderAnchors.keys()) {
                 if (!activeTrailKeys.has(key)) this._comboTrailRenderAnchors.delete(key);
             }
-            const projectTrailPointsToRenderSpace = (points) => {
+            const projectTrailPointsToRenderSpace = (points, anchor = null) => {
                 if (!Array.isArray(points) || points.length === 0) {
                     return points;
                 }
                 return points.map((p) => {
                     if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return p;
-                    const originX = Number.isFinite(p.playerX) ? p.playerX : fallbackOriginX;
-                    const originY = Number.isFinite(p.playerY) ? p.playerY : fallbackOriginY;
-                    const pivotX = originX + actorRenderW * 0.5;
-                    const pivotY = originY + actorRenderH * 0.62;
-                    const project = (x, y, relative = false) => {
-                        const sourceX = relative ? originX + x : x;
-                        const sourceY = relative ? originY + y : y;
+                    const pIsCrouching = !!p.isCrouching;
+                    const originX = anchor ? (anchor.pivotX - PLAYER.WIDTH * 0.5) : (Number.isFinite(p.playerX) ? p.playerX : fallbackOriginX);
+                    const originY = anchor ? (anchor.pivotY - PLAYER.HEIGHT * (pIsCrouching ? 0.58 : 0.43)) : (Number.isFinite(p.playerY) ? p.playerY : fallbackOriginY);
+                    const project = (x, y, relative = false, projectOriginX = originX, projectOriginY = originY, customPivotY = null) => {
+                        const pivotX = projectOriginX + PLAYER.WIDTH * 0.5;
+                        const pivotY = customPivotY !== null ? customPivotY : (projectOriginY + PLAYER.HEIGHT * (pIsCrouching ? 0.58 : 0.43));
+                        const sourceX = relative ? projectOriginX + x : x;
+                        const sourceY = relative ? projectOriginY + y : y;
                         return {
                             x: pivotX + (sourceX - pivotX) * renderScale,
                             y: pivotY + (sourceY - pivotY) * renderScale
                         };
                     };
-                    const tip = project(p.x, p.y);
+                    const simPivotY = originY + PLAYER.HEIGHT * (pIsCrouching ? 0.58 : 0.43);
+                    const curveIsRelative = !!p.trailIsRelative;
+
+                    const tip = project(p.x, p.y, false, originX, originY, simPivotY);
                     const center = (Number.isFinite(p.centerX) && Number.isFinite(p.centerY))
-                        ? project(p.centerX, p.centerY, !!p.trailIsRelative)
+                        ? project(p.centerX, p.centerY, false, originX, originY, simPivotY)
                         : null;
                     const arcCenter = (Number.isFinite(p.trailArcCenterX) && Number.isFinite(p.trailArcCenterY))
-                        ? project(p.trailArcCenterX, p.trailArcCenterY, !!p.trailIsRelative)
+                        ? project(p.trailArcCenterX, p.trailArcCenterY, false, originX, originY, simPivotY)
                         : null;
                     const transformed = {
                         ...p,
@@ -3305,21 +3315,42 @@ export class Shogun extends Boss {
                         trailRadius: Number.isFinite(p.trailRadius) ? p.trailRadius * renderScale : p.trailRadius,
                         trailArcRadius: Number.isFinite(p.trailArcRadius) ? p.trailArcRadius * renderScale : p.trailArcRadius
                     };
-                    const curveIsRelative = !!p.trailIsRelative;
                     if (Number.isFinite(p.trailCurveStartX) && Number.isFinite(p.trailCurveStartY)) {
-                        const start = project(p.trailCurveStartX, p.trailCurveStartY, curveIsRelative);
+                        const start = project(p.trailCurveStartX, p.trailCurveStartY, curveIsRelative, originX, originY, simPivotY);
                         transformed.trailCurveStartX = start.x;
                         transformed.trailCurveStartY = start.y;
                     }
                     if (Number.isFinite(p.trailCurveControlX) && Number.isFinite(p.trailCurveControlY)) {
-                        const control = project(p.trailCurveControlX, p.trailCurveControlY, curveIsRelative);
+                        const control = project(p.trailCurveControlX, p.trailCurveControlY, curveIsRelative, originX, originY, simPivotY);
                         transformed.trailCurveControlX = control.x;
                         transformed.trailCurveControlY = control.y;
                     }
                     if (Number.isFinite(p.trailCurveEndX) && Number.isFinite(p.trailCurveEndY)) {
-                        const end = project(p.trailCurveEndX, p.trailCurveEndY, curveIsRelative);
+                        const end = project(p.trailCurveEndX, p.trailCurveEndY, curveIsRelative, originX, originY, simPivotY);
                         transformed.trailCurveEndX = end.x;
                         transformed.trailCurveEndY = end.y;
+                    }
+                    if (
+                        Number.isFinite(p.trailFixedCurveStartX) &&
+                        Number.isFinite(p.trailFixedCurveStartY) &&
+                        Number.isFinite(p.trailFixedCurveControlX) &&
+                        Number.isFinite(p.trailFixedCurveControlY) &&
+                        Number.isFinite(p.trailFixedCurveEndX) &&
+                        Number.isFinite(p.trailFixedCurveEndY)
+                    ) {
+                        const fixedOriginX = Number.isFinite(p.trailFixedCurvePlayerX) ? p.trailFixedCurvePlayerX : originX;
+                        const fixedOriginY = Number.isFinite(p.trailFixedCurvePlayerY) ? p.trailFixedCurvePlayerY : originY;
+                        const fixedCurveIsRelative = !!p.trailFixedCurveIsRelative;
+                        const fixedStart = project(p.trailFixedCurveStartX, p.trailFixedCurveStartY, fixedCurveIsRelative, fixedOriginX, fixedOriginY);
+                        const fixedControl = project(p.trailFixedCurveControlX, p.trailFixedCurveControlY, fixedCurveIsRelative, fixedOriginX, fixedOriginY);
+                        const fixedEnd = project(p.trailFixedCurveEndX, p.trailFixedCurveEndY, fixedCurveIsRelative, fixedOriginX, fixedOriginY);
+                        transformed.trailFixedCurveStartX = fixedStart.x;
+                        transformed.trailFixedCurveStartY = fixedStart.y;
+                        transformed.trailFixedCurveControlX = fixedControl.x;
+                        transformed.trailFixedCurveControlY = fixedControl.y;
+                        transformed.trailFixedCurveEndX = fixedEnd.x;
+                        transformed.trailFixedCurveEndY = fixedEnd.y;
+                        transformed.trailFixedCurveIsRelative = false;
                     }
                     return transformed;
                 });
@@ -3339,9 +3370,9 @@ export class Shogun extends Boss {
                 const pivotX = anchor.pivotX;
                 const pivotY = anchor.pivotY;
                 const step = groupPoints[groupPoints.length - 1] && groupPoints[groupPoints.length - 1].step;
-                const usesPerSampleScale = step === 3;
+                const usesPerSampleScale = step === 3 || step === 5;
                 const renderPoints = usesPerSampleScale
-                    ? projectTrailPointsToRenderSpace(groupPoints)
+                    ? projectTrailPointsToRenderSpace(groupPoints, anchor)
                     : groupPoints;
                 ctx.save();
                 if (!usesPerSampleScale && Math.abs(renderScale - 1) > 0.001) {
