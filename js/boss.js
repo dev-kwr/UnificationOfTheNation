@@ -3274,14 +3274,24 @@ export class Shogun extends Boss {
                 if (!Array.isArray(points) || points.length === 0) {
                     return points;
                 }
+                const actorW = (this.actor && Number.isFinite(this.actor.width)) ? this.actor.width : PLAYER.WIDTH;
+                const actorH = (this.actor && Number.isFinite(this.actor.height)) ? this.actor.height : PLAYER.HEIGHT;
                 return points.map((p) => {
                     if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return p;
                     const pIsCrouching = !!p.isCrouching;
-                    const originX = anchor ? (anchor.pivotX - PLAYER.WIDTH * 0.5) : (Number.isFinite(p.playerX) ? p.playerX : fallbackOriginX);
-                    const originY = anchor ? (anchor.pivotY - PLAYER.HEIGHT * (pIsCrouching ? 0.58 : 0.43)) : (Number.isFinite(p.playerY) ? p.playerY : fallbackOriginY);
+                    const curveIsRelative = !!p.trailIsRelative;
+                    // 相対座標（アクターに追従中）であれば現在のアクター位置を基準にし、
+                    // 絶対座標（空間固定）であれば記録されたアクター位置（p.playerX / p.playerY）を基準にする。
+                    const useCurrentAnchor = curveIsRelative && anchor;
+                    const originX = useCurrentAnchor
+                        ? (anchor.pivotX - actorW * 0.5)
+                        : (Number.isFinite(p.playerX) ? p.playerX : fallbackOriginX);
+                    const originY = useCurrentAnchor
+                        ? (anchor.pivotY - actorH * (pIsCrouching ? 0.58 : 0.43))
+                        : (Number.isFinite(p.playerY) ? p.playerY : fallbackOriginY);
                     const project = (x, y, relative = false, projectOriginX = originX, projectOriginY = originY, customPivotY = null) => {
-                        const pivotX = projectOriginX + PLAYER.WIDTH * 0.5;
-                        const pivotY = customPivotY !== null ? customPivotY : (projectOriginY + PLAYER.HEIGHT * (pIsCrouching ? 0.58 : 0.43));
+                        const pivotX = projectOriginX + actorW * 0.5;
+                        const pivotY = customPivotY !== null ? customPivotY : (projectOriginY + actorH * (pIsCrouching ? 0.58 : 0.43));
                         const sourceX = relative ? projectOriginX + x : x;
                         const sourceY = relative ? projectOriginY + y : y;
                         return {
@@ -3289,7 +3299,7 @@ export class Shogun extends Boss {
                             y: pivotY + (sourceY - pivotY) * renderScale
                         };
                     };
-                    const simPivotY = originY + PLAYER.HEIGHT * (pIsCrouching ? 0.58 : 0.43);
+                    const simPivotY = originY + actorH * (pIsCrouching ? 0.58 : 0.43);
                     const curveIsRelative = !!p.trailIsRelative;
 
                     const tip = project(p.x, p.y, false, originX, originY, simPivotY);

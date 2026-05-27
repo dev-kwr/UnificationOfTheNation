@@ -1,0 +1,847 @@
+diff --git a/js/playerSlashTrail.js b/js/playerSlashTrail.js
+index 8227658..aa51726 100644
+--- a/js/playerSlashTrail.js
++++ b/js/playerSlashTrail.js
+@@ -1,6 +1,6 @@
+ // Unification of the Nation - 斬撃トレイル mixin
+ 
+-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js';
++import { PLAYER, FRICTION, LANE_OFFSET } from './constants.js';
+ import { audio } from './audio.js';
+ import { game } from './game.js';
+ import { drawShurikenShape } from './weapon.js';
+@@ -148,24 +148,39 @@ export function applySlashTrailMixin(PlayerClass) {
+                 // ベジェ曲線段: 最新のパラメータを保存
+                 const lastPt = stepPoints.length > 0 ? stepPoints[stepPoints.length - 1] : null;
+                 const firstPt = stepPoints.length > 0 ? stepPoints[0] : null;
+-                if (lastPt && Number.isFinite(lastPt.trailCurveStartX)) {
++                const fixedCurvePt = null; // 統一剣筋仕様では固定カーブ不使用
++                const curvePt = fixedCurvePt || lastPt;
++                const readCurve = (fixedName, curveName) => (
++                    fixedCurvePt && Number.isFinite(fixedCurvePt[fixedName])
++                        ? fixedCurvePt[fixedName]
++                        : (curvePt ? curvePt[curveName] : undefined)
++                );
++                if (curvePt && Number.isFinite(readCurve('trailFixedCurveStartX', 'trailCurveStartX'))) {
+                     this.comboSlashTrailFrozenCurves.push({
+                         type: 'bezier',
+                         step: stepNum,
+-                        trailCurveStartX: lastPt.trailCurveStartX,
+-                        trailCurveStartY: lastPt.trailCurveStartY,
+-                        trailCurveControlX: lastPt.trailCurveControlX,
+-                        trailCurveControlY: lastPt.trailCurveControlY,
+-                        trailCurveEndX: lastPt.trailCurveEndX,
+-                        trailCurveEndY: lastPt.trailCurveEndY,
++                        trailCurveStartX: readCurve('trailFixedCurveStartX', 'trailCurveStartX'),
++                        trailCurveStartY: readCurve('trailFixedCurveStartY', 'trailCurveStartY'),
++                        trailCurveControlX: readCurve('trailFixedCurveControlX', 'trailCurveControlX'),
++                        trailCurveControlY: readCurve('trailFixedCurveControlY', 'trailCurveControlY'),
++                        trailCurveEndX: readCurve('trailFixedCurveEndX', 'trailCurveEndX'),
++                        trailCurveEndY: readCurve('trailFixedCurveEndY', 'trailCurveEndY'),
+                         trailRadius: lastPt.trailRadius,
+                         centerX: lastPt.centerX,
+                         centerY: lastPt.centerY,
+                         dir: lastPt.dir,
+                         progress: Number.isFinite(lastPt.progress) ? lastPt.progress : 1.0, // 実際の進行度で凍結させる
+-                        trailIsRelative: !!lastPt.trailIsRelative,
+-                        playerX: Number.isFinite(forceOffsetX) ? forceOffsetX : (Number.isFinite(lastPt.playerX) ? lastPt.playerX : this.x),
+-                        playerY: Number.isFinite(forceOffsetY) ? forceOffsetY : (Number.isFinite(lastPt.playerY) ? lastPt.playerY : this.y),
++                        trailIsRelative: fixedCurvePt ? !!fixedCurvePt.trailFixedCurveIsRelative : !!lastPt.trailIsRelative,
++                        playerX: Number.isFinite(forceOffsetX)
++                            ? forceOffsetX
++                            : (Number.isFinite(curvePt.trailFixedCurvePlayerX)
++                                ? curvePt.trailFixedCurvePlayerX
++                                : (Number.isFinite(lastPt.playerX) ? lastPt.playerX : this.x)),
++                        playerY: Number.isFinite(forceOffsetY)
++                            ? forceOffsetY
++                            : (Number.isFinite(curvePt.trailFixedCurvePlayerY)
++                                ? curvePt.trailFixedCurvePlayerY
++                                : (Number.isFinite(lastPt.playerY) ? lastPt.playerY : this.y)),
+                         age: Math.max(0, lastPt.age || 0), // 新しい（剣先の）フェードアウト度合い
+                         oldestAge: Math.max(0, firstPt ? firstPt.age : (lastPt.age || 0)), // 古い（根本の）フェードアウト度合い
+                         life: Math.max(1, lastPt.life || this.comboSlashTrailActiveLifeMs),
+@@ -248,6 +263,10 @@ export function applySlashTrailMixin(PlayerClass) {
+             facingRight: state.facingRight !== undefined ? state.facingRight : this.facingRight,
+             isCrouching: state.isCrouching !== undefined ? state.isCrouching : this.isCrouching,
+             isGrounded: state.isGrounded !== undefined ? state.isGrounded : this.isGrounded,
++            groundY: Number.isFinite(state.groundY) ? state.groundY : this.groundY,
++            renderScale: Number.isFinite(state.renderScale) ? state.renderScale : (Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1),
++            scaleMultiplier: Number.isFinite(state.scaleMultiplier) ? state.scaleMultiplier : (Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1),
++            step2TrailImpulseScale: Number.isFinite(state.step2TrailImpulseScale) ? state.step2TrailImpulseScale : undefined,
+             vx: Number.isFinite(state.vx) ? state.vx : this.vx,
+             vy: Number.isFinite(state.vy) ? state.vy : this.vy,
+             speed: Number.isFinite(state.speed) ? state.speed : this.speed
+@@ -499,6 +518,19 @@ export function applySlashTrailMixin(PlayerClass) {
+         const isCrouching = state.isCrouching !== undefined ? state.isCrouching : this.isCrouching;
+         const speed = Number.isFinite(state.speed) ? state.speed : this.speed;
+         const dir = facingRight ? 1 : -1;
++        let renderScale = 1;
++        if (Number.isFinite(state.renderScale)) {
++            renderScale = state.renderScale;
++        } else if (Number.isFinite(state.scaleMultiplier)) {
++            renderScale = state.scaleMultiplier;
++        } else if (Number.isFinite(this.scaleMultiplier)) {
++            renderScale = this.scaleMultiplier;
++        }
++        renderScale = Math.max(1, renderScale);
++        const bodyMotionScale = 1 / renderScale;
++        const step2ImpulseScale = Number.isFinite(state.step2TrailImpulseScale)
++            ? state.step2TrailImpulseScale
++            : (Number.isFinite(attack.step2TrailImpulseScale) ? attack.step2TrailImpulseScale : 0.9);
+         const durationMs = Math.max(1, attack.durationMs || PLAYER.ATTACK_COOLDOWN);
+         const sampleTargets = [0.0, 0.42, 1.0];
+         const frameMs = 1000 / 60;
+@@ -507,7 +539,7 @@ export function applySlashTrailMixin(PlayerClass) {
+         let simY = y;
+         let simVx = isCrouching
+             ? dir * impulse * 0.28
+-            : ((Number.isFinite(state.vx) ? state.vx : this.vx) * 0.16 + dir * impulse * 0.9);
++            : ((Number.isFinite(state.vx) ? state.vx : this.vx) * 0.16 + dir * impulse * step2ImpulseScale);
+         let simVy = isCrouching
+             ? (Number.isFinite(state.vy) ? state.vy : this.vy)
+             : ((state.isGrounded !== undefined ? state.isGrounded : this.isGrounded)
+@@ -539,8 +571,8 @@ export function applySlashTrailMixin(PlayerClass) {
+                 sampleIndex++;
+             }
+             if (progress >= sampleTargets[sampleTargets.length - 1] || timerMs <= 0) break;
+-            simX += simVx;
+-            simY += simVy;
++            simX += simVx * bodyMotionScale;
++            simY += simVy * bodyMotionScale;
+             if (state.isGrounded !== false) {
+                 simVx *= 0.965;
+                 simVx *= FRICTION;
+@@ -721,119 +753,123 @@ export function applySlashTrailMixin(PlayerClass) {
+         const height = Number.isFinite(state.height) ? state.height : this.height;
+         const facingRight = state.facingRight !== undefined ? state.facingRight : this.facingRight;
+         const isCrouching = state.isCrouching !== undefined ? state.isCrouching : this.isCrouching;
+-        const attack = state.attack || this.currentAttack || null;
+-        const dir = facingRight ? 1 : -1;
+-        const bladeLen = this.getKatanaBladeLength();
+-        const durationMs = Math.max(1, attack?.durationMs || PLAYER.ATTACK_COOLDOWN);
+-        const smooth = (t) => {
+-            const v = Math.max(0, Math.min(1, t));
+-            return v * v * (3 - 2 * v);
+-        };
+-        const pointAt = (progress, bodyX = x, bodyY = y) => {
+-            const centerX = bodyX + width * 0.5;
+-            const pivotY = bodyY + (isCrouching ? height * 0.58 : height * 0.43);
+-            let swordAngle;
+-            let armEndX;
+-            let armEndY;
+-            if (progress < 0.26) {
+-                const t = progress / 0.26;
+-                swordAngle = -1.45 + t * 0.3;
+-                armEndX = centerX - dir * (4.0 - t * 8.0);
+-                armEndY = pivotY - 18 - t * 5.0;
+-            } else if (progress < 0.78) {
+-                const t = (progress - 0.26) / 0.52;
+-                const fallEase = smooth(t);
+-                swordAngle = 0.1 + fallEase * 0.08;
+-                armEndX = centerX + dir * (15.6 + fallEase * 1.8);
+-                armEndY = pivotY + 12.8 + fallEase * 1.4;
+-            } else {
+-                const t = (progress - 0.78) / 0.22;
+-                const settle = smooth(t);
+-                swordAngle = 0.18 - settle * 0.04;
+-                armEndX = centerX + dir * (17.4 - settle * 0.8);
+-                armEndY = pivotY + 14.2 - settle * 0.8;
+-            }
+-            const prepEase = smooth(progress / 0.2);
+-            const prevAngle = -2.7;
+-            const prevHandX = centerX - dir * 4.0;
+-            const prevHandY = pivotY - 18.0;
+-            swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
+-            armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
+-            armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
+-            return {
+-                x: armEndX + Math.cos(swordAngle) * bladeLen * dir,
+-                y: armEndY + Math.sin(swordAngle) * bladeLen
++        // 将軍・忍者で統一された剣筋トレイル仕様（スケール対応）
++        {
++            const attack = state.attack || this.currentAttack || null;
++            const dir = facingRight ? 1 : -1;
++            const bladeLen = this.getKatanaBladeLength();
++            const durationMs = Math.max(1, attack?.durationMs || PLAYER.ATTACK_COOLDOWN);
++            const scale = height / 36;
++            const smooth = (t) => {
++                const v = Math.max(0, Math.min(1, t));
++                return v * v * (3 - 2 * v);
+             };
+-        };
+-        const sampleTargets = [0.06, 0.38, 0.62, 0.78];
+-        const sampledBodies = [];
+-        const frameMs = 1000 / 60;
+-        let simX = x;
+-        let simY = y;
+-        let simVx = (Number.isFinite(state.vx) ? state.vx : this.vx) * 0.18;
+-        let simVy = Math.min(Number.isFinite(state.vy) ? state.vy : this.vy, -1.2);
+-        let timerMs = durationMs;
+-        let sampleIndex = 0;
+-        while (sampleIndex < sampleTargets.length) {
+-            const progress = Math.max(0, Math.min(1, 1 - (timerMs / durationMs)));
+-            while (sampleIndex < sampleTargets.length && progress >= sampleTargets[sampleIndex] - 0.0001) {
++            const pointAt = (progress, bodyX = x, bodyY = y) => {
++                const centerX = bodyX + width * 0.5;
++                const pivotY = bodyY + (isCrouching ? height * 0.58 : height * 0.43);
++                let swordAngle;
++                let armEndX;
++                let armEndY;
++                if (progress < 0.26) {
++                    const t = progress / 0.26;
++                    swordAngle = -1.45 + t * 0.3;
++                    armEndX = centerX - dir * (4.0 - t * 8.0) * scale;
++                    armEndY = pivotY - (18 + t * 5.0) * scale;
++                } else if (progress < 0.78) {
++                    const t = (progress - 0.26) / 0.52;
++                    const fallEase = smooth(t);
++                    swordAngle = 0.1 + fallEase * 0.08;
++                    armEndX = centerX + dir * (15.6 + fallEase * 1.8) * scale;
++                    armEndY = pivotY + (12.8 + fallEase * 1.4) * scale;
++                } else {
++                    const t = (progress - 0.78) / 0.22;
++                    const settle = smooth(t);
++                    swordAngle = 0.18 - settle * 0.04;
++                    armEndX = centerX + dir * (17.4 - settle * 0.8) * scale;
++                    armEndY = pivotY + (14.2 - settle * 0.8) * scale;
++                }
++                const prepEase = smooth(progress / 0.2);
++                const prevAngle = -2.7;
++                const prevHandX = centerX - dir * 4.0 * scale;
++                const prevHandY = pivotY - 18.0 * scale;
++                swordAngle = prevAngle + (swordAngle - prevAngle) * prepEase;
++                armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
++                armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
++                return {
++                    x: armEndX + Math.cos(swordAngle) * bladeLen * dir,
++                    y: armEndY + Math.sin(swordAngle) * bladeLen
++                };
++            };
++            const sampleTargets = [0.06, 0.38, 0.62, 0.78];
++            const sampledBodies = [];
++            const frameMs = 1000 / 60;
++            let simX = x;
++            let simY = y;
++            let simVx = (Number.isFinite(state.vx) ? state.vx : this.vx) * 0.18;
++            let simVy = Math.min(Number.isFinite(state.vy) ? state.vy : this.vy, -1.2);
++            let timerMs = durationMs;
++            let sampleIndex = 0;
++            while (sampleIndex < sampleTargets.length) {
++                const progress = Math.max(0, Math.min(1, 1 - (timerMs / durationMs)));
++                while (sampleIndex < sampleTargets.length && progress >= sampleTargets[sampleIndex] - 0.0001) {
++                    sampledBodies[sampleIndex] = { x: simX, y: simY };
++                    sampleIndex++;
++                }
++                if (progress >= 0.78 || timerMs <= 0) break;
++                if (progress < 0.26) {
++                    simVx *= 0.82;
++                    simVy = Math.min(simVy, -1.2);
++                } else if (progress < 0.76) {
++                    const fallT = (progress - 0.26) / 0.5;
++                    simVx = simVx * 0.7 + (Number.isFinite(state.speed) ? state.speed : this.speed) * dir * 0.08;
++                    simVy = simVy * 0.34 + (9.8 + fallT * 19.8) * 0.66;
++                } else {
++                    simVx *= 0.64;
++                    simVy = Math.max(simVy, 13.4);
++                }
++                simX += simVx;
++                simY += simVy + 0.8;
++                timerMs = Math.max(0, timerMs - frameMs);
++            }
++            while (sampleIndex < sampleTargets.length) {
+                 sampledBodies[sampleIndex] = { x: simX, y: simY };
+                 sampleIndex++;
+             }
+-            if (progress >= 0.78 || timerMs <= 0) break;
+-            if (progress < 0.26) {
+-                simVx *= 0.82;
+-                simVy = Math.min(simVy, -1.2);
+-            } else if (progress < 0.76) {
+-                const fallT = (progress - 0.26) / 0.5;
+-                simVx = simVx * 0.7 + (Number.isFinite(state.speed) ? state.speed : this.speed) * dir * 0.08;
+-                simVy = simVy * 0.34 + (9.8 + fallT * 19.8) * 0.66;
+-            } else {
+-                simVx *= 0.64;
+-                simVy = Math.max(simVy, 13.4);
+-            }
+-            // 実際の物理演算(applyPhysics)に合わせ、重力定数(0.8)を考慮して座標を更新
+-            simX += simVx;
+-            simY += simVy + 0.8;
+-            timerMs = Math.max(0, timerMs - frameMs);
+-        }
+-        while (sampleIndex < sampleTargets.length) {
+-            sampledBodies[sampleIndex] = { x: simX, y: simY };
+-            sampleIndex++;
++
++            const startBody = sampledBodies[0] || { x, y };
++            const midBody = sampledBodies[1] || startBody;
++            const endBody = sampledBodies[2] || midBody;
++            const settleBody = sampledBodies[3] || endBody;
++            const start = pointAt(sampleTargets[0], startBody.x, startBody.y);
++            const mid = pointAt(sampleTargets[1], midBody.x, midBody.y);
++            const end = pointAt(sampleTargets[2], endBody.x, endBody.y);
++            const settleTip = pointAt(sampleTargets[3], settleBody.x, settleBody.y);
++            const groundY = Number.isFinite(state.groundY) ? state.groundY : this.groundY;
++            const slashFloorY = Number.isFinite(groundY)
++                ? (groundY + LANE_OFFSET) - Math.max(10, height * 0.1)
++                : Infinity;
++            end.y = Math.min(end.y, slashFloorY, settleTip.y);
++            mid.y = Math.min(mid.y, start.y + (end.y - start.y) * 0.54);
++            const midT = Math.max(0.08, Math.min(0.92, (0.38 - 0.16) / (0.62 - 0.16)));
++            const midFactor = 2 * (1 - midT) * midT;
++            let controlX = (mid.x - ((1 - midT) * (1 - midT) * start.x) - (midT * midT * end.x)) / midFactor;
++            let controlY = (mid.y - ((1 - midT) * (1 - midT) * start.y) - (midT * midT * end.y)) / midFactor;
++            const controlXMin = Math.min(start.x, end.x) - 6;
++            const controlXMax = Math.max(start.x, end.x) + 6;
++            const controlYMin = Math.min(start.y, end.y);
++            const controlYMax = Math.max(start.y, end.y);
++            controlX = Math.max(controlXMin, Math.min(controlXMax, controlX));
++            controlY = Math.max(controlYMin, Math.min(controlYMax, controlY));
++            return {
++                trailCurveStartX: start.x,
++                trailCurveStartY: start.y,
++                trailCurveControlX: controlX,
++                trailCurveControlY: controlY,
++                trailCurveEndX: end.x,
++                trailCurveEndY: end.y
++            };
+         }
+ 
+-        const startBody = sampledBodies[0] || { x, y };
+-        const midBody = sampledBodies[1] || startBody;
+-        const endBody = sampledBodies[2] || midBody;
+-        const settleBody = sampledBodies[3] || endBody;
+-        const start = pointAt(sampleTargets[0], startBody.x, startBody.y);
+-        const mid = pointAt(sampleTargets[1], midBody.x, midBody.y);
+-        const end = pointAt(sampleTargets[2], endBody.x, endBody.y);
+-        const settleTip = pointAt(sampleTargets[3], settleBody.x, settleBody.y);
+-        const groundY = Number.isFinite(state.groundY) ? state.groundY : this.groundY;
+-        const slashFloorY = Number.isFinite(groundY)
+-            ? (groundY + LANE_OFFSET) - Math.max(10, height * 0.1)
+-            : Infinity;
+-        end.y = Math.min(end.y, slashFloorY, settleTip.y);
+-        mid.y = Math.min(mid.y, start.y + (end.y - start.y) * 0.54);
+-        const midT = Math.max(0.08, Math.min(0.92, (0.38 - 0.16) / (0.62 - 0.16)));
+-        const midFactor = 2 * (1 - midT) * midT;
+-        let controlX = (mid.x - ((1 - midT) * (1 - midT) * start.x) - (midT * midT * end.x)) / midFactor;
+-        let controlY = (mid.y - ((1 - midT) * (1 - midT) * start.y) - (midT * midT * end.y)) / midFactor;
+-        const controlXMin = Math.min(start.x, end.x) - 6;
+-        const controlXMax = Math.max(start.x, end.x) + 6;
+-        const controlYMin = Math.min(start.y, end.y);
+-        const controlYMax = Math.max(start.y, end.y);
+-        controlX = Math.max(controlXMin, Math.min(controlXMax, controlX));
+-        controlY = Math.max(controlYMin, Math.min(controlYMax, controlY));
+-        return {
+-            trailCurveStartX: start.x,
+-            trailCurveStartY: start.y,
+-            trailCurveControlX: controlX,
+-            trailCurveControlY: controlY,
+-            trailCurveEndX: end.x,
+-            trailCurveEndY: end.y
+-        };
+     };
+ 
+     PlayerClass.prototype.getComboSwordPoseState = function(state, options = {}) {
+@@ -1313,6 +1349,7 @@ export function applySlashTrailMixin(PlayerClass) {
+         const sampleTrailScale = Number.isFinite(options.sampleTrailScale) ? options.sampleTrailScale : 1;
+         const currentStep = pose ? (pose.comboStep || 0) : -1;
+         const activeTrailId = Number.isFinite(options.activeTrailId) ? options.activeTrailId : null;
++        const keepExistingPointStable = this.characterType === 'shogun' || !!options.keepExistingPointStable;
+         const trimTrailingStepPoints = (step) => {
+             if (!Number.isFinite(step) || step <= 0) return;
+             while (points.length > 0) {
+@@ -1321,6 +1358,64 @@ export function applySlashTrailMixin(PlayerClass) {
+                 points.pop();
+             }
+         };
++        const isSameActiveTrailPoint = (point) => !!(
++            point &&
++            point.step === currentStep &&
++            (activeTrailId === null || point.trailAttackId === activeTrailId)
++        );
++        const hasFixedCurveAnchor = (point) => !!(
++            point &&
++            Number.isFinite(point.trailFixedCurveStartX) &&
++            Number.isFinite(point.trailFixedCurveStartY) &&
++            Number.isFinite(point.trailFixedCurveControlX) &&
++            Number.isFinite(point.trailFixedCurveControlY) &&
++            Number.isFinite(point.trailFixedCurveEndX) &&
++            Number.isFinite(point.trailFixedCurveEndY)
++        );
++        const hasCurveAnchor = (point) => !!(
++            point &&
++            Number.isFinite(point.trailCurveStartX) &&
++            Number.isFinite(point.trailCurveStartY) &&
++            Number.isFinite(point.trailCurveControlX) &&
++            Number.isFinite(point.trailCurveControlY) &&
++            Number.isFinite(point.trailCurveEndX) &&
++            Number.isFinite(point.trailCurveEndY)
++        );
++        const buildStep5FixedCurveAnchor = () => {
++            return null; // 統一剣筋仕様では固定カーブアンカー不要
++            const fixedPoint = points.find((point) => isSameActiveTrailPoint(point) && hasFixedCurveAnchor(point));
++            const curvePoint = fixedPoint || points.find((point) => isSameActiveTrailPoint(point) && hasCurveAnchor(point));
++            const source = fixedPoint || curvePoint || pose;
++            const useFixed = hasFixedCurveAnchor(source);
++            const startX = useFixed ? source.trailFixedCurveStartX : source.trailCurveStartX;
++            const startY = useFixed ? source.trailFixedCurveStartY : source.trailCurveStartY;
++            const controlX = useFixed ? source.trailFixedCurveControlX : source.trailCurveControlX;
++            const controlY = useFixed ? source.trailFixedCurveControlY : source.trailCurveControlY;
++            const endX = useFixed ? source.trailFixedCurveEndX : source.trailCurveEndX;
++            const endY = useFixed ? source.trailFixedCurveEndY : source.trailCurveEndY;
++            if ([startX, startY, controlX, controlY, endX, endY].some((v) => !Number.isFinite(v))) return null;
++            return {
++                trailFixedCurveStartX: startX,
++                trailFixedCurveStartY: startY,
++                trailFixedCurveControlX: controlX,
++                trailFixedCurveControlY: controlY,
++                trailFixedCurveEndX: endX,
++                trailFixedCurveEndY: endY,
++                trailFixedCurvePlayerX: Number.isFinite(source.trailFixedCurvePlayerX)
++                    ? source.trailFixedCurvePlayerX
++                    : (Number.isFinite(source.playerX)
++                        ? source.playerX
++                        : (Number.isFinite(source.originX) ? source.originX : this.x)),
++                trailFixedCurvePlayerY: Number.isFinite(source.trailFixedCurvePlayerY)
++                    ? source.trailFixedCurvePlayerY
++                    : (Number.isFinite(source.playerY)
++                        ? source.playerY
++                        : (Number.isFinite(source.originY) ? source.originY : this.y)),
++                trailFixedCurveIsRelative: useFixed
++                    ? !!source.trailFixedCurveIsRelative
++                    : !!source.trailIsRelative
++            };
++        };
+         
+         // 核心ルール: lifeは生成時に一度だけ設定。以降はageのみが進む。
+         for (let i = 0; i < points.length; i++) {
+@@ -1370,6 +1465,10 @@ export function applySlashTrailMixin(PlayerClass) {
+             let last = points.length > 0 ? points[points.length - 1] : null;
+             let dist = last ? Math.hypot(now.x - last.x, now.y - last.y) : Infinity;
+             const currentPoseStep = pose.comboStep || 0;
++            const trailWindow = this.getComboTrailProgressWindow(currentPoseStep);
++            const windowEnd = Number.isFinite(trailWindow.end) ? trailWindow.end : 1;
++            const poseProgress = Number.isFinite(pose.progress) ? pose.progress : null;
++            const lastProgress = last && Number.isFinite(last.progress) ? last.progress : null;
+             if (last && dist > jumpCutDist) {
+                 if ((last.step || 0) === currentPoseStep) {
+                     // 同一段内のテレポートは、その段の壊れた点列だけ捨て直す。
+@@ -1383,7 +1482,16 @@ export function applySlashTrailMixin(PlayerClass) {
+                     dist = Infinity;
+                 }
+             }
+-            if (!last || points.length < 2 || dist >= 2.6 || nextSampleTimer <= 0) {
++            const fixedCurveAnchor = buildStep5FixedCurveAnchor();
++            const forceEndpointSample = !!(
++                keepExistingPointStable &&
++                last &&
++                poseProgress !== null &&
++                poseProgress >= windowEnd - 0.0015 &&
++                (lastProgress === null || lastProgress < windowEnd - 0.0015) &&
++                dist > 0.001
++            );
++            if (!last || points.length < 2 || dist >= 2.6 || nextSampleTimer <= 0 || forceEndpointSample) {
+                 points.push({
+                     x: now.x,
+                     y: now.y,
+@@ -1399,6 +1507,7 @@ export function applySlashTrailMixin(PlayerClass) {
+                     trailCurveControlY: Number.isFinite(pose.trailCurveControlY) ? pose.trailCurveControlY : undefined,
+                     trailCurveEndX: Number.isFinite(pose.trailCurveEndX) ? pose.trailCurveEndX : undefined,
+                     trailCurveEndY: Number.isFinite(pose.trailCurveEndY) ? pose.trailCurveEndY : undefined,
++                    ...(fixedCurveAnchor || {}),
+                     trailRadius: Number.isFinite(pose.trailRadius) ? pose.trailRadius : undefined,
+                     centerX: Number.isFinite(pose.centerX) ? pose.centerX : undefined,
+                     centerY: Number.isFinite(pose.centerY) ? pose.centerY : undefined,
+@@ -1414,30 +1523,37 @@ export function applySlashTrailMixin(PlayerClass) {
+                 });
+                 nextSampleTimer = this.comboSlashTrailSampleIntervalMs;
+             } else {
+-                last.x = now.x;
+-                last.y = now.y;
+-                last.dir = Number.isFinite(pose.dir) ? pose.dir : last.dir;
+-                last.progress = Number.isFinite(pose.progress) ? pose.progress : last.progress;
+-                last.trailArcCenterX = Number.isFinite(pose.trailArcCenterX) ? pose.trailArcCenterX : last.trailArcCenterX;
+-                last.trailArcCenterY = Number.isFinite(pose.trailArcCenterY) ? pose.trailArcCenterY : last.trailArcCenterY;
+-                last.trailArcStartAngle = Number.isFinite(pose.trailArcStartAngle) ? pose.trailArcStartAngle : last.trailArcStartAngle;
+-                last.trailArcSpan = Number.isFinite(pose.trailArcSpan) ? pose.trailArcSpan : last.trailArcSpan;
+-                last.trailCurveStartX = Number.isFinite(pose.trailCurveStartX) ? pose.trailCurveStartX : last.trailCurveStartX;
+-                last.trailCurveStartY = Number.isFinite(pose.trailCurveStartY) ? pose.trailCurveStartY : last.trailCurveStartY;
+-                last.trailCurveControlX = Number.isFinite(pose.trailCurveControlX) ? pose.trailCurveControlX : last.trailCurveControlX;
+-                last.trailCurveControlY = Number.isFinite(pose.trailCurveControlY) ? pose.trailCurveControlY : last.trailCurveControlY;
+-                last.trailCurveEndX = Number.isFinite(pose.trailCurveEndX) ? pose.trailCurveEndX : last.trailCurveEndX;
+-                last.trailCurveEndY = Number.isFinite(pose.trailCurveEndY) ? pose.trailCurveEndY : last.trailCurveEndY;
+-                last.trailRadius = Number.isFinite(pose.trailRadius) ? pose.trailRadius : last.trailRadius;
+-                last.centerX = Number.isFinite(pose.centerX) ? pose.centerX : last.centerX;
+-                last.centerY = Number.isFinite(pose.centerY) ? pose.centerY : last.centerY;
+-                last.trailIsRelative = pose.trailIsRelative !== undefined ? pose.trailIsRelative : last.trailIsRelative;
+-                last.playerX = Number.isFinite(pose.originX) ? pose.originX : last.playerX;
+-                last.playerY = Number.isFinite(pose.originY) ? pose.originY : last.playerY;
+-                last.step = currentPoseStep;
+-                last.trailAttackId = activeTrailId;
+-                last.trailScale = sampleTrailScale;
+-                last.age = Math.max(0, last.age - deltaMs * 0.7);
++                if (keepExistingPointStable) {
++                    if (fixedCurveAnchor) Object.assign(last, fixedCurveAnchor);
++                    last.trailAttackId = activeTrailId;
++                    last.trailScale = Math.max(Number.isFinite(last.trailScale) ? last.trailScale : 1, sampleTrailScale);
++                    last.age = Math.max(0, last.age - deltaMs * 0.7);
++                } else {
++                    last.x = now.x;
++                    last.y = now.y;
++                    last.dir = Number.isFinite(pose.dir) ? pose.dir : last.dir;
++                    last.progress = Number.isFinite(pose.progress) ? pose.progress : last.progress;
++                    last.trailArcCenterX = Number.isFinite(pose.trailArcCenterX) ? pose.trailArcCenterX : last.trailArcCenterX;
++                    last.trailArcCenterY = Number.isFinite(pose.trailArcCenterY) ? pose.trailArcCenterY : last.trailArcCenterY;
++                    last.trailArcStartAngle = Number.isFinite(pose.trailArcStartAngle) ? pose.trailArcStartAngle : last.trailArcStartAngle;
++                    last.trailArcSpan = Number.isFinite(pose.trailArcSpan) ? pose.trailArcSpan : last.trailArcSpan;
++                    last.trailCurveStartX = Number.isFinite(pose.trailCurveStartX) ? pose.trailCurveStartX : last.trailCurveStartX;
++                    last.trailCurveStartY = Number.isFinite(pose.trailCurveStartY) ? pose.trailCurveStartY : last.trailCurveStartY;
++                    last.trailCurveControlX = Number.isFinite(pose.trailCurveControlX) ? pose.trailCurveControlX : last.trailCurveControlX;
++                    last.trailCurveControlY = Number.isFinite(pose.trailCurveControlY) ? pose.trailCurveControlY : last.trailCurveControlY;
++                    last.trailCurveEndX = Number.isFinite(pose.trailCurveEndX) ? pose.trailCurveEndX : last.trailCurveEndX;
++                    last.trailCurveEndY = Number.isFinite(pose.trailCurveEndY) ? pose.trailCurveEndY : last.trailCurveEndY;
++                    last.trailRadius = Number.isFinite(pose.trailRadius) ? pose.trailRadius : last.trailRadius;
++                    last.centerX = Number.isFinite(pose.centerX) ? pose.centerX : last.centerX;
++                    last.centerY = Number.isFinite(pose.centerY) ? pose.centerY : last.centerY;
++                    last.trailIsRelative = pose.trailIsRelative !== undefined ? pose.trailIsRelative : last.trailIsRelative;
++                    last.playerX = Number.isFinite(pose.originX) ? pose.originX : last.playerX;
++                    last.playerY = Number.isFinite(pose.originY) ? pose.originY : last.playerY;
++                    last.step = currentPoseStep;
++                    last.trailAttackId = activeTrailId;
++                    last.trailScale = sampleTrailScale;
++                    last.age = Math.max(0, last.age - deltaMs * 0.7);
++                }
+             }
+         }
+ 
+@@ -1629,12 +1745,14 @@ export function applySlashTrailMixin(PlayerClass) {
+                     const isShogunBodySlot = !!(
+                         this.characterType === 'shogun' &&
+                         Array.isArray(this.specialCloneSlots) &&
+-                        this.specialCloneSlots[i] === 0
++                        (i === 0 || this.specialCloneSlots[i] === 0)
+                     );
+                     const poseWidth = isShogunBodySlot ? PLAYER.WIDTH : this.width;
+-                    const poseHeight = this.height;
+-                    const poseOriginX = pos.x - poseWidth * 0.5;
+-                    const poseOriginY = cloneDrawY;
++                    const poseHeight = isShogunBodySlot ? PLAYER.HEIGHT : this.height;
++                    const poseOriginX = isShogunBodySlot
++                        ? pos.x - this.width * 0.5
++                        : pos.x - poseWidth * 0.5;
++                    const poseOriginY = pos.y - poseHeight * 0.43;
+                     const hasOverride = !isAutoAi && this.specialCloneCurrentAttacks[i] != null;
+                     const comboStep = (isAutoAi || hasOverride)
+                         ? (this.specialCloneComboSteps[i] || 1)
+@@ -1826,7 +1944,37 @@ export function applySlashTrailMixin(PlayerClass) {
+                     simplified.push({ ...src });
+                 } else {
+                     // 最新位置へ同期しつつ最新のタイマーを保持
++                    const preserveFixedCurveAnchor = !!(
++                        this.characterType === 'shogun' &&
++                        (last.step || 0) === 5 &&
++                        (src.step || 0) === 5 &&
++                        (
++                            !Number.isFinite(last.trailAttackId) ||
++                            !Number.isFinite(src.trailAttackId) ||
++                            last.trailAttackId === src.trailAttackId
++                        )
++                    );
++                    const fixedCurveAnchor = preserveFixedCurveAnchor
++                        ? {
++                            trailCurveStartX: last.trailCurveStartX,
++                            trailCurveStartY: last.trailCurveStartY,
++                            trailCurveControlX: last.trailCurveControlX,
++                            trailCurveControlY: last.trailCurveControlY,
++                            trailCurveEndX: last.trailCurveEndX,
++                            trailCurveEndY: last.trailCurveEndY,
++                            trailFixedCurveStartX: last.trailFixedCurveStartX,
++                            trailFixedCurveStartY: last.trailFixedCurveStartY,
++                            trailFixedCurveControlX: last.trailFixedCurveControlX,
++                            trailFixedCurveControlY: last.trailFixedCurveControlY,
++                            trailFixedCurveEndX: last.trailFixedCurveEndX,
++                            trailFixedCurveEndY: last.trailFixedCurveEndY,
++                            trailFixedCurvePlayerX: last.trailFixedCurvePlayerX,
++                            trailFixedCurvePlayerY: last.trailFixedCurvePlayerY,
++                            trailFixedCurveIsRelative: last.trailFixedCurveIsRelative
++                        }
++                        : null;
+                     Object.assign(last, src);
++                    if (fixedCurveAnchor) Object.assign(last, fixedCurveAnchor);
+                 }
+             }
+ 
+@@ -2213,11 +2361,33 @@ export function applySlashTrailMixin(PlayerClass) {
+                 }
+             ];
+         };
++        const trimTrailEndPoint = (pts, trimPx) => {
++            if (!Array.isArray(pts) || pts.length < 2 || !(trimPx > 0)) return pts;
++            const adjusted = pts.map((p) => ({ ...p }));
++            const lastIndex = adjusted.length - 1;
++            const end = adjusted[lastIndex];
++            const prev = adjusted[lastIndex - 1];
++            const dx = end.x - prev.x;
++            const dy = end.y - prev.y;
++            const len = Math.hypot(dx, dy);
++            if (len <= 0.001) return adjusted;
++            const trim = Math.min(trimPx, len * 0.62);
++            adjusted[lastIndex] = {
++                ...end,
++                x: end.x - (dx / len) * trim,
++                y: end.y - (dy / len) * trim
++            };
++            return adjusted;
++        };
+         const drawDualBlueLinearTrail = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
+             const includeGhost = false;
+             if (!pts || pts.length < 2) return;
+-            const sourcePts = options.straighten ? buildStraightLinearStrip(pts, projectFn) : pts;
++            let sourcePts = options.straighten ? buildStraightLinearStrip(pts, projectFn) : pts;
+             if (!sourcePts || sourcePts.length < 2) return;
++            if (options.trimEndCap) {
++                const trimFactor = Number.isFinite(options.trimFactor) ? options.trimFactor : 0.5;
++                sourcePts = trimTrailEndPoint(sourcePts, baseWidth * trimFactor);
++            }
+             const ghostCount = Math.max(2, Math.floor(sourcePts.length * 0.78));
+             const ghostStrip = sourcePts.slice(0, ghostCount);
+             if (includeGhost) {
+@@ -2383,12 +2553,71 @@ export function applySlashTrailMixin(PlayerClass) {
+             const offsetY = isRelative
+                 ? (Number.isFinite(options.forceOffsetY) ? options.forceOffsetY : (Number.isFinite(newestSrc.playerY) ? newestSrc.playerY : (options.offsetY || 0)))
+                 : 0;
+-            const startX = Number.isFinite(newestSrc.trailCurveStartX) ? newestSrc.trailCurveStartX + offsetX : null;
+-            const startY = Number.isFinite(newestSrc.trailCurveStartY) ? newestSrc.trailCurveStartY + offsetY : null;
+-            const controlX = Number.isFinite(newestSrc.trailCurveControlX) ? newestSrc.trailCurveControlX + offsetX : null;
+-            const controlY = Number.isFinite(newestSrc.trailCurveControlY) ? newestSrc.trailCurveControlY + offsetY : null;
+-            const endX = Number.isFinite(newestSrc.trailCurveEndX) ? newestSrc.trailCurveEndX + offsetX : null;
+-            const endY = Number.isFinite(newestSrc.trailCurveEndY) ? newestSrc.trailCurveEndY + offsetY : null;
++            const hasFixedCurveAnchor = (point) => !!(
++                point &&
++                Number.isFinite(point.trailFixedCurveStartX) &&
++                Number.isFinite(point.trailFixedCurveStartY) &&
++                Number.isFinite(point.trailFixedCurveControlX) &&
++                Number.isFinite(point.trailFixedCurveControlY) &&
++                Number.isFinite(point.trailFixedCurveEndX) &&
++                Number.isFinite(point.trailFixedCurveEndY)
++            );
++            const hasCurveAnchor = (point) => !!(
++                point &&
++                Number.isFinite(point.trailCurveStartX) &&
++                Number.isFinite(point.trailCurveStartY) &&
++                Number.isFinite(point.trailCurveControlX) &&
++                Number.isFinite(point.trailCurveControlY) &&
++                Number.isFinite(point.trailCurveEndX) &&
++                Number.isFinite(point.trailCurveEndY)
++            );
++            const curveSrc = options.freezeCurveAnchor
++                ? (pts.find((point) => hasFixedCurveAnchor(point)) || pts.find((point) => hasCurveAnchor(point)) || oldestSrc)
++                : newestSrc;
++            const useFixedCurveAnchor = !!(options.freezeCurveAnchor && hasFixedCurveAnchor(curveSrc));
++            const curveIsRelative = useFixedCurveAnchor
++                ? !!curveSrc.trailFixedCurveIsRelative
++                : !!(
++                    options.forceRelative ||
++                    (options.useRelativeIfAvailable && curveSrc.trailIsRelative)
++                );
++            const curveOffsetX = curveIsRelative
++                ? (Number.isFinite(options.forceOffsetX)
++                    ? options.forceOffsetX
++                    : (Number.isFinite(curveSrc.trailFixedCurvePlayerX)
++                        ? curveSrc.trailFixedCurvePlayerX
++                        : (Number.isFinite(curveSrc.playerX) ? curveSrc.playerX : (options.offsetX || 0))))
++                : 0;
++            const curveOffsetY = curveIsRelative
++                ? (Number.isFinite(options.forceOffsetY)
++                    ? options.forceOffsetY
++                    : (Number.isFinite(curveSrc.trailFixedCurvePlayerY)
++                        ? curveSrc.trailFixedCurvePlayerY
++                        : (Number.isFinite(curveSrc.playerY) ? curveSrc.playerY : (options.offsetY || 0))))
++                : 0;
++            const readCurveValue = (fixedName, curveName) => (
++                useFixedCurveAnchor && Number.isFinite(curveSrc[fixedName])
++                    ? curveSrc[fixedName]
++                    : curveSrc[curveName]
++            );
++            const startX = Number.isFinite(readCurveValue('trailFixedCurveStartX', 'trailCurveStartX'))
++                ? readCurveValue('trailFixedCurveStartX', 'trailCurveStartX') + curveOffsetX
++                : null;
++            const startY = Number.isFinite(readCurveValue('trailFixedCurveStartY', 'trailCurveStartY'))
++                ? readCurveValue('trailFixedCurveStartY', 'trailCurveStartY') + curveOffsetY
++                : null;
++            const controlX = Number.isFinite(readCurveValue('trailFixedCurveControlX', 'trailCurveControlX'))
++                ? readCurveValue('trailFixedCurveControlX', 'trailCurveControlX') + curveOffsetX
++                : null;
++            const controlY = Number.isFinite(readCurveValue('trailFixedCurveControlY', 'trailCurveControlY'))
++                ? readCurveValue('trailFixedCurveControlY', 'trailCurveControlY') + curveOffsetY
++                : null;
++            const endX = Number.isFinite(readCurveValue('trailFixedCurveEndX', 'trailCurveEndX'))
++                ? readCurveValue('trailFixedCurveEndX', 'trailCurveEndX') + curveOffsetX
++                : null;
++            const endY = Number.isFinite(readCurveValue('trailFixedCurveEndY', 'trailCurveEndY'))
++                ? readCurveValue('trailFixedCurveEndY', 'trailCurveEndY') + curveOffsetY
++                : null;
+             if ([startX, startY, controlX, controlY, endX, endY].some((v) => !Number.isFinite(v))) return;
+             const activeProgress = (() => {
+                 if (options.useRelativeIfAvailable && newestSrc.trailCurveFrozen) return Number.isFinite(newestSrc.progress) ? newestSrc.progress : 1.0;
+@@ -2405,13 +2634,16 @@ export function applySlashTrailMixin(PlayerClass) {
+                 }
+                 
+                 const duration = Math.max(1, attackState.currentAttack.durationMs || PLAYER.ATTACK_COOLDOWN);
+-                const rawProgress = Number.isFinite(attackState.currentAttack.motionElapsedMs)
++                const timer = Number.isFinite(attackState.attackTimer) ? attackState.attackTimer : this.attackTimer;
++                const useMotionElapsed = Number.isFinite(attackState.currentAttack.motionElapsedMs);
++                const rawProgress = useMotionElapsed
+                     ? clamp01(attackState.currentAttack.motionElapsedMs / duration)
+-                    : clamp01(1 - ((Number.isFinite(attackState.attackTimer) ? attackState.attackTimer : this.attackTimer) / duration));
++                    : clamp01(1 - (timer / duration));
+                 return this.getAttackMotionProgress(attackState.currentAttack, rawProgress);
+             })();
+             const trailWindow = this.getComboTrailProgressWindow(comboStep);
+-            
++            const growthWindow = trailWindow;
++
+             // フラッシング（点滅）の原因になるため、ageによる完成形の強制描画を削除。
+             const growth = (() => {
+                 // 凍結軌跡はそのままのスナップショットとして扱う
+@@ -2419,16 +2651,29 @@ export function applySlashTrailMixin(PlayerClass) {
+                 const p = Number.isFinite(activeProgress)
+                     ? activeProgress
+                     : 1.0; // 取得できなかった場合は完成形とする
+-                if (p <= trailWindow.start) return 0;
+-                if (p >= trailWindow.end) return 1;
+-                const span = Math.max(0.001, trailWindow.end - trailWindow.start);
+-                return clamp01((p - trailWindow.start) / span);
++                if (p <= growthWindow.start) return 0;
++                if (p >= growthWindow.end) return 1;
++                const span = Math.max(0.001, growthWindow.end - growthWindow.start);
++                return clamp01((p - growthWindow.start) / span);
+             })();
+             if (growth <= 0.001) return;
+             let drawEndX = endX;
+             let drawEndY = endY;
+             let drawControlX = controlX;
+             let drawControlY = controlY;
++            if (options.liveEndPoint) {
++                const liveEndX = Number.isFinite(newestSrc.x) ? newestSrc.x + (isRelative ? offsetX : 0) : null;
++                const liveEndY = Number.isFinite(newestSrc.y) ? newestSrc.y + (isRelative ? offsetY : 0) : null;
++                if (Number.isFinite(liveEndX) && Number.isFinite(liveEndY)) {
++                    drawEndX = liveEndX;
++                    drawEndY = liveEndY;
++                }
++            }
++            if (options.clampControlY) {
++                const peakLimit = Math.min(startY, drawEndY) - Math.max(baseWidth * 1.25, Math.abs(drawEndY - startY) * 0.22);
++                const floorLimit = Math.max(startY, drawEndY) + baseWidth * 1.2;
++                drawControlY = Math.max(peakLimit, Math.min(floorLimit, drawControlY));
++            }
+             if (options.trimEnd) {
+                 const tangentX = drawEndX - drawControlX;
+                 const tangentY = drawEndY - drawControlY;
+@@ -2440,10 +2685,11 @@ export function applySlashTrailMixin(PlayerClass) {
+                     drawEndY -= (tangentY / tangentLen) * trim;
+                 }
+             }
++            const drawGrowth = (options.liveEndPoint || options.snapFullGrowth) ? 1 : growth;
+             const stripCount = Math.max(12, Math.round(12 + growth * 16));
+             const mergedStrip = [];
+             for (let i = 0; i < stripCount; i++) {
+-                const t = (stripCount <= 1 ? 1 : (i / (stripCount - 1))) * growth;
++                const t = (stripCount <= 1 ? 1 : (i / (stripCount - 1))) * drawGrowth;
+                 const oneMinusT = 1 - t;
+                 mergedStrip.push({
+                     x: oneMinusT * oneMinusT * startX + 2 * oneMinusT * t * drawControlX + t * t * drawEndX,
+@@ -2462,7 +2708,11 @@ export function applySlashTrailMixin(PlayerClass) {
+         const drawSampledBezierTrail = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
+             if (!pts || pts.length < 2) return;
+             const comboStep = options.comboStep || pts[pts.length - 1]?.step || 0;
+-            const curveStrip = buildThreePointQuadraticStrip(pts, comboStep, options);
++            let curveStrip = buildThreePointQuadraticStrip(pts, comboStep, options);
++            if (options.trimEndCap) {
++                const trimFactor = Number.isFinite(options.trimFactor) ? options.trimFactor : 0.5;
++                curveStrip = trimTrailEndPoint(curveStrip, baseWidth * trimFactor);
++            }
+             drawBlueTrailLayers(curveStrip, baseWidth, oldestScale, newestScale, projectFn);
+         };
+         const forceLinearSmooth = !!options.forceLinearSmooth;
+@@ -2553,12 +2803,24 @@ export function applySlashTrailMixin(PlayerClass) {
+                             y: boostAnchor.baseCenterY + vy * boostAnchor.boostScale
+                         };
+                     };
+-                    drawFixedBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, scaleProjFn, { 
+-                        comboStep: 5, useRelativeIfAvailable: true, offsetX: anchorPlayerX, offsetY: anchorPlayerY, forceOffsetX: anchorPlayerX, forceOffsetY: anchorPlayerY, trimEnd: true, trimFactor: 0.24 
++                    drawFixedBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, scaleProjFn, {
++                        comboStep: 5,
++                        useRelativeIfAvailable: true,
++                        offsetX: anchorPlayerX,
++                        offsetY: anchorPlayerY,
++                        forceOffsetX: anchorPlayerX,
++                        forceOffsetY: anchorPlayerY,
++                        trimEnd: true,
++                        trimFactor: 0.24
+                     });
+                 } else {
+-                    drawFixedBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { 
+-                        comboStep: 5, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y, trimEnd: true, trimFactor: 0.24 
++                    drawFixedBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
++                        comboStep: 5,
++                        useRelativeIfAvailable: true,
++                        offsetX: this.x,
++                        offsetY: this.y,
++                        trimEnd: true,
++                        trimFactor: 0.24
+                     });
+                 }
+             } else if (stripStep === 1 || stripStep === 2) {
+@@ -2578,17 +2840,24 @@ export function applySlashTrailMixin(PlayerClass) {
+                         };
+                     };
+                     drawSampledBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, scaleProjFn, {
+-                        comboStep: stripStep, useRelativeIfAvailable: true, offsetX: anchorPlayerX, offsetY: anchorPlayerY, forceOffsetX: anchorPlayerX, forceOffsetY: anchorPlayerY
++                        comboStep: stripStep, useRelativeIfAvailable: true, offsetX: anchorPlayerX, offsetY: anchorPlayerY, forceOffsetX: anchorPlayerX, forceOffsetY: anchorPlayerY,
++                        trimEndCap: this.characterType === 'shogun' && stripStep === 2, trimFactor: 0.48
+                     });
+                 } else {
+                     drawSampledBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
+-                        comboStep: stripStep, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y 
++                        comboStep: stripStep, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y,
++                        trimEndCap: this.characterType === 'shogun' && stripStep === 2, trimFactor: 0.48
+                     });
+                 }
+             } else if (stripStep === 4) {
+                 drawStep4AnchoredArcTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { includeGhost: false });
+             } else if (stripStep === 3) {
+-                drawDualBlueLinearTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { includeGhost: false, straighten: true });
++                drawDualBlueLinearTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
++                    includeGhost: false,
++                    straighten: true,
++                    trimEndCap: this.characterType === 'shogun',
++                    trimFactor: 0.48
++                });
+             } else {
+                 drawDualBlueArcTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { includeGhost: false });
+             }
+@@ -2622,7 +2891,9 @@ export function applySlashTrailMixin(PlayerClass) {
+                     }
+ 
+                     drawSampledBezierTrail(pts, 13.8 * visualWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
+-                        comboStep: fc.step
++                        comboStep: fc.step,
++                        trimEndCap: this.characterType === 'shogun' && fc.step === 2,
++                        trimFactor: 0.48
+                     });
+                 } else if (fc.type === 'bezier' || !fc.type) {
+                     // ベジェ曲線段 (1, 2, 5)
+@@ -2702,7 +2973,11 @@ export function applySlashTrailMixin(PlayerClass) {
+                     if (fc.step === 4) {
+                         drawStep4AnchoredArcTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
+                     } else if (fc.step === 3) {
+-                        drawDualBlueLinearTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, { straighten: true });
++                        drawDualBlueLinearTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
++                            straighten: true,
++                            trimEndCap: this.characterType === 'shogun',
++                            trimFactor: 0.48
++                        });
+                     } else {
+                         drawDualBlueArcTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
+                     }

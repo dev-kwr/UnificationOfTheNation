@@ -148,7 +148,7 @@ export function applySlashTrailMixin(PlayerClass) {
                 // ベジェ曲線段: 最新のパラメータを保存
                 const lastPt = stepPoints.length > 0 ? stepPoints[stepPoints.length - 1] : null;
                 const firstPt = stepPoints.length > 0 ? stepPoints[0] : null;
-                const fixedCurvePt = null; // 統一剣筋仕様では固定カーブ不使用
+                const fixedCurvePt = this.characterType === 'shogun' ? null : stepPoints.find((point) => point && Number.isFinite(point.trailFixedCurveStartX));
                 const curvePt = fixedCurvePt || lastPt;
                 const readCurve = (fixedName, curveName) => (
                     fixedCurvePt && Number.isFinite(fixedCurvePt[fixedName])
@@ -759,7 +759,7 @@ export function applySlashTrailMixin(PlayerClass) {
             const dir = facingRight ? 1 : -1;
             const bladeLen = this.getKatanaBladeLength();
             const durationMs = Math.max(1, attack?.durationMs || PLAYER.ATTACK_COOLDOWN);
-            const scale = height / 36;
+            const scale = this.characterType === 'shogun' ? (height / 36) : (height / 72);
             const smooth = (t) => {
                 const v = Math.max(0, Math.min(1, t));
                 return v * v * (3 - 2 * v);
@@ -860,7 +860,8 @@ export function applySlashTrailMixin(PlayerClass) {
             const controlYMax = Math.max(start.y, end.y);
             controlX = Math.max(controlXMin, Math.min(controlXMax, controlX));
             controlY = Math.max(controlYMin, Math.min(controlYMax, controlY));
-            return {
+            const isShogun = this.characterType === 'shogun';
+            const spec = {
                 trailCurveStartX: start.x,
                 trailCurveStartY: start.y,
                 trailCurveControlX: controlX,
@@ -868,6 +869,16 @@ export function applySlashTrailMixin(PlayerClass) {
                 trailCurveEndX: end.x,
                 trailCurveEndY: end.y
             };
+            if (isShogun) {
+                spec.trailCurveStartX -= x;
+                spec.trailCurveStartY -= y;
+                spec.trailCurveControlX -= x;
+                spec.trailCurveControlY -= y;
+                spec.trailCurveEndX -= x;
+                spec.trailCurveEndY -= y;
+                spec.trailIsRelative = true;
+            }
+            return spec;
         }
 
     };
@@ -1382,7 +1393,7 @@ export function applySlashTrailMixin(PlayerClass) {
             Number.isFinite(point.trailCurveEndY)
         );
         const buildStep5FixedCurveAnchor = () => {
-            return null; // 統一剣筋仕様では固定カーブアンカー不要
+            if (this.characterType === 'shogun') return null; // 将軍は統一剣筋仕様のため固定カーブ不要
             const fixedPoint = points.find((point) => isSameActiveTrailPoint(point) && hasFixedCurveAnchor(point));
             const curvePoint = fixedPoint || points.find((point) => isSameActiveTrailPoint(point) && hasCurveAnchor(point));
             const source = fixedPoint || curvePoint || pose;
@@ -1752,7 +1763,7 @@ export function applySlashTrailMixin(PlayerClass) {
                     const poseOriginX = isShogunBodySlot
                         ? pos.x - this.width * 0.5
                         : pos.x - poseWidth * 0.5;
-                    const poseOriginY = pos.y - poseHeight * 0.43;
+                    const poseOriginY = cloneDrawY;
                     const hasOverride = !isAutoAi && this.specialCloneCurrentAttacks[i] != null;
                     const comboStep = (isAutoAi || hasOverride)
                         ? (this.specialCloneComboSteps[i] || 1)
