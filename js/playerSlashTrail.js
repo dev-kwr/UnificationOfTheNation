@@ -512,8 +512,12 @@ export function applySlashTrailMixin(PlayerClass) {
 
         const x = state.x !== undefined ? state.x : this.x;
         const y = state.y !== undefined ? state.y : this.y;
-        const width = Number.isFinite(state.width) ? state.width : this.width;
-        const height = Number.isFinite(state.height) ? state.height : this.height;
+        let width = Number.isFinite(state.width) ? state.width : this.width;
+        let height = Number.isFinite(state.height) ? state.height : this.height;
+        if (this.characterType === 'shogun') {
+            width = 48;
+            height = 72;
+        }
         const facingRight = state.facingRight !== undefined ? state.facingRight : this.facingRight;
         const isCrouching = state.isCrouching !== undefined ? state.isCrouching : this.isCrouching;
         const speed = Number.isFinite(state.speed) ? state.speed : this.speed;
@@ -638,8 +642,12 @@ export function applySlashTrailMixin(PlayerClass) {
     PlayerClass.prototype.buildComboStep4TrailArcSpec = function(state = {}) {
         const x = state.x !== undefined ? state.x : this.x;
         const y = state.y !== undefined ? state.y : this.y;
-        const width = Number.isFinite(state.width) ? state.width : this.width;
-        const height = Number.isFinite(state.height) ? state.height : this.height;
+        let width = Number.isFinite(state.width) ? state.width : this.width;
+        let height = Number.isFinite(state.height) ? state.height : this.height;
+        if (this.characterType === 'shogun') {
+            width = 48;
+            height = 72;
+        }
         const facingRight = state.facingRight !== undefined ? state.facingRight : this.facingRight;
         const isCrouching = state.isCrouching !== undefined ? state.isCrouching : this.isCrouching;
         const attack = state.attack || this.currentAttack || null;
@@ -749,8 +757,12 @@ export function applySlashTrailMixin(PlayerClass) {
     PlayerClass.prototype.buildComboStep5TrailSpec = function(state = {}) {
         const x = state.x !== undefined ? state.x : this.x;
         const y = state.y !== undefined ? state.y : this.y;
-        const width = Number.isFinite(state.width) ? state.width : this.width;
-        const height = Number.isFinite(state.height) ? state.height : this.height;
+        let width = Number.isFinite(state.width) ? state.width : this.width;
+        let height = Number.isFinite(state.height) ? state.height : this.height;
+        if (this.characterType === 'shogun') {
+            width = 48;
+            height = 72;
+        }
         const facingRight = state.facingRight !== undefined ? state.facingRight : this.facingRight;
         const isCrouching = state.isCrouching !== undefined ? state.isCrouching : this.isCrouching;
         // 将軍・忍者で統一された剣筋トレイル仕様（スケール対応）
@@ -759,7 +771,9 @@ export function applySlashTrailMixin(PlayerClass) {
             const dir = facingRight ? 1 : -1;
             const bladeLen = this.getKatanaBladeLength();
             const durationMs = Math.max(1, attack?.durationMs || PLAYER.ATTACK_COOLDOWN);
-            const scale = this.characterType === 'shogun' ? (height / 36) : (height / 72);
+            // 将軍も忍者と同一の正規化ポーズ空間(height=72固定)で生成し、拡大はboss.js側のrenderScaleに一任する。
+            // ここで shogun だけ height/36(=2) にすると投影のrenderScale(2.2)と二重に掛かり、剣筋が遥か上空へ飛ぶ。
+            const scale = height / 72;
             const smooth = (t) => {
                 const v = Math.max(0, Math.min(1, t));
                 return v * v * (3 - 2 * v);
@@ -867,17 +881,9 @@ export function applySlashTrailMixin(PlayerClass) {
                 trailCurveControlX: controlX,
                 trailCurveControlY: controlY,
                 trailCurveEndX: end.x,
-                trailCurveEndY: end.y
+                trailCurveEndY: end.y,
+                trailIsRelative: false
             };
-            if (isShogun) {
-                spec.trailCurveStartX -= x;
-                spec.trailCurveStartY -= y;
-                spec.trailCurveControlX -= x;
-                spec.trailCurveControlY -= y;
-                spec.trailCurveEndX -= x;
-                spec.trailCurveEndY -= y;
-                spec.trailIsRelative = true;
-            }
             return spec;
         }
 
@@ -890,8 +896,12 @@ export function applySlashTrailMixin(PlayerClass) {
 
         const x = state.x !== undefined ? state.x : this.x;
         const y = state.y !== undefined ? state.y : this.y;
-        const width = Number.isFinite(state.width) ? state.width : this.width;
-        const height = Number.isFinite(state.height) ? state.height : this.height;
+        let width = Number.isFinite(state.width) ? state.width : this.width;
+        let height = Number.isFinite(state.height) ? state.height : this.height;
+        if (this.characterType === 'shogun') {
+            width = 48;
+            height = 72;
+        }
         const facingRight = state.facingRight !== undefined ? state.facingRight : this.facingRight;
         const isCrouching = state.isCrouching !== undefined ? state.isCrouching : this.isCrouching;
         const attackTimer = state.attackTimer !== undefined ? state.attackTimer : this.attackTimer;
@@ -2238,8 +2248,14 @@ export function applySlashTrailMixin(PlayerClass) {
                 )
             );
             const mid = stabilizedPts[midIndex];
-            const controlX = 2 * mid.x - (start.x + end.x) * 0.5;
+            let controlX = 2 * mid.x - (start.x + end.x) * 0.5;
             const controlY = 2 * mid.y - (start.y + end.y) * 0.5;
+            // 二次ベジェの制御点(mid由来)が、振りの両端(始点=最古サンプル / 終点=最新サンプル=切先)の
+            // X範囲を超えて前方へ飛ぶと、軌跡が切先を追い越して「行き過ぎ」る。制御点Xを両端のX範囲に
+            // 収め、軌跡が切先より前へ膨らまないようにする（縦方向の弧=controlYは維持）。
+            // 忍者・将軍共通ルール（characterType分岐なし）。振り幅が小さい忍者は制御点が元々範囲内のため不変、
+            // 突進で振り幅が大きく mid が終点寄りになる将軍だけ前方膨らみが抑えられる。
+            controlX = Math.max(Math.min(start.x, end.x), Math.min(Math.max(start.x, end.x), controlX));
             const segmentCount = Math.max(16, Math.min(28, stabilizedPts.length * 2 + 8));
             const strip = [];
             for (let i = 0; i < segmentCount; i++) {
@@ -2852,12 +2868,12 @@ export function applySlashTrailMixin(PlayerClass) {
                     };
                     drawSampledBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, scaleProjFn, {
                         comboStep: stripStep, useRelativeIfAvailable: true, offsetX: anchorPlayerX, offsetY: anchorPlayerY, forceOffsetX: anchorPlayerX, forceOffsetY: anchorPlayerY,
-                        trimEndCap: this.characterType === 'shogun' && stripStep === 2, trimFactor: 0.48
+                        trimEndCap: stripStep === 2, trimFactor: 0.5
                     });
                 } else {
                     drawSampledBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
                         comboStep: stripStep, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y,
-                        trimEndCap: this.characterType === 'shogun' && stripStep === 2, trimFactor: 0.48
+                        trimEndCap: stripStep === 2, trimFactor: 0.5
                     });
                 }
             } else if (stripStep === 4) {
@@ -2903,8 +2919,7 @@ export function applySlashTrailMixin(PlayerClass) {
 
                     drawSampledBezierTrail(pts, 13.8 * visualWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
                         comboStep: fc.step,
-                        trimEndCap: this.characterType === 'shogun' && fc.step === 2,
-                        trimFactor: 0.48
+                        trimEndCap: fc.step === 2, trimFactor: 0.5
                     });
                 } else if (fc.type === 'bezier' || !fc.type) {
                     // ベジェ曲線段 (1, 2, 5)

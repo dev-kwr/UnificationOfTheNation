@@ -3280,18 +3280,26 @@ export class Shogun extends Boss {
                     if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return p;
                     const pIsCrouching = !!p.isCrouching;
                     const curveIsRelative = !!p.trailIsRelative;
-                    // 相対座標（アクターに追従中）であれば現在のアクター位置を基準にし、
+                    // 相対座標（アクターに追従中）であれば現在のアクター位置を基準に座標を解決し、
                     // 絶対座標（空間固定）であれば記録されたアクター位置（p.playerX / p.playerY）を基準にする。
+                    const PIVOT_FRAC = 0.62;
                     const useCurrentAnchor = curveIsRelative && anchor;
                     const originX = useCurrentAnchor
                         ? (anchor.pivotX - actorW * 0.5)
                         : (Number.isFinite(p.playerX) ? p.playerX : fallbackOriginX);
                     const originY = useCurrentAnchor
-                        ? (anchor.pivotY - actorH * (pIsCrouching ? 0.58 : 0.43))
+                        ? (anchor.pivotY - actorH * PIVOT_FRAC)
                         : (Number.isFinite(p.playerY) ? p.playerY : fallbackOriginY);
+                    // 各点は自分のキャプチャ時の原点 (playerX/Y = その瞬間の actorRenderX/Y) を基準に拡大する。
+                    // これにより本体が振り中に移動しても、凍結した剣筋はワールド座標に固定される
+                    // （this.y を直接中心にすると剣筋が本体移動に追従して固定されなくなる＝NG）。
+                    // 拡大中心 Y は刀本体（this.y+this.height*0.62 を中心に ×renderScale）と一致させる必要があるが、
+                    // playerY(=actorRenderY) には actorFootGroundOffset が畳み込まれているため差し引く。
+                    // 差し引かないと foot offset 分（将軍で約26px×renderScale）だけ切先より下に垂れる。
+                    // 現在フレームの点では (playerY + actorH*0.62 - actorFootGroundOffset) = this.y+this.height*0.62 に厳密一致する。
                     const project = (x, y, relative = false, projectOriginX = originX, projectOriginY = originY, customPivotY = null) => {
                         const pivotX = projectOriginX + actorW * 0.5;
-                        const pivotY = customPivotY !== null ? customPivotY : (projectOriginY + actorH * (pIsCrouching ? 0.58 : 0.43));
+                        const pivotY = customPivotY !== null ? customPivotY : (projectOriginY + actorH * PIVOT_FRAC - actorFootGroundOffset);
                         const sourceX = relative ? projectOriginX + x : x;
                         const sourceY = relative ? projectOriginY + y : y;
                         return {
@@ -3299,8 +3307,7 @@ export class Shogun extends Boss {
                             y: pivotY + (sourceY - pivotY) * renderScale
                         };
                     };
-                    const simPivotY = originY + actorH * (pIsCrouching ? 0.58 : 0.43);
-                    const curveIsRelative = !!p.trailIsRelative;
+                    const simPivotY = originY + actorH * PIVOT_FRAC - actorFootGroundOffset;
 
                     const tip = project(p.x, p.y, false, originX, originY, simPivotY);
                     const center = (Number.isFinite(p.centerX) && Number.isFinite(p.centerY))
