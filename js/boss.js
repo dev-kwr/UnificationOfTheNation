@@ -1857,10 +1857,16 @@ export class Shogun extends Boss {
         const _oAnchorY  = actorRenderY + PLAYER.HEIGHT * 0.62;
         this.actor.groundY = this.getActorGroundYForRenderScale(renderScale, actorRenderY, actorRenderH, actorFootGroundOffset);
         const _getCloneAnchorY = (x) => {
-            const anchorY = typeof this.actor.getSpecialCloneAnchorYAtX === 'function'
+            // 非敵（プレビューのプレイアブル将軍: _playableOwner 無しで本分岐を通る）は、
+            // 分身の足元が本体の足元(actor.getFootY)に一致するアンカーを使う。
+            // = getFootY() - _getCloneFootOffset()。これで本体と分身の接地ラインが揃う。
+            // （敵ボスの分身Yには影響しない）
+            if (!this.isEnemy && this.actor && typeof this.actor.getSpecialCloneAnchorY === 'function') {
+                return this.actor.getSpecialCloneAnchorY();
+            }
+            return typeof this.actor.getSpecialCloneAnchorYAtX === 'function'
                 ? this.actor.getSpecialCloneAnchorYAtX(x)
                 : (this.groundY + LANE_OFFSET - PLAYER.HEIGHT * 0.38);
-            return !this.isEnemy ? anchorY + actorFootGroundOffset : anchorY;
         };
 
         const _initPos = (unit) => {
@@ -3076,6 +3082,8 @@ export class Shogun extends Boss {
             subWeaponAction:      this._subAction,
             forceSubWeaponRender: (this._subTimer > 0 && this._subAction != null && this._subAction !== 'throw') || (this.currentSubWeapon && (this.currentSubWeapon.name === '二刀流' || this.currentSubWeapon.name === '鎖鎌')),
             // ── 将軍専用: パーツ単位で素体を鎧・兜の見た目に差し替え ──
+            // （hideShogunArmor 時も差し替え自体は行い、各 _drawShogun* 内で「装飾」だけを省いて
+            //   基本シルエット＝胴・四肢の素体線を残す。これで体型・頭身は将軍のまま保たれる）
             drawTorsoOverride:        (ctx, p) => this._drawShogunTorso(ctx, p),
             drawTorsoOverlayOverride: (ctx, p) => this._drawShogunTorsoOverlay(ctx, p),
             drawHeadOverride:         (ctx, p) => this._drawShogunHead(ctx, p),
@@ -3489,6 +3497,22 @@ export class Shogun extends Boss {
                 }
             }
         }
+        // デバッグ(プレビュー専用): _playableOwner が無い場合、AutoAI 等の別経路で分身Yが
+        // 本体とずれることがあるため、renderSpecial 直前に分身の足元を本体の足元(getFootY)へ揃え直す。
+        // 実ゲーム(=_playableOwner あり)には影響しない。
+        if (this._ougiActive && !this.isEnemy && !this._playableOwner && this.actor &&
+            typeof this.actor.getSpecialCloneAnchorY === 'function' &&
+            Array.isArray(this.actor.specialClonePositions)) {
+            const _previewCloneAnchorY = this.actor.getSpecialCloneAnchorY();
+            for (let _ci = 1; _ci < this.actor.specialClonePositions.length; _ci++) {
+                const _cp = this.actor.specialClonePositions[_ci];
+                if (!_cp) continue;
+                _cp.y = _previewCloneAnchorY;
+                _cp.jumping = false;
+                _cp.cloneVy = 0;
+            }
+        }
+
         // 奥義・分身: renderSpecial を使用（忍者と同一システム）
         if (this._ougiActive) {
             const dir2d = this.facingRight ? 1 : -1;
@@ -3708,6 +3732,9 @@ export class Shogun extends Boss {
         ctx.lineTo(torsoHipX - nx * wF * dir, hipY - ny * wF * dir);
         ctx.fill();
 
+        // デバッグ防具非表示: 胴の基本シルエット(胸当て)は残し、背板などの装飾段は省く
+        if (this.hideShogunArmor) return;
+
         // 背中の鎧の出っ張り（背板）と金縁：マントなしでも甲冑感がでるように段（だん）を表現する
         const backX = (r) => (torsoShoulderX + nx * wB * dir) * (1 - r) + (torsoHipX + nx * wB * dir) * r;
         const backY = (r) => (bodyTopY + ny * wB * dir) * (1 - r) + (hipY + ny * wB * dir) * r;
@@ -3819,6 +3846,7 @@ export class Shogun extends Boss {
      * 胴体オーバーレイ：脚描画後に草摺（腰防具）を描画して脚の付け根を覆う
      */
     _drawShogunTorsoOverlay(ctx, p) {
+        if (this.hideShogunArmor) return; // デバッグ防具非表示: 草摺（腰防具）は省く
         const { torsoShoulderX, bodyTopY, torsoHipX, hipY, dir } = p;
         const cArmor = '#101014';
         const cGold  = '#dcb854';
@@ -3906,7 +3934,8 @@ export class Shogun extends Boss {
         ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI * 2); ctx.fill();
 
         // 兜としころをここで直接描画し、前面の腕(front arm)よりも奥のレイヤーになるようにする
-        this._drawShogunHelmetOverlay(ctx, p);
+        // デバッグ防具非表示: 頭ベース(のっぺらぼう)は残し、兜・角・しころは省く
+        if (!this.hideShogunArmor) this._drawShogunHelmetOverlay(ctx, p);
         return true;
     }
 
@@ -4131,6 +4160,12 @@ export class Shogun extends Boss {
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         ctx.beginPath(); ctx.moveTo(armStart.x, armStart.y); ctx.lineTo(elbowX, elbowY); ctx.lineTo(wristX, wristY); ctx.stroke();
 
+        // デバッグ防具非表示: 腕の素体線は残し、籠手・装飾帯・大袖（肩当て）は省く
+        if (this.hideShogunArmor) {
+            if (optionsInner) optionsInner.lastHandConnectFrom = { x: wristX, y: wristY };
+            return true;
+        }
+
         // 前腕を覆う籠手（ポリゴンブロック）
         ctx.fillStyle = cArmor;
         ctx.beginPath();
@@ -4210,7 +4245,7 @@ export class Shogun extends Boss {
         ctx.arc(xPos, yPos, handRad, 0, Math.PI * 2);
         ctx.fill();
         
-        if (!isBackHand) {
+        if (!isBackHand && !this.hideShogunArmor) {
             // 小手の装甲板（菱形ベースの分厚いプレート）
             ctx.fillStyle = '#b3943d';
             ctx.beginPath();
@@ -4255,6 +4290,9 @@ export class Shogun extends Boss {
         ctx.lineWidth = shinW;
         ctx.beginPath(); ctx.moveTo(kneeX, kneeY); ctx.stroke();
         ctx.lineTo(ankleX, ankleY); ctx.stroke();
+
+        // デバッグ防具非表示: 脚の素体線(袴)は残し、臑当・膝当・沓などの装甲は省く
+        if (this.hideShogunArmor) return true;
 
         // 臑当（脛を覆う装甲ブロック）
         const dxS = ankleX - kneeX; const dyS = ankleY - kneeY;

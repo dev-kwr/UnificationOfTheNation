@@ -816,7 +816,7 @@ export function applyRendererMixin(PlayerClass) {
             options.drawArmOverride = options.drawArmOverride || ((ctx, p) => this._drawShogunArm(ctx, p));
             options.drawHandOverride = options.drawHandOverride || ((ctx, p) => this._drawShogunHand(ctx, p));
             options.drawLegOverride = options.drawLegOverride || ((ctx, p) => this._drawShogunLeg(ctx, p));
-            
+
             // 将軍は鉢巻や髪を描画しない
             options.renderHeadband = false;
             options.renderHeadbandTail = false;
@@ -1169,7 +1169,7 @@ export function applyRendererMixin(PlayerClass) {
                     headSpinAngle = 0;
                 } else {
                     // 後半で「後方宙返り1回転」を行う
-                    const flipAngle = -Math.PI * 2 * flipEase;
+                    const flipAngle = Math.PI * 2 * flipEase; // 後方宙返り（符号: + で後方回転。- は前回りになる）
                     const axisX = Math.sin(flipAngle) * dir;
                     const axisY = Math.cos(flipAngle);
                     const normalX = Math.cos(flipAngle) * dir;
@@ -1759,7 +1759,7 @@ export function applyRendererMixin(PlayerClass) {
                 } else {
                     const flipT = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.58));
                     const flipEase = smooth(flipT);
-                    const flipAngle = -Math.PI * 2 * flipEase;
+                    const flipAngle = Math.PI * 2 * flipEase; // 後方宙返り（符号: + で後方回転。- は前回りになる）
                     const axisX = Math.sin(flipAngle) * dir;
                     const axisY = Math.cos(flipAngle);
                     const normalX = Math.cos(flipAngle) * dir;

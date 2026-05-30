@@ -302,6 +302,20 @@
                 <button id="btnKakuremi" class="btn-action">隠れ身</button>
                 <button id="btnRestart" style="background:#442222;">リセット</button>
             </div>
+            <div class="panel-row" style="gap:18px; align-items:center;">
+                <label style="display:flex; align-items:center; gap:6px;">
+                    スピード
+                    <input type="range" id="motionSpeed" min="0.05" max="1" step="0.05" value="1">
+                    <span id="motionSpeedVal" style="min-width:42px;">1.00x</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:6px;">
+                    ズーム
+                    <input type="range" id="viewZoom" min="0.3" max="1.5" step="0.05" value="1">
+                    <span id="viewZoomVal" style="min-width:42px;">1.00x</span>
+                </label>
+                <button id="btnStepFrame" class="btn-action" title="一時停止中に1フレーム進める">コマ送り</button>
+                <button id="btnHideArmor" class="btn-action" title="将軍の鎧・兜を非表示にして素体の四肢の重ね順を確認">防具非表示</button>
+            </div>
         </header>
 
         <div class="canvas-container">
@@ -322,10 +336,18 @@
     </div>
 
     <script type="module">
-        import { Shogun } from './js/boss.js';
         import { Player } from './js/player.js';
         import { createSubWeapon } from './js/weapon.js';
         import { input } from './js/input.js';
+
+        // boss.js / 描画系(playerRenderer.js) はこのプレビューで頻繁に編集するため、
+        // ESモジュールキャッシュを回避して常に最新を取得する。
+        // （リセットが付与する _t を流用、無ければ現在時刻。他は静的importのまま＝多重インスタンス化を回避）
+        const _bustParam = new URLSearchParams(location.search).get('_t') || String(Date.now());
+        const { Shogun } = await import('./js/boss.js?v=' + _bustParam);
+        // 宙返り等の描画修正を確実に反映させるため、最新の renderer mixin を Player に再適用する
+        const { applyRendererMixin } = await import('./js/playerRenderer.js?v=' + _bustParam);
+        applyRendererMixin(Player);
 
         // --- モック & 初期化 ---
         const logicalW = 800;
@@ -372,12 +394,20 @@
         shogun._keepSubWeaponKey = true; // アイドルポーズ維持用
         shogun.previewMode = true;
         if (shogun.actor) shogun.actor.previewMode = true;
+        shogun.maxJumps = 3;   // プレビューは三段跳びをデフォルトに
+        shogun.jumpCount = 0;
 
         const ninja = new Player(logicalW / 2 - 24, groundY - 72, groundY);
-        ninja.speed = 5.2; 
+        // 実ゲームと同じ速度(PLAYER.SPEED=6)に合わせる。5.2だと step3突進(impulse=係数*speed)が短くなる
+        ninja.speed = 6;
         ninja.previewMode = true;
         ninja.facingRight = true;
+        ninja.maxJumps = 3;    // プレビューは三段跳びをデフォルトに
         ninja.progression = { normalCombo: 3, subWeapon: 3, specialClone: 3 };
+
+        // デバッグ計測用に主要オブジェクトを露出（プレビュー専用・害なし）
+        window.shogun = shogun;
+        window.ninja = ninja;
 
         const subWeaponNames = {
             shuriken: '手裏剣', bomb: '火薬玉', spear: '大槍', dual: '二刀流', kusarigama: '鎖鎌', odachi: '大太刀'
@@ -589,19 +619,21 @@
                 return;
             }
             // 将軍通常コンボ (discreteトリガー復旧)
+            // コンボ上限は実ゲームと同じ getNormalComboMax() を使用（Lv0:2 〜 Lv3:5連）
+            const getMaxCombo = () => (shogun.actor && typeof shogun.actor.getNormalComboMax === 'function')
+                ? shogun.actor.getNormalComboMax()
+                : Math.max(2, Math.min(5, 2 + (parseInt(document.getElementById('selSkillLv').value) || 0)));
             if (shogun._attackTimer > 0) {
                 const currentStep = shogun._currentComboStep || 0;
-                const t = parseInt(document.getElementById('selSkillLv').value);
-                const maxCombo = (t <= 1) ? 3 : (t === 2 ? 4 : 5);
+                const maxCombo = getMaxCombo();
                 if (currentStep >= maxCombo) return;
                 shogun._comboPendingSteps = [currentStep + 1];
                 previewComboStep = currentStep + 1;
                 previewComboResetTimer = 500;
             } else {
-                const nextStep = (previewComboResetTimer > 0) ? ((previewComboStep % 5) + 1) : 1;
+                const maxCombo = getMaxCombo();
+                const nextStep = (previewComboResetTimer > 0) ? ((previewComboStep % maxCombo) + 1) : 1;
                 // コンボ継続時も現在のLvによる上限をチェック
-                const t = parseInt(document.getElementById('selSkillLv').value);
-                const maxCombo = (t <= 1) ? 3 : (t === 2 ? 4 : 5);
                 if (previewComboResetTimer > 0 && nextStep > maxCombo) {
                     // 上限を超えたら1段目に戻る
                     previewComboStep = 1;
@@ -752,7 +784,22 @@
         document.getElementById('selSkillLv').addEventListener('change', (e) => {
             updateAllTiers(e.target.value);
         });
-        
+
+        // --- デバッグ: モーション速度 / ズーム(引き) / コマ送り ---
+        document.getElementById('motionSpeed').addEventListener('input', (e) => {
+            document.getElementById('motionSpeedVal').textContent = (parseFloat(e.target.value) || 1).toFixed(2) + 'x';
+        });
+        document.getElementById('viewZoom').addEventListener('input', (e) => {
+            document.getElementById('viewZoomVal').textContent = (parseFloat(e.target.value) || 1).toFixed(2) + 'x';
+        });
+        document.getElementById('btnStepFrame').addEventListener('click', () => {
+            window.__stepFrameRequested = true;
+        });
+        document.getElementById('btnHideArmor').addEventListener('click', (e) => {
+            shogun.hideShogunArmor = !shogun.hideShogunArmor;
+            e.currentTarget.classList.toggle('active', shogun.hideShogunArmor);
+        });
+
         // 初期状態を同期
         updateAllTiers(document.getElementById('selSkillLv').value);
 
@@ -764,14 +811,39 @@
 
         // --- ループ ---
         function loop(time) {
-            const dt = Math.min((time - lastTime) / 1000, 0.1);
+            // モーション速度（スロー再生）/ ズーム（引き）をスライダーから取得
+            const _spdEl = document.getElementById('motionSpeed');
+            const _spd = _spdEl ? (parseFloat(_spdEl.value) || 1) : 1;
+            const _zEl = document.getElementById('viewZoom');
+            const _zoom = _zEl ? (parseFloat(_zEl.value) || 1) : 1;
+
+            // 固定タイムステップ + 実時間蓄積でスロー再生する。
+            // dtを直接縮めるとフレーム結合した物理(宙返りの上昇等)が歪むため、
+            // 物理は常に1/60秒刻みで進め、進める「頻度」だけを速度で変える。
+            const FIXED_DT = 1 / 60;
+            const realElapsed = Math.min((time - lastTime) / 1000, 0.1);
             lastTime = time;
+            if (window.__simAccum === undefined) window.__simAccum = 0;
+            window.__simAccum += realElapsed * _spd;
+            let _runUpdate = false;
+            if (!isPaused && window.__simAccum >= FIXED_DT) {
+                window.__simAccum -= FIXED_DT;
+                if (window.__simAccum > FIXED_DT * 3) window.__simAccum = FIXED_DT * 3; // バックログ制限
+                _runUpdate = true;
+            }
+            // コマ送り: 一時停止中に1ステップだけ進める
+            if (isPaused && window.__stepFrameRequested) {
+                window.__stepFrameRequested = false;
+                window.__simAccum = 0;
+                _runUpdate = true;
+            }
+            const dt = FIXED_DT;
             const deltaMs = dt * 1000;
-            window.game.state = isPaused ? 'paused' : 'playing';
-            
+            window.game.state = _runUpdate ? 'playing' : 'paused';
+
             if (typeof lastNinjaSubIndex === 'undefined') window.lastNinjaSubIndex = -1;
 
-            if (!isPaused) {
+            if (_runUpdate) {
                 const actor = getActiveActor();
                 if (previewComboResetTimer > 0) previewComboResetTimer -= deltaMs;
 
@@ -786,8 +858,10 @@
                     // ボタン入力を input から取得
                     if (input.isActionJustPressed('ATTACK')) triggerAttack();
                     if (input.isActionJustPressed('JUMP')) {
-                        if (shogun.isGrounded) {
-                            shogun.vy = -13.5; // 通常ジャンプ力を忍者に合わせて復旧
+                        // 三段跳び: maxJumps まで空中でも跳べる
+                        if ((shogun.jumpCount || 0) < (shogun.maxJumps || 1)) {
+                            shogun.vy = (shogun.jumpCount || 0) === 0 ? -13.5 : -12.0; // 2段目以降は少し弱め
+                            shogun.jumpCount = (shogun.jumpCount || 0) + 1;
                             shogun.isGrounded = false;
                         }
                     }
@@ -814,6 +888,7 @@
                         }
                     }
                     shogun.update(dt, null, [], []);
+                    if (shogun.isGrounded) shogun.jumpCount = 0; // 着地で三段跳びをリセット
                     // 将軍モード時もアクターの忍術タイマーを更新させる
                     if (shogun.actor && typeof shogun.actor.updateTemporaryNinjutsu === 'function') {
                         shogun.actor.updateTemporaryNinjutsu(dt * 1000);
@@ -840,10 +915,8 @@
                     );
                 } else {
                     // 忍者も手動で入力を処理 (previewModeによる制限を回避)
-                    if (input.isActionJustPressed('JUMP') && ninja.isGrounded) {
-                        ninja.vy = -13.5;
-                        ninja.isGrounded = false;
-                    }
+                    // 三段跳び: maxJumps(=3) に従い多段跳び。着地時の jumpCount リセットは ninja.update 内で行われる
+                    if (input.isActionJustPressed('JUMP')) ninja.jump();
                     if (input.isActionJustPressed('SPECIAL')) document.getElementById('btnOugi').click();
                     ninja.isCrouching = input.isAction('DOWN');
 
@@ -853,7 +926,9 @@
                         ninja.vx = walkDirection * speed;
                         ninja.facingRight = walkDirection > 0;
                     } else {
-                        if (ninja.isGrounded) {
+                        // 攻撃中は減衰させない（step3突進の前進距離が実ゲームより短くならないように。
+                        // 将軍側の !normalComboActive ガードと同等の扱い）
+                        if (ninja.isGrounded && !ninja.isAttacking) {
                             ninja.vx *= 0.8;
                             if (Math.abs(ninja.vx) < 0.1) ninja.vx = 0;
                         }
@@ -887,25 +962,44 @@
                 window.game.projectiles.forEach(p => { if (p.update) p.update(dt, groundY, []); });
                 window.game.projectiles = window.game.projectiles.filter(p => !p.isDead && !p.isDestroyed);
 
-                // 画面端ループ処理
+                // 画面端ループ処理（ズーム引き時は実際に見えている範囲の端で折り返す）
+                const _halfViewW = (logicalW / 2) / _zoom;
+                const _viewLeft = logicalW / 2 - _halfViewW;
+                const _viewRight = logicalW / 2 + _halfViewW;
                 if (isShogunMode()) {
-                    if (shogun.x < -shogun.width - 20) shogun.x = logicalW + 10;
-                    else if (shogun.x > logicalW + 20) shogun.x = -shogun.width - 10;
+                    if (shogun.x < _viewLeft - shogun.width - 20) shogun.x = _viewRight + 10;
+                    else if (shogun.x > _viewRight + 20) shogun.x = _viewLeft - shogun.width - 10;
                 } else {
-                    if (ninja.x < -ninja.width - 20) ninja.x = logicalW + 10;
-                    else if (ninja.x > logicalW + 20) ninja.x = -ninja.width - 10;
+                    if (ninja.x < _viewLeft - ninja.width - 20) ninja.x = _viewRight + 10;
+                    else if (ninja.x > _viewRight + 20) ninja.x = _viewLeft - ninja.width - 10;
                 }
             }
 
             // 描画 (一時停止中も描画は継続)
+            // 背景はズームに関わらず常に全面を塗る（引き表示時に隙間が出ないように）
             ctx.fillStyle = '#333'; ctx.fillRect(0, 0, logicalW, logicalH);
-            ctx.fillStyle = '#555'; ctx.fillRect(0, groundY, logicalW, logicalH - groundY);
+
+            // ズーム（引き表示）: キャラ立ち位置を中心に拡大/縮小（_zoomはループ先頭で取得済み）
+            ctx.save();
+            if (_zoom !== 1) {
+                const _pivotX = logicalW / 2, _pivotY = groundY - 50;
+                ctx.translate(_pivotX, _pivotY);
+                ctx.scale(_zoom, _zoom);
+                ctx.translate(-_pivotX, -_pivotY);
+            }
+
+            // 地面・中心線はズームアウトでも端まで覆うよう広めに描く
+            ctx.fillStyle = '#555'; ctx.fillRect(-logicalW * 2, groundY, logicalW * 5, logicalH * 4);
             ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.moveTo(logicalW / 2, 0); ctx.lineTo(logicalW / 2, logicalH); ctx.stroke();
-            
+            ctx.beginPath(); ctx.moveTo(logicalW / 2, -logicalH); ctx.lineTo(logicalW / 2, logicalH * 2); ctx.stroke();
+
             window.game.projectiles.forEach(p => { if (p.render) p.render(ctx); });
 
             if (isShogunMode()) {
+                // 隠れ身: 実ゲームの _renderShogunBody と同じく、actor の ghostVeil 状態から本体透明度を同期
+                if (shogun.actor && typeof shogun.actor.getGhostVeilAlpha === 'function') {
+                    shogun.ghostVeilAlpha = shogun.actor.getGhostVeilAlpha();
+                }
                 shogun.renderBody(ctx, { paused: isPaused }); // 将軍内部で剣筋・手裏剣・二刀流・大太刀・奥義分身も描画される
             } else {
                 ninja.render(ctx);
@@ -917,6 +1011,7 @@
             }
             // 火薬玉はキャラクターより前面に描画する
             if (window.game.bombs) window.game.bombs.forEach(b => { if (b.render) b.render(ctx); });
+            ctx.restore();
             
             // UIの同期
             updateUI();
