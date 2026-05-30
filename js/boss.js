@@ -3923,8 +3923,10 @@ export class Shogun extends Boss {
         ctx.save();
         ctx.translate(hx, hy);
         // 宙返り(step4)等で頭が回転する間、兜・角も本体と一緒に頭中心まわりに回す。
-        // dir(向き)で鏡像になるため headSpinAngle*dir とし、左右どちらでも視覚的な回転方向を一致させる。
-        if (headSpinAngle) ctx.rotate(headSpinAngle * dir);
+        // 本体(胴)の回転は axis=(sin(flipAngle)*dir, cos(flipAngle)) で実質 -flipAngle*dir 回転に相当する。
+        // 兜を本体と剛体的に一致させるには同じ -headSpinAngle*dir で回す（符号を逆にすると兜が逆回転し、
+        // 本体の回転と相殺/二重になって「何回転も」しているように見える）。
+        if (headSpinAngle) ctx.rotate(-headSpinAngle * dir);
         ctx.scale(dir, 1);
 
         // ── 基準値 ──
