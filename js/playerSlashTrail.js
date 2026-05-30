@@ -2885,7 +2885,7 @@ export function applySlashTrailMixin(PlayerClass) {
                     includeGhost: false,
                     straighten: true,
                     trimEndCap: this.characterType === 'shogun',
-                    trimFactor: 0.48
+                    trimFactor: 1.0
                 });
             } else {
                 drawDualBlueArcTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { includeGhost: false });
@@ -3004,7 +3004,7 @@ export function applySlashTrailMixin(PlayerClass) {
                         drawDualBlueLinearTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
                             straighten: true,
                             trimEndCap: this.characterType === 'shogun',
-                            trimFactor: 0.48
+                            trimFactor: 1.0
                         });
                     } else {
                         drawDualBlueArcTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);

@@ -1772,29 +1772,38 @@ export function applyRendererMixin(PlayerClass) {
                     });
                     const leftHipYLocal = hipLocalY + 0.3;
                     const rightHipYLocal = hipLocalY + 0.08;
+                    // 宙返りの脚タックをよりシンプル・自然に：
+                    // 旧版は tuck で横(side)に開いてガニ股に硬く見えた。新版は tuck で
+                    // 膝・足を「上(downを大きく減らす)＆中央寄せ(sideを内側へ)」にして、
+                    // 抱え込み(ボール状)→着地で開脚、という自然なモーションにする。
+                    // 戻す場合は旧値：
+                    //   LKnee side:-1.6 - tuck*2.2 + open*0.7  down:7.2 - tuck*3.4 + open*2.5
+                    //   LFoot side:-3.0 - tuck*3.8 + open*1.2  down:14.7 - tuck*6.6 + open*5.8
+                    //   RKnee side:1.8 + tuck*2.0 - open*0.6   down:6.9 - tuck*3.2 + open*2.4
+                    //   RFoot side:3.4 + tuck*3.5 - open*1.1   down:13.9 - tuck*6.1 + open*5.4
                     const leftKneeP = placeFrom(
                         leftHipX,
                         leftHipYLocal,
-                        -1.6 - tuck * 2.2 + open * 0.7,
-                        7.2 - tuck * 3.4 + open * 2.5
+                        -1.5 + tuck * 0.8 + open * 0.2,
+                        7.0 - tuck * 4.8 + open * 2.8
                     );
                     const leftFootP = placeFrom(
                         leftHipX,
                         leftHipYLocal,
-                        -3.0 - tuck * 3.8 + open * 1.2,
-                        14.7 - tuck * 6.6 + open * 5.8
+                        -2.6 + tuck * 1.7 + open * 0.4,
+                        14.2 - tuck * 10.6 + open * 6.8
                     );
                     const rightKneeP = placeFrom(
                         rightHipX,
                         rightHipYLocal,
-                        1.8 + tuck * 2.0 - open * 0.6,
-                        6.9 - tuck * 3.2 + open * 2.4
+                        1.6 - tuck * 0.8 - open * 0.2,
+                        6.8 - tuck * 4.6 + open * 2.7
                     );
                     const rightFootP = placeFrom(
                         rightHipX,
                         rightHipYLocal,
-                        3.4 + tuck * 3.5 - open * 1.1,
-                        13.9 - tuck * 6.1 + open * 5.4
+                        2.9 - tuck * 1.6 - open * 0.4,
+                        13.6 - tuck * 10.1 + open * 6.4
                     );
                     leftKneeX = leftKneeP.x;
                     leftKneeY = leftKneeP.y;
@@ -2137,7 +2146,9 @@ export function applyRendererMixin(PlayerClass) {
                     headCenterX, headY, headRadius, dir,
                     torsoShoulderX, bodyTopY,
                     silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor,
-                    outlineExpand, alpha
+                    outlineExpand, alpha,
+                    // 宙返り(step4)等の頭回転。将軍の兜/角もこれで本体と一緒に回す。
+                    headSpinAngle
                 });
                 return;
             }

@@ -3391,7 +3391,9 @@ export class Shogun extends Boss {
                 // 同一の拡大中心 this.y+this.height*0.62 / 各点playerX/Y基準 + ×renderScale に揃える。
                 // step2 をインラインscale(アンカーピボット=footOffset込み)で描くと刀本体とズレて切先を追い越すため、
                 // step3/5 と同じ補正済み投影に統一する。
-                const usesPerSampleScale = step === 2 || step === 3 || step === 5;
+                // 全コンボ段(1-5)を per-sample投影に統一し、刀本体と同一変換に揃える。
+                // 段ごとに変換が違うと隣接段の終点/始点がズレて繋がらないため。
+                const usesPerSampleScale = step === 1 || step === 2 || step === 3 || step === 5;
                 const renderPoints = usesPerSampleScale
                     ? projectTrailPointsToRenderSpace(groupPoints, anchor)
                     : groupPoints;
@@ -3913,12 +3915,16 @@ export class Shogun extends Boss {
      */
     _drawShogunHelmetOverlay(ctx, p) {
         const { headCenterX, headY, headRadius, dir } = p;
+        const headSpinAngle = Number.isFinite(p.headSpinAngle) ? p.headSpinAngle : 0;
         const hx = headCenterX;
         const hy = headY;
         const hr = headRadius;
 
         ctx.save();
         ctx.translate(hx, hy);
+        // 宙返り(step4)等で頭が回転する間、兜・角も本体と一緒に頭中心まわりに回す。
+        // dir(向き)で鏡像になるため headSpinAngle*dir とし、左右どちらでも視覚的な回転方向を一致させる。
+        if (headSpinAngle) ctx.rotate(headSpinAngle * dir);
         ctx.scale(dir, 1);
 
         // ── 基準値 ──
