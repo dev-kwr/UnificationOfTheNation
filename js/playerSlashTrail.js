@@ -874,7 +874,6 @@ export function applySlashTrailMixin(PlayerClass) {
             const controlYMax = Math.max(start.y, end.y);
             controlX = Math.max(controlXMin, Math.min(controlXMax, controlX));
             controlY = Math.max(controlYMin, Math.min(controlYMax, controlY));
-            const isShogun = this.characterType === 'shogun';
             const spec = {
                 trailCurveStartX: start.x,
                 trailCurveStartY: start.y,
@@ -1937,8 +1936,11 @@ export function applySlashTrailMixin(PlayerClass) {
                     Number.isFinite(prev.trailAttackId) &&
                     curr.trailAttackId !== prev.trailAttackId
                 );
-                // 物理的な断絶（段数違い、またはテレポート距離）があれば別のストリップへ
-                if (curr.step !== prev.step || changedAttack || dist > 140) {
+                // 物理的な断絶（段数違い、またはテレポート距離）があれば別のストリップへ。
+                // per-sample投影済みの点は renderScale(=physicalScale) 倍に広がるため、しきい値も同倍率にする
+                // （さもないと連続点の間隔が広がっただけで誤分割され、剣筋が二分割される）。
+                const splitDist = 140 * (Number.isFinite(physicalScale) && physicalScale > 1 ? physicalScale : 1);
+                if (curr.step !== prev.step || changedAttack || dist > splitDist) {
                     currentStrip = [curr];
                     rawStrips.push(currentStrip);
                 } else {

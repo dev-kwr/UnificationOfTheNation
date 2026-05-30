@@ -3387,7 +3387,11 @@ export class Shogun extends Boss {
                 const pivotX = anchor.pivotX;
                 const pivotY = anchor.pivotY;
                 const step = groupPoints[groupPoints.length - 1] && groupPoints[groupPoints.length - 1].step;
-                const usesPerSampleScale = step === 3 || step === 5;
+                // step2/3/5 は per-sample投影（projectTrailPointsToRenderSpace）で、刀本体(renderModel)と
+                // 同一の拡大中心 this.y+this.height*0.62 / 各点playerX/Y基準 + ×renderScale に揃える。
+                // step2 をインラインscale(アンカーピボット=footOffset込み)で描くと刀本体とズレて切先を追い越すため、
+                // step3/5 と同じ補正済み投影に統一する。
+                const usesPerSampleScale = step === 2 || step === 3 || step === 5;
                 const renderPoints = usesPerSampleScale
                     ? projectTrailPointsToRenderSpace(groupPoints, anchor)
                     : groupPoints;
