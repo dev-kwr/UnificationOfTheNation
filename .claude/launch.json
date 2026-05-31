@@ -4,7 +4,7 @@
     {
       "name": "preview",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8777"],
+      "runtimeArgs": ["preview_nocache_server.py", "8777"],
       "port": 8777
     }
   ]

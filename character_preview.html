@@ -400,9 +400,10 @@
         shogun.jumpCount = 0;
 
         const ninja = new Player(logicalW / 2 - 24, groundY - 72, groundY);
-        // 実ゲームと同じ速度(PLAYER.SPEED=6)に合わせる。5.2だと step3突進(impulse=係数*speed)が短くなる
-        ninja.speed = 6;
-        ninja.previewMode = true;
+        // 実ゲームと同じ挙動を再現するため previewMode=false。
+        // 移動・ジャンプ・ダッシュ・しゃがみ・攻撃・忍具・奥義はすべて ninja.update→handleInput が
+        // ゲームと同じロジックで処理する（プレビュー専用の手動移動/摩擦は廃止）。
+        ninja.previewMode = false;
         ninja.facingRight = true;
         ninja.maxJumps = 3;    // プレビューは三段跳びをデフォルトに
         ninja.progression = { normalCombo: 3, subWeapon: 3, specialClone: 3 };
@@ -916,28 +917,13 @@
                         shogun._subAction
                     );
                 } else {
-                    // 忍者も手動で入力を処理 (previewModeによる制限を回避)
-                    // 三段跳び: maxJumps(=3) に従い多段跳び。着地時の jumpCount リセットは ninja.update 内で行われる
-                    if (input.isActionJustPressed('JUMP')) ninja.jump();
+                    // 忍者は previewMode=false なので、移動・ジャンプ・ダッシュ・しゃがみ・攻撃・忍具は
+                    // ninja.update → handleInput が実ゲームと同じロジックで処理する（手動移動は廃止）。
+                    // 奥義(SPECIAL)だけはプレビューでゲージを充填して発動させたいので UI(btnOugi)経由にする。
                     if (input.isActionJustPressed('SPECIAL')) document.getElementById('btnOugi').click();
-                    ninja.isCrouching = input.isAction('DOWN');
 
-                    const ninjaDash = isDashing || (typeof input.isKeyboardDashHeld === 'function' && input.isKeyboardDashHeld(moveDir));
-                    if (isWalking && walkDirection !== 0) {
-                        const speed = ninjaDash ? 8 : 5.2;
-                        ninja.vx = walkDirection * speed;
-                        ninja.facingRight = walkDirection > 0;
-                    } else {
-                        // 攻撃中は減衰させない（step3突進の前進距離が実ゲームより短くならないように。
-                        // 将軍側の !normalComboActive ガードと同等の扱い）
-                        if (ninja.isGrounded && !ninja.isAttacking) {
-                            ninja.vx *= 0.8;
-                            if (Math.abs(ninja.vx) < 0.1) ninja.vx = 0;
-                        }
-                    }
-
-                    // 忍者の更新。サブ武器の更新も内部で完結。
-                    ninja.update(dt, [], []); 
+                    // 忍者の更新。入力処理・物理・サブ武器更新も内部で完結。
+                    ninja.update(dt, [], []);
                     syncPreviewCloneSubWeapons(ninja, ninja.currentSubWeapon, ninja.subWeaponTimer, ninja.subWeaponAction);
 
                     // 忍者の忍具切り替えを監視してUI同期

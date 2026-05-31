@@ -3718,10 +3718,10 @@ export class Shogun extends Boss {
         const nx = -uy;
         const ny = ux;
 
-        // デバッグ防具非表示: 胸当て・背板を描かず、素体の細い胴ライン(脊椎)のみ描く
+        // デバッグ防具非表示: 胸当て・背板を描かず、忍者と同じ素体の胴(太さ10=忍者基準)を描く
         if (this.hideShogunArmor) {
             ctx.strokeStyle = cCloth;
-            ctx.lineWidth = 5.5;
+            ctx.lineWidth = 10; // 忍者の胴と同じ太さ（胴は四肢より太い）
             ctx.lineCap = 'round';
             ctx.beginPath();
             ctx.moveTo(torsoShoulderX, bodyTopY);
@@ -4169,9 +4169,9 @@ export class Shogun extends Boss {
             ctx.beginPath(); ctx.moveTo(armStart.x, armStart.y); ctx.lineTo(elbowX, elbowY); ctx.lineTo(wristX, wristY); ctx.lineTo(handX, handY); ctx.stroke();
         }
 
-        // ベースの下地
+        // ベースの下地（防具非表示時は忍者と同じ腕の太さ4.8）
         ctx.strokeStyle = cCloth;
-        ctx.lineWidth = 5.0;
+        ctx.lineWidth = this.hideShogunArmor ? 4.8 : 5.0;
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
         ctx.beginPath(); ctx.moveTo(armStart.x, armStart.y); ctx.lineTo(elbowX, elbowY); ctx.lineTo(wristX, wristY); ctx.stroke();
 
@@ -4289,8 +4289,9 @@ export class Shogun extends Boss {
     _drawShogunLeg(ctx, p) {
         // ※ 脚の付け根はオーバーレイの草摺で隠れるため、ここではそのまま描画
         const { hipX, hipYLocal, kneeX, kneeY, footX, footY, isFrontLeg, dir, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand } = p;
-        const thighW = isFrontLeg ? 6.0 : 5.5; // 少し太めにしてドッシリと
-        const shinW  = isFrontLeg ? 5.5 : 5.0;
+        // 防具非表示(素体)時は忍者と同じ脚の太さ(4.8/4.6)にする。通常は鎧でドッシリ太め。
+        const thighW = this.hideShogunArmor ? (isFrontLeg ? 4.8 : 4.6) : (isFrontLeg ? 6.0 : 5.5);
+        const shinW  = this.hideShogunArmor ? (isFrontLeg ? 4.8 : 4.6) : (isFrontLeg ? 5.5 : 5.0);
         const cArmor = '#101014'; const cGold = '#dcb854'; const cCloth = '#202020';
 
         // 足首のあたりで線を止めることで、はみ出る丸いカカト（浮遊感の原因）を消す

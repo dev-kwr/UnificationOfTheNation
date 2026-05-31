@@ -2821,6 +2821,10 @@ export function applySlashTrailMixin(PlayerClass) {
             
             // 通常時 or ブースト時 共通描画
             if (stripStep === 5) {
+                // step5(落天)はサンプル点ベース(drawSampledBezierTrail)で描画する。
+                // 旧 drawFixedBezierTrail(焼き込みベジェ=本体落下のシミュレーション座標)は
+                // 将軍の per-sample 投影(×2.2)下で位置がズレ、剣筋が刀から外れて上空へ飛ぶ。
+                // 実際の刀先サンプル点を使う他段(1-3)と同じ方式に統一して刀に追従させる。
                 if (boostActive && boostAnchor && boostAnchor.step === stripStep) {
                     const anchorPlayerX = boostAnchor.baseCenterX - this.width * 0.5;
                     const anchorPlayerY = boostAnchor.baseCenterY - this.height * 0.5;
@@ -2832,24 +2836,12 @@ export function applySlashTrailMixin(PlayerClass) {
                             y: boostAnchor.baseCenterY + vy * boostAnchor.boostScale
                         };
                     };
-                    drawFixedBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, scaleProjFn, {
-                        comboStep: 5,
-                        useRelativeIfAvailable: true,
-                        offsetX: anchorPlayerX,
-                        offsetY: anchorPlayerY,
-                        forceOffsetX: anchorPlayerX,
-                        forceOffsetY: anchorPlayerY,
-                        trimEnd: true,
-                        trimFactor: 0.24
+                    drawSampledBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, scaleProjFn, {
+                        comboStep: 5, useRelativeIfAvailable: true, offsetX: anchorPlayerX, offsetY: anchorPlayerY, forceOffsetX: anchorPlayerX, forceOffsetY: anchorPlayerY
                     });
                 } else {
-                    drawFixedBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
-                        comboStep: 5,
-                        useRelativeIfAvailable: true,
-                        offsetX: this.x,
-                        offsetY: this.y,
-                        trimEnd: true,
-                        trimFactor: 0.24
+                    drawSampledBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
+                        comboStep: 5, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y
                     });
                 }
             } else if (stripStep === 1 || stripStep === 2) {
@@ -2886,13 +2878,6 @@ export function applySlashTrailMixin(PlayerClass) {
                     straighten: true,
                     trimEndCap: this.characterType === 'shogun',
                     trimFactor: 1.0
-                });
-            } else if (stripStep === 5) {
-                // step5(落天)はサンプル点ベース(drawSampledBezierTrail)で描画する。
-                // drawDualBlueArcTrail は trailCenter からの円弧方式で、将軍の per-sample 投影下では
-                // 中心がずれて剣筋が刀から大きく外れて飛ぶため、他段(1-3)と同じ点ベースに統一する。
-                drawSampledBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
-                    comboStep: stripStep, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y
                 });
             } else {
                 drawDualBlueArcTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { includeGhost: false });
