@@ -1896,7 +1896,12 @@ export class Shogun extends Boss {
                 : (_ougiTierMap[_ougiTier] || []);
             const _targetSlots = this._ougiActive ? [0, ..._ougiUnits] : [0];
 
-            if (this._ougiActive !== this._ougiWasActive || this.actor.specialCloneSlots.length !== _targetSlots.length) {
+            // slot[0] は本体トレイルの基準(=0)。奥義未使用時にアクター既定スロットが [1] 等で
+            // 始まると本体(index0)がクローン扱いになり、通常コンボの剣筋がサンプリングされない。
+            // そのため slot[0] が本体(0)でない場合も再構築して必ず本体スロットを先頭に置く。
+            if (this._ougiActive !== this._ougiWasActive
+                || this.actor.specialCloneSlots.length !== _targetSlots.length
+                || this.actor.specialCloneSlots[0] !== _targetSlots[0]) {
                 this.actor.specialCloneSlots                  = _targetSlots;
                 this.actor.specialCloneAlive                  = _targetSlots.map(() => true);
                 this.actor.specialClonePositions              = _targetSlots.map((unit) => _initPos(unit));
@@ -3498,12 +3503,13 @@ export class Shogun extends Boss {
             }
         }
         // デバッグ(プレビュー専用): _playableOwner が無い場合、AutoAI 等の別経路で分身Yが
-        // 本体とずれることがあるため、renderSpecial 直前に分身の足元を本体の足元(getFootY)へ揃え直す。
-        // 実ゲーム(=_playableOwner あり)には影響しない。
+        // 本体とずれるため、renderSpecial 直前に分身の足元を本体の視覚的足元(= this.y + this.height)へ
+        // 揃え直す。clone視覚足元 = pos.y + _getCloneFootOffset() なので pos.y を逆算する。
+        // 実ゲーム(=_playableOwner あり)には影響しない。全Lv共通で接地ラインが揃う。
         if (this._ougiActive && !this.isEnemy && !this._playableOwner && this.actor &&
-            typeof this.actor.getSpecialCloneAnchorY === 'function' &&
+            typeof this.actor._getCloneFootOffset === 'function' &&
             Array.isArray(this.actor.specialClonePositions)) {
-            const _previewCloneAnchorY = this.actor.getSpecialCloneAnchorY();
+            const _previewCloneAnchorY = (this.y + this.height) - this.actor._getCloneFootOffset();
             for (let _ci = 1; _ci < this.actor.specialClonePositions.length; _ci++) {
                 const _cp = this.actor.specialClonePositions[_ci];
                 if (!_cp) continue;
@@ -3712,8 +3718,20 @@ export class Shogun extends Boss {
         const nx = -uy;
         const ny = ux;
 
+        // デバッグ防具非表示: 胸当て・背板を描かず、素体の細い胴ライン(脊椎)のみ描く
+        if (this.hideShogunArmor) {
+            ctx.strokeStyle = cCloth;
+            ctx.lineWidth = 5.5;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(torsoShoulderX, bodyTopY);
+            ctx.lineTo(torsoHipX, hipY);
+            ctx.stroke();
+            return;
+        }
+
         // 威圧的な逆三角形の胴体
-        const wF = 6.5; 
+        const wF = 6.5;
         const wB = 4.5; 
         
         // 胴周りのグレーの残骸（素体のアウトライン）は将軍では不要なので描画しない
@@ -3731,9 +3749,6 @@ export class Shogun extends Boss {
         // 前腰
         ctx.lineTo(torsoHipX - nx * wF * dir, hipY - ny * wF * dir);
         ctx.fill();
-
-        // デバッグ防具非表示: 胴の基本シルエット(胸当て)は残し、背板などの装飾段は省く
-        if (this.hideShogunArmor) return;
 
         // 背中の鎧の出っ張り（背板）と金縁：マントなしでも甲冑感がでるように段（だん）を表現する
         const backX = (r) => (torsoShoulderX + nx * wB * dir) * (1 - r) + (torsoHipX + nx * wB * dir) * r;
@@ -4238,13 +4253,22 @@ export class Shogun extends Boss {
      */
     _drawShogunHand(ctx, p) {
         const { xPos, yPos, radius, dir, isBackHand } = p;
-        const handRad = radius * 0.95; 
-        
-        ctx.fillStyle = '#101014'; 
+        const handRad = radius * 0.95;
+
+        // デバッグ防具非表示: 黒い掌(装甲)を出さず、素体に合わせた小さく細い手のみ描く
+        if (this.hideShogunArmor) {
+            ctx.fillStyle = '#202020';
+            ctx.beginPath();
+            ctx.arc(xPos, yPos, radius * 0.55, 0, Math.PI * 2);
+            ctx.fill();
+            return true;
+        }
+
+        ctx.fillStyle = '#101014';
         ctx.beginPath();
         ctx.arc(xPos, yPos, handRad, 0, Math.PI * 2);
         ctx.fill();
-        
+
         if (!isBackHand && !this.hideShogunArmor) {
             // 小手の装甲板（菱形ベースの分厚いプレート）
             ctx.fillStyle = '#b3943d';

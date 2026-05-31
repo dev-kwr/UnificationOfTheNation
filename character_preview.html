@@ -345,9 +345,11 @@
         // （リセットが付与する _t を流用、無ければ現在時刻。他は静的importのまま＝多重インスタンス化を回避）
         const _bustParam = new URLSearchParams(location.search).get('_t') || String(Date.now());
         const { Shogun } = await import('./js/boss.js?v=' + _bustParam);
-        // 宙返り等の描画修正を確実に反映させるため、最新の renderer mixin を Player に再適用する
+        // 宙返り・剣筋等の描画修正を確実に反映させるため、最新の描画系mixinを Player に再適用する
         const { applyRendererMixin } = await import('./js/playerRenderer.js?v=' + _bustParam);
         applyRendererMixin(Player);
+        const { applySlashTrailMixin } = await import('./js/playerSlashTrail.js?v=' + _bustParam);
+        applySlashTrailMixin(Player);
 
         // --- モック & 初期化 ---
         const logicalW = 800;

@@ -2887,6 +2887,13 @@ export function applySlashTrailMixin(PlayerClass) {
                     trimEndCap: this.characterType === 'shogun',
                     trimFactor: 1.0
                 });
+            } else if (stripStep === 5) {
+                // step5(落天)はサンプル点ベース(drawSampledBezierTrail)で描画する。
+                // drawDualBlueArcTrail は trailCenter からの円弧方式で、将軍の per-sample 投影下では
+                // 中心がずれて剣筋が刀から大きく外れて飛ぶため、他段(1-3)と同じ点ベースに統一する。
+                drawSampledBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
+                    comboStep: stripStep, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y
+                });
             } else {
                 drawDualBlueArcTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { includeGhost: false });
             }
