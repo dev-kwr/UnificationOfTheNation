@@ -7,9 +7,9 @@ import { Shogun } from './boss.js';
  * 将軍（ラスボス）の戦闘ロジックとステータス制御をプレイヤーに適用
  * 
  * 設計原則:
- *   - player.js / boss.js への変更は一切行わない
- *   - 将軍モード時のみ有効化し、忍者プレイヤー・ステージボスへの影響ゼロ
- *   - shogun_preview.html と同一の操作感を再現
+ *   - 将軍モード時のみ有効化し、忍者プレイヤー・ステージボスへ影響させない
+ *   - 戦闘・物理・描画の仕様は内部 Shogun boss を単一ソースにする
+ *   - player 側はゲーム共通処理が参照する状態だけを同期する
  * 
  * 根本方針:
  *   忍者の update() は内部で handleInput() を呼ぶため、将軍モードでは
@@ -26,7 +26,6 @@ export function applyShogunCombat(player) {
     const SHOGUN_ATTACK_POWER_SCALE = 1.2;
 
     player._shogunInited = false;
-    player._shogunSubWeaponInstances = null;
 
     const clampShogunTier = (value) => Math.max(0, Math.min(3, Math.floor(Number(value) || 0)));
     const getShogunSubWeaponTier = (p) => {
@@ -125,20 +124,8 @@ export function applyShogunCombat(player) {
             p.attackTimer = 0;
             return false;
         }
-        const ninjaProfile = typeof p.getComboAttackProfileByStep === 'function'
-            ? p.getComboAttackProfileByStep(comboStep)
-            : { ...profile, comboStep, source: 'main' };
         p.attackCombo = comboStep;
-        p.currentAttack = {
-            ...ninjaProfile,
-            comboStep,
-            source: 'main',
-            knockbackX: profile.knockbackX,
-            knockbackY: profile.knockbackY,
-            range: comboStep === 5 && Number.isFinite(profile.range)
-                ? profile.range
-                : (Number.isFinite(ninjaProfile.range) ? ninjaProfile.range : profile.range)
-        };
+        p.currentAttack = profile;
         p.attackTimer = Math.max(0, boss._attackTimer || 0);
         return true;
     };
@@ -238,7 +225,6 @@ export function applyShogunCombat(player) {
 
         // Shogun.init() で生成＆スケール済みのインスタンスをそのまま使う
         // （以前は差し替えていたため applyScaleToSubWeapons の効果が消えていた）
-        p._shogunSubWeaponInstances = p._shogunBossInstance._subWeaponInstances;
         syncShogunProgression(p, p._shogunBossInstance);
 
         // ── 当たり判定を敵に向ける ──
@@ -388,7 +374,7 @@ export function applyShogunCombat(player) {
 
     // ================================================================
     // handleInput オーバーライド（将軍専用入力処理）
-    // 忍者の handleInput を完全にバイパスし、shogun_preview.html と同一のロジックで処理
+    // 忍者の攻撃処理を通さず、内部 Shogun boss の実処理へ入力を渡す
     // ================================================================
     player.handleInput = function() {
         if (this.characterType !== 'shogun') return originalHandleInput.apply(this, arguments);
@@ -491,7 +477,7 @@ export function applyShogunCombat(player) {
 
     // ================================================================
     // 将軍攻撃トリガー（Z キー）
-    // shogun_preview.html の triggerAttack / triggerNormalAttack / triggerDualAttack と同一
+    // 内部 Shogun boss の通常コンボ / 二刀Zをゲーム操作と同じ経路で発火する
     // ================================================================
     player._shogunTriggerAttack = function(boss) {
         // realSub を参照するために getter バイパス
@@ -506,7 +492,7 @@ export function applyShogunCombat(player) {
         }
     };
 
-    // ── 通常Zコンボ（preview: triggerNormalAttack） ──
+    // ── 通常Zコンボ ──
     player._shogunTriggerNormalAttack = function(boss) {
         if (boss._subTimer > 0) {
             return;
@@ -530,7 +516,7 @@ export function applyShogunCombat(player) {
         }
 
         if (boss._attackTimer > 0) {
-            // コンボ中: 次段をキューに積む（preview line 282-297）
+            // コンボ中: 実コンボの受付ウィンドウ内だけ次段をキューに積む
             const currentStep = boss._currentComboStep || 0;
             const queuedStep = Array.isArray(boss._comboPendingSteps) && boss._comboPendingSteps.length > 0
                 ? boss._comboPendingSteps[0]
@@ -564,7 +550,7 @@ export function applyShogunCombat(player) {
         boss.isGrounded = this.isGrounded;
         boss.groundY = this.groundY;
 
-        // preview line 299-301: コンボ継続ウィンドウ内なら次段、そうでなければ1段目
+        // コンボ継続ウィンドウ内なら次段、そうでなければ1段目
         const comboMax = getShogunNormalComboMax(this);
         const nextStep = (this._shogunComboWindowTimer > 0 && this._shogunComboStep > 0)
             ? ((this._shogunComboStep % comboMax) + 1)
@@ -575,7 +561,7 @@ export function applyShogunCombat(player) {
         boss._startNextComboStep();
     };
 
-    // ── 二刀流Zコンボ（preview: triggerDualAttack + fireDualSwing） ──
+    // ── 二刀流Zコンボ ──
     player._shogunTriggerDualAttack = function(boss) {
         if (boss._attackTimer > 0) return;
         if (boss._subTimer > 0 && boss._subAction && boss._subAction !== '二刀_Z') return;
@@ -583,7 +569,7 @@ export function applyShogunCombat(player) {
         const dualInst = boss._subWeaponInstances.dual;
         if (!dualInst) return;
 
-        // preview line 341-343: 停止＋武器キーセット
+        // 発動時は停止し、描画用の武器キーを二刀流へ切り替える
         this.vx = 0;
         boss.vx = 0;
         boss._subWeaponKey = 'dual'; // BUG 5 FIX
@@ -600,8 +586,8 @@ export function applyShogunCombat(player) {
         this._shogunFireDualSwing(boss, dualInst);
     };
 
-    // ── 二刀流スイング発動（preview: fireDualSwing） ──
-    // BUG 3 FIX: preview line 327 は isEnemy を変更せず dual.use(shogun, 'main') を呼ぶ
+    // ── 二刀流スイング発動 ──
+    // プレイヤー将軍でも boss 側の isEnemy を変えず、実武器インスタンスを使う
     player._shogunFireDualSwing = function(boss, dualInst) {
         // 初回のみ位置同期（連撃中は既にボスが自前で動いている）
         if (boss._subTimer <= 0) {
@@ -619,7 +605,7 @@ export function applyShogunCombat(player) {
         }
         syncShogunSubWeaponCalculation(this, boss, 'dual');
         syncShogunDualMainSpeed(this, dualInst);
-        // preview と同一: currentSubWeapon を一時セットし、isEnemy はそのまま
+        // currentSubWeapon を一時セットし、isEnemy はそのまま
         const prevSubWeapon = boss.currentSubWeapon;
         boss.currentSubWeapon = dualInst;
         dualInst.use(boss, 'main');
@@ -634,7 +620,7 @@ export function applyShogunCombat(player) {
         boss._shurikenVisualTimer = 0;
     };
 
-    // ── 二刀流Z先行入力判定（preview: canTriggerDualFollowUp） ──
+    // ── 二刀流Z先行入力判定 ──
     player._shogunCanTriggerDualFollowUp = function(boss, dualInst) {
         if (!dualInst || boss._subAction !== '二刀_Z') return true;
         if (typeof dualInst.getMainSwingPose !== 'function') {
@@ -649,10 +635,10 @@ export function applyShogunCombat(player) {
 
     // ================================================================
     // 将軍忍具トリガー（X キー）
-    // shogun_preview.html の triggerSubAction と同一
+    // 内部 Shogun boss の忍具処理をゲーム操作と同じ経路で発火する
     // ================================================================
     player._shogunTriggerSubAction = function(boss) {
-        // 他のアクション中は発動不可（preview: isBusyWithAnotherAction）
+        // 他のアクション中は発動不可
         if (boss._attackTimer > 0 || (boss._subTimer > 0 && boss._subAction !== '二刀_Z')) {
             return;
         }
@@ -665,7 +651,7 @@ export function applyShogunCombat(player) {
             return;
         }
 
-        // preview と同様に停止＋位置同期
+        // 発動時は停止＋位置同期
         this.vx = 0;
         boss.vx = 0;
         boss.x = this.x;
@@ -673,7 +659,7 @@ export function applyShogunCombat(player) {
         boss.isGrounded = this.isGrounded;
         boss.groundY = this.groundY;
 
-        // BUG 4 FIX: preview line 373 — resetPreviewComboState 相当
+        // 忍具発動時は二刀Zの先行入力をリセットする
         this._shogunQueuedDualAttack = false;
         const dualForReset = boss._subWeaponInstances.dual;
         if (dualForReset) {
@@ -771,9 +757,9 @@ export function applyShogunCombat(player) {
     // update オーバーライド
     //
     // 設計:
-    //   preview は shogun.update(dt, null) の1回だけで全て動く。
-    //   我々もそれに倣い、originalUpdate を**呼ばない**。
-    //   必要な player.js のタイマー管理だけを cherry-pick する。
+    //   将軍モードでは内部 Shogun boss を戦闘・物理の単一ソースにする。
+    //   player 側は無敵、ダッシュ、奥義などゲーム共通のタイマーだけを更新し、
+    //   boss.update() 後に座標・攻撃状態・忍具状態を同期する。
     // ================================================================
     player.update = function(dt, walls = [], enemies = []) {
         if (this.characterType !== 'shogun') return originalUpdate.apply(this, arguments);
@@ -785,7 +771,7 @@ export function applyShogunCombat(player) {
 
         const deltaMs = dt * 1000;
 
-        // ── player.js から最低限必要なタイマー管理を cherry-pick ──
+        // ── player.js 由来のゲーム共通タイマー ──
         if (this.invincibleTimer > 0) this.invincibleTimer -= deltaMs;
         if (this.trapDamageCooldown > 0) this.trapDamageCooldown -= deltaMs;
         if (this.damageFlashTimer > 0) this.damageFlashTimer -= deltaMs;
@@ -795,7 +781,7 @@ export function applyShogunCombat(player) {
             if (this.dashTimer <= 0) { this.dashTimer = 0; this.isDashing = false; }
         }
         this.motionTime = (this.motionTime || 0) + deltaMs;
-        // コンボ継続ウィンドウ（preview: previewComboResetTimer）
+        // コンボ継続ウィンドウ
         if (this._shogunComboWindowTimer > 0) {
             this._shogunComboWindowTimer -= deltaMs;
             if (this._shogunComboWindowTimer <= 0) {
@@ -869,7 +855,7 @@ export function applyShogunCombat(player) {
         this.subWeaponTimer = boss._subTimer;
         this.subWeaponAction = boss._subAction;
 
-        // ── アイドル時の武器表示キー維持（preview line 605-611 相当） ──
+        // ── アイドル時の武器表示キー維持 ──
         if (!bossActiveAfter) {
             this._shogunGetterBypass = 'real';
             const realWeapon = this.currentSubWeapon;

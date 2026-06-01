@@ -755,9 +755,8 @@ export function applyRendererMixin(PlayerClass) {
 
     // ═══════════════════════════════════════════════════════════════
     // 将軍モード本体描画
-    // shogun_preview.html と同一の原理:
-    // 内部に Shogun ボスインスタンスを保持し、プレイヤーの状態を同期した上で
-    // shogun.renderBody(ctx) をそのまま呼び出す。
+    // 内部 Shogun boss を描画仕様の単一ソースにし、プレイヤー状態を同期して
+    // boss.renderBody(ctx) を呼び出す。
     // ═══════════════════════════════════════════════════════════════
     PlayerClass.prototype._renderShogunBody = function(ctx, ghostVeilActive, ghostAlpha = 1.0) {
         if (!this._shogunBossInstance) return;
@@ -778,7 +777,7 @@ export function applyRendererMixin(PlayerClass) {
 
         boss.ghostVeilAlpha = ghostAlpha; // 透明度を同期
 
-        // ボスの renderBody をそのまま呼び出し（プレビューと同一）
+        // ボスの renderBody をそのまま呼び出す
         boss.renderBody(ctx);
         this.subWeaponRenderedInModel = true;
     };

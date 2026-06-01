@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>天下統一 - キャラクタープレビュー</title>
+    <link rel="icon" type="image/png" href="./icon/icon.png">
     <style>
         :root {
             --bg: #0d0d0d;
@@ -399,8 +400,6 @@
         // 内部ボス（_shogunBossInstance）は初回 update で生成されるため、ここで一度走らせる
         shogunPlayer.update(1 / 60, [], []);
         const shogun = shogunPlayer._shogunBossInstance; // 既存 shogun.* 参照の互換用（内部ボス）
-        shogun.getSubWeaponEnhanceTier = () => parseInt(document.getElementById('selSkillLv').value);
-        shogun._keepSubWeaponKey = true;        // アイドルポーズ維持用
 
         // ── boss.js キャッシュ対策（将軍素体描画の編集をプレビューへ反映）──
         // 将軍の素体・防具描画(_drawShogun* / renderBody 等)は boss.js にあるが、boss.js は
@@ -452,11 +451,6 @@
 
         // --- 状態変数 ---
         let previewCharacter = 'shogun';
-        let isWalking = false;
-        let isDashing = false;
-        let walkDirection = 0;
-        let previewComboStep = 0;
-        let previewComboResetTimer = 0;
         let lastTime = performance.now();
         let subIndex = 0;
         let isPaused = false;
@@ -590,10 +584,7 @@
                     subIndex = subWeapons.indexOf(targetKey);
                     if (subIndex === -1) subIndex = 0;
                     window._previewWeapon = subWeapons[subIndex];
-                    shogun._subWeaponKey = window._previewWeapon;
-                    shogun._keepSubWeaponKey = true; // アイドルポーズ維持
-                    shogun.currentSubWeapon = shogun._subWeaponInstances[window._previewWeapon] || null;
-                    if (shogun.actor) shogun.actor.currentSubWeapon = shogun.currentSubWeapon;
+                    shogunPlayer.currentSubWeapon = shogun._subWeaponInstances[window._previewWeapon] || null;
                 }
             }
 
@@ -637,95 +628,6 @@
         };
         buildParams('far', 'tuningColFar');
         buildParams('near', 'tuningColNear');
-
-        // --- 操作ロジック ---
-
-
-        const triggerAttack = () => {
-            if (!isShogunMode()) return; // 忍者はhandleInputに任せる
-            if (shogun._subTimer > 0) return;
-            
-            const key = window._previewWeapon;
-            if (key === 'dual') {
-                // 二刀流Zコンボを発動（一回押しで一段階ずつ）
-                if (!shogun._dualZStepIdx) shogun._dualZStepIdx = 0;
-                const step = (shogun._dualZStepIdx % 5) + 1;
-                shogun._dualZPendingSteps = [step];
-                shogun._fireDualZNextStep();
-                shogun._dualZStepIdx++;
-                return;
-            }
-            // 将軍通常コンボ (discreteトリガー復旧)
-            // コンボ上限は実ゲームと同じ getNormalComboMax() を使用（Lv0:2 〜 Lv3:5連）
-            const getMaxCombo = () => (shogun.actor && typeof shogun.actor.getNormalComboMax === 'function')
-                ? shogun.actor.getNormalComboMax()
-                : Math.max(2, Math.min(5, 2 + (parseInt(document.getElementById('selSkillLv').value) || 0)));
-            if (shogun._attackTimer > 0) {
-                const currentStep = shogun._currentComboStep || 0;
-                const maxCombo = getMaxCombo();
-                if (currentStep >= maxCombo) return;
-                shogun._comboPendingSteps = [currentStep + 1];
-                previewComboStep = currentStep + 1;
-                previewComboResetTimer = 500;
-            } else {
-                const maxCombo = getMaxCombo();
-                const nextStep = (previewComboResetTimer > 0) ? ((previewComboStep % maxCombo) + 1) : 1;
-                // コンボ継続時も現在のLvによる上限をチェック
-                if (previewComboResetTimer > 0 && nextStep > maxCombo) {
-                    // 上限を超えたら1段目に戻る
-                    previewComboStep = 1;
-                } else {
-                    previewComboStep = nextStep;
-                }
-                previewComboResetTimer = 500;
-                shogun._comboPendingSteps = [previewComboStep];
-                shogun._startNextComboStep();
-            }
-        };
-
-        const triggerSubAction = () => {
-            if (isShogunMode()) {
-                if (shogun._subTimer > 0 || shogun._attackTimer > 0 || shogun.isAttacking || shogun.attackCooldown > 0) return;
-                const type = window._previewWeapon;
-                // ゲーム内 _shogunTriggerSubAction 相当: canUse() 失敗時は腕のモーションも起こさない
-                const inst = shogun._subWeaponInstances[type];
-                if (inst && typeof inst.canUse === 'function' && !inst.canUse()) return;
-                shogun._subWeaponKey = type;
-                shogun._fireSubWeapon(type);
-
-                // 将軍のモーション再生に必要なタイマーとステートを明示的にセット
-                const durationMap = {
-                    shuriken: shogun._getSubActionDurationMs('throw', 'shuriken'),
-                    bomb:     shogun._getSubActionDurationMs('throw', 'bomb'),
-                    spear:    shogun._getSubActionDurationMs('大槍', 'spear'),
-                    kusarigama: shogun._getSubActionDurationMs('鎖鎌', 'kusarigama'),
-                    odachi:   shogun._getSubActionDurationMs('大太刀', 'odachi'),
-                    dual:     shogun._getSubActionDurationMs('二刀_合体', 'dual')
-                };
-                const actionMap = {
-                    shuriken: 'throw', bomb: 'throw',
-                    spear: '大槍', kusarigama: '鎖鎌',
-                    odachi: '大太刀', dual: '二刀_合体'
-                };
-
-                if (type === 'dual') {
-                    shogun._subAction = '二刀_合体';
-                    shogun._subTimer = durationMap.dual;
-                } else if (type === 'shuriken' || type === 'bomb') {
-                    shogun._subAction = 'throw';
-                    shogun._subTimer = durationMap[type] || 100;
-                    shogun._shurikenVisualTimer = shogun._subTimer;
-                    shogun.attackCooldown = 400;
-                } else {
-                    shogun._subAction = actionMap[type] || null;
-                    shogun._subTimer = durationMap[type] || 300;
-                    shogun.attackCooldown = 400;
-                }
-                shogun.attackTimer = shogun._subTimer;
-                shogun.isAttacking = false; // サブ武器発動時はisAttacking(通常コンボ)を優先させない
-            }
-            // 忍者はninja.update() -> handleInput() がキー入力を検知して自動で動作する
-        };
 
         const cycleSubWeapon = () => {
             if (isShogunMode()) {
@@ -801,22 +703,6 @@
                 if (typeof shogunPlayer.rebuildSpecialCloneSlots === 'function') shogunPlayer.rebuildSpecialCloneSlots();
                 if (typeof shogunPlayer.refreshSubWeaponScaling === 'function') shogunPlayer.refreshSubWeaponScaling();
             }
-            if (shogun) {
-                if (shogun.progression) {
-                    shogun.progression.subWeapon = t;
-                    shogun.progression.normalCombo = t;
-                }
-                if (shogun.actor && shogun.actor.progression) {
-                    shogun.actor.progression.subWeapon = t;
-                    shogun.actor.progression.normalCombo = t;
-                    shogun.actor.progression.specialClone = t;
-                    if (typeof shogun.actor.rebuildSpecialCloneSlots === 'function') shogun.actor.rebuildSpecialCloneSlots();
-                    if (typeof shogun.actor.refreshSubWeaponScaling === 'function') shogun.actor.refreshSubWeaponScaling();
-                }
-                Object.values(shogun._subWeaponInstances).forEach(inst => {
-                    if (inst && typeof inst.applyEnhanceTier === 'function') inst.applyEnhanceTier(t);
-                });
-            }
         };
 
         document.getElementById('selSkillLv').addEventListener('change', (e) => {
@@ -876,22 +762,12 @@
                 _runUpdate = true;
             }
             const dt = FIXED_DT;
-            const deltaMs = dt * 1000;
             window.game.state = _runUpdate ? 'playing' : 'paused';
 
             if (typeof lastNinjaSubIndex === 'undefined') window.lastNinjaSubIndex = -1;
 
             if (_runUpdate) {
-                const actor = getActiveActor();
-                if (previewComboResetTimer > 0) previewComboResetTimer -= deltaMs;
-
-                // 状態更新
                 // 状態・入力の同期
-                isDashing = input.isAction('DASH');
-                const moveDir = input.isAction('LEFT') ? -1 : (input.isAction('RIGHT') ? 1 : 0);
-                walkDirection = moveDir;
-                isWalking = moveDir !== 0;
-
                 if (isShogunMode()) {
                     // 将軍はゲームの実プレイアブル将軍。移動・ジャンプ・ダッシュ・しゃがみ・攻撃・
                     // 二刀Zは shogunPlayer.update → handleInput(applyShogunCombat) が処理する。
@@ -929,7 +805,7 @@
                             const sIdx = subWeapons.indexOf(targetKey);
                             if (sIdx !== -1) subIndex = sIdx;
                             window._previewWeapon = targetKey;
-                            shogun._subWeaponKey = targetKey;
+                            shogunPlayer.currentSubWeapon = shogun._subWeaponInstances[targetKey] || null;
                         }
                         updateUI();
                     }

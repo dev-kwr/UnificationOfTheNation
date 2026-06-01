@@ -1274,7 +1274,6 @@ export class Shogun extends Boss {
         this._currentAttackProfile = null;
         this._comboPendingSteps = [];
         this._comboFinisherAirLockTimer = 0;
-        this._comboTrailRenderAnchors = new Map();
         this._subTimer         = 0;
         this._subAction        = null;
         this._subWeaponKey     = null;
@@ -1824,9 +1823,7 @@ export class Shogun extends Boss {
         const deltaMs = deltaTime * 1000;
         this._lastDeltaMs = deltaMs;
 
-        if (typeof this.actor.updateComboSlashTrail === 'function') {
-            this.actor.updateComboSlashTrail(deltaMs);
-        }
+        this.updateActorComboReturnTimers(deltaMs);
 
         if (this._shurikenVisualTimer > 0) {
             this._shurikenVisualTimer = Math.max(0, this._shurikenVisualTimer - deltaMs);
@@ -1857,8 +1854,7 @@ export class Shogun extends Boss {
         const _oAnchorY  = actorRenderY + PLAYER.HEIGHT * 0.62;
         this.actor.groundY = this.getActorGroundYForRenderScale(renderScale, actorRenderY, actorRenderH, actorFootGroundOffset);
         const _getCloneAnchorY = (x) => {
-            // 非敵（プレビューのプレイアブル将軍: _playableOwner 無しで本分岐を通る）は、
-            // 分身の足元が本体の足元(actor.getFootY)に一致するアンカーを使う。
+            // プレイアブル将軍は分身の足元が本体の足元(actor.getFootY)に一致するアンカーを使う。
             // = getFootY() - _getCloneFootOffset()。これで本体と分身の接地ラインが揃う。
             // （敵ボスの分身Yには影響しない）
             if (!this.isEnemy && this.actor && typeof this.actor.getSpecialCloneAnchorY === 'function') {
@@ -1901,9 +1897,8 @@ export class Shogun extends Boss {
                 : (_fallbackOugiUnits || []);
             const _targetSlots = this._ougiActive ? [0, ..._ougiUnits] : [0];
 
-            // slot[0] は本体トレイルの基準(=0)。奥義未使用時にアクター既定スロットが [1] 等で
-            // 始まると本体(index0)がクローン扱いになり、通常コンボの剣筋がサンプリングされない。
-            // そのため slot[0] が本体(0)でない場合も再構築して必ず本体スロットを先頭に置く。
+            // slot[0] は本体の基準(=0)。奥義中は renderSpecial 側で skipSlotIndices に渡し、
+            // 分身だけを描画するため、常に先頭へ置く。
             if (this._ougiActive !== this._ougiWasActive
                 || this.actor.specialCloneSlots.length !== _targetSlots.length
                 || this.actor.specialCloneSlots[0] !== _targetSlots[0]) {
@@ -1952,9 +1947,7 @@ export class Shogun extends Boss {
                     }
                 }
             }
-            // slot[0]（本体）の位置は奥義の有無に関わらず毎フレーム更新する。
-            // updateSpecialCloneSlashTrails がトレイルの座標基準として参照するため、
-            // 更新しないとステージ開始時の座標で固定され剣筋がずれる。
+            // slot[0]（本体）の位置は奥義分身の基準点として使うため毎フレーム更新する。
             {
                 const pos0 = this.actor.specialClonePositions[0];
                 if (pos0) {
@@ -2298,7 +2291,7 @@ export class Shogun extends Boss {
         const dual = this._subWeaponInstances['dual'];
         if (!dual) return;
         
-        // アクション名とキーを保証（プレビュー画面からの直接呼び出し時などに必要）
+        // 呼び出し元に依存せず、二刀Zの描画状態を保証する
         this._subAction    = '二刀_Z';
         this._subWeaponKey = 'dual';
         this.isAttacking   = true;
@@ -2346,16 +2339,25 @@ export class Shogun extends Boss {
             this._comboStep = 0;
             this._currentComboStep = 0;
             this._currentAttackProfile = null;
+            this.actor.isAttacking = false;
+            this.actor.attackCombo = 0;
+            this.actor.currentAttack = null;
+            this.actor.attackTimer = 0;
             this.actor.specialCloneCurrentAttacks[0] = null;
             this._comboFinisherAirLockTimer = 0;
             this.attackCooldown = 480;
             return;
         }
+        if (typeof this.actor.pinSlashTrailPoints === 'function') {
+            this.actor.pinSlashTrailPoints(this.actor.comboSlashTrailPoints);
+        }
+        this.actor.comboSlashTrailSampleTimer = 0;
+        this.actor.comboStep1IdleTransitionTimer = 0;
         // ベジェ曲線specは描画時(renderBody)と完全に同じ座標系で焼かないと、
         // ctx.scale(renderScale) で増幅されて剣筋が空中に飛ぶ。
         // - renderBody: actorRenderY = this.y + (this.height - actorRenderH) * 0.62 + actorFootGroundOffset
         // - actorFootGroundOffset = this.height * 0.38 - (PLAYER.HEIGHT - actorRenderH * 0.62) * renderScale  (将軍で-26.4)
-        // - updateSpecialCloneSlashTrails の poseOriginY = actorRenderY (pos.y - height*0.62 と同値)
+        // - updateComboSlashTrail の poseOriginY = actorRenderY
         // _startNextComboStep でも renderBody と同じ式で bodyPoseY を計算する。
         const _specRenderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
             ? this.scaleMultiplier
@@ -2378,7 +2380,6 @@ export class Shogun extends Boss {
             groundY: bodyPoseGroundY,
             renderScale: _specRenderScale,
             scaleMultiplier: _specRenderScale,
-            step2TrailImpulseScale: step === 2 ? 0.48 : undefined,
             facingRight: this.facingRight,
             isCrouching: false,
             isGrounded: this.isGrounded,
@@ -2391,6 +2392,10 @@ export class Shogun extends Boss {
         this._currentComboStep = step;
         this._comboStep = step;
         this._currentAttackProfile = profile;
+        this.actor.isAttacking = true;
+        this.actor.attackCombo = step;
+        this.actor.currentAttack = profile;
+        this.actor.attackTimer = dur;
         this.actor.specialCloneCurrentAttacks[0] = profile;
         this._attackTimer = dur;
         this.attackTimer  = dur;
@@ -2416,8 +2421,7 @@ export class Shogun extends Boss {
                 this.vy = Math.max(this.vy, -0.8);
             }
         } else if (step === 2) {
-            // 二撃目は斬りの重心移動を見せる程度に抑え、歩き過ぎに見える前進を避ける。
-            this.vx = this.vx * 0.16 + dir * impulse * 0.48;
+            this.vx = this.vx * 0.16 + dir * impulse * 0.9;
             if (this.isGrounded) {
                 this.vy = 0;
                 this.isGrounded = true;
@@ -2439,6 +2443,53 @@ export class Shogun extends Boss {
         }
         this.animState = this._currentAttackProfile.type;
         audio.playSlash(Math.min(4, step));
+    }
+
+    updateActorComboReturnTimers(deltaMs) {
+        if (!this.actor || deltaMs <= 0) return;
+        if (this.actor.comboStep1IdleTransitionTimer > 0) {
+            this.actor.comboStep1IdleTransitionTimer = Math.max(0, this.actor.comboStep1IdleTransitionTimer - deltaMs);
+        }
+        if (this.actor.comboStep5IdleTransitionTimer > 0) {
+            this.actor.comboStep5IdleTransitionTimer = Math.max(0, this.actor.comboStep5IdleTransitionTimer - deltaMs);
+            if (this.actor.comboStep5IdleTransitionTimer <= 0) {
+                this.actor.comboStep5RecoveryAttack = null;
+            }
+        }
+    }
+
+    freezeActorComboFinisherTrailCurve(activeAttack = this._currentAttackProfile) {
+        if (!this.actor || !activeAttack || activeAttack.comboStep !== 5 || activeAttack.trailCurveFrozen === true) return;
+        const duration = Math.max(1, activeAttack.durationMs || this._attackTimer || 1);
+        const progress = Math.max(0, Math.min(1, 1 - ((this._attackTimer || 0) / duration)));
+        if (progress < 0.76) return;
+        if (!Number.isFinite(activeAttack.trailCurveEndX) || !Number.isFinite(activeAttack.trailCurveEndY)) return;
+
+        const actorGroundY = Number.isFinite(this.actor.groundY)
+            ? this.actor.groundY
+            : this.getActorGroundYForRenderScale(
+                Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0 ? this.scaleMultiplier : 1,
+                this.actor.y,
+                Number.isFinite(this.actor.height) ? this.actor.height : PLAYER.HEIGHT,
+                0
+            );
+        const poseHeight = PLAYER.HEIGHT;
+        const slashFloorY = (actorGroundY + LANE_OFFSET) - Math.max(10, poseHeight * 0.1);
+        const frozenEndY = Math.min(activeAttack.trailCurveEndY, slashFloorY);
+        activeAttack.trailCurveEndY = frozenEndY;
+        activeAttack.trailCurveControlY = Math.min(activeAttack.trailCurveControlY, frozenEndY);
+        activeAttack.trailCurveFrozen = true;
+
+        if (Array.isArray(this.actor.comboSlashTrailPoints)) {
+            for (let i = 0; i < this.actor.comboSlashTrailPoints.length; i++) {
+                const p = this.actor.comboSlashTrailPoints[i];
+                if (!p || (p.step || 0) !== 5) continue;
+                p.trailCurveEndX = activeAttack.trailCurveEndX;
+                p.trailCurveEndY = frozenEndY;
+                p.trailCurveControlX = activeAttack.trailCurveControlX;
+                p.trailCurveControlY = Math.min(activeAttack.trailCurveControlY, frozenEndY);
+            }
+        }
     }
 
     updateAttack(deltaTime) {
@@ -2556,10 +2607,23 @@ export class Shogun extends Boss {
                 if (this._comboPendingSteps && this._comboPendingSteps.length > 0) {
                     this._startNextComboStep();
                 } else {
+                    if (activeAttack && activeAttack.comboStep <= 5 && this.actor) {
+                        const pauseMs = 180;
+                        const returnMs = 100;
+                        this.actor.comboStep5IdleTransitionTimer = pauseMs + returnMs;
+                        this.actor.comboStep5RecoveryAttack = { ...activeAttack };
+                        if (activeAttack.comboStep === 1) {
+                            this.actor.comboStep1IdleTransitionTimer = Math.max(this.actor.comboStep1IdleTransitionTimer || 0, 180);
+                        }
+                    }
                     this.isAttacking  = false;
                     this._comboStep = 0;
                     this._currentComboStep = 0;
                     this._currentAttackProfile = null;
+                    this.actor.isAttacking = false;
+                    this.actor.attackCombo = 0;
+                    this.actor.currentAttack = null;
+                    this.actor.attackTimer = 0;
                     this.actor.specialCloneCurrentAttacks[0] = null;
                     this._comboFinisherAirLockTimer = 0;
                     this.attackCooldown = Math.max(this.attackCooldown, 480);
@@ -2671,9 +2735,7 @@ export class Shogun extends Boss {
 
                 if (!keepForDual && !keepForShuriken && !keepForOdachi && !keepForThrowPose) {
                     this._subAction    = null;
-                    if (!this._keepSubWeaponKey) {
-                        this._subWeaponKey = null;
-                    }
+                    this._subWeaponKey = null;
                     this._dualZPendingSteps = null;
                     this.isAttacking   = false;
                 } else {
@@ -2688,10 +2750,8 @@ export class Shogun extends Boss {
             const dualInst = this._subWeaponInstances['dual'];
             if (!dualInst || !Array.isArray(dualInst.projectiles) || dualInst.projectiles.length === 0) {
                 this._subAction    = null;
-                if (!this._keepSubWeaponKey) {
-                    this._subWeaponKey = null;
-                    this._dualZPendingSteps = null;
-                }
+                this._subWeaponKey = null;
+                this._dualZPendingSteps = null;
             }
             this.isAttacking = false;
         } else if (this._subWeaponKey === 'odachi') {
@@ -2707,10 +2767,7 @@ export class Shogun extends Boss {
             this.isAttacking = true;
         } else {
             this.isAttacking = false;
-            // プレビューモード等のために、projectileがなくても _subWeaponKey が明示的にセットされている間はクリアしない
-            if (!this._keepSubWeaponKey) {
-                this._currentAttackProfile = null;
-            }
+            this._currentAttackProfile = null;
         }
 
     }
@@ -3125,7 +3182,8 @@ export class Shogun extends Boss {
             const profile   = this._currentAttackProfile || this.actor.getComboAttackProfileByStep(comboStep);
             this.actor.isAttacking    = true;
             this.actor.attackCombo    = comboStep;
-            this.actor.currentAttack  = { ...profile, comboStep };
+            this.actor.currentAttack  = profile;
+            if (this.actor.currentAttack) this.actor.currentAttack.comboStep = comboStep;
             this.actor.attackTimer    = this._attackTimer;
             this.actor.subWeaponTimer  = 0;
             this.actor.subWeaponAction = null;
@@ -3184,13 +3242,19 @@ export class Shogun extends Boss {
             }
         }
 
-        const bodyTrailPoints = Array.isArray(this.actor.specialCloneSlashTrailPoints)
-            ? this.actor.specialCloneSlashTrailPoints[0]
+        const bodyComboTrailPoints = Array.isArray(this.actor.comboSlashTrailPoints)
+            ? this.actor.comboSlashTrailPoints
             : null;
-        const shouldUpdateBodyTrail = this._ougiActive ||
-            this._attackTimer > 0 ||
-            (Array.isArray(bodyTrailPoints) && bodyTrailPoints.length > 0);
-        let bodyTrailUpdatedBeforeRender = false;
+        const bodyComboFrozenCurves = Array.isArray(this.actor.comboSlashTrailFrozenCurves)
+            ? this.actor.comboSlashTrailFrozenCurves
+            : null;
+        const shouldUpdateBodyComboTrail = this._attackTimer > 0 ||
+            (this.actor.comboStep5IdleTransitionTimer || 0) > 0 ||
+            (this.actor.comboStep1IdleTransitionTimer || 0) > 0 ||
+            (Array.isArray(bodyComboTrailPoints) && bodyComboTrailPoints.length > 0) ||
+            (Array.isArray(bodyComboFrozenCurves) && bodyComboFrozenCurves.length > 0);
+        const shouldUpdateSpecialCloneTrails = this._ougiActive;
+        let specialCloneTrailsUpdatedBeforeRender = false;
 
         const renderWithShogunTransform = (drawFn) => {
             const dir2d = this.facingRight ? 1 : -1;
@@ -3243,8 +3307,7 @@ export class Shogun extends Boss {
             }
         }
 
-        // コンボ斬撃トレイル（大太刀等）
-        // 将軍のZコンボの軌跡は updateSpecialCloneSlashTrails(deltaMs) を通じて specialCloneSlashTrailPoints[0] に生成されます。
+        // 奥義分身のトレイルは分身描画前に更新する。通常コンボ本体は忍者と同じ comboSlashTrailPoints を使う。
         const isDualZTrailSource = !!(
             this.actor.currentSubWeapon &&
             this.actor.currentSubWeapon.name === '二刀流' &&
@@ -3254,188 +3317,36 @@ export class Shogun extends Boss {
         if (
             !renderPaused &&
             !isDualZTrailSource &&
-            shouldUpdateBodyTrail &&
+            shouldUpdateSpecialCloneTrails &&
             typeof this.actor.updateSpecialCloneSlashTrails === 'function'
         ) {
             const trailDeltaMs = (typeof this._lastDeltaMs === 'number') ? this._lastDeltaMs : 16;
             this.actor.updateSpecialCloneSlashTrails(trailDeltaMs);
-            bodyTrailUpdatedBeforeRender = true;
+            specialCloneTrailsUpdatedBeforeRender = true;
         }
-        const trailPoints = bodyTrailPoints;
-        if (!this.hideBody && trailPoints && trailPoints.length > 0) {
-            // バフによるスケール（通常時は1.0）
+        if (!renderPaused && shouldUpdateBodyComboTrail && typeof this.actor.updateComboSlashTrail === 'function') {
+            const trailDeltaMs = (typeof this._lastDeltaMs === 'number') ? this._lastDeltaMs : 16;
+            this.freezeActorComboFinisherTrailCurve(this.actor.currentAttack);
+            this.actor.updateComboSlashTrail(trailDeltaMs);
+        }
+
+        const hasBodyComboTrail = Array.isArray(this.actor.comboSlashTrailPoints) &&
+            this.actor.comboSlashTrailPoints.length > 0;
+        if (!this.hideBody && hasBodyComboTrail) {
             const baseTrailScale = typeof this.actor.getXAttackTrailWidthScale === 'function'
                 ? this.actor.getXAttackTrailWidthScale()
                 : 1.0;
-
-            const fallbackOriginX = actorRenderX;
-            const fallbackOriginY = actorRenderY;
-            const getTrailKey = (p) => Number.isFinite(p && p.trailAttackId)
-                ? `attack:${p.trailAttackId}`
-                : `step:${p && p.step || 0}`;
-            const groupedTrails = new Map();
-            const activeTrailKeys = new Set();
-            for (const p of trailPoints) {
-                if (!p) continue;
-                const key = getTrailKey(p);
-                if (!groupedTrails.has(key)) groupedTrails.set(key, []);
-                groupedTrails.get(key).push(p);
-                activeTrailKeys.add(key);
-            }
-            if (!(this._comboTrailRenderAnchors instanceof Map)) {
-                this._comboTrailRenderAnchors = new Map();
-            }
-            for (const key of this._comboTrailRenderAnchors.keys()) {
-                if (!activeTrailKeys.has(key)) this._comboTrailRenderAnchors.delete(key);
-            }
-            const projectTrailPointsToRenderSpace = (points, anchor = null) => {
-                if (!Array.isArray(points) || points.length === 0) {
-                    return points;
-                }
-                const actorW = (this.actor && Number.isFinite(this.actor.width)) ? this.actor.width : PLAYER.WIDTH;
-                const actorH = (this.actor && Number.isFinite(this.actor.height)) ? this.actor.height : PLAYER.HEIGHT;
-                return points.map((p) => {
-                    if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return p;
-                    const pIsCrouching = !!p.isCrouching;
-                    const curveIsRelative = !!p.trailIsRelative;
-                    // 相対座標（アクターに追従中）であれば現在のアクター位置を基準に座標を解決し、
-                    // 絶対座標（空間固定）であれば記録されたアクター位置（p.playerX / p.playerY）を基準にする。
-                    const PIVOT_FRAC = 0.62;
-                    const useCurrentAnchor = curveIsRelative && anchor;
-                    const originX = useCurrentAnchor
-                        ? (anchor.pivotX - actorW * 0.5)
-                        : (Number.isFinite(p.playerX) ? p.playerX : fallbackOriginX);
-                    const originY = useCurrentAnchor
-                        ? (anchor.pivotY - actorH * PIVOT_FRAC)
-                        : (Number.isFinite(p.playerY) ? p.playerY : fallbackOriginY);
-                    // 各点は自分のキャプチャ時の原点 (playerX/Y = その瞬間の actorRenderX/Y) を基準に拡大する。
-                    // これにより本体が振り中に移動しても、凍結した剣筋はワールド座標に固定される
-                    // （this.y を直接中心にすると剣筋が本体移動に追従して固定されなくなる＝NG）。
-                    // 拡大中心 Y は刀本体（this.y+this.height*0.62 を中心に ×renderScale）と一致させる必要があるが、
-                    // playerY(=actorRenderY) には actorFootGroundOffset が畳み込まれているため差し引く。
-                    // 差し引かないと foot offset 分（将軍で約26px×renderScale）だけ切先より下に垂れる。
-                    // 現在フレームの点では (playerY + actorH*0.62 - actorFootGroundOffset) = this.y+this.height*0.62 に厳密一致する。
-                    const project = (x, y, relative = false, projectOriginX = originX, projectOriginY = originY, customPivotY = null) => {
-                        const pivotX = projectOriginX + actorW * 0.5;
-                        const pivotY = customPivotY !== null ? customPivotY : (projectOriginY + actorH * PIVOT_FRAC - actorFootGroundOffset);
-                        const sourceX = relative ? projectOriginX + x : x;
-                        const sourceY = relative ? projectOriginY + y : y;
-                        return {
-                            x: pivotX + (sourceX - pivotX) * renderScale,
-                            y: pivotY + (sourceY - pivotY) * renderScale
-                        };
-                    };
-                    const simPivotY = originY + actorH * PIVOT_FRAC - actorFootGroundOffset;
-
-                    const tip = project(p.x, p.y, false, originX, originY, simPivotY);
-                    const center = (Number.isFinite(p.centerX) && Number.isFinite(p.centerY))
-                        ? project(p.centerX, p.centerY, false, originX, originY, simPivotY)
-                        : null;
-                    const arcCenter = (Number.isFinite(p.trailArcCenterX) && Number.isFinite(p.trailArcCenterY))
-                        ? project(p.trailArcCenterX, p.trailArcCenterY, false, originX, originY, simPivotY)
-                        : null;
-                    const transformed = {
-                        ...p,
-                        x: tip.x,
-                        y: tip.y,
-                        centerX: center
-                            ? center.x
-                            : p.centerX,
-                        centerY: center
-                            ? center.y
-                            : p.centerY,
-                        trailIsRelative: false,
-                        trailArcCenterX: arcCenter ? arcCenter.x : p.trailArcCenterX,
-                        trailArcCenterY: arcCenter ? arcCenter.y : p.trailArcCenterY,
-                        trailRadius: Number.isFinite(p.trailRadius) ? p.trailRadius * renderScale : p.trailRadius,
-                        trailArcRadius: Number.isFinite(p.trailArcRadius) ? p.trailArcRadius * renderScale : p.trailArcRadius
-                    };
-                    if (Number.isFinite(p.trailCurveStartX) && Number.isFinite(p.trailCurveStartY)) {
-                        const start = project(p.trailCurveStartX, p.trailCurveStartY, curveIsRelative, originX, originY, simPivotY);
-                        transformed.trailCurveStartX = start.x;
-                        transformed.trailCurveStartY = start.y;
-                    }
-                    if (Number.isFinite(p.trailCurveControlX) && Number.isFinite(p.trailCurveControlY)) {
-                        const control = project(p.trailCurveControlX, p.trailCurveControlY, curveIsRelative, originX, originY, simPivotY);
-                        transformed.trailCurveControlX = control.x;
-                        transformed.trailCurveControlY = control.y;
-                    }
-                    if (Number.isFinite(p.trailCurveEndX) && Number.isFinite(p.trailCurveEndY)) {
-                        const end = project(p.trailCurveEndX, p.trailCurveEndY, curveIsRelative, originX, originY, simPivotY);
-                        transformed.trailCurveEndX = end.x;
-                        transformed.trailCurveEndY = end.y;
-                    }
-                    if (
-                        Number.isFinite(p.trailFixedCurveStartX) &&
-                        Number.isFinite(p.trailFixedCurveStartY) &&
-                        Number.isFinite(p.trailFixedCurveControlX) &&
-                        Number.isFinite(p.trailFixedCurveControlY) &&
-                        Number.isFinite(p.trailFixedCurveEndX) &&
-                        Number.isFinite(p.trailFixedCurveEndY)
-                    ) {
-                        const fixedOriginX = Number.isFinite(p.trailFixedCurvePlayerX) ? p.trailFixedCurvePlayerX : originX;
-                        const fixedOriginY = Number.isFinite(p.trailFixedCurvePlayerY) ? p.trailFixedCurvePlayerY : originY;
-                        const fixedCurveIsRelative = !!p.trailFixedCurveIsRelative;
-                        const fixedStart = project(p.trailFixedCurveStartX, p.trailFixedCurveStartY, fixedCurveIsRelative, fixedOriginX, fixedOriginY);
-                        const fixedControl = project(p.trailFixedCurveControlX, p.trailFixedCurveControlY, fixedCurveIsRelative, fixedOriginX, fixedOriginY);
-                        const fixedEnd = project(p.trailFixedCurveEndX, p.trailFixedCurveEndY, fixedCurveIsRelative, fixedOriginX, fixedOriginY);
-                        transformed.trailFixedCurveStartX = fixedStart.x;
-                        transformed.trailFixedCurveStartY = fixedStart.y;
-                        transformed.trailFixedCurveControlX = fixedControl.x;
-                        transformed.trailFixedCurveControlY = fixedControl.y;
-                        transformed.trailFixedCurveEndX = fixedEnd.x;
-                        transformed.trailFixedCurveEndY = fixedEnd.y;
-                        transformed.trailFixedCurveIsRelative = false;
-                    }
-                    return transformed;
-                });
-            };
-            for (const [key, groupPoints] of groupedTrails.entries()) {
-                if (!groupPoints || groupPoints.length === 0) continue;
-                const anchorPoint = groupPoints[0];
-                if (!this._comboTrailRenderAnchors.has(key)) {
-                    const originX = Number.isFinite(anchorPoint.playerX) ? anchorPoint.playerX : fallbackOriginX;
-                    const originY = Number.isFinite(anchorPoint.playerY) ? anchorPoint.playerY : fallbackOriginY;
-                    this._comboTrailRenderAnchors.set(key, {
-                        pivotX: originX + actorRenderW * 0.5,
-                        pivotY: originY + actorRenderH * 0.62
-                    });
-                }
-                const anchor = this._comboTrailRenderAnchors.get(key);
-                const pivotX = anchor.pivotX;
-                const pivotY = anchor.pivotY;
-                const step = groupPoints[groupPoints.length - 1] && groupPoints[groupPoints.length - 1].step;
-                // step2/3/5 は per-sample投影（projectTrailPointsToRenderSpace）で、刀本体(renderModel)と
-                // 同一の拡大中心 this.y+this.height*0.62 / 各点playerX/Y基準 + ×renderScale に揃える。
-                // step2 をインラインscale(アンカーピボット=footOffset込み)で描くと刀本体とズレて切先を追い越すため、
-                // step3/5 と同じ補正済み投影に統一する。
-                // 全コンボ段(1-5)を per-sample投影に統一し、刀本体と同一変換に揃える。
-                // 段ごとに変換が違うと隣接段の終点/始点がズレて繋がらないため。
-                const usesPerSampleScale = step === 1 || step === 2 || step === 3 || step === 5;
-                const renderPoints = usesPerSampleScale
-                    ? projectTrailPointsToRenderSpace(groupPoints, anchor)
-                    : groupPoints;
-                ctx.save();
-                if (!usesPerSampleScale && Math.abs(renderScale - 1) > 0.001) {
-                    ctx.translate(pivotX, pivotY);
-                    ctx.scale(renderScale, renderScale);
-                    ctx.translate(-pivotX, -pivotY);
-                }
+            renderTrailWithShogunTransform(() => {
                 this.actor.renderComboSlashTrail(ctx, {
-                    points: renderPoints,
-                    centerX: pivotX,
-                    centerY: pivotY,
                     trailWidthScale: baseTrailScale,
-                    physicalScale: usesPerSampleScale ? renderScale : 1,
                     boostActive: baseTrailScale > 1.01 && this._attackTimer > 0,
                     attackState: {
-                        isAttacking: this.isAttacking,
-                        currentAttack: this._currentAttackProfile,
-                        attackTimer: this._attackTimer
+                        isAttacking: this.actor.isAttacking,
+                        currentAttack: this.actor.currentAttack,
+                        attackTimer: this.actor.attackTimer
                     }
                 });
-                ctx.restore();
-            }
+            });
         }
 
         // ── 陣羽織（じんばおり）背面描画 ──
@@ -3507,23 +3418,6 @@ export class Shogun extends Boss {
                 }
             }
         }
-        // デバッグ(プレビュー専用): _playableOwner が無い場合、AutoAI 等の別経路で分身Yが
-        // 本体とずれるため、renderSpecial 直前に分身の足元を本体の視覚的足元(= this.y + this.height)へ
-        // 揃え直す。clone視覚足元 = pos.y + _getCloneFootOffset() なので pos.y を逆算する。
-        // 実ゲーム(=_playableOwner あり)には影響しない。全Lv共通で接地ラインが揃う。
-        if (this._ougiActive && !this.isEnemy && !this._playableOwner && this.actor &&
-            typeof this.actor._getCloneFootOffset === 'function' &&
-            Array.isArray(this.actor.specialClonePositions)) {
-            const _previewCloneAnchorY = (this.y + this.height) - this.actor._getCloneFootOffset();
-            for (let _ci = 1; _ci < this.actor.specialClonePositions.length; _ci++) {
-                const _cp = this.actor.specialClonePositions[_ci];
-                if (!_cp) continue;
-                _cp.y = _previewCloneAnchorY;
-                _cp.jumping = false;
-                _cp.cloneVy = 0;
-            }
-        }
-
         // 奥義・分身: renderSpecial を使用（忍者と同一システム）
         if (this._ougiActive) {
             const dir2d = this.facingRight ? 1 : -1;
@@ -3571,7 +3465,7 @@ export class Shogun extends Boss {
 
         }
 
-        if (!renderPaused && !bodyTrailUpdatedBeforeRender && shouldUpdateBodyTrail && typeof this.actor.updateSpecialCloneSlashTrails === 'function') {
+        if (!renderPaused && !specialCloneTrailsUpdatedBeforeRender && shouldUpdateSpecialCloneTrails && typeof this.actor.updateSpecialCloneSlashTrails === 'function') {
             const trailDeltaMs = (typeof this._lastDeltaMs === 'number') ? this._lastDeltaMs : 16;
             this.actor.updateSpecialCloneSlashTrails(trailDeltaMs);
         }
