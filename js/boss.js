@@ -1892,7 +1892,7 @@ export class Shogun extends Boss {
             const _ougiTier = this.getActorSpecialCloneTier();
             const _ougiCount = this.actor && typeof this.actor.getSpecialCloneCountByTier === 'function'
                 ? this.actor.getSpecialCloneCountByTier(_ougiTier)
-                : Math.max(1, Math.min(4, _ougiTier + 1));
+                : (_ougiTier <= 0 ? 1 : (_ougiTier === 1 ? 2 : 4));
             const _fallbackOugiUnits = this.actor && typeof this.actor.getSpecialCloneActiveLayout === 'function'
                 ? this.actor.getSpecialCloneActiveLayout(_ougiCount)
                 : [[1], [-1, 1], [-1, 1, 2], [-2, -1, 1, 2]][Math.max(0, Math.min(3, _ougiTier))];
