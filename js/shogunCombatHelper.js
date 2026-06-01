@@ -835,6 +835,7 @@ export function applyShogunCombat(player) {
         boss.facingRight = this.facingRight;
         boss.isCrouching = this.isCrouching;
         boss.groundY = this.groundY;
+        boss._previewFreeMovement = !!this._previewFreeMovement;
 
         // ── ボスの update（唯一の物理処理）──
         const solidColliders = getShogunSolidColliders(this, boss, walls);

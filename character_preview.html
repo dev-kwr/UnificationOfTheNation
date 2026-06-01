@@ -433,6 +433,7 @@
         ninja.previewMode = false;
         ninja.facingRight = true;
         ninja.maxJumps = 3;    // プレビューは三段跳びをデフォルトに
+        ninja._previewFreeMovement = true; // 画面端ループ/ズーム引きのため通常の左端クランプを無効化
         ninja.progression = { normalCombo: 3, subWeapon: 3, specialClone: 3 };
         ninja.x = logicalW / 2 - ninja.width / 2; // 初期位置を画面中央に揃える
 
@@ -797,6 +798,8 @@
                 shogunPlayer.progression.subWeapon = t;
                 shogunPlayer.progression.normalCombo = t;
                 shogunPlayer.progression.specialClone = t;
+                if (typeof shogunPlayer.rebuildSpecialCloneSlots === 'function') shogunPlayer.rebuildSpecialCloneSlots();
+                if (typeof shogunPlayer.refreshSubWeaponScaling === 'function') shogunPlayer.refreshSubWeaponScaling();
             }
             if (shogun) {
                 if (shogun.progression) {

@@ -1923,16 +1923,18 @@ export class Player {
             // これにより、前フロアから続く階段の斜面へ自由に移動・昇降が可能となる
         }
 
-        if (this.x < leftLimit) {
-            this.x = leftLimit;
-            // 壁に衝突時、速度を完全に0にして残像の進行を止める
-            this.vx = 0;
-            this.ax = 0;
-        }
-        if (this.x > rightLimit) {
-            this.x = rightLimit;
-            this.vx = 0;
-            this.ax = 0;
+        if (!this._previewFreeMovement) {
+            if (this.x < leftLimit) {
+                this.x = leftLimit;
+                // 壁に衝突時、速度を完全に0にして残像の進行を止める
+                this.vx = 0;
+                this.ax = 0;
+            }
+            if (this.x > rightLimit) {
+                this.x = rightLimit;
+                this.vx = 0;
+                this.ax = 0;
+            }
         }
         // 右端制限は削除（ワールド座標で無限に進めるようにする。ステージ端制限はGame側で管理）
     }

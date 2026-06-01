@@ -1387,10 +1387,8 @@ export function applySpecialMixin(PlayerClass) {
     };
 
     PlayerClass.prototype.getSpecialCloneCountByTier = function(tier) {
-        const clampedTier = Math.max(0, Math.min(3, tier));
-        if (clampedTier <= 0) return 1;
-        if (clampedTier === 1) return 2;
-        return 4;
+        const clampedTier = Math.max(0, Math.min(3, Math.floor(Number(tier) || 0)));
+        return clampedTier + 1;
     };
 
     PlayerClass.prototype.getSpecialCloneCount = function() {

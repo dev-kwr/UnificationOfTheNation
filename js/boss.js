@@ -90,7 +90,7 @@ class Boss extends Enemy {
         }
 
         const shouldRemove = super.update(deltaTime, player, obstacles);
-        if (!shouldRemove && !this.isEntering && this.isAlive && !this.isDying && !this.previewMode) {
+        if (!shouldRemove && !this.isEntering && this.isAlive && !this.isDying && !this.previewMode && !this._previewFreeMovement) {
             const scrollX = window.game ? window.game.scrollX : 0;
             const minX = scrollX;
             const maxX = scrollX + CANVAS_WIDTH - this.width;
@@ -1889,11 +1889,16 @@ export class Shogun extends Boss {
             const _playableOwner = (!this.isEnemy && this._playableOwner && this._playableOwner.isSpecialCloneCombatActive && this._playableOwner.isSpecialCloneCombatActive())
                 ? this._playableOwner
                 : null;
-            const _ougiTierMap = [[1], [-1, 1], [-2, -1, 1, 2], [-2, -1, 1, 2]];
             const _ougiTier = this.getActorSpecialCloneTier();
+            const _ougiCount = this.actor && typeof this.actor.getSpecialCloneCountByTier === 'function'
+                ? this.actor.getSpecialCloneCountByTier(_ougiTier)
+                : Math.max(1, Math.min(4, _ougiTier + 1));
+            const _fallbackOugiUnits = this.actor && typeof this.actor.getSpecialCloneActiveLayout === 'function'
+                ? this.actor.getSpecialCloneActiveLayout(_ougiCount)
+                : [[1], [-1, 1], [-1, 1, 2], [-2, -1, 1, 2]][Math.max(0, Math.min(3, _ougiTier))];
             const _ougiUnits = _playableOwner && Array.isArray(_playableOwner.specialCloneSlots)
                 ? _playableOwner.specialCloneSlots.slice()
-                : (_ougiTierMap[_ougiTier] || []);
+                : (_fallbackOugiUnits || []);
             const _targetSlots = this._ougiActive ? [0, ..._ougiUnits] : [0];
 
             // slot[0] は本体トレイルの基準(=0)。奥義未使用時にアクター既定スロットが [1] 等で
