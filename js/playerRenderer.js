@@ -1424,6 +1424,8 @@ export function applyRendererMixin(PlayerClass) {
 
         // 足
         const backLegOverlayQueue = [];
+        // 脚の付け根/膝位置を記録（将軍の草摺オーバーレイが歩行スイングに追従して付け根を覆うため）
+        let legRootFront = null, legRootBack = null;
         const drawJointedLeg = (
             hipX,
             hipYLocal,
@@ -1440,6 +1442,9 @@ export function applyRendererMixin(PlayerClass) {
         ) => {
             if (alpha <= 0) return;
             if (options.hideBodyParts) return;
+            // 草摺追従用に脚位置を記録（オーバーライド有無に関わらず毎フレーム最新を保持）
+            const _legRoot = { hipX, hipYLocal, kneeX, kneeY, footX, footY };
+            if (isFrontLeg) legRootFront = _legRoot; else legRootBack = _legRoot;
             const defaultOverlayInFront = ((hipX - torsoHipX) * dir) <= 0;
             const willOverlay = storeForOverlay && (overlayInFront === null ? defaultOverlayInFront : overlayInFront);
 
@@ -2111,7 +2116,9 @@ export function applyRendererMixin(PlayerClass) {
             options.drawTorsoOverlayOverride(ctx, {
                 torsoShoulderX, bodyTopY, torsoHipX, hipY, dir,
                 silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor,
-                outlineExpand, alpha
+                outlineExpand, alpha,
+                // 歩行スイング時に草摺で脚の付け根を覆うための脚位置
+                legRootFront, legRootBack
             });
         }
         

@@ -3720,6 +3720,17 @@ export class Shogun extends Boss {
 
         // デバッグ防具非表示: 胸当て・背板を描かず、忍者と同じ素体の胴(太さ10=忍者基準)を描く
         if (this.hideShogunArmor) {
+            // 忍者と同じく、シルエットアウトライン(少し太い線)を下地に敷いてから素体線を重ねる
+            if (withOutline && silhouetteOutlineEnabled) {
+                ctx.strokeStyle = silhouetteOutlineColor;
+                ctx.lineWidth = 10 + outlineExpand;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.beginPath();
+                ctx.moveTo(torsoShoulderX, bodyTopY);
+                ctx.lineTo(torsoHipX, hipY);
+                ctx.stroke();
+            }
             ctx.strokeStyle = cCloth;
             ctx.lineWidth = 10; // 忍者の胴と同じ太さ（胴は四肢より太い）
             ctx.lineCap = 'round';
@@ -3862,7 +3873,7 @@ export class Shogun extends Boss {
      */
     _drawShogunTorsoOverlay(ctx, p) {
         if (this.hideShogunArmor) return; // デバッグ防具非表示: 草摺（腰防具）は省く
-        const { torsoShoulderX, bodyTopY, torsoHipX, hipY, dir } = p;
+        const { torsoShoulderX, bodyTopY, torsoHipX, hipY, dir, legRootFront, legRootBack } = p;
         const cArmor = '#101014';
         const cGold  = '#dcb854';
 
@@ -3875,57 +3886,50 @@ export class Shogun extends Boss {
 
         // ── 佩楯・草摺（腰から大腿部を覆う防具） ──
         const skirtLen = 13.0;
-        const skirtSpread = 6.0;
+        const baseY = hipY - 4.5;
 
-        const drawKusazuriPanel = (startX, startY, endXOffset, endY, widthBack, widthFront, color, edgeColor) => {
-            const bX = nx * dir;
-            const bY = ny * dir;
-            const fX = -nx * dir;
-            const fY = -ny * dir;
-            
+        // 歩行スイング時、脚は付け根(hip)からstride分だけ膝・足が前後へ振れる。
+        // 草摺裾(skirtLen下)での腿の水平オフセットを求め、各脚を覆うパネルを腿方向へ
+        // スラントさせて付け根の素体露出を防ぐ（アイドル時=脚閉じはオフセット≒0で従来通り）。
+        const legSkirtOffset = (leg) => {
+            if (!leg || !Number.isFinite(leg.kneeX) || !Number.isFinite(leg.hipX)) return 0;
+            const dyL = leg.kneeY - leg.hipYLocal;
+            if (!Number.isFinite(dyL) || Math.abs(dyL) < 0.5) return 0;
+            const t = Math.max(0, Math.min(1.05, skirtLen / dyL));
+            const off = (leg.kneeX - leg.hipX) * t;
+            return Math.max(-10, Math.min(10, off)); // 極端なスラントを抑制
+        };
+        const offFront = legSkirtOffset(legRootFront);
+        const offBack  = legSkirtOffset(legRootBack);
+
+        // 上端は腰中心に固定し、裾(下端)を endXOffset 方向へスラントさせる台形。
+        // 上端を腰へアンカーすることで中央パネルと自然に橋渡しされ隙間が出ない。
+        const drawKusazuriPanel = (endXOffset, widthTop, widthBot, color, edgeColor) => {
+            const bX = nx * dir, bY = ny * dir;   // 背側（奥行き）
+            const fX = -nx * dir, fY = -ny * dir; // 前側（奥行き）
             ctx.fillStyle = color;
             ctx.beginPath();
-            ctx.moveTo(startX + bX * widthBack, startY + bY * widthBack);
-            ctx.lineTo(startX + fX * widthFront, startY + fY * widthFront);
-            ctx.lineTo(startX + endXOffset + fX * (widthFront + 1), startY + endY + fY * widthFront);
-            ctx.lineTo(startX + endXOffset + bX * (widthBack + 1), startY + endY + bY * widthBack);
+            ctx.moveTo(torsoHipX + bX * widthTop, baseY + bY * widthTop);
+            ctx.lineTo(torsoHipX + fX * widthTop, baseY + fY * widthTop);
+            ctx.lineTo(torsoHipX + endXOffset + fX * widthBot, baseY + skirtLen + fY * widthBot);
+            ctx.lineTo(torsoHipX + endXOffset + bX * widthBot, baseY + skirtLen + bY * widthBot);
             ctx.closePath();
             ctx.fill();
-
             // 裾の金縁
             ctx.strokeStyle = edgeColor;
             ctx.lineWidth = 1.0;
             ctx.beginPath();
-            ctx.moveTo(startX + endXOffset + fX * (widthFront + 1), startY + endY + fY * widthFront);
-            ctx.lineTo(startX + endXOffset + bX * (widthBack + 1), startY + endY + bY * widthBack);
+            ctx.moveTo(torsoHipX + endXOffset + fX * widthBot, baseY + skirtLen + fY * widthBot);
+            ctx.lineTo(torsoHipX + endXOffset + bX * widthBot, baseY + skirtLen + bY * widthBot);
             ctx.stroke();
         };
 
-        const baseY = hipY - 4.5;
-        
-        // 1. 後方の草摺（背中側・隙間を埋めるように幅広に、位置は後方(+nx*dir)へシフト）
-        drawKusazuriPanel(
-            torsoHipX + nx * dir * 1.5, baseY,
-            nx * dir * skirtSpread * 0.4 - dir * 0.5, skirtLen,
-            2.0, 2.0,
-            cArmor, '#b09240'
-        );
-
-        // 2. 側面の草摺（主要パネル・分厚い）
-        drawKusazuriPanel(
-            torsoHipX, baseY, 
-            -nx * dir * skirtSpread * 0.1, skirtLen,
-            3.2, 3.2,
-            '#0a0a0d', '#b09240'
-        );
-
-        // 3. 前方の草摺（手前側・バランスに合わせて、位置は前方(-nx*dir)へシフト）
-        drawKusazuriPanel(
-            torsoHipX - nx * dir * 1.8, baseY,
-            -nx * dir * skirtSpread * 0.3 + dir * 1.0, skirtLen,
-            1.5, 1.5,
-            cArmor, '#b09240'
-        );
+        // 1. 後ろ脚を覆うパネル（背側レイヤー・最奥）
+        drawKusazuriPanel(offBack, 3.0, 3.4, cArmor, '#b09240');
+        // 2. 中央の主パネル（分厚い・脚閉じ時の付け根を覆う）
+        drawKusazuriPanel((offFront + offBack) * 0.5, 3.4, 3.6, '#0a0a0d', '#b09240');
+        // 3. 前脚を覆うパネル（手前レイヤー・最前）
+        drawKusazuriPanel(offFront, 3.0, 3.4, cArmor, '#b09240');
     }
 
     /**
@@ -3934,16 +3938,27 @@ export class Shogun extends Boss {
      */
     _drawShogunHead(ctx, p) {
         const { headCenterX, headY, headRadius, dir, silhouetteColor,
-                silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand } = p;
+                silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand,
+                torsoShoulderX, bodyTopY } = p;
         const hx = headCenterX;
         const hy = headY;
         const hr = headRadius;
 
         // ── 0. 頭ベース（のっぺらぼう）──
+        // 忍者と同じく、首の接合方向だけアウトラインに隙間を開けて胴と自然に繋げる
+        // （全周アウトラインだと頭が風船のように胴から分離して見えるため）。
         if (silhouetteOutlineEnabled) {
             ctx.strokeStyle = silhouetteOutlineColor;
             ctx.lineWidth   = outlineExpand;
-            ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI * 2); ctx.stroke();
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            const TAU = Math.PI * 2;
+            const hasNeck = Number.isFinite(bodyTopY) && Number.isFinite(torsoShoulderX);
+            const neckAngle = hasNeck ? Math.atan2(bodyTopY - hy, torsoShoulderX - hx) : Math.PI / 2;
+            const halfGap = 0.36;
+            ctx.beginPath();
+            ctx.arc(hx, hy, hr, neckAngle + halfGap, neckAngle - halfGap + TAU, false);
+            ctx.stroke();
         }
         ctx.fillStyle = silhouetteColor;
         ctx.beginPath(); ctx.arc(hx, hy, hr, 0, Math.PI * 2); ctx.fill();
@@ -4154,6 +4169,10 @@ export class Shogun extends Boss {
         const wristToHandDist = 1.35;
         const wristX = handX - (dx / dist) * wristToHandDist;
         const wristY = handY - (dy / dist) * wristToHandDist;
+        // 掌アウトラインの隙間方向（腕との接続側）を掌描画(_drawShogunHand)へ受け渡す。
+        // 前後の腕で別々に保持し、掌の isBackHand と突き合わせる。
+        this._shogunWrist = this._shogunWrist || {};
+        this._shogunWrist[(optionsInner && optionsInner.isBackHand) ? 'back' : 'front'] = { x: wristX, y: wristY };
         const inset = (fx, fy, tx, ty, px) => {
             const l = Math.hypot(tx-fx, ty-fy); if(l < 0.001) return {x:fx, y:fy};
             const r = Math.min(1, px/l); return {x:fx+(tx-fx)*r, y:fy+(ty-fy)*r};
@@ -4161,19 +4180,21 @@ export class Shogun extends Boss {
         const armStart = inset(shoulderX, shoulderY, elbowX, elbowY, 1.2);
 
         const cArmor = '#101014'; const cGold = '#dcb854'; const cCloth = '#202020';
+        const armW = this.hideShogunArmor ? 4.8 : 5.0;
 
+        // アウトラインは肩からインセット(armStart)した位置から描き、肩の付け根に継ぎ目線を出さない。
         if (silhouetteOutlineEnabled) {
             ctx.strokeStyle = silhouetteOutlineColor;
-            ctx.lineWidth = 5.0 + outlineExpand;
+            ctx.lineWidth = armW + outlineExpand;
             ctx.lineCap = 'round'; ctx.lineJoin = 'round';
             ctx.beginPath(); ctx.moveTo(armStart.x, armStart.y); ctx.lineTo(elbowX, elbowY); ctx.lineTo(wristX, wristY); ctx.lineTo(handX, handY); ctx.stroke();
         }
 
-        // ベースの下地（防具非表示時は忍者と同じ腕の太さ4.8）
+        // ベースの下地（フィルは肩から全結合。アウトラインのインセットキャップをこのフィルが覆う）
         ctx.strokeStyle = cCloth;
-        ctx.lineWidth = this.hideShogunArmor ? 4.8 : 5.0;
+        ctx.lineWidth = armW;
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-        ctx.beginPath(); ctx.moveTo(armStart.x, armStart.y); ctx.lineTo(elbowX, elbowY); ctx.lineTo(wristX, wristY); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(shoulderX, shoulderY); ctx.lineTo(elbowX, elbowY); ctx.lineTo(wristX, wristY); ctx.stroke();
 
         // デバッグ防具非表示: 腕の素体線は残し、籠手・装飾帯・大袖（肩当て）は省く
         if (this.hideShogunArmor) {
@@ -4252,14 +4273,32 @@ export class Shogun extends Boss {
      * 手パーツ：丸い手に小手（手甲）を被せる
      */
     _drawShogunHand(ctx, p) {
-        const { xPos, yPos, radius, dir, isBackHand } = p;
+        const { xPos, yPos, radius, dir, isBackHand,
+                silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand } = p;
         const handRad = radius * 0.95;
 
-        // デバッグ防具非表示: 黒い掌(装甲)を出さず、素体に合わせた小さく細い手のみ描く
+        // デバッグ防具非表示: 黒い小手(装甲)を出さず、忍者と同じ丸い掌(半径=radius)を描く。
+        // 他パーツと同じシルエットアウトラインを掌の円に付けるが、腕(手首)との接続側だけは
+        // 隙間を開けて、掌と腕の接続点に継ぎ目線が出ないようにする（頭の首隙間と同方式）。
         if (this.hideShogunArmor) {
+            if (silhouetteOutlineEnabled) {
+                const cf = this._shogunWrist && this._shogunWrist[isBackHand ? 'back' : 'front'];
+                ctx.strokeStyle = silhouetteOutlineColor;
+                ctx.lineWidth = outlineExpand;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                if (cf && Number.isFinite(cf.x) && Number.isFinite(cf.y)) {
+                    const inward = Math.atan2(cf.y - yPos, cf.x - xPos);
+                    const gap = 0.62;
+                    ctx.arc(xPos, yPos, radius, inward + gap, inward - gap + Math.PI * 2, false);
+                } else {
+                    ctx.arc(xPos, yPos, radius, 0, Math.PI * 2);
+                }
+                ctx.stroke();
+            }
             ctx.fillStyle = '#202020';
             ctx.beginPath();
-            ctx.arc(xPos, yPos, radius * 0.55, 0, Math.PI * 2);
+            ctx.arc(xPos, yPos, radius, 0, Math.PI * 2);
             ctx.fill();
             return true;
         }
@@ -4287,11 +4326,11 @@ export class Shogun extends Boss {
      * 脚パーツ：一本の金のラインが走る太い袴と臑当
      */
     _drawShogunLeg(ctx, p) {
-        // ※ 脚の付け根はオーバーレイの草摺で隠れるため、ここではそのまま描画
         const { hipX, hipYLocal, kneeX, kneeY, footX, footY, isFrontLeg, dir, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand } = p;
-        // 防具非表示(素体)時は忍者と同じ脚の太さ(4.8/4.6)にする。通常は鎧でドッシリ太め。
-        const thighW = this.hideShogunArmor ? (isFrontLeg ? 4.8 : 4.6) : (isFrontLeg ? 6.0 : 5.5);
-        const shinW  = this.hideShogunArmor ? (isFrontLeg ? 4.8 : 4.6) : (isFrontLeg ? 5.5 : 5.0);
+        // 脚の素体線は素体／防具着用で同じ太さ(忍者基準4.8/4.6)に統一する。
+        // 防具側がはみ出さないよう、装甲(臑当・佩楯)はこの素体線を覆う幅で描く。
+        const thighW = isFrontLeg ? 4.8 : 4.6;
+        const shinW  = isFrontLeg ? 4.8 : 4.6;
         const cArmor = '#101014'; const cGold = '#dcb854'; const cCloth = '#202020';
 
         // 足首のあたりで線を止めることで、はみ出る丸いカカト（浮遊感の原因）を消す
@@ -4300,24 +4339,61 @@ export class Shogun extends Boss {
         const ankleX = footX - (footX - kneeX) / tLen * shorten;
         const ankleY = footY - (footY - kneeY) / tLen * shorten;
 
+        // 忍者と同じく、付け根(hip)からインセットした位置からアウトラインを描き、
+        // 胴体と重なる付け根に継ぎ目線が出ないようにする（フィルは付け根から全結合）。
+        const legRootInset = isFrontLeg ? 0.95 : 0.75;
+        const _ldx = kneeX - hipX, _ldy = kneeY - hipYLocal;
+        const _llen = Math.hypot(_ldx, _ldy) || 1;
+        const _lt = Math.min(1, legRootInset / _llen);
+        const legStartX = hipX + _ldx * _lt;
+        const legStartY = hipYLocal + _ldy * _lt;
+
         if (silhouetteOutlineEnabled) {
             ctx.strokeStyle = silhouetteOutlineColor;
             ctx.lineWidth = thighW + outlineExpand;
             ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-            ctx.beginPath(); ctx.moveTo(hipX, hipYLocal); ctx.lineTo(kneeX, kneeY); ctx.lineTo(ankleX, ankleY); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(legStartX, legStartY); ctx.lineTo(kneeX, kneeY); ctx.lineTo(ankleX, ankleY); ctx.stroke();
         }
 
-        // 袴
+        // 袴（脚の素体線）。付け根から全結合。
         ctx.strokeStyle = cCloth;
-        ctx.lineWidth = thighW;
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.lineWidth = thighW;
         ctx.beginPath(); ctx.moveTo(hipX, hipYLocal); ctx.lineTo(kneeX, kneeY); ctx.stroke();
         ctx.lineWidth = shinW;
-        ctx.beginPath(); ctx.moveTo(kneeX, kneeY); ctx.stroke();
-        ctx.lineTo(ankleX, ankleY); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(kneeX, kneeY); ctx.lineTo(ankleX, ankleY); ctx.stroke();
 
         // デバッグ防具非表示: 脚の素体線(袴)は残し、臑当・膝当・沓などの装甲は省く
         if (this.hideShogunArmor) return true;
+
+        // ── 佩楯（はいだて）：太もも(hip→knee)を覆う装甲。脚に追従するので歩行で
+        //    太ももの素体が露出しない。素体線(thighW)を確実に覆う幅にする。 ──
+        {
+            const tdx = kneeX - hipX, tdy = kneeY - hipYLocal;
+            const tdist = Math.hypot(tdx, tdy) || 1;
+            const tNX = -tdy / tdist, tNY = tdx / tdist;
+            const thw = thighW * 0.62 + 0.3; // 素体線(thighW/2)を覆う半幅
+            // 付け根側は草摺で隠れるので少しだけ下げて始め、膝当てまで伸ばす
+            const tTopX = hipX + tdx * 0.06, tTopY = hipYLocal + tdy * 0.06;
+            ctx.fillStyle = cArmor;
+            ctx.beginPath();
+            ctx.moveTo(tTopX - tNX * thw, tTopY - tNY * thw);
+            ctx.lineTo(tTopX + tNX * thw, tTopY + tNY * thw);
+            ctx.lineTo(kneeX + tNX * thw, kneeY + tNY * thw);
+            ctx.lineTo(kneeX - tNX * thw, kneeY - tNY * thw);
+            ctx.closePath();
+            ctx.fill();
+            // 佩楯の段（板札）を表す控えめな横線
+            ctx.strokeStyle = '#0a0a0e'; ctx.lineWidth = 0.8;
+            for (let i = 1; i <= 2; i++) {
+                const r = i / 3;
+                const lx = tTopX + (kneeX - tTopX) * r, ly = tTopY + (kneeY - tTopY) * r;
+                ctx.beginPath();
+                ctx.moveTo(lx - tNX * thw, ly - tNY * thw);
+                ctx.lineTo(lx + tNX * thw, ly + tNY * thw);
+                ctx.stroke();
+            }
+        }
 
         // 臑当（脛を覆う装甲ブロック）
         const dxS = ankleX - kneeX; const dyS = ankleY - kneeY;
@@ -4340,13 +4416,17 @@ export class Shogun extends Boss {
         ctx.lineTo(kneeX - dxS * 0.2 + sNX * hw, kneeY - dyS * 0.2 + sNY * hw);
         ctx.fill();
 
-        // 臑当の中央に控えめな装飾帯1本
+        // 沓（履物）のすぐ上の装飾帯1本。
+        // 膝からの割合(45%固定)で置くと、歩行で脛が前縮みした際に帯が大きく上下し、
+        // 沓からの距離が変わって「急に短くなった」ように見える。そこで足首(沓の直上)から
+        // 一定距離に固定し、アイドル/歩行で履物に対する帯の位置をズレなくする。
         ctx.strokeStyle = 'rgba(180, 155, 70, 0.45)';
         ctx.lineWidth = 0.8;
         {
-            const t = 0.45;
-            const lx = kneeX + dxS * t;
-            const ly = kneeY + dyS * t;
+            const ux = dxS / dist, uy = dyS / dist; // 膝→足首の単位ベクトル
+            const bandUp = Math.min(dist * 0.5, 2.6); // 足首から上へ一定距離（脛が短い時のみ割合で抑制）
+            const lx = ankleX - ux * bandUp;
+            const ly = ankleY - uy * bandUp;
             const bw = hw - 0.2;
             ctx.beginPath();
             ctx.moveTo(lx - sNX * bw, ly - sNY * bw);

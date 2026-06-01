@@ -22,7 +22,7 @@ export function applyShogunCombat(player) {
     if (!player) return;
 
     const SHOGUN_SCALE = 2.2;
-    const SHOGUN_SPEED = 3.8;
+    const SHOGUN_SPEED = PLAYER.SPEED;   // 歩行速度は忍者と同じ（PLAYER.SPEED=6）
     const SHOGUN_ATTACK_POWER_SCALE = 1.2;
 
     player._shogunInited = false;
@@ -194,18 +194,21 @@ export function applyShogunCombat(player) {
         });
     };
     const clampShogunToCameraBounds = (p, boss) => {
-        const g = typeof window !== 'undefined' ? window.game : null;
-        const scrollX = Number.isFinite(g?.scrollX) ? g.scrollX : 0;
-        const currentStageNumber = Number.isFinite(g?.currentStageNumber) ? g.currentStageNumber : 0;
-        const minX = currentStageNumber === 5 ? -boss.width : scrollX;
-        const maxX = scrollX + CANVAS_WIDTH - boss.width;
-        if (boss.x < minX) {
-            boss.x = minX;
-            if (boss.vx < 0) boss.vx = 0;
-        }
-        if (boss.x > maxX) {
-            boss.x = maxX;
-            if (boss.vx > 0) boss.vx = 0;
+        // プレビューは画面端ループ/ズーム引きで自由移動させたいので、クランプを飛ばし同期のみ行う。
+        if (!(p && p._previewFreeMovement)) {
+            const g = typeof window !== 'undefined' ? window.game : null;
+            const scrollX = Number.isFinite(g?.scrollX) ? g.scrollX : 0;
+            const currentStageNumber = Number.isFinite(g?.currentStageNumber) ? g.currentStageNumber : 0;
+            const minX = currentStageNumber === 5 ? -boss.width : scrollX;
+            const maxX = scrollX + CANVAS_WIDTH - boss.width;
+            if (boss.x < minX) {
+                boss.x = minX;
+                if (boss.vx < 0) boss.vx = 0;
+            }
+            if (boss.x > maxX) {
+                boss.x = maxX;
+                if (boss.vx > 0) boss.vx = 0;
+            }
         }
         p.x = boss.x;
         p.vx = boss.vx;
@@ -444,9 +447,9 @@ export function applyShogunCombat(player) {
         const moveDir = input.isAction('LEFT') ? -1 : (input.isAction('RIGHT') ? 1 : 0);
 
         // ── ダッシュ ──
-        // 将軍の通常速度(3.8)は遅いため、ダッシュ速度は固定値で体感できる差を確保する
-        const SHOGUN_DASH_VX = SHOGUN_SPEED * 2.6;   // ≈9.9 px/frame
-        const SHOGUN_PERM_VX = SHOGUN_SPEED * 1.7;   // ≈6.5 px/frame（韋駄天常時ダッシュ）
+        // 歩行速度を忍者と揃えた後もダッシュの体感差を保つため、ダッシュ速度は従来の絶対値を維持する
+        const SHOGUN_DASH_VX = 9.9;   // px/frame（ダッシュ。従来値を維持）
+        const SHOGUN_PERM_VX = 6.5;   // px/frame（韋駄天常時ダッシュ。従来値を維持）
 
         const touchDashHeld = typeof input.isTouchDashActive === 'function' && input.isTouchDashActive();
         const keyboardDashHeld = typeof input.isKeyboardDashHeld === 'function' && input.isKeyboardDashHeld(moveDir);

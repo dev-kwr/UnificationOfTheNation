@@ -340,16 +340,16 @@
         import { createSubWeapon } from './js/weapon.js';
         import { input } from './js/input.js';
 
-        // boss.js / 描画系(playerRenderer.js) はこのプレビューで頻繁に編集するため、
-        // ESモジュールキャッシュを回避して常に最新を取得する。
-        // （リセットが付与する _t を流用、無ければ現在時刻。他は静的importのまま＝多重インスタンス化を回避）
+        // 描画系・戦闘ヘルパは頻繁に編集するため、ESモジュールキャッシュ対策として
+        // バージョン付きdynamic importで毎回最新を取得する（bare URL の静的importは
+        // ブラウザのモジュールマップに固定され更新されないため）。
         const _bustParam = new URLSearchParams(location.search).get('_t') || String(Date.now());
-        const { Shogun } = await import('./js/boss.js?v=' + _bustParam);
-        // 宙返り・剣筋等の描画修正を確実に反映させるため、最新の描画系mixinを Player に再適用する
         const { applyRendererMixin } = await import('./js/playerRenderer.js?v=' + _bustParam);
         applyRendererMixin(Player);
         const { applySlashTrailMixin } = await import('./js/playerSlashTrail.js?v=' + _bustParam);
         applySlashTrailMixin(Player);
+        // 将軍はゲームの実プレイアブル将軍(Player+applyShogunCombat)として生成する。
+        const { applyShogunCombat } = await import('./js/shogunCombatHelper.js?v=' + _bustParam);
 
         // --- モック & 初期化 ---
         const logicalW = 800;
@@ -372,7 +372,8 @@
             audio: { play: () => {}, tryPlay: () => {}, stop: () => {}, setVolume: () => {} },
             player: previewPlayerMock,
             bombs: [],
-            projectiles: []
+            projectiles: [],
+            enemies: [] // applyShogunCombat の当たり判定フックが参照（プレビューは敵なし）
         };
 
         const canvas = document.getElementById('previewCanvas');
@@ -383,21 +384,47 @@
         ctx.scale(dpr, dpr);
         input.setCanvas(canvas);
 
-        const shogun = new Shogun(0, 0, 'boss', groundY);
-        shogun.init();
-        shogun.x = logicalW / 2 - shogun.width / 2;
-        shogun.y = groundY - shogun.height;
-        shogun.hp = 99999;
-        shogun.isEnemy = false;
-        shogun.facingRight = true;
-        shogun.updateAI = () => {}; // 自律移動を無効化
-        shogun.actor.characterType = 'shogun';
+        // ===== 将軍 = ゲームの実プレイアブル将軍（Player + applyShogunCombat）=====
+        // ゲームと同一の生成手順。内部に _shogunBossInstance（戦闘・描画エンジン）を持つ。
+        // 既存コードの shogun.* 参照（_subTimer / actor / renderBody 等）はこの内部ボスを指すよう
+        // shogun = shogunPlayer._shogunBossInstance とし、駆動/描画/操作だけ shogunPlayer 経由にする。
+        const shogunPlayer = new Player(logicalW / 2 - 24, groundY - 72, groundY);
+        shogunPlayer.characterType = 'shogun';
+        shogunPlayer.progression = { normalCombo: 3, subWeapon: 3, specialClone: 3 };
+        applyShogunCombat(shogunPlayer);        // characterType設定後に再適用して将軍挙動を有効化
+        shogunPlayer.previewMode = false;       // 実ゲームと同じ入力・物理
+        shogunPlayer.facingRight = true;
+        shogunPlayer.maxJumps = 3;              // 三段跳び
+        shogunPlayer._previewFreeMovement = true; // 画面端ループ/ズーム引きのためカメラ境界クランプを無効化
+        // 内部ボス（_shogunBossInstance）は初回 update で生成されるため、ここで一度走らせる
+        shogunPlayer.update(1 / 60, [], []);
+        const shogun = shogunPlayer._shogunBossInstance; // 既存 shogun.* 参照の互換用（内部ボス）
         shogun.getSubWeaponEnhanceTier = () => parseInt(document.getElementById('selSkillLv').value);
-        shogun._keepSubWeaponKey = true; // アイドルポーズ維持用
-        shogun.previewMode = true;
-        if (shogun.actor) shogun.actor.previewMode = true;
-        shogun.maxJumps = 3;   // プレビューは三段跳びをデフォルトに
-        shogun.jumpCount = 0;
+        shogun._keepSubWeaponKey = true;        // アイドルポーズ維持用
+
+        // ── boss.js キャッシュ対策（将軍素体描画の編集をプレビューへ反映）──
+        // 将軍の素体・防具描画(_drawShogun* / renderBody 等)は boss.js にあるが、boss.js は
+        // 他モジュールから bare URL で静的importされるため、ブラウザのモジュールマップに固定され
+        // ファイル編集が反映されない。最新版 boss.js の Shogun プロトタイプメソッドを内部ボスの
+        // クラスへ再適用し、描画系の編集を即プレビューに反映させる（playerRenderer等のmixinと同様）。
+        try {
+            const _freshBoss = await import('./js/boss.js?v=' + _bustParam);
+            const _FreshProto = _freshBoss.Shogun && _freshBoss.Shogun.prototype;
+            const _CachedProto = shogun.constructor && shogun.constructor.prototype;
+            if (_FreshProto && _CachedProto && _FreshProto !== _CachedProto) {
+                for (const _m of Object.getOwnPropertyNames(_FreshProto)) {
+                    if (_m === 'constructor') continue;
+                    const _d = Object.getOwnPropertyDescriptor(_FreshProto, _m);
+                    if (_d) Object.defineProperty(_CachedProto, _m, _d);
+                }
+            }
+        } catch (_e) { console.warn('fresh boss.js re-apply failed', _e); }
+
+        // プレビュー初期位置を画面中央に揃える。spawn は忍者幅(48)基準の x=logicalW/2-24 だが、
+        // 将軍は素体幅 88px のため同じ x だと右にずれる。構築後の実幅で中央寄せする。
+        // さらに将軍の視覚的中心は bounding box 中心から約9px右にずれる（実測。actorRender系の
+        // オフセット由来）ため、その分だけ左へ補正して見た目を画面中央に合わせる。
+        shogunPlayer.x = logicalW / 2 - shogunPlayer.width / 2 - 9;
 
         const ninja = new Player(logicalW / 2 - 24, groundY - 72, groundY);
         // 実ゲームと同じ挙動を再現するため previewMode=false。
@@ -407,9 +434,11 @@
         ninja.facingRight = true;
         ninja.maxJumps = 3;    // プレビューは三段跳びをデフォルトに
         ninja.progression = { normalCombo: 3, subWeapon: 3, specialClone: 3 };
+        ninja.x = logicalW / 2 - ninja.width / 2; // 初期位置を画面中央に揃える
 
         // デバッグ計測用に主要オブジェクトを露出（プレビュー専用・害なし）
-        window.shogun = shogun;
+        window.shogunPlayer = shogunPlayer; // ゲームの実プレイアブル将軍(Player+applyShogunCombat)
+        window.shogun = shogun;             // その内部ボス(_shogunBossInstance)=戦闘・描画エンジン
         window.ninja = ninja;
 
         const subWeaponNames = {
@@ -434,7 +463,7 @@
         window._previewWeapon = subWeapons[0];
 
         const isShogunMode = () => previewCharacter === 'shogun';
-        const getActiveActor = () => isShogunMode() ? (shogun ? shogun.actor : null) : ninja;
+        const getActiveActor = () => isShogunMode() ? shogunPlayer : ninja;
         const getPreviewCloneAction = (weapon, action, timer) => {
             if (!weapon || !(timer > 0)) return null;
             if (action) return action;
@@ -517,7 +546,8 @@
             document.body.classList.toggle('mode-ninja', !isShogunMode());
             document.getElementById('tuningSection').style.display = isShogunMode() ? 'block' : 'none';
             
-            const ougiActive = isShogunMode() ? (shogun && shogun._ougiActive) : (ninja.isUsingSpecial || ninja.specialActive || ninja.specialCasting);
+            const _spForUI = isShogunMode() ? shogunPlayer : ninja;
+            const ougiActive = !!(_spForUI && (_spForUI.isUsingSpecial || _spForUI.specialActive || _spForUI.specialCasting));
             document.getElementById('btnOugi').classList.toggle('active', !!ougiActive);
             
             const actor = getActiveActor();
@@ -568,10 +598,13 @@
 
             window.game.player = isShogunMode() ? previewPlayerMock : ninja;
             const actor = getActiveActor();
-            const actorW = mode === 'shogun' ? 40 : 48; // 正確な素体サイズで計算
-            actor.x = (logicalW - actorW) / 2;
+            // 中央寄せは構築時と同じ計算に統一する。将軍は実幅(88)+視覚オフセット(9)で中央へ。
+            // （従来は actorW=40 固定で x=380 となり、忍者→将軍で戻すと中央からズレていた）
+            actor.x = logicalW / 2 - actor.width / 2 - (mode === 'shogun' ? 9 : 0);
             actor.y = groundY - (mode === 'shogun' ? 60 : 72);
             actor.vx = 0; actor.vy = 0;
+            // 将軍は内部ボスのx/vxも同期しないと、ボス→プレイヤーのx同期で位置が上書きされる
+            if (mode === 'shogun' && window.shogun) { window.shogun.x = actor.x; window.shogun.vx = 0; }
             updateUI();
         };
 
@@ -695,13 +728,10 @@
 
         const cycleSubWeapon = () => {
             if (isShogunMode()) {
+                // UI選択をサイクル。ループのアイドル同期が shogunPlayer.currentSubWeapon へ装備する
                 subIndex = (subIndex + 1) % subWeapons.length;
                 window._previewWeapon = subWeapons[subIndex];
-                shogun._subWeaponKey = window._previewWeapon;
-                shogun.currentSubWeapon = shogun._subWeaponInstances[window._previewWeapon];
-                if (shogun.actor) {
-                    shogun.actor.currentSubWeapon = shogun.currentSubWeapon;
-                }
+                shogunPlayer.currentSubWeapon = shogun._subWeaponInstances[window._previewWeapon] || null;
             } else {
                 ninja.switchSubWeapon();
                 window._previewWeapon = ninja.currentSubWeapon ? subWeapons[ninja.subWeaponIndex] : null;
@@ -713,16 +743,12 @@
         document.getElementById('btnModeShogun').addEventListener('click', () => switchChar('shogun'));
         document.getElementById('btnModeNinja').addEventListener('click', () => switchChar('ninja'));
         document.getElementById('btnOugi').addEventListener('click', () => {
-            if (isShogunMode()) {
-                shogun._ougiActive = !shogun._ougiActive;
-                // actor.isUsingSpecial は常に true のままにする（アニメーション継続のため）
+            const sp = isShogunMode() ? shogunPlayer : ninja;
+            if (sp.isUsingSpecial || sp.specialActive || sp.specialCasting) {
+                sp.clearSpecialState(true);
             } else {
-                if (ninja.isUsingSpecial || ninja.specialActive || ninja.specialCasting) {
-                    ninja.clearSpecialState(true);
-                } else {
-                    ninja.specialGauge = 100;
-                    ninja.useSpecial();
-                }
+                sp.specialGauge = sp.maxSpecialGauge || 100;
+                sp.useSpecial();
             }
             updateUI();
         });
@@ -766,6 +792,12 @@
             if (typeof ninja.rebuildSpecialCloneSlots === 'function') ninja.rebuildSpecialCloneSlots();
             if (typeof ninja.refreshSubWeaponScaling === 'function') ninja.refreshSubWeaponScaling();
             
+            // 将軍プレイヤーが進行度の単一ソース（applyShogunCombat が毎フレーム内部ボスへ同期）
+            if (shogunPlayer && shogunPlayer.progression) {
+                shogunPlayer.progression.subWeapon = t;
+                shogunPlayer.progression.normalCombo = t;
+                shogunPlayer.progression.specialClone = t;
+            }
             if (shogun) {
                 if (shogun.progression) {
                     shogun.progression.subWeapon = t;
@@ -858,64 +890,22 @@
                 isWalking = moveDir !== 0;
 
                 if (isShogunMode()) {
-                    // ボタン入力を input から取得
-                    if (input.isActionJustPressed('ATTACK')) triggerAttack();
-                    if (input.isActionJustPressed('JUMP')) {
-                        // 三段跳び: maxJumps まで空中でも跳べる
-                        if ((shogun.jumpCount || 0) < (shogun.maxJumps || 1)) {
-                            shogun.vy = (shogun.jumpCount || 0) === 0 ? -13.5 : -12.0; // 2段目以降は少し弱め
-                            shogun.jumpCount = (shogun.jumpCount || 0) + 1;
-                            shogun.isGrounded = false;
-                        }
-                    }
-                    if (input.isActionJustPressed('SUB_WEAPON')) triggerSubAction();
-                    if (input.isActionJustPressed('SWITCH_WEAPON')) cycleSubWeapon();
+                    // 将軍はゲームの実プレイアブル将軍。移動・ジャンプ・ダッシュ・しゃがみ・攻撃・
+                    // 二刀Zは shogunPlayer.update → handleInput(applyShogunCombat) が処理する。
+                    // 奥義(SPECIAL)はゲージ充填のため UI(btnOugi)経由。
                     if (input.isActionJustPressed('SPECIAL')) document.getElementById('btnOugi').click();
-
-                    // しゃがみ入力
-                    shogun.isCrouching = input.isAction('DOWN');
-                    if (shogun.actor) shogun.actor.isCrouching = shogun.isCrouching;
-
-                    // 将軍は手動物理
-                    const shogunDash = isDashing || (typeof input.isKeyboardDashHeld === 'function' && input.isKeyboardDashHeld(moveDir));
-                    if (isWalking && walkDirection !== 0) {
-                        const speed = shogunDash ? 8 : 4;
-                        shogun.vx = walkDirection * speed;
-                        shogun.facingRight = walkDirection > 0;
-                    } else {
-                        // 攻撃中以外、またはコンボの慣性が小さい場合は減速させる
-                        const normalComboActive = shogun._attackTimer > 0 && shogun._currentAttackProfile && shogun._currentAttackProfile.comboStep;
-                        if (!normalComboActive) {
-                            shogun.vx *= 0.8;
-                            if (Math.abs(shogun.vx) < 0.1) shogun.vx = 0;
-                        }
+                    // サブ武器切替(C): 将軍はプレイヤーに subWeapons 配列を持たず UI(window._previewWeapon)で
+                    // 選択する方式のため、handleInput の switchSubWeapon では切り替わらない。Cキーを検知して
+                    // cycleSubWeapon を呼び、選択を進める（次フレームのアイドル同期で内部ボスへ装備される）。
+                    if (input.isActionJustPressed('SWITCH_WEAPON')) cycleSubWeapon();
+                    // プレビューUIで選択中のサブ武器をプレイヤーに装備（アイドル時のみ）。
+                    // ゲームの switchSubWeapon 相当: プレイヤーの currentSubWeapon(realSub) に設定すると
+                    // applyShogunCombat が内部ボスの _subWeaponKey へ反映し、X(SUB_WEAPON)で発動できる。
+                    const _shogunBusy = shogun._attackTimer > 0 || shogun._subTimer > 0 || shogun.isAttacking;
+                    if (!_shogunBusy && window._previewWeapon) {
+                        shogunPlayer.currentSubWeapon = shogun._subWeaponInstances[window._previewWeapon] || null;
                     }
-                    shogun.update(dt, null, [], []);
-                    if (shogun.isGrounded) shogun.jumpCount = 0; // 着地で三段跳びをリセット
-                    // 将軍モード時もアクターの忍術タイマーを更新させる
-                    if (shogun.actor && typeof shogun.actor.updateTemporaryNinjutsu === 'function') {
-                        shogun.actor.updateTemporaryNinjutsu(dt * 1000);
-                    }
-                    // ── アイドル時の武器表示キー維持（shogunCombatHelper.js 724-743 相当） ──
-                    const bossActive = shogun._attackTimer > 0 || shogun._subTimer > 0 || shogun.isAttacking;
-                    if (!bossActive && window._previewWeapon) {
-                        shogun._subWeaponKey = window._previewWeapon;
-                        shogun._subAction = null;
-                        const idleInst = shogun._subWeaponInstances[window._previewWeapon];
-                        if (idleInst) {
-                            idleInst.isAttacking = false;
-                        }
-                        shogun.currentSubWeapon = idleInst || null;
-                        if (shogun.actor) {
-                            shogun.actor.currentSubWeapon = shogun.currentSubWeapon;
-                        }
-                    }
-                    syncPreviewCloneSubWeapons(
-                        shogun.actor,
-                        shogun.currentSubWeapon || (window._previewWeapon ? shogun._subWeaponInstances[window._previewWeapon] : null),
-                        shogun._subTimer,
-                        shogun._subAction
-                    );
+                    shogunPlayer.update(dt, [], []);
                 } else {
                     // 忍者は previewMode=false なので、移動・ジャンプ・ダッシュ・しゃがみ・攻撃・忍具は
                     // ninja.update → handleInput が実ゲームと同じロジックで処理する（手動移動は廃止）。
@@ -955,8 +945,14 @@
                 const _viewLeft = logicalW / 2 - _halfViewW;
                 const _viewRight = logicalW / 2 + _halfViewW;
                 if (isShogunMode()) {
-                    if (shogun.x < _viewLeft - shogun.width - 20) shogun.x = _viewRight + 10;
-                    else if (shogun.x > _viewRight + 20) shogun.x = _viewLeft - shogun.width - 10;
+                    let _wrapped = null;
+                    if (shogunPlayer.x < _viewLeft - shogunPlayer.width - 20) _wrapped = _viewRight + 10;
+                    else if (shogunPlayer.x > _viewRight + 20) _wrapped = _viewLeft - shogunPlayer.width - 10;
+                    if (_wrapped !== null) {
+                        // 内部ボスが座標の正で、毎フレーム p.x = boss.x と同期されるため、ボス側も更新する
+                        shogunPlayer.x = _wrapped;
+                        if (shogun) shogun.x = _wrapped;
+                    }
                 } else {
                     if (ninja.x < _viewLeft - ninja.width - 20) ninja.x = _viewRight + 10;
                     else if (ninja.x > _viewRight + 20) ninja.x = _viewLeft - ninja.width - 10;
@@ -984,11 +980,9 @@
             window.game.projectiles.forEach(p => { if (p.render) p.render(ctx); });
 
             if (isShogunMode()) {
-                // 隠れ身: 実ゲームの _renderShogunBody と同じく、actor の ghostVeil 状態から本体透明度を同期
-                if (shogun.actor && typeof shogun.actor.getGhostVeilAlpha === 'function') {
-                    shogun.ghostVeilAlpha = shogun.actor.getGhostVeilAlpha();
-                }
-                shogun.renderBody(ctx, { paused: isPaused }); // 将軍内部で剣筋・手裏剣・二刀流・大太刀・奥義分身も描画される
+                // ゲームと同じ描画経路: player.render → _renderShogunBody → boss.renderBody。
+                // 隠れ身の透明度・剣筋・サブ武器・奥義分身もこの中でゲームと同様に処理される。
+                shogunPlayer.render(ctx, {});
             } else {
                 ninja.render(ctx);
                 if (ninja.renderComboSlashTrail) ninja.renderComboSlashTrail(ctx);
