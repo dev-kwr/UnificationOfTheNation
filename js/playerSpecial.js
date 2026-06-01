@@ -485,7 +485,20 @@ export function applySpecialMixin(PlayerClass) {
             subWeaponAction: this.specialCloneSubWeaponActions ? this.specialCloneSubWeaponActions[index] : null,
             subWeaponTimer: this.specialCloneSubWeaponTimers ? (this.specialCloneSubWeaponTimers[index] || 0) : 0,
             forceSubWeaponRender: true,
-            isXAttackBoostActive: () => false
+            isXAttackBoostActive: () => (
+                typeof this.isXAttackBoostActive === 'function' &&
+                this.isXAttackBoostActive()
+            ),
+            getXAttackHitboxScale: () => (
+                typeof this.getXAttackHitboxScale === 'function'
+                    ? this.getXAttackHitboxScale()
+                    : 1
+            ),
+            getXAttackTrailWidthScale: () => (
+                typeof this.getXAttackTrailWidthScale === 'function'
+                    ? this.getXAttackTrailWidthScale()
+                    : 1
+            )
         };
     };
 
@@ -531,6 +544,9 @@ export function applySpecialMixin(PlayerClass) {
             owner.subWeaponAction = fresh.subWeaponAction;
             owner.subWeaponTimer = fresh.subWeaponTimer;
             owner.forceSubWeaponRender = true;
+            owner.isXAttackBoostActive = fresh.isXAttackBoostActive;
+            owner.getXAttackHitboxScale = fresh.getXAttackHitboxScale;
+            owner.getXAttackTrailWidthScale = fresh.getXAttackTrailWidthScale;
         }
         if (inst) {
             inst.owner = owner;

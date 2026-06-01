@@ -129,6 +129,22 @@ export function applyShogunCombat(player) {
         p.attackTimer = Math.max(0, boss._attackTimer || 0);
         return true;
     };
+    const syncShogunTemporaryNinjutsu = (p, boss) => {
+        if (!p || !boss || !boss.actor) return;
+        const actor = boss.actor;
+        if (p.tempNinjutsuTimers) {
+            if (!actor.tempNinjutsuTimers) actor.tempNinjutsuTimers = {};
+            Object.keys(p.tempNinjutsuTimers).forEach((key) => {
+                actor.tempNinjutsuTimers[key] = Math.max(0, p.tempNinjutsuTimers[key] || 0);
+            });
+        }
+        if (p.tempNinjutsuDurations) {
+            if (!actor.tempNinjutsuDurations) actor.tempNinjutsuDurations = {};
+            Object.keys(p.tempNinjutsuDurations).forEach((key) => {
+                actor.tempNinjutsuDurations[key] = Math.max(0, p.tempNinjutsuDurations[key] || 0);
+            });
+        }
+    };
     const syncShogunProgression = (p, boss) => {
         if (!p || !boss) return;
         const subTier = getShogunSubWeaponTier(p);
@@ -790,6 +806,7 @@ export function applyShogunCombat(player) {
             }
         }
         this.updateTemporaryNinjutsu(deltaMs);
+        syncShogunTemporaryNinjutsu(this, boss);
         this.updateSpecial(dt);
 
         // 奥義状態をボスに同期（分身クローンの描画はboss.renderBody内で行う）

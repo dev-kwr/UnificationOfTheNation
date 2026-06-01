@@ -1606,6 +1606,9 @@ export function applySlashTrailMixin(PlayerClass) {
             this.specialCloneDualFrontTrailSampleTimers = [];
             this.specialCloneDualLastSwingIds = [];
         }
+        const specialCloneTrailScale = typeof this.getXAttackTrailWidthScale === 'function'
+            ? this.getXAttackTrailWidthScale()
+            : 1;
 
         for (let i = 0; i < count; i++) {
             if (!Array.isArray(this.specialCloneSlashTrailPoints[i])) {
@@ -1720,14 +1723,14 @@ export function applySlashTrailMixin(PlayerClass) {
                         this.specialCloneDualBackTrailSampleTimers[i],
                         backPose,
                         deltaMs,
-                        { holdExisting: false, activeTrailId: activeTrailId, sampleTrailScale: 1 }
+                        { holdExisting: false, activeTrailId: activeTrailId, sampleTrailScale: specialCloneTrailScale }
                     );
                     this.specialCloneDualFrontTrailSampleTimers[i] = this.updateSlashTrailBuffer(
                         this.specialCloneDualFrontTrailPoints[i],
                         this.specialCloneDualFrontTrailSampleTimers[i],
                         frontPose,
                         deltaMs,
-                        { holdExisting: false, activeTrailId: activeTrailId, sampleTrailScale: 1 }
+                        { holdExisting: false, activeTrailId: activeTrailId, sampleTrailScale: specialCloneTrailScale }
                     );
                     
                     // 通常剣筋はリセット
@@ -1837,7 +1840,8 @@ export function applySlashTrailMixin(PlayerClass) {
                 deltaMs,
                 {
                     holdExisting: !!(isAlive && pos && !pose),
-                    activeTrailId
+                    activeTrailId,
+                    sampleTrailScale: specialCloneTrailScale
                 }
             );
             if (Array.isArray(this.specialCloneSlashTrailBoostAnchors) && this.specialCloneSlashTrailPoints[i].length < 2) {

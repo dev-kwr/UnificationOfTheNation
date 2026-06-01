@@ -2371,7 +2371,11 @@ export class Shogun extends Boss {
         // renderBody と同じ actorRenderX/Y 計算を行い、それを bodyPose の origin とする
         const bodyPoseX = this.x + (this.width - _specWidth) * 0.5;
         const bodyPoseY = this.y + (this.height - _specHeight) * 0.62 + _specActorFootGroundOffset;
-        const bodyPoseGroundY = this.getActorGroundYForRenderScale(_specRenderScale, bodyPoseY, _specHeight, _specActorFootGroundOffset);
+        // step5の床クランプは敵/プレイヤー共通のワールド地面を使う。
+        // actor.groundY は描画用なので、ここへ混ぜるとプレイヤー将軍だけ曲線がずれる。
+        const bodyPoseGroundY = Number.isFinite(this.groundY)
+            ? this.groundY
+            : this.getActorGroundYForRenderScale(_specRenderScale, bodyPoseY, _specHeight, _specActorFootGroundOffset);
         const profile = this.actor.buildComboAttackProfileWithTrail(step, {
             x: bodyPoseX,
             y: bodyPoseY,
@@ -2465,14 +2469,9 @@ export class Shogun extends Boss {
         if (progress < 0.76) return;
         if (!Number.isFinite(activeAttack.trailCurveEndX) || !Number.isFinite(activeAttack.trailCurveEndY)) return;
 
-        const actorGroundY = Number.isFinite(this.actor.groundY)
-            ? this.actor.groundY
-            : this.getActorGroundYForRenderScale(
-                Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0 ? this.scaleMultiplier : 1,
-                this.actor.y,
-                Number.isFinite(this.actor.height) ? this.actor.height : PLAYER.HEIGHT,
-                0
-            );
+        const actorGroundY = Number.isFinite(this.groundY)
+            ? this.groundY
+            : (Number.isFinite(this.actor.groundY) ? this.actor.groundY : 0);
         const poseHeight = PLAYER.HEIGHT;
         const slashFloorY = (actorGroundY + LANE_OFFSET) - Math.max(10, poseHeight * 0.1);
         const frozenEndY = Math.min(activeAttack.trailCurveEndY, slashFloorY);
@@ -3333,13 +3332,8 @@ export class Shogun extends Boss {
         const hasBodyComboTrail = Array.isArray(this.actor.comboSlashTrailPoints) &&
             this.actor.comboSlashTrailPoints.length > 0;
         if (!this.hideBody && hasBodyComboTrail) {
-            const baseTrailScale = typeof this.actor.getXAttackTrailWidthScale === 'function'
-                ? this.actor.getXAttackTrailWidthScale()
-                : 1.0;
             renderTrailWithShogunTransform(() => {
                 this.actor.renderComboSlashTrail(ctx, {
-                    trailWidthScale: baseTrailScale,
-                    boostActive: baseTrailScale > 1.01 && this._attackTimer > 0,
                     attackState: {
                         isAttacking: this.actor.isAttacking,
                         currentAttack: this.actor.currentAttack,
@@ -3445,6 +3439,15 @@ export class Shogun extends Boss {
                     // 以前はここでrenderScale(2.2)をかけていたが、
                     // renderModel内部でthis.scaleMultiplier(2.2)が再度かかるため二重拡大(4.84倍)になってしまう。
                     // したがってここではスケールを適用しない。
+                    fn();
+                    ctx.restore();
+                },
+                scaleTrailEntity: (clonePivotX, _footY, fn) => {
+                    ctx.save();
+                    const clonePivotY = _getCloneTransformPivotY(_footY);
+                    ctx.translate(clonePivotX, clonePivotY);
+                    ctx.scale(renderScale, renderScale);
+                    ctx.translate(-clonePivotX, -clonePivotY);
                     fn();
                     ctx.restore();
                 },

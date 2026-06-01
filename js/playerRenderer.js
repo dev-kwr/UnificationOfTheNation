@@ -4701,9 +4701,17 @@ export function applyRendererMixin(PlayerClass) {
     PlayerClass.prototype.renderSpecial = function(ctx, options = {}) {
         const anchors = this.getSpecialCloneAnchors();
         const scaleEntity = typeof options.scaleEntity === 'function' ? options.scaleEntity : null;
+        const scaleTrailEntity = typeof options.scaleTrailEntity === 'function' ? options.scaleTrailEntity : null;
         const renderScaled = (pivotX, pivotY, renderFn) => {
             if (scaleEntity) {
                 scaleEntity(pivotX, pivotY, renderFn);
+                return;
+            }
+            renderFn();
+        };
+        const renderTrailScaled = (pivotX, pivotY, renderFn) => {
+            if (scaleTrailEntity) {
+                scaleTrailEntity(pivotX, pivotY, renderFn);
                 return;
             }
             renderFn();
@@ -5023,7 +5031,6 @@ export function applyRendererMixin(PlayerClass) {
                         ? this.specialCloneSlashTrailPoints[i]
                         : null;
                     if (cloneTrailPoints && cloneTrailPoints.length > 1 && !cloneUsesDualZ) {
-                        const trailScale = 1;
                         const cloneAttackState = {
                             x: this.x,
                             y: this.y,
@@ -5033,23 +5040,23 @@ export function applyRendererMixin(PlayerClass) {
                             attackTimer: this.attackTimer,
                             isCrouching: this.isCrouching
                         };
-                        this.renderComboSlashTrail(ctx, {
-                            points: cloneTrailPoints,
-                            trailWidthScale: trailScale,
-                            boostActive: trailScale > 1.01 && isCloneAttacking,
-                            isAttacking: isCloneAttacking,
-                            attackState: cloneAttackState,
-                            getBoostAnchor: () => (
-                                Array.isArray(this.specialCloneSlashTrailBoostAnchors)
-                                    ? this.specialCloneSlashTrailBoostAnchors[i]
-                                    : null
-                            ),
-                            setBoostAnchor: (value) => {
-                                if (!Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
-                                    this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
+                        renderTrailScaled(pos.x, this.getSpecialCloneFootY(pos.y), () => {
+                            this.renderComboSlashTrail(ctx, {
+                                points: cloneTrailPoints,
+                                isAttacking: isCloneAttacking,
+                                attackState: cloneAttackState,
+                                getBoostAnchor: () => (
+                                    Array.isArray(this.specialCloneSlashTrailBoostAnchors)
+                                        ? this.specialCloneSlashTrailBoostAnchors[i]
+                                        : null
+                                ),
+                                setBoostAnchor: (_trailId, value) => {
+                                    if (!Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
+                                        this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
+                                    }
+                                    this.specialCloneSlashTrailBoostAnchors[i] = value || null;
                                 }
-                                this.specialCloneSlashTrailBoostAnchors[i] = value;
-                            }
+                            });
                         });
                     }
 
@@ -5064,25 +5071,27 @@ export function applyRendererMixin(PlayerClass) {
                             ? this.specialCloneDualFrontTrailPoints[i]
                             : null;
                         if (backPoints && backPoints.length >= 2) {
-                            this.renderComboSlashTrail(ctx, {
-                                points: backPoints,
-                                palette: bluePalette,
-                                forceLinearSmooth: true,
-                                isAttacking: true,
-                                trailWidthScale: 1,
-                                getBoostAnchor: () => null,
-                                setBoostAnchor: () => {}
+                            renderTrailScaled(pos.x, this.getSpecialCloneFootY(pos.y), () => {
+                                this.renderComboSlashTrail(ctx, {
+                                    points: backPoints,
+                                    palette: bluePalette,
+                                    forceLinearSmooth: true,
+                                    isAttacking: true,
+                                    getBoostAnchor: () => null,
+                                    setBoostAnchor: () => {}
+                                });
                             });
                         }
                         if (frontPoints && frontPoints.length >= 2) {
-                            this.renderComboSlashTrail(ctx, {
-                                points: frontPoints,
-                                palette: redPalette,
-                                forceLinearSmooth: true,
-                                isAttacking: true,
-                                trailWidthScale: 1,
-                                getBoostAnchor: () => null,
-                                setBoostAnchor: () => {}
+                            renderTrailScaled(pos.x, this.getSpecialCloneFootY(pos.y), () => {
+                                this.renderComboSlashTrail(ctx, {
+                                    points: frontPoints,
+                                    palette: redPalette,
+                                    forceLinearSmooth: true,
+                                    isAttacking: true,
+                                    getBoostAnchor: () => null,
+                                    setBoostAnchor: () => {}
+                                });
                             });
                         }
                     }
