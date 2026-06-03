@@ -538,7 +538,7 @@ class Game {
         const prevType = this.player.characterType;
         this.player.characterType = cfg.characterType || 'ninja';
         if (this.player.characterType !== prevType) {
-            // 再適用（スケールやステータスの更新）
+            // 将軍戦闘コントローラの登録状態を確認
             applyShogunCombat(this.player);
         }
 
@@ -1908,7 +1908,9 @@ class Game {
         }
 
         // サブ武器 vs 敵
-        const subWeapon = this.player.currentSubWeapon;
+        const subWeapon = typeof this.player.getCombatSubWeapon === 'function'
+            ? this.player.getCombatSubWeapon()
+            : this.player.currentSubWeapon;
         if (subWeapon && typeof subWeapon.getHitbox === 'function') {
             let hitboxes = subWeapon.getHitbox(this.player);
             const baseSubProfile = this.buildSubWeaponAttackProfile(subWeapon, 'subweapon');

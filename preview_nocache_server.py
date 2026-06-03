@@ -14,6 +14,11 @@ PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8777
 
 
 class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        if self.path.split('?', 1)[0] == '/favicon.ico':
+            self.path = '/favicon-64.png'
+        super().do_GET()
+
     def end_headers(self):
         self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
         self.send_header('Pragma', 'no-cache')

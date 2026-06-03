@@ -159,7 +159,9 @@ export class Enemy {
         }
         
         // AI更新
-        this.updateAI(deltaTime, player);
+        if (!this.aiDisabled) {
+            this.updateAI(deltaTime, player);
+        }
         
         // 物理演算（障害物判定を含む）
         this.applyPhysics(obstacles);
@@ -4160,8 +4162,11 @@ class EnemyProjectile {
         const mainHitbox = player.getAttackHitbox();
         if (mainHitbox) hitboxes.push(mainHitbox);
         
-        if (player.currentSubWeapon) {
-            const subHitbox = player.currentSubWeapon.getHitbox(player);
+        const playerSubWeapon = typeof player.getCombatSubWeapon === 'function'
+            ? player.getCombatSubWeapon()
+            : player.currentSubWeapon;
+        if (playerSubWeapon && typeof playerSubWeapon.getHitbox === 'function') {
+            const subHitbox = playerSubWeapon.getHitbox(player);
             if (subHitbox) {
                 if (Array.isArray(subHitbox)) {
                     hitboxes.push(...subHitbox);

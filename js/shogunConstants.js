@@ -1,0 +1,9 @@
+export const SHOGUN_SCALE = 2.2;
+export const SHOGUN_HEAD_SCALE = 0.80;
+export const SHOGUN_HIP_LIFT_PX = 8.00;
+export const SHOGUN_ARM_REACH_SCALE = 1.08;
+export const SHOGUN_CROUCH_INTENSITY = 0.35;
+export const SHOGUN_ACTOR_BASE_WIDTH = 40;
+export const SHOGUN_ACTOR_BASE_HEIGHT = 60;
+export const SHOGUN_ATTACK_POWER_SCALE = 1.2;
+export const SHOGUN_SPECIAL_CLONE_SPACING_SCALE = 1.2;

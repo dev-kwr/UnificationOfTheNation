@@ -1,16 +1,14 @@
 // Unification of the Nation - 分身クローン mixin
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js';
+import { PLAYER, LANE_OFFSET } from './constants.js';
 import { audio } from './audio.js';
-import { game } from './game.js';
-import { drawShurikenShape, createSubWeapon } from './weapon.js';
+import { createSubWeapon } from './weapon.js';
+import { ANIM_STATE, COMBO_ATTACKS } from './playerData.js';
 import {
-    ANIM_STATE, COMBO_ATTACKS, PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
-    PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
-    PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
-    PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y,
-    BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
-} from './playerData.js';
+    SHOGUN_ACTOR_BASE_HEIGHT,
+    SHOGUN_SCALE,
+    SHOGUN_SPECIAL_CLONE_SPACING_SCALE
+} from './shogunConstants.js';
 
 export function applySpecialMixin(PlayerClass) {
 
@@ -485,6 +483,7 @@ export function applySpecialMixin(PlayerClass) {
             subWeaponAction: this.specialCloneSubWeaponActions ? this.specialCloneSubWeaponActions[index] : null,
             subWeaponTimer: this.specialCloneSubWeaponTimers ? (this.specialCloneSubWeaponTimers[index] || 0) : 0,
             forceSubWeaponRender: true,
+            _throwTransformPivotHeight: this.height,
             isXAttackBoostActive: () => (
                 typeof this.isXAttackBoostActive === 'function' &&
                 this.isXAttackBoostActive()
@@ -544,6 +543,7 @@ export function applySpecialMixin(PlayerClass) {
             owner.subWeaponAction = fresh.subWeaponAction;
             owner.subWeaponTimer = fresh.subWeaponTimer;
             owner.forceSubWeaponRender = true;
+            owner._throwTransformPivotHeight = fresh._throwTransformPivotHeight;
             owner.isXAttackBoostActive = fresh.isXAttackBoostActive;
             owner.getXAttackHitboxScale = fresh.getXAttackHitboxScale;
             owner.getXAttackTrailWidthScale = fresh.getXAttackTrailWidthScale;
@@ -798,6 +798,7 @@ export function applySpecialMixin(PlayerClass) {
             : [];
             
         const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
+        const bodyAttackMotionActive = !!(this.isAttacking || this.attackTimer > 0 || this.currentAttack);
 
         for (let i = 0; i < this.specialCloneSlots.length; i++) {
             if (!this.specialCloneAlive[i]) continue;
@@ -844,26 +845,30 @@ export function applySpecialMixin(PlayerClass) {
                 }
                 this.specialCloneReturnToAnchor[i] = false;
             } else {
-                const dx = anchor.x - pos.x;
-                if (Math.abs(dx) > 300) {
-                    pos.x = anchor.x;
-                    pos.facingRight = this.facingRight;
-                    this.initCloneAccessoryNodes(i);
-                } else if (Math.abs(dx) > 2) {
-                    const chaseSpeed = Math.max(
-                        (this.speed || 5) * 2.0,
-                        Math.abs(dx) / Math.max(0.016, deltaTime) * 0.7
-                    );
-                    const step = Math.sign(dx) * Math.min(Math.abs(dx), chaseSpeed * deltaTime * 60);
-                    pos.x += step;
-                    if (Math.abs(dx) > 6) {
-                        pos.facingRight = dx > 0;
-                    }
+                if (bodyAttackMotionActive) {
+                    this.specialCloneReturnToAnchor[i] = false;
                 } else {
-                    pos.x = anchor.x;
-                    pos.facingRight = this.facingRight;
+                    const dx = anchor.x - pos.x;
+                    if (Math.abs(dx) > 300) {
+                        pos.x = anchor.x;
+                        pos.facingRight = this.facingRight;
+                        this.initCloneAccessoryNodes(i);
+                    } else if (Math.abs(dx) > 2) {
+                        const chaseSpeed = Math.max(
+                            (this.speed || 5) * 2.0,
+                            Math.abs(dx) / Math.max(0.016, deltaTime) * 0.7
+                        );
+                        const step = Math.sign(dx) * Math.min(Math.abs(dx), chaseSpeed * deltaTime * 60);
+                        pos.x += step;
+                        if (Math.abs(dx) > 6) {
+                            pos.facingRight = dx > 0;
+                        }
+                    } else {
+                        pos.x = anchor.x;
+                        pos.facingRight = this.facingRight;
+                    }
+                    this.specialCloneReturnToAnchor[i] = true;
                 }
-                this.specialCloneReturnToAnchor[i] = true;
             }
 
             // Lv3分身の通常Zコンボは本体同様にアクロバットな軌道で動かす
@@ -1064,9 +1069,7 @@ export function applySpecialMixin(PlayerClass) {
             }
 
             const rawRenderVx = pos.renderVx || 0;
-            // スクロール時にrenderVxが0になる場合は本体のvxを代わりに使う
-            const effectiveVx = Math.abs(rawRenderVx) >= Math.abs(this.vx) ? rawRenderVx : this.vx;
-            const cloneVx = Math.max(-this.speed * 2.5, Math.min(this.speed * 2.5, effectiveVx));
+            const cloneVx = Math.max(-this.speed * 2.5, Math.min(this.speed * 2.5, rawRenderVx));
             pos.prevX = pos.x;
 
             const cloneFootY = this.getSpecialCloneFootY(pos.y);
@@ -1166,7 +1169,7 @@ export function applySpecialMixin(PlayerClass) {
     PlayerClass.prototype.getSpecialCloneSpacing = function() {
         const baseSpacing = 180;
         return this.characterType === 'shogun'
-            ? Math.round(baseSpacing * 1.2)
+            ? Math.round(baseSpacing * SHOGUN_SPECIAL_CLONE_SPACING_SCALE)
             : baseSpacing;
     };
 
@@ -1183,12 +1186,15 @@ export function applySpecialMixin(PlayerClass) {
     // 将軍は scaleMultiplier と shogun モードの renderY 式を考慮した値を使う
     PlayerClass.prototype._getCloneFootOffset = function() {
         if (this.characterType === 'shogun') {
-            // renderY = y + (h - SHOGUN_BASE_H) * 0.62  → sprite bottom = renderY + 72
+            // renderY = y + (h - SHOGUN_ACTOR_BASE_HEIGHT) * 0.62  → sprite bottom = renderY + PLAYER.HEIGHT
             // visual_foot = pivot + (sprite_bottom - pivot) * scale
-            // = pos.y + (cloneDrawY + (h-60)*0.62 + 72 - pos.y) * scale
-            // = pos.y + (72 - 60*0.62) * scale  (h terms cancel)
-            const scale = this.scaleMultiplier || 1.0;
-            return (72 - 60 * 0.62) * scale; // = 34.8 * scale
+            // = pos.y + (PLAYER.HEIGHT - SHOGUN_ACTOR_BASE_HEIGHT * 0.62) * scale  (h terms cancel)
+            const scale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 1
+                ? this.scaleMultiplier
+                : (this._shogunBossInstance && Number.isFinite(this._shogunBossInstance.scaleMultiplier)
+                    ? this._shogunBossInstance.scaleMultiplier
+                    : SHOGUN_SCALE);
+            return (PLAYER.HEIGHT - SHOGUN_ACTOR_BASE_HEIGHT * 0.62) * scale;
         }
         const h = Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT;
         return h * 0.38;
@@ -1260,17 +1266,19 @@ export function applySpecialMixin(PlayerClass) {
     PlayerClass.prototype.getSpecialCloneOffsets = function() {
         if (!this.isSpecialCloneCombatActive()) return [];
         const offsets = [];
-        const centerX = this.x + this.width / 2;
-        const centerY = this.y + this.height * 0.55;
 
         for (let index = 0; index < this.specialCloneSlots.length; index++) {
             if (!this.specialCloneAlive[index]) continue;
             const pos = this.specialClonePositions[index];
             if (!pos) continue;
+            const cloneX = pos.x - this.width / 2;
+            const cloneY = this.getSpecialCloneDrawY(pos.y);
             offsets.push({
                 index,
-                dx: pos.x - centerX,
-                dy: pos.y - centerY
+                x: cloneX,
+                y: cloneY,
+                dx: cloneX - this.x,
+                dy: cloneY - this.y
             });
         }
         return offsets;

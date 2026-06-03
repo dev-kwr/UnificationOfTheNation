@@ -2,8 +2,9 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js';
+import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js';
 import { audio } from './audio.js';
+import { SHOGUN_SCALE } from './shogunConstants.js';
 
 function clampEnhanceTier(tier) {
     const value = Number.isFinite(tier) ? tier : Number(tier);
@@ -529,7 +530,8 @@ export class Shuriken extends SubWeapon {
         const baseY = player.y;
 
         // 1発発射
-        this._spawnProjectile(baseX, baseY, direction, pierce, homing);
+        const mainProjectile = this._spawnProjectile(baseX, baseY, direction, pierce, homing);
+        this._assignThrowTransformPivot(mainProjectile, player, baseX, baseY);
 
         // 奥義分身
         if (player && typeof player.getSubWeaponCloneOffsets === 'function') {
@@ -538,10 +540,13 @@ export class Shuriken extends SubWeapon {
                 for (const clone of cloneOffsets) {
                     if (this.projectiles.length >= this.maxOnScreen) break;
                     player.triggerCloneSubWeapon(clone.index);
-                    this._spawnProjectile(
-                        baseX + clone.dx, baseY + clone.dy,
+                    const cloneBaseX = baseX + clone.dx;
+                    const cloneBaseY = baseY + clone.dy;
+                    const cloneProjectile = this._spawnProjectile(
+                        cloneBaseX, cloneBaseY,
                         direction, pierce, homing
                     );
+                    this._assignThrowTransformPivot(cloneProjectile, player, cloneBaseX, cloneBaseY);
                 }
             }
         }
@@ -573,6 +578,17 @@ export class Shuriken extends SubWeapon {
             0
         );
         this.projectiles.push(proj);
+        return proj;
+    }
+
+    _assignThrowTransformPivot(projectile, owner, baseX, baseY) {
+        if (!projectile || !owner) return;
+        const ownerHeight = Number.isFinite(owner.height) ? owner.height : PLAYER.HEIGHT;
+        const pivotHeight = Number.isFinite(owner._throwTransformPivotHeight)
+            ? owner._throwTransformPivotHeight
+            : ownerHeight;
+        projectile._throwTransformPivotX = baseX;
+        projectile._throwTransformPivotY = baseY + pivotHeight * 0.62;
     }
 
     update(deltaTime, enemies = []) {
@@ -710,6 +726,7 @@ export class Firebomb extends SubWeapon {
         bomb.radius = sizeUp ? 14 : 11;
         bomb.explosionRadius = sizeUp ? Math.round(this.range * 1.16) : this.range;
         bomb.explosionDuration = sizeUp ? 380 : 300;
+        this._assignThrowTransformPivot(bomb, player, player.x + player.width / 2, player.y);
         g.bombs.push(bomb);
         this.trackedBombs.push(bomb);
 
@@ -719,16 +736,19 @@ export class Firebomb extends SubWeapon {
             if (Array.isArray(cloneOffsets) && cloneOffsets.length > 0) {
                 for (const clone of cloneOffsets) {
                     player.triggerCloneSubWeapon(clone.index);
+                    const cloneBaseX = player.x + clone.dx + player.width / 2;
+                    const cloneBaseY = player.y + clone.dy;
                     const cloneBomb = new Bomb(
-                        player.x + clone.dx + player.width / 2 + direction * 15,
-                        bombY + clone.dy,
+                        cloneBaseX + direction * 15,
+                        cloneBaseY + (bombY - player.y),
                         vx + (clone.index % 2 === 0 ? 0.5 : -0.5),
                         vy
                     );
                     cloneBomb.damage = Math.max(1, Math.round(baseBombDamage * attackMultiplier));
-                    cloneBomb.radius = sizeUp ? 13 : 10;
-                    cloneBomb.explosionRadius = sizeUp ? Math.round(this.range * 1.16) : this.range;
-                    cloneBomb.explosionDuration = sizeUp ? 360 : 280;
+                    cloneBomb.radius = bomb.radius;
+                    cloneBomb.explosionRadius = bomb.explosionRadius;
+                    cloneBomb.explosionDuration = bomb.explosionDuration;
+                    this._assignThrowTransformPivot(cloneBomb, player, cloneBaseX, cloneBaseY);
                     g.bombs.push(cloneBomb);
                 }
             }
@@ -743,6 +763,16 @@ export class Firebomb extends SubWeapon {
     update(deltaTime) {
         // 消滅済みBombを追跡リストから除去
         this.trackedBombs = this.trackedBombs.filter(b => !b.isDestroyed);
+    }
+
+    _assignThrowTransformPivot(bomb, owner, baseX, baseY) {
+        if (!bomb || !owner) return;
+        const ownerHeight = Number.isFinite(owner.height) ? owner.height : PLAYER.HEIGHT;
+        const pivotHeight = Number.isFinite(owner._throwTransformPivotHeight)
+            ? owner._throwTransformPivotHeight
+            : ownerHeight;
+        bomb._throwTransformPivotX = baseX;
+        bomb._throwTransformPivotY = baseY + pivotHeight * 0.62;
     }
 }
 
@@ -2738,8 +2768,8 @@ export class Odachi extends SubWeapon {
         const damages = [34, 40, 43, 46];
         const cooldowns = [580, 565, 550, 535];
         // 将軍用の独自遅延を撤廃し、忍者と同一の軽快なモーション速度に同期（もっさり感の解消）
-        // 将軍は2.2倍スケールなのでモーション時間をsqrt(2.2)≈1.483倍にして視覚的比率を一致させる
-        const shogunCooldowns = [860, 838, 816, 794];
+        // 将軍は見た目スケール分だけ相対補正し、忍者側のtier差分をそのまま踏襲する。
+        const shogunCooldowns = cooldowns.map((cooldown) => Math.round(cooldown * Math.sqrt(SHOGUN_SCALE)));
         const jumps = [-22, -26, -28, -30];
 
         this.damage = damages[this.enhanceTier] || damages[0];
@@ -2917,22 +2947,60 @@ export class Odachi extends SubWeapon {
         };
     }
 
+    getOwnerVisualScale(player) {
+        return player && Number.isFinite(player.scaleMultiplier) && player.scaleMultiplier > 0
+            ? player.scaleMultiplier
+            : 1.0;
+    }
+
+    getOwnerActorPoseWidth(player) {
+        return player && Number.isFinite(player.actorBaseWidth)
+            ? PLAYER.WIDTH
+            : (player && Number.isFinite(player.width) ? player.width : PLAYER.WIDTH);
+    }
+
+    getOwnerActorBaseWidth(player) {
+        return player && Number.isFinite(player.actorBaseWidth)
+            ? player.actorBaseWidth
+            : this.getOwnerActorPoseWidth(player);
+    }
+
+    getOwnerRenderFootOffset(player) {
+        if (!player) return 0;
+        const scale = this.getOwnerVisualScale(player);
+        if (scale <= 1.001 || !Number.isFinite(player.actorBaseHeight)) return 0;
+        const actorPivotHeight = player.actorBaseHeight * 0.62;
+        return player.height * 0.38 - (PLAYER.HEIGHT - actorPivotHeight) * scale;
+    }
+
+    captureImpactFrozen(player) {
+        if (!player) return null;
+        this.impactFrozen = {
+            pivotX: player.x + player.width * 0.5,
+            pivotY: player.y + player.height * 0.62
+        };
+        return this.impactFrozen;
+    }
+
+    getImpactXForPose(player, pose) {
+        if (!player || !pose) return this.impactX;
+        const frozen = this.impactFrozen || this.captureImpactFrozen(player);
+        if (!frozen) return this.impactX;
+        const poseWidth = this.getOwnerActorPoseWidth(player);
+        const actorBaseWidth = this.getOwnerActorBaseWidth(player);
+        const actorCenterX = frozen.pivotX + (poseWidth - actorBaseWidth) * 0.5;
+        return actorCenterX + pose.direction * (poseWidth * 0.325);
+    }
+
     getPlantedOwnerY(player) {
         if (!player) return null;
         const bladeEnd = (this.range + 18) + 8;
         const maxTipY = player.groundY + LANE_OFFSET;
         const handHeightRatio = 0.125;
-        const scale = player.scaleMultiplier || 1.0;
+        const scale = this.getOwnerVisualScale(player);
         const scaledBladeEnd = bladeEnd * scale;
         let result = maxTipY - scaledBladeEnd - (player.height * handHeightRatio * scale);
-        // renderBody の actorFootGroundOffset がactorを上方にずらす場合、
-        // その分 boss.y を下げて相殺し、剣先が地面に届くようにする
-        if (scale > 1.001 && player.actorBaseHeight) {
-            const _drawH = 72; // PLAYER.HEIGHT
-            const _pivotH = player.actorBaseHeight * 0.62;
-            const footOffset = player.height * 0.38 - (_drawH - _pivotH) * scale;
-            result -= footOffset; // footOffset は負値なので boss.y を下げる
-        }
+        result -= this.getOwnerRenderFootOffset(player);
         return result;
     }
 
@@ -3114,15 +3182,8 @@ export class Odachi extends SubWeapon {
                             this.owner.vx = 0; // impactFrozen保存前に vx をゼロにして applyPhysics() によるズレを防ぐ
                             this.hasImpacted = true;
                             this.plantedTimer = this.plantedDuration;
-                            this.impactFrozen = {
-                                pivotX: this.owner.x + this.owner.width * 0.5,
-                                pivotY: this.owner.y + this.owner.height * 0.62
-                            };
-                            // impactX は描画時のactor座標系で計算する（renderModel内のgetPoseと一致させる）
-                            // actor centerX = pivotX + (drawW/2 - originalW/2) = pivotX + 4
-                            // handX = actor centerX + direction * drawW * 0.325
-                            const _actorCenterX = this.impactFrozen.pivotX + ((this.owner.actorBaseWidth ? 48 : this.owner.width) - (this.owner.actorBaseWidth || this.owner.width)) * 0.5;
-                            this.impactX = _actorCenterX + pose.direction * ((this.owner.actorBaseWidth ? 48 : this.owner.width) * 0.325);
+                            this.captureImpactFrozen(this.owner);
+                            this.impactX = this.getImpactXForPose(this.owner, pose);
                             this.impactY = maxTipY;
                             this.impactFlashTimer = 170;
                             this.spawnImpactWaves();
@@ -3145,14 +3206,10 @@ export class Odachi extends SubWeapon {
                     if (this.owner) {
                         if (!this.impactFrozen) {
                             this.owner.vx = 0; // impactFrozen保存前に vx をゼロにして applyPhysics() によるズレを防ぐ
-                            this.impactFrozen = {
-                                pivotX: this.owner.x + this.owner.width * 0.5,
-                                pivotY: this.owner.y + this.owner.height * 0.62
-                            };
+                            this.captureImpactFrozen(this.owner);
                         }
                         const pose = this.getPose(this.owner);
-                        const _actorCenterX1 = this.impactFrozen.pivotX + ((this.owner.actorBaseWidth ? 48 : this.owner.width) - (this.owner.actorBaseWidth || this.owner.width)) * 0.5;
-                        this.impactX = _actorCenterX1 + pose.direction * ((this.owner.actorBaseWidth ? 48 : this.owner.width) * 0.325);
+                        this.impactX = this.getImpactXForPose(this.owner, pose);
                         this.impactY = this.owner.groundY + LANE_OFFSET;
                     }
                     this.impactFlashTimer = 170;
@@ -3171,14 +3228,10 @@ export class Odachi extends SubWeapon {
                     if (this.owner) {
                         if (!this.impactFrozen) {
                             this.owner.vx = 0; // impactFrozen保存前に vx をゼロにして applyPhysics() によるズレを防ぐ
-                            this.impactFrozen = {
-                                pivotX: this.owner.x + this.owner.width * 0.5,
-                                pivotY: this.owner.y + this.owner.height * 0.62
-                            };
+                            this.captureImpactFrozen(this.owner);
                         }
                         const pose2 = this.getPose(this.owner);
-                        const _actorCenterX2 = this.impactFrozen.pivotX + ((this.owner.actorBaseWidth ? 48 : this.owner.width) - (this.owner.actorBaseWidth || this.owner.width)) * 0.5;
-                        this.impactX = _actorCenterX2 + pose2.direction * ((this.owner.actorBaseWidth ? 48 : this.owner.width) * 0.325);
+                        this.impactX = this.getImpactXForPose(this.owner, pose2);
                         this.impactY = this.owner.groundY + LANE_OFFSET;
                     }
                     this.impactFlashTimer = 170;

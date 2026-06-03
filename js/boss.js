@@ -7,16 +7,21 @@ import { Enemy } from './enemy.js';
 import { createSubWeapon } from './weapon.js';
 import { audio } from './audio.js';
 import { Player } from './player.js';
-import { NORMAL_COMBO_STEP3_LAUNCH_VY } from './playerData.js';
-
-// ラスボス（将軍）の全体スケール。ここだけ変更すれば倍率調整できる。
-const SHOGUN_SCALE = 2.2;
-// ラスボス（将軍）の頭サイズ係数。少し小さくして頭身を上げる。
-const SHOGUN_HEAD_SCALE = 0.80;
-// ラスボス（将軍）の腰上げ量(px)。上げるほど胴が短く脚が長く見える。
-const SHOGUN_HIP_LIFT_PX = 8.00;
-// ラスボス（将軍）の腕リーチ係数。少しだけ長く見せる。
-const SHOGUN_ARM_REACH_SCALE = 1.08;
+import {
+    applyNormalComboActiveMotion,
+    applyNormalComboStartMotion,
+    freezeNormalComboFinisherTrailCurve,
+    prepareNormalComboFinisherProfile
+} from './normalComboMotion.js';
+import {
+    SHOGUN_ACTOR_BASE_HEIGHT,
+    SHOGUN_ACTOR_BASE_WIDTH,
+    SHOGUN_ARM_REACH_SCALE,
+    SHOGUN_CROUCH_INTENSITY,
+    SHOGUN_HEAD_SCALE,
+    SHOGUN_HIP_LIFT_PX,
+    SHOGUN_SCALE
+} from './shogunConstants.js';
 
 // ボスベースクラス
 class Boss extends Enemy {
@@ -1244,8 +1249,8 @@ export class Shogun extends Boss {
         this.incomingDamageScale = 0.55;
         this.weaponReplica = null;
 
-        this.actorBaseWidth = 40;
-        this.actorBaseHeight = 60;
+        this.actorBaseWidth = SHOGUN_ACTOR_BASE_WIDTH;
+        this.actorBaseHeight = SHOGUN_ACTOR_BASE_HEIGHT;
         this.width  = Math.round(this.actorBaseWidth * this.scaleMultiplier);
         this.height = Math.round(this.actorBaseHeight * this.scaleMultiplier);
 
@@ -1303,28 +1308,24 @@ export class Shogun extends Boss {
             if (this.actor && this.currentSubWeapon) {
                 if (this.actor.specialCloneAlive && this.actor.specialCloneAlive[index] === false) return;
                 if (this.actor.specialCloneSlots && this.actor.specialCloneSlots[index] === 0) return;
-                // ボス本体のcurrentSubWeaponを一時的に分身に渡して初期化
-                const prev = this.actor.currentSubWeapon;
-                this.actor.currentSubWeapon = this.currentSubWeapon;
-                
-                // 将軍の分身も忍者と同じ分身用インスタンス経路で起こす
-                if (typeof this.actor.activateCloneSubWeaponInstance === 'function') {
-                    const actionName = typeof this.actor.getCloneSubWeaponActionName === 'function'
-                        ? this.actor.getCloneSubWeaponActionName(this.currentSubWeapon)
-                        : (this.currentSubWeapon.name === '火薬玉' || this.currentSubWeapon.name === '手裏剣' ? 'throw' : this.currentSubWeapon.name);
-                    const attackType = typeof this.actor.getCloneSubWeaponAttackType === 'function'
-                        ? this.actor.getCloneSubWeaponAttackType(actionName, this.currentSubWeapon)
-                        : null;
-                    // 分身用のタイマーとアクションをセット（updateOugiで上書きされるが発動判定に必要）
-                    this.actor.specialCloneSubWeaponTimers[index] = this.actor.getSubWeaponActionDurationMs(
-                        actionName,
-                        this.currentSubWeapon
-                    );
-                    this.actor.specialCloneSubWeaponActions[index] = actionName;
-                    this.actor.activateCloneSubWeaponInstance(index, attackType);
-                }
-                
-                this.actor.currentSubWeapon = prev;
+                this.withActorCurrentSubWeapon(this.currentSubWeapon, () => {
+                    // 将軍の分身も忍者と同じ分身用インスタンス経路で起こす
+                    if (typeof this.actor.activateCloneSubWeaponInstance === 'function') {
+                        const actionName = typeof this.actor.getCloneSubWeaponActionName === 'function'
+                            ? this.actor.getCloneSubWeaponActionName(this.currentSubWeapon)
+                            : (this.currentSubWeapon.name === '火薬玉' || this.currentSubWeapon.name === '手裏剣' ? 'throw' : this.currentSubWeapon.name);
+                        const attackType = typeof this.actor.getCloneSubWeaponAttackType === 'function'
+                            ? this.actor.getCloneSubWeaponAttackType(actionName, this.currentSubWeapon)
+                            : null;
+                        // 分身用のタイマーとアクションをactor側に保持し、描画まで同じスロット状態を使う
+                        this.actor.specialCloneSubWeaponTimers[index] = this.actor.getSubWeaponActionDurationMs(
+                            actionName,
+                            this.currentSubWeapon
+                        );
+                        this.actor.specialCloneSubWeaponActions[index] = actionName;
+                        this.actor.activateCloneSubWeaponInstance(index, attackType);
+                    }
+                });
             }
         };
         this.getFootY = () => this.y + this.height;
@@ -1394,18 +1395,66 @@ export class Shogun extends Boss {
         if (!this._ougiActive || !this.actor || !Array.isArray(this.actor.specialClonePositions)) return [];
         if (this.getActorSpecialCloneTier() >= 3) return [];
         const ref = owner || this;
-        const centerX = ref.x + ref.width * 0.5;
-        const centerY = ref.y + ref.height * 0.55;
         const offsets = [];
+        const playableOwner = (!this.isEnemy && this._playableOwner && this._playableOwner.isSpecialCloneCombatActive && this._playableOwner.isSpecialCloneCombatActive())
+            ? this._playableOwner
+            : null;
+        if (playableOwner && Array.isArray(playableOwner.specialClonePositions)) {
+            const ownerCount = Array.isArray(playableOwner.specialCloneSlots)
+                ? playableOwner.specialCloneSlots.length
+                : playableOwner.specialClonePositions.length;
+            const cloneThrowOffsetY = Number.isFinite(ref._cloneThrowVisualOffsetY)
+                ? ref._cloneThrowVisualOffsetY
+                : 0;
+            for (let ownerIndex = 0; ownerIndex < ownerCount; ownerIndex++) {
+                if (playableOwner.specialCloneAlive && playableOwner.specialCloneAlive[ownerIndex] === false) continue;
+                const actorIndex = ownerIndex + 1;
+                const pos = playableOwner.specialClonePositions[ownerIndex];
+                if (!pos) continue;
+                if (!Array.isArray(this.actor.specialCloneSlots)) {
+                    this.actor.specialCloneSlots = [0];
+                }
+                this.actor.specialCloneSlots[0] = 0;
+                this.actor.specialCloneSlots[actorIndex] = Array.isArray(playableOwner.specialCloneSlots)
+                    ? playableOwner.specialCloneSlots[ownerIndex]
+                    : actorIndex;
+                this.actor.specialCloneAlive[actorIndex] = true;
+                this.actor.specialClonePositions[actorIndex] = { ...pos };
+                const cloneX = pos.x - ref.width * 0.5;
+                const cloneVisualY = typeof this.actor.getSpecialCloneDrawY === 'function'
+                    ? this.actor.getSpecialCloneDrawY(pos.y)
+                    : (pos.y - ref.height * 0.62);
+                const cloneY = cloneVisualY + cloneThrowOffsetY;
+                offsets.push({
+                    index: actorIndex,
+                    ownerIndex,
+                    x: cloneX,
+                    y: cloneY,
+                    dx: cloneX - ref.x,
+                    dy: cloneY - ref.y
+                });
+            }
+            return offsets;
+        }
+        const cloneThrowOffsetY = Number.isFinite(ref._cloneThrowVisualOffsetY)
+            ? ref._cloneThrowVisualOffsetY
+            : 0;
         for (let index = 0; index < this.actor.specialClonePositions.length; index++) {
             if (this.actor.specialCloneSlots && this.actor.specialCloneSlots[index] === 0) continue;
             if (this.actor.specialCloneAlive && !this.actor.specialCloneAlive[index]) continue;
             const pos = this.actor.specialClonePositions[index];
             if (!pos) continue;
+            const cloneX = pos.x - ref.width * 0.5;
+            const cloneVisualY = typeof this.actor.getSpecialCloneDrawY === 'function'
+                ? this.actor.getSpecialCloneDrawY(pos.y)
+                : (pos.y - ref.height * 0.62);
+            const cloneY = cloneVisualY + cloneThrowOffsetY;
             offsets.push({
                 index,
-                dx: pos.x - centerX,
-                dy: pos.y - centerY
+                x: cloneX,
+                y: cloneY,
+                dx: cloneX - ref.x,
+                dy: cloneY - ref.y
             });
         }
         return offsets;
@@ -1420,6 +1469,56 @@ export class Shogun extends Boss {
         return Math.max(0, Math.min(3, Math.floor(rawTier) || 0));
     }
 
+    resetActorSpecialCloneSlots(targetSlots, initPos) {
+        if (!this.actor || !Array.isArray(targetSlots)) return;
+        this.actor.specialCloneSlots                  = targetSlots;
+        this.actor.specialCloneAlive                  = targetSlots.map(() => true);
+        this.actor.specialClonePositions              = targetSlots.map((unit) => initPos(unit));
+        this.actor.specialCloneAttackTimers           = targetSlots.map(() => 0);
+        this.actor.specialCloneSubWeaponTimers        = targetSlots.map(() => 0);
+        this.actor.specialCloneSubWeaponActions       = targetSlots.map(() => null);
+        this.actor.specialCloneComboSteps             = targetSlots.map(() => 0);
+        this.actor.specialCloneComboResetTimers       = targetSlots.map(() => 0);
+        this.actor.specialCloneCurrentAttacks         = targetSlots.map(() => null);
+        this.actor.specialCloneSlashTrailPoints       = targetSlots.map(() => []);
+        this.actor.specialCloneSlashTrailSampleTimers = targetSlots.map(() => 0);
+        this.actor.specialCloneDualTrailAnchors       = targetSlots.map(() => null);
+        this.actor.specialCloneSubWeaponInstances     = targetSlots.map(() => null);
+        this.actor.specialCloneScarfNodes             = targetSlots.map(() => null);
+        this.actor.specialCloneHairNodes              = targetSlots.map(() => null);
+        this.actor.specialCloneInvincibleTimers       = targetSlots.map(() => 0);
+        this.actor.specialCloneTargets                = targetSlots.map(() => null);
+        this.actor.specialCloneReturnToAnchor         = targetSlots.map(() => false);
+    }
+
+    syncActorSpecialCloneActionSlot(index, state = {}) {
+        if (!this.actor || !Array.isArray(this.actor.specialCloneSlots)) return;
+        if (index < 0 || index >= this.actor.specialCloneSlots.length) return;
+        this.actor.specialCloneAttackTimers[index]     = state.attackTimer || 0;
+        this.actor.specialCloneComboSteps[index]       = state.comboStep || 0;
+        this.actor.specialCloneCurrentAttacks[index]   = state.currentAttack || null;
+        if (Object.prototype.hasOwnProperty.call(state, 'subWeaponTimer')) {
+            this.actor.specialCloneSubWeaponTimers[index] = state.subWeaponTimer || 0;
+        }
+        if (Object.prototype.hasOwnProperty.call(state, 'subWeaponAction')) {
+            this.actor.specialCloneSubWeaponActions[index] = state.subWeaponAction || null;
+        }
+        if (Object.prototype.hasOwnProperty.call(state, 'comboResetTimer')) {
+            this.actor.specialCloneComboResetTimers[index] = state.comboResetTimer || 0;
+        }
+    }
+
+    withActorCurrentSubWeapon(subWeapon, callback) {
+        if (!this.actor || typeof callback !== 'function') return undefined;
+        const previousSubWeapon = this.actor.currentSubWeapon;
+        this.actor.currentSubWeapon = subWeapon || null;
+        try {
+            return callback();
+        } finally {
+            this.actor.currentSubWeapon = previousSubWeapon;
+        }
+    }
+
     getThrowOwnerState() {
         const renderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
             ? this.scaleMultiplier
@@ -1429,11 +1528,18 @@ export class Shogun extends Boss {
         const actorFootGroundOffset = 0;
         const actorRenderX = this.x + (this.width - actorRenderW) * 0.5;
         const actorRenderY = this.y + (this.height - actorRenderH) * 0.62 + actorFootGroundOffset;
+        const actorDrawHeight = PLAYER.HEIGHT;
+        const actorPivotHeight = actorRenderH * 0.62;
+        const actorVisualFootGroundOffset = (renderScale > 1.001)
+            ? this.height * 0.38 - (actorDrawHeight - actorPivotHeight) * renderScale
+            : 0;
+        const actorVisualY = this.y + (this.height - actorRenderH) * 0.62 + actorVisualFootGroundOffset;
         // しゃがみ時のみY下方オフセット（立ち投げは元の位置）
         const throwLaunchYOffset = this.isCrouching ? (this.height - 60) * 0.25 : 0;
+        const throwOwnerY = actorRenderY + throwLaunchYOffset;
         const state = {
             x: actorRenderX,
-            y: actorRenderY + throwLaunchYOffset,
+            y: throwOwnerY,
             width: actorRenderW,
             height: PLAYER.HEIGHT,
             groundY: this.groundY,
@@ -1441,19 +1547,25 @@ export class Shogun extends Boss {
             isGrounded: this.isGrounded,
             motionTime: this.motionTime,
             isEnemy: false,
+            _throwTransformPivotHeight: actorRenderH,
+            _cloneThrowVisualOffsetY: throwOwnerY - actorVisualY,
             getSubWeaponCloneOffsets: () => this.getActorSubWeaponCloneOffsets(state),
             triggerCloneSubWeapon: (idx) => this.triggerCloneSubWeapon(idx),
         };
         return state;
     }
 
-    transformActorProjectilePointToWorld(x, y) {
+    transformActorProjectilePointToWorld(x, y, reference = null) {
         const renderScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
             ? this.scaleMultiplier
             : 1;
         if (Math.abs(renderScale - 1) <= 0.001) return { x, y };
-        const pivotX = this.x + this.width * 0.5;
-        const pivotY = this.y + this.height * 0.62;
+        const pivotX = Number.isFinite(reference?._throwTransformPivotX)
+            ? reference._throwTransformPivotX
+            : this.x + this.width * 0.5;
+        const pivotY = Number.isFinite(reference?._throwTransformPivotY)
+            ? reference._throwTransformPivotY
+            : this.y + this.height * 0.62;
         return {
             x: pivotX + (x - pivotX) * renderScale,
             y: pivotY + (y - pivotY) * renderScale
@@ -1511,28 +1623,114 @@ export class Shogun extends Boss {
         };
     }
 
-    transformActorTrailPointToWorld(point, renderScale, actorFootGroundOffset = 0) {
-        if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return point;
+    transformActorTrailAbsolutePointToWorld(x, y, referencePoint = null, renderScale = this.scaleMultiplier, actorFootGroundOffset = 0) {
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
         const scale = Number.isFinite(renderScale) && renderScale > 0 ? renderScale : 1;
-        if (Math.abs(scale - 1) <= 0.001) return { ...point };
         const fallbackPivotX = this.x + this.width * 0.5;
         const fallbackPivotY = this.y + this.height * 0.62;
-        const pivotX = Number.isFinite(point.playerX) ? point.playerX : fallbackPivotX;
-        const actorReferenceHeight = this.actorBaseHeight || this.height || PLAYER.HEIGHT;
-        const pivotY = Number.isFinite(point.playerY)
-            ? point.playerY + actorReferenceHeight * (0.62 - 0.5) - actorFootGroundOffset
+        const actorReferenceWidth = this.actorBaseWidth || this.actor?.width || PLAYER.WIDTH;
+        const actorReferenceHeight = this.actorBaseHeight || this.actor?.height || PLAYER.HEIGHT;
+        const pivotSourceX = Number.isFinite(referencePoint?.trailTransformPlayerX)
+            ? referencePoint.trailTransformPlayerX
+            : (Number.isFinite(referencePoint?.playerX) ? referencePoint.playerX : NaN);
+        const pivotX = Number.isFinite(pivotSourceX)
+            ? pivotSourceX + actorReferenceWidth * 0.5
+            : fallbackPivotX;
+        const pivotSourceY = Number.isFinite(referencePoint?.trailTransformPlayerY)
+            ? referencePoint.trailTransformPlayerY
+            : (Number.isFinite(referencePoint?.playerY) ? referencePoint.playerY : NaN);
+        const pivotY = Number.isFinite(pivotSourceY)
+            ? pivotSourceY + actorReferenceHeight * 0.62
             : fallbackPivotY;
+        return {
+            x: pivotX + (x - pivotX) * scale,
+            y: pivotY + (y - pivotY) * scale
+        };
+    }
+
+    transformActorTrailPointToWorld(point, renderScale, actorFootGroundOffset = 0) {
+        if (!point) return point;
+        const transformAbsPair = (xKey, yKey) => {
+            const p = this.transformActorTrailAbsolutePointToWorld(point[xKey], point[yKey], point, renderScale, actorFootGroundOffset);
+            return p ? { [xKey]: p.x, [yKey]: p.y } : {};
+        };
+        const transformCurvePair = (xKey, yKey, relative = false) => {
+            if (!Number.isFinite(point[xKey]) || !Number.isFinite(point[yKey])) return {};
+            const originX = relative && Number.isFinite(point.playerX) ? point.playerX : 0;
+            const originY = relative && Number.isFinite(point.playerY) ? point.playerY : 0;
+            const p = this.transformActorTrailAbsolutePointToWorld(
+                point[xKey] + originX,
+                point[yKey] + originY,
+                point,
+                renderScale,
+                actorFootGroundOffset
+            );
+            return p ? { [xKey]: p.x, [yKey]: p.y } : {};
+        };
 
         return {
             ...point,
-            x: pivotX + (point.x - pivotX) * scale,
-            y: pivotY + (point.y - pivotY) * scale,
-            centerX: Number.isFinite(point.centerX)
-                ? pivotX + (point.centerX - pivotX) * scale
-                : point.centerX,
-            centerY: Number.isFinite(point.centerY)
-                ? pivotY + (point.centerY - pivotY) * scale
-                : point.centerY
+            ...transformAbsPair('x', 'y'),
+            ...transformAbsPair('centerX', 'centerY'),
+            ...transformCurvePair('trailCurveStartX', 'trailCurveStartY', !!point.trailIsRelative),
+            ...transformCurvePair('trailCurveControlX', 'trailCurveControlY', !!point.trailIsRelative),
+            ...transformCurvePair('trailCurveEndX', 'trailCurveEndY', !!point.trailIsRelative),
+            ...transformCurvePair('trailFixedCurveStartX', 'trailFixedCurveStartY', !!point.trailFixedCurveIsRelative),
+            ...transformCurvePair('trailFixedCurveControlX', 'trailFixedCurveControlY', !!point.trailFixedCurveIsRelative),
+            ...transformCurvePair('trailFixedCurveEndX', 'trailFixedCurveEndY', !!point.trailFixedCurveIsRelative),
+            trailIsRelative: false,
+            trailFixedCurveIsRelative: false
+        };
+    }
+
+    transformActorTrailBoostAnchorToWorld(anchor, referencePoint, renderScale, actorFootGroundOffset = 0) {
+        if (!anchor) return null;
+        const base = this.transformActorTrailAbsolutePointToWorld(anchor.baseCenterX, anchor.baseCenterY, referencePoint, renderScale, actorFootGroundOffset);
+        const projected = this.transformActorTrailAbsolutePointToWorld(anchor.projectedCenterX, anchor.projectedCenterY, referencePoint, renderScale, actorFootGroundOffset);
+        return {
+            ...anchor,
+            baseCenterX: base ? base.x : anchor.baseCenterX,
+            baseCenterY: base ? base.y : anchor.baseCenterY,
+            projectedCenterX: projected ? projected.x : anchor.projectedCenterX,
+            projectedCenterY: projected ? projected.y : anchor.projectedCenterY
+        };
+    }
+
+    transformActorTrailFrozenCurveToWorld(curve, renderScale, actorFootGroundOffset = 0) {
+        if (!curve) return curve;
+        if (curve.type === 'sampledBezier' && Array.isArray(curve.frozenPoints)) {
+            return {
+                ...curve,
+                frozenPoints: curve.frozenPoints.map((point) => this.transformActorTrailPointToWorld(point, renderScale, actorFootGroundOffset)),
+                frozenCurvePoints: Array.isArray(curve.frozenCurvePoints)
+                    ? curve.frozenCurvePoints.map((point) => this.transformActorTrailPointToWorld(point, renderScale, actorFootGroundOffset))
+                    : curve.frozenCurvePoints,
+                boostAnchor: this.transformActorTrailBoostAnchorToWorld(curve.boostAnchor, curve.frozenPoints[curve.frozenPoints.length - 1], renderScale, actorFootGroundOffset)
+            };
+        }
+        if (curve.type === 'points' && Array.isArray(curve.frozenPoints)) {
+            return {
+                ...curve,
+                frozenPoints: curve.frozenPoints.map((point) => this.transformActorTrailPointToWorld(point, renderScale, actorFootGroundOffset)),
+                trailIsRelative: false,
+                boostAnchor: this.transformActorTrailBoostAnchorToWorld(curve.boostAnchor, curve.frozenPoints[curve.frozenPoints.length - 1], renderScale, actorFootGroundOffset)
+            };
+        }
+        const transformed = this.transformActorTrailPointToWorld(curve, renderScale, actorFootGroundOffset);
+        return {
+            ...curve,
+            trailCurveStartX: transformed.trailCurveStartX,
+            trailCurveStartY: transformed.trailCurveStartY,
+            trailCurveControlX: transformed.trailCurveControlX,
+            trailCurveControlY: transformed.trailCurveControlY,
+            trailCurveEndX: transformed.trailCurveEndX,
+            trailCurveEndY: transformed.trailCurveEndY,
+            centerX: transformed.centerX,
+            centerY: transformed.centerY,
+            playerX: 0,
+            playerY: 0,
+            trailIsRelative: false,
+            boostAnchor: this.transformActorTrailBoostAnchorToWorld(curve.boostAnchor, curve, renderScale, actorFootGroundOffset)
         };
     }
 
@@ -1648,9 +1846,11 @@ export class Shogun extends Boss {
     }
 
     applyPhysics(obstacles = []) {
+        const wasGrounded = this.isGrounded;
         if (!this.isGrounded) {
             this.vy += GRAVITY;
         }
+        const fallingSpeed = this.vy;
 
         this.isGrounded = false;
         this.oldX = this.x;
@@ -1721,6 +1921,8 @@ export class Shogun extends Boss {
             this.vy = 0;
             this.isGrounded = true;
         }
+        this.justLanded = !wasGrounded && this.isGrounded;
+        this._lastLandingSpeed = this.justLanded ? fallingSpeed : 0;
     }
 
     updateAI(deltaTime, player) {
@@ -1878,6 +2080,8 @@ export class Shogun extends Boss {
             };
         };
 
+        let preservePlayableShogunCloneSubWeapons = false;
+
         // 奥義スロット管理（起動/停止イベント駆動 + ゲーム内自動トリガー）
         {
             // 敵ボスの自動奥義発動は無効（分身はプレイヤー将軍のみ使用）
@@ -1902,26 +2106,7 @@ export class Shogun extends Boss {
             if (this._ougiActive !== this._ougiWasActive
                 || this.actor.specialCloneSlots.length !== _targetSlots.length
                 || this.actor.specialCloneSlots[0] !== _targetSlots[0]) {
-                this.actor.specialCloneSlots                  = _targetSlots;
-                this.actor.specialCloneAlive                  = _targetSlots.map(() => true);
-                this.actor.specialClonePositions              = _targetSlots.map((unit) => _initPos(unit));
-                this.actor.specialCloneAttackTimers           = _targetSlots.map(() => 0);
-                this.actor.specialCloneSubWeaponTimers        = _targetSlots.map(() => 0);
-                this.actor.specialCloneSubWeaponActions       = _targetSlots.map(() => null);
-                this.actor.specialCloneComboSteps             = _targetSlots.map(() => 0);
-                this.actor.specialCloneComboResetTimers       = _targetSlots.map(() => 0);
-                this.actor.specialCloneCurrentAttacks         = _targetSlots.map(() => null);
-                this.actor.specialCloneSlashTrailPoints       = _targetSlots.map(() => []);
-                this.actor.specialCloneSlashTrailSampleTimers = _targetSlots.map(() => 0);
-                this.actor.specialCloneDualTrailAnchors       = _targetSlots.map(() => null);
-                this.actor.specialCloneSubWeaponInstances     = _targetSlots.map(() => null);
-                this.actor.specialCloneScarfNodes             = _targetSlots.map(() => null);
-                this.actor.specialCloneHairNodes              = _targetSlots.map(() => null);
-                this.actor.specialCloneInvincibleTimers       = _targetSlots.map(() => 0);
-                this.actor.specialCloneTargets                = _targetSlots.map(() => null);
-                this.actor.specialCloneReturnToAnchor         = _targetSlots.map(() => false);
-
-                // 将軍の分身には忍者用のポニーテールは不要なため、初期化を削除
+                this.resetActorSpecialCloneSlots(_targetSlots, _initPos);
 
                 if (this._ougiActive && !this._ougiWasActive) {
                     audio.playSpecial();
@@ -1963,6 +2148,10 @@ export class Shogun extends Boss {
                 : this.getActorSpecialCloneTier() >= 3;
             this.actor.isUsingSpecial = this._ougiActive;
             this.actor.specialCloneCombatStarted = this._ougiActive;
+            preservePlayableShogunCloneSubWeapons = !!(
+                _playableOwner &&
+                _playableOwner.characterType === 'shogun'
+            );
 
             if (_playableOwner && this._ougiActive) {
                 this.actor.specialCloneAlive[0] = true;
@@ -1982,25 +2171,21 @@ export class Shogun extends Boss {
                     const ownerPos = _playableOwner.specialClonePositions && _playableOwner.specialClonePositions[oi];
                     this.actor.specialCloneAlive[ai] = !_playableOwner.specialCloneAlive || _playableOwner.specialCloneAlive[oi] !== false;
                     this.actor.specialClonePositions[ai] = ownerPos
-                        ? {
-                            ...ownerPos,
-                            y: playableCloneAnchorY,
-                            jumping: false,
-                            cloneVy: 0
-                        }
+                        ? { ...ownerPos }
                         : _initPos(_targetSlots[ai] || 0);
-                    this.actor.specialCloneAttackTimers[ai] = (_playableOwner.specialCloneAttackTimers && _playableOwner.specialCloneAttackTimers[oi]) || 0;
-                    this.actor.specialCloneCurrentAttacks[ai] = (_playableOwner.specialCloneCurrentAttacks && _playableOwner.specialCloneCurrentAttacks[oi]) || null;
-                    this.actor.specialCloneComboSteps[ai] = (_playableOwner.specialCloneComboSteps && _playableOwner.specialCloneComboSteps[oi]) || 0;
-                    this.actor.specialCloneComboResetTimers[ai] = (_playableOwner.specialCloneComboResetTimers && _playableOwner.specialCloneComboResetTimers[oi]) || 0;
+                    this.syncActorSpecialCloneActionSlot(ai, {
+                        attackTimer: (_playableOwner.specialCloneAttackTimers && _playableOwner.specialCloneAttackTimers[oi]) || 0,
+                        currentAttack: (_playableOwner.specialCloneCurrentAttacks && _playableOwner.specialCloneCurrentAttacks[oi]) || null,
+                        comboStep: (_playableOwner.specialCloneComboSteps && _playableOwner.specialCloneComboSteps[oi]) || 0,
+                        comboResetTimer: (_playableOwner.specialCloneComboResetTimers && _playableOwner.specialCloneComboResetTimers[oi]) || 0
+                    });
                     this.actor.specialCloneInvincibleTimers[ai] = (_playableOwner.specialCloneInvincibleTimers && _playableOwner.specialCloneInvincibleTimers[oi]) || 0;
-                    const shouldMirrorOwnerCloneSubWeapons = this.actor.specialCloneAutoAiEnabled &&
-                        !(_playableOwner && _playableOwner.characterType === 'shogun');
+                    const shouldMirrorOwnerCloneSubWeapons = this.actor.specialCloneAutoAiEnabled;
                     if (shouldMirrorOwnerCloneSubWeapons) {
                         this.actor.specialCloneSubWeaponTimers[ai] = (_playableOwner.specialCloneSubWeaponTimers && _playableOwner.specialCloneSubWeaponTimers[oi]) || 0;
                         this.actor.specialCloneSubWeaponActions[ai] = (_playableOwner.specialCloneSubWeaponActions && _playableOwner.specialCloneSubWeaponActions[oi]) || null;
                         this.actor.specialCloneSubWeaponInstances[ai] = (_playableOwner.specialCloneSubWeaponInstances && _playableOwner.specialCloneSubWeaponInstances[oi]) || null;
-                    } else {
+                    } else if (!preservePlayableShogunCloneSubWeapons) {
                         this.actor.specialCloneSubWeaponTimers[ai] = 0;
                         this.actor.specialCloneSubWeaponActions[ai] = null;
                         this.actor.specialCloneSubWeaponInstances[ai] = null;
@@ -2010,26 +2195,32 @@ export class Shogun extends Boss {
             this._ougiWasActive = this._ougiActive;
         }
 
-        // 将軍の分身には忍者用のポニーテールは不要なため、更新処理を削除
         const _useIndependentAutoCloneState = !!(!this.isEnemy && this.actor.specialCloneAutoAiEnabled);
 
         if (this.actor.specialCloneSlots.length > 0) {
-            this.actor.specialCloneAttackTimers[0]     = this._attackTimer;
-            this.actor.specialCloneComboSteps[0]       = this._comboStep;
-            this.actor.specialCloneSubWeaponTimers[0]  = this._subTimer;
-            this.actor.specialCloneSubWeaponActions[0] = this._subAction;
-            this.actor.specialCloneCurrentAttacks[0]   = this._currentAttackProfile || null;
-            this.actor.specialCloneComboResetTimers[0] = this._attackTimer > 0 ? 0 : (this.actor.specialCloneComboResetTimers[0] || 0);
+            this.syncActorSpecialCloneActionSlot(0, {
+                attackTimer: this._attackTimer,
+                comboStep: this._comboStep,
+                subWeaponTimer: this._subTimer,
+                subWeaponAction: this._subAction,
+                currentAttack: this._currentAttackProfile || null,
+                comboResetTimer: this._attackTimer > 0 ? 0 : (this.actor.specialCloneComboResetTimers[0] || 0)
+            });
         }
 
         // 全スロットの攻撃状態を同期（reinit後も含め確実に反映させる）
         if (!_useIndependentAutoCloneState) {
             for (let _si = 1; _si < this.actor.specialCloneSlots.length; _si++) {
-                this.actor.specialCloneAttackTimers[_si]     = this._attackTimer;
-                this.actor.specialCloneComboSteps[_si]       = this._comboStep;
-                this.actor.specialCloneSubWeaponTimers[_si]  = this._subTimer;
-                this.actor.specialCloneSubWeaponActions[_si] = this._subAction;
-                this.actor.specialCloneCurrentAttacks[_si]   = this._currentAttackProfile || null;
+                const syncState = {
+                    attackTimer: this._attackTimer,
+                    comboStep: this._comboStep,
+                    currentAttack: this._currentAttackProfile || null
+                };
+                if (!preservePlayableShogunCloneSubWeapons) {
+                    syncState.subWeaponTimer = this._subTimer;
+                    syncState.subWeaponAction = this._subAction;
+                }
+                this.syncActorSpecialCloneActionSlot(_si, syncState);
             }
         }
 
@@ -2322,8 +2513,11 @@ export class Shogun extends Boss {
         }
         const prevSubWeapon = this.currentSubWeapon;
         this.currentSubWeapon = dual;
-        this._useSubWeaponAsPlayerStyle(dual, 'main'); // 1段発動（内部でcomboIndexを進める）
-        this.currentSubWeapon = prevSubWeapon;
+        try {
+            this._useSubWeaponAsPlayerStyle(dual, 'main'); // 1段発動（内部でcomboIndexを進める）
+        } finally {
+            this.currentSubWeapon = prevSubWeapon;
+        }
         // この段のduration分だけ_subTimerをセット
         const dur = Math.max(112, dual.mainDuration || 204);
         this._subTimer   = dur;
@@ -2406,45 +2600,10 @@ export class Shogun extends Boss {
         this.isAttacking  = true;
         this.attackCooldown = Math.max(28, dur * (profile.cooldownScale || 1));
         if (step === 5) {
-            this._currentAttackProfile.knockbackX = 16;
-            this._currentAttackProfile.knockbackY = -7;
-            this._currentAttackProfile.range = Math.max(this._currentAttackProfile.range || 0, 128);
+            prepareNormalComboFinisherProfile(this._currentAttackProfile);
             this._comboFinisherAirLockTimer = Math.max(this._comboFinisherAirLockTimer, 2200);
         }
-        // player.jsのattack()と同じstepごとの初速を再現
-        const dir = this.facingRight ? 1 : -1;
-        const impulse = (profile.impulse || 1) * this.speed;
-        if (step === 1) {
-            const groundedAtStart = this.isGrounded;
-            this.vx *= 0.12;
-            if (Math.abs(this.vx) < 0.2) this.vx = 0;
-            if (groundedAtStart) {
-                this.vy = 0;
-                this.isGrounded = true;
-            } else {
-                this.vy = Math.max(this.vy, -0.8);
-            }
-        } else if (step === 2) {
-            this.vx = this.vx * 0.16 + dir * impulse * 0.9;
-            if (this.isGrounded) {
-                this.vy = 0;
-                this.isGrounded = true;
-            } else {
-                this.vy = Math.min(this.vy, -1.2);
-            }
-        } else if (step === 3) {
-            this.vx = this.vx * 0.12 + dir * impulse * 1.71;
-            this.vy = Math.min(this.vy, NORMAL_COMBO_STEP3_LAUNCH_VY);
-            this.isGrounded = false;
-        } else if (step === 4) {
-            this.vx = this.vx * 0.24 + dir * impulse * 0.42;
-            this.vy = Math.min(this.vy, -10.6);
-            this.isGrounded = false;
-        } else if (step === 5) {
-            this.vx = this.vx * 0.18;
-            this.vy = Math.max(this.vy, 3.4);
-            this.isGrounded = false;
-        }
+        applyNormalComboStartMotion(this, this._currentAttackProfile, { isCrouching: false });
         this.animState = this._currentAttackProfile.type;
         audio.playSlash(Math.min(4, step));
     }
@@ -2463,32 +2622,15 @@ export class Shogun extends Boss {
     }
 
     freezeActorComboFinisherTrailCurve(activeAttack = this._currentAttackProfile) {
-        if (!this.actor || !activeAttack || activeAttack.comboStep !== 5 || activeAttack.trailCurveFrozen === true) return;
-        const duration = Math.max(1, activeAttack.durationMs || this._attackTimer || 1);
-        const progress = Math.max(0, Math.min(1, 1 - ((this._attackTimer || 0) / duration)));
-        if (progress < 0.76) return;
-        if (!Number.isFinite(activeAttack.trailCurveEndX) || !Number.isFinite(activeAttack.trailCurveEndY)) return;
-
-        const actorGroundY = Number.isFinite(this.groundY)
-            ? this.groundY
-            : (Number.isFinite(this.actor.groundY) ? this.actor.groundY : 0);
-        const poseHeight = PLAYER.HEIGHT;
-        const slashFloorY = (actorGroundY + LANE_OFFSET) - Math.max(10, poseHeight * 0.1);
-        const frozenEndY = Math.min(activeAttack.trailCurveEndY, slashFloorY);
-        activeAttack.trailCurveEndY = frozenEndY;
-        activeAttack.trailCurveControlY = Math.min(activeAttack.trailCurveControlY, frozenEndY);
-        activeAttack.trailCurveFrozen = true;
-
-        if (Array.isArray(this.actor.comboSlashTrailPoints)) {
-            for (let i = 0; i < this.actor.comboSlashTrailPoints.length; i++) {
-                const p = this.actor.comboSlashTrailPoints[i];
-                if (!p || (p.step || 0) !== 5) continue;
-                p.trailCurveEndX = activeAttack.trailCurveEndX;
-                p.trailCurveEndY = frozenEndY;
-                p.trailCurveControlX = activeAttack.trailCurveControlX;
-                p.trailCurveControlY = Math.min(activeAttack.trailCurveControlY, frozenEndY);
-            }
-        }
+        if (!this.actor) return false;
+        return freezeNormalComboFinisherTrailCurve(activeAttack, {
+            attackTimer: this._attackTimer,
+            groundY: Number.isFinite(this.groundY)
+                ? this.groundY
+                : (Number.isFinite(this.actor.groundY) ? this.actor.groundY : 0),
+            ownerHeight: PLAYER.HEIGHT,
+            trailPoints: this.actor.comboSlashTrailPoints
+        });
     }
 
     updateAttack(deltaTime) {
@@ -2505,67 +2647,9 @@ export class Shogun extends Boss {
                 activeAttack.motionElapsedMs = Math.max(0, Math.min(duration, prevMotionElapsed + motionCapMs));
             }
 
-            if (activeAttack && activeAttack.comboStep && this.isGrounded) {
-                this.vx *= 0.965;
-            }
-            if (activeAttack && activeAttack.comboStep === 1) {
-                const direction = this.facingRight ? 1 : -1;
-                const targetVx = 0;
-                this.vx = this.vx * 0.62 + targetVx * 0.38;
-                if (this.vx * direction < 0) this.vx = 0;
-                if (Math.abs(this.vx) < 0.18) this.vx = 0;
-                if (this.isGrounded) {
-                    this.vy = 0;
-                } else {
-                    this.vy = Math.max(this.vy, 1.2);
-                }
-            } else if (activeAttack && activeAttack.comboStep === 4) {
-                const duration = Math.max(1, activeAttack.durationMs || this._attackTimer);
-                const progress = Number.isFinite(activeAttack.motionElapsedMs)
-                    ? Math.max(0, Math.min(1, activeAttack.motionElapsedMs / duration))
-                    : Math.max(0, Math.min(1, 1 - (this._attackTimer / duration)));
-                const direction = this.facingRight ? 1 : -1;
-                const z4HeightScale = 0.96;
-
-                if (progress < 0.42) {
-                    const t = progress / 0.42;
-                    this.vx = this.vx * 0.52 + direction * this.speed * (0.2 - t * 0.08);
-                    this.vy = (-20.4 + t * 2.6) * z4HeightScale;
-                } else if (progress < 0.9) {
-                    const t = (progress - 0.42) / 0.48;
-                    const backSpeed = this.speed * (0.66 + t * 0.94);
-                    const holdVy = (-0.9 + t * 1.18) * z4HeightScale;
-                    this.vx = this.vx * 0.4 + (-direction * backSpeed) * 0.6;
-                    this.vy = Math.max(-1.0, Math.min(0.95, holdVy));
-                } else {
-                    this.vx *= 0.78;
-                    this.vy = Math.min(this.vy, 0.55);
-                }
-                if (progress < 0.72) {
-                    const riseLockT = Math.max(0, Math.min(1, progress / 0.72));
-                    const minRiseVy = (-18.8 + riseLockT * 14.8) * z4HeightScale;
-                    this.vy = Math.min(this.vy, minRiseVy);
-                    this.isGrounded = false;
-                }
-                this.isGrounded = false;
-            } else if (activeAttack && activeAttack.comboStep === 5 && (this._attackTimer > 0 || !this.isGrounded)) {
-                const duration = Math.max(1, activeAttack.durationMs || this._attackTimer);
-                const progress = Math.max(0, Math.min(1, 1 - (this._attackTimer / duration)));
-                const direction = this.facingRight ? 1 : -1;
-                if (progress < 0.26) {
-                    this.vx *= 0.82;
-                    this.vy = Math.min(this.vy, -1.2);
-                } else if (progress < 0.76) {
-                    const fallT = (progress - 0.26) / 0.5;
-                    this.vx = this.vx * 0.7 + direction * this.speed * 0.08;
-                    this.vy = this.vy * 0.34 + (9.8 + fallT * 19.8) * 0.66;
-                } else {
-                    this.vx *= 0.64;
-                    if (!this.isGrounded) {
-                        this.vy = Math.max(this.vy, 13.4);
-                    }
-                }
-            } else if (!(activeAttack && activeAttack.comboStep)) {
+            if (!applyNormalComboActiveMotion(this, activeAttack, this._attackTimer, {
+                fallbackDurationMs: this._attackTimer || 1
+            }) && !(activeAttack && activeAttack.comboStep)) {
                 this.vx *= 0.92;
             }
 
@@ -2783,88 +2867,104 @@ export class Shogun extends Boss {
         } else {
             subInst.enhanceTier = enhanceTier;
         }
+        if (typeof this.syncSubWeaponCalculation === 'function') {
+            this.syncSubWeaponCalculation(resolvedKey, subInst);
+        }
         const prevSubWeapon  = this.currentSubWeapon;
         const prevAttackCombo = this.attackCombo;
         this.currentSubWeapon = subInst;
         this.attackCombo      = this._comboStep;
 
-        const useMode = type === 'dual' ? 'combined' : (type === 'dual_z' ? 'main' : undefined);
+        try {
+            const useMode = type === 'dual' ? 'combined' : (type === 'dual_z' ? 'main' : undefined);
 
-        const shurikenProjectilesBefore = (resolvedKey === 'shuriken' && subInst && Array.isArray(subInst.projectiles))
-            ? subInst.projectiles.length
-            : -1;
+            const shurikenProjectilesBefore = (resolvedKey === 'shuriken' && subInst && Array.isArray(subInst.projectiles))
+                ? subInst.projectiles.length
+                : -1;
 
-        // bomb発射前のg.bombs長さを記録
-        const bombsBefore = (resolvedKey === 'bomb' && window.game && window.game.bombs)
-            ? window.game.bombs.length : -1;
+            // bomb発射前のg.bombs長さを記録
+            const bombsBefore = (resolvedKey === 'bomb' && window.game && window.game.bombs)
+                ? window.game.bombs.length : -1;
 
-        const useOwner = resolvedKey === 'shuriken' ? this.getThrowOwnerState() : this;
-        this._useSubWeaponAsPlayerStyle(subInst, useMode, useOwner);
-        if (resolvedKey === 'odachi') {
-            // 将軍はサイズが大きい分だけ跳躍力を増やし、視覚的な飛翔の高さを忍者と揃える
-            this.vy = -22 * Math.sqrt(this.scaleMultiplier || 1);
-        }
-        if (resolvedKey === 'dual' && type === 'dual') {
-            this.vx = 0;
-        }
+            const useOwner = (resolvedKey === 'shuriken' || resolvedKey === 'bomb') ? this.getThrowOwnerState() : this;
+            this._useSubWeaponAsPlayerStyle(subInst, useMode, useOwner);
+            if (typeof this.syncSubWeaponCalculation === 'function') {
+                this.syncSubWeaponCalculation(resolvedKey, subInst);
+            }
+            if (resolvedKey === 'odachi') {
+                // 将軍はサイズが大きい分だけ跳躍力を増やし、視覚的な飛翔の高さを忍者と揃える
+                this.vy = -22 * Math.sqrt(this.scaleMultiplier || 1);
+            }
+            if (resolvedKey === 'dual' && type === 'dual') {
+                this.vx = 0;
+            }
 
-        if (resolvedKey === 'shuriken' && shurikenProjectilesBefore >= 0 && Array.isArray(subInst.projectiles)) {
-            const scale = this.getThrowableVisualScale('shuriken');
-            for (let pi = shurikenProjectilesBefore; pi < subInst.projectiles.length; pi++) {
-                const proj = subInst.projectiles[pi];
-                if (proj && Number.isFinite(proj.x) && Number.isFinite(proj.y)) {
-                    const worldPoint = this.transformActorProjectilePointToWorld(proj.x, proj.y);
-                    proj.x = worldPoint.x;
-                    proj.y = worldPoint.y;
-                    proj.prevX = worldPoint.x;
-                    proj.prevY = worldPoint.y;
-                }
-                if (proj && Number.isFinite(proj.radius)) {
-                    proj.radius = Math.round(proj.radius * scale * 10) / 10;
+            if (resolvedKey === 'shuriken' && shurikenProjectilesBefore >= 0 && Array.isArray(subInst.projectiles)) {
+                const scale = this.getThrowableVisualScale('shuriken');
+                for (let pi = shurikenProjectilesBefore; pi < subInst.projectiles.length; pi++) {
+                    const proj = subInst.projectiles[pi];
+                    if (proj && Number.isFinite(proj.x) && Number.isFinite(proj.y)) {
+                        const worldPoint = this.transformActorProjectilePointToWorld(proj.x, proj.y, proj);
+                        proj.x = worldPoint.x;
+                        proj.y = worldPoint.y;
+                        proj.prevX = worldPoint.x;
+                        proj.prevY = worldPoint.y;
+                    }
+                    if (proj && Number.isFinite(proj.radius)) {
+                        proj.radius = Math.round(proj.radius * scale * 10) / 10;
+                    }
                 }
             }
-        }
 
-        // bomb: 新しく追加されたbombに敵弾フラグとgetHitboxを付ける
-        // （game.jsのupdateBombsはisEnemyProjectile===trueのbombにgetHitbox()を呼ぶため必須）
-        if (resolvedKey === 'bomb' && bombsBefore >= 0 && window.game && window.game.bombs) {
-            const owner = this;
-            const bombScale = this.getThrowableVisualScale('bomb');
-            for (let bi = bombsBefore; bi < window.game.bombs.length; bi++) {
-                const b = window.game.bombs[bi];
-                if (!b) continue;
-                b.isEnemyProjectile = true;
-                b.owner = owner;
-                if (Number.isFinite(b.radius)) {
-                    b.radius = Math.round(b.radius * bombScale * 10) / 10;
-                }
-                if (Number.isFinite(b.explosionRadius)) {
-                    b.explosionRadius = Math.round(b.explosionRadius * bombScale);
-                }
-                // game.jsがisEnemyProjectile===trueのbombに呼ぶgetHitbox()を追加
-                b.getHitbox = function() {
-                    if (this.isExploding) {
-                        return {
-                            x: this.x - this.explosionRadius,
-                            y: this.y - this.explosionRadius,
-                            width: this.explosionRadius * 2,
-                            height: this.explosionRadius * 2
+            // bomb: 新しく追加されたbombに敵弾フラグとgetHitboxを付ける
+            // （game.jsのupdateBombsはisEnemyProjectile===trueのbombにgetHitbox()を呼ぶため必須）
+            if (resolvedKey === 'bomb' && bombsBefore >= 0 && window.game && window.game.bombs) {
+                const owner = this;
+                const bombScale = this.getThrowableVisualScale('bomb');
+                const isEnemyProjectile = this.isEnemy !== false;
+                for (let bi = bombsBefore; bi < window.game.bombs.length; bi++) {
+                    const b = window.game.bombs[bi];
+                    if (!b) continue;
+                    b.isEnemyProjectile = isEnemyProjectile;
+                    b.owner = owner;
+                    if (Number.isFinite(b.x) && Number.isFinite(b.y)) {
+                        const worldPoint = this.transformActorProjectilePointToWorld(b.x, b.y, b);
+                        b.x = worldPoint.x;
+                        b.y = worldPoint.y;
+                    }
+                    if (Number.isFinite(b.radius)) {
+                        b.radius = Math.round(b.radius * bombScale * 10) / 10;
+                    }
+                    if (Number.isFinite(b.explosionRadius)) {
+                        b.explosionRadius = Math.round(b.explosionRadius * bombScale);
+                    }
+                    if (isEnemyProjectile) {
+                        // game.jsがisEnemyProjectile===trueのbombに呼ぶgetHitbox()を追加
+                        b.getHitbox = function() {
+                            if (this.isExploding) {
+                                return {
+                                    x: this.x - this.explosionRadius,
+                                    y: this.y - this.explosionRadius,
+                                    width: this.explosionRadius * 2,
+                                    height: this.explosionRadius * 2
+                                };
+                            }
+                            return {
+                                x: this.x - this.radius,
+                                y: this.y - this.radius,
+                                width: this.radius * 2,
+                                height: this.radius * 2
+                            };
                         };
                     }
-                    return {
-                        x: this.x - this.radius,
-                        y: this.y - this.radius,
-                        width: this.radius * 2,
-                        height: this.radius * 2
-                    };
-                };
-                // updateはそのまま（game.jsがenemies=[]で呼んでくれるので敵には当たらない）
-                // game.jsのupdateBombs内でプレイヤーへのダメージはisEnemyProjectileブロックで処理される
+                    // updateはそのまま（game.jsがenemies=[]で呼んでくれるので敵には当たらない）
+                    // game.jsのupdateBombs内でプレイヤーへのダメージはisEnemyProjectileブロックで処理される
+                }
             }
+        } finally {
+            this.currentSubWeapon = prevSubWeapon;
+            this.attackCombo      = prevAttackCombo;
         }
-
-        this.currentSubWeapon = prevSubWeapon;
-        this.attackCombo      = prevAttackCombo;
     }
 
     _getSubActionDurationMs(actionName, key) {
@@ -3097,10 +3197,10 @@ export class Shogun extends Boss {
         // actorFootGroundOffset: scale変換後の視覚的足元を物理的足元に合わせる
         // 公式: boss.height * 0.38 - (drawH - actorRenderH*0.62) * renderScale
         // Shogun: 132*0.38 - (72 - 37.2)*2.2 = 50.16 - 76.56 = -26.4px
-        const _drawH = PLAYER.HEIGHT;
-        const _pivotH = actorRenderH * 0.62;
+        const actorDrawHeight = PLAYER.HEIGHT;
+        const actorPivotHeight = actorRenderH * 0.62;
         const actorFootGroundOffset = (renderScale > 1.001)
-            ? this.height * 0.38 - (_drawH - _pivotH) * renderScale
+            ? this.height * 0.38 - (actorDrawHeight - actorPivotHeight) * renderScale
             : 0;
         const actorRenderX = this.x + (this.width - actorRenderW) * 0.5;
         const actorRenderY = this.y + (this.height - actorRenderH) * 0.62 + actorFootGroundOffset;
@@ -3143,7 +3243,7 @@ export class Shogun extends Boss {
             headScale: SHOGUN_HEAD_SCALE,
             hipLiftPx: SHOGUN_HIP_LIFT_PX,
             armReachScale: SHOGUN_ARM_REACH_SCALE,
-            crouchIntensity: 0.35, // ボスは頭身が高いので控えめにしゃがむ
+            crouchIntensity: SHOGUN_CROUCH_INTENSITY, // ボスは頭身が高いので控えめにしゃがむ
             // throw時は通常のプレイヤー投擲姿勢（奥手の刀＋手前手投擲）を使う
             subWeaponAction:      this._subAction,
             forceSubWeaponRender: (this._subTimer > 0 && this._subAction != null && this._subAction !== 'throw') || (this.currentSubWeapon && (this.currentSubWeapon.name === '二刀流' || this.currentSubWeapon.name === '鎖鎌')),
@@ -3275,37 +3375,6 @@ export class Shogun extends Boss {
             drawFn();
             ctx.restore();
         };
-
-
-        const renderTrailWithShogunTransform = (drawFn) => {
-            const pivotX = this.x + this.width * 0.5;
-            const pivotY = this.y + this.height * 0.62;
-            ctx.save();
-            if (Math.abs(renderScale - 1) > 0.001) {
-                ctx.translate(pivotX, pivotY);
-                ctx.scale(renderScale, renderScale);
-                ctx.translate(-pivotX, -pivotY);
-            }
-            drawFn();
-            ctx.restore();
-        };
-
-        if (this._ougiActive && this.actor.specialCloneSlots.length > 1 && this._playableOwner && !this.isEnemy) {
-            const playableCloneAnchorY = actorRenderY + actorRenderH * 0.62;
-            for (let _oi = 0; _oi < this.actor.specialCloneSlots.length; _oi++) {
-                const _oPos = this.actor.specialClonePositions[_oi];
-                if (!_oPos) continue;
-                _oPos.y = playableCloneAnchorY;
-                _oPos.facingRight = this.facingRight;
-                _oPos.jumping = false;
-                _oPos.cloneVy = 0;
-                _oPos.renderVx = _oi === 0 ? this.vx : (_oPos.renderVx || 0);
-                if (_oi === 0) {
-                    _oPos.x = actorRenderX + actorRenderW * 0.5;
-                }
-            }
-        }
-
         // 奥義分身のトレイルは分身描画前に更新する。通常コンボ本体は忍者と同じ comboSlashTrailPoints を使う。
         const isDualZTrailSource = !!(
             this.actor.currentSubWeapon &&
@@ -3329,17 +3398,40 @@ export class Shogun extends Boss {
             this.actor.updateComboSlashTrail(trailDeltaMs);
         }
 
+        const bodyComboFrozenCurvesForRender = Array.isArray(this.actor.comboSlashTrailFrozenCurves)
+            ? this.actor.comboSlashTrailFrozenCurves
+            : [];
         const hasBodyComboTrail = Array.isArray(this.actor.comboSlashTrailPoints) &&
             this.actor.comboSlashTrailPoints.length > 0;
-        if (!this.hideBody && hasBodyComboTrail) {
-            renderTrailWithShogunTransform(() => {
-                this.actor.renderComboSlashTrail(ctx, {
-                    attackState: {
-                        isAttacking: this.actor.isAttacking,
-                        currentAttack: this.actor.currentAttack,
-                        attackTimer: this.actor.attackTimer
+        const hasBodyComboFrozenTrail = bodyComboFrozenCurvesForRender.length > 0;
+        if (!this.hideBody && (hasBodyComboTrail || hasBodyComboFrozenTrail)) {
+            const renderTrailPoints = (this.actor.comboSlashTrailPoints || [])
+                .map((point) => this.transformActorTrailPointToWorld(point, renderScale, actorFootGroundOffset));
+            const renderFrozenCurves = bodyComboFrozenCurvesForRender
+                .map((curve) => this.transformActorTrailFrozenCurveToWorld(curve, renderScale, actorFootGroundOffset));
+            this.actor.renderComboSlashTrail(ctx, {
+                points: renderTrailPoints,
+                frozenCurves: renderFrozenCurves,
+                physicalScale: Math.max(1, renderScale),
+                attackHitboxes: this.getAttackHitbox(),
+                attackState: {
+                    isAttacking: this.actor.isAttacking,
+                    currentAttack: this.actor.currentAttack,
+                    attackTimer: this.actor.attackTimer
+                },
+                getBoostAnchor: (step) => (
+                    this._bodyComboSlashTrailBoostAnchors
+                        ? this._bodyComboSlashTrailBoostAnchors[step]
+                        : null
+                ),
+                setBoostAnchor: (step, value) => {
+                    if (!this._bodyComboSlashTrailBoostAnchors) this._bodyComboSlashTrailBoostAnchors = {};
+                    if (step == null) {
+                        this._bodyComboSlashTrailBoostAnchors = {};
+                    } else {
+                        this._bodyComboSlashTrailBoostAnchors[step] = value;
                     }
-                });
+                }
             });
         }
 
@@ -3424,6 +3516,49 @@ export class Shogun extends Boss {
                 if (!Number.isFinite(cloneFootY)) return _ougiPivotY;
                 return cloneFootY - PLAYER.HEIGHT + _cloneTransformPivotOffsetY;
             };
+            const renderCloneSubWeaponWithShogunTransform = (drawFn, context = {}) => {
+                if (typeof drawFn !== 'function') return;
+                const pos = context.pos || null;
+                const owner = context.owner || null;
+                const inst = context.instance || null;
+                const pivotX = Number.isFinite(pos?.x)
+                    ? pos.x
+                    : (owner && Number.isFinite(owner.x) && Number.isFinite(owner.width)
+                        ? owner.x + owner.width * 0.5
+                        : this.x + this.width * 0.5);
+                const pivotY = Number.isFinite(pos?.y)
+                    ? pos.y
+                    : (owner && Number.isFinite(owner.y) && Number.isFinite(owner.height)
+                        ? owner.y + owner.height * 0.62
+                        : this.y + this.height * 0.62);
+                const rangeBackup = (inst && inst.name !== '鎖鎌' && inst.name !== '大太刀' && Number.isFinite(inst.range) && renderScale > 1.001)
+                    ? inst.range
+                    : null;
+                if (rangeBackup !== null) {
+                    inst.range = rangeBackup / renderScale;
+                }
+                try {
+                    ctx.save();
+                    try {
+                        ctx.translate(pivotX, pivotY);
+                        ctx.transform(1, 0, -_ougiYawSkew / 0.982, 1, 0, 0);
+                        ctx.scale(1 / 0.982, 1);
+                        ctx.translate(-pivotX, -pivotY);
+                        if (renderScale > 1.001) {
+                            ctx.translate(pivotX, pivotY);
+                            ctx.scale(renderScale, renderScale);
+                            ctx.translate(-pivotX, -pivotY);
+                        }
+                        drawFn();
+                    } finally {
+                        ctx.restore();
+                    }
+                } finally {
+                    if (rangeBackup !== null) {
+                        inst.range = rangeBackup;
+                    }
+                }
+            };
             this.actor.renderSpecial(ctx, {
                 skipSlotIndices: [0],
                 keepActorHeight: true,
@@ -3442,15 +3577,11 @@ export class Shogun extends Boss {
                     fn();
                     ctx.restore();
                 },
-                scaleTrailEntity: (clonePivotX, _footY, fn) => {
-                    ctx.save();
-                    const clonePivotY = _getCloneTransformPivotY(_footY);
-                    ctx.translate(clonePivotX, clonePivotY);
-                    ctx.scale(renderScale, renderScale);
-                    ctx.translate(-clonePivotX, -clonePivotY);
-                    fn();
-                    ctx.restore();
-                },
+                transformCloneTrailPoints: (points) => Array.isArray(points)
+                    ? points.map((point) => this.transformActorTrailPointToWorld(point, renderScale, actorFootGroundOffset))
+                    : points,
+                renderCloneSubWeapon: renderCloneSubWeaponWithShogunTransform,
+                cloneTrailPhysicalScale: Math.max(1, renderScale),
                 cloneModelOptions: (pos) => {
                     const cloneFootY = typeof this.actor.getSpecialCloneFootY === 'function'
                         ? this.actor.getSpecialCloneFootY(pos.y)
@@ -3460,8 +3591,7 @@ export class Shogun extends Boss {
                         ...renderOpts,
                         yawSkewCancel: { pivotX: pos.x, pivotY: clonePivotY, yawSkew: _ougiYawSkew, type: 'enemyInverse' },
                         forceSubWeaponRender: false,
-                        isOdachiPlantedOrFade: false,
-                        renderScale: 1.0
+                        isOdachiPlantedOrFade: false
                     };
                 },
             });

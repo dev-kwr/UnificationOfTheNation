@@ -3,7 +3,6 @@
 import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js';
 import { audio } from './audio.js';
 import { game } from './game.js';
-import { drawShurikenShape } from './weapon.js';
 import {
     ANIM_STATE, COMBO_ATTACKS, PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
@@ -12,6 +11,14 @@ import {
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
 } from './playerData.js';
 import { applyShogunRendererMixin } from './shogunRendererHelper.js';
+import {
+    SHOGUN_ACTOR_BASE_HEIGHT,
+    SHOGUN_ACTOR_BASE_WIDTH,
+    SHOGUN_ARM_REACH_SCALE,
+    SHOGUN_CROUCH_INTENSITY,
+    SHOGUN_HEAD_SCALE,
+    SHOGUN_HIP_LIFT_PX
+} from './shogunConstants.js';
 
 export function applyRendererMixin(PlayerClass) {
     applyShogunRendererMixin(PlayerClass);
@@ -743,7 +750,7 @@ export function applyRendererMixin(PlayerClass) {
             this.renderModel(ctx, this.x, this.y, this.facingRight, ghostSilhouetteAlpha, true, {
                 headbandAlpha: 1.0, // 鉢巻は不透明を維持
                 crouchIntensity: this.isCrouching
-                    ? (typeof this.getCrouchRenderIntensity === 'function' ? this.getCrouchRenderIntensity() : 0.35)
+                    ? (typeof this.getCrouchRenderIntensity === 'function' ? this.getCrouchRenderIntensity() : SHOGUN_CROUCH_INTENSITY)
                     : 0 // 将軍の姿勢に近い、重心を落とすポーズを適用
             });
         }
@@ -825,10 +832,10 @@ export function applyRendererMixin(PlayerClass) {
 
             // 将軍の頭身パラメータ（boss.js renderBody の renderOpts と完全一致）
             // headRatio はボスと同じくデフォルト値(14*2/60)を使用（明示指定しない）
-            options.headScale = options.headScale || 0.80;
-            options.hipLiftPx = options.hipLiftPx || 8.00;
-            options.armReachScale = options.armReachScale || 1.08;
-            options.crouchIntensity = 0.35;
+            options.headScale = options.headScale || SHOGUN_HEAD_SCALE;
+            options.hipLiftPx = options.hipLiftPx || SHOGUN_HIP_LIFT_PX;
+            options.armReachScale = options.armReachScale || SHOGUN_ARM_REACH_SCALE;
+            options.crouchIntensity = SHOGUN_CROUCH_INTENSITY;
         }
 
         const originalX = this.x;
@@ -841,10 +848,8 @@ export function applyRendererMixin(PlayerClass) {
         const scale = this.scaleMultiplier || 1.0;
 
         // 将軍モードの場合、actorBase(40x60)を基準にオフセットを計算（boss.js renderBody と同一式）
-        const SHOGUN_ACTOR_BASE_W = 40;
-        const SHOGUN_ACTOR_BASE_H = 60;
-        const renderX = isShogunMode ? (x + (this.width - SHOGUN_ACTOR_BASE_W) * 0.5) : x;
-        const renderY = isShogunMode ? (y + (this.height - SHOGUN_ACTOR_BASE_H) * 0.62) : (y + this.height - drawH);
+        const renderX = isShogunMode ? (x + (this.width - SHOGUN_ACTOR_BASE_WIDTH) * 0.5) : x;
+        const renderY = isShogunMode ? (y + (this.height - SHOGUN_ACTOR_BASE_HEIGHT) * 0.62) : (y + this.height - drawH);
         
         this.x = renderX;
         this.y = renderY;
@@ -1019,7 +1024,7 @@ export function applyRendererMixin(PlayerClass) {
             : this.height;
         const headRadius = (baseHeightForHead * headRatio * 0.5) * headScale;
         
-        // しゃがみの圧縮強度（1.0=プレイヤー用フル圧縮, 0.35=ボス用控えめ）
+        // しゃがみの圧縮強度（1.0=プレイヤー用フル圧縮, SHOGUN_CROUCH_INTENSITY=ボス用控えめ）
         const crouchIntensity = isCrouchPose ? (options.crouchIntensity ?? 1.0) : 0;
         const crouchPoseT = crouchIntensity;
         const crouchPick = (standValue, crouchValue) => isCrouchPose ? lerp(standValue, crouchValue, crouchPoseT) : standValue;
@@ -4701,7 +4706,15 @@ export function applyRendererMixin(PlayerClass) {
     PlayerClass.prototype.renderSpecial = function(ctx, options = {}) {
         const anchors = this.getSpecialCloneAnchors();
         const scaleEntity = typeof options.scaleEntity === 'function' ? options.scaleEntity : null;
-        const scaleTrailEntity = typeof options.scaleTrailEntity === 'function' ? options.scaleTrailEntity : null;
+        const transformCloneTrailPoints = typeof options.transformCloneTrailPoints === 'function'
+            ? options.transformCloneTrailPoints
+            : null;
+        const renderCloneSubWeapon = typeof options.renderCloneSubWeapon === 'function'
+            ? options.renderCloneSubWeapon
+            : null;
+        const cloneTrailPhysicalScale = Number.isFinite(options.cloneTrailPhysicalScale)
+            ? Math.max(1, options.cloneTrailPhysicalScale)
+            : 1;
         const renderScaled = (pivotX, pivotY, renderFn) => {
             if (scaleEntity) {
                 scaleEntity(pivotX, pivotY, renderFn);
@@ -4709,12 +4722,10 @@ export function applyRendererMixin(PlayerClass) {
             }
             renderFn();
         };
-        const renderTrailScaled = (pivotX, pivotY, renderFn) => {
-            if (scaleTrailEntity) {
-                scaleTrailEntity(pivotX, pivotY, renderFn);
-                return;
-            }
-            renderFn();
+        const resolveCloneTrailPoints = (points, context = {}) => {
+            if (!transformCloneTrailPoints || !Array.isArray(points)) return points;
+            const transformed = transformCloneTrailPoints(points, context);
+            return Array.isArray(transformed) ? transformed : points;
         };
         const skipSlotIndices = Array.isArray(options.skipSlotIndices) ? options.skipSlotIndices : [];
         const keepActorHeight = !!options.keepActorHeight;
@@ -4723,6 +4734,18 @@ export function applyRendererMixin(PlayerClass) {
         const resolveCloneModelOptions = typeof _cloneModelOptionsSrc === 'function'
             ? _cloneModelOptionsSrc
             : () => _cloneModelOptionsSrc;
+        const drawCloneSubWeapon = (inst, owner, context) => {
+            const draw = () => inst.render(ctx, owner);
+            if (renderCloneSubWeapon) {
+                renderCloneSubWeapon(draw, {
+                    ...context,
+                    instance: inst,
+                    owner
+                });
+            } else {
+                draw();
+            }
+        };
 
         ctx.save();
 
@@ -4787,7 +4810,11 @@ export function applyRendererMixin(PlayerClass) {
                     legAngle: this.legAngle,
                     currentSubWeapon: this.currentSubWeapon,
                     subWeaponRenderedInModel: this.subWeaponRenderedInModel,
-                    dualBladeTrailAnchors: this.dualBladeTrailAnchors
+                    dualBladeTrailAnchors: this.dualBladeTrailAnchors,
+                    // Lv3自立分身が本体のコンボ余韻アニメーションを引き継がないよう退避
+                    comboStep5IdleTransitionTimer: this.comboStep5IdleTransitionTimer,
+                    comboStep1IdleTransitionTimer: this.comboStep1IdleTransitionTimer,
+                    comboStep5RecoveryAttack: this.comboStep5RecoveryAttack
                 };
 
                 const cloneDrawX = pos.x - this.width * 0.5;
@@ -4903,7 +4930,7 @@ export function applyRendererMixin(PlayerClass) {
 
                 if (this.specialCloneAutoAiEnabled) {
                     const rawRenderVx = pos.renderVx || 0;
-                    this.vx = Math.abs(rawRenderVx) >= Math.abs(saved.vx) ? rawRenderVx : saved.vx;
+                    this.vx = rawRenderVx;
                     this.vy = pos.cloneVy || 0;
                     this.isGrounded = !(pos.jumping);
                     this.isCrouching = false;
@@ -4919,6 +4946,10 @@ export function applyRendererMixin(PlayerClass) {
                             attackTimer: cloneSubWeaponTimer
                         }
                         : null;
+                    // Lv3自立分身は本体のコンボ余韻を引き継がない（分身独自の攻撃タイマーで管理）
+                    this.comboStep5IdleTransitionTimer = 0;
+                    this.comboStep1IdleTransitionTimer = 0;
+                    this.comboStep5RecoveryAttack = null;
                 } else {
                     this.vx = saved.vx;
                     // ぶら下がり中のみ空中ポーズを強制。着地後は本体のvy/isGroundedに完全追従させる
@@ -5027,10 +5058,25 @@ export function applyRendererMixin(PlayerClass) {
                         }
                         : null;
 
+                    const cloneTrailFootY = this.getSpecialCloneFootY(pos.y);
                     const cloneTrailPoints = Array.isArray(this.specialCloneSlashTrailPoints)
                         ? this.specialCloneSlashTrailPoints[i]
                         : null;
-                    if (cloneTrailPoints && cloneTrailPoints.length > 1 && !cloneUsesDualZ) {
+                    const cloneTrailRenderPoints = resolveCloneTrailPoints(cloneTrailPoints, {
+                        index: i,
+                        pos,
+                        footY: cloneTrailFootY,
+                        type: 'normal'
+                    });
+                    const cloneTrailStep = cloneTrailRenderPoints && cloneTrailRenderPoints.length > 0
+                        ? (cloneTrailRenderPoints[cloneTrailRenderPoints.length - 1]?.step || cloneTrailRenderPoints[0]?.step || 0)
+                        : 0;
+                    const cloneTrailSelfContained = [1, 2, 4, 5].includes(cloneTrailStep);
+                    if (
+                        cloneTrailRenderPoints &&
+                        (cloneTrailRenderPoints.length > 1 || cloneTrailSelfContained) &&
+                        !cloneUsesDualZ
+                    ) {
                         const cloneAttackState = {
                             x: this.x,
                             y: this.y,
@@ -5040,23 +5086,25 @@ export function applyRendererMixin(PlayerClass) {
                             attackTimer: this.attackTimer,
                             isCrouching: this.isCrouching
                         };
-                        renderTrailScaled(pos.x, this.getSpecialCloneFootY(pos.y), () => {
-                            this.renderComboSlashTrail(ctx, {
-                                points: cloneTrailPoints,
-                                isAttacking: isCloneAttacking,
-                                attackState: cloneAttackState,
-                                getBoostAnchor: () => (
-                                    Array.isArray(this.specialCloneSlashTrailBoostAnchors)
-                                        ? this.specialCloneSlashTrailBoostAnchors[i]
-                                        : null
-                                ),
-                                setBoostAnchor: (_trailId, value) => {
-                                    if (!Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
-                                        this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
-                                    }
-                                    this.specialCloneSlashTrailBoostAnchors[i] = value || null;
+                        this.renderComboSlashTrail(ctx, {
+                            points: cloneTrailRenderPoints,
+                            isAttacking: isCloneAttacking,
+                            attackState: cloneAttackState,
+                            physicalScale: transformCloneTrailPoints ? cloneTrailPhysicalScale : undefined,
+                            boostActive: transformCloneTrailPoints ? false : undefined,
+                            getBoostAnchor: () => (
+                                !transformCloneTrailPoints &&
+                                Array.isArray(this.specialCloneSlashTrailBoostAnchors)
+                                    ? this.specialCloneSlashTrailBoostAnchors[i]
+                                    : null
+                            ),
+                            setBoostAnchor: (_trailId, value) => {
+                                if (transformCloneTrailPoints) return;
+                                if (!Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
+                                    this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
                                 }
-                            });
+                                this.specialCloneSlashTrailBoostAnchors[i] = value || null;
+                            }
                         });
                     }
 
@@ -5070,28 +5118,40 @@ export function applyRendererMixin(PlayerClass) {
                         const frontPoints = Array.isArray(this.specialCloneDualFrontTrailPoints)
                             ? this.specialCloneDualFrontTrailPoints[i]
                             : null;
-                        if (backPoints && backPoints.length >= 2) {
-                            renderTrailScaled(pos.x, this.getSpecialCloneFootY(pos.y), () => {
-                                this.renderComboSlashTrail(ctx, {
-                                    points: backPoints,
-                                    palette: bluePalette,
-                                    forceLinearSmooth: true,
-                                    isAttacking: true,
-                                    getBoostAnchor: () => null,
-                                    setBoostAnchor: () => {}
-                                });
+                        const backRenderPoints = resolveCloneTrailPoints(backPoints, {
+                            index: i,
+                            pos,
+                            footY: cloneTrailFootY,
+                            type: 'dualBack'
+                        });
+                        const frontRenderPoints = resolveCloneTrailPoints(frontPoints, {
+                            index: i,
+                            pos,
+                            footY: cloneTrailFootY,
+                            type: 'dualFront'
+                        });
+                        if (backRenderPoints && backRenderPoints.length >= 2) {
+                            this.renderComboSlashTrail(ctx, {
+                                points: backRenderPoints,
+                                palette: bluePalette,
+                                forceLinearSmooth: true,
+                                isAttacking: true,
+                                physicalScale: transformCloneTrailPoints ? cloneTrailPhysicalScale : undefined,
+                                boostActive: transformCloneTrailPoints ? false : undefined,
+                                getBoostAnchor: () => null,
+                                setBoostAnchor: () => {}
                             });
                         }
-                        if (frontPoints && frontPoints.length >= 2) {
-                            renderTrailScaled(pos.x, this.getSpecialCloneFootY(pos.y), () => {
-                                this.renderComboSlashTrail(ctx, {
-                                    points: frontPoints,
-                                    palette: redPalette,
-                                    forceLinearSmooth: true,
-                                    isAttacking: true,
-                                    getBoostAnchor: () => null,
-                                    setBoostAnchor: () => {}
-                                });
+                        if (frontRenderPoints && frontRenderPoints.length >= 2) {
+                            this.renderComboSlashTrail(ctx, {
+                                points: frontRenderPoints,
+                                palette: redPalette,
+                                forceLinearSmooth: true,
+                                isAttacking: true,
+                                physicalScale: transformCloneTrailPoints ? cloneTrailPhysicalScale : undefined,
+                                boostActive: transformCloneTrailPoints ? false : undefined,
+                                getBoostAnchor: () => null,
+                                setBoostAnchor: () => {}
                             });
                         }
                     }
@@ -5100,7 +5160,11 @@ export function applyRendererMixin(PlayerClass) {
                         const subWeaponOwner = cloneSubWeaponInstance.owner && cloneSubWeaponInstance.owner._specialCloneOwner
                             ? cloneSubWeaponInstance.owner
                             : this;
-                        cloneSubWeaponInstance.render(ctx, subWeaponOwner);
+                        drawCloneSubWeapon(cloneSubWeaponInstance, subWeaponOwner, {
+                            index: i,
+                            pos,
+                            active: true
+                        });
                     } else if (
                         this.currentSubWeapon &&
                         !this.subWeaponRenderedInModel &&
@@ -5109,7 +5173,11 @@ export function applyRendererMixin(PlayerClass) {
                         const subWeaponOwner = this.currentSubWeapon.owner && this.currentSubWeapon.owner._specialCloneOwner
                             ? this.currentSubWeapon.owner
                             : this;
-                        this.currentSubWeapon.render(ctx, subWeaponOwner);
+                        drawCloneSubWeapon(this.currentSubWeapon, subWeaponOwner, {
+                            index: i,
+                            pos,
+                            active: false
+                        });
                     }
 
                     ctx.restore();
@@ -5138,6 +5206,10 @@ export function applyRendererMixin(PlayerClass) {
                 this.currentSubWeapon = saved.currentSubWeapon;
                 this.subWeaponRenderedInModel = saved.subWeaponRenderedInModel;
                 this.dualBladeTrailAnchors = saved.dualBladeTrailAnchors;
+                // コンボ余韻タイマーを復元
+                this.comboStep5IdleTransitionTimer = saved.comboStep5IdleTransitionTimer;
+                this.comboStep1IdleTransitionTimer = saved.comboStep1IdleTransitionTimer;
+                this.comboStep5RecoveryAttack = saved.comboStep5RecoveryAttack;
             }
         }
 

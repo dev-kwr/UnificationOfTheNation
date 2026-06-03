@@ -90,7 +90,7 @@
             display: block;
             width: 100%;
             height: auto;
-            aspect-ratio: 800 / 500;
+            aspect-ratio: 1280 / 720;
             image-rendering: pixelated;
             outline: none;
             -webkit-tap-highlight-color: transparent;
@@ -353,9 +353,9 @@
         const { applyShogunCombat } = await import('./js/shogunCombatHelper.js?v=' + _bustParam);
 
         // --- モック & 初期化 ---
-        const logicalW = 800;
-        const logicalH = 500;
-        const groundY = 400;
+        const logicalW = 1280;
+        const logicalH = 720;
+        const groundY = 480;
 
         // playerモック（将軍のupdate引数用）
         const previewPlayerMock = { 
@@ -374,7 +374,7 @@
             player: previewPlayerMock,
             bombs: [],
             projectiles: [],
-            enemies: [] // applyShogunCombat の当たり判定フックが参照（プレビューは敵なし）
+            enemies: [] // 将軍戦闘コントローラの当たり判定が参照（プレビューは敵なし）
         };
 
         const canvas = document.getElementById('previewCanvas');
@@ -392,7 +392,7 @@
         const shogunPlayer = new Player(logicalW / 2 - 24, groundY - 72, groundY);
         shogunPlayer.characterType = 'shogun';
         shogunPlayer.progression = { normalCombo: 3, subWeapon: 3, specialClone: 3 };
-        applyShogunCombat(shogunPlayer);        // characterType設定後に再適用して将軍挙動を有効化
+        applyShogunCombat(shogunPlayer);        // ゲーム側と同じ経路で将軍戦闘コントローラを確認
         shogunPlayer.previewMode = false;       // 実ゲームと同じ入力・物理
         shogunPlayer.facingRight = true;
         shogunPlayer.maxJumps = 3;              // 三段跳び
@@ -419,11 +419,8 @@
             }
         } catch (_e) { console.warn('fresh boss.js re-apply failed', _e); }
 
-        // プレビュー初期位置を画面中央に揃える。spawn は忍者幅(48)基準の x=logicalW/2-24 だが、
-        // 将軍は素体幅 88px のため同じ x だと右にずれる。構築後の実幅で中央寄せする。
-        // さらに将軍の視覚的中心は bounding box 中心から約9px右にずれる（実測。actorRender系の
-        // オフセット由来）ため、その分だけ左へ補正して見た目を画面中央に合わせる。
-        shogunPlayer.x = logicalW / 2 - shogunPlayer.width / 2 - 9;
+        // プレビュー初期位置を画面中央に揃える。spawn は忍者幅(48)基準なので、構築後の実幅で中央寄せする。
+        shogunPlayer.x = logicalW / 2 - shogunPlayer.width / 2;
 
         const ninja = new Player(logicalW / 2 - 24, groundY - 72, groundY);
         // 実ゲームと同じ挙動を再現するため previewMode=false。
@@ -436,11 +433,6 @@
         ninja.progression = { normalCombo: 3, subWeapon: 3, specialClone: 3 };
         ninja.x = logicalW / 2 - ninja.width / 2; // 初期位置を画面中央に揃える
 
-        // デバッグ計測用に主要オブジェクトを露出（プレビュー専用・害なし）
-        window.shogunPlayer = shogunPlayer; // ゲームの実プレイアブル将軍(Player+applyShogunCombat)
-        window.shogun = shogun;             // その内部ボス(_shogunBossInstance)=戦闘・描画エンジン
-        window.ninja = ninja;
-
         const subWeaponNames = {
             shuriken: '手裏剣', bomb: '火薬玉', spear: '大槍', dual: '二刀流', kusarigama: '鎖鎌', odachi: '大太刀'
         };
@@ -448,6 +440,9 @@
         ninja.subWeapons = subWeapons.map(key => createSubWeapon(subWeaponNames[key])).filter(Boolean);
         ninja.currentSubWeapon = ninja.subWeapons[0];
         ninja.subWeaponIndex = 0;
+        shogunPlayer.subWeapons = subWeapons.map(key => createSubWeapon(subWeaponNames[key])).filter(Boolean);
+        shogunPlayer.currentSubWeapon = shogunPlayer.subWeapons[0] || null;
+        shogunPlayer.subWeaponIndex = 0;
 
         // --- 状態変数 ---
         let previewCharacter = 'shogun';
@@ -456,85 +451,17 @@
         let isPaused = false;
         window.lastNinjaSubIndex = -1;
         window._previewWeapon = subWeapons[0];
+        const equipShogunPreviewWeapon = (key) => {
+            const weaponName = subWeaponNames[key];
+            const idx = shogunPlayer.subWeapons.findIndex(w => w && w.name === weaponName);
+            if (idx === -1) return false;
+            shogunPlayer.subWeaponIndex = idx;
+            shogunPlayer.currentSubWeapon = shogunPlayer.subWeapons[idx];
+            return true;
+        };
 
         const isShogunMode = () => previewCharacter === 'shogun';
         const getActiveActor = () => isShogunMode() ? shogunPlayer : ninja;
-        const getPreviewCloneAction = (weapon, action, timer) => {
-            if (!weapon || !(timer > 0)) return null;
-            if (action) return action;
-            if (weapon.name === '手裏剣' || weapon.name === '火薬玉') return 'throw';
-            if (weapon.name === '二刀流') return '二刀_Z';
-            return weapon.name;
-        };
-        const getPreviewCloneAttackType = (weapon, actionName) => {
-            if (!weapon || weapon.name !== '二刀流') return null;
-            return actionName === '二刀_合体' ? 'combined' : 'main';
-        };
-        const shouldKeepPreviewCloneInstance = (inst) => !!(
-            inst &&
-            (
-                (Array.isArray(inst.projectiles) && inst.projectiles.length > 0) ||
-                inst.pendingCombinedProjectile ||
-                inst.isAttacking ||
-                (inst.attackTimer || 0) > 0 ||
-                (inst.plantedTimer || 0) > 0 ||
-                (inst.fadeOutTimer || 0) > 0
-            )
-        );
-        const syncPreviewCloneSubWeapons = (actor, weapon, timer, action) => {
-            if (!actor || !Array.isArray(actor.specialCloneSlots)) return;
-            if (actor.specialCloneAutoAiEnabled) return;
-            const count = actor.specialCloneSlots.length;
-            if (!Array.isArray(actor.specialCloneSubWeaponInstances)) actor.specialCloneSubWeaponInstances = actor.specialCloneSlots.map(() => null);
-            if (!Array.isArray(actor.specialCloneSubWeaponTimers)) actor.specialCloneSubWeaponTimers = actor.specialCloneSlots.map(() => 0);
-            if (!Array.isArray(actor.specialCloneSubWeaponActions)) actor.specialCloneSubWeaponActions = actor.specialCloneSlots.map(() => null);
-            if (!Array.isArray(actor._previewCloneSubWeaponTokens)) actor._previewCloneSubWeaponTokens = actor.specialCloneSlots.map(() => null);
-
-            const actionName = getPreviewCloneAction(weapon, action, timer);
-            const activeNow = !!(weapon && actionName && timer > 0);
-            const activeKey = activeNow ? `${weapon.name}:${actionName}` : '';
-            const syncState = actor._previewCloneSubWeaponSync || { active: false, key: '', timer: 0, serial: 0 };
-            if (activeNow && (!syncState.active || syncState.key !== activeKey || timer > syncState.timer + 12)) {
-                syncState.serial += 1;
-            }
-            syncState.active = activeNow;
-            syncState.key = activeKey;
-            syncState.timer = timer || 0;
-            actor._previewCloneSubWeaponSync = syncState;
-
-            for (let i = 0; i < count; i++) {
-                const isBodySlot = actor.characterType === 'shogun' && actor.specialCloneSlots[i] === 0;
-                const alive = !actor.specialCloneAlive || actor.specialCloneAlive[i] !== false;
-                if (!alive || isBodySlot) {
-                    actor.specialCloneSubWeaponTimers[i] = 0;
-                    actor.specialCloneSubWeaponActions[i] = null;
-                    actor._previewCloneSubWeaponTokens[i] = null;
-                    continue;
-                }
-
-                if (activeNow) {
-                    actor.specialCloneSubWeaponTimers[i] = timer;
-                    actor.specialCloneSubWeaponActions[i] = actionName;
-                    const token = `${activeKey}:${syncState.serial}`;
-                    const inst = actor.specialCloneSubWeaponInstances[i];
-                    if (actor._previewCloneSubWeaponTokens[i] !== token || !inst || inst.name !== weapon.name) {
-                        const prevWeapon = actor.currentSubWeapon;
-                        actor.currentSubWeapon = weapon;
-                        actor.activateCloneSubWeaponInstance(i, getPreviewCloneAttackType(weapon, actionName));
-                        actor.currentSubWeapon = prevWeapon;
-                        actor._previewCloneSubWeaponTokens[i] = token;
-                    }
-                } else {
-                    actor.specialCloneSubWeaponTimers[i] = 0;
-                    actor.specialCloneSubWeaponActions[i] = null;
-                    actor._previewCloneSubWeaponTokens[i] = null;
-                    if (!shouldKeepPreviewCloneInstance(actor.specialCloneSubWeaponInstances[i])) {
-                        actor.specialCloneSubWeaponInstances[i] = null;
-                    }
-                }
-            }
-        };
-
         const updateUI = () => {
             document.getElementById('btnModeShogun').classList.toggle('active', isShogunMode());
             document.getElementById('btnModeNinja').classList.toggle('active', !isShogunMode());
@@ -555,8 +482,8 @@
             }
 
             const key = isShogunMode() ? window._previewWeapon : subWeapons[subIndex];
-            const weaponName = isShogunMode() 
-                ? (shogun._subWeaponInstances[key]?.name || 'なし') 
+            const weaponName = isShogunMode()
+                ? (shogunPlayer.currentSubWeapon?.name || subWeaponNames[key] || 'なし')
                 : (ninja.currentSubWeapon?.name || 'なし');
             document.getElementById('selectedSubWeapon').textContent = weaponName;
         };
@@ -584,19 +511,18 @@
                     subIndex = subWeapons.indexOf(targetKey);
                     if (subIndex === -1) subIndex = 0;
                     window._previewWeapon = subWeapons[subIndex];
-                    shogunPlayer.currentSubWeapon = shogun._subWeaponInstances[window._previewWeapon] || null;
+                    equipShogunPreviewWeapon(window._previewWeapon);
                 }
             }
 
             window.game.player = isShogunMode() ? previewPlayerMock : ninja;
             const actor = getActiveActor();
-            // 中央寄せは構築時と同じ計算に統一する。将軍は実幅(88)+視覚オフセット(9)で中央へ。
-            // （従来は actorW=40 固定で x=380 となり、忍者→将軍で戻すと中央からズレていた）
-            actor.x = logicalW / 2 - actor.width / 2 - (mode === 'shogun' ? 9 : 0);
+            // 中央寄せは構築時と同じ計算に統一する。
+            actor.x = logicalW / 2 - actor.width / 2;
             actor.y = groundY - (mode === 'shogun' ? 60 : 72);
             actor.vx = 0; actor.vy = 0;
             // 将軍は内部ボスのx/vxも同期しないと、ボス→プレイヤーのx同期で位置が上書きされる
-            if (mode === 'shogun' && window.shogun) { window.shogun.x = actor.x; window.shogun.vx = 0; }
+            if (mode === 'shogun' && shogun) { shogun.x = actor.x; shogun.vx = 0; }
             updateUI();
         };
 
@@ -631,10 +557,10 @@
 
         const cycleSubWeapon = () => {
             if (isShogunMode()) {
-                // UI選択をサイクル。ループのアイドル同期が shogunPlayer.currentSubWeapon へ装備する
+                // UI選択をサイクル。実ゲームと同じくプレイヤー側 currentSubWeapon へ装備する
                 subIndex = (subIndex + 1) % subWeapons.length;
                 window._previewWeapon = subWeapons[subIndex];
-                shogunPlayer.currentSubWeapon = shogun._subWeaponInstances[window._previewWeapon] || null;
+                equipShogunPreviewWeapon(window._previewWeapon);
             } else {
                 ninja.switchSubWeapon();
                 window._previewWeapon = ninja.currentSubWeapon ? subWeapons[ninja.subWeaponIndex] : null;
@@ -695,7 +621,7 @@
             if (typeof ninja.rebuildSpecialCloneSlots === 'function') ninja.rebuildSpecialCloneSlots();
             if (typeof ninja.refreshSubWeaponScaling === 'function') ninja.refreshSubWeaponScaling();
             
-            // 将軍プレイヤーが進行度の単一ソース（applyShogunCombat が毎フレーム内部ボスへ同期）
+            // 将軍プレイヤーが進行度の単一ソース（戦闘コントローラが毎フレーム内部ボスへ同期）
             if (shogunPlayer && shogunPlayer.progression) {
                 shogunPlayer.progression.subWeapon = t;
                 shogunPlayer.progression.normalCombo = t;
@@ -770,19 +696,17 @@
                 // 状態・入力の同期
                 if (isShogunMode()) {
                     // 将軍はゲームの実プレイアブル将軍。移動・ジャンプ・ダッシュ・しゃがみ・攻撃・
-                    // 二刀Zは shogunPlayer.update → handleInput(applyShogunCombat) が処理する。
+                    // 二刀Zは shogunPlayer.update → combatController.handleInput が処理する。
                     // 奥義(SPECIAL)はゲージ充填のため UI(btnOugi)経由。
                     if (input.isActionJustPressed('SPECIAL')) document.getElementById('btnOugi').click();
-                    // サブ武器切替(C): 将軍はプレイヤーに subWeapons 配列を持たず UI(window._previewWeapon)で
-                    // 選択する方式のため、handleInput の switchSubWeapon では切り替わらない。Cキーを検知して
-                    // cycleSubWeapon を呼び、選択を進める（次フレームのアイドル同期で内部ボスへ装備される）。
+                    // サブ武器切替(C): 実ゲームと同じく player.subWeapons/currentSubWeapon を切り替える。
                     if (input.isActionJustPressed('SWITCH_WEAPON')) cycleSubWeapon();
                     // プレビューUIで選択中のサブ武器をプレイヤーに装備（アイドル時のみ）。
-                    // ゲームの switchSubWeapon 相当: プレイヤーの currentSubWeapon(realSub) に設定すると
-                    // applyShogunCombat が内部ボスの _subWeaponKey へ反映し、X(SUB_WEAPON)で発動できる。
+                    // ゲームの switchSubWeapon 相当: プレイヤーの currentSubWeapon(実装備)に設定すると
+                    // 戦闘コントローラが内部ボスの _subWeaponKey へ反映し、X(SUB_WEAPON)で発動できる。
                     const _shogunBusy = shogun._attackTimer > 0 || shogun._subTimer > 0 || shogun.isAttacking;
                     if (!_shogunBusy && window._previewWeapon) {
-                        shogunPlayer.currentSubWeapon = shogun._subWeaponInstances[window._previewWeapon] || null;
+                        equipShogunPreviewWeapon(window._previewWeapon);
                     }
                     shogunPlayer.update(dt, [], []);
                 } else {
@@ -793,7 +717,6 @@
 
                     // 忍者の更新。入力処理・物理・サブ武器更新も内部で完結。
                     ninja.update(dt, [], []);
-                    syncPreviewCloneSubWeapons(ninja, ninja.currentSubWeapon, ninja.subWeaponTimer, ninja.subWeaponAction);
 
                     // 忍者の忍具切り替えを監視してUI同期
                     if (ninja.subWeaponIndex !== window.lastNinjaSubIndex) {
@@ -805,7 +728,7 @@
                             const sIdx = subWeapons.indexOf(targetKey);
                             if (sIdx !== -1) subIndex = sIdx;
                             window._previewWeapon = targetKey;
-                            shogunPlayer.currentSubWeapon = shogun._subWeaponInstances[targetKey] || null;
+                            equipShogunPreviewWeapon(targetKey);
                         }
                         updateUI();
                     }

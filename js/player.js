@@ -6,19 +6,25 @@ import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js';
 import { input } from './input.js';
 import { audio } from './audio.js';
 import { game } from './game.js';
-import { drawShurikenShape } from './weapon.js';
 import {
-    ANIM_STATE, COMBO_ATTACKS, NORMAL_COMBO_STEP3_LAUNCH_VY, calcExpToNextForLevel,
+    ANIM_STATE, COMBO_ATTACKS, calcExpToNextForLevel,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN, LEVEL_UP_ATK_GAIN,
     PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y
 } from './playerData.js';
+import {
+    applyNormalComboActiveMotion,
+    applyNormalComboStartMotion,
+    freezeNormalComboFinisherTrailCurve,
+    prepareNormalComboFinisherProfile
+} from './normalComboMotion.js';
 import { applyRendererMixin }    from './playerRenderer.js';
 import { applySlashTrailMixin }  from './playerSlashTrail.js';
 import { applySpecialMixin }     from './playerSpecial.js';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
+import { SHOGUN_CROUCH_INTENSITY } from './shogunConstants.js';
 
 export { ANIM_STATE };
 
@@ -34,8 +40,8 @@ export class Player {
         this.width = PLAYER.WIDTH;
         this.height = PLAYER.HEIGHT;
 
-        // 将軍コンバットの適用（メソッド上書きなどの準備）
-        applyShogunCombat(this);
+        // 将軍コンバットは Player の正式な委譲先として保持する
+        this.combatController = null;
         
         // 速度
         this.vx = 0;
@@ -208,9 +214,29 @@ export class Player {
         this.previewScarfNodes = [];
         this.previewHairNodes = [];
         this.previewMode = false;
+
+        applyShogunCombat(this);
+    }
+
+    hasCombatControllerMethod(methodName) {
+        return !!(
+            this.characterType === 'shogun' &&
+            this.combatController &&
+            typeof this.combatController[methodName] === 'function'
+        );
+    }
+
+    getCombatSubWeapon() {
+        if (this.hasCombatControllerMethod('getCombatSubWeapon')) {
+            return this.combatController.getCombatSubWeapon.call(this);
+        }
+        return this.currentSubWeapon || null;
     }
 
     getHitbox() {
+        if (this.hasCombatControllerMethod('getHitbox')) {
+            return this.combatController.getHitbox.call(this);
+        }
         return {
             x: this.x,
             y: this.y,
@@ -610,6 +636,9 @@ export class Player {
     }
     
     update(deltaTime, walls = [], enemies = []) {
+        if (this.hasCombatControllerMethod('update')) {
+            return this.combatController.update.call(this, deltaTime, walls, enemies);
+        }
         const deltaMs = deltaTime * 1000;
         this.updateTemporaryNinjutsu(deltaMs);
 
@@ -821,6 +850,9 @@ export class Player {
         }
     }
     handleInput() {
+        if (this.hasCombatControllerMethod('handleInput')) {
+            return this.combatController.handleInput.call(this);
+        }
         // ========== プレビューモード：攻撃・忍具・武器切替のみ ==========
         if (this.previewMode) {
             if (input.isActionJustPressed('SWITCH_WEAPON')) {
@@ -1039,6 +1071,9 @@ export class Player {
     }
 
     bufferNextAttack() {
+        if (this.hasCombatControllerMethod('bufferNextAttack')) {
+            return this.combatController.bufferNextAttack.call(this);
+        }
         if (!this.isAttacking || !this.currentAttack) return false;
         if (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') return false;
         if (this.currentAttack.comboStep >= this.getNormalComboMax()) return false;
@@ -1098,6 +1133,9 @@ export class Player {
 
 
     attack({ fromBuffer = false } = {}) {
+        if (this.hasCombatControllerMethod('attack')) {
+            return this.combatController.attack.call(this, { fromBuffer });
+        }
         const dualBladeEquipped = !!(
             this.currentSubWeapon &&
             this.currentSubWeapon.name === '二刀流'
@@ -1237,60 +1275,26 @@ export class Player {
         this.attackTimer = this.currentAttack.durationMs;
         this.attackCooldown = Math.max(28, this.currentAttack.durationMs * this.currentAttack.cooldownScale);
         this.comboResetTimer = (this.currentAttack.chainWindowMs || 60) + 190;
-        const direction = this.facingRight ? 1 : -1;
-        const impulse = (this.currentAttack.impulse || 1) * this.speed;
         const step = this.currentAttack.comboStep;
         
         if (step === 4 || step === 5) {
             this.restrictAirCombo1 = true;
         }
 
-        if (this.isCrouching) {
-            this.vx = direction * impulse * 0.28;
-        } else if (step === 1) {
-            // 一段目は後方へ返す斬り。ジャンプせず地上寄りで繋ぐ
-            const groundedAtStart = this.isGrounded;
-            this.vx *= 0.12;
-            if (Math.abs(this.vx) < 0.2) this.vx = 0;
-            if (groundedAtStart) {
-                this.vy = 0;
-                this.isGrounded = true;
-            } else {
-                // 空中発動時も上方向へは伸びないようにする
-                this.vy = Math.max(this.vy, -0.8);
-            }
-        } else if (step === 2) {
-            // 二段目は一段終点から自然に繋ぐため、地上始動を優先
-            this.vx = this.vx * 0.16 + direction * impulse * 0.9;
-            if (this.isGrounded) {
-                this.vy = 0;
-                this.isGrounded = true;
-            } else {
-                this.vy = Math.min(this.vy, -1.2);
-            }
-        } else if (step === 3) {
-            this.vx = this.vx * 0.12 + direction * impulse * 1.71;
-            this.vy = Math.min(this.vy, NORMAL_COMBO_STEP3_LAUNCH_VY);
-            this.isGrounded = false;
-        } else if (step === 4) {
-            this.vx = this.vx * 0.24 + direction * impulse * 0.42;
-            this.vy = Math.min(this.vy, -10.6);
-            this.isGrounded = false;
-        } else if (step === 5) {
+        if (step === 5) {
             // 五段目: 頭上から水平に叩きつける落下技
-            this.currentAttack.knockbackX = 16;
-            this.currentAttack.knockbackY = -7;
-            this.currentAttack.range = Math.max(this.currentAttack.range || 0, 128);
+            prepareNormalComboFinisherProfile(this.currentAttack);
             this.finisherLandingSeparationTimer = Math.max(this.finisherLandingSeparationTimer, 700);
             this.finisherAirLockTimer = Math.max(this.finisherAirLockTimer, 2200);
-            this.vx = this.vx * 0.18;
-            this.vy = Math.max(this.vy, 3.4);
-            this.isGrounded = false;
         }
+        applyNormalComboStartMotion(this, this.currentAttack, { isCrouching: this.isCrouching });
         this.animState = this.currentAttack.type;
     }
     
     useSubWeapon() {
+        if (this.hasCombatControllerMethod('useSubWeapon')) {
+            return this.combatController.useSubWeapon.call(this);
+        }
         if (this.currentSubWeapon) {
             this.currentSubWeapon.use(this);
         }
@@ -1332,6 +1336,9 @@ export class Player {
     }
     
     updateAttack(deltaTime) {
+        if (this.hasCombatControllerMethod('updateAttack')) {
+            return this.combatController.updateAttack.call(this, deltaTime);
+        }
         const deltaMs = deltaTime * 1000;
         const activeAttack = this.currentAttack;
         if (activeAttack) {
@@ -1343,97 +1350,13 @@ export class Player {
             activeAttack.motionElapsedMs = Math.max(0, Math.min(duration, prevMotionElapsed + motionCapMs));
         }
 
-        if (activeAttack && activeAttack.comboStep && this.isGrounded) {
-            this.vx *= 0.965;
-        }
-        if (activeAttack && activeAttack.comboStep === 1 && this.attackTimer > 0) {
-            const duration = Math.max(1, activeAttack.durationMs || PLAYER.ATTACK_COOLDOWN);
-            const progress = Math.max(0, Math.min(1, 1 - (this.attackTimer / duration)));
-            const direction = this.facingRight ? 1 : -1;
-            const wind = Math.max(0, Math.min(1, progress / 0.36));
-            const swing = Math.max(0, Math.min(1, (progress - 0.36) / 0.64));
-            const swingEase = swing * swing * (3 - 2 * swing);
-            // 1撃目は「返し斬り」だけ行い、後方ステップはさせない
-            const targetVx = 0;
-            this.vx = this.vx * 0.62 + targetVx * 0.38;
-            if (this.vx * direction < 0) this.vx = 0;
-            if (Math.abs(this.vx) < 0.18) this.vx = 0;
-            if (this.isGrounded) {
-                this.vy = 0;
-            } else {
-                this.vy = Math.max(this.vy, 1.2);
-            }
-        } else if (activeAttack && activeAttack.comboStep === 4 && this.attackTimer > 0) {
-            const duration = Math.max(1, activeAttack.durationMs || PLAYER.ATTACK_COOLDOWN);
-            const progress = Number.isFinite(activeAttack.motionElapsedMs)
-                ? Math.max(0, Math.min(1, activeAttack.motionElapsedMs / duration))
-                : Math.max(0, Math.min(1, 1 - (this.attackTimer / duration)));
-            const direction = this.facingRight ? 1 : -1;
-            const z4HeightScale = 0.96;
-
-            // 四段目: 高く切り上げた後、頭の高さを維持しながら宙返りして5段目へ
-            if (progress < 0.42) {
-                const t = progress / 0.42;
-                this.vx = this.vx * 0.52 + direction * this.speed * (0.2 - t * 0.08);
-                this.vy = (-20.4 + t * 2.6) * z4HeightScale;
-            } else if (progress < 0.9) {
-                const t = (progress - 0.42) / 0.48;
-                const backSpeed = this.speed * (0.66 + t * 0.94);
-                // 宙返り中は高度を維持しつつ、わずかに上下して自然な重心移動を出す
-                const holdVy = (-0.9 + t * 1.18) * z4HeightScale;
-                this.vx = this.vx * 0.4 + (-direction * backSpeed) * 0.6;
-                this.vy = holdVy;
-                this.vy = Math.max(-1.0, Math.min(0.95, this.vy));
-            } else {
-                this.vx *= 0.78;
-                this.vy = Math.min(this.vy, 0.55);
-            }
-            // ヒット時の負荷やノックバック干渉で上昇が潰れないよう、4段目前半は上昇速度を強力に補正
-            if (progress < 0.72) {
-                const riseLockT = Math.max(0, Math.min(1, progress / 0.72));
-                const minRiseVy = (-18.8 + riseLockT * 14.8) * z4HeightScale;
-                this.vy = Math.min(this.vy, minRiseVy);
-                // 上昇中は接地判定を強制解除
-                this.isGrounded = false;
-            }
-            this.isGrounded = false;
-        } else if (activeAttack && activeAttack.comboStep === 5 && (this.attackTimer > 0 || !this.isGrounded)) {
-            const duration = Math.max(1, activeAttack.durationMs || PLAYER.ATTACK_COOLDOWN);
-            const progress = Math.max(0, Math.min(1, 1 - (this.attackTimer / duration)));
-            const direction = this.facingRight ? 1 : -1;
-            if (progress < 0.26) {
-                this.vx *= 0.82;
-                this.vy = Math.min(this.vy, -1.2);
-            } else if (progress < 0.76) {
-                const fallT = (progress - 0.26) / 0.5;
-                this.vx = this.vx * 0.7 + direction * this.speed * 0.08;
-                this.vy = this.vy * 0.34 + (9.8 + fallT * 19.8) * 0.66;
-            } else {
-                this.vx *= 0.64;
-                if (!this.isGrounded) {
-                    this.vy = Math.max(this.vy, 13.4);
-                }
-                if (activeAttack && activeAttack.trailCurveFrozen !== true) {
-                    if (Number.isFinite(activeAttack.trailCurveEndX) && Number.isFinite(activeAttack.trailCurveEndY)) {
-                        const slashFloorY = (this.groundY + LANE_OFFSET) - Math.max(10, this.height * 0.1);
-                        const frozenEndY = Math.min(activeAttack.trailCurveEndY, slashFloorY);
-                        activeAttack.trailCurveEndY = frozenEndY;
-                        activeAttack.trailCurveControlY = Math.min(activeAttack.trailCurveControlY, frozenEndY);
-                        activeAttack.trailCurveFrozen = true;
-                        if (Array.isArray(this.comboSlashTrailPoints)) {
-                            for (let i = 0; i < this.comboSlashTrailPoints.length; i++) {
-                                const p = this.comboSlashTrailPoints[i];
-                                if (!p || (p.step || 0) !== 5) continue;
-                                p.trailCurveEndX = activeAttack.trailCurveEndX;
-                                p.trailCurveEndY = frozenEndY;
-                                p.trailCurveControlX = activeAttack.trailCurveControlX;
-                                p.trailCurveControlY = Math.min(activeAttack.trailCurveControlY, frozenEndY);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        applyNormalComboActiveMotion(this, activeAttack, this.attackTimer);
+        freezeNormalComboFinisherTrailCurve(activeAttack, {
+            attackTimer: this.attackTimer,
+            groundY: this.groundY,
+            ownerHeight: this.height,
+            trailPoints: this.comboSlashTrailPoints
+        });
         this.attackTimer -= deltaMs;
 
         // 通常コンボはモーション完了前のキャンセル遷移を厳格に制限（4段目の宙返りなどを完遂させる）
@@ -2179,7 +2102,7 @@ export class Player {
 
     getCrouchRenderIntensity() {
         // 将軍式の重心移動を忍者の頭身に合わせて控えめに適用する
-        return this.characterType === 'shogun' ? 0.35 : 0.22;
+        return this.characterType === 'shogun' ? SHOGUN_CROUCH_INTENSITY : 0.22;
     }
 
     isGhostVeilActive() {
@@ -2424,17 +2347,15 @@ export class Player {
     }
 
 
-    /**
-     * ポニーテールの共通描画メソッド
-     */
-
-    /**
-     * 鉢巻テールの共通描画メソッド
-     */
-
-
     // 攻撃判定の取得（当たり判定用）
     getAttackHitbox(options = {}) {
+        if (this.hasCombatControllerMethod('getAttackHitbox')) {
+            return this.combatController.getAttackHitbox.call(this, options);
+        }
+        return this.getBaseAttackHitbox(options);
+    }
+
+    getBaseAttackHitbox(options = {}) {
         const state = options.state || this;
         const isAttacking = state.isAttacking !== undefined ? state.isAttacking : this.isAttacking;
         const currentAttack = state.currentAttack !== undefined ? state.currentAttack : this.currentAttack;

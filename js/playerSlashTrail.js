@@ -1,16 +1,7 @@
 // Unification of the Nation - 斬撃トレイル mixin
 
 import { PLAYER, FRICTION, LANE_OFFSET } from './constants.js';
-import { audio } from './audio.js';
-import { game } from './game.js';
-import { drawShurikenShape } from './weapon.js';
-import {
-    ANIM_STATE, COMBO_ATTACKS, PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
-    PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
-    PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
-    PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y,
-    BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
-} from './playerData.js';
+import { COMBO_ATTACKS } from './playerData.js';
 
 export function applySlashTrailMixin(PlayerClass) {
 
@@ -67,6 +58,10 @@ export function applySlashTrailMixin(PlayerClass) {
         const offsetY = isRelative ? (Number.isFinite(forceOffsetY) ? forceOffsetY : (Number.isFinite(point.playerY) ? point.playerY : fallbackY)) : 0;
         return {
             ...point,
+            x: Number.isFinite(point.x) ? point.x + offsetX : point.x,
+            y: Number.isFinite(point.y) ? point.y + offsetY : point.y,
+            centerX: Number.isFinite(point.centerX) ? point.centerX + offsetX : point.centerX,
+            centerY: Number.isFinite(point.centerY) ? point.centerY + offsetY : point.centerY,
             age: point.age || 0,
             trailCurveStartX: Number.isFinite(point.trailCurveStartX) ? point.trailCurveStartX + offsetX : point.trailCurveStartX,
             trailCurveStartY: Number.isFinite(point.trailCurveStartY) ? point.trailCurveStartY + offsetY : point.trailCurveStartY,
@@ -74,6 +69,12 @@ export function applySlashTrailMixin(PlayerClass) {
             trailCurveControlY: Number.isFinite(point.trailCurveControlY) ? point.trailCurveControlY + offsetY : point.trailCurveControlY,
             trailCurveEndX: Number.isFinite(point.trailCurveEndX) ? point.trailCurveEndX + offsetX : point.trailCurveEndX,
             trailCurveEndY: Number.isFinite(point.trailCurveEndY) ? point.trailCurveEndY + offsetY : point.trailCurveEndY,
+            trailTransformPlayerX: Number.isFinite(point.trailTransformPlayerX)
+                ? point.trailTransformPlayerX
+                : (Number.isFinite(point.playerX) ? point.playerX : fallbackX),
+            trailTransformPlayerY: Number.isFinite(point.trailTransformPlayerY)
+                ? point.trailTransformPlayerY
+                : (Number.isFinite(point.playerY) ? point.playerY : fallbackY),
             trailIsRelative: false
         };
     };
@@ -88,6 +89,10 @@ export function applySlashTrailMixin(PlayerClass) {
         const frozenCurvePoints = frozenPoints.map((point) => ({
             x: point.x,
             y: point.y,
+            playerX: Number.isFinite(point.playerX) ? point.playerX : undefined,
+            playerY: Number.isFinite(point.playerY) ? point.playerY : undefined,
+            trailTransformPlayerX: Number.isFinite(point.trailTransformPlayerX) ? point.trailTransformPlayerX : undefined,
+            trailTransformPlayerY: Number.isFinite(point.trailTransformPlayerY) ? point.trailTransformPlayerY : undefined,
             age: Math.max(0, point.age || 0),
             life: Math.max(1, point.life || this.comboSlashTrailActiveLifeMs)
         }));
@@ -136,7 +141,7 @@ export function applySlashTrailMixin(PlayerClass) {
             const forceOffsetX = frozenBoostAnchor ? frozenBoostAnchor.baseCenterX - this.width * 0.5 : null;
             const forceOffsetY = frozenBoostAnchor ? frozenBoostAnchor.baseCenterY - this.height * 0.5 : null;
 
-            if ([1, 2].includes(stepNum)) {
+            if (stepNum === 1) {
                 const frozenSnapshot = this.buildFrozenSampledBezierSnapshot(stepNum, stepPoints, forceOffsetX, forceOffsetY);
                 if (frozenSnapshot) {
                     frozenSnapshot.boostAnchor = frozenBoostAnchor;
@@ -144,7 +149,7 @@ export function applySlashTrailMixin(PlayerClass) {
                     frozenSnapshot.frozenTrailCenterY = frozenTrailCenterY;
                     this.comboSlashTrailFrozenCurves.push(frozenSnapshot);
                 }
-            } else if ([5].includes(stepNum)) {
+            } else if ([2, 5].includes(stepNum)) {
                 // ベジェ曲線段: 最新のパラメータを保存
                 const lastPt = stepPoints.length > 0 ? stepPoints[stepPoints.length - 1] : null;
                 const firstPt = stepPoints.length > 0 ? stepPoints[0] : null;
@@ -173,14 +178,32 @@ export function applySlashTrailMixin(PlayerClass) {
                         trailIsRelative: fixedCurvePt ? !!fixedCurvePt.trailFixedCurveIsRelative : !!lastPt.trailIsRelative,
                         playerX: Number.isFinite(forceOffsetX)
                             ? forceOffsetX
-                            : (Number.isFinite(curvePt.trailFixedCurvePlayerX)
-                                ? curvePt.trailFixedCurvePlayerX
-                                : (Number.isFinite(lastPt.playerX) ? lastPt.playerX : this.x)),
+                            : (Number.isFinite(curvePt.trailTransformPlayerX)
+                                ? curvePt.trailTransformPlayerX
+                                : (Number.isFinite(curvePt.trailFixedCurvePlayerX)
+                                    ? curvePt.trailFixedCurvePlayerX
+                                    : (Number.isFinite(lastPt.playerX) ? lastPt.playerX : this.x))),
                         playerY: Number.isFinite(forceOffsetY)
                             ? forceOffsetY
-                            : (Number.isFinite(curvePt.trailFixedCurvePlayerY)
-                                ? curvePt.trailFixedCurvePlayerY
-                                : (Number.isFinite(lastPt.playerY) ? lastPt.playerY : this.y)),
+                            : (Number.isFinite(curvePt.trailTransformPlayerY)
+                                ? curvePt.trailTransformPlayerY
+                                : (Number.isFinite(curvePt.trailFixedCurvePlayerY)
+                                    ? curvePt.trailFixedCurvePlayerY
+                                    : (Number.isFinite(lastPt.playerY) ? lastPt.playerY : this.y))),
+                        trailTransformPlayerX: Number.isFinite(forceOffsetX)
+                            ? forceOffsetX
+                            : (Number.isFinite(curvePt.trailTransformPlayerX)
+                                ? curvePt.trailTransformPlayerX
+                                : (Number.isFinite(curvePt.trailFixedCurvePlayerX)
+                                    ? curvePt.trailFixedCurvePlayerX
+                                    : (Number.isFinite(lastPt.playerX) ? lastPt.playerX : this.x))),
+                        trailTransformPlayerY: Number.isFinite(forceOffsetY)
+                            ? forceOffsetY
+                            : (Number.isFinite(curvePt.trailTransformPlayerY)
+                                ? curvePt.trailTransformPlayerY
+                                : (Number.isFinite(curvePt.trailFixedCurvePlayerY)
+                                    ? curvePt.trailFixedCurvePlayerY
+                                    : (Number.isFinite(lastPt.playerY) ? lastPt.playerY : this.y))),
                         age: Math.max(0, lastPt.age || 0), // 新しい（剣先の）フェードアウト度合い
                         oldestAge: Math.max(0, firstPt ? firstPt.age : (lastPt.age || 0)), // 古い（根本の）フェードアウト度合い
                         life: Math.max(1, lastPt.life || this.comboSlashTrailActiveLifeMs),
@@ -195,15 +218,39 @@ export function applySlashTrailMixin(PlayerClass) {
                 if (stepPoints.length >= 2) {
                     const lastPt = stepPoints[stepPoints.length - 1];
                     const firstPt = stepPoints[0];
-                    const footX = this.getFootX ? this.getFootX() : (this.x + this.width * 0.5);
                     const footY = this.getFootY ? this.getFootY() : (this.y + this.height);
+                    const frozenPoints = stepPoints
+                        .map((p) => {
+                            const frozen = this.absolutizeRelativeTrailPoint(
+                                p,
+                                this.x,
+                                this.y,
+                                forceOffsetX,
+                                forceOffsetY
+                            );
+                            if (!frozen) return null;
+                            frozen.age = p.age || 0;
+                            frozen.trailTransformPlayerX = Number.isFinite(p.trailTransformPlayerX)
+                                ? p.trailTransformPlayerX
+                                : (Number.isFinite(p.playerX)
+                                    ? p.playerX
+                                    : (Number.isFinite(forceOffsetX) ? forceOffsetX : this.x));
+                            frozen.trailTransformPlayerY = Number.isFinite(p.trailTransformPlayerY)
+                                ? p.trailTransformPlayerY
+                                : (Number.isFinite(p.playerY)
+                                    ? p.playerY
+                                    : (Number.isFinite(forceOffsetY) ? forceOffsetY : this.y));
+                            return frozen;
+                        })
+                        .filter(Boolean);
+                    if (frozenPoints.length < 2) continue;
                     this.comboSlashTrailFrozenCurves.push({
                         type: 'points',
                         step: stepNum,
                         // メインバッファでの年齢を引き継ぐ
-                        frozenPoints: stepPoints.map(p => ({ ...p, age: p.age || 0 })),
+                        frozenPoints,
                         frozenFootY: footY,
-                        trailIsRelative: !!lastPt.trailIsRelative,
+                        trailIsRelative: false,
                         age: Math.max(0, lastPt.age || 0), // 新しい（剣先の）フェードアウト度合い
                         oldestAge: Math.max(0, firstPt.age || 0), // 古い（根本の）フェードアウト度合い
                         life: Math.max(1, lastPt.life || this.comboSlashTrailActiveLifeMs),
@@ -360,22 +407,25 @@ export function applySlashTrailMixin(PlayerClass) {
         ) {
             return cached;
         }
-        const isShogunBodySlot = !!(
-            this.characterType === 'shogun' &&
-            Array.isArray(this.specialCloneSlots) &&
-            this.specialCloneSlots[index] === 0
-        );
-        const poseWidth = isShogunBodySlot ? PLAYER.WIDTH : this.width;
-        const poseHeight = this.height;
+        const isShogunClone = this.characterType === 'shogun';
+        const poseWidth = isShogunClone ? PLAYER.WIDTH : this.width;
+        const poseHeight = isShogunClone ? PLAYER.HEIGHT : this.height;
+        const poseOriginX = isShogunClone
+            ? pos.x - this.width * 0.5
+            : pos.x - poseWidth * 0.5;
         const profile = this.applyComboTrailSpecToAttackProfile(
             { ...this.currentAttack },
             {
-                x: pos.x - poseWidth * 0.5,
+                x: poseOriginX,
                 y: cloneDrawY,
                 width: poseWidth,
                 height: poseHeight,
                 facingRight: pos.facingRight,
                 isCrouching: false,
+                isGrounded: this.isGrounded,
+                groundY: this.groundY,
+                renderScale: this.scaleMultiplier,
+                scaleMultiplier: this.scaleMultiplier,
                 vx: this.vx,
                 vy: this.vy,
                 speed: this.speed
@@ -452,6 +502,16 @@ export function applySlashTrailMixin(PlayerClass) {
             case 5: return { start: 0.15, end: 0.94 };
             default: return { start: 0, end: 1 };
         }
+    };
+
+    PlayerClass.prototype.getComboTrailBodyMotionScale = function(state = {}) {
+        const baseSpeed = Number.isFinite(PLAYER.SPEED) && PLAYER.SPEED > 0
+            ? PLAYER.SPEED
+            : 1;
+        const currentSpeed = Number.isFinite(state.speed) && state.speed > 0
+            ? state.speed
+            : (Number.isFinite(this.speed) && this.speed > 0 ? this.speed : baseSpeed);
+        return baseSpeed / currentSpeed;
     };
 
     PlayerClass.prototype.shouldKeepComboTrailDuringReturn = function(comboStep) {
@@ -534,16 +594,7 @@ export function applySlashTrailMixin(PlayerClass) {
         const isCrouching = state.isCrouching !== undefined ? state.isCrouching : this.isCrouching;
         const speed = Number.isFinite(state.speed) ? state.speed : this.speed;
         const dir = facingRight ? 1 : -1;
-        let renderScale = 1;
-        if (Number.isFinite(state.renderScale)) {
-            renderScale = state.renderScale;
-        } else if (Number.isFinite(state.scaleMultiplier)) {
-            renderScale = state.scaleMultiplier;
-        } else if (Number.isFinite(this.scaleMultiplier)) {
-            renderScale = this.scaleMultiplier;
-        }
-        renderScale = Math.max(1, renderScale);
-        const bodyMotionScale = 1 / renderScale;
+        const bodyMotionScale = this.getComboTrailBodyMotionScale(state);
         const step2ImpulseScale = 0.9;
         const durationMs = Math.max(1, attack.durationMs || PLAYER.ATTACK_COOLDOWN);
         const sampleTargets = [0.0, 0.42, 1.0];
@@ -645,7 +696,9 @@ export function applySlashTrailMixin(PlayerClass) {
             trailCurveControlY: controlY,
             trailCurveEndX: end.x,
             trailCurveEndY: end.y,
-            trailIsRelative: false
+            trailIsRelative: false,
+            trailTransformPlayerX: x,
+            trailTransformPlayerY: y
         };
     };
 
@@ -658,16 +711,7 @@ export function applySlashTrailMixin(PlayerClass) {
         const attack = state.attack || this.currentAttack || null;
         const dir = facingRight ? 1 : -1;
         const bladeLen = this.getKatanaBladeLength();
-        let renderScale = 1;
-        if (Number.isFinite(state.renderScale)) {
-            renderScale = state.renderScale;
-        } else if (Number.isFinite(state.scaleMultiplier)) {
-            renderScale = state.scaleMultiplier;
-        } else if (Number.isFinite(this.scaleMultiplier)) {
-            renderScale = this.scaleMultiplier;
-        }
-        renderScale = Math.max(1, renderScale);
-        const bodyMotionScale = 1 / renderScale;
+        const bodyMotionScale = this.getComboTrailBodyMotionScale(state);
         const smooth = (t) => {
             const v = Math.max(0, Math.min(1, t));
             return v * v * (3 - 2 * v);
@@ -755,7 +799,10 @@ export function applySlashTrailMixin(PlayerClass) {
             trailCurveControlX: controlX,
             trailCurveControlY: controlY,
             trailCurveEndX: end.x,
-            trailCurveEndY: end.y
+            trailCurveEndY: end.y,
+            trailIsRelative: false,
+            trailTransformPlayerX: x,
+            trailTransformPlayerY: y
         };
     };
 
@@ -771,6 +818,7 @@ export function applySlashTrailMixin(PlayerClass) {
             const dir = facingRight ? 1 : -1;
             const bladeLen = this.getKatanaBladeLength();
             const durationMs = Math.max(1, attack?.durationMs || PLAYER.ATTACK_COOLDOWN);
+            const bodyMotionScale = this.getComboTrailBodyMotionScale(state);
             // 将軍も忍者と同一の正規化ポーズ空間(height=72固定)で生成し、拡大はboss.js側のrenderScaleに一任する。
             // ここで shogun だけ height/36(=2) にすると投影のrenderScale(2.2)と二重に掛かり、剣筋が遥か上空へ飛ぶ。
             const scale = height / 72;
@@ -841,8 +889,8 @@ export function applySlashTrailMixin(PlayerClass) {
                     simVx *= 0.64;
                     simVy = Math.max(simVy, 13.4);
                 }
-                simX += simVx;
-                simY += simVy + 0.8;
+                simX += simVx * bodyMotionScale;
+                simY += (simVy + 0.8) * bodyMotionScale;
                 timerMs = Math.max(0, timerMs - frameMs);
             }
             while (sampleIndex < sampleTargets.length) {
@@ -881,7 +929,9 @@ export function applySlashTrailMixin(PlayerClass) {
                 trailCurveControlY: controlY,
                 trailCurveEndX: end.x,
                 trailCurveEndY: end.y,
-                trailIsRelative: false
+                trailIsRelative: false,
+                trailTransformPlayerX: x,
+                trailTransformPlayerY: y
             };
             return spec;
         }
@@ -1256,7 +1306,13 @@ export function applySlashTrailMixin(PlayerClass) {
             trailRadius,
             trailCenterX,
             trailCenterY,
-            trailIsRelative: attack ? attack.trailIsRelative : undefined
+            trailIsRelative: attack ? attack.trailIsRelative : undefined,
+            trailTransformPlayerX: attack && Number.isFinite(attack.trailTransformPlayerX)
+                ? attack.trailTransformPlayerX
+                : undefined,
+            trailTransformPlayerY: attack && Number.isFinite(attack.trailTransformPlayerY)
+                ? attack.trailTransformPlayerY
+                : undefined
         };
     };
 
@@ -1306,7 +1362,13 @@ export function applySlashTrailMixin(PlayerClass) {
             trailRadius: swordPose.trailRadius,
             centerX: Number.isFinite(swordPose.trailCenterX) ? swordPose.trailCenterX : swordPose.centerX,
             centerY: Number.isFinite(swordPose.trailCenterY) ? swordPose.trailCenterY : swordPose.centerY,
-            trailIsRelative: swordPose.trailIsRelative
+            trailIsRelative: swordPose.trailIsRelative,
+            trailTransformPlayerX: Number.isFinite(swordPose.trailTransformPlayerX)
+                ? swordPose.trailTransformPlayerX
+                : undefined,
+            trailTransformPlayerY: Number.isFinite(swordPose.trailTransformPlayerY)
+                ? swordPose.trailTransformPlayerY
+                : undefined
         };
     };
 
@@ -1417,14 +1479,18 @@ export function applySlashTrailMixin(PlayerClass) {
                 trailFixedCurveEndY: endY,
                 trailFixedCurvePlayerX: Number.isFinite(source.trailFixedCurvePlayerX)
                     ? source.trailFixedCurvePlayerX
-                    : (Number.isFinite(source.playerX)
-                        ? source.playerX
-                        : (Number.isFinite(source.originX) ? source.originX : this.x)),
+                    : (Number.isFinite(source.trailTransformPlayerX)
+                        ? source.trailTransformPlayerX
+                        : (Number.isFinite(source.playerX)
+                            ? source.playerX
+                            : (Number.isFinite(source.originX) ? source.originX : this.x))),
                 trailFixedCurvePlayerY: Number.isFinite(source.trailFixedCurvePlayerY)
                     ? source.trailFixedCurvePlayerY
-                    : (Number.isFinite(source.playerY)
-                        ? source.playerY
-                        : (Number.isFinite(source.originY) ? source.originY : this.y)),
+                    : (Number.isFinite(source.trailTransformPlayerY)
+                        ? source.trailTransformPlayerY
+                        : (Number.isFinite(source.playerY)
+                            ? source.playerY
+                            : (Number.isFinite(source.originY) ? source.originY : this.y))),
                 trailFixedCurveIsRelative: useFixed
                     ? !!source.trailFixedCurveIsRelative
                     : !!source.trailIsRelative
@@ -1528,6 +1594,12 @@ export function applySlashTrailMixin(PlayerClass) {
                     trailIsRelative: pose.trailIsRelative,
                     playerX: Number.isFinite(pose.originX) ? pose.originX : this.x,
                     playerY: Number.isFinite(pose.originY) ? pose.originY : this.y,
+                    trailTransformPlayerX: Number.isFinite(pose.trailTransformPlayerX)
+                        ? pose.trailTransformPlayerX
+                        : (!pose.trailIsRelative && Number.isFinite(pose.originX) ? pose.originX : undefined),
+                    trailTransformPlayerY: Number.isFinite(pose.trailTransformPlayerY)
+                        ? pose.trailTransformPlayerY
+                        : (!pose.trailIsRelative && Number.isFinite(pose.originY) ? pose.originY : undefined),
                     step: currentPoseStep,
                     trailAttackId: activeTrailId,
                     trailScale: sampleTrailScale,
@@ -1563,6 +1635,16 @@ export function applySlashTrailMixin(PlayerClass) {
                     last.trailIsRelative = pose.trailIsRelative !== undefined ? pose.trailIsRelative : last.trailIsRelative;
                     last.playerX = Number.isFinite(pose.originX) ? pose.originX : last.playerX;
                     last.playerY = Number.isFinite(pose.originY) ? pose.originY : last.playerY;
+                    last.trailTransformPlayerX = Number.isFinite(pose.trailTransformPlayerX)
+                        ? pose.trailTransformPlayerX
+                        : (!last.trailIsRelative && Number.isFinite(last.trailTransformPlayerX)
+                            ? last.trailTransformPlayerX
+                            : (!last.trailIsRelative ? last.playerX : undefined));
+                    last.trailTransformPlayerY = Number.isFinite(pose.trailTransformPlayerY)
+                        ? pose.trailTransformPlayerY
+                        : (!last.trailIsRelative && Number.isFinite(last.trailTransformPlayerY)
+                            ? last.trailTransformPlayerY
+                            : (!last.trailIsRelative ? last.playerY : undefined));
                     last.step = currentPoseStep;
                     last.trailAttackId = activeTrailId;
                     last.trailScale = sampleTrailScale;
@@ -1666,7 +1748,9 @@ export function applySlashTrailMixin(PlayerClass) {
                             centerX: liveAnchors.back.handX,
                             centerY: liveAnchors.back.handY,
                             originX: Number.isFinite(liveAnchors.originX) ? liveAnchors.originX : pos.x,
-                            originY: Number.isFinite(liveAnchors.originY) ? liveAnchors.originY : (cloneDrawY + this.height * 0.5)
+                            originY: Number.isFinite(liveAnchors.originY) ? liveAnchors.originY : (cloneDrawY + this.height * 0.5),
+                            trailTransformPlayerX: Number.isFinite(liveAnchors.originX) ? liveAnchors.originX : pos.x,
+                            trailTransformPlayerY: Number.isFinite(liveAnchors.originY) ? liveAnchors.originY : (cloneDrawY + this.height * 0.5)
                         };
                         frontPose = {
                             tipX: liveAnchors.front.tipX,
@@ -1677,7 +1761,9 @@ export function applySlashTrailMixin(PlayerClass) {
                             centerX: liveAnchors.front.handX,
                             centerY: liveAnchors.front.handY,
                             originX: Number.isFinite(liveAnchors.originX) ? liveAnchors.originX : pos.x,
-                            originY: Number.isFinite(liveAnchors.originY) ? liveAnchors.originY : (cloneDrawY + this.height * 0.5)
+                            originY: Number.isFinite(liveAnchors.originY) ? liveAnchors.originY : (cloneDrawY + this.height * 0.5),
+                            trailTransformPlayerX: Number.isFinite(liveAnchors.originX) ? liveAnchors.originX : pos.x,
+                            trailTransformPlayerY: Number.isFinite(liveAnchors.originY) ? liveAnchors.originY : (cloneDrawY + this.height * 0.5)
                         };
                     }
                     
@@ -1759,14 +1845,10 @@ export function applySlashTrailMixin(PlayerClass) {
                         );
                         continue;
                     }
-                    const isShogunBodySlot = !!(
-                        this.characterType === 'shogun' &&
-                        Array.isArray(this.specialCloneSlots) &&
-                        (i === 0 || this.specialCloneSlots[i] === 0)
-                    );
-                    const poseWidth = isShogunBodySlot ? PLAYER.WIDTH : this.width;
-                    const poseHeight = isShogunBodySlot ? PLAYER.HEIGHT : this.height;
-                    const poseOriginX = isShogunBodySlot
+                    const isShogunClone = this.characterType === 'shogun';
+                    const poseWidth = isShogunClone ? PLAYER.WIDTH : this.width;
+                    const poseHeight = isShogunClone ? PLAYER.HEIGHT : this.height;
+                    const poseOriginX = isShogunClone
                         ? pos.x - this.width * 0.5
                         : pos.x - poseWidth * 0.5;
                     const poseOriginY = cloneDrawY;
@@ -1789,6 +1871,10 @@ export function applySlashTrailMixin(PlayerClass) {
                                     height: poseHeight,
                                     facingRight: pos.facingRight,
                                     isCrouching: false,
+                                    isGrounded: !pos.jumping,
+                                    groundY: this.groundY,
+                                    renderScale: this.scaleMultiplier,
+                                    scaleMultiplier: this.scaleMultiplier,
                                     vx: Number.isFinite(pos.cloneVx) ? pos.cloneVx : this.vx,
                                     vy: Number.isFinite(pos.cloneVy) ? pos.cloneVy : this.vy,
                                     speed: this.speed
@@ -1818,6 +1904,12 @@ export function applySlashTrailMixin(PlayerClass) {
                     if (pose) {
                         pose.originX = poseOriginX;
                         pose.originY = poseOriginY;
+                        pose.trailTransformPlayerX = Number.isFinite(pose.trailTransformPlayerX)
+                            ? pose.trailTransformPlayerX
+                            : (!pose.trailIsRelative ? poseOriginX : undefined);
+                        pose.trailTransformPlayerY = Number.isFinite(pose.trailTransformPlayerY)
+                            ? pose.trailTransformPlayerY
+                            : (!pose.trailIsRelative ? poseOriginY : undefined);
                     }
                     if (isAutoAi && !pose && comboStep > 0 && !this.shouldKeepComboTrailDuringReturn(comboStep)) {
                         this.specialCloneSlashTrailPoints[i].length = 0;
@@ -1866,6 +1958,11 @@ export function applySlashTrailMixin(PlayerClass) {
         const renderOptions = options;
         const usesExternalPoints = Array.isArray(options.points);
         const points = usesExternalPoints ? options.points : this.comboSlashTrailPoints;
+        const activePoints = Array.isArray(points) ? points : [];
+        const usesExternalFrozenCurves = Array.isArray(options.frozenCurves);
+        const frozenCurves = usesExternalFrozenCurves
+            ? options.frozenCurves
+            : (!usesExternalPoints && Array.isArray(this.comboSlashTrailFrozenCurves) ? this.comboSlashTrailFrozenCurves : []);
         const getBoostAnchor = typeof options.getBoostAnchor === 'function'
             ? options.getBoostAnchor
             : ((step) => this.comboSlashTrailBoostAnchors ? this.comboSlashTrailBoostAnchors[step] : null);
@@ -1878,17 +1975,22 @@ export function applySlashTrailMixin(PlayerClass) {
         const sourceIsAttacking = options.isAttacking !== undefined
             ? !!options.isAttacking
             : this.isAttacking;
-        const initialStep = Array.isArray(points) && points.length > 0
-            ? (points[points.length - 1]?.step || points[0]?.step || 0)
+        const initialStep = activePoints.length > 0
+            ? (activePoints[activePoints.length - 1]?.step || activePoints[0]?.step || 0)
             : 0;
+        const hasFrozenCurves = Array.isArray(frozenCurves) && frozenCurves.length > 0;
         
         // ベジェ曲線/弧を使っている段（1, 2, 4, 5）は1つのポイントに全データが入っているため、points.length < 2 でも描画可能
         const isSelfContainedStep = [1, 2, 4, 5].includes(initialStep);
-        if (!points || points.length < 1 || (points.length < 2 && !isSelfContainedStep)) {
-            setBoostAnchor(null);
-            return;
+        if (activePoints.length < 1 || (activePoints.length < 2 && !isSelfContainedStep)) {
+            if (hasFrozenCurves) {
+                // 凍結済みトレイルだけが残っている場合は、この後の frozenCurves 描画へ進む。
+            } else {
+                setBoostAnchor(null);
+                return;
+            }
         }
-        const storedTrailScale = points.reduce((max, p) => {
+        const storedTrailScale = activePoints.reduce((max, p) => {
             const s = (p && Number.isFinite(p.trailScale)) ? p.trailScale : 1;
             return Math.max(max, s);
         }, 1);
@@ -1922,12 +2024,12 @@ export function applySlashTrailMixin(PlayerClass) {
         // 整理・削減処理を行う前に、まず「物理的」に段数でストリップを分割する
         // これを後で行うと、異なる段数の点が混ぜられて計算（ageやstep）が破壊される
         const rawStrips = [];
-        if (points.length > 0) {
-            let currentStrip = [points[0]];
+        if (activePoints.length > 0) {
+            let currentStrip = [activePoints[0]];
             rawStrips.push(currentStrip);
-            for (let i = 1; i < points.length; i++) {
-                const prev = points[i - 1];
-                const curr = points[i];
+            for (let i = 1; i < activePoints.length; i++) {
+                const prev = activePoints[i - 1];
+                const curr = activePoints[i];
                 const dist = Math.hypot(curr.x - prev.x, curr.y - prev.y);
                 const changedAttack = (
                     Number.isFinite(curr.trailAttackId) &&
@@ -2820,7 +2922,7 @@ export function applySlashTrailMixin(PlayerClass) {
                         trimFactor: 0.24
                     });
                 }
-            } else if (stripStep === 1 || stripStep === 2) {
+            } else if (stripStep === 1) {
                 if (boostActive && boostAnchor && boostAnchor.step === stripStep) {
                     // 大凪ブースト時: forceOffsetX/forceOffsetYを使って、過去のプレイヤー位置を上書きしてアンカー位置に固定する
                     const anchorPlayerX = boostAnchor.baseCenterX - this.width * 0.5;
@@ -2843,7 +2945,31 @@ export function applySlashTrailMixin(PlayerClass) {
                 } else {
                     drawSampledBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
                         comboStep: stripStep, useRelativeIfAvailable: true, offsetX: this.x, offsetY: this.y,
-                        trimEndCap: stripStep === 2, trimFactor: 0.5
+                        trimEndCap: false, trimFactor: 0.5
+                    });
+                }
+            } else if (stripStep === 2) {
+                if (boostActive && boostAnchor && boostAnchor.step === stripStep) {
+                    const scaleProjFn = (p) => {
+                        const vx = p.x - boostAnchor.baseCenterX;
+                        const vy = p.y - boostAnchor.baseCenterY;
+                        return {
+                            x: boostAnchor.baseCenterX + vx * boostAnchor.boostScale,
+                            y: boostAnchor.baseCenterY + vy * boostAnchor.boostScale
+                        };
+                    };
+                    drawFixedBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, scaleProjFn, {
+                        comboStep: 2,
+                        useRelativeIfAvailable: true,
+                        trimEnd: true,
+                        trimFactor: 0.5
+                    });
+                } else {
+                    drawFixedBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
+                        comboStep: 2,
+                        useRelativeIfAvailable: true,
+                        trimEnd: true,
+                        trimFactor: 0.5
                     });
                 }
             } else if (stripStep === 4) {
@@ -2864,8 +2990,8 @@ export function applySlashTrailMixin(PlayerClass) {
         // 描画関数内部のフェード(age)と進行(progress)計算を完全に無効化し、
         // 「完成形」の形状データとして既存の描画関数に渡す。
         // フェード自体は ctx.globalAlpha で直接制御する。
-        if (Array.isArray(this.comboSlashTrailFrozenCurves) && !usesExternalPoints) {
-            for (const fc of this.comboSlashTrailFrozenCurves) {
+        if (hasFrozenCurves) {
+            for (const fc of frozenCurves) {
                 if ((fc.age || 0) >= (fc.life || 1)) continue;
                 
                 ctx.save();
@@ -2934,7 +3060,7 @@ export function applySlashTrailMixin(PlayerClass) {
                         };
                     }
                     
-                    drawFixedBezierTrail([frozenPtOld, frozenPtNew], 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
+                    drawFixedBezierTrail([frozenPtOld, frozenPtNew], 13.8 * visualWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
                         comboStep: fc.step,
                         forceRelative: true,
                         useRelativeIfAvailable: true,
@@ -2967,15 +3093,15 @@ export function applySlashTrailMixin(PlayerClass) {
                     }
 
                     if (fc.step === 4) {
-                        drawStep4AnchoredArcTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
+                        drawStep4AnchoredArcTrail(pts, 13.8 * visualWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
                     } else if (fc.step === 3) {
-                        drawDualBlueLinearTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
+                        drawDualBlueLinearTrail(pts, 13.8 * visualWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
                             straighten: true,
                             trimEndCap: false,
                             trimFactor: 1.0
                         });
                     } else {
-                        drawDualBlueArcTrail(pts, 13.8 * visualWidthScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
+                        drawDualBlueArcTrail(pts, 13.8 * visualWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
                     }
                     
                     trailCenterX = savedCenterX;
