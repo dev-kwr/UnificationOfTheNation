@@ -1308,24 +1308,43 @@ export class Shogun extends Boss {
             if (this.actor && this.currentSubWeapon) {
                 if (this.actor.specialCloneAlive && this.actor.specialCloneAlive[index] === false) return;
                 if (this.actor.specialCloneSlots && this.actor.specialCloneSlots[index] === 0) return;
+                
+                const actionName = typeof this.actor.getCloneSubWeaponActionName === 'function'
+                    ? this.actor.getCloneSubWeaponActionName(this.currentSubWeapon)
+                    : (this.currentSubWeapon.name === '火薬玉' || this.currentSubWeapon.name === '手裏剣' ? 'throw' : this.currentSubWeapon.name);
+                const attackType = typeof this.actor.getCloneSubWeaponAttackType === 'function'
+                    ? this.actor.getCloneSubWeaponAttackType(actionName, this.currentSubWeapon)
+                    : null;
+                
+                const durationMs = this.actor.getSubWeaponActionDurationMs(
+                    actionName,
+                    this.currentSubWeapon
+                );
+
                 this.withActorCurrentSubWeapon(this.currentSubWeapon, () => {
                     // 将軍の分身も忍者と同じ分身用インスタンス経路で起こす
                     if (typeof this.actor.activateCloneSubWeaponInstance === 'function') {
-                        const actionName = typeof this.actor.getCloneSubWeaponActionName === 'function'
-                            ? this.actor.getCloneSubWeaponActionName(this.currentSubWeapon)
-                            : (this.currentSubWeapon.name === '火薬玉' || this.currentSubWeapon.name === '手裏剣' ? 'throw' : this.currentSubWeapon.name);
-                        const attackType = typeof this.actor.getCloneSubWeaponAttackType === 'function'
-                            ? this.actor.getCloneSubWeaponAttackType(actionName, this.currentSubWeapon)
-                            : null;
                         // 分身用のタイマーとアクションをactor側に保持し、描画まで同じスロット状態を使う
-                        this.actor.specialCloneSubWeaponTimers[index] = this.actor.getSubWeaponActionDurationMs(
-                            actionName,
-                            this.currentSubWeapon
-                        );
+                        this.actor.specialCloneSubWeaponTimers[index] = durationMs;
                         this.actor.specialCloneSubWeaponActions[index] = actionName;
                         this.actor.activateCloneSubWeaponInstance(index, attackType);
                     }
                 });
+
+                if (this._playableOwner) {
+                    const ownerIndex = index - 1;
+                    if (ownerIndex >= 0 && Array.isArray(this._playableOwner.specialCloneSlots) && ownerIndex < this._playableOwner.specialCloneSlots.length) {
+                        const prevWeapon = this._playableOwner.currentSubWeapon;
+                        this._playableOwner.currentSubWeapon = this.currentSubWeapon;
+                        try {
+                            if (typeof this._playableOwner.triggerCloneSubWeapon === 'function') {
+                                this._playableOwner.triggerCloneSubWeapon(ownerIndex);
+                            }
+                        } finally {
+                            this._playableOwner.currentSubWeapon = prevWeapon;
+                        }
+                    }
+                }
             }
         };
         this.getFootY = () => this.y + this.height;
@@ -2180,7 +2199,7 @@ export class Shogun extends Boss {
                         comboResetTimer: (_playableOwner.specialCloneComboResetTimers && _playableOwner.specialCloneComboResetTimers[oi]) || 0
                     });
                     this.actor.specialCloneInvincibleTimers[ai] = (_playableOwner.specialCloneInvincibleTimers && _playableOwner.specialCloneInvincibleTimers[oi]) || 0;
-                    const shouldMirrorOwnerCloneSubWeapons = this.actor.specialCloneAutoAiEnabled;
+                    const shouldMirrorOwnerCloneSubWeapons = true;
                     if (shouldMirrorOwnerCloneSubWeapons) {
                         this.actor.specialCloneSubWeaponTimers[ai] = (_playableOwner.specialCloneSubWeaponTimers && _playableOwner.specialCloneSubWeaponTimers[oi]) || 0;
                         this.actor.specialCloneSubWeaponActions[ai] = (_playableOwner.specialCloneSubWeaponActions && _playableOwner.specialCloneSubWeaponActions[oi]) || null;
@@ -3526,11 +3545,18 @@ export class Shogun extends Boss {
                     : (owner && Number.isFinite(owner.x) && Number.isFinite(owner.width)
                         ? owner.x + owner.width * 0.5
                         : this.x + this.width * 0.5);
-                const pivotY = Number.isFinite(pos?.y)
+                // actorFootGroundOffset 分だけピボットを下げ、本体の
+                // renderWithShogunTransform と同じ actor⇔world 変換比率にする。
+                // 本体: pivotY = bossY + bossH * 0.62  (= actorCenterY - actorFGO)
+                // ここで actorFGO は負値 (-26.4) なので減算で +26.4 となる。
+                const basePivotY = Number.isFinite(pos?.y)
                     ? pos.y
                     : (owner && Number.isFinite(owner.y) && Number.isFinite(owner.height)
                         ? owner.y + owner.height * 0.62
-                        : this.y + this.height * 0.62);
+                        : null);
+                const pivotY = basePivotY !== null
+                    ? basePivotY - actorFootGroundOffset
+                    : this.y + this.height * 0.62;
                 const rangeBackup = (inst && inst.name !== '鎖鎌' && inst.name !== '大太刀' && Number.isFinite(inst.range) && renderScale > 1.001)
                     ? inst.range
                     : null;
