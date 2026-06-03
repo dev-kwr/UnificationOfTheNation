@@ -475,12 +475,13 @@ export class Shuriken extends SubWeapon {
         super('手裏剣', 10, 200, 320); // Lv0: 初期状態
         this.baseDamage = 10;
         this.baseSpeed = 16;
-        this.projectiles = [];
+        this.projectiles = [];      // 本体の手裏剣
+        this.cloneProjectiles = []; // 分身の手裏剣（独立カウント）
         this.pendingShots = [];
         this.projectileRadius = 10;
         this.projectileRadiusHoming = 14;
         this.heldRotation = 0;
-        this.maxOnScreen = 1; // 画面上最大同時存在数
+        this.maxOnScreen = 1; // 本体の画面上最大同時存在数
     }
 
     renderHeld(ctx, handX, handY, scale = 1.0) {
@@ -513,7 +514,7 @@ export class Shuriken extends SubWeapon {
     }
 
     canUse() {
-        // 画面上の在空数が最大数未満なら使用可能
+        // 本体の在空数のみで上限判定（分身は独立カウント）
         this.projectiles = this.projectiles.filter(p => p && !p.isDestroyed);
         return this.projectiles.length < this.maxOnScreen;
     }
@@ -529,23 +530,27 @@ export class Shuriken extends SubWeapon {
         const baseX = player.x + player.width / 2;
         const baseY = player.y;
 
-        // 1発発射
-        const mainProjectile = this._spawnProjectile(baseX, baseY, direction, pierce, homing);
+        // 本体の1発発射
+        const mainProjectile = this._spawnProjectile(baseX, baseY, direction, pierce, homing, false);
         this._assignThrowTransformPivot(mainProjectile, player, baseX, baseY);
 
-        // 奥義分身
+        // 奥義分身（火薬玉と同様に独立カウント）
         if (player && typeof player.getSubWeaponCloneOffsets === 'function') {
             const cloneOffsets = player.getSubWeaponCloneOffsets();
             if (Array.isArray(cloneOffsets) && cloneOffsets.length > 0) {
+                // 分身側のアクティブ弾数チェック（分身は分身で独立して maxOnScreen 枚まで）
+                this.cloneProjectiles = this.cloneProjectiles.filter(p => p && !p.isDestroyed);
                 for (const clone of cloneOffsets) {
-                    if (this.projectiles.length >= this.maxOnScreen) break;
+                    const activeCount = this.cloneProjectiles.filter(p => p && !p.isDestroyed && p.cloneIndex === clone.index).length;
+                    if (activeCount >= this.maxOnScreen) continue;
                     player.triggerCloneSubWeapon(clone.index);
                     const cloneBaseX = baseX + clone.dx;
                     const cloneBaseY = baseY + clone.dy;
                     const cloneProjectile = this._spawnProjectile(
                         cloneBaseX, cloneBaseY,
-                        direction, pierce, homing
+                        direction, pierce, homing, true // isClone=true
                     );
+                    cloneProjectile.cloneIndex = clone.index;
                     this._assignThrowTransformPivot(cloneProjectile, player, cloneBaseX, cloneBaseY);
                 }
             }
@@ -558,7 +563,7 @@ export class Shuriken extends SubWeapon {
         audio.playShuriken();
     }
 
-    _spawnProjectile(baseX, baseY, direction, pierce, homing) {
+    _spawnProjectile(baseX, baseY, direction, pierce, homing, isClone = false) {
         const spawnX = baseX + direction * 18;
         const spawnY = baseY + 16;
         const speed = this.bulletSpeed || 20;
@@ -577,7 +582,12 @@ export class Shuriken extends SubWeapon {
             homing,
             0
         );
-        this.projectiles.push(proj);
+        // 本体と分身で別配列に格納
+        if (isClone) {
+            this.cloneProjectiles.push(proj);
+        } else {
+            this.projectiles.push(proj);
+        }
         return proj;
     }
 
@@ -594,17 +604,23 @@ export class Shuriken extends SubWeapon {
     update(deltaTime, enemies = []) {
         this.heldRotation += 1.2 * deltaTime;
 
-        // ★projectile は必ずここからだけ更新（enemies を確実に渡す）
+        // 本体・分身の両配列を更新
         for (const proj of this.projectiles) {
             proj.update(deltaTime, enemies);
         }
         this.projectiles = this.projectiles.filter(p => !p.isDestroyed);
+
+        for (const proj of this.cloneProjectiles) {
+            proj.update(deltaTime, enemies);
+        }
+        this.cloneProjectiles = this.cloneProjectiles.filter(p => !p.isDestroyed);
     }
 
     getHitbox() {
-        if (this.projectiles.length === 0) return null;
+        const all = [...this.projectiles, ...this.cloneProjectiles];
+        if (all.length === 0) return null;
         const hitboxes = [];
-        for (const proj of this.projectiles) {
+        for (const proj of all) {
             if (!proj.isDestroyed) {
                 const hb = proj.getHitbox();
                 hb._sourceProjectile = proj;
@@ -616,6 +632,9 @@ export class Shuriken extends SubWeapon {
 
     render(ctx) {
         for (const proj of this.projectiles) {
+            proj.render(ctx);
+        }
+        for (const proj of this.cloneProjectiles) {
             proj.render(ctx);
         }
     }

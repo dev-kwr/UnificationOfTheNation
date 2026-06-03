@@ -560,9 +560,10 @@ export function applySpecialMixin(PlayerClass) {
         if (!Array.isArray(this.specialCloneSlots) || index >= this.specialCloneSlots.length) return;
         if (Array.isArray(this.specialCloneAlive) && this.specialCloneAlive[index] === false) return;
         if (!this.currentSubWeapon) return;
-        
+
         const actionName = this.getCloneSubWeaponActionName(this.currentSubWeapon);
         if (!actionName) return;
+
         const allowRestart = this.currentSubWeapon.name === '二刀流' ||
             this.currentSubWeapon.name === '鎖鎌' ||
             this.currentSubWeapon.name === '大太刀';
