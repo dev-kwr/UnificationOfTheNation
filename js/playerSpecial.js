@@ -5,6 +5,7 @@ import { audio } from './audio.js';
 import { createSubWeapon } from './weapon.js';
 import { ANIM_STATE, COMBO_ATTACKS } from './playerData.js';
 import {
+    SHOGUN_ACTOR_BASE_WIDTH,
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_SCALE,
     SHOGUN_SPECIAL_CLONE_SPACING_SCALE
@@ -452,19 +453,44 @@ export function applySpecialMixin(PlayerClass) {
         return 0;
     };
 
+    PlayerClass.prototype.getSpecialCloneRenderBox = function(index, posOverride = null) {
+        const pos = posOverride || (this.specialClonePositions ? this.specialClonePositions[index] : null);
+        if (!pos) return null;
+
+        const ownerW = Number.isFinite(this.width) ? this.width : PLAYER.WIDTH;
+        const ownerH = Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT;
+        let renderX = pos.x - ownerW * 0.5;
+        let renderY = this.getSpecialCloneDrawY(pos.y);
+
+        if (this.characterType === 'shogun') {
+            renderX += (ownerW - SHOGUN_ACTOR_BASE_WIDTH) * 0.5;
+            renderY += (ownerH - SHOGUN_ACTOR_BASE_HEIGHT) * 0.62;
+        }
+
+        return {
+            x: renderX,
+            y: renderY,
+            width: PLAYER.WIDTH,
+            height: PLAYER.HEIGHT
+        };
+    };
+
     PlayerClass.prototype.buildSpecialCloneSubWeaponOwner = function(index, inst = null) {
         const pos = this.specialClonePositions ? this.specialClonePositions[index] : null;
         if (!pos) return null;
+        const renderBox = typeof this.getSpecialCloneRenderBox === 'function'
+            ? this.getSpecialCloneRenderBox(index, pos)
+            : null;
         const cloneGroundY = typeof this.getSpecialCloneGroundYAtX === 'function'
             ? this.getSpecialCloneGroundYAtX(pos.x)
             : this.groundY;
         return {
             _specialCloneOwner: true,
             _specialCloneIndex: index,
-            x: pos.x - this.width / 2,
-            y: this.getSpecialCloneDrawY(pos.y),
-            width: this.width,
-            height: this.height,
+            x: renderBox ? renderBox.x : (pos.x - PLAYER.WIDTH * 0.5),
+            y: renderBox ? renderBox.y : this.getSpecialCloneDrawY(pos.y),
+            width: renderBox ? renderBox.width : PLAYER.WIDTH,
+            height: renderBox ? renderBox.height : PLAYER.HEIGHT,
             vx: 0,
             vy: pos.cloneVy || 0,
             groundY: cloneGroundY,
@@ -480,8 +506,15 @@ export function applySpecialMixin(PlayerClass) {
             progression: this.progression,
             getSubWeaponEnhanceTier: () => this.getCurrentSubWeaponEnhanceTier(),
             currentSubWeapon: inst,
-            subWeaponAction: this.specialCloneSubWeaponActions ? this.specialCloneSubWeaponActions[index] : null,
-            subWeaponTimer: this.specialCloneSubWeaponTimers ? (this.specialCloneSubWeaponTimers[index] || 0) : 0,
+            // Lv2以下は分身の武器「ビジュアル位相」も本体(this.subWeaponTimer/Action)へ一本化し本体と完全同期させる。
+            // （武器のrender(ctx, owner)はこのownerのsubWeaponTimerで突き/振り位相を算出するため、
+            //   per-cloneタイマーだとミラー遅延の蓄積で本体と位相がずれる。Lv3自律分身は従来どおり独立タイマー）
+            subWeaponAction: this.specialCloneAutoAiEnabled
+                ? (this.specialCloneSubWeaponActions ? this.specialCloneSubWeaponActions[index] : null)
+                : (this.subWeaponAction || null),
+            subWeaponTimer: this.specialCloneAutoAiEnabled
+                ? (this.specialCloneSubWeaponTimers ? (this.specialCloneSubWeaponTimers[index] || 0) : 0)
+                : (this.subWeaponTimer || 0),
             forceSubWeaponRender: true,
             _throwTransformPivotHeight: this.height,
             isXAttackBoostActive: () => (

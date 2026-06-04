@@ -3294,6 +3294,17 @@ export class Shogun extends Boss {
                 inst.range = inst.range / renderScale;
             }
         }
+        // 分身専用インスタンスも本体と同じく描画時だけrangeを逆補正する。
+        // Lv0〜2の通常描画は本体インスタンスを再利用するが、Lv3自律分身や残存エフェクトは
+        // cloneインスタンスを通るため、本体と同じ除外(鎖鎌/大太刀)で補正する。
+        if (Math.abs(renderScale - 1) > 0.001 && this.actor && Array.isArray(this.actor.specialCloneSubWeaponInstances)) {
+            for (const inst of this.actor.specialCloneSubWeaponInstances) {
+                if (!inst || !Number.isFinite(inst.range)) continue;
+                if (inst.name === '鎖鎌' || inst.name === '大太刀') continue;
+                scaledRangeBackups.push([inst, inst.range]);
+                inst.range = inst.range / renderScale;
+            }
+        }
 
         if (this._attackTimer > 0) {
             const comboStep = this._currentComboStep || this._comboStep || 1;
@@ -3557,32 +3568,20 @@ export class Shogun extends Boss {
                 const pivotY = basePivotY !== null
                     ? basePivotY - actorFootGroundOffset
                     : this.y + this.height * 0.62;
-                const rangeBackup = (inst && inst.name !== '鎖鎌' && inst.name !== '大太刀' && Number.isFinite(inst.range) && renderScale > 1.001)
-                    ? inst.range
-                    : null;
-                if (rangeBackup !== null) {
-                    inst.range = rangeBackup / renderScale;
-                }
+                ctx.save();
                 try {
-                    ctx.save();
-                    try {
+                    ctx.translate(pivotX, pivotY);
+                    ctx.transform(1, 0, -_ougiYawSkew / 0.982, 1, 0, 0);
+                    ctx.scale(1 / 0.982, 1);
+                    ctx.translate(-pivotX, -pivotY);
+                    if (renderScale > 1.001) {
                         ctx.translate(pivotX, pivotY);
-                        ctx.transform(1, 0, -_ougiYawSkew / 0.982, 1, 0, 0);
-                        ctx.scale(1 / 0.982, 1);
+                        ctx.scale(renderScale, renderScale);
                         ctx.translate(-pivotX, -pivotY);
-                        if (renderScale > 1.001) {
-                            ctx.translate(pivotX, pivotY);
-                            ctx.scale(renderScale, renderScale);
-                            ctx.translate(-pivotX, -pivotY);
-                        }
-                        drawFn();
-                    } finally {
-                        ctx.restore();
                     }
+                    drawFn();
                 } finally {
-                    if (rangeBackup !== null) {
-                        inst.range = rangeBackup;
-                    }
+                    ctx.restore();
                 }
             };
             this.actor.renderSpecial(ctx, {

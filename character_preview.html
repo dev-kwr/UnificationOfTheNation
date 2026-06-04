@@ -291,6 +291,14 @@
                     <div id="selectedSubWeapon" class="weapon-info" title="クリックで忍具切替">---</div>
                 </div>
                 <div class="control-group">
+                    <label style="color:#aaa;font-size:11px;margin-right:2px;">忍具Lv</label>
+                    <select id="selWeaponLv">
+                        <option value="0">初級</option>
+                        <option value="1">中級</option>
+                        <option value="2">上級</option>
+                        <option value="3" selected>特級</option>
+                    </select>
+                    <label style="color:#aaa;font-size:11px;margin:0 2px 0 6px;">奥義Lv</label>
                     <select id="selSkillLv">
                         <option value="0">初級</option>
                         <option value="1">中級</option>
@@ -612,27 +620,35 @@
         document.getElementById('selectedSubWeapon').addEventListener('click', cycleSubWeapon);
 
         // --- 強化レベル同期 ---
-        const updateAllTiers = (tier) => {
-            const t = parseInt(tier);
+        // 忍具Lv(subWeapon) と 奥義Lv(specialClone) は実ゲームでは別々に存在するため、
+        // プレビューでも個別に設定できるようにする（normalComboは忍具Lvに追従）。
+        const applyWeaponLv = (t) => {  // 忍具Lv: 武器強化段(enhanceTier) + 通常コンボLv
             ninja.progression.subWeapon = t;
-            ninja.progression.specialClone = t;
             ninja.progression.normalCombo = t;
             ninja.subWeapons.forEach(w => { if(w.applyEnhanceTier) w.applyEnhanceTier(t); });
-            if (typeof ninja.rebuildSpecialCloneSlots === 'function') ninja.rebuildSpecialCloneSlots();
             if (typeof ninja.refreshSubWeaponScaling === 'function') ninja.refreshSubWeaponScaling();
-            
-            // 将軍プレイヤーが進行度の単一ソース（戦闘コントローラが毎フレーム内部ボスへ同期）
             if (shogunPlayer && shogunPlayer.progression) {
                 shogunPlayer.progression.subWeapon = t;
                 shogunPlayer.progression.normalCombo = t;
-                shogunPlayer.progression.specialClone = t;
-                if (typeof shogunPlayer.rebuildSpecialCloneSlots === 'function') shogunPlayer.rebuildSpecialCloneSlots();
                 if (typeof shogunPlayer.refreshSubWeaponScaling === 'function') shogunPlayer.refreshSubWeaponScaling();
             }
         };
+        const applySkillLv = (t) => {  // 奥義Lv: 分身の体数・自律AI
+            ninja.progression.specialClone = t;
+            if (typeof ninja.rebuildSpecialCloneSlots === 'function') ninja.rebuildSpecialCloneSlots();
+            if (shogunPlayer && shogunPlayer.progression) {
+                shogunPlayer.progression.specialClone = t;
+                if (typeof shogunPlayer.rebuildSpecialCloneSlots === 'function') shogunPlayer.rebuildSpecialCloneSlots();
+            }
+        };
+        // 後方互換: 既存呼び出し用に両方を一括設定するヘルパーも残す
+        const updateAllTiers = (tier) => { const t = parseInt(tier); applyWeaponLv(t); applySkillLv(t); };
 
+        document.getElementById('selWeaponLv').addEventListener('change', (e) => {
+            applyWeaponLv(parseInt(e.target.value));
+        });
         document.getElementById('selSkillLv').addEventListener('change', (e) => {
-            updateAllTiers(e.target.value);
+            applySkillLv(parseInt(e.target.value));
         });
 
         // --- デバッグ: モーション速度 / ズーム(引き) / コマ送り ---
@@ -650,8 +666,9 @@
             e.currentTarget.classList.toggle('active', shogun.hideShogunArmor);
         });
 
-        // 初期状態を同期
-        updateAllTiers(document.getElementById('selSkillLv').value);
+        // 初期状態を同期（忍具Lv・奥義Lvを個別に）
+        applyWeaponLv(parseInt(document.getElementById('selWeaponLv').value));
+        applySkillLv(parseInt(document.getElementById('selSkillLv').value));
 
         // windowへの直接リスナーを廃止し、inputマネージャーに統一（バグ防止）
         window.addEventListener('keydown', (e) => {
