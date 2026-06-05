@@ -1670,11 +1670,14 @@ export function applySlashTrailMixin(PlayerClass) {
         if (deltaMs <= 0) return;
         const count = this.specialCloneSlots ? this.specialCloneSlots.length : 0;
         if (count <= 0) return;
+        // 本体のアクティブ忍具（忍者=currentSubWeapon, 将軍=boss正本の二刀流）から振りポーズを取得し、
+        // 分身の二刀トレイルを本体と同位相で生成する。
+        const bodyActiveSubWeapon = this.getActiveSubWeaponInstance();
         const dualBlade = (
-            this.currentSubWeapon &&
-            this.currentSubWeapon.name === '二刀流' &&
-            typeof this.currentSubWeapon.getMainSwingPose === 'function'
-        ) ? this.currentSubWeapon : null;
+            bodyActiveSubWeapon &&
+            bodyActiveSubWeapon.name === '二刀流' &&
+            typeof bodyActiveSubWeapon.getMainSwingPose === 'function'
+        ) ? bodyActiveSubWeapon : null;
         if (!Array.isArray(this.specialCloneSlashTrailPoints)) {
             this.specialCloneSlashTrailPoints = [];
         }

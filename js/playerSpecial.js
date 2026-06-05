@@ -69,6 +69,9 @@ export function applySpecialMixin(PlayerClass) {
     PlayerClass.prototype.updateSpecial = function(deltaTime) {
         const deltaMs = deltaTime * 1000;
         const enemies = (window.game && window.game.enemies) || [];
+        // 「本体が今アクティブにしている忍具」。忍者は currentSubWeapon、将軍は boss 正本インスタンス。
+        // 分身の大太刀ぶら下がり/着地同期などは、本体の実状態を見る必要があるためアクセサで解決する。
+        const bodyActiveSubWeapon = this.getActiveSubWeaponInstance();
 
         if (this.isUsingSpecial) {
             if (this.specialCastTimer > 0) {
@@ -148,10 +151,10 @@ export function applySpecialMixin(PlayerClass) {
                         // 大太刀アクティブ時はサブ武器更新後にpos.yが確定するためここではスキップ
                         // Lv1-2: 本体の大太刀がぶら下がり中も分身のアクセサリ更新を遅延させる
                         const playerOdachiActiveForAccessory = !this.specialCloneAutoAiEnabled &&
-                            this.currentSubWeapon &&
-                            this.currentSubWeapon.name === '大太刀' &&
-                            this.currentSubWeapon.isAttacking &&
-                            this.currentSubWeapon.hasImpacted;
+                            bodyActiveSubWeapon &&
+                            bodyActiveSubWeapon.name === '大太刀' &&
+                            bodyActiveSubWeapon.isAttacking &&
+                            bodyActiveSubWeapon.hasImpacted;
                         const odachiActive = (odachiInst && odachiInst.name === '大太刀' && odachiInst.isAttacking) || playerOdachiActiveForAccessory;
                         if (!odachiActive) {
                             this.updateSpecialCloneAccessoryNodes(i, pos, deltaTime, {
@@ -203,10 +206,10 @@ export function applySpecialMixin(PlayerClass) {
                         const pos = this.specialClonePositions[i];
                         // Lv1-2: 本体のぶら下がり状態を優先参照（分身のisAttackingより早く解除されるため）
                         const playerIsHanging = !this.specialCloneAutoAiEnabled &&
-                            this.currentSubWeapon &&
-                            this.currentSubWeapon.name === '大太刀' &&
-                            this.currentSubWeapon.isAttacking &&
-                            this.currentSubWeapon.hasImpacted;
+                            bodyActiveSubWeapon &&
+                            bodyActiveSubWeapon.name === '大太刀' &&
+                            bodyActiveSubWeapon.isAttacking &&
+                            bodyActiveSubWeapon.hasImpacted;
                         const isHanging = this.specialCloneAutoAiEnabled ? inst.isAttacking : (playerIsHanging || inst.isAttacking);
                         // ぶら下がり中: pos.yを本体のanchor位置に同期（分身自身のowner.yではなく）
                         pos.y = isHanging
@@ -240,9 +243,9 @@ export function applySpecialMixin(PlayerClass) {
                     }
                     // 大太刀: isAttacking中・planted中・fadeOut中・本体ぶら下がり中はタイマー切れでも維持
                     const playerOdachiActive = !this.specialCloneAutoAiEnabled &&
-                        this.currentSubWeapon &&
-                        this.currentSubWeapon.name === '大太刀' &&
-                        this.currentSubWeapon.isAttacking;
+                        bodyActiveSubWeapon &&
+                        bodyActiveSubWeapon.name === '大太刀' &&
+                        bodyActiveSubWeapon.isAttacking;
                     const odachiAlive = inst.name === '大太刀' &&
                         (inst.isAttacking || (inst.plantedTimer || 0) > 0 || (inst.fadeOutTimer || 0) > 0 || playerOdachiActive);
                     if (
@@ -274,10 +277,10 @@ export function applySpecialMixin(PlayerClass) {
                 const inst = this.specialCloneSubWeaponInstances[i];
                 const pos = this.specialClonePositions && this.specialClonePositions[i];
                 // Lv1-2: 本体の大太刀がぶら下がり中も分身のアクセサリを更新する
-                const playerOdachiHanging = this.currentSubWeapon &&
-                    this.currentSubWeapon.name === '大太刀' &&
-                    this.currentSubWeapon.isAttacking &&
-                    this.currentSubWeapon.hasImpacted;
+                const playerOdachiHanging = bodyActiveSubWeapon &&
+                    bodyActiveSubWeapon.name === '大太刀' &&
+                    bodyActiveSubWeapon.isAttacking &&
+                    bodyActiveSubWeapon.hasImpacted;
                 if (pos && inst && inst.name === '大太刀' && (inst.isAttacking || playerOdachiHanging)) {
                     this.updateSpecialCloneAccessoryNodes(i, pos, deltaTime, {
                         cloneVx: this.vx,
@@ -329,18 +332,21 @@ export function applySpecialMixin(PlayerClass) {
             if (Array.isArray(this.specialCloneMirroredTrailProfiles)) {
                 this.specialCloneMirroredTrailProfiles[index] = null;
             }
+            // Lv3 自立分身の二刀コンボ時間も「本体のアクティブ忍具」から取得し、本体と位相を揃える。
+            // 忍者は currentSubWeapon、将軍は boss 正本（二刀流）インスタンス。
+            const bodyActiveSubWeapon = this.getActiveSubWeaponInstance();
             if (
                 this.specialCloneAutoAiEnabled &&
-                this.currentSubWeapon &&
-                this.currentSubWeapon.name === '二刀流' &&
-                typeof this.currentSubWeapon.getMainDurationByStep === 'function'
+                bodyActiveSubWeapon &&
+                bodyActiveSubWeapon.name === '二刀流' &&
+                typeof bodyActiveSubWeapon.getMainDurationByStep === 'function'
             ) {
                 const prevStep = this.specialCloneComboSteps[index] || 0;
-                const maxSteps = (this.currentSubWeapon.comboDamages || []).length || 5;
+                const maxSteps = (bodyActiveSubWeapon.comboDamages || []).length || 5;
                 // 5連コンボ完了後は飛翔斬撃（combined）を発動
                 if (prevStep >= maxSteps) {
                     const combinedDuration = Math.max(170, Math.round(
-                        this.currentSubWeapon.combinedDuration || 560
+                        bodyActiveSubWeapon.combinedDuration || 560
                     ));
                     this.specialCloneComboSteps[index] = 0;
                     this.specialCloneCurrentAttacks[index] = null;
@@ -352,7 +358,7 @@ export function applySpecialMixin(PlayerClass) {
                     return;
                 }
                 const nextComboIndex = prevStep + 1;
-                const dualDuration = Math.max(1, this.currentSubWeapon.getMainDurationByStep(nextComboIndex - 1));
+                const dualDuration = Math.max(1, bodyActiveSubWeapon.getMainDurationByStep(nextComboIndex - 1));
                 this.specialCloneComboSteps[index] = nextComboIndex;
                 this.specialCloneCurrentAttacks[index] = null;
                 this.specialCloneAttackTimers[index] = dualDuration;
@@ -453,6 +459,18 @@ export function applySpecialMixin(PlayerClass) {
         return 0;
     };
 
+    // 「本体が今アクティブにしている忍具インスタンス」を返す単一アクセサ。
+    // 忍者は装備中の currentSubWeapon がそのまま本体武器。将軍など特殊キャラは
+    // _resolveActiveSubWeaponInstance フック（applyShogunCombat が注入）で本体の正本インスタンスを解決する。
+    // 分身の描画/更新はこのアクセサ越しに本体武器を読むことで、本体と同一インスタンス・同一スケールに揃う。
+    PlayerClass.prototype.getActiveSubWeaponInstance = function() {
+        if (typeof this._resolveActiveSubWeaponInstance === 'function') {
+            const resolved = this._resolveActiveSubWeaponInstance();
+            if (resolved) return resolved;
+        }
+        return this.currentSubWeapon || null;
+    };
+
     PlayerClass.prototype.getSpecialCloneRenderBox = function(index, posOverride = null) {
         const pos = posOverride || (this.specialClonePositions ? this.specialClonePositions[index] : null);
         if (!pos) return null;
@@ -546,12 +564,13 @@ export function applySpecialMixin(PlayerClass) {
             this.specialCloneSubWeaponOwners[index] = owner;
         } else {
             const odachiLocked = inst && inst.name === '大太刀' && inst.isAttacking && inst.hasImpacted;
-            // Lv1-2: 本体の武器がぶら下がり中も分身のy位置をロック
+            // Lv1-2: 本体の武器がぶら下がり中も分身のy位置をロック（本体実状態はアクセサで解決）
+            const bodyActiveSubWeapon = this.getActiveSubWeaponInstance();
             const playerOdachiLocked = !this.specialCloneAutoAiEnabled &&
-                this.currentSubWeapon &&
-                this.currentSubWeapon.name === '大太刀' &&
-                this.currentSubWeapon.isAttacking &&
-                this.currentSubWeapon.hasImpacted;
+                bodyActiveSubWeapon &&
+                bodyActiveSubWeapon.name === '大太刀' &&
+                bodyActiveSubWeapon.isAttacking &&
+                bodyActiveSubWeapon.hasImpacted;
             const effectiveOdachiLocked = odachiLocked || playerOdachiLocked;
             owner.x = fresh.x;
             if (!effectiveOdachiLocked) {
@@ -629,12 +648,19 @@ export function applySpecialMixin(PlayerClass) {
         if (this.specialCloneSubWeaponInstances[index] && typeof this.specialCloneSubWeaponInstances[index].applyEnhanceTier === 'function') {
             this.specialCloneSubWeaponInstances[index].applyEnhanceTier(this.getCurrentSubWeaponEnhanceTier());
         }
-        // refreshSubWeaponScaling() でスケール済みの range を本体武器から同期する
-        // （createSubWeapon は base range で作成されるため適用漏れが生じる）
+        // スケール済みの reach/弾サイズを「本体のアクティブ忍具」から同期する。
+        // createSubWeapon は base range で作るため、忍者は refreshSubWeaponScaling 済みの currentSubWeapon、
+        // 将軍は applyScaleToSubWeapons 済みの boss 正本インスタンスへ getActiveSubWeaponInstance() で統一的に揃える。
+        // これにより Lv3 分身が本体と同一スケールで描画/弾道する（将軍の分身が小さくなる二重管理バグの解消）。
         const cloneInst = this.specialCloneSubWeaponInstances[index];
-        if (cloneInst && this.currentSubWeapon && cloneInst.name === this.currentSubWeapon.name &&
-            Number.isFinite(this.currentSubWeapon.range)) {
-            cloneInst.range = this.currentSubWeapon.range;
+        const bodyActiveInst = (typeof this.getActiveSubWeaponInstance === 'function')
+            ? this.getActiveSubWeaponInstance()
+            : this.currentSubWeapon;
+        if (cloneInst && bodyActiveInst && cloneInst.name === bodyActiveInst.name) {
+            if (Number.isFinite(bodyActiveInst.range)) cloneInst.range = bodyActiveInst.range;
+            if (Number.isFinite(bodyActiveInst.baseRange)) cloneInst.baseRange = bodyActiveInst.baseRange;
+            if (Number.isFinite(bodyActiveInst.projectileRadius)) cloneInst.projectileRadius = bodyActiveInst.projectileRadius;
+            if (Number.isFinite(bodyActiveInst.projectileRadiusHoming)) cloneInst.projectileRadiusHoming = bodyActiveInst.projectileRadiusHoming;
         }
         if (this.specialCloneSubWeaponInstances[index]) {
             const inst = this.specialCloneSubWeaponInstances[index];

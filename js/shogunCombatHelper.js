@@ -2,6 +2,7 @@ import { audio } from './audio.js';
 import { PLAYER, LANE_OFFSET, CANVAS_WIDTH } from './constants.js';
 import { input } from './input.js';
 import { Shogun } from './boss.js';
+import { createInputBrain } from './shogunBrains.js';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
@@ -282,6 +283,7 @@ export function applyShogunCombat(player) {
 
         p.width = Math.round(SHOGUN_ACTOR_BASE_WIDTH * SHOGUN_SCALE);
         p.height = Math.round(SHOGUN_ACTOR_BASE_HEIGHT * SHOGUN_SCALE);
+        p.scaleMultiplier = SHOGUN_SCALE;
         p.speed = PLAYER.SPEED;
         // height 変更に合わせて y を補正（startStage は忍者の高さで設定済み）
         const groundY = p.groundY || 480;
@@ -294,6 +296,8 @@ export function applyShogunCombat(player) {
         p._shogunBossInstance.hp = 99999;
         p._shogunBossInstance.aiDisabled = true;
         p._shogunBossInstance.isEnemy = false;
+        // プレイアブル将軍の制御源はプレイヤー入力。AIBrain から InputBrain へ差し替える。
+        p._shogunBossInstance.brain = createInputBrain();
 
 
         // Shogun.init() で生成＆スケール済みのインスタンスをそのまま使う
@@ -716,14 +720,17 @@ export function applyShogunCombat(player) {
             }
             this.updateTemporaryNinjutsu(deltaMs);
             syncShogunTemporaryNinjutsu(this, boss);
-            this.updateSpecial(dt);
 
             // 奥義状態をボスに同期（分身クローンの描画はboss.renderBody内で行う）
             boss._ougiActive = !!(this.isUsingSpecial && this.specialCloneCombatStarted);
             boss._playableOwner = this;
 
-            // ── 入力処理（Player の正式な委譲入口から将軍専用処理へ流す） ──
-            this.handleInput();
+            // ── 入力処理（制御源 brain 経由。InputBrain が player.handleInput() を呼ぶ） ──
+            if (boss.brain && typeof boss.brain.tick === 'function') {
+                boss.brain.tick(boss, dt, { player: this });
+            } else {
+                this.handleInput();
+            }
 
             // ── 移動がなければ減速（地上のみ）──
             const bossIsActive = boss._attackTimer > 0 || boss._subTimer > 0 || boss.isAttacking;
@@ -788,6 +795,17 @@ export function applyShogunCombat(player) {
             this.subWeaponTimer = boss._subTimer;
             this.subWeaponAction = boss._subAction;
 
+            // 必殺技（分身）は、忍者と同じく入力・物理・忍具更新後に同期する。
+            // 以前は本体の boss 忍具インスタンスを currentSubWeapon に一時差し替えて分身経路に見せていたが、
+            // updateSpecial / updateSpecialCloneSlashTrails 側を getActiveSubWeaponInstance() 経由に統一したため、
+            // ここでの退避/差し替え/復元（二重管理 band-aid）は不要になった。
+            this.updateSpecial(dt);
+            if (this.isUsingSpecial && typeof this.updateSpecialCloneSlashTrails === 'function') {
+                this.updateSpecialCloneSlashTrails(deltaMs);
+            }
+            boss._ougiActive = !!(this.isUsingSpecial && this.specialCloneCombatStarted);
+            boss._playableOwner = this;
+
             // ── アイドル時の武器表示キー維持 ──
             if (!bossActiveAfter) {
                 const realWeapon = this.currentSubWeapon;
@@ -832,4 +850,18 @@ export function applyShogunCombat(player) {
 
     player._shogunCombatController = controller;
     player.combatController = controller;
+
+    // 「本体が今アクティブにしている忍具インスタンス」を boss の正本プールから解決する。
+    // 本体（renderBody）が _subWeaponKey から _subWeaponInstances[key] を描くのと同じ規則に揃え、
+    // 分身（renderSpecial/updateSpecial）が getActiveSubWeaponInstance() 越しに本体と同一インスタンスを参照できるようにする。
+    // 注意: player.currentSubWeapon 自体は在庫インスタンスのまま差し替えない（メインループの二重 render/use を防ぐ）。
+    player._resolveActiveSubWeaponInstance = () => {
+        const boss = player._shogunBossInstance;
+        if (!boss || !boss._subWeaponInstances) return null;
+        let key = boss._subWeaponKey || null;
+        if (!key && player.currentSubWeapon) {
+            key = SHOGUN_WEAPON_KEY_BY_NAME[player.currentSubWeapon.name] || null;
+        }
+        return key ? (boss._subWeaponInstances[key] || null) : null;
+    };
 }

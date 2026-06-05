@@ -158,9 +158,13 @@ export class Enemy {
             this.updateAttack(deltaTime);
         }
         
-        // AI更新
+        // AI更新（制御源は brain に集約。brain 未設定の敵は従来通り updateAI を直接呼ぶ）
         if (!this.aiDisabled) {
-            this.updateAI(deltaTime, player);
+            if (this.brain && this.brain.kind === 'ai' && typeof this.brain.tick === 'function') {
+                this.brain.tick(this, deltaTime, { player });
+            } else {
+                this.updateAI(deltaTime, player);
+            }
         }
         
         // 物理演算（障害物判定を含む）

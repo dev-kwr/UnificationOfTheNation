@@ -4833,8 +4833,42 @@ export function applyRendererMixin(PlayerClass) {
 
 
 
+                const dedicatedCloneHasProjectile = !!(
+                    cloneSubWeaponInstance &&
+                    Array.isArray(cloneSubWeaponInstance.projectiles) &&
+                    cloneSubWeaponInstance.projectiles.length > 0
+                );
+                const dedicatedCloneHasGroundWave = !!(
+                    cloneSubWeaponInstance &&
+                    Array.isArray(cloneSubWeaponInstance.groundWaves) &&
+                    cloneSubWeaponInstance.groundWaves.length > 0
+                );
+                const dedicatedCloneHasPlantedOdachi = !!(
+                    cloneSubWeaponInstance &&
+                    cloneSubWeaponInstance.name === '大太刀' &&
+                    (
+                        cloneSubWeaponInstance.hasImpacted ||
+                        (cloneSubWeaponInstance.plantedTimer || 0) > 0 ||
+                        (cloneSubWeaponInstance.fadeOutTimer || 0) > 0 ||
+                        dedicatedCloneHasGroundWave
+                    )
+                );
+                const shouldUseDedicatedCloneSubWeapon = !!(
+                    !this.specialCloneAutoAiEnabled &&
+                    cloneSubWeaponInstance &&
+                    ['二刀流', '鎖鎌', '大太刀', '大槍'].includes(cloneSubWeaponInstance.name) &&
+                    (
+                        cloneSubWeaponTimer > 0 ||
+                        cloneSubWeaponAction ||
+                        cloneSubWeaponInstance.isAttacking ||
+                        dedicatedCloneHasProjectile ||
+                        dedicatedCloneHasPlantedOdachi
+                    )
+                );
+
                 const shouldMirrorSavedSubWeapon = !!(
                     !this.specialCloneAutoAiEnabled &&
+                    !shouldUseDedicatedCloneSubWeapon &&
                     saved.currentSubWeapon &&
                     (
                         saved.currentSubWeapon.name === '二刀流' ||
@@ -4845,8 +4879,13 @@ export function applyRendererMixin(PlayerClass) {
                         (saved.currentSubWeapon.fadeOutTimer || 0) > 0
                     )
                 );
+                // ミラー時、将軍は本体の正本（boss）インスタンスへ解決し本体と同一インスタンス・同一スケールで描く。
+                // 忍者は _shogunBossInstance を持たないため saved.currentSubWeapon のまま（挙動不変）。
+                const mirrorSourceInst = (this._shogunBossInstance && typeof this.getActiveSubWeaponInstance === 'function')
+                    ? (this.getActiveSubWeaponInstance() || saved.currentSubWeapon)
+                    : saved.currentSubWeapon;
                 const visualSubWeaponInstance = shouldMirrorSavedSubWeapon
-                    ? saved.currentSubWeapon
+                    ? mirrorSourceInst
                     : cloneSubWeaponInstance;
                 const visualSubWeaponAction = shouldMirrorSavedSubWeapon
                     ? (saved.subWeaponAction || cloneSubWeaponAction)
@@ -4877,9 +4916,9 @@ export function applyRendererMixin(PlayerClass) {
                 }
 
                 const cloneHasLiveProjectile = !!(
-                    cloneSubWeaponInstance &&
-                    Array.isArray(cloneSubWeaponInstance.projectiles) &&
-                    cloneSubWeaponInstance.projectiles.length > 0
+                    visualSubWeaponInstance &&
+                    Array.isArray(visualSubWeaponInstance.projectiles) &&
+                    visualSubWeaponInstance.projectiles.length > 0
                 );
                 const cloneHasPlantedOdachi = !!(
                     visualSubWeaponInstance &&

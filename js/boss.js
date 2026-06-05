@@ -22,6 +22,7 @@ import {
     SHOGUN_HIP_LIFT_PX,
     SHOGUN_SCALE
 } from './shogunConstants.js';
+import { createAIBrain } from './shogunBrains.js';
 
 // ボスベースクラス
 class Boss extends Enemy {
@@ -1305,6 +1306,22 @@ export class Shogun extends Boss {
         this.triggerCloneSubWeapon    = (index) => {
             if (!Number.isFinite(index) || index < 0) return;
             if (this.getActorSpecialCloneTier() >= 3) return;
+            if (this._playableOwner && !this.isEnemy && this.currentSubWeapon) {
+                // プレイアブル将軍: 分身の忍具発動は本体プレイヤー自身のクローン系へ委譲する。
+                // どの忍具を撃つかは player の装備（currentSubWeapon）、スケールは
+                // activateCloneSubWeaponInstance 内の getActiveSubWeaponInstance() 同期で本体に揃うため、
+                // ここで currentSubWeapon を差し替えない（二重管理 band-aid を撤廃）。
+                const ownerIndex = index - 1;
+                if (
+                    ownerIndex >= 0 &&
+                    Array.isArray(this._playableOwner.specialCloneSlots) &&
+                    ownerIndex < this._playableOwner.specialCloneSlots.length &&
+                    typeof this._playableOwner.triggerCloneSubWeapon === 'function'
+                ) {
+                    this._playableOwner.triggerCloneSubWeapon(ownerIndex);
+                }
+                return;
+            }
             if (this.actor && this.currentSubWeapon) {
                 if (this.actor.specialCloneAlive && this.actor.specialCloneAlive[index] === false) return;
                 if (this.actor.specialCloneSlots && this.actor.specialCloneSlots[index] === 0) return;
@@ -1330,27 +1347,16 @@ export class Shogun extends Boss {
                         this.actor.activateCloneSubWeaponInstance(index, attackType);
                     }
                 });
-
-                if (this._playableOwner) {
-                    const ownerIndex = index - 1;
-                    if (ownerIndex >= 0 && Array.isArray(this._playableOwner.specialCloneSlots) && ownerIndex < this._playableOwner.specialCloneSlots.length) {
-                        const prevWeapon = this._playableOwner.currentSubWeapon;
-                        this._playableOwner.currentSubWeapon = this.currentSubWeapon;
-                        try {
-                            if (typeof this._playableOwner.triggerCloneSubWeapon === 'function') {
-                                this._playableOwner.triggerCloneSubWeapon(ownerIndex);
-                            }
-                        } finally {
-                            this._playableOwner.currentSubWeapon = prevWeapon;
-                        }
-                    }
-                }
             }
         };
         this.getFootY = () => this.y + this.height;
 
         // 直前に使用した攻撃種別（連続同技防止）
         this._lastAttackType = null;
+
+        // 制御源（brain）。既定はAI。プレイアブル将軍は applyShogunCombat が InputBrain に差し替える。
+        // 戦闘コアは brain が意図を入力する単一実装で、敵/プレイヤーの差は brain と isEnemy/パラメータのみ。
+        this.brain = createAIBrain();
     }
 
     applyScaleToSubWeapons() {
@@ -1430,18 +1436,9 @@ export class Shogun extends Boss {
                 const actorIndex = ownerIndex + 1;
                 const pos = playableOwner.specialClonePositions[ownerIndex];
                 if (!pos) continue;
-                if (!Array.isArray(this.actor.specialCloneSlots)) {
-                    this.actor.specialCloneSlots = [0];
-                }
-                this.actor.specialCloneSlots[0] = 0;
-                this.actor.specialCloneSlots[actorIndex] = Array.isArray(playableOwner.specialCloneSlots)
-                    ? playableOwner.specialCloneSlots[ownerIndex]
-                    : actorIndex;
-                this.actor.specialCloneAlive[actorIndex] = true;
-                this.actor.specialClonePositions[actorIndex] = { ...pos };
                 const cloneX = pos.x - ref.width * 0.5;
-                const cloneVisualY = typeof this.actor.getSpecialCloneDrawY === 'function'
-                    ? this.actor.getSpecialCloneDrawY(pos.y)
+                const cloneVisualY = typeof playableOwner.getSpecialCloneDrawY === 'function'
+                    ? playableOwner.getSpecialCloneDrawY(pos.y)
                     : (pos.y - ref.height * 0.62);
                 const cloneY = cloneVisualY + cloneThrowOffsetY;
                 offsets.push({
@@ -2215,6 +2212,12 @@ export class Shogun extends Boss {
         }
 
         const _useIndependentAutoCloneState = !!(!this.isEnemy && this.actor.specialCloneAutoAiEnabled);
+        const _usePlayableOwnerCloneState = !!(
+            !this.isEnemy &&
+            this._playableOwner &&
+            this._playableOwner.isSpecialCloneCombatActive &&
+            this._playableOwner.isSpecialCloneCombatActive()
+        );
 
         if (this.actor.specialCloneSlots.length > 0) {
             this.syncActorSpecialCloneActionSlot(0, {
@@ -2271,7 +2274,7 @@ export class Shogun extends Boss {
         }
 
         // 分身のサブ武器インスタンス（手裏剣などの弾道）を更新する
-        if (this.actor.specialCloneSubWeaponInstances && !_useIndependentAutoCloneState) {
+        if (this.actor.specialCloneSubWeaponInstances && !_useIndependentAutoCloneState && !_usePlayableOwnerCloneState) {
             for (const inst of this.actor.specialCloneSubWeaponInstances) {
                 if (inst && typeof inst.update === 'function') {
                     const subWeaponScale = inst.name === '二刀流'
@@ -3546,6 +3549,9 @@ export class Shogun extends Boss {
                 if (!Number.isFinite(cloneFootY)) return _ougiPivotY;
                 return cloneFootY - PLAYER.HEIGHT + _cloneTransformPivotOffsetY;
             };
+            const playableCloneSource = (!this.isEnemy && this._playableOwner && this._playableOwner.isSpecialCloneCombatActive && this._playableOwner.isSpecialCloneCombatActive())
+                ? this._playableOwner
+                : null;
             const renderCloneSubWeaponWithShogunTransform = (drawFn, context = {}) => {
                 if (typeof drawFn !== 'function') return;
                 const pos = context.pos || null;
@@ -3584,46 +3590,120 @@ export class Shogun extends Boss {
                     ctx.restore();
                 }
             };
-            this.actor.renderSpecial(ctx, {
-                skipSlotIndices: [0],
-                keepActorHeight: true,
-                suppressMist: true,
-                scaleEntity: (clonePivotX, _footY, fn) => {
-                    ctx.save();
-                    ctx.globalAlpha *= 0.72;
-                    const clonePivotY = _getCloneTransformPivotY(_footY);
-                    ctx.translate(clonePivotX, clonePivotY);
-                    // 以前はここで独自に斜めパース(yawSkew)とスケール(1/0.982)をかけていたが、
-                    // 現在はrenderModel内部で将軍パースが自動適用されるため、ここでは適用しない。
-                    ctx.translate(-clonePivotX, -clonePivotY);
-                    // 以前はここでrenderScale(2.2)をかけていたが、
-                    // renderModel内部でthis.scaleMultiplier(2.2)が再度かかるため二重拡大(4.84倍)になってしまう。
-                    // したがってここではスケールを適用しない。
-                    fn();
-                    ctx.restore();
-                },
-                transformCloneTrailPoints: (points) => Array.isArray(points)
-                    ? points.map((point) => this.transformActorTrailPointToWorld(point, renderScale, actorFootGroundOffset))
-                    : points,
-                renderCloneSubWeapon: renderCloneSubWeaponWithShogunTransform,
-                cloneTrailPhysicalScale: Math.max(1, renderScale),
-                cloneModelOptions: (pos) => {
-                    const cloneFootY = typeof this.actor.getSpecialCloneFootY === 'function'
-                        ? this.actor.getSpecialCloneFootY(pos.y)
-                        : _ougiPivotY;
-                    const clonePivotY = _getCloneTransformPivotY(cloneFootY);
-                    return {
-                        ...renderOpts,
-                        yawSkewCancel: { pivotX: pos.x, pivotY: clonePivotY, yawSkew: _ougiYawSkew, type: 'enemyInverse' },
-                        forceSubWeaponRender: false,
-                        isOdachiPlantedOrFade: false
-                    };
-                },
-            });
+            if (playableCloneSource) {
+                // ジオメトリ/ポーズ受け渡し (A) のみ。renderModel は将軍モードでも頭部Yに呼び出し元の y を使うため、
+                // ワールド用 88x132 箱ではなく 40x60 の actor 箱に揃え、2.2倍スケールと yawSkew を本体に合わせる。
+                // 忍具の状態は renderSpecial 側が getActiveSubWeaponInstance() 経由で boss 正本から解決するため、
+                // ここで currentSubWeapon / subWeaponTimer / subWeaponAction を差し替えない（二重管理の band-aid を撤廃）。
+                const savedOwner = {
+                    isAttacking: playableCloneSource.isAttacking,
+                    currentAttack: playableCloneSource.currentAttack,
+                    attackTimer: playableCloneSource.attackTimer,
+                    attackCombo: playableCloneSource.attackCombo,
+                    facingRight: playableCloneSource.facingRight,
+                    vx: playableCloneSource.vx,
+                    vy: playableCloneSource.vy,
+                    isGrounded: playableCloneSource.isGrounded,
+                    isCrouching: playableCloneSource.isCrouching,
+                    isDashing: playableCloneSource.isDashing,
+                    width: playableCloneSource.width,
+                    height: playableCloneSource.height,
+                    scaleMultiplier: playableCloneSource.scaleMultiplier,
+                    shogunYawSkew: playableCloneSource.shogunYawSkew
+                };
+                playableCloneSource.width = SHOGUN_ACTOR_BASE_WIDTH;
+                playableCloneSource.height = SHOGUN_ACTOR_BASE_HEIGHT;
+                playableCloneSource.scaleMultiplier = renderScale;
+                playableCloneSource.shogunYawSkew = _ougiYawSkew;
+                playableCloneSource.facingRight = this.facingRight;
+                playableCloneSource.vx = this.vx;
+                playableCloneSource.vy = this.vy;
+                playableCloneSource.isGrounded = this.isGrounded;
+                playableCloneSource.isCrouching = this.isCrouching;
+                playableCloneSource.isDashing = this.isDashing;
+                if (this._attackTimer > 0 && this._currentAttackProfile) {
+                    playableCloneSource.isAttacking = true;
+                    playableCloneSource.currentAttack = this._currentAttackProfile;
+                    playableCloneSource.attackTimer = this._attackTimer;
+                    playableCloneSource.attackCombo = this._currentComboStep || this._comboStep || 1;
+                } else {
+                    playableCloneSource.isAttacking = false;
+                    playableCloneSource.currentAttack = null;
+                    playableCloneSource.attackTimer = 0;
+                    playableCloneSource.attackCombo = 0;
+                }
+                try {
+                    playableCloneSource.renderSpecial(ctx, {
+                        keepActorHeight: true,
+                        suppressMist: true,
+                        scaleEntity: (_clonePivotX, _footY, fn) => {
+                            ctx.save();
+                            ctx.globalAlpha *= 0.72;
+                            fn();
+                            ctx.restore();
+                        },
+                        cloneModelOptions: () => {
+                            return {
+                                ...renderOpts,
+                                forceSubWeaponRender: false,
+                                isOdachiPlantedOrFade: false
+                            };
+                        },
+                    });
+                    specialCloneTrailsUpdatedBeforeRender = true;
+                } finally {
+                    playableCloneSource.isAttacking = savedOwner.isAttacking;
+                    playableCloneSource.currentAttack = savedOwner.currentAttack;
+                    playableCloneSource.attackTimer = savedOwner.attackTimer;
+                    playableCloneSource.attackCombo = savedOwner.attackCombo;
+                    playableCloneSource.facingRight = savedOwner.facingRight;
+                    playableCloneSource.vx = savedOwner.vx;
+                    playableCloneSource.vy = savedOwner.vy;
+                    playableCloneSource.isGrounded = savedOwner.isGrounded;
+                    playableCloneSource.isCrouching = savedOwner.isCrouching;
+                    playableCloneSource.isDashing = savedOwner.isDashing;
+                    playableCloneSource.width = savedOwner.width;
+                    playableCloneSource.height = savedOwner.height;
+                    playableCloneSource.scaleMultiplier = savedOwner.scaleMultiplier;
+                    playableCloneSource.shogunYawSkew = savedOwner.shogunYawSkew;
+                }
+            } else {
+                this.actor.renderSpecial(ctx, {
+                    skipSlotIndices: [0],
+                    keepActorHeight: true,
+                    suppressMist: true,
+                    scaleEntity: (clonePivotX, _footY, fn) => {
+                        ctx.save();
+                        ctx.globalAlpha *= 0.72;
+                        const clonePivotY = _getCloneTransformPivotY(_footY);
+                        ctx.translate(clonePivotX, clonePivotY);
+                        ctx.translate(-clonePivotX, -clonePivotY);
+                        fn();
+                        ctx.restore();
+                    },
+                    transformCloneTrailPoints: (points) => Array.isArray(points)
+                        ? points.map((point) => this.transformActorTrailPointToWorld(point, renderScale, actorFootGroundOffset))
+                        : points,
+                    renderCloneSubWeapon: renderCloneSubWeaponWithShogunTransform,
+                    cloneTrailPhysicalScale: Math.max(1, renderScale),
+                    cloneModelOptions: (pos) => {
+                        const cloneFootY = typeof this.actor.getSpecialCloneFootY === 'function'
+                            ? this.actor.getSpecialCloneFootY(pos.y)
+                            : _ougiPivotY;
+                        const clonePivotY = _getCloneTransformPivotY(cloneFootY);
+                        return {
+                            ...renderOpts,
+                            yawSkewCancel: { pivotX: pos.x, pivotY: clonePivotY, yawSkew: _ougiYawSkew, type: 'enemyInverse' },
+                            forceSubWeaponRender: false,
+                            isOdachiPlantedOrFade: false
+                        };
+                    },
+                });
+            }
 
         }
 
-        if (!renderPaused && !specialCloneTrailsUpdatedBeforeRender && shouldUpdateSpecialCloneTrails && typeof this.actor.updateSpecialCloneSlashTrails === 'function') {
+        if (!renderPaused && !specialCloneTrailsUpdatedBeforeRender && shouldUpdateSpecialCloneTrails && !(!this.isEnemy && this._playableOwner) && typeof this.actor.updateSpecialCloneSlashTrails === 'function') {
             const trailDeltaMs = (typeof this._lastDeltaMs === 'number') ? this._lastDeltaMs : 16;
             this.actor.updateSpecialCloneSlashTrails(trailDeltaMs);
         }

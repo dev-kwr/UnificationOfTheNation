@@ -3309,7 +3309,8 @@ export class Odachi extends SubWeapon {
                 x: minX,
                 y: minY,
                 width: Math.max(12, Math.abs(blade.tipX - blade.rootX) + blade.hitThickness),
-                height: Math.max(12, Math.abs(blade.tipY - blade.rootY) + blade.hitThickness)
+                height: Math.max(12, Math.abs(blade.tipY - blade.rootY) + blade.hitThickness),
+                part: 'blade'
             });
         }
 
@@ -3318,17 +3319,22 @@ export class Odachi extends SubWeapon {
                 x: this.impactX - 52,
                 y: this.impactY - 26,
                 width: 104,
-                height: 52
+                height: 52,
+                part: 'shock'
             });
         }
 
         if (this.groundWaves.length > 0) {
             for (const sw of this.groundWaves) {
+                const dir = sw.dir >= 0 ? 1 : -1;
+                const waveLength = Math.max(58, Number.isFinite(sw.thickness) ? sw.thickness * 2.25 : 58);
+                const waveHeight = Math.max(32, Number.isFinite(sw.thickness) ? sw.thickness * 1.18 : 32);
                 hitboxes.push({
-                    x: sw.x - 26,
-                    y: sw.y - 26,
-                    width: 52,
-                    height: 28
+                    x: dir > 0 ? sw.x - 8 : sw.x - waveLength + 8,
+                    y: sw.y - waveHeight * 0.82,
+                    width: waveLength,
+                    height: waveHeight,
+                    part: 'shock'
                 });
             }
         }
