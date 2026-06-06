@@ -820,7 +820,12 @@ export function applyRendererMixin(PlayerClass) {
             this.currentSubWeapon = savedWeapon;
             this.x = savedX; this.y = savedY; this.width = savedW; this.height = savedH;
         }
-        this.subWeaponRenderedInModel = true;
+        // subWeaponRenderedInModel は renderModel が武器ごとに設定済み（強制 true にしない）。
+        // 弾系(手裏剣/火薬玉)は in-model 描画されないため、呼び出し側(game.js/preview)が
+        // currentSubWeapon.render で弾を描く＝忍者と同じ経路（相対共通化）。
+
+        // ── 本体の剣筋・二刀軌跡 ── 忍者と同じメソッドで描く（ワールド座標、本体寸法88基準）。
+        // game.js/preview 側の将軍 gate を外し、ここでは描かない（二重描画回避）。
 
         // ── 分身 ── playableCloneSource と同一(40x60, keepActorHeight)。各分身も将軍スキン/スケールで描かれる。
         if (typeof this.isSpecialCloneCombatActive === 'function' && this.isSpecialCloneCombatActive()) {

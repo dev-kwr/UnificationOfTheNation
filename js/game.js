@@ -4698,11 +4698,9 @@ class Game {
             });
             ctx.restore();
             
-            // 将軍の通常コンボ剣筋は _renderShogunBody -> boss.renderBody 側で
-            // 体格補正込みの座標へ投影して描画する。
-            if (this.player.characterType !== 'shogun') {
-                this.player.renderComboSlashTrail(ctx);
-            }
+            // 本体の通常コンボ剣筋・二刀軌跡は忍者・将軍とも同じ経路で描く（相対共通化）。
+            // ネイティブ将軍は Player 自身の剣筋トレイルを持つため、旧 boss 投影は不要。
+            this.player.renderComboSlashTrail(ctx);
             this.player.renderDualBladeSlashTrails(ctx);
 
             if (

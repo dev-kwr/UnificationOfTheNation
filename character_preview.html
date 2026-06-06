@@ -804,16 +804,15 @@
 
             window.game.projectiles.forEach(p => { if (p.render) p.render(ctx); });
 
-            if (isShogunMode()) {
-                // ゲームと同じ描画経路: player.render → _renderShogunBody → boss.renderBody。
-                // 隠れ身の透明度・剣筋・サブ武器・奥義分身もこの中でゲームと同様に処理される。
-                shogunPlayer.render(ctx, {});
-            } else {
-                ninja.render(ctx);
-                if (ninja.renderComboSlashTrail) ninja.renderComboSlashTrail(ctx);
-                if (ninja.renderDualBladeSlashTrails) ninja.renderDualBladeSlashTrails(ctx);
-                if (ninja.currentSubWeapon && !ninja.subWeaponRenderedInModel && ninja.currentSubWeapon.render) {
-                    ninja.currentSubWeapon.render(ctx, ninja);
+            // 忍者・将軍とも同一の描画後処理（剣筋・二刀軌跡・忍具/弾）を通す（相対共通化）。
+            // ゲーム(game.js)と同じ呼び出し順：render() → 剣筋 → 二刀軌跡 → currentSubWeapon.render。
+            {
+                const _actor = isShogunMode() ? shogunPlayer : ninja;
+                _actor.render(ctx, {});
+                if (_actor.renderComboSlashTrail) _actor.renderComboSlashTrail(ctx);
+                if (_actor.renderDualBladeSlashTrails) _actor.renderDualBladeSlashTrails(ctx);
+                if (_actor.currentSubWeapon && !_actor.subWeaponRenderedInModel && _actor.currentSubWeapon.render) {
+                    _actor.currentSubWeapon.render(ctx, _actor);
                 }
             }
             // 火薬玉はキャラクターより前面に描画する
