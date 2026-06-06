@@ -836,6 +836,16 @@ export function applyShogunCombat(player) {
             const moveBias = Math.min(0.024, Math.abs(this.vx || 0) * 0.0038);
             const attackBias = this.isAttacking ? 0.013 : 0;
             this.shogunYawSkew = dir2d * (0.046 + moveBias + attackBias);
+
+            // [E3b] 初回 update でセットアップ(dims/boss/忍具)が整ったら Player ネイティブ戦闘へ移行する。
+            // 以降は hasCombatControllerMethod が false を返し、Player 自身の update/描画/戦闘(boss非依存)が走る。
+            // 検証済みプレビューと同一フロー（初回のみ controller→以後 native）。全エントリポイントを1箇所でカバー。
+            // _disableNativeShogun=true で従来 boss 経路を維持（比較・緊急回避用）。
+            if (!this._nativeShogun && this._disableNativeShogun !== true &&
+                Array.isArray(this.subWeapons) && this.subWeapons.length > 0 &&
+                typeof this.enableNativeShogun === 'function') {
+                this.enableNativeShogun();
+            }
         },
 
         // ================================================================
