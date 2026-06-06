@@ -451,6 +451,9 @@
         shogunPlayer.subWeapons = subWeapons.map(key => createSubWeapon(subWeaponNames[key])).filter(Boolean);
         shogunPlayer.currentSubWeapon = shogunPlayer.subWeapons[0] || null;
         shogunPlayer.subWeaponIndex = 0;
+        // [E3] プレイアブル将軍を Player ネイティブ戦闘＋描画に切替（boss 非依存）。
+        // dims/scale は上の初回 update(409) で設定済み。ここで native 化＋忍具スケールを適用。
+        if (typeof shogunPlayer.enableNativeShogun === 'function') shogunPlayer.enableNativeShogun();
 
         // --- 状態変数 ---
         let previewCharacter = 'shogun';
