@@ -471,6 +471,32 @@ export function applySpecialMixin(PlayerClass) {
         return this.currentSubWeapon || null;
     };
 
+    // 将軍の所持忍具を本体スケール(scaleMultiplier)に拡大する（boss.applyScaleToSubWeapons と同一規則）。
+    // ネイティブ将軍は自分の subWeapons を直接使うため、本体＝分身が同一スケールで撃てるようにする。
+    PlayerClass.prototype._applyShogunSubWeaponScale = function() {
+        if (this._shogunWeaponsScaled) return;
+        const scale = Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1;
+        if (scale <= 1.001 || !Array.isArray(this.subWeapons)) return;
+        for (const w of this.subWeapons) {
+            if (!w) continue;
+            // 大太刀は描画・接地補正が武器側で scaleMultiplier 完結のため range 拡大対象外
+            if (w.name === '大太刀') continue;
+            if (Number.isFinite(w.range)) w.range *= scale;
+            if (Number.isFinite(w.baseRange)) w.baseRange *= scale;
+            if (w.name === '手裏剣') {
+                if (Number.isFinite(w.projectileRadius)) w.projectileRadius *= scale;
+                if (Number.isFinite(w.projectileRadiusHoming)) w.projectileRadiusHoming *= scale;
+            }
+        }
+        this._shogunWeaponsScaled = true;
+    };
+
+    // プレイアブル将軍を Player ネイティブ戦闘に切り替える（boss/controller 非依存）。
+    PlayerClass.prototype.enableNativeShogun = function() {
+        this._nativeShogun = true;
+        this._applyShogunSubWeaponScale();
+    };
+
     PlayerClass.prototype.getSpecialCloneRenderBox = function(index, posOverride = null) {
         const pos = posOverride || (this.specialClonePositions ? this.specialClonePositions[index] : null);
         if (!pos) return null;

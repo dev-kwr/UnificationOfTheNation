@@ -856,6 +856,8 @@ export function applyShogunCombat(player) {
     // 分身（renderSpecial/updateSpecial）が getActiveSubWeaponInstance() 越しに本体と同一インスタンスを参照できるようにする。
     // 注意: player.currentSubWeapon 自体は在庫インスタンスのまま差し替えない（メインループの二重 render/use を防ぐ）。
     player._resolveActiveSubWeaponInstance = () => {
+        // ネイティブ将軍は自分の（scaled）currentSubWeapon を使うため boss プールへ解決しない。
+        if (player._nativeShogun) return null;
         const boss = player._shogunBossInstance;
         if (!boss || !boss._subWeaponInstances) return null;
         let key = boss._subWeaponKey || null;

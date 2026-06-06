@@ -766,27 +766,58 @@ export function applyRendererMixin(PlayerClass) {
     // boss.renderBody(ctx) を呼び出す。
     // ═══════════════════════════════════════════════════════════════
     PlayerClass.prototype._renderShogunBody = function(ctx, ghostVeilActive, ghostAlpha = 1.0) {
-        if (!this._shogunBossInstance) return;
-
-        const boss = this._shogunBossInstance;
-
-        // ── 位置・向きの同期のみ（攻撃状態はボスが管理） ──
-        const bossIsActive = boss._attackTimer > 0 || boss._subTimer > 0 || boss.isAttacking;
-        if (!bossIsActive) {
-            boss.x = this.x;
-            boss.y = this.y;
-            boss.isGrounded = this.isGrounded;
+        // Player ネイティブ描画。renderModel は characterType==='shogun' のとき
+        // 将軍スキン(_drawShogun*)・2.2倍スケール(scaleMultiplier)・2.5D傾き(shogunYawSkew)を自前で適用する。
+        // 戦闘状態は controller が boss から本体へ同期済み（isAttacking/currentAttack/subWeaponTimer 等）。
+        // boss.renderBody（actor↔world 橋渡しの足場）には依存しない。
+        // _nativeShogun（既定OFF）の時のみ Player ネイティブ描画。既定は従来の boss 描画で回帰ゼロ。
+        if (this._nativeShogun && typeof this._renderShogunBodyNative === 'function') {
+            this._renderShogunBodyNative(ctx, ghostAlpha);
+            return;
         }
-        boss.facingRight = this.facingRight;
-        boss.groundY = this.groundY;
+        // 既定（移行期）: boss 描画
+        if (this._shogunBossInstance) {
+            const boss = this._shogunBossInstance;
+            const bossIsActive = boss._attackTimer > 0 || boss._subTimer > 0 || boss.isAttacking;
+            if (!bossIsActive) { boss.x = this.x; boss.y = this.y; boss.isGrounded = this.isGrounded; }
+            boss.facingRight = this.facingRight;
+            boss.groundY = this.groundY;
+            boss.hideBody = false;
+            boss.ghostVeilAlpha = ghostAlpha;
+            boss.renderBody(ctx);
+            this.subWeaponRenderedInModel = true;
+        }
+    };
 
-        boss.hideBody = false;
-
-        boss.ghostVeilAlpha = ghostAlpha; // 透明度を同期
-
-        // ボスの renderBody をそのまま呼び出す
-        boss.renderBody(ctx);
+    // 将軍本体＋分身を Player 自身で描画する（boss.renderBody 非依存）。
+    PlayerClass.prototype._renderShogunBodyNative = function(ctx, ghostAlpha = 1.0) {
+        // 本体: アクティブ忍具（getActiveSubWeaponInstance＝boss正本の scaled インスタンス）を一時的に
+        // currentSubWeapon に見せて renderModel に描かせる（移行期。E2 で本体が scaled 武器を所有したら不要化）。
+        const activeWeapon = (typeof this.getActiveSubWeaponInstance === 'function')
+            ? this.getActiveSubWeaponInstance()
+            : this.currentSubWeapon;
+        const savedWeapon = this.currentSubWeapon;
+        if (activeWeapon) this.currentSubWeapon = activeWeapon;
+        try {
+            this.renderModel(ctx, this.x, this.y, this.facingRight, ghostAlpha, true, {});
+        } finally {
+            this.currentSubWeapon = savedWeapon;
+        }
         this.subWeaponRenderedInModel = true;
+
+        // 分身: Player ネイティブの renderSpecial。renderModel が各分身も将軍スキン/スケールで描く。
+        if (typeof this.isSpecialCloneCombatActive === 'function' && this.isSpecialCloneCombatActive()) {
+            this.renderSpecial(ctx, {
+                keepActorHeight: true,
+                suppressMist: true,
+                scaleEntity: (_px, _py, fn) => {
+                    ctx.save();
+                    ctx.globalAlpha *= 0.72;
+                    fn();
+                    ctx.restore();
+                },
+            });
+        }
     };
 
     PlayerClass.prototype.renderModel = function(ctx, x, y, facingRight, alpha = 1.0, renderSubWeaponVisualsInput = true, options = {}) {

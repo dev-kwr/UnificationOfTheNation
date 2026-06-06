@@ -219,8 +219,11 @@ export class Player {
     }
 
     hasCombatControllerMethod(methodName) {
+        // _nativeShogun 時は将軍も Player ネイティブの戦闘経路を使う（boss/controller を委譲先にしない）。
+        // 既定では従来通り combatController(boss) へ委譲する。
         return !!(
             this.characterType === 'shogun' &&
+            !this._nativeShogun &&
             this.combatController &&
             typeof this.combatController[methodName] === 'function'
         );
@@ -2360,29 +2363,63 @@ export class Player {
         const isAttacking = state.isAttacking !== undefined ? state.isAttacking : this.isAttacking;
         const currentAttack = state.currentAttack !== undefined ? state.currentAttack : this.currentAttack;
         const attackTimer = state.attackTimer !== undefined ? state.attackTimer : this.attackTimer;
-        const x = state.x !== undefined ? state.x : this.x;
-        const y = state.y !== undefined ? state.y : this.y;
-        const bodyWidth = Number.isFinite(state.width) ? state.width : this.width;
-        const bodyHeight = Number.isFinite(state.height) ? state.height : this.height;
         const facingRight = state.facingRight !== undefined ? state.facingRight : this.facingRight;
         const isCrouching = state.isCrouching !== undefined ? state.isCrouching : this.isCrouching;
 
         if (!isAttacking || !currentAttack) return null;
+
+        // 将軍(scaleMultiplier>1)は本体寸法(88x132)ではなく素体フレーム(40x60)で判定を計算し、
+        // ワールドへ scaleMultiplier 倍 + yawSkew で変換する（boss.transformActorHitboxToWorld と同一規則）。
+        // これにより見た目(2.2倍)とヒット範囲が一致する。忍者(scale=1)は従来通り。
+        const worldX = state.x !== undefined ? state.x : this.x;
+        const worldY = state.y !== undefined ? state.y : this.y;
+        const worldW = Number.isFinite(state.width) ? state.width : this.width;
+        const worldH = Number.isFinite(state.height) ? state.height : this.height;
+        const shogunScale = (this.characterType === 'shogun' && Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 1.001)
+            ? this.scaleMultiplier : 1;
+        const bodyWidth = shogunScale > 1 ? (worldW / shogunScale) : worldW;
+        const bodyHeight = shogunScale > 1 ? (worldH / shogunScale) : worldH;
+        const x = shogunScale > 1 ? (worldX + (worldW - bodyWidth) * 0.5) : worldX;
+        const y = shogunScale > 1 ? (worldY + (worldH - bodyHeight) * 0.62) : worldY;
+
+        // 素体フレーム箱をワールドへ（scale + yawSkew、本体ワールドピボット中心）
+        const worldPivotX = worldX + worldW * 0.5;
+        const worldPivotY = worldY + worldH * 0.62;
+        const dir2d = facingRight ? 1 : -1;
+        const moveBias = Math.min(0.024, Math.abs((state.vx !== undefined ? state.vx : this.vx) || 0) * 0.0038);
+        const _yawSkew = dir2d * (0.046 + moveBias + (isAttacking ? 0.013 : 0));
+        const _skew = _yawSkew / 0.982;
+        const _xScale = 1 / 0.982;
+        const toWorld = (box) => {
+            if (!box || shogunScale <= 1) return box;
+            const corners = [
+                [box.x, box.y], [box.x + box.width, box.y],
+                [box.x, box.y + box.height], [box.x + box.width, box.y + box.height]
+            ].map(([cx, cy]) => {
+                let tx = worldPivotX + (cx - worldPivotX) * shogunScale;
+                let ty = worldPivotY + (cy - worldPivotY) * shogunScale;
+                const dx = tx - worldPivotX, dy = ty - worldPivotY;
+                tx = worldPivotX + dx * _xScale - _skew * dy;
+                return { x: tx, y: ty };
+            });
+            const xs = corners.map(p => p.x), ys = corners.map(p => p.y);
+            const minX = Math.min(...xs), minY = Math.min(...ys), maxX = Math.max(...xs), maxY = Math.max(...ys);
+            return { ...box, x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+        };
+
         const zHitboxScale = this.getXAttackHitboxScale();
         const xBoostAction = this.isXAttackBoostActive() && this.isXAttackActionActive();
         const scaleBox = (box) => {
-            if (!box || zHitboxScale <= 1.001) return box;
-            const cx = box.x + box.width * 0.5;
-            const cy = box.y + box.height * 0.5;
-            const width = box.width * zHitboxScale;
-            const height = box.height * zHitboxScale;
-            return {
-                ...box,
-                x: cx - width * 0.5,
-                y: cy - height * 0.5,
-                width,
-                height
-            };
+            if (!box) return box;
+            let b = box;
+            if (zHitboxScale > 1.001) {
+                const cx = b.x + b.width * 0.5;
+                const cy = b.y + b.height * 0.5;
+                const width = b.width * zHitboxScale;
+                const height = b.height * zHitboxScale;
+                b = { ...b, x: cx - width * 0.5, y: cy - height * 0.5, width, height };
+            }
+            return toWorld(b);
         };
         
         const attack = currentAttack;

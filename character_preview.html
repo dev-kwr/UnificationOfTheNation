@@ -670,6 +670,9 @@
         applyWeaponLv(parseInt(document.getElementById('selWeaponLv').value));
         applySkillLv(parseInt(document.getElementById('selSkillLv').value));
 
+        // [DEBUG-EXPOSE] E統一実装の検証用ハンドル（Phase2完了後に除去）
+        window.__dbg = { shogunPlayer, ninja, shogun, equipShogunPreviewWeapon, get active(){ return previewCharacter === 'shogun' ? shogunPlayer : ninja; } };
+
         // windowへの直接リスナーを廃止し、inputマネージャーに統一（バグ防止）
         window.addEventListener('keydown', (e) => {
             const k = e.key.toLowerCase();
