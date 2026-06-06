@@ -791,32 +791,55 @@ export function applyRendererMixin(PlayerClass) {
 
     // 将軍本体＋分身を Player 自身で描画する（boss.renderBody 非依存）。
     PlayerClass.prototype._renderShogunBodyNative = function(ctx, ghostAlpha = 1.0) {
-        // 本体: アクティブ忍具（getActiveSubWeaponInstance＝boss正本の scaled インスタンス）を一時的に
-        // currentSubWeapon に見せて renderModel に描かせる（移行期。E2 で本体が scaled 武器を所有したら不要化）。
+        const renderScale = (Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0) ? this.scaleMultiplier : 1;
+        const savedX = this.x, savedY = this.y, savedW = this.width, savedH = this.height;
+        const savedWeapon = this.currentSubWeapon;
+
+        // ── 本体 ── boss と同一の actor フレーム(40x72)＋接地補正(actorFootGroundOffset)で描く。
+        // ワールド箱(88x132)をそのまま渡すと足元が下にずれて胴が間延びするため、必ず actor 基準で渡す。
+        const actorRenderW = SHOGUN_ACTOR_BASE_WIDTH;   // 40
+        const actorRenderH = SHOGUN_ACTOR_BASE_HEIGHT;  // 60
+        const actorDrawHeight = PLAYER.HEIGHT;          // 72
+        const actorPivotHeight = actorRenderH * 0.62;
+        const actorFootGroundOffset = renderScale > 1.001
+            ? (savedH * 0.38 - (actorDrawHeight - actorPivotHeight) * renderScale)
+            : 0;
+        const actorRenderX = savedX + (savedW - actorRenderW) * 0.5;
+        const actorRenderY = savedY + (savedH - actorRenderH) * 0.62 + actorFootGroundOffset;
+
+        // 本体のアクティブ忍具を一時的に currentSubWeapon に見せて描く（移行期）。
         const activeWeapon = (typeof this.getActiveSubWeaponInstance === 'function')
             ? this.getActiveSubWeaponInstance()
             : this.currentSubWeapon;
-        const savedWeapon = this.currentSubWeapon;
         if (activeWeapon) this.currentSubWeapon = activeWeapon;
+        this.width = actorRenderW;
+        this.height = actorDrawHeight;
         try {
-            this.renderModel(ctx, this.x, this.y, this.facingRight, ghostAlpha, true, {});
+            this.renderModel(ctx, actorRenderX, actorRenderY, this.facingRight, ghostAlpha, true, {});
         } finally {
             this.currentSubWeapon = savedWeapon;
+            this.x = savedX; this.y = savedY; this.width = savedW; this.height = savedH;
         }
         this.subWeaponRenderedInModel = true;
 
-        // 分身: Player ネイティブの renderSpecial。renderModel が各分身も将軍スキン/スケールで描く。
+        // ── 分身 ── playableCloneSource と同一(40x60, keepActorHeight)。各分身も将軍スキン/スケールで描かれる。
         if (typeof this.isSpecialCloneCombatActive === 'function' && this.isSpecialCloneCombatActive()) {
-            this.renderSpecial(ctx, {
-                keepActorHeight: true,
-                suppressMist: true,
-                scaleEntity: (_px, _py, fn) => {
-                    ctx.save();
-                    ctx.globalAlpha *= 0.72;
-                    fn();
-                    ctx.restore();
-                },
-            });
+            this.width = SHOGUN_ACTOR_BASE_WIDTH;
+            this.height = SHOGUN_ACTOR_BASE_HEIGHT;
+            try {
+                this.renderSpecial(ctx, {
+                    keepActorHeight: true,
+                    suppressMist: true,
+                    scaleEntity: (_px, _py, fn) => {
+                        ctx.save();
+                        ctx.globalAlpha *= 0.72;
+                        fn();
+                        ctx.restore();
+                    },
+                });
+            } finally {
+                this.x = savedX; this.y = savedY; this.width = savedW; this.height = savedH;
+            }
         }
     };
 
