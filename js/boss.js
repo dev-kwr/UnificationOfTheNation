@@ -1302,12 +1302,6 @@ function markEnemyBombs(owner, startIndex) {
     }
 }
 
-function updateShogunBossYawSkew(owner) {
-    const dir2d = owner.facingRight ? 1 : -1;
-    const moveBias = Math.min(0.024, Math.abs(owner.vx || 0) * 0.0038);
-    const attackBias = owner.isAttacking || owner.subWeaponTimer > 0 ? 0.013 : 0;
-    owner.shogunYawSkew = dir2d * (0.046 + moveBias + attackBias);
-}
 
 function startBossSubWeapon(owner, weaponName, mode = null) {
     const weapon = setCurrentBossWeapon(owner, weaponName);
@@ -1693,7 +1687,6 @@ function createShogunBossPlayer(x, _y, _type, groundY) {
                 if (this.vx > 0) this.vx = 0;
             }
         }
-        updateShogunBossYawSkew(this);
         return false;
     };
 
@@ -1705,7 +1698,6 @@ function createShogunBossPlayer(x, _y, _type, groundY) {
     boss.evasionJumped = false;
     boss.feintTimerMs = 220 + Math.random() * 240;
     boss.feintDir = Math.random() < 0.5 ? -1 : 1;
-    updateShogunBossYawSkew(boss);
     return boss;
 }
 

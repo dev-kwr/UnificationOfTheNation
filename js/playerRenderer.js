@@ -766,27 +766,9 @@ export function applyRendererMixin(PlayerClass) {
     // boss.renderBody(ctx) を呼び出す。
     // ═══════════════════════════════════════════════════════════════
     PlayerClass.prototype._renderShogunBody = function(ctx, ghostVeilActive, ghostAlpha = 1.0) {
-        // Player ネイティブ描画。renderModel は characterType==='shogun' のとき
-        // 将軍スキン(_drawShogun*)・2.2倍スケール(scaleMultiplier)・2.5D傾き(shogunYawSkew)を自前で適用する。
-        // 戦闘状態は controller が boss から本体へ同期済み（isAttacking/currentAttack/subWeaponTimer 等）。
-        // boss.renderBody（actor↔world 橋渡しの足場）には依存しない。
-        // _nativeShogun（既定OFF）の時のみ Player ネイティブ描画。既定は従来の boss 描画で回帰ゼロ。
-        if (this._nativeShogun && typeof this._renderShogunBodyNative === 'function') {
-            this._renderShogunBodyNative(ctx, ghostAlpha);
-            return;
-        }
-        // 既定（移行期）: boss 描画
-        if (this._shogunBossInstance) {
-            const boss = this._shogunBossInstance;
-            const bossIsActive = boss._attackTimer > 0 || boss._subTimer > 0 || boss.isAttacking;
-            if (!bossIsActive) { boss.x = this.x; boss.y = this.y; boss.isGrounded = this.isGrounded; }
-            boss.facingRight = this.facingRight;
-            boss.groundY = this.groundY;
-            boss.hideBody = false;
-            boss.ghostVeilAlpha = ghostAlpha;
-            boss.renderBody(ctx);
-            this.subWeaponRenderedInModel = true;
-        }
+        // 将軍は単一 Player ネイティブ描画。renderModel が characterType==='shogun' のとき
+        // 将軍スキン(_drawShogun*)＋scaleMultiplier(2.2倍)で素体を描く（旧 boss.renderBody 依存は撤去済み）。
+        this._renderShogunBodyNative(ctx, ghostAlpha);
     };
 
     // 将軍本体＋分身を Player 自身で描画する（boss.renderBody 非依存）。
@@ -912,10 +894,8 @@ export function applyRendererMixin(PlayerClass) {
         const originalW = this.width;
         const originalH = this.height;
 
-        // 将軍の2.5D傾き(shogunYawSkew シア)は撤去。忍者と同じ「直立した純スケール」で描く。
-        // （前傾を望まないユーザー要望＋「将軍専用の描画変形を持たない」統合ゴールに沿う）
-        // shear を切ると yawSkewCancel も設定されず、odachi 等の逆シア補正も自動で不要化する。
-        const applyShogunShear = false;
+        // 将軍の2.5D傾き(shogunYawSkew シア)は撤去済み。忍者と同じ「直立した純スケール」で描く
+        // （前傾を望まないユーザー要望＋将軍専用の描画変形を持たない統合ゴール）。
         const scale = this.scaleMultiplier || 1.0;
 
         // 将軍モードの場合、モデル幅(drawW=48)中心を scale ピボット(=world箱中心)に一致させる。
@@ -930,31 +910,15 @@ export function applyRendererMixin(PlayerClass) {
         this.height = drawH;
 
         const applyScaleTransform = scale !== 1.0;
-        const needsContextTransform = applyShogunShear || applyScaleTransform;
 
-        if (needsContextTransform) {
+        if (applyScaleTransform) {
+            // scaleMultiplier で素体を一様拡大（将軍2.2倍）。ピボットは world箱中心(originalW*0.5, originalH*0.62)。
             const pivotX = x + originalW * 0.5;
             const pivotY = y + originalH * 0.62;
-            const yawSkew = applyShogunShear ? (this.shogunYawSkew || 0) : 0;
-
-            if (applyShogunShear && !options.yawSkewCancel) {
-                options.yawSkewCancel = { pivotX, pivotY, yawSkew };
-            }
-
             ctx.save();
             ctx.translate(pivotX, pivotY);
-            
-            if (applyShogunShear) {
-                // 将軍特有の斜めパース変形
-                ctx.transform(1, 0, -yawSkew / 0.982, 1, 0, 0);
-                ctx.scale(scale / 0.982, scale);
-            } else {
-                ctx.scale(scale, scale);
-            }
-            
+            ctx.scale(scale, scale);
             ctx.translate(-pivotX, -pivotY);
-
-            // 陣羽織（背面）は boss.js 側で描画するためここでは描画しない
         }
 
         this.forceSubWeaponRender = forceSubWeaponRender;
@@ -2671,7 +2635,7 @@ export function applyRendererMixin(PlayerClass) {
     this.y = originalY;
     this.width = originalW;
     this.height = originalH;
-    if (applyShogunShear || (scale !== 1.0)) {
+    if (scale !== 1.0) {
         ctx.restore();
     }
     ctx.restore();
