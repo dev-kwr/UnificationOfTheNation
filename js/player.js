@@ -236,6 +236,31 @@ export class Player {
         return this.currentSubWeapon || null;
     }
 
+    // ========== ワールド寸法アクセサ ==========
+    // this.width/height は「素体フレーム」(忍者48x72 / 将軍40x60)。
+    // 物理接地・当たり判定・カメラ・敵間合い・武器の絶対座標など「実体の大きさ」が
+    // 要る箇所はこのアクセサ経由でワールド寸法(素体×scaleMultiplier)を読む。
+    // 忍者は scaleMultiplier=1 なので getWorldWidth()===width で完全に不変。
+    getWorldWidth() {
+        return this.width * (Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1);
+    }
+
+    getWorldHeight() {
+        return this.height * (Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1);
+    }
+
+    getWorldCenterX() {
+        return this.x + this.getWorldWidth() * 0.5;
+    }
+
+    getWorldCenterY() {
+        return this.y + this.getWorldHeight() * 0.5;
+    }
+
+    getWorldFootY() {
+        return this.y + this.getWorldHeight();
+    }
+
     getHitbox() {
         if (this.hasCombatControllerMethod('getHitbox')) {
             return this.combatController.getHitbox.call(this);
@@ -243,8 +268,8 @@ export class Player {
         return {
             x: this.x,
             y: this.y,
-            width: this.width,
-            height: this.height
+            width: this.getWorldWidth(),
+            height: this.getWorldHeight()
         };
     }
 
@@ -1266,8 +1291,8 @@ export class Player {
         this.currentAttack = this.buildComboAttackProfileWithTrail(this.attackCombo, {
             x: this.x,
             y: this.y,
-            width: this.width,
-            height: this.height,
+            width: this.getWorldWidth(),
+            height: this.getWorldHeight(),
             facingRight: this.facingRight,
             isCrouching: this.isCrouching,
             vx: this.vx,
@@ -1357,7 +1382,7 @@ export class Player {
         freezeNormalComboFinisherTrailCurve(activeAttack, {
             attackTimer: this.attackTimer,
             groundY: this.groundY,
-            ownerHeight: this.height,
+            ownerHeight: this.getWorldHeight(),
             trailPoints: this.comboSlashTrailPoints
         });
         this.attackTimer -= deltaMs;
@@ -1538,7 +1563,7 @@ export class Player {
         // 二刀コンボ中に上空へ登り続けないよう上昇量を制限
         const dualRiseCap = step === 4 ? -17.2 : -15.4;
         this.vy = Math.max(this.vy, dualRiseCap);
-        const liftFromGround = this.groundY - (this.y + this.height);
+        const liftFromGround = this.groundY - this.getWorldFootY();
         const dualLiftLimit = step === 4 ? 174 : 154;
         if (liftFromGround > dualLiftLimit && this.vy < -0.4) {
             this.vy *= 0.52;
@@ -1567,7 +1592,7 @@ export class Player {
         this.damageFlashTimer = Math.max(this.damageFlashTimer, flashMs);
         this.invincibleTimer = Math.max(this.invincibleTimer, invincibleMs);
 
-        const playerCenterX = this.x + this.width / 2;
+        const playerCenterX = this.getWorldCenterX();
         const knockbackDir = forcedKnockbackDir !== 0
             ? forcedKnockbackDir
             : ((sourceX === null)
@@ -1619,8 +1644,8 @@ export class Player {
             this.vx *= 0.88;
             this.x += this.vx;
             this.y += this.vy;
-            if (this.y + this.height >= this.groundY + LANE_OFFSET) {
-                this.y = this.groundY + LANE_OFFSET - this.height;
+            if (this.y + this.getWorldHeight() >= this.groundY + LANE_OFFSET) {
+                this.y = this.groundY + LANE_OFFSET - this.getWorldHeight();
                 this.vy = 0;
                 this.isGrounded = true;
                 this.jumpCount = 0;
@@ -1672,19 +1697,21 @@ export class Player {
         let horizontalBlockedDir = 0;
         let nextX = this.x + this.vx;
         if (this.vx !== 0) {
+            const worldH = this.getWorldHeight();
+            const worldW = this.getWorldWidth();
             const sweepTop = Math.min(this.y, this.y + this.vy);
-            const sweepBottom = Math.max(this.y + this.height, this.y + this.vy + this.height);
+            const sweepBottom = Math.max(this.y + worldH, this.y + this.vy + worldH);
             const edgeTolerance = 2;
             const wallPadding = 0.01;
 
             if (this.vx > 0) {
-                const currentRight = this.x + this.width;
+                const currentRight = this.x + worldW;
                 for (const wall of effectiveColliders) {
                     if (!this.isSolidCollider(wall)) continue;
                     const overlapY = Math.min(sweepBottom, wall.y + wall.height) - Math.max(sweepTop, wall.y);
                     if (overlapY <= edgeTolerance) continue;
-                    if (currentRight <= wall.x + 0.5 && nextX + this.width > wall.x) {
-                        nextX = Math.min(nextX, wall.x - this.width - wallPadding);
+                    if (currentRight <= wall.x + 0.5 && nextX + worldW > wall.x) {
+                        nextX = Math.min(nextX, wall.x - worldW - wallPadding);
                         horizontalBlockedDir = 1;
                     }
                 }
@@ -1719,12 +1746,12 @@ export class Player {
         for (const wall of effectiveColliders) {
             if (!this.isSolidCollider(wall)) continue;
             if (this.intersects(wall)) {
-                const wasAboveWall = prevY + this.height <= wall.y + 2;
+                const wasAboveWall = prevY + this.getWorldHeight() <= wall.y + 2;
                 const wasBelowWall = prevY >= wall.y + wall.height - 2;
                 if (wasAboveWall || wasBelowWall) continue;
                 // 横方向の補正
                 if (this.vx > 0) {
-                    this.x = wall.x - this.width;
+                    this.x = wall.x - this.getWorldWidth();
                     if (!this.isGrounded && input.isAction('RIGHT')) {
                         this.isWallSliding = true;
                         this.wallDirection = -1;
@@ -1758,13 +1785,13 @@ export class Player {
             const wallRight = wall.x + wall.width;
             const wallTop = wall.y;
             const wallBottom = wall.y + wall.height;
-            const overlapX = Math.min(this.x + this.width, wallRight) - Math.max(this.x, wallLeft);
+            const overlapX = Math.min(this.x + this.getWorldWidth(), wallRight) - Math.max(this.x, wallLeft);
             if (overlapX <= 3) continue;
 
             const prevTop = prevY;
-            const prevBottom = prevY + this.height;
+            const prevBottom = prevY + this.getWorldHeight();
             const currentTop = this.y;
-            const currentBottom = this.y + this.height;
+            const currentBottom = this.y + this.getWorldHeight();
 
             // 下から頭をぶつけた場合
             if (this.vy < 0 && prevTop >= wallBottom - 2 && currentTop <= wallBottom) {
@@ -1790,12 +1817,13 @@ export class Player {
         // 着地音の判定用：接地前の落下速度を一時保持
         const fallingSpeed = this.vy;
 
-        // 地面判定
+        // 地面判定（接地はワールド身長で足を合わせる）
+        const groundWorldH = this.getWorldHeight();
         if (hangingOnOdachi) {
             const odachi = this.currentSubWeapon;
             const hangY = (odachi && typeof odachi.getPlantedOwnerY === 'function')
                 ? odachi.getPlantedOwnerY(this)
-                : (this.groundY + LANE_OFFSET - this.height - 30);
+                : (this.groundY + LANE_OFFSET - groundWorldH - 30);
             // 刺さっている間は常に同じ吊り位置を維持する
             if (Number.isFinite(hangY)) {
                 this.y = hangY;
@@ -1806,11 +1834,11 @@ export class Player {
             this.isGrounded = false;
             this.isWallSliding = false;
             this.jumpCount = Math.max(this.jumpCount, 1);
-        } else if (supportTopY !== null && this.y + this.height >= supportTopY - 2) {
+        } else if (supportTopY !== null && this.y + groundWorldH >= supportTopY - 2) {
             // 急上昇中は上面への「吸い付き」を防ぐため、判定を厳格化
             const isRapidAscending = this.vy < -5.0;
-            if (!isRapidAscending || (prevY + this.height <= supportTopY + 1)) {
-                this.y = supportTopY - this.height;
+            if (!isRapidAscending || (prevY + groundWorldH <= supportTopY + 1)) {
+                this.y = supportTopY - groundWorldH;
                 this.vy = 0;
                 this.isGrounded = true;
                 this.jumpCount = 0;
@@ -1818,8 +1846,8 @@ export class Player {
             } else {
                 this.isGrounded = false;
             }
-        } else if (this.y + this.height >= this.groundY + LANE_OFFSET) {
-            this.y = this.groundY + LANE_OFFSET - this.height;
+        } else if (this.y + groundWorldH >= this.groundY + LANE_OFFSET) {
+            this.y = this.groundY + LANE_OFFSET - groundWorldH;
             this.vy = 0;
             this.isGrounded = true;
             this.jumpCount = 0;
@@ -1842,7 +1870,7 @@ export class Player {
 
         if (game && game.stage && game.stage.stageNumber === 5) {
             if (game.stage.floorScrollDirection === -1) {
-                leftLimit = -this.width; // ステージ5左登りのみ、遷移達成のために画面外へ突破を許可
+                leftLimit = -this.getWorldWidth(); // ステージ5左登りのみ、遷移達成のために画面外へ突破を許可
             }
 
             // 以前あった穴の幅(200px)に対する見えない壁（進入禁止制限）を解除
@@ -1867,9 +1895,9 @@ export class Player {
     
     intersects(rect) {
         return this.x < rect.x + rect.width &&
-               this.x + this.width > rect.x &&
+               this.x + this.getWorldWidth() > rect.x &&
                this.y < rect.y + rect.height &&
-               this.y + this.height > rect.y;
+               this.y + this.getWorldHeight() > rect.y;
     }
 
     isSolidCollider(rect) {
@@ -1919,7 +1947,7 @@ export class Player {
         this.damageFlashTimer = flashMs;
         
         // ノックバック（被弾源から離れる方向）
-        const playerCenterX = this.x + this.width / 2;
+        const playerCenterX = this.getWorldCenterX();
         const knockbackDir = (sourceX === null)
             ? (this.facingRight ? -1 : 1)
             : (playerCenterX < sourceX ? -1 : 1);
@@ -2373,8 +2401,10 @@ export class Player {
         // これにより見た目(2.2倍)とヒット範囲が一致する。忍者(scale=1)は従来通り。
         const worldX = state.x !== undefined ? state.x : this.x;
         const worldY = state.y !== undefined ? state.y : this.y;
-        const worldW = Number.isFinite(state.width) ? state.width : this.width;
-        const worldH = Number.isFinite(state.height) ? state.height : this.height;
+        // state.width/height はワールド寸法で渡される（攻撃プロファイル/分身 state は world 化済み）。
+        // state 未指定時は本体のワールド寸法(88x132)を使う（this.width は素体40なので getWorldWidth 経由）。
+        const worldW = Number.isFinite(state.width) ? state.width : this.getWorldWidth();
+        const worldH = Number.isFinite(state.height) ? state.height : this.getWorldHeight();
         const shogunScale = (this.characterType === 'shogun' && Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 1.001)
             ? this.scaleMultiplier : 1;
         const bodyWidth = shogunScale > 1 ? (worldW / shogunScale) : worldW;
@@ -2571,21 +2601,21 @@ export class Player {
 
     // ========== ShadowCaster Interface ==========
     getFootX() {
-        return this.x + this.width / 2;
+        return this.getWorldCenterX();
     }
 
     getFootY() {
-        // スプライトの実際の足元位置を返す
-        return this.y + this.height; 
+        // スプライトの実際の足元位置を返す（ワールド身長で接地）
+        return this.getWorldFootY();
     }
 
     getHeightAboveGround() {
         // キャラが本来着地するレーンとの差分（奥のレーンなら +24）
-        return Math.max(0, (this.groundY + LANE_OFFSET) - (this.y + this.height));
+        return Math.max(0, (this.groundY + LANE_OFFSET) - this.getWorldFootY());
     }
 
     getShadowBaseRadius() {
-        return this.width * 0.45;
+        return this.getWorldWidth() * 0.45;
     }
 }
 

@@ -366,10 +366,16 @@
         const groundY = 480;
 
         // playerモック（将軍のupdate引数用）
-        const previewPlayerMock = { 
-            x: 100, y: groundY - 60, width: 40, height: 60,
+        const previewPlayerMock = {
+            x: 100, y: groundY - 60, width: 40, height: 60, scaleMultiplier: 2.2,
             get centerX() { return this.x + 20; },
             get centerY() { return this.y + 30; },
+            // 将軍は素体(40x60)。boss.js/stage.js 等が読むワールド寸法(88x132)アクセサを Player と同形で提供する。
+            getWorldWidth() { return this.width * (this.scaleMultiplier || 1); },
+            getWorldHeight() { return this.height * (this.scaleMultiplier || 1); },
+            getWorldCenterX() { return this.x + this.getWorldWidth() * 0.5; },
+            getWorldCenterY() { return this.y + this.getWorldHeight() * 0.5; },
+            getWorldFootY() { return this.y + this.getWorldHeight(); },
             takeDamage: () => {}
         };
 
@@ -427,8 +433,8 @@
             }
         } catch (_e) { console.warn('fresh boss.js re-apply failed', _e); }
 
-        // プレビュー初期位置を画面中央に揃える。spawn は忍者幅(48)基準なので、構築後の実幅で中央寄せする。
-        shogunPlayer.x = logicalW / 2 - shogunPlayer.width / 2;
+        // プレビュー初期位置を画面中央に揃える。spawn は忍者幅(48)基準なので、構築後の実ワールド幅(88)で中央寄せする。
+        shogunPlayer.x = logicalW / 2 - shogunPlayer.getWorldWidth() / 2;
 
         const ninja = new Player(logicalW / 2 - 24, groundY - 72, groundY);
         // 実ゲームと同じ挙動を再現するため previewMode=false。
@@ -529,8 +535,8 @@
             window.game.player = isShogunMode() ? previewPlayerMock : ninja;
             const actor = getActiveActor();
             // 中央寄せは構築時と同じ計算に統一する。
-            actor.x = logicalW / 2 - actor.width / 2;
-            actor.y = groundY - (mode === 'shogun' ? 60 : 72);
+            actor.x = logicalW / 2 - actor.getWorldWidth() / 2;
+            actor.y = groundY - actor.getWorldHeight();
             actor.vx = 0; actor.vy = 0;
             // 将軍は内部ボスのx/vxも同期しないと、ボス→プレイヤーのx同期で位置が上書きされる
             if (mode === 'shogun' && shogun) { shogun.x = actor.x; shogun.vx = 0; }

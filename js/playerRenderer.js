@@ -801,11 +801,16 @@ export function applyRendererMixin(PlayerClass) {
         const actorRenderH = SHOGUN_ACTOR_BASE_HEIGHT;  // 60
         const actorDrawHeight = PLAYER.HEIGHT;          // 72
         const actorPivotHeight = actorRenderH * 0.62;
+        // width=40化: this.width/height は素体(40x60)。actor を world 箱(88x132)の中心へ
+        // 配置するため、temp 詰め替え前(this.width=素体)に getWorld* でワールド寸法を読む。
+        // 忍者は getWorldWidth()===width なので不変。
+        const worldW = this.getWorldWidth();   // 88 (忍者48)
+        const worldH = this.getWorldHeight();  // 132 (忍者72)
         const actorFootGroundOffset = renderScale > 1.001
-            ? (savedH * 0.38 - (actorDrawHeight - actorPivotHeight) * renderScale)
+            ? (worldH * 0.38 - (actorDrawHeight - actorPivotHeight) * renderScale)
             : 0;
-        const actorRenderX = savedX + (savedW - actorRenderW) * 0.5;
-        const actorRenderY = savedY + (savedH - actorRenderH) * 0.62 + actorFootGroundOffset;
+        const actorRenderX = savedX + (worldW - actorRenderW) * 0.5;
+        const actorRenderY = savedY + (worldH - actorRenderH) * 0.62 + actorFootGroundOffset;
 
         // 本体のアクティブ忍具を一時的に currentSubWeapon に見せて描く（移行期）。
         const activeWeapon = (typeof this.getActiveSubWeaponInstance === 'function')
@@ -3117,6 +3122,9 @@ export function applyRendererMixin(PlayerClass) {
                 const weaponOwner = this.currentSubWeapon.owner && this.currentSubWeapon.owner._specialCloneOwner
                     ? this.currentSubWeapon.owner
                     : this;
+                // in-model 描画中フラグ: weapon.js が owner 寸法を素体(drawW)で読むようにする（ctx.scale と二重化回避）。
+                const _prevInRM = weaponOwner._inRenderModel;
+                weaponOwner._inRenderModel = true;
                 if (weaponRenderScale && Math.abs(weaponRenderScale - 1) > 0.001) {
                     const invS = 1 / weaponRenderScale;
                     const anchorX = this.x + this.width * 0.5;
@@ -3134,6 +3142,7 @@ export function applyRendererMixin(PlayerClass) {
                     this.currentSubWeapon.render(ctx, weaponOwner);
                     ctx.restore();
                 }
+                weaponOwner._inRenderModel = _prevInRM;
                 this.subWeaponRenderedInModel = true;
             }
 
@@ -3869,9 +3878,13 @@ export function applyRendererMixin(PlayerClass) {
         } else if (renderSubWeaponAction === '大太刀') {
             // 大太刀: 柄の中心付近を両手で挟む専用グリップ
             const odachi = (this.currentSubWeapon && this.currentSubWeapon.name === '大太刀') ? this.currentSubWeapon : null;
-            const grips = (odachi && typeof odachi.getDualGripAnchors === 'function')
-                ? odachi.getDualGripAnchors(this)
-                : null;
+            let grips = null;
+            if (odachi && typeof odachi.getDualGripAnchors === 'function') {
+                const _pRM = this._inRenderModel;
+                this._inRenderModel = true;  // in-model: 素体(drawW)フレームで読む
+                grips = odachi.getDualGripAnchors(this);
+                this._inRenderModel = _pRM;
+            }
             const fallbackCenterX = centerX + dir * 2;
             const fallbackCenterY = pivotY - 2;
             const rearTarget = grips
@@ -3894,6 +3907,9 @@ export function applyRendererMixin(PlayerClass) {
 
             // 本体の手前に持つ見た目を作るため、奥手の後に大太刀を描く
             if (!options.isOdachiPlantedOrFade && drawFrontLayer && renderWeaponVisuals && odachi && typeof odachi.render === 'function') {
+                // in-model 描画: weapon.js が owner 寸法を素体(drawW)で読むようにする（ctx.scale と二重化回避）。
+                const _prevInRMOdachi = this._inRenderModel;
+                this._inRenderModel = true;
                 // yawSkewCancel: 将軍の2.5D変換で生じる傾きをキャンセルして大太刀を垂直に描画
                 // renderWithShogunTransform は Shear(-yawSkew/0.982) · Scale(1/0.982) を適用するので
                 // 逆変換は Scale(0.982) · Shear(+yawSkew/0.982) となる
@@ -3921,6 +3937,7 @@ export function applyRendererMixin(PlayerClass) {
                     odachi.render(ctx, this);
                     ctx.restore();
                 }
+                this._inRenderModel = _prevInRMOdachi;
                 this.subWeaponRenderedInModel = true;
             }
 

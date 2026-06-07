@@ -853,8 +853,8 @@ export class Stage {
             this.playerProbe.x = player.x;
             this.playerProbe.y = player.y;
             this.playerProbe.vx = player.vx || 0;
-            this.playerProbe.width = player.width || 0;
-            this.playerProbe.height = player.height || 0;
+            this.playerProbe.width = (typeof player.getWorldWidth === 'function' ? player.getWorldWidth() : player.width) || 0;
+            this.playerProbe.height = (typeof player.getWorldHeight === 'function' ? player.getWorldHeight() : player.height) || 0;
             this.playerProbe.isGrounded = !!player.isGrounded;
         }
         this.updateBambooLeafEffects(deltaTime, progressDelta);

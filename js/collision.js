@@ -16,8 +16,8 @@ export function checkPlayerEnemyCollision(player, enemy) {
     const playerRect = {
         x: player.x,
         y: player.y,
-        width: player.width,
-        height: player.height
+        width: typeof player.getWorldWidth === 'function' ? player.getWorldWidth() : player.width,
+        height: typeof player.getWorldHeight === 'function' ? player.getWorldHeight() : player.height
     };
     
     const enemyRect = {
@@ -70,14 +70,14 @@ export function checkSpecialHit(player, enemy) {
 export function checkEnemyAttackHit(enemy, player) {
     const attackHitbox = enemy.getAttackHitbox();
     if (!attackHitbox) return false;
-    
+
     const playerRect = {
         x: player.x,
         y: player.y,
-        width: player.width,
-        height: player.height
+        width: typeof player.getWorldWidth === 'function' ? player.getWorldWidth() : player.width,
+        height: typeof player.getWorldHeight === 'function' ? player.getWorldHeight() : player.height
     };
-    
+
     const hitboxes = Array.isArray(attackHitbox) ? attackHitbox : [attackHitbox];
     for (const hitbox of hitboxes) {
         if (rectIntersects(hitbox, playerRect)) {

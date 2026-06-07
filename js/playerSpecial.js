@@ -34,7 +34,7 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneDualTrailAnchors = this.specialCloneSlots.map(() => null);
         this.specialCloneSubWeaponOwners = this.specialCloneSlots.map(() => null);
 
-        const cloneAnchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
+        const cloneAnchors = this.calculateSpecialCloneAnchors(this.getWorldCenterX(), this.getSpecialCloneAnchorY());
         this.specialClonePositions = cloneAnchors.map(a => ({ x: a.x, y: a.y, facingRight: this.facingRight, prevX: a.x }));
         this.specialCloneScarfNodes = this.specialCloneSlots.map(() => null);
         this.specialCloneHairNodes = this.specialCloneSlots.map(() => null);
@@ -83,7 +83,7 @@ export function applySpecialMixin(PlayerClass) {
                 }
 
                 // 詠唱中は全レベル共通でノードを追従させる（Lv3も含む）
-                const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
+                const anchors = this.calculateSpecialCloneAnchors(this.getWorldCenterX(), this.getSpecialCloneAnchorY());
                 for (let i = 0; i < this.specialCloneSlots.length; i++) {
                     const pos = this.specialClonePositions[i];
                     if (!pos) continue;
@@ -128,7 +128,7 @@ export function applySpecialMixin(PlayerClass) {
                 this.updateSpecialCloneAi(deltaTime);
             } else if (this.specialCloneCombatStarted) {
                 // Lv1〜2: 本体に追従
-                const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
+                const anchors = this.calculateSpecialCloneAnchors(this.getWorldCenterX(), this.getSpecialCloneAnchorY());
                 for (let i = 0; i < this.specialCloneSlots.length; i++) {
                     if (this.specialClonePositions[i]) {
                         const odachiInst = this.specialCloneSubWeaponInstances && this.specialCloneSubWeaponInstances[i];
@@ -213,8 +213,8 @@ export function applySpecialMixin(PlayerClass) {
                         const isHanging = this.specialCloneAutoAiEnabled ? inst.isAttacking : (playerIsHanging || inst.isAttacking);
                         // ぶら下がり中: pos.yを本体のanchor位置に同期（分身自身のowner.yではなく）
                         pos.y = isHanging
-                            ? (this.y + this.height * 0.62)
-                            : (dummyClone.y + this.height * 0.62);
+                            ? (this.y + this.getWorldHeight() * 0.62)
+                            : (dummyClone.y + this.getWorldHeight() * 0.62);
                         if (this.specialCloneAutoAiEnabled) {
                             pos.jumping = false;
                             pos.cloneVy = 0;
@@ -372,10 +372,10 @@ export function applySpecialMixin(PlayerClass) {
             if (nextStep > COMBO_ATTACKS.length) nextStep = 1;
             const clonePos = this.specialClonePositions[index] || null;
             const profile = this.buildComboAttackProfileWithTrail(nextStep, {
-                x: clonePos ? (clonePos.x - this.width * 0.5) : this.x,
+                x: clonePos ? (clonePos.x - this.getWorldWidth() * 0.5) : this.x,
                 y: clonePos ? this.getSpecialCloneDrawY(clonePos.y) : this.y,
-                width: this.width,
-                height: this.height,
+                width: this.getWorldWidth(),
+                height: this.getWorldHeight(),
                 facingRight: clonePos ? clonePos.facingRight : this.facingRight,
                 isCrouching: false,
                 vx: clonePos ? (clonePos.renderVx || 0) : this.vx,
@@ -501,8 +501,13 @@ export function applySpecialMixin(PlayerClass) {
         const pos = posOverride || (this.specialClonePositions ? this.specialClonePositions[index] : null);
         if (!pos) return null;
 
-        const ownerW = Number.isFinite(this.width) ? this.width : PLAYER.WIDTH;
-        const ownerH = Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT;
+        // ワールド寸法(忍者48x72 / 将軍88x132)で分身を world 箱中心に置く。
+        const ownerW = (typeof this.getWorldWidth === 'function')
+            ? this.getWorldWidth()
+            : (Number.isFinite(this.width) ? this.width : PLAYER.WIDTH);
+        const ownerH = (typeof this.getWorldHeight === 'function')
+            ? this.getWorldHeight()
+            : (Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT);
         let renderX = pos.x - ownerW * 0.5;
         let renderY = this.getSpecialCloneDrawY(pos.y);
 
@@ -560,7 +565,7 @@ export function applySpecialMixin(PlayerClass) {
                 ? (this.specialCloneSubWeaponTimers ? (this.specialCloneSubWeaponTimers[index] || 0) : 0)
                 : (this.subWeaponTimer || 0),
             forceSubWeaponRender: true,
-            _throwTransformPivotHeight: this.height,
+            _throwTransformPivotHeight: this.getWorldHeight(),
             isXAttackBoostActive: () => (
                 typeof this.isXAttackBoostActive === 'function' &&
                 this.isXAttackBoostActive()
@@ -738,7 +743,7 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneInvincibleTimers = this.specialCloneSlots.map(() => this.specialCloneSpawnInvincibleMs);
         this.specialCloneAutoCooldowns = this.specialCloneSlots.map((_, index) => index * 30);
         
-        const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
+        const anchors = this.calculateSpecialCloneAnchors(this.getWorldCenterX(), this.getSpecialCloneAnchorY());
         this.specialClonePositions = anchors.map(a => ({
             x: a.x,
             y: a.y,
@@ -797,14 +802,14 @@ export function applySpecialMixin(PlayerClass) {
 
     PlayerClass.prototype.getSpecialSmokeAnchorByIndex = function(index) {
         const pos = this.specialClonePositions[index];
-        const x = pos ? pos.x : (this.x + this.width / 2);
+        const x = pos ? pos.x : this.getWorldCenterX();
         const y = (
             this.specialCloneAutoAiEnabled &&
             this.specialCloneCombatStarted &&
             pos
         )
             ? pos.y
-            : (this.y + this.height * 0.5);
+            : this.getWorldCenterY();
         return { x, y };
     };
 
@@ -817,7 +822,7 @@ export function applySpecialMixin(PlayerClass) {
             }
         }
         if (anchors.length > 0) return anchors;
-        return [{ x: this.x + this.width * 0.5, y: this.y + this.height * 0.5 }];
+        return [{ x: this.getWorldCenterX(), y: this.getWorldCenterY() }];
     };
 
     PlayerClass.prototype.initCloneAccessoryNodes = function(index) {
@@ -883,7 +888,7 @@ export function applySpecialMixin(PlayerClass) {
             }) 
             : [];
             
-        const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
+        const anchors = this.calculateSpecialCloneAnchors(this.getWorldCenterX(), this.getSpecialCloneAnchorY());
         const bodyAttackMotionActive = !!(this.isAttacking || this.attackTimer > 0 || this.currentAttack);
 
         for (let i = 0; i < this.specialCloneSlots.length; i++) {
@@ -1237,10 +1242,10 @@ export function applySpecialMixin(PlayerClass) {
         if (mirrorPlayerMotion) {
             return this.getFootY() - this._getCloneFootOffset();
         }
-        return this.getSpecialCloneAnchorYAtX(this.x + this.width * 0.5);
+        return this.getSpecialCloneAnchorYAtX(this.getWorldCenterX());
     };
 
-    PlayerClass.prototype.getSpecialCloneGroundYAtX = function(worldX = this.x + this.width * 0.5) {
+    PlayerClass.prototype.getSpecialCloneGroundYAtX = function(worldX = this.getWorldCenterX()) {
         const stage = (window.game && window.game.stage) ? window.game.stage : null;
         if (stage && typeof stage.getStairGroundY === 'function') {
             return stage.getStairGroundY(worldX);
@@ -1248,7 +1253,7 @@ export function applySpecialMixin(PlayerClass) {
         return this.groundY;
     };
 
-    PlayerClass.prototype.getSpecialCloneAnchorYAtX = function(worldX = this.x + this.width * 0.5) {
+    PlayerClass.prototype.getSpecialCloneAnchorYAtX = function(worldX = this.getWorldCenterX()) {
         return this.getSpecialCloneGroundYAtX(worldX) + LANE_OFFSET - this._getCloneFootOffset();
     };
 
@@ -1260,7 +1265,10 @@ export function applySpecialMixin(PlayerClass) {
     };
 
     PlayerClass.prototype.getSpecialCloneDrawY = function(anchorY) {
-        const h = Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT;
+        // pivot はワールド身長(忍者72 / 将軍132)基準。getSpecialCloneRenderBox の ownerH と対。
+        const h = (typeof this.getWorldHeight === 'function')
+            ? this.getWorldHeight()
+            : (Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT);
         return anchorY - h * 0.62;
     };
 
@@ -1295,7 +1303,7 @@ export function applySpecialMixin(PlayerClass) {
 
     PlayerClass.prototype.getSpecialCloneAnchors = function() {
         if (!this.specialCloneCombatStarted) {
-            return this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
+            return this.calculateSpecialCloneAnchors(this.getWorldCenterX(), this.getSpecialCloneAnchorY());
         }
 
         // 戦闘開始後は、AIによって更新された個別座標を返す
@@ -1357,7 +1365,7 @@ export function applySpecialMixin(PlayerClass) {
             if (!this.specialCloneAlive[index]) continue;
             const pos = this.specialClonePositions[index];
             if (!pos) continue;
-            const cloneX = pos.x - this.width / 2;
+            const cloneX = pos.x - this.getWorldWidth() / 2;
             const cloneY = this.getSpecialCloneDrawY(pos.y);
             offsets.push({
                 index,
@@ -1416,7 +1424,7 @@ export function applySpecialMixin(PlayerClass) {
         const lifeBase = isAppear ? 560 : 320;
         const puffCount = isAppear ? 16 : 10;
         // fixedAnchors があればそれを使用、なければ自分自身の位置を配列として使用
-        const anchors = fixedAnchors || [{ x: this.x + this.width / 2, y: this.y + this.height / 2 }];
+        const anchors = fixedAnchors || [{ x: this.getWorldCenterX(), y: this.getWorldCenterY() }];
         for (const anchor of anchors) {
             for (let index = 0; index < puffCount; index++) {
                 const angle = (Math.PI * 2 * index) / puffCount + Math.random() * 0.48;
@@ -1482,7 +1490,7 @@ export function applySpecialMixin(PlayerClass) {
 
         // 位置情報の再構築
         if (isActive) {
-            const anchors = this.calculateSpecialCloneAnchors(this.x + this.width / 2, this.getSpecialCloneAnchorY());
+            const anchors = this.calculateSpecialCloneAnchors(this.getWorldCenterX(), this.getSpecialCloneAnchorY());
             this.specialClonePositions = anchors.map(a => ({
                 x: a.x, y: a.y, facingRight: this.facingRight, prevX: a.x,
                 cloneVy: 0, jumping: false, legPhase: 0, legAngle: 0

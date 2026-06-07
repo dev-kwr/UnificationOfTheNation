@@ -123,7 +123,7 @@ class Boss extends Enemy {
         const scrollX = window.game ? window.game.scrollX : 0;
         const screenRight = scrollX + CANVAS_WIDTH;
         const selfCenterX = this.x + this.width / 2;
-        const playerCenterX = player.x + player.width / 2;
+        const playerCenterX = player.x + player.getWorldWidth() / 2;
         const diffX = playerCenterX - selfCenterX;
         const absX = Math.abs(diffX);
         const dirToPlayer = diffX >= 0 ? 1 : -1;
@@ -548,12 +548,12 @@ export class KayakudamaTaisho extends Boss {
                     this.timer += dt * 1000;
 
                     const player = window.game ? window.game.player : null;
-                    if (player && !player.isInvincible && player.width && player.height) {
+                    if (player && !player.isInvincible && player.getWorldWidth() && player.getWorldHeight()) {
                         const hb = this.getHitbox();
                         const px = player.x;
                         const py = player.y;
-                        const pw = player.width;
-                        const ph = player.height;
+                        const pw = player.getWorldWidth();
+                        const ph = player.getWorldHeight();
                         
                         if (hb.x < px + pw && hb.x + hb.width > px &&
                             hb.y < py + ph && hb.y + hb.height > py) {
@@ -1946,7 +1946,7 @@ export class Shogun extends Boss {
         const scrollX = window.game ? window.game.scrollX : 0;
         const screenRight = scrollX + CANVAS_WIDTH;
         const selfCX = this.x + this.width / 2;
-        const playerCX = player.x + player.width / 2;
+        const playerCX = player.x + player.getWorldWidth() / 2;
         const diffX = playerCX - selfCX;
         const absX = Math.abs(diffX);
         const dir = diffX >= 0 ? 1 : -1;
@@ -2404,7 +2404,7 @@ export class Shogun extends Boss {
         // プレイヤーとの距離で技を使い分け
         const player = this.targetPlayer;
         const selfCX   = this.x + this.width * 0.5;
-        const playerCX = player ? player.x + player.width * 0.5 : selfCX;
+        const playerCX = player ? player.x + player.getWorldWidth() * 0.5 : selfCX;
         const dist = Math.abs(playerCX - selfCX);
 
         const actionMap = {

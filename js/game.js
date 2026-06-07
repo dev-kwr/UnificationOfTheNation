@@ -478,7 +478,7 @@ class Game {
                         this.player.previewMode = true;
                         this.player.groundY = this.groundY;
                         this.player.x = 100;
-                        this.player.y = this.groundY + LANE_OFFSET - this.player.height;
+                        this.player.y = this.groundY + LANE_OFFSET - this.player.getWorldHeight();
                         this.player.vx = 0;
                         this.player.vy = 0;
                         this.player.isGrounded = true; 
@@ -688,7 +688,7 @@ class Game {
             this.player.previewMode = false;
             this.player.groundY = this.groundY; // 地面基準を同期
             this.player.x = 100;
-            this.player.y = this.groundY + LANE_OFFSET - this.player.height;
+            this.player.y = this.groundY + LANE_OFFSET - this.player.getWorldHeight();
             this.player.vx = 0;
             this.player.vy = 0;
             this.player.hp = this.player.maxHp; // ステージ開始時にHP全回復（任意、必要なら残す）
@@ -1339,14 +1339,14 @@ class Game {
                 this.stage.progress = targetScrollX;
                 
                 // 接地（中心で正確に取る）
-                const playerCenterX = this.player.x + this.player.width / 2;
+                const playerCenterX = this.player.x + this.player.getWorldWidth() / 2;
                 this.player.groundY = this.stage.getStairGroundY(playerCenterX);
-                this.player.y = this.player.groundY + LANE_OFFSET - this.player.height;
+                this.player.y = this.player.groundY + LANE_OFFSET - this.player.getWorldHeight();
                 this.player.isGrounded = true; // 念のため接地フラグもオンにしておく
             }
             
             // 遷移中も接地判定だけは最新の座標で更新し続ける（操作不能スタック防止）
-            const tpCenterX = this.player.x + this.player.width / 2;
+            const tpCenterX = this.player.x + this.player.getWorldWidth() / 2;
             this.player.groundY = this.stage.getStairGroundY(tpCenterX);
             this.stage.update(this.deltaTime, this.player);
             
@@ -1370,7 +1370,7 @@ class Game {
             // Stage 5 のフロア方向に応じたスクロール
             const dir = this.stage.floorScrollDirection;
             const screenCenter = CANVAS_WIDTH / 2;
-            const playerCenterX = this.player.x + this.player.width / 2;
+            const playerCenterX = this.player.x + this.player.getWorldWidth() / 2;
             const stairClimb = this.stage.getStairClimbProgress(playerCenterX);
             
             if (dir === 1) { // 右
@@ -1417,7 +1417,7 @@ class Game {
         // --- Stage 5 各エンティティの物理同期 ---
         if (this.currentStageNumber === 5 && this.stage) {
             // プレイヤーの接地更新 (体の中心で判定)
-            const playerCenterX = this.player.x + this.player.width / 2;
+            const playerCenterX = this.player.x + this.player.getWorldWidth() / 2;
             this.player.groundY = this.stage.getStairGroundY(playerCenterX);
             
             // 敵全員の接地更新（踊り場対応）
@@ -1435,7 +1435,7 @@ class Game {
             
             // 登りきったら次のフロアへ（最終階を除く）
             const transitionProbeX = this.stage.floorScrollDirection === 1
-                ? this.player.x + this.player.width
+                ? this.player.x + this.player.getWorldWidth()
                 : this.player.x;
             const stairProgress = this.stage.getStairClimbProgress(transitionProbeX);
             if (stairProgress >= 1.0 && !this.stage.isFloorTransitioning && this.stage.currentFloor < this.stage.maxFloor) {
@@ -1458,7 +1458,7 @@ class Game {
             }
         }
         // 右端の制限（常に適用）
-        const maxX = this.scrollX + CANVAS_WIDTH - this.player.width;
+        const maxX = this.scrollX + CANVAS_WIDTH - this.player.getWorldWidth();
         if (this.player.x > maxX) {
             this.player.x = maxX;
             if (this.player.vx > 0) this.player.vx = 0;
@@ -1601,7 +1601,7 @@ class Game {
 
                 // ボスの弾丸（火薬玉）の場合はプレイヤーへの当たり判定
                 if (bomb.isEnemyProjectile && this.player) {
-                    const playerRect = { x: this.player.x, y: this.player.y, width: this.player.width, height: this.player.height };
+                    const playerRect = { x: this.player.x, y: this.player.y, width: this.player.getWorldWidth(), height: this.player.getWorldHeight() };
                     const bombRect = bomb.getHitbox();
                     if (this.rectIntersects(playerRect, bombRect)) {
                         this.handlePlayerDamage(bomb.damage || 1, bomb.x, {
@@ -1718,7 +1718,7 @@ class Game {
             return;
         }
 
-        const playerRect = { x: player.x, y: player.y, width: player.width, height: player.height };
+        const playerRect = { x: player.x, y: player.y, width: player.getWorldWidth(), height: player.getWorldHeight() };
         let moved = false;
         for (const enemy of activeEnemies) {
             const enemyRect = { x: enemy.x, y: enemy.y, width: enemy.width, height: enemy.height };
@@ -1741,7 +1741,7 @@ class Game {
 
         if (moved) {
             const minX = this.scrollX;
-            const maxX = this.scrollX + CANVAS_WIDTH - player.width;
+            const maxX = this.scrollX + CANVAS_WIDTH - player.getWorldWidth();
             player.x = Math.max(minX, Math.min(maxX, player.x));
         }
     }
@@ -1759,8 +1759,8 @@ class Game {
             index: clone.index,
             x: this.player.x + clone.dx + 5,
             y: this.player.y + clone.dy + 5,
-            width: this.player.width - 10,
-            height: this.player.height - 10
+            width: this.player.getWorldWidth() - 10,
+            height: this.player.getWorldHeight() - 10
         }));
         const damageRocksWithHitboxes = (hitboxes, damage, fallbackX = null, fallbackY = null) => {
             const boxes = Array.isArray(hitboxes) ? hitboxes : (hitboxes ? [hitboxes] : []);
@@ -1812,7 +1812,7 @@ class Game {
 
             // 分身の通常攻撃判定
             if (cloneActive) {
-                const anchors = this.player.calculateSpecialCloneAnchors(this.player.x + this.player.width / 2, this.player.y + this.player.height * 0.62);
+                const anchors = this.player.calculateSpecialCloneAnchors(this.player.x + this.player.getWorldWidth() / 2, this.player.y + this.player.getWorldHeight() * 0.62);
                 
                 for (let i = 0; i < this.player.specialCloneSlots.length; i++) {
                     if (!this.player.specialCloneAlive[i]) continue;
@@ -1858,8 +1858,8 @@ class Game {
                     
                     // 分身用の状態を作成
                     const cloneState = {
-                        x: pos.x - this.player.width / 2,
-                        y: pos.y - this.player.height * 0.62,
+                        x: pos.x - this.player.getWorldWidth() / 2,
+                        y: pos.y - this.player.getWorldHeight() * 0.62,
                         facingRight: facingRight,
                         isAttacking: cloneIsAttacking,
                         currentAttack: isAutoAi
@@ -1895,8 +1895,8 @@ class Game {
                         damageRocksWithHitboxes(
                             attackHitboxes,
                             1,
-                            cloneState.x + this.player.width * 0.68,
-                            cloneState.y + this.player.height * 0.46
+                            cloneState.x + this.player.getWorldWidth() * 0.68,
+                            cloneState.y + this.player.getWorldHeight() * 0.46
                         );
                     }
                 }
@@ -1924,8 +1924,8 @@ class Game {
             const orderedEnemies = subWeapon.name === '大槍'
                 ? activeEnemies.slice().sort((a, b) => {
                     const dir = this.player.facingRight ? 1 : -1;
-                    const playerCenterX = this.player.x + this.player.width * 0.5;
-                    const playerCenterY = this.player.y + this.player.height * 0.5;
+                    const playerCenterX = this.player.x + this.player.getWorldWidth() * 0.5;
+                    const playerCenterY = this.player.y + this.player.getWorldHeight() * 0.5;
                     const ax = (a.x + a.width * 0.5 - playerCenterX) * dir;
                     const ay = (a.y + a.height * 0.5) - playerCenterY;
                     const bx = (b.x + b.width * 0.5 - playerCenterX) * dir;
@@ -2136,12 +2136,12 @@ class Game {
                 const cloneOwner = inst.owner && inst.owner._specialCloneOwner
                     ? inst.owner
                     : {
-                        x: pos.x - this.player.width * 0.5,
+                        x: pos.x - this.player.getWorldWidth() * 0.5,
                         y: typeof this.player.getSpecialCloneDrawY === 'function'
                             ? this.player.getSpecialCloneDrawY(pos.y)
-                            : pos.y - this.player.height * 0.62,
-                        width: this.player.width,
-                        height: this.player.height,
+                            : pos.y - this.player.getWorldHeight() * 0.62,
+                        width: this.player.getWorldWidth(),
+                        height: this.player.getWorldHeight(),
                         groundY: typeof this.player.getSpecialCloneGroundYAtX === 'function'
                             ? this.player.getSpecialCloneGroundYAtX(pos.x)
                             : this.player.groundY,
@@ -2245,7 +2245,7 @@ class Game {
             if (this.rectIntersects(this.player, obs)) {
                 if (obs.type === OBSTACLE_TYPES.SPIKE) {
                     if (this.player.invincibleTimer <= 0) {
-                        const playerBottom = this.player.y + this.player.height;
+                        const playerBottom = this.player.y + this.player.getWorldHeight();
                         const prevBottom = playerBottom - (this.player.vy || 0);
                         const spikeTop = obs.y + Math.max(2, obs.height * 0.08);
                         const descending = (this.player.vy || 0) > 2.2;
@@ -2253,7 +2253,7 @@ class Game {
                         const hardLanding = fromAbove || (descending && (playerBottom - spikeTop) < obs.height * 0.42);
                         const trapDamage = Math.max(1, Math.ceil(this.player.maxHp * 0.1));
                         const hitSourceX = obs.x + obs.width / 2;
-                        const playerCenterX = this.player.x + this.player.width / 2;
+                        const playerCenterX = this.player.x + this.player.getWorldWidth() / 2;
                         // 竹槍中心から遠ざかる向きに統一して、追突・再接触を減らす
                         const knockbackDir = playerCenterX < hitSourceX ? -1 : 1;
                         const knockbackX = hardLanding ? 8.0 : 7.5;
@@ -2275,7 +2275,7 @@ class Game {
                         }
 
                         if (hardLanding) {
-                            this.player.y = Math.min(this.player.y, spikeTop - this.player.height - 2);
+                            this.player.y = Math.min(this.player.y, spikeTop - this.player.getWorldHeight() - 2);
                         }
                     }
                 } else if (obs.type === OBSTACLE_TYPES.ROCK) {
@@ -2286,7 +2286,7 @@ class Game {
                         continue;
                     }
                     // 岩上に乗っている時は横押し戻しをしない
-                    const playerBottom = this.player.y + this.player.height;
+                    const playerBottom = this.player.y + this.player.getWorldHeight();
                     const rockTop = obs.y + 2;
                     const rockBottom = obs.y + obs.height - 2;
                     const sideCollision = playerBottom > rockTop + 6 && this.player.y < rockBottom - 6;
@@ -2300,8 +2300,8 @@ class Game {
                             const leftEdge = this.scrollX;
                             const rightEdge = this.scrollX + CANVAS_WIDTH;
                             const playerLeft = this.player.x;
-                            const playerRight = this.player.x + this.player.width;
-                            const playerCenterX = playerLeft + this.player.width * 0.5;
+                            const playerRight = this.player.x + this.player.getWorldWidth();
+                            const playerCenterX = playerLeft + this.player.getWorldWidth() * 0.5;
                             const rockCenterX = obs.x + obs.width * 0.5;
                             const edgeMargin = 2.5;
                             const pinOverlapMargin = 1.0;
@@ -2333,8 +2333,8 @@ class Game {
                     if (obs.takeDamage(1)) {
                         this.spawnRockBreakEffect(
                             obs,
-                            this.player.x + this.player.width * 0.68,
-                            this.player.y + this.player.height * 0.46
+                            this.player.x + this.player.getWorldWidth() * 0.68,
+                            this.player.y + this.player.getWorldHeight() * 0.46
                         );
                     }
                 }
@@ -2359,8 +2359,8 @@ class Game {
         });
         const pool = viewportTargets.length > 0 ? viewportTargets : enemies;
 
-        const playerCenterX = player.x + player.width / 2;
-        const playerCenterY = player.y + player.height * 0.5;
+        const playerCenterX = player.x + player.getWorldWidth() / 2;
+        const playerCenterY = player.y + player.getWorldHeight() * 0.5;
         return pool
             .slice()
             .sort((a, b) => {
@@ -2563,7 +2563,7 @@ class Game {
 
             // 回収ターゲット（本体＋生きている分身）のリストを作成
             const targets = [
-                { x: this.player.x + this.player.width * 0.5, y: this.player.y + this.player.height * 0.5 }
+                { x: this.player.x + this.player.getWorldWidth() * 0.5, y: this.player.y + this.player.getWorldHeight() * 0.5 }
             ];
             // 分身の座標を追加
             if (this.player.specialCloneAlive && this.player.specialClonePositions) {
@@ -2863,12 +2863,12 @@ class Game {
             if (!subWeapon || subWeapon.name !== '二刀流' || typeof subWeapon.getMainSwingArcs !== 'function') return [];
             const range = Number.isFinite(subWeapon.range) ? subWeapon.range : 64;
             const direction = facingRight ? 1 : -1;
-            const cloneX = clonePos.x - this.player.width * 0.5;
-            const cloneY = clonePos.y - this.player.height * 0.62;
-            const centerX = cloneX + this.player.width * 0.5;
-            const centerY = cloneY + this.player.height * 0.5;
-            const frontX = cloneX + (direction > 0 ? this.player.width : -range * 1.4);
-            const backX = cloneX + (direction > 0 ? -range * 1.35 : this.player.width);
+            const cloneX = clonePos.x - this.player.getWorldWidth() * 0.5;
+            const cloneY = clonePos.y - this.player.getWorldHeight() * 0.62;
+            const centerX = cloneX + this.player.getWorldWidth() * 0.5;
+            const centerY = cloneY + this.player.getWorldHeight() * 0.5;
+            const frontX = cloneX + (direction > 0 ? this.player.getWorldWidth() : -range * 1.4);
+            const backX = cloneX + (direction > 0 ? -range * 1.35 : this.player.getWorldWidth());
             const coreW = range * 0.75;
             const hitboxes = [];
             const arcs = subWeapon.getMainSwingArcs({ comboIndex });
@@ -3931,7 +3931,7 @@ class Game {
                     this.player.previewMode = true;
                     this.player.groundY = this.groundY;
                     this.player.x = 100;
-                    this.player.y = this.groundY + LANE_OFFSET - this.player.height;
+                    this.player.y = this.groundY + LANE_OFFSET - this.player.getWorldHeight();
                     this.player.vx = 0;
                     this.player.vy = 0;
                     this.player.isGrounded = true; 
@@ -4474,12 +4474,12 @@ class Game {
             for (const spike of spikes) {
                 if (!this.rectIntersects(player, spike)) continue;
 
-                const overlapLeft = (player.x + player.width) - spike.x;
+                const overlapLeft = (player.x + player.getWorldWidth()) - spike.x;
                 const overlapRight = (spike.x + spike.width) - player.x;
                 if (overlapLeft <= 0 || overlapRight <= 0) continue;
 
                 const goLeftByPenetration = overlapLeft <= overlapRight;
-                const centerDir = (player.x + player.width * 0.5) < (spike.x + spike.width * 0.5) ? -1 : 1;
+                const centerDir = (player.x + player.getWorldWidth() * 0.5) < (spike.x + spike.width * 0.5) ? -1 : 1;
                 let outDir = goLeftByPenetration ? -1 : 1;
                 if (prefer !== 0) {
                     const preferMatches = prefer < 0 ? (overlapLeft <= overlapRight + 1.4) : (overlapRight <= overlapLeft + 1.4);
@@ -4489,7 +4489,7 @@ class Game {
                 }
 
                 if (outDir < 0) {
-                    player.x = spike.x - player.width - margin;
+                    player.x = spike.x - player.getWorldWidth() - margin;
                     player.vx = Math.min(player.vx, -1.4);
                 } else {
                     player.x = spike.x + spike.width + margin;
@@ -4513,7 +4513,7 @@ class Game {
             this.beginPlayerDefeat();
             return true;
         }
-        const playerCenterX = this.player.x + this.player.width * 0.5;
+        const playerCenterX = this.player.x + this.player.getWorldWidth() * 0.5;
         const knockbackDir = sourceX === null
             ? (this.player.facingRight ? -1 : 1)
             : (playerCenterX < sourceX ? -1 : 1);
@@ -4569,8 +4569,8 @@ class Game {
             // 赤フラッシュ（敵撃破のホワイトフラッシュの代わり）
             this.defeatRedFlashAlpha = 0.8;
 
-            const px = this.player.x + this.player.width / 2;
-            const py = this.player.y + this.player.height / 2;
+            const px = this.player.x + this.player.getWorldWidth() / 2;
+            const py = this.player.y + this.player.getWorldHeight() / 2;
             
             // 破裂エフェクト（上方向の半円に飛散）
             for (let i = 0; i < 60; i++) {
@@ -4775,7 +4775,7 @@ class Game {
         ctx.save();
         ctx.translate(previewCenterX, previewGroundScreenY);
         ctx.scale(scale, scale);
-        ctx.translate(-(player.x + player.width / 2), -player.groundY);
+        ctx.translate(-(player.x + player.getWorldWidth() / 2), -player.groundY);
 
         player.render(ctx, { skipGlow: true });
 

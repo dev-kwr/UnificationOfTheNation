@@ -6,6 +6,27 @@ import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js';
 import { audio } from './audio.js';
 import { SHOGUN_SCALE } from './shogunConstants.js';
 
+// 武器ジオメトリは「武器を振る主体(owner/player)のワールド寸法」を基準に組み立てる。
+// 将軍は width/height が素体(40x60)なので getWorldWidth/Height(=88x132) を読む。
+// 忍者は getWorldWidth()===width なので不変。分身owner(plain object)やボスは
+// getWorldWidth を持たないため従来どおり .width/.height を返す（出力中立）。
+//
+// 例外: renderModel 内の in-model 武器描画中(owner._inRenderModel=true)は、
+// renderModel が this.width=drawW(48) に詰め替え＋ctx.scale(scaleMultiplier) で拡大するため、
+// 武器は素体(drawW)フレームのまま owner.width を読む（ワールド化すると ctx.scale と二重になる）。
+function ownerWorldWidth(o) {
+    if (!o) return 0;
+    if (o._inRenderModel) return o.width;
+    if (typeof o.getWorldWidth === 'function') return o.getWorldWidth();
+    return o.width;
+}
+function ownerWorldHeight(o) {
+    if (!o) return 0;
+    if (o._inRenderModel) return o.height;
+    if (typeof o.getWorldHeight === 'function') return o.getWorldHeight();
+    return o.height;
+}
+
 function clampEnhanceTier(tier) {
     const value = Number.isFinite(tier) ? tier : Number(tier);
     if (!Number.isFinite(value)) return 0;
@@ -527,7 +548,7 @@ export class Shuriken extends SubWeapon {
         const homing = tier >= 3;
         const direction = player.facingRight ? 1 : -1;
 
-        const baseX = player.x + player.width / 2;
+        const baseX = player.x + ownerWorldWidth(player) / 2;
         const baseY = player.y;
 
         // 本体の1発発射
@@ -593,7 +614,7 @@ export class Shuriken extends SubWeapon {
 
     _assignThrowTransformPivot(projectile, owner, baseX, baseY) {
         if (!projectile || !owner) return;
-        const ownerHeight = Number.isFinite(owner.height) ? owner.height : PLAYER.HEIGHT;
+        const ownerHeight = Number.isFinite(ownerWorldHeight(owner)) ? ownerWorldHeight(owner) : PLAYER.HEIGHT;
         const pivotHeight = Number.isFinite(owner._throwTransformPivotHeight)
             ? owner._throwTransformPivotHeight
             : ownerHeight;
@@ -726,7 +747,7 @@ export class Firebomb extends SubWeapon {
         if (player.isCrouching) {
             vx = direction * 8.5;
             vy = -6.2;
-            bombY = player.y + player.height - 30;
+            bombY = player.y + ownerWorldHeight(player) - 30;
         }
 
         const tier = this.enhanceTier;
@@ -735,7 +756,7 @@ export class Firebomb extends SubWeapon {
 
         // 1発発射
         const bomb = new Bomb(
-            player.x + player.width / 2 + direction * 15,
+            player.x + ownerWorldWidth(player) / 2 + direction * 15,
             bombY,
             vx,
             vy
@@ -745,7 +766,7 @@ export class Firebomb extends SubWeapon {
         bomb.radius = sizeUp ? 14 : 11;
         bomb.explosionRadius = sizeUp ? Math.round(this.range * 1.16) : this.range;
         bomb.explosionDuration = sizeUp ? 380 : 300;
-        this._assignThrowTransformPivot(bomb, player, player.x + player.width / 2, player.y);
+        this._assignThrowTransformPivot(bomb, player, player.x + ownerWorldWidth(player) / 2, player.y);
         g.bombs.push(bomb);
         this.trackedBombs.push(bomb);
 
@@ -755,7 +776,7 @@ export class Firebomb extends SubWeapon {
             if (Array.isArray(cloneOffsets) && cloneOffsets.length > 0) {
                 for (const clone of cloneOffsets) {
                     player.triggerCloneSubWeapon(clone.index);
-                    const cloneBaseX = player.x + clone.dx + player.width / 2;
+                    const cloneBaseX = player.x + clone.dx + ownerWorldWidth(player) / 2;
                     const cloneBaseY = player.y + clone.dy;
                     const cloneBomb = new Bomb(
                         cloneBaseX + direction * 15,
@@ -786,7 +807,7 @@ export class Firebomb extends SubWeapon {
 
     _assignThrowTransformPivot(bomb, owner, baseX, baseY) {
         if (!bomb || !owner) return;
-        const ownerHeight = Number.isFinite(owner.height) ? owner.height : PLAYER.HEIGHT;
+        const ownerHeight = Number.isFinite(ownerWorldHeight(owner)) ? ownerWorldHeight(owner) : PLAYER.HEIGHT;
         const pivotHeight = Number.isFinite(owner._throwTransformPivotHeight)
             ? owner._throwTransformPivotHeight
             : ownerHeight;
@@ -884,9 +905,9 @@ export class Spear extends SubWeapon {
         const thrustDrive = Math.sin(extend * (Math.PI * 0.5));
         // 初動はしっかり引き、そこから押し出す
         const spearPush = -windup * 11.2 + thrustDrive * 12.6;
-        const centerX = player.x + player.width / 2 + direction * (8 + spearPush);
+        const centerX = player.x + ownerWorldWidth(player) / 2 + direction * (8 + spearPush);
         // しゃがみ時も同じ高さ感を維持するため、足元基準で決める
-        const footY = player.y + player.height;
+        const footY = player.y + ownerWorldHeight(player);
         const y = footY - 27;
         // 槍本体は常に最大到達長で維持し、突きは腕/体のモーションで表現する
         const thrust = this.range * 0.84;
@@ -1650,8 +1671,8 @@ export class DualBlades extends SubWeapon {
                 const owner = p._owner;
                 if (owner) {
                     // 発射の瞬間のプレイヤー座標から基点を計算（移動に追従させる）
-                    p.x = owner.x + owner.width / 2;
-                    p.y = owner.y + owner.height / 2;
+                    p.x = owner.x + ownerWorldWidth(owner) / 2;
+                    p.y = owner.y + ownerWorldHeight(owner) / 2;
                 }
                 this.projectiles.push(p);
                 this.pendingCombinedProjectile = null;
@@ -1693,13 +1714,13 @@ export class DualBlades extends SubWeapon {
         const hitboxes = [];
         if (this.isAttacking) {
             const direction = this.attackDirection;
-            const centerX = player.x + player.width / 2;
-            const centerY = player.y + player.height / 2;
+            const centerX = player.x + ownerWorldWidth(player) / 2;
+            const centerY = player.y + ownerWorldHeight(player) / 2;
 
             if (this.attackType === 'main') {
                 const arcs = this.getMainSwingArcs();
-                const frontX = player.x + (direction > 0 ? player.width : -this.range * 1.4);
-                const backX = player.x + (direction > 0 ? -this.range * 1.35 : player.width);
+                const frontX = player.x + (direction > 0 ? ownerWorldWidth(player) : -this.range * 1.4);
+                const backX = player.x + (direction > 0 ? -this.range * 1.35 : ownerWorldWidth(player));
                 const coreW = this.range * 0.75;
                 if (arcs.hit === 'leftKesa') {
                     hitboxes.push({
@@ -1837,14 +1858,14 @@ export class DualBlades extends SubWeapon {
                     if (this.comboIndex === 3) {
                         const sRange = this.range * 1.5;
                         hitboxes.push({
-                            x: player.x + player.width / 2 - sRange,
-                            y: player.y + player.height / 2 - sRange,
+                            x: player.x + ownerWorldWidth(player) / 2 - sRange,
+                            y: player.y + ownerWorldHeight(player) / 2 - sRange,
                             width: sRange * 2,
                             height: sRange * 2
                         });
                     } else {
                         hitboxes.push({
-                            x: player.x + (direction > 0 ? -this.range * 1.2 : player.width),
+                            x: player.x + (direction > 0 ? -this.range * 1.2 : ownerWorldWidth(player)),
                             y: player.y - 10,
                             width: this.range * 1.2,
                             height: 60
@@ -1855,14 +1876,14 @@ export class DualBlades extends SubWeapon {
                     if (this.comboIndex === 3) {
                         const sRange = this.range * 1.5;
                         hitboxes.push({
-                            x: player.x + player.width / 2 - sRange,
-                            y: player.y + player.height / 2 - sRange,
+                            x: player.x + ownerWorldWidth(player) / 2 - sRange,
+                            y: player.y + ownerWorldHeight(player) / 2 - sRange,
                             width: sRange * 2,
                             height: sRange * 2
                         });
                     } else {
                         hitboxes.push({
-                            x: player.x + (direction > 0 ? player.width : -this.range * 1.2),
+                            x: player.x + (direction > 0 ? ownerWorldWidth(player) : -this.range * 1.2),
                             y: player.y - 10,
                             width: this.range * 1.2,
                             height: 60
@@ -2023,8 +2044,8 @@ export class DualBlades extends SubWeapon {
         if (isCombined) return;
 
         const progress = Math.max(0, this.attackTimer / Math.max(1, this.sideDuration || 150));
-        const centerX = player.x + player.width / 2;
-        const centerY = player.y + player.height / 2;
+        const centerX = player.x + ownerWorldWidth(player) / 2;
+        const centerY = player.y + ownerWorldHeight(player) / 2;
         
         // 共通描画関数
         const drawAttack = (slashColor, angleStart, angleEnd, isBackwards, drawModel) => {
@@ -2225,7 +2246,7 @@ export class Kusarigama extends SubWeapon {
     getMotionState(player) {
         const direction = this.attackDirection;
         const progress = Math.max(0, Math.min(1, 1 - (this.attackTimer / this.totalDuration)));
-        const centerX = player.x + player.width / 2;
+        const centerX = player.x + ownerWorldWidth(player) / 2;
         const shoulderX = centerX - direction * 3; // player.js の frontShoulderX に合わせる
         const shoulderY = player.y + 17; // player.js の pivotY (idle想定) に合わせる
 
@@ -2849,7 +2870,7 @@ export class Odachi extends SubWeapon {
     getPose(player) {
         const direction = this.isAttacking ? this.attackDirection : (player.facingRight ? 1 : -1);
         const progress = this.isAttacking ? this.getProgress() : 0;
-        const centerX = player.x + player.width / 2;
+        const centerX = player.x + ownerWorldWidth(player) / 2;
         let rotation = -Math.PI * 0.5;
         let phase = 'rise';
         let flipT = 0;
@@ -2870,7 +2891,7 @@ export class Odachi extends SubWeapon {
         const scale = player.scaleMultiplier || 1.0;
         let maxTipY = rawMaxTipY;
         if (Math.abs(scale - 1.0) > 0.001) {
-            const pivotH = Number.isFinite(player._scalePivotH) ? player._scalePivotH : (player.height * 0.62);
+            const pivotH = Number.isFinite(player._scalePivotH) ? player._scalePivotH : (ownerWorldHeight(player) * 0.62);
             const pivotY = player.y + pivotH;
             maxTipY = pivotY + (rawMaxTipY - pivotY) / scale;
         }
@@ -2884,8 +2905,8 @@ export class Odachi extends SubWeapon {
             const baseAngle = -Math.PI * 0.10 + Math.sin(player.motionTime * 0.0078) * 0.03;
             rotation = baseAngle;
             
-            const handX = centerX + direction * (player.width * 0.48);
-            const handY = player.y + player.height * 0.40 + (player.bob || 0) * 0.8;
+            const handX = centerX + direction * (ownerWorldWidth(player) * 0.48);
+            const handY = player.y + ownerWorldHeight(player) * 0.40 + (player.bob || 0) * 0.8;
             
             return { progress, phase, direction, rotation, handX, handY, bladeLen };
         }
@@ -2897,9 +2918,9 @@ export class Odachi extends SubWeapon {
             // 大太刀のhandXはボディの視覚中心(centerX)を基準にする。
             // frozenCenterX(=scale pivot)はoriginalW/2基準でdrawW/2と4pxずれるため
             // スケール後に左右非対称(8.8px差)を生む。
-            const handX = centerX + direction * (player.width * 0.325);
+            const handX = centerX + direction * (ownerWorldWidth(player) * 0.325);
             // 身長比率に基づいて手の高さを計算 (プレイヤー 60px に対し 7.5px = 0.125)
-            const handY = player.y + player.height * 0.125;
+            const handY = player.y + ownerWorldHeight(player) * 0.125;
             
             // 地面固定：剣の先端（bladeEnd）を地面（maxTipY）に揃える
             const tipY = handY + Math.sin(rotation) * bladeEnd;
@@ -2934,8 +2955,8 @@ export class Odachi extends SubWeapon {
         
         // 振り上げフェーズでの上昇は物理(update)で行うため、描画オフセットは安定させる
         // サイズ比率に基づいて手の位置を計算
-        const forwardOffset = player.width * (phase === 'rise' ? 0.3 : (phase === 'stall' ? 0.325 : (phase === 'flip' ? 0.275 : 0.35)));
-        const heightOffset = player.height * (phase === 'plunge' ? 0.266 : 0.283);
+        const forwardOffset = ownerWorldWidth(player) * (phase === 'rise' ? 0.3 : (phase === 'stall' ? 0.325 : (phase === 'flip' ? 0.275 : 0.35)));
+        const heightOffset = ownerWorldHeight(player) * (phase === 'plunge' ? 0.266 : 0.283);
 
         let handX = centerX + direction * forwardOffset;
         let handY = player.y + heightOffset;
@@ -2975,7 +2996,7 @@ export class Odachi extends SubWeapon {
     getOwnerActorPoseWidth(player) {
         return player && Number.isFinite(player.actorBaseWidth)
             ? PLAYER.WIDTH
-            : (player && Number.isFinite(player.width) ? player.width : PLAYER.WIDTH);
+            : (player && Number.isFinite(ownerWorldWidth(player)) ? ownerWorldWidth(player) : PLAYER.WIDTH);
     }
 
     getOwnerActorBaseWidth(player) {
@@ -2989,14 +3010,14 @@ export class Odachi extends SubWeapon {
         const scale = this.getOwnerVisualScale(player);
         if (scale <= 1.001 || !Number.isFinite(player.actorBaseHeight)) return 0;
         const actorPivotHeight = player.actorBaseHeight * 0.62;
-        return player.height * 0.38 - (PLAYER.HEIGHT - actorPivotHeight) * scale;
+        return ownerWorldHeight(player) * 0.38 - (PLAYER.HEIGHT - actorPivotHeight) * scale;
     }
 
     captureImpactFrozen(player) {
         if (!player) return null;
         this.impactFrozen = {
-            pivotX: player.x + player.width * 0.5,
-            pivotY: player.y + player.height * 0.62
+            pivotX: player.x + ownerWorldWidth(player) * 0.5,
+            pivotY: player.y + ownerWorldHeight(player) * 0.62
         };
         return this.impactFrozen;
     }
@@ -3018,7 +3039,7 @@ export class Odachi extends SubWeapon {
         const handHeightRatio = 0.125;
         const scale = this.getOwnerVisualScale(player);
         const scaledBladeEnd = bladeEnd * scale;
-        let result = maxTipY - scaledBladeEnd - (player.height * handHeightRatio * scale);
+        let result = maxTipY - scaledBladeEnd - (ownerWorldHeight(player) * handHeightRatio * scale);
         result -= this.getOwnerRenderFootOffset(player);
         return result;
     }

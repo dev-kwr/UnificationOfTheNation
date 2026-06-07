@@ -2384,25 +2384,25 @@ export class Enemy {
     }
     
     getDistanceToPlayer(player) {
-        const dx = (player.x + player.width / 2) - (this.x + this.width / 2);
-        const dy = (player.y + player.height / 2) - (this.y + this.height / 2);
+        const dx = (player.x + player.getWorldWidth() / 2) - (this.x + this.width / 2);
+        const dy = (player.y + player.getWorldHeight() / 2) - (this.y + this.height / 2);
         return Math.sqrt(dx * dx + dy * dy);
     }
 
     getHorizontalDistanceToPlayer(player) {
-        return Math.abs((player.x + player.width / 2) - (this.x + this.width / 2));
+        return Math.abs((player.x + player.getWorldWidth() / 2) - (this.x + this.width / 2));
     }
 
     getVerticalDistanceToPlayer(player) {
-        return Math.abs((player.y + player.height / 2) - (this.y + this.height / 2));
+        return Math.abs((player.y + player.getWorldHeight() / 2) - (this.y + this.height / 2));
     }
 
     isPlayerInAttackRange(player, rangeMultiplier = 1) {
         const horizontalDistance = this.getHorizontalDistanceToPlayer(player);
         const verticalDistance = this.getVerticalDistanceToPlayer(player);
         const effectiveRange = this.attackRange * Math.max(0.2, rangeMultiplier);
-        const horizontalReach = effectiveRange + (this.width + player.width) * 0.24;
-        const verticalReach = Math.max(34, (this.height + player.height) * 0.5);
+        const horizontalReach = effectiveRange + (this.width + player.getWorldWidth()) * 0.24;
+        const verticalReach = Math.max(34, (this.height + player.getWorldHeight()) * 0.5);
         return horizontalDistance <= horizontalReach && verticalDistance <= verticalReach;
     }
     
@@ -2497,7 +2497,7 @@ export class Enemy {
 
     applyPullStopConstraint(player, deltaMs = 0) {
         if (!player || this.pullStopTimer <= 0) return;
-        const playerCenterX = player.x + player.width * 0.5;
+        const playerCenterX = player.x + player.getWorldWidth() * 0.5;
         const selfCenterX = this.x + this.width * 0.5;
         const dx = selfCenterX - playerCenterX;
         const absDx = Math.abs(dx);
@@ -2505,7 +2505,7 @@ export class Enemy {
             6,
             Number.isFinite(this.pullStopDistance)
                 ? this.pullStopDistance
-                : (player.width + this.width) * 0.5 + 8
+                : (player.getWorldWidth() + this.width) * 0.5 + 8
         );
         if (absDx < stopDistance) {
             const dir = dx >= 0 ? 1 : -1;
@@ -2550,7 +2550,7 @@ export class Enemy {
             }
 
             if (attackData && Number.isFinite(attackData.pullTowardPlayerStrength) && attackData.pullTowardPlayerStrength > 0) {
-                const playerCenterX = player.x + player.width * 0.5;
+                const playerCenterX = player.x + player.getWorldWidth() * 0.5;
                 const selfCenterX = this.x + this.width * 0.5;
                 const pullDir = playerCenterX >= selfCenterX ? 1 : -1;
                 const bossLike = this.maxHp >= 120;
@@ -2560,7 +2560,7 @@ export class Enemy {
                 this.isGrounded = false;
                 this.pullStopDistance = Number.isFinite(attackData.pullStopDistance)
                     ? attackData.pullStopDistance
-                    : ((player.width + this.width) * 0.5 + 8);
+                    : ((player.getWorldWidth() + this.width) * 0.5 + 8);
                 this.pullStopTimer = Math.max(
                     this.pullStopTimer || 0,
                     Number.isFinite(attackData.pullStopTimerMs) ? attackData.pullStopTimerMs : 260
@@ -4157,8 +4157,8 @@ class EnemyProjectile {
         }
 
         // プレイヤーとの衝突
-        const dx = (player.x + player.width / 2) - this.x;
-        const dy = (player.y + player.height / 2) - this.y;
+        const dx = (player.x + player.getWorldWidth() / 2) - this.x;
+        const dy = (player.y + player.getWorldHeight() / 2) - this.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         // プレイヤーの攻撃で弾く (メイン武器 + サブ武器)

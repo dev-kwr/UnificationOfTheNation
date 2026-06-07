@@ -281,13 +281,15 @@ export function applyShogunCombat(player) {
     const initShogunInstances = (p) => {
         if (p._shogunInited) return;
 
-        p.width = Math.round(SHOGUN_ACTOR_BASE_WIDTH * SHOGUN_SCALE);
-        p.height = Math.round(SHOGUN_ACTOR_BASE_HEIGHT * SHOGUN_SCALE);
+        // 将軍は「スケールの違う忍者」: width/height は素体フレーム(40x60)を保持し、
+        // ワールド寸法(=素体×scaleMultiplier=88x132)は getWorldWidth/Height 経由で読む。
+        p.width = SHOGUN_ACTOR_BASE_WIDTH;   // 40 素体
+        p.height = SHOGUN_ACTOR_BASE_HEIGHT; // 60 素体
         p.scaleMultiplier = SHOGUN_SCALE;
         p.speed = PLAYER.SPEED;
-        // height 変更に合わせて y を補正（startStage は忍者の高さで設定済み）
+        // ワールド身長(=素体×scale=132)で足を接地させる（startStage は忍者の高さで設定済み）
         const groundY = p.groundY || 480;
-        p.y = groundY + LANE_OFFSET - p.height;
+        p.y = groundY + LANE_OFFSET - p.getWorldHeight();
         p.isGrounded = true;
         p._shogunInited = true;
 
@@ -645,8 +647,8 @@ export function applyShogunCombat(player) {
 
             if (syncPlayableShogunAttackCalculation(this, boss)) {
                 const state = options && options.state ? options.state : {
-                    x: this.x + (this.width - PLAYER.WIDTH) * 0.5,
-                    y: this.y + this.height - PLAYER.HEIGHT,
+                    x: this.x + (this.getWorldWidth() - PLAYER.WIDTH) * 0.5,
+                    y: this.y + this.getWorldHeight() - PLAYER.HEIGHT,
                     width: PLAYER.WIDTH,
                     height: PLAYER.HEIGHT,
                     facingRight: boss.facingRight,
@@ -853,7 +855,7 @@ export function applyShogunCombat(player) {
         // ================================================================
         getHitbox() {
             return {
-                x: this.x, y: this.y, width: this.width, height: this.height
+                x: this.x, y: this.y, width: this.getWorldWidth(), height: this.getWorldHeight()
             };
         }
     };

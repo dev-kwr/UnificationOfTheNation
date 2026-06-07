@@ -130,16 +130,16 @@ export function applySlashTrailMixin(PlayerClass) {
             stepGroups.get(step).push(point);
         }
         
-        const frozenTrailCenterX = this.x + this.width * 0.5;
-        const frozenTrailCenterY = this.y + this.height * 0.5;
+        const frozenTrailCenterX = this.x + this.getWorldWidth() * 0.5;
+        const frozenTrailCenterY = this.y + this.getWorldHeight() * 0.5;
         for (const [stepNum, stepPoints] of stepGroups) {
             const lastPt = stepPoints[stepPoints.length - 1];
             const stripTrailId = lastPt?.trailAttackId || stepNum;
             const frozenBoostAnchor = (this.comboSlashTrailBoostAnchors && this.comboSlashTrailBoostAnchors[stripTrailId]) 
                 ? { ...this.comboSlashTrailBoostAnchors[stripTrailId] } 
                 : null;
-            const forceOffsetX = frozenBoostAnchor ? frozenBoostAnchor.baseCenterX - this.width * 0.5 : null;
-            const forceOffsetY = frozenBoostAnchor ? frozenBoostAnchor.baseCenterY - this.height * 0.5 : null;
+            const forceOffsetX = frozenBoostAnchor ? frozenBoostAnchor.baseCenterX - this.getWorldWidth() * 0.5 : null;
+            const forceOffsetY = frozenBoostAnchor ? frozenBoostAnchor.baseCenterY - this.getWorldHeight() * 0.5 : null;
 
             if (stepNum === 1) {
                 const frozenSnapshot = this.buildFrozenSampledBezierSnapshot(stepNum, stepPoints, forceOffsetX, forceOffsetY);
@@ -218,7 +218,7 @@ export function applySlashTrailMixin(PlayerClass) {
                 if (stepPoints.length >= 2) {
                     const lastPt = stepPoints[stepPoints.length - 1];
                     const firstPt = stepPoints[0];
-                    const footY = this.getFootY ? this.getFootY() : (this.y + this.height);
+                    const footY = this.getFootY ? this.getFootY() : (this.y + this.getWorldHeight());
                     const frozenPoints = stepPoints
                         .map((p) => {
                             const frozen = this.absolutizeRelativeTrailPoint(
@@ -281,10 +281,10 @@ export function applySlashTrailMixin(PlayerClass) {
         return {
             width: Number.isFinite(state.width)
                 ? state.width
-                : this.width,
+                : this.getWorldWidth(),
             height: Number.isFinite(state.height)
                 ? state.height
-                : this.height
+                : this.getWorldHeight()
         };
     };
 
@@ -408,10 +408,10 @@ export function applySlashTrailMixin(PlayerClass) {
             return cached;
         }
         const isShogunClone = this.characterType === 'shogun';
-        const poseWidth = isShogunClone ? PLAYER.WIDTH : this.width;
-        const poseHeight = isShogunClone ? PLAYER.HEIGHT : this.height;
+        const poseWidth = isShogunClone ? PLAYER.WIDTH : this.getWorldWidth();
+        const poseHeight = isShogunClone ? PLAYER.HEIGHT : this.getWorldHeight();
         const poseOriginX = isShogunClone
-            ? pos.x - this.width * 0.5
+            ? pos.x - this.getWorldWidth() * 0.5
             : pos.x - poseWidth * 0.5;
         const profile = this.applyComboTrailSpecToAttackProfile(
             { ...this.currentAttack },
@@ -528,8 +528,8 @@ export function applySlashTrailMixin(PlayerClass) {
         const buildStateAt = (rawProgress) => ({
             x: state.x !== undefined ? state.x : this.x,
             y: state.y !== undefined ? state.y : this.y,
-            width: Number.isFinite(state.width) ? state.width : this.width,
-            height: Number.isFinite(state.height) ? state.height : this.height,
+            width: Number.isFinite(state.width) ? state.width : this.getWorldWidth(),
+            height: Number.isFinite(state.height) ? state.height : this.getWorldHeight(),
             facingRight: state.facingRight !== undefined ? state.facingRight : this.facingRight,
             isCrouching: state.isCrouching !== undefined ? state.isCrouching : this.isCrouching,
             currentAttack: attack,
@@ -1751,9 +1751,9 @@ export function applySlashTrailMixin(PlayerClass) {
                             centerX: liveAnchors.back.handX,
                             centerY: liveAnchors.back.handY,
                             originX: Number.isFinite(liveAnchors.originX) ? liveAnchors.originX : pos.x,
-                            originY: Number.isFinite(liveAnchors.originY) ? liveAnchors.originY : (cloneDrawY + this.height * 0.5),
+                            originY: Number.isFinite(liveAnchors.originY) ? liveAnchors.originY : (cloneDrawY + this.getWorldHeight() * 0.5),
                             trailTransformPlayerX: Number.isFinite(liveAnchors.originX) ? liveAnchors.originX : pos.x,
-                            trailTransformPlayerY: Number.isFinite(liveAnchors.originY) ? liveAnchors.originY : (cloneDrawY + this.height * 0.5)
+                            trailTransformPlayerY: Number.isFinite(liveAnchors.originY) ? liveAnchors.originY : (cloneDrawY + this.getWorldHeight() * 0.5)
                         };
                         frontPose = {
                             tipX: liveAnchors.front.tipX,
@@ -1764,9 +1764,9 @@ export function applySlashTrailMixin(PlayerClass) {
                             centerX: liveAnchors.front.handX,
                             centerY: liveAnchors.front.handY,
                             originX: Number.isFinite(liveAnchors.originX) ? liveAnchors.originX : pos.x,
-                            originY: Number.isFinite(liveAnchors.originY) ? liveAnchors.originY : (cloneDrawY + this.height * 0.5),
+                            originY: Number.isFinite(liveAnchors.originY) ? liveAnchors.originY : (cloneDrawY + this.getWorldHeight() * 0.5),
                             trailTransformPlayerX: Number.isFinite(liveAnchors.originX) ? liveAnchors.originX : pos.x,
-                            trailTransformPlayerY: Number.isFinite(liveAnchors.originY) ? liveAnchors.originY : (cloneDrawY + this.height * 0.5)
+                            trailTransformPlayerY: Number.isFinite(liveAnchors.originY) ? liveAnchors.originY : (cloneDrawY + this.getWorldHeight() * 0.5)
                         };
                     }
                     
@@ -1849,10 +1849,10 @@ export function applySlashTrailMixin(PlayerClass) {
                         continue;
                     }
                     const isShogunClone = this.characterType === 'shogun';
-                    const poseWidth = isShogunClone ? PLAYER.WIDTH : this.width;
-                    const poseHeight = isShogunClone ? PLAYER.HEIGHT : this.height;
+                    const poseWidth = isShogunClone ? PLAYER.WIDTH : this.getWorldWidth();
+                    const poseHeight = isShogunClone ? PLAYER.HEIGHT : this.getWorldHeight();
                     const poseOriginX = isShogunClone
-                        ? pos.x - this.width * 0.5
+                        ? pos.x - this.getWorldWidth() * 0.5
                         : pos.x - poseWidth * 0.5;
                     const poseOriginY = cloneDrawY;
                     const hasOverride = !isAutoAi && this.specialCloneCurrentAttacks[i] != null;
@@ -2017,10 +2017,10 @@ export function applySlashTrailMixin(PlayerClass) {
         }
         let trailCenterX = Number.isFinite(options.centerX)
             ? options.centerX
-            : (this.x + this.width * 0.5);
+            : (this.x + this.getWorldWidth() * 0.5);
         let trailCenterY = Number.isFinite(options.centerY)
             ? options.centerY
-            : (this.y + this.height * 0.5);
+            : (this.y + this.getWorldHeight() * 0.5);
         const clamp01 = (v) => Math.max(0, Math.min(1, v));
         const colorRgba = (rgb, alpha) => `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${clamp01(alpha)})`;
 
@@ -2895,8 +2895,8 @@ export function applySlashTrailMixin(PlayerClass) {
             // 通常時 or ブースト時 共通描画
             if (stripStep === 5) {
                 if (boostActive && boostAnchor && boostAnchor.step === stripStep) {
-                    const anchorPlayerX = boostAnchor.baseCenterX - this.width * 0.5;
-                    const anchorPlayerY = boostAnchor.baseCenterY - this.height * 0.5;
+                    const anchorPlayerX = boostAnchor.baseCenterX - this.getWorldWidth() * 0.5;
+                    const anchorPlayerY = boostAnchor.baseCenterY - this.getWorldHeight() * 0.5;
                     const scaleProjFn = (p) => {
                         const vx = p.x - boostAnchor.baseCenterX;
                         const vy = p.y - boostAnchor.baseCenterY;
@@ -2928,8 +2928,8 @@ export function applySlashTrailMixin(PlayerClass) {
             } else if (stripStep === 1) {
                 if (boostActive && boostAnchor && boostAnchor.step === stripStep) {
                     // 大凪ブースト時: forceOffsetX/forceOffsetYを使って、過去のプレイヤー位置を上書きしてアンカー位置に固定する
-                    const anchorPlayerX = boostAnchor.baseCenterX - this.width * 0.5;
-                    const anchorPlayerY = boostAnchor.baseCenterY - this.height * 0.5;
+                    const anchorPlayerX = boostAnchor.baseCenterX - this.getWorldWidth() * 0.5;
+                    const anchorPlayerY = boostAnchor.baseCenterY - this.getWorldHeight() * 0.5;
                     
                     // アンカー中心からの単純スケーリングprojFn
                     const scaleProjFn = (p) => {
@@ -3076,12 +3076,12 @@ export function applySlashTrailMixin(PlayerClass) {
                     const pts = fc.frozenPoints;
                     if (pts.length < 2) { ctx.restore(); continue; }
                     
-                    const currentFootX = this.getFootX ? this.getFootX() : (this.x + this.width * 0.5);
-                    const currentFootY = this.getFootY ? this.getFootY() : (this.y + this.height);
+                    const currentFootX = this.getFootX ? this.getFootX() : (this.x + this.getWorldWidth() * 0.5);
+                    const currentFootY = this.getFootY ? this.getFootY() : (this.y + this.getWorldHeight());
                     const savedCenterX = trailCenterX;
                     const savedCenterY = trailCenterY;
                     trailCenterX = currentFootX;
-                    trailCenterY = currentFootY - this.height * 0.5;
+                    trailCenterY = currentFootY - this.getWorldHeight() * 0.5;
 
                     let projFnFrozen = null;
                     if (fc.boostAnchor) {
@@ -3153,8 +3153,8 @@ export function applySlashTrailMixin(PlayerClass) {
             progress: progress,
             centerX: blade.handX,
             centerY: blade.handY,
-            originX: this.x + this.width * 0.5,
-            originY: this.y + this.height * 0.5
+            originX: this.x + this.getWorldWidth() * 0.5,
+            originY: this.y + this.getWorldHeight() * 0.5
         };
     };
 
