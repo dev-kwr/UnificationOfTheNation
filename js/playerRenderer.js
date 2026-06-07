@@ -912,8 +912,10 @@ export function applyRendererMixin(PlayerClass) {
         const originalW = this.width;
         const originalH = this.height;
 
-        // 将軍のパース変形は render() 側で外部適用する場合があるため、その時は内部で適用しない
-        const applyShogunShear = isShogunMode && !options._shogunExternalTransform;
+        // 将軍の2.5D傾き(shogunYawSkew シア)は撤去。忍者と同じ「直立した純スケール」で描く。
+        // （前傾を望まないユーザー要望＋「将軍専用の描画変形を持たない」統合ゴールに沿う）
+        // shear を切ると yawSkewCancel も設定されず、odachi 等の逆シア補正も自動で不要化する。
+        const applyShogunShear = false;
         const scale = this.scaleMultiplier || 1.0;
 
         // 将軍モードの場合、actorBase(40x60)を基準にオフセットを計算（boss.js renderBody と同一式）
