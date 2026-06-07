@@ -293,23 +293,11 @@ export function applyShogunCombat(player) {
         p.isGrounded = true;
         p._shogunInited = true;
 
-        p._shogunBossInstance = new Shogun(p.x, p.y, 'boss', groundY);
-        p._shogunBossInstance.init();
-        p._shogunBossInstance.hp = 99999;
-        p._shogunBossInstance.aiDisabled = true;
-        p._shogunBossInstance.isEnemy = false;
-        // プレイアブル将軍の制御源はプレイヤー入力。AIBrain から InputBrain へ差し替える。
-        p._shogunBossInstance.brain = createInputBrain();
-
-
-        // Shogun.init() で生成＆スケール済みのインスタンスをそのまま使う
-        // （以前は差し替えていたため applyScaleToSubWeapons の効果が消えていた）
-        syncShogunProgression(p, p._shogunBossInstance);
-        p._shogunBossInstance.syncSubWeaponCalculation = (key) => (
-            syncShogunSubWeaponCalculation(p, p._shogunBossInstance, key)
-        );
-
         p._getShogunRealSubWeapon = () => p.currentSubWeapon || null;
+
+        // E5: プレイアブル将軍は単一 Player ネイティブに一本化。boss(Shogunクラス)は生成しない。
+        // dims が整ったこの初回 setup でネイティブ戦闘/描画へ即移行し、以降 controller はバイパスされる。
+        if (typeof p.enableNativeShogun === 'function') p.enableNativeShogun();
     };
 
     const controller = {
@@ -696,6 +684,9 @@ export function applyShogunCombat(player) {
         // ================================================================
         update(dt, walls = [], enemies = []) {
             initShogunInstances(this);
+            // E5: initShogunInstances で native 化済み。以降は Player 自身の update が走る。
+            // この controller.update は frame1 の setup 専用となり、boss 経路は使われない。
+            if (this._nativeShogun) return undefined;
             const boss = this._shogunBossInstance;
             if (!boss) return undefined;
             syncShogunProgression(this, boss);
