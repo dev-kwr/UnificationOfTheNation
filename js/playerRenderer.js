@@ -880,12 +880,17 @@ export function applyRendererMixin(PlayerClass) {
 
         const isShogunMode = this.characterType === 'shogun';
         if (isShogunMode) {
-            options.drawTorsoOverride = options.drawTorsoOverride || ((ctx, p) => this._drawShogunTorso(ctx, p));
-            options.drawTorsoOverlayOverride = options.drawTorsoOverlayOverride || ((ctx, p) => this._drawShogunTorsoOverlay(ctx, p));
-            options.drawHeadOverride = options.drawHeadOverride || ((ctx, p) => this._drawShogunHead(ctx, p));
-            options.drawArmOverride = options.drawArmOverride || ((ctx, p) => this._drawShogunArm(ctx, p));
-            options.drawHandOverride = options.drawHandOverride || ((ctx, p) => this._drawShogunHand(ctx, p));
-            options.drawLegOverride = options.drawLegOverride || ((ctx, p) => this._drawShogunLeg(ctx, p));
+            // 防具非表示(デバッグ): 将軍の防具スキン(黒プレート＋金飾り＋兜)を一切描かず、
+            // renderModel 既定の素体描画に落とす。体格パラメータ(頭身/腰高)は将軍のまま残し、
+            // 「将軍体格の素体・四肢の重ね順」を確認できるようにする。
+            if (!this.hideShogunArmor) {
+                options.drawTorsoOverride = options.drawTorsoOverride || ((ctx, p) => this._drawShogunTorso(ctx, p));
+                options.drawTorsoOverlayOverride = options.drawTorsoOverlayOverride || ((ctx, p) => this._drawShogunTorsoOverlay(ctx, p));
+                options.drawHeadOverride = options.drawHeadOverride || ((ctx, p) => this._drawShogunHead(ctx, p));
+                options.drawArmOverride = options.drawArmOverride || ((ctx, p) => this._drawShogunArm(ctx, p));
+                options.drawHandOverride = options.drawHandOverride || ((ctx, p) => this._drawShogunHand(ctx, p));
+                options.drawLegOverride = options.drawLegOverride || ((ctx, p) => this._drawShogunLeg(ctx, p));
+            }
 
             // 将軍は鉢巻や髪を描画しない
             options.renderHeadband = false;

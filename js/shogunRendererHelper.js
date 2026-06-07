@@ -55,7 +55,6 @@ export function applyShogunRendererMixin(PlayerClass) {
 
     // 胴体オーバーレイ（草摺）
     PlayerClass.prototype._drawShogunTorsoOverlay = function(ctx, p) {
-        if (this.hideShogunArmor) return; // 防具非表示: 草摺(腰防具)を省く
         const { torsoShoulderX, bodyTopY, torsoHipX, hipY, dir } = p;
         const cArmor = '#101014';
         const dx = torsoHipX - torsoShoulderX;
@@ -107,7 +106,7 @@ export function applyShogunRendererMixin(PlayerClass) {
         ctx.fillStyle = silhouetteColor;
         ctx.beginPath(); ctx.arc(headCenterX, headY, headRadius, 0, Math.PI * 2); ctx.fill();
 
-        if (!this.hideShogunArmor) this._drawShogunHelmetOverlay(ctx, p); // 防具非表示: 兜・角を省く
+        this._drawShogunHelmetOverlay(ctx, p);
     };
 
     // 兜オーバーレイ
@@ -199,14 +198,12 @@ export function applyShogunRendererMixin(PlayerClass) {
         ctx.fillStyle = cArmor; ctx.beginPath(); const hW = 3.0; ctx.moveTo(elbowX - nx * hW, elbowY - ny * hW); ctx.lineTo(elbowX + nx * hW, elbowY + ny * hW); ctx.lineTo(wristX + nx * (hW - 0.5), wristY + ny * (hW - 0.5)); ctx.lineTo(wristX - nx * (hW - 0.5), wristY - ny * (hW - 0.5)); ctx.fill();
         ctx.strokeStyle = 'rgba(180, 155, 70, 0.5)'; ctx.lineWidth = 0.8;
         { const t = 0.65, lx = elbowX + (wristX - elbowX) * t, ly = elbowY + (wristY - elbowY) * t, bw = hW - 0.3; ctx.beginPath(); ctx.moveTo(lx - nx * bw, ly - ny * bw); ctx.lineTo(lx + nx * bw, ly + ny * bw); ctx.stroke(); }
-        if (!this.hideShogunArmor) { // 防具非表示: 袖(肩防具)を省く
-            const sodeSteps = 5, sodeW = 5.0, sodeH = 13.5, padPx = shoulderX - dir * 1.5, padPy = shoulderY - 2.5;
-            for (let s = 0; s < sodeSteps; s++) {
-                const y0 = padPy + (sodeH / sodeSteps) * s, y1 = padPy + (sodeH / sodeSteps) * (s + 1);
-                ctx.fillStyle = '#131316'; ctx.beginPath(); ctx.moveTo(padPx - sodeW, y0); ctx.lineTo(padPx + sodeW, y0); ctx.lineTo(padPx + sodeW, y1); ctx.lineTo(padPx - sodeW, y1); ctx.closePath(); ctx.fill();
-                if (s === sodeSteps - 1) { ctx.strokeStyle = '#dcb854'; ctx.lineWidth = 1.5; } else { ctx.strokeStyle = '#0a0a0e'; ctx.lineWidth = 1.0; }
-                ctx.beginPath(); ctx.moveTo(padPx - sodeW, y1); ctx.lineTo(padPx + sodeW, y1); ctx.stroke();
-            }
+        const sodeSteps = 5, sodeW = 5.0, sodeH = 13.5, padPx = shoulderX - dir * 1.5, padPy = shoulderY - 2.5;
+        for (let s = 0; s < sodeSteps; s++) {
+            const y0 = padPy + (sodeH / sodeSteps) * s, y1 = padPy + (sodeH / sodeSteps) * (s + 1);
+            ctx.fillStyle = '#131316'; ctx.beginPath(); ctx.moveTo(padPx - sodeW, y0); ctx.lineTo(padPx + sodeW, y0); ctx.lineTo(padPx + sodeW, y1); ctx.lineTo(padPx - sodeW, y1); ctx.closePath(); ctx.fill();
+            if (s === sodeSteps - 1) { ctx.strokeStyle = '#dcb854'; ctx.lineWidth = 1.5; } else { ctx.strokeStyle = '#0a0a0e'; ctx.lineWidth = 1.0; }
+            ctx.beginPath(); ctx.moveTo(padPx - sodeW, y1); ctx.lineTo(padPx + sodeW, y1); ctx.stroke();
         }
         if (optionsInner) optionsInner.lastHandConnectFrom = { x: wristX, y: wristY };
         return true;
