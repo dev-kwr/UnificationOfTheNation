@@ -1,8 +1,6 @@
 import { audio } from './audio.js';
 import { PLAYER, LANE_OFFSET, CANVAS_WIDTH } from './constants.js';
 import { input } from './input.js';
-import { Shogun } from './boss.js';
-import { createInputBrain } from './shogunBrains.js';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
