@@ -400,9 +400,8 @@
         input.setCanvas(canvas);
 
         // ===== 将軍 = ゲームの実プレイアブル将軍（Player + applyShogunCombat）=====
-        // ゲームと同一の生成手順。内部に _shogunBossInstance（戦闘・描画エンジン）を持つ。
-        // 既存コードの shogun.* 参照（_subTimer / actor / renderBody 等）はこの内部ボスを指すよう
-        // shogun = shogunPlayer._shogunBossInstance とし、駆動/描画/操作だけ shogunPlayer 経由にする。
+        // E5 で boss(Shogunクラス)は撤去。将軍は単一 Player ネイティブで戦闘/描画/座標を担う。
+        // 既存コードの shogun.* 参照は shogunPlayer 自身を指すエイリアス(下で定義)で互換維持する。
         const shogunPlayer = new Player(logicalW / 2 - 24, groundY - 72, groundY);
         shogunPlayer.characterType = 'shogun';
         shogunPlayer.progression = { normalCombo: 3, subWeapon: 3, specialClone: 3 };
@@ -411,27 +410,11 @@
         shogunPlayer.facingRight = true;
         shogunPlayer.maxJumps = 3;              // 三段跳び
         shogunPlayer._previewFreeMovement = true; // 画面端ループ/ズーム引きのためカメラ境界クランプを無効化
-        // 内部ボス（_shogunBossInstance）は初回 update で生成されるため、ここで一度走らせる
+        // 初回 update で将軍 setup（dims=素体40x60＋scaleMultiplier、ネイティブ戦闘/描画へ移行）が走る。
         shogunPlayer.update(1 / 60, [], []);
-        const shogun = shogunPlayer._shogunBossInstance; // 既存 shogun.* 参照の互換用（内部ボス）
-
-        // ── boss.js キャッシュ対策（将軍素体描画の編集をプレビューへ反映）──
-        // 将軍の素体・防具描画(_drawShogun* / renderBody 等)は boss.js にあるが、boss.js は
-        // 他モジュールから bare URL で静的importされるため、ブラウザのモジュールマップに固定され
-        // ファイル編集が反映されない。最新版 boss.js の Shogun プロトタイプメソッドを内部ボスの
-        // クラスへ再適用し、描画系の編集を即プレビューに反映させる（playerRenderer等のmixinと同様）。
-        try {
-            const _freshBoss = await import('./js/boss.js?v=' + _bustParam);
-            const _FreshProto = _freshBoss.Shogun && _freshBoss.Shogun.prototype;
-            const _CachedProto = shogun.constructor && shogun.constructor.prototype;
-            if (_FreshProto && _CachedProto && _FreshProto !== _CachedProto) {
-                for (const _m of Object.getOwnPropertyNames(_FreshProto)) {
-                    if (_m === 'constructor') continue;
-                    const _d = Object.getOwnPropertyDescriptor(_FreshProto, _m);
-                    if (_d) Object.defineProperty(_CachedProto, _m, _d);
-                }
-            }
-        } catch (_e) { console.warn('fresh boss.js re-apply failed', _e); }
+        // E5: 内部 boss(Shogunクラス)は撤去済み。ネイティブ将軍は shogunPlayer 自身が戦闘/描画を担う。
+        // 既存の shogun.*（位置同期/busy判定/防具非表示/__dbg）参照の互換用エイリアス。
+        const shogun = shogunPlayer;
 
         // プレビュー初期位置を画面中央に揃える。spawn は忍者幅(48)基準なので、構築後の実ワールド幅(88)で中央寄せする。
         shogunPlayer.x = logicalW / 2 - shogunPlayer.getWorldWidth() / 2;
@@ -737,7 +720,7 @@
                     // プレビューUIで選択中のサブ武器をプレイヤーに装備（アイドル時のみ）。
                     // ゲームの switchSubWeapon 相当: プレイヤーの currentSubWeapon(実装備)に設定すると
                     // 戦闘コントローラが内部ボスの _subWeaponKey へ反映し、X(SUB_WEAPON)で発動できる。
-                    const _shogunBusy = shogun._attackTimer > 0 || shogun._subTimer > 0 || shogun.isAttacking;
+                    const _shogunBusy = shogunPlayer.attackTimer > 0 || shogunPlayer.subWeaponTimer > 0 || shogunPlayer.isAttacking;
                     if (!_shogunBusy && window._previewWeapon) {
                         equipShogunPreviewWeapon(window._previewWeapon);
                     }
