@@ -918,8 +918,10 @@ export function applyRendererMixin(PlayerClass) {
         const applyShogunShear = false;
         const scale = this.scaleMultiplier || 1.0;
 
-        // 将軍モードの場合、actorBase(40x60)を基準にオフセットを計算（boss.js renderBody と同一式）
-        const renderX = isShogunMode ? (x + (this.width - SHOGUN_ACTOR_BASE_WIDTH) * 0.5) : x;
+        // 将軍モードの場合、モデル幅(drawW=48)中心を scale ピボット(=world箱中心)に一致させる。
+        // 旧式は素体幅40基準で、48との差(4px)が scaleMultiplier 倍され下半身が右へズレていた。
+        // 忍者は this.width===drawW(48) なので no-op。
+        const renderX = isShogunMode ? (x + (this.width - drawW) * 0.5) : x;
         const renderY = isShogunMode ? (y + (this.height - SHOGUN_ACTOR_BASE_HEIGHT) * 0.62) : (y + this.height - drawH);
         
         this.x = renderX;
