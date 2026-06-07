@@ -69,7 +69,7 @@ export function applySpecialMixin(PlayerClass) {
     PlayerClass.prototype.updateSpecial = function(deltaTime) {
         const deltaMs = deltaTime * 1000;
         const enemies = (window.game && window.game.enemies) || [];
-        // 「本体が今アクティブにしている忍具」。忍者は currentSubWeapon、将軍は boss 正本インスタンス。
+        // 「本体が今アクティブにしている忍具」。忍者も将軍も自身の currentSubWeapon（getActiveSubWeaponInstance で解決）。
         // 分身の大太刀ぶら下がり/着地同期などは、本体の実状態を見る必要があるためアクセサで解決する。
         const bodyActiveSubWeapon = this.getActiveSubWeaponInstance();
 
@@ -333,7 +333,7 @@ export function applySpecialMixin(PlayerClass) {
                 this.specialCloneMirroredTrailProfiles[index] = null;
             }
             // Lv3 自立分身の二刀コンボ時間も「本体のアクティブ忍具」から取得し、本体と位相を揃える。
-            // 忍者は currentSubWeapon、将軍は boss 正本（二刀流）インスタンス。
+            // 忍者も将軍も自身の currentSubWeapon（二刀流）を getActiveSubWeaponInstance で取得。
             const bodyActiveSubWeapon = this.getActiveSubWeaponInstance();
             if (
                 this.specialCloneAutoAiEnabled &&
@@ -460,8 +460,8 @@ export function applySpecialMixin(PlayerClass) {
     };
 
     // 「本体が今アクティブにしている忍具インスタンス」を返す単一アクセサ。
-    // 忍者は装備中の currentSubWeapon がそのまま本体武器。将軍など特殊キャラは
-    // _resolveActiveSubWeaponInstance フック（applyShogunCombat が注入）で本体の正本インスタンスを解決する。
+    // 忍者も将軍も装備中の currentSubWeapon がそのまま本体武器。_resolveActiveSubWeaponInstance フックは
+    // 別実体へ差し替えるための拡張点だが、E5 以降は将軍も null フォールバックで自身の currentSubWeapon を返す。
     // 分身の描画/更新はこのアクセサ越しに本体武器を読むことで、本体と同一インスタンス・同一スケールに揃う。
     PlayerClass.prototype.getActiveSubWeaponInstance = function() {
         if (typeof this._resolveActiveSubWeaponInstance === 'function') {
@@ -471,7 +471,7 @@ export function applySpecialMixin(PlayerClass) {
         return this.currentSubWeapon || null;
     };
 
-    // 将軍の所持忍具を本体スケール(scaleMultiplier)に拡大する（boss.applyScaleToSubWeapons と同一規則）。
+    // 将軍の所持忍具を本体スケール(scaleMultiplier)に拡大する。
     // ネイティブ将軍は自分の subWeapons を直接使うため、本体＝分身が同一スケールで撃てるようにする。
     PlayerClass.prototype._applyShogunSubWeaponScale = function() {
         if (this._shogunWeaponsScaled) return;
@@ -681,7 +681,7 @@ export function applySpecialMixin(PlayerClass) {
         }
         // スケール済みの reach/弾サイズを「本体のアクティブ忍具」から同期する。
         // createSubWeapon は base range で作るため、忍者は refreshSubWeaponScaling 済みの currentSubWeapon、
-        // 将軍は applyScaleToSubWeapons 済みの boss 正本インスタンスへ getActiveSubWeaponInstance() で統一的に揃える。
+        // 将軍は _applyShogunSubWeaponScale 済みの自身の currentSubWeapon へ getActiveSubWeaponInstance() で統一的に揃える。
         // これにより Lv3 分身が本体と同一スケールで描画/弾道する（将軍の分身が小さくなる二重管理バグの解消）。
         const cloneInst = this.specialCloneSubWeaponInstances[index];
         const bodyActiveInst = (typeof this.getActiveSubWeaponInstance === 'function')

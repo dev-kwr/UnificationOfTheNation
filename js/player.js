@@ -857,15 +857,22 @@ export class Player {
         // アニメーション更新
         this.updateAnimation(deltaTime);
         
-        // 残像更新（ダッシュ相当：通常ダッシュ・大槍横っ飛び・大太刀跳躍）
+        // 残像更新（通常ダッシュのみ。大槍/大太刀中の本体残像は出さない）
         const isOdachiJumping = this.isOdachiJumpAfterimageActive();
         const isSpearThrusting = this.isSpearThrustAfterimageActive();
+        const suppressSubWeaponBodyAfterimage = isOdachiJumping || isSpearThrusting || (
+            this.subWeaponTimer > 0 &&
+            (this.subWeaponAction === '大槍' || this.subWeaponAction === '大太刀')
+        );
         const shouldEmitDashAfterimage =
-            this.isDashing ||
-            Math.abs(this.vx) > PLAYER.SPEED * 1.5 ||
-            isOdachiJumping ||
-            isSpearThrusting;
-        if (shouldEmitDashAfterimage) {
+            !suppressSubWeaponBodyAfterimage &&
+            (
+                this.isDashing ||
+                Math.abs(this.vx) > PLAYER.SPEED * 1.5
+            );
+        if (suppressSubWeaponBodyAfterimage) {
+            this.afterImages.length = 0;
+        } else if (shouldEmitDashAfterimage) {
             this.afterImages.unshift({
                 x: this.x,
                 y: this.y,

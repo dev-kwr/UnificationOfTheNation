@@ -4615,6 +4615,59 @@ class Game {
         }
     }
 
+    renderPlayerCombatLayer(ctx = this.ctx, options = {}) {
+        const player = this.player;
+        if (!ctx || !player) return;
+        const playerAlpha = Number.isFinite(options.playerAlpha) ? options.playerAlpha : 1.0;
+        const forceStanding = !!options.forceStanding;
+        const includeBombs = options.includeBombs !== false;
+
+        // プレイヤー
+        if (playerAlpha > 0) {
+            if (
+                player.characterType !== 'shogun' &&
+                (player.isUsingSpecial || player.specialSmoke.length > 0)
+            ) {
+                ctx.save();
+                if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
+                player.renderSpecial(ctx);
+                ctx.restore();
+            }
+            ctx.save();
+            if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
+
+            player.render(ctx, {
+                forceStanding: forceStanding,
+                skipSpecialRender: true,
+                ghostVeilActive: player.isGhostVeilActive()
+            });
+            ctx.restore();
+
+            // 本体の通常コンボ剣筋・二刀軌跡は忍者・将軍とも同じ経路で描く（相対共通化）。
+            // ネイティブ将軍は Player 自身の剣筋トレイルを持つため、旧 boss 投影は不要。
+            player.renderComboSlashTrail(ctx);
+            player.renderDualBladeSlashTrails(ctx);
+
+            if (
+                player.currentSubWeapon &&
+                !player.subWeaponRenderedInModel &&
+                typeof player.currentSubWeapon.render === 'function'
+            ) {
+                ctx.save();
+                if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
+                player.currentSubWeapon.render(ctx, player);
+                ctx.restore();
+            }
+        }
+
+        // 火薬玉はキャラクターより前面に描画する
+        if (includeBombs) {
+            for (const bomb of this.bombs) {
+                bomb.render(ctx);
+            }
+        }
+    }
+
     renderPlaying(playerAlpha = 1.0, forceStanding = false) {
         const ctx = this.ctx;
         
@@ -4680,48 +4733,7 @@ class Game {
             }
         }
 
-        // プレイヤー
-        if (playerAlpha > 0) {
-            if (
-                this.player.characterType !== 'shogun' &&
-                (this.player.isUsingSpecial || this.player.specialSmoke.length > 0)
-            ) {
-                ctx.save();
-                if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
-                this.player.renderSpecial(ctx);
-                ctx.restore();
-            }
-            ctx.save();
-            if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
-
-            this.player.render(ctx, {
-                forceStanding: forceStanding,
-                skipSpecialRender: true,
-                ghostVeilActive: this.player.isGhostVeilActive()
-            });
-            ctx.restore();
-            
-            // 本体の通常コンボ剣筋・二刀軌跡は忍者・将軍とも同じ経路で描く（相対共通化）。
-            // ネイティブ将軍は Player 自身の剣筋トレイルを持つため、旧 boss 投影は不要。
-            this.player.renderComboSlashTrail(ctx);
-            this.player.renderDualBladeSlashTrails(ctx);
-
-            if (
-                this.player.currentSubWeapon &&
-                !this.player.subWeaponRenderedInModel &&
-                typeof this.player.currentSubWeapon.render === 'function'
-            ) {
-                ctx.save();
-                if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
-                this.player.currentSubWeapon.render(ctx, this.player);
-                ctx.restore();
-            }
-        }
-
-        // 火薬玉はキャラクターより前面に描画する
-        for (const bomb of this.bombs) {
-            bomb.render(ctx);
-        }
+        this.renderPlayerCombatLayer(ctx, { playerAlpha, forceStanding });
 
         // ヒット演出（世界座標）
         this.renderHitEffects(ctx);

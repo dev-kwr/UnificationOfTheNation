@@ -710,26 +710,7 @@ export function applyRendererMixin(PlayerClass) {
             ctx.globalAlpha *= flashStep === 0 ? 0.76 : 0.92;
         }
 
-        // 残像
-        const isOdachiJumping = this.isOdachiJumpAfterimageActive();
-        const isSpearThrusting = this.isSpearThrustAfterimageActive();
-        const shouldRenderAfterImages =
-            !ghostVeilActive && (isOdachiJumping || isSpearThrusting);
-        if (shouldRenderAfterImages) {
-            for (let i = 0; i < this.afterImages.length; i += 2) {
-                const img = this.afterImages[i];
-                if (!img) continue;
-                const depthFade = (1 - i / this.afterImages.length);
-                const isSpecialShadow = img.type === 'special_shadow';
-                const alpha = isSpecialShadow ? 1.0 : (0.3 * depthFade);
-                this.renderModel(ctx, img.x, img.y, img.facingRight, alpha, false, {
-                    useLiveAccessories: false,
-                    renderHeadband: true,
-                    renderHeadbandTail: false,
-                    renderHair: false
-                });
-            }
-        }
+        // 大槍/大太刀中は武器側の動きだけを見せるため、本体残像は描画しない。
 
         // 必殺技演出を本体の下に描画
         if (!skipSpecialRender && (this.isUsingSpecial || this.specialSmoke.length > 0)) {
@@ -2703,6 +2684,11 @@ export function applyRendererMixin(PlayerClass) {
         const standardRightReach = 21.6;
         
         ctx.save();
+        const previousInRenderModel = this._inRenderModel;
+        // renderModel内のサブ武器ジオメトリは素体座標で統一する。
+        // 将軍などの拡大表示はctx.scale側に任せ、握り位置と武器本体の座標系を揃える。
+        this._inRenderModel = true;
+        try {
         ctx.strokeStyle = silhouetteColor;
         ctx.lineCap = 'round';
 
@@ -4016,7 +4002,10 @@ export function applyRendererMixin(PlayerClass) {
 
         // (プレビュー用背負い描画は削除)
 
-        ctx.restore();
+        } finally {
+            this._inRenderModel = previousInRenderModel;
+            ctx.restore();
+        }
     };
 
     PlayerClass.prototype.renderAttackArmAndWeapon = function(ctx, {

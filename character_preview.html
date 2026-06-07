@@ -346,8 +346,10 @@
 
     <script type="module">
         import { Player } from './js/player.js';
+        import { game } from './js/game.js';
         import { createSubWeapon } from './js/weapon.js';
         import { input } from './js/input.js';
+        import { GAME_STATE } from './js/constants.js';
 
         // 描画系・戦闘ヘルパは頻繁に編集するため、ESモジュールキャッシュ対策として
         // バージョン付きdynamic importで毎回最新を取得する（bare URL の静的importは
@@ -360,36 +362,10 @@
         // 将軍はゲームの実プレイアブル将軍(Player+applyShogunCombat)として生成する。
         const { applyShogunCombat } = await import('./js/shogunCombatHelper.js?v=' + _bustParam);
 
-        // --- モック & 初期化 ---
+        // --- ゲーム実体 & 初期化 ---
         const logicalW = 1280;
         const logicalH = 720;
         const groundY = 480;
-
-        // playerモック（将軍のupdate引数用）
-        const previewPlayerMock = {
-            x: 100, y: groundY - 60, width: 40, height: 60, scaleMultiplier: 2.2,
-            get centerX() { return this.x + 20; },
-            get centerY() { return this.y + 30; },
-            // 将軍は素体(40x60)。boss.js/stage.js 等が読むワールド寸法(88x132)アクセサを Player と同形で提供する。
-            getWorldWidth() { return this.width * (this.scaleMultiplier || 1); },
-            getWorldHeight() { return this.height * (this.scaleMultiplier || 1); },
-            getWorldCenterX() { return this.x + this.getWorldWidth() * 0.5; },
-            getWorldCenterY() { return this.y + this.getWorldHeight() * 0.5; },
-            getWorldFootY() { return this.y + this.getWorldHeight(); },
-            takeDamage: () => {}
-        };
-
-        window.game = { 
-            scrollX: 0, 
-            groundY: groundY, 
-            state: 'playing',
-            difficulty: { id: 'normal' },
-            audio: { play: () => {}, tryPlay: () => {}, stop: () => {}, setVolume: () => {} },
-            player: previewPlayerMock,
-            bombs: [],
-            projectiles: [],
-            enemies: [] // 将軍戦闘コントローラの当たり判定が参照（プレビューは敵なし）
-        };
 
         const canvas = document.getElementById('previewCanvas');
         const ctx = canvas.getContext('2d');
@@ -397,7 +373,29 @@
         canvas.width = logicalW * dpr;
         canvas.height = logicalH * dpr;
         ctx.scale(dpr, dpr);
+        game.canvas = canvas;
+        game.ctx = ctx;
+        game.currentStageNumber = 1;
+        game.groundY = groundY;
+        game.scrollX = 0;
+        game.cameraY = 0;
+        game.state = GAME_STATE.PLAYING;
+        game.pauseReturnState = GAME_STATE.PLAYING;
+        game.bombs = [];
+        game.shockwaves = [];
+        game.effects = [];
+        game.hitEffects = [];
+        game.damageNumbers = [];
+        game.expGems = [];
+        game.stageBossDefeatEffects = [];
+        window.game = game;
         input.setCanvas(canvas);
+        if (typeof game.updateInputScale === 'function') game.updateInputScale();
+
+        const subWeaponNames = {
+            shuriken: '手裏剣', bomb: '火薬玉', spear: '大槍', dual: '二刀流', kusarigama: '鎖鎌', odachi: '大太刀'
+        };
+        const subWeapons = ['shuriken', 'bomb', 'spear', 'dual', 'kusarigama', 'odachi'];
 
         // ===== 将軍 = ゲームの実プレイアブル将軍（Player + applyShogunCombat）=====
         // E5 で boss(Shogunクラス)は撤去。将軍は単一 Player ネイティブで戦闘/描画/座標を担う。
@@ -410,10 +408,13 @@
         shogunPlayer.facingRight = true;
         shogunPlayer.maxJumps = 3;              // 三段跳び
         shogunPlayer._previewFreeMovement = true; // 画面端ループ/ズーム引きのためカメラ境界クランプを無効化
+        shogunPlayer.subWeapons = subWeapons.map(key => createSubWeapon(subWeaponNames[key])).filter(Boolean);
+        shogunPlayer.currentSubWeapon = shogunPlayer.subWeapons[0] || null;
+        shogunPlayer.subWeaponIndex = 0;
         // 初回 update で将軍 setup（dims=素体40x60＋scaleMultiplier、ネイティブ戦闘/描画へ移行）が走る。
+        // 忍具を先に持たせ、実ゲームと同じ初回スケール適用順にする。
         shogunPlayer.update(1 / 60, [], []);
-        // E5: 内部 boss(Shogunクラス)は撤去済み。ネイティブ将軍は shogunPlayer 自身が戦闘/描画を担う。
-        // 既存の shogun.*（位置同期/busy判定/防具非表示/__dbg）参照の互換用エイリアス。
+        // 既存の shogun.*（位置同期/busy判定/防具非表示）参照の互換用エイリアス。
         const shogun = shogunPlayer;
 
         // プレビュー初期位置を画面中央に揃える。spawn は忍者幅(48)基準なので、構築後の実ワールド幅(88)で中央寄せする。
@@ -431,19 +432,14 @@
         ninja.progression = { normalCombo: 3, subWeapon: 3, specialClone: 3 };
         ninja.x = logicalW / 2 - ninja.width / 2; // 初期位置を画面中央に揃える
 
-        const subWeaponNames = {
-            shuriken: '手裏剣', bomb: '火薬玉', spear: '大槍', dual: '二刀流', kusarigama: '鎖鎌', odachi: '大太刀'
-        };
-        const subWeapons = ['shuriken', 'bomb', 'spear', 'dual', 'kusarigama', 'odachi'];
         ninja.subWeapons = subWeapons.map(key => createSubWeapon(subWeaponNames[key])).filter(Boolean);
         ninja.currentSubWeapon = ninja.subWeapons[0];
         ninja.subWeaponIndex = 0;
-        shogunPlayer.subWeapons = subWeapons.map(key => createSubWeapon(subWeaponNames[key])).filter(Boolean);
-        shogunPlayer.currentSubWeapon = shogunPlayer.subWeapons[0] || null;
-        shogunPlayer.subWeaponIndex = 0;
         // [E3] プレイアブル将軍を Player ネイティブ戦闘＋描画に切替（boss 非依存）。
         // dims/scale は上の初回 update(409) で設定済み。ここで native 化＋忍具スケールを適用。
         if (typeof shogunPlayer.enableNativeShogun === 'function') shogunPlayer.enableNativeShogun();
+        game.player = shogunPlayer;
+        game.initStage(1);
 
         // --- 状態変数 ---
         let previewCharacter = 'shogun';
@@ -463,6 +459,23 @@
 
         const isShogunMode = () => previewCharacter === 'shogun';
         const getActiveActor = () => isShogunMode() ? shogunPlayer : ninja;
+        const syncGameState = () => {
+            const actor = getActiveActor();
+            game.player = actor;
+            game.groundY = groundY;
+            game.scrollX = 0;
+            game.cameraY = 0;
+            game.state = isPaused ? GAME_STATE.PAUSED : GAME_STATE.PLAYING;
+            if (game.stage) {
+                game.stage.groundY = groundY;
+                game.stage.progress = game.scrollX;
+                game.stage.enemies = [];
+                game.stage.obstacles = [];
+                game.stage.boss = null;
+                game.stage.bossSpawned = false;
+            }
+            return actor;
+        };
         const updateUI = () => {
             document.getElementById('btnModeShogun').classList.toggle('active', isShogunMode());
             document.getElementById('btnModeNinja').classList.toggle('active', !isShogunMode());
@@ -516,13 +529,11 @@
                 }
             }
 
-            window.game.player = isShogunMode() ? previewPlayerMock : ninja;
-            const actor = getActiveActor();
+            const actor = syncGameState();
             // 中央寄せは構築時と同じ計算に統一する。
             actor.x = logicalW / 2 - actor.getWorldWidth() / 2;
             actor.y = groundY - actor.getWorldHeight();
             actor.vx = 0; actor.vy = 0;
-            // 将軍は内部ボスのx/vxも同期しないと、ボス→プレイヤーのx同期で位置が上書きされる
             if (mode === 'shogun' && shogun) { shogun.x = actor.x; shogun.vx = 0; }
             updateUI();
         };
@@ -656,7 +667,6 @@
         });
         document.getElementById('btnHideArmor').addEventListener('click', (e) => {
             // native 描画は shogunPlayer 自身の _drawShogun*（hideShogunArmor を参照）。
-            // boss 経路フォールバック用に内部ボスにも同期する。
             const next = !shogunPlayer.hideShogunArmor;
             shogunPlayer.hideShogunArmor = next;
             if (shogun) shogun.hideShogunArmor = next;
@@ -666,9 +676,6 @@
         // 初期状態を同期（忍具Lv・奥義Lvを個別に）
         applyWeaponLv(parseInt(document.getElementById('selWeaponLv').value));
         applySkillLv(parseInt(document.getElementById('selSkillLv').value));
-
-        // [DEBUG-EXPOSE] E統一実装の検証用ハンドル（Phase2完了後に除去）
-        window.__dbg = { shogunPlayer, ninja, shogun, equipShogunPreviewWeapon, get active(){ return previewCharacter === 'shogun' ? shogunPlayer : ninja; } };
 
         // windowへの直接リスナーを廃止し、inputマネージャーに統一（バグ防止）
         window.addEventListener('keydown', (e) => {
@@ -705,7 +712,8 @@
                 _runUpdate = true;
             }
             const dt = FIXED_DT;
-            window.game.state = _runUpdate ? 'playing' : 'paused';
+            game.deltaTime = dt;
+            syncGameState();
 
             if (typeof lastNinjaSubIndex === 'undefined') window.lastNinjaSubIndex = -1;
 
@@ -719,8 +727,7 @@
                     // サブ武器切替(C): 実ゲームと同じく player.subWeapons/currentSubWeapon を切り替える。
                     if (input.isActionJustPressed('SWITCH_WEAPON')) cycleSubWeapon();
                     // プレビューUIで選択中のサブ武器をプレイヤーに装備（アイドル時のみ）。
-                    // ゲームの switchSubWeapon 相当: プレイヤーの currentSubWeapon(実装備)に設定すると
-                    // 戦闘コントローラが内部ボスの _subWeaponKey へ反映し、X(SUB_WEAPON)で発動できる。
+                    // ゲームの switchSubWeapon 相当: プレイヤーの currentSubWeapon(実装備)に設定する。
                     const _shogunBusy = shogunPlayer.attackTimer > 0 || shogunPlayer.subWeaponTimer > 0 || shogunPlayer.isAttacking;
                     if (!_shogunBusy && window._previewWeapon) {
                         equipShogunPreviewWeapon(window._previewWeapon);
@@ -751,13 +758,9 @@
                     }
                 }
 
-                // グローバルオブジェクト更新
-                if (window.game.bombs) {
-                    window.game.bombs.forEach(b => { if (b.update) b.update(dt, groundY, []); });
-                    window.game.bombs = window.game.bombs.filter(b => !b.isDestroyed);
+                if (typeof game.updateBombs === 'function') {
+                    game.updateBombs([], []);
                 }
-                window.game.projectiles.forEach(p => { if (p.update) p.update(dt, groundY, []); });
-                window.game.projectiles = window.game.projectiles.filter(p => !p.isDead && !p.isDestroyed);
 
                 // 画面端ループ処理（ズーム引き時は実際に見えている範囲の端で折り返す）
                 const _halfViewW = (logicalW / 2) / _zoom;
@@ -768,7 +771,6 @@
                     if (shogunPlayer.x < _viewLeft - shogunPlayer.width - 20) _wrapped = _viewRight + 10;
                     else if (shogunPlayer.x > _viewRight + 20) _wrapped = _viewLeft - shogunPlayer.width - 10;
                     if (_wrapped !== null) {
-                        // 内部ボスが座標の正で、毎フレーム p.x = boss.x と同期されるため、ボス側も更新する
                         shogunPlayer.x = _wrapped;
                         if (shogun) shogun.x = _wrapped;
                     }
@@ -778,11 +780,11 @@
                 }
             }
 
-            // 描画 (一時停止中も描画は継続)
-            // 背景はズームに関わらず常に全面を塗る（引き表示時に隙間が出ないように）
-            ctx.fillStyle = '#333'; ctx.fillRect(0, 0, logicalW, logicalH);
+            // 背景はプレビュー用、キャラ/忍具はゲーム側の共通描画を使う。
+            ctx.fillStyle = '#333';
+            ctx.fillRect(0, 0, logicalW, logicalH);
 
-            // ズーム（引き表示）: キャラ立ち位置を中心に拡大/縮小（_zoomはループ先頭で取得済み）
+            syncGameState();
             ctx.save();
             if (_zoom !== 1) {
                 const _pivotX = logicalW / 2, _pivotY = groundY - 50;
@@ -791,26 +793,16 @@
                 ctx.translate(-_pivotX, -_pivotY);
             }
 
-            // 地面・中心線はズームアウトでも端まで覆うよう広めに描く
-            ctx.fillStyle = '#555'; ctx.fillRect(-logicalW * 2, groundY, logicalW * 5, logicalH * 4);
-            ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.moveTo(logicalW / 2, -logicalH); ctx.lineTo(logicalW / 2, logicalH * 2); ctx.stroke();
+            ctx.fillStyle = '#555';
+            ctx.fillRect(-logicalW * 2, groundY, logicalW * 5, logicalH * 4);
+            ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(logicalW / 2, -logicalH);
+            ctx.lineTo(logicalW / 2, logicalH * 2);
+            ctx.stroke();
 
-            window.game.projectiles.forEach(p => { if (p.render) p.render(ctx); });
-
-            // 忍者・将軍とも同一の描画後処理（剣筋・二刀軌跡・忍具/弾）を通す（相対共通化）。
-            // ゲーム(game.js)と同じ呼び出し順：render() → 剣筋 → 二刀軌跡 → currentSubWeapon.render。
-            {
-                const _actor = isShogunMode() ? shogunPlayer : ninja;
-                _actor.render(ctx, {});
-                if (_actor.renderComboSlashTrail) _actor.renderComboSlashTrail(ctx);
-                if (_actor.renderDualBladeSlashTrails) _actor.renderDualBladeSlashTrails(ctx);
-                if (_actor.currentSubWeapon && !_actor.subWeaponRenderedInModel && _actor.currentSubWeapon.render) {
-                    _actor.currentSubWeapon.render(ctx, _actor);
-                }
-            }
-            // 火薬玉はキャラクターより前面に描画する
-            if (window.game.bombs) window.game.bombs.forEach(b => { if (b.render) b.render(ctx); });
+            game.renderPlayerCombatLayer(ctx);
             ctx.restore();
             
             // UIの同期
