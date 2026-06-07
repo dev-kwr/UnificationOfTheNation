@@ -418,6 +418,7 @@
 
         // プレビュー初期位置を画面中央に揃える。spawn は忍者幅(48)基準なので、構築後の実ワールド幅(88)で中央寄せする。
         shogunPlayer.x = logicalW / 2 - shogunPlayer.getWorldWidth() / 2;
+        shogunPlayer.vx = 0; // 初回 setup update で付いた速度を消し、中央で静止させる（起動時の横ドリフト防止）
 
         const ninja = new Player(logicalW / 2 - 24, groundY - 72, groundY);
         // 実ゲームと同じ挙動を再現するため previewMode=false。
