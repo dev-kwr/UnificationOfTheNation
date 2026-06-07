@@ -671,8 +671,12 @@
             window.__stepFrameRequested = true;
         });
         document.getElementById('btnHideArmor').addEventListener('click', (e) => {
-            shogun.hideShogunArmor = !shogun.hideShogunArmor;
-            e.currentTarget.classList.toggle('active', shogun.hideShogunArmor);
+            // native 描画は shogunPlayer 自身の _drawShogun*（hideShogunArmor を参照）。
+            // boss 経路フォールバック用に内部ボスにも同期する。
+            const next = !shogunPlayer.hideShogunArmor;
+            shogunPlayer.hideShogunArmor = next;
+            if (shogun) shogun.hideShogunArmor = next;
+            e.currentTarget.classList.toggle('active', next);
         });
 
         // 初期状態を同期（忍具Lv・奥義Lvを個別に）
