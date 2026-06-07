@@ -4928,11 +4928,8 @@ export function applyRendererMixin(PlayerClass) {
                         (saved.currentSubWeapon.fadeOutTimer || 0) > 0
                     )
                 );
-                // ミラー時、将軍は本体の正本（boss）インスタンスへ解決し本体と同一インスタンス・同一スケールで描く。
-                // 忍者は _shogunBossInstance を持たないため saved.currentSubWeapon のまま（挙動不変）。
-                const mirrorSourceInst = (this._shogunBossInstance && typeof this.getActiveSubWeaponInstance === 'function')
-                    ? (this.getActiveSubWeaponInstance() || saved.currentSubWeapon)
-                    : saved.currentSubWeapon;
+                // ミラー時は本体の saved.currentSubWeapon を分身へ反映（将軍も忍者も同一経路）。
+                const mirrorSourceInst = saved.currentSubWeapon;
                 const visualSubWeaponInstance = shouldMirrorSavedSubWeapon
                     ? mirrorSourceInst
                     : cloneSubWeaponInstance;

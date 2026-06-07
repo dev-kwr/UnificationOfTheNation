@@ -1285,9 +1285,7 @@ export function applySpecialMixin(PlayerClass) {
             // = pos.y + (PLAYER.HEIGHT - SHOGUN_ACTOR_BASE_HEIGHT * 0.62) * scale  (h terms cancel)
             const scale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 1
                 ? this.scaleMultiplier
-                : (this._shogunBossInstance && Number.isFinite(this._shogunBossInstance.scaleMultiplier)
-                    ? this._shogunBossInstance.scaleMultiplier
-                    : SHOGUN_SCALE);
+                : SHOGUN_SCALE;
             return (PLAYER.HEIGHT - SHOGUN_ACTOR_BASE_HEIGHT * 0.62) * scale;
         }
         const h = Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT;
