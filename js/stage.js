@@ -1233,8 +1233,11 @@ export class Stage {
         const spawnX = scrollX + CANVAS_WIDTH + bossWidth * 0.5;
 
         this.boss = createBoss(this.stageNumber, spawnX, this.groundY, this.groundY);
-        // 足元を地面に合わせる
-        this.boss.y = this.groundY + LANE_OFFSET - (this.boss.height || 180);
+        // 足元を地面に合わせる（Player系ボスは素体heightではなくワールド身長を使う）
+        const bossWorldHeight = typeof this.boss.getWorldHeight === 'function'
+            ? this.boss.getWorldHeight()
+            : (this.boss.height || 180);
+        this.boss.y = this.groundY + LANE_OFFSET - bossWorldHeight;
         // ボスを左向き（プレイヤー方向）に設定
         this.boss.facingRight = false;
 

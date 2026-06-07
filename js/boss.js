@@ -4599,6 +4599,488 @@ export class Shogun extends Boss {
         return true;
     }
 }
+const SHOGUN_BOSS_WEAPON_NAMES = ['手裏剣', '火薬玉', '大槍', '二刀流', '鎖鎌', '大太刀'];
+
+function getWorldWidth(entity) {
+    return typeof entity?.getWorldWidth === 'function' ? entity.getWorldWidth() : (entity?.width || 0);
+}
+
+function getWorldHeight(entity) {
+    return typeof entity?.getWorldHeight === 'function' ? entity.getWorldHeight() : (entity?.height || 0);
+}
+
+function getWeaponByName(owner, weaponName) {
+    if (!owner || !Array.isArray(owner.subWeapons)) return null;
+    return owner.subWeapons.find(weapon => weapon && weapon.name === weaponName) || null;
+}
+
+function setCurrentBossWeapon(owner, weaponName) {
+    const weapon = getWeaponByName(owner, weaponName);
+    if (!weapon) return null;
+    owner.currentSubWeapon = weapon;
+    owner.subWeaponIndex = owner.subWeapons.indexOf(weapon);
+    return weapon;
+}
+
+function hasLiveWeaponPayload(weapon) {
+    if (!weapon) return false;
+    const hasProjectiles = (Array.isArray(weapon.projectiles) && weapon.projectiles.length > 0) ||
+        (Array.isArray(weapon.cloneProjectiles) && weapon.cloneProjectiles.length > 0);
+    const hasLingeringOdachi = weapon.name === '大太刀' && (
+        (weapon.plantedTimer || 0) > 0 ||
+        (weapon.fadeOutTimer || 0) > 0 ||
+        (Array.isArray(weapon.groundWaves) && weapon.groundWaves.length > 0) ||
+        (Array.isArray(weapon.impactDebris) && weapon.impactDebris.length > 0)
+    );
+    return hasProjectiles || hasLingeringOdachi || !!weapon.isAttacking;
+}
+
+function collectWeaponHitboxes(owner, weapon) {
+    if (!owner || !weapon || typeof weapon.getHitbox !== 'function') return [];
+    if (weapon !== owner.currentSubWeapon && !hasLiveWeaponPayload(weapon)) return [];
+    const hitbox = weapon.getHitbox(owner);
+    if (!hitbox) return [];
+    return Array.isArray(hitbox) ? hitbox : [hitbox];
+}
+
+function markEnemyBombs(owner, startIndex) {
+    const bombs = typeof window !== 'undefined' && window.game && Array.isArray(window.game.bombs)
+        ? window.game.bombs
+        : null;
+    if (!bombs || startIndex < 0) return;
+    const bombScale = Math.max(1, Math.min(1.35, 1 + ((owner.scaleMultiplier || 1) - 1) * 0.28));
+    for (let i = startIndex; i < bombs.length; i++) {
+        const bomb = bombs[i];
+        if (!bomb) continue;
+        bomb.isEnemyProjectile = true;
+        bomb.owner = owner;
+        if (Number.isFinite(bomb.radius)) {
+            bomb.radius = Math.round(bomb.radius * bombScale * 10) / 10;
+        }
+        if (Number.isFinite(bomb.explosionRadius)) {
+            bomb.explosionRadius = Math.round(bomb.explosionRadius * bombScale);
+        }
+        if (typeof bomb.getHitbox !== 'function') {
+            bomb.getHitbox = function() {
+                const radius = this.isExploding ? this.explosionRadius : this.radius;
+                return {
+                    x: this.x - radius,
+                    y: this.y - radius,
+                    width: radius * 2,
+                    height: radius * 2
+                };
+            };
+        }
+    }
+}
+
+function updateShogunBossYawSkew(owner) {
+    const dir2d = owner.facingRight ? 1 : -1;
+    const moveBias = Math.min(0.024, Math.abs(owner.vx || 0) * 0.0038);
+    const attackBias = owner.isAttacking || owner.subWeaponTimer > 0 ? 0.013 : 0;
+    owner.shogunYawSkew = dir2d * (0.046 + moveBias + attackBias);
+}
+
+function startBossSubWeapon(owner, weaponName, mode = null) {
+    const weapon = setCurrentBossWeapon(owner, weaponName);
+    if (!weapon) return false;
+    if (typeof weapon.canUse === 'function' && !weapon.canUse()) return false;
+
+    const bombs = typeof window !== 'undefined' && window.game && Array.isArray(window.game.bombs)
+        ? window.game.bombs
+        : null;
+    const bombsBefore = bombs ? bombs.length : -1;
+
+    if (weapon.name === '二刀流') {
+        const useMode = mode || 'combined';
+        weapon.use(owner, useMode);
+        const actionName = useMode === 'main' ? '二刀_Z' : '二刀_合体';
+        owner.subWeaponTimer = owner.getSubWeaponActionDurationMs(actionName, weapon);
+        owner.subWeaponAction = actionName;
+        owner.subWeaponCrouchLock = false;
+        owner.vx = useMode === 'combined' ? 0 : owner.vx;
+    } else {
+        owner.useSubWeapon();
+        const isThrow = weapon.name === '火薬玉' || weapon.name === '手裏剣';
+        owner.subWeaponTimer = owner.getSubWeaponActionDurationMs(isThrow ? 'throw' : weapon.name, weapon);
+        owner.subWeaponAction = isThrow ? 'throw' : weapon.name;
+    }
+
+    if (weapon.name === '火薬玉') {
+        markEnemyBombs(owner, bombsBefore);
+    }
+
+    owner.attackCooldown = Math.max(owner.attackCooldown || 0, 400);
+    owner._lastAttackType = weapon.name;
+    return true;
+}
+
+function startShogunBossPlayerAttack(owner, target) {
+    const selfCX = owner.getWorldCenterX();
+    const targetCX = target ? target.x + getWorldWidth(target) * 0.5 : selfCX;
+    const dist = Math.abs(targetCX - selfCX);
+    const pickFrom = (choices) => {
+        const filtered = choices.filter(choice => choice !== owner._lastAttackType);
+        const pool = filtered.length > 0 ? filtered : choices;
+        return pool[Math.floor(Math.random() * pool.length)];
+    };
+
+    let action;
+    if (dist >= 900) {
+        action = '大槍';
+    } else if (dist > 300) {
+        action = pickFrom(['手裏剣', '二刀流_合体', '鎖鎌']);
+    } else if (dist > 150) {
+        action = pickFrom(['火薬玉', '大太刀']);
+    } else if (owner._lastAttackType === '通常コンボ') {
+        action = '二刀流_Z';
+    } else if (owner._lastAttackType === '二刀流_Z') {
+        action = '通常コンボ';
+    } else {
+        action = Math.random() < 0.5 ? '通常コンボ' : '二刀流_Z';
+    }
+
+    owner.attackFacingRight = owner.facingRight;
+    if (action === '通常コンボ') {
+        owner.currentSubWeapon = null;
+        owner.attack();
+        owner._bossWantsCombo = true;
+        owner._lastAttackType = action;
+        return;
+    }
+    if (action === '二刀流_Z') {
+        if (startBossSubWeapon(owner, '二刀流', 'main')) {
+            owner._bossDualChainRemaining = 4;
+            owner._lastAttackType = action;
+        }
+        return;
+    }
+    if (action === '二刀流_合体') {
+        startBossSubWeapon(owner, '二刀流', 'combined');
+        owner._lastAttackType = action;
+        return;
+    }
+    startBossSubWeapon(owner, action);
+}
+
+function updateShogunBossPlayerAI(deltaTime, target) {
+    if (!target || this.aiDisabled) return;
+    const scrollX = window.game ? window.game.scrollX : 0;
+    const screenRight = scrollX + CANVAS_WIDTH;
+    const selfCX = this.getWorldCenterX();
+    const targetCX = target.x + getWorldWidth(target) * 0.5;
+    const diffX = targetCX - selfCX;
+    const absX = Math.abs(diffX);
+    const dirToTarget = diffX >= 0 ? 1 : -1;
+
+    if (!this.isAttacking && this.hitTimer <= 0 && absX > 16) {
+        this.facingRight = dirToTarget > 0;
+    }
+
+    if (this._bossWantsCombo && this.isAttacking && this.currentAttack) {
+        const maxStep = this.getNormalComboMax();
+        if ((this.currentAttack.comboStep || 0) < maxStep) {
+            this.bufferNextAttack();
+        } else if (this.attackTimer <= 0) {
+            this._bossWantsCombo = false;
+        }
+    }
+
+    if (
+        this._bossDualChainRemaining > 0 &&
+        this.currentSubWeapon &&
+        this.currentSubWeapon.name === '二刀流' &&
+        this.subWeaponAction === '二刀_Z'
+    ) {
+        if (this.isDualBladeNextSwingReady()) {
+            this.attack({ fromBuffer: true });
+            this._bossDualChainRemaining--;
+        }
+        return;
+    }
+
+    if (this.x > screenRight - 16) {
+        this.facingRight = false;
+        this.applyDesiredVx(-Math.max(2.1, this.speed * 1.22), 0.58);
+        return;
+    }
+
+    if (
+        !this.isAttacking &&
+        this.subWeaponTimer <= 0 &&
+        this.evasionCooldownMs <= 0 &&
+        absX <= this.attackRange * 1.55 &&
+        (target.isAttacking || (target.subWeaponTimer || 0) > 0) &&
+        Math.random() < 1.25 * deltaTime
+    ) {
+        this.startEvasionManeuver(dirToTarget, absX);
+    }
+
+    if (this.evasionTimerMs > 0) {
+        const evadeSpeed = this.speed * (1.52 + Math.min(0.72, absX / Math.max(1, this.attackRange * 3.5)));
+        this.applyDesiredVx(this.evasionDir * evadeSpeed, 0.64);
+        if (!this.evasionJumped && this.isGrounded && absX < this.attackRange * 1.05 && Math.random() < 0.22) {
+            this.vy = -16.5;
+            this.isGrounded = false;
+            this.evasionJumped = true;
+        }
+        return;
+    }
+
+    if (this.isAttacking || this.subWeaponTimer > 0) {
+        if (typeof this.attackFacingRight === 'boolean') this.facingRight = this.attackFacingRight;
+        if (Math.abs(this.vx) < this.speed * 1.8) this.applyDesiredVx(0, 0.34);
+        return;
+    }
+
+    if (this.attackCooldown <= 0) {
+        startShogunBossPlayerAttack(this, target);
+        return;
+    }
+
+    let desiredVX = 0;
+    if (absX > 300) {
+        const feintContrib = this.feintDir * dirToTarget > 0
+            ? this.feintDir * this.speed * 0.35
+            : this.feintDir * this.speed * 0.10;
+        desiredVX = feintContrib + dirToTarget * this.speed * 0.28;
+    } else if (absX > this.attackRange * 1.05) {
+        desiredVX = this.speed * 1.14 * dirToTarget;
+    } else if (absX > this.attackRange * 0.55) {
+        desiredVX = this.speed * 0.92 * dirToTarget;
+    }
+    if (absX <= this.attackRange * 2.0) {
+        const nearFeint = this.feintDir * dirToTarget > 0
+            ? this.feintDir * this.speed * 0.44
+            : this.feintDir * this.speed * 0.12;
+        desiredVX += nearFeint;
+    }
+    desiredVX = Math.max(-this.speed * 1.42, Math.min(this.speed * 1.42, desiredVX));
+    this.applyDesiredVx(desiredVX, 0.46);
+    if (absX > this.attackRange * 1.08 && absX <= 300) {
+        this.tryJump(0.022, -15, 400);
+    }
+}
+
+function createShogunBossPlayer(x, _y, _type, groundY) {
+    const boss = new Player(x, groundY + LANE_OFFSET - SHOGUN_ACTOR_BASE_HEIGHT * SHOGUN_SCALE, groundY);
+    const playerUpdate = boss.update.bind(boss);
+    const playerRender = boss.render.bind(boss);
+    const playerTakeDamage = boss.takeDamage.bind(boss);
+    const playerGetAttackHitbox = boss.getAttackHitbox.bind(boss);
+
+    boss.type = 'boss';
+    boss.bossName = '将軍';
+    boss.characterType = 'shogun';
+    boss.scaleMultiplier = SHOGUN_SCALE;
+    boss.width = SHOGUN_ACTOR_BASE_WIDTH;
+    boss.height = SHOGUN_ACTOR_BASE_HEIGHT;
+    boss._nativeShogun = true;
+    boss.isEnemy = true;
+    boss.isAlive = true;
+    boss.isDying = false;
+    boss.deathTimer = 0;
+    boss.deathDuration = 1250;
+    boss.hitTimer = 0;
+    boss.aiDisabled = false;
+    boss.brain = createAIBrain();
+    boss.hp = 4500;
+    boss.maxHp = 4500;
+    boss.damage = 6;
+    boss.incomingDamageScale = 0.55;
+    boss.attackRange = Math.round(120 * boss.scaleMultiplier);
+    boss.speed = PLAYER.SPEED * (boss.getWorldHeight() / PLAYER.HEIGHT);
+    boss._baseSpeed = boss.speed;
+    boss.speedVarianceRange = 0;
+    boss.speedVarianceBias = 0;
+    boss.movementTempo = 1;
+    boss.expReward = 300;
+    boss.moneyReward = 200;
+    boss.specialGaugeReward = 100;
+    boss.progression = { normalCombo: 3, subWeapon: 3, specialClone: 0 };
+    boss.subWeapons = SHOGUN_BOSS_WEAPON_NAMES.map(name => createSubWeapon(name)).filter(Boolean);
+    boss.unlockedWeapons = SHOGUN_BOSS_WEAPON_NAMES.slice();
+    boss.currentSubWeapon = getWeaponByName(boss, '手裏剣');
+    boss.subWeaponIndex = 0;
+    boss._shogunWeaponsScaled = false;
+    if (typeof boss.refreshSubWeaponScaling === 'function') boss.refreshSubWeaponScaling();
+    if (typeof boss._applyShogunSubWeaponScale === 'function') boss._applyShogunSubWeaponScale();
+
+    const difficulty = window.game ? window.game.difficulty : null;
+    const damageMult = Number.isFinite(difficulty?.damageMult) ? difficulty.damageMult : 1.0;
+    const hpMult = Number.isFinite(difficulty?.hpMult) ? difficulty.hpMult : 1.0;
+    const bossDamageScaleByDifficulty = { easy: 0.70, normal: 1.00, hard: 1.45 };
+    const bossDamageScale = bossDamageScaleByDifficulty[difficulty?.id] || bossDamageScaleByDifficulty.normal;
+    boss.damage = Math.max(1, Math.round(boss.damage * damageMult * bossDamageScale));
+    boss.maxHp = Math.max(1, Math.floor(boss.maxHp * hpMult));
+    boss.hp = boss.maxHp;
+
+    boss.applyDesiredVx = function(targetVx, blend = 1) {
+        const t = Math.max(0, Math.min(1, Number.isFinite(blend) ? blend : 1));
+        this.vx += (targetVx - this.vx) * t;
+    };
+    boss.startEvasionManeuver = function(dirToTarget, absX) {
+        const awayDir = -dirToTarget;
+        this.evasionDir = Math.random() < 0.22 ? -awayDir : awayDir;
+        this.evasionTimerMs = 220 + Math.min(190, absX * 0.42);
+        this.evasionCooldownMs = 380 + Math.random() * 300;
+        this.evasionJumped = false;
+    };
+    boss.tryJump = function(chance, force, cooldown) {
+        if (!this.isGrounded || (this.jumpCooldown || 0) > 0) return false;
+        if (Math.random() >= chance) return false;
+        this.vy = force;
+        this.isGrounded = false;
+        this.jumpCount = Math.max(this.jumpCount || 0, 1);
+        this.jumpCooldown = cooldown;
+        return true;
+    };
+    boss.updateAI = updateShogunBossPlayerAI;
+    boss.handleInput = function() {
+        if (this.brain && this.brain.kind === 'ai' && typeof this.brain.tick === 'function') {
+            this.brain.tick(this, this._aiDeltaTime || 0, { player: this.targetPlayer || null });
+        }
+    };
+    boss.getSubWeaponHitbox = function() {
+        const boxes = [];
+        for (const weapon of this.subWeapons || []) {
+            boxes.push(...collectWeaponHitboxes(this, weapon));
+        }
+        return boxes.length > 0 ? boxes : null;
+    };
+    boss.getAttackHitbox = function(options = {}) {
+        const boxes = [];
+        const base = playerGetAttackHitbox(options);
+        if (base) boxes.push(...(Array.isArray(base) ? base : [base]));
+        const sub = this.getSubWeaponHitbox();
+        if (sub) boxes.push(...(Array.isArray(sub) ? sub : [sub]));
+        return boxes.length > 0 ? boxes : null;
+    };
+    boss.takeDamage = function(damage, player, attackData = null) {
+        if (!this.isAlive || this.isDying) return null;
+        if (this.invincibleTimer > 0) return null;
+        const source = attackData && attackData.source ? attackData.source : '';
+        const sourceScale = source === 'special_shadow' ? 0.72 : 1.0;
+        const scaledDamage = Math.max(
+            1,
+            Math.round(damage * sourceScale * Math.max(0.2, this.incomingDamageScale || 1))
+        );
+        const sourceX = player && typeof player.getWorldCenterX === 'function'
+            ? player.getWorldCenterX()
+            : (player ? player.x + getWorldWidth(player) * 0.5 : null);
+        const killed = playerTakeDamage(scaledDamage, {
+            sourceX,
+            knockbackX: attackData && Number.isFinite(attackData.knockbackX) ? attackData.knockbackX : 5,
+            knockbackY: attackData && Number.isFinite(attackData.knockbackY) ? attackData.knockbackY : -3,
+            invincibleMs: attackData && attackData.isLaunch ? 120 : 80,
+            flashMs: 140,
+            disableHitFeedback: true
+        });
+        this.hitTimer = 140;
+        if (attackData && Number.isFinite(attackData.slowDurationMs) && attackData.slowDurationMs > 0) {
+            this.slowMultiplier = Math.min(this.slowMultiplier || 1, attackData.slowMultiplier || 0.7);
+            this.slowTimer = Math.max(this.slowTimer || 0, attackData.slowDurationMs);
+        }
+        if (killed) {
+            this.hp = 0;
+            this.isDying = true;
+            this.deathTimer = 0;
+            this.isAlive = true;
+            return true;
+        }
+        return false;
+    };
+    boss.render = function(ctx) {
+        if (!this.isAlive && !this.isDying) return;
+        ctx.save();
+        if (this.isDying) {
+            const progress = Math.max(0, Math.min(1, this.deathTimer / Math.max(1, this.deathDuration)));
+            ctx.globalAlpha *= 0.7 * (1 - progress);
+        }
+        if (this.hitTimer > 0) {
+            const hitRatio = Math.max(0, Math.min(1, this.hitTimer / 140));
+            const brightness = 150 + hitRatio * 130;
+            const saturation = Math.max(30, 100 - hitRatio * 60);
+            ctx.filter = `brightness(${brightness}%) saturate(${saturation}%)`;
+        }
+        playerRender(ctx, { skipGlow: true });
+        for (const weapon of this.subWeapons || []) {
+            if (!weapon || typeof weapon.render !== 'function') continue;
+            const hasProjectiles = Array.isArray(weapon.projectiles) && weapon.projectiles.length > 0;
+            const shouldRenderCurrentProjectile = weapon.name === '手裏剣';
+            if (hasProjectiles && (weapon !== this.currentSubWeapon || shouldRenderCurrentProjectile)) {
+                weapon.render(ctx, this);
+            }
+        }
+        ctx.restore();
+        ctx.filter = 'none';
+    };
+    boss.update = function(deltaTime, targetPlayer) {
+        const deltaMs = deltaTime * 1000;
+        this.targetPlayer = targetPlayer || null;
+        if (this.isDying) {
+            this.deathTimer += deltaMs;
+            if (this.deathTimer >= this.deathDuration) {
+                this.isDying = false;
+                this.isAlive = false;
+                return true;
+            }
+            return false;
+        }
+        if (!this.isAlive) return true;
+        if (this.hitTimer > 0) this.hitTimer = Math.max(0, this.hitTimer - deltaMs);
+        if (this.slowTimer > 0) {
+            this.slowTimer = Math.max(0, this.slowTimer - deltaMs);
+            if (this.slowTimer <= 0) this.slowMultiplier = 1;
+        }
+        if (this.evasionCooldownMs > 0) this.evasionCooldownMs = Math.max(0, this.evasionCooldownMs - deltaMs);
+        if (this.evasionTimerMs > 0) this.evasionTimerMs = Math.max(0, this.evasionTimerMs - deltaMs);
+        if (this.jumpCooldown > 0) this.jumpCooldown = Math.max(0, this.jumpCooldown - deltaMs);
+        this.feintTimerMs -= deltaMs;
+        if (this.feintTimerMs <= 0) {
+            this.feintDir *= -1;
+            this.feintTimerMs = 180 + Math.random() * 260;
+        }
+
+        this._aiDeltaTime = deltaTime;
+        playerUpdate(deltaTime, [], targetPlayer ? [targetPlayer] : []);
+        this._aiDeltaTime = 0;
+
+        for (const weapon of this.subWeapons || []) {
+            if (!weapon || weapon === this.currentSubWeapon || typeof weapon.update !== 'function') continue;
+            if (hasLiveWeaponPayload(weapon)) {
+                weapon.update(deltaTime, targetPlayer ? [targetPlayer] : []);
+            }
+        }
+
+        if (!this.isEntering && !this.previewMode && !this._previewFreeMovement) {
+            const scrollX = window.game ? window.game.scrollX : 0;
+            const minX = scrollX;
+            const maxX = scrollX + CANVAS_WIDTH - this.getWorldWidth();
+            if (this.x < minX) {
+                this.x = minX;
+                if (this.vx < 0) this.vx = 0;
+            } else if (this.x > maxX) {
+                this.x = maxX;
+                if (this.vx > 0) this.vx = 0;
+            }
+        }
+        updateShogunBossYawSkew(this);
+        return false;
+    };
+
+    boss.facingRight = false;
+    boss.attackFacingRight = false;
+    boss.evasionCooldownMs = 0;
+    boss.evasionTimerMs = 0;
+    boss.evasionDir = 0;
+    boss.evasionJumped = false;
+    boss.feintTimerMs = 220 + Math.random() * 240;
+    boss.feintDir = Math.random() < 0.5 ? -1 : 1;
+    updateShogunBossYawSkew(boss);
+    return boss;
+}
+
 // ボスファクトリー
 export function createBoss(stageNumber, x, y, groundY) {
     switch (stageNumber) {
@@ -4607,7 +5089,7 @@ export function createBoss(stageNumber, x, y, groundY) {
         case 3: return new NitoryuKengo(x, y, 'boss', groundY);
         case 4: return new KusarigamaAssassin(x, y, 'boss', groundY);
         case 5: return new OdachiBusho(x, y, 'boss', groundY);
-        case 6: return new Shogun(x, y, 'boss', groundY);
+        case 6: return createShogunBossPlayer(x, y, 'boss', groundY);
         default: return new KayakudamaTaisho(x, y, 'boss', groundY);
     }
 }

@@ -1429,7 +1429,10 @@ class Game {
             
             // update boss groundY
             if (this.stage.bossSpawned && this.stage.boss) {
-                const bossCenterX = this.stage.boss.x + this.stage.boss.width / 2;
+                const bossWorldWidth = typeof this.stage.boss.getWorldWidth === 'function'
+                    ? this.stage.boss.getWorldWidth()
+                    : this.stage.boss.width;
+                const bossCenterX = this.stage.boss.x + bossWorldWidth / 2;
                 this.stage.boss.groundY = this.stage.getStairGroundY(bossCenterX);
             }
             

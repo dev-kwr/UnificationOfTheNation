@@ -11,6 +11,35 @@ export function rectIntersects(a, b) {
            a.y + a.height > b.y;
 }
 
+function getEntityRect(entity) {
+    if (!entity) return null;
+    if (typeof entity.getHitbox === 'function') {
+        const hitbox = entity.getHitbox();
+        const boxes = Array.isArray(hitbox) ? hitbox : (hitbox ? [hitbox] : []);
+        const rects = boxes.filter(box =>
+            box &&
+            Number.isFinite(box.x) &&
+            Number.isFinite(box.y) &&
+            Number.isFinite(box.width) &&
+            Number.isFinite(box.height)
+        );
+        if (rects.length === 1) return rects[0];
+        if (rects.length > 1) {
+            const minX = Math.min(...rects.map(box => box.x));
+            const minY = Math.min(...rects.map(box => box.y));
+            const maxX = Math.max(...rects.map(box => box.x + box.width));
+            const maxY = Math.max(...rects.map(box => box.y + box.height));
+            return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+        }
+    }
+    return {
+        x: entity.x,
+        y: entity.y,
+        width: typeof entity.getWorldWidth === 'function' ? entity.getWorldWidth() : entity.width,
+        height: typeof entity.getWorldHeight === 'function' ? entity.getWorldHeight() : entity.height
+    };
+}
+
 // プレイヤーと敵の当たり判定
 export function checkPlayerEnemyCollision(player, enemy) {
     const playerRect = {
@@ -20,12 +49,7 @@ export function checkPlayerEnemyCollision(player, enemy) {
         height: typeof player.getWorldHeight === 'function' ? player.getWorldHeight() : player.height
     };
     
-    const enemyRect = {
-        x: enemy.x,
-        y: enemy.y,
-        width: enemy.width,
-        height: enemy.height
-    };
+    const enemyRect = getEntityRect(enemy);
     
     return rectIntersects(playerRect, enemyRect);
 }
@@ -35,12 +59,7 @@ export function checkPlayerAttackHit(player, enemy) {
     const attackHitbox = player.getAttackHitbox();
     if (!attackHitbox) return false;
     
-    const enemyRect = {
-        x: enemy.x,
-        y: enemy.y,
-        width: enemy.width,
-        height: enemy.height
-    };
+    const enemyRect = getEntityRect(enemy);
     
     const hitboxes = Array.isArray(attackHitbox) ? attackHitbox : [attackHitbox];
     for (const hitbox of hitboxes) {
@@ -56,12 +75,7 @@ export function checkSpecialHit(player, enemy) {
     const specialHitbox = player.getSpecialHitbox();
     if (!specialHitbox) return false;
     
-    const enemyRect = {
-        x: enemy.x,
-        y: enemy.y,
-        width: enemy.width,
-        height: enemy.height
-    };
+    const enemyRect = getEntityRect(enemy);
     
     return rectIntersects(specialHitbox, enemyRect);
 }
@@ -91,8 +105,9 @@ export function checkEnemyAttackHit(enemy, player) {
 export function checkExplosionHit(bomb, enemy) {
     if (!bomb.isExploding) return false;
     
-    const centerX = enemy.x + enemy.width / 2;
-    const centerY = enemy.y + enemy.height / 2;
+    const enemyRect = getEntityRect(enemy);
+    const centerX = enemyRect.x + enemyRect.width / 2;
+    const centerY = enemyRect.y + enemyRect.height / 2;
     const dx = bomb.x - centerX;
     const dy = bomb.y - centerY;
     const distance = Math.sqrt(dx * dx + dy * dy);
@@ -105,12 +120,7 @@ export function checkSubWeaponHit(subWeapon, player, enemy) {
     const hitbox = subWeapon.getHitbox(player);
     if (!hitbox) return false;
     
-    const enemyRect = {
-        x: enemy.x,
-        y: enemy.y,
-        width: enemy.width,
-        height: enemy.height
-    };
+    const enemyRect = getEntityRect(enemy);
     
     const hitboxes = Array.isArray(hitbox) ? hitbox : [hitbox];
     for (const box of hitboxes) {
