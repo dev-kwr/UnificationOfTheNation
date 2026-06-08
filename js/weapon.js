@@ -552,6 +552,7 @@ export class Shuriken extends SubWeapon {
     }
 
     use(player) {
+        this.owner = player;
         if (!this.canUse()) return;
 
         const tier = this.enhanceTier;
@@ -746,6 +747,7 @@ export class Firebomb extends SubWeapon {
     }
 
     use(player) {
+        this.owner = player;
         if (!this.canUse()) return;
 
         const g = window.game;
@@ -1686,7 +1688,7 @@ export class DualBlades extends SubWeapon {
                 if (owner) {
                     // 発射の瞬間のプレイヤー座標から基点を計算（移動に追従させる）
                     p.x = owner.x + ownerWorldWidth(owner) / 2;
-                    p.y = owner.y + ownerWorldHeight(owner) / 2;
+                    p.y = owner.y + ownerWorldHeight(owner) - 32.53 * 1.35 * p.sizeScale;
                 }
                 this.projectiles.push(p);
                 this.pendingCombinedProjectile = null;
@@ -2834,6 +2836,11 @@ export class Odachi extends SubWeapon {
         this.fadeOutTimer = 0;
         this.lastPlantedPose = null;
         this.impactSoundPlayed = false; // 着地爆発音の重複防止
+        this.lastPlantedWorldX = null;
+        this.lastPlantedWorldY = null;
+        this.lastPlantedWorldDirection = 1;
+        this.lastPlantedWorldRotation = 0;
+        this.lastPlantedWorldScale = 1.0;
     }
 
     applyEnhanceTier(tier) {
@@ -2873,6 +2880,11 @@ export class Odachi extends SubWeapon {
         this.impactDebris = [];
         this.impactFrozen = null; // 前回の着地位置をリセット（2回目以降で古い位置が使い回されるのを防ぐ）
         this.impactX = null;
+        this.lastPlantedWorldX = null;
+        this.lastPlantedWorldY = null;
+        this.lastPlantedWorldDirection = 1;
+        this.lastPlantedWorldRotation = 0;
+        this.lastPlantedWorldScale = 1.0;
         this.attackDirection = player.facingRight ? 1 : -1;
 
         // ボス（敵）の場合は跳躍力を抑える
@@ -2952,7 +2964,7 @@ export class Odachi extends SubWeapon {
             // 大太刀のhandXはボディの視覚中心(centerX)を基準にする。
             // frozenCenterX(=scale pivot)はoriginalW/2基準でdrawW/2と4pxずれるため
             // スケール後に左右非対称(8.8px差)を生む。
-            const handX = centerX + direction * (ownerWorldWidth(player) * 0.325);
+            const handX = centerX + direction * (ownerWorldWidth(player) * 0.35);
             // 身長比率に基づいて手の高さを計算 (プレイヤー 60px に対し 7.5px = 0.125)
             const handY = player.y + ownerWorldHeight(player) * 0.125;
             
@@ -2963,7 +2975,15 @@ export class Odachi extends SubWeapon {
                 adjustedHandY -= (tipY - maxTipY);
             }
             const plantedPose = { progress, phase, direction, rotation, handX, handY: adjustedHandY, bladeLen };
-            this.lastPlantedPose = { ...plantedPose };
+            // lastPlantedPose の保存は、描画で二重スケールされないよう必ず 1.0倍基準（_inRenderModel = true 相当）にする
+            if (player && player.scaleMultiplier > 1.001 && !player._inRenderModel) {
+                const prevIRM = player._inRenderModel;
+                player._inRenderModel = true;
+                this.lastPlantedPose = this.getPose(player);
+                player._inRenderModel = prevIRM;
+            } else {
+                this.lastPlantedPose = { ...plantedPose };
+            }
             return plantedPose;
         }
 
@@ -3056,17 +3076,84 @@ export class Odachi extends SubWeapon {
         return this.impactFrozen;
     }
 
+    captureImpactWorldPose(player) {
+        if (!player) return;
+        const scale = this.getOwnerVisualScale(player);
+        
+        let frozen = null;
+        if (player._inRenderModel) {
+            const isShogunMode = player.characterType === 'shogun';
+            frozen = {
+                pivotX: isShogunMode ? (player.x + 24) : (player.x + player.width * 0.5),
+                pivotY: isShogunMode ? (player.y + 37.2) : (player.y + player.height * 0.62)
+            };
+        } else {
+            frozen = this.impactFrozen || this.captureImpactFrozen(player);
+        }
+        
+        if (!frozen) return;
+        
+        const prevIRM = player._inRenderModel;
+        player._inRenderModel = true;
+        const pose = this.getPose(player);
+        player._inRenderModel = prevIRM;
+        
+        this.lastPlantedWorldX = frozen.pivotX + (pose.handX - frozen.pivotX) * scale;
+        this.lastPlantedWorldY = frozen.pivotY + (pose.handY - frozen.pivotY) * scale;
+        this.lastPlantedWorldDirection = pose.direction;
+        this.lastPlantedWorldRotation = pose.rotation;
+        this.lastPlantedWorldScale = scale;
+    }
+
     getImpactXForPose(player, pose) {
+        if (!player || !pose) return this.impactX || (pose ? pose.handX : 0);
+
+        const scale = player.scaleMultiplier || 1.0;
+        if (scale > 1.001) {
+            // 将軍（Shogun）などのスケールされたプレイヤーの場合、
+            // 描画モデル座標系(inRenderModel)での pose をエミュレートして、実際の描画ワールド座標を算出する
+            const isShogunMode = player.characterType === 'shogun';
+            const drawW = 48;
+            const originalX = player.x;
+            const originalW = player.width;
+
+            // 実際の描画 (playerRenderer.js _renderShogunBodyNative) と完全に同一の座標系を算出する
+            const worldW = typeof player.getWorldWidth === 'function' ? player.getWorldWidth() : originalW * scale;
+            const actorRenderW = 40; // SHOGUN_ACTOR_BASE_WIDTH
+
+            const actorRenderX = isShogunMode ? (originalX + (worldW - actorRenderW) * 0.5) : originalX;
+            const renderX = isShogunMode ? (actorRenderX + (actorRenderW - drawW) * 0.5) : originalX;
+
+            const prevInRenderModel = player._inRenderModel;
+            const prevX = player.x;
+            const prevW = player.width;
+
+            player._inRenderModel = true;
+            player.x = renderX;
+            player.width = drawW;
+
+            // 描画用の pose をエミュレートして取得
+            const renderPose = this.getPose(player);
+
+            player._inRenderModel = prevInRenderModel;
+            player.x = prevX;
+            player.width = prevW;
+
+            // 実際の描画 (renderModel) と同じピボットを用いてスケール投影（これが大太刀の実際の描画位置）
+            const pivotX = isShogunMode ? (actorRenderX + actorRenderW * 0.5) : (originalX + originalW * 0.5);
+            return pivotX + (renderPose.handX - pivotX) * scale;
+        }
+
+        // 忍者などの標準スケール時
         if (pose && Number.isFinite(pose.handX)) {
             return pose.handX;
         }
-        if (!player || !pose) return this.impactX;
         const frozen = this.impactFrozen || this.captureImpactFrozen(player);
         if (!frozen) return this.impactX;
         const poseWidth = this.getOwnerActorPoseWidth(player);
         const actorBaseWidth = this.getOwnerActorBaseWidth(player);
         const actorCenterX = frozen.pivotX + (poseWidth - actorBaseWidth) * 0.5;
-        return actorCenterX + pose.direction * (poseWidth * 0.325);
+        return actorCenterX + pose.direction * (poseWidth * 0.35);
     }
 
     getPlantedOwnerY(player) {
@@ -3257,6 +3344,7 @@ export class Odachi extends SubWeapon {
                             this.hasImpacted = true;
                             this.plantedTimer = this.plantedDuration;
                             this.captureImpactFrozen(this.owner);
+                            this.captureImpactWorldPose(this.owner);
                             this.impactX = this.getImpactXForPose(this.owner, pose);
                             this.impactY = maxTipY;
                             this.impactFlashTimer = 170;
@@ -3282,6 +3370,7 @@ export class Odachi extends SubWeapon {
                             this.owner.vx = 0; // impactFrozen保存前に vx をゼロにして applyPhysics() によるズレを防ぐ
                             this.captureImpactFrozen(this.owner);
                         }
+                        this.captureImpactWorldPose(this.owner);
                         const pose = this.getPose(this.owner);
                         this.impactX = this.getImpactXForPose(this.owner, pose);
                         this.impactY = this.owner.groundY + LANE_OFFSET;
@@ -3310,6 +3399,7 @@ export class Odachi extends SubWeapon {
                             this.owner.vx = 0; // impactFrozen保存前に vx をゼロにして applyPhysics() によるズレを防ぐ
                             this.captureImpactFrozen(this.owner);
                         }
+                        this.captureImpactWorldPose(this.owner);
                         const pose2 = this.getPose(this.owner);
                         this.impactX = this.getImpactXForPose(this.owner, pose2);
                         this.impactY = this.owner.groundY + LANE_OFFSET;
@@ -3427,19 +3517,55 @@ export class Odachi extends SubWeapon {
         // 攻撃中 OR 刺さり中 OR 強制描画指定時は刀身を描画
         const shouldFadeOut = !this.isAttacking && this.fadeOutTimer > 0 && this.lastPlantedPose;
         if (!groundOnly && (this.isAttacking || shouldFadeOut || (player && player.forceSubWeaponRender))) {
-            const pose = shouldFadeOut
+            const pose = (shouldFadeOut || (this.isAttacking && this.hasImpacted)) && this.lastPlantedPose
                 ? this.lastPlantedPose
                 : this.getPose(player);
+
+            // モデル描画中（_inRenderModel）かつ着地刺さり中の場合、最新のモデル位置に基づいて絶対ワールド座標をキャプチャ更新する
+            if (player && player._inRenderModel && this.hasImpacted) {
+                this.captureImpactWorldPose(player);
+            }
+
             const fadeAlpha = shouldFadeOut
                 ? Math.max(0, Math.min(1, this.fadeOutTimer / Math.max(1, this.fadeOutDuration)))
                 : 1;
             const blade = this.getBladeGeometry(pose);
             const handle = this.getHandleMetrics();
+            
             ctx.save();
             ctx.globalAlpha *= fadeAlpha;
-            ctx.translate(pose.handX, pose.handY);
-            ctx.scale(pose.direction, 1);
-            ctx.rotate(pose.rotation);
+
+            let useWorldPose = false;
+            if (shouldFadeOut && Number.isFinite(this.lastPlantedWorldX) && Number.isFinite(this.lastPlantedWorldY)) {
+                useWorldPose = true;
+            }
+
+            if (useWorldPose) {
+                // 保存された完全なワールド座標とスケールを直接適用（プレイヤーの移動やワープの影響を一切受けない）
+                ctx.translate(this.lastPlantedWorldX, this.lastPlantedWorldY);
+                ctx.scale(this.lastPlantedWorldScale * this.lastPlantedWorldDirection, this.lastPlantedWorldScale);
+                ctx.rotate(this.lastPlantedWorldRotation);
+            } else {
+                // 通常の描画（攻撃中や、ワールドポーズが未キャプチャの場合）
+                // モデル外描画（game.jsからの呼び出しなど）のとき、将軍スケールを自律適用する
+                const scale = this.getOwnerVisualScale(player);
+                const needsSelfScale = scale > 1.001 && (!player || !player._inRenderModel);
+                if (needsSelfScale) {
+                    const frozen = this.impactFrozen || (player ? {
+                        pivotX: player.x + ownerWorldWidth(player) * 0.5,
+                        pivotY: player.y + ownerWorldHeight(player) * 0.62
+                    } : null);
+                    if (frozen) {
+                        ctx.translate(frozen.pivotX, frozen.pivotY);
+                        ctx.scale(scale, scale);
+                        ctx.translate(-frozen.pivotX, -frozen.pivotY);
+                    }
+                }
+
+                ctx.translate(pose.handX, pose.handY);
+                ctx.scale(pose.direction, 1);
+                ctx.rotate(pose.rotation);
+            }
 
             // 柄: 刀身を邪魔しない程度に抑えた柄巻きと金具
             const handleBack = handle.back;

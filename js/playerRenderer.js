@@ -750,6 +750,8 @@ export function applyRendererMixin(PlayerClass) {
     PlayerClass.prototype._renderShogunBody = function(ctx, ghostVeilActive, ghostAlpha = 1.0) {
         // 将軍は単一 Player ネイティブ描画。renderModel が characterType==='shogun' のとき
         // 将軍スキン(_drawShogun*)＋scaleMultiplier(=SHOGUN_SCALE倍)で素体を描く（旧 boss.renderBody 依存は撤去済み）。
+        this.subWeaponRenderedInModel = false;
+        this.dualBladeTrailAnchors = null;
         this._renderShogunBodyNative(ctx, ghostAlpha);
     };
 

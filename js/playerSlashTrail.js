@@ -154,7 +154,11 @@ export function applySlashTrailMixin(PlayerClass) {
                 // ベジェ曲線段: 最新のパラメータを保存
                 const lastPt = stepPoints.length > 0 ? stepPoints[stepPoints.length - 1] : null;
                 const firstPt = stepPoints.length > 0 ? stepPoints[0] : null;
-                const fixedCurvePt = stepPoints.find((point) => point && Number.isFinite(point.trailFixedCurveStartX));
+                // step 5 の場合は、振り切り完了した最新のサンプリング点を優先するため、
+                // 振り切り途中の古いアンカー(fixedCurvePt)をバイパスする。これにより終点の不連続なズレを解消。
+                const fixedCurvePt = (stepNum === 5)
+                    ? null
+                    : stepPoints.find((point) => point && Number.isFinite(point.trailFixedCurveStartX));
                 const curvePt = fixedCurvePt || lastPt;
                 const readCurve = (fixedName, curveName) => (
                     fixedCurvePt && Number.isFinite(fixedCurvePt[fixedName])
@@ -176,7 +180,7 @@ export function applySlashTrailMixin(PlayerClass) {
                         centerY: lastPt.centerY,
                         dir: lastPt.dir,
                         progress: Number.isFinite(lastPt.progress) ? lastPt.progress : 1.0, // 実際の進行度で凍結させる
-                        trailIsRelative: fixedCurvePt ? !!fixedCurvePt.trailFixedCurveIsRelative : !!lastPt.trailIsRelative,
+                        trailIsRelative: stepNum === 5 ? false : (fixedCurvePt ? !!fixedCurvePt.trailFixedCurveIsRelative : !!lastPt.trailIsRelative),
                         playerX: Number.isFinite(forceOffsetX)
                             ? forceOffsetX
                             : (Number.isFinite(curvePt.trailTransformPlayerX)
@@ -530,31 +534,47 @@ export function applySlashTrailMixin(PlayerClass) {
         const worldH = (typeof this.getWorldHeight === 'function') ? this.getWorldHeight() : PLAYER.HEIGHT * scale;
         const worldW = (typeof this.getWorldWidth === 'function') ? this.getWorldWidth() : PLAYER.WIDTH * scale;
         const actorRenderDY = worldH - footOffset - SHOGUN_ACTOR_BASE_HEIGHT * 0.62;
-        const renderPivotX = px + worldW * 0.5;
-        const renderPivotY = py + actorRenderDY + PLAYER.HEIGHT * 0.62;
 
-        // ninja基準ピボット: trailIsRelative=true の場合は原点(0,0)基準なので px 加算なし
-        const isRelative = !!pose.trailIsRelative;
-        const basePivotX = isRelative ? PLAYER.WIDTH * 0.5 : (px + PLAYER.WIDTH * 0.5);
-        const basePivotY = isRelative ? PLAYER.HEIGHT * 0.62 : (py + PLAYER.HEIGHT * 0.62);
+        // 絶対座標用のレンダーピボット（プレイヤーの現在のワールド座標を含む）
+        const renderPivotX_Abs = px + worldW * 0.5;
+        const renderPivotY_Abs = py + actorRenderDY + PLAYER.HEIGHT * 0.62;
 
-        // 投影関数: ninja座標 → ワールド座標
-        const proj = (nX, nY) => {
+        // 相対座標用のレンダーピボット（プレイヤーの現在の座標を含まず、純粋な相対オフセットの原点基準）
+        // renderPivotX_Abs から px を引き、renderPivotY_Abs から py を引いたもの。
+        const renderPivotX_Rel = worldW * 0.5;
+        const renderPivotY_Rel = actorRenderDY + PLAYER.HEIGHT * 0.62;
+
+        // ninja基準のピボット：
+        // 絶対座標ポイント用（px, py を含む）
+        const basePivotX_Abs = px + PLAYER.WIDTH * 0.5;
+        const basePivotY_Abs = py + PLAYER.HEIGHT * 0.62;
+        // 相対座標ポイント用（px, py を含まない）
+        const basePivotX_Rel = PLAYER.WIDTH * 0.5;
+        const basePivotY_Rel = PLAYER.HEIGHT * 0.62;
+
+        // 投影関数
+        const proj = (nX, nY, isPtRelative) => {
             if (!Number.isFinite(nX) || !Number.isFinite(nY)) return { x: nX, y: nY };
+            const rPivotX = isPtRelative ? renderPivotX_Rel : renderPivotX_Abs;
+            const rPivotY = isPtRelative ? renderPivotY_Rel : renderPivotY_Abs;
+            const bPivotX = isPtRelative ? basePivotX_Rel : basePivotX_Abs;
+            const bPivotY = isPtRelative ? basePivotY_Rel : basePivotY_Abs;
+
             return {
-                x: renderPivotX + (nX - basePivotX) * scale,
-                y: renderPivotY + (nY - basePivotY) * scale
+                x: rPivotX + (nX - bPivotX) * scale,
+                y: rPivotY + (nY - bPivotY) * scale
             };
         };
 
         const result = { ...pose };
+        const isRelative = !!pose.trailIsRelative;
 
-        // 剣先をワールド座標へ
-        const tip = proj(result.tipX, result.tipY);
+        // 剣先をワールド座標へ (常に絶対座標なので isPtRelative = false)
+        const tip = proj(result.tipX, result.tipY, false);
         result.tipX = tip.x;
         result.tipY = tip.y;
         if (Number.isFinite(result.trailTipX)) {
-            const t2 = proj(result.trailTipX, result.trailTipY);
+            const t2 = proj(result.trailTipX, result.trailTipY, false);
             result.trailTipX = t2.x;
             result.trailTipY = t2.y;
         } else {
@@ -562,33 +582,33 @@ export function applySlashTrailMixin(PlayerClass) {
             result.trailTipY = tip.y;
         }
 
-        // ベジェ曲線の制御点をワールド座標へ
+        // ベジェ曲線の制御点をワールド座標へ (元の trailIsRelative に従う)
         if (Number.isFinite(result.trailCurveStartX)) {
-            const s = proj(result.trailCurveStartX, result.trailCurveStartY);
+            const s = proj(result.trailCurveStartX, result.trailCurveStartY, isRelative);
             result.trailCurveStartX = s.x; result.trailCurveStartY = s.y;
-            const c = proj(result.trailCurveControlX, result.trailCurveControlY);
+            const c = proj(result.trailCurveControlX, result.trailCurveControlY, isRelative);
             result.trailCurveControlX = c.x; result.trailCurveControlY = c.y;
-            const e = proj(result.trailCurveEndX, result.trailCurveEndY);
+            const e = proj(result.trailCurveEndX, result.trailCurveEndY, isRelative);
             result.trailCurveEndX = e.x; result.trailCurveEndY = e.y;
         }
 
-        // 弧(arc)の中心・半径をワールド座標へ
+        // 弧(arc)の中心・半径をワールド座標へ (元の trailIsRelative に従う)
         if (Number.isFinite(result.trailArcCenterX)) {
-            const ac = proj(result.trailArcCenterX, result.trailArcCenterY);
+            const ac = proj(result.trailArcCenterX, result.trailArcCenterY, isRelative);
             result.trailArcCenterX = ac.x; result.trailArcCenterY = ac.y;
             if (Number.isFinite(result.trailRadius)) {
                 result.trailRadius *= scale;
             }
         }
 
-        // 表示中心をワールド座標へ（boost等で参照される）
+        // 表示中心をワールド座標へ (元の trailIsRelative に従う)
         if (Number.isFinite(result.centerX)) {
-            const cc = proj(result.centerX, result.centerY);
+            const cc = proj(result.centerX, result.centerY, isRelative);
             result.centerX = cc.x; result.centerY = cc.y;
         }
 
-        // 変換済みのためワールド座標フラグを設定
-        result.trailIsRelative = false;
+        // 変換後も、元の相対/絶対フラグをそのまま維持する！一律 false にしない！
+        result.trailIsRelative = isRelative;
         result.originX = px;
         result.originY = py;
 
@@ -1487,9 +1507,16 @@ export function applySlashTrailMixin(PlayerClass) {
                 const fc = this.comboSlashTrailFrozenCurves[i];
                 fc.age = (fc.age || 0) + deltaMs;
                 if (fc.oldestAge !== undefined) fc.oldestAge += deltaMs;
-                if (fc.type === 'points' && Array.isArray(fc.frozenPoints)) {
-                    for (const p of fc.frozenPoints) {
-                        p.age = (p.age || 0) + deltaMs;
+                if (['points', 'sampledBezier'].includes(fc.type)) {
+                    if (Array.isArray(fc.frozenPoints)) {
+                        for (const p of fc.frozenPoints) {
+                            p.age = (p.age || 0) + deltaMs;
+                        }
+                    }
+                    if (Array.isArray(fc.frozenCurvePoints)) {
+                        for (const p of fc.frozenCurvePoints) {
+                            p.age = (p.age || 0) + deltaMs;
+                        }
                     }
                 }
                 if (fc.age >= fc.life) {
@@ -2706,15 +2733,32 @@ export function applySlashTrailMixin(PlayerClass) {
                 const v = clamp01(t);
                 return v * v * (3 - 2 * v);
             };
-            const startX = Number.isFinite(newestSrc.trailCurveStartX) ? newestSrc.trailCurveStartX : null;
-            const startY = Number.isFinite(newestSrc.trailCurveStartY) ? newestSrc.trailCurveStartY : null;
-            const controlX = Number.isFinite(newestSrc.trailCurveControlX) ? newestSrc.trailCurveControlX : null;
-            const controlY = Number.isFinite(newestSrc.trailCurveControlY) ? newestSrc.trailCurveControlY : null;
-            const endX = Number.isFinite(newestSrc.trailCurveEndX) ? newestSrc.trailCurveEndX : null;
-            const endY = Number.isFinite(newestSrc.trailCurveEndY) ? newestSrc.trailCurveEndY : null;
-            if ([startX, startY, controlX, controlY, endX, endY].some((v) => !Number.isFinite(v))) {
+
+            const isRelative = !!newestSrc.trailIsRelative;
+            const offsetX = isRelative
+                ? (Number.isFinite(newestSrc.playerX) ? newestSrc.playerX : (options.offsetX || 0))
+                : 0;
+            const offsetY = isRelative
+                ? (Number.isFinite(newestSrc.playerY) ? newestSrc.playerY : (options.offsetY || 0))
+                : 0;
+
+            const startXRaw = Number.isFinite(newestSrc.trailCurveStartX) ? newestSrc.trailCurveStartX : null;
+            const startYRaw = Number.isFinite(newestSrc.trailCurveStartY) ? newestSrc.trailCurveStartY : null;
+            const controlXRaw = Number.isFinite(newestSrc.trailCurveControlX) ? newestSrc.trailCurveControlX : null;
+            const controlYRaw = Number.isFinite(newestSrc.trailCurveControlY) ? newestSrc.trailCurveControlY : null;
+            const endXRaw = Number.isFinite(newestSrc.trailCurveEndX) ? newestSrc.trailCurveEndX : null;
+            const endYRaw = Number.isFinite(newestSrc.trailCurveEndY) ? newestSrc.trailCurveEndY : null;
+
+            if ([startXRaw, startYRaw, controlXRaw, controlYRaw, endXRaw, endYRaw].some((v) => !Number.isFinite(v))) {
                 return;
             }
+
+            const startX = startXRaw + offsetX;
+            const startY = startYRaw + offsetY;
+            const controlX = controlXRaw + offsetX;
+            const controlY = controlYRaw + offsetY;
+            const endX = endXRaw + offsetX;
+            const endY = endYRaw + offsetY;
             const growth = (() => {
                 const p = Number.isFinite(activeStep4RawProgress)
                     ? activeStep4RawProgress
@@ -3168,7 +3212,7 @@ export function applySlashTrailMixin(PlayerClass) {
                     
                     drawFixedBezierTrail([frozenPtOld, frozenPtNew], 13.8 * visualWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
                         comboStep: fc.step,
-                        forceRelative: true,
+                        forceRelative: !!fc.trailIsRelative,
                         useRelativeIfAvailable: true,
                         offsetX: offsetX,
                         offsetY: offsetY
@@ -3183,8 +3227,11 @@ export function applySlashTrailMixin(PlayerClass) {
                     const currentFootY = this.getFootY ? this.getFootY() : (this.y + this.getWorldHeight());
                     const savedCenterX = trailCenterX;
                     const savedCenterY = trailCenterY;
-                    trailCenterX = currentFootX;
-                    trailCenterY = currentFootY - this.getWorldHeight() * 0.5;
+                    
+                    // 凍結された剣筋を描画する際は、現在のプレイヤーの足元ではなく、凍結した瞬間に保存された固定中心座標を使用。
+                    // これにより、プレイヤーが移動・ジャンプしても剣筋がその場にピタッと固定されて美しくフェードアウトする。
+                    trailCenterX = (fc.frozenTrailCenterX !== undefined) ? fc.frozenTrailCenterX : currentFootX;
+                    trailCenterY = (fc.frozenTrailCenterY !== undefined) ? fc.frozenTrailCenterY : (currentFootY - this.getWorldHeight() * 0.5);
 
                     let projFnFrozen = null;
                     if (fc.boostAnchor) {

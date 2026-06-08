@@ -1268,6 +1268,9 @@ export class Player {
         }
         
         // 通常の新規攻撃またはコンボスナップ開始処理
+        if (this.isAttacking && typeof this.freezeCurrentSlashTrail === 'function') {
+            this.freezeCurrentSlashTrail();
+        }
         this.pinSlashTrailPoints(this.comboSlashTrailPoints);
         this.isAttacking = true;
         this.comboSlashTrailSampleTimer = 0;
@@ -1434,6 +1437,9 @@ export class Player {
                 return;
             }
             this.isAttacking = false;
+            if (typeof this.freezeCurrentSlashTrail === 'function') {
+                this.freezeCurrentSlashTrail();
+            }
             
             // 攻撃終了時の余韻管理
             if (activeAttack && activeAttack.comboStep <= this.getNormalComboMax()) {
