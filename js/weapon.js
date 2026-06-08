@@ -599,8 +599,9 @@ export class Shuriken extends SubWeapon {
         const spawnX = baseX + direction * 18;
         const spawnY = baseY + 16;
         const speed = this.bulletSpeed || 20;
+        const scale = (this.owner && Number.isFinite(this.owner.scaleMultiplier)) ? this.owner.scaleMultiplier : 1.0;
         const r = this.sizeUp
-            ? (homing ? 17 : 14)
+            ? (homing ? 17 : 14) * scale
             : (homing ? this.projectileRadiusHoming : this.projectileRadius);
 
         const proj = new ShurikenProjectile(
@@ -772,9 +773,10 @@ export class Firebomb extends SubWeapon {
             vx,
             vy
         );
+        const ownerScale = (player && Number.isFinite(player.scaleMultiplier)) ? player.scaleMultiplier : 1.0;
         const baseBombDamage = sizeUp ? Math.round(this.damage * 1.22) : this.damage;
         bomb.damage = Math.max(1, Math.round(baseBombDamage * attackMultiplier));
-        bomb.radius = sizeUp ? 14 : 11;
+        bomb.radius = (sizeUp ? 14 : 11) * ownerScale;
         bomb.explosionRadius = sizeUp ? Math.round(this.range * 1.16) : this.range;
         bomb.explosionDuration = sizeUp ? 380 : 300;
         this._assignThrowTransformPivot(bomb, player, player.x + ownerWorldWidth(player) / 2, player.y);
