@@ -17,7 +17,8 @@ import {
     SHOGUN_ARM_REACH_SCALE,
     SHOGUN_CROUCH_INTENSITY,
     SHOGUN_HEAD_SCALE,
-    SHOGUN_HIP_LIFT_PX
+    SHOGUN_HIP_LIFT_PX,
+    SHOGUN_AIRBORNE_TUCK_SCALE
 } from './shogunConstants.js';
 
 export function applyRendererMixin(PlayerClass) {
@@ -748,7 +749,7 @@ export function applyRendererMixin(PlayerClass) {
     // ═══════════════════════════════════════════════════════════════
     PlayerClass.prototype._renderShogunBody = function(ctx, ghostVeilActive, ghostAlpha = 1.0) {
         // 将軍は単一 Player ネイティブ描画。renderModel が characterType==='shogun' のとき
-        // 将軍スキン(_drawShogun*)＋scaleMultiplier(2.2倍)で素体を描く（旧 boss.renderBody 依存は撤去済み）。
+        // 将軍スキン(_drawShogun*)＋scaleMultiplier(=SHOGUN_SCALE倍)で素体を描く（旧 boss.renderBody 依存は撤去済み）。
         this._renderShogunBodyNative(ctx, ghostAlpha);
     };
 
@@ -758,22 +759,29 @@ export function applyRendererMixin(PlayerClass) {
         const savedX = this.x, savedY = this.y, savedW = this.width, savedH = this.height;
         const savedWeapon = this.currentSubWeapon;
 
-        // ── 本体 ── boss と同一の actor フレーム(40x72)＋接地補正(actorFootGroundOffset)で描く。
-        // ワールド箱(88x132)をそのまま渡すと足元が下にずれて胴が間延びするため、必ず actor 基準で渡す。
+        // ── 本体 ── 分身(getSpecialCloneDrawY)と同一の座標式で描く。
+        // height=60(素体)を使うことでrenderModel内のスケールピボット(originalH*0.62)が
+        // 分身と完全に一致し、胴長・地面位置が揃う。
         const actorRenderW = SHOGUN_ACTOR_BASE_WIDTH;   // 40
-        const actorRenderH = SHOGUN_ACTOR_BASE_HEIGHT;  // 60
-        const actorDrawHeight = PLAYER.HEIGHT;          // 72
-        const actorPivotHeight = actorRenderH * 0.62;
-        // width=40化: this.width/height は素体(40x60)。actor を world 箱(88x132)の中心へ
+        const actorRenderH = SHOGUN_ACTOR_BASE_HEIGHT;  // 60（分身と統一）
+        // width=40化: this.width/height は素体(40x60)。actor を world 箱(=素体×SHOGUN_SCALE)の中心へ
         // 配置するため、temp 詰め替え前(this.width=素体)に getWorld* でワールド寸法を読む。
         // 忍者は getWorldWidth()===width なので不変。
-        const worldW = this.getWorldWidth();   // 88 (忍者48)
-        const worldH = this.getWorldHeight();  // 132 (忍者72)
-        const actorFootGroundOffset = renderScale > 1.001
-            ? (worldH * 0.38 - (actorDrawHeight - actorPivotHeight) * renderScale)
-            : 0;
+        const worldW = this.getWorldWidth();   // 将軍: 素体40 * SHOGUN_SCALE = 80 (忍者: 48)
+        const worldH = this.getWorldHeight();  // 将軍: 素体60 * SHOGUN_SCALE = 120 (忍者: 72)
+        // 分身と同じ接地式: anchorY = footY - _getCloneFootOffset()
+        //                   actorRenderY = getSpecialCloneDrawY(anchorY)
+        //                                = anchorY - SHOGUN_ACTOR_BASE_HEIGHT * 0.62
+        // 将軍(scale=2.0): anchorY = (savedY+120) - 69.6 = savedY+50.4
+        //                  actorRenderY = savedY+50.4 - 37.2 = savedY+13.2  ← 正しい接地位置
+        const cloneFootOffset = typeof this._getCloneFootOffset === 'function'
+            ? this._getCloneFootOffset()
+            : worldH * 0.38;
+        const anchorY = savedY + worldH - cloneFootOffset;
         const actorRenderX = savedX + (worldW - actorRenderW) * 0.5;
-        const actorRenderY = savedY + (worldH - actorRenderH) * 0.62 + actorFootGroundOffset;
+        const actorRenderY = typeof this.getSpecialCloneDrawY === 'function'
+            ? this.getSpecialCloneDrawY(anchorY)
+            : anchorY - worldH * 0.62;
 
         // 本体のアクティブ忍具を一時的に currentSubWeapon に見せて描く（移行期）。
         const activeWeapon = (typeof this.getActiveSubWeaponInstance === 'function')
@@ -781,7 +789,7 @@ export function applyRendererMixin(PlayerClass) {
             : this.currentSubWeapon;
         if (activeWeapon) this.currentSubWeapon = activeWeapon;
         this.width = actorRenderW;
-        this.height = actorDrawHeight;
+        this.height = actorRenderH;  // 60（分身と統一: ピボットYを揃えて胴長を一致させる）
         try {
             this.renderModel(ctx, actorRenderX, actorRenderY, this.facingRight, ghostAlpha, true, {});
         } finally {
@@ -795,10 +803,11 @@ export function applyRendererMixin(PlayerClass) {
         // ── 本体の剣筋・二刀軌跡 ── 忍者と同じメソッドで描く（ワールド座標、本体寸法88基準）。
         // game.js/preview 側の将軍 gate を外し、ここでは描かない（二重描画回避）。
 
-        // ── 分身 ── playableCloneSource と同一(40x60, keepActorHeight)。各分身も将軍スキン/スケールで描かれる。
+        // ── 分身 ── 素体フレーム(40x60, keepActorHeight)で描く。
+        // height=60のまま renderSpecial に渡し、分身の renderModel ピボットも同じ基準にする。
         if (typeof this.isSpecialCloneCombatActive === 'function' && this.isSpecialCloneCombatActive()) {
             this.width = SHOGUN_ACTOR_BASE_WIDTH;
-            this.height = SHOGUN_ACTOR_BASE_HEIGHT;
+            this.height = SHOGUN_ACTOR_BASE_HEIGHT;  // 60
             try {
                 this.renderSpecial(ctx, {
                     keepActorHeight: true,
@@ -893,7 +902,7 @@ export function applyRendererMixin(PlayerClass) {
         const applyScaleTransform = scale !== 1.0;
 
         if (applyScaleTransform) {
-            // scaleMultiplier で素体を一様拡大（将軍2.2倍）。ピボットは world箱中心(originalW*0.5, originalH*0.62)。
+            // scaleMultiplier で素体を一様拡大（将軍=SHOGUN_SCALE倍）。ピボットは world箱中心(originalW*0.5, originalH*0.62)。
             const pivotX = x + originalW * 0.5;
             const pivotY = y + originalH * 0.62;
             ctx.save();
@@ -1998,7 +2007,7 @@ export function applyRendererMixin(PlayerClass) {
                 const descend = this.vy > 0 ? Math.min(1, this.vy / 13) : 0;
                 const apex = Math.max(0, 1 - Math.min(1, Math.abs(this.vy) / 4.4));
                 const tuckBase = Math.max(rise * 0.74, apex * 0.92) * (1 - descend * 0.26);
-                const tuck = isShogunMode ? tuckBase * 0.35 : tuckBase;
+                const tuck = isShogunMode ? tuckBase * SHOGUN_AIRBORNE_TUCK_SCALE : tuckBase;
                 const open = descend * 0.62;
                 const settle = Math.max(0, Math.min(1, (descend - 0.28) / 0.72));
                 const leftHipX = torsoHipX + dir * 1.28;
@@ -3868,35 +3877,47 @@ export function applyRendererMixin(PlayerClass) {
             if (!options.isOdachiPlantedOrFade && drawFrontLayer && renderWeaponVisuals && odachi && typeof odachi.render === 'function') {
                 // in-model 描画: weapon.js が owner 寸法を素体(drawW)で読むようにする（ctx.scale と二重化回避）。
                 const _prevInRMOdachi = this._inRenderModel;
+                const prevSuppressGroundEffects = odachi.suppressGroundEffectsRender;
                 this._inRenderModel = true;
+                odachi.suppressGroundEffectsRender = true;
                 // yawSkewCancel: 将軍の2.5D変換で生じる傾きをキャンセルして大太刀を垂直に描画
                 // renderWithShogunTransform は Shear(-yawSkew/0.982) · Scale(1/0.982) を適用するので
                 // 逆変換は Scale(0.982) · Shear(+yawSkew/0.982) となる
                 // ただし _shogunExternalTransform=true の場合、renderModel内部ではシアが適用されず
                 // 均等スケールのみなので、yawSkewCancelのシア逆変換は不要（適用すると逆に傾く）
-                const yawSkewCancel = options.yawSkewCancel;
-                const skipShearCancel = !!options._shogunExternalTransform;
-                if (yawSkewCancel && !skipShearCancel) {
-                    ctx.save();
-                    ctx.globalAlpha = 1.0;
-                    ctx.translate(yawSkewCancel.pivotX, yawSkewCancel.pivotY);
-                    if (yawSkewCancel.type === 'enemyInverse') {
-                        ctx.scale(1 / 0.982, 1);
-                        ctx.transform(1, 0, -yawSkewCancel.yawSkew, 1, 0, 0);
+                try {
+                    const yawSkewCancel = options.yawSkewCancel;
+                    const skipShearCancel = !!options._shogunExternalTransform;
+                    if (yawSkewCancel && !skipShearCancel) {
+                        ctx.save();
+                        try {
+                            ctx.globalAlpha = 1.0;
+                            ctx.translate(yawSkewCancel.pivotX, yawSkewCancel.pivotY);
+                            if (yawSkewCancel.type === 'enemyInverse') {
+                                ctx.scale(1 / 0.982, 1);
+                                ctx.transform(1, 0, -yawSkewCancel.yawSkew, 1, 0, 0);
+                            } else {
+                                ctx.scale(0.982, 1);
+                                ctx.transform(1, 0, yawSkewCancel.yawSkew / 0.982, 1, 0, 0);
+                            }
+                            ctx.translate(-yawSkewCancel.pivotX, -yawSkewCancel.pivotY);
+                            odachi.render(ctx, this);
+                        } finally {
+                            ctx.restore();
+                        }
                     } else {
-                        ctx.scale(0.982, 1);
-                        ctx.transform(1, 0, yawSkewCancel.yawSkew / 0.982, 1, 0, 0);
+                        ctx.save();
+                        try {
+                            ctx.globalAlpha = 1.0;
+                            odachi.render(ctx, this);
+                        } finally {
+                            ctx.restore();
+                        }
                     }
-                    ctx.translate(-yawSkewCancel.pivotX, -yawSkewCancel.pivotY);
-                    odachi.render(ctx, this);
-                    ctx.restore();
-                } else {
-                    ctx.save();
-                    ctx.globalAlpha = 1.0;
-                    odachi.render(ctx, this);
-                    ctx.restore();
+                } finally {
+                    odachi.suppressGroundEffectsRender = prevSuppressGroundEffects;
+                    this._inRenderModel = _prevInRMOdachi;
                 }
-                this._inRenderModel = _prevInRMOdachi;
                 this.subWeaponRenderedInModel = true;
             }
 
@@ -3951,6 +3972,22 @@ export function applyRendererMixin(PlayerClass) {
                         -dir,
                         5.3
                     );
+                }
+                if (renderWeaponVisuals && kusa && typeof kusa.render === 'function') {
+                    const prevInRenderModel = this._inRenderModel;
+                    this._inRenderModel = true;
+                    try {
+                        ctx.save();
+                        try {
+                            ctx.globalAlpha = 1.0;
+                            kusa.render(ctx, this);
+                        } finally {
+                            ctx.restore();
+                        }
+                    } finally {
+                        this._inRenderModel = prevInRenderModel;
+                    }
+                    this.subWeaponRenderedInModel = true;
                 }
                 drawHand(mainHand.x, mainHand.y, standardRightHandRadius);
             }

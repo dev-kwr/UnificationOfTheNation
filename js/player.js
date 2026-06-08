@@ -24,7 +24,11 @@ import { applyRendererMixin }    from './playerRenderer.js';
 import { applySlashTrailMixin }  from './playerSlashTrail.js';
 import { applySpecialMixin }     from './playerSpecial.js';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
-import { SHOGUN_CROUCH_INTENSITY } from './shogunConstants.js';
+import {
+    SHOGUN_ACTOR_BASE_HEIGHT,
+    SHOGUN_ACTOR_BASE_WIDTH,
+    SHOGUN_CROUCH_INTENSITY
+} from './shogunConstants.js';
 
 export { ANIM_STATE };
 
@@ -1630,6 +1634,38 @@ export class Player {
         const pose = odachi.getPose(this);
         return pose.phase === 'planted';
     }
+
+    getShogunRenderModelFrame() {
+        if (this.characterType !== 'shogun') return null;
+        const scale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
+            ? this.scaleMultiplier
+            : 1;
+        if (scale <= 1.001) return null;
+
+        const actorRenderW = Number.isFinite(this.actorBaseWidth)
+            ? this.actorBaseWidth
+            : SHOGUN_ACTOR_BASE_WIDTH;
+        const actorRenderH = Number.isFinite(this.actorBaseHeight)
+            ? this.actorBaseHeight
+            : SHOGUN_ACTOR_BASE_HEIGHT;
+        const actorDrawHeight = PLAYER.HEIGHT;
+        const actorPivotHeight = actorRenderH * 0.62;
+        const worldW = this.getWorldWidth();
+        const worldH = this.getWorldHeight();
+        const actorFootGroundOffset = worldH * 0.38 - (actorDrawHeight - actorPivotHeight) * scale;
+        const actorRenderX = this.x + (worldW - actorRenderW) * 0.5;
+        const actorRenderY = this.y + (worldH - actorRenderH) * 0.62 + actorFootGroundOffset;
+        const renderPivotX = actorRenderX + actorRenderW * 0.5;
+        const renderPivotY = actorRenderY + actorDrawHeight * 0.62;
+
+        return {
+            scale,
+            renderPivotX,
+            renderPivotY,
+            baseTrailPivotX: this.x + PLAYER.WIDTH * 0.5,
+            baseTrailPivotY: this.y + PLAYER.HEIGHT * 0.62
+        };
+    }
     
     applyPhysics(walls) {
         // ========== プレビューモード：縦物理のみ・壁判定なし ==========
@@ -2179,6 +2215,9 @@ export class Player {
     refreshSubWeaponScaling() {
         if (!Array.isArray(this.subWeapons) || this.subWeapons.length === 0) return;
         const tier = this.getSubWeaponEnhanceTier();
+        const ownerScale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
+            ? this.scaleMultiplier
+            : 1;
         for (const weapon of this.subWeapons) {
             if (!weapon) continue;
             // 大槍/鎖鎌などのLv別挙動は enhanceTier 側で分岐するため先に同期する
@@ -2214,9 +2253,14 @@ export class Player {
                     weapon.mainMotionSpeedScale = Math.max(1.05, (this.attackMotionScale || 1.7) - tier * 0.08);
                 }
             }
+            const ownerRangeScale = weapon.name === '大太刀' ? 1 : ownerScale;
             weapon.damage = Math.max(1, Math.round(baseDamage * damageScale));
-            weapon.range = Math.max(24, Math.round(baseRange * rangeScale));
+            weapon.range = Math.max(24, Math.round(baseRange * rangeScale * ownerRangeScale));
             weapon.cooldown = Math.max(70, Math.round(baseCooldown));
+            if (weapon.name === '手裏剣') {
+                if (Number.isFinite(weapon.projectileRadius)) weapon.projectileRadius *= ownerScale;
+                if (Number.isFinite(weapon.projectileRadiusHoming)) weapon.projectileRadiusHoming *= ownerScale;
+            }
         }
     }
 
@@ -2403,13 +2447,13 @@ export class Player {
 
         if (!isAttacking || !currentAttack) return null;
 
-        // 将軍(scaleMultiplier>1)は本体寸法(88x132)ではなく素体フレーム(40x60)で判定を計算し、
+        // 将軍(scaleMultiplier>1)はワールド寸法(=素体×SHOGUN_SCALE)ではなく素体フレーム(40x60)で判定を計算し、
         // ワールドへ scaleMultiplier 倍 + yawSkew で変換する（boss.transformActorHitboxToWorld と同一規則）。
-        // これにより見た目(2.2倍)とヒット範囲が一致する。忍者(scale=1)は従来通り。
+        // これにより見た目(SHOGUN_SCALE倍)とヒット範囲が一致する。忍者(scale=1)は従来通り。
         const worldX = state.x !== undefined ? state.x : this.x;
         const worldY = state.y !== undefined ? state.y : this.y;
         // state.width/height はワールド寸法で渡される（攻撃プロファイル/分身 state は world 化済み）。
-        // state 未指定時は本体のワールド寸法(88x132)を使う（this.width は素体40なので getWorldWidth 経由）。
+        // state 未指定時は本体のワールド寸法(=素体×SHOGUN_SCALE)を使う（this.width は素体40なので getWorldWidth 経由）。
         const worldW = Number.isFinite(state.width) ? state.width : this.getWorldWidth();
         const worldH = Number.isFinite(state.height) ? state.height : this.getWorldHeight();
         const shogunScale = (this.characterType === 'shogun' && Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 1.001)

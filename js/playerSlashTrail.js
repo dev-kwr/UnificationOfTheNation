@@ -2,6 +2,7 @@
 
 import { PLAYER, FRICTION, LANE_OFFSET } from './constants.js';
 import { COMBO_ATTACKS } from './playerData.js';
+import { SHOGUN_ACTOR_BASE_HEIGHT } from './shogunConstants.js';
 
 export function applySlashTrailMixin(PlayerClass) {
 
@@ -489,7 +490,109 @@ export function applySlashTrailMixin(PlayerClass) {
             y: this.y,
             isCrouching: this.isCrouching
         };
-        return this.getComboSwordPoseForTrailState(baseState);
+        const result = this.getComboSwordPoseForTrailState(baseState);
+
+        // 将軍: ninja座標系(48x72基準)→ワールドスケール座標(×scaleMultiplier)へ変換。
+        // これにより過去のサンプル点がワールド座標で保存され、プレイヤーが移動しても
+        // 剣筋が画面上で固定される（忍者と同じ挙動）。
+        if (result && this.characterType === 'shogun') {
+            const projResult = this._projectShogunTrailPoseToWorldScale(result, baseState);
+            if (projResult) return projResult;
+        }
+
+        return result;
+    };
+
+    /**
+     * 将軍の剣筋ポーズ座標を ninja 座標系からワールドスケール座標へ変換する。
+     * サンプリング時に一度だけ呼び出し、結果をトレイルバッファへ保存する。
+     * @param {Object} pose - getComboSwordPoseForTrailState の戻り値
+     * @param {Object} baseState - {x, y, ...} プレイヤーの現在状態
+     * @returns {Object} ワールド座標に変換されたポーズ
+     */
+    PlayerClass.prototype._projectShogunTrailPoseToWorldScale = function(pose, baseState) {
+        const scale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
+            ? this.scaleMultiplier : 1;
+        if (scale <= 1.001) return pose;
+
+        const px = Number.isFinite(baseState.x) ? baseState.x : this.x;
+        const py = Number.isFinite(baseState.y) ? baseState.y : this.y;
+
+        // 将軍のワールドスケールにおけるレンダーピボット（回転中心）をプレイヤー座標相対で計算。
+        // renderModel 内では素体(40x60)を canvas scale×2.0 で拡大するため:
+        //   actorRenderDY = worldH - footOffset - SHOGUN_ACTOR_BASE_HEIGHT * 0.62
+        //                 = 120 - 69.6 - 37.2 = 13.2
+        //   renderPivotDX = worldW / 2 = 40
+        //   renderPivotDY = actorRenderDY + PLAYER.HEIGHT * 0.62 = 13.2 + 44.64 = 57.84
+        const footOffset = (typeof this._getCloneFootOffset === 'function')
+            ? this._getCloneFootOffset()
+            : (PLAYER.HEIGHT - SHOGUN_ACTOR_BASE_HEIGHT * 0.62) * scale;
+        const worldH = (typeof this.getWorldHeight === 'function') ? this.getWorldHeight() : PLAYER.HEIGHT * scale;
+        const worldW = (typeof this.getWorldWidth === 'function') ? this.getWorldWidth() : PLAYER.WIDTH * scale;
+        const actorRenderDY = worldH - footOffset - SHOGUN_ACTOR_BASE_HEIGHT * 0.62;
+        const renderPivotX = px + worldW * 0.5;
+        const renderPivotY = py + actorRenderDY + PLAYER.HEIGHT * 0.62;
+
+        // ninja基準ピボット: trailIsRelative=true の場合は原点(0,0)基準なので px 加算なし
+        const isRelative = !!pose.trailIsRelative;
+        const basePivotX = isRelative ? PLAYER.WIDTH * 0.5 : (px + PLAYER.WIDTH * 0.5);
+        const basePivotY = isRelative ? PLAYER.HEIGHT * 0.62 : (py + PLAYER.HEIGHT * 0.62);
+
+        // 投影関数: ninja座標 → ワールド座標
+        const proj = (nX, nY) => {
+            if (!Number.isFinite(nX) || !Number.isFinite(nY)) return { x: nX, y: nY };
+            return {
+                x: renderPivotX + (nX - basePivotX) * scale,
+                y: renderPivotY + (nY - basePivotY) * scale
+            };
+        };
+
+        const result = { ...pose };
+
+        // 剣先をワールド座標へ
+        const tip = proj(result.tipX, result.tipY);
+        result.tipX = tip.x;
+        result.tipY = tip.y;
+        if (Number.isFinite(result.trailTipX)) {
+            const t2 = proj(result.trailTipX, result.trailTipY);
+            result.trailTipX = t2.x;
+            result.trailTipY = t2.y;
+        } else {
+            result.trailTipX = tip.x;
+            result.trailTipY = tip.y;
+        }
+
+        // ベジェ曲線の制御点をワールド座標へ
+        if (Number.isFinite(result.trailCurveStartX)) {
+            const s = proj(result.trailCurveStartX, result.trailCurveStartY);
+            result.trailCurveStartX = s.x; result.trailCurveStartY = s.y;
+            const c = proj(result.trailCurveControlX, result.trailCurveControlY);
+            result.trailCurveControlX = c.x; result.trailCurveControlY = c.y;
+            const e = proj(result.trailCurveEndX, result.trailCurveEndY);
+            result.trailCurveEndX = e.x; result.trailCurveEndY = e.y;
+        }
+
+        // 弧(arc)の中心・半径をワールド座標へ
+        if (Number.isFinite(result.trailArcCenterX)) {
+            const ac = proj(result.trailArcCenterX, result.trailArcCenterY);
+            result.trailArcCenterX = ac.x; result.trailArcCenterY = ac.y;
+            if (Number.isFinite(result.trailRadius)) {
+                result.trailRadius *= scale;
+            }
+        }
+
+        // 表示中心をワールド座標へ（boost等で参照される）
+        if (Number.isFinite(result.centerX)) {
+            const cc = proj(result.centerX, result.centerY);
+            result.centerX = cc.x; result.centerY = cc.y;
+        }
+
+        // 変換済みのためワールド座標フラグを設定
+        result.trailIsRelative = false;
+        result.originX = px;
+        result.originY = py;
+
+        return result;
     };
 
     PlayerClass.prototype.getComboTrailProgressWindow = function(comboStep) {
@@ -820,7 +923,7 @@ export function applySlashTrailMixin(PlayerClass) {
             const durationMs = Math.max(1, attack?.durationMs || PLAYER.ATTACK_COOLDOWN);
             const bodyMotionScale = this.getComboTrailBodyMotionScale(state);
             // 将軍も忍者と同一の正規化ポーズ空間(height=72固定)で生成し、拡大はboss.js側のrenderScaleに一任する。
-            // ここで shogun だけ height/36(=2) にすると投影のrenderScale(2.2)と二重に掛かり、剣筋が遥か上空へ飛ぶ。
+            // ここで shogun だけ height/36(=2) にすると投影のrenderScale(SHOGUN_SCALE)と二重に掛かり、剣筋が遥か上空へ飛ぶ。
             const scale = height / 72;
             const smooth = (t) => {
                 const v = Math.max(0, Math.min(1, t));
@@ -3145,14 +3248,48 @@ export function applySlashTrailMixin(PlayerClass) {
             ? dualBlade.getMainSwingProgress()
             : 0;
 
+        let tipX = blade.tipX;
+        let tipY = blade.tipY;
+        let handX = blade.handX;
+        let handY = blade.handY;
+
+        // 将軍: dualBladeTrailAnchors は renderModel 内のアクタースペースで計算されるため、
+        // ワールドスケール座標へ投影する（_projectShogunTrailPoseToWorldScale と同じ式）。
+        if (this.characterType === 'shogun') {
+            const scale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
+                ? this.scaleMultiplier : 1;
+            if (scale > 1.001) {
+                const px = this.x;
+                const py = this.y;
+                const footOffset = (typeof this._getCloneFootOffset === 'function')
+                    ? this._getCloneFootOffset()
+                    : (PLAYER.HEIGHT - SHOGUN_ACTOR_BASE_HEIGHT * 0.62) * scale;
+                const worldH = (typeof this.getWorldHeight === 'function') ? this.getWorldHeight() : PLAYER.HEIGHT * scale;
+                const worldW = (typeof this.getWorldWidth === 'function') ? this.getWorldWidth() : PLAYER.WIDTH * scale;
+                const actorRenderDY = worldH - footOffset - SHOGUN_ACTOR_BASE_HEIGHT * 0.62;
+                const renderPivotX = px + worldW * 0.5;
+                const renderPivotY = py + actorRenderDY + PLAYER.HEIGHT * 0.62;
+                const basePivotX = px + PLAYER.WIDTH * 0.5;
+                const basePivotY = py + PLAYER.HEIGHT * 0.62;
+                const proj = (nX, nY) => ({
+                    x: renderPivotX + (nX - basePivotX) * scale,
+                    y: renderPivotY + (nY - basePivotY) * scale
+                });
+                const t = proj(tipX, tipY);
+                tipX = t.x; tipY = t.y;
+                const h = proj(handX, handY);
+                handX = h.x; handY = h.y;
+            }
+        }
+
         return {
-            tipX: blade.tipX,
-            tipY: blade.tipY,
+            tipX,
+            tipY,
             dir: anchors.direction,
             comboStep: comboStep,
             progress: progress,
-            centerX: blade.handX,
-            centerY: blade.handY,
+            centerX: handX,
+            centerY: handY,
             originX: this.x + this.getWorldWidth() * 0.5,
             originY: this.y + this.getWorldHeight() * 0.5
         };
@@ -3243,13 +3380,15 @@ export function applySlashTrailMixin(PlayerClass) {
      * 二刀流コンボのトレイルを描画する。
      * 奥刀 = 青、手前刀 = 赤で、renderComboSlashTrail の描画インフラを再利用。
      */
-    PlayerClass.prototype.renderDualBladeSlashTrails = function(ctx) {
+    PlayerClass.prototype.renderDualBladeSlashTrails = function(ctx, options = {}) {
         const bluePalette = { front: [130, 234, 255], back: [76, 154, 226] };
         const redPalette = { front: [255, 90, 90], back: [214, 74, 74] };
         const isDualZActive = !!(
             this.subWeaponAction === '二刀_Z' &&
             this.subWeaponTimer > 0
         );
+        const physicalScale = Number.isFinite(options.physicalScale) && options.physicalScale > 1
+            ? options.physicalScale : 1;
 
         if (this.dualBladeBackTrailPoints.length >= 2) {
             this.renderComboSlashTrail(ctx, {
@@ -3257,6 +3396,7 @@ export function applySlashTrailMixin(PlayerClass) {
                 palette: bluePalette,
                 forceLinearSmooth: true,
                 isAttacking: isDualZActive,
+                physicalScale,
                 getBoostAnchor: (step) => this._dualBackBoostAnchor || null,
                 setBoostAnchor: (step, v) => { this._dualBackBoostAnchor = v; }
             });
@@ -3267,6 +3407,7 @@ export function applySlashTrailMixin(PlayerClass) {
                 palette: redPalette,
                 forceLinearSmooth: true,
                 isAttacking: isDualZActive,
+                physicalScale,
                 getBoostAnchor: (step) => this._dualFrontBoostAnchor || null,
                 setBoostAnchor: (step, v) => { this._dualFrontBoostAnchor = v; }
             });

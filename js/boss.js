@@ -22,7 +22,7 @@ import {
     SHOGUN_HIP_LIFT_PX,
     SHOGUN_SCALE
 } from './shogunConstants.js';
-import { createAIBrain } from './shogunBrains.js';
+
 
 // ボスベースクラス
 class Boss extends Enemy {
@@ -1505,7 +1505,14 @@ function createShogunBossPlayer(x, _y, _type, groundY) {
     boss.deathDuration = 1250;
     boss.hitTimer = 0;
     boss.aiDisabled = false;
-    boss.brain = createAIBrain();
+    boss.brain = {
+        kind: 'ai',
+        tick(self, deltaTime, ctx) {
+            if (self && typeof self.updateAI === 'function') {
+                self.updateAI(deltaTime, ctx && ctx.player);
+            }
+        }
+    };
     boss.hp = 4500;
     boss.maxHp = 4500;
     boss.damage = 6;

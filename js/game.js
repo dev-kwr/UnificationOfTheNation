@@ -4643,12 +4643,45 @@ class Game {
             });
             ctx.restore();
 
+            const shogunFrame = typeof player.getShogunRenderModelFrame === 'function'
+                ? player.getShogunRenderModelFrame()
+                : null;
+            const renderScaledTrail = (pivotX, pivotY, draw) => {
+                ctx.save();
+                ctx.translate(shogunFrame.renderPivotX, shogunFrame.renderPivotY);
+                ctx.scale(shogunFrame.scale, shogunFrame.scale);
+                ctx.translate(-pivotX, -pivotY);
+                draw();
+                ctx.restore();
+            };
+
             // 本体の通常コンボ剣筋・二刀軌跡は忍者・将軍とも同じ経路で描く（相対共通化）。
-            // ネイティブ将軍は Player 自身の剣筋トレイルを持つため、旧 boss 投影は不要。
-            player.renderComboSlashTrail(ctx);
-            player.renderDualBladeSlashTrails(ctx);
+            // 将軍は _projectShogunTrailPoseToWorldScale でサンプリング時にワールド座標化済みのため、
+            // canvas変換(renderScaledTrail)は不要。physicalScale で線幅のみスケールする。
+            const trailPhysicalScale = (shogunFrame && shogunFrame.scale > 1)
+                ? shogunFrame.scale
+                : 1;
+            if (typeof player.renderComboSlashTrail === 'function') {
+                player.renderComboSlashTrail(ctx, trailPhysicalScale > 1
+                    ? { physicalScale: trailPhysicalScale }
+                    : {});
+            }
+            if (typeof player.renderDualBladeSlashTrails === 'function') {
+                player.renderDualBladeSlashTrails(ctx, trailPhysicalScale > 1
+                    ? { physicalScale: trailPhysicalScale }
+                    : {});
+            }
 
             if (
+                player.currentSubWeapon &&
+                player.subWeaponRenderedInModel &&
+                typeof player.currentSubWeapon.renderWorldEffects === 'function'
+            ) {
+                ctx.save();
+                if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
+                player.currentSubWeapon.renderWorldEffects(ctx, player);
+                ctx.restore();
+            } else if (
                 player.currentSubWeapon &&
                 !player.subWeaponRenderedInModel &&
                 typeof player.currentSubWeapon.render === 'function'
@@ -4795,6 +4828,12 @@ class Game {
         player.render(ctx, { skipGlow: true });
 
         if (
+            player.currentSubWeapon &&
+            player.subWeaponRenderedInModel &&
+            typeof player.currentSubWeapon.renderWorldEffects === 'function'
+        ) {
+            player.currentSubWeapon.renderWorldEffects(ctx, player);
+        } else if (
             player.currentSubWeapon &&
             !player.subWeaponRenderedInModel &&
             typeof player.currentSubWeapon.render === 'function'

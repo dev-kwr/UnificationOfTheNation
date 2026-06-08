@@ -471,23 +471,10 @@ export function applySpecialMixin(PlayerClass) {
         return this.currentSubWeapon || null;
     };
 
-    // 将軍の所持忍具を本体スケール(scaleMultiplier)に拡大する。
-    // ネイティブ将軍は自分の subWeapons を直接使うため、本体＝分身が同一スケールで撃てるようにする。
+    // 旧互換名。将軍の忍具も refreshSubWeaponScaling を正本にし、
+    // baseRange は忍者基準のまま、range だけを所有者スケール込みで再計算する。
     PlayerClass.prototype._applyShogunSubWeaponScale = function() {
-        if (this._shogunWeaponsScaled) return;
-        const scale = Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1;
-        if (scale <= 1.001 || !Array.isArray(this.subWeapons)) return;
-        for (const w of this.subWeapons) {
-            if (!w) continue;
-            // 大太刀は描画・接地補正が武器側で scaleMultiplier 完結のため range 拡大対象外
-            if (w.name === '大太刀') continue;
-            if (Number.isFinite(w.range)) w.range *= scale;
-            if (Number.isFinite(w.baseRange)) w.baseRange *= scale;
-            if (w.name === '手裏剣') {
-                if (Number.isFinite(w.projectileRadius)) w.projectileRadius *= scale;
-                if (Number.isFinite(w.projectileRadiusHoming)) w.projectileRadiusHoming *= scale;
-            }
-        }
+        if (typeof this.refreshSubWeaponScaling === 'function') this.refreshSubWeaponScaling();
         this._shogunWeaponsScaled = true;
     };
 
@@ -501,7 +488,7 @@ export function applySpecialMixin(PlayerClass) {
         const pos = posOverride || (this.specialClonePositions ? this.specialClonePositions[index] : null);
         if (!pos) return null;
 
-        // ワールド寸法(忍者48x72 / 将軍88x132)で分身を world 箱中心に置く。
+        // ワールド寸法(忍者48x72 / 将軍=素体×SHOGUN_SCALE)で分身を world 箱中心に置く。
         const ownerW = (typeof this.getWorldWidth === 'function')
             ? this.getWorldWidth()
             : (Number.isFinite(this.width) ? this.width : PLAYER.WIDTH);
@@ -540,6 +527,7 @@ export function applySpecialMixin(PlayerClass) {
             y: renderBox ? renderBox.y : this.getSpecialCloneDrawY(pos.y),
             width: renderBox ? renderBox.width : PLAYER.WIDTH,
             height: renderBox ? renderBox.height : PLAYER.HEIGHT,
+            scaleMultiplier: Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1,
             vx: 0,
             vy: pos.cloneVy || 0,
             groundY: cloneGroundY,
@@ -612,6 +600,7 @@ export function applySpecialMixin(PlayerClass) {
             }
             owner.width = fresh.width;
             owner.height = fresh.height;
+            owner.scaleMultiplier = fresh.scaleMultiplier;
             owner.groundY = fresh.groundY;
             owner.facingRight = fresh.facingRight;
             owner.isCrouching = fresh.isCrouching;
@@ -679,10 +668,10 @@ export function applySpecialMixin(PlayerClass) {
         if (this.specialCloneSubWeaponInstances[index] && typeof this.specialCloneSubWeaponInstances[index].applyEnhanceTier === 'function') {
             this.specialCloneSubWeaponInstances[index].applyEnhanceTier(this.getCurrentSubWeaponEnhanceTier());
         }
-        // スケール済みの reach/弾サイズを「本体のアクティブ忍具」から同期する。
+        // 有効 reach/弾サイズを「本体のアクティブ忍具」から同期する。
         // createSubWeapon は base range で作るため、忍者は refreshSubWeaponScaling 済みの currentSubWeapon、
-        // 将軍は _applyShogunSubWeaponScale 済みの自身の currentSubWeapon へ getActiveSubWeaponInstance() で統一的に揃える。
-        // これにより Lv3 分身が本体と同一スケールで描画/弾道する（将軍の分身が小さくなる二重管理バグの解消）。
+        // 将軍も refreshSubWeaponScaling 済みの自身の currentSubWeapon へ getActiveSubWeaponInstance() で統一的に揃える。
+        // これにより Lv3 分身が本体と同じ有効値で描画/弾道する。
         const cloneInst = this.specialCloneSubWeaponInstances[index];
         const bodyActiveInst = (typeof this.getActiveSubWeaponInstance === 'function')
             ? this.getActiveSubWeaponInstance()
@@ -1265,7 +1254,12 @@ export function applySpecialMixin(PlayerClass) {
     };
 
     PlayerClass.prototype.getSpecialCloneDrawY = function(anchorY) {
-        // pivot はワールド身長(忍者72 / 将軍132)基準。getSpecialCloneRenderBox の ownerH と対。
+        // 将軍: renderModel のスケールピボットは素体高さ(SHOGUN_ACTOR_BASE_HEIGHT=60)の0.62で決まる。
+        // ワールド高さ(120)の0.62 = 74.4 を引くと37.2px 浮くため、素体高さ基準に切り替える。
+        if (this.characterType === 'shogun') {
+            return anchorY - SHOGUN_ACTOR_BASE_HEIGHT * 0.62;
+        }
+        // 忍者: ワールド身長(72)の0.62 = 44.64
         const h = (typeof this.getWorldHeight === 'function')
             ? this.getWorldHeight()
             : (Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT);

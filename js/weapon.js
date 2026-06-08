@@ -7,7 +7,7 @@ import { audio } from './audio.js';
 import { SHOGUN_SCALE } from './shogunConstants.js';
 
 // 武器ジオメトリは「武器を振る主体(owner/player)のワールド寸法」を基準に組み立てる。
-// 将軍は width/height が素体(40x60)なので getWorldWidth/Height(=88x132) を読む。
+// 将軍は width/height が素体(40x60)なので getWorldWidth/Height(=素体×SHOGUN_SCALE) を読む。
 // 忍者は getWorldWidth()===width なので不変。分身owner(plain object)やボスは
 // getWorldWidth を持たないため従来どおり .width/.height を返す（出力中立）。
 //
@@ -25,6 +25,17 @@ function ownerWorldHeight(o) {
     if (o._inRenderModel) return o.height;
     if (typeof o.getWorldHeight === 'function') return o.getWorldHeight();
     return o.height;
+}
+
+// range はゲーム内ワールド用の有効射程として持つ。
+// renderModel 内は ctx.scale(scaleMultiplier) 済みなので、モデル座標へ戻して二重スケールを防ぐ。
+function ownerModelRange(range, owner) {
+    const value = Number.isFinite(range) ? range : 0;
+    if (!owner || !owner._inRenderModel) return value;
+    const scale = Number.isFinite(owner.scaleMultiplier) && owner.scaleMultiplier > 0
+        ? owner.scaleMultiplier
+        : 1;
+    return scale > 1.001 ? value / scale : value;
 }
 
 function clampEnhanceTier(tier) {
@@ -910,7 +921,7 @@ export class Spear extends SubWeapon {
         const footY = player.y + ownerWorldHeight(player);
         const y = footY - 27;
         // 槍本体は常に最大到達長で維持し、突きは腕/体のモーションで表現する
-        const thrust = this.range * 0.84;
+        const thrust = ownerModelRange(this.range, player) * 0.84;
         const spearEnd = centerX + direction * thrust;
         const shaftStartX = centerX - direction * 2;
         const shaftStartY = y + 1;
@@ -1018,7 +1029,6 @@ export class Spear extends SubWeapon {
         }
         return hitboxes;
     }
-    
     render(ctx, player) {
         const actionVisible = !!(
             player &&
@@ -1619,7 +1629,9 @@ export class DualBlades extends SubWeapon {
                 life: 700 + this.enhanceTier * 90,
                 maxLife: 700 + this.enhanceTier * 90,
                 direction: this.attackDirection,
-                sizeScale: this.enhanceTier >= 3 ? 1.14 : 1.0,
+                // 将軍などscaleMultiplier > 1のキャラはプロジェクタイルもスケールアップする
+                sizeScale: (player && Number.isFinite(player.scaleMultiplier) && player.scaleMultiplier > 0
+                    ? player.scaleMultiplier : 1) * (this.enhanceTier >= 3 ? 1.14 : 1.0),
                 _owner: player // 発射時に座標を取得するために保持
             };
             // 効果音は発射のタイミングに合わせて鳴らすため、ここでは鳴らさない
@@ -1930,6 +1942,47 @@ export class DualBlades extends SubWeapon {
         return hitboxes.length > 0 ? hitboxes : null;
     }
     
+    renderProjectiles(ctx) {
+        // 飛翔する交差斬撃（高輝度の三日月クロス）
+        for (const p of this.projectiles) {
+            const alpha = p.life / p.maxLife;
+            const sizeScale = Number.isFinite(p.sizeScale) ? p.sizeScale : 1.0;
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.scale(p.direction * 1.35 * sizeScale, 1.35 * sizeScale);
+
+            const travelRatio = 1 - alpha;
+            const forward = travelRatio * 18;
+            const drawCrescent = (color, angle) => {
+                ctx.save();
+                ctx.translate(forward, 0);
+                ctx.rotate(angle);
+                ctx.globalAlpha = alpha;
+                // ctx.shadowColor = color;
+                // ctx.shadowBlur = 20;
+                ctx.fillStyle = color;
+
+                ctx.beginPath();
+                ctx.moveTo(0, -46);
+                ctx.bezierCurveTo(24, -22, 24, 22, 0, 46);
+                ctx.bezierCurveTo(7, 22, 7, -22, 0, -46);
+                ctx.fill();
+
+                ctx.restore();
+            };
+
+            // 近接の剣筋と色対応を揃える（奥の刀=青→上の三日月が青、手前の刀=赤→下の三日月が赤）
+            drawCrescent('rgba(80, 200, 255, 0.98)', -Math.PI / 4);
+            drawCrescent('rgba(255, 80, 80, 0.98)', Math.PI / 4);
+
+            ctx.restore();
+        }
+    }
+
+    renderWorldEffects(ctx) {
+        this.renderProjectiles(ctx);
+    }
+
     render(ctx, player) {
         const direction = this.isAttacking ? this.attackDirection : (player && player.facingRight ? 1 : -1);
         const enemyTrailBoost = player && player.type === 'boss' ? 1.2 : 1;
@@ -1990,40 +2043,7 @@ export class DualBlades extends SubWeapon {
             }
         };
 
-        // 1. 飛翔する交差斬撃（高輝度の三日月クロス）
-        for (const p of this.projectiles) {
-            const alpha = p.life / p.maxLife;
-            const sizeScale = Number.isFinite(p.sizeScale) ? p.sizeScale : 1.0;
-            ctx.save();
-            ctx.translate(p.x, p.y);
-            ctx.scale(p.direction * 1.35 * sizeScale, 1.35 * sizeScale);
-
-            const travelRatio = 1 - alpha;
-            const forward = travelRatio * 18;
-            const drawCrescent = (color, angle) => {
-                ctx.save();
-                ctx.translate(forward, 0);
-                ctx.rotate(angle);
-                ctx.globalAlpha = alpha;
-                // ctx.shadowColor = color;
-                // ctx.shadowBlur = 20;
-                ctx.fillStyle = color;
-
-                ctx.beginPath();
-                ctx.moveTo(0, -46);
-                ctx.bezierCurveTo(24, -22, 24, 22, 0, 46);
-                ctx.bezierCurveTo(7, 22, 7, -22, 0, -46);
-                ctx.fill();
-
-                ctx.restore();
-            };
-
-            // 近接の剣筋と色対応を揃える（奥の刀=青→上の三日月が青、手前の刀=赤→下の三日月が赤）
-            drawCrescent('rgba(80, 200, 255, 0.98)', -Math.PI / 4);
-            drawCrescent('rgba(255, 80, 80, 0.98)', Math.PI / 4);
-
-            ctx.restore();
-        }
+        this.renderProjectiles(ctx);
 
         if (!this.isAttacking) {
             this.prevMainRightAngle = null;
@@ -2246,10 +2266,14 @@ export class Kusarigama extends SubWeapon {
     getMotionState(player) {
         const direction = this.attackDirection;
         const progress = Math.max(0, Math.min(1, 1 - (this.attackTimer / this.totalDuration)));
+        // 将軍など scaleMultiplier が 1 超のキャラクターでは肩位置もスケール済みワールド座標で計算する
+        const ownerScale = (player && Number.isFinite(player.scaleMultiplier) && player.scaleMultiplier > 0)
+            ? player.scaleMultiplier : 1;
         const centerX = player.x + ownerWorldWidth(player) / 2;
-        const shoulderX = centerX - direction * 3; // player.js の frontShoulderX に合わせる
-        const shoulderY = player.y + 17; // player.js の pivotY (idle想定) に合わせる
+        const shoulderX = centerX - direction * 3 * ownerScale;
+        const shoulderY = player.y + 17 * ownerScale; // player.js の pivotY (idle想定) に合わせる
 
+        const effectiveRange = ownerModelRange(this.range, player);
         let radius = 0;
         let angle = 0;
         let phase = 'windup';
@@ -2262,7 +2286,7 @@ export class Kusarigama extends SubWeapon {
             const localX = 5.8 + (-17.2 - 5.8) * ease;
             const localY = 1.6 + (-15.2 - 1.6) * ease;
             // 振りかぶり中は鎖をほぼ伸ばさない
-            radius = this.range * this.rangeScale * (0.006 + 0.006 * ease);
+            radius = effectiveRange * this.rangeScale * (0.006 + 0.006 * ease);
             angle = -0.72 + ease * 0.18;
             const handX = shoulderX + direction * localX;
             const handY = shoulderY + localY;
@@ -2308,7 +2332,7 @@ export class Kusarigama extends SubWeapon {
             const handX = shoulderX + direction * localX;
             const handY = shoulderY + localY;
             const radiusEase = 1 - Math.pow(1 - throwT, 2.5);
-            radius = this.range * this.rangeScale * (0.015 + 0.985 * radiusEase);
+            radius = effectiveRange * this.rangeScale * (0.015 + 0.985 * radiusEase);
             angle = -0.56 + 0.66 * throwT - Math.sin(throwT * Math.PI) * 0.04;
             const chainDirX = direction * Math.cos(angle);
             const chainDirY = Math.sin(angle);
@@ -2333,7 +2357,7 @@ export class Kusarigama extends SubWeapon {
         } else if (progress < this.orbitEnd) {
             phase = 'orbit';
             phaseT = (progress - this.extendEnd) / (this.orbitEnd - this.extendEnd);
-            radius = this.range * this.rangeScale;
+            radius = effectiveRange * this.rangeScale;
             // 前方へ投げ放った後に遠心力を感じるよう、ゆっくり回し始める
             const eased = Math.pow(phaseT, 1.22);
             angle = 0.05 + (this.orbitBackAngle - 0.05) * eased; // 終点は後方斜め上で止める
@@ -2342,7 +2366,7 @@ export class Kusarigama extends SubWeapon {
             phaseT = (progress - this.orbitEnd) / (1 - this.orbitEnd);
             // 縮退も常に円弧上（角度と半径を同時補間）
             const eased = 0.5 - Math.cos(phaseT * Math.PI) * 0.5;
-            radius = this.range * this.rangeScale * (1 - eased * 0.9);
+            radius = effectiveRange * this.rangeScale * (1 - eased * 0.9);
             const startAngle = this.orbitBackAngle; // 回転終点に合わせて開始角も後方斜め上へ揃える
             const endAngle = -Math.PI * 0.18;
             angle = startAngle + (endAngle - startAngle) * eased;
@@ -2484,7 +2508,9 @@ export class Kusarigama extends SubWeapon {
             ? (state.chainHeading - state.direction * Math.PI * 0.5)
             : state.chainHeading;
         const rotation = travelHeading + state.direction * Math.PI * 0.28;
-        const reach = 16;
+        // 将軍など ownerScale > 1 のとき鎌刃の到達距離もスケールする
+        const ownerScale = (state.ownerScale && state.ownerScale > 0) ? state.ownerScale : 1;
+        const reach = 16 * ownerScale;
         return { rotation, reach };
     }
     
@@ -2520,19 +2546,25 @@ export class Kusarigama extends SubWeapon {
     getHitbox(player) {
         if (!this.isAttacking) return null;
 
+        // 将軍など scaleMultiplier > 1 のキャラはヒットボックスもスケールする
+        const ownerScale = (player && Number.isFinite(player.scaleMultiplier) && player.scaleMultiplier > 0)
+            ? player.scaleMultiplier : 1;
         const st = this.getRenderState(player);
+        // ownerScale を state に追加して getSickleGeometry が参照できるようにする
+        st.ownerScale = ownerScale;
         if (st.radius < 16) return null;
         const sickle = this.getSickleGeometry(st);
         const sickleTipX = st.tipX + Math.cos(sickle.rotation) * sickle.reach;
         const sickleTipY = st.tipY + Math.sin(sickle.rotation) * sickle.reach;
-        const bladeRootX = st.tipX + Math.cos(sickle.rotation) * 4.2;
-        const bladeRootY = st.tipY + Math.sin(sickle.rotation) * 4.2;
-        const tipHitbox = this.createCapsuleHitbox(bladeRootX, bladeRootY, sickleTipX, sickleTipY, 8.8, 'tip');
+        const bladeRootX = st.tipX + Math.cos(sickle.rotation) * 4.2 * ownerScale;
+        const bladeRootY = st.tipY + Math.sin(sickle.rotation) * 4.2 * ownerScale;
+        const tipRadius = 8.8 * ownerScale;
+        const tipHitbox = this.createCapsuleHitbox(bladeRootX, bladeRootY, sickleTipX, sickleTipY, tipRadius, 'tip');
         const hitboxes = [tipHitbox];
         const shouldHitWithChain = st.phase === 'orbit' || st.phase === 'retract' || (st.phase === 'throw' && st.phaseT >= 0.72);
         if (shouldHitWithChain) {
             const curve = this.getChainCurveControl(st);
-            const chainRadius = st.phase === 'orbit' ? 3.4 : 3.1;
+            const chainRadius = (st.phase === 'orbit' ? 3.4 : 3.1) * ownerScale;
             const chainLinks = Math.max(8, Math.min(24, Math.round(curve.chainLen / 13)));
             let prev = null;
             for (let i = 1; i < chainLinks; i++) {
@@ -3023,6 +3055,9 @@ export class Odachi extends SubWeapon {
     }
 
     getImpactXForPose(player, pose) {
+        if (pose && Number.isFinite(pose.handX)) {
+            return pose.handX;
+        }
         if (!player || !pose) return this.impactX;
         const frozen = this.impactFrozen || this.captureImpactFrozen(player);
         if (!frozen) return this.impactX;
@@ -3039,7 +3074,7 @@ export class Odachi extends SubWeapon {
         const handHeightRatio = 0.125;
         const scale = this.getOwnerVisualScale(player);
         const scaledBladeEnd = bladeEnd * scale;
-        let result = maxTipY - scaledBladeEnd - (ownerWorldHeight(player) * handHeightRatio * scale);
+        let result = maxTipY - scaledBladeEnd - (ownerWorldHeight(player) * handHeightRatio);
         result -= this.getOwnerRenderFootOffset(player);
         return result;
     }
@@ -3115,13 +3150,13 @@ export class Odachi extends SubWeapon {
         const tierSpeedScale = [1.0, 1.08, 1.2, 1.5][subWeaponTier];
         const speedScale = 1 + (rangeScale - 1) * 0.9;
         const lifeScale = 1 + (rangeScale - 1) * 1.25;
-        // 描画時にスケールされる場合、world speed を renderScale で割って視覚速度を揃える
+        // 描画時にスケールされるのに伴い、速度も ownerRenderScale に比例してスケールアップする
         const ownerRenderScale = (this.owner && this.owner.scaleMultiplier > 1)
             ? this.owner.scaleMultiplier : 1;
         const mainLife = Math.round(420 * lifeScale * tierLifeScale);
         const subLife = Math.round(320 * lifeScale * tierLifeScale);
-        const mainSpeed = 7.8 * speedScale * tierSpeedScale / ownerRenderScale;
-        const subSpeed = 9.4 * speedScale * tierSpeedScale / ownerRenderScale;
+        const mainSpeed = 7.8 * speedScale * tierSpeedScale * ownerRenderScale;
+        const subSpeed = 9.4 * speedScale * tierSpeedScale * ownerRenderScale;
         this.groundWaves.push(
             { x: this.impactX, y: this.impactY, dir: -1, life: mainLife, maxLife: mainLife, speed: mainSpeed, thickness: 28, core: 11 },
             { x: this.impactX, y: this.impactY, dir: 1, life: mainLife, maxLife: mainLife, speed: mainSpeed, thickness: 28, core: 11 },
@@ -3212,11 +3247,8 @@ export class Odachi extends SubWeapon {
 
                     if (tipY >= maxTipY - 2) {
                         // 接地した瞬間に「ぶら下がり高度」で停止
-                        const ownerScale = this.owner.scaleMultiplier || 1.0;
-                        const scaledBladeEnd = bladeEnd * ownerScale;
-                        const handOffsetUnscaled = (pose.phase === 'plunge' ? 16 : 7.5);
-                        const targetY = maxTipY - scaledBladeEnd - (handOffsetUnscaled - 12) * ownerScale;
-                        if (this.owner.y > targetY) {
+                        const targetY = this.getPlantedOwnerY(this.owner);
+                        if (Number.isFinite(targetY) && this.owner.y > targetY) {
                             this.owner.y = targetY;
                             this.owner.vy = 0;
                             this.owner.vx = 0; // impactFrozen保存前に vx をゼロにして applyPhysics() によるズレを防ぐ
@@ -3251,6 +3283,12 @@ export class Odachi extends SubWeapon {
                         const pose = this.getPose(this.owner);
                         this.impactX = this.getImpactXForPose(this.owner, pose);
                         this.impactY = this.owner.groundY + LANE_OFFSET;
+                        const targetY = this.getPlantedOwnerY(this.owner);
+                        if (Number.isFinite(targetY)) {
+                            this.owner.y = targetY;
+                            this.owner.vy = 0;
+                            this.owner.isGrounded = false;
+                        }
                     }
                     this.impactFlashTimer = 170;
                     this.spawnImpactWaves();
@@ -3273,6 +3311,12 @@ export class Odachi extends SubWeapon {
                         const pose2 = this.getPose(this.owner);
                         this.impactX = this.getImpactXForPose(this.owner, pose2);
                         this.impactY = this.owner.groundY + LANE_OFFSET;
+                        const targetY = this.getPlantedOwnerY(this.owner);
+                        if (Number.isFinite(targetY)) {
+                            this.owner.y = targetY;
+                            this.owner.vy = 0;
+                            this.owner.isGrounded = false;
+                        }
                     }
                     this.impactFlashTimer = 170;
                     this.spawnImpactWaves();
@@ -3363,6 +3407,19 @@ export class Odachi extends SubWeapon {
         return hitboxes.length > 0 ? hitboxes : null;
     }
     
+    renderWorldEffects(ctx, player = this.owner) {
+        const prevGroundOnly = this.renderOnlyGroundEffects;
+        const prevSuppress = this.suppressGroundEffectsRender;
+        this.renderOnlyGroundEffects = true;
+        this.suppressGroundEffectsRender = false;
+        try {
+            this.render(ctx, player || this.owner || null);
+        } finally {
+            this.renderOnlyGroundEffects = prevGroundOnly;
+            this.suppressGroundEffectsRender = prevSuppress;
+        }
+    }
+
     render(ctx, player) {
         const groundOnly = !!this.renderOnlyGroundEffects;
         // 攻撃中 OR 刺さり中 OR 強制描画指定時は刀身を描画
@@ -3663,26 +3720,36 @@ export class Odachi extends SubWeapon {
 
         // 着地インパクト
         if (!this.suppressGroundEffectsRender && this.impactFlashTimer > 0) {
+            const scaleMultiplier = (player && player.scaleMultiplier) ? player.scaleMultiplier : 1.0;
             const alpha = Math.max(0, this.impactFlashTimer / 170);
             ctx.save();
             ctx.globalCompositeOperation = 'lighter';
             
             ctx.strokeStyle = `rgba(255, 200, 100, ${alpha})`;
-            ctx.lineWidth = 6 + (1 - alpha) * 4;
+            ctx.lineWidth = (6 + (1 - alpha) * 4) * scaleMultiplier;
             ctx.beginPath();
-            ctx.ellipse(this.impactX, this.impactY, 20 + (1 - alpha) * 45, 8 + (1-alpha)*12, 0, 0, Math.PI * 2);
+            ctx.ellipse(
+                this.impactX, 
+                this.impactY, 
+                (20 + (1 - alpha) * 45) * scaleMultiplier, 
+                (8 + (1 - alpha) * 12) * scaleMultiplier, 
+                0, 
+                0, 
+                Math.PI * 2
+            );
             ctx.stroke();
             
             const coreAlpha = Math.pow(alpha, 0.5);
             ctx.fillStyle = `rgba(255, 230, 200, ${coreAlpha * 0.8})`;
             ctx.beginPath();
-            ctx.arc(this.impactX, this.impactY, 12, 0, Math.PI * 2);
+            ctx.arc(this.impactX, this.impactY, 12 * scaleMultiplier, 0, Math.PI * 2);
             ctx.fill();
             ctx.restore();
         }
 
         // 衝撃波
         if (!this.suppressGroundEffectsRender && this.groundWaves && this.groundWaves.length > 0) {
+            const scaleMultiplier = (player && player.scaleMultiplier) ? player.scaleMultiplier : 1.0;
             for (let i = 0; i < this.groundWaves.length; i++) {
                 const sw = this.groundWaves[i];
                 if (!sw) continue;
@@ -3693,7 +3760,7 @@ export class Odachi extends SubWeapon {
                 
                 ctx.save();
                 ctx.translate(px, py);
-                ctx.scale(sw.dir || 1, 1);
+                ctx.scale((sw.dir || 1) * scaleMultiplier, scaleMultiplier);
                 ctx.globalAlpha = ratio * 1.5;
                 ctx.globalCompositeOperation = 'lighter';
                 
@@ -3723,13 +3790,14 @@ export class Odachi extends SubWeapon {
         }
 
         if (!this.suppressGroundEffectsRender && this.impactDebris.length > 0) {
+            const scaleMultiplier = (player && player.scaleMultiplier) ? player.scaleMultiplier : 1.0;
             for (const p of this.impactDebris) {
                 const life = Math.max(0, p.life / p.maxLife);
                 ctx.save();
                 ctx.globalAlpha = life;
                 ctx.fillStyle = 'rgba(198, 166, 116, 0.72)';
                 ctx.beginPath();
-                ctx.arc(p.x, p.y, p.size * (0.75 + life * 0.5), 0, Math.PI * 2);
+                ctx.arc(p.x, p.y, p.size * (0.75 + life * 0.5) * scaleMultiplier, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.restore();
             }

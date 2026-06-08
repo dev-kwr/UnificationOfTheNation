@@ -436,7 +436,7 @@
         ninja.currentSubWeapon = ninja.subWeapons[0];
         ninja.subWeaponIndex = 0;
         // [E3] プレイアブル将軍を Player ネイティブ戦闘＋描画に切替（boss 非依存）。
-        // dims/scale は上の初回 update(409) で設定済み。ここで native 化＋忍具スケールを適用。
+        // dims/scale は上の初回 update(409) で設定済み。忍具の有効値は refreshSubWeaponScaling に集約する。
         if (typeof shogunPlayer.enableNativeShogun === 'function') shogunPlayer.enableNativeShogun();
         game.player = shogunPlayer;
         game.initStage(1);
