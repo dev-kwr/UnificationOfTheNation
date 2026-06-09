@@ -345,21 +345,16 @@
     </div>
 
     <script type="module">
-        import { Player } from './js/player.js';
-        import { game } from './js/game.js';
-        import { createSubWeapon } from './js/weapon.js';
-        import { input } from './js/input.js';
-        import { GAME_STATE } from './js/constants.js';
-
         // 描画系・戦闘ヘルパは頻繁に編集するため、ESモジュールキャッシュ対策として
         // バージョン付きdynamic importで毎回最新を取得する（bare URL の静的importは
         // ブラウザのモジュールマップに固定され更新されないため）。
         const _bustParam = new URLSearchParams(location.search).get('_t') || String(Date.now());
-        const { applyRendererMixin } = await import('./js/playerRenderer.js?v=' + _bustParam);
-        applyRendererMixin(Player);
-        const { applySlashTrailMixin } = await import('./js/playerSlashTrail.js?v=' + _bustParam);
-        applySlashTrailMixin(Player);
-        // 将軍はゲームの実プレイアブル将軍(Player+applyShogunCombat)として生成する。
+        const { Player } = await import('./js/player.js?v=' + _bustParam);
+        const { game } = await import('./js/game.js?v=' + _bustParam);
+        const { createSubWeapon } = await import('./js/weapon.js?v=' + _bustParam);
+        const { input } = await import('./js/input.js?v=' + _bustParam);
+        console.log('[character_preview.html] Imported input instance:', input ? input.instanceId : 'undefined');
+        const { GAME_STATE } = await import('./js/constants.js?v=' + _bustParam);
         const { applyShogunCombat } = await import('./js/shogunCombatHelper.js?v=' + _bustParam);
 
         // --- ゲーム実体 & 初期化 ---
@@ -446,6 +441,10 @@
         let lastTime = performance.now();
         let subIndex = 0;
         let isPaused = false;
+        Object.defineProperty(window, 'isPaused', {
+            get: () => isPaused,
+            set: (val) => { isPaused = val; }
+        });
         window.lastNinjaSubIndex = -1;
         window._previewWeapon = subWeapons[0];
         const equipShogunPreviewWeapon = (key) => {
@@ -532,7 +531,8 @@
             const actor = syncGameState();
             // 中央寄せは構築時と同じ計算に統一する。
             actor.x = logicalW / 2 - actor.getWorldWidth() / 2;
-            actor.y = groundY - actor.getWorldHeight();
+            const laneOffset = 32; // LANE_OFFSET と一貫
+            actor.y = groundY + laneOffset - actor.getWorldHeight();
             actor.vx = 0; actor.vy = 0;
             if (mode === 'shogun' && shogun) { shogun.x = actor.x; shogun.vx = 0; }
             updateUI();
@@ -778,6 +778,9 @@
                     if (ninja.x < _viewLeft - ninja.width - 20) ninja.x = _viewRight + 10;
                     else if (ninja.x > _viewRight + 20) ninja.x = _viewLeft - ninja.width - 10;
                 }
+                
+                // 入力状態の更新（実際のシミュレーションフレームの最後で実行することで、JustPressedの伝達を物理ステップと1:1で同期する）
+                input.update();
             }
 
             // 背景はプレビュー用、キャラ/忍具はゲーム側の共通描画を使う。
@@ -794,7 +797,7 @@
             }
 
             ctx.fillStyle = '#555';
-            ctx.fillRect(-logicalW * 2, groundY, logicalW * 5, logicalH * 4);
+            ctx.fillRect(-logicalW * 2, groundY + 32, logicalW * 5, logicalH * 4);
             ctx.strokeStyle = 'rgba(255,255,255,0.1)';
             ctx.lineWidth = 1;
             ctx.beginPath();
@@ -807,9 +810,6 @@
             
             // UIの同期
             updateUI();
-            
-            // 入力状態の更新（フレームの最後で行うことで、現在のフレーム内でJustPressedが正しく拾えるようにする）
-            input.update();
             
             requestAnimationFrame(loop);
         }

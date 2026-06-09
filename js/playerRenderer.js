@@ -4953,7 +4953,9 @@ export function applyRendererMixin(PlayerClass) {
                         saved.subWeaponAction ||
                         saved.currentSubWeapon.isAttacking ||
                         (saved.currentSubWeapon.plantedTimer || 0) > 0 ||
-                        (saved.currentSubWeapon.fadeOutTimer || 0) > 0
+                        (saved.currentSubWeapon.fadeOutTimer || 0) > 0 ||
+                        (Array.isArray(saved.currentSubWeapon.groundWaves) && saved.currentSubWeapon.groundWaves.length > 0) ||
+                        (Array.isArray(saved.currentSubWeapon.projectiles) && saved.currentSubWeapon.projectiles.length > 0)
                     )
                 );
                 // ミラー時は本体の saved.currentSubWeapon を分身へ反映（将軍も忍者も同一経路）。
@@ -5220,7 +5222,7 @@ export function applyRendererMixin(PlayerClass) {
                             points: cloneTrailRenderPoints,
                             isAttacking: isCloneAttacking,
                             attackState: cloneAttackState,
-                            physicalScale: transformCloneTrailPoints ? cloneTrailPhysicalScale : undefined,
+                            physicalScale: (this.scaleMultiplier || 1.0) * (transformCloneTrailPoints ? cloneTrailPhysicalScale : 1.0),
                             boostActive: transformCloneTrailPoints ? false : undefined,
                             getBoostAnchor: () => (
                                 !transformCloneTrailPoints &&
@@ -5266,7 +5268,7 @@ export function applyRendererMixin(PlayerClass) {
                                 palette: bluePalette,
                                 forceLinearSmooth: true,
                                 isAttacking: true,
-                                physicalScale: transformCloneTrailPoints ? cloneTrailPhysicalScale : undefined,
+                                physicalScale: (this.scaleMultiplier || 1.0) * (transformCloneTrailPoints ? cloneTrailPhysicalScale : 1.0),
                                 boostActive: transformCloneTrailPoints ? false : undefined,
                                 getBoostAnchor: () => null,
                                 setBoostAnchor: () => {}
@@ -5278,7 +5280,7 @@ export function applyRendererMixin(PlayerClass) {
                                 palette: redPalette,
                                 forceLinearSmooth: true,
                                 isAttacking: true,
-                                physicalScale: transformCloneTrailPoints ? cloneTrailPhysicalScale : undefined,
+                                physicalScale: (this.scaleMultiplier || 1.0) * (transformCloneTrailPoints ? cloneTrailPhysicalScale : 1.0),
                                 boostActive: transformCloneTrailPoints ? false : undefined,
                                 getBoostAnchor: () => null,
                                 setBoostAnchor: () => {}
@@ -5287,7 +5289,6 @@ export function applyRendererMixin(PlayerClass) {
                     }
 
                     if (
-                        !shouldMirrorSavedSubWeapon &&
                         cloneSubWeaponActive &&
                         cloneSubWeaponInstance &&
                         !this.subWeaponRenderedInModel &&
@@ -5302,7 +5303,6 @@ export function applyRendererMixin(PlayerClass) {
                             active: true
                         });
                     } else if (
-                        !shouldMirrorSavedSubWeapon &&
                         this.currentSubWeapon &&
                         !this.subWeaponRenderedInModel &&
                         typeof this.currentSubWeapon.render === 'function'

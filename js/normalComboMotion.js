@@ -48,8 +48,9 @@ export function applyNormalComboStartMotion(actor, attackProfile, options = {}) 
     }
 
     if (step === 3) {
-        actor.vx = actor.vx * 0.12 + direction * impulse * 1.71;
-        actor.vy = Math.min(actor.vy, NORMAL_COMBO_STEP3_LAUNCH_VY);
+        const scaleMult = actor.scaleMultiplier || 1.0;
+        actor.vx = actor.vx * 0.12 + direction * impulse * 1.71 * scaleMult;
+        actor.vy = Math.min(actor.vy, NORMAL_COMBO_STEP3_LAUNCH_VY * Math.sqrt(scaleMult));
         actor.isGrounded = false;
         return true;
     }

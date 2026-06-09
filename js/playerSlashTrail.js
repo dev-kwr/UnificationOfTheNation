@@ -376,10 +376,22 @@ export function applySlashTrailMixin(PlayerClass) {
                 Object.assign(attackProfile, step2TrailSpec);
             }
         } else if (attackProfile.comboStep === 4) {
-            const step4TrailArc = this.buildComboStep4TrailArcSpec({
+            const step3EndPose = this.getComboSwordPoseReference(3, 1.0, {
                 ...baseState,
-                attack: attackProfile
+                x: baseState.x,
+                y: baseState.y
             });
+            const step4TrailArc = this.buildComboStep4TrailArcSpec(
+                {
+                    ...baseState,
+                    attack: attackProfile
+                },
+                {
+                    fixedStartPoint: step3EndPose
+                        ? { x: step3EndPose.trailTipX, y: step3EndPose.trailTipY }
+                        : null
+                }
+            );
             if (step4TrailArc) {
                 Object.assign(attackProfile, step4TrailArc);
             }
@@ -522,6 +534,14 @@ export function applySlashTrailMixin(PlayerClass) {
         const px = Number.isFinite(baseState.x) ? baseState.x : this.x;
         const py = Number.isFinite(baseState.y) ? baseState.y : this.y;
 
+        // 絶対座標（trailIsRelative: false）の投影ピボット計算において、
+        // 毎フレーム変化するプレイヤーの現在座標（px, py）を使用すると、
+        // プレイヤーの高速な移動（特にステップ4の上昇）によって投影後の絶対座標が並行移動・浮遊してしまう。
+        // これを防ぐため、アタックプロファイル作成時に保存された攻撃開始時の固定座標
+        // （pose.trailTransformPlayerX / Y）を静的ピボット（アンカー）として使用する。
+        const anchorX = (pose && Number.isFinite(pose.trailTransformPlayerX)) ? pose.trailTransformPlayerX : px;
+        const anchorY = (pose && Number.isFinite(pose.trailTransformPlayerY)) ? pose.trailTransformPlayerY : py;
+
         // 将軍のワールドスケールにおけるレンダーピボット（回転中心）をプレイヤー座標相対で計算。
         // renderModel 内では素体(40x60)を canvas scale×2.0 で拡大するため:
         //   actorRenderDY = worldH - footOffset - SHOGUN_ACTOR_BASE_HEIGHT * 0.62
@@ -535,19 +555,19 @@ export function applySlashTrailMixin(PlayerClass) {
         const worldW = (typeof this.getWorldWidth === 'function') ? this.getWorldWidth() : PLAYER.WIDTH * scale;
         const actorRenderDY = worldH - footOffset - SHOGUN_ACTOR_BASE_HEIGHT * 0.62;
 
-        // 絶対座標用のレンダーピボット（プレイヤーの現在のワールド座標を含む）
-        const renderPivotX_Abs = px + worldW * 0.5;
-        const renderPivotY_Abs = py + actorRenderDY + PLAYER.HEIGHT * 0.62;
+        // 絶対座標用のレンダーピボット（攻撃開始時の固定ピクセル、または現在位置を含む）
+        const renderPivotX_Abs = anchorX + worldW * 0.5;
+        const renderPivotY_Abs = anchorY + actorRenderDY + PLAYER.HEIGHT * 0.62;
 
         // 相対座標用のレンダーピボット（プレイヤーの現在の座標を含まず、純粋な相対オフセットの原点基準）
-        // renderPivotX_Abs から px を引き、renderPivotY_Abs から py を引いたもの。
+        // renderPivotX_Abs から px を引き, renderPivotY_Abs から py を引いたもの。
         const renderPivotX_Rel = worldW * 0.5;
         const renderPivotY_Rel = actorRenderDY + PLAYER.HEIGHT * 0.62;
 
         // ninja基準のピボット：
-        // 絶対座標ポイント用（px, py を含む）
-        const basePivotX_Abs = px + PLAYER.WIDTH * 0.5;
-        const basePivotY_Abs = py + PLAYER.HEIGHT * 0.62;
+        // 絶対座標ポイント用（anchorX, anchorY を含む）
+        const basePivotX_Abs = anchorX + PLAYER.WIDTH * 0.5;
+        const basePivotY_Abs = anchorY + PLAYER.HEIGHT * 0.62;
         // 相対座標ポイント用（px, py を含まない）
         const basePivotX_Rel = PLAYER.WIDTH * 0.5;
         const basePivotY_Rel = PLAYER.HEIGHT * 0.62;
@@ -812,6 +832,7 @@ export function applySlashTrailMixin(PlayerClass) {
         const controlYMax = Math.max(start.y, mid.y, end.y) + 160;
         controlX = Math.max(controlXMin, Math.min(controlXMax, controlX));
         controlY = Math.max(controlYMin, Math.min(controlYMax, controlY));
+        controlY -= 75; // 頭部・ハチマキをかすめないよう、制御点Yをさらに上方に大きく引き上げる
         return {
             trailCurveStartX: start.x,
             trailCurveStartY: start.y,
@@ -825,7 +846,7 @@ export function applySlashTrailMixin(PlayerClass) {
         };
     };
 
-    PlayerClass.prototype.buildComboStep4TrailArcSpec = function(state = {}) {
+    PlayerClass.prototype.buildComboStep4TrailArcSpec = function(state = {}, options = {}) {
         const x = state.x !== undefined ? state.x : this.x;
         const y = state.y !== undefined ? state.y : this.y;
         const { width, height } = this.getComboPoseDimensions(state);
@@ -896,7 +917,13 @@ export function applySlashTrailMixin(PlayerClass) {
         const startBody = sampledBodies[0] || { x, y };
         const midBody = sampledBodies[1] || startBody;
         const endBody = sampledBodies[2] || midBody;
-        const start = pointAt(0.0, startBody.x, startBody.y);
+        const start = (
+            options.fixedStartPoint &&
+            Number.isFinite(options.fixedStartPoint.x) &&
+            Number.isFinite(options.fixedStartPoint.y)
+        )
+            ? { x: options.fixedStartPoint.x, y: options.fixedStartPoint.y }
+            : pointAt(0.0, startBody.x, startBody.y);
         const mid = pointAt(0.24, midBody.x, midBody.y);
         const end = pointAt(0.42, endBody.x, endBody.y);
         const verticalSpan = Math.abs(end.y - start.y);
@@ -2454,7 +2481,12 @@ export function applySlashTrailMixin(PlayerClass) {
             );
             const mid = stabilizedPts[midIndex];
             let controlX = 2 * mid.x - (start.x + end.x) * 0.5;
-            const controlY = 2 * mid.y - (start.y + end.y) * 0.5;
+            let controlY = 2 * mid.y - (start.y + end.y) * 0.5;
+            if (comboStep === 2) {
+                const highestY = Math.min(start.y, end.y);
+                const limitY = highestY - Math.abs(start.y - end.y) * 0.55;
+                controlY = Math.min(controlY, limitY);
+            }
             // 二次ベジェの制御点(mid由来)が、振りの両端(始点=最古サンプル / 終点=最新サンプル=切先)の
             // X範囲を超えて前方へ飛ぶと、軌跡が切先を追い越して「行き過ぎ」る。制御点Xを両端のX範囲に
             // 収め、軌跡が切先より前へ膨らまないようにする（縦方向の弧=controlYは維持）。

@@ -714,4 +714,15 @@ class InputManager {
 }
 
 // シングルトンとしてエクスポート
-export const input = new InputManager();
+// プレビュー等の開発環境において、キャッシュバスター付きの動的インポート（dynamic import）と
+// 通常の静的インポート（static import）が混在した際、InputManager のインスタンスが分裂し、
+// keysJustPressed のクリアが伝達されなくなって無限連打暴発を引き起こすバグを防止するため、
+// window.gameInput に一元化して共有する。
+if (!window.gameInput) {
+    window.gameInput = new InputManager();
+    window.gameInput.instanceId = 'Instance_' + Math.random().toString(36).substring(2, 9);
+    console.log('[InputManager] Created new instance:', window.gameInput.instanceId);
+} else {
+    console.log('[InputManager] Reusing existing instance:', window.gameInput.instanceId);
+}
+export const input = window.gameInput;

@@ -744,4 +744,11 @@ class AudioManager {
     }
 }
 
-export const audio = new AudioManager();
+// シングルトンとしてエクスポート
+// InputManager同様、動的インポートと静的インポートの混在によるインスタンス分裂を防止し、
+// ミュート状態などの再生ステートを完全に同期するため、window.gameAudio を経由して一元化する。
+if (!window.gameAudio) {
+    window.gameAudio = new AudioManager();
+}
+export const audio = window.gameAudio;
+

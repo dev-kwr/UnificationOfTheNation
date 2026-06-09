@@ -380,7 +380,8 @@ export function applySpecialMixin(PlayerClass) {
                 isCrouching: false,
                 vx: clonePos ? (clonePos.renderVx || 0) : this.vx,
                 vy: clonePos ? (clonePos.cloneVy || 0) : this.vy,
-                speed: this.speed
+                speed: this.speed,
+                groundY: clonePos ? (clonePos.groundY || this.groundY) : this.groundY
             });
             profile.trailAttackId = ++this.comboSlashTrailAttackSerial;
             if (clonePos) {
@@ -506,27 +507,31 @@ export function applySpecialMixin(PlayerClass) {
         return {
             x: renderX,
             y: renderY,
-            width: PLAYER.WIDTH,
-            height: PLAYER.HEIGHT
+            width: this.characterType === 'shogun' ? SHOGUN_ACTOR_BASE_WIDTH : PLAYER.WIDTH,
+            height: this.characterType === 'shogun' ? SHOGUN_ACTOR_BASE_HEIGHT : PLAYER.HEIGHT
         };
     };
 
     PlayerClass.prototype.buildSpecialCloneSubWeaponOwner = function(index, inst = null) {
         const pos = this.specialClonePositions ? this.specialClonePositions[index] : null;
         if (!pos) return null;
-        const renderBox = typeof this.getSpecialCloneRenderBox === 'function'
-            ? this.getSpecialCloneRenderBox(index, pos)
-            : null;
         const cloneGroundY = typeof this.getSpecialCloneGroundYAtX === 'function'
             ? this.getSpecialCloneGroundYAtX(pos.x)
             : this.groundY;
+        const worldWidth = typeof this.getWorldWidth === 'function' ? this.getWorldWidth() : PLAYER.WIDTH;
+        const worldHeight = typeof this.getWorldHeight === 'function' ? this.getWorldHeight() : PLAYER.HEIGHT;
         return {
             _specialCloneOwner: true,
             _specialCloneIndex: index,
-            x: renderBox ? renderBox.x : (pos.x - PLAYER.WIDTH * 0.5),
-            y: renderBox ? renderBox.y : this.getSpecialCloneDrawY(pos.y),
-            width: renderBox ? renderBox.width : PLAYER.WIDTH,
-            height: renderBox ? renderBox.height : PLAYER.HEIGHT,
+            characterType: this.characterType,
+            actorBaseWidth: this.characterType === 'shogun' ? SHOGUN_ACTOR_BASE_WIDTH : PLAYER.WIDTH,
+            actorBaseHeight: this.characterType === 'shogun' ? SHOGUN_ACTOR_BASE_HEIGHT : PLAYER.HEIGHT,
+            getWorldWidth: function() { return this.width * (this.scaleMultiplier || 1); },
+            getWorldHeight: function() { return this.height * (this.scaleMultiplier || 1); },
+            x: pos.x - worldWidth * 0.5,
+            y: pos.y + this._getCloneFootOffset() - worldHeight,
+            width: this.characterType === 'shogun' ? SHOGUN_ACTOR_BASE_WIDTH : PLAYER.WIDTH,
+            height: this.characterType === 'shogun' ? SHOGUN_ACTOR_BASE_HEIGHT : PLAYER.HEIGHT,
             scaleMultiplier: Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1,
             vx: 0,
             vy: pos.cloneVy || 0,
@@ -601,6 +606,9 @@ export function applySpecialMixin(PlayerClass) {
             owner.width = fresh.width;
             owner.height = fresh.height;
             owner.scaleMultiplier = fresh.scaleMultiplier;
+            owner.characterType = fresh.characterType;
+            owner.actorBaseWidth = fresh.actorBaseWidth;
+            owner.actorBaseHeight = fresh.actorBaseHeight;
             owner.groundY = fresh.groundY;
             owner.facingRight = fresh.facingRight;
             owner.isCrouching = fresh.isCrouching;

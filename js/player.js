@@ -4,6 +4,7 @@
 
 import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js';
 import { input } from './input.js';
+console.log('[player.js] Imported input instance:', input ? input.instanceId : 'undefined');
 import { audio } from './audio.js';
 import { game } from './game.js';
 import {
@@ -29,6 +30,8 @@ import {
     SHOGUN_ACTOR_BASE_WIDTH,
     SHOGUN_CROUCH_INTENSITY
 } from './shogunConstants.js';
+
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
 export { ANIM_STATE };
 
@@ -687,13 +690,11 @@ export class Player {
             this.currentSubWeapon &&
             this.currentSubWeapon.name === '二刀流'
         );
-        // 二刀流はZ攻撃・飛翔斬撃ともにScale=1（分身と速度を合わせる）
-        const isDualBladeAction = !!(
+        const isDualBlade = !!(
             this.currentSubWeapon &&
-            this.currentSubWeapon.name === '二刀流' &&
-            (this.subWeaponAction === '二刀_Z' || this.subWeaponAction === '二刀_合体')
+            this.currentSubWeapon.name === '二刀流'
         );
-        const subWeaponScale = isDualBladeAction ? 1 : Math.max(1, this.subWeaponMotionScale || 1);
+        const subWeaponScale = isDualBlade ? 1 : Math.max(1, this.subWeaponMotionScale || 1);
         const subWeaponDeltaMs = (deltaTime * 1000) / subWeaponScale;
         
         // サブ武器タイマー更新 (開始時にスケール済みのため、生の時間で減算して二重スケールを防止)
@@ -1311,7 +1312,8 @@ export class Player {
             isCrouching: this.isCrouching,
             vx: this.vx,
             vy: this.vy,
-            speed: this.speed
+            speed: this.speed,
+            groundY: this.groundY
         });
         this.currentAttack.trailAttackId = ++this.comboSlashTrailAttackSerial;
         this.attackTimer = this.currentAttack.durationMs;
