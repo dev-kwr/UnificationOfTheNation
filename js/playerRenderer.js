@@ -3260,10 +3260,10 @@ export function applyRendererMixin(PlayerClass) {
                 let backAngle = pose.leftAngle;
                 let frontAngle = pose.rightAngle;
 
-                // 1枚目の状態（斜め右上、約-0.65〜-0.55ラジアン）以上に上昇中に振りかぶらないようクランプする
+                // 1枚目の状態（斜め右上、約-0.85〜-0.82ラジアン）以上に上昇中に振りかぶらないようクランプする
                 if (comboProgress < 0.42) {
-                    backAngle = Math.max(-0.65, backAngle);
-                    frontAngle = Math.max(-0.55, frontAngle);
+                    backAngle = Math.max(-0.85, backAngle);
+                    frontAngle = Math.max(-0.82, frontAngle);
                 }
 
                 const endBend = smoothStep01((comboProgress - 0.8) / 0.2);
@@ -3497,12 +3497,18 @@ export function applyRendererMixin(PlayerClass) {
                 rightWeaponAngleRaw = pose.rightAngle - comboStep4AngleDive;
 
                 if (comboStep === 4) {
-                    const flipTForAngle = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.58));
-                    const airRecoverTForAngle = Math.max(0, Math.min(1, (flipTForAngle - 0.42) / 0.58));
-                    if (airRecoverTForAngle > 0) {
-                        const airRecover = airRecoverTForAngle * airRecoverTForAngle * (3 - 2 * airRecoverTForAngle);
-                        leftWeaponAngleRaw = leftWeaponAngleRaw + (idleLeftBladeAngle - leftWeaponAngleRaw) * airRecover;
-                        rightWeaponAngleRaw = rightWeaponAngleRaw + (idleRightBladeAngle - rightWeaponAngleRaw) * airRecover;
+                    if (comboProgress < 0.42) {
+                        // 上昇中は 1枚目の状態（斜め右上、約-0.85〜-0.82ラジアン）以上に振りかぶらないよう手のクランプと同期
+                        leftWeaponAngleRaw = Math.max(-0.85, leftWeaponAngleRaw);
+                        rightWeaponAngleRaw = Math.max(-0.82, rightWeaponAngleRaw);
+                    } else {
+                        const flipTForAngle = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.58));
+                        const airRecoverTForAngle = Math.max(0, Math.min(1, (flipTForAngle - 0.42) / 0.58));
+                        if (airRecoverTForAngle > 0) {
+                            const airRecover = airRecoverTForAngle * airRecoverTForAngle * (3 - 2 * airRecoverTForAngle);
+                            leftWeaponAngleRaw = leftWeaponAngleRaw + (idleLeftBladeAngle - leftWeaponAngleRaw) * airRecover;
+                            rightWeaponAngleRaw = rightWeaponAngleRaw + (idleRightBladeAngle - rightWeaponAngleRaw) * airRecover;
+                        }
                     }
                 }
             }
@@ -3513,12 +3519,18 @@ export function applyRendererMixin(PlayerClass) {
             let leftTrailAngleRaw = (comboStep === 4) ? pose.leftAngle : leftWeaponAngleRaw;
             let rightTrailAngleRaw = (comboStep === 4) ? pose.rightAngle : rightWeaponAngleRaw;
             if (comboStep === 4) {
-                const flipTForAngle = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.58));
-                const airRecoverTForAngle = Math.max(0, Math.min(1, (flipTForAngle - 0.42) / 0.58));
-                if (airRecoverTForAngle > 0) {
-                    const airRecover = airRecoverTForAngle * airRecoverTForAngle * (3 - 2 * airRecoverTForAngle);
-                    leftTrailAngleRaw = leftTrailAngleRaw + (idleLeftBladeAngle - leftTrailAngleRaw) * airRecover;
-                    rightTrailAngleRaw = rightTrailAngleRaw + (idleRightBladeAngle - rightTrailAngleRaw) * airRecover;
+                if (comboProgress < 0.42) {
+                    // 上昇中の剣筋追従用角度も、見た目の刀・手と完璧に同期させる
+                    leftTrailAngleRaw = Math.max(-0.85, leftTrailAngleRaw);
+                    rightTrailAngleRaw = Math.max(-0.82, rightTrailAngleRaw);
+                } else {
+                    const flipTForAngle = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.58));
+                    const airRecoverTForAngle = Math.max(0, Math.min(1, (flipTForAngle - 0.42) / 0.58));
+                    if (airRecoverTForAngle > 0) {
+                        const airRecover = airRecoverTForAngle * airRecoverTForAngle * (3 - 2 * airRecoverTForAngle);
+                        leftTrailAngleRaw = leftTrailAngleRaw + (idleLeftBladeAngle - leftTrailAngleRaw) * airRecover;
+                        rightTrailAngleRaw = rightTrailAngleRaw + (idleRightBladeAngle - rightTrailAngleRaw) * airRecover;
+                    }
                 }
             }
             const toAdjustedAngle = (rawAngle) => rawAngle + (uprightTarget - rawAngle) * uprightBlend;
@@ -5073,11 +5085,12 @@ export function applyRendererMixin(PlayerClass) {
                 if (cloneOdachiHanging && visualSubWeaponInstance && typeof visualSubWeaponInstance.getPlantedOwnerY === 'function') {
                     const virtualPlayer = {
                         groundY: this.groundY,
-                        height: this.height,
-                        scaleMultiplier: this.scaleMultiplier || 1.0,
+                        height: SHOGUN_ACTOR_BASE_HEIGHT,
+                        scaleMultiplier: 1.0, // 分身は常に等倍 (1.0x) で描画されるため
                         characterType: this.characterType,
                         actorBaseHeight: this.actorBaseHeight,
-                        getWorldHeight: typeof this.getWorldHeight === 'function' ? () => this.getWorldHeight() : undefined
+                        getWorldHeight: () => SHOGUN_ACTOR_BASE_HEIGHT,
+                        _getCloneFootOffset: () => this._getCloneFootOffset(1.0)
                     };
                     cloneDrawY = visualSubWeaponInstance.getPlantedOwnerY(virtualPlayer);
                 }

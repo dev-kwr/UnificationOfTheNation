@@ -1043,6 +1043,9 @@ export function applySlashTrailMixin(PlayerClass) {
         // t=0.5 で固定の中間点を通る制御点を逆算する
         const controlX = 2 * mid.x - (start.x + end.x) * 0.5;
         const controlY = 2 * mid.y - (start.y + end.y) * 0.5;
+        // 各フレームでの非線形な体座標変化（跳躍等）が制御点に混入し、ワールドスケールで2倍に拡大される歪みを完全に補正する
+        const correctedControlX = controlX - (2 * midBody.x - (startBody.x + endBody.x) * 0.5) + midBody.x;
+        const correctedControlY = controlY - (2 * midBody.y - (startBody.y + endBody.y) * 0.5) + midBody.y;
         return {
             trailArcCenterX: null,
             trailArcCenterY: null,
@@ -1051,8 +1054,8 @@ export function applySlashTrailMixin(PlayerClass) {
             trailArcSpan: null,
             trailCurveStartX: start.x,
             trailCurveStartY: start.y,
-            trailCurveControlX: controlX,
-            trailCurveControlY: controlY,
+            trailCurveControlX: correctedControlX,
+            trailCurveControlY: correctedControlY,
             trailCurveEndX: end.x,
             trailCurveEndY: end.y,
             trailIsRelative: false,

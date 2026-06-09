@@ -211,10 +211,11 @@ export function applySpecialMixin(PlayerClass) {
                             bodyActiveSubWeapon.isAttacking &&
                             bodyActiveSubWeapon.hasImpacted;
                         const isHanging = this.specialCloneAutoAiEnabled ? inst.isAttacking : (playerIsHanging || inst.isAttacking);
+                        const baseH = this.characterType === 'shogun' ? SHOGUN_ACTOR_BASE_HEIGHT : PLAYER.HEIGHT;
                         // ぶら下がり中: pos.yを本体のanchor位置に同期（分身自身のowner.yではなく）
                         pos.y = isHanging
                             ? (this.y + this.getWorldHeight() * 0.62)
-                            : (dummyClone.y + this.getWorldHeight() - this._getCloneFootOffset());
+                            : (dummyClone.y + baseH - this._getCloneFootOffset(1.0));
                         if (this.specialCloneAutoAiEnabled) {
                             pos.jumping = false;
                             pos.cloneVy = 0;
@@ -1280,14 +1281,14 @@ export function applySpecialMixin(PlayerClass) {
 
     // 分身の視覚的足元オフセット（アンカーYから足元Yまでの距離）
     // 将軍は scaleMultiplier と shogun モードの renderY 式を考慮した値を使う
-    PlayerClass.prototype._getCloneFootOffset = function() {
+    PlayerClass.prototype._getCloneFootOffset = function(forcedScale = null) {
         if (this.characterType === 'shogun') {
             // renderY = y + (h - SHOGUN_ACTOR_BASE_HEIGHT) * 0.62  → sprite bottom = renderY + PLAYER.HEIGHT
             // visual_foot = pivot + (sprite_bottom - pivot) * scale
             // = pos.y + (PLAYER.HEIGHT - SHOGUN_ACTOR_BASE_HEIGHT * 0.62) * scale  (h terms cancel)
-            const scale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 1
+            const scale = forcedScale !== null ? forcedScale : (Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 1
                 ? this.scaleMultiplier
-                : SHOGUN_SCALE;
+                : SHOGUN_SCALE);
             return (PLAYER.HEIGHT - SHOGUN_ACTOR_BASE_HEIGHT * 0.62) * scale;
         }
         const h = Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT;
