@@ -12,6 +12,7 @@ import {
 } from './playerData.js';
 import { applyShogunRendererMixin } from './shogunRendererHelper.js';
 import {
+    SHOGUN_SCALE,
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
     SHOGUN_ARM_REACH_SCALE,
@@ -5085,12 +5086,12 @@ export function applyRendererMixin(PlayerClass) {
                 if (cloneOdachiHanging && visualSubWeaponInstance && typeof visualSubWeaponInstance.getPlantedOwnerY === 'function') {
                     const virtualPlayer = {
                         groundY: this.groundY,
-                        height: SHOGUN_ACTOR_BASE_HEIGHT,
-                        scaleMultiplier: 1.0, // 分身は常に等倍 (1.0x) で描画されるため
+                        height: this.height,
+                        scaleMultiplier: this.scaleMultiplier || SHOGUN_SCALE,
                         characterType: this.characterType,
                         actorBaseHeight: this.actorBaseHeight,
-                        getWorldHeight: () => SHOGUN_ACTOR_BASE_HEIGHT,
-                        _getCloneFootOffset: () => this._getCloneFootOffset(1.0)
+                        getWorldHeight: typeof this.getWorldHeight === 'function' ? () => this.getWorldHeight() : undefined,
+                        _getCloneFootOffset: () => this._getCloneFootOffset()
                     };
                     cloneDrawY = visualSubWeaponInstance.getPlantedOwnerY(virtualPlayer);
                 }
