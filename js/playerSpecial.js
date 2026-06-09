@@ -214,7 +214,7 @@ export function applySpecialMixin(PlayerClass) {
                         // ぶら下がり中: pos.yを本体のanchor位置に同期（分身自身のowner.yではなく）
                         pos.y = isHanging
                             ? (this.y + this.getWorldHeight() * 0.62)
-                            : (dummyClone.y + this.getWorldHeight() * 0.62);
+                            : (dummyClone.y + this.getWorldHeight() - this._getCloneFootOffset());
                         if (this.specialCloneAutoAiEnabled) {
                             pos.jumping = false;
                             pos.cloneVy = 0;

@@ -3260,10 +3260,10 @@ export function applyRendererMixin(PlayerClass) {
                 let backAngle = pose.leftAngle;
                 let frontAngle = pose.rightAngle;
 
-                // 1枚目の状態（斜め右上、約-0.85〜-0.82ラジアン）以上に上昇中に振りかぶらないようクランプする
+                // 1枚目の状態（斜め右上、約-0.65〜-0.55ラジアン）以上に上昇中に振りかぶらないようクランプする
                 if (comboProgress < 0.42) {
-                    backAngle = Math.max(-0.85, backAngle);
-                    frontAngle = Math.max(-0.82, frontAngle);
+                    backAngle = Math.max(-0.65, backAngle);
+                    frontAngle = Math.max(-0.55, frontAngle);
                 }
 
                 const endBend = smoothStep01((comboProgress - 0.8) / 0.2);
@@ -3285,10 +3285,13 @@ export function applyRendererMixin(PlayerClass) {
                 const frontSweepReach = (baseReach - 0.4) * reachScale;
 
                 skipPoseReachAdjustment = true;
-                leftShoulderMoveX += dir * (0.44 + (phase - 0.48) * 1.18) - dir * crouchPick(0.92, 0.62) * comboStep4LoadBlend;
-                rightShoulderMoveX -= dir * (0.04 + phase * 0.42) + dir * crouchPick(1.24, 0.9) * comboStep4LoadBlend;
-                leftShoulderMoveY -= 0.3 + phase * 1.62 + comboStep4LoadBlend * crouchPick(0.2, 0.12);
-                rightShoulderMoveY -= 0.28 + phase * 1.52 + comboStep4LoadBlend * crouchPick(0.16, 0.08);
+
+                // 上昇中は 1枚目の美しい構え（phase=0）に近い肩の配置を維持し、背中側への不自然な引きを完全に抑制
+                const calcPhase = comboProgress < 0.42 ? 0 : phase;
+                leftShoulderMoveX += dir * (0.44 + (calcPhase - 0.48) * 1.18) - dir * crouchPick(0.92, 0.62) * comboStep4LoadBlend;
+                rightShoulderMoveX -= dir * (0.04 + calcPhase * 0.42) + dir * crouchPick(1.24, 0.9) * comboStep4LoadBlend;
+                leftShoulderMoveY -= 0.3 + calcPhase * 1.62 + comboStep4LoadBlend * crouchPick(0.2, 0.12);
+                rightShoulderMoveY -= 0.28 + calcPhase * 1.52 + comboStep4LoadBlend * crouchPick(0.16, 0.08);
 
                 leftTargetX = leftShoulderMoveX + Math.cos(backAngle) * backSweepReach * dir;
                 leftTargetY = leftShoulderMoveY + Math.sin(backAngle) * backSweepReach - riseLift;
@@ -5071,7 +5074,10 @@ export function applyRendererMixin(PlayerClass) {
                     const virtualPlayer = {
                         groundY: this.groundY,
                         height: this.height,
-                        scaleMultiplier: this.scaleMultiplier || 1.0
+                        scaleMultiplier: this.scaleMultiplier || 1.0,
+                        characterType: this.characterType,
+                        actorBaseHeight: this.actorBaseHeight,
+                        getWorldHeight: typeof this.getWorldHeight === 'function' ? () => this.getWorldHeight() : undefined
                     };
                     cloneDrawY = visualSubWeaponInstance.getPlantedOwnerY(virtualPlayer);
                 }
