@@ -111,10 +111,13 @@ export function applyShogunRendererMixin(PlayerClass) {
 
     // 兜オーバーレイ
     PlayerClass.prototype._drawShogunHelmetOverlay = function(ctx, p) {
-        const { headCenterX, headY, headRadius, dir } = p;
+        const { headCenterX, headY, headRadius, dir, headSpinAngle } = p;
         const hr = headRadius;
         ctx.save();
         ctx.translate(headCenterX, headY);
+        if (headSpinAngle) {
+            ctx.rotate(-headSpinAngle);
+        }
         ctx.scale(dir, 1);
 
         const helmBaseY = -hr * 0.15;
@@ -222,20 +225,68 @@ export function applyShogunRendererMixin(PlayerClass) {
 
     // 脚
     PlayerClass.prototype._drawShogunLeg = function(ctx, p) {
-        const { hipX, hipYLocal, kneeX, kneeY, footX, footY, isFrontLeg, dir, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand } = p;
-        const thighW = isFrontLeg ? 6.0 : 5.5, shinW = isFrontLeg ? 5.5 : 5.0, cArmor = '#101014', cCloth = '#202020';
-        const tLen = Math.hypot(footX - kneeX, footY - kneeY) || 1, shorten = 3.5, ankleX = footX - (footX - kneeX) / tLen * shorten, ankleY = footY - (footY - kneeY) / tLen * shorten;
-        if (silhouetteOutlineEnabled) { ctx.strokeStyle = silhouetteOutlineColor; ctx.lineWidth = thighW + outlineExpand; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(hipX, hipYLocal); ctx.lineTo(kneeX, kneeY); ctx.lineTo(ankleX, ankleY); ctx.stroke(); }
-        ctx.strokeStyle = cCloth; ctx.lineWidth = thighW; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(hipX, hipYLocal); ctx.lineTo(kneeX, kneeY); ctx.stroke();
-        ctx.lineWidth = shinW; ctx.beginPath(); ctx.moveTo(kneeX, kneeY); ctx.stroke(); ctx.lineTo(ankleX, ankleY); ctx.stroke();
-        const dxS = ankleX - kneeX, dyS = ankleY - kneeY, dist = Math.hypot(dxS, dyS) || 1, sNX = -dyS / dist, sNY = dxS / dist;
-        ctx.fillStyle = cArmor; ctx.beginPath(); const hw = shinW * 0.6; ctx.moveTo(kneeX - sNX * hw, kneeY - sNY * hw); ctx.lineTo(kneeX + sNX * hw, kneeY + sNY * hw); ctx.lineTo(ankleX + sNX * hw, ankleY + sNY * hw); ctx.lineTo(ankleX - sNX * hw, ankleY - sNY * hw); ctx.fill();
-        ctx.beginPath(); ctx.moveTo(kneeX - sNX * hw, kneeY - sNY * hw); ctx.lineTo(kneeX + sNX * (hw + 1.5), kneeY + sNY * (hw + 1.5)); ctx.lineTo(kneeX - dxS * 0.2 + sNX * hw, kneeY - dyS * 0.2 + sNY * hw); ctx.fill();
-        ctx.strokeStyle = 'rgba(180, 155, 70, 0.45)'; ctx.lineWidth = 0.8;
-        { const t = 0.45, lx = kneeX + dxS * t, ly = kneeY + dyS * t, bw = hw - 0.2; ctx.beginPath(); ctx.moveTo(lx - sNX * bw, ly - sNY * bw); ctx.lineTo(lx + sNX * bw, ly + sNY * bw); ctx.stroke(); }
-        const bootW = isFrontLeg ? 3.5 : 3.0, bootH = 2.0, bootCX = footX + dir * 0.8, bY = footY + 1.8;
-        ctx.fillStyle = '#0a0a0e'; ctx.beginPath(); ctx.ellipse(bootCX, bY - bootH, bootW, bootH, 0, Math.PI, Math.PI * 2); ctx.lineTo(bootCX + bootW, bY); ctx.lineTo(bootCX - bootW, bY); ctx.closePath(); ctx.fill();
-        ctx.fillStyle = '#b3943d'; ctx.beginPath(); ctx.ellipse(bootCX + dir * bootW * 0.5, bY - bootH * 0.4, bootW * 0.5, bootH * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+        const { hipX, hipYLocal, kneeX, kneeY, footX, footY, isFrontLeg, dir } = p;
+        const thighW = isFrontLeg ? 5.8 : 5.4;
+        const shinW = isFrontLeg ? 5.4 : 5.0;
+        const cTightBlack = '#0c0c0e';
+        const tLen = Math.hypot(footX - kneeX, footY - kneeY) || 1;
+        const shorten = 3.0;
+        const ankleX = footX - (footX - kneeX) / tLen * shorten;
+        const ankleY = footY - (footY - kneeY) / tLen * shorten;
+
+        ctx.strokeStyle = cTightBlack;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        ctx.lineWidth = thighW;
+        ctx.beginPath();
+        ctx.moveTo(hipX, hipYLocal);
+        ctx.lineTo(kneeX, kneeY);
+        ctx.stroke();
+
+        ctx.lineWidth = shinW;
+        ctx.beginPath();
+        ctx.moveTo(kneeX, kneeY);
+        ctx.lineTo(ankleX, ankleY);
+        ctx.stroke();
+
+        // 金の横ラインの高さを「足首」基準で固定（アイドルと歩行で位置がずれるのを完全に防止）
+        const dxS_rev = kneeX - ankleX;
+        const dyS_rev = kneeY - ankleY;
+        const distS = Math.hypot(dxS_rev, dyS_rev) || 1;
+        const sNX = -dyS_rev / distS;
+        const sNY = dxS_rev / distS;
+        
+        const lineOffsetDist = 6.0; // 足首（タイツ下端）から常に6.0pxの高さ
+        const lineX = ankleX + dxS_rev * (lineOffsetDist / distS);
+        const lineY = ankleY + dyS_rev * (lineOffsetDist / distS);
+        const lineWidth = shinW * 0.55;
+        
+        ctx.strokeStyle = '#dcb854';
+        ctx.lineWidth = 1.0;
+        ctx.beginPath();
+        ctx.moveTo(lineX - sNX * lineWidth, lineY - sNY * lineWidth);
+        ctx.lineTo(lineX + sNX * lineWidth, lineY + sNY * lineWidth);
+        ctx.stroke();
+
+        const bootW = isFrontLeg ? 3.5 : 3.0;
+        const bootH = 2.0;
+        const bootCX = footX + dir * 0.8;
+        const bY = footY + 1.8;
+
+        ctx.fillStyle = '#0a0a0e';
+        ctx.beginPath();
+        ctx.ellipse(bootCX, bY - bootH, bootW, bootH, 0, Math.PI, Math.PI * 2);
+        ctx.lineTo(bootCX + bootW, bY);
+        ctx.lineTo(bootCX - bootW, bY);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#dcb854';
+        ctx.beginPath();
+        ctx.arc(bootCX + dir * bootW * 0.75, bY - bootH * 0.35, 0.75, 0, Math.PI * 2);
+        ctx.fill();
+
         return true;
     };
 }

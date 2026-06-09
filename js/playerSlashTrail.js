@@ -376,24 +376,86 @@ export function applySlashTrailMixin(PlayerClass) {
                 Object.assign(attackProfile, step2TrailSpec);
             }
         } else if (attackProfile.comboStep === 4) {
+            // 3段目の実際の最後のサンプリングポイント（絶対ワールド座標）を探索・取得
+            let actualStep3EndWorldPt = null;
+            if (Array.isArray(this.comboSlashTrailPoints)) {
+                for (let i = this.comboSlashTrailPoints.length - 1; i >= 0; i--) {
+                    const pt = this.comboSlashTrailPoints[i];
+                    if (pt && pt.step === 3) {
+                        const absPt = this.absolutizeRelativeTrailPoint(pt);
+                        if (absPt && Number.isFinite(absPt.x) && Number.isFinite(absPt.y)) {
+                            actualStep3EndWorldPt = { x: absPt.x, y: absPt.y };
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!actualStep3EndWorldPt && Array.isArray(this.comboSlashTrailFrozenCurves)) {
+                for (let i = this.comboSlashTrailFrozenCurves.length - 1; i >= 0; i--) {
+                    const fc = this.comboSlashTrailFrozenCurves[i];
+                    if (fc && fc.step === 3 && fc.type === 'points' && Array.isArray(fc.frozenPoints) && fc.frozenPoints.length > 0) {
+                        const pt = fc.frozenPoints[fc.frozenPoints.length - 1];
+                        if (pt && Number.isFinite(pt.x) && Number.isFinite(pt.y)) {
+                            actualStep3EndWorldPt = { x: pt.x, y: pt.y };
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // 忍者用のフォールバックまたは通常接続のために step3EndPose を計算
             const step3EndPose = this.getComboSwordPoseReference(3, 1.0, {
                 ...baseState,
                 x: baseState.x,
                 y: baseState.y
             });
+
+            console.log("[DBG-STEP4] charType:", this.characterType, "actualStep3EndWorldPt:", actualStep3EndWorldPt, "defaultFixedStart:", step3EndPose ? { x: step3EndPose.trailTipX, y: step3EndPose.trailTipY } : null);
+
+            // 将軍で actualStep3EndWorldPt が取得できた場合は、
+            // 縮小逆投影したものを fixedStartPoint として渡すことで、
+            // buildComboStep4TrailArcSpec 内部でのベジェ曲線シミュレーションの整合性を高めます。
+            let fixedStart = step3EndPose ? { x: step3EndPose.trailTipX, y: step3EndPose.trailTipY } : null;
+            if (this.characterType === 'shogun' && actualStep3EndWorldPt) {
+                // 将軍用の fixedStartPoint 逆算
+                // _projectShogunTrailPoseToWorldScale の逆変換を行う。
+                const scale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0 ? this.scaleMultiplier : 1;
+                const anchorX = baseState.x;
+                const anchorY = baseState.y;
+                const footOffset = (typeof this._getCloneFootOffset === 'function')
+                    ? this._getCloneFootOffset()
+                    : (PLAYER.HEIGHT - SHOGUN_ACTOR_BASE_HEIGHT * 0.62) * scale;
+                const worldH = PLAYER.HEIGHT * scale;
+                const worldW = PLAYER.WIDTH * scale;
+                const actorRenderDY = worldH - footOffset - SHOGUN_ACTOR_BASE_HEIGHT * 0.62;
+                const renderPivotX_Abs = anchorX + worldW * 0.5;
+                const renderPivotY_Abs = anchorY + actorRenderDY + PLAYER.HEIGHT * 0.62;
+                const basePivotX_Abs = anchorX + PLAYER.WIDTH * 0.5;
+                const basePivotY_Abs = anchorY + PLAYER.HEIGHT * 0.62;
+
+                fixedStart = {
+                    x: basePivotX_Abs + (actualStep3EndWorldPt.x - renderPivotX_Abs) / scale,
+                    y: basePivotY_Abs + (actualStep3EndWorldPt.y - renderPivotY_Abs) / scale
+                };
+            } else if (actualStep3EndWorldPt) {
+                // 忍者の場合はそのままワールド座標
+                fixedStart = actualStep3EndWorldPt;
+            }
+
             const step4TrailArc = this.buildComboStep4TrailArcSpec(
                 {
                     ...baseState,
                     attack: attackProfile
                 },
                 {
-                    fixedStartPoint: step3EndPose
-                        ? { x: step3EndPose.trailTipX, y: step3EndPose.trailTipY }
-                        : null
+                    fixedStartPoint: fixedStart
                 }
             );
             if (step4TrailArc) {
                 Object.assign(attackProfile, step4TrailArc);
+                if (actualStep3EndWorldPt) {
+                    attackProfile.fixedStartWorldPoint = actualStep3EndWorldPt;
+                }
             }
         } else if (attackProfile.comboStep === 5) {
             const step5TrailSpec = this.buildComboStep5TrailSpec({
@@ -534,13 +596,29 @@ export function applySlashTrailMixin(PlayerClass) {
         const px = Number.isFinite(baseState.x) ? baseState.x : this.x;
         const py = Number.isFinite(baseState.y) ? baseState.y : this.y;
 
+        // 姿勢やかがみ状態によらず、不動のスケール物理空間を維持する
+        const worldH = PLAYER.HEIGHT * scale;
+        const worldW = PLAYER.WIDTH * scale;
+
         // 絶対座標（trailIsRelative: false）の投影ピボット計算において、
         // 毎フレーム変化するプレイヤーの現在座標（px, py）を使用すると、
         // プレイヤーの高速な移動（特にステップ4の上昇）によって投影後の絶対座標が並行移動・浮遊してしまう。
         // これを防ぐため、アタックプロファイル作成時に保存された攻撃開始時の固定座標
         // （pose.trailTransformPlayerX / Y）を静的ピボット（アンカー）として使用する。
-        const anchorX = (pose && Number.isFinite(pose.trailTransformPlayerX)) ? pose.trailTransformPlayerX : px;
-        const anchorY = (pose && Number.isFinite(pose.trailTransformPlayerY)) ? pose.trailTransformPlayerY : py;
+        let anchorX = (pose && Number.isFinite(pose.trailTransformPlayerX)) ? pose.trailTransformPlayerX : px;
+        let anchorY = (pose && Number.isFinite(pose.trailTransformPlayerY)) ? pose.trailTransformPlayerY : py;
+
+        // 4段目は特にプレイヤーが上昇するため、プロファイルの攻撃開始時固定座標を強制的に適用する
+        const result = { ...pose };
+        if (result.comboStep === 4) {
+            const attackObj = result.attack || this.currentAttack;
+            if (attackObj && Number.isFinite(attackObj.trailTransformPlayerX)) {
+                anchorX = attackObj.trailTransformPlayerX;
+            }
+            if (attackObj && Number.isFinite(attackObj.trailTransformPlayerY)) {
+                anchorY = attackObj.trailTransformPlayerY;
+            }
+        }
 
         // 将軍のワールドスケールにおけるレンダーピボット（回転中心）をプレイヤー座標相対で計算。
         // renderModel 内では素体(40x60)を canvas scale×2.0 で拡大するため:
@@ -551,8 +629,6 @@ export function applySlashTrailMixin(PlayerClass) {
         const footOffset = (typeof this._getCloneFootOffset === 'function')
             ? this._getCloneFootOffset()
             : (PLAYER.HEIGHT - SHOGUN_ACTOR_BASE_HEIGHT * 0.62) * scale;
-        const worldH = (typeof this.getWorldHeight === 'function') ? this.getWorldHeight() : PLAYER.HEIGHT * scale;
-        const worldW = (typeof this.getWorldWidth === 'function') ? this.getWorldWidth() : PLAYER.WIDTH * scale;
         const actorRenderDY = worldH - footOffset - SHOGUN_ACTOR_BASE_HEIGHT * 0.62;
 
         // 絶対座標用のレンダーピボット（攻撃開始時の固定ピクセル、または現在位置を含む）
@@ -573,12 +649,23 @@ export function applySlashTrailMixin(PlayerClass) {
         const basePivotY_Rel = PLAYER.HEIGHT * 0.62;
 
         // 投影関数
-        const proj = (nX, nY, isPtRelative) => {
+        const proj = (nX, nY, isPtRelative, dx = 0, dy = 0) => {
             if (!Number.isFinite(nX) || !Number.isFinite(nY)) return { x: nX, y: nY };
             const rPivotX = isPtRelative ? renderPivotX_Rel : renderPivotX_Abs;
             const rPivotY = isPtRelative ? renderPivotY_Rel : renderPivotY_Abs;
             const bPivotX = isPtRelative ? basePivotX_Rel : basePivotX_Abs;
             const bPivotY = isPtRelative ? basePivotY_Rel : basePivotY_Abs;
+
+            // comboStep === 4 且つ絶対座標の場合は、プレイヤー自身のシミュレーション・実移動量 (dx, dy) を
+            // スケール(scale)させずに 1.0倍 のまま反映し、ピボットに対する手・剣先の相対オフセットのみをスケールする
+            if (result.comboStep === 4 && !isPtRelative) {
+                const rawRelativeX = nX - bPivotX - dx;
+                const rawRelativeY = nY - bPivotY - dy;
+                return {
+                    x: rPivotX + dx + rawRelativeX * scale,
+                    y: rPivotY + dy + rawRelativeY * scale
+                };
+            }
 
             return {
                 x: rPivotX + (nX - bPivotX) * scale,
@@ -586,15 +673,19 @@ export function applySlashTrailMixin(PlayerClass) {
             };
         };
 
-        const result = { ...pose };
         const isRelative = !!pose.trailIsRelative;
 
+        // 4段目は現在の実座標(px, py)と攻撃開始時のアンカー座標(anchorX, anchorY)の差が
+        // リアルタイムでの実際のプレイヤーの移動量(dx, dy)になる
+        const currentDx = result.comboStep === 4 ? (px - anchorX) : 0;
+        const currentDy = result.comboStep === 4 ? (py - anchorY) : 0;
+
         // 剣先をワールド座標へ (常に絶対座標なので isPtRelative = false)
-        const tip = proj(result.tipX, result.tipY, false);
+        const tip = proj(result.tipX, result.tipY, false, currentDx, currentDy);
         result.tipX = tip.x;
         result.tipY = tip.y;
         if (Number.isFinite(result.trailTipX)) {
-            const t2 = proj(result.trailTipX, result.trailTipY, false);
+            const t2 = proj(result.trailTipX, result.trailTipY, false, currentDx, currentDy);
             result.trailTipX = t2.x;
             result.trailTipY = t2.y;
         } else {
@@ -604,11 +695,25 @@ export function applySlashTrailMixin(PlayerClass) {
 
         // ベジェ曲線の制御点をワールド座標へ (元の trailIsRelative に従う)
         if (Number.isFinite(result.trailCurveStartX)) {
-            const s = proj(result.trailCurveStartX, result.trailCurveStartY, isRelative);
+            const startDx = result.comboStep === 4 ? (Number.isFinite(result.startDeltaX) ? result.startDeltaX : 0) : 0;
+            const startDy = result.comboStep === 4 ? (Number.isFinite(result.startDeltaY) ? result.startDeltaY : 0) : 0;
+            const midDx = result.comboStep === 4 ? (Number.isFinite(result.midDeltaX) ? result.midDeltaX : 0) : 0;
+            const midDy = result.comboStep === 4 ? (Number.isFinite(result.midDeltaY) ? result.midDeltaY : 0) : 0;
+            const endDx = result.comboStep === 4 ? (Number.isFinite(result.endDeltaX) ? result.endDeltaX : 0) : 0;
+            const endDy = result.comboStep === 4 ? (Number.isFinite(result.endDeltaY) ? result.endDeltaY : 0) : 0;
+
+            const s = proj(result.trailCurveStartX, result.trailCurveStartY, isRelative, startDx, startDy);
             result.trailCurveStartX = s.x; result.trailCurveStartY = s.y;
-            const c = proj(result.trailCurveControlX, result.trailCurveControlY, isRelative);
+
+            // 4段目で 3段目の実際の終点 absolute ワールド座標が指定されている場合、始点を完全にロック・結合する！
+            if (result.comboStep === 4 && result.attack && result.attack.fixedStartWorldPoint) {
+                result.trailCurveStartX = result.attack.fixedStartWorldPoint.x;
+                result.trailCurveStartY = result.attack.fixedStartWorldPoint.y;
+            }
+
+            const c = proj(result.trailCurveControlX, result.trailCurveControlY, isRelative, midDx, midDy);
             result.trailCurveControlX = c.x; result.trailCurveControlY = c.y;
-            const e = proj(result.trailCurveEndX, result.trailCurveEndY, isRelative);
+            const e = proj(result.trailCurveEndX, result.trailCurveEndY, isRelative, endDx, endDy);
             result.trailCurveEndX = e.x; result.trailCurveEndY = e.y;
         }
 
@@ -952,7 +1057,13 @@ export function applySlashTrailMixin(PlayerClass) {
             trailCurveEndY: end.y,
             trailIsRelative: false,
             trailTransformPlayerX: x,
-            trailTransformPlayerY: y
+            trailTransformPlayerY: y,
+            startDeltaX: startBody.x - x,
+            startDeltaY: startBody.y - y,
+            midDeltaX: midBody.x - x,
+            midDeltaY: midBody.y - y,
+            endDeltaX: endBody.x - x,
+            endDeltaY: endBody.y - y
         };
     };
 
@@ -1249,12 +1360,17 @@ export function applySlashTrailMixin(PlayerClass) {
                 break;
             }
             case 4: {
+                // 上昇・バク宙による描画上の持ち上げ（胴体と手を同期させ、腕の消滅を防ぐ）
+                const riseT = Math.min(1, progress / 0.42);
+                const riseEase = riseT * riseT * (3 - 2 * riseT);
+                const riseLift = Math.sin(riseEase * Math.PI * 0.5) * 8.9 * 0.78 * scale;
+
                 if (progress < 0.42) {
                     const t = progress / 0.42;
                     const rise = t * t * (3 - 2 * t);
                     swordAngle = -0.22 + (-0.74 + 0.22) * rise;
                     armEndX = centerX + dir * (26 + (8.0 - 26) * rise) * scale;
-                    armEndY = pivotY + (5 + (-24.0 - 5) * rise) * scale;
+                    armEndY = pivotY + (5 + (-24.0 - 5) * rise) * scale - riseLift;
                 } else {
                     const flipT = Math.max(0, Math.min(1, (progress - 0.42) / 0.58));
                     const bodyFlipAngle = -Math.PI * 1.82 * flipT;
@@ -1268,7 +1384,7 @@ export function applySlashTrailMixin(PlayerClass) {
                     const riseEndY = pivotY - 24.0 * scale;
                     swordAngle = riseAngleEnd + (flipAngle - riseAngleEnd) * bridge;
                     armEndX = riseEndX + (flipX - riseEndX) * bridge;
-                    armEndY = riseEndY + (flipY - riseEndY) * bridge;
+                    armEndY = riseEndY + (flipY - riseEndY) * bridge - riseLift;
 
                     const shoulderT = Math.max(0, Math.min(1, (progress - 0.5) / 0.5));
                     const shoulderEase = shoulderT * shoulderT * (3 - 2 * shoulderT);
@@ -1278,6 +1394,23 @@ export function applySlashTrailMixin(PlayerClass) {
                     activeRightShoulderY += (0.2 + shoulderEase * 1.55) * scale;
                     if (progress > 0.48) {
                         allowSupportFrontHand = false;
+                    }
+
+                    // バク宙の回転完了後、空中であってもアイドルポーズ（通常構え）へ滑らかに復帰させる
+                    const airRecoverT = Math.max(0, Math.min(1, (flipT - 0.72) / 0.28)); // 最後の28%で復帰
+                    if (airRecoverT > 0) {
+                        const airRecover = airRecoverT * airRecoverT * (3 - 2 * airRecoverT);
+                        const idleAngle = isCrouching ? -0.32 : -0.65;
+                        const idleHandX = centerX + dir * (isCrouching ? 12 : 15) * scale;
+                        const idleHandY = pivotY + (isCrouching ? 5.5 : 8.0) * scale - riseLift;
+
+                        let angleDiff = idleAngle - swordAngle;
+                        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+                        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+                        swordAngle += angleDiff * airRecover;
+                        armEndX += (idleHandX - armEndX) * airRecover;
+                        armEndY += (idleHandY - armEndY) * airRecover;
                     }
                 }
                 const prepT = Math.max(0, Math.min(1, progress / 0.18));

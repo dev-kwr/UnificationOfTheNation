@@ -4691,6 +4691,53 @@ class Game {
                 player.currentSubWeapon.render(ctx, player);
                 ctx.restore();
             }
+
+            // 分身（レベル2以下を含む）のサブウェポンエフェクト（大太刀着地時の地面衝撃波など）を描画
+            if (
+                player.specialCloneSubWeaponInstances &&
+                Array.isArray(player.specialCloneSubWeaponInstances) &&
+                player.specialClonePositions &&
+                Array.isArray(player.specialClonePositions)
+            ) {
+                for (let i = 0; i < player.specialCloneSubWeaponInstances.length; i++) {
+                    const inst = player.specialCloneSubWeaponInstances[i];
+                    const pos = player.specialClonePositions[i];
+                    if (!inst || !pos) continue;
+                    if (player.specialCloneAlive && player.specialCloneAlive[i] === false) continue;
+                    if (typeof inst.renderWorldEffects !== 'function') continue;
+
+                    const cloneOwner = inst.owner && inst.owner._specialCloneOwner
+                        ? inst.owner
+                        : {
+                            x: pos.x - player.getWorldWidth() * 0.5,
+                            y: typeof player.getSpecialCloneDrawY === 'function'
+                                ? player.getSpecialCloneDrawY(pos.y)
+                                : pos.y - player.getWorldHeight() * 0.62,
+                            width: player.getWorldWidth(),
+                            height: player.getWorldHeight(),
+                            groundY: typeof player.getSpecialCloneGroundYAtX === 'function'
+                                ? player.getSpecialCloneGroundYAtX(pos.x)
+                                : player.groundY,
+                            facingRight: pos.facingRight,
+                            isGrounded: !pos.jumping,
+                            isEnemy: false,
+                            currentSubWeapon: inst,
+                            subWeaponAction: player.specialCloneSubWeaponActions
+                                ? player.specialCloneSubWeaponActions[i]
+                                : null,
+                            subWeaponTimer: player.specialCloneSubWeaponTimers
+                                ? (player.specialCloneSubWeaponTimers[i] || 0)
+                                : 0,
+                            isXAttackBoostActive: () => false,
+                            scaleMultiplier: player.scaleMultiplier || 1.0
+                        };
+
+                    ctx.save();
+                    if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
+                    inst.renderWorldEffects(ctx, cloneOwner);
+                    ctx.restore();
+                }
+            }
         }
 
         // 火薬玉はキャラクターより前面に描画する

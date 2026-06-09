@@ -1810,38 +1810,32 @@ export function applyRendererMixin(PlayerClass) {
                     });
                     const leftHipYLocal = hipLocalY + 0.3;
                     const rightHipYLocal = hipLocalY + 0.08;
-                    // 宙返りの脚タックをよりシンプル・自然に：
-                    // 旧版は tuck で横(side)に開いてガニ股に硬く見えた。新版は tuck で
-                    // 膝・足を「上(downを大きく減らす)＆中央寄せ(sideを内側へ)」にして、
-                    // 抱え込み(ボール状)→着地で開脚、という自然なモーションにする。
-                    // 戻す場合は旧値：
-                    //   LKnee side:-1.6 - tuck*2.2 + open*0.7  down:7.2 - tuck*3.4 + open*2.5
-                    //   LFoot side:-3.0 - tuck*3.8 + open*1.2  down:14.7 - tuck*6.6 + open*5.8
-                    //   RKnee side:1.8 + tuck*2.0 - open*0.6   down:6.9 - tuck*3.2 + open*2.4
-                    //   RFoot side:3.4 + tuck*3.5 - open*1.1   down:13.9 - tuck*6.1 + open*5.4
+                    // 特殊なポーズにせず、脚を自然に伸ばした(ほんの少しだけ曲げたダイナミックな)状態のまま
+                    // 身体の回転(flipAngle)に合わせて綺麗に後方宙返りさせる。
+                    // 回転中の脚伸びを防ぐため、tuckに連動して適度に膝と足先を縮める制御を入れる。
                     const leftKneeP = placeFrom(
                         leftHipX,
                         leftHipYLocal,
-                        -1.5 + tuck * 0.8 + open * 0.2,
-                        7.0 - tuck * 4.8 + open * 2.8
+                        -1.2,
+                        8.4 - 1.8 * tuck
                     );
                     const leftFootP = placeFrom(
                         leftHipX,
                         leftHipYLocal,
-                        -2.6 + tuck * 1.7 + open * 0.4,
-                        14.2 - tuck * 10.6 + open * 6.8
+                        -2.4,
+                        15.2 - 3.6 * tuck
                     );
                     const rightKneeP = placeFrom(
                         rightHipX,
                         rightHipYLocal,
-                        1.6 - tuck * 0.8 - open * 0.2,
-                        6.8 - tuck * 4.6 + open * 2.7
+                        1.4,
+                        8.1 - 1.8 * tuck
                     );
                     const rightFootP = placeFrom(
                         rightHipX,
                         rightHipYLocal,
-                        2.9 - tuck * 1.6 - open * 0.4,
-                        13.6 - tuck * 10.1 + open * 6.4
+                        2.6,
+                        14.6 - 3.6 * tuck
                     );
                     leftKneeX = leftKneeP.x;
                     leftKneeY = leftKneeP.y;
@@ -1851,6 +1845,33 @@ export function applyRendererMixin(PlayerClass) {
                     rightKneeY = rightKneeP.y;
                     rightFootX = rightFootP.x;
                     rightFootY = rightFootP.y;
+
+                    // --- 空中リカバリー処理（バク宙完了後の空中アイドルポーズ復帰） ---
+                    const airRecoverT = Math.max(0, Math.min(1, (flipT - 0.72) / 0.28)); // 最後の28%で復帰
+                    if (airRecoverT > 0) {
+                        const airRecover = smooth(airRecoverT);
+
+                        // 通常の空中アイドル脚ポーズを目標値にする
+                        const idleLeftKneeX = leftHipX + dir * 0.8;
+                        const idleLeftKneeY = hipLocalY + 10.1;
+                        const idleLeftFootX = centerX + dir * 2.6;
+                        const idleLeftFootY = bottomY + 0.2 - airborneLift * 0.55;
+
+                        const idleRightKneeX = rightHipX + dir * 0.9;
+                        const idleRightKneeY = hipLocalY + 9.5;
+                        const idleRightFootX = centerX - dir * 3.0;
+                        const idleRightFootY = bottomY - 0.2 - airborneLift * 0.52;
+
+                        leftKneeX = leftKneeX + (idleLeftKneeX - leftKneeX) * airRecover;
+                        leftKneeY = leftKneeY + (idleLeftKneeY - leftKneeY) * airRecover;
+                        leftFootX = leftFootX + (idleLeftFootX - leftFootX) * airRecover;
+                        leftFootY = leftFootY + (idleLeftFootY - leftFootY) * airRecover;
+
+                        rightKneeX = rightKneeX + (idleRightKneeX - rightKneeX) * airRecover;
+                        rightKneeY = rightKneeY + (idleRightKneeY - rightKneeY) * airRecover;
+                        rightFootX = rightFootX + (idleRightFootX - rightFootX) * airRecover;
+                        rightFootY = rightFootY + (idleRightFootY - rightFootY) * airRecover;
+                    }
                 }
                 const prepT = Math.max(0, Math.min(1, comboProgress / 0.18));
                 const prepEase = prepT * prepT * (3 - 2 * prepT);
@@ -3236,11 +3257,28 @@ export function applyRendererMixin(PlayerClass) {
             } else if (comboStep === 4) {
                 // 四段: 前方斜め下から切り上げ、終端は平行維持のまま溜め姿勢
                 const phase = smoothStep01(comboProgress);
-                const backAngle = pose.leftAngle;
-                const frontAngle = pose.rightAngle;
+                let backAngle = pose.leftAngle;
+                let frontAngle = pose.rightAngle;
+
+                // 1枚目の状態（斜め右上、約-0.85〜-0.82ラジアン）以上に上昇中に振りかぶらないようクランプする
+                if (comboProgress < 0.42) {
+                    backAngle = Math.max(-0.85, backAngle);
+                    frontAngle = Math.max(-0.82, frontAngle);
+                }
+
                 const endBend = smoothStep01((comboProgress - 0.8) / 0.2);
-                comboStep4LoadBlend = smoothStep01((comboProgress - 0.72) / 0.28);
-                comboStep4AngleDive = comboStep4LoadBlend * 0.78;
+
+                const poseHeight = (options && Number.isFinite(options.height)) ? options.height : (this.renderHeight || 36);
+                const scale = poseHeight / 36;
+
+                // 上昇・バク宙による描画上の持ち上げ（胴体と手を同期させ、腕の消滅を防ぐ）
+                const riseT = Math.min(1, comboProgress / 0.42);
+                const riseEase = riseT * riseT * (3 - 2 * riseT);
+                const riseLift = Math.sin(riseEase * Math.PI * 0.5) * 8.9 * 0.78 * scale;
+
+                // 特殊なねじれポーズ・溜め角度補正を廃止し、刀を振り上げた綺麗な直立バク宙姿勢を維持する
+                comboStep4LoadBlend = 0;
+                comboStep4AngleDive = 0;
                 const baseReach = crouchPick(20.8, 18.9);
                 const reachScale = 1 - 0.18 * endBend;
                 const backSweepReach = baseReach * reachScale;
@@ -3253,15 +3291,41 @@ export function applyRendererMixin(PlayerClass) {
                 rightShoulderMoveY -= 0.28 + phase * 1.52 + comboStep4LoadBlend * crouchPick(0.16, 0.08);
 
                 leftTargetX = leftShoulderMoveX + Math.cos(backAngle) * backSweepReach * dir;
-                leftTargetY = leftShoulderMoveY + Math.sin(backAngle) * backSweepReach;
+                leftTargetY = leftShoulderMoveY + Math.sin(backAngle) * backSweepReach - riseLift;
                 rightTargetX = rightShoulderMoveX + Math.cos(frontAngle) * frontSweepReach * dir;
-                rightTargetY = rightShoulderMoveY + Math.sin(frontAngle) * frontSweepReach;
+                rightTargetY = rightShoulderMoveY + Math.sin(frontAngle) * frontSweepReach - riseLift;
 
                 // 奥行き: 手前手は下、奥手は上を維持しつつ、刀は平行のまま溜める
                 rightTargetY += crouchPick(1.82, 1.28) + comboStep4LoadBlend * crouchPick(0.28, 0.16);
                 leftTargetY -= crouchPick(1.24, 0.86) + comboStep4LoadBlend * crouchPick(0.12, 0.06);
                 rightTargetX -= dir * (crouchPick(1.22, 0.86) + comboStep4LoadBlend * crouchPick(0.68, 0.44));
                 leftTargetX += dir * (crouchPick(0.46, 0.28) - comboStep4LoadBlend * crouchPick(0.1, 0.06));
+
+                // --- 空中リカバリー処理（後方回転終了時の空中アイドル構えへの復帰） ---
+                const flipT = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.58));
+                // 最後の28%からではなく、後半58%（flipT >= 0.42）から段階的に滑らかに空中アイドルへ戻す
+                const airRecoverT = Math.max(0, Math.min(1, (flipT - 0.42) / 0.58));
+                if (airRecoverT > 0) {
+                    const airRecover = airRecoverT * airRecoverT * (3 - 2 * airRecoverT);
+
+                    // アイドル位置（空中持ち上げ追従状態）
+                    const targetLeftHandX = idleLeftHandX;
+                    const targetLeftHandY = idleLeftHandY - riseLift;
+                    const targetRightHandX = idleRightHandX;
+                    const targetRightHandY = idleRightHandY - riseLift;
+
+                    // 手をアイドル位置へと滑らかにブレンド
+                    leftTargetX = leftTargetX + (targetLeftHandX - leftTargetX) * airRecover;
+                    leftTargetY = leftTargetY + (targetLeftHandY - leftTargetY) * airRecover;
+                    rightTargetX = rightTargetX + (targetRightHandX - rightTargetX) * airRecover;
+                    rightTargetY = rightTargetY + (targetRightHandY - rightTargetY) * airRecover;
+
+                    // 肩の移動量もアイドル位置（MoveX=BaseX、MoveY=BaseY）へ復帰
+                    leftShoulderMoveX = leftShoulderMoveX + (leftShoulderBaseX - leftShoulderMoveX) * airRecover;
+                    leftShoulderMoveY = leftShoulderMoveY + (leftShoulderBaseY - leftShoulderMoveY) * airRecover;
+                    rightShoulderMoveX = rightShoulderMoveX + (rightShoulderBaseX - rightShoulderMoveX) * airRecover;
+                    rightShoulderMoveY = rightShoulderMoveY + (rightShoulderBaseY - rightShoulderMoveY) * airRecover;
+                }
             } else if (comboStep === 0) {
                 // 五段: 海老反りクロスから腕を左右に開きつつ叩きつける
                 const phase = smoothStep01(comboProgress);
@@ -3428,11 +3492,32 @@ export function applyRendererMixin(PlayerClass) {
             } else {
                 leftWeaponAngleRaw = pose.leftAngle - comboStep4AngleDive;
                 rightWeaponAngleRaw = pose.rightAngle - comboStep4AngleDive;
+
+                if (comboStep === 4) {
+                    const flipTForAngle = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.58));
+                    const airRecoverTForAngle = Math.max(0, Math.min(1, (flipTForAngle - 0.42) / 0.58));
+                    if (airRecoverTForAngle > 0) {
+                        const airRecover = airRecoverTForAngle * airRecoverTForAngle * (3 - 2 * airRecoverTForAngle);
+                        leftWeaponAngleRaw = leftWeaponAngleRaw + (idleLeftBladeAngle - leftWeaponAngleRaw) * airRecover;
+                        rightWeaponAngleRaw = rightWeaponAngleRaw + (idleRightBladeAngle - rightWeaponAngleRaw) * airRecover;
+                    }
+                }
             }
             // 4撃目終盤は「刀見た目の溜め角度」と「剣筋追従角度」を分離して、
             // 下側に飛ぶ異常剣筋を抑える (ここも左右を入れ替え)
-            const leftTrailAngleRaw = (comboStep === 4) ? pose.leftAngle : leftWeaponAngleRaw;
-            const rightTrailAngleRaw = (comboStep === 4) ? pose.rightAngle : rightWeaponAngleRaw;
+            // 落下中の片腕消滅を防ぐため、リカバリー中はポーズ自体の回転角度ではなく、
+            // 滑らかにブレンドされた angleRaw を追従させる。
+            let leftTrailAngleRaw = (comboStep === 4) ? pose.leftAngle : leftWeaponAngleRaw;
+            let rightTrailAngleRaw = (comboStep === 4) ? pose.rightAngle : rightWeaponAngleRaw;
+            if (comboStep === 4) {
+                const flipTForAngle = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.58));
+                const airRecoverTForAngle = Math.max(0, Math.min(1, (flipTForAngle - 0.42) / 0.58));
+                if (airRecoverTForAngle > 0) {
+                    const airRecover = airRecoverTForAngle * airRecoverTForAngle * (3 - 2 * airRecoverTForAngle);
+                    leftTrailAngleRaw = leftTrailAngleRaw + (idleLeftBladeAngle - leftTrailAngleRaw) * airRecover;
+                    rightTrailAngleRaw = rightTrailAngleRaw + (idleRightBladeAngle - rightTrailAngleRaw) * airRecover;
+                }
+            }
             const toAdjustedAngle = (rawAngle) => rawAngle + (uprightTarget - rawAngle) * uprightBlend;
             const leftAdjustedAngle = toAdjustedAngle(leftTrailAngleRaw);
             const rightAdjustedAngle = toAdjustedAngle(rightTrailAngleRaw);
