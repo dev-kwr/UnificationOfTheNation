@@ -534,6 +534,7 @@ export function applySpecialMixin(PlayerClass) {
             width: this.characterType === 'shogun' ? SHOGUN_ACTOR_BASE_WIDTH : PLAYER.WIDTH,
             height: this.characterType === 'shogun' ? SHOGUN_ACTOR_BASE_HEIGHT : PLAYER.HEIGHT,
             scaleMultiplier: Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1,
+            _scalePivotH: (this.characterType === 'shogun' ? SHOGUN_ACTOR_BASE_HEIGHT : PLAYER.HEIGHT) * 0.62,
             vx: 0,
             vy: pos.cloneVy || 0,
             groundY: cloneGroundY,

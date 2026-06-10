@@ -3498,12 +3498,12 @@ export function applyRendererMixin(PlayerClass) {
                 rightWeaponAngleRaw = pose.rightAngle - comboStep4AngleDive;
 
                 if (comboStep === 4) {
-                    if (comboProgress < 0.42) {
+                    if (comboProgress < 0.68) {
                         // 上昇中は 1枚目の状態（斜め右上、約-0.85〜-0.82ラジアン）以上に振りかぶらないよう手のクランプと同期
                         leftWeaponAngleRaw = Math.max(-0.85, leftWeaponAngleRaw);
                         rightWeaponAngleRaw = Math.max(-0.82, rightWeaponAngleRaw);
                     } else {
-                        const flipTForAngle = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.58));
+                        const flipTForAngle = Math.max(0, Math.min(1, (comboProgress - 0.68) / 0.32));
                         const airRecoverTForAngle = Math.max(0, Math.min(1, (flipTForAngle - 0.42) / 0.58));
                         if (airRecoverTForAngle > 0) {
                             const airRecover = airRecoverTForAngle * airRecoverTForAngle * (3 - 2 * airRecoverTForAngle);
@@ -3520,12 +3520,12 @@ export function applyRendererMixin(PlayerClass) {
             let leftTrailAngleRaw = (comboStep === 4) ? pose.leftAngle : leftWeaponAngleRaw;
             let rightTrailAngleRaw = (comboStep === 4) ? pose.rightAngle : rightWeaponAngleRaw;
             if (comboStep === 4) {
-                if (comboProgress < 0.42) {
+                if (comboProgress < 0.68) {
                     // 上昇中の剣筋追従用角度も、見た目の刀・手と完璧に同期させる
                     leftTrailAngleRaw = Math.max(-0.85, leftTrailAngleRaw);
                     rightTrailAngleRaw = Math.max(-0.82, rightTrailAngleRaw);
                 } else {
-                    const flipTForAngle = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.58));
+                    const flipTForAngle = Math.max(0, Math.min(1, (comboProgress - 0.68) / 0.32));
                     const airRecoverTForAngle = Math.max(0, Math.min(1, (flipTForAngle - 0.42) / 0.58));
                     if (airRecoverTForAngle > 0) {
                         const airRecover = airRecoverTForAngle * airRecoverTForAngle * (3 - 2 * airRecoverTForAngle);
@@ -5087,10 +5087,10 @@ export function applyRendererMixin(PlayerClass) {
                     const virtualPlayer = {
                         groundY: this.groundY,
                         height: this.height,
-                        scaleMultiplier: this.scaleMultiplier || SHOGUN_SCALE,
+                        scaleMultiplier: this.scaleMultiplier || 1.0,
                         characterType: this.characterType,
                         actorBaseHeight: this.actorBaseHeight,
-                        getWorldHeight: typeof this.getWorldHeight === 'function' ? () => this.getWorldHeight() : undefined,
+                        getWorldHeight: () => (typeof this.getWorldHeight === 'function' ? this.getWorldHeight() : this.height),
                         _getCloneFootOffset: () => this._getCloneFootOffset()
                     };
                     cloneDrawY = visualSubWeaponInstance.getPlantedOwnerY(virtualPlayer);

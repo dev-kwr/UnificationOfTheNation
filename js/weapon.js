@@ -2914,78 +2914,78 @@ export class Odachi extends SubWeapon {
     }
 
     getPose(player) {
-        const direction = this.isAttacking ? this.attackDirection : (player.facingRight ? 1 : -1);
-        const progress = this.isAttacking ? this.getProgress() : 0;
-        const centerX = player.x + ownerWorldWidth(player) / 2;
-        let rotation = -Math.PI * 0.5;
-        let phase = 'rise';
-        let flipT = 0;
-
-        // 刀身の長さ
-        const bladeLen = this.range + 18;
-        const bladeEnd = bladeLen + 8; // getBladeGeometry と完全に同期
-
-        // --- 地面判定の基準 ---
-        // _worldGroundY が利用可能な場合はワールド座標のgroundYを使用する
-        // （actor.groundY はactor座標系で通常描画用、大太刀はワールド座標が必要）
-        const baseGroundY = Number.isFinite(player._worldGroundY) ? player._worldGroundY : player.groundY;
-        const rawMaxTipY = baseGroundY + LANE_OFFSET;
-        
-        // --- 描画スケール補正 ---
-        // renderModel は originalH * 0.62 を pivot にして scale する。
-        // _scalePivotH が渡されている場合はそれを使用（drawH * 0.62 ではなく originalH * 0.62）
-        const scale = player.scaleMultiplier || 1.0;
-        let maxTipY = rawMaxTipY;
-        if (Math.abs(scale - 1.0) > 0.001) {
-            const pivotH = Number.isFinite(player._scalePivotH) ? player._scalePivotH : (ownerWorldHeight(player) * 0.62);
-            const pivotY = player.y + pivotH;
-            maxTipY = pivotY + (rawMaxTipY - pivotY) / scale;
+        // 常に1.0倍基準（等倍空間、_inRenderModel = true 相当）でポーズ計算と地面クランプを行う
+        const prevIRM = player ? player._inRenderModel : undefined;
+        if (player) {
+            player._inRenderModel = true;
         }
 
-        // 非攻撃時は「構え」ポーズ
-        if (!this.isAttacking) {
-            phase = 'ready';
-            // 刃を下・峰を上にして前方斜め上に構える（約-60度＝右斜め上方向）
-            // ctx.scale(direction, 1) が水平反転を担うため、左右ともに同じ angle を使う
-            // ほぼ水平のやや上向き＋前方に構える
-            const baseAngle = -Math.PI * 0.10 + Math.sin(player.motionTime * 0.0078) * 0.03;
-            rotation = baseAngle;
-            
-            const handX = centerX + direction * (ownerWorldWidth(player) * 0.48);
-            const handY = player.y + ownerWorldHeight(player) * 0.40 + (player.bob || 0) * 0.8;
-            
-            return { progress, phase, direction, rotation, handX, handY, bladeLen };
-        }
+        try {
+            const direction = this.isAttacking ? this.attackDirection : (player.facingRight ? 1 : -1);
+            const progress = this.isAttacking ? this.getProgress() : 0;
+            const centerX = player.x + ownerWorldWidth(player) / 2;
+            let rotation = -Math.PI * 0.5;
+            let phase = 'rise';
+            let flipT = 0;
 
-        // 着地後は刺さりポーズ
-        if (this.hasImpacted) {
-            phase = 'planted';
-            rotation = Math.PI * 0.5;
-            // 大太刀のhandXはボディの視覚中心(centerX)を基準にする。
-            // frozenCenterX(=scale pivot)はoriginalW/2基準でdrawW/2と4pxずれるため
-            // スケール後に左右非対称(8.8px差)を生む。
-            const handX = centerX + direction * (ownerWorldWidth(player) * 0.35);
-            // 身長比率に基づいて手の高さを計算 (プレイヤー 60px に対し 7.5px = 0.125)
-            const handY = player.y + ownerWorldHeight(player) * 0.125;
+            // 刀身の長さ
+            const bladeLen = this.range + 18;
+            const bladeEnd = bladeLen + 8; // getBladeGeometry と完全に同期
+
+            // --- 地面判定の基準 ---
+            // _worldGroundY が利用可能な場合はワールド座標のgroundYを使用する
+            // （actor.groundY はactor座標系で通常描画用、大太刀はワールド座標が必要）
+            const baseGroundY = Number.isFinite(player._worldGroundY) ? player._worldGroundY : player.groundY;
+            const rawMaxTipY = baseGroundY + LANE_OFFSET;
             
-            // 地面固定：剣の先端（bladeEnd）を地面（maxTipY）に揃える
-            const tipY = handY + Math.sin(rotation) * bladeEnd;
-            let adjustedHandY = handY;
-            if (tipY > maxTipY) {
-                adjustedHandY -= (tipY - maxTipY);
+            // --- 描画スケール補正 ---
+            // renderModel は originalH * 0.62 を pivot にして scale する。
+            // _scalePivotH が渡されている場合はそれを使用（drawH * 0.62 ではなく originalH * 0.62）
+            const scale = player.scaleMultiplier || 1.0;
+            let maxTipY = rawMaxTipY;
+            if (Math.abs(scale - 1.0) > 0.001) {
+                const pivotH = Number.isFinite(player._scalePivotH) ? player._scalePivotH : (ownerWorldHeight(player) * 0.62);
+                const pivotY = player.y + pivotH;
+                maxTipY = pivotY + (rawMaxTipY - pivotY) / scale;
             }
-            const plantedPose = { progress, phase, direction, rotation, handX, handY: adjustedHandY, bladeLen };
-            // lastPlantedPose の保存は、描画で二重スケールされないよう必ず 1.0倍基準（_inRenderModel = true 相当）にする
-            if (player && player.scaleMultiplier > 1.001 && !player._inRenderModel) {
-                const prevIRM = player._inRenderModel;
-                player._inRenderModel = true;
-                this.lastPlantedPose = this.getPose(player);
-                player._inRenderModel = prevIRM;
-            } else {
+
+            // 非攻撃時は「構え」ポーズ
+            if (!this.isAttacking) {
+                phase = 'ready';
+                // 刃を下・峰を上にして前方斜め上に構える（約-60度＝右斜め上方向）
+                // ctx.scale(direction, 1) が水平反転を担うため、左右ともに同じ angle を使う
+                // ほぼ水平のやや上向き＋前方に構える
+                const baseAngle = -Math.PI * 0.10 + Math.sin(player.motionTime * 0.0078) * 0.03;
+                rotation = baseAngle;
+                
+                const handX = centerX + direction * (ownerWorldWidth(player) * 0.48);
+                const handY = player.y + ownerWorldHeight(player) * 0.40 + (player.bob || 0) * 0.8;
+                
+                return { progress, phase, direction, rotation, handX, handY, bladeLen };
+            }
+
+            // 着地後は刺さりポーズ
+            if (this.hasImpacted) {
+                phase = 'planted';
+                rotation = Math.PI * 0.5;
+                // 大太刀のhandXはボディの視覚中心(centerX)を基準にする。
+                // frozenCenterX(=scale pivot)はoriginalW/2基準でdrawW/2と4pxずれるため
+                // スケール後に左右非対称(8.8px差)を生む。
+                const handX = centerX + direction * (ownerWorldWidth(player) * 0.35);
+                // 身長比率に基づいて手の高さを計算 (プレイヤー 60px に対し 7.5px = 0.125)
+                const handY = player.y + ownerWorldHeight(player) * 0.125;
+                
+                // 地面固定：剣の先端（bladeEnd）を地面（maxTipY）に揃える
+                const tipY = handY + Math.sin(rotation) * bladeEnd;
+                let adjustedHandY = handY;
+                if (tipY > maxTipY) {
+                    adjustedHandY -= (tipY - maxTipY);
+                }
+                const plantedPose = { progress, phase, direction, rotation, handX, handY: adjustedHandY, bladeLen };
+                // 常に 1.0倍基準で計算しているため、再帰呼び出しなしで単純コピー保存
                 this.lastPlantedPose = { ...plantedPose };
+                return plantedPose;
             }
-            return plantedPose;
-        }
 
         if (progress < this.liftEnd) {
             phase = 'rise';
@@ -3021,13 +3021,12 @@ export class Odachi extends SubWeapon {
             handY -= lift * 1.6;
         }
 
-        // 接地判定制限：剣の先端が地面を絶対に突き抜けないように
-        const tipY = handY + Math.sin(rotation) * bladeEnd;
-        if (tipY > maxTipY) {
-            handY -= (tipY - maxTipY);
+            return { progress, phase, direction, rotation, handX, handY, bladeLen };
+        } finally {
+            if (player && prevIRM !== undefined) {
+                player._inRenderModel = prevIRM;
+            }
         }
-
-        return { progress, phase, direction, rotation, handX, handY, bladeLen };
     }
 
     getHandleMetrics() {
@@ -3078,6 +3077,7 @@ export class Odachi extends SubWeapon {
 
     captureImpactWorldPose(player) {
         if (!player) return;
+        if (!this.isAttacking) return;
         const scale = this.getOwnerVisualScale(player);
         
         let frozen = null;
@@ -3522,7 +3522,7 @@ export class Odachi extends SubWeapon {
                 : this.getPose(player);
 
             // モデル描画中（_inRenderModel）かつ着地刺さり中の場合、最新のモデル位置に基づいて絶対ワールド座標をキャプチャ更新する
-            if (player && player._inRenderModel && this.hasImpacted) {
+            if (player && player._inRenderModel && this.isAttacking && this.hasImpacted) {
                 this.captureImpactWorldPose(player);
             }
 

@@ -662,8 +662,8 @@ export function applySlashTrailMixin(PlayerClass) {
                 const rawRelativeX = nX - bPivotX - dx;
                 const rawRelativeY = nY - bPivotY - dy;
                 return {
-                    x: rPivotX + dx + rawRelativeX * scale,
-                    y: rPivotY + dy + rawRelativeY * scale
+                    x: rPivotX + rawRelativeX * scale,
+                    y: rPivotY + rawRelativeY * scale
                 };
             }
 
