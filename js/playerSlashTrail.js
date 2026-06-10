@@ -971,9 +971,10 @@ export function applySlashTrailMixin(PlayerClass) {
             const clamped = Math.max(0, Math.min(0.42, progress));
             const rise = smooth(clamped / 0.42);
             const prepEase = smooth(clamped / 0.18);
-            const rawAngle = -0.22 + (-0.74 + 0.22) * rise;
-            const rawHandX = centerX + dir * (26 + (8.0 - 26) * rise);
-            const rawHandY = pivotY + 5 + (-24.0 - 5) * rise;
+            // getComboSwordPoseState case4 の上昇ポーズ（序盤の構え維持）と同一の式を使う
+            const rawAngle = -0.22 + (-0.38 + 0.22) * rise;
+            const rawHandX = centerX + dir * (26 + (21.0 - 26) * rise);
+            const rawHandY = pivotY + 5 + (-1.0 - 5) * rise;
             const handX = centerX + dir * 26 + (rawHandX - (centerX + dir * 26)) * prepEase;
             const handY = pivotY + 5 + (rawHandY - (pivotY + 5)) * prepEase;
             const angle = -0.22 + (rawAngle - (-0.22)) * prepEase;
@@ -1363,39 +1364,45 @@ export function applySlashTrailMixin(PlayerClass) {
                 break;
             }
             case 4: {
+                // 四段は体幹(playerRenderer)・脚・物理(normalComboMotion)がすべて raw 進行度で
+                // フェーズ管理される（バク宙開始=raw 0.42）。剣ポーズだけ remap 後の progress を
+                // 使うと raw 0.21 で先行してバク宙用の振りかぶりへ入り、上昇中に振りかぶって
+                // 見えるため、剣ポーズも raw に同期させる。
+                const p4 = rawProgress;
                 // 上昇・バク宙による描画上の持ち上げ（胴体と手を同期させ、腕の消滅を防ぐ）
-                const riseT = Math.min(1, progress / 0.42);
+                const riseT = Math.min(1, p4 / 0.42);
                 const riseEase = riseT * riseT * (3 - 2 * riseT);
                 const riseLift = Math.sin(riseEase * Math.PI * 0.5) * 8.9 * 0.78 * scale;
 
-                if (progress < 0.42) {
-                    const t = progress / 0.42;
-                    const rise = t * t * (3 - 2 * t);
-                    swordAngle = -0.22 + (-0.74 + 0.22) * rise;
-                    armEndX = centerX + dir * (26 + (8.0 - 26) * rise) * scale;
-                    armEndY = pivotY + (5 + (-24.0 - 5) * rise) * scale - riseLift;
+                if (p4 < 0.42) {
+                    // 上昇中は頭上への振りかぶりを行わず、モーション序盤の構え
+                    // （手は前方・腰の高さ、刀はほぼ水平のやや上向き）を維持したまま体ごと上昇する
+                    const rise = riseEase;
+                    swordAngle = -0.22 + (-0.38 + 0.22) * rise;
+                    armEndX = centerX + dir * (26 + (21.0 - 26) * rise) * scale;
+                    armEndY = pivotY + (5 + (-1.0 - 5) * rise) * scale - riseLift;
                 } else {
-                    const flipT = Math.max(0, Math.min(1, (progress - 0.42) / 0.58));
+                    const flipT = Math.max(0, Math.min(1, (p4 - 0.42) / 0.58));
                     const bodyFlipAngle = -Math.PI * 1.82 * flipT;
                     const flipAngle = -0.76 + bodyFlipAngle;
                     const flipX = centerX - dir * (4.0 + Math.sin(flipT * Math.PI) * 6.0) * scale;
                     const flipY = pivotY + (-14 + Math.cos(flipT * Math.PI) * 4.0) * scale;
-                    const bridgeT = Math.max(0, Math.min(1, (progress - 0.42) / 0.12));
+                    const bridgeT = Math.max(0, Math.min(1, (p4 - 0.42) / 0.12));
                     const bridge = bridgeT * bridgeT * (3 - 2 * bridgeT);
-                    const riseAngleEnd = -0.74;
-                    const riseEndX = centerX + dir * 8.0 * scale;
-                    const riseEndY = pivotY - 24.0 * scale;
+                    const riseAngleEnd = -0.38;
+                    const riseEndX = centerX + dir * 21.0 * scale;
+                    const riseEndY = pivotY - 1.0 * scale;
                     swordAngle = riseAngleEnd + (flipAngle - riseAngleEnd) * bridge;
                     armEndX = riseEndX + (flipX - riseEndX) * bridge;
                     armEndY = riseEndY + (flipY - riseEndY) * bridge - riseLift;
 
-                    const shoulderT = Math.max(0, Math.min(1, (progress - 0.5) / 0.5));
+                    const shoulderT = Math.max(0, Math.min(1, (p4 - 0.5) / 0.5));
                     const shoulderEase = shoulderT * shoulderT * (3 - 2 * shoulderT);
                     activeLeftShoulderX -= dir * (0.4 + shoulderEase * 1.6) * scale;
                     activeLeftShoulderY += (0.2 + shoulderEase * 1.8) * scale;
                     activeRightShoulderX -= dir * (0.3 + shoulderEase * 1.35) * scale;
                     activeRightShoulderY += (0.2 + shoulderEase * 1.55) * scale;
-                    if (progress > 0.48) {
+                    if (p4 > 0.48) {
                         allowSupportFrontHand = false;
                     }
 
@@ -1416,7 +1423,7 @@ export function applySlashTrailMixin(PlayerClass) {
                         armEndY += (idleHandY - armEndY) * airRecover;
                     }
                 }
-                const prepT = Math.max(0, Math.min(1, progress / 0.18));
+                const prepT = Math.max(0, Math.min(1, p4 / 0.18));
                 const prepEase = prepT * prepT * (3 - 2 * prepT);
                 const prevPose = this.getComboSwordPoseReference(
                     3,
@@ -1539,7 +1546,8 @@ export function applySlashTrailMixin(PlayerClass) {
                 trailRadius = attack.trailArcRadius;
             }
             if (attack.comboStep === 4) {
-                const earlyLiftT = Math.max(0, Math.min(1, 1 - progress / 0.38));
+                // 四段の剣ポーズは raw 進行度基準（case 4 参照）。リフト減衰も raw に揃える
+                const earlyLiftT = Math.max(0, Math.min(1, 1 - rawProgress / 0.38));
                 armEndY -= 2.2 + earlyLiftT * 8.4;
             }
         } else if (attack.comboStep === 5) {

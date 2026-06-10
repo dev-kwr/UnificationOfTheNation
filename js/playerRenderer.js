@@ -5082,8 +5082,17 @@ export function applyRendererMixin(PlayerClass) {
                     )
                 );
 
+                // Lv1-2(ミラー分身)のYはpos.y(=本体yのミラー)から一意に決まるため個別補正しない。
+                // 本体のぶら下がり/着地yは武器側(Odachi.getPlantedOwnerY)が一元管理しており、
+                // ミラーするだけで本体と同一の描画位置になる（描画側での再計算は二重管理）。
                 let cloneDrawY = this.getSpecialCloneDrawY(pos.y);
-                if (cloneOdachiHanging && visualSubWeaponInstance && typeof visualSubWeaponInstance.getPlantedOwnerY === 'function') {
+                if (
+                    this.specialCloneAutoAiEnabled &&
+                    cloneOdachiHanging &&
+                    visualSubWeaponInstance &&
+                    typeof visualSubWeaponInstance.getPlantedOwnerY === 'function'
+                ) {
+                    // Lv3自律分身: 分身自身の接地基準でぶら下がり高さを算出（従来挙動）
                     const virtualPlayer = {
                         groundY: this.groundY,
                         height: this.height,

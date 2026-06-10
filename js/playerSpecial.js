@@ -201,45 +201,25 @@ export function applySpecialMixin(PlayerClass) {
                     }
                     const cloneTimer = this.specialCloneSubWeaponTimers ? (this.specialCloneSubWeaponTimers[i] || 0) : 0;
                     const hasLiveProjectile = Array.isArray(inst.projectiles) && inst.projectiles.length > 0;
-                    // 大太刀着地後: dummyCloneのplanted位置をposに反映
+                    // 大太刀着地後の分身Y管理:
+                    // Lv1-2(ミラー分身)は pos.y を個別補正しない。pos.y は常に anchors
+                    // (=getSpecialCloneAnchorY()=本体yのミラー)であり、本体yは武器側
+                    // (Odachi.getPlantedOwnerY)が一元管理しているため、ミラーするだけで
+                    // ぶら下がり・落下・着地のすべてが本体と同一の描画位置になる（二重管理の撲滅）。
                     if (inst.name === '大太刀' && inst.hasImpacted && dummyClone && this.specialClonePositions[i]) {
                         const pos = this.specialClonePositions[i];
-                        // Lv1-2: 本体のぶら下がり状態を優先参照（分身のisAttackingより早く解除されるため）
-                        const playerIsHanging = !this.specialCloneAutoAiEnabled &&
-                            bodyActiveSubWeapon &&
-                            bodyActiveSubWeapon.name === '大太刀' &&
-                            bodyActiveSubWeapon.isAttacking &&
-                            bodyActiveSubWeapon.hasImpacted;
-                        const isHanging = this.specialCloneAutoAiEnabled ? inst.isAttacking : (playerIsHanging || inst.isAttacking);
-                        const baseH = this.characterType === 'shogun' ? SHOGUN_ACTOR_BASE_HEIGHT : PLAYER.HEIGHT;
-                        // ぶら下がり中: pos.yを本体のanchor位置に同期（分身自身のowner.yではなく）
-                        pos.y = isHanging
-                            ? (this.y + this.getWorldHeight() * 0.62)
-                            : (dummyClone.y + baseH - this._getCloneFootOffset(1.0));
                         if (this.specialCloneAutoAiEnabled) {
+                            // Lv3自律分身: 自身のplanted位置を反映（従来挙動）
+                            const baseH = this.characterType === 'shogun' ? SHOGUN_ACTOR_BASE_HEIGHT : PLAYER.HEIGHT;
+                            pos.y = inst.isAttacking
+                                ? (this.y + this.getWorldHeight() * 0.62)
+                                : (dummyClone.y + baseH - this._getCloneFootOffset(1.0));
                             pos.jumping = false;
                             pos.cloneVy = 0;
-                        } else if (playerIsHanging) {
-                            pos.jumping = false;
-                            pos.cloneVy = 0;
-                            pos.odachiWasHanging = true;
-                            pos.odachiLandingTimer = 0;
-                        } else if (inst.isAttacking) {
-                            pos.jumping = false;
-                            pos.cloneVy = 0;
-                            pos.odachiWasHanging = true;
-                            pos.odachiLandingTimer = 0;
                         } else {
-                            // ぶら下がり終了直後: 本体の落下フレームに合わせた着地遷移
-                            if (pos.odachiWasHanging) {
-                                pos.odachiLandingTimer = 160;
-                                pos.odachiWasHanging = false;
-                            }
-                            if ((pos.odachiLandingTimer || 0) > 0) {
-                                pos.odachiLandingTimer = Math.max(0, pos.odachiLandingTimer - deltaMs);
-                            }
-                            pos.jumping = (pos.odachiLandingTimer || 0) > 0;
-                            pos.cloneVy = pos.jumping ? 2 : 0;
+                            // Lv1-2: 空中状態フラグも本体に同期
+                            pos.jumping = !this.isGrounded;
+                            pos.cloneVy = this.vy;
                         }
                     }
                     // 大太刀: isAttacking中・planted中・fadeOut中・本体ぶら下がり中はタイマー切れでも維持
