@@ -418,6 +418,11 @@ export class ShurikenProjectile {
         }
 
         const isPreviewMode = !!(window.game && window.game.player && window.game.player.previewMode);
+        // character_preview ページは可視ワールド範囲(ズーム引き考慮)を公開する。
+        // 同ページの将軍/忍者は previewMode=false の実ロジックで動くため、
+        // プレビュー判定は previewMode フラグではなくこの範囲の有無で行う。
+        const previewViewBounds = (typeof window !== 'undefined' && window.__previewViewWorldBounds) || null;
+        const inPreviewPage = isPreviewMode || !!previewViewBounds;
         const groundY = (window.game && window.game.groundY) ? window.game.groundY : 480;
         if (!isPreviewMode && this.homing && (groundY - this.y) < 80 && this.vy > 0) {
             this.vy *= 0.45;
@@ -432,8 +437,8 @@ export class ShurikenProjectile {
         this.life -= dt * 1000;
 
         // --- 地面・画面外判定 ---
-        // プレビューモード時は groundY が画面上端付近に設定されるため判定をスキップする
-        if (!isPreviewMode) {
+        // プレビューでは groundY 前提が異なるため地面判定をスキップする
+        if (!inPreviewPage) {
             if (this.y >= groundY + LANE_OFFSET) this.isDestroyed = true;
 
             // --- 画面外判定（左右） ---
@@ -447,14 +452,20 @@ export class ShurikenProjectile {
                 this.vy *= 0.3;
             }
         } else {
-            // プレビューモード：画面ワールド端（スケール3.5を考慮した描画範囲外）で消滅
+            // プレビュー：実際に見えているワールド範囲(ズーム引き考慮)+マージンの外で消滅。
+            // 固定の CANVAS_WIDTH 基準だとズーム引き時に画面端のだいぶ手前で消えてしまう。
             const scrollX = (window.game && window.game.scrollX) || 0;
-            if (this.x < scrollX - 200 || this.x > scrollX + CANVAS_WIDTH + 200) {
+            const viewLeft = previewViewBounds && Number.isFinite(previewViewBounds.left)
+                ? previewViewBounds.left : scrollX - 200;
+            const viewRight = previewViewBounds && Number.isFinite(previewViewBounds.right)
+                ? previewViewBounds.right : (scrollX + CANVAS_WIDTH + 200);
+            if (this.x < viewLeft - 200 || this.x > viewRight + 200) {
                 this.isDestroyed = true;
             }
+            // プレビューでは寿命切れで画面内に残った弾を消さず、可視範囲端まで飛ばし切る
         }
 
-        if (this.life <= 0) this.isDestroyed = true;
+        if (this.life <= 0 && !inPreviewPage) this.isDestroyed = true;
     }
 
     getHitbox() {
@@ -664,7 +675,10 @@ export class Shuriken extends SubWeapon {
         return hitboxes.length > 0 ? hitboxes : null;
     }
 
-    render(ctx) {
+    render(ctx, player = null) {
+        // 手裏剣の描画物は弾（ワールド実体）のみ。ミラー分身のモーション描画パスでは
+        // 本体の弾を分身位置でもう一度描かない（分身の弾は dedicated インスタンスが描く）。
+        if (player && player._renderingMirrorClone) return;
         for (const proj of this.projectiles) {
             proj.render(ctx);
         }
@@ -1042,6 +1056,10 @@ export class Spear extends SubWeapon {
         if (!this.isAttacking && !actionVisible && (!player || !player.forceSubWeaponRender)) return;
 
         const st = this.getThrustState(player);
+        // 終了間際は槍ごとフェードアウトさせ、突然消えないようにする（武器時間で最後の120ms）
+        const spearFadeAlpha = this.isAttacking
+            ? Math.max(0, Math.min(1, this.attackTimer / 120))
+            : 1;
         const shaftDX = st.shaftEndX - st.shaftStartX;
         const shaftDY = st.shaftEndY - st.shaftStartY;
         const shaftLen = Math.max(1, Math.hypot(shaftDX, shaftDY));
@@ -1065,6 +1083,7 @@ export class Spear extends SubWeapon {
         const tubeWidth = tube.tubeWidth;
 
         ctx.save();
+        ctx.globalAlpha *= spearFadeAlpha;
         ctx.translate(st.shaftStartX, st.shaftStartY);
         ctx.rotate(shaftAngle);
         ctx.lineCap = 'round';
@@ -1409,9 +1428,9 @@ export class DualBlades extends SubWeapon {
     getMainDurationByStep(step) {
         let base = 220;
         switch (step) {
-            case 1: base = 190; break; // 初段: 奥手・袈裟斬り
-            case 2: base = 195; break; // 二段: 手前手・切り上げ
-            case 3: base = 230; break; // 三段: 両手・十字斬り
+            case 1: base = 130; break; // 初段: 奥手・袈裟斬り（テンポ重視で短め）
+            case 2: base = 135; break; // 二段: 手前手・切り上げ（テンポ重視で短め）
+            case 3: base = 180; break; // 三段: 両手・十字斬り（テンポ重視で短め）
             case 4: base = 338; break; // 四段: 天穿・並行切り上げ
             default: base = 358; break; // 五段(0): 叩きつけ
         }
@@ -1640,13 +1659,21 @@ export class DualBlades extends SubWeapon {
             };
             // 効果音は発射のタイミングに合わせて鳴らすため、ここでは鳴らさない
         } else if (type === 'main') {
-        // 5段コンボのループ
+        // Z連撃は忍具Lvに応じて段が1段目から順番に解放される
+        // （Lv0=1〜2段, Lv1=1〜3段, Lv2=1〜4段, Lv3=1〜5段）。
+        // comboIndex は段ポーズ規約（1..4=各段, 0=5段目）を維持する。
+        // 旧式 (comboIndex+1)%length は低Lvで最終撃が 0(=5段目の叩きつけ)へ巻き戻り、
+        // 段が順番に出ない上にダメージの段対応もずれていた。
         if (this.mainComboLinkTimer <= 0) {
-            this.comboIndex = 0;
+            this.comboIndex = 0; // コンボ切れ: 未開始へ
         }
-        this.comboIndex = (this.comboIndex + 1) % this.comboDamages.length;
+        const maxSteps = Math.max(1, this.comboDamages.length); // Lv0..3 → 2..5
+        const prevStep = this.comboIndex === 0 ? 0 : this.comboIndex; // 0=未開始/5段目直後
+        let nextStep = prevStep + 1;
+        if (nextStep > maxSteps) nextStep = 1;
+        this.comboIndex = nextStep === 5 ? 0 : nextStep;
         this._swingId = (this._swingId || 0) + 1;
-        const damage = this.comboDamages[this.comboIndex] || this.comboDamages[0];
+        const damage = this.comboDamages[nextStep - 1] || this.comboDamages[0];
         this.mainDuration = Math.max(
             112,
             Math.round(this.getMainDurationByStep(this.comboIndex) * enemyTempoScale)
@@ -1686,9 +1713,14 @@ export class DualBlades extends SubWeapon {
                 const p = this.pendingCombinedProjectile;
                 const owner = p._owner;
                 if (owner) {
-                    // 発射の瞬間のプレイヤー座標から基点を計算（移動に追従させる）
-                    p.x = owner.x + ownerWorldWidth(owner) / 2;
-                    p.y = owner.y + ownerWorldHeight(owner) - 32.53 * 1.35 * p.sizeScale;
+                    // 発射の瞬間のプレイヤー座標から基点を計算（移動に追従させる）。
+                    // ワールド実体の生成なので、描画中フラグ(_inRenderModel=素体寸法を返す)
+                    // の影響を受けない明示的なワールド寸法で計算する（フラグが残留すると
+                    // 将軍の本体弾だけ素体高さ基準になり約60px浮く）。
+                    const spawnWorldW = (typeof owner.getWorldWidth === 'function') ? owner.getWorldWidth() : (owner.width || 0);
+                    const spawnWorldH = (typeof owner.getWorldHeight === 'function') ? owner.getWorldHeight() : (owner.height || 0);
+                    p.x = owner.x + spawnWorldW / 2;
+                    p.y = owner.y + spawnWorldH - 32.53 * 1.35 * p.sizeScale;
                 }
                 this.projectiles.push(p);
                 this.pendingCombinedProjectile = null;
@@ -2047,12 +2079,15 @@ export class DualBlades extends SubWeapon {
             }
         };
 
-        this.renderProjectiles(ctx);
+        // 弾（飛翔斬撃）と剣筋フェードはワールド座標のスナップショット。ミラー分身の
+        // モーション描画パスでは本体由来の実体を重複描画しない（分身の弾は dedicated が描く）。
+        const mirrorMotionOnly = !!(player && player._renderingMirrorClone);
+        if (!mirrorMotionOnly) this.renderProjectiles(ctx);
 
         if (!this.isAttacking) {
             this.prevMainRightAngle = null;
             this.prevMainLeftAngle = null;
-            drawStoredMainTrailFade();
+            if (!mirrorMotionOnly) drawStoredMainTrailFade();
             return;
         }
         

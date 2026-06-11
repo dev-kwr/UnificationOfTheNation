@@ -136,11 +136,18 @@ export function applySlashTrailMixin(PlayerClass) {
         for (const [stepNum, stepPoints] of stepGroups) {
             const lastPt = stepPoints[stepPoints.length - 1];
             const stripTrailId = lastPt?.trailAttackId || stepNum;
-            const frozenBoostAnchor = (this.comboSlashTrailBoostAnchors && this.comboSlashTrailBoostAnchors[stripTrailId]) 
-                ? { ...this.comboSlashTrailBoostAnchors[stripTrailId] } 
+            const frozenBoostAnchor = (this.comboSlashTrailBoostAnchors && this.comboSlashTrailBoostAnchors[stripTrailId])
+                ? { ...this.comboSlashTrailBoostAnchors[stripTrailId] }
                 : null;
             const forceOffsetX = frozenBoostAnchor ? frozenBoostAnchor.baseCenterX - this.getWorldWidth() * 0.5 : null;
             const forceOffsetY = frozenBoostAnchor ? frozenBoostAnchor.baseCenterY - this.getWorldHeight() * 0.5 : null;
+            // 凍結時の剣筋幅スケール（大凪）をスナップショットへ焼き込む。描画側の
+            // visualWidthScale は「次の攻撃中は 1.0」へ落ちるため、凍結後の太さは
+            // この保存値で固定する（凍結後に通常幅へ細るのを防ぐ）。
+            const frozenTrailWidthScale = stepPoints.reduce((max, p) => {
+                const s = (p && Number.isFinite(p.trailScale)) ? p.trailScale : 1;
+                return Math.max(max, s);
+            }, 1);
 
             if (stepNum === 1) {
                 const frozenSnapshot = this.buildFrozenSampledBezierSnapshot(stepNum, stepPoints, forceOffsetX, forceOffsetY);
@@ -148,6 +155,7 @@ export function applySlashTrailMixin(PlayerClass) {
                     frozenSnapshot.boostAnchor = frozenBoostAnchor;
                     frozenSnapshot.frozenTrailCenterX = frozenTrailCenterX;
                     frozenSnapshot.frozenTrailCenterY = frozenTrailCenterY;
+                    frozenSnapshot.trailWidthScale = frozenTrailWidthScale;
                     this.comboSlashTrailFrozenCurves.push(frozenSnapshot);
                 }
             } else if ([2, 5].includes(stepNum)) {
@@ -215,7 +223,8 @@ export function applySlashTrailMixin(PlayerClass) {
                         trailCurveFrozen: true,
                         boostAnchor: frozenBoostAnchor,
                         frozenTrailCenterX: frozenTrailCenterX,
-                        frozenTrailCenterY: frozenTrailCenterY
+                        frozenTrailCenterY: frozenTrailCenterY,
+                        trailWidthScale: frozenTrailWidthScale
                     });
                 }
             } else {
@@ -261,7 +270,8 @@ export function applySlashTrailMixin(PlayerClass) {
                         life: Math.max(1, lastPt.life || this.comboSlashTrailActiveLifeMs),
                         boostAnchor: frozenBoostAnchor,
                         frozenTrailCenterX: frozenTrailCenterX,
-                        frozenTrailCenterY: frozenTrailCenterY
+                        frozenTrailCenterY: frozenTrailCenterY,
+                        trailWidthScale: frozenTrailWidthScale
                     });
                 }
             }
@@ -588,6 +598,51 @@ export function applySlashTrailMixin(PlayerClass) {
      * @param {Object} baseState - {x, y, ...} プレイヤーの現在状態
      * @returns {Object} ワールド座標に変換されたポーズ
      */
+    // 剣筋の「正規化ポーズ空間(ninja 48x72)→ワールドスケール」投影に使うピボットの単一定義。
+    // _projectShogunTrailPoseToWorldScale / buildComboStep5TrailSpec の床逆変換 /
+    // projectComboTrailSpecPointToWorld のすべてがこれを使い、式の二重管理を避ける。
+    PlayerClass.prototype._getComboTrailProjectionPivots = function(anchorX, anchorY, scale) {
+        const worldW = PLAYER.WIDTH * scale;
+        const worldH = PLAYER.HEIGHT * scale;
+        const footOffset = (typeof this._getCloneFootOffset === 'function')
+            ? this._getCloneFootOffset()
+            : (PLAYER.HEIGHT - SHOGUN_ACTOR_BASE_HEIGHT * 0.62) * scale;
+        // renderModel 内では素体(40x60)を canvas scale×2.0 で拡大するため:
+        //   actorRenderDY = worldH - footOffset - SHOGUN_ACTOR_BASE_HEIGHT * 0.62 (= 13.2 @scale2)
+        const actorRenderDY = worldH - footOffset - SHOGUN_ACTOR_BASE_HEIGHT * 0.62;
+        // renderPivotY は renderModel の実際の拡大ピボット
+        // (actorRenderY + 素体高さ*0.62) と「同じ写像」になるよう合わせる。
+        // ninja空間のランドマーク L に対し renderModel は
+        //   world = anchorY + actorRenderDY + base062 + (L - base062) * scale
+        // を描くため、basePivot(=ninja062)基準の投影では
+        //   renderPivotY = anchorY + actorRenderDY + base062 + (ninja062 - base062) * scale
+        // が等価条件。旧式(actorRenderDY + ninja062)は scale=2 で 7.44px 上へずれ、
+        // step5 終端が刀の切っ先からオーバーする原因だった。
+        const base062 = SHOGUN_ACTOR_BASE_HEIGHT * 0.62;
+        const ninja062 = PLAYER.HEIGHT * 0.62;
+        return {
+            basePivotX: anchorX + PLAYER.WIDTH * 0.5,
+            basePivotY: anchorY + ninja062,
+            renderPivotX: anchorX + worldW * 0.5,
+            renderPivotY: anchorY + actorRenderDY + base062 + (ninja062 - base062) * scale
+        };
+    };
+
+    // 剣筋スペック空間(正規化ポーズ空間・攻撃開始アンカー基準)の1点をワールド座標へ投影する。
+    // 忍者(scale=1)は恒等。freezeNormalComboFinisherTrailCurve の点上書き等に使う。
+    PlayerClass.prototype.projectComboTrailSpecPointToWorld = function(attack, px, py) {
+        const scale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
+            ? this.scaleMultiplier : 1;
+        if (scale <= 1.001 || this.characterType !== 'shogun') return { x: px, y: py };
+        const anchorX = attack && Number.isFinite(attack.trailTransformPlayerX) ? attack.trailTransformPlayerX : this.x;
+        const anchorY = attack && Number.isFinite(attack.trailTransformPlayerY) ? attack.trailTransformPlayerY : this.y;
+        const pivots = this._getComboTrailProjectionPivots(anchorX, anchorY, scale);
+        return {
+            x: pivots.renderPivotX + (px - pivots.basePivotX) * scale,
+            y: pivots.renderPivotY + (py - pivots.basePivotY) * scale
+        };
+    };
+
     PlayerClass.prototype._projectShogunTrailPoseToWorldScale = function(pose, baseState) {
         const scale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0
             ? this.scaleMultiplier : 1;
@@ -595,10 +650,6 @@ export function applySlashTrailMixin(PlayerClass) {
 
         const px = Number.isFinite(baseState.x) ? baseState.x : this.x;
         const py = Number.isFinite(baseState.y) ? baseState.y : this.y;
-
-        // 姿勢やかがみ状態によらず、不動のスケール物理空間を維持する
-        const worldH = PLAYER.HEIGHT * scale;
-        const worldW = PLAYER.WIDTH * scale;
 
         // 絶対座標（trailIsRelative: false）の投影ピボット計算において、
         // 毎フレーム変化するプレイヤーの現在座標（px, py）を使用すると、
@@ -620,33 +671,17 @@ export function applySlashTrailMixin(PlayerClass) {
             }
         }
 
-        // 将軍のワールドスケールにおけるレンダーピボット（回転中心）をプレイヤー座標相対で計算。
-        // renderModel 内では素体(40x60)を canvas scale×2.0 で拡大するため:
-        //   actorRenderDY = worldH - footOffset - SHOGUN_ACTOR_BASE_HEIGHT * 0.62
-        //                 = 120 - 69.6 - 37.2 = 13.2
-        //   renderPivotDX = worldW / 2 = 40
-        //   renderPivotDY = actorRenderDY + PLAYER.HEIGHT * 0.62 = 13.2 + 44.64 = 57.84
-        const footOffset = (typeof this._getCloneFootOffset === 'function')
-            ? this._getCloneFootOffset()
-            : (PLAYER.HEIGHT - SHOGUN_ACTOR_BASE_HEIGHT * 0.62) * scale;
-        const actorRenderDY = worldH - footOffset - SHOGUN_ACTOR_BASE_HEIGHT * 0.62;
-
-        // 絶対座標用のレンダーピボット（攻撃開始時の固定ピクセル、または現在位置を含む）
-        const renderPivotX_Abs = anchorX + worldW * 0.5;
-        const renderPivotY_Abs = anchorY + actorRenderDY + PLAYER.HEIGHT * 0.62;
-
-        // 相対座標用のレンダーピボット（プレイヤーの現在の座標を含まず、純粋な相対オフセットの原点基準）
-        // renderPivotX_Abs から px を引き, renderPivotY_Abs から py を引いたもの。
-        const renderPivotX_Rel = worldW * 0.5;
-        const renderPivotY_Rel = actorRenderDY + PLAYER.HEIGHT * 0.62;
-
-        // ninja基準のピボット：
-        // 絶対座標ポイント用（anchorX, anchorY を含む）
-        const basePivotX_Abs = anchorX + PLAYER.WIDTH * 0.5;
-        const basePivotY_Abs = anchorY + PLAYER.HEIGHT * 0.62;
-        // 相対座標ポイント用（px, py を含まない）
-        const basePivotX_Rel = PLAYER.WIDTH * 0.5;
-        const basePivotY_Rel = PLAYER.HEIGHT * 0.62;
+        // 投影ピボットは単一定義ヘルパーから取得（式の二重管理を避ける）
+        const pivots = this._getComboTrailProjectionPivots(anchorX, anchorY, scale);
+        // 絶対座標用（攻撃開始アンカーを含む）と、相対座標用（アンカーを含まない純オフセット）
+        const renderPivotX_Abs = pivots.renderPivotX;
+        const renderPivotY_Abs = pivots.renderPivotY;
+        const renderPivotX_Rel = pivots.renderPivotX - anchorX;
+        const renderPivotY_Rel = pivots.renderPivotY - anchorY;
+        const basePivotX_Abs = pivots.basePivotX;
+        const basePivotY_Abs = pivots.basePivotY;
+        const basePivotX_Rel = pivots.basePivotX - anchorX;
+        const basePivotY_Rel = pivots.basePivotY - anchorY;
 
         // 投影関数
         const proj = (nX, nY, isPtRelative, dx = 0, dy = 0) => {
@@ -657,13 +692,15 @@ export function applySlashTrailMixin(PlayerClass) {
             const bPivotY = isPtRelative ? basePivotY_Rel : basePivotY_Abs;
 
             // comboStep === 4 且つ絶対座標の場合は、プレイヤー自身のシミュレーション・実移動量 (dx, dy) を
-            // スケール(scale)させずに 1.0倍 のまま反映し、ピボットに対する手・剣先の相対オフセットのみをスケールする
+            // スケール(scale)させずに 1.0倍 のまま反映し、ピボットに対する手・剣先の相対オフセットのみをスケールする。
+            // dx/dy を等倍で足し戻さないと、上昇移動量がポーズオフセット扱いで×scaleされ
+            // (deltaが無い場合) 剣筋が実際の刀の軌跡より上へ伸びてしまう。
             if (result.comboStep === 4 && !isPtRelative) {
                 const rawRelativeX = nX - bPivotX - dx;
                 const rawRelativeY = nY - bPivotY - dy;
                 return {
-                    x: rPivotX + rawRelativeX * scale,
-                    y: rPivotY + rawRelativeY * scale
+                    x: rPivotX + rawRelativeX * scale + dx,
+                    y: rPivotY + rawRelativeY * scale + dy
                 };
             }
 
@@ -843,6 +880,13 @@ export function applySlashTrailMixin(PlayerClass) {
         const speed = Number.isFinite(state.speed) ? state.speed : this.speed;
         const dir = facingRight ? 1 : -1;
         const bodyMotionScale = this.getComboTrailBodyMotionScale(state);
+        // 体移動量はワールド量だが、このスペックは投影時に×renderScaleされるため
+        // あらかじめ 1/renderScale に正規化する（step4/5と同じ扱い）
+        const renderScale = Math.max(1, Number.isFinite(state.renderScale)
+            ? state.renderScale
+            : (Number.isFinite(state.scaleMultiplier)
+                ? state.scaleMultiplier
+                : (Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1)));
         const step2ImpulseScale = 0.9;
         const durationMs = Math.max(1, attack.durationMs || PLAYER.ATTACK_COOLDOWN);
         const sampleTargets = [0.0, 0.42, 1.0];
@@ -884,8 +928,8 @@ export function applySlashTrailMixin(PlayerClass) {
                 sampleIndex++;
             }
             if (progress >= sampleTargets[sampleTargets.length - 1] || timerMs <= 0) break;
-            simX += simVx * bodyMotionScale;
-            simY += simVy * bodyMotionScale;
+            simX += simVx * bodyMotionScale / renderScale;
+            simY += simVy * bodyMotionScale / renderScale;
             if (state.isGrounded !== false) {
                 simVx *= 0.965;
                 simVx *= FRICTION;
@@ -990,12 +1034,16 @@ export function applySlashTrailMixin(PlayerClass) {
         const attackImpulse = (attack?.impulse || 1) * (Number.isFinite(state.speed) ? state.speed : this.speed);
         let simX = x;
         let simY = y;
+        // 物理(normalComboMotion)の体格スケール倍上昇と同期させる
+        const bodyScaleMult = Math.max(1, Number.isFinite(state.scaleMultiplier)
+            ? state.scaleMultiplier
+            : (Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1));
         let simVx = isCrouching
             ? dir * attackImpulse * 0.28
             : ((Number.isFinite(state.vx) ? state.vx : this.vx) * 0.24 + dir * attackImpulse * 0.42);
         let simVy = isCrouching
             ? (Number.isFinite(state.vy) ? state.vy : this.vy)
-            : Math.min(Number.isFinite(state.vy) ? state.vy : this.vy, -10.6);
+            : Math.min(Number.isFinite(state.vy) ? state.vy : this.vy, -10.6 * bodyScaleMult);
         let timerMs = durationMs;
         let sampleIndex = 0;
         while (sampleIndex < sampleTargets.length) {
@@ -1006,7 +1054,7 @@ export function applySlashTrailMixin(PlayerClass) {
             }
             if (progress >= 0.42 || timerMs <= 0) break;
             const t = progress / 0.42;
-            const z4HeightScale = 0.9;
+            const z4HeightScale = 0.9 * bodyScaleMult;
             simVx = simVx * 0.68 + dir * (Number.isFinite(state.speed) ? state.speed : this.speed) * (0.24 - t * 0.14);
             simVy = (-18.6 + t * 3.2) * z4HeightScale;
             const riseLockT = Math.max(0, Math.min(1, progress / 0.72));
@@ -1032,20 +1080,14 @@ export function applySlashTrailMixin(PlayerClass) {
             : pointAt(0.0, startBody.x, startBody.y);
         const mid = pointAt(0.24, midBody.x, midBody.y);
         const end = pointAt(0.42, endBody.x, endBody.y);
-        const verticalSpan = Math.abs(end.y - start.y);
-        const maxHorizontalSpan = Math.max(1.2, Math.min(3.2, verticalSpan * 0.014));
-        const clampHorizontal = (v) => Math.max(-maxHorizontalSpan, Math.min(maxHorizontalSpan, v));
-        end.x = start.x + clampHorizontal(end.x - start.x);
-        const midLineX = start.x + (end.x - start.x) * 0.5;
-        mid.x = midLineX + clampHorizontal(mid.x - midLineX);
-        const chordX = end.x - start.x;
-        const chordY = end.y - start.y;
-        const chordLen = Math.max(1, Math.hypot(chordX, chordY));
-        // t=0.5 で固定の中間点を通る制御点を逆算する
-        const controlX = 2 * mid.x - (start.x + end.x) * 0.5;
+        // 天穿の縦剣筋は完全な垂直線にする: Xはすべて始点（=三段目終端との結合点）へ固定し、
+        // 体ドリフト由来の横ブレも持ち込まない（Xデルタも始点値へ統一して投影後も垂直を保証）
+        end.x = start.x;
+        mid.x = start.x;
+        const chordLen = Math.max(1, Math.abs(end.y - start.y));
+        // t=0.5 で固定の中間点を通る制御点を逆算する（Xは垂直固定のため始点と同値）
         const controlY = 2 * mid.y - (start.y + end.y) * 0.5;
         // 各フレームでの非線形な体座標変化（跳躍等）が制御点に混入し、ワールドスケールで2倍に拡大される歪みを完全に補正する
-        const correctedControlX = controlX - (2 * midBody.x - (startBody.x + endBody.x) * 0.5) + midBody.x;
         const correctedControlY = controlY - (2 * midBody.y - (startBody.y + endBody.y) * 0.5) + midBody.y;
         return {
             trailArcCenterX: null,
@@ -1055,7 +1097,7 @@ export function applySlashTrailMixin(PlayerClass) {
             trailArcSpan: null,
             trailCurveStartX: start.x,
             trailCurveStartY: start.y,
-            trailCurveControlX: correctedControlX,
+            trailCurveControlX: start.x,
             trailCurveControlY: correctedControlY,
             trailCurveEndX: end.x,
             trailCurveEndY: end.y,
@@ -1064,9 +1106,9 @@ export function applySlashTrailMixin(PlayerClass) {
             trailTransformPlayerY: y,
             startDeltaX: startBody.x - x,
             startDeltaY: startBody.y - y,
-            midDeltaX: midBody.x - x,
+            midDeltaX: startBody.x - x,
             midDeltaY: midBody.y - y,
-            endDeltaX: endBody.x - x,
+            endDeltaX: startBody.x - x,
             endDeltaY: endBody.y - y
         };
     };
@@ -1087,6 +1129,13 @@ export function applySlashTrailMixin(PlayerClass) {
             // 将軍も忍者と同一の正規化ポーズ空間(height=72固定)で生成し、拡大はboss.js側のrenderScaleに一任する。
             // ここで shogun だけ height/36(=2) にすると投影のrenderScale(SHOGUN_SCALE)と二重に掛かり、剣筋が遥か上空へ飛ぶ。
             const scale = height / 72;
+            // 体移動量はワールド量だが、このスペックは投影時に×renderScaleされるため
+            // あらかじめ 1/renderScale に正規化し、投影後にちょうど等倍へ戻るようにする
+            const renderScale = Math.max(1, Number.isFinite(state.renderScale)
+                ? state.renderScale
+                : (Number.isFinite(state.scaleMultiplier)
+                    ? state.scaleMultiplier
+                    : (Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1)));
             const smooth = (t) => {
                 const v = Math.max(0, Math.min(1, t));
                 return v * v * (3 - 2 * v);
@@ -1130,6 +1179,14 @@ export function applySlashTrailMixin(PlayerClass) {
             const sampleTargets = [0.06, 0.38, 0.62, 0.78];
             const sampledBodies = [];
             const frameMs = 1000 / 60;
+            const groundY = Number.isFinite(state.groundY) ? state.groundY : this.groundY;
+            // 実際の着地ライン（体トップY、正規化空間）。
+            // 5段目はattackTimer同様「着地まで継続」するため、シミュレーションも
+            // 固定時間ではなく着地までを再現する（step4の高い頂点から繋いだ場合に
+            // 終点が空中で止まるのを防ぐ）
+            const landSimY = Number.isFinite(groundY)
+                ? y + (((groundY + LANE_OFFSET) - PLAYER.HEIGHT * renderScale) - y) / renderScale
+                : Infinity;
             let simX = x;
             let simY = y;
             let simVx = (Number.isFinite(state.vx) ? state.vx : this.vx) * 0.18;
@@ -1149,18 +1206,35 @@ export function applySlashTrailMixin(PlayerClass) {
                 } else if (progress < 0.76) {
                     const fallT = (progress - 0.26) / 0.5;
                     simVx = simVx * 0.7 + (Number.isFinite(state.speed) ? state.speed : this.speed) * dir * 0.08;
-                    simVy = simVy * 0.34 + (9.8 + fallT * 19.8) * 0.66;
+                    // 物理(normalComboMotion)と同じく体格スケール倍の落下速度（renderScale=scaleMultiplier）
+                    simVy = simVy * 0.34 + (9.8 + fallT * 19.8) * 0.66 * renderScale;
                 } else {
                     simVx *= 0.64;
-                    simVy = Math.max(simVy, 13.4);
+                    simVy = Math.max(simVy, 13.4 * renderScale);
                 }
-                simX += simVx * bodyMotionScale;
-                simY += (simVy + 0.8) * bodyMotionScale;
+                simX += simVx * bodyMotionScale / renderScale;
+                simY += (simVy + 0.8) * bodyMotionScale / renderScale;
+                // 地面より下へは沈まない（接地で停止）
+                if (simY > landSimY) simY = landSimY;
                 timerMs = Math.max(0, timerMs - frameMs);
             }
             while (sampleIndex < sampleTargets.length) {
                 sampledBodies[sampleIndex] = { x: simX, y: simY };
                 sampleIndex++;
+            }
+            // モーション時間内に着地しなかった場合（高所からの継続）、着地まで落下を延長し、
+            // 終点・余韻サンプルを実着地位置に合わせる
+            if (Number.isFinite(landSimY) && simY < landSimY) {
+                let guardFrames = 0;
+                while (simY < landSimY && guardFrames++ < 600) {
+                    simVx *= 0.64;
+                    simVy = Math.max(simVy, 13.4 * renderScale);
+                    simX += simVx * bodyMotionScale / renderScale;
+                    simY += (simVy + 0.8) * bodyMotionScale / renderScale;
+                }
+                simY = Math.min(simY, landSimY);
+                sampledBodies[2] = { x: simX, y: simY };
+                sampledBodies[3] = { x: simX, y: simY };
             }
 
             const startBody = sampledBodies[0] || { x, y };
@@ -1171,10 +1245,16 @@ export function applySlashTrailMixin(PlayerClass) {
             const mid = pointAt(sampleTargets[1], midBody.x, midBody.y);
             const end = pointAt(sampleTargets[2], endBody.x, endBody.y);
             const settleTip = pointAt(sampleTargets[3], settleBody.x, settleBody.y);
-            const groundY = Number.isFinite(state.groundY) ? state.groundY : this.groundY;
-            const slashFloorY = Number.isFinite(groundY)
+            let slashFloorY = Number.isFinite(groundY)
                 ? (groundY + LANE_OFFSET) - Math.max(10, height * 0.1)
                 : Infinity;
+            if (renderScale > 1.001 && Number.isFinite(slashFloorY)) {
+                // 投影(×renderScale)後にワールド床と一致するよう、スペック空間の床へ逆変換する
+                // （視覚マージンも見た目スケール相当に合わせる）
+                const worldFloor = (groundY + LANE_OFFSET) - Math.max(10, height * 0.1) * renderScale;
+                const pivots = this._getComboTrailProjectionPivots(x, y, renderScale);
+                slashFloorY = pivots.basePivotY + (worldFloor - pivots.renderPivotY) / renderScale;
+            }
             end.y = Math.min(end.y, slashFloorY, settleTip.y);
             mid.y = Math.min(mid.y, start.y + (end.y - start.y) * 0.54);
             const midT = Math.max(0.08, Math.min(0.92, (0.38 - 0.16) / (0.62 - 0.16)));
@@ -1382,45 +1462,52 @@ export function applySlashTrailMixin(PlayerClass) {
                     armEndX = centerX + dir * (26 + (21.0 - 26) * rise) * scale;
                     armEndY = pivotY + (5 + (-1.0 - 5) * rise) * scale - riseLift;
                 } else {
-                    const flipT = Math.max(0, Math.min(1, (p4 - 0.42) / 0.58));
-                    const bodyFlipAngle = -Math.PI * 1.82 * flipT;
-                    const flipAngle = -0.76 + bodyFlipAngle;
-                    const flipX = centerX - dir * (4.0 + Math.sin(flipT * Math.PI) * 6.0) * scale;
-                    const flipY = pivotY + (-14 + Math.cos(flipT * Math.PI) * 4.0) * scale;
-                    const bridgeT = Math.max(0, Math.min(1, (p4 - 0.42) / 0.12));
-                    const bridge = bridgeT * bridgeT * (3 - 2 * bridgeT);
-                    const riseAngleEnd = -0.38;
-                    const riseEndX = centerX + dir * 21.0 * scale;
-                    const riseEndY = pivotY - 1.0 * scale;
-                    swordAngle = riseAngleEnd + (flipAngle - riseAngleEnd) * bridge;
-                    armEndX = riseEndX + (flipX - riseEndX) * bridge;
-                    armEndY = riseEndY + (flipY - riseEndY) * bridge - riseLift;
+                    // 後方宙返り(raw 0.42〜0.86で1回転): 上昇時の構え（手前方・刀やや斜め上）を
+                    // 体に固定したまま、体幹(playerRenderer側)と同位相のflipAngleで
+                    // キャラクターごと反時計回り(後方回転)に回す。腕は独自に振らない。
+                    const flipT = Math.max(0, Math.min(1, (p4 - 0.42) / 0.44));
+                    const flipEase = flipT * flipT * (3 - 2 * flipT);
+                    const spin = Math.PI * 2 * flipEase;
+                    // 体幹の後方ドリフト(playerRendererのtorsoMidXと同期)
+                    const drift = (0.8 + flipEase * 9.6) * scale;
+                    const spinCenterX = centerX - dir * drift;
+                    const spinCenterY = pivotY - riseLift;
+                    const heldAngle = -0.38;
+                    const relX = 21.0 * scale + drift;
+                    const relY = -1.0 * scale;
+                    const cosS = Math.cos(spin);
+                    const sinS = Math.sin(spin);
+                    armEndX = spinCenterX + dir * (relX * cosS + relY * sinS);
+                    armEndY = spinCenterY + (-relX * sinS + relY * cosS);
+                    swordAngle = heldAngle - spin;
 
-                    const shoulderT = Math.max(0, Math.min(1, (p4 - 0.5) / 0.5));
-                    const shoulderEase = shoulderT * shoulderT * (3 - 2 * shoulderT);
-                    activeLeftShoulderX -= dir * (0.4 + shoulderEase * 1.6) * scale;
-                    activeLeftShoulderY += (0.2 + shoulderEase * 1.8) * scale;
-                    activeRightShoulderX -= dir * (0.3 + shoulderEase * 1.35) * scale;
-                    activeRightShoulderY += (0.2 + shoulderEase * 1.55) * scale;
-                    if (p4 > 0.48) {
-                        allowSupportFrontHand = false;
-                    }
-
-                    // バク宙の回転完了後、空中であってもアイドルポーズ（通常構え）へ滑らかに復帰させる
-                    const airRecoverT = Math.max(0, Math.min(1, (flipT - 0.72) / 0.28)); // 最後の28%で復帰
-                    if (airRecoverT > 0) {
-                        const airRecover = airRecoverT * airRecoverT * (3 - 2 * airRecoverT);
-                        const idleAngle = isCrouching ? -0.32 : -0.65;
-                        const idleHandX = centerX + dir * (isCrouching ? 12 : 15) * scale;
-                        const idleHandY = pivotY + (isCrouching ? 5.5 : 8.0) * scale - riseLift;
+                    // 宙返り完了後(raw 0.86〜): アイドルの構えへ復帰し、そのまま落下に備える。
+                    // 攻撃終了後に描かれる本物のアイドル構え(options.idleKatanaPose, IK反映済み)を
+                    // ブレンド先にして、落下中の構えとアイドルが完全に一致するようにする。
+                    const recoverT = Math.max(0, Math.min(1, (p4 - 0.86) / 0.14));
+                    if (recoverT > 0) {
+                        const recover = recoverT * recoverT * (3 - 2 * recoverT);
+                        const idlePose = options.idleKatanaPose || null;
+                        const idleAngle = idlePose && Number.isFinite(idlePose.angle)
+                            ? idlePose.angle
+                            : (isCrouching ? -0.32 : -0.65);
+                        const idleHandX = idlePose && Number.isFinite(idlePose.x)
+                            ? idlePose.x
+                            : centerX + dir * (isCrouching ? 12 : 15) * scale;
+                        const idleHandY = idlePose && Number.isFinite(idlePose.y)
+                            ? idlePose.y
+                            : pivotY + (isCrouching ? 5.5 : 8.0) * scale;
 
                         let angleDiff = idleAngle - swordAngle;
                         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
                         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
 
-                        swordAngle += angleDiff * airRecover;
-                        armEndX += (idleHandX - armEndX) * airRecover;
-                        armEndY += (idleHandY - armEndY) * airRecover;
+                        swordAngle += angleDiff * recover;
+                        armEndX += (idleHandX - armEndX) * recover;
+                        armEndY += (idleHandY - armEndY) * recover;
+                        // サポート手(手前手)もアイドルの握り位置(刃元5.8/横1.0)へ揃える
+                        supportGripBackDist += (5.8 - supportGripBackDist) * recover;
+                        supportGripSideOffset += (1.0 - supportGripSideOffset) * recover;
                     }
                 }
                 const prepT = Math.max(0, Math.min(1, p4 / 0.18));
@@ -1480,14 +1567,23 @@ export function applySlashTrailMixin(PlayerClass) {
 
         if (recoveryBlend > 0) {
             const recover = recoveryBlend * recoveryBlend * (3 - 2 * recoveryBlend);
-            const idleAngle = isCrouching ? -0.32 : -0.65;
-            const idleHandX = centerX + dir * (isCrouching ? 12 : 15) * scale;
-            const idleHandY = pivotY + (isCrouching ? 5.5 : 8.0) * scale;
-            
+            // 余韻からの戻り先は本物のアイドル構え(options.idleKatanaPose, IK反映済み)。
+            // 旧近似定数(+15×scale)は腕が伸びた位置で、戻り中に一瞬腕が伸びる原因になる。
+            const idlePose = options.idleKatanaPose || null;
+            const idleAngle = idlePose && Number.isFinite(idlePose.angle)
+                ? idlePose.angle
+                : (isCrouching ? -0.32 : -0.65);
+            const idleHandX = idlePose && Number.isFinite(idlePose.x)
+                ? idlePose.x
+                : centerX + dir * (isCrouching ? 12 : 15) * scale;
+            const idleHandY = idlePose && Number.isFinite(idlePose.y)
+                ? idlePose.y
+                : pivotY + (isCrouching ? 5.5 : 8.0) * scale;
+
             let angleDiff = idleAngle - swordAngle;
             while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
             while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-            
+
             swordAngle += angleDiff * recover;
             armEndX += (idleHandX - armEndX) * recover;
             armEndY += (idleHandY - armEndY) * recover;
@@ -1495,9 +1591,13 @@ export function applySlashTrailMixin(PlayerClass) {
             activeLeftShoulderY += (leftShoulderYBase - activeLeftShoulderY) * recover;
             activeRightShoulderX += (rightShoulderXBase - activeRightShoulderX) * recover;
             activeRightShoulderY += (rightShoulderYBase - activeRightShoulderY) * recover;
-            supportGripBackDist += (6.2 * scale - supportGripBackDist) * recover;
-            supportGripSideOffset += (1.0 * scale - supportGripSideOffset) * recover;
-            supportGripMaxReach += (22.0 * scale - supportGripMaxReach) * recover;
+            // サポート手もアイドルの握り(刃元5.8/横1.0)へ揃える
+            const supportBackTarget = idlePose ? 5.8 : 6.2 * scale;
+            const supportSideTarget = idlePose ? 1.0 : 1.0 * scale;
+            const supportReachTarget = idlePose ? 22.0 : 22.0 * scale;
+            supportGripBackDist += (supportBackTarget - supportGripBackDist) * recover;
+            supportGripSideOffset += (supportSideTarget - supportGripSideOffset) * recover;
+            supportGripMaxReach += (supportReachTarget - supportGripMaxReach) * recover;
         }
 
         {
@@ -1546,9 +1646,12 @@ export function applySlashTrailMixin(PlayerClass) {
                 trailRadius = attack.trailArcRadius;
             }
             if (attack.comboStep === 4) {
-                // 四段の剣ポーズは raw 進行度基準（case 4 参照）。リフト減衰も raw に揃える
+                // 四段の剣ポーズは raw 進行度基準（case 4 参照）。リフト減衰も raw に揃える。
+                // 終端のアイドル復帰区間(raw 0.86〜)では残差リフトもゼロへフェードし、
+                // 落下中の構えがアイドルと完全に一致するようにする
                 const earlyLiftT = Math.max(0, Math.min(1, 1 - rawProgress / 0.38));
-                armEndY -= 2.2 + earlyLiftT * 8.4;
+                const liftFade = Math.max(0, Math.min(1, (1 - rawProgress) / 0.14));
+                armEndY -= (2.2 + earlyLiftT * 8.4) * liftFade;
             }
         } else if (attack.comboStep === 5) {
             trailCurveStartX = Number.isFinite(attack.trailCurveStartX) ? attack.trailCurveStartX : null;
@@ -1606,7 +1709,15 @@ export function applySlashTrailMixin(PlayerClass) {
                 : undefined,
             trailTransformPlayerY: attack && Number.isFinite(attack.trailTransformPlayerY)
                 ? attack.trailTransformPlayerY
-                : undefined
+                : undefined,
+            // step4: 剣筋ベジェに含まれる体移動量（buildComboStep4TrailArcSpecのシミュレーション値）。
+            // 将軍のワールドスケール投影(proj)が移動量を等倍のまま扱うために必要
+            startDeltaX: attack && Number.isFinite(attack.startDeltaX) ? attack.startDeltaX : undefined,
+            startDeltaY: attack && Number.isFinite(attack.startDeltaY) ? attack.startDeltaY : undefined,
+            midDeltaX: attack && Number.isFinite(attack.midDeltaX) ? attack.midDeltaX : undefined,
+            midDeltaY: attack && Number.isFinite(attack.midDeltaY) ? attack.midDeltaY : undefined,
+            endDeltaX: attack && Number.isFinite(attack.endDeltaX) ? attack.endDeltaX : undefined,
+            endDeltaY: attack && Number.isFinite(attack.endDeltaY) ? attack.endDeltaY : undefined
         };
     };
 
@@ -1662,7 +1773,14 @@ export function applySlashTrailMixin(PlayerClass) {
                 : undefined,
             trailTransformPlayerY: Number.isFinite(swordPose.trailTransformPlayerY)
                 ? swordPose.trailTransformPlayerY
-                : undefined
+                : undefined,
+            // step4: 将軍のワールドスケール投影用の体移動量（getComboSwordPoseStateから転送）
+            startDeltaX: Number.isFinite(swordPose.startDeltaX) ? swordPose.startDeltaX : undefined,
+            startDeltaY: Number.isFinite(swordPose.startDeltaY) ? swordPose.startDeltaY : undefined,
+            midDeltaX: Number.isFinite(swordPose.midDeltaX) ? swordPose.midDeltaX : undefined,
+            midDeltaY: Number.isFinite(swordPose.midDeltaY) ? swordPose.midDeltaY : undefined,
+            endDeltaX: Number.isFinite(swordPose.endDeltaX) ? swordPose.endDeltaX : undefined,
+            endDeltaY: Number.isFinite(swordPose.endDeltaY) ? swordPose.endDeltaY : undefined
         };
     };
 
@@ -1823,10 +1941,15 @@ export function applySlashTrailMixin(PlayerClass) {
                 p.step === currentStep &&
                 (activeTrailId === null || p.trailAttackId === activeTrailId)
             );
-            if (matchesActiveTrail) {
+            // 5段目の確定済み斬撃（叩きつけ完了）は、刀の戻りモーションより先に消えるよう
+            // 高速フェードさせ、剣筋が切っ先より下に残って見えないようにする
+            const fastFade5 = (p.step === 5 && p.trailCurveFrozen === true);
+            if (matchesActiveTrail && !fastFade5) {
                 // 現在進行中の段のみ鮮度を保つ（age=0リセット）
                 p.age = 0;
                 // lifeは生成時の値を維持（上書きしない）
+            } else if (fastFade5) {
+                p.age = (p.age || 0) + deltaMs * 2.6;
             } else if (holdExisting) {
                 // 戻りモーション中はやや緩やかにフェード
                 p.age = (p.age || 0) + deltaMs * 0.5;
@@ -2070,7 +2193,11 @@ export function applySlashTrailMixin(PlayerClass) {
                             trailTransformPlayerY: Number.isFinite(liveAnchors.originY) ? liveAnchors.originY : (cloneDrawY + this.getWorldHeight() * 0.5)
                         };
                     }
-                    
+
+                    // step4(天穿): 本体と同じくトレイルの横振れを圧縮して縦剣筋をなだらかに保つ
+                    if (backPose) this.flattenDualStep4TrailPose(backPose, this.specialCloneDualBackTrailPoints[i]);
+                    if (frontPose) this.flattenDualStep4TrailPose(frontPose, this.specialCloneDualFrontTrailPoints[i]);
+
                     let suppressBack = false;
                     let suppressFront = false;
                     let startSuppress = false;
@@ -2091,7 +2218,8 @@ export function applySlashTrailMixin(PlayerClass) {
                         // この間にトレイルを記録すると剣筋の終点が上空に飛ぶため、
                         // Phase1終了（0.26）まで抑制し、Phase2以降の落下・水平薙ぎだけを描画する。
                         if (progress < 0.26) startSuppress = true;
-                        if (progress > 0.72) settleSuppress = true;
+                        // 5段目は振り切り位置(刀の最終位置)まで剣筋を届かせる（本体と同窓）
+                        if (progress > 0.78) settleSuppress = true;
                     }
                     
                     const swingId = dualBlade._swingId || 0;
@@ -3070,9 +3198,9 @@ export function applySlashTrailMixin(PlayerClass) {
             const growthWindow = trailWindow;
 
             // フラッシング（点滅）の原因になるため、ageによる完成形の強制描画を削除。
-            const growth = (() => {
+            let growth = (() => {
                 // 凍結軌跡はそのままのスナップショットとして扱う
-                
+
                 const p = Number.isFinite(activeProgress)
                     ? activeProgress
                     : 1.0; // 取得できなかった場合は完成形とする
@@ -3081,6 +3209,11 @@ export function applySlashTrailMixin(PlayerClass) {
                 const span = Math.max(0.001, growthWindow.end - growthWindow.start);
                 return clamp01((p - growthWindow.start) / span);
             })();
+            // step5の「刀と剣筋の同期」はリビール側ではなく、剣筋カーブの終点自体を
+            // 落下中の切っ先へ毎フレーム追従させることで実現する
+            // （freezeNormalComboFinisherTrailCurve の速度フィードフォワード追従）。
+            // リビールを落下到達率で制限する方式は、終端のほぼ水平なフック部分が
+            // 着地フレームで一気に出現して「ガクッ」と見えるため廃止した。
             if (growth <= 0.001) return;
             let drawEndX = endX;
             let drawEndY = endY;
@@ -3105,7 +3238,9 @@ export function applySlashTrailMixin(PlayerClass) {
                 const tangentLen = Math.hypot(tangentX, tangentY);
                 if (tangentLen > 0.001) {
                     const trimFactor = Number.isFinite(options.trimFactor) ? options.trimFactor : 0.28;
-                    const trim = Math.min(baseWidth * trimFactor, tangentLen * 0.24);
+                    // 端キャップ（線幅の丸み）の半径ぶんを確実にトリムできるよう、
+                    // tangent長による制限は「ほぼ全部」まで許容する
+                    const trim = Math.min(baseWidth * trimFactor, tangentLen * 0.9);
                     drawEndX -= (tangentX / tangentLen) * trim;
                     drawEndY -= (tangentY / tangentLen) * trim;
                 }
@@ -3236,7 +3371,8 @@ export function applySlashTrailMixin(PlayerClass) {
                         forceOffsetX: anchorPlayerX,
                         forceOffsetY: anchorPlayerY,
                         trimEnd: true,
-                        trimFactor: 0.24
+                        // 端キャップ(線幅の丸み)が切っ先を視覚的に越えないよう深めにトリム
+                        trimFactor: 0.5
                     });
                 } else {
                     drawFixedBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
@@ -3245,7 +3381,8 @@ export function applySlashTrailMixin(PlayerClass) {
                         offsetX: this.x,
                         offsetY: this.y,
                         trimEnd: true,
-                        trimFactor: 0.24
+                        // 端キャップ(線幅の丸み)が切っ先を視覚的に越えないよう深めにトリム
+                        trimFactor: 0.5
                     });
                 }
             } else if (stripStep === 1) {
@@ -3319,7 +3456,13 @@ export function applySlashTrailMixin(PlayerClass) {
         if (hasFrozenCurves) {
             for (const fc of frozenCurves) {
                 if ((fc.age || 0) >= (fc.life || 1)) continue;
-                
+
+                // 凍結時に焼き込んだ幅スケールで描く。ライブの visualWidthScale は
+                // 「次の攻撃中は 1.0」になるため、大凪の太い剣筋が凍結後に細るのを防ぐ。
+                const frozenWidthScale = Number.isFinite(fc.trailWidthScale)
+                    ? fc.trailWidthScale
+                    : visualWidthScale;
+
                 ctx.save();
                 
                 if (fc.type === 'sampledBezier' && Array.isArray(fc.frozenPoints)) {
@@ -3339,7 +3482,7 @@ export function applySlashTrailMixin(PlayerClass) {
                         };
                     }
 
-                    drawSampledBezierTrail(pts, 13.8 * visualWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
+                    drawSampledBezierTrail(pts, 13.8 * frozenWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
                         comboStep: fc.step,
                         trimEndCap: fc.step === 2, trimFactor: 0.5
                     });
@@ -3386,7 +3529,7 @@ export function applySlashTrailMixin(PlayerClass) {
                         };
                     }
                     
-                    drawFixedBezierTrail([frozenPtOld, frozenPtNew], 13.8 * visualWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
+                    drawFixedBezierTrail([frozenPtOld, frozenPtNew], 13.8 * frozenWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
                         comboStep: fc.step,
                         forceRelative: !!fc.trailIsRelative,
                         useRelativeIfAvailable: true,
@@ -3422,15 +3565,15 @@ export function applySlashTrailMixin(PlayerClass) {
                     }
 
                     if (fc.step === 4) {
-                        drawStep4AnchoredArcTrail(pts, 13.8 * visualWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
+                        drawStep4AnchoredArcTrail(pts, 13.8 * frozenWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
                     } else if (fc.step === 3) {
-                        drawDualBlueLinearTrail(pts, 13.8 * visualWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
+                        drawDualBlueLinearTrail(pts, 13.8 * frozenWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
                             straighten: true,
                             trimEndCap: false,
                             trimFactor: 1.0
                         });
                     } else {
-                        drawDualBlueArcTrail(pts, 13.8 * visualWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
+                        drawDualBlueArcTrail(pts, 13.8 * frozenWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
                     }
                     
                     trailCenterX = savedCenterX;
@@ -3519,6 +3662,126 @@ export function applySlashTrailMixin(PlayerClass) {
     };
 
     /**
+     * 二刀流 step4(天穿)のトレイルポーズの横振れを圧縮する（本体・分身共用）。
+     * 縦の斬り上げが理想形だが、切っ先の生軌道は手の揺れで横に±40px程度うねり、
+     * 太い帯で描くとS字に歪んで見える。トレイル専用にバッファ先頭点を基準として
+     * 横偏差を圧縮し、一定のなだらかな縦剣筋へ整える（刀本体の描画には影響しない）。
+     */
+    const DUAL_STEP4_TRAIL_X_DAMP = 0.3;
+    PlayerClass.prototype.flattenDualStep4TrailPose = function(pose, buffer) {
+        if (!pose || pose.comboStep !== 4) return pose;
+        if (!Array.isArray(buffer) || buffer.length === 0) return pose;
+        const ref = buffer[0];
+        if (!ref || !Number.isFinite(ref.x) || !Number.isFinite(pose.tipX)) return pose;
+        // 序盤〜中盤は強めに直線化し、振り抜き終盤(progress 0.45→0.65)は実際の
+        // 刀位置へ追従させる。終点が刀から横に離れず、根本は直線・先端側が
+        // 自然にカーブする縦剣筋になる。
+        const pr = Number.isFinite(pose.progress) ? pose.progress : 0;
+        const follow = Math.max(0, Math.min(1, (pr - 0.45) / 0.2));
+        const damp = DUAL_STEP4_TRAIL_X_DAMP + (1 - DUAL_STEP4_TRAIL_X_DAMP) * follow;
+        pose.tipX = ref.x + (pose.tipX - ref.x) * damp;
+        return pose;
+    };
+
+    /**
+     * 二刀流Zコンボの剣筋点列を「曲率一定の円弧」へ再配置する（描画用・本体/分身共用）。
+     * 生の切っ先軌道は速度ムラや手の揺れで曲率が波打つ（縒れる）ため、
+     * 始点・弧長中間の実点・終点を通る真円弧（3点で一意）に整形して描く。
+     * 3点がほぼ一直線なら直線へフォールバック。点の age/life 等のメタデータは
+     * 保持し座標のみ置換、配置は弧長比でフェード分布を保つ。元のバッファは変更しない。
+     */
+    PlayerClass.prototype.fitDualTrailPointsToArc = function(points) {
+        if (!Array.isArray(points) || points.length < 3) return points;
+        const TWO_PI = Math.PI * 2;
+        const out = [];
+        const flushRun = (start, end) => { // [start, end)
+            const n = end - start;
+            if (n < 3) {
+                for (let i = start; i < end; i++) out.push(points[i]);
+                return;
+            }
+            const a = points[start];
+            const b = points[end - 1];
+            const cum = new Array(n).fill(0);
+            let total = 0;
+            for (let i = 1; i < n; i++) {
+                const p0 = points[start + i - 1];
+                const p1 = points[start + i];
+                total += Math.hypot(p1.x - p0.x, p1.y - p0.y);
+                cum[i] = total;
+            }
+            if (total < 0.001) {
+                for (let i = start; i < end; i++) out.push(points[i]);
+                return;
+            }
+            // 弧長の中間に最も近い実点を中間アンカーにする
+            let midIdx = 1;
+            for (let i = 1; i < n - 1; i++) {
+                if (Math.abs(cum[i] - total * 0.5) < Math.abs(cum[midIdx] - total * 0.5)) midIdx = i;
+            }
+            const m = points[start + midIdx];
+            // 3点 a, m, b を通る円の中心（外心）
+            const d = 2 * (a.x * (m.y - b.y) + m.x * (b.y - a.y) + b.x * (a.y - m.y));
+            const chord = Math.hypot(b.x - a.x, b.y - a.y);
+            let useLine = Math.abs(d) < 1e-6;
+            let ux = 0, uy = 0, radius = 0;
+            if (!useLine) {
+                const sa = a.x * a.x + a.y * a.y;
+                const sm = m.x * m.x + m.y * m.y;
+                const sb = b.x * b.x + b.y * b.y;
+                ux = (sa * (m.y - b.y) + sm * (b.y - a.y) + sb * (a.y - m.y)) / d;
+                uy = (sa * (b.x - m.x) + sm * (a.x - b.x) + sb * (m.x - a.x)) / d;
+                radius = Math.hypot(a.x - ux, a.y - uy);
+                // 半径が弦に対して極端に大きい＝ほぼ直線。数値安定のため直線扱い
+                if (radius > chord * 40) useLine = true;
+            }
+            if (useLine) {
+                for (let i = 0; i < n; i++) {
+                    const t = cum[i] / total;
+                    out.push({
+                        ...points[start + i],
+                        x: a.x + (b.x - a.x) * t,
+                        y: a.y + (b.y - a.y) * t
+                    });
+                }
+                return;
+            }
+            // a→b を m 経由で回る向きの掃引角を決める
+            const angA = Math.atan2(a.y - uy, a.x - ux);
+            const angM = Math.atan2(m.y - uy, m.x - ux);
+            const angB = Math.atan2(b.y - uy, b.x - ux);
+            const normPos = (x) => ((x % TWO_PI) + TWO_PI) % TWO_PI;
+            const posM = normPos(angM - angA);
+            const posB = normPos(angB - angA);
+            const sweep = (posM <= posB) ? posB : (posB - TWO_PI);
+            for (let i = 0; i < n; i++) {
+                const t = cum[i] / total;
+                const ang = angA + sweep * t;
+                out.push({
+                    ...points[start + i],
+                    x: ux + Math.cos(ang) * radius,
+                    y: uy + Math.sin(ang) * radius
+                });
+            }
+        };
+        let runStart = 0;
+        for (let i = 1; i <= points.length; i++) {
+            const splitHere = i === points.length ||
+                (points[i].step || 0) !== (points[runStart].step || 0) ||
+                (
+                    Number.isFinite(points[i].trailAttackId) &&
+                    Number.isFinite(points[runStart].trailAttackId) &&
+                    points[i].trailAttackId !== points[runStart].trailAttackId
+                );
+            if (splitHere) {
+                flushRun(runStart, i);
+                runStart = i;
+            }
+        }
+        return out;
+    };
+
+    /**
      * 二刀流Zコンボ中、奥刀・手前刀それぞれのトレイルバッファを
      * 通常コンボと同じ updateSlashTrailBuffer で更新する。
      */
@@ -3533,6 +3796,9 @@ export function applySlashTrailMixin(PlayerClass) {
 
         const backPose = isDualZ ? this.getDualBladePoseForTrail('back') : null;
         const frontPose = isDualZ ? this.getDualBladePoseForTrail('front') : null;
+        // step4(天穿): トレイルの横振れを圧縮して縦剣筋をなだらかに保つ
+        if (backPose) this.flattenDualStep4TrailPose(backPose, this.dualBladeBackTrailPoints);
+        if (frontPose) this.flattenDualStep4TrailPose(frontPose, this.dualBladeFrontTrailPoints);
 
         const dualBlade = (isDualZ && this.currentSubWeapon) ? this.currentSubWeapon : null;
         const comboIndex = dualBlade ? (dualBlade.comboIndex || 0) : 0;
@@ -3553,14 +3819,17 @@ export function applySlashTrailMixin(PlayerClass) {
                 if (comboStep === 2 && p < 0.15) startSuppress = true;
                 if (comboStep === 3 && p < 0.15) startSuppress = true;
                 if (comboStep === 4 && p < 0.05) startSuppress = true; // 天穿は溜めが短いが極初期だけ抑制
-                if (comboStep === 5 && p < 0.18) startSuppress = true;
+                // 5段目はアーチ頂点(p≈0.25)の手前の上昇中の点を含めると根本が折れて見えるため、
+                // 頂点を過ぎて下りに乗ってから開始する（分身側の窓 0.26 とも統一）
+                if (comboStep === 5 && p < 0.26) startSuppress = true;
 
                 // 振り抜き後の余韻は軌跡を残さない
                 if (comboStep === 1 && p > 0.50) settleSuppress = true;
                 if (comboStep === 2 && p > 0.48) settleSuppress = true;
                 if (comboStep === 3 && p > 0.55) settleSuppress = true;
                 if (comboStep === 4 && p > 0.65) settleSuppress = true;
-                if (comboStep === 5 && p > 0.72) settleSuppress = true;
+                // 5段目は振り切り位置(刀の最終位置)まで剣筋を届かせる
+                if (comboStep === 5 && p > 0.78) settleSuppress = true;
             }
         }
         // 同じ段数を繰り返してもトレイルが前回と繋がらないよう、
@@ -3615,7 +3884,8 @@ export function applySlashTrailMixin(PlayerClass) {
 
         if (this.dualBladeBackTrailPoints.length >= 2) {
             this.renderComboSlashTrail(ctx, {
-                points: this.dualBladeBackTrailPoints,
+                // 描画前に一定曲率の弧へ再配置（生軌道の縒れを排除）
+                points: this.fitDualTrailPointsToArc(this.dualBladeBackTrailPoints),
                 palette: bluePalette,
                 forceLinearSmooth: true,
                 isAttacking: isDualZActive,
@@ -3626,7 +3896,7 @@ export function applySlashTrailMixin(PlayerClass) {
         }
         if (this.dualBladeFrontTrailPoints.length >= 2) {
             this.renderComboSlashTrail(ctx, {
-                points: this.dualBladeFrontTrailPoints,
+                points: this.fitDualTrailPointsToArc(this.dualBladeFrontTrailPoints),
                 palette: redPalette,
                 forceLinearSmooth: true,
                 isAttacking: isDualZActive,

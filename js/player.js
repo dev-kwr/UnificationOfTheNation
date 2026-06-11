@@ -705,7 +705,12 @@ export class Player {
                     this.currentSubWeapon &&
                     this.currentSubWeapon.name === '二刀流' &&
                     this.subWeaponAction === '二刀_Z' &&
-                    (this.attackBuffered || (this.currentSubWeapon.mainComboLinkTimer || 0) > 0)
+                    (
+                        this.attackBuffered ||
+                        (this.currentSubWeapon.mainComboLinkTimer || 0) > 0 ||
+                        // 整定（アイドル復帰ブレンド）が終わるまでポーズを維持する
+                        (this._dualZSettleTimer || 0) > 0
+                    )
                 );
                 const keepOdachiPose = !!(
                     this.currentSubWeapon &&
@@ -720,7 +725,14 @@ export class Player {
                     this.subWeaponAction === '鎖鎌' &&
                     this.currentSubWeapon.isAttacking
                 );
-                if (holdDualZPose || keepOdachiPose || keepKusaPose) {
+                // 大槍も同様（武器が遅く動く間、突きポーズを維持して槍が消えるまでアイドルへ戻さない）
+                const keepSpearPose = !!(
+                    this.currentSubWeapon &&
+                    this.currentSubWeapon.name === '大槍' &&
+                    this.subWeaponAction === '大槍' &&
+                    this.currentSubWeapon.isAttacking
+                );
+                if (holdDualZPose || keepOdachiPose || keepKusaPose || keepSpearPose) {
                     // 武器アニメーションが終わるまでポーズを維持する
                     this.subWeaponTimer = 1;
                 } else {
@@ -810,6 +822,8 @@ export class Player {
         }
 
         // 二刀Z連撃中は入力移動ではなく専用運動で体を運ぶ
+        // (天穿の空中ロックは着地で解除。step4中は isGrounded=false に強制されるため誤解除しない)
+        if (this._dualStep4AirLock && this.isGrounded) this._dualStep4AirLock = false;
         this.updateDualBladeComboMotion(deltaTime);
 
         // 二刀Zは終端到達後にだけ次段入力を消化する
@@ -828,13 +842,31 @@ export class Player {
             this.currentSubWeapon.update(deltaTime / subWeaponScale, enemies);
         }
 
+        // 二刀Zの整定タイマー: 振り中は満タンを維持し、振り終了後 240ms かけて減衰する。
+        // レンダラーはこの間二刀Zポーズをアイドル復帰完了形へ緩やかに収束させ、
+        // 振り途中ポーズからアイドルへ瞬間切替（バツッ）するのを防ぐ。
+        const dualZSwinging = !!(
+            this.currentSubWeapon &&
+            this.currentSubWeapon.name === '二刀流' &&
+            this.subWeaponAction === '二刀_Z' &&
+            this.currentSubWeapon.isAttacking
+        );
+        if (dualZSwinging) {
+            this._dualZSettleTimer = 240;
+            this._dualZSettleTotal = 240;
+        } else if (this._dualZSettleTimer > 0) {
+            this._dualZSettleTimer = Math.max(0, this._dualZSettleTimer - deltaMs);
+        }
+
         if (
             this.currentSubWeapon &&
             this.currentSubWeapon.name === '二刀流' &&
             this.subWeaponAction === '二刀_Z' &&
             !this.currentSubWeapon.isAttacking &&
             (this.currentSubWeapon.mainComboLinkTimer || 0) <= 0 &&
-            !this.attackBuffered
+            !this.attackBuffered &&
+            // 整定が終わるまで action を保持してレンダラーの二刀Zブランチを継続させる
+            !(this._dualZSettleTimer > 0)
         ) {
             this.subWeaponTimer = 0;
             this.subWeaponAction = null;
@@ -844,7 +876,7 @@ export class Player {
         // 鎖鎌・大太刀は武器側の攻撃終了を優先して即座に通常状態へ戻す
         if (
             this.currentSubWeapon &&
-            (this.currentSubWeapon.name === '鎖鎌' || this.currentSubWeapon.name === '大太刀') &&
+            (this.currentSubWeapon.name === '鎖鎌' || this.currentSubWeapon.name === '大太刀' || this.currentSubWeapon.name === '大槍') &&
             this.subWeaponAction === this.currentSubWeapon.name &&
             !this.currentSubWeapon.isAttacking
         ) {
@@ -1212,6 +1244,16 @@ export class Player {
                 this.bufferDualBladeNextSwing();
                 return;
             }
+            // 4段目(天穿)で浮き上がった後は、着地するまで1段目を開始しない
+            // （空中で1段目が出るのを防ぐ）。リンク切れだけでなく、連撃Lv2以下で
+            // 解放最終段(=4段)からリンク内に1段目へ巻き戻るケースも対象にするため、
+            // 進行式(use 'main')と同じ判定で「次に出る段が1段目か」を予測する。
+            // Lv3の4段→5段はリンク内継続(次段5)なので妨げない。
+            const dualLinkAlive = (this.currentSubWeapon.mainComboLinkTimer || 0) > 0;
+            const dualMaxSteps = (this.currentSubWeapon.comboDamages || []).length || 5;
+            const dualCi = this.currentSubWeapon.comboIndex || 0;
+            const dualNextIsStep1 = !dualLinkAlive || dualCi === 0 || dualCi >= dualMaxSteps;
+            if (dualNextIsStep1 && !this.isGrounded && this._dualStep4AirLock) return;
             this.attackCooldown = PLAYER.ATTACK_COOLDOWN * 0.72;
             if (typeof this.currentSubWeapon.mainMotionSpeedScale === 'number') {
                 // 二刀Zのみ通常より少し速くする（値が小さいほど速い）
@@ -1224,6 +1266,11 @@ export class Player {
             const step = this.currentSubWeapon.comboIndex || 0;
             const direction = this.facingRight ? 1 : -1;
             const wasGrounded = this.isGrounded;
+            // 将軍などスケール>1のキャラは、体格比で忍者と同じ高さになるよう縦初速をスケールする。
+            // 速度を等倍スケールすると振り終了後の慣性上昇(高さ∝v²)が効きすぎて
+            // 身長比で浮きすぎるため、実測フィットの縮小係数(0.56)で補正する。
+            const dualVScale = 1 + (((Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0)
+                ? this.scaleMultiplier : 1) - 1) * 0.56;
             if (this.subWeaponCrouchLock) {
                 this.vx *= 0.3;
             } else if (step === 1) {
@@ -1240,28 +1287,28 @@ export class Player {
                     this.vy = 0;
                     this.isGrounded = true;
                 } else {
-                    this.vy = Math.min(this.vy, -0.4);
+                    this.vy = Math.min(this.vy, -0.4 * dualVScale);
                 }
             } else if (step === 3) {
                 // 3段目: 両手・交差薙ぎ — 深い踏み込みで前進、軽いホップ
                 this.vx = direction * this.speed * 0.88;
                 if (wasGrounded) {
-                    this.vy = -0.6;
+                    this.vy = -0.6 * dualVScale;
                     this.isGrounded = false;
                 }
             } else if (step === 4) {
                 // 四段: 並行切り上げで上昇
                 this.vx = direction * this.speed * 0.92;
                 if (wasGrounded) {
-                    this.vy = -6.2;
+                    this.vy = -6.2 * dualVScale;
                     this.isGrounded = false;
                 } else {
-                    this.vy = Math.min(this.vy, -5.1);
+                    this.vy = Math.min(this.vy, -5.1 * dualVScale);
                 }
             } else {
                 // 五段: 叩きつけで落下
                 this.vx = direction * this.speed * 0.22;
-                this.vy = Math.min(this.vy, -1.8);
+                this.vy = Math.min(this.vy, -1.8 * dualVScale);
                 this.isGrounded = false;
             }
 
@@ -1395,11 +1442,71 @@ export class Player {
         }
 
         applyNormalComboActiveMotion(this, activeAttack, this.attackTimer);
+        // 5段目は「実際の切っ先位置」(スペック空間=正規化ポーズ空間)へ終点を毎フレーム追従させる。
+        // シミュレーション予測のままだとレーン・段差・速度差で着地位置がずれた際に
+        // 剣筋が切っ先を越えて描かれるため、実ポーズから取得した切っ先を渡す
+        // （落下中も渡し、freez側が指数追従で滑らかに補正→接地後に凍結する）。
+        let step5LiveTipSpec = null;
+        if (
+            activeAttack &&
+            activeAttack.comboStep === 5 &&
+            activeAttack.trailCurveFrozen !== true &&
+            typeof this.getComboSwordPoseState === 'function'
+        ) {
+            // attackTimer=0（=進行1.0の最終収まりポーズ）で切っ先を取る。
+            // 体のY基準は常に現在位置: 落下中も剣筋終点が刀の切っ先に追従し続けることで
+            // 着地（凍結）の瞬間に終点が動かず「ガクッ」と伸びない。
+            // （追従の遅れはfreez側の速度フィードフォワードで吸収する）
+            const tipBaseY = this.y;
+            const livePose = this.getComboSwordPoseState({
+                x: this.x,
+                y: tipBaseY,
+                facingRight: this.facingRight,
+                isCrouching: this.isCrouching,
+                attackTimer: 0,
+                currentAttack: activeAttack,
+                recoveryBlend: 0
+            }, {});
+            if (livePose && Number.isFinite(livePose.trailTipX) && Number.isFinite(livePose.trailTipY)) {
+                let tipSpecX = livePose.trailTipX;
+                let tipSpecY = livePose.trailTipY;
+                // 剣筋が描画上の切っ先を絶対に越えないよう、ターゲットを刀身方向に
+                // 数px手前へ引く（線幅キャップやAAのはみ出しに対する安全マージン）
+                if (Number.isFinite(livePose.armEndX) && Number.isFinite(livePose.armEndY)) {
+                    const bladeDx = tipSpecX - livePose.armEndX;
+                    const bladeDy = tipSpecY - livePose.armEndY;
+                    const bladeNorm = Math.hypot(bladeDx, bladeDy);
+                    if (bladeNorm > 1) {
+                        const pullBack = 4;
+                        tipSpecX -= (bladeDx / bladeNorm) * pullBack;
+                        tipSpecY -= (bladeDy / bladeNorm) * pullBack;
+                    }
+                }
+                // スペック空間は体移動量を 1/renderScale に正規化している（投影で等倍へ戻る）ため、
+                // 実ポーズの切っ先（移動量が等倍で入っている）も同じ空間へ換算する。忍者(scale=1)は恒等。
+                const tipScaleMult = (this.characterType === 'shogun' && Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0)
+                    ? this.scaleMultiplier
+                    : 1;
+                if (tipScaleMult > 1.001 && Number.isFinite(activeAttack.trailTransformPlayerX) && Number.isFinite(activeAttack.trailTransformPlayerY)) {
+                    const bodyDx = this.x - activeAttack.trailTransformPlayerX;
+                    const bodyDy = tipBaseY - activeAttack.trailTransformPlayerY;
+                    tipSpecX -= bodyDx * (1 - 1 / tipScaleMult);
+                    tipSpecY -= bodyDy * (1 - 1 / tipScaleMult);
+                }
+                step5LiveTipSpec = { x: tipSpecX, y: tipSpecY };
+            }
+        }
         freezeNormalComboFinisherTrailCurve(activeAttack, {
             attackTimer: this.attackTimer,
             groundY: this.groundY,
             ownerHeight: this.getWorldHeight(),
-            trailPoints: this.comboSlashTrailPoints
+            trailPoints: this.comboSlashTrailPoints,
+            isGrounded: this.isGrounded,
+            actualTipSpec: step5LiveTipSpec,
+            // ポイントはワールド座標（将軍は投影済み）のため、attackのスペック空間値を投影して書き戻す
+            projectPoint: (px, py) => (typeof this.projectComboTrailSpecPointToWorld === 'function'
+                ? this.projectComboTrailSpecPointToWorld(activeAttack, px, py)
+                : { x: px, y: py })
         });
         this.attackTimer -= deltaMs;
 
@@ -1501,13 +1608,20 @@ export class Player {
         const direction = this.facingRight ? 1 : -1;
         const lerpRate = Math.max(0.08, Math.min(0.42, deltaTime * 13));
         const blend = (current, target) => current + (target - current) * lerpRate;
+        // 将軍などスケール>1のキャラは縦運動(上昇・落下・リフト上限)を体格比でスケールし、
+        // 忍者と相対的に同じ高さまで浮く・落ちるようにする（横移動は射程側で別途スケール済み）。
+        // 速度の等倍スケールは慣性上昇(高さ∝v²)で身長比を超過するため、
+        // 実測フィットの縮小係数(0.56)で「身長比ほぼ同等」に合わせる。
+        const rawScale = (Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0)
+            ? this.scaleMultiplier : 1;
+        const vScale = 1 + (rawScale - 1) * 0.56;
 
         if (step === 1) {
             // 1撃目: 踏み込んで一閃 — 前方に体重移動
             const targetVx = direction * this.speed * (0.14 + Math.sin(p * Math.PI) * 0.28);
             this.vx = blend(this.vx, targetVx);
             if (!this.isGrounded) {
-                this.vy = blend(this.vy, p < 0.5 ? -0.2 : 0.8);
+                this.vy = blend(this.vy, (p < 0.5 ? -0.2 : 0.8) * vScale);
             }
         } else if (step === 2) {
             // 2撃目: 最小限の引きから即座に前方へ打ち込む
@@ -1521,7 +1635,7 @@ export class Player {
             }
             this.vx = blend(this.vx, targetVx);
             if (!this.isGrounded) {
-                this.vy = blend(this.vy, p < 0.42 ? -1.0 : 2.6);
+                this.vy = blend(this.vy, (p < 0.42 ? -1.0 : 2.6) * vScale);
             }
         } else if (step === 3) {
             // 3撃目: X字交差で前方に押し出す
@@ -1539,7 +1653,7 @@ export class Player {
             if (this.isGrounded) {
                 this.vy = 0;
             } else {
-                this.vy = Math.max(this.vy, 1.8);
+                this.vy = Math.max(this.vy, 1.8 * vScale);
             }
         } else if (step === 4) {
             // 4撃目: 3撃目の前進からそのまま切り上げへ接続
@@ -1547,48 +1661,50 @@ export class Player {
             if (p < 0.68) {
                 const t = p / 0.68;
                 targetVx = direction * this.speed * (0.72 + t * 0.2);
-                this.vy = this.vy * 0.42 + (-15.2 + t * 6.2) * 0.58;
+                this.vy = this.vy * 0.42 + (-15.2 + t * 6.2) * vScale * 0.58;
             } else {
                 const t = (p - 0.68) / 0.32;
                 targetVx = direction * this.speed * (0.92 - t * 0.58);
-                this.vy = this.vy * 0.56 + (-3.8 + t * 3.6) * 0.44;
+                this.vy = this.vy * 0.56 + (-3.8 + t * 3.6) * vScale * 0.44;
                 if (p > 0.82) {
-                    this.vy = Math.min(this.vy, 0.65);
+                    this.vy = Math.min(this.vy, 0.65 * vScale);
                 }
             }
             this.vx = blend(this.vx, targetVx);
             this.isGrounded = false;
+            // 天穿で浮いている間は、コンボが途切れても着地まで新規コンボを開始させない
+            this._dualStep4AirLock = true;
         } else {
             // 五段: 海老反りクロスから叩きつけ着地
             if (p < 0.24) {
                 const t = p / 0.24;
                 this.vx = blend(this.vx, direction * this.speed * 0.2);
                 // 4段目ラスト高度を維持してから振り下ろす
-                this.vy = Math.min(this.vy, -2.4 + t * 1.0);
+                this.vy = Math.min(this.vy, (-2.4 + t * 1.0) * vScale);
             } else if (p < 0.78) {
                 const dive = (p - 0.24) / 0.54;
                 this.vx = blend(this.vx, direction * this.speed * (0.36 + dive * 0.46));
-                this.vy = Math.max(this.vy, 9.0 + dive * 20.6);
+                this.vy = Math.max(this.vy, (9.0 + dive * 20.6) * vScale);
             } else {
                 const t = (p - 0.78) / 0.22;
                 this.vx = blend(this.vx, direction * this.speed * (0.8 - t * 0.56));
-                this.vy = Math.max(this.vy, 20.4 - t * 4.4);
+                this.vy = Math.max(this.vy, (20.4 - t * 4.4) * vScale);
             }
             if (this.isGrounded && p > 0.58) {
                 this.vx *= 0.5;
             }
         }
 
-        // 二刀コンボ中に上空へ登り続けないよう上昇量を制限
-        const dualRiseCap = step === 4 ? -17.2 : -15.4;
+        // 二刀コンボ中に上空へ登り続けないよう上昇量を制限（体格スケール比例）
+        const dualRiseCap = (step === 4 ? -17.2 : -15.4) * vScale;
         this.vy = Math.max(this.vy, dualRiseCap);
         const liftFromGround = this.groundY - this.getWorldFootY();
-        const dualLiftLimit = step === 4 ? 174 : 154;
+        const dualLiftLimit = (step === 4 ? 174 : 154) * vScale;
         if (liftFromGround > dualLiftLimit && this.vy < -0.4) {
             this.vy *= 0.52;
         }
         if (step === 0 && p > 0.84 && !this.isGrounded) {
-            this.vy = Math.max(this.vy, 22.2);
+            this.vy = Math.max(this.vy, 22.2 * vScale);
         }
     }
 

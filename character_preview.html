@@ -691,6 +691,14 @@
             const _zEl = document.getElementById('viewZoom');
             const _zoom = _zEl ? (parseFloat(_zEl.value) || 1) : 1;
 
+            // ズーム引き時に実際へ見えているワールド範囲を弾(手裏剣等)の消滅判定へ公開する。
+            // weapon.js のプレビュー用画面外判定がこの範囲+マージンで消すため、
+            // 引きでも弾が画面端まで飛ぶ。
+            window.__previewViewWorldBounds = {
+                left: logicalW / 2 - (logicalW / 2) / _zoom,
+                right: logicalW / 2 + (logicalW / 2) / _zoom
+            };
+
             // 固定タイムステップ + 実時間蓄積でスロー再生する。
             // dtを直接縮めるとフレーム結合した物理(宙返りの上昇等)が歪むため、
             // 物理は常に1/60秒刻みで進め、進める「頻度」だけを速度で変える。

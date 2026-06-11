@@ -56,8 +56,10 @@ export function applyNormalComboStartMotion(actor, attackProfile, options = {}) 
     }
 
     if (step === 4) {
+        const scaleMult4 = actor.scaleMultiplier || 1.0;
         actor.vx = actor.vx * 0.24 + direction * impulse * 0.42;
-        actor.vy = Math.min(actor.vy, -10.6);
+        // 体格スケール倍して、将軍も忍者と同じ「身長比」の上昇高さにする
+        actor.vy = Math.min(actor.vy, -10.6 * scaleMult4);
         actor.isGrounded = false;
         return true;
     }
@@ -102,7 +104,9 @@ export function applyNormalComboActiveMotion(actor, activeAttack, attackTimer, o
             ? clamp01(activeAttack.motionElapsedMs / duration)
             : clamp01(1 - (attackTimer / duration));
         const direction = actor.facingRight ? 1 : -1;
-        const z4HeightScale = 0.96;
+        // 体格スケール倍して、将軍も忍者と同じ「身長比」の上昇高さにする
+        // (滞空hold相の速度はクランプ[-1.0, 0.95]が支配するため実質上昇相のみに効く)
+        const z4HeightScale = 0.96 * (actor.scaleMultiplier || 1.0);
 
         if (progress < 0.42) {
             const t = progress / 0.42;
@@ -133,17 +137,20 @@ export function applyNormalComboActiveMotion(actor, activeAttack, attackTimer, o
         const duration = Math.max(1, activeAttack.durationMs || fallbackDurationMs);
         const progress = clamp01(1 - (attackTimer / duration));
         const direction = actor.facingRight ? 1 : -1;
+        // 上昇(step4)と同じく落下速度も体格スケール倍し、将軍でも
+        // 忍者と同じ「身長比の速度感」でスピーディーに振り下ろす
+        const scaleMult5 = actor.scaleMultiplier || 1.0;
         if (progress < 0.26) {
             actor.vx *= 0.82;
             actor.vy = Math.min(actor.vy, -1.2);
         } else if (progress < 0.76) {
             const fallT = (progress - 0.26) / 0.5;
             actor.vx = actor.vx * 0.7 + direction * actor.speed * 0.08;
-            actor.vy = actor.vy * 0.34 + (9.8 + fallT * 19.8) * 0.66;
+            actor.vy = actor.vy * 0.34 + (9.8 + fallT * 19.8) * 0.66 * scaleMult5;
         } else {
             actor.vx *= 0.64;
             if (!actor.isGrounded) {
-                actor.vy = Math.max(actor.vy, 13.4);
+                actor.vy = Math.max(actor.vy, 13.4 * scaleMult5);
             }
         }
         return true;
@@ -157,28 +164,75 @@ export function freezeNormalComboFinisherTrailCurve(activeAttack, options = {}) 
     const attackTimer = Number.isFinite(options.attackTimer) ? options.attackTimer : 0;
     const duration = Math.max(1, activeAttack.durationMs || attackTimer || 1);
     const progress = clamp01(1 - (attackTimer / duration));
-    if (progress < 0.76) return false;
     if (!Number.isFinite(activeAttack.trailCurveEndX) || !Number.isFinite(activeAttack.trailCurveEndY)) return false;
+
+    // 実際の切っ先位置（スペック空間）へ攻撃開始直後から毎フレーム指数的に追従させる。
+    // 一発で置き換えると凍結瞬間に予測誤差分だけ「ガタッ」と跳ぶため滑らかに寄せ続ける。
+    // 序盤はリビール（描画）前なので大きな補正も見えず、終端が見える頃には収束している。
+    // （落下途中発動・レーン・段差・速度差などで予測着地がずれても連続的に補正される）
+    const tip = options.actualTipSpec;
+    let freezing = progress >= 0.76 && options.isGrounded !== false;
+    if (tip && Number.isFinite(tip.x) && Number.isFinite(tip.y)) {
+        // 適応チェイス: ターゲット（切っ先）の移動速度に応じて追従率を上げる。
+        // 速度フィードフォワード方式はターゲット停止（着地）の1フレーム後に
+        // 古い移動量を余分に足して「ガクッ」と行き過ぎるため使わない。
+        // 純粋な指数追従はターゲットを跨ぐことが構造上ないため行き過ぎが起きない。
+        // 接地後は基礎追従率を上げて素早く収束させる。
+        const prevTX = activeAttack._trailTipPrevX;
+        const prevTY = activeAttack._trailTipPrevY;
+        const tipSpeed = (Number.isFinite(prevTX) ? Math.abs(tip.x - prevTX) : 0)
+            + (Number.isFinite(prevTY) ? Math.abs(tip.y - prevTY) : 0);
+        const baseChase = options.isGrounded !== false ? 0.55 : 0.3;
+        const chase = Math.min(0.85, baseChase + tipSpeed / 45);
+        activeAttack.trailCurveEndX += (tip.x - activeAttack.trailCurveEndX) * chase;
+        activeAttack.trailCurveEndY += (tip.y - activeAttack.trailCurveEndY) * chase;
+        activeAttack._trailTipPrevX = tip.x;
+        activeAttack._trailTipPrevY = tip.y;
+
+        // 凍結は追従が十分収束（残差2.5px未満）してから確定する。
+        // 確定フレームでは終点を一切動かさず「その場でロック」する
+        // （切っ先側へスナップすると凍結の瞬間に剣筋が伸びて見えるため）。
+        // チェイスは常に手前側から接近するので、ロック位置が切っ先を越えることはない。
+        const residual = Math.hypot(tip.x - activeAttack.trailCurveEndX, tip.y - activeAttack.trailCurveEndY);
+        if (!(freezing && residual < 2.5)) {
+            freezing = false;
+        }
+    }
 
     const groundY = Number.isFinite(options.groundY) ? options.groundY : 0;
     const ownerHeight = Number.isFinite(options.ownerHeight) ? options.ownerHeight : PLAYER.HEIGHT;
     const slashFloorY = (groundY + LANE_OFFSET) - Math.max(10, ownerHeight * 0.1);
-    const frozenEndY = Math.min(activeAttack.trailCurveEndY, slashFloorY);
-    activeAttack.trailCurveEndY = frozenEndY;
-    activeAttack.trailCurveControlY = Math.min(activeAttack.trailCurveControlY, frozenEndY);
-    activeAttack.trailCurveFrozen = true;
+    const cappedEndY = Math.min(activeAttack.trailCurveEndY, slashFloorY);
+    activeAttack.trailCurveEndY = cappedEndY;
+    activeAttack.trailCurveControlY = Math.min(activeAttack.trailCurveControlY, cappedEndY);
 
     const trailPoints = Array.isArray(options.trailPoints) ? options.trailPoints : null;
     if (trailPoints) {
+        // attack側の値はスペック空間（正規化ポーズ空間）、サンプル済みポイントは
+        // ワールド座標（将軍は投影済み）のため、点へ書き戻す際は projectPoint で同じ空間へ揃える
+        const projectPoint = typeof options.projectPoint === 'function'
+            ? options.projectPoint
+            : (px, py) => ({ x: px, y: py });
+        const endPt = projectPoint(activeAttack.trailCurveEndX, activeAttack.trailCurveEndY);
+        const controlPt = projectPoint(activeAttack.trailCurveControlX, activeAttack.trailCurveControlY);
         for (let i = 0; i < trailPoints.length; i++) {
             const point = trailPoints[i];
             if (!point || (point.step || 0) !== 5) continue;
-            point.trailCurveEndX = activeAttack.trailCurveEndX;
-            point.trailCurveEndY = frozenEndY;
-            point.trailCurveControlX = activeAttack.trailCurveControlX;
-            point.trailCurveControlY = Math.min(activeAttack.trailCurveControlY, frozenEndY);
+            point.trailCurveEndX = endPt.x;
+            point.trailCurveEndY = endPt.y;
+            point.trailCurveControlX = controlPt.x;
+            point.trailCurveControlY = controlPt.y;
+            if (freezing) {
+                // 確定済みマーク: 以降の老化を高速化し、刀の戻りモーションより先にフェードさせる
+                point.trailCurveFrozen = true;
+            }
         }
     }
 
-    return true;
+    // 凍結確定は「終盤・接地済み」が揃ってから（終点は確定フレームで切っ先へ厳密一致済み）
+    if (freezing) {
+        activeAttack.trailCurveFrozen = true;
+        return true;
+    }
+    return false;
 }

@@ -960,10 +960,23 @@ export function applyRendererMixin(PlayerClass) {
         const isCrouchPose = isCrouching;
         const isSpearThrustPose = subWeaponTimer > 0 && subWeaponAction === '大槍' && !isAttacking;
         const spearPoseProgress = isSpearThrustPose ? Math.max(0, Math.min(1, 1 - (subWeaponTimer / 270))) : 0;
-        const spearDrive = isSpearThrustPose ? Math.sin(spearPoseProgress * Math.PI) : 0;
+        // アイドル→横っ飛び→アイドルをなだらかに繋ぐブレンド:
+        // 入りは進行0〜18%で構えへ、抜きは槍のフェードアウト(武器時間120ms)と同窓でアイドルへ戻す
+        const _spearSmooth = (t) => { const v = Math.max(0, Math.min(1, t)); return v * v * (3 - 2 * v); };
+        const spearInstForPose = (this.currentSubWeapon && this.currentSubWeapon.name === '大槍') ? this.currentSubWeapon : null;
+        const spearEntryT = isSpearThrustPose ? _spearSmooth(spearPoseProgress / 0.18) : 0;
+        const spearExitT = (isSpearThrustPose && spearInstForPose && spearInstForPose.isAttacking)
+            ? _spearSmooth(1 - Math.max(0, Math.min(1, (spearInstForPose.attackTimer || 0) / 120)))
+            : 0;
+        const spearPoseBlend = isSpearThrustPose ? spearEntryT * (1 - spearExitT) : 0;
+        const spearDrive = isSpearThrustPose ? Math.sin(spearPoseProgress * Math.PI) * spearPoseBlend : 0;
+        // サブ武器アクション（投擲以外）中はコンボ余韻の刀ポーズを譲る。
+        // 余韻が優先されると visualIsAttacking=true でサブ武器アームが描かれず、
+        // 武器がモデル外（スケール変換なし）で描画されてしまう（将軍で顕著）。
+        const subActionHoldsArms = subWeaponTimer > 0 && !!subWeaponAction && subWeaponAction !== 'throw';
         const comboPoseAttack = (isAttacking && currentAttack && currentAttack.comboStep)
             ? currentAttack
-            : ((comboStep5IdleTransitionTimer > 0 && comboStep5RecoveryAttack && comboStep5RecoveryAttack.comboStep)
+            : ((comboStep5IdleTransitionTimer > 0 && comboStep5RecoveryAttack && comboStep5RecoveryAttack.comboStep && !subActionHoldsArms)
                 ? comboStep5RecoveryAttack
                 : null);
         const comboAttackingPose = !!comboPoseAttack;
@@ -1102,9 +1115,10 @@ export function applyRendererMixin(PlayerClass) {
                 const spearWindup = Math.max(0, 1 - (spearPoseProgress / 0.34));
                 const spearLungeT = Math.max(0, Math.min(1, (spearPoseProgress - 0.16) / 0.62));
                 const spearLunge = Math.sin(spearLungeT * Math.PI * 0.5);
-                torsoShoulderX += dir * (2.8 + spearLunge * 5.6 - spearWindup * 1.1);
-                torsoHipX += dir * (0.9 + spearLunge * 2.2 - spearWindup * 0.5);
-                headCenterX += dir * (1.2 + spearLunge * 2.8);
+                // 入り/抜きブレンドを掛けてアイドル体幹となだらかに繋ぐ
+                torsoShoulderX += dir * (2.8 + spearLunge * 5.6 - spearWindup * 1.1) * spearPoseBlend;
+                torsoHipX += dir * (0.9 + spearLunge * 2.2 - spearWindup * 0.5) * spearPoseBlend;
+                headCenterX += dir * (1.2 + spearLunge * 2.8) * spearPoseBlend;
             }
             if (isDualZComboPose && dualZPose) {
                 const p = dualZPose.progress || 0;
@@ -1189,7 +1203,8 @@ export function applyRendererMixin(PlayerClass) {
                 const comboDuration = Math.max(1, this.currentAttack.durationMs || PLAYER.ATTACK_COOLDOWN);
                 const comboProgress = Math.max(0, Math.min(1, 1 - (this.attackTimer / comboDuration)));
                 const riseT = Math.min(1, comboProgress / 0.42);
-                const flipT = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.58));
+                // 宙返りは raw 0.42〜0.86 で1回転を完了し、残り(〜1.0)で空中アイドル体幹へ復帰する
+                const flipT = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.44));
                 const flipEase = flipT * flipT * (3 - 2 * flipT);
                 const riseEase = riseT * riseT * (3 - 2 * riseT);
                 const riseLift = Math.sin(riseEase * Math.PI * 0.5) * 8.9 * 0.78;
@@ -1202,6 +1217,13 @@ export function applyRendererMixin(PlayerClass) {
                     torsoHipX -= dir * (riseEase * 0.35);
                     headSpinAngle = 0;
                 } else {
+                    // 復帰ブレンド先: このブロックに入る前の通常体幹
+                    const baseTorsoShoulderX = torsoShoulderX;
+                    const baseTorsoHipX = torsoHipX;
+                    const baseBodyTopY = bodyTopY;
+                    const baseHipY = hipY;
+                    const baseHeadCenterX = headCenterX;
+                    const baseHeadY = headY;
                     // 後半で「後方宙返り1回転」を行う
                     const flipAngle = Math.PI * 2 * flipEase; // 後方宙返り（符号: + で後方回転。- は前回りになる）
                     const axisX = Math.sin(flipAngle) * dir;
@@ -1220,6 +1242,19 @@ export function applyRendererMixin(PlayerClass) {
                     const neckDist = 7.6;
                     headCenterX = torsoShoulderX - axisX * neckDist + normalX * 0.22;
                     headY = bodyTopY - axisY * neckDist + normalY * 0.14;
+
+                    // 宙返り完了後(raw 0.86〜): 後方ドリフト・持ち上げを回収して通常の空中体幹へ復帰
+                    // (flipAngle=2πで回転自体は直立に戻っているため位置だけ戻せばよい)
+                    const recoverT = Math.max(0, Math.min(1, (comboProgress - 0.86) / 0.14));
+                    if (recoverT > 0) {
+                        const recover = recoverT * recoverT * (3 - 2 * recoverT);
+                        torsoShoulderX += (baseTorsoShoulderX - torsoShoulderX) * recover;
+                        torsoHipX += (baseTorsoHipX - torsoHipX) * recover;
+                        bodyTopY += (baseBodyTopY - bodyTopY) * recover;
+                        hipY += (baseHipY - hipY) * recover;
+                        headCenterX += (baseHeadCenterX - headCenterX) * recover;
+                        headY += (baseHeadY - headY) * recover;
+                    }
                 }
             }
         }
@@ -1796,7 +1831,8 @@ export function applyRendererMixin(PlayerClass) {
                     rightFootX = centerX + dir * (6.9 - riseEase * 1.0);
                     rightFootY = bottomY - 1.3 - airborneLift * (0.54 + riseEase * 0.12);
                 } else {
-                    const flipT = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.58));
+                    // 体幹・剣ポーズと同じタイムライン(raw 0.42〜0.86で1回転)で脚も回す
+                    const flipT = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.44));
                     const flipEase = smooth(flipT);
                     const flipAngle = Math.PI * 2 * flipEase; // 後方宙返り（符号: + で後方回転。- は前回りになる）
                     const axisX = Math.sin(flipAngle) * dir;
@@ -1804,7 +1840,6 @@ export function applyRendererMixin(PlayerClass) {
                     const normalX = Math.cos(flipAngle) * dir;
                     const normalY = -Math.sin(flipAngle);
                     const tuck = Math.sin(Math.min(1, flipT / 0.62) * Math.PI);
-                    const open = smooth(Math.max(0, Math.min(1, (flipT - 0.68) / 0.32)));
                     const placeFrom = (hipBaseX, hipBaseY, side, down) => ({
                         x: hipBaseX + normalX * side + axisX * down,
                         y: hipBaseY + normalY * side + axisY * down
@@ -1813,30 +1848,36 @@ export function applyRendererMixin(PlayerClass) {
                     const rightHipYLocal = hipLocalY + 0.08;
                     // 特殊なポーズにせず、脚を自然に伸ばした(ほんの少しだけ曲げたダイナミックな)状態のまま
                     // 身体の回転(flipAngle)に合わせて綺麗に後方宙返りさせる。
-                    // 回転中の脚伸びを防ぐため、tuckに連動して適度に膝と足先を縮める制御を入れる。
+                    // tuckは脚伸び防止のためのわずかな引き込みに留め、必要以上に縮こまらせない。
+                    // 距離はキャラ固有の自然な脚長（腰リフト・頭身差込み）に比例させる。
+                    // 基準23.8は忍者の自然脚長(headRadius16.8×1.43−0.2)で、忍者は従来値と同等、
+                    // 将軍は腰リフト(+8)と小頭身の分だけ脚を長く保ち、必要以上に短く見えないようにする。
+                    const unrotatedHipY = standHipY - hipLiftPx;
+                    const naturalLegSpan = Math.max(14, (bottomY - 0.2) - unrotatedHipY);
+                    const legSpanScale = naturalLegSpan / 23.8;
                     const leftKneeP = placeFrom(
                         leftHipX,
                         leftHipYLocal,
                         -1.2,
-                        8.4 - 1.8 * tuck
+                        (8.4 - 0.8 * tuck) * legSpanScale
                     );
                     const leftFootP = placeFrom(
                         leftHipX,
                         leftHipYLocal,
                         -2.4,
-                        15.2 - 3.6 * tuck
+                        (15.2 - 1.6 * tuck) * legSpanScale
                     );
                     const rightKneeP = placeFrom(
                         rightHipX,
                         rightHipYLocal,
                         1.4,
-                        8.1 - 1.8 * tuck
+                        (8.1 - 0.8 * tuck) * legSpanScale
                     );
                     const rightFootP = placeFrom(
                         rightHipX,
                         rightHipYLocal,
                         2.6,
-                        14.6 - 3.6 * tuck
+                        (14.6 - 1.6 * tuck) * legSpanScale
                     );
                     leftKneeX = leftKneeP.x;
                     leftKneeY = leftKneeP.y;
@@ -1848,7 +1889,8 @@ export function applyRendererMixin(PlayerClass) {
                     rightFootY = rightFootP.y;
 
                     // --- 空中リカバリー処理（バク宙完了後の空中アイドルポーズ復帰） ---
-                    const airRecoverT = Math.max(0, Math.min(1, (flipT - 0.72) / 0.28)); // 最後の28%で復帰
+                    // 体幹・剣ポーズと同じ raw 0.86〜1.0 で空中アイドル脚へ復帰する
+                    const airRecoverT = Math.max(0, Math.min(1, (comboProgress - 0.86) / 0.14));
                     if (airRecoverT > 0) {
                         const airRecover = smooth(airRecoverT);
 
@@ -2003,24 +2045,45 @@ export function applyRendererMixin(PlayerClass) {
         } else if (isSpearThrustPose) {
             // 横っ飛び: 後ろ足で蹴り、前足を畳む（脚長が伸びすぎない長さ）
             const rearDrive = Math.max(0, Math.sin(Math.max(0, Math.min(1, (spearPoseProgress - 0.16) / 0.62)) * Math.PI * 0.5));
-            const hipLocalY = hipY - 0.24 - rearDrive * 0.48;
+            const hipLocalY = hipY - (0.24 + rearDrive * 0.48) * spearPoseBlend;
             const rearHipX = torsoHipX + dir * 0.88;
             const rightHipX2 = torsoHipX + dir * 1.18;
 
-            // 後ろ足: 画像2のように斜め後方へ長く蹴る
-            const rearFootX = rearHipX - dir * (14.1 + rearDrive * 3.1);
-            const rearFootY = hipLocalY + 12.9 + rearDrive * 0.24;
+            // キャラ固有の自然な脚長（腰リフト・頭身差込み、忍者≒23.8）に比例させ、
+            // 将軍でも脚が地面から浮きすぎ（短くなりすぎ）ないようにする
+            const spearLegSpan = Math.max(14, (bottomY - 0.2) - (standHipY - hipLiftPx));
+            const spearLegScale = spearLegSpan / 23.8;
+
+            // 後ろ足: 斜め後方へ長く蹴る（蹴り姿勢）
+            const kickRearFootX = rearHipX - dir * (14.1 + rearDrive * 3.1) * spearLegScale;
+            const kickRearFootY = hipLocalY + (12.9 + rearDrive * 0.24) * spearLegScale;
+            // 前足: 曲げ感を維持しつつ通常脚長に近い長さ（蹴り姿勢）
+            const kickFrontKneeX = rightHipX2 + dir * (3.95 + rearDrive * 0.6);
+            const kickFrontKneeY = hipLocalY + (8.7 + rearDrive * 0.24) * spearLegScale;
+            const kickFrontFootX = rightHipX2 + dir * (0.22 + rearDrive * 0.1);
+            const kickFrontFootY = hipLocalY + (16.2 + rearDrive * 0.3) * spearLegScale;
+
+            // 立ち姿勢の脚（入り/抜きのブレンド先）
+            const standRearFootX = centerX - dir * 2.7;
+            const standRearFootY = bottomY - 0.2;
+            const standFrontKneeX = rightHipX2 + dir * 0.7;
+            const standFrontKneeY = hipLocalY + 9.4 * spearLegScale;
+            const standFrontFootX = centerX + dir * 2.9;
+            const standFrontFootY = bottomY - 0.3;
+
+            const lerpB = (a, b) => a + (b - a) * spearPoseBlend;
+            const rearFootX = lerpB(standRearFootX, kickRearFootX);
+            const rearFootY = lerpB(standRearFootY, kickRearFootY);
             // 後ろ足は膝をまっすぐに見せる
             const rearKneeX = rearHipX + (rearFootX - rearHipX) * 0.5;
             const rearKneeY = (hipLocalY + 0.2) + (rearFootY - (hipLocalY + 0.2)) * 0.5;
             // 手前足を前面レイヤーにするため、後ろ足を胴の前へ
             drawJointedLeg(rearHipX, hipLocalY + 0.2, rearKneeX, rearKneeY, rearFootX, rearFootY, false, 0, 1, true, true);
 
-            // 前足: 画像2の曲げ感を維持しつつ、通常脚長に近づける
-            const rightKneeX2 = rightHipX2 + dir * (3.95 + rearDrive * 0.6);
-            const rightKneeY2 = hipLocalY + 8.7 + rearDrive * 0.24;
-            const rightFootX2 = rightHipX2 + dir * (0.22 + rearDrive * 0.1);
-            const rightFootY2 = hipLocalY + 16.2 + rearDrive * 0.3;
+            const rightKneeX2 = lerpB(standFrontKneeX, kickFrontKneeX);
+            const rightKneeY2 = lerpB(standFrontKneeY, kickFrontKneeY);
+            const rightFootX2 = lerpB(standFrontFootX, kickFrontFootX);
+            const rightFootY2 = lerpB(standFrontFootY, kickFrontFootY);
             drawJointedLeg(rightHipX2, hipLocalY + 0.04, rightKneeX2, rightKneeY2, rightFootX2, rightFootY2, true, 1.22, 1, true, false);
         } else {
             // 空中 or 走り or 待機の足描画
@@ -2102,9 +2165,25 @@ export function applyRendererMixin(PlayerClass) {
         }
 
         // アイドル時の両手の正確な座標（IK・伸び縮み反映済み）をサブ武器アームアニメーション等で利用するため共有
-        const globalIdleLeftHand = getSingleKatanaIdleHandPose().leftHand;
+        const globalIdleKatanaPose = getSingleKatanaIdleHandPose();
+        const globalIdleLeftHand = globalIdleKatanaPose.leftHand;
         const globalIdleRightHandForDual = stretchFromShoulder(rightShoulderXShared, rightShoulderYShared, dualWieldRightHandXShared, dualWieldRightHandYShared);
-        const globalIdleHands = { left: globalIdleLeftHand, right: globalIdleRightHandForDual };
+        // rightSingle: 片刀アイドルの手前手（大槍の入り/抜きブレンド先に使用）
+        const globalIdleHands = {
+            left: globalIdleLeftHand,
+            right: globalIdleRightHandForDual,
+            rightSingle: globalIdleKatanaPose.rightHand
+        };
+        // 攻撃終端→アイドルへの復帰ブレンド先（step4の宙返り後など）に本物のアイドル構えを使う。
+        // アイドルの刀は drawKatana の立たせ補正(uprightBlend=0.28)込みで描かれるが、
+        // 攻撃パスは uprightBlend=0 で描くため、目標角は「実描画角度」に換算して渡す。
+        const idleKatanaDrawnAngle = globalIdleKatanaPose.bladeAngle
+            + (-Math.PI / 2 - globalIdleKatanaPose.bladeAngle) * 0.28;
+        const globalIdleKatanaTarget = {
+            x: globalIdleLeftHand.x,
+            y: globalIdleLeftHand.y,
+            angle: idleKatanaDrawnAngle
+        };
 
         // 奥側の腕/武器は描画順だけで胴体の裏へ回す（オクルーダー不使用）
         const dualBladeLayer = (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') ? this.currentSubWeapon : null;
@@ -2134,7 +2213,8 @@ export function applyRendererMixin(PlayerClass) {
                 layerPhase: 'back'
             }, alpha, {
                 ...options,
-                attackState: comboVisualAttackState
+                attackState: comboVisualAttackState,
+                idleKatanaPose: globalIdleKatanaTarget
             });
         }
         if (shouldRenderSubWeaponLayerBack) {
@@ -2614,7 +2694,8 @@ export function applyRendererMixin(PlayerClass) {
                 layerPhase: 'front'
             }, alpha, {
                 ...options,
-                attackState: comboVisualAttackState
+                attackState: comboVisualAttackState,
+                idleKatanaPose: globalIdleKatanaTarget
             });
             if (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
                 // 二刀前手: 攻撃中もサブ武器アーム側の描画（renderSubWeaponArm）に任せるため、ここでは描画しない
@@ -2665,7 +2746,10 @@ export function applyRendererMixin(PlayerClass) {
         const renderSubWeaponAction = (
             this.subWeaponAction === '二刀_Z' &&
             dualBlade &&
-            !dualBlade.isAttacking
+            !dualBlade.isAttacking &&
+            // 整定期間中は二刀Zブランチに留まり、progress=1 の復帰完了ポーズへ
+            // フレーム間lerpで収束させる（即アイドル切替によるスナップ防止）
+            !(this._dualZSettleTimer > 0)
         ) ? null : this.subWeaponAction;
         const dualPoseOverride = (
             this.subWeaponPoseOverride &&
@@ -3082,15 +3166,29 @@ export function applyRendererMixin(PlayerClass) {
             const windup = Math.max(0, 1 - (motionP / 0.34));
             const extend = Math.max(0, Math.min(1, (motionP - 0.22) / 0.56));
             const thrustDrive = Math.sin(extend * (Math.PI * 0.5));
+            // アイドル⇔突き構えをなだらかに繋ぐブレンド（renderModel側のspearPoseBlendと同位相:
+            // 入りは進行0〜18%、抜きは槍フェードアウト(武器時間120ms)と同窓）
+            const _armSmooth = (t) => { const v = Math.max(0, Math.min(1, t)); return v * v * (3 - 2 * v); };
+            // 手は素早く柄を掴む（体幹0.18より短い窓。長いと柄を掴む前の槍が浮いて見える）
+            const armEntry = _armSmooth(motionP / 0.10);
+            const armExit = (spear && spear.isAttacking)
+                ? _armSmooth(1 - Math.max(0, Math.min(1, (spear.attackTimer || 0) / 120)))
+                : 0;
+            const armBlend = armEntry * (1 - armExit);
+            const idleRearHand = (options.idleHands && options.idleHands.left) || null;
+            const idleFrontHand = (options.idleHands && (options.idleHands.rightSingle || options.idleHands.right)) || null;
             // 開始時は腕が曲がって見えるよう肩を後ろ寄せ、突きで前へ伸ばす
             const shoulderPush = -windup * 4.2 + thrustDrive * 2.2;
-            const rearShoulderX = leftShoulderX + dir * (-0.9 + shoulderPush * 0.3);
-            const rearShoulderY = shoulderY + 0.15 + windup * 1.25 - thrustDrive * 0.2;
+            const rearShoulderX = leftShoulderX + dir * (-0.9 + shoulderPush * 0.3) * armBlend;
+            const rearShoulderY = shoulderY + (0.15 + windup * 1.25 - thrustDrive * 0.2) * armBlend;
             // 手元は槍上の固定グリップ位置に置き、槍本体の前進で突きを表現する
             const rearTargetX = (grips ? grips.rear.x : (centerX + dir * 13.4));
             const rearTargetY = (grips ? grips.rear.y : (pivotY + 7.8)) + windup * 0.14 - thrustDrive * 0.08;
-            // クランプをかけず、必ずグリップ座標を握る（槍が手元で滑らないようにする）
-            const rearHand = { x: rearTargetX, y: rearTargetY };
+            // クランプをかけず、必ずグリップ座標を握る（槍が手元で滑らないようにする）。
+            // 入り/抜き中のみアイドルの手位置と補間してなだらかに繋ぐ
+            const rearHand = idleRearHand
+                ? { x: idleRearHand.x + (rearTargetX - idleRearHand.x) * armBlend, y: idleRearHand.y + (rearTargetY - idleRearHand.y) * armBlend }
+                : { x: rearTargetX, y: rearTargetY };
             // 手前手側の補正に使う共通リーチ
             const spearArmMaxReach = 18.9;
             if (drawBackLayer) {
@@ -3115,34 +3213,40 @@ export function applyRendererMixin(PlayerClass) {
                     ? this.currentSubWeapon.owner
                     : this;
                 // in-model 描画中フラグ: weapon.js が owner 寸法を素体(drawW)で読むようにする（ctx.scale と二重化回避）。
+                // 描画中の例外でフラグが残留すると update 側のワールド寸法読みまで素体化するため try/finally で必ず戻す。
                 const _prevInRM = weaponOwner._inRenderModel;
                 weaponOwner._inRenderModel = true;
-                if (weaponRenderScale && Math.abs(weaponRenderScale - 1) > 0.001) {
-                    const invS = 1 / weaponRenderScale;
-                    const anchorX = this.x + this.width * 0.5;
-                    const anchorY = this.y + this.height * 0.5;
-                    ctx.save();
-                    ctx.globalAlpha = 1.0;
-                    ctx.translate(anchorX, anchorY);
-                    ctx.scale(invS, invS);
-                    ctx.translate(-anchorX, -anchorY);
-                    this.currentSubWeapon.render(ctx, weaponOwner);
-                    ctx.restore();
-                } else {
-                    ctx.save();
-                    ctx.globalAlpha = 1.0;
-                    this.currentSubWeapon.render(ctx, weaponOwner);
-                    ctx.restore();
+                try {
+                    if (weaponRenderScale && Math.abs(weaponRenderScale - 1) > 0.001) {
+                        const invS = 1 / weaponRenderScale;
+                        const anchorX = this.x + this.width * 0.5;
+                        const anchorY = this.y + this.height * 0.5;
+                        ctx.save();
+                        ctx.globalAlpha = 1.0;
+                        ctx.translate(anchorX, anchorY);
+                        ctx.scale(invS, invS);
+                        ctx.translate(-anchorX, -anchorY);
+                        this.currentSubWeapon.render(ctx, weaponOwner);
+                        ctx.restore();
+                    } else {
+                        ctx.save();
+                        ctx.globalAlpha = 1.0;
+                        this.currentSubWeapon.render(ctx, weaponOwner);
+                        ctx.restore();
+                    }
+                } finally {
+                    weaponOwner._inRenderModel = _prevInRM;
                 }
-                weaponOwner._inRenderModel = _prevInRM;
                 this.subWeaponRenderedInModel = true;
             }
 
-            const frontShoulderGripX = rightShoulderX - dir * (0.95 + windup * 1.45) + dir * thrustDrive * 1.1;
-            const frontShoulderGripY = shoulderY + 1.3 + windup * 0.9 - thrustDrive * 0.12;
+            const frontShoulderGripX = rightShoulderX + (-dir * (0.95 + windup * 1.45) + dir * thrustDrive * 1.1) * armBlend;
+            const frontShoulderGripY = shoulderY + (1.3 + windup * 0.9 - thrustDrive * 0.12) * armBlend;
             const rightTargetX = (grips ? grips.front.x : (centerX + dir * 11.2));
             const rightTargetY = (grips ? grips.front.y : (pivotY + 10.0)) + windup * 0.1 - thrustDrive * 0.08;
-            const rightHand = { x: rightTargetX, y: rightTargetY };
+            const rightHand = idleFrontHand
+                ? { x: idleFrontHand.x + (rightTargetX - idleFrontHand.x) * armBlend, y: idleFrontHand.y + (rightTargetY - idleFrontHand.y) * armBlend }
+                : { x: rightTargetX, y: rightTargetY };
             const frontShoulderFit = fitShoulderReach(
                 frontShoulderGripX,
                 frontShoulderGripY,
@@ -3166,8 +3270,23 @@ export function applyRendererMixin(PlayerClass) {
         } else if (renderSubWeaponAction === '二刀_Z') {
             // 二刀Z: 段別の軌道は維持しつつ、肩起点/腕長を通常基準に統一
             const blade = dualBlade;
+            // 振り終了後の整定: 凍結された進行度(約0.94)から 1.0(アイドル復帰完了形)へ、
+            // 整定時間をかけて緩やかに進める。武器の attackTimer は約20ms残しで凍結する
+            // ため、放置するとポーズ内復帰(airRecover)が途中で止まり、アイドル切替時に
+            // 腕と刀がスナップして見える。
+            let dualSettlePose = null;
+            if (blade && !blade.isAttacking && !dualPoseOverride) {
+                const settleTotal = (Number.isFinite(this._dualZSettleTotal) && this._dualZSettleTotal > 0)
+                    ? this._dualZSettleTotal : 240;
+                const settleRemain = Math.max(0, this._dualZSettleTimer || 0);
+                const settleT = Math.max(0, Math.min(1, 1 - settleRemain / settleTotal));
+                const settleEase = settleT * settleT * (3 - 2 * settleT);
+                const settleDuration = Math.max(1, blade.mainDuration || 1);
+                const frozenP = Math.max(0, Math.min(1, 1 - (blade.attackTimer || 0) / settleDuration));
+                dualSettlePose = { progress: frozenP + (1 - frozenP) * settleEase };
+            }
             const pose = (blade && typeof blade.getMainSwingPose === 'function')
-                ? blade.getMainSwingPose(dualPoseOverride || {})
+                ? blade.getMainSwingPose(dualSettlePose || dualPoseOverride || {})
                 : { comboIndex: 0, progress, rightAngle: -0.28, leftAngle: 2.14 };
             const comboStep = pose.comboIndex || 0;
             const comboProgress = pose.progress || 0;
@@ -3437,7 +3556,10 @@ export function applyRendererMixin(PlayerClass) {
             dualZCache.lastComboStep = comboStep;
 
             // フレーム間lerp: ステップ間遷移・idle復帰を全て滑らかに
-            const lerpSpeed = (comboStep === 3 || comboStep === 4 || comboStep === 0) ? 0.38 : 0.28;
+            // 整定中（振り終了後のアイドル復帰）は余韻を持たせてゆっくり収束させる
+            const lerpSpeed = dualSettlePose
+                ? 0.16
+                : ((comboStep === 3 || comboStep === 4 || comboStep === 0) ? 0.38 : 0.28);
             if (dualZCache.left && dualZCache.right) {
                 // 肩相対座標→絶対座標に復元してlerpすることで走り時の伸び防止
                 const cachedLeftX = dualZCache.left.x + leftShoulderX;
@@ -3513,6 +3635,11 @@ export function applyRendererMixin(PlayerClass) {
                     }
                 }
             }
+            // リカバリーフェーズ（コンボ終了後のアイドル復帰ブレンド）の開始点として
+            // 最終フレームの刀角度もキャッシュしておく（手位置は上で保存済み）
+            dualZCache.leftAngle = leftWeaponAngleRaw;
+            dualZCache.rightAngle = rightWeaponAngleRaw;
+
             // 4撃目終盤は「刀見た目の溜め角度」と「剣筋追従角度」を分離して、
             // 下側に飛ぶ異常剣筋を抑える (ここも左右を入れ替え)
             // 落下中の片腕消滅を防ぐため、リカバリー中はポーズ自体の回転角度ではなく、
@@ -3623,10 +3750,9 @@ export function applyRendererMixin(PlayerClass) {
                     y: rightShoulderY + crouchPick(8.5, 6.8)
                 };
             
-            const leftAngle = idleLeftBladeAngle;
-            const rightAngle = idleRightBladeAngle;
-
-            // 腕の手位置は刀角度から作らず、直前の手位置から二刀流アイドル手位置へ戻す
+            // 腕の手位置は刀角度から作らず、直前の手位置から二刀流アイドル手位置へ戻す。
+            // 右手・刀角度も同様に最終ポーズからブレンドする（即アイドルに飛ばすと
+            // 4段目の振り上げ終端などからバツッと切り替わって見える）。
             const recoverCacheKey = (options.isClone && options.cloneIndex != null) ? options.cloneIndex : '_body';
             if (!this._dualZHandCache) this._dualZHandCache = {};
             const recoverCache = this._dualZHandCache[recoverCacheKey] || { left: null, right: null, lastComboStep: -1 };
@@ -3634,16 +3760,28 @@ export function applyRendererMixin(PlayerClass) {
             let leftHandY = idleLeftHand.y;
             let rightHandX = idleRightHand.x;
             let rightHandY = idleRightHand.y;
+            let leftAngle = idleLeftBladeAngle;
+            let rightAngle = idleRightBladeAngle;
             if (recoverCache.left && recoverCache.right) {
                 const cachedLeftX = recoverCache.left.x + leftShoulderX;
                 const cachedLeftY = recoverCache.left.y + leftShoulderY;
                 leftHandX = cachedLeftX + (idleLeftHand.x - cachedLeftX) * easeT;
                 leftHandY = cachedLeftY + (idleLeftHand.y - cachedLeftY) * easeT;
+                const cachedRightX = recoverCache.right.x + rightShoulderX;
+                const cachedRightY = recoverCache.right.y + rightShoulderY;
+                rightHandX = cachedRightX + (idleRightHand.x - cachedRightX) * easeT;
+                rightHandY = cachedRightY + (idleRightHand.y - cachedRightY) * easeT;
+                if (Number.isFinite(recoverCache.leftAngle)) {
+                    leftAngle = recoverCache.leftAngle + (idleLeftBladeAngle - recoverCache.leftAngle) * easeT;
+                }
+                if (Number.isFinite(recoverCache.rightAngle)) {
+                    rightAngle = recoverCache.rightAngle + (idleRightBladeAngle - recoverCache.rightAngle) * easeT;
+                }
             }
-            rightHandX = idleRightHand.x;
-            rightHandY = idleRightHand.y;
             recoverCache.left = { x: leftHandX - leftShoulderX, y: leftHandY - leftShoulderY };
             recoverCache.right = { x: rightHandX - rightShoulderX, y: rightHandY - rightShoulderY };
+            recoverCache.leftAngle = leftAngle;
+            recoverCache.rightAngle = rightAngle;
             recoverCache.lastComboStep = -1;
             this._dualZHandCache[recoverCacheKey] = recoverCache;
 
@@ -4229,7 +4367,9 @@ export function applyRendererMixin(PlayerClass) {
                     leftShoulderY,
                     rightShoulderX,
                     rightShoulderY,
-                    supportRightHand
+                    supportRightHand,
+                    // 本物のアイドル構え（IK反映済み）。step4宙返り後の復帰ブレンド先に使う
+                    idleKatanaPose: options.idleKatanaPose || null
                 }
             );
             if (comboPose) {
@@ -5031,10 +5171,14 @@ export function applyRendererMixin(PlayerClass) {
                         dedicatedCloneHasGroundWave
                     )
                 );
+                // Lv1-2(ミラー分身)のモーションは本体忍具のミラーへ一本化する（モーション源は本体のみ）。
+                // dedicated(分身専用インスタンス)は分身位置から出るワールド実体
+                // （弾・衝撃波・着地した大太刀）の描画と当たり判定だけを担う。
+                // 大太刀のみ刺さり位置が分身ごとに独立するためモーション描画も dedicated を使う。
                 const shouldUseDedicatedCloneSubWeapon = !!(
                     !this.specialCloneAutoAiEnabled &&
                     cloneSubWeaponInstance &&
-                    ['二刀流', '鎖鎌', '大太刀', '大槍'].includes(cloneSubWeaponInstance.name) &&
+                    cloneSubWeaponInstance.name === '大太刀' &&
                     (
                         cloneSubWeaponTimer > 0 ||
                         cloneSubWeaponAction ||
@@ -5048,6 +5192,9 @@ export function applyRendererMixin(PlayerClass) {
                     !this.specialCloneAutoAiEnabled &&
                     !shouldUseDedicatedCloneSubWeapon &&
                     saved.currentSubWeapon &&
+                    // 大太刀は分身固有の刺さり位置を持つため常に dedicated（ミラー描画すると
+                    // 本体の planted ワールド座標を分身位置で再キャプチャして壊す）
+                    saved.currentSubWeapon.name !== '大太刀' &&
                     (
                         saved.currentSubWeapon.name === '二刀流' ||
                         (saved.subWeaponTimer || 0) > 0 ||
@@ -5075,11 +5222,8 @@ export function applyRendererMixin(PlayerClass) {
                 const cloneOdachiHanging = !!(
                     visualSubWeaponInstance &&
                     visualSubWeaponInstance.name === '大太刀' &&
-                    (
-                        this.specialCloneAutoAiEnabled
-                            ? (visualSubWeaponInstance.isAttacking && visualSubWeaponInstance.hasImpacted)
-                            : (visualSubWeaponInstance.isAttacking && visualSubWeaponInstance.hasImpacted)
-                    )
+                    visualSubWeaponInstance.isAttacking &&
+                    visualSubWeaponInstance.hasImpacted
                 );
 
                 // Lv1-2(ミラー分身)のYはpos.y(=本体yのミラー)から一意に決まるため個別補正しない。
@@ -5129,17 +5273,8 @@ export function applyRendererMixin(PlayerClass) {
                 const cloneUsesDualZ = !!(
                     visualSubWeaponInstance &&
                     visualSubWeaponInstance.name === '二刀流' &&
-                    (
-                        this.specialCloneAutoAiEnabled
-                            ? (
-                                visualSubWeaponAction === '二刀_Z' &&
-                                visualSubWeaponTimer > 0
-                            )
-                            : (
-                                visualSubWeaponAction === '二刀_Z' &&
-                                visualSubWeaponTimer > 0
-                            )
-                    )
+                    visualSubWeaponAction === '二刀_Z' &&
+                    visualSubWeaponTimer > 0
                 );
                 const isCloneAttacking = this.specialCloneAutoAiEnabled
                     ? ((this.specialCloneAttackTimers[i] > 0) && !cloneUsesDualZ)
@@ -5163,6 +5298,9 @@ export function applyRendererMixin(PlayerClass) {
                 this.currentSubWeapon = visualSubWeaponInstance || null;
                 this.subWeaponRenderedInModel = false;
                 this.dualBladeTrailAnchors = null;
+                // ミラー分身描画中フラグ: 武器render側が本体由来のワールド実体（弾・剣筋
+                // スナップショット）を分身位置で重複描画しないための判定に使う。
+                this._renderingMirrorClone = !this.specialCloneAutoAiEnabled;
 
                 if (this.specialCloneAutoAiEnabled) {
                     const rawRenderVx = pos.renderVx || 0;
@@ -5204,17 +5342,10 @@ export function applyRendererMixin(PlayerClass) {
                     );
                     const effectiveSubWeaponTimer = cloneOdachiHanging ? 1 : (cloneKusaStillAttacking ? 1 : visualSubWeaponTimer);
                     const usePoseOverride = cloneOdachiHanging || cloneKusaStillAttacking;
-                    const cloneOwnerPose = (!usePoseOverride && cloneSubWeaponActive && cloneSubWeaponInstance &&
-                        !shouldMirrorSavedSubWeapon &&
-                        cloneSubWeaponInstance.owner && cloneSubWeaponInstance.owner._specialCloneOwner)
-                        ? cloneSubWeaponInstance.owner
-                        : null;
-                    this.subWeaponTimer = usePoseOverride
-                        ? effectiveSubWeaponTimer
-                        : (cloneOwnerPose ? cloneOwnerPose.subWeaponTimer : visualSubWeaponTimer);
-                    this.subWeaponAction = usePoseOverride
-                        ? effectiveSubWeaponAction
-                        : (cloneOwnerPose ? cloneOwnerPose.subWeaponAction : visualSubWeaponAction);
+                    // ポーズ位相は本体の subWeaponTimer/Action へ一本化（per-clone タイマーでの再管理はしない）。
+                    // dedicated(大太刀)選択時も本体と同時トリガーのため本体値で位相が一致する。
+                    this.subWeaponTimer = usePoseOverride ? effectiveSubWeaponTimer : (saved.subWeaponTimer || 0);
+                    this.subWeaponAction = usePoseOverride ? effectiveSubWeaponAction : saved.subWeaponAction;
                     this.subWeaponPoseOverride = null;
                 }
 
@@ -5294,13 +5425,42 @@ export function applyRendererMixin(PlayerClass) {
                     if (!Array.isArray(this.specialCloneDualTrailAnchors)) {
                         this.specialCloneDualTrailAnchors = [];
                     }
+                    // 将軍: renderModel が記録する二刀アンカーは素体(ninja 48x72)座標。本体の
+                    // getDualBladePoseForTrail と同じ式で、分身のワールド箱基準に投影してから保存する
+                    // （投影しないと分身の二刀Z剣筋だけ将軍スケールにならない）。忍者は scale=1 で恒等。
+                    const dualAnchorScale = (this.characterType === 'shogun' &&
+                        Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 1.001)
+                        ? this.scaleMultiplier : 1;
+                    const projectDualAnchor = (() => {
+                        if (dualAnchorScale <= 1.001) return (ax, ay) => ({ x: ax, y: ay });
+                        const worldW = this.getWorldWidth();
+                        const worldH = this.getWorldHeight();
+                        const footOffset = this._getCloneFootOffset();
+                        const boxX = pos.x - worldW * 0.5;
+                        const boxY = this.getSpecialCloneFootY(pos.y) - worldH;
+                        const actorRenderDY = worldH - footOffset - SHOGUN_ACTOR_BASE_HEIGHT * 0.62;
+                        const renderPivotX = boxX + worldW * 0.5;
+                        const renderPivotY = boxY + actorRenderDY + PLAYER.HEIGHT * 0.62;
+                        const basePivotX = boxX + PLAYER.WIDTH * 0.5;
+                        const basePivotY = boxY + PLAYER.HEIGHT * 0.62;
+                        return (ax, ay) => ({
+                            x: renderPivotX + (ax - basePivotX) * dualAnchorScale,
+                            y: renderPivotY + (ay - basePivotY) * dualAnchorScale
+                        });
+                    })();
+                    const projectDualBlade = (blade) => {
+                        if (!blade) return null;
+                        const hand = projectDualAnchor(blade.handX, blade.handY);
+                        const tip = projectDualAnchor(blade.tipX, blade.tipY);
+                        return { ...blade, handX: hand.x, handY: hand.y, tipX: tip.x, tipY: tip.y };
+                    };
                     this.specialCloneDualTrailAnchors[i] = this.dualBladeTrailAnchors
                         ? {
                             direction: this.dualBladeTrailAnchors.direction,
-                            back: this.dualBladeTrailAnchors.back ? { ...this.dualBladeTrailAnchors.back } : null,
-                            front: this.dualBladeTrailAnchors.front ? { ...this.dualBladeTrailAnchors.front } : null,
-                            originX: this.x + this.width * 0.5,
-                            originY: this.y + this.height * 0.5
+                            back: projectDualBlade(this.dualBladeTrailAnchors.back),
+                            front: projectDualBlade(this.dualBladeTrailAnchors.front),
+                            originX: pos.x,
+                            originY: this.getSpecialCloneFootY(pos.y) - this.getWorldHeight() * 0.5
                         }
                         : null;
 
@@ -5378,7 +5538,8 @@ export function applyRendererMixin(PlayerClass) {
                         });
                         if (backRenderPoints && backRenderPoints.length >= 2) {
                             this.renderComboSlashTrail(ctx, {
-                                points: backRenderPoints,
+                                // 本体と同じく一定曲率の弧へ再配置して描く（生軌道の縒れを排除）
+                                points: this.fitDualTrailPointsToArc(backRenderPoints),
                                 palette: bluePalette,
                                 forceLinearSmooth: true,
                                 isAttacking: true,
@@ -5390,7 +5551,7 @@ export function applyRendererMixin(PlayerClass) {
                         }
                         if (frontRenderPoints && frontRenderPoints.length >= 2) {
                             this.renderComboSlashTrail(ctx, {
-                                points: frontRenderPoints,
+                                points: this.fitDualTrailPointsToArc(frontRenderPoints),
                                 palette: redPalette,
                                 forceLinearSmooth: true,
                                 isAttacking: true,
@@ -5402,21 +5563,11 @@ export function applyRendererMixin(PlayerClass) {
                         }
                     }
 
+                    // ── 分身のサブ武器描画 ──
+                    // モーション: this.currentSubWeapon（Lv1-2=本体忍具のミラー / Lv3・大太刀=dedicated）。
+                    // ミラー描画中は _renderingMirrorClone により武器側で本体由来のワールド実体
+                    // （弾・剣筋スナップショット）の重複描画が抑制され、モーションのみ分身位置に描かれる。
                     if (
-                        cloneSubWeaponActive &&
-                        cloneSubWeaponInstance &&
-                        !this.subWeaponRenderedInModel &&
-                        typeof cloneSubWeaponInstance.render === 'function'
-                    ) {
-                        const subWeaponOwner = cloneSubWeaponInstance.owner && cloneSubWeaponInstance.owner._specialCloneOwner
-                            ? cloneSubWeaponInstance.owner
-                            : this;
-                        drawCloneSubWeapon(cloneSubWeaponInstance, subWeaponOwner, {
-                            index: i,
-                            pos,
-                            active: true
-                        });
-                    } else if (
                         this.currentSubWeapon &&
                         !this.subWeaponRenderedInModel &&
                         typeof this.currentSubWeapon.render === 'function'
@@ -5427,14 +5578,36 @@ export function applyRendererMixin(PlayerClass) {
                         drawCloneSubWeapon(this.currentSubWeapon, subWeaponOwner, {
                             index: i,
                             pos,
-                            active: false
+                            active: cloneSubWeaponActive
                         });
+                    }
+
+                    // 分身位置から出たワールド実体（弾・衝撃波）は、モーションがミラーでも
+                    // dedicated インスタンスが実体を保持しているためここから描く。
+                    if (
+                        cloneSubWeaponInstance &&
+                        cloneSubWeaponInstance !== visualSubWeaponInstance &&
+                        (dedicatedCloneHasProjectile || dedicatedCloneHasGroundWave)
+                    ) {
+                        const dedicatedOwner = cloneSubWeaponInstance.owner && cloneSubWeaponInstance.owner._specialCloneOwner
+                            ? cloneSubWeaponInstance.owner
+                            : this;
+                        if (typeof cloneSubWeaponInstance.renderWorldEffects === 'function') {
+                            cloneSubWeaponInstance.renderWorldEffects(ctx, dedicatedOwner);
+                        } else if (typeof cloneSubWeaponInstance.render === 'function') {
+                            drawCloneSubWeapon(cloneSubWeaponInstance, dedicatedOwner, {
+                                index: i,
+                                pos,
+                                active: true
+                            });
+                        }
                     }
 
                     ctx.restore();
                 });
 
                 // 本体の状態を完全に復元
+                this._renderingMirrorClone = false;
                 this.isAttacking = saved.isAttacking;
                 this.currentAttack = saved.currentAttack;
                 this.attackTimer = saved.attackTimer;

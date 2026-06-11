@@ -393,7 +393,8 @@ export function applySpecialMixin(PlayerClass) {
                     clonePos.jumping = true;
                 } else if (profile.comboStep === 4) {
                     clonePos.comboVx = clonePos.comboVx * 0.24 + direction * impulse * 0.42;
-                    clonePos.cloneVy = Math.min(clonePos.cloneVy || 0, -10.6);
+                    // 本体(normalComboMotion)と同じく体格スケール倍の上昇
+                    clonePos.cloneVy = Math.min(clonePos.cloneVy || 0, -10.6 * (this.scaleMultiplier || 1));
                     clonePos.jumping = true;
                 } else if (profile.comboStep === 5) {
                     clonePos.comboVx *= 0.18;
@@ -683,8 +684,12 @@ export function applySpecialMixin(PlayerClass) {
                     inst.mainMotionSpeedScale = this.currentSubWeapon.mainMotionSpeedScale;
                 }
                 if (attackType === 'main' && Number.isFinite(this.currentSubWeapon.comboIndex)) {
+                    // inst.use('main') で本体と同じ段に進むよう「1つ前の段」をセットする。
+                    // 進行は順番解放式（1→…→解放最終段→1、5段目のみ comboIndex=0 表現）。
                     const maxSteps = (this.currentSubWeapon.comboDamages || []).length || 5;
-                    inst.comboIndex = (this.currentSubWeapon.comboIndex - 1 + maxSteps) % maxSteps;
+                    const bodyStep = this.currentSubWeapon.comboIndex === 0 ? 5 : this.currentSubWeapon.comboIndex;
+                    const prevStep = bodyStep > 1 ? bodyStep - 1 : maxSteps;
+                    inst.comboIndex = prevStep === 5 ? 0 : prevStep;
                     inst.mainComboLinkTimer = this.currentSubWeapon.mainComboLinkTimer || 0;
                 }
                 // combined発動前に前回プロジェクタイルをクリア（2回目以降も飛翔斬撃を出すため）
@@ -980,7 +985,8 @@ export function applySpecialMixin(PlayerClass) {
                 } else if (comboStep === 3) {
                     forceAirborne = true;
                 } else if (comboStep === 4) {
-                    const z4HeightScale = 0.96;
+                    // 本体(normalComboMotion)と同じく体格スケール倍の上昇
+                    const z4HeightScale = 0.96 * (this.scaleMultiplier || 1.0);
                     if (progress < 0.42) {
                         const t = progress / 0.42;
                         moveVx = moveVx * 0.52 + direction * baseSpeed * (0.2 - t * 0.08);
@@ -1002,17 +1008,19 @@ export function applySpecialMixin(PlayerClass) {
                     }
                     forceAirborne = true;
                 } else if (comboStep === 5) {
+                    // 本体(normalComboMotion)と同じく体格スケール倍の落下速度
+                    const scaleMult5 = this.scaleMultiplier || 1.0;
                     if (progress < 0.26) {
                         moveVx *= 0.82;
                         pos.cloneVy = Math.min(pos.cloneVy || 0, -1.2);
                     } else if (progress < 0.76) {
                         const fallT = (progress - 0.26) / 0.5;
                         moveVx = moveVx * 0.7 + direction * baseSpeed * 0.08;
-                        pos.cloneVy = (pos.cloneVy || 0) * 0.34 + (9.8 + fallT * 19.8) * 0.66;
+                        pos.cloneVy = (pos.cloneVy || 0) * 0.34 + (9.8 + fallT * 19.8) * 0.66 * scaleMult5;
                     } else {
                         moveVx *= 0.64;
                         if (pos.jumping) {
-                            pos.cloneVy = Math.max(pos.cloneVy || 0, 13.4);
+                            pos.cloneVy = Math.max(pos.cloneVy || 0, 13.4 * scaleMult5);
                         }
                     }
                     forceAirborne = true;
@@ -1347,14 +1355,19 @@ export function applySpecialMixin(PlayerClass) {
             if (!this.specialCloneAlive[index]) continue;
             const pos = this.specialClonePositions[index];
             if (!pos) continue;
+            // dx/dy は「分身のワールド箱上端 − 本体のワールド箱上端」で取る（弾の発射位置・
+            // 攻撃判定シフトはすべて本体 x/y と同じワールド箱座標系で消費される）。
+            // 描画用アクターY(getSpecialCloneDrawY)は将軍では箱上端と一致しない
+            // （素体60×0.62 と 世界120×0.62 の差 +13.2px）ため、dy に使うと
+            // 手裏剣・火薬玉などの分身弾が本体より下にずれる。忍者は両者一致で無害だった。
             const cloneX = pos.x - this.getWorldWidth() / 2;
-            const cloneY = this.getSpecialCloneDrawY(pos.y);
+            const cloneBoxY = this.getSpecialCloneFootY(pos.y) - this.getWorldHeight();
             offsets.push({
                 index,
                 x: cloneX,
-                y: cloneY,
+                y: cloneBoxY,
                 dx: cloneX - this.x,
-                dy: cloneY - this.y
+                dy: cloneBoxY - this.y
             });
         }
         return offsets;
