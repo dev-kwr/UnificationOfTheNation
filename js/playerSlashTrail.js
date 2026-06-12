@@ -2607,6 +2607,22 @@ export function applySlashTrailMixin(PlayerClass) {
                             ? pose.trailTransformPlayerY
                             : (!pose.trailIsRelative ? samplePoseOriginY : undefined);
                     }
+                    if (
+                        !isAutoAi &&
+                        !hasOverride &&
+                        comboStep === 1 &&
+                        activeTrailId !== null
+                    ) {
+                        const bodyHasStep1Sample = Array.isArray(this.comboSlashTrailPoints) &&
+                            this.comboSlashTrailPoints.some((pt) =>
+                                pt &&
+                                pt.step === 1 &&
+                                pt.trailAttackId === activeTrailId
+                            );
+                        if (!bodyHasStep1Sample) {
+                            pose = null;
+                        }
+                    }
                     if (isAutoAi && !pose && comboStep > 0 && !this.shouldKeepComboTrailDuringReturn(comboStep)) {
                         this.freezeSpecialCloneSlashTrail(i, {
                             pos,
