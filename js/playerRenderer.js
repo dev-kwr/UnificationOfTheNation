@@ -5069,6 +5069,19 @@ export function applyRendererMixin(PlayerClass) {
                 draw();
             }
         };
+        const deferredCloneTrailRenders = [];
+        const deferCloneTrailRender = (pivotX, pivotY, renderFn) => {
+            deferredCloneTrailRenders.push(() => {
+                renderScaled(pivotX, pivotY, () => {
+                    ctx.save();
+                    // 剣筋は本体と同じ描画状態に揃える。分身体の点滅/半透明を掛けると、
+                    // 同じ点列でも丸端や残像の濃淡が変わり、step1の形状差に見える。
+                    ctx.globalAlpha = 1.0;
+                    renderFn();
+                    ctx.restore();
+                });
+            });
+        };
 
         ctx.save();
 
@@ -5504,45 +5517,47 @@ export function applyRendererMixin(PlayerClass) {
                             attackTimer: this.attackTimer,
                             isCrouching: this.isCrouching
                         };
-                        this.renderComboSlashTrail(ctx, {
-                            points: cloneTrailRenderPoints || [],
-                            frozenCurves: cloneTrailFrozenCurves || [],
-                            isAttacking: isCloneAttacking,
-                            attackState: cloneAttackState,
-                            // 大凪boostの基準中心(baseCenter)を本体と同じ「ワールド箱中心」定義で渡す。
-                            // 省略すると this.x(=素体描画基準) + worldW/2 となり、将軍の分身だけ
-                            // 拡大中心が(+20, +13.2)pxずれて本体と剣筋の形状・位置が揃わない。
-                            centerX: pos.x,
-                            centerY: cloneTrailFootY - cloneTrailWorldH * 0.5,
-                            physicalScale: (this.scaleMultiplier || 1.0) * (transformCloneTrailPoints ? cloneTrailPhysicalScale : 1.0),
-                            boostActive: transformCloneTrailPoints ? false : undefined,
-                            getBoostAnchor: (trailId) => {
-                                if (transformCloneTrailPoints || trailId === null || trailId === undefined) return null;
-                                const anchors = Array.isArray(this.specialCloneSlashTrailBoostAnchors)
-                                    ? this.specialCloneSlashTrailBoostAnchors[i]
-                                    : null;
-                                return anchors && typeof anchors === 'object' ? (anchors[trailId] || null) : null;
-                            },
-                            setBoostAnchor: (trailId, value) => {
-                                if (transformCloneTrailPoints) return;
-                                if (!Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
-                                    this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => ({}));
+                        deferCloneTrailRender(pos.x, cloneTrailFootY, () => {
+                            this.renderComboSlashTrail(ctx, {
+                                points: cloneTrailRenderPoints || [],
+                                frozenCurves: cloneTrailFrozenCurves || [],
+                                isAttacking: isCloneAttacking,
+                                attackState: cloneAttackState,
+                                // 大凪boostの基準中心(baseCenter)を本体と同じ「ワールド箱中心」定義で渡す。
+                                // 省略すると this.x(=素体描画基準) + worldW/2 となり、将軍の分身だけ
+                                // 拡大中心が(+20, +13.2)pxずれて本体と剣筋の形状・位置が揃わない。
+                                centerX: pos.x,
+                                centerY: cloneTrailFootY - cloneTrailWorldH * 0.5,
+                                physicalScale: (this.scaleMultiplier || 1.0) * (transformCloneTrailPoints ? cloneTrailPhysicalScale : 1.0),
+                                boostActive: transformCloneTrailPoints ? false : undefined,
+                                getBoostAnchor: (trailId) => {
+                                    if (transformCloneTrailPoints || trailId === null || trailId === undefined) return null;
+                                    const anchors = Array.isArray(this.specialCloneSlashTrailBoostAnchors)
+                                        ? this.specialCloneSlashTrailBoostAnchors[i]
+                                        : null;
+                                    return anchors && typeof anchors === 'object' ? (anchors[trailId] || null) : null;
+                                },
+                                setBoostAnchor: (trailId, value) => {
+                                    if (transformCloneTrailPoints) return;
+                                    if (!Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
+                                        this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => ({}));
+                                    }
+                                    if (
+                                        !this.specialCloneSlashTrailBoostAnchors[i] ||
+                                        typeof this.specialCloneSlashTrailBoostAnchors[i] !== 'object' ||
+                                        Array.isArray(this.specialCloneSlashTrailBoostAnchors[i])
+                                    ) {
+                                        this.specialCloneSlashTrailBoostAnchors[i] = {};
+                                    }
+                                    if (trailId === null || trailId === undefined) {
+                                        this.specialCloneSlashTrailBoostAnchors[i] = {};
+                                    } else if (value) {
+                                        this.specialCloneSlashTrailBoostAnchors[i][trailId] = value;
+                                    } else {
+                                        delete this.specialCloneSlashTrailBoostAnchors[i][trailId];
+                                    }
                                 }
-                                if (
-                                    !this.specialCloneSlashTrailBoostAnchors[i] ||
-                                    typeof this.specialCloneSlashTrailBoostAnchors[i] !== 'object' ||
-                                    Array.isArray(this.specialCloneSlashTrailBoostAnchors[i])
-                                ) {
-                                    this.specialCloneSlashTrailBoostAnchors[i] = {};
-                                }
-                                if (trailId === null || trailId === undefined) {
-                                    this.specialCloneSlashTrailBoostAnchors[i] = {};
-                                } else if (value) {
-                                    this.specialCloneSlashTrailBoostAnchors[i][trailId] = value;
-                                } else {
-                                    delete this.specialCloneSlashTrailBoostAnchors[i][trailId];
-                                }
-                            }
+                            });
                         });
                     }
 
@@ -5577,11 +5592,13 @@ export function applyRendererMixin(PlayerClass) {
                                 footY: cloneTrailFootY,
                                 type: 'dualFront'
                             });
-                            this.renderDualBladeSlashTrails(ctx, {
-                                backPoints: backRenderPoints,
-                                frontPoints: frontRenderPoints,
-                                boostAnchors: this.specialCloneDualBoostAnchors[i],
-                                physicalScale: (this.scaleMultiplier || 1.0) * (transformCloneTrailPoints ? cloneTrailPhysicalScale : 1.0)
+                            deferCloneTrailRender(pos.x, cloneTrailFootY, () => {
+                                this.renderDualBladeSlashTrails(ctx, {
+                                    backPoints: backRenderPoints,
+                                    frontPoints: frontRenderPoints,
+                                    boostAnchors: this.specialCloneDualBoostAnchors[i],
+                                    physicalScale: (this.scaleMultiplier || 1.0) * (transformCloneTrailPoints ? cloneTrailPhysicalScale : 1.0)
+                                });
                             });
                         }
                     }
@@ -5658,6 +5675,12 @@ export function applyRendererMixin(PlayerClass) {
                 this.comboStep1IdleTransitionTimer = saved.comboStep1IdleTransitionTimer;
                 this.comboStep5RecoveryAttack = saved.comboStep5RecoveryAttack;
             }
+        }
+
+        // 分身の剣筋は、全分身体の描画後にまとめて描く。
+        // 後続の分身体が先行分身の剣筋を上から塗りつぶすと、同じstepでも形状差に見えるため。
+        for (const drawCloneTrail of deferredCloneTrailRenders) {
+            drawCloneTrail();
         }
 
         // 忍術ドロン煙

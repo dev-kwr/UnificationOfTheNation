@@ -635,7 +635,13 @@ export function applySlashTrailMixin(PlayerClass) {
         ) {
             poseOriginX -= (this.x - sampleState.x);
         }
-        const poseOriginY = Number.isFinite(this.currentAttack.trailTransformPlayerY)
+        // ミラー分身の通常剣筋は、分身自身のワールド箱を投影アンカーにする。
+        // 本体の trailTransformPlayerY を step4 に流用すると、縦剣筋だけ本体基準へ数px寄る。
+        const shouldUseBodyAnchorY = this.currentAttack.comboStep === 5;
+        const poseOriginY = (
+            shouldUseBodyAnchorY &&
+            Number.isFinite(this.currentAttack.trailTransformPlayerY)
+        )
             ? this.currentAttack.trailTransformPlayerY
             : livePoseOriginY;
         const profile = this.applyComboTrailSpecToAttackProfile(

@@ -677,6 +677,122 @@
         applyWeaponLv(parseInt(document.getElementById('selWeaponLv').value));
         applySkillLv(parseInt(document.getElementById('selSkillLv').value));
 
+        // プレビューの画面端ループは本編にはないワープなので、ワールド座標で残る剣筋も同量だけ平行移動する。
+        const shiftPreviewTrailPointX = (point, dx) => {
+            if (!point || !Number.isFinite(dx) || dx === 0) return;
+            [
+                'x', 'centerX', 'originX', 'handX', 'tipX',
+                'playerX', 'trailTransformPlayerX',
+                'baseCenterX', 'projectedCenterX', 'frozenTrailCenterX'
+            ].forEach((key) => {
+                if (Number.isFinite(point[key])) point[key] += dx;
+            });
+            if (!point.trailIsRelative) {
+                [
+                    'trailCurveStartX', 'trailCurveControlX', 'trailCurveEndX',
+                    'trailArcCenterX'
+                ].forEach((key) => {
+                    if (Number.isFinite(point[key])) point[key] += dx;
+                });
+            }
+            if (point.fixedStartWorldPoint && Number.isFinite(point.fixedStartWorldPoint.x)) {
+                point.fixedStartWorldPoint.x += dx;
+            }
+        };
+        const shiftPreviewTrailArrayX = (points, dx) => {
+            if (!Array.isArray(points)) return;
+            points.forEach((point) => shiftPreviewTrailPointX(point, dx));
+        };
+        const shiftPreviewFrozenCurveX = (curve, dx) => {
+            if (!curve || !Number.isFinite(dx) || dx === 0) return;
+            shiftPreviewTrailPointX(curve, dx);
+            shiftPreviewTrailArrayX(curve.frozenPoints, dx);
+            shiftPreviewTrailArrayX(curve.frozenCurvePoints, dx);
+            if (curve.boostAnchor) shiftPreviewTrailPointX(curve.boostAnchor, dx);
+        };
+        const shiftPreviewBoostAnchorsX = (anchors, dx) => {
+            if (!anchors || typeof anchors !== 'object') return;
+            if (Array.isArray(anchors)) {
+                anchors.forEach((entry) => shiftPreviewBoostAnchorsX(entry, dx));
+                return;
+            }
+            Object.values(anchors).forEach((entry) => shiftPreviewBoostAnchorsX(entry, dx));
+            shiftPreviewTrailPointX(anchors, dx);
+        };
+        const shiftPreviewAccessoryNodesX = (nodes, dx) => {
+            if (!Array.isArray(nodes)) return;
+            nodes.forEach((node) => {
+                if (node && Number.isFinite(node.x)) node.x += dx;
+            });
+        };
+        const shiftPreviewActorWorldX = (actor, dx) => {
+            if (!actor || !Number.isFinite(dx) || dx === 0) return;
+            shiftPreviewTrailArrayX(actor.comboSlashTrailPoints, dx);
+            shiftPreviewTrailArrayX(actor.dualBladeBackTrailPoints, dx);
+            shiftPreviewTrailArrayX(actor.dualBladeFrontTrailPoints, dx);
+            if (Array.isArray(actor.comboSlashTrailFrozenCurves)) {
+                actor.comboSlashTrailFrozenCurves.forEach((curve) => shiftPreviewFrozenCurveX(curve, dx));
+            }
+            shiftPreviewBoostAnchorsX(actor.comboSlashTrailBoostAnchors, dx);
+            shiftPreviewBoostAnchorsX(actor.dualBladeBoostAnchors, dx);
+            shiftPreviewTrailPointX(actor.comboSlashTrailSampleState, dx);
+            if (actor.dualBladeTrailAnchors) {
+                shiftPreviewTrailPointX(actor.dualBladeTrailAnchors, dx);
+                shiftPreviewTrailPointX(actor.dualBladeTrailAnchors.back, dx);
+                shiftPreviewTrailPointX(actor.dualBladeTrailAnchors.front, dx);
+            }
+
+            [
+                'specialCloneSlashTrailPoints',
+                'specialCloneDualBackTrailPoints',
+                'specialCloneDualFrontTrailPoints'
+            ].forEach((key) => {
+                if (Array.isArray(actor[key])) actor[key].forEach((points) => shiftPreviewTrailArrayX(points, dx));
+            });
+            if (Array.isArray(actor.specialCloneSlashTrailFrozenCurves)) {
+                actor.specialCloneSlashTrailFrozenCurves.forEach((curves) => {
+                    if (Array.isArray(curves)) curves.forEach((curve) => shiftPreviewFrozenCurveX(curve, dx));
+                });
+            }
+            shiftPreviewBoostAnchorsX(actor.specialCloneSlashTrailBoostAnchors, dx);
+            shiftPreviewBoostAnchorsX(actor.specialCloneDualBoostAnchors, dx);
+            if (Array.isArray(actor.specialCloneDualTrailAnchors)) {
+                actor.specialCloneDualTrailAnchors.forEach((anchors) => {
+                    if (!anchors) return;
+                    shiftPreviewTrailPointX(anchors, dx);
+                    shiftPreviewTrailPointX(anchors.back, dx);
+                    shiftPreviewTrailPointX(anchors.front, dx);
+                });
+            }
+
+            if (actor.currentAttack) shiftPreviewTrailPointX(actor.currentAttack, dx);
+            if (actor.comboStep5RecoveryAttack) shiftPreviewTrailPointX(actor.comboStep5RecoveryAttack, dx);
+            if (Array.isArray(actor.specialCloneMirroredTrailProfiles)) {
+                actor.specialCloneMirroredTrailProfiles.forEach((profile) => shiftPreviewTrailPointX(profile, dx));
+            }
+            if (Array.isArray(actor.specialCloneCurrentAttacks)) {
+                actor.specialCloneCurrentAttacks.forEach((profile) => shiftPreviewTrailPointX(profile, dx));
+            }
+
+            if (Array.isArray(actor.specialClonePositions)) {
+                actor.specialClonePositions.forEach((pos) => {
+                    if (!pos) return;
+                    if (Number.isFinite(pos.x)) pos.x += dx;
+                    if (Number.isFinite(pos.prevX)) pos.prevX += dx;
+                });
+            }
+            [
+                'scarfNodes', 'hairNodes',
+                'previewScarfNodes', 'previewHairNodes'
+            ].forEach((key) => shiftPreviewAccessoryNodesX(actor[key], dx));
+            [
+                'specialCloneScarfNodes',
+                'specialCloneHairNodes'
+            ].forEach((key) => {
+                if (Array.isArray(actor[key])) actor[key].forEach((nodes) => shiftPreviewAccessoryNodesX(nodes, dx));
+            });
+        };
+
         // windowへの直接リスナーを廃止し、inputマネージャーに統一（バグ防止）
         window.addEventListener('keydown', (e) => {
             const k = e.key.toLowerCase();
@@ -779,12 +895,20 @@
                     if (shogunPlayer.x < _viewLeft - shogunPlayer.width - 20) _wrapped = _viewRight + 10;
                     else if (shogunPlayer.x > _viewRight + 20) _wrapped = _viewLeft - shogunPlayer.width - 10;
                     if (_wrapped !== null) {
+                        const _wrapDx = _wrapped - shogunPlayer.x;
                         shogunPlayer.x = _wrapped;
                         if (shogun) shogun.x = _wrapped;
+                        shiftPreviewActorWorldX(shogunPlayer, _wrapDx);
                     }
                 } else {
-                    if (ninja.x < _viewLeft - ninja.width - 20) ninja.x = _viewRight + 10;
-                    else if (ninja.x > _viewRight + 20) ninja.x = _viewLeft - ninja.width - 10;
+                    let _wrapped = null;
+                    if (ninja.x < _viewLeft - ninja.width - 20) _wrapped = _viewRight + 10;
+                    else if (ninja.x > _viewRight + 20) _wrapped = _viewLeft - ninja.width - 10;
+                    if (_wrapped !== null) {
+                        const _wrapDx = _wrapped - ninja.x;
+                        ninja.x = _wrapped;
+                        shiftPreviewActorWorldX(ninja, _wrapDx);
+                    }
                 }
                 
                 // 入力状態の更新（実際のシミュレーションフレームの最後で実行することで、JustPressedの伝達を物理ステップと1:1で同期する）
