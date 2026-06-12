@@ -10,6 +10,7 @@ import {
     SHOGUN_SCALE,
     SHOGUN_SPECIAL_CLONE_SPACING_SCALE
 } from './shogunConstants.js';
+import { getNormalComboStep4RiseScale } from './normalComboMotion.js';
 
 export function applySpecialMixin(PlayerClass) {
 
@@ -29,7 +30,9 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneDurability = this.specialCloneSlots.map(() => cloneDurability);
         this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
-        this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
+        this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => ({}));
+        this.specialCloneSlashTrailFrozenCurves = this.specialCloneSlots.map(() => []);
+        this.specialCloneLastSlashTrailIds = this.specialCloneSlots.map(() => -1);
         this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
         this.specialCloneDualTrailAnchors = this.specialCloneSlots.map(() => null);
         this.specialCloneSubWeaponOwners = this.specialCloneSlots.map(() => null);
@@ -59,7 +62,9 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneDurability = this.specialCloneSlots.map(() => 0);
         this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
-        this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
+        this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => ({}));
+        this.specialCloneSlashTrailFrozenCurves = this.specialCloneSlots.map(() => []);
+        this.specialCloneLastSlashTrailIds = this.specialCloneSlots.map(() => -1);
         this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
         this.specialCloneDualTrailAnchors = this.specialCloneSlots.map(() => null);
         this.specialCloneSubWeaponOwners = this.specialCloneSlots.map(() => null);
@@ -308,7 +313,7 @@ export function applySpecialMixin(PlayerClass) {
                 this.specialCloneSlashTrailSampleTimers[index] = 0;
             }
             if (Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
-                this.specialCloneSlashTrailBoostAnchors[index] = null;
+                this.specialCloneSlashTrailBoostAnchors[index] = {};
             }
             if (Array.isArray(this.specialCloneMirroredTrailProfiles)) {
                 this.specialCloneMirroredTrailProfiles[index] = null;
@@ -354,7 +359,9 @@ export function applySpecialMixin(PlayerClass) {
             const clonePos = this.specialClonePositions[index] || null;
             const profile = this.buildComboAttackProfileWithTrail(nextStep, {
                 x: clonePos ? (clonePos.x - this.getWorldWidth() * 0.5) : this.x,
-                y: clonePos ? this.getSpecialCloneDrawY(clonePos.y) : this.y,
+                y: clonePos && typeof this.getSpecialCloneTrailBoxY === 'function'
+                    ? this.getSpecialCloneTrailBoxY(clonePos.y)
+                    : (clonePos ? this.getSpecialCloneDrawY(clonePos.y) : this.y),
                 width: this.getWorldWidth(),
                 height: this.getWorldHeight(),
                 facingRight: clonePos ? clonePos.facingRight : this.facingRight,
@@ -362,7 +369,10 @@ export function applySpecialMixin(PlayerClass) {
                 vx: clonePos ? (clonePos.renderVx || 0) : this.vx,
                 vy: clonePos ? (clonePos.cloneVy || 0) : this.vy,
                 speed: this.speed,
-                groundY: clonePos ? (clonePos.groundY || this.groundY) : this.groundY
+                groundY: clonePos ? (clonePos.groundY || this.groundY) : this.groundY,
+                trailPoints: Array.isArray(this.specialCloneSlashTrailPoints)
+                    ? this.specialCloneSlashTrailPoints[index]
+                    : null
             });
             profile.trailAttackId = ++this.comboSlashTrailAttackSerial;
             if (clonePos) {
@@ -393,8 +403,10 @@ export function applySpecialMixin(PlayerClass) {
                     clonePos.jumping = true;
                 } else if (profile.comboStep === 4) {
                     clonePos.comboVx = clonePos.comboVx * 0.24 + direction * impulse * 0.42;
-                    // 本体(normalComboMotion)と同じく体格スケール倍の上昇
-                    clonePos.cloneVy = Math.min(clonePos.cloneVy || 0, -10.6 * (this.scaleMultiplier || 1));
+                    clonePos.cloneVy = Math.min(
+                        clonePos.cloneVy || 0,
+                        -10.6 * getNormalComboStep4RiseScale(this.scaleMultiplier || 1)
+                    );
                     clonePos.jumping = true;
                 } else if (profile.comboStep === 5) {
                     clonePos.comboVx *= 0.18;
@@ -753,7 +765,9 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneSubWeaponActions = this.specialCloneSlots.map(() => null);
         this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
-        this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
+        this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => ({}));
+        this.specialCloneSlashTrailFrozenCurves = this.specialCloneSlots.map(() => []);
+        this.specialCloneLastSlashTrailIds = this.specialCloneSlots.map(() => -1);
         this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
         this.specialCloneDualTrailAnchors = this.specialCloneSlots.map(() => null);
         this.specialCloneSubWeaponInstances = this.specialCloneSlots.map(() => null);
@@ -985,8 +999,7 @@ export function applySpecialMixin(PlayerClass) {
                 } else if (comboStep === 3) {
                     forceAirborne = true;
                 } else if (comboStep === 4) {
-                    // 本体(normalComboMotion)と同じく体格スケール倍の上昇
-                    const z4HeightScale = 0.96 * (this.scaleMultiplier || 1.0);
+                    const z4HeightScale = 0.96 * getNormalComboStep4RiseScale(this.scaleMultiplier || 1.0);
                     if (progress < 0.42) {
                         const t = progress / 0.42;
                         moveVx = moveVx * 0.52 + direction * baseSpeed * (0.2 - t * 0.08);
@@ -1475,7 +1488,9 @@ export function applySpecialMixin(PlayerClass) {
         
         this.specialCloneSlashTrailPoints = this.specialCloneSlots.map(() => []);
         this.specialCloneSlashTrailSampleTimers = this.specialCloneSlots.map(() => 0);
-        this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
+        this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => ({}));
+        this.specialCloneSlashTrailFrozenCurves = this.specialCloneSlots.map(() => []);
+        this.specialCloneLastSlashTrailIds = this.specialCloneSlots.map(() => -1);
         this.specialCloneMirroredTrailProfiles = this.specialCloneSlots.map(() => null);
         this.specialCloneDualTrailAnchors = this.specialCloneSlots.map(() => null);
         this.specialCloneSubWeaponInstances = this.specialCloneSlots.map(() => null);

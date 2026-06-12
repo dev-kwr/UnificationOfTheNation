@@ -3284,6 +3284,11 @@ export function applyRendererMixin(PlayerClass) {
                 const settleDuration = Math.max(1, blade.mainDuration || 1);
                 const frozenP = Math.max(0, Math.min(1, 1 - (blade.attackTimer || 0) / settleDuration));
                 dualSettlePose = { progress: frozenP + (1 - frozenP) * settleEase };
+                // リンク切れで武器の comboIndex が 0(=5段目) にリセットされても、
+                // 整定中は「振っていた段」のポーズを保つ（段が変わると腕が痙攣する）
+                if (Number.isFinite(this._dualZSettleComboIndex)) {
+                    dualSettlePose.comboIndex = this._dualZSettleComboIndex;
+                }
             }
             const pose = (blade && typeof blade.getMainSwingPose === 'function')
                 ? blade.getMainSwingPose(dualSettlePose || dualPoseOverride || {})
@@ -5468,24 +5473,31 @@ export function applyRendererMixin(PlayerClass) {
                     const cloneTrailPoints = Array.isArray(this.specialCloneSlashTrailPoints)
                         ? this.specialCloneSlashTrailPoints[i]
                         : null;
+                    const cloneTrailFrozenCurves = Array.isArray(this.specialCloneSlashTrailFrozenCurves)
+                        ? this.specialCloneSlashTrailFrozenCurves[i]
+                        : null;
                     const cloneTrailRenderPoints = resolveCloneTrailPoints(cloneTrailPoints, {
                         index: i,
                         pos,
                         footY: cloneTrailFootY,
                         type: 'normal'
                     });
-                    const cloneTrailStep = cloneTrailRenderPoints && cloneTrailRenderPoints.length > 0
-                        ? (cloneTrailRenderPoints[cloneTrailRenderPoints.length - 1]?.step || cloneTrailRenderPoints[0]?.step || 0)
-                        : 0;
-                    const cloneTrailSelfContained = [1, 2, 4, 5].includes(cloneTrailStep);
+                    const hasCloneLiveTrail = !!(cloneTrailRenderPoints && cloneTrailRenderPoints.length > 0);
+                    const hasCloneFrozenTrail = !!(cloneTrailFrozenCurves && cloneTrailFrozenCurves.length > 0);
                     if (
-                        cloneTrailRenderPoints &&
-                        (cloneTrailRenderPoints.length > 1 || cloneTrailSelfContained) &&
+                        (hasCloneLiveTrail || hasCloneFrozenTrail) &&
                         !cloneUsesDualZ
                     ) {
+                        // getBaseAttackHitbox はワールド箱(左上x/y + worldW/H)を期待する。
+                        // this.x/y は素体描画基準(cloneDrawX/Y)のため、将軍では箱基準から
+                        // (worldW-素体W)/2, 13.2px ずれて大凪boostの投影中心が本体と揃わない。
+                        const cloneTrailWorldW = this.getWorldWidth();
+                        const cloneTrailWorldH = this.getWorldHeight();
                         const cloneAttackState = {
-                            x: this.x,
-                            y: this.y,
+                            x: pos.x - cloneTrailWorldW * 0.5,
+                            y: cloneTrailFootY - cloneTrailWorldH,
+                            width: cloneTrailWorldW,
+                            height: cloneTrailWorldH,
                             facingRight: this.facingRight,
                             isAttacking: this.isAttacking,
                             currentAttack: this.currentAttack,
@@ -5493,72 +5505,83 @@ export function applyRendererMixin(PlayerClass) {
                             isCrouching: this.isCrouching
                         };
                         this.renderComboSlashTrail(ctx, {
-                            points: cloneTrailRenderPoints,
+                            points: cloneTrailRenderPoints || [],
+                            frozenCurves: cloneTrailFrozenCurves || [],
                             isAttacking: isCloneAttacking,
                             attackState: cloneAttackState,
+                            // 大凪boostの基準中心(baseCenter)を本体と同じ「ワールド箱中心」定義で渡す。
+                            // 省略すると this.x(=素体描画基準) + worldW/2 となり、将軍の分身だけ
+                            // 拡大中心が(+20, +13.2)pxずれて本体と剣筋の形状・位置が揃わない。
+                            centerX: pos.x,
+                            centerY: cloneTrailFootY - cloneTrailWorldH * 0.5,
                             physicalScale: (this.scaleMultiplier || 1.0) * (transformCloneTrailPoints ? cloneTrailPhysicalScale : 1.0),
                             boostActive: transformCloneTrailPoints ? false : undefined,
-                            getBoostAnchor: () => (
-                                !transformCloneTrailPoints &&
-                                Array.isArray(this.specialCloneSlashTrailBoostAnchors)
+                            getBoostAnchor: (trailId) => {
+                                if (transformCloneTrailPoints || trailId === null || trailId === undefined) return null;
+                                const anchors = Array.isArray(this.specialCloneSlashTrailBoostAnchors)
                                     ? this.specialCloneSlashTrailBoostAnchors[i]
-                                    : null
-                            ),
-                            setBoostAnchor: (_trailId, value) => {
+                                    : null;
+                                return anchors && typeof anchors === 'object' ? (anchors[trailId] || null) : null;
+                            },
+                            setBoostAnchor: (trailId, value) => {
                                 if (transformCloneTrailPoints) return;
                                 if (!Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
-                                    this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => null);
+                                    this.specialCloneSlashTrailBoostAnchors = this.specialCloneSlots.map(() => ({}));
                                 }
-                                this.specialCloneSlashTrailBoostAnchors[i] = value || null;
+                                if (
+                                    !this.specialCloneSlashTrailBoostAnchors[i] ||
+                                    typeof this.specialCloneSlashTrailBoostAnchors[i] !== 'object' ||
+                                    Array.isArray(this.specialCloneSlashTrailBoostAnchors[i])
+                                ) {
+                                    this.specialCloneSlashTrailBoostAnchors[i] = {};
+                                }
+                                if (trailId === null || trailId === undefined) {
+                                    this.specialCloneSlashTrailBoostAnchors[i] = {};
+                                } else if (value) {
+                                    this.specialCloneSlashTrailBoostAnchors[i][trailId] = value;
+                                } else {
+                                    delete this.specialCloneSlashTrailBoostAnchors[i][trailId];
+                                }
                             }
                         });
                     }
 
-                    if (cloneUsesDualZ) {
-                        // 二刀Z分身: 奥刀（青）・手前刀（赤）の専用トレイルバッファを本体後に描画
-                        const bluePalette = { front: [130, 234, 255], back: [76, 154, 226] };
-                        const redPalette = { front: [255, 90, 90], back: [214, 74, 74] };
-                        const backPoints = Array.isArray(this.specialCloneDualBackTrailPoints)
+                    {
+                        // 二刀Z分身の剣筋: 本体と同一の描画パス(renderDualBladeSlashTrails)を
+                        // 分身のバッファ・大凪アンカー辞書で呼ぶ（パレット・弧フィット・
+                        // 大凪の位置固定/拡大が本体と完全に同仕様になる）。
+                        // 振り終了後のフェード残りも描くため cloneUsesDualZ では条件分岐しない。
+                        const cloneDualBackPoints = Array.isArray(this.specialCloneDualBackTrailPoints)
                             ? this.specialCloneDualBackTrailPoints[i]
                             : null;
-                        const frontPoints = Array.isArray(this.specialCloneDualFrontTrailPoints)
+                        const cloneDualFrontPoints = Array.isArray(this.specialCloneDualFrontTrailPoints)
                             ? this.specialCloneDualFrontTrailPoints[i]
                             : null;
-                        const backRenderPoints = resolveCloneTrailPoints(backPoints, {
-                            index: i,
-                            pos,
-                            footY: cloneTrailFootY,
-                            type: 'dualBack'
-                        });
-                        const frontRenderPoints = resolveCloneTrailPoints(frontPoints, {
-                            index: i,
-                            pos,
-                            footY: cloneTrailFootY,
-                            type: 'dualFront'
-                        });
-                        if (backRenderPoints && backRenderPoints.length >= 2) {
-                            this.renderComboSlashTrail(ctx, {
-                                // 本体と同じく一定曲率の弧へ再配置して描く（生軌道の縒れを排除）
-                                points: this.fitDualTrailPointsToArc(backRenderPoints),
-                                palette: bluePalette,
-                                forceLinearSmooth: true,
-                                isAttacking: true,
-                                physicalScale: (this.scaleMultiplier || 1.0) * (transformCloneTrailPoints ? cloneTrailPhysicalScale : 1.0),
-                                boostActive: transformCloneTrailPoints ? false : undefined,
-                                getBoostAnchor: () => null,
-                                setBoostAnchor: () => {}
+                        if ((cloneDualBackPoints && cloneDualBackPoints.length >= 2) ||
+                            (cloneDualFrontPoints && cloneDualFrontPoints.length >= 2)) {
+                            if (!Array.isArray(this.specialCloneDualBoostAnchors)) {
+                                this.specialCloneDualBoostAnchors = [];
+                            }
+                            if (!this.specialCloneDualBoostAnchors[i]) {
+                                this.specialCloneDualBoostAnchors[i] = { back: {}, front: {} };
+                            }
+                            const backRenderPoints = resolveCloneTrailPoints(cloneDualBackPoints, {
+                                index: i,
+                                pos,
+                                footY: cloneTrailFootY,
+                                type: 'dualBack'
                             });
-                        }
-                        if (frontRenderPoints && frontRenderPoints.length >= 2) {
-                            this.renderComboSlashTrail(ctx, {
-                                points: this.fitDualTrailPointsToArc(frontRenderPoints),
-                                palette: redPalette,
-                                forceLinearSmooth: true,
-                                isAttacking: true,
-                                physicalScale: (this.scaleMultiplier || 1.0) * (transformCloneTrailPoints ? cloneTrailPhysicalScale : 1.0),
-                                boostActive: transformCloneTrailPoints ? false : undefined,
-                                getBoostAnchor: () => null,
-                                setBoostAnchor: () => {}
+                            const frontRenderPoints = resolveCloneTrailPoints(cloneDualFrontPoints, {
+                                index: i,
+                                pos,
+                                footY: cloneTrailFootY,
+                                type: 'dualFront'
+                            });
+                            this.renderDualBladeSlashTrails(ctx, {
+                                backPoints: backRenderPoints,
+                                frontPoints: frontRenderPoints,
+                                boostAnchors: this.specialCloneDualBoostAnchors[i],
+                                physicalScale: (this.scaleMultiplier || 1.0) * (transformCloneTrailPoints ? cloneTrailPhysicalScale : 1.0)
                             });
                         }
                     }

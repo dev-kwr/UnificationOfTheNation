@@ -3,6 +3,28 @@ import { NORMAL_COMBO_STEP3_LAUNCH_VY } from './playerData.js';
 
 const clamp01 = (value) => Math.max(0, Math.min(1, value));
 
+export function getNormalComboStep4RiseScale(scaleMultiplier = 1) {
+    const scale = Number.isFinite(scaleMultiplier) && scaleMultiplier > 1 ? scaleMultiplier : 1;
+    return 1 + (scale - 1) * 0.62;
+}
+
+export function getNormalComboStep5DownwardControl(startX, startY, endX, endY) {
+    if (![startX, startY, endX, endY].every(Number.isFinite)) return null;
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const xMin = Math.min(startX, endX) - 4;
+    const xMax = Math.max(startX, endX) + 4;
+    const yMin = Math.min(startY, endY);
+    const yMax = Math.max(startY, endY);
+
+    // step5は添付の理想形に合わせ、制御点を終点側へ寄せる。
+    // 始端から外側へ膨らみ、終端付近で縦に落ちる「振り下ろし」カーブにする。
+    return {
+        x: Math.max(xMin, Math.min(xMax, startX + dx * 0.78)),
+        y: Math.max(yMin, Math.min(yMax, startY + dy * 0.46))
+    };
+}
+
 export function prepareNormalComboFinisherProfile(attackProfile) {
     if (!attackProfile) return;
     attackProfile.knockbackX = 16;
@@ -57,9 +79,10 @@ export function applyNormalComboStartMotion(actor, attackProfile, options = {}) 
 
     if (step === 4) {
         const scaleMult4 = actor.scaleMultiplier || 1.0;
+        const riseScale4 = getNormalComboStep4RiseScale(scaleMult4);
         actor.vx = actor.vx * 0.24 + direction * impulse * 0.42;
-        // 体格スケール倍して、将軍も忍者と同じ「身長比」の上昇高さにする
-        actor.vy = Math.min(actor.vy, -10.6 * scaleMult4);
+        // 将軍は画面外へ抜けやすいため、体格スケールの上昇分だけ少し圧縮する
+        actor.vy = Math.min(actor.vy, -10.6 * riseScale4);
         actor.isGrounded = false;
         return true;
     }
@@ -104,9 +127,9 @@ export function applyNormalComboActiveMotion(actor, activeAttack, attackTimer, o
             ? clamp01(activeAttack.motionElapsedMs / duration)
             : clamp01(1 - (attackTimer / duration));
         const direction = actor.facingRight ? 1 : -1;
-        // 体格スケール倍して、将軍も忍者と同じ「身長比」の上昇高さにする
+        // 体格スケールの上昇分だけ少し圧縮し、将軍が画面外へ抜けすぎない高さに収める
         // (滞空hold相の速度はクランプ[-1.0, 0.95]が支配するため実質上昇相のみに効く)
-        const z4HeightScale = 0.96 * (actor.scaleMultiplier || 1.0);
+        const z4HeightScale = 0.96 * getNormalComboStep4RiseScale(actor.scaleMultiplier || 1.0);
 
         if (progress < 0.42) {
             const t = progress / 0.42;
@@ -163,7 +186,13 @@ export function freezeNormalComboFinisherTrailCurve(activeAttack, options = {}) 
     if (!activeAttack || activeAttack.comboStep !== 5 || activeAttack.trailCurveFrozen === true) return false;
     const attackTimer = Number.isFinite(options.attackTimer) ? options.attackTimer : 0;
     const duration = Math.max(1, activeAttack.durationMs || attackTimer || 1);
-    const progress = clamp01(1 - (attackTimer / duration));
+    const rawProgress = Number.isFinite(activeAttack.motionElapsedMs)
+        ? clamp01(activeAttack.motionElapsedMs / duration)
+        : clamp01(1 - (attackTimer / duration));
+    const progress = rawProgress;
+    const renderProgress = Number.isFinite(options.renderProgress)
+        ? clamp01(options.renderProgress)
+        : rawProgress;
     if (!Number.isFinite(activeAttack.trailCurveEndX) || !Number.isFinite(activeAttack.trailCurveEndY)) return false;
 
     // 実際の切っ先位置（スペック空間）へ攻撃開始直後から毎フレーム指数的に追従させる。
@@ -184,17 +213,29 @@ export function freezeNormalComboFinisherTrailCurve(activeAttack, options = {}) 
             + (Number.isFinite(prevTY) ? Math.abs(tip.y - prevTY) : 0);
         const baseChase = options.isGrounded !== false ? 0.55 : 0.3;
         const chase = Math.min(0.85, baseChase + tipSpeed / 45);
-        activeAttack.trailCurveEndX += (tip.x - activeAttack.trailCurveEndX) * chase;
-        activeAttack.trailCurveEndY += (tip.y - activeAttack.trailCurveEndY) * chase;
+
+        const targetX = tip.x;
+        const targetY = tip.y;
+        const chaseDx = targetX - activeAttack.trailCurveEndX;
+        const chaseDy = targetY - activeAttack.trailCurveEndY;
+        const chaseResidual = Math.hypot(chaseDx, chaseDy);
+        if (chaseResidual < 0.35) {
+            activeAttack.trailCurveEndX = targetX;
+            activeAttack.trailCurveEndY = targetY;
+        } else {
+            activeAttack.trailCurveEndX += chaseDx * chase;
+            activeAttack.trailCurveEndY += chaseDy * chase;
+        }
         activeAttack._trailTipPrevX = tip.x;
         activeAttack._trailTipPrevY = tip.y;
 
-        // 凍結は追従が十分収束（残差2.5px未満）してから確定する。
-        // 確定フレームでは終点を一切動かさず「その場でロック」する
-        // （切っ先側へスナップすると凍結の瞬間に剣筋が伸びて見えるため）。
-        // チェイスは常に手前側から接近するので、ロック位置が切っ先を越えることはない。
-        const residual = Math.hypot(tip.x - activeAttack.trailCurveEndX, tip.y - activeAttack.trailCurveEndY);
-        if (!(freezing && residual < 2.5)) {
+        // 凍結は追従が十分収束し、切っ先側もほぼ静止してから確定する。
+        // 確定フレームのスナップは1px前後に抑え、凍結後の終点を切っ先へ安定して合わせる。
+        const residual = Math.hypot(targetX - activeAttack.trailCurveEndX, targetY - activeAttack.trailCurveEndY);
+        if (freezing && residual < 1.4 && tipSpeed < 2.2) {
+            activeAttack.trailCurveEndX = targetX;
+            activeAttack.trailCurveEndY = targetY;
+        } else {
             freezing = false;
         }
     }
@@ -204,7 +245,18 @@ export function freezeNormalComboFinisherTrailCurve(activeAttack, options = {}) 
     const slashFloorY = (groundY + LANE_OFFSET) - Math.max(10, ownerHeight * 0.1);
     const cappedEndY = Math.min(activeAttack.trailCurveEndY, slashFloorY);
     activeAttack.trailCurveEndY = cappedEndY;
-    activeAttack.trailCurveControlY = Math.min(activeAttack.trailCurveControlY, cappedEndY);
+    const downwardControl = getNormalComboStep5DownwardControl(
+        activeAttack.trailCurveStartX,
+        activeAttack.trailCurveStartY,
+        activeAttack.trailCurveEndX,
+        activeAttack.trailCurveEndY
+    );
+    if (downwardControl) {
+        activeAttack.trailCurveControlX = downwardControl.x;
+        activeAttack.trailCurveControlY = Math.min(downwardControl.y, cappedEndY);
+    } else {
+        activeAttack.trailCurveControlY = Math.min(activeAttack.trailCurveControlY, cappedEndY);
+    }
 
     const trailPoints = Array.isArray(options.trailPoints) ? options.trailPoints : null;
     if (trailPoints) {
@@ -222,6 +274,11 @@ export function freezeNormalComboFinisherTrailCurve(activeAttack, options = {}) 
             point.trailCurveEndY = endPt.y;
             point.trailCurveControlX = controlPt.x;
             point.trailCurveControlY = controlPt.y;
+            // ライブ描画は eased progress でリビール長を決めるため、
+            // 凍結後も同じ表示長になるようサンプル点へ焼き込む。
+            point.progress = Number.isFinite(point.progress)
+                ? Math.max(point.progress, renderProgress)
+                : renderProgress;
             if (freezing) {
                 // 確定済みマーク: 以降の老化を高速化し、刀の戻りモーションより先にフェードさせる
                 point.trailCurveFrozen = true;
@@ -232,7 +289,9 @@ export function freezeNormalComboFinisherTrailCurve(activeAttack, options = {}) 
     // 凍結確定は「終盤・接地済み」が揃ってから（終点は確定フレームで切っ先へ厳密一致済み）
     if (freezing) {
         activeAttack.trailCurveFrozen = true;
+        activeAttack._trailFrozenProgress = renderProgress;
         return true;
     }
+    activeAttack._trailRenderProgress = renderProgress;
     return false;
 }

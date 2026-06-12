@@ -183,7 +183,8 @@ export class Player {
         this.dualBladeTrailAnchors = null;
         this.comboSlashTrailPoints = [];
         this.comboSlashTrailSampleTimer = 0;
-        this.comboSlashTrailBoostAnchor = null;
+        this.comboSlashTrailBoostAnchors = {};
+        this.comboSlashTrailSampleState = null;
         // 二刀流コンボ用トレイルバッファ（奥刀=青、手前刀=赤）
         this.dualBladeBackTrailPoints = [];
         this.dualBladeFrontTrailPoints = [];
@@ -192,6 +193,8 @@ export class Player {
         this.specialCloneSlashTrailPoints = [];
         this.specialCloneSlashTrailSampleTimers = [];
         this.specialCloneSlashTrailBoostAnchors = [];
+        this.specialCloneSlashTrailFrozenCurves = [];
+        this.specialCloneLastSlashTrailIds = [];
         this.specialCloneMirroredTrailProfiles = [];
         this.specialCloneDualTrailAnchors = [];
         this.comboSlashTrailSampleIntervalMs = 14;
@@ -814,7 +817,7 @@ export class Player {
             this.updateAttack(deltaTime);
         }
         this.updateComboSlashTrail(deltaMs);
-        this.updateDualBladeSlashTrails(deltaMs);
+        // 二刀Z剣筋の更新は分身と同じ位置（入力・weapon.update 後）で行う — 下方参照
 
         // サブ武器使用中も他の操作を一部制限
         if (this.subWeaponTimer > 200) { // 出始めは移動制限
@@ -854,6 +857,10 @@ export class Player {
         if (dualZSwinging) {
             this._dualZSettleTimer = 240;
             this._dualZSettleTotal = 240;
+            // 整定中のポーズ段を固定するため、振っている段を保存しておく。
+            // リンク切れで武器の comboIndex は 0(=5段目) にリセットされるため、
+            // 直読みすると整定の途中で別の段のポーズへ飛んで腕が痙攣する。
+            this._dualZSettleComboIndex = this.currentSubWeapon.comboIndex;
         } else if (this._dualZSettleTimer > 0) {
             this._dualZSettleTimer = Math.max(0, this._dualZSettleTimer - deltaMs);
         }
@@ -887,6 +894,11 @@ export class Player {
 
         // 必殺技（分身）更新: 物理後に実行してクローン座標をプレイヤー着地と同期させる
         this.updateSpecial(deltaTime);
+        // 二刀Z剣筋: 本体・分身とも入力(handleInput)と weapon.update を経た後の
+        // 同一状態(progress/swingId)を見るよう、ここでまとめて更新する。
+        // 更新位置が違うと1フレームの位相差が生じ、サンプル点数や剣筋の端の
+        // 到達位置(例: step1 の下端)が本体と分身でずれる。
+        this.updateDualBladeSlashTrails(deltaMs);
         if (this.isUsingSpecial) {
             this.updateSpecialCloneSlashTrails(deltaMs);
         }
@@ -1446,63 +1458,23 @@ export class Player {
         // シミュレーション予測のままだとレーン・段差・速度差で着地位置がずれた際に
         // 剣筋が切っ先を越えて描かれるため、実ポーズから取得した切っ先を渡す
         // （落下中も渡し、freez側が指数追従で滑らかに補正→接地後に凍結する）。
-        let step5LiveTipSpec = null;
-        if (
-            activeAttack &&
-            activeAttack.comboStep === 5 &&
-            activeAttack.trailCurveFrozen !== true &&
-            typeof this.getComboSwordPoseState === 'function'
-        ) {
-            // attackTimer=0（=進行1.0の最終収まりポーズ）で切っ先を取る。
-            // 体のY基準は常に現在位置: 落下中も剣筋終点が刀の切っ先に追従し続けることで
-            // 着地（凍結）の瞬間に終点が動かず「ガクッ」と伸びない。
-            // （追従の遅れはfreez側の速度フィードフォワードで吸収する）
-            const tipBaseY = this.y;
-            const livePose = this.getComboSwordPoseState({
+        const step5TrailSync = typeof this.resolveNormalComboStep5TrailSync === 'function'
+            ? this.resolveNormalComboStep5TrailSync(activeAttack, {
                 x: this.x,
-                y: tipBaseY,
+                y: this.y,
                 facingRight: this.facingRight,
                 isCrouching: this.isCrouching,
-                attackTimer: 0,
-                currentAttack: activeAttack,
-                recoveryBlend: 0
-            }, {});
-            if (livePose && Number.isFinite(livePose.trailTipX) && Number.isFinite(livePose.trailTipY)) {
-                let tipSpecX = livePose.trailTipX;
-                let tipSpecY = livePose.trailTipY;
-                // 剣筋が描画上の切っ先を絶対に越えないよう、ターゲットを刀身方向に
-                // 数px手前へ引く（線幅キャップやAAのはみ出しに対する安全マージン）
-                if (Number.isFinite(livePose.armEndX) && Number.isFinite(livePose.armEndY)) {
-                    const bladeDx = tipSpecX - livePose.armEndX;
-                    const bladeDy = tipSpecY - livePose.armEndY;
-                    const bladeNorm = Math.hypot(bladeDx, bladeDy);
-                    if (bladeNorm > 1) {
-                        const pullBack = 4;
-                        tipSpecX -= (bladeDx / bladeNorm) * pullBack;
-                        tipSpecY -= (bladeDy / bladeNorm) * pullBack;
-                    }
-                }
-                // スペック空間は体移動量を 1/renderScale に正規化している（投影で等倍へ戻る）ため、
-                // 実ポーズの切っ先（移動量が等倍で入っている）も同じ空間へ換算する。忍者(scale=1)は恒等。
-                const tipScaleMult = (this.characterType === 'shogun' && Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0)
-                    ? this.scaleMultiplier
-                    : 1;
-                if (tipScaleMult > 1.001 && Number.isFinite(activeAttack.trailTransformPlayerX) && Number.isFinite(activeAttack.trailTransformPlayerY)) {
-                    const bodyDx = this.x - activeAttack.trailTransformPlayerX;
-                    const bodyDy = tipBaseY - activeAttack.trailTransformPlayerY;
-                    tipSpecX -= bodyDx * (1 - 1 / tipScaleMult);
-                    tipSpecY -= bodyDy * (1 - 1 / tipScaleMult);
-                }
-                step5LiveTipSpec = { x: tipSpecX, y: tipSpecY };
-            }
-        }
+                attackTimer: this.attackTimer
+            }, { deltaMs })
+            : { actualTipSpec: null, renderProgress: null };
         freezeNormalComboFinisherTrailCurve(activeAttack, {
             attackTimer: this.attackTimer,
             groundY: this.groundY,
             ownerHeight: this.getWorldHeight(),
             trailPoints: this.comboSlashTrailPoints,
             isGrounded: this.isGrounded,
-            actualTipSpec: step5LiveTipSpec,
+            actualTipSpec: step5TrailSync.actualTipSpec,
+            renderProgress: step5TrailSync.renderProgress,
             // ポイントはワールド座標（将軍は投影済み）のため、attackのスペック空間値を投影して書き戻す
             projectPoint: (px, py) => (typeof this.projectComboTrailSpecPointToWorld === 'function'
                 ? this.projectComboTrailSpecPointToWorld(activeAttack, px, py)

@@ -4,8 +4,8 @@
     {
       "name": "preview",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["StartGame.command"],
-      "port": 8080
+      "runtimeArgs": ["preview_nocache_server.py", "8777"],
+      "port": 8777
     }
   ]
 }

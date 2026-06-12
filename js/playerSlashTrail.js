@@ -2,7 +2,21 @@
 
 import { PLAYER, FRICTION, LANE_OFFSET } from './constants.js';
 import { COMBO_ATTACKS } from './playerData.js';
-import { SHOGUN_ACTOR_BASE_HEIGHT } from './shogunConstants.js';
+import {
+    SHOGUN_ACTOR_BASE_HEIGHT,
+    SHOGUN_ARM_REACH_SCALE
+} from './shogunConstants.js';
+import {
+    freezeNormalComboFinisherTrailCurve,
+    getNormalComboStep4RiseScale,
+    getNormalComboStep5DownwardControl
+} from './normalComboMotion.js';
+
+const COMBO_STEP5_END_TRIM_FACTOR = 0.6;
+const getComboStep5EndTrimFactor = (physicalScale = 1) => {
+    const scale = Number.isFinite(physicalScale) && physicalScale > 1 ? physicalScale : 1;
+    return COMBO_STEP5_END_TRIM_FACTOR + (scale - 1) * 1.15;
+};
 
 export function applySlashTrailMixin(PlayerClass) {
 
@@ -80,12 +94,12 @@ export function applySlashTrailMixin(PlayerClass) {
         };
     };
 
-    PlayerClass.prototype.buildFrozenSampledBezierSnapshot = function(stepNum, stepPoints, forceOffsetX = null, forceOffsetY = null) {
+    PlayerClass.prototype.buildFrozenSampledBezierSnapshot = function(stepNum, stepPoints, forceOffsetX = null, forceOffsetY = null, fallbackX = this.x, fallbackY = this.y) {
         if (!Array.isArray(stepPoints) || stepPoints.length < 2) return null;
         const lastPt = stepPoints[stepPoints.length - 1];
         const firstPt = stepPoints[0];
         const frozenPoints = stepPoints
-            .map((point) => this.absolutizeRelativeTrailPoint(point, this.x, this.y, forceOffsetX, forceOffsetY))
+            .map((point) => this.absolutizeRelativeTrailPoint(point, fallbackX, fallbackY, forceOffsetX, forceOffsetY))
             .filter(Boolean);
         const frozenCurvePoints = frozenPoints.map((point) => ({
             x: point.x,
@@ -109,6 +123,97 @@ export function applySlashTrailMixin(PlayerClass) {
         };
     };
 
+    PlayerClass.prototype.ageSlashTrailFrozenCurves = function(frozenCurves, deltaMs) {
+        if (!Array.isArray(frozenCurves) || deltaMs <= 0) return;
+        for (let i = frozenCurves.length - 1; i >= 0; i--) {
+            const fc = frozenCurves[i];
+            fc.age = (fc.age || 0) + deltaMs;
+            if (fc.oldestAge !== undefined) fc.oldestAge += deltaMs;
+            if (['points', 'sampledBezier'].includes(fc.type)) {
+                if (Array.isArray(fc.frozenPoints)) {
+                    for (const p of fc.frozenPoints) {
+                        p.age = (p.age || 0) + deltaMs;
+                    }
+                }
+                if (Array.isArray(fc.frozenCurvePoints)) {
+                    for (const p of fc.frozenCurvePoints) {
+                        p.age = (p.age || 0) + deltaMs;
+                    }
+                }
+            }
+            if (fc.age >= fc.life) {
+                frozenCurves.splice(i, 1);
+            }
+        }
+    };
+
+    PlayerClass.prototype.getSpecialCloneTrailBoxY = function(anchorY) {
+        if (typeof this.getSpecialCloneFootY === 'function' && typeof this.getWorldHeight === 'function') {
+            return this.getSpecialCloneFootY(anchorY) - this.getWorldHeight();
+        }
+        return typeof this.getSpecialCloneDrawY === 'function'
+            ? this.getSpecialCloneDrawY(anchorY)
+            : anchorY;
+    };
+
+    PlayerClass.prototype.freezeSpecialCloneSlashTrail = function(index, context = {}) {
+        if (!Array.isArray(this.specialCloneSlashTrailPoints) || !Array.isArray(this.specialCloneSlashTrailPoints[index])) return;
+        if (this.specialCloneSlashTrailPoints[index].length === 0) return;
+        if (!Array.isArray(this.specialCloneSlashTrailFrozenCurves)) {
+            this.specialCloneSlashTrailFrozenCurves = [];
+        }
+        if (!Array.isArray(this.specialCloneSlashTrailFrozenCurves[index])) {
+            this.specialCloneSlashTrailFrozenCurves[index] = [];
+        }
+        const frozenCurves = this.specialCloneSlashTrailFrozenCurves[index];
+        const frozenBefore = frozenCurves.length;
+        const pos = context.pos || (Array.isArray(this.specialClonePositions) ? this.specialClonePositions[index] : null);
+        const worldW = typeof this.getWorldWidth === 'function' ? this.getWorldWidth() : PLAYER.WIDTH;
+        const worldH = typeof this.getWorldHeight === 'function' ? this.getWorldHeight() : PLAYER.HEIGHT;
+        const footY = Number.isFinite(context.footY)
+            ? context.footY
+            : (pos && typeof this.getSpecialCloneFootY === 'function' ? this.getSpecialCloneFootY(pos.y) : (this.y + worldH));
+        const ownerX = Number.isFinite(context.x)
+            ? context.x
+            : (pos ? pos.x - worldW * 0.5 : this.x);
+        const ownerY = Number.isFinite(context.y)
+            ? context.y
+            : (Number.isFinite(footY) ? footY - worldH : this.y);
+        const boostAnchors = Array.isArray(this.specialCloneSlashTrailBoostAnchors)
+            ? this.specialCloneSlashTrailBoostAnchors[index]
+            : null;
+        this.freezeCurrentSlashTrail({
+            points: this.specialCloneSlashTrailPoints[index],
+            frozenCurves,
+            boostAnchors: boostAnchors && typeof boostAnchors === 'object' ? boostAnchors : {},
+            attack: context.attack || null,
+            x: ownerX,
+            y: ownerY,
+            width: worldW,
+            height: worldH,
+            footY
+        });
+        const ageNewMs = Number.isFinite(context.ageNewMs) ? Math.max(0, context.ageNewMs) : 0;
+        if (ageNewMs > 0 && frozenCurves.length > frozenBefore) {
+            for (let i = frozenCurves.length - 1; i >= frozenBefore; i--) {
+                const fc = frozenCurves[i];
+                fc.age = (fc.age || 0) + ageNewMs;
+                if (fc.oldestAge !== undefined) fc.oldestAge += ageNewMs;
+                if (['points', 'sampledBezier'].includes(fc.type)) {
+                    if (Array.isArray(fc.frozenPoints)) {
+                        for (const p of fc.frozenPoints) p.age = (p.age || 0) + ageNewMs;
+                    }
+                    if (Array.isArray(fc.frozenCurvePoints)) {
+                        for (const p of fc.frozenCurvePoints) p.age = (p.age || 0) + ageNewMs;
+                    }
+                }
+                if (fc.age >= fc.life) {
+                    frozenCurves.splice(i, 1);
+                }
+            }
+        }
+    };
+
     PlayerClass.prototype.pinSlashTrailPoints = function(points) {
         if (!Array.isArray(points) || points.length === 0) return;
         for (let i = 0; i < points.length; i++) {
@@ -118,29 +223,60 @@ export function applySlashTrailMixin(PlayerClass) {
         }
     };
 
-    PlayerClass.prototype.freezeCurrentSlashTrail = function() {
-        if (!Array.isArray(this.comboSlashTrailPoints) || this.comboSlashTrailPoints.length === 0) return;
+    PlayerClass.prototype.freezeCurrentSlashTrail = function(options = {}) {
+        const sourcePoints = Array.isArray(options.points) ? options.points : this.comboSlashTrailPoints;
+        const frozenCurves = Array.isArray(options.frozenCurves) ? options.frozenCurves : this.comboSlashTrailFrozenCurves;
+        if (!Array.isArray(sourcePoints) || sourcePoints.length === 0 || !Array.isArray(frozenCurves)) return;
+        const ownerX = Number.isFinite(options.x) ? options.x : this.x;
+        const ownerY = Number.isFinite(options.y) ? options.y : this.y;
+        const ownerW = Number.isFinite(options.width) ? options.width : this.getWorldWidth();
+        const ownerH = Number.isFinite(options.height) ? options.height : this.getWorldHeight();
+        const attackForProgress = options.attack || this.currentAttack;
+        const boostAnchors = options.boostAnchors || this.comboSlashTrailBoostAnchors || {};
         
         // メインバッファ内の軌跡を段ごとにグループ化
         const stepGroups = new Map();
-        for (let i = 0; i < this.comboSlashTrailPoints.length; i++) {
-            const point = this.comboSlashTrailPoints[i];
+        for (let i = 0; i < sourcePoints.length; i++) {
+            const point = sourcePoints[i];
             const step = point.step;
             if (typeof step !== 'number' || step < 1 || step > 5) continue;
             if (!stepGroups.has(step)) stepGroups.set(step, []);
             stepGroups.get(step).push(point);
         }
         
-        const frozenTrailCenterX = this.x + this.getWorldWidth() * 0.5;
-        const frozenTrailCenterY = this.y + this.getWorldHeight() * 0.5;
+        const frozenTrailCenterX = ownerX + ownerW * 0.5;
+        const frozenTrailCenterY = ownerY + ownerH * 0.5;
+        const resolveFrozenBezierProgress = (stepNum, lastPt) => {
+            const pointProgress = Number.isFinite(lastPt?.progress) ? lastPt.progress : 1.0;
+            if (stepNum !== 5) return pointProgress;
+
+            const attack = attackForProgress;
+            if (attack && attack.comboStep === 5) {
+                if (Number.isFinite(attack._trailFrozenProgress)) {
+                    return attack._trailFrozenProgress;
+                }
+                if (Number.isFinite(attack._trailRenderProgress)) {
+                    return attack._trailRenderProgress;
+                }
+                if (typeof this.getAttackMotionProgress === 'function') {
+                    const duration = Math.max(1, attack.durationMs || PLAYER.ATTACK_COOLDOWN);
+                    const rawProgress = Number.isFinite(attack.motionElapsedMs)
+                        ? Math.max(0, Math.min(1, attack.motionElapsedMs / duration))
+                        : Math.max(0, Math.min(1, 1 - (this.attackTimer / duration)));
+                    const renderProgress = this.getAttackMotionProgress(attack, rawProgress);
+                    if (Number.isFinite(renderProgress)) return renderProgress;
+                }
+            }
+            return pointProgress;
+        };
         for (const [stepNum, stepPoints] of stepGroups) {
             const lastPt = stepPoints[stepPoints.length - 1];
             const stripTrailId = lastPt?.trailAttackId || stepNum;
-            const frozenBoostAnchor = (this.comboSlashTrailBoostAnchors && this.comboSlashTrailBoostAnchors[stripTrailId])
-                ? { ...this.comboSlashTrailBoostAnchors[stripTrailId] }
+            const frozenBoostAnchor = (boostAnchors && boostAnchors[stripTrailId])
+                ? { ...boostAnchors[stripTrailId] }
                 : null;
-            const forceOffsetX = frozenBoostAnchor ? frozenBoostAnchor.baseCenterX - this.getWorldWidth() * 0.5 : null;
-            const forceOffsetY = frozenBoostAnchor ? frozenBoostAnchor.baseCenterY - this.getWorldHeight() * 0.5 : null;
+            const forceOffsetX = frozenBoostAnchor ? frozenBoostAnchor.baseCenterX - ownerW * 0.5 : null;
+            const forceOffsetY = frozenBoostAnchor ? frozenBoostAnchor.baseCenterY - ownerH * 0.5 : null;
             // 凍結時の剣筋幅スケール（大凪）をスナップショットへ焼き込む。描画側の
             // visualWidthScale は「次の攻撃中は 1.0」へ落ちるため、凍結後の太さは
             // この保存値で固定する（凍結後に通常幅へ細るのを防ぐ）。
@@ -150,73 +286,56 @@ export function applySlashTrailMixin(PlayerClass) {
             }, 1);
 
             if (stepNum === 1) {
-                const frozenSnapshot = this.buildFrozenSampledBezierSnapshot(stepNum, stepPoints, forceOffsetX, forceOffsetY);
+                const frozenSnapshot = this.buildFrozenSampledBezierSnapshot(stepNum, stepPoints, forceOffsetX, forceOffsetY, ownerX, ownerY);
                 if (frozenSnapshot) {
                     frozenSnapshot.boostAnchor = frozenBoostAnchor;
                     frozenSnapshot.frozenTrailCenterX = frozenTrailCenterX;
                     frozenSnapshot.frozenTrailCenterY = frozenTrailCenterY;
                     frozenSnapshot.trailWidthScale = frozenTrailWidthScale;
-                    this.comboSlashTrailFrozenCurves.push(frozenSnapshot);
+                    frozenCurves.push(frozenSnapshot);
                 }
             } else if ([2, 5].includes(stepNum)) {
-                // ベジェ曲線段: 最新のパラメータを保存
+                // ベジェ曲線段: 最新のサンプリング点のカーブをそのまま保存する。
+                // step5はチェイス済み終点（切っ先へ収束済み）が毎フレーム書き込まれているため、
+                // 凍結スナップショットは最終ライブフレームと同一形状になる。
                 const lastPt = stepPoints.length > 0 ? stepPoints[stepPoints.length - 1] : null;
                 const firstPt = stepPoints.length > 0 ? stepPoints[0] : null;
-                // step 5 の場合は、振り切り完了した最新のサンプリング点を優先するため、
-                // 振り切り途中の古いアンカー(fixedCurvePt)をバイパスする。これにより終点の不連続なズレを解消。
-                const fixedCurvePt = (stepNum === 5)
-                    ? null
-                    : stepPoints.find((point) => point && Number.isFinite(point.trailFixedCurveStartX));
-                const curvePt = fixedCurvePt || lastPt;
-                const readCurve = (fixedName, curveName) => (
-                    fixedCurvePt && Number.isFinite(fixedCurvePt[fixedName])
-                        ? fixedCurvePt[fixedName]
-                        : (curvePt ? curvePt[curveName] : undefined)
-                );
-                if (curvePt && Number.isFinite(readCurve('trailFixedCurveStartX', 'trailCurveStartX'))) {
-                    this.comboSlashTrailFrozenCurves.push({
+                if (lastPt && Number.isFinite(lastPt.trailCurveStartX)) {
+                    frozenCurves.push({
                         type: 'bezier',
                         step: stepNum,
-                        trailCurveStartX: readCurve('trailFixedCurveStartX', 'trailCurveStartX'),
-                        trailCurveStartY: readCurve('trailFixedCurveStartY', 'trailCurveStartY'),
-                        trailCurveControlX: readCurve('trailFixedCurveControlX', 'trailCurveControlX'),
-                        trailCurveControlY: readCurve('trailFixedCurveControlY', 'trailCurveControlY'),
-                        trailCurveEndX: readCurve('trailFixedCurveEndX', 'trailCurveEndX'),
-                        trailCurveEndY: readCurve('trailFixedCurveEndY', 'trailCurveEndY'),
+                        trailCurveStartX: lastPt.trailCurveStartX,
+                        trailCurveStartY: lastPt.trailCurveStartY,
+                        trailCurveControlX: lastPt.trailCurveControlX,
+                        trailCurveControlY: lastPt.trailCurveControlY,
+                        trailCurveEndX: lastPt.trailCurveEndX,
+                        trailCurveEndY: lastPt.trailCurveEndY,
                         trailRadius: lastPt.trailRadius,
                         centerX: lastPt.centerX,
                         centerY: lastPt.centerY,
                         dir: lastPt.dir,
-                        progress: Number.isFinite(lastPt.progress) ? lastPt.progress : 1.0, // 実際の進行度で凍結させる
-                        trailIsRelative: stepNum === 5 ? false : (fixedCurvePt ? !!fixedCurvePt.trailFixedCurveIsRelative : !!lastPt.trailIsRelative),
+                        progress: resolveFrozenBezierProgress(stepNum, lastPt), // 実描画と同じ進行度で凍結させる
+                        trailIsRelative: stepNum === 5 ? false : !!lastPt.trailIsRelative,
                         playerX: Number.isFinite(forceOffsetX)
                             ? forceOffsetX
-                            : (Number.isFinite(curvePt.trailTransformPlayerX)
-                                ? curvePt.trailTransformPlayerX
-                                : (Number.isFinite(curvePt.trailFixedCurvePlayerX)
-                                    ? curvePt.trailFixedCurvePlayerX
-                                    : (Number.isFinite(lastPt.playerX) ? lastPt.playerX : this.x))),
+                            : (Number.isFinite(lastPt.trailTransformPlayerX)
+                                ? lastPt.trailTransformPlayerX
+                                : (Number.isFinite(lastPt.playerX) ? lastPt.playerX : ownerX)),
                         playerY: Number.isFinite(forceOffsetY)
                             ? forceOffsetY
-                            : (Number.isFinite(curvePt.trailTransformPlayerY)
-                                ? curvePt.trailTransformPlayerY
-                                : (Number.isFinite(curvePt.trailFixedCurvePlayerY)
-                                    ? curvePt.trailFixedCurvePlayerY
-                                    : (Number.isFinite(lastPt.playerY) ? lastPt.playerY : this.y))),
+                            : (Number.isFinite(lastPt.trailTransformPlayerY)
+                                ? lastPt.trailTransformPlayerY
+                                : (Number.isFinite(lastPt.playerY) ? lastPt.playerY : ownerY)),
                         trailTransformPlayerX: Number.isFinite(forceOffsetX)
                             ? forceOffsetX
-                            : (Number.isFinite(curvePt.trailTransformPlayerX)
-                                ? curvePt.trailTransformPlayerX
-                                : (Number.isFinite(curvePt.trailFixedCurvePlayerX)
-                                    ? curvePt.trailFixedCurvePlayerX
-                                    : (Number.isFinite(lastPt.playerX) ? lastPt.playerX : this.x))),
+                            : (Number.isFinite(lastPt.trailTransformPlayerX)
+                                ? lastPt.trailTransformPlayerX
+                                : (Number.isFinite(lastPt.playerX) ? lastPt.playerX : ownerX)),
                         trailTransformPlayerY: Number.isFinite(forceOffsetY)
                             ? forceOffsetY
-                            : (Number.isFinite(curvePt.trailTransformPlayerY)
-                                ? curvePt.trailTransformPlayerY
-                                : (Number.isFinite(curvePt.trailFixedCurvePlayerY)
-                                    ? curvePt.trailFixedCurvePlayerY
-                                    : (Number.isFinite(lastPt.playerY) ? lastPt.playerY : this.y))),
+                            : (Number.isFinite(lastPt.trailTransformPlayerY)
+                                ? lastPt.trailTransformPlayerY
+                                : (Number.isFinite(lastPt.playerY) ? lastPt.playerY : ownerY)),
                         age: Math.max(0, lastPt.age || 0), // 新しい（剣先の）フェードアウト度合い
                         oldestAge: Math.max(0, firstPt ? firstPt.age : (lastPt.age || 0)), // 古い（根本の）フェードアウト度合い
                         life: Math.max(1, lastPt.life || this.comboSlashTrailActiveLifeMs),
@@ -232,13 +351,15 @@ export function applySlashTrailMixin(PlayerClass) {
                 if (stepPoints.length >= 2) {
                     const lastPt = stepPoints[stepPoints.length - 1];
                     const firstPt = stepPoints[0];
-                    const footY = this.getFootY ? this.getFootY() : (this.y + this.getWorldHeight());
+                    const footY = Number.isFinite(options.footY)
+                        ? options.footY
+                        : (this.getFootY ? this.getFootY() : (ownerY + ownerH));
                     const frozenPoints = stepPoints
                         .map((p) => {
                             const frozen = this.absolutizeRelativeTrailPoint(
                                 p,
-                                this.x,
-                                this.y,
+                                ownerX,
+                                ownerY,
                                 forceOffsetX,
                                 forceOffsetY
                             );
@@ -248,17 +369,17 @@ export function applySlashTrailMixin(PlayerClass) {
                                 ? p.trailTransformPlayerX
                                 : (Number.isFinite(p.playerX)
                                     ? p.playerX
-                                    : (Number.isFinite(forceOffsetX) ? forceOffsetX : this.x));
+                                    : (Number.isFinite(forceOffsetX) ? forceOffsetX : ownerX));
                             frozen.trailTransformPlayerY = Number.isFinite(p.trailTransformPlayerY)
                                 ? p.trailTransformPlayerY
                                 : (Number.isFinite(p.playerY)
                                     ? p.playerY
-                                    : (Number.isFinite(forceOffsetY) ? forceOffsetY : this.y));
+                                    : (Number.isFinite(forceOffsetY) ? forceOffsetY : ownerY));
                             return frozen;
                         })
                         .filter(Boolean);
                     if (frozenPoints.length < 2) continue;
-                    this.comboSlashTrailFrozenCurves.push({
+                    frozenCurves.push({
                         type: 'points',
                         step: stepNum,
                         // メインバッファでの年齢を引き継ぐ
@@ -278,7 +399,7 @@ export function applySlashTrailMixin(PlayerClass) {
         }
         
         // 全ての過去の軌跡を凍結スナップショットに移管したため、メインバッファを完全に消去する（追従バグの根絶）
-        this.comboSlashTrailPoints.length = 0;
+        sourcePoints.length = 0;
     };
 
     PlayerClass.prototype.getComboAttackProfileByStep = function(step) {
@@ -330,6 +451,23 @@ export function applySlashTrailMixin(PlayerClass) {
     PlayerClass.prototype.buildComboAttackProfileWithTrail = function(step, state = {}) {
         const attackProfile = this.getComboAttackProfileByStep(step);
         return this.applyComboTrailSpecToAttackProfile(attackProfile, state);
+    };
+
+    PlayerClass.prototype.syncComboAttackRuntimeFields = function(target, source) {
+        if (!target || !source) return target;
+        if (Number.isFinite(source.trailAttackId)) {
+            target.trailAttackId = source.trailAttackId;
+        }
+        if (Number.isFinite(source.motionElapsedMs)) {
+            target.motionElapsedMs = source.motionElapsedMs;
+        }
+        if (Number.isFinite(source.durationMs)) {
+            target.durationMs = source.durationMs;
+        }
+        if (Number.isFinite(source.chainWindowMs)) {
+            target.chainWindowMs = source.chainWindowMs;
+        }
+        return target;
     };
 
     PlayerClass.prototype.applyComboTrailSpecToAttackProfile = function(attackProfile, state = {}) {
@@ -388,9 +526,12 @@ export function applySlashTrailMixin(PlayerClass) {
         } else if (attackProfile.comboStep === 4) {
             // 3段目の実際の最後のサンプリングポイント（絶対ワールド座標）を探索・取得
             let actualStep3EndWorldPt = null;
-            if (Array.isArray(this.comboSlashTrailPoints)) {
-                for (let i = this.comboSlashTrailPoints.length - 1; i >= 0; i--) {
-                    const pt = this.comboSlashTrailPoints[i];
+            const trailPointSource = Array.isArray(state.trailPoints)
+                ? state.trailPoints
+                : this.comboSlashTrailPoints;
+            if (Array.isArray(trailPointSource)) {
+                for (let i = trailPointSource.length - 1; i >= 0; i--) {
+                    const pt = trailPointSource[i];
                     if (pt && pt.step === 3) {
                         const absPt = this.absolutizeRelativeTrailPoint(pt);
                         if (absPt && Number.isFinite(absPt.x) && Number.isFinite(absPt.y)) {
@@ -400,9 +541,12 @@ export function applySlashTrailMixin(PlayerClass) {
                     }
                 }
             }
-            if (!actualStep3EndWorldPt && Array.isArray(this.comboSlashTrailFrozenCurves)) {
-                for (let i = this.comboSlashTrailFrozenCurves.length - 1; i >= 0; i--) {
-                    const fc = this.comboSlashTrailFrozenCurves[i];
+            const frozenCurveSource = Array.isArray(state.frozenCurves)
+                ? state.frozenCurves
+                : this.comboSlashTrailFrozenCurves;
+            if (!actualStep3EndWorldPt && Array.isArray(frozenCurveSource)) {
+                for (let i = frozenCurveSource.length - 1; i >= 0; i--) {
+                    const fc = frozenCurveSource[i];
                     if (fc && fc.step === 3 && fc.type === 'points' && Array.isArray(fc.frozenPoints) && fc.frozenPoints.length > 0) {
                         const pt = fc.frozenPoints[fc.frozenPoints.length - 1];
                         if (pt && Number.isFinite(pt.x) && Number.isFinite(pt.y)) {
@@ -420,35 +564,10 @@ export function applySlashTrailMixin(PlayerClass) {
                 y: baseState.y
             });
 
-            console.log("[DBG-STEP4] charType:", this.characterType, "actualStep3EndWorldPt:", actualStep3EndWorldPt, "defaultFixedStart:", step3EndPose ? { x: step3EndPose.trailTipX, y: step3EndPose.trailTipY } : null);
-
-            // 将軍で actualStep3EndWorldPt が取得できた場合は、
-            // 縮小逆投影したものを fixedStartPoint として渡すことで、
-            // buildComboStep4TrailArcSpec 内部でのベジェ曲線シミュレーションの整合性を高めます。
             let fixedStart = step3EndPose ? { x: step3EndPose.trailTipX, y: step3EndPose.trailTipY } : null;
-            if (this.characterType === 'shogun' && actualStep3EndWorldPt) {
-                // 将軍用の fixedStartPoint 逆算
-                // _projectShogunTrailPoseToWorldScale の逆変換を行う。
-                const scale = Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0 ? this.scaleMultiplier : 1;
-                const anchorX = baseState.x;
-                const anchorY = baseState.y;
-                const footOffset = (typeof this._getCloneFootOffset === 'function')
-                    ? this._getCloneFootOffset()
-                    : (PLAYER.HEIGHT - SHOGUN_ACTOR_BASE_HEIGHT * 0.62) * scale;
-                const worldH = PLAYER.HEIGHT * scale;
-                const worldW = PLAYER.WIDTH * scale;
-                const actorRenderDY = worldH - footOffset - SHOGUN_ACTOR_BASE_HEIGHT * 0.62;
-                const renderPivotX_Abs = anchorX + worldW * 0.5;
-                const renderPivotY_Abs = anchorY + actorRenderDY + PLAYER.HEIGHT * 0.62;
-                const basePivotX_Abs = anchorX + PLAYER.WIDTH * 0.5;
-                const basePivotY_Abs = anchorY + PLAYER.HEIGHT * 0.62;
-
-                fixedStart = {
-                    x: basePivotX_Abs + (actualStep3EndWorldPt.x - renderPivotX_Abs) / scale,
-                    y: basePivotY_Abs + (actualStep3EndWorldPt.y - renderPivotY_Abs) / scale
-                };
-            } else if (actualStep3EndWorldPt) {
-                // 忍者の場合はそのままワールド座標
+            if (this.characterType !== 'shogun' && actualStep3EndWorldPt) {
+                // 忍者はスペック空間とワールド座標が等倍なので、実サンプル終端をそのまま接続点にできる。
+                // 将軍は後段で素体スペック→ワールド投影が入るため、ここでワールド終点を戻し入れない。
                 fixedStart = actualStep3EndWorldPt;
             }
 
@@ -463,7 +582,7 @@ export function applySlashTrailMixin(PlayerClass) {
             );
             if (step4TrailArc) {
                 Object.assign(attackProfile, step4TrailArc);
-                if (actualStep3EndWorldPt) {
+                if (this.characterType !== 'shogun' && actualStep3EndWorldPt) {
                     attackProfile.fixedStartWorldPoint = actualStep3EndWorldPt;
                 }
             }
@@ -494,19 +613,36 @@ export function applySlashTrailMixin(PlayerClass) {
             cached.trailAttackId === activeTrailId &&
             cached.comboStep === (this.currentAttack.comboStep || 0)
         ) {
+            this.syncComboAttackRuntimeFields(cached, this.currentAttack);
             return cached;
         }
         const isShogunClone = this.characterType === 'shogun';
         const poseWidth = isShogunClone ? PLAYER.WIDTH : this.getWorldWidth();
         const poseHeight = isShogunClone ? PLAYER.HEIGHT : this.getWorldHeight();
-        const poseOriginX = isShogunClone
+        const livePoseOriginX = isShogunClone
             ? pos.x - this.getWorldWidth() * 0.5
             : pos.x - poseWidth * 0.5;
+        const livePoseOriginY = isShogunClone
+            ? this.getSpecialCloneTrailBoxY(pos.y)
+            : cloneDrawY;
+        let poseOriginX = livePoseOriginX;
+        const sampleState = this.comboSlashTrailSampleState;
+        if (
+            sampleState &&
+            sampleState.trailAttackId === activeTrailId &&
+            Number.isFinite(sampleState.x) &&
+            Number.isFinite(this.x)
+        ) {
+            poseOriginX -= (this.x - sampleState.x);
+        }
+        const poseOriginY = Number.isFinite(this.currentAttack.trailTransformPlayerY)
+            ? this.currentAttack.trailTransformPlayerY
+            : livePoseOriginY;
         const profile = this.applyComboTrailSpecToAttackProfile(
-            { ...this.currentAttack },
+            this.getComboAttackProfileByStep(this.currentAttack.comboStep || 1),
             {
                 x: poseOriginX,
-                y: cloneDrawY,
+                y: poseOriginY,
                 width: poseWidth,
                 height: poseHeight,
                 facingRight: pos.facingRight,
@@ -517,9 +653,13 @@ export function applySlashTrailMixin(PlayerClass) {
                 scaleMultiplier: this.scaleMultiplier,
                 vx: this.vx,
                 vy: this.vy,
-                speed: this.speed
+                speed: this.speed,
+                trailPoints: Array.isArray(this.specialCloneSlashTrailPoints)
+                    ? this.specialCloneSlashTrailPoints[index]
+                    : null
             }
         );
+        this.syncComboAttackRuntimeFields(profile, this.currentAttack);
         this.specialCloneMirroredTrailProfiles[index] = profile;
         return profile;
     };
@@ -589,6 +729,94 @@ export function applySlashTrailMixin(PlayerClass) {
         }
 
         return result;
+    };
+
+    PlayerClass.prototype.resolveNormalComboStep5TrailSync = function(activeAttack, state = {}, options = {}) {
+        if (
+            !activeAttack ||
+            activeAttack.comboStep !== 5 ||
+            activeAttack.trailCurveFrozen === true ||
+            typeof this.getComboSwordPoseState !== 'function'
+        ) {
+            return { actualTipSpec: null, renderProgress: null };
+        }
+
+        const duration = Math.max(1, activeAttack.durationMs || PLAYER.ATTACK_COOLDOWN);
+        const attackTimer = Number.isFinite(state.attackTimer) ? state.attackTimer : this.attackTimer;
+        let renderProgress = null;
+        if (typeof this.getAttackMotionProgress === 'function') {
+            const rawRenderProgress = Number.isFinite(activeAttack.motionElapsedMs)
+                ? Math.max(0, Math.min(1, activeAttack.motionElapsedMs / duration))
+                : Math.max(0, Math.min(1, 1 - (attackTimer / duration)));
+            renderProgress = this.getAttackMotionProgress(activeAttack, rawRenderProgress);
+        }
+
+        const x = state.x !== undefined ? state.x : this.x;
+        const y = state.y !== undefined ? state.y : this.y;
+        const deltaMs = Number.isFinite(options.deltaMs) ? options.deltaMs : 0;
+        const livePose = this.getComboSwordPoseState({
+            x,
+            y,
+            width: Number.isFinite(state.width) ? state.width : undefined,
+            height: Number.isFinite(state.height) ? state.height : undefined,
+            facingRight: state.facingRight !== undefined ? state.facingRight : this.facingRight,
+            isCrouching: state.isCrouching !== undefined ? state.isCrouching : this.isCrouching,
+            attackTimer: Math.max(0, attackTimer - deltaMs),
+            currentAttack: activeAttack,
+            recoveryBlend: 0
+        }, {});
+        if (!livePose || !Number.isFinite(livePose.trailTipX) || !Number.isFinite(livePose.trailTipY)) {
+            return { actualTipSpec: null, renderProgress };
+        }
+
+        let armSpecX = livePose.armEndX;
+        let armSpecY = livePose.armEndY;
+        let tipSpecX = livePose.trailTipX;
+        let tipSpecY = livePose.trailTipY;
+        const reachScale = this.characterType === 'shogun' ? SHOGUN_ARM_REACH_SCALE : 1;
+        if (
+            Math.abs(reachScale - 1) > 0.001 &&
+            Number.isFinite(armSpecX) &&
+            Number.isFinite(armSpecY) &&
+            Number.isFinite(livePose.activeLeftShoulderX) &&
+            Number.isFinite(livePose.activeLeftShoulderY)
+        ) {
+            const reachedArmX = livePose.activeLeftShoulderX + (armSpecX - livePose.activeLeftShoulderX) * reachScale;
+            const reachedArmY = livePose.activeLeftShoulderY + (armSpecY - livePose.activeLeftShoulderY) * reachScale;
+            tipSpecX += reachedArmX - armSpecX;
+            tipSpecY += reachedArmY - armSpecY;
+            armSpecX = reachedArmX;
+            armSpecY = reachedArmY;
+        }
+        if (Number.isFinite(armSpecX) && Number.isFinite(armSpecY)) {
+            const bladeDx = tipSpecX - armSpecX;
+            const bladeDy = tipSpecY - armSpecY;
+            const bladeNorm = Math.hypot(bladeDx, bladeDy);
+            if (bladeNorm > 1) {
+                const pullBack = 6;
+                tipSpecX -= (bladeDx / bladeNorm) * pullBack;
+                tipSpecY -= (bladeDy / bladeNorm) * pullBack;
+            }
+        }
+
+        const tipScaleMult = (this.characterType === 'shogun' && Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0)
+            ? this.scaleMultiplier
+            : 1;
+        if (
+            tipScaleMult > 1.001 &&
+            Number.isFinite(activeAttack.trailTransformPlayerX) &&
+            Number.isFinite(activeAttack.trailTransformPlayerY)
+        ) {
+            const bodyDx = x - activeAttack.trailTransformPlayerX;
+            const bodyDy = y - activeAttack.trailTransformPlayerY;
+            tipSpecX -= bodyDx * (1 - 1 / tipScaleMult);
+            tipSpecY -= bodyDy * (1 - 1 / tipScaleMult);
+        }
+
+        return {
+            actualTipSpec: { x: tipSpecX, y: tipSpecY },
+            renderProgress
+        };
     };
 
     /**
@@ -1038,12 +1266,13 @@ export function applySlashTrailMixin(PlayerClass) {
         const bodyScaleMult = Math.max(1, Number.isFinite(state.scaleMultiplier)
             ? state.scaleMultiplier
             : (Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1));
+        const bodyRiseScale = getNormalComboStep4RiseScale(bodyScaleMult);
         let simVx = isCrouching
             ? dir * attackImpulse * 0.28
             : ((Number.isFinite(state.vx) ? state.vx : this.vx) * 0.24 + dir * attackImpulse * 0.42);
         let simVy = isCrouching
             ? (Number.isFinite(state.vy) ? state.vy : this.vy)
-            : Math.min(Number.isFinite(state.vy) ? state.vy : this.vy, -10.6 * bodyScaleMult);
+            : Math.min(Number.isFinite(state.vy) ? state.vy : this.vy, -10.6 * bodyRiseScale);
         let timerMs = durationMs;
         let sampleIndex = 0;
         while (sampleIndex < sampleTargets.length) {
@@ -1054,7 +1283,7 @@ export function applySlashTrailMixin(PlayerClass) {
             }
             if (progress >= 0.42 || timerMs <= 0) break;
             const t = progress / 0.42;
-            const z4HeightScale = 0.9 * bodyScaleMult;
+            const z4HeightScale = 0.9 * bodyRiseScale;
             simVx = simVx * 0.68 + dir * (Number.isFinite(state.speed) ? state.speed : this.speed) * (0.24 - t * 0.14);
             simVy = (-18.6 + t * 3.2) * z4HeightScale;
             const riseLockT = Math.max(0, Math.min(1, progress / 0.72));
@@ -1238,11 +1467,9 @@ export function applySlashTrailMixin(PlayerClass) {
             }
 
             const startBody = sampledBodies[0] || { x, y };
-            const midBody = sampledBodies[1] || startBody;
-            const endBody = sampledBodies[2] || midBody;
+            const endBody = sampledBodies[2] || sampledBodies[1] || startBody;
             const settleBody = sampledBodies[3] || endBody;
             const start = pointAt(sampleTargets[0], startBody.x, startBody.y);
-            const mid = pointAt(sampleTargets[1], midBody.x, midBody.y);
             const end = pointAt(sampleTargets[2], endBody.x, endBody.y);
             const settleTip = pointAt(sampleTargets[3], settleBody.x, settleBody.y);
             let slashFloorY = Number.isFinite(groundY)
@@ -1256,22 +1483,12 @@ export function applySlashTrailMixin(PlayerClass) {
                 slashFloorY = pivots.basePivotY + (worldFloor - pivots.renderPivotY) / renderScale;
             }
             end.y = Math.min(end.y, slashFloorY, settleTip.y);
-            mid.y = Math.min(mid.y, start.y + (end.y - start.y) * 0.54);
-            const midT = Math.max(0.08, Math.min(0.92, (0.38 - 0.16) / (0.62 - 0.16)));
-            const midFactor = 2 * (1 - midT) * midT;
-            let controlX = (mid.x - ((1 - midT) * (1 - midT) * start.x) - (midT * midT * end.x)) / midFactor;
-            let controlY = (mid.y - ((1 - midT) * (1 - midT) * start.y) - (midT * midT * end.y)) / midFactor;
-            const controlXMin = Math.min(start.x, end.x) - 6;
-            const controlXMax = Math.max(start.x, end.x) + 6;
-            const controlYMin = Math.min(start.y, end.y);
-            const controlYMax = Math.max(start.y, end.y);
-            controlX = Math.max(controlXMin, Math.min(controlXMax, controlX));
-            controlY = Math.max(controlYMin, Math.min(controlYMax, controlY));
+            const downwardControl = getNormalComboStep5DownwardControl(start.x, start.y, end.x, end.y) || end;
             const spec = {
                 trailCurveStartX: start.x,
                 trailCurveStartY: start.y,
-                trailCurveControlX: controlX,
-                trailCurveControlY: controlY,
+                trailCurveControlX: downwardControl.x,
+                trailCurveControlY: downwardControl.y,
                 trailCurveEndX: end.x,
                 trailCurveEndY: end.y,
                 trailIsRelative: false,
@@ -1748,6 +1965,10 @@ export function applySlashTrailMixin(PlayerClass) {
         }
         return {
             comboStep: swordPose.comboStep,
+            // 投影(_projectShogunTrailPoseToWorldScale)のアンカー解決に使う攻撃プロファイル。
+            // これが無いと step4 のアンカーが this.currentAttack(本体)へフォールバックし、
+            // ミラー分身の縦剣筋が「本体からの距離×scale」の位置へ投影されてX位置がずれる。
+            attack: swordPose.attack,
             tipX,
             tipY,
             originX: state.x,
@@ -1786,6 +2007,18 @@ export function applySlashTrailMixin(PlayerClass) {
 
     PlayerClass.prototype.updateComboSlashTrail = function(deltaMs) {
         if (deltaMs <= 0) return;
+        this.comboSlashTrailSampleState = {
+            x: this.x,
+            y: this.y,
+            width: typeof this.getWorldWidth === 'function' ? this.getWorldWidth() : PLAYER.WIDTH,
+            height: typeof this.getWorldHeight === 'function' ? this.getWorldHeight() : PLAYER.HEIGHT,
+            facingRight: this.facingRight,
+            isGrounded: this.isGrounded,
+            comboStep: this.currentAttack ? (this.currentAttack.comboStep || 0) : 0,
+            trailAttackId: this.currentAttack && Number.isFinite(this.currentAttack.trailAttackId)
+                ? this.currentAttack.trailAttackId
+                : null
+        };
         let pose = this.getComboSwordPoseForTrail();
 
         const comboStep = this.currentAttack ? (this.currentAttack.comboStep || 0) : 0;
@@ -1854,68 +2087,6 @@ export function applySlashTrailMixin(PlayerClass) {
                 points.pop();
             }
         };
-        const isSameActiveTrailPoint = (point) => !!(
-            point &&
-            point.step === currentStep &&
-            (activeTrailId === null || point.trailAttackId === activeTrailId)
-        );
-        const hasFixedCurveAnchor = (point) => !!(
-            point &&
-            Number.isFinite(point.trailFixedCurveStartX) &&
-            Number.isFinite(point.trailFixedCurveStartY) &&
-            Number.isFinite(point.trailFixedCurveControlX) &&
-            Number.isFinite(point.trailFixedCurveControlY) &&
-            Number.isFinite(point.trailFixedCurveEndX) &&
-            Number.isFinite(point.trailFixedCurveEndY)
-        );
-        const hasCurveAnchor = (point) => !!(
-            point &&
-            Number.isFinite(point.trailCurveStartX) &&
-            Number.isFinite(point.trailCurveStartY) &&
-            Number.isFinite(point.trailCurveControlX) &&
-            Number.isFinite(point.trailCurveControlY) &&
-            Number.isFinite(point.trailCurveEndX) &&
-            Number.isFinite(point.trailCurveEndY)
-        );
-        const buildStep5FixedCurveAnchor = () => {
-            const fixedPoint = points.find((point) => isSameActiveTrailPoint(point) && hasFixedCurveAnchor(point));
-            const curvePoint = fixedPoint || points.find((point) => isSameActiveTrailPoint(point) && hasCurveAnchor(point));
-            const source = fixedPoint || curvePoint || pose;
-            const useFixed = hasFixedCurveAnchor(source);
-            const startX = useFixed ? source.trailFixedCurveStartX : source.trailCurveStartX;
-            const startY = useFixed ? source.trailFixedCurveStartY : source.trailCurveStartY;
-            const controlX = useFixed ? source.trailFixedCurveControlX : source.trailCurveControlX;
-            const controlY = useFixed ? source.trailFixedCurveControlY : source.trailCurveControlY;
-            const endX = useFixed ? source.trailFixedCurveEndX : source.trailCurveEndX;
-            const endY = useFixed ? source.trailFixedCurveEndY : source.trailCurveEndY;
-            if ([startX, startY, controlX, controlY, endX, endY].some((v) => !Number.isFinite(v))) return null;
-            return {
-                trailFixedCurveStartX: startX,
-                trailFixedCurveStartY: startY,
-                trailFixedCurveControlX: controlX,
-                trailFixedCurveControlY: controlY,
-                trailFixedCurveEndX: endX,
-                trailFixedCurveEndY: endY,
-                trailFixedCurvePlayerX: Number.isFinite(source.trailFixedCurvePlayerX)
-                    ? source.trailFixedCurvePlayerX
-                    : (Number.isFinite(source.trailTransformPlayerX)
-                        ? source.trailTransformPlayerX
-                        : (Number.isFinite(source.playerX)
-                            ? source.playerX
-                            : (Number.isFinite(source.originX) ? source.originX : this.x))),
-                trailFixedCurvePlayerY: Number.isFinite(source.trailFixedCurvePlayerY)
-                    ? source.trailFixedCurvePlayerY
-                    : (Number.isFinite(source.trailTransformPlayerY)
-                        ? source.trailTransformPlayerY
-                        : (Number.isFinite(source.playerY)
-                            ? source.playerY
-                            : (Number.isFinite(source.originY) ? source.originY : this.y))),
-                trailFixedCurveIsRelative: useFixed
-                    ? !!source.trailFixedCurveIsRelative
-                    : !!source.trailIsRelative
-            };
-        };
-        
         // 核心ルール: lifeは生成時に一度だけ設定。以降はageのみが進む。
         for (let i = 0; i < points.length; i++) {
             const p = points[i];
@@ -1986,7 +2157,6 @@ export function applySlashTrailMixin(PlayerClass) {
                     dist = Infinity;
                 }
             }
-            const fixedCurveAnchor = buildStep5FixedCurveAnchor();
             const forceEndpointSample = !!(
                 keepExistingPointStable &&
                 last &&
@@ -2011,7 +2181,6 @@ export function applySlashTrailMixin(PlayerClass) {
                     trailCurveControlY: Number.isFinite(pose.trailCurveControlY) ? pose.trailCurveControlY : undefined,
                     trailCurveEndX: Number.isFinite(pose.trailCurveEndX) ? pose.trailCurveEndX : undefined,
                     trailCurveEndY: Number.isFinite(pose.trailCurveEndY) ? pose.trailCurveEndY : undefined,
-                    ...(fixedCurveAnchor || {}),
                     trailRadius: Number.isFinite(pose.trailRadius) ? pose.trailRadius : undefined,
                     centerX: Number.isFinite(pose.centerX) ? pose.centerX : undefined,
                     centerY: Number.isFinite(pose.centerY) ? pose.centerY : undefined,
@@ -2034,7 +2203,6 @@ export function applySlashTrailMixin(PlayerClass) {
                 nextSampleTimer = this.comboSlashTrailSampleIntervalMs;
             } else {
                 if (keepExistingPointStable) {
-                    if (fixedCurveAnchor) Object.assign(last, fixedCurveAnchor);
                     last.trailAttackId = activeTrailId;
                     last.trailScale = Math.max(Number.isFinite(last.trailScale) ? last.trailScale : 1, sampleTrailScale);
                     last.age = Math.max(0, last.age - deltaMs * 0.7);
@@ -2108,6 +2276,15 @@ export function applySlashTrailMixin(PlayerClass) {
         if (!Array.isArray(this.specialCloneSlashTrailSampleTimers)) {
             this.specialCloneSlashTrailSampleTimers = [];
         }
+        if (!Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
+            this.specialCloneSlashTrailBoostAnchors = [];
+        }
+        if (!Array.isArray(this.specialCloneSlashTrailFrozenCurves)) {
+            this.specialCloneSlashTrailFrozenCurves = [];
+        }
+        if (!Array.isArray(this.specialCloneLastSlashTrailIds)) {
+            this.specialCloneLastSlashTrailIds = [];
+        }
         if (!Array.isArray(this.specialCloneDualBackTrailPoints)) {
             this.specialCloneDualBackTrailPoints = [];
             this.specialCloneDualFrontTrailPoints = [];
@@ -2126,6 +2303,22 @@ export function applySlashTrailMixin(PlayerClass) {
             if (!Number.isFinite(this.specialCloneSlashTrailSampleTimers[i])) {
                 this.specialCloneSlashTrailSampleTimers[i] = 0;
             }
+            if (
+                !this.specialCloneSlashTrailBoostAnchors[i] ||
+                typeof this.specialCloneSlashTrailBoostAnchors[i] !== 'object' ||
+                Array.isArray(this.specialCloneSlashTrailBoostAnchors[i])
+            ) {
+                this.specialCloneSlashTrailBoostAnchors[i] = {};
+            }
+            if (!Array.isArray(this.specialCloneSlashTrailFrozenCurves[i])) {
+                this.specialCloneSlashTrailFrozenCurves[i] = [];
+            }
+            if (!Number.isFinite(this.specialCloneLastSlashTrailIds[i])) {
+                this.specialCloneLastSlashTrailIds[i] = -1;
+            }
+            if (typeof this.ageSlashTrailFrozenCurves === 'function') {
+                this.ageSlashTrailFrozenCurves(this.specialCloneSlashTrailFrozenCurves[i], deltaMs);
+            }
             if (!Array.isArray(this.specialCloneDualBackTrailPoints[i])) {
                 this.specialCloneDualBackTrailPoints[i] = [];
                 this.specialCloneDualFrontTrailPoints[i] = [];
@@ -2138,6 +2331,8 @@ export function applySlashTrailMixin(PlayerClass) {
             const isAlive = this.specialCloneAlive && this.specialCloneAlive[i];
             let pose = null;
             let activeTrailId = null;
+            let activeAttackProfile = null;
+            let previousFreezeAttackProfile = null;
 
             if (isAlive && pos) {
                 const isAutoAi = !!this.specialCloneAutoAiEnabled;
@@ -2154,11 +2349,38 @@ export function applySlashTrailMixin(PlayerClass) {
                             : (this.subWeaponAction === '二刀_Z')
                     )
                 );
+                // 二刀Z終了後にバッファへ残った剣筋は、本体と同様に老化フェードで消す
+                // （消化は共通コアに任せる。クリアによる即消しはしない）
+                if (!dualActionActive &&
+                    (this.specialCloneDualBackTrailPoints[i].length > 0 ||
+                     this.specialCloneDualFrontTrailPoints[i].length > 0)) {
+                    const fadeResult = this.updateDualTrailState(deltaMs, {
+                        active: false,
+                        comboStep: 0,
+                        progress: 0,
+                        swingId: dualBlade ? (dualBlade._swingId || 0) : 0,
+                        backPose: null,
+                        frontPose: null,
+                        backPoints: this.specialCloneDualBackTrailPoints[i],
+                        frontPoints: this.specialCloneDualFrontTrailPoints[i],
+                        backSampleTimer: this.specialCloneDualBackTrailSampleTimers[i],
+                        frontSampleTimer: this.specialCloneDualFrontTrailSampleTimers[i],
+                        lastSwingId: this.specialCloneDualLastSwingIds[i],
+                        trailScale: specialCloneTrailScale
+                    });
+                    this.specialCloneDualBackTrailSampleTimers[i] = fadeResult.backSampleTimer;
+                    this.specialCloneDualFrontTrailSampleTimers[i] = fadeResult.frontSampleTimer;
+                    this.specialCloneDualLastSwingIds[i] = fadeResult.lastSwingId;
+                }
                 if (dualActionActive) {
                     const comboStep = isAutoAi
                         ? (Number.isFinite(this.specialCloneComboSteps[i]) ? this.specialCloneComboSteps[i] : 1)
                         : (Number.isFinite(dualBlade.comboIndex) ? dualBlade.comboIndex : 1);
-                    const progress = dualBlade.getMainSwingProgress({ attackTimer: dualTimer });
+                    // Lv1-2(ミラー)は本体の振り進行そのもの（本体と同じ attackTimer 基準）、
+                    // Lv3自律分身は分身専用タイマーから進行度を取る
+                    const progress = isAutoAi
+                        ? dualBlade.getMainSwingProgress({ attackTimer: dualTimer })
+                        : dualBlade.getMainSwingProgress();
                     let backPose = null;
                     let frontPose = null;
                     const liveAnchors = Array.isArray(this.specialCloneDualTrailAnchors)
@@ -2194,65 +2416,33 @@ export function applySlashTrailMixin(PlayerClass) {
                         };
                     }
 
-                    // step4(天穿): 本体と同じくトレイルの横振れを圧縮して縦剣筋をなだらかに保つ
-                    if (backPose) this.flattenDualStep4TrailPose(backPose, this.specialCloneDualBackTrailPoints[i]);
-                    if (frontPose) this.flattenDualStep4TrailPose(frontPose, this.specialCloneDualFrontTrailPoints[i]);
-
-                    let suppressBack = false;
-                    let suppressFront = false;
-                    let startSuppress = false;
-                    let settleSuppress = false;
-                    if (comboStep === 1) {
-                        suppressFront = true;
-                        if (progress < 0.25 || progress > 0.6) startSuppress = true;
-                    } else if (comboStep === 2) {
-                        suppressBack = true;
-                        if (progress < 0.2 || progress > 0.48) startSuppress = true;
-                    } else if (comboStep === 3) {
-                        if (progress < 0.15 || progress > 0.55) startSuppress = true;
-                    } else if (comboStep === 4) {
-                        if (progress < 0.05) startSuppress = true;
-                        if (progress > 0.65) settleSuppress = true;
-                    } else if (comboStep === 0 || comboStep === 5) {
-                        // Phase1（progress 0〜0.26）は振りかぶりで腕が最高点に達する。
-                        // この間にトレイルを記録すると剣筋の終点が上空に飛ぶため、
-                        // Phase1終了（0.26）まで抑制し、Phase2以降の落下・水平薙ぎだけを描画する。
-                        if (progress < 0.26) startSuppress = true;
-                        // 5段目は振り切り位置(刀の最終位置)まで剣筋を届かせる（本体と同窓）
-                        if (progress > 0.78) settleSuppress = true;
-                    }
-                    
-                    const swingId = dualBlade._swingId || 0;
-                    const activeTrailId = comboStep * 10000 + swingId;
-                    
-                    let skipSampleThisFrame = false;
-                    if (this.specialCloneDualLastSwingIds[i] !== swingId) {
-                        this.specialCloneDualBackTrailPoints[i].length = 0;
-                        this.specialCloneDualFrontTrailPoints[i].length = 0;
-                        this.specialCloneDualLastSwingIds[i] = swingId;
-                        skipSampleThisFrame = true;
-                    }
-
-                    if (suppressBack || startSuppress || settleSuppress || skipSampleThisFrame) backPose = null;
-                    if (suppressFront || startSuppress || settleSuppress || skipSampleThisFrame) frontPose = null;
-                    
-                    this.specialCloneDualBackTrailSampleTimers[i] = this.updateSlashTrailBuffer(
-                        this.specialCloneDualBackTrailPoints[i],
-                        this.specialCloneDualBackTrailSampleTimers[i],
+                    // サンプリング窓・寿命・スイング切替・step4整形は本体と同一の共通コアで処理する
+                    const result = this.updateDualTrailState(deltaMs, {
+                        active: true,
+                        comboStep,
+                        progress,
+                        swingId: dualBlade._swingId || 0,
                         backPose,
-                        deltaMs,
-                        { holdExisting: false, activeTrailId: activeTrailId, sampleTrailScale: specialCloneTrailScale }
-                    );
-                    this.specialCloneDualFrontTrailSampleTimers[i] = this.updateSlashTrailBuffer(
-                        this.specialCloneDualFrontTrailPoints[i],
-                        this.specialCloneDualFrontTrailSampleTimers[i],
                         frontPose,
-                        deltaMs,
-                        { holdExisting: false, activeTrailId: activeTrailId, sampleTrailScale: specialCloneTrailScale }
-                    );
-                    
+                        backPoints: this.specialCloneDualBackTrailPoints[i],
+                        frontPoints: this.specialCloneDualFrontTrailPoints[i],
+                        backSampleTimer: this.specialCloneDualBackTrailSampleTimers[i],
+                        frontSampleTimer: this.specialCloneDualFrontTrailSampleTimers[i],
+                        lastSwingId: this.specialCloneDualLastSwingIds[i],
+                        trailScale: specialCloneTrailScale
+                    });
+                    this.specialCloneDualBackTrailSampleTimers[i] = result.backSampleTimer;
+                    this.specialCloneDualFrontTrailSampleTimers[i] = result.frontSampleTimer;
+                    this.specialCloneDualLastSwingIds[i] = result.lastSwingId;
+
                     // 通常剣筋はリセット
-                    this.specialCloneSlashTrailPoints[i].length = 0;
+                    this.freezeSpecialCloneSlashTrail(i, {
+                        pos,
+                        attack: this.specialCloneCurrentAttacks ? this.specialCloneCurrentAttacks[i] : null,
+                        footY: this.getSpecialCloneFootY(pos.y),
+                        ageNewMs: deltaMs
+                    });
+                    this.specialCloneLastSlashTrailIds[i] = -1;
                     continue;
                 } else {
                     const isAttacking = isAutoAi
@@ -2260,11 +2450,23 @@ export function applySlashTrailMixin(PlayerClass) {
                         : !!this.isAttacking;
                     if (!isAttacking) {
                         const lastStep = this.specialCloneSlashTrailPoints[i][this.specialCloneSlashTrailPoints[i].length - 1]?.step || 0;
+                        const attackForFreeze = isAutoAi
+                            ? (this.specialCloneCurrentAttacks ? this.specialCloneCurrentAttacks[i] : null)
+                            : (Array.isArray(this.specialCloneMirroredTrailProfiles)
+                                ? (this.specialCloneMirroredTrailProfiles[i] || this.currentAttack)
+                                : this.currentAttack);
+                        this.freezeSpecialCloneSlashTrail(i, {
+                            pos,
+                            attack: attackForFreeze,
+                            footY: this.getSpecialCloneFootY(pos.y),
+                            ageNewMs: deltaMs
+                        });
+                        this.specialCloneLastSlashTrailIds[i] = -1;
                         if (isAutoAi && lastStep > 0 && !this.shouldKeepComboTrailDuringReturn(lastStep)) {
                             this.specialCloneSlashTrailPoints[i].length = 0;
                             this.specialCloneSlashTrailSampleTimers[i] = 0;
                             if (Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
-                                this.specialCloneSlashTrailBoostAnchors[i] = null;
+                                this.specialCloneSlashTrailBoostAnchors[i] = {};
                             }
                             continue;
                         }
@@ -2280,14 +2482,23 @@ export function applySlashTrailMixin(PlayerClass) {
                     const isShogunClone = this.characterType === 'shogun';
                     const poseWidth = isShogunClone ? PLAYER.WIDTH : this.getWorldWidth();
                     const poseHeight = isShogunClone ? PLAYER.HEIGHT : this.getWorldHeight();
-                    const poseOriginX = isShogunClone
+                    const livePoseOriginX = isShogunClone
                         ? pos.x - this.getWorldWidth() * 0.5
                         : pos.x - poseWidth * 0.5;
-                    const poseOriginY = cloneDrawY;
+                    const livePoseOriginY = isShogunClone
+                        ? this.getSpecialCloneTrailBoxY(pos.y)
+                        : cloneDrawY;
+                    const poseOriginX = livePoseOriginX;
+                    const poseOriginY = livePoseOriginY;
                     const hasOverride = !isAutoAi && this.specialCloneCurrentAttacks[i] != null;
                     const comboStep = (isAutoAi || hasOverride)
                         ? (this.specialCloneComboSteps[i] || 1)
                         : (this.currentAttack ? this.currentAttack.comboStep || 1 : 1);
+                    previousFreezeAttackProfile = (isAutoAi || hasOverride)
+                        ? (this.specialCloneCurrentAttacks ? this.specialCloneCurrentAttacks[i] : null)
+                        : (Array.isArray(this.specialCloneMirroredTrailProfiles)
+                            ? this.specialCloneMirroredTrailProfiles[i]
+                            : null);
                     let attackProfile;
                     if (isAutoAi || hasOverride) {
                         const cachedProfile = this.specialCloneCurrentAttacks[i] || null;
@@ -2309,7 +2520,8 @@ export function applySlashTrailMixin(PlayerClass) {
                                     scaleMultiplier: this.scaleMultiplier,
                                     vx: Number.isFinite(pos.cloneVx) ? pos.cloneVx : this.vx,
                                     vy: Number.isFinite(pos.cloneVy) ? pos.cloneVy : this.vy,
-                                    speed: this.speed
+                                    speed: this.speed,
+                                    trailPoints: this.specialCloneSlashTrailPoints[i]
                                 }
                             );
                         }
@@ -2319,42 +2531,113 @@ export function applySlashTrailMixin(PlayerClass) {
                     activeTrailId = attackProfile && Number.isFinite(attackProfile.trailAttackId)
                         ? attackProfile.trailAttackId
                         : null;
+                    activeAttackProfile = attackProfile || null;
                     const attackTimer = (isAutoAi || hasOverride)
                         ? (this.specialCloneAttackTimers[i] || 0)
                         : this.attackTimer;
+                    let samplePoseOriginX = poseOriginX;
+                    let samplePoseOriginY = poseOriginY;
+                    let sampleGrounded = !pos.jumping;
+                    const mirrorSampleState = this.comboSlashTrailSampleState;
+                    if (
+                        !isAutoAi &&
+                        !hasOverride &&
+                        mirrorSampleState &&
+                        mirrorSampleState.trailAttackId === activeTrailId
+                    ) {
+                        if (Number.isFinite(mirrorSampleState.x) && Number.isFinite(this.x)) {
+                            samplePoseOriginX -= (this.x - mirrorSampleState.x);
+                        }
+                        if (Number.isFinite(mirrorSampleState.y) && Number.isFinite(this.y)) {
+                            samplePoseOriginY -= (this.y - mirrorSampleState.y);
+                        }
+                        if (typeof mirrorSampleState.isGrounded === 'boolean') {
+                            sampleGrounded = mirrorSampleState.isGrounded;
+                        }
+                    }
+                    if (attackProfile && attackProfile.comboStep === 5) {
+                        const step5TrailSync = typeof this.resolveNormalComboStep5TrailSync === 'function'
+                            ? this.resolveNormalComboStep5TrailSync(attackProfile, {
+                                x: samplePoseOriginX,
+                                y: samplePoseOriginY,
+                                width: poseWidth,
+                                height: poseHeight,
+                                facingRight: pos.facingRight,
+                                isCrouching: false,
+                                attackTimer
+                            }, { deltaMs })
+                            : { actualTipSpec: null, renderProgress: null };
+                        freezeNormalComboFinisherTrailCurve(attackProfile, {
+                            attackTimer,
+                            groundY: this.groundY,
+                            ownerHeight: this.getWorldHeight(),
+                            trailPoints: this.specialCloneSlashTrailPoints[i],
+                            isGrounded: sampleGrounded,
+                            actualTipSpec: step5TrailSync.actualTipSpec,
+                            renderProgress: step5TrailSync.renderProgress,
+                            projectPoint: (px, py) => (typeof this.projectComboTrailSpecPointToWorld === 'function'
+                                ? this.projectComboTrailSpecPointToWorld(attackProfile, px, py)
+                                : { x: px, y: py })
+                        });
+                    }
                     pose = this.getComboSwordPoseForTrail({
                         isAttacking: true,
                         currentAttack: attackProfile,
                         attackTimer,
                         facingRight: pos.facingRight,
-                        x: poseOriginX,
-                        y: poseOriginY,
+                        x: samplePoseOriginX,
+                        y: samplePoseOriginY,
                         width: poseWidth,
                         height: poseHeight,
                         isCrouching: false
                     });
                     if (pose) {
-                        pose.originX = poseOriginX;
-                        pose.originY = poseOriginY;
+                        pose.originX = samplePoseOriginX;
+                        pose.originY = samplePoseOriginY;
                         pose.trailTransformPlayerX = Number.isFinite(pose.trailTransformPlayerX)
                             ? pose.trailTransformPlayerX
-                            : (!pose.trailIsRelative ? poseOriginX : undefined);
+                            : (!pose.trailIsRelative ? samplePoseOriginX : undefined);
                         pose.trailTransformPlayerY = Number.isFinite(pose.trailTransformPlayerY)
                             ? pose.trailTransformPlayerY
-                            : (!pose.trailIsRelative ? poseOriginY : undefined);
+                            : (!pose.trailIsRelative ? samplePoseOriginY : undefined);
                     }
                     if (isAutoAi && !pose && comboStep > 0 && !this.shouldKeepComboTrailDuringReturn(comboStep)) {
+                        this.freezeSpecialCloneSlashTrail(i, {
+                            pos,
+                            attack: attackProfile,
+                            footY: this.getSpecialCloneFootY(pos.y),
+                            ageNewMs: deltaMs
+                        });
+                        this.specialCloneLastSlashTrailIds[i] = -1;
                         this.specialCloneSlashTrailPoints[i].length = 0;
                         this.specialCloneSlashTrailSampleTimers[i] = 0;
                         if (Array.isArray(this.specialCloneMirroredTrailProfiles)) {
                             this.specialCloneMirroredTrailProfiles[i] = null;
                         }
                         if (Array.isArray(this.specialCloneSlashTrailBoostAnchors)) {
-                            this.specialCloneSlashTrailBoostAnchors[i] = null;
+                            this.specialCloneSlashTrailBoostAnchors[i] = {};
                         }
                         continue;
                     }
                 }
+            }
+
+            if (activeTrailId !== null) {
+                const lastTrailId = this.specialCloneLastSlashTrailIds[i];
+                if (lastTrailId !== -1 && lastTrailId !== activeTrailId) {
+                    this.freezeSpecialCloneSlashTrail(i, {
+                        pos,
+                        attack: previousFreezeAttackProfile || activeAttackProfile,
+                        footY: pos && typeof this.getSpecialCloneFootY === 'function'
+                            ? this.getSpecialCloneFootY(pos.y)
+                            : undefined,
+                        ageNewMs: deltaMs
+                    });
+                    this.specialCloneSlashTrailSampleTimers[i] = 0;
+                }
+                this.specialCloneLastSlashTrailIds[i] = activeTrailId;
+            } else {
+                this.specialCloneLastSlashTrailIds[i] = -1;
             }
 
             this.specialCloneSlashTrailSampleTimers[i] = this.updateSlashTrailBuffer(
@@ -2368,10 +2651,16 @@ export function applySlashTrailMixin(PlayerClass) {
                     sampleTrailScale: specialCloneTrailScale
                 }
             );
-            if (Array.isArray(this.specialCloneSlashTrailBoostAnchors) && this.specialCloneSlashTrailPoints[i].length < 2) {
-                this.specialCloneSlashTrailBoostAnchors[i] = null;
+            if (Array.isArray(this.specialCloneSlashTrailBoostAnchors) && this.specialCloneSlashTrailPoints[i].length === 0) {
+                this.specialCloneSlashTrailBoostAnchors[i] = {};
             }
-            if ((!isAlive || !pos || !pose) && Array.isArray(this.specialCloneMirroredTrailProfiles) && !this.specialCloneAutoAiEnabled) {
+            // ミラープロファイルは「本体の攻撃が続く間」保持する。
+            // pose は進行度が描画窓(例: step5 は 0.94)を超えると null になるため、
+            // !pose で破棄すると窓超え後に毎フレーム「現在位置基準」で再構築され、
+            // 空中発動step5では着地後の体位置で start/control/end が作り直されて
+            // 「上空の古い始点 + 地上基準の新カーブ」が混ざり剣筋のカーブが消える。
+            const bodyComboActive = !!(this.isAttacking && this.currentAttack);
+            if ((!isAlive || !pos || !bodyComboActive) && Array.isArray(this.specialCloneMirroredTrailProfiles) && !this.specialCloneAutoAiEnabled) {
                 this.specialCloneMirroredTrailProfiles[i] = null;
             }
             if (this.specialCloneSlashTrailPoints[i].length > 96) {
@@ -2402,7 +2691,13 @@ export function applySlashTrailMixin(PlayerClass) {
             ? options.setBoostAnchor
             : ((step, value) => { 
                 if (!this.comboSlashTrailBoostAnchors) this.comboSlashTrailBoostAnchors = {};
-                this.comboSlashTrailBoostAnchors[step] = value; 
+                if (step === null || step === undefined) {
+                    this.comboSlashTrailBoostAnchors = {};
+                } else if (value) {
+                    this.comboSlashTrailBoostAnchors[step] = value;
+                } else {
+                    delete this.comboSlashTrailBoostAnchors[step];
+                }
               });
         const sourceIsAttacking = options.isAttacking !== undefined
             ? !!options.isAttacking
@@ -3106,71 +3401,15 @@ export function applySlashTrailMixin(PlayerClass) {
             const offsetY = isRelative
                 ? (Number.isFinite(options.forceOffsetY) ? options.forceOffsetY : (Number.isFinite(newestSrc.playerY) ? newestSrc.playerY : (options.offsetY || 0)))
                 : 0;
-            const hasFixedCurveAnchor = (point) => !!(
-                point &&
-                Number.isFinite(point.trailFixedCurveStartX) &&
-                Number.isFinite(point.trailFixedCurveStartY) &&
-                Number.isFinite(point.trailFixedCurveControlX) &&
-                Number.isFinite(point.trailFixedCurveControlY) &&
-                Number.isFinite(point.trailFixedCurveEndX) &&
-                Number.isFinite(point.trailFixedCurveEndY)
-            );
-            const hasCurveAnchor = (point) => !!(
-                point &&
-                Number.isFinite(point.trailCurveStartX) &&
-                Number.isFinite(point.trailCurveStartY) &&
-                Number.isFinite(point.trailCurveControlX) &&
-                Number.isFinite(point.trailCurveControlY) &&
-                Number.isFinite(point.trailCurveEndX) &&
-                Number.isFinite(point.trailCurveEndY)
-            );
-            const curveSrc = options.freezeCurveAnchor
-                ? (pts.find((point) => hasFixedCurveAnchor(point)) || pts.find((point) => hasCurveAnchor(point)) || oldestSrc)
-                : newestSrc;
-            const useFixedCurveAnchor = !!(options.freezeCurveAnchor && hasFixedCurveAnchor(curveSrc));
-            const curveIsRelative = useFixedCurveAnchor
-                ? !!curveSrc.trailFixedCurveIsRelative
-                : !!(
-                    options.forceRelative ||
-                    (options.useRelativeIfAvailable && curveSrc.trailIsRelative)
-                );
-            const curveOffsetX = curveIsRelative
-                ? (Number.isFinite(options.forceOffsetX)
-                    ? options.forceOffsetX
-                    : (Number.isFinite(curveSrc.trailFixedCurvePlayerX)
-                        ? curveSrc.trailFixedCurvePlayerX
-                        : (Number.isFinite(curveSrc.playerX) ? curveSrc.playerX : (options.offsetX || 0))))
-                : 0;
-            const curveOffsetY = curveIsRelative
-                ? (Number.isFinite(options.forceOffsetY)
-                    ? options.forceOffsetY
-                    : (Number.isFinite(curveSrc.trailFixedCurvePlayerY)
-                        ? curveSrc.trailFixedCurvePlayerY
-                        : (Number.isFinite(curveSrc.playerY) ? curveSrc.playerY : (options.offsetY || 0))))
-                : 0;
-            const readCurveValue = (fixedName, curveName) => (
-                useFixedCurveAnchor && Number.isFinite(curveSrc[fixedName])
-                    ? curveSrc[fixedName]
-                    : curveSrc[curveName]
-            );
-            const startX = Number.isFinite(readCurveValue('trailFixedCurveStartX', 'trailCurveStartX'))
-                ? readCurveValue('trailFixedCurveStartX', 'trailCurveStartX') + curveOffsetX
-                : null;
-            const startY = Number.isFinite(readCurveValue('trailFixedCurveStartY', 'trailCurveStartY'))
-                ? readCurveValue('trailFixedCurveStartY', 'trailCurveStartY') + curveOffsetY
-                : null;
-            const controlX = Number.isFinite(readCurveValue('trailFixedCurveControlX', 'trailCurveControlX'))
-                ? readCurveValue('trailFixedCurveControlX', 'trailCurveControlX') + curveOffsetX
-                : null;
-            const controlY = Number.isFinite(readCurveValue('trailFixedCurveControlY', 'trailCurveControlY'))
-                ? readCurveValue('trailFixedCurveControlY', 'trailCurveControlY') + curveOffsetY
-                : null;
-            const endX = Number.isFinite(readCurveValue('trailFixedCurveEndX', 'trailCurveEndX'))
-                ? readCurveValue('trailFixedCurveEndX', 'trailCurveEndX') + curveOffsetX
-                : null;
-            const endY = Number.isFinite(readCurveValue('trailFixedCurveEndY', 'trailCurveEndY'))
-                ? readCurveValue('trailFixedCurveEndY', 'trailCurveEndY') + curveOffsetY
-                : null;
+            // カーブは常に最新サンプル点から読む。ライブ中の step5 は
+            // freezeNormalComboFinisherTrailCurve がチェイス済みの終点を毎フレーム
+            // 全ポイントへ書き戻しているため、ここに現れる値が描画の単一ソースになる。
+            const startX = Number.isFinite(newestSrc.trailCurveStartX) ? newestSrc.trailCurveStartX + offsetX : null;
+            const startY = Number.isFinite(newestSrc.trailCurveStartY) ? newestSrc.trailCurveStartY + offsetY : null;
+            const controlX = Number.isFinite(newestSrc.trailCurveControlX) ? newestSrc.trailCurveControlX + offsetX : null;
+            const controlY = Number.isFinite(newestSrc.trailCurveControlY) ? newestSrc.trailCurveControlY + offsetY : null;
+            const endX = Number.isFinite(newestSrc.trailCurveEndX) ? newestSrc.trailCurveEndX + offsetX : null;
+            const endY = Number.isFinite(newestSrc.trailCurveEndY) ? newestSrc.trailCurveEndY + offsetY : null;
             if ([startX, startY, controlX, controlY, endX, endY].some((v) => !Number.isFinite(v))) return;
             const activeProgress = (() => {
                 if (options.useRelativeIfAvailable && newestSrc.trailCurveFrozen) return Number.isFinite(newestSrc.progress) ? newestSrc.progress : 1.0;
@@ -3183,7 +3422,14 @@ export function applySlashTrailMixin(PlayerClass) {
                 
                 // 現在の攻撃ステートが異なる（過去の軌跡）か、攻撃が終了している場合は、過去の軌跡（描画完了済み）として扱う
                 if (!sourceIsAttacking || !attackState || !attackState.currentAttack || attackState.currentAttack.comboStep !== comboStep) {
-                    return 1.0; 
+                    // step5は実進行度がサンプル点へ毎フレーム焼き込まれている
+                    // (freezeNormalComboFinisherTrailCurve)。ここで1.0(完成形)へ飛ばすと、
+                    // 凍結スナップショット化されない分身の残存剣筋だけが攻撃終了の瞬間に
+                    // フルカーブへ変形し、本体の凍結形状(実進行度)と食い違う。
+                    if (comboStep === 5 && Number.isFinite(newestSrc.progress)) {
+                        return newestSrc.progress;
+                    }
+                    return 1.0;
                 }
                 
                 const duration = Math.max(1, attackState.currentAttack.durationMs || PLAYER.ATTACK_COOLDOWN);
@@ -3217,21 +3463,8 @@ export function applySlashTrailMixin(PlayerClass) {
             if (growth <= 0.001) return;
             let drawEndX = endX;
             let drawEndY = endY;
-            let drawControlX = controlX;
-            let drawControlY = controlY;
-            if (options.liveEndPoint) {
-                const liveEndX = Number.isFinite(newestSrc.x) ? newestSrc.x + (isRelative ? offsetX : 0) : null;
-                const liveEndY = Number.isFinite(newestSrc.y) ? newestSrc.y + (isRelative ? offsetY : 0) : null;
-                if (Number.isFinite(liveEndX) && Number.isFinite(liveEndY)) {
-                    drawEndX = liveEndX;
-                    drawEndY = liveEndY;
-                }
-            }
-            if (options.clampControlY) {
-                const peakLimit = Math.min(startY, drawEndY) - Math.max(baseWidth * 1.25, Math.abs(drawEndY - startY) * 0.22);
-                const floorLimit = Math.max(startY, drawEndY) + baseWidth * 1.2;
-                drawControlY = Math.max(peakLimit, Math.min(floorLimit, drawControlY));
-            }
+            const drawControlX = controlX;
+            const drawControlY = controlY;
             if (options.trimEnd) {
                 const tangentX = drawEndX - drawControlX;
                 const tangentY = drawEndY - drawControlY;
@@ -3245,7 +3478,7 @@ export function applySlashTrailMixin(PlayerClass) {
                     drawEndY -= (tangentY / tangentLen) * trim;
                 }
             }
-            const drawGrowth = (options.liveEndPoint || options.snapFullGrowth) ? 1 : growth;
+            const drawGrowth = growth;
             const stripCount = Math.max(12, Math.round(12 + growth * 16));
             const mergedStrip = [];
             for (let i = 0; i < stripCount; i++) {
@@ -3297,8 +3530,22 @@ export function applySlashTrailMixin(PlayerClass) {
             if (boostActive) {
                 let baseCenterX = trailCenterX;
                 let baseCenterY = trailCenterY;
-                let projectedCenterX = trailCenterX;
-                let projectedCenterY = trailCenterY;
+                // 絶対系ストリップ(step3/4/5など)は「攻撃開始時アンカー」基準で拡大中心を固定する。
+                // trailCenter(anchor作成フレームのキャラ現在中心)を使うと、キャラが移動中の場合
+                // anchor作成タイミングに依存して本体と分身の拡大中心がばらつき、
+                // 大凪中のstep4縦剣筋の間隔がキャラ間隔と一致しなくなる。
+                const anchorSrcPt = strip[strip.length - 1];
+                if (
+                    anchorSrcPt &&
+                    !anchorSrcPt.trailIsRelative &&
+                    Number.isFinite(anchorSrcPt.trailTransformPlayerX) &&
+                    Number.isFinite(anchorSrcPt.trailTransformPlayerY)
+                ) {
+                    baseCenterX = anchorSrcPt.trailTransformPlayerX + this.getWorldWidth() * 0.5;
+                    baseCenterY = anchorSrcPt.trailTransformPlayerY + this.getWorldHeight() * 0.5;
+                }
+                let projectedCenterX = baseCenterX;
+                let projectedCenterY = baseCenterY;
                 let currentBoostScale = Math.max(1.02, 1 + (trailWidthScale - 1) * 0.74);
 
                 if (boostAnchor && boostAnchor.trailId === stripTrailId) {
@@ -3329,12 +3576,16 @@ export function applySlashTrailMixin(PlayerClass) {
                     const fallDiffY = isRelativeStrip ? (trailCenterY - baseCenterY) : 0;
                     const fixedPx = p.x - fallDiffX;
                     const fixedPy = p.y - fallDiffY;
-                    
+
                     const vx = fixedPx - baseCenterX;
                     const vy = fixedPy - baseCenterY;
+                    // 拡大中心は baseCenter（キャラ中心）に統一する。
+                    // projectedCenter(hitbox中心)へ移動すると、凍結スナップショット
+                    // (projFnFrozen=baseCenter基準) へ切り替わる瞬間に step3/4 の剣筋が
+                    // hitboxオフセット分ジャンプし、ライブ継続中の分身とも位置が揃わない。
                     return {
-                        x: projectedCenterX + vx * currentBoostScale,
-                        y: projectedCenterY + vy * currentBoostScale
+                        x: baseCenterX + vx * currentBoostScale,
+                        y: baseCenterY + vy * currentBoostScale
                     };
                 };
                 activeWidthScale = trailWidthScale * physicalScale;
@@ -3372,7 +3623,7 @@ export function applySlashTrailMixin(PlayerClass) {
                         forceOffsetY: anchorPlayerY,
                         trimEnd: true,
                         // 端キャップ(線幅の丸み)が切っ先を視覚的に越えないよう深めにトリム
-                        trimFactor: 0.5
+                        trimFactor: getComboStep5EndTrimFactor(physicalScale)
                     });
                 } else {
                     drawFixedBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
@@ -3382,7 +3633,7 @@ export function applySlashTrailMixin(PlayerClass) {
                         offsetY: this.y,
                         trimEnd: true,
                         // 端キャップ(線幅の丸み)が切っ先を視覚的に越えないよう深めにトリム
-                        trimFactor: 0.5
+                        trimFactor: getComboStep5EndTrimFactor(physicalScale)
                     });
                 }
             } else if (stripStep === 1) {
@@ -3472,12 +3723,18 @@ export function applySlashTrailMixin(PlayerClass) {
                     // 単純なアンカー中心からのスケーリングのみ
                     let projFnFrozen = null;
                     if (fc.boostAnchor) {
+                        const anchorX = Number.isFinite(fc.boostAnchor.baseCenterX)
+                            ? fc.boostAnchor.baseCenterX
+                            : fc.boostAnchor.projectedCenterX;
+                        const anchorY = Number.isFinite(fc.boostAnchor.baseCenterY)
+                            ? fc.boostAnchor.baseCenterY
+                            : fc.boostAnchor.projectedCenterY;
                         projFnFrozen = (p) => {
-                            const vx = p.x - fc.boostAnchor.projectedCenterX;
-                            const vy = p.y - fc.boostAnchor.projectedCenterY;
+                            const vx = p.x - anchorX;
+                            const vy = p.y - anchorY;
                             return {
-                                x: fc.boostAnchor.projectedCenterX + vx * fc.boostAnchor.boostScale,
-                                y: fc.boostAnchor.projectedCenterY + vy * fc.boostAnchor.boostScale
+                                x: anchorX + vx * fc.boostAnchor.boostScale,
+                                y: anchorY + vy * fc.boostAnchor.boostScale
                             };
                         };
                     }
@@ -3493,11 +3750,14 @@ export function applySlashTrailMixin(PlayerClass) {
                     // 描画関数内部の自然なグラデーションフェード（oldestFade〜newestFade）に完全に委ねる。
                     // 凍結時のパラメータ（age, oldestAge）は updateComboSlashTrail で毎フレーム加算されているため
                     // ここでそのまま渡すだけで、メインバッファ時代と全く同じ計算で綺麗に消えていく。
+                    const frozenProgress = (fc.step === 5 && Number.isFinite(fc.progress))
+                        ? fc.progress
+                        : 1.0;
                     const frozenPtNew = {
                         x: 0, y: 0,
                         step: fc.step,
                         dir: fc.dir,
-                        progress: 1.0, // ★強制的に完成形
+                        progress: frozenProgress,
                         trailCurveStartX: fc.trailCurveStartX,
                         trailCurveStartY: fc.trailCurveStartY,
                         trailCurveControlX: fc.trailCurveControlX,
@@ -3519,12 +3779,18 @@ export function applySlashTrailMixin(PlayerClass) {
                     
                     let projFnFrozen = null;
                     if (fc.boostAnchor) {
+                        const anchorX = Number.isFinite(fc.boostAnchor.baseCenterX)
+                            ? fc.boostAnchor.baseCenterX
+                            : fc.boostAnchor.projectedCenterX;
+                        const anchorY = Number.isFinite(fc.boostAnchor.baseCenterY)
+                            ? fc.boostAnchor.baseCenterY
+                            : fc.boostAnchor.projectedCenterY;
                         projFnFrozen = (p) => {
-                            const vx = p.x - fc.boostAnchor.projectedCenterX;
-                            const vy = p.y - fc.boostAnchor.projectedCenterY;
+                            const vx = p.x - anchorX;
+                            const vy = p.y - anchorY;
                             return {
-                                x: fc.boostAnchor.projectedCenterX + vx * fc.boostAnchor.boostScale,
-                                y: fc.boostAnchor.projectedCenterY + vy * fc.boostAnchor.boostScale
+                                x: anchorX + vx * fc.boostAnchor.boostScale,
+                                y: anchorY + vy * fc.boostAnchor.boostScale
                             };
                         };
                     }
@@ -3534,7 +3800,10 @@ export function applySlashTrailMixin(PlayerClass) {
                         forceRelative: !!fc.trailIsRelative,
                         useRelativeIfAvailable: true,
                         offsetX: offsetX,
-                        offsetY: offsetY
+                        offsetY: offsetY,
+                        // ライブ描画と同じ終端トリムを適用し、凍結へ切り替わる瞬間の長さ変化を防ぐ。
+                        trimEnd: true,
+                        trimFactor: fc.step === 5 ? getComboStep5EndTrimFactor(physicalScale) : 0.5
                     });
                 } else if (fc.type === 'points' && Array.isArray(fc.frozenPoints)) {
                     // ポイント系段 (3, 4)
@@ -3554,12 +3823,18 @@ export function applySlashTrailMixin(PlayerClass) {
 
                     let projFnFrozen = null;
                     if (fc.boostAnchor) {
+                        const anchorX = Number.isFinite(fc.boostAnchor.baseCenterX)
+                            ? fc.boostAnchor.baseCenterX
+                            : fc.boostAnchor.projectedCenterX;
+                        const anchorY = Number.isFinite(fc.boostAnchor.baseCenterY)
+                            ? fc.boostAnchor.baseCenterY
+                            : fc.boostAnchor.projectedCenterY;
                         projFnFrozen = (p) => {
-                            const vx = p.x - fc.boostAnchor.projectedCenterX;
-                            const vy = p.y - fc.boostAnchor.projectedCenterY;
+                            const vx = p.x - anchorX;
+                            const vy = p.y - anchorY;
                             return {
-                                x: fc.boostAnchor.projectedCenterX + vx * fc.boostAnchor.boostScale,
-                                y: fc.boostAnchor.projectedCenterY + vy * fc.boostAnchor.boostScale
+                                x: anchorX + vx * fc.boostAnchor.boostScale,
+                                y: anchorY + vy * fc.boostAnchor.boostScale
                             };
                         };
                     }
@@ -3668,10 +3943,24 @@ export function applySlashTrailMixin(PlayerClass) {
      * 横偏差を圧縮し、一定のなだらかな縦剣筋へ整える（刀本体の描画には影響しない）。
      */
     const DUAL_STEP4_TRAIL_X_DAMP = 0.3;
-    PlayerClass.prototype.flattenDualStep4TrailPose = function(pose, buffer) {
+    PlayerClass.prototype.flattenDualStep4TrailPose = function(pose, buffer, activeTrailId) {
         if (!pose || pose.comboStep !== 4) return pose;
         if (!Array.isArray(buffer) || buffer.length === 0) return pose;
-        const ref = buffer[0];
+        // 基準点は「現在のスイングの最初の点」。前スイングのフェード残り点が
+        // バッファに共存するため(クリア廃止)、buffer[0] を使うと古いスイングの
+        // 位置へ引っ張られて剣筋が後方へ反転する。末尾から同一 trailAttackId の
+        // 連続区間を遡り、その先頭を基準にする。
+        let ref = null;
+        for (let i = buffer.length - 1; i >= 0; i--) {
+            const q = buffer[i];
+            if (!q) break;
+            if (
+                Number.isFinite(activeTrailId) &&
+                Number.isFinite(q.trailAttackId) &&
+                q.trailAttackId !== activeTrailId
+            ) break;
+            ref = q;
+        }
         if (!ref || !Number.isFinite(ref.x) || !Number.isFinite(pose.tipX)) return pose;
         // 序盤〜中盤は強めに直線化し、振り抜き終盤(progress 0.45→0.65)は実際の
         // 刀位置へ追従させる。終点が刀から横に離れず、根本は直線・先端側が
@@ -3782,8 +4071,106 @@ export function applySlashTrailMixin(PlayerClass) {
     };
 
     /**
+     * 二刀流Zコンボの剣筋バッファ更新の共通コア（本体・分身ミラー・Lv3自律分身が共用）。
+     * サンプリング窓・寿命・大凪スケール・スイング切替の扱いをここに一本化することで、
+     * 本体と分身の剣筋仕様が常に同一になる（個別実装による二重管理を排除）。
+     * 前スイングの点はクリアせず、activeTrailId 不一致による老化で自然にフェードさせる
+     * （通常コンボの「前の剣筋が残って消えていく」仕様と同じ）。
+     *
+     * state: {
+     *   active,                         // 二刀Z振り中か
+     *   comboStep,                      // 1..4, 0=5段目
+     *   progress,                       // 現在の振り進行度 0..1
+     *   swingId,                        // スイング識別子（trailAttackId の生成に使用）
+     *   backPose, frontPose,            // サンプル用ポーズ（null=サンプルなし・フェードのみ）
+     *   backPoints, frontPoints,        // バッファ配列（参照のまま更新される）
+     *   backSampleTimer, frontSampleTimer, lastSwingId,
+     *   trailScale                      // 大凪の剣筋幅スケール
+     * }
+     * returns { backSampleTimer, frontSampleTimer, lastSwingId }
+     */
+    PlayerClass.prototype.updateDualTrailState = function(deltaMs, state) {
+        const active = !!state.active;
+        const comboStepRaw = Number.isFinite(state.comboStep) ? state.comboStep : 0;
+        const comboStep = comboStepRaw === 0 ? 5 : comboStepRaw;
+        const p = Math.max(0, Math.min(1, Number.isFinite(state.progress) ? state.progress : 0));
+        const backPose = state.backPose || null;
+        const frontPose = state.frontPose || null;
+
+        // 同じ段数を繰り返してもトレイルが前回と繋がらないよう、
+        // swingId で毎回ユニークなIDにする（通常コンボと同じ挙動）
+        const swingId = Number.isFinite(state.swingId) ? state.swingId : 0;
+        const activeTrailId = active ? (comboStep * 10000 + swingId) : null;
+
+        // step4(天穿): トレイルの横振れを圧縮して縦剣筋をなだらかに保つ。
+        // 基準点の特定に現在のスイングID(activeTrailId)が必要（前スイングの
+        // フェード残り点がバッファに共存するため）。
+        if (backPose) this.flattenDualStep4TrailPose(backPose, state.backPoints, activeTrailId);
+        if (frontPose) this.flattenDualStep4TrailPose(frontPose, state.frontPoints, activeTrailId);
+
+        // 1-2撃目: 静止側のトレイルは生成しない（null poseで自然フェードアウト）
+        const suppressBack = active && comboStep === 2;  // 2撃目: 奥刀は静止
+        const suppressFront = active && comboStep === 1; // 1撃目: 手前刀は静止
+
+        // 振りかぶりフェーズや余韻フェーズ（アイドル復帰中）は剣筋を出さない
+        let startSuppress = false;
+        let settleSuppress = false;
+        if (active) {
+            // 振りかぶりやスナップ移動による初期の折れ曲がり（ヘアピン）を防ぐ
+            if (comboStep === 2 && p < 0.15) startSuppress = true;
+            if (comboStep === 3 && p < 0.15) startSuppress = true;
+            if (comboStep === 4 && p < 0.05) startSuppress = true; // 天穿は溜めが短いが極初期だけ抑制
+            // 5段目はアーチ頂点(p≈0.25)の手前の上昇中の点を含めると根本が折れて見えるため、
+            // 頂点を過ぎて下りに乗ってから開始する
+            if (comboStep === 5 && p < 0.26) startSuppress = true;
+
+            // 振り抜き後の余韻は軌跡を残さない
+            if (comboStep === 1 && p > 0.50) settleSuppress = true;
+            if (comboStep === 2 && p > 0.48) settleSuppress = true;
+            if (comboStep === 3 && p > 0.55) settleSuppress = true;
+            if (comboStep === 4 && p > 0.65) settleSuppress = true;
+            // 5段目は振り切り位置(刀の最終位置)まで剣筋を届かせる
+            if (comboStep === 5 && p > 0.78) settleSuppress = true;
+        }
+
+        // スイング切替直後の1フレームは、アンカー(renderModel由来)が前スイング位置の
+        // ままなのでサンプルしない。前スイングの点はクリアせず老化フェードに任せる。
+        let lastSwingId = state.lastSwingId;
+        let skipSampleThisFrame = false;
+        let backSampleTimerIn = state.backSampleTimer;
+        let frontSampleTimerIn = state.frontSampleTimer;
+        if (active && lastSwingId !== swingId) {
+            lastSwingId = swingId;
+            skipSampleThisFrame = true;
+            // スイング開始でサンプル位相をリセットする。前の振りのタイマー残りが
+            // 本体と分身で異なると、サンプル位相が1フレームずれて振り終端の1点が
+            // 片方だけ欠け、剣筋の端の到達位置（例: step1 の下端）が変わってしまう。
+            backSampleTimerIn = 0;
+            frontSampleTimerIn = 0;
+        }
+        if (!active) lastSwingId = -1;
+
+        const trailScale = Number.isFinite(state.trailScale) ? state.trailScale : 1;
+        const backSampleTimer = this.updateSlashTrailBuffer(
+            state.backPoints,
+            backSampleTimerIn,
+            (suppressBack || startSuppress || settleSuppress || skipSampleThisFrame) ? null : backPose,
+            deltaMs,
+            { holdExisting: false, activeTrailId: activeTrailId, sampleTrailScale: trailScale }
+        );
+        const frontSampleTimer = this.updateSlashTrailBuffer(
+            state.frontPoints,
+            frontSampleTimerIn,
+            (suppressFront || startSuppress || settleSuppress || skipSampleThisFrame) ? null : frontPose,
+            deltaMs,
+            { holdExisting: false, activeTrailId: activeTrailId, sampleTrailScale: trailScale }
+        );
+        return { backSampleTimer, frontSampleTimer, lastSwingId };
+    };
+
+    /**
      * 二刀流Zコンボ中、奥刀・手前刀それぞれのトレイルバッファを
-     * 通常コンボと同じ updateSlashTrailBuffer で更新する。
+     * 通常コンボと同じ updateSlashTrailBuffer で更新する（本体用ラッパ）。
      */
     PlayerClass.prototype.updateDualBladeSlashTrails = function(deltaMs) {
         if (deltaMs <= 0) return;
@@ -3793,116 +4180,83 @@ export function applySlashTrailMixin(PlayerClass) {
             this.currentSubWeapon &&
             this.currentSubWeapon.name === '二刀流'
         );
-
-        const backPose = isDualZ ? this.getDualBladePoseForTrail('back') : null;
-        const frontPose = isDualZ ? this.getDualBladePoseForTrail('front') : null;
-        // step4(天穿): トレイルの横振れを圧縮して縦剣筋をなだらかに保つ
-        if (backPose) this.flattenDualStep4TrailPose(backPose, this.dualBladeBackTrailPoints);
-        if (frontPose) this.flattenDualStep4TrailPose(frontPose, this.dualBladeFrontTrailPoints);
-
         const dualBlade = (isDualZ && this.currentSubWeapon) ? this.currentSubWeapon : null;
-        const comboIndex = dualBlade ? (dualBlade.comboIndex || 0) : 0;
-        const comboStep = comboIndex === 0 ? 5 : comboIndex;
-        // 1-2撃目: 静止側のトレイルは生成しない（null poseで自然フェードアウト）
-        const suppressBack = isDualZ && comboStep === 2;  // 2撃目: 奥刀は静止
-        const suppressFront = isDualZ && comboStep === 1; // 1撃目: 手前刀は静止
-
-        // 振りかぶりフェーズや余韻フェーズ（アイドル復帰中）は剣筋を出さない
-        let startSuppress = false;
-        let settleSuppress = false;
-        if (isDualZ && dualBlade) {
-            const pose = typeof dualBlade.getMainSwingPose === 'function'
-                ? dualBlade.getMainSwingPose({}) : null;
-            if (pose) {
-                const p = pose.progress || 0;
-                // 振りかぶりやスナップ移動による初期の折れ曲がり（ヘアピン）を防ぐ
-                if (comboStep === 2 && p < 0.15) startSuppress = true;
-                if (comboStep === 3 && p < 0.15) startSuppress = true;
-                if (comboStep === 4 && p < 0.05) startSuppress = true; // 天穿は溜めが短いが極初期だけ抑制
-                // 5段目はアーチ頂点(p≈0.25)の手前の上昇中の点を含めると根本が折れて見えるため、
-                // 頂点を過ぎて下りに乗ってから開始する（分身側の窓 0.26 とも統一）
-                if (comboStep === 5 && p < 0.26) startSuppress = true;
-
-                // 振り抜き後の余韻は軌跡を残さない
-                if (comboStep === 1 && p > 0.50) settleSuppress = true;
-                if (comboStep === 2 && p > 0.48) settleSuppress = true;
-                if (comboStep === 3 && p > 0.55) settleSuppress = true;
-                if (comboStep === 4 && p > 0.65) settleSuppress = true;
-                // 5段目は振り切り位置(刀の最終位置)まで剣筋を届かせる
-                if (comboStep === 5 && p > 0.78) settleSuppress = true;
-            }
-        }
-        // 同じ段数を繰り返してもトレイルが前回と繋がらないよう、
-        // _swingId で毎回ユニークなIDにする（通常コンボと同じ挙動）
-        const swingId = dualBlade ? (dualBlade._swingId || 0) : 0;
-        const activeTrailId = isDualZ ? (comboStep * 10000 + swingId) : null;
-
-        // swingIdが変わったら前回のトレイルを即座にクリア
-        let skipSampleThisFrame = false;
-        if (isDualZ && this._lastDualSwingId !== swingId) {
-            this.dualBladeBackTrailPoints.length = 0;
-            this.dualBladeFrontTrailPoints.length = 0;
-            this._lastDualSwingId = swingId;
-            skipSampleThisFrame = true; // アンカーが更新されるまで1フレーム待つ
-        }
-        if (!isDualZ) {
-            this._lastDualSwingId = -1;
-        }
-
-        const dualSampleTrailScale = this.getXAttackTrailWidthScale();
-
-        this.dualBladeBackTrailSampleTimer = this.updateSlashTrailBuffer(
-            this.dualBladeBackTrailPoints,
-            this.dualBladeBackTrailSampleTimer,
-            (suppressBack || startSuppress || settleSuppress || skipSampleThisFrame) ? null : backPose,
-            deltaMs,
-            { holdExisting: false, activeTrailId: activeTrailId, sampleTrailScale: dualSampleTrailScale }
-        );
-
-        this.dualBladeFrontTrailSampleTimer = this.updateSlashTrailBuffer(
-            this.dualBladeFrontTrailPoints,
-            this.dualBladeFrontTrailSampleTimer,
-            (suppressFront || startSuppress || settleSuppress || skipSampleThisFrame) ? null : frontPose,
-            deltaMs,
-            { holdExisting: false, activeTrailId: activeTrailId, sampleTrailScale: dualSampleTrailScale }
-        );
+        const result = this.updateDualTrailState(deltaMs, {
+            active: isDualZ,
+            comboStep: dualBlade ? (dualBlade.comboIndex || 0) : 0,
+            progress: dualBlade ? dualBlade.getMainSwingProgress() : 0,
+            swingId: dualBlade ? (dualBlade._swingId || 0) : 0,
+            backPose: isDualZ ? this.getDualBladePoseForTrail('back') : null,
+            frontPose: isDualZ ? this.getDualBladePoseForTrail('front') : null,
+            backPoints: this.dualBladeBackTrailPoints,
+            frontPoints: this.dualBladeFrontTrailPoints,
+            backSampleTimer: this.dualBladeBackTrailSampleTimer,
+            frontSampleTimer: this.dualBladeFrontTrailSampleTimer,
+            lastSwingId: this._lastDualSwingId,
+            trailScale: this.getXAttackTrailWidthScale()
+        });
+        this.dualBladeBackTrailSampleTimer = result.backSampleTimer;
+        this.dualBladeFrontTrailSampleTimer = result.frontSampleTimer;
+        this._lastDualSwingId = result.lastSwingId;
     };
 
     /**
-     * 二刀流コンボのトレイルを描画する。
+     * 二刀流コンボのトレイルを描画する（本体・分身共用）。
      * 奥刀 = 青、手前刀 = 赤で、renderComboSlashTrail の描画インフラを再利用。
+     * 分身は options.backPoints/frontPoints/boostAnchors で自身のバッファと
+     * 大凪アンカー辞書を渡すことで、本体と完全に同じ描画仕様（弧フィット・
+     * パレット・大凪の位置固定/拡大）になる。
      */
     PlayerClass.prototype.renderDualBladeSlashTrails = function(ctx, options = {}) {
         const bluePalette = { front: [130, 234, 255], back: [76, 154, 226] };
         const redPalette = { front: [255, 90, 90], back: [214, 74, 74] };
-        const isDualZActive = !!(
-            this.subWeaponAction === '二刀_Z' &&
-            this.subWeaponTimer > 0
-        );
+        const backPoints = options.backPoints !== undefined ? options.backPoints : this.dualBladeBackTrailPoints;
+        const frontPoints = options.frontPoints !== undefined ? options.frontPoints : this.dualBladeFrontTrailPoints;
+        // 大凪の位置固定アンカーは trailId(段×スイング)ごとの辞書で保持する。
+        // 残存スイングの剣筋にも各自のアンカーが効き、本体・分身で同一仕様になる。
+        if (!options.boostAnchors && !this._dualBoostAnchors) {
+            this._dualBoostAnchors = { back: {}, front: {} };
+        }
+        const anchors = options.boostAnchors || this._dualBoostAnchors;
+        if (!anchors.back) anchors.back = {};
+        if (!anchors.front) anchors.front = {};
+        const isDualZActive = options.isAttacking !== undefined
+            ? !!options.isAttacking
+            : !!(this.subWeaponAction === '二刀_Z' && this.subWeaponTimer > 0);
         const physicalScale = Number.isFinite(options.physicalScale) && options.physicalScale > 1
             ? options.physicalScale : 1;
 
-        if (this.dualBladeBackTrailPoints.length >= 2) {
+        // バッファが空になったらアンカー辞書を掃除（スイントごとに増えるため）
+        if (!backPoints || backPoints.length === 0) anchors.back = {};
+        if (!frontPoints || frontPoints.length === 0) anchors.front = {};
+
+        if (backPoints && backPoints.length >= 2) {
             this.renderComboSlashTrail(ctx, {
                 // 描画前に一定曲率の弧へ再配置（生軌道の縒れを排除）
-                points: this.fitDualTrailPointsToArc(this.dualBladeBackTrailPoints),
+                points: this.fitDualTrailPointsToArc(backPoints),
                 palette: bluePalette,
                 forceLinearSmooth: true,
                 isAttacking: isDualZActive,
                 physicalScale,
-                getBoostAnchor: (step) => this._dualBackBoostAnchor || null,
-                setBoostAnchor: (step, v) => { this._dualBackBoostAnchor = v; }
+                getBoostAnchor: (id) => (id !== null && id !== undefined ? (anchors.back[id] || null) : null),
+                setBoostAnchor: (id, v) => {
+                    if (id === null || id === undefined) return;
+                    if (v) anchors.back[id] = v; else delete anchors.back[id];
+                }
             });
         }
-        if (this.dualBladeFrontTrailPoints.length >= 2) {
+        if (frontPoints && frontPoints.length >= 2) {
             this.renderComboSlashTrail(ctx, {
-                points: this.fitDualTrailPointsToArc(this.dualBladeFrontTrailPoints),
+                points: this.fitDualTrailPointsToArc(frontPoints),
                 palette: redPalette,
                 forceLinearSmooth: true,
                 isAttacking: isDualZActive,
                 physicalScale,
-                getBoostAnchor: (step) => this._dualFrontBoostAnchor || null,
-                setBoostAnchor: (step, v) => { this._dualFrontBoostAnchor = v; }
+                getBoostAnchor: (id) => (id !== null && id !== undefined ? (anchors.front[id] || null) : null),
+                setBoostAnchor: (id, v) => {
+                    if (id === null || id === undefined) return;
+                    if (v) anchors.front[id] = v; else delete anchors.front[id];
+                }
             });
         }
     };
