@@ -3403,6 +3403,57 @@ export function applySlashTrailMixin(PlayerClass) {
             }
             drawBlueTrailLayers(sourcePts, baseWidth, oldestScale, newestScale, null, { smooth: !!options.smooth });
         };
+        const drawStep3TipAnchoredLinearTrail = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
+            if (!pts || pts.length < 1) return;
+            const oldestSrc = pts[0];
+            const newestSrc = pts[pts.length - 1];
+            const isRelative = (src) => !!(
+                options.forceRelative ||
+                (options.useRelativeIfAvailable && src && src.trailIsRelative)
+            );
+            const offsetFor = (src) => {
+                if (!isRelative(src)) return { x: 0, y: 0 };
+                return {
+                    x: Number.isFinite(options.forceOffsetX)
+                        ? options.forceOffsetX
+                        : (Number.isFinite(src.playerX) ? src.playerX : (options.offsetX || 0)),
+                    y: Number.isFinite(options.forceOffsetY)
+                        ? options.forceOffsetY
+                        : (Number.isFinite(src.playerY) ? src.playerY : (options.offsetY || 0))
+                };
+            };
+            const startOffset = offsetFor(newestSrc);
+            const endOffset = offsetFor(newestSrc);
+            const startRawX = Number.isFinite(newestSrc.trailCurveStartX)
+                ? newestSrc.trailCurveStartX
+                : (Number.isFinite(oldestSrc.trailCurveStartX) ? oldestSrc.trailCurveStartX : oldestSrc.x);
+            const startRawY = Number.isFinite(newestSrc.trailCurveStartY)
+                ? newestSrc.trailCurveStartY
+                : (Number.isFinite(oldestSrc.trailCurveStartY) ? oldestSrc.trailCurveStartY : oldestSrc.y);
+            const endRawX = Number.isFinite(newestSrc.x)
+                ? newestSrc.x
+                : (Number.isFinite(newestSrc.trailCurveEndX) ? newestSrc.trailCurveEndX : null);
+            const endRawY = Number.isFinite(newestSrc.y)
+                ? newestSrc.y
+                : (Number.isFinite(newestSrc.trailCurveEndY) ? newestSrc.trailCurveEndY : null);
+            if ([startRawX, startRawY, endRawX, endRawY].some((v) => !Number.isFinite(v))) return;
+
+            const linePts = [
+                {
+                    x: startRawX + startOffset.x,
+                    y: startRawY + startOffset.y,
+                    age: oldestSrc.age || 0,
+                    life: Math.max(1, oldestSrc.life || this.comboSlashTrailActiveLifeMs)
+                },
+                {
+                    x: endRawX + endOffset.x,
+                    y: endRawY + endOffset.y,
+                    age: newestSrc.age || 0,
+                    life: Math.max(1, newestSrc.life || this.comboSlashTrailActiveLifeMs)
+                }
+            ];
+            drawBlueTrailLayers(linePts, baseWidth, oldestScale, newestScale, projectFn);
+        };
         const drawDualBlueArcTrail = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
             const includeGhost = false;
             const mapped = buildProjected(pts, projectFn);
@@ -3859,8 +3910,7 @@ export function applySlashTrailMixin(PlayerClass) {
             } else if (stripStep === 4) {
                 drawStep4AnchoredArcTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { includeGhost: false });
             } else if (stripStep === 3) {
-                drawFixedBezierTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
-                    comboStep: 3,
+                drawStep3TipAnchoredLinearTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, {
                     useRelativeIfAvailable: true,
                     offsetX: this.x,
                     offsetY: this.y
@@ -3914,7 +3964,7 @@ export function applySlashTrailMixin(PlayerClass) {
                         trimEndCap: fc.step === 2, trimFactor: 0.5
                     });
                 } else if (fc.type === 'bezier' || !fc.type) {
-                    // ベジェ曲線段 (1, 2, 3, 5)
+                    // ベジェ曲線段 (1, 2, 5)
                     if (!Number.isFinite(fc.trailCurveStartX)) { ctx.restore(); continue; }
                     
                     // 描画関数内部の自然なグラデーションフェード（oldestFade〜newestFade）に完全に委ねる。
@@ -4012,11 +4062,7 @@ export function applySlashTrailMixin(PlayerClass) {
                     if (fc.step === 4) {
                         drawStep4AnchoredArcTrail(pts, 13.8 * frozenWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
                     } else if (fc.step === 3) {
-                        drawDualBlueLinearTrail(pts, 13.8 * frozenWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
-                            straighten: true,
-                            trimEndCap: false,
-                            trimFactor: 1.0
-                        });
+                        drawStep3TipAnchoredLinearTrail(pts, 13.8 * frozenWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
                     } else {
                         drawDualBlueArcTrail(pts, 13.8 * frozenWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
                     }

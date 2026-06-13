@@ -647,6 +647,32 @@ export function applyRendererMixin(PlayerClass) {
         ctx.fill();
     };
 
+    PlayerClass.prototype.renderSpecialReadyGlow = function(ctx, options = {}) {
+        if (options.skipGlow === true) return;
+        if (this.specialGauge < this.maxSpecialGauge || this.isDefeated) return;
+
+        const glowProgress = (Date.now() % 2000) / 2000;
+        const glowAlpha = (Math.sin(glowProgress * Math.PI * 2) + 1) / 2;
+        const worldW = typeof this.getWorldWidth === 'function' ? this.getWorldWidth() : this.width;
+        const worldH = typeof this.getWorldHeight === 'function' ? this.getWorldHeight() : this.height;
+        const centerX = this.x + worldW / 2;
+        const centerY = this.y + worldH / 2;
+        const radius = Math.max(worldW, worldH) * 1.15;
+
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const grad = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
+        grad.addColorStop(0, `rgba(255, 230, 100, ${0.4 + glowAlpha * 0.3})`);
+        grad.addColorStop(0.5, `rgba(255, 210, 80, ${0.1 + glowAlpha * 0.15})`);
+        grad.addColorStop(1, 'rgba(255, 210, 80, 0)');
+
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    };
+
     PlayerClass.prototype.render = function(ctx, options = {}) {
         const ghostVeilActive = options.ghostVeilActive !== undefined 
             ? options.ghostVeilActive 
@@ -655,6 +681,7 @@ export function applyRendererMixin(PlayerClass) {
 
         // 将軍モード時は独自描画のみを行い、忍者の描画（残像含む）を一切スキップする
         if (this.characterType === 'shogun') {
+            this.renderSpecialReadyGlow(ctx, options);
             this._renderShogunBody(ctx, ghostVeilActive, ghostVeilActive ? 0.0 : 1.0);
             return;
         }
@@ -673,29 +700,8 @@ export function applyRendererMixin(PlayerClass) {
 
         const damageFlashActive = this.damageFlashTimer > 0;
 
-        // 奥義MAX到達時の発光エフェクト (軽量化: radialGradientを使用)
-        const skipGlow = options.skipGlow === true;
-        if (!skipGlow && this.specialGauge >= this.maxSpecialGauge && !this.isDefeated) {
-            const glowProgress = (Date.now() % 2000) / 2000;
-            const glowAlpha = (Math.sin(glowProgress * Math.PI * 2) + 1) / 2; // 0 -> 1 -> 0 pulse
-            
-            ctx.save();
-            ctx.globalCompositeOperation = 'lighter';
-            const centerX = this.x + this.width / 2;
-            const centerY = this.y + this.height / 2;
-            const radius = Math.max(this.width, this.height) * 1.15;
-            
-            const grad = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
-            grad.addColorStop(0, `rgba(255, 230, 100, ${0.4 + glowAlpha * 0.3})`);
-            grad.addColorStop(0.5, `rgba(255, 210, 80, ${0.1 + glowAlpha * 0.15})`);
-            grad.addColorStop(1, 'rgba(255, 210, 80, 0)');
-            
-            ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-        }
+        // 奥義MAX到達時の発光エフェクト
+        this.renderSpecialReadyGlow(ctx, options);
 
         // 隠れ身の術中は本体のみ透明化（全体フィルタは重いので適用しない）
         if (filterParts.length > 0) {

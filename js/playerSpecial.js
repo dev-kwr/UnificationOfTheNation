@@ -990,18 +990,17 @@ export function applySpecialMixin(PlayerClass) {
                     this.specialCloneReturnToAnchor[i] = false;
                 } else {
                     const dx = anchor.x - pos.x;
-                    if (Math.abs(dx) > 300) {
-                        pos.x = anchor.x;
-                        pos.facingRight = this.facingRight;
-                        this.initCloneAccessoryNodes(i);
-                    } else if (Math.abs(dx) > 2) {
-                        const chaseSpeed = Math.max(
-                            (this.speed || 5) * 2.0,
-                            Math.abs(dx) / Math.max(0.016, deltaTime) * 0.7
+                    const absDx = Math.abs(dx);
+                    if (absDx > 2) {
+                        const baseSpeed = Math.max(1, this.speed || PLAYER.SPEED || 5);
+                        const dtScale = Math.max(0.25, Math.min(2.5, deltaTime * 60));
+                        const returnSpeed = Math.min(
+                            baseSpeed * 6,
+                            baseSpeed * 1.4 + absDx * 0.055
                         );
-                        const step = Math.sign(dx) * Math.min(Math.abs(dx), chaseSpeed * deltaTime * 60);
+                        const step = Math.sign(dx) * Math.min(absDx, returnSpeed * dtScale);
                         pos.x += step;
-                        if (Math.abs(dx) > 6) {
+                        if (absDx > 6) {
                             pos.facingRight = dx > 0;
                         }
                     } else {

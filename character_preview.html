@@ -775,6 +775,7 @@
         const updateStepBackButton = () => {
             const btn = document.getElementById('btnStepBackFrame');
             if (btn) btn.disabled = previewHistory.length === 0;
+            window.__previewHistoryLength = previewHistory.length;
         };
         const capturePreviewSnapshot = () => ({
             previewCharacter,
@@ -799,7 +800,10 @@
             restoreActorSnapshot(ninja, snapshot.ninja);
             restoreActorSnapshot(shogunPlayer, snapshot.shogun);
             window.__simAccum = Number.isFinite(snapshot.simAccum) ? snapshot.simAccum : 0;
+            window.__stepFrameRequested = false;
+            window.__skipNextHistoryRecord = false;
             isPaused = true;
+            lastTime = performance.now();
             syncGameState();
             updateUI();
             updateStepBackButton();
@@ -813,6 +817,10 @@
             document.getElementById('viewZoomVal').textContent = (parseFloat(e.target.value) || 1).toFixed(2) + 'x';
         });
         document.getElementById('btnStepBackFrame').addEventListener('click', () => {
+            isPaused = true;
+            window.__stepFrameRequested = false;
+            window.__skipNextHistoryRecord = false;
+            window.__simAccum = 0;
             const snapshot = previewHistory.pop();
             if (!snapshot) {
                 updateStepBackButton();
@@ -821,7 +829,11 @@
             restorePreviewSnapshot(snapshot);
         });
         document.getElementById('btnStepFrame').addEventListener('click', () => {
+            isPaused = true;
+            recordPreviewSnapshot();
+            window.__skipNextHistoryRecord = true;
             window.__stepFrameRequested = true;
+            updateUI();
         });
         document.getElementById('btnHideArmor').addEventListener('click', (e) => {
             // native 描画は shogunPlayer 自身の _drawShogun*（hideShogunArmor を参照）。
@@ -1000,7 +1012,11 @@
             if (typeof lastNinjaSubIndex === 'undefined') window.lastNinjaSubIndex = -1;
 
             if (_runUpdate) {
-                recordPreviewSnapshot();
+                if (window.__skipNextHistoryRecord) {
+                    window.__skipNextHistoryRecord = false;
+                } else {
+                    recordPreviewSnapshot();
+                }
                 applyPreviewEffectState(getActiveActor());
 
                 // 状態・入力の同期
