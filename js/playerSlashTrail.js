@@ -1285,11 +1285,6 @@ export function applySlashTrailMixin(PlayerClass) {
         const durationMs = Math.max(1, attack.durationMs || PLAYER.ATTACK_COOLDOWN);
         const frameMs = 1000 / 60;
         const bodyMotionScale = this.getComboTrailBodyMotionScale(state);
-        const renderScale = Math.max(1, Number.isFinite(state.renderScale)
-            ? state.renderScale
-            : (Number.isFinite(state.scaleMultiplier)
-                ? state.scaleMultiplier
-                : (Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1)));
         const scaleMult = Math.max(1, Number.isFinite(state.scaleMultiplier)
             ? state.scaleMultiplier
             : (Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1));
@@ -1304,7 +1299,12 @@ export function applySlashTrailMixin(PlayerClass) {
         let simGrounded = isCrouching
             ? (state.isGrounded !== undefined ? !!state.isGrounded : !!this.isGrounded)
             : false;
-        const sampleTargets = [0.0, 1.0];
+        const trailWindow = this.getComboTrailProgressWindow(3);
+        const startProgress = Number.isFinite(trailWindow.start) ? trailWindow.start : 0.0;
+        const endProgress = Number.isFinite(trailWindow.end) ? trailWindow.end : 1.0;
+        const midProgress = Math.max(startProgress, Math.min(endProgress, 0.56));
+        const sampleTargets = [startProgress, midProgress, endProgress]
+            .map((progress) => this.resolveRawProgressForAttackMotion(attack, progress));
         const sampledBodies = [];
         let sampleIndex = 0;
         let timerMs = durationMs;
@@ -1325,8 +1325,8 @@ export function applySlashTrailMixin(PlayerClass) {
                 simVx *= FRICTION;
                 if (Math.abs(simVx) < 0.1) simVx = 0;
             }
-            simX += simVx * bodyMotionScale / renderScale;
-            simY += simVy * bodyMotionScale / renderScale;
+            simX += simVx * bodyMotionScale;
+            simY += simVy * bodyMotionScale;
             if (Number.isFinite(groundY) && simY + worldH >= groundY + LANE_OFFSET) {
                 simY = groundY + LANE_OFFSET - worldH;
                 simVy = 0;
@@ -1353,19 +1353,43 @@ export function applySlashTrailMixin(PlayerClass) {
                 attackTimer: durationMs * (1 - Math.max(0, Math.min(1, rawProgress))),
                 recoveryBlend: 0
             });
-            return pose ? { x: pose.trailTipX, y: pose.trailTipY } : null;
+            return pose ? { x: pose.trailTipX, y: pose.trailTipY, progress: pose.progress } : null;
         };
 
         const startBody = sampledBodies[0] || { x, y };
-        const endBody = sampledBodies[1] || startBody;
-        const start = pointAt(0.0, startBody.x, startBody.y);
-        const end = pointAt(1.0, endBody.x, endBody.y);
-        if (!start || !end) return null;
-        end.x -= dir * (14 / renderScale);
-        const controlX = (start.x + end.x) * 0.5;
-        const controlY = (start.y + end.y) * 0.5;
+        const midBody = sampledBodies[1] || startBody;
+        const endBody = sampledBodies[2] || midBody;
+        const startPose = pointAt(sampleTargets[0], startBody.x, startBody.y);
+        const midPose = pointAt(sampleTargets[1], midBody.x, midBody.y);
+        const endPose = pointAt(sampleTargets[2], endBody.x, endBody.y);
+        if (!startPose || !midPose || !endPose) return null;
+        const start = { x: startPose.x, y: startPose.y };
+        const mid = { x: midPose.x, y: midPose.y };
+        const end = { x: endPose.x, y: endPose.y };
+        const startPoseProgress = Number.isFinite(startPose.progress) ? startPose.progress : startProgress;
+        const midPoseProgress = Number.isFinite(midPose.progress) ? midPose.progress : midProgress;
+        const endPoseProgress = Number.isFinite(endPose.progress) ? endPose.progress : endProgress;
+        const totalSpan = Math.max(0.001, endPoseProgress - startPoseProgress);
+        const midT = Math.max(0.16, Math.min(0.84, (midPoseProgress - startPoseProgress) / totalSpan));
+        const midFactor = Math.max(0.001, 2 * (1 - midT) * midT);
+        let controlX = (
+            mid.x -
+            ((1 - midT) * (1 - midT) * start.x) -
+            (midT * midT * end.x)
+        ) / midFactor;
+        let controlY = (
+            mid.y -
+            ((1 - midT) * (1 - midT) * start.y) -
+            (midT * midT * end.y)
+        ) / midFactor;
+        controlX = Math.max(Math.min(start.x, end.x), Math.min(Math.max(start.x, end.x), controlX));
+        const controlYMin = Math.min(start.y, mid.y, end.y) - 120;
+        const controlYMax = Math.max(start.y, mid.y, end.y) + 120;
+        controlY = Math.max(controlYMin, Math.min(controlYMax, controlY));
         const startDeltaX = startBody.x - x;
         const startDeltaY = startBody.y - y;
+        const midDeltaX = midBody.x - x;
+        const midDeltaY = midBody.y - y;
         const endDeltaX = endBody.x - x;
         const endDeltaY = endBody.y - y;
 
@@ -1378,8 +1402,8 @@ export function applySlashTrailMixin(PlayerClass) {
             trailCurveEndY: end.y,
             startDeltaX,
             startDeltaY,
-            midDeltaX: (startDeltaX + endDeltaX) * 0.5,
-            midDeltaY: (startDeltaY + endDeltaY) * 0.5,
+            midDeltaX,
+            midDeltaY,
             endDeltaX,
             endDeltaY,
             trailIsRelative: false,
@@ -2112,22 +2136,6 @@ export function applySlashTrailMixin(PlayerClass) {
         if (swordPose.progress < trailWindow.start || swordPose.progress > trailWindow.end) return null;
         let tipX = swordPose.trailTipX;
         let tipY = swordPose.trailTipY;
-        // 3撃目の終端だけ少し内側へ寄せ、4撃目の縦剣筋と自然に交差させる。
-        if (swordPose.comboStep === 3 && Number.isFinite(tipX)) {
-            let renderScale = 1;
-            if (Number.isFinite(state.renderScale)) {
-                renderScale = state.renderScale;
-            } else if (Number.isFinite(state.scaleMultiplier)) {
-                renderScale = state.scaleMultiplier;
-            } else if (Number.isFinite(this.scaleMultiplier)) {
-                renderScale = this.scaleMultiplier;
-            }
-            renderScale = Math.max(1, renderScale);
-            const trimStart = 0.72;
-            const trimT = Math.max(0, Math.min(1, (swordPose.progress - trimStart) / (1 - trimStart)));
-            const trimEase = trimT * trimT * (3 - 2 * trimT);
-            tipX -= swordPose.dir * (14 / renderScale) * trimEase;
-        }
         return {
             comboStep: swordPose.comboStep,
             // 投影(_projectShogunTrailPoseToWorldScale)のアンカー解決に使う攻撃プロファイル。
@@ -3473,6 +3481,9 @@ export function applySlashTrailMixin(PlayerClass) {
                     const rawProgress = Number.isFinite(attackState.currentAttack.motionElapsedMs)
                         ? clamp01(attackState.currentAttack.motionElapsedMs / duration)
                         : clamp01(1 - ((Number.isFinite(attackState.attackTimer) ? attackState.attackTimer : this.attackTimer) / duration));
+                    if (options.useRawProgressForGrowth) {
+                        return rawProgress;
+                    }
                     return this.getAttackMotionProgress(attackState.currentAttack, rawProgress);
                 }
                 if (Number.isFinite(newestSrc.progress)) return newestSrc.progress;
@@ -3486,19 +3497,19 @@ export function applySlashTrailMixin(PlayerClass) {
                 return clamp01((p - trailWindow.start) / Math.max(0.001, trailWindow.end - trailWindow.start));
             })();
 
-            if (options.useTipProjection && Number.isFinite(newestSrc.x) && Number.isFinite(newestSrc.y)) {
-                const tipOffset = offsetFor(newestSrc);
-                const tipX = newestSrc.x + tipOffset.x;
-                const tipY = newestSrc.y + tipOffset.y;
-                const tipProjection = ((tipX - startX) * lineDx + (tipY - startY) * lineDy) / lineLenSq;
-                if (Number.isFinite(tipProjection)) {
-                    growth = clamp01(tipProjection);
-                }
-            }
             if (growth <= 0.001) return;
 
-            const drawEndX = startX + lineDx * growth;
-            const drawEndY = startY + lineDy * growth;
+            let drawEndX = startX + lineDx * growth;
+            let drawEndY = startY + lineDy * growth;
+            if (
+                options.useCurrentTipEndpoint &&
+                Number.isFinite(newestSrc.x) &&
+                Number.isFinite(newestSrc.y)
+            ) {
+                const tipOffset = offsetFor(newestSrc);
+                drawEndX = newestSrc.x + tipOffset.x;
+                drawEndY = newestSrc.y + tipOffset.y;
+            }
             const linePts = [
                 {
                     x: startX,
@@ -3975,7 +3986,8 @@ export function applySlashTrailMixin(PlayerClass) {
                     useRelativeIfAvailable: true,
                     offsetX: this.x,
                     offsetY: this.y,
-                    useTipProjection: true
+                    useRawProgressForGrowth: true,
+                    useCurrentTipEndpoint: true
                 });
             } else {
                 drawDualBlueArcTrail(strip, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { includeGhost: false });
@@ -4124,9 +4136,7 @@ export function applySlashTrailMixin(PlayerClass) {
                     if (fc.step === 4) {
                         drawStep4AnchoredArcTrail(pts, 13.8 * frozenWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
                     } else if (fc.step === 3) {
-                        drawStep3StableLinearTrail(pts, 13.8 * frozenWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen, {
-                            useTipProjection: true
-                        });
+                        drawStep3StableLinearTrail(pts, 13.8 * frozenWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
                     } else {
                         drawDualBlueArcTrail(pts, 13.8 * frozenWidthScale * physicalScale, baseOldestAlpha, baseNewestAlpha, projFnFrozen);
                     }

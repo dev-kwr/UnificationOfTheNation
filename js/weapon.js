@@ -360,6 +360,14 @@ export class ShurikenProjectile {
         this.lastHitMap = new Map();
         this.id = Math.random().toString(36).substr(2, 9);
         this.initialDirection = Math.sign(vx) || 1; // ★修正: 発射時の向きを記憶
+        this.baseSpeed = Math.sqrt(vx * vx + vy * vy) || 1;
+        this.homingTarget = null;
+        this.homingTargetRear = false;
+        this.homingRearArcPoint = null;
+        this.homingRearArcCleared = false;
+        this.homingLostSettleMs = 0;
+        this.homingLostDir = this.initialDirection;
+        this.defaultFlightY = y;
         this.prevX = x;
         this.prevY = y;
     }
@@ -372,34 +380,65 @@ export class ShurikenProjectile {
         //   （外部から直接呼ばれても致命的な副作用はない）
 
         const dt = deltaTime;
+        const smoothTurnTowardAngle = (targetAngle, turnRatePerSecond, targetSpeed, speedBlendRate = 6) => {
+            const currentAngle = Math.atan2(this.vy, this.vx);
+            let angleDiff = targetAngle - currentAngle;
+            while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+            while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+            const turnRate = turnRatePerSecond * dt;
+            const turn = Math.max(-turnRate, Math.min(turnRate, angleDiff));
+            const newAngle = currentAngle + turn;
+            const currentSpeed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+            const speedBlend = Math.min(1, dt * speedBlendRate);
+            const speed = currentSpeed + (targetSpeed - currentSpeed) * speedBlend;
+            this.vx = Math.cos(newAngle) * speed;
+            this.vy = Math.sin(newAngle) * speed;
+            return angleDiff;
+        };
+        const settleLostHoming = () => {
+            if (this.homingLostSettleMs <= 0) return;
+            this.homingLostSettleMs = Math.max(0, this.homingLostSettleMs - dt * 1000);
+            const dir = Math.sign(this.homingLostDir) || Math.sign(this.vx) || this.initialDirection;
+            const yError = this.defaultFlightY - this.y;
+            const verticalAim = Math.max(-0.18, Math.min(0.5, yError / 120));
+            const targetAngle = Math.atan2(verticalAim, dir);
+            smoothTurnTowardAngle(targetAngle, 11.0, this.baseSpeed * 0.95, 8);
+            if (this.vy < -this.baseSpeed * 0.12) {
+                this.vy *= 0.68;
+            }
+        };
+        let homingGuidanceApplied = false;
 
         // --- 追尾 ---
-        if (this.homing && enemies.length > 0) {
-            const validEnemies = enemies.filter(e => {
-                if (!e || e.isDead) return false;
-                return true;           // ★フィルタなし – 生存敵すべてを候補にする
-            });
+        if (this.homing && this.homingTarget) {
+            const targetAlive = !this.homingTarget.isDead &&
+                !this.homingTarget.isDying &&
+                this.homingTarget.isAlive !== false;
+            const targetInFrame = !Array.isArray(enemies) ||
+                enemies.includes(this.homingTarget);
 
-            if (validEnemies.length > 0) {
-                // 最も近い敵を追尾
-                let closest = validEnemies[0];
-                let closestDist = Infinity;
+            if (targetAlive && targetInFrame) {
                 const getTargetPoint = (e) => ({
                     x: e.x + (e.width || 30) / 2,
                     y: e.y + (e.height || 30) * (e.isCrouching ? 0.30 : 0.38)
                 });
-                for (const e of validEnemies) {
-                    const target = getTargetPoint(e);
-                    const ex = target.x - this.x;
-                    const ey = target.y - this.y;
-                    const d = ex * ex + ey * ey;
-                    if (d < closestDist) {
-                        closestDist = d;
-                        closest = e;
+                const rearTarget = this.homingTargetRear;
+                let target = getTargetPoint(this.homingTarget);
+                let rearArcActive = false;
+                if (rearTarget && this.homingRearArcPoint && !this.homingRearArcCleared) {
+                    const arc = this.homingRearArcPoint;
+                    const distToArc = Math.hypot(arc.x - this.x, arc.y - this.y);
+                    const highEnough = this.y <= arc.y + this.radius * 1.35;
+                    const turningBack = this.vx * this.initialDirection < -this.baseSpeed * 0.12;
+                    const crossedArc = (this.x - arc.x) * this.initialDirection < -this.radius * 0.45;
+                    if (distToArc < this.radius * 1.1 || (highEnough && (turningBack || crossedArc))) {
+                        this.homingRearArcCleared = true;
+                    } else {
+                        target = arc;
+                        rearArcActive = true;
                     }
                 }
-                // (debug log removed)
-                const target = getTargetPoint(closest);
                 const dx = target.x - this.x;
                 const dy = target.y - this.y;
                 const targetAngle = Math.atan2(dy, dx);
@@ -408,13 +447,31 @@ export class ShurikenProjectile {
                 while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
                 while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
 
-                const turnRate = 6.0 * dt;
-                const turn = Math.max(-turnRate, Math.min(turnRate, angleDiff));
-                const newAngle = currentAngle + turn;
-                const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-                this.vx = Math.cos(newAngle) * speed;
-                this.vy = Math.sin(newAngle) * speed;
+                const hardRearTurn = rearTarget && Math.abs(angleDiff) > Math.PI * 0.55;
+                const turnRatePerSecond = rearArcActive ? 18.0 : (hardRearTurn ? 24.0 : (rearTarget ? 14.0 : 6.0));
+                const targetSpeed = rearArcActive
+                    ? this.baseSpeed * 0.72
+                    : (
+                        rearTarget && Math.abs(angleDiff) > Math.PI * 0.45
+                            ? this.baseSpeed * 0.66
+                            : this.baseSpeed
+                    );
+                smoothTurnTowardAngle(targetAngle, turnRatePerSecond, targetSpeed, rearTarget ? 9 : 5);
+                if (rearTarget && this.homingRearArcCleared && dy > 0 && this.vy < -this.baseSpeed * 0.3) {
+                    this.vy *= 0.72;
+                }
+                homingGuidanceApplied = true;
+            } else {
+                this.homingLostDir = Math.sign(this.vx) || (this.homingTargetRear ? -this.initialDirection : this.initialDirection);
+                this.homingLostSettleMs = Math.max(this.homingLostSettleMs, 360);
+                this.homingTarget = null;
+                this.homingTargetRear = false;
+                this.homingRearArcPoint = null;
+                this.homingRearArcCleared = true;
             }
+        }
+        if (!homingGuidanceApplied) {
+            settleLostHoming();
         }
 
         const isPreviewMode = !!(window.game && window.game.player && window.game.player.previewMode);
@@ -562,7 +619,7 @@ export class Shuriken extends SubWeapon {
         return this.projectiles.length < this.maxOnScreen;
     }
 
-    use(player) {
+    use(player, enemies = []) {
         this.owner = player;
         if (!this.canUse()) return;
 
@@ -573,9 +630,21 @@ export class Shuriken extends SubWeapon {
 
         const baseX = player.x + ownerWorldWidth(player) / 2;
         const baseY = player.y;
+        const launchEnemies = Array.isArray(enemies) ? enemies : [];
 
         // 本体の1発発射
-        const mainProjectile = this._spawnProjectile(baseX, baseY, direction, pierce, homing, false);
+        const mainLock = homing
+            ? this._selectLaunchHomingTarget(baseX + direction * 18, baseY + 16, direction, launchEnemies)
+            : null;
+        const mainProjectile = this._spawnProjectile(
+            baseX,
+            baseY,
+            direction,
+            pierce,
+            homing,
+            false,
+            mainLock
+        );
         this._assignThrowTransformPivot(mainProjectile, player, baseX, baseY);
 
         // 奥義分身（火薬玉と同様に独立カウント）
@@ -590,9 +659,12 @@ export class Shuriken extends SubWeapon {
                     player.triggerCloneSubWeapon(clone.index);
                     const cloneBaseX = baseX + clone.dx;
                     const cloneBaseY = baseY + clone.dy;
+                    const cloneLock = homing
+                        ? this._selectLaunchHomingTarget(cloneBaseX + direction * 18, cloneBaseY + 16, direction, launchEnemies)
+                        : null;
                     const cloneProjectile = this._spawnProjectile(
                         cloneBaseX, cloneBaseY,
-                        direction, pierce, homing, true // isClone=true
+                        direction, pierce, homing, true, cloneLock // isClone=true
                     );
                     cloneProjectile.cloneIndex = clone.index;
                     this._assignThrowTransformPivot(cloneProjectile, player, cloneBaseX, cloneBaseY);
@@ -607,7 +679,57 @@ export class Shuriken extends SubWeapon {
         audio.playShuriken();
     }
 
-    _spawnProjectile(baseX, baseY, direction, pierce, homing, isClone = false) {
+    _getHomingTargetPoint(enemy) {
+        return {
+            x: enemy.x + (enemy.width || 30) / 2,
+            y: enemy.y + (enemy.height || 30) * (enemy.isCrouching ? 0.30 : 0.38)
+        };
+    }
+
+    _selectLaunchHomingTarget(originX, originY, direction, enemies = []) {
+        const validEnemies = enemies.filter(enemy =>
+            enemy &&
+            !enemy.isDead &&
+            !enemy.isDying &&
+            enemy.isAlive !== false
+        );
+        if (validEnemies.length === 0) return null;
+
+        const frontEnemies = [];
+        const rearEnemies = [];
+        for (const enemy of validEnemies) {
+            const target = this._getHomingTargetPoint(enemy);
+            ((target.x - originX) * direction >= -this.projectileRadiusHoming ? frontEnemies : rearEnemies).push(enemy);
+        }
+        const candidates = frontEnemies.length > 0 ? frontEnemies : rearEnemies;
+        let closest = null;
+        let closestDist = Infinity;
+        for (const enemy of candidates) {
+            const target = this._getHomingTargetPoint(enemy);
+            const dx = target.x - originX;
+            const dy = target.y - originY;
+            const d = dx * dx + dy * dy;
+            if (d < closestDist) {
+                closestDist = d;
+                closest = enemy;
+            }
+        }
+        return closest ? { target: closest, rear: frontEnemies.length === 0 } : null;
+    }
+
+    _createRearArcPoint(baseX, baseY, direction) {
+        const owner = this.owner || null;
+        const ownerWidth = owner ? ownerWorldWidth(owner) : PLAYER.WIDTH;
+        const ownerHeight = owner ? ownerWorldHeight(owner) : PLAYER.HEIGHT;
+        const forwardOffset = Math.max(14, Math.min(34, ownerWidth * 0.2));
+        const topClearance = Math.max(30, Math.min(48, ownerHeight * 0.24));
+        return {
+            x: baseX + direction * forwardOffset,
+            y: baseY - topClearance
+        };
+    }
+
+    _spawnProjectile(baseX, baseY, direction, pierce, homing, isClone = false, launchLock = null) {
         const spawnX = baseX + direction * 18;
         const spawnY = baseY + 16;
         const speed = this.bulletSpeed || 20;
@@ -627,6 +749,13 @@ export class Shuriken extends SubWeapon {
             homing,
             0
         );
+        if (homing && launchLock && launchLock.target) {
+            proj.homingTarget = launchLock.target;
+            proj.homingTargetRear = !!launchLock.rear;
+            if (proj.homingTargetRear) {
+                proj.homingRearArcPoint = this._createRearArcPoint(baseX, baseY, direction);
+            }
+        }
         // 本体と分身で別配列に格納
         if (isClone) {
             this.cloneProjectiles.push(proj);

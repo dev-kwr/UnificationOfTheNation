@@ -833,7 +833,7 @@ export class Player {
         this.tryConsumeDualBladeBufferedAttack();
 
         // 入力処理 (handleInput内でタイマーをセットするように修正が必要)
-        this.handleInput();
+        this.handleInput(enemies);
 
         // 物理演算（ヒットストップ中は位置更新をスキップして、アニメーションとの同期を維持する）
         if (deltaTime > 0) {
@@ -933,9 +933,9 @@ export class Player {
             if (this.afterImages.length > 0) this.afterImages.pop();
         }
     }
-    handleInput() {
+    handleInput(enemies = []) {
         if (this.hasCombatControllerMethod('handleInput')) {
-            return this.combatController.handleInput.call(this);
+            return this.combatController.handleInput.call(this, enemies);
         }
         // ========== プレビューモード：攻撃・忍具・武器切替のみ ==========
         if (this.previewMode) {
@@ -954,7 +954,7 @@ export class Player {
                 } else {
                     // canUse() チェック（手裏剣・火薬玉の画面上最大数制限）
                     if (this.currentSubWeapon.canUse && !this.currentSubWeapon.canUse()) return;
-                    this.useSubWeapon();
+                    this.useSubWeapon(enemies);
                     const weaponName = this.currentSubWeapon ? this.currentSubWeapon.name : '';
                     const isThrow = weaponName === '火薬玉' || weaponName === '手裏剣';
                     this.subWeaponTimer = this.getSubWeaponActionDurationMs(isThrow ? 'throw' : weaponName, this.currentSubWeapon);
@@ -1015,7 +1015,7 @@ export class Player {
             } else {
                 // canUse() チェック（手裏剣・火薬玉の画面上最大数制限）
                 if (this.currentSubWeapon.canUse && !this.currentSubWeapon.canUse()) return;
-                this.useSubWeapon();
+                this.useSubWeapon(enemies);
                 const weaponName = this.currentSubWeapon ? this.currentSubWeapon.name : '';
                 const isThrow = weaponName === '火薬玉' || weaponName === '手裏剣';
                 this.subWeaponTimer = this.getSubWeaponActionDurationMs(isThrow ? 'throw' : weaponName, this.currentSubWeapon);
@@ -1394,12 +1394,12 @@ export class Player {
         this.animState = this.currentAttack.type;
     }
     
-    useSubWeapon() {
+    useSubWeapon(enemies = []) {
         if (this.hasCombatControllerMethod('useSubWeapon')) {
-            return this.combatController.useSubWeapon.call(this);
+            return this.combatController.useSubWeapon.call(this, enemies);
         }
         if (this.currentSubWeapon) {
-            this.currentSubWeapon.use(this);
+            this.currentSubWeapon.use(this, enemies);
         }
     }
 
