@@ -38,7 +38,14 @@ export function applySpecialMixin(PlayerClass) {
         this.specialCloneSubWeaponOwners = this.specialCloneSlots.map(() => null);
 
         const cloneAnchors = this.calculateSpecialCloneAnchors(this.getWorldCenterX(), this.getSpecialCloneAnchorY());
-        this.specialClonePositions = cloneAnchors.map(a => ({ x: a.x, y: a.y, facingRight: this.facingRight, prevX: a.x }));
+        this.specialClonePositions = cloneAnchors.map(a => ({
+            x: a.x,
+            y: a.y,
+            facingRight: this.facingRight,
+            prevX: a.x,
+            lastAnchorX: a.x,
+            lastAnchorY: a.y
+        }));
         this.specialCloneScarfNodes = this.specialCloneSlots.map(() => null);
         this.specialCloneHairNodes = this.specialCloneSlots.map(() => null);
         for (let i = 0; i < this.specialCloneSlots.length; i++) {
@@ -97,6 +104,8 @@ export function applySpecialMixin(PlayerClass) {
                     pos.y = anchors[i].y;
                     pos.facingRight = anchors[i].facingRight;
                     pos.prevX = pos.x; // prevXも同期して速度計算の暴走を防ぐ
+                    pos.lastAnchorX = anchors[i].x;
+                    pos.lastAnchorY = anchors[i].y;
 
                     this.updateSpecialCloneAccessoryNodes(i, pos, deltaTime, {
                         cloneVx: this.vx,
@@ -745,6 +754,8 @@ export function applySpecialMixin(PlayerClass) {
             y: a.y,
             facingRight: this.facingRight,
             prevX: a.x,
+            lastAnchorX: a.x,
+            lastAnchorY: a.y,
             jumping: false,
             cloneVy: 0,
             comboVx: 0
@@ -887,13 +898,18 @@ export function applySpecialMixin(PlayerClass) {
             : [];
             
         const anchors = this.calculateSpecialCloneAnchors(this.getWorldCenterX(), this.getSpecialCloneAnchorY());
-        const bodyAttackMotionActive = !!(this.isAttacking || this.attackTimer > 0 || this.currentAttack);
+        const bodyNormalComboMotionActive = !!(
+            this.isAttacking &&
+            this.currentAttack &&
+            this.currentAttack.comboStep
+        );
 
         for (let i = 0; i < this.specialCloneSlots.length; i++) {
             if (!this.specialCloneAlive[i]) continue;
 
             const pos = this.specialClonePositions[i];
             const anchor = anchors[i];
+            const previousAnchorX = Number.isFinite(pos.lastAnchorX) ? pos.lastAnchorX : null;
             // Lv3分身が独立移動している場合、実際のX位置の地面Yを使う（プレイヤー相対のanchor.yではなく）
             const cloneRestY = typeof this.getSpecialCloneAnchorYAtX === 'function'
                 ? this.getSpecialCloneAnchorYAtX(pos.x)
@@ -915,6 +931,25 @@ export function applySpecialMixin(PlayerClass) {
                 this.specialCloneTargets[i] = null;
             }
 
+            const cloneSubWeaponInst = this.specialCloneSubWeaponInstances
+                ? this.specialCloneSubWeaponInstances[i]
+                : null;
+            const cloneSubWeaponBusy = !!(
+                (this.specialCloneSubWeaponTimers[i] || 0) > 0 ||
+                this.specialCloneSubWeaponActions[i] ||
+                (
+                    cloneSubWeaponInst &&
+                    (
+                        cloneSubWeaponInst.isAttacking ||
+                        (cloneSubWeaponInst.plantedTimer || 0) > 0 ||
+                        (cloneSubWeaponInst.fadeOutTimer || 0) > 0 ||
+                        (Array.isArray(cloneSubWeaponInst.projectiles) && cloneSubWeaponInst.projectiles.length > 0) ||
+                        (Array.isArray(cloneSubWeaponInst.groundWaves) && cloneSubWeaponInst.groundWaves.length > 0)
+                    )
+                )
+            );
+            const cloneAttackBusy = (this.specialCloneAttackTimers[i] || 0) > 0;
+
             if (target) {
                 const attackRange = 120;
                 const targetX = target.x + target.width / 2;
@@ -934,7 +969,24 @@ export function applySpecialMixin(PlayerClass) {
                 }
                 this.specialCloneReturnToAnchor[i] = false;
             } else {
-                if (bodyAttackMotionActive) {
+                if (bodyNormalComboMotionActive) {
+                    if (!cloneAttackBusy && !cloneSubWeaponBusy) {
+                        // 待機中のLv3分身だけ、本体通常コンボで動いたアンカー差分に同期させる。
+                        // 分身自身の攻撃/忍具中は独立軌道を守るため触らない。
+                        const anchorDeltaX = previousAnchorX === null ? 0 : anchor.x - previousAnchorX;
+                        const anchorGap = previousAnchorX === null
+                            ? Math.abs(anchor.x - pos.x)
+                            : Math.abs(previousAnchorX - pos.x);
+                        const waitingAtAnchor = anchorGap <= Math.max(24, (this.speed || PLAYER.SPEED || 5) * 4);
+                        if (waitingAtAnchor) {
+                            pos.x = anchor.x;
+                        } else if (Number.isFinite(anchorDeltaX) && Math.abs(anchorDeltaX) > 0.001) {
+                            pos.x += anchorDeltaX;
+                        }
+                        if (Math.abs(anchor.x - pos.x) <= 6) {
+                            pos.facingRight = this.facingRight;
+                        }
+                    }
                     this.specialCloneReturnToAnchor[i] = false;
                 } else {
                     const dx = anchor.x - pos.x;
@@ -1162,6 +1214,8 @@ export function applySpecialMixin(PlayerClass) {
             const rawRenderVx = pos.renderVx || 0;
             const cloneVx = Math.max(-this.speed * 2.5, Math.min(this.speed * 2.5, rawRenderVx));
             pos.prevX = pos.x;
+            pos.lastAnchorX = anchor.x;
+            pos.lastAnchorY = anchor.y;
 
             const cloneFootY = this.getSpecialCloneFootY(pos.y);
             this.updateSpecialCloneAccessoryNodes(i, pos, deltaTime, {
@@ -1503,6 +1557,7 @@ export function applySpecialMixin(PlayerClass) {
             const anchors = this.calculateSpecialCloneAnchors(this.getWorldCenterX(), this.getSpecialCloneAnchorY());
             this.specialClonePositions = anchors.map(a => ({
                 x: a.x, y: a.y, facingRight: this.facingRight, prevX: a.x,
+                lastAnchorX: a.x, lastAnchorY: a.y,
                 cloneVy: 0, jumping: false, legPhase: 0, legAngle: 0
             }));
             // アクセサリノードの初期化

@@ -164,6 +164,13 @@
             box-shadow: 0 0 12px var(--accent-glow);
         }
 
+        button:disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+            transform: none !important;
+            filter: none !important;
+        }
+
         .pill-toggle {
             position: relative;
             display: flex;
@@ -186,7 +193,7 @@
             z-index: 0;
         }
 
-        body.mode-ninja .pill-toggle .pill-bg {
+        body:not(.mode-ninja) .pill-toggle .pill-bg {
             transform: translateX(calc(100% + 4px));
         }
 
@@ -278,14 +285,14 @@
         }
     </style>
 </head>
-<body>
+<body class="mode-ninja">
     <div class="preview-app">
         <header class="top-panel">
             <div class="panel-row">
                 <div class="pill-toggle">
                     <div class="pill-bg"></div>
-                    <button id="btnModeShogun" class="active">将軍</button>
-                    <button id="btnModeNinja">忍者</button>
+                    <button id="btnModeNinja" class="active">忍者</button>
+                    <button id="btnModeShogun">将軍</button>
                 </div>
                 <div class="control-group">
                     <div id="selectedSubWeapon" class="weapon-info" title="クリックで忍具切替">---</div>
@@ -322,6 +329,7 @@
                     <input type="range" id="viewZoom" min="0.3" max="1.5" step="0.05" value="1">
                     <span id="viewZoomVal" style="min-width:42px;">1.00x</span>
                 </label>
+                <button id="btnStepBackFrame" class="btn-action" title="一時停止中に1フレーム戻す">コマ戻し</button>
                 <button id="btnStepFrame" class="btn-action" title="一時停止中に1フレーム進める">コマ送り</button>
                 <button id="btnHideArmor" class="btn-action" title="将軍の鎧・兜を非表示にして素体の四肢の重ね順を確認">防具非表示</button>
             </div>
@@ -433,11 +441,11 @@
         // [E3] プレイアブル将軍を Player ネイティブ戦闘＋描画に切替（boss 非依存）。
         // dims/scale は上の初回 update(409) で設定済み。忍具の有効値は refreshSubWeaponScaling に集約する。
         if (typeof shogunPlayer.enableNativeShogun === 'function') shogunPlayer.enableNativeShogun();
-        game.player = shogunPlayer;
+        game.player = ninja;
         game.initStage(1);
 
         // --- 状態変数 ---
-        let previewCharacter = 'shogun';
+        let previewCharacter = 'ninja';
         let lastTime = performance.now();
         let subIndex = 0;
         let isPaused = false;
@@ -455,9 +463,46 @@
             shogunPlayer.currentSubWeapon = shogunPlayer.subWeapons[idx];
             return true;
         };
+        const previewActors = () => [ninja, shogunPlayer].filter(Boolean);
+        const PREVIEW_EFFECT_HOLD_MS = 60000;
+        const previewEffectState = {
+            ougi: false,
+            oonagi: false,
+            kakuremi: false
+        };
 
         const isShogunMode = () => previewCharacter === 'shogun';
         const getActiveActor = () => isShogunMode() ? shogunPlayer : ninja;
+        const isPreviewSpecialActive = (actor) => !!(
+            actor && (actor.isUsingSpecial || actor.specialActive || actor.specialCasting || actor.specialCastTimer > 0)
+        );
+        const setPreviewSpecialActive = (actor, active) => {
+            if (!actor) return;
+            if (active) {
+                if (!isPreviewSpecialActive(actor)) {
+                    actor.specialGauge = actor.maxSpecialGauge || 100;
+                    actor.useSpecial();
+                }
+            } else if (isPreviewSpecialActive(actor) && typeof actor.clearSpecialState === 'function') {
+                actor.clearSpecialState(true);
+            }
+        };
+        const setPreviewTempNinjutsuActive = (actor, key, active) => {
+            if (!actor || !actor.tempNinjutsuTimers) return;
+            actor.tempNinjutsuTimers[key] = active ? PREVIEW_EFFECT_HOLD_MS : 0;
+        };
+        const applyPreviewEffectState = (actor) => {
+            setPreviewSpecialActive(actor, previewEffectState.ougi);
+            setPreviewTempNinjutsuActive(actor, 'xAttack', previewEffectState.oonagi);
+            setPreviewTempNinjutsuActive(actor, 'ghostVeil', previewEffectState.kakuremi);
+        };
+        const clearPreviewEffectOnAllActors = (effectKey) => {
+            previewActors().forEach((actor) => {
+                if (effectKey === 'ougi') setPreviewSpecialActive(actor, false);
+                if (effectKey === 'oonagi') setPreviewTempNinjutsuActive(actor, 'xAttack', false);
+                if (effectKey === 'kakuremi') setPreviewTempNinjutsuActive(actor, 'ghostVeil', false);
+            });
+        };
         const syncGameState = () => {
             const actor = getActiveActor();
             game.player = actor;
@@ -481,18 +526,9 @@
             document.body.classList.toggle('mode-ninja', !isShogunMode());
             document.getElementById('tuningSection').style.display = isShogunMode() ? 'block' : 'none';
             
-            const _spForUI = isShogunMode() ? shogunPlayer : ninja;
-            const ougiActive = !!(_spForUI && (_spForUI.isUsingSpecial || _spForUI.specialActive || _spForUI.specialCasting));
-            document.getElementById('btnOugi').classList.toggle('active', !!ougiActive);
-            
-            const actor = getActiveActor();
-            if (actor && actor.tempNinjutsuTimers) {
-                const oonagiActive = (actor.tempNinjutsuTimers.xAttack || 0) > 0;
-                document.getElementById('btnOonagi').classList.toggle('active', oonagiActive);
-                
-                const kakuremiActive = (actor.tempNinjutsuTimers.ghostVeil || 0) > 0;
-                document.getElementById('btnKakuremi').classList.toggle('active', kakuremiActive);
-            }
+            document.getElementById('btnOugi').classList.toggle('active', previewEffectState.ougi);
+            document.getElementById('btnOonagi').classList.toggle('active', previewEffectState.oonagi);
+            document.getElementById('btnKakuremi').classList.toggle('active', previewEffectState.kakuremi);
 
             const key = isShogunMode() ? window._previewWeapon : subWeapons[subIndex];
             const weaponName = isShogunMode()
@@ -502,7 +538,12 @@
         };
 
         const switchChar = (mode) => {
-            if (previewCharacter === mode) return;
+            if (previewCharacter === mode) {
+                const actor = syncGameState();
+                applyPreviewEffectState(actor);
+                updateUI();
+                return;
+            }
             const prevMode = previewCharacter;
             previewCharacter = mode;
             
@@ -535,6 +576,7 @@
             actor.y = groundY + laneOffset - actor.getWorldHeight();
             actor.vx = 0; actor.vy = 0;
             if (mode === 'shogun' && shogun) { shogun.x = actor.x; shogun.vx = 0; }
+            applyPreviewEffectState(actor);
             updateUI();
         };
 
@@ -584,34 +626,29 @@
         document.getElementById('btnModeShogun').addEventListener('click', () => switchChar('shogun'));
         document.getElementById('btnModeNinja').addEventListener('click', () => switchChar('ninja'));
         document.getElementById('btnOugi').addEventListener('click', () => {
-            const sp = isShogunMode() ? shogunPlayer : ninja;
-            if (sp.isUsingSpecial || sp.specialActive || sp.specialCasting) {
-                sp.clearSpecialState(true);
+            previewEffectState.ougi = !previewEffectState.ougi;
+            if (previewEffectState.ougi) {
+                applyPreviewEffectState(getActiveActor());
             } else {
-                sp.specialGauge = sp.maxSpecialGauge || 100;
-                sp.useSpecial();
+                clearPreviewEffectOnAllActors('ougi');
             }
             updateUI();
         });
         document.getElementById('btnOonagi').addEventListener('click', () => {
-            const actor = getActiveActor();
-            if (!actor || !actor.tempNinjutsuTimers) return;
-            
-            if ((actor.tempNinjutsuTimers.xAttack || 0) > 0) {
-                actor.tempNinjutsuTimers.xAttack = 0;
+            previewEffectState.oonagi = !previewEffectState.oonagi;
+            if (previewEffectState.oonagi) {
+                previewActors().forEach((actor) => setPreviewTempNinjutsuActive(actor, 'xAttack', true));
             } else {
-                actor.tempNinjutsuTimers.xAttack = 60000;
+                clearPreviewEffectOnAllActors('oonagi');
             }
             updateUI();
         });
         document.getElementById('btnKakuremi').addEventListener('click', () => {
-            const actor = getActiveActor();
-            if (!actor || !actor.tempNinjutsuTimers) return;
-            
-            if ((actor.tempNinjutsuTimers.ghostVeil || 0) > 0) {
-                actor.tempNinjutsuTimers.ghostVeil = 0;
+            previewEffectState.kakuremi = !previewEffectState.kakuremi;
+            if (previewEffectState.kakuremi) {
+                previewActors().forEach((actor) => setPreviewTempNinjutsuActive(actor, 'ghostVeil', true));
             } else {
-                actor.tempNinjutsuTimers.ghostVeil = 60000;
+                clearPreviewEffectOnAllActors('kakuremi');
             }
             updateUI();
         });
@@ -655,12 +692,133 @@
             applySkillLv(parseInt(e.target.value));
         });
 
+        // --- デバッグ: コマ戻し用の軽量スナップショット ---
+        const PREVIEW_HISTORY_LIMIT = 180;
+        const previewHistory = [];
+        const PREVIEW_SNAPSHOT_SKIP_KEYS = new Set([
+            'combatController',
+            '_shogunCombatController',
+            '_getShogunRealSubWeapon',
+            'subWeapons',
+            'currentSubWeapon',
+            'owner',
+            'target',
+            '_sourceProjectile',
+            'hitEnemies',
+            'lastHitMap',
+            'projectiles',
+            'cloneProjectiles',
+            'specialCloneTargets',
+            'specialCloneSubWeaponInstances',
+            'specialCloneSubWeaponOwners'
+        ]);
+        const clonePreviewValue = (value, seen = new WeakSet()) => {
+            if (value === null || typeof value !== 'object') return value;
+            if (typeof Node !== 'undefined' && value instanceof Node) return undefined;
+            if (value instanceof Map || value instanceof Set) return undefined;
+            if (seen.has(value)) return undefined;
+            seen.add(value);
+            if (Array.isArray(value)) {
+                return value.map((entry) => clonePreviewValue(entry, seen));
+            }
+            const out = {};
+            Object.keys(value).forEach((key) => {
+                if (PREVIEW_SNAPSHOT_SKIP_KEYS.has(key)) return;
+                const cloned = clonePreviewValue(value[key], seen);
+                if (cloned !== undefined) out[key] = cloned;
+            });
+            return out;
+        };
+        const restorePreviewValue = (target, snapshot) => {
+            if (snapshot === null || typeof snapshot !== 'object') return snapshot;
+            if (Array.isArray(snapshot)) {
+                if (!Array.isArray(target)) return clonePreviewValue(snapshot);
+                target.length = snapshot.length;
+                snapshot.forEach((entry, index) => {
+                    target[index] = restorePreviewValue(target[index], entry);
+                });
+                return target;
+            }
+            if (!target || typeof target !== 'object' || Array.isArray(target)) {
+                return clonePreviewValue(snapshot);
+            }
+            Object.keys(snapshot).forEach((key) => {
+                if (PREVIEW_SNAPSHOT_SKIP_KEYS.has(key)) return;
+                target[key] = restorePreviewValue(target[key], snapshot[key]);
+            });
+            return target;
+        };
+        const captureActorSnapshot = (actor) => {
+            const props = {};
+            Object.keys(actor).forEach((key) => {
+                if (PREVIEW_SNAPSHOT_SKIP_KEYS.has(key)) return;
+                const cloned = clonePreviewValue(actor[key]);
+                if (cloned !== undefined) props[key] = cloned;
+            });
+            return {
+                props,
+                subWeaponIndex: actor.subWeaponIndex,
+                currentSubWeaponState: clonePreviewValue(actor.currentSubWeapon)
+            };
+        };
+        const restoreActorSnapshot = (actor, snapshot) => {
+            if (!actor || !snapshot) return;
+            restorePreviewValue(actor, snapshot.props);
+            if (Number.isInteger(snapshot.subWeaponIndex) && actor.subWeapons[snapshot.subWeaponIndex]) {
+                actor.subWeaponIndex = snapshot.subWeaponIndex;
+                actor.currentSubWeapon = actor.subWeapons[snapshot.subWeaponIndex];
+            }
+            if (actor.currentSubWeapon && snapshot.currentSubWeaponState) {
+                restorePreviewValue(actor.currentSubWeapon, snapshot.currentSubWeaponState);
+            }
+        };
+        const updateStepBackButton = () => {
+            const btn = document.getElementById('btnStepBackFrame');
+            if (btn) btn.disabled = previewHistory.length === 0;
+        };
+        const capturePreviewSnapshot = () => ({
+            previewCharacter,
+            subIndex,
+            previewWeapon: window._previewWeapon,
+            previewEffectState: { ...previewEffectState },
+            simAccum: window.__simAccum || 0,
+            ninja: captureActorSnapshot(ninja),
+            shogun: captureActorSnapshot(shogunPlayer)
+        });
+        const recordPreviewSnapshot = () => {
+            previewHistory.push(capturePreviewSnapshot());
+            if (previewHistory.length > PREVIEW_HISTORY_LIMIT) previewHistory.shift();
+            updateStepBackButton();
+        };
+        const restorePreviewSnapshot = (snapshot) => {
+            if (!snapshot) return;
+            previewCharacter = snapshot.previewCharacter || previewCharacter;
+            subIndex = Number.isInteger(snapshot.subIndex) ? snapshot.subIndex : subIndex;
+            window._previewWeapon = snapshot.previewWeapon || window._previewWeapon;
+            Object.assign(previewEffectState, snapshot.previewEffectState || {});
+            restoreActorSnapshot(ninja, snapshot.ninja);
+            restoreActorSnapshot(shogunPlayer, snapshot.shogun);
+            window.__simAccum = Number.isFinite(snapshot.simAccum) ? snapshot.simAccum : 0;
+            isPaused = true;
+            syncGameState();
+            updateUI();
+            updateStepBackButton();
+        };
+
         // --- デバッグ: モーション速度 / ズーム(引き) / コマ送り ---
         document.getElementById('motionSpeed').addEventListener('input', (e) => {
             document.getElementById('motionSpeedVal').textContent = (parseFloat(e.target.value) || 1).toFixed(2) + 'x';
         });
         document.getElementById('viewZoom').addEventListener('input', (e) => {
             document.getElementById('viewZoomVal').textContent = (parseFloat(e.target.value) || 1).toFixed(2) + 'x';
+        });
+        document.getElementById('btnStepBackFrame').addEventListener('click', () => {
+            const snapshot = previewHistory.pop();
+            if (!snapshot) {
+                updateStepBackButton();
+                return;
+            }
+            restorePreviewSnapshot(snapshot);
         });
         document.getElementById('btnStepFrame').addEventListener('click', () => {
             window.__stepFrameRequested = true;
@@ -842,6 +1000,9 @@
             if (typeof lastNinjaSubIndex === 'undefined') window.lastNinjaSubIndex = -1;
 
             if (_runUpdate) {
+                recordPreviewSnapshot();
+                applyPreviewEffectState(getActiveActor());
+
                 // 状態・入力の同期
                 if (isShogunMode()) {
                     // 将軍はゲームの実プレイアブル将軍。移動・ジャンプ・ダッシュ・しゃがみ・攻撃・
@@ -945,7 +1106,8 @@
             
             requestAnimationFrame(loop);
         }
-        switchChar('shogun');
+        switchChar('ninja');
+        updateStepBackButton();
         requestAnimationFrame(loop);
     </script>
 </body>

@@ -17,6 +17,11 @@ import { applyShogunCombat } from './shogunCombatHelper.js';
 
 const DAMAGE_NUMBER_DESCENT_FADE_MIN_SPAN = 24;
 const DAMAGE_NUMBER_GROUND_Y_OFFSET = 2;
+// 物理・攻撃更新を60fps基準に揃える検証用フラグ。
+// falseに戻すと従来どおりrequestAnimationFrameの可変dtで更新する。
+const USE_FIXED_TIMESTEP = true;
+const FIXED_TIMESTEP_SECONDS = 1 / 60;
+const MAX_FIXED_UPDATES_PER_FRAME = 4;
 
 class Game {
     constructor() {
@@ -26,6 +31,9 @@ class Game {
         this.pauseReturnState = GAME_STATE.PLAYING;
         this.lastTime = 0;
         this.deltaTime = 0;
+        this.useFixedTimestep = USE_FIXED_TIMESTEP;
+        this.fixedUpdateAccumulator = 0;
+        this.didRunUpdateThisFrame = false;
         
         // ゲームオブジェクト
         this.player = null;
@@ -774,16 +782,17 @@ class Game {
         this.frameDamageVisualCount = 0;
         
         // ヒットストップ処理
+        let updateDeltaTime = rawDeltaTime;
         if (this.hitStopEnabled && this.hitStopTimer > 0) {
             this.hitStopTimer -= rawDeltaTime * 1000;
-            this.deltaTime = 0; // 時間を止める
+            updateDeltaTime = 0; // 時間を止める
         } else if (this.state === GAME_STATE.DEFEAT) {
             if (!this.hitStopEnabled) this.hitStopTimer = 0;
             // 敗北中はスローモーション (50% の速度 — 破裂が見える程度に)
-            this.deltaTime = rawDeltaTime * 0.5;
+            updateDeltaTime = rawDeltaTime * 0.5;
         } else {
             if (!this.hitStopEnabled) this.hitStopTimer = 0;
-            this.deltaTime = rawDeltaTime;
+            updateDeltaTime = rawDeltaTime;
         }
 
         // 画面揺れ減衰
@@ -818,22 +827,70 @@ class Game {
             if (this.flashAlpha < 0) this.flashAlpha = 0;
         }
         
-                try {
+        this.didRunUpdateThisFrame = false;
+        try {
             // 更新
-            this.update();
+            this.runFrameUpdates(updateDeltaTime);
             
             // 描画
             this.render();
         } catch (err) {
             console.error('Game loop error:', err);
         } finally {
-            // 入力状態更新（JustPressedリセット）
-            // 何らかのエラーで update/render が止まっても、入力の固着を防ぐために必ず実行
-            input.update();
+            // 入力状態更新（JustPressedリセット）。
+            // 固定ステップ中に更新をスキップした描画フレームでは、JustPressedを次の更新へ持ち越す。
+            if (this.didRunUpdateThisFrame || !this.useFixedTimestep) {
+                input.update();
+            }
         }
         
         // 次フレーム
         requestAnimationFrame((t) => this.loop(t));
+    }
+
+    runFrameUpdates(updateDeltaTime) {
+        if (!this.useFixedTimestep) {
+            this.deltaTime = updateDeltaTime;
+            this.didRunUpdateThisFrame = true;
+            this.update();
+            return;
+        }
+
+        if (updateDeltaTime <= 0) {
+            this.deltaTime = 0;
+            this.didRunUpdateThisFrame = true;
+            this.update();
+            return;
+        }
+
+        this.fixedUpdateAccumulator = Math.min(
+            this.fixedUpdateAccumulator + updateDeltaTime,
+            FIXED_TIMESTEP_SECONDS * MAX_FIXED_UPDATES_PER_FRAME
+        );
+
+        let updateCount = 0;
+        while (
+            this.fixedUpdateAccumulator >= FIXED_TIMESTEP_SECONDS &&
+            updateCount < MAX_FIXED_UPDATES_PER_FRAME
+        ) {
+            if (updateCount > 0) {
+                input.update();
+            }
+            this.deltaTime = FIXED_TIMESTEP_SECONDS;
+            this.didRunUpdateThisFrame = true;
+            this.update();
+            this.fixedUpdateAccumulator -= FIXED_TIMESTEP_SECONDS;
+            updateCount++;
+        }
+
+        if (updateCount >= MAX_FIXED_UPDATES_PER_FRAME) {
+            this.fixedUpdateAccumulator = 0;
+        }
+        if (updateCount === 0) {
+            this.deltaTime = 0;
+        }
+
+        return;
     }
     
     update() {
