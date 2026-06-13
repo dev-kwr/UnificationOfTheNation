@@ -4921,7 +4921,13 @@ class Game {
         const previewCenterX = 280;
         const previewBaseHeight = 60;
         const previewBaseScale = 3.5;
-        const scale = previewBaseScale * (previewBaseHeight / PLAYER.HEIGHT);
+        const previewWorldHeight = (typeof player.getWorldHeight === 'function')
+            ? player.getWorldHeight()
+            : PLAYER.HEIGHT;
+        const safePreviewWorldHeight = Number.isFinite(previewWorldHeight) && previewWorldHeight > 0
+            ? previewWorldHeight
+            : PLAYER.HEIGHT;
+        const scale = (previewBaseScale * previewBaseHeight) / safePreviewWorldHeight;
         const previewGroundScreenY = 360 + LANE_OFFSET * (previewBaseScale - scale); // 足元位置を旧見た目に揃える
 
         ctx.save();
