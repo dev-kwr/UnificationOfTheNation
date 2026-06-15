@@ -21,8 +21,8 @@ import {
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
 } from './normalComboMotion.js';
-import { applyRendererMixin }    from './playerRenderer.js?v=step3-live-rendered-tip-20260615';
-import { applySlashTrailMixin }  from './playerSlashTrail.js?v=step3-live-rendered-tip-20260615';
+import { applyRendererMixin }    from './playerRenderer.js?v=step3-tip-growth-clamp-20260615';
+import { applySlashTrailMixin }  from './playerSlashTrail.js?v=step3-tip-growth-clamp-20260615';
 import { applySpecialMixin }     from './playerSpecial.js';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
 import {

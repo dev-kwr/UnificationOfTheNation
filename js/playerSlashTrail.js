@@ -3881,6 +3881,7 @@ export function applySlashTrailMixin(PlayerClass) {
                 }
                 return null;
             })();
+            let currentTipProjectedT = null;
 
             const activeProgress = (() => {
                 const attackState = renderOptions.attackState || {
@@ -3926,9 +3927,18 @@ export function applySlashTrailMixin(PlayerClass) {
                     (currentTipForReveal.y - startY) * lineDy
                 ) / lineLenSq;
                 if (Number.isFinite(projectedT)) {
+                    currentTipProjectedT = projectedT;
                     const lead = Number.isFinite(options.revealLead) ? options.revealLead : 0;
                     growth = Math.max(growth, clamp01(projectedT + lead));
                 }
+            }
+            if (options.clampGrowthToCurrentTip && Number.isFinite(currentTipProjectedT)) {
+                const lineLen = Math.sqrt(lineLenSq);
+                const trimPx = Number.isFinite(options.currentTipCapTrim)
+                    ? options.currentTipCapTrim
+                    : baseWidth * 0.55;
+                const trimT = lineLen > 0.001 ? trimPx / lineLen : 0;
+                growth = Math.min(growth, clamp01(currentTipProjectedT - trimT));
             }
             if (growth <= 0.001) return;
 
@@ -4460,8 +4470,10 @@ export function applySlashTrailMixin(PlayerClass) {
                     offsetY: this.y,
                     useRawProgressForGrowth: false,
                     useCurrentTipEndpoint: false,
-                    useRenderedTipEndpoint: true,
+                    useRenderedTipEndpoint: this.characterType !== 'shogun',
                     useCurrentTipForRevealProgress: true,
+                    clampGrowthToCurrentTip: this.characterType === 'shogun',
+                    currentTipCapTrim: 13.8 * activeWidthScale * 0.58,
                     inverseProjectFn: inverseProjFn,
                     renderedTipEndpointLead: this.characterType === 'shogun'
                         ? 0
