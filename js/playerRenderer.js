@@ -909,6 +909,11 @@ export function applyRendererMixin(PlayerClass) {
         this.height = drawH;
 
         const applyScaleTransform = scale !== 1.0;
+        const renderModelScaleTransform = {
+            scale,
+            pivotX: x + originalW * 0.5,
+            pivotY: y + originalH * 0.62
+        };
 
         if (applyScaleTransform) {
             // scaleMultiplier で素体を一様拡大（将軍=SHOGUN_SCALE倍）。ピボットは world箱中心(originalW*0.5, originalH*0.62)。
@@ -2220,7 +2225,8 @@ export function applyRendererMixin(PlayerClass) {
             }, alpha, {
                 ...options,
                 attackState: comboVisualAttackState,
-                idleKatanaPose: globalIdleKatanaTarget
+                idleKatanaPose: globalIdleKatanaTarget,
+                renderModelScaleTransform
             });
         }
         if (shouldRenderSubWeaponLayerBack) {
@@ -2701,7 +2707,8 @@ export function applyRendererMixin(PlayerClass) {
             }, alpha, {
                 ...options,
                 attackState: comboVisualAttackState,
-                idleKatanaPose: globalIdleKatanaTarget
+                idleKatanaPose: globalIdleKatanaTarget,
+                renderModelScaleTransform
             });
             if (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
                 // 二刀前手: 攻撃中もサブ武器アーム側の描画（renderSubWeaponArm）に任せるため、ここでは描画しない
@@ -4785,6 +4792,38 @@ export function applyRendererMixin(PlayerClass) {
         // 常に front 層で描画（体の手前に刀を重ねる）
         if (drawFrontLayer) {
             this.drawKatana(ctx, armEndX, armEndY, rot, facingRight ? 1 : -1, swordLen, 0);
+            if (
+                attack.comboStep === 3 &&
+                !options.isClone &&
+                !options.silhouetteMode &&
+                !options.ninNinPose &&
+                typeof this.getKatanaVisualTipOffset === 'function'
+            ) {
+                const visualTipOffset = this.getKatanaVisualTipOffset(rot, facingRight ? 1 : -1, swordLen, 0);
+                const localTipX = armEndX + visualTipOffset.x;
+                const localTipY = armEndY + visualTipOffset.y;
+                const modelTransform = options.renderModelScaleTransform || null;
+                const modelScale = modelTransform && Number.isFinite(modelTransform.scale)
+                    ? modelTransform.scale
+                    : 1;
+                const pivotX = modelTransform && Number.isFinite(modelTransform.pivotX)
+                    ? modelTransform.pivotX
+                    : 0;
+                const pivotY = modelTransform && Number.isFinite(modelTransform.pivotY)
+                    ? modelTransform.pivotY
+                    : 0;
+                const worldTipX = pivotX + (localTipX - pivotX) * modelScale;
+                const worldTipY = pivotY + (localTipY - pivotY) * modelScale;
+                if (Number.isFinite(worldTipX) && Number.isFinite(worldTipY)) {
+                    this._renderedComboStep3Tip = {
+                        x: worldTipX,
+                        y: worldTipY,
+                        trailAttackId: Number.isFinite(attack.trailAttackId) ? attack.trailAttackId : null,
+                        attackTimer: Number.isFinite(renderAttackTimer) ? renderAttackTimer : null,
+                        motionElapsedMs: Number.isFinite(attack.motionElapsedMs) ? attack.motionElapsedMs : null
+                    };
+                }
+            }
         }
         const suppressBaseSlashForXBoost = this.isXAttackBoostActive() && this.isXAttackActionActive();
 
