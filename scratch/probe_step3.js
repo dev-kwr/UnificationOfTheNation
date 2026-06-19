@@ -10,6 +10,11 @@
 // usage: NODE_PATH=/Users/kaworu/Desktop/_Workspace/node_modules node probe_step3.js
 const puppeteer = require('puppeteer');
 const path = require('path');
+const fs = require('fs');
+
+// 生成物(スクショ等)はすべて scratch/out/ 配下に出す（gitignore対象）
+const OUT = path.join(__dirname, 'out');
+fs.mkdirSync(OUT, { recursive: true });
 
 const PORT = process.env.PORT || 8777;
 
@@ -164,7 +169,7 @@ const PORT = process.env.PORT || 8777;
         frames.push(m);
         // 指定progressでスクショ
         while (shotIdx < shotAt.length && m.progress >= shotAt[shotIdx]) {
-            const f = path.join(__dirname, `step3_p${String(Math.round(shotAt[shotIdx]*100)).padStart(2,'0')}.png`);
+            const f = path.join(OUT, `step3_p${String(Math.round(shotAt[shotIdx]*100)).padStart(2,'0')}.png`);
             await page.screenshot({ path: f });
             console.log('shot', shotAt[shotIdx], '->', path.basename(f), '(progress', m.progress + ')');
             shotIdx++;

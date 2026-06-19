@@ -3,7 +3,12 @@
 // usage: NODE_PATH=/Users/kaworu/Desktop/_Workspace/node_modules node probe_step3_natural.js
 const puppeteer = require('puppeteer');
 const path = require('path');
+const fs = require('fs');
 const PORT = process.env.PORT || 8777;
+
+// 生成物(スクショ等)はすべて scratch/out/ 配下に出す（gitignore対象）
+const OUT = path.join(__dirname, 'out');
+fs.mkdirSync(OUT, { recursive: true });
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -69,7 +74,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
         await sleep(45);
         const info = await page.evaluate('window.__info()');
         if (info.step === 3 && si < shots.length && info.progress >= shots[si]) {
-            const f = path.join(__dirname, `step3nat_p${Math.round(shots[si]*100)}.png`);
+            const f = path.join(OUT, `step3nat_p${Math.round(shots[si]*100)}.png`);
             await page.screenshot({ path: f });
             console.log('shot', shots[si], '->', path.basename(f), JSON.stringify(info));
             si++;

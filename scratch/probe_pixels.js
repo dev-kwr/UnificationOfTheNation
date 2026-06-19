@@ -1,5 +1,10 @@
 const puppeteer = require('puppeteer');
 const path = require('path');
+const fs = require('fs');
+
+// 生成物(スクショ等)はすべて scratch/out/ 配下に出す（gitignore対象）
+const OUT = path.join(__dirname, 'out');
+fs.mkdirSync(OUT, { recursive: true });
 
 // ピクセル実測プローブ: step5の剣筋(シアン)最下端と描画切っ先を毎フレーム、
 // キャンバスピクセルから直接計測する。検証項目:
@@ -136,8 +141,8 @@ const btn = char === 'ninja' ? 'btnModeNinja' : 'btnModeShogun';
         // 凍結遷移付近のスクリーンショット
         const prev = frames[frames.length - 2];
         if (prev && ((prev.attacking && !m.attacking) || (!prev.frozen && m.frozen))) {
-            const f1 = path.join(__dirname, `px_${char}_${scenario}_${i - 1}_pre.png`);
-            const f2 = path.join(__dirname, `px_${char}_${scenario}_${i}_post.png`);
+            const f1 = path.join(OUT, `px_${char}_${scenario}_${i - 1}_pre.png`);
+            const f2 = path.join(OUT, `px_${char}_${scenario}_${i}_post.png`);
             await page.screenshot({ path: f2 });
             console.log('transition at frame', i, '->', f2);
         }
