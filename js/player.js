@@ -1454,10 +1454,9 @@ export class Player {
         }
 
         applyNormalComboActiveMotion(this, activeAttack, this.attackTimer);
-        // 5段目は「実際の切っ先位置」(スペック空間=正規化ポーズ空間)へ終点を毎フレーム追従させる。
-        // シミュレーション予測のままだとレーン・段差・速度差で着地位置がずれた際に
-        // 剣筋が切っ先を越えて描かれるため、実ポーズから取得した切っ先を渡す
-        // （落下中も渡し、freez側が指数追従で滑らかに補正→接地後に凍結する）。
+        // 5段目は実切っ先位置も渡すが、ライブ中のカーブは攻撃開始時の完成形で固定する。
+        // 終端補正は接地・終盤で予測終点と切っ先がほぼ一致した場合だけ行い、
+        // 描画中に弧の曲率が変化して見えるのを防ぐ。
         const step5TrailSync = typeof this.resolveNormalComboStep5TrailSync === 'function'
             ? this.resolveNormalComboStep5TrailSync(activeAttack, {
                 x: this.x,
@@ -2261,9 +2260,11 @@ export class Player {
     }
 
     getXAttackTrailWidthScale() {
-        if (!this.isXAttackBoostActive()) return 1.0;
-        // 大凪の見た目倍率は少し抑え、誇張しすぎないサイズ感にする
-        return this.isXAttackActionActive() ? 2.35 : 1.0;
+        return 1.0;
+    }
+
+    getXAttackRangeEffectScale() {
+        return this.getXAttackHitboxScale();
     }
 
     getCrouchCollisionHeight() {

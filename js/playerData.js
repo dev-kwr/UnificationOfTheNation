@@ -28,6 +28,15 @@ export const COMBO_ATTACKS = [
 ];
 
 export const NORMAL_COMBO_STEP3_LAUNCH_VY = -6.0;
+// 3段目の前方踏み込み(横初速)の体格スケール係数。
+// 等倍(scaleMult)だと将軍の突進が体格比(≈1.67)を超えて長くなりすぎるため、
+// 縦運動(vScale=0.56)と同様に実測フィットの縮小係数で体格比相当へ抑える。
+// 将軍step3はモーション時間も短縮(SHOGUN_STEP3_MOTION_SCALE)しており、その短い時間でも
+// 突進距離が体格比で忍者と同等(dash/体幅≈3.16, ≈254px)になるよう 0.55 に調整。
+export const NORMAL_COMBO_STEP3_LUNGE_HSCALE_COEF = 0.55;
+// 将軍のstep3モーション時間スケール(<1で速い)。体格で間延びして「もっさり」見えるため、
+// 所要時間を縮めて切先のピーク速度を忍者並み(体格比≈0.79)に引き上げる。
+export const SHOGUN_STEP3_MOTION_SCALE = 0.85;
 export const BASE_EXP_TO_NEXT = 100;
 export const TEMP_NINJUTSU_MAX_STACK_MS = 300000;
 export const LEVEL_UP_MAX_HP_GAIN = 2;

@@ -1,5 +1,5 @@
 import { LANE_OFFSET, PLAYER } from './constants.js';
-import { NORMAL_COMBO_STEP3_LAUNCH_VY } from './playerData.js';
+import { NORMAL_COMBO_STEP3_LAUNCH_VY, NORMAL_COMBO_STEP3_LUNGE_HSCALE_COEF } from './playerData.js';
 
 const clamp01 = (value) => Math.max(0, Math.min(1, value));
 
@@ -71,8 +71,10 @@ export function applyNormalComboStartMotion(actor, attackProfile, options = {}) 
 
     if (step === 3) {
         const scaleMult = actor.scaleMultiplier || 1.0;
-        actor.vx = actor.vx * 0.12 + direction * impulse * 1.71 * scaleMult;
-        actor.vy = Math.min(actor.vy, NORMAL_COMBO_STEP3_LAUNCH_VY * Math.sqrt(scaleMult));
+        // 横の踏み込みは体格(scaleMult)等倍だと突進が体格比を超えて長すぎるため係数で抑える。
+        const hLungeScale = 1 + (scaleMult - 1) * NORMAL_COMBO_STEP3_LUNGE_HSCALE_COEF;
+        actor.vx = actor.vx * 0.12 + direction * impulse * 1.71 * hLungeScale;
+        actor.vy = Math.min(actor.vy, NORMAL_COMBO_STEP3_LAUNCH_VY);
         actor.isGrounded = false;
         return true;
     }
@@ -195,47 +197,29 @@ export function freezeNormalComboFinisherTrailCurve(activeAttack, options = {}) 
         : rawProgress;
     if (!Number.isFinite(activeAttack.trailCurveEndX) || !Number.isFinite(activeAttack.trailCurveEndY)) return false;
 
-    // 実際の切っ先位置（スペック空間）へ攻撃開始直後から毎フレーム指数的に追従させる。
-    // 一発で置き換えると凍結瞬間に予測誤差分だけ「ガタッ」と跳ぶため滑らかに寄せ続ける。
-    // 序盤はリビール（描画）前なので大きな補正も見えず、終端が見える頃には収束している。
-    // （落下途中発動・レーン・段差・速度差などで予測着地がずれても連続的に補正される）
+    // ライブ中のカーブ形状は攻撃開始時に決めた完成形で固定する。
+    // 終端を毎フレーム切っ先へ追従させると、描画中にベジェ制御点まで動いて
+    // 「伸びる」だけでなくカーブ具合そのものが変化して見える。
+    // 接地・終盤で予測終点と切っ先がほぼ一致している場合だけ、見えない量で最終スナップする。
     const tip = options.actualTipSpec;
+    let commitEndX = activeAttack.trailCurveEndX;
+    let commitEndY = activeAttack.trailCurveEndY;
+    let shouldCommitSyncedCurve = false;
     let freezing = progress >= 0.76 && options.isGrounded !== false;
     if (tip && Number.isFinite(tip.x) && Number.isFinite(tip.y)) {
-        // 適応チェイス: ターゲット（切っ先）の移動速度に応じて追従率を上げる。
-        // 速度フィードフォワード方式はターゲット停止（着地）の1フレーム後に
-        // 古い移動量を余分に足して「ガクッ」と行き過ぎるため使わない。
-        // 純粋な指数追従はターゲットを跨ぐことが構造上ないため行き過ぎが起きない。
-        // 接地後は基礎追従率を上げて素早く収束させる。
         const prevTX = activeAttack._trailTipPrevX;
         const prevTY = activeAttack._trailTipPrevY;
         const tipSpeed = (Number.isFinite(prevTX) ? Math.abs(tip.x - prevTX) : 0)
             + (Number.isFinite(prevTY) ? Math.abs(tip.y - prevTY) : 0);
-        const baseChase = options.isGrounded !== false ? 0.55 : 0.3;
-        const chase = Math.min(0.85, baseChase + tipSpeed / 45);
-
-        const targetX = tip.x;
-        const targetY = tip.y;
-        const chaseDx = targetX - activeAttack.trailCurveEndX;
-        const chaseDy = targetY - activeAttack.trailCurveEndY;
-        const chaseResidual = Math.hypot(chaseDx, chaseDy);
-        if (chaseResidual < 0.35) {
-            activeAttack.trailCurveEndX = targetX;
-            activeAttack.trailCurveEndY = targetY;
-        } else {
-            activeAttack.trailCurveEndX += chaseDx * chase;
-            activeAttack.trailCurveEndY += chaseDy * chase;
-        }
         activeAttack._trailTipPrevX = tip.x;
         activeAttack._trailTipPrevY = tip.y;
 
-        // 凍結は追従が十分収束し、切っ先側もほぼ静止してから確定する。
-        // 確定フレームのスナップは1px前後に抑え、凍結後の終点を切っ先へ安定して合わせる。
-        const residual = Math.hypot(targetX - activeAttack.trailCurveEndX, targetY - activeAttack.trailCurveEndY);
+        const residual = Math.hypot(tip.x - activeAttack.trailCurveEndX, tip.y - activeAttack.trailCurveEndY);
         if (freezing && residual < 1.4 && tipSpeed < 2.2) {
-            activeAttack.trailCurveEndX = targetX;
-            activeAttack.trailCurveEndY = targetY;
-        } else {
+            commitEndX = tip.x;
+            commitEndY = tip.y;
+            shouldCommitSyncedCurve = true;
+        } else if (freezing) {
             freezing = false;
         }
     }
@@ -243,19 +227,27 @@ export function freezeNormalComboFinisherTrailCurve(activeAttack, options = {}) 
     const groundY = Number.isFinite(options.groundY) ? options.groundY : 0;
     const ownerHeight = Number.isFinite(options.ownerHeight) ? options.ownerHeight : PLAYER.HEIGHT;
     const slashFloorY = (groundY + LANE_OFFSET) - Math.max(10, ownerHeight * 0.1);
-    const cappedEndY = Math.min(activeAttack.trailCurveEndY, slashFloorY);
-    activeAttack.trailCurveEndY = cappedEndY;
+    const cappedEndY = Math.min(commitEndY, slashFloorY);
+    commitEndY = cappedEndY;
     const downwardControl = getNormalComboStep5DownwardControl(
         activeAttack.trailCurveStartX,
         activeAttack.trailCurveStartY,
-        activeAttack.trailCurveEndX,
-        activeAttack.trailCurveEndY
+        commitEndX,
+        commitEndY
     );
+    let commitControlX = activeAttack.trailCurveControlX;
+    let commitControlY = activeAttack.trailCurveControlY;
     if (downwardControl) {
-        activeAttack.trailCurveControlX = downwardControl.x;
-        activeAttack.trailCurveControlY = Math.min(downwardControl.y, cappedEndY);
+        commitControlX = downwardControl.x;
+        commitControlY = Math.min(downwardControl.y, cappedEndY);
     } else {
-        activeAttack.trailCurveControlY = Math.min(activeAttack.trailCurveControlY, cappedEndY);
+        commitControlY = Math.min(commitControlY, cappedEndY);
+    }
+    if (shouldCommitSyncedCurve) {
+        activeAttack.trailCurveEndX = commitEndX;
+        activeAttack.trailCurveEndY = commitEndY;
+        activeAttack.trailCurveControlX = commitControlX;
+        activeAttack.trailCurveControlY = commitControlY;
     }
 
     const trailPoints = Array.isArray(options.trailPoints) ? options.trailPoints : null;
