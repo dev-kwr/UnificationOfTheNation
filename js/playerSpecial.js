@@ -568,14 +568,81 @@ export function applySpecialMixin(PlayerClass) {
                 this.isXAttackBoostActive()
             ),
             getXAttackHitboxScale: () => (
-                typeof this.getXAttackHitboxScale === 'function'
-                    ? this.getXAttackHitboxScale()
+                typeof this.isXAttackBoostActive === 'function' &&
+                this.isXAttackBoostActive() &&
+                (
+                    (
+                        typeof this.isXAttackActionActive === 'function' &&
+                        this.isXAttackActionActive()
+                    ) ||
+                    (
+                        this.specialCloneAutoAiEnabled &&
+                        this.specialCloneAttackTimers &&
+                        (this.specialCloneAttackTimers[index] || 0) > 0 &&
+                        this.specialCloneCurrentAttacks &&
+                        this.specialCloneCurrentAttacks[index]
+                    ) ||
+                    (
+                        this.specialCloneAutoAiEnabled &&
+                        this.specialCloneSubWeaponActions &&
+                        this.specialCloneSubWeaponTimers &&
+                        this.specialCloneSubWeaponActions[index] === '二刀_Z' &&
+                        (this.specialCloneSubWeaponTimers[index] || 0) > 0
+                    )
+                )
+                    ? 2.45
                     : 1
             ),
             getXAttackTrailWidthScale: () => (
                 typeof this.getXAttackTrailWidthScale === 'function'
                     ? this.getXAttackTrailWidthScale()
                     : 1
+            ),
+            getXAttackRangeEffectScale: () => (
+                typeof this.isXAttackBoostActive === 'function' &&
+                this.isXAttackBoostActive() &&
+                (
+                    (
+                        typeof this.isXAttackActionActive === 'function' &&
+                        this.isXAttackActionActive()
+                    ) ||
+                    (
+                        this.specialCloneAutoAiEnabled &&
+                        this.specialCloneAttackTimers &&
+                        (this.specialCloneAttackTimers[index] || 0) > 0 &&
+                        this.specialCloneCurrentAttacks &&
+                        this.specialCloneCurrentAttacks[index]
+                    ) ||
+                    (
+                        this.specialCloneAutoAiEnabled &&
+                        this.specialCloneSubWeaponActions &&
+                        this.specialCloneSubWeaponTimers &&
+                        this.specialCloneSubWeaponActions[index] === '二刀_Z' &&
+                        (this.specialCloneSubWeaponTimers[index] || 0) > 0
+                    )
+                )
+                    ? 2.45
+                    : 1
+            ),
+            isXAttackActionActive: () => (
+                (
+                    typeof this.isXAttackActionActive === 'function' &&
+                    this.isXAttackActionActive()
+                ) ||
+                (
+                    this.specialCloneAutoAiEnabled &&
+                    this.specialCloneAttackTimers &&
+                    (this.specialCloneAttackTimers[index] || 0) > 0 &&
+                    this.specialCloneCurrentAttacks &&
+                    this.specialCloneCurrentAttacks[index]
+                ) ||
+                (
+                    this.specialCloneAutoAiEnabled &&
+                    this.specialCloneSubWeaponActions &&
+                    this.specialCloneSubWeaponTimers &&
+                    this.specialCloneSubWeaponActions[index] === '二刀_Z' &&
+                    (this.specialCloneSubWeaponTimers[index] || 0) > 0
+                )
             )
         };
     };
@@ -631,6 +698,8 @@ export function applySpecialMixin(PlayerClass) {
             owner.isXAttackBoostActive = fresh.isXAttackBoostActive;
             owner.getXAttackHitboxScale = fresh.getXAttackHitboxScale;
             owner.getXAttackTrailWidthScale = fresh.getXAttackTrailWidthScale;
+            owner.getXAttackRangeEffectScale = fresh.getXAttackRangeEffectScale;
+            owner.isXAttackActionActive = fresh.isXAttackActionActive;
         }
         if (inst) {
             inst.owner = owner;

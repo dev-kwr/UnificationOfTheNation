@@ -259,6 +259,7 @@ export function freezeNormalComboFinisherTrailCurve(activeAttack, options = {}) 
             : (px, py) => ({ x: px, y: py });
         const endPt = projectPoint(activeAttack.trailCurveEndX, activeAttack.trailCurveEndY);
         const controlPt = projectPoint(activeAttack.trailCurveControlX, activeAttack.trailCurveControlY);
+        const midPt = projectPoint(activeAttack.trailCurveMidX, activeAttack.trailCurveMidY);
         for (let i = 0; i < trailPoints.length; i++) {
             const point = trailPoints[i];
             if (!point || (point.step || 0) !== 5) continue;
@@ -266,11 +267,14 @@ export function freezeNormalComboFinisherTrailCurve(activeAttack, options = {}) 
             point.trailCurveEndY = endPt.y;
             point.trailCurveControlX = controlPt.x;
             point.trailCurveControlY = controlPt.y;
+            if (midPt && Number.isFinite(midPt.x) && Number.isFinite(midPt.y)) {
+                point.trailCurveMidX = midPt.x;
+                point.trailCurveMidY = midPt.y;
+                point.trailCurveMidT = activeAttack.trailCurveMidT;
+            }
             // ライブ描画は eased progress でリビール長を決めるため、
             // 凍結後も同じ表示長になるようサンプル点へ焼き込む。
-            point.progress = Number.isFinite(point.progress)
-                ? Math.max(point.progress, renderProgress)
-                : renderProgress;
+            point.progress = renderProgress;
             if (freezing) {
                 // 確定済みマーク: 以降の老化を高速化し、刀の戻りモーションより先にフェードさせる
                 point.trailCurveFrozen = true;

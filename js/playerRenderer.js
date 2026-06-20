@@ -5421,7 +5421,7 @@ export function applyRendererMixin(PlayerClass) {
                             comboStep: cloneComboStep
                         };
                     } else if (!this.specialCloneAutoAiEnabled) {
-                        this.currentAttack = saved.currentAttack;
+                        this.currentAttack = cloneAttackProfile || saved.currentAttack;
                     } else {
                         this.currentAttack = null;
                     }
@@ -5528,6 +5528,86 @@ export function applyRendererMixin(PlayerClass) {
                         : null;
 
                     const cloneTrailFootY = this.getSpecialCloneFootY(pos.y);
+                    const cloneTrailWorldW = this.getWorldWidth();
+                    const cloneTrailWorldH = this.getWorldHeight();
+                    // Lv1-2 はミラー分身（本体を一定オフセットで鏡映追従）、Lv3 は自律分身。
+                    const isMirrorClone = !this.specialCloneAutoAiEnabled;
+
+                    if (isMirrorClone) {
+                        // ── ミラー分身(Lv1-2): 本体の確定済み剣筋をそのまま忠実にクローンする ──
+                        // 分身は本体を一定オフセットで鏡映追従するため、独自に剣筋を再サンプルすると
+                        // step3/4 で lunge アンカー(攻撃開始位置)と切先追従が本体とズレる。
+                        // そこで本体の comboSlashTrail*（確定済みワールド座標）を「現在のオフセット」で
+                        // canvas translate するだけにし、段(step1-5)・凍結カーブ・大凪ブーストすべてを
+                        // 本体と完全一致させる（オフセットは鏡映なので時間に対して一定 = 全履歴を一括移動して正しい）。
+                        const bodyLivePoints = Array.isArray(this.comboSlashTrailPoints) ? this.comboSlashTrailPoints : [];
+                        const bodyFrozenCurves = Array.isArray(this.comboSlashTrailFrozenCurves) ? this.comboSlashTrailFrozenCurves : [];
+                        const bodyHasTrail = bodyLivePoints.length > 0 || bodyFrozenCurves.length > 0;
+                        if (bodyHasTrail && !cloneUsesDualZ) {
+                            // saved.x/y は本体のワールド箱左上（this.x/y は描画時にクローンへ退避済みのため saved を使う）。
+                            const bodyCenterX = saved.x + cloneTrailWorldW * 0.5;
+                            const bodyBoxY = saved.y;
+                            const offsetX = pos.x - bodyCenterX;
+                            const offsetY = (cloneTrailFootY - cloneTrailWorldH) - bodyBoxY;
+                            const bodyAttackState = {
+                                x: saved.x,
+                                y: saved.y,
+                                width: cloneTrailWorldW,
+                                height: cloneTrailWorldH,
+                                facingRight: saved.facingRight,
+                                isAttacking: saved.isAttacking,
+                                currentAttack: saved.currentAttack,
+                                attackTimer: saved.attackTimer,
+                                isCrouching: saved.isCrouching
+                            };
+                            if (!Array.isArray(this.specialCloneMirrorTrailBoostAnchors)) {
+                                this.specialCloneMirrorTrailBoostAnchors = [];
+                            }
+                            if (
+                                !this.specialCloneMirrorTrailBoostAnchors[i] ||
+                                typeof this.specialCloneMirrorTrailBoostAnchors[i] !== 'object' ||
+                                Array.isArray(this.specialCloneMirrorTrailBoostAnchors[i])
+                            ) {
+                                this.specialCloneMirrorTrailBoostAnchors[i] = {};
+                            }
+                            deferCloneTrailRender(pos.x, cloneTrailFootY, () => {
+                                ctx.save();
+                                ctx.translate(offsetX, offsetY);
+                                this.renderComboSlashTrail(ctx, {
+                                    points: bodyLivePoints,
+                                    frozenCurves: bodyFrozenCurves,
+                                    isAttacking: saved.isAttacking,
+                                    attackState: bodyAttackState,
+                                    // 本体の箱中心を基準に渡す。translate(offset) 後に本体中心 → 分身中心へ移る。
+                                    centerX: bodyCenterX,
+                                    centerY: bodyBoxY + cloneTrailWorldH * 0.5,
+                                    physicalScale: (this.scaleMultiplier || 1.0),
+                                    // 大凪ブーストの投影アンカーは分身ごとに独立保持（本体辞書は破壊しない）。
+                                    // 計算は本体点・本体中心で行われるため本体と同一形状になる。
+                                    getBoostAnchor: (trailId) => {
+                                        if (trailId === null || trailId === undefined) return null;
+                                        const anchors = this.specialCloneMirrorTrailBoostAnchors[i];
+                                        return (anchors && typeof anchors === 'object') ? (anchors[trailId] || null) : null;
+                                    },
+                                    setBoostAnchor: (trailId, value) => {
+                                        let dict = this.specialCloneMirrorTrailBoostAnchors[i];
+                                        if (!dict || typeof dict !== 'object' || Array.isArray(dict)) {
+                                            dict = {};
+                                            this.specialCloneMirrorTrailBoostAnchors[i] = dict;
+                                        }
+                                        if (trailId === null || trailId === undefined) {
+                                            this.specialCloneMirrorTrailBoostAnchors[i] = {};
+                                        } else if (value) {
+                                            dict[trailId] = value;
+                                        } else {
+                                            delete dict[trailId];
+                                        }
+                                    }
+                                });
+                                ctx.restore();
+                            });
+                        }
+                    } else {
                     const cloneTrailPoints = Array.isArray(this.specialCloneSlashTrailPoints)
                         ? this.specialCloneSlashTrailPoints[i]
                         : null;
@@ -5549,8 +5629,6 @@ export function applyRendererMixin(PlayerClass) {
                         // getBaseAttackHitbox はワールド箱(左上x/y + worldW/H)を期待する。
                         // this.x/y は素体描画基準(cloneDrawX/Y)のため、将軍では箱基準から
                         // (worldW-素体W)/2, 13.2px ずれて大凪boostの投影中心が本体と揃わない。
-                        const cloneTrailWorldW = this.getWorldWidth();
-                        const cloneTrailWorldH = this.getWorldHeight();
                         const cloneAttackState = {
                             x: pos.x - cloneTrailWorldW * 0.5,
                             y: cloneTrailFootY - cloneTrailWorldH,
@@ -5558,7 +5636,7 @@ export function applyRendererMixin(PlayerClass) {
                             height: cloneTrailWorldH,
                             facingRight: this.facingRight,
                             isAttacking: this.isAttacking,
-                            currentAttack: this.currentAttack,
+                            currentAttack: cloneAttackProfile || this.currentAttack,
                             attackTimer: this.attackTimer,
                             isCrouching: this.isCrouching
                         };
@@ -5604,6 +5682,7 @@ export function applyRendererMixin(PlayerClass) {
                                 }
                             });
                         });
+                    }
                     }
 
                     {
