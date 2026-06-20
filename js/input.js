@@ -243,12 +243,12 @@ class InputManager {
     }
 
     isTouchInCanvas(touch) {
-        if (!this.canvas) return false;
-        const rect = this.canvas.getBoundingClientRect();
-        return touch.clientX >= rect.left &&
-               touch.clientX <= rect.right &&
-               touch.clientY >= rect.top &&
-               touch.clientY <= rect.bottom;
+        const r = this.getRenderRect();
+        if (!r) return false;
+        return touch.clientX >= r.left &&
+               touch.clientX <= r.left + r.width &&
+               touch.clientY >= r.top &&
+               touch.clientY <= r.top + r.height;
     }
     
     getTouchActions(x, y, touchId = null) {
@@ -308,13 +308,41 @@ class InputManager {
         return player.specialGauge >= player.maxSpecialGauge;
     }
 
-    getCanvasPosition(clientX, clientY) {
+    // object-fit: contain のレターボックス（黒帯）を考慮し、キャンバスが
+    // 実際に描画されている領域を画面座標で返す。
+    // スマホ横向きなどで親の max-width/height によりキャンバスのボックスが
+    // 16:9 から崩れても、タップ座標が描画内容とズレないようにするためのもの。
+    // ボックスが厳密に 16:9 のときは補正ゼロ（従来挙動と同一）。
+    getRenderRect() {
         if (!this.canvas) return null;
         const rect = this.canvas.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) return null;
+
+        const canvasAspect = CANVAS_WIDTH / CANVAS_HEIGHT;
+        const rectAspect = rect.width / rect.height;
+        let width = rect.width;
+        let height = rect.height;
+        let left = rect.left;
+        let top = rect.top;
+
+        if (rectAspect > canvasAspect) {
+            // ボックスが論理比より横長 → 左右に余白（ピラーボックス）
+            width = rect.height * canvasAspect;
+            left += (rect.width - width) / 2;
+        } else if (rectAspect < canvasAspect) {
+            // ボックスが論理比より縦長 → 上下に余白（レターボックス）
+            height = rect.width / canvasAspect;
+            top += (rect.height - height) / 2;
+        }
+        return { left, top, width, height };
+    }
+
+    getCanvasPosition(clientX, clientY) {
+        const r = this.getRenderRect();
+        if (!r) return null;
         return {
-            x: (clientX - rect.left) * (CANVAS_WIDTH / rect.width),
-            y: (clientY - rect.top) * (CANVAS_HEIGHT / rect.height)
+            x: (clientX - r.left) * (CANVAS_WIDTH / r.width),
+            y: (clientY - r.top) * (CANVAS_HEIGHT / r.height)
         };
     }
 
