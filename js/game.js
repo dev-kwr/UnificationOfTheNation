@@ -156,18 +156,30 @@ class Game {
             this.configureCanvasResolution();
             this.updateInputScale();
         };
-        this.handleWindowFocus = () => {
-            this.configureCanvasResolution();
-            this.updateInputScale();
+        // iOS等では orientationchange/resize 直後に画面寸法が確定せず、
+        // 回転前（縦向き）のキャンバスサイズが残ってしまうことがある。
+        // 即時に加えて次フレーム・遅延後にも再計算し、確定した寸法へ確実に追従させる。
+        this.scheduleViewportResize = () => {
+            this.handleViewportResize();
+            if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(this.handleViewportResize);
+            }
+            if (this._viewportResizeTimers) {
+                this._viewportResizeTimers.forEach(id => clearTimeout(id));
+            }
+            this._viewportResizeTimers = [120, 320, 600].map(ms => setTimeout(this.handleViewportResize, ms));
         };
-        window.addEventListener('resize', this.handleViewportResize);
-        window.addEventListener('orientationchange', this.handleViewportResize);
+        this.handleWindowFocus = () => {
+            this.scheduleViewportResize();
+        };
+        window.addEventListener('resize', this.scheduleViewportResize);
+        window.addEventListener('orientationchange', this.scheduleViewportResize);
         window.addEventListener('focus', this.handleWindowFocus);
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) this.handleWindowFocus();
         });
         if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', this.handleViewportResize);
+            window.visualViewport.addEventListener('resize', this.scheduleViewportResize);
             window.visualViewport.addEventListener('scroll', this.handleViewportResize);
         }
         
