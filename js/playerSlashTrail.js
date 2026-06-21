@@ -4224,10 +4224,15 @@ export function applySlashTrailMixin(PlayerClass) {
             ctx.lineWidth = width;
             const prevLineCap = ctx.lineCap;
             if (options.lineCap) ctx.lineCap = options.lineCap;
+            // 剣筋が重なった所でアルファが累積して濃くならないよう 'lighten'(各チャンネル最大)で合成する。
+            // 同色の重なりは最大値どまり＝単一ストロークと同じ濃さになり、自然に繋がって見える。
+            const prevComposite = ctx.globalCompositeOperation;
+            ctx.globalCompositeOperation = 'lighten';
             const pathDrawn = options.smooth
                 ? drawSmoothLinearPath(mapped)
                 : drawLinearPath(mapped);
             if (pathDrawn) ctx.stroke();
+            ctx.globalCompositeOperation = prevComposite;
             if (options.lineCap) ctx.lineCap = prevLineCap;
         };
         const drawBlueTrailLayers = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
