@@ -63,6 +63,8 @@ class InputManager {
             touchId: null,
             baseX: 0,
             baseY: 0,
+            originX: 0, // 入力方向の基点（指の動きに追従してスライドする）
+            originY: 0,
             knobX: 0,
             knobY: 0,
             nx: 0,
@@ -206,7 +208,11 @@ class InputManager {
         let handled = false;
         for (const touch of e.changedTouches) {
             const touchId = touch.identifier;
-            if (!this.isTouchInCanvas(touch)) {
+            const isStickTouch = this.virtualStick.active && this.virtualStick.touchId === touchId;
+
+            // スティックを掴んでいる指は、操作半径や黒帯・画面端の外に出ても
+            // 離さず追従し続ける（指がずれても入力が切れないように）。
+            if (!isStickTouch && !this.isTouchInCanvas(touch)) {
                 if (this.touches[touchId] || this.virtualStick.touchId === touchId) handled = true;
                 this.releaseTouchBinding(touchId);
                 continue;
@@ -263,28 +269,17 @@ class InputManager {
         const pauseX = leftX + (pad.STICK.x || 0) + (pad.PAUSE_BUTTON?.x || 0);
         const pauseY = bottomY + (pad.STICK.y || 0) + (pad.PAUSE_BUTTON?.y || 0);
 
-        // 左側：アナログスティック（同時入力あり）
-        const stickState = this.getStickStateFromPoint(x, y);
-        if (stickState && stickState.inRange) {
-            if (touchId !== null && touchId !== undefined) {
-                this.virtualStick.active = true;
-                this.virtualStick.touchId = touchId;
-                this.virtualStick.baseX = stickState.baseX;
-                this.virtualStick.baseY = stickState.baseY;
-                this.virtualStick.knobX = stickState.knobX;
-                this.virtualStick.knobY = stickState.knobY;
-                this.virtualStick.nx = stickState.nx;
-                this.virtualStick.ny = stickState.ny;
+        // --- 左側：アナログスティック ---
+        const hasTouchId = touchId !== null && touchId !== undefined;
+        if (hasTouchId) {
+            // 既にこの指で掴んでいるなら、操作半径や画面端に関係なく追従し続ける
+            if (this.virtualStick.active && this.virtualStick.touchId === touchId) {
+                return this.updateHeldStick(x, y);
             }
-            const actions = [...stickState.actions];
-            if (this.updateStickDashState(stickState.nx)) {
-                actions.push('DASH');
+            // 新規タッチが始動エリア内なら掴み始める
+            if (this.isStickStartPoint(x, y)) {
+                return this.beginHeldStick(touchId, x, y);
             }
-            return actions;
-        }
-        if (touchId !== null && touchId !== undefined && this.virtualStick.touchId === touchId) {
-            this.resetVirtualStick();
-            this.stickDash.strongLatched = false;
         }
 
         // 左スティック左下の一時停止ボタン
@@ -366,24 +361,70 @@ class InputManager {
         ];
     }
 
-    getStickStateFromPoint(x, y) {
+    // 新規タッチがスティック始動エリア内か（固定中心からの距離で判定）
+    isStickStartPoint(x, y) {
         const pad = VIRTUAL_PAD;
         const center = this.getStickCenter();
-        const dx = x - center.x;
-        const dy = y - center.y;
-        const distance = Math.hypot(dx, dy);
-        const inRange = distance <= pad.STICK_TOUCH_RADIUS;
-        if (!inRange) return null;
+        const dist = Math.hypot(x - center.x, y - center.y);
+        return dist <= pad.STICK_TOUCH_RADIUS;
+    }
 
-        const clampedDistance = Math.min(distance, pad.STICK_MAX_DISTANCE);
-        const directionX = distance > 0 ? dx / distance : 0;
-        const directionY = distance > 0 ? dy / distance : 0;
+    // スティックを掴み始める。基点は固定中心から開始する。
+    beginHeldStick(touchId, x, y) {
+        const center = this.getStickCenter();
+        this.virtualStick.active = true;
+        this.virtualStick.touchId = touchId;
+        this.virtualStick.originX = center.x;
+        this.virtualStick.originY = center.y;
+        return this.updateHeldStick(x, y);
+    }
 
-        const knobX = center.x + directionX * clampedDistance;
-        const knobY = center.y + directionY * clampedDistance;
-        const nx = pad.STICK_MAX_DISTANCE > 0 ? (knobX - center.x) / pad.STICK_MAX_DISTANCE : 0;
-        const ny = pad.STICK_MAX_DISTANCE > 0 ? (knobY - center.y) / pad.STICK_MAX_DISTANCE : 0;
+    // 掴んでいる間の更新。指が最大振り幅(STICK_MAX_DISTANCE)を超えたら基点を
+    // 指側へスライド追従させ、操作半径や画面端を超えても入力が切れないようにする。
+    // 表示は固定中心のまわりにノブを描くので、見た目は固定スティックのまま。
+    updateHeldStick(x, y) {
+        const pad = VIRTUAL_PAD;
+        const maxD = pad.STICK_MAX_DISTANCE || 1;
 
+        let ox = this.virtualStick.originX;
+        let oy = this.virtualStick.originY;
+        const dx = x - ox;
+        const dy = y - oy;
+        let dist = Math.hypot(dx, dy);
+        const dirX = dist > 0 ? dx / dist : 0;
+        const dirY = dist > 0 ? dy / dist : 0;
+
+        if (dist > maxD) {
+            // 基点を指に追従させる（指は常に可動域の縁に保たれる）
+            ox = x - dirX * maxD;
+            oy = y - dirY * maxD;
+            this.virtualStick.originX = ox;
+            this.virtualStick.originY = oy;
+            dist = maxD;
+        }
+
+        const ratio = dist / maxD;
+        const nx = dirX * ratio;
+        const ny = dirY * ratio;
+
+        const center = this.getStickCenter();
+        this.virtualStick.baseX = center.x;
+        this.virtualStick.baseY = center.y;
+        this.virtualStick.knobX = center.x + nx * maxD;
+        this.virtualStick.knobY = center.y + ny * maxD;
+        this.virtualStick.nx = nx;
+        this.virtualStick.ny = ny;
+
+        const actions = this.getStickActionsFromNormalized(nx, ny);
+        if (this.updateStickDashState(nx)) {
+            actions.push('DASH');
+        }
+        return actions;
+    }
+
+    // 正規化ベクトル(nx, ny: -1〜1)から方向アクションを得る
+    getStickActionsFromNormalized(nx, ny) {
+        const pad = VIRTUAL_PAD;
         const actions = [];
         if (Math.abs(nx) >= pad.STICK_DEADZONE) {
             if (nx <= -pad.STICK_HORIZONTAL_THRESHOLD) actions.push('LEFT');
@@ -393,17 +434,7 @@ class InputManager {
             if (ny <= pad.STICK_UP_THRESHOLD) actions.push('JUMP');
             if (ny >= pad.STICK_DOWN_THRESHOLD) actions.push('DOWN');
         }
-
-        return {
-            inRange: true,
-            baseX: center.x,
-            baseY: center.y,
-            knobX,
-            knobY,
-            nx,
-            ny,
-            actions
-        };
+        return actions;
     }
 
     updateStickDashState(normalizedX) {
@@ -463,6 +494,8 @@ class InputManager {
         this.virtualStick.touchId = null;
         this.virtualStick.baseX = center.x;
         this.virtualStick.baseY = center.y;
+        this.virtualStick.originX = center.x;
+        this.virtualStick.originY = center.y;
         this.virtualStick.knobX = center.x;
         this.virtualStick.knobY = center.y;
         this.virtualStick.nx = 0;
