@@ -3376,9 +3376,13 @@ export function applySlashTrailMixin(PlayerClass) {
                     this.specialCloneDualLastSwingIds[i] = fadeResult.lastSwingId;
                 }
                 if (dualActionActive) {
+                    // ミラー分身(Lv1-2)は本体の comboIndex を共有するため、整定中の 0(=5段目)リセットで
+                    // 本体同様ファントム step5 剣筋が出る。本体と同じく _dualZSettleComboIndex で振っていた段に固定する。
                     const comboStep = isAutoAi
                         ? (Number.isFinite(this.specialCloneComboSteps[i]) ? this.specialCloneComboSteps[i] : 1)
-                        : (Number.isFinite(dualBlade.comboIndex) ? dualBlade.comboIndex : 1);
+                        : ((!dualBlade.isAttacking && (this._dualZSettleTimer || 0) > 0 && Number.isFinite(this._dualZSettleComboIndex))
+                            ? this._dualZSettleComboIndex
+                            : (Number.isFinite(dualBlade.comboIndex) ? dualBlade.comboIndex : 1));
                     // Lv1-2(ミラー)は本体の振り進行そのもの（本体と同じ attackTimer 基準）、
                     // Lv3自律分身は分身専用タイマーから進行度を取る
                     const progress = isAutoAi
@@ -4227,6 +4231,7 @@ export function applySlashTrailMixin(PlayerClass) {
             if (options.lineCap) ctx.lineCap = prevLineCap;
         };
         const drawBlueTrailLayers = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
+            if (_oonagiSuppressStroke) return; // 大薙中は通常サイズ剣筋を隠す
             drawGradientLinearTrail(
                 pts,
                 baseWidth,
@@ -4662,15 +4667,17 @@ export function applySlashTrailMixin(PlayerClass) {
             const dir = Number.isFinite(newestSrc.dir)
                 ? (newestSrc.dir >= 0 ? 1 : -1)
                 : (this.facingRight ? 1 : -1);
-            const reachPx = Math.max(
-                58,
-                Math.min(176, (84 + (effectScale - 1) * 42) * Math.max(1, physicalScale * 0.86))
-            );
+            // 二刀流step2 などの後方への剣撃は、リーチ(外側剣筋)を前方ではなく後方へ伸ばす。
+            const reachDir = options.reverseReach ? -dir : dir;
+            // 前方リーチは当たり判定と共用の単一値(PLAYER.OONAGI_REACH_*)から取得し、見た目=判定にする。
+            const reachPx = (typeof this.getOonagiForwardReachPx === 'function')
+                ? this.getOonagiForwardReachPx(physicalScale)
+                : Math.max(58, Math.min(176, (84 + (effectScale - 1) * 42) * Math.max(1, physicalScale * 0.86)));
             const innerStrip = buildOonagiCenterStrip(pts, comboStep, projectFn, options, baseWidth);
             if (!Array.isArray(innerStrip) || innerStrip.length < 2) return;
             const outerStrip = innerStrip.map((p) => ({
                 ...p,
-                x: p.x + dir * reachPx
+                x: p.x + reachDir * reachPx
             }));
 
             // 大薙は既存剣筋の前方に太めの外側剣筋を1本足して、広い間合いを見せる。
@@ -4734,6 +4741,7 @@ export function applySlashTrailMixin(PlayerClass) {
             return adjusted;
         };
         const drawDualBlueLinearTrail = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
+            if (_oonagiSuppressStroke) return; // 大薙中は通常サイズ剣筋を隠す
             const includeGhost = false;
             if (!pts || pts.length < 2) return;
             let sourcePts = options.straighten ? buildStraightLinearStrip(pts, projectFn) : pts;
@@ -4757,6 +4765,9 @@ export function applySlashTrailMixin(PlayerClass) {
             drawBlueTrailLayers(sourcePts, baseWidth, oldestScale, newestScale, null, { smooth: !!options.smooth });
         };
         const drawStep3StableLinearTrail = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
+            // 大薙中でも入口returnしない: recordLiveDraw(水平線の焼き込み)を走らせ、凍結カーブが
+            // 斜めにならないようにする。実ストロークは内側の drawGradientLinearTrail/drawBlueTrailLayers
+            // のゲートで抑止される（この関数内に直接描画は無い）。
             if (!pts || pts.length < 1) return;
             const oldestSrc = pts[0];
             const newestSrc = pts[pts.length - 1];
@@ -5043,6 +5054,7 @@ export function applySlashTrailMixin(PlayerClass) {
             }
         };
         const drawDualBlueArcTrail = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
+            if (_oonagiSuppressStroke) return; // 大薙中は通常サイズ剣筋を隠す
             const includeGhost = false;
             const mapped = buildProjected(pts, projectFn);
             if (!mapped || mapped.length < 2) return;
@@ -5118,6 +5130,7 @@ export function applySlashTrailMixin(PlayerClass) {
             ctx.stroke();
         };
         const drawStep4AnchoredArcTrail = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
+            if (_oonagiSuppressStroke) return; // 大薙中は通常サイズ剣筋を隠す
             if (!pts || pts.length < 1) return;
             const oldestSrc = pts[0];
             const newestSrc = pts[pts.length - 1];
@@ -5196,6 +5209,7 @@ export function applySlashTrailMixin(PlayerClass) {
             drawBlueTrailLayers(strip, baseWidth, oldestScale, newestScale, projectFn);
         };
         const drawFixedBezierTrail = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
+            if (_oonagiSuppressStroke) return; // 大薙中は通常サイズ剣筋を隠す
             if (!pts || pts.length < 1) return;
             const oldestSrc = pts[0];
             const newestSrc = pts[pts.length - 1];
@@ -5412,6 +5426,7 @@ export function applySlashTrailMixin(PlayerClass) {
             drawBlueTrailLayers(mergedStrip, baseWidth, oldestScale, newestScale, projectFn);
         };
         const drawSampledBezierTrail = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
+            if (_oonagiSuppressStroke) return; // 大薙中は通常サイズ剣筋を隠す
             if (!pts || pts.length < 2) return;
             const comboStep = options.comboStep || pts[pts.length - 1]?.step || 0;
             let curveStrip = buildThreePointQuadraticStrip(pts, comboStep, options);
@@ -5516,7 +5531,9 @@ export function applySlashTrailMixin(PlayerClass) {
                 drawOonagiRangeEffect(strip, stripStep, null, {
                     effectStrip: smoothed,
                     newestScale: outerNewestAlpha,
-                    rgb: bluePalette.front
+                    rgb: bluePalette.front,
+                    // 二刀流step2は後方への切り上げなので大薙リーチも後方へ反転する
+                    reverseReach: stripStep === 2
                 });
                 continue;
             }
@@ -5709,6 +5726,9 @@ export function applySlashTrailMixin(PlayerClass) {
         if (hasFrozenCurves) {
             for (const fc of frozenCurves) {
                 if ((fc.age || 0) >= (fc.life || 1)) continue;
+                // 大薙中に凍結したカーブ(rangeEffectScale が焼き込まれている)は、ライブと同様に
+                // 通常サイズのベース剣筋を隠し、焼き込んだ大薙エフェクトのみ描く（凍結後のフェード中も一貫）。
+                _oonagiSuppressStroke = Number.isFinite(fc.rangeEffectScale) && fc.rangeEffectScale > 1.01;
 
                 // 凍結時に焼き込んだ幅スケールで描く。ライブの visualWidthScale は
                 // 「次の攻撃中は 1.0」になるため、大凪の太い剣筋が凍結後に細るのを防ぐ。
@@ -6209,15 +6229,16 @@ export function applySlashTrailMixin(PlayerClass) {
             if (comboStep === 5 && p < 0.26) startSuppress = true;
 
             // 振り抜き後の余韻（刀が戻り始める区間）は軌跡を残さない。
-            // ただし切先は p≈0.66-0.68 まで前進してから戻るため(実測)、その「切先ピーク」
-            // までサンプルを続けて剣筋の終点を実際の最終切先に届かせる（旧0.48-0.55は手前で
-            // 凍結し切先より15-25px短かった）。ピーク後の戻りは含めない。
+            // ただし切先は各段とも「切先ピーク（最遠点）」まで前進してから戻る/止まるため(実測)、
+            // そのピークまでサンプルを続けて剣筋の終点を実際の最終切先に届かせる。ピーク後の戻りは含めない。
+            //   step1-3: 横/斜め斬りの切先ピーク p≈0.66-0.68（その後刀は戻る。旧0.48-0.55は手前で凍結し15-25px短かった）
+            //   step4(天穿): 上昇ピーク p≈0.72（その後退く。旧0.65は18px短かった）
+            //   step5(叩きつけ): 切先は最終位置まで単調に下降し底で静止 p≈0.96（旧0.78は22px短かった）
             if (comboStep === 1 && p > 0.68) settleSuppress = true;
             if (comboStep === 2 && p > 0.68) settleSuppress = true;
             if (comboStep === 3 && p > 0.68) settleSuppress = true;
-            if (comboStep === 4 && p > 0.65) settleSuppress = true;
-            // 5段目は振り切り位置(刀の最終位置)まで剣筋を届かせる
-            if (comboStep === 5 && p > 0.78) settleSuppress = true;
+            if (comboStep === 4 && p > 0.72) settleSuppress = true;
+            if (comboStep === 5 && p > 0.96) settleSuppress = true;
         }
 
         // スイング切替直後の1フレームは、アンカー(renderModel由来)が前スイング位置の
@@ -6269,9 +6290,21 @@ export function applySlashTrailMixin(PlayerClass) {
             this.currentSubWeapon.name === '二刀流'
         );
         const dualBlade = (isDualZ && this.currentSubWeapon) ? this.currentSubWeapon : null;
+        // 振り終了後の整定中(_dualZSettleTimer>0)は、武器の comboIndex がリンク切れで 0(=5段目)へ
+        // リセットされる。直読みするとファントムの step5 剣筋を1フレームだけ描いてしまう
+        // （特に将軍は投影で遠くへ飛び、赤断片が青剣筋付近に出る）。ポーズ側は _dualZSettleComboIndex で
+        // 振っていた段を固定しているので、トレイルも同じ段を使い本体/分身・忍者/将軍で統一する。
+        const dualSwingStep = (
+            dualBlade &&
+            !dualBlade.isAttacking &&
+            (this._dualZSettleTimer || 0) > 0 &&
+            Number.isFinite(this._dualZSettleComboIndex)
+        )
+            ? this._dualZSettleComboIndex
+            : (dualBlade ? (dualBlade.comboIndex || 0) : 0);
         const result = this.updateDualTrailState(deltaMs, {
             active: isDualZ,
-            comboStep: dualBlade ? (dualBlade.comboIndex || 0) : 0,
+            comboStep: dualSwingStep,
             progress: dualBlade ? dualBlade.getMainSwingProgress() : 0,
             swingId: dualBlade ? (dualBlade._swingId || 0) : 0,
             backPose: isDualZ ? this.getDualBladePoseForTrail('back') : null,

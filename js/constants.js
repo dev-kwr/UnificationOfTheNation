@@ -28,6 +28,10 @@ export const PLAYER = {
     MONEY_MAX: 9999,
     ATTACK_COMBO_MAX: 5,
     ATTACK_COOLDOWN: 150,  // ミリ秒
+    // 大薙(大凪)の前方リーチ。剣筋の見た目と当たり判定の前方到達距離をこの2値だけで揃える（調整はここ）。
+    // 実リーチ = min(OONAGI_REACH_MAX_PX, OONAGI_REACH_PX * max(1, scaleMultiplier*0.86))。
+    OONAGI_REACH_PX: 112,       // 忍者基準の前方リーチ(px)。小さくすると剣筋・判定とも短くなる。
+    OONAGI_REACH_MAX_PX: 158,   // 体格倍率(将軍など)込みの上限(px)。
 };
 
 // 敵の種類

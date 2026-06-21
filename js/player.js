@@ -2267,6 +2267,15 @@ export class Player {
         return this.getXAttackHitboxScale();
     }
 
+    // 大薙の前方リーチ(px, ワールド座標)。剣筋の見た目(drawOonagiRangeEffect)と当たり判定(getAttackHitbox)で共用し、
+    // 「見た目の距離＝当たり判定の前方到達」を保証する。調整は PLAYER.OONAGI_REACH_PX / OONAGI_REACH_MAX_PX の2値だけ。
+    getOonagiForwardReachPx(physicalScale = null) {
+        const ps = Number.isFinite(physicalScale) && physicalScale > 0
+            ? physicalScale
+            : ((Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0) ? this.scaleMultiplier : 1);
+        return Math.min(PLAYER.OONAGI_REACH_MAX_PX, PLAYER.OONAGI_REACH_PX * Math.max(1, ps * 0.86));
+    }
+
     getCrouchCollisionHeight() {
         return PLAYER.HEIGHT * 0.86;
     }
@@ -2604,17 +2613,56 @@ export class Player {
         const range = attack.range || 90; // デフォルト値を安全のため設定
         const attackDuration = Math.max(1, attack.durationMs || PLAYER.ATTACK_COOLDOWN);
         const progress = Math.max(0, Math.min(1, 1 - (attackTimer / attackDuration)));
-        
-        // 回転斬り（全方位）
+
+        // 大薙(大凪)中は、当たり判定の前方到達を「見た目の剣筋先端(剣先 + 前方リーチ)」へピン留めし、
+        // 見た目=当たり判定にする（回転斬り step3 を含む全コンボ段に適用。剣先は世界座標）。
+        const dirFwd = facingRight ? 1 : -1;
+        let oonagiFrontX = null;
+        if (xBoostAction && attack.comboStep && typeof this.getComboSwordPoseState === 'function') {
+            const reachPx = (typeof this.getOonagiForwardReachPx === 'function') ? this.getOonagiForwardReachPx() : 0;
+            if (reachPx > 0) {
+                // 剣先の world X。見た目の剣筋と一致させるため、将軍は描画と同じ「補正後の切先」
+                // (getShogunRenderedComboTipWorld, 既に world)を使う。忍者・未対応段は素体ポーズ切先を toWorld。
+                let tipWorldX = null;
+                if (this.characterType === 'shogun' && typeof this.getShogunRenderedComboTipWorld === 'function') {
+                    const rt = this.getShogunRenderedComboTipWorld({
+                        x, y,
+                        width: (typeof this.getWorldWidth === 'function' ? this.getWorldWidth() : bodyWidth),
+                        height: (typeof this.getWorldHeight === 'function' ? this.getWorldHeight() : bodyHeight),
+                        facingRight, isCrouching, currentAttack, attackTimer
+                    });
+                    if (rt && Number.isFinite(rt.x)) tipWorldX = rt.x;
+                }
+                if (tipWorldX === null) {
+                    const tipPose = this.getComboSwordPoseState({ x, y, width: bodyWidth, height: bodyHeight, facingRight, isCrouching, attackTimer, currentAttack });
+                    if (tipPose && Number.isFinite(tipPose.tipX) && Number.isFinite(tipPose.tipY)) {
+                        tipWorldX = toWorld({ x: tipPose.tipX, y: tipPose.tipY, width: 0, height: 0 }).x;
+                    }
+                }
+                if (tipWorldX !== null) oonagiFrontX = tipWorldX + dirFwd * reachPx;
+            }
+        }
+        // 既にscaleBox済み(world)のボックスの前方端を oonagiFrontX に合わせる。背面・縦の余裕はそのまま。
+        const pinFrontToOonagi = (worldBox) => {
+            if (oonagiFrontX === null || !worldBox) return worldBox;
+            if (dirFwd >= 0) {
+                return { ...worldBox, width: Math.max(8, oonagiFrontX - worldBox.x) };
+            }
+            const backEdge = worldBox.x + worldBox.width;
+            const newX = Math.min(oonagiFrontX, backEdge - 8);
+            return { ...worldBox, x: newX, width: Math.max(8, backEdge - newX) };
+        };
+
+        // 回転斬り（全方位）。大薙中は前方端を見た目の剣筋先端へピン留め（過剰リーチ・特に将軍を抑える）。
         if (attack.type === ANIM_STATE.ATTACK_SPIN) {
             const centerX = x + bodyWidth / 2;
             const centerY = y + bodyHeight / 2;
-            return scaleBox({
+            return pinFrontToOonagi(scaleBox({
                 x: centerX - range,
                 y: centerY - range,
                 width: range * 2,
                 height: range * 2
-            });
+            }));
         }
 
         if (attack.comboStep) {
@@ -2649,6 +2697,8 @@ export class Player {
                 width: swordBoxWidth,
                 height: swordBoxHeight
             };
+            // 大薙中の前方端ピンは共通の pinFrontToOonagi（剣先 world は分岐前で算出済み）を使う。
+            const finishSwordBox = (box) => pinFrontToOonagi(scaleBox(box));
             const closeRangeBox = {
                 // 至近距離で密着しても当たる補助判定（前寄り）
                 x: centerX - 40 + dir * 10,
@@ -2672,7 +2722,7 @@ export class Player {
                     width: 72,
                     height: bodyHeight + 40
                 };
-                return [swordBox, closeRangeBox, forwardAssistBox, aerialBodyBox].map(scaleBox);
+                return [finishSwordBox(swordBox), scaleBox(closeRangeBox), scaleBox(forwardAssistBox), scaleBox(aerialBodyBox)];
             }
 
             if (attack.comboStep === 5) {
@@ -2685,12 +2735,12 @@ export class Player {
                 };
                 if (xBoostAction) {
                     // 大凪中は剣筋から離れた補助判定を抑えて、ヒット感を剣筋寄りに合わせる
-                    return [swordBox, impactBox].map(scaleBox);
+                    return [finishSwordBox(swordBox), scaleBox(impactBox)];
                 }
-                return [swordBox, closeRangeBox, forwardAssistBox, impactBox].map(scaleBox);
+                return [finishSwordBox(swordBox), scaleBox(closeRangeBox), scaleBox(forwardAssistBox), scaleBox(impactBox)];
             }
 
-            return [swordBox, closeRangeBox, forwardAssistBox].map(scaleBox);
+            return [finishSwordBox(swordBox), scaleBox(closeRangeBox), scaleBox(forwardAssistBox)];
         }
 
         if (attack.isLaunch) {
