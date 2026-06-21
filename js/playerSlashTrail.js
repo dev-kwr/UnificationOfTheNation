@@ -3682,6 +3682,7 @@ export function applySlashTrailMixin(PlayerClass) {
                 {
                     holdExisting: !!(isAlive && pos && !pose),
                     activeTrailId,
+                    continuousAge: true, // 本体コンボと統一(連続age→後ろから消える)
                     sampleTrailScale: specialCloneTrailScale,
                     sampleRangeEffectScale: specialCloneRangeEffectScale
                 }
@@ -3720,9 +3721,30 @@ export function applySlashTrailMixin(PlayerClass) {
             ? options.frozenCurves
             : (!usesExternalPoints && Array.isArray(this.comboSlashTrailFrozenCurves) ? this.comboSlashTrailFrozenCurves : []);
 
-        // 剣筋のフェードは drawGradientLinearTrail 内で「各点の自分自身の age」だけで決める。
-        // step 境界でランプをリセットしないので全 step が age 連続の1本のグラデに繋がり、かつ
-        // age が life に達した点(＝最古の端)から順に消えるので、尾が後ろから引っ込むように見える。
+        // フェードの決め方を選ぶフラグ。
+        //  ・通常コンボ/大薙(continuousAge で各点が連続 age を持つ): グラデ(薄→濃)と消え方を分離する。
+        //      - 明暗グラデ = トレイル内の「相対位置」(全点の age 範囲で正規化)。step 境界でリセットせず
+        //        最古=薄→切先=濃 の1本に繋がる。life を変えてもグラデの濃淡は一定。
+        //      - 持続/後退 = 各点の「絶対 age」(1-age/life)。古い点ほど薄く、age=life で消える＝後ろから後退。
+        //    こうすると「綺麗なグラデ」と「元どおりの持続」と「後ろから消える」を同時に満たせる。
+        //  ・二刀流(forceLinearSmooth): 各カーブは均一 age なので従来の位置ベース彗星×age を維持。
+        const _trailAgeBasedFade = !options.forceLinearSmooth;
+        // 相対グラデ用に、いま描画中の全点(ライブ＋凍結)の age 範囲を求める。
+        let _trailMinAge = Infinity, _trailMaxAge = 0; // min=切先側(新) / max=根本側(最古)
+        for (const p of activePoints) {
+            const a = (p && Number.isFinite(p.age)) ? Math.max(0, p.age) : 0;
+            if (a < _trailMinAge) _trailMinAge = a;
+            if (a > _trailMaxAge) _trailMaxAge = a;
+        }
+        for (const fc of frozenCurves) {
+            if (!fc || (fc.age || 0) >= (fc.life || 1)) continue;
+            const aN = Number.isFinite(fc.age) ? Math.max(0, fc.age) : 0;
+            const aO = Math.max(aN, Number.isFinite(fc.oldestAge) ? fc.oldestAge : aN);
+            if (aN < _trailMinAge) _trailMinAge = aN;
+            if (aO > _trailMaxAge) _trailMaxAge = aO;
+        }
+        if (!Number.isFinite(_trailMinAge)) _trailMinAge = 0;
+        const _trailAgeSpan = Math.max(1, _trailMaxAge - _trailMinAge);
         const getBoostAnchor = typeof options.getBoostAnchor === 'function'
             ? options.getBoostAnchor
             : ((step) => this.comboSlashTrailBoostAnchors ? this.comboSlashTrailBoostAnchors[step] : null);
@@ -4222,17 +4244,26 @@ export function applySlashTrailMixin(PlayerClass) {
             const oldestSrc = pts[0];
             const newestSrc = pts[pts.length - 1];
             const lifeForFade = Math.max(1, newestSrc.life || this.comboSlashTrailActiveLifeMs);
-            // 各点を「自分自身の age」だけでフェードさせる(連続関数)。
-            //   ・step 境界でランプをリセットしない → 全 step が age 連続の1本のグラデに繋がる
-            //   ・古い点ほど薄く、age が life に達した点から消える → 剣筋の「後ろ(最古の端)」から順に
-            //     消えていき、消える位置が前方へ移動する(receding tail)。step 毎に塊で消えるのではなく
-            //     1本の尾が後ろから引っ込むように見える(ユーザー要望)。
-            // ※レイヤーのピーク強度は newestScale。薄さ(尾)は age で決まる。oldestScale は下限の床としてのみ使う。
-            // gamma>1 で尾の締まり(彗星感)を出す。大きいほど古い側が早く細く薄くなる。
-            const TRAIL_FADE_GAMMA = 1.6;
-            const ageFadeOf = (src) => Math.pow(clamp01(1 - (((src && Number.isFinite(src.age)) ? Math.max(0, src.age) : 0) / lifeForFade)), TRAIL_FADE_GAMMA);
-            const oldestAlpha = Math.max(0, newestScale * ageFadeOf(oldestSrc));
-            const newestAlpha = Math.max(0, newestScale * ageFadeOf(newestSrc));
+            let oldestAlpha, newestAlpha;
+            if (_trailAgeBasedFade) {
+                // 通常コンボ/大薙: 「明暗グラデ」と「消え方」を分離する。
+                //   ・グラデ = トレイル内の相対位置 relPos(全点の age 範囲で正規化)。
+                //     relPos=0(最古/後ろ)→oldestScale, relPos=1(切先/新)→newestScale を内挿。
+                //     step 境界でリセットせず1本に繋がり、life を変えてもグラデの濃淡比は一定。
+                //   ・持続/後退 = 各点の絶対 age の線形フェード A=(1-age/life)。古い点ほど薄く、
+                //     age=life で消える＝後ろ(最古)から順に退く。A は線形なので持続時間は life どおり(縮まない)。
+                const relPosOf = (src) => clamp01((_trailMaxAge - (((src && Number.isFinite(src.age)) ? Math.max(0, src.age) : 0))) / _trailAgeSpan);
+                const absFadeOf = (src) => clamp01(1 - (((src && Number.isFinite(src.age)) ? Math.max(0, src.age) : 0) / lifeForFade));
+                const gradAlphaOf = (src) => (oldestScale + (newestScale - oldestScale) * relPosOf(src)) * absFadeOf(src);
+                oldestAlpha = Math.max(0, gradAlphaOf(oldestSrc));
+                newestAlpha = Math.max(0, gradAlphaOf(newestSrc));
+            } else {
+                // 二刀流(forceLinearSmooth): 各カーブは均一 age。従来の位置ベース彗星(oldestScale→newestScale)×age を維持。
+                const oldestFade = clamp01(1 - ((oldestSrc.age || 0) / lifeForFade));
+                const newestFade = clamp01(1 - ((newestSrc.age || 0) / lifeForFade));
+                oldestAlpha = Math.max(0, oldestFade * oldestScale);
+                newestAlpha = Math.max(0, newestFade * newestScale);
+            }
             if (newestAlpha <= 0.01) return;
             const start = mapped[0];
             const end = mapped[mapped.length - 1];

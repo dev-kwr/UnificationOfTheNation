@@ -1887,17 +1887,43 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
     }
 }
 
+/**
+ * 案1「紺ベース・中央寄せ整列」昇段（Lvアップ強化選択）画面。
+ * --------------------------------------------------------------
+ * - choice = { title, subtitle, level?, maxLevel?, durationSec? }
+ *     durationSec を持つ＝忍術札（効果時間表示）／持たない＝強化札（ピップ＋段位）
+ * - 混在しても要素の高さが揃うよう、フッターを「固定高スロット」にして中身を縦中央寄せ。
+ * - 色・サイズは案1のデザイントークン準拠（design_handoff_levelup_screen/README.md 参照）。
+ * - CANVAS_WIDTH / CANVAS_HEIGHT は constants.js からの import を利用。
+ */
 export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 0) {
     const time = Date.now();
-    const pulse = (Math.sin(time * 0.006) + 1) * 0.5;
-    const cardWidth = 300;
-    const cardHeight = 260;
-    const gap = 36;
+    const pulse = (Math.sin(time * 0.0026) + 1) * 0.5; // 選択枠のゆっくりした明滅
+
     const list = Array.isArray(choices) ? choices : [];
+    const cardWidth = 300;
+    const cardHeight = 248;          // 高さ固定（混在しても揃う）
+    const gap = 40;
+    const radius = 4;
+
     const totalW = list.length * cardWidth + Math.max(0, list.length - 1) * gap;
     const startX = CANVAS_WIDTH / 2 - totalW / 2;
-    const cardY = CANVAS_HEIGHT / 2 - 120;
-    const wrapTextLines = (text, maxWidth, maxLines = 3) => {
+    const baseCardY = CANVAS_HEIGHT / 2 - 110;
+
+    // --- 角丸パス ---
+    const roundedRectPath = (x, y, w, h, r) => {
+        const rr = Math.max(0, Math.min(r, Math.min(w, h) * 0.5));
+        ctx.beginPath();
+        ctx.moveTo(x + rr, y);
+        ctx.arcTo(x + w, y, x + w, y + h, rr);
+        ctx.arcTo(x + w, y + h, x, y + h, rr);
+        ctx.arcTo(x, y + h, x, y, rr);
+        ctx.arcTo(x, y, x + w, y, rr);
+        ctx.closePath();
+    };
+
+    // --- 説明文の折返し（中央寄せ用に行配列を返す） ---
+    const wrapTextLines = (text, maxWidth, maxLines = 2) => {
         const src = String(text || '').trim();
         if (!src) return [];
         const chars = [...src];
@@ -1905,10 +1931,7 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
         let line = '';
         for (const ch of chars) {
             const test = line + ch;
-            if (ctx.measureText(test).width <= maxWidth) {
-                line = test;
-                continue;
-            }
+            if (ctx.measureText(test).width <= maxWidth) { line = test; continue; }
             if (line) lines.push(line);
             line = ch;
             if (lines.length >= maxLines) break;
@@ -1918,76 +1941,224 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
     };
 
     ctx.save();
+
+    // ===== 暗幕（没入感） =====
     ctx.fillStyle = 'rgba(2, 6, 20, 0.66)';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
+    // ===== 見出し =====
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = '#f7fbff';
-    ctx.font = '700 46px sans-serif';
-    ctx.fillText('昇段', CANVAS_WIDTH / 2, 112);
-    ctx.font = '600 20px sans-serif';
-    ctx.fillStyle = 'rgba(220, 236, 255, 0.9)';
-    ctx.fillText('強化を選択', CANVAS_WIDTH / 2, 166);
+    ctx.font = '900 52px sans-serif';
+    ctx.fillText('昇段', CANVAS_WIDTH / 2, 116);
+
+    // 「強化を選択」＋左右の細い罫線
+    ctx.font = '600 18px sans-serif';
+    const subLabel = '強化を選択';
+    const subW = ctx.measureText(subLabel).width;
+    const subY = 158;
+    ctx.fillStyle = 'rgba(206, 226, 255, 0.88)';
+    ctx.fillText(subLabel, CANVAS_WIDTH / 2, subY);
+    const ruleLen = 48, ruleGap = 18;
+    const ruleY = subY - 6;
+    const drawRule = (fromX, dir) => {
+        const grad = ctx.createLinearGradient(fromX, 0, fromX + dir * ruleLen, 0);
+        grad.addColorStop(0, 'rgba(142, 200, 255, 0.7)');
+        grad.addColorStop(1, 'rgba(142, 200, 255, 0)');
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(fromX, ruleY);
+        ctx.lineTo(fromX + dir * ruleLen, ruleY);
+        ctx.stroke();
+    };
+    drawRule(CANVAS_WIDTH / 2 - subW / 2 - ruleGap, -1);
+    drawRule(CANVAS_WIDTH / 2 + subW / 2 + ruleGap, 1);
+
+    // ===== カード =====
+    const tierLabels = ['初級', '中級', '上級', '特級'];
 
     list.forEach((choice, index) => {
-        const x = startX + index * (cardWidth + gap);
         const selected = index === selectedIndex;
+        const x = startX + index * (cardWidth + gap);
+        const y = baseCardY - (selected ? 4 : 0); // 選択時のみ僅かに持ち上げ
+        const cx = x + cardWidth / 2;
+
+        const isDuration = Number.isFinite(choice.durationSec);
         const level = choice.level || 0;
         const maxLevel = choice.maxLevel || 3;
 
-        const bg = ctx.createLinearGradient(x, cardY, x, cardY + cardHeight);
-        bg.addColorStop(0, selected ? 'rgba(58, 91, 168, 0.92)' : 'rgba(26, 34, 66, 0.92)');
-        bg.addColorStop(1, selected ? 'rgba(30, 47, 92, 0.92)' : 'rgba(16, 22, 44, 0.9)');
+        // 背景グラデ
+        const bg = ctx.createLinearGradient(x, y, x, y + cardHeight);
+        bg.addColorStop(0, 'rgba(28, 38, 72, 0.96)');
+        bg.addColorStop(1, 'rgba(11, 16, 36, 0.97)');
+
+        // 影
+        ctx.save();
+        ctx.shadowBlur = selected ? 28 : 20;
+        ctx.shadowColor = selected
+            ? `rgba(90, 150, 245, ${0.34 + pulse * 0.12})`
+            : 'rgba(0, 0, 0, 0.55)';
+        ctx.shadowOffsetY = selected ? 8 : 14;
+        roundedRectPath(x, y, cardWidth, cardHeight, radius);
         ctx.fillStyle = bg;
-        ctx.fillRect(x, cardY, cardWidth, cardHeight);
-        if (selected) {
-            ctx.save();
-            ctx.shadowBlur = 15;
-            ctx.shadowColor = 'rgba(100, 160, 255, 0.4)';
-            ctx.restore();
-        }
-        ctx.strokeStyle = selected ? `rgba(218, 233, 255, ${0.9 + pulse * 0.1})` : 'rgba(145, 171, 223, 0.35)';
-        ctx.lineWidth = selected ? 2.0 : 1.2;
-        ctx.strokeRect(x, cardY, cardWidth, cardHeight);
+        ctx.fill();
+        ctx.restore();
 
-        ctx.textAlign = 'left';
+        // 枠線
+        roundedRectPath(x, y, cardWidth, cardHeight, radius);
+        ctx.strokeStyle = selected
+            ? `rgba(222, 236, 255, ${0.85 + pulse * 0.15})`
+            : 'rgba(150, 178, 232, 0.32)';
+        ctx.lineWidth = selected ? 2 : 1;
+        ctx.stroke();
+
+        // 上辺アクセントライン
+        ctx.save();
+        roundedRectPath(x, y, cardWidth, cardHeight, radius);
+        ctx.clip();
+        const acc = ctx.createLinearGradient(x, 0, x + cardWidth, 0);
+        acc.addColorStop(0, 'rgba(142, 200, 255, 0)');
+        acc.addColorStop(0.5, 'rgba(142, 200, 255, 0.85)');
+        acc.addColorStop(1, 'rgba(142, 200, 255, 0)');
+        ctx.fillStyle = acc;
+        ctx.fillRect(x, y, cardWidth, 3);
+        ctx.restore();
+
+        // タイトル（中央）
+        ctx.textAlign = 'center';
         ctx.fillStyle = '#ffffff';
-        ctx.font = '700 28px sans-serif';
-        ctx.fillText(choice.title || '', x + 22, cardY + 54);
-        ctx.font = '500 15px sans-serif';
-        ctx.fillStyle = 'rgba(224, 236, 255, 0.9)';
-        const subtitleLines = wrapTextLines(choice.subtitle || '', cardWidth - 44, 4);
-        const subtitleStartY = cardY + 94;
-        subtitleLines.forEach((line, i) => {
-            ctx.fillText(line, x + 22, subtitleStartY + i * 20);
-        });
+        ctx.font = '900 28px sans-serif';
+        ctx.fillText(choice.title || '', cx, y + 56);
 
-        const isDurationChoice = Number.isFinite(choice.durationSec);
-        const subtitleBottomY = subtitleStartY + subtitleLines.length * 20;
-        const pipsY = Math.max(cardY + 164, subtitleBottomY + 10);
-        if (!isDurationChoice) {
-            for (let pip = 0; pip < maxLevel; pip++) {
-                ctx.fillStyle = pip < level ? '#8ec8ff' : 'rgba(210, 225, 255, 0.22)';
-                ctx.fillRect(x + 22 + pip * 34, pipsY, 24, 9);
-            }
-            ctx.font = '600 16px sans-serif';
-            ctx.fillStyle = 'rgba(222, 236, 255, 0.84)';
-            const tierLabels = ['初級', '中級', '上級', '特級'];
-            const currentLabel = tierLabels[Math.min(level, 3)];
-            const nextLabel = tierLabels[Math.min(level + 1, 3)];
-            ctx.fillText(`${currentLabel} → ${nextLabel}`, x + 22, pipsY + 34);
+        // 区切り線（短い水平罫線・中央）
+        const divY = y + 78;
+        const divHalf = 28;
+        const divGrad = ctx.createLinearGradient(cx - divHalf, 0, cx + divHalf, 0);
+        divGrad.addColorStop(0, 'rgba(180, 205, 255, 0)');
+        divGrad.addColorStop(0.5, 'rgba(180, 205, 255, 0.55)');
+        divGrad.addColorStop(1, 'rgba(180, 205, 255, 0)');
+        ctx.strokeStyle = divGrad;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx - divHalf, divY);
+        ctx.lineTo(cx + divHalf, divY);
+        ctx.stroke();
+
+        // 説明（中央・最大2行・固定バンド）
+        ctx.font = '500 15px sans-serif';
+        ctx.fillStyle = 'rgba(216, 230, 255, 0.82)';
+        const lines = wrapTextLines(choice.subtitle || '', cardWidth - 48, 2);
+        const descTop = y + 104;
+        const lineH = 22;
+        // 1行のときは縦中央に寄せる（バンド高さ=2行分）
+        const offset = lines.length === 1 ? lineH / 2 : 0;
+        lines.forEach((ln, i) => ctx.fillText(ln, cx, descTop + offset + i * lineH));
+
+        // ===== フッター（固定高スロット：混在しても揃う） =====
+        const footerTop = y + 158;          // カード上端から固定
+        const footerH = 64;
+        const footerCenterY = footerTop + footerH / 2;
+
+        // フッター上の区切り線
+        ctx.strokeStyle = 'rgba(150, 178, 232, 0.18)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x + 24, footerTop);
+        ctx.lineTo(x + cardWidth - 24, footerTop);
+        ctx.stroke();
+
+        if (isDuration) {
+            // 効果時間（ラベル＋数値を中央に1行）
+            ctx.textBaseline = 'middle';
+            ctx.font = '600 13px sans-serif';
+            const label = '効果時間';
+            const valNum = String(choice.durationSec);
+            const valUnit = '秒';
+            ctx.font = '700 21px sans-serif';
+            const numW = ctx.measureText(valNum).width;
+            ctx.font = '600 13px sans-serif';
+            const labelW = ctx.measureText(label).width;
+            ctx.font = '700 13px sans-serif';
+            const unitW = ctx.measureText(valUnit).width;
+            const innerGap = 10;
+            const totalRowW = labelW + innerGap + numW + 2 + unitW;
+            let tx = cx - totalRowW / 2;
+
+            ctx.textAlign = 'left';
+            ctx.font = '600 13px sans-serif';
+            ctx.fillStyle = 'rgba(180, 200, 236, 0.7)';
+            ctx.fillText(label, tx, footerCenterY);
+            tx += labelW + innerGap;
+
+            ctx.font = '700 21px sans-serif';
+            ctx.fillStyle = '#c4e8ff';
+            ctx.fillText(valNum, tx, footerCenterY);
+            tx += numW + 2;
+
+            ctx.font = '700 13px sans-serif';
+            ctx.fillStyle = 'rgba(196, 232, 255, 0.7)';
+            ctx.fillText(valUnit, tx, footerCenterY + 3);
+
+            ctx.textBaseline = 'alphabetic';
         } else {
-            ctx.font = '700 18px sans-serif';
-            ctx.fillStyle = 'rgba(196, 232, 255, 0.94)';
-            ctx.fillText(`効果時間 ${choice.durationSec}秒`, x + 22, pipsY + 26);
+            // ピップ＋段位ラベル（中央・縦に2段）
+            const pipW = 48, pipH = 9, pipGap = 8;
+            const pipsTotalW = maxLevel * pipW + (maxLevel - 1) * pipGap;
+            const pipsX = cx - pipsTotalW / 2;
+            const pipsY = footerCenterY - 14;
+            for (let p = 0; p < maxLevel; p++) {
+                const gx = pipsX + p * (pipW + pipGap);
+                // トラック
+                roundedRectPath(gx, pipsY, pipW, pipH, 2);
+                ctx.fillStyle = 'rgba(210, 225, 255, 0.16)';
+                ctx.fill();
+                if (p < level) {
+                    // 点灯
+                    const g = ctx.createLinearGradient(gx, 0, gx + pipW, 0);
+                    g.addColorStop(0, '#6fb6ff');
+                    g.addColorStop(1, '#a9d8ff');
+                    roundedRectPath(gx, pipsY, pipW, pipH, 2);
+                    ctx.fillStyle = g;
+                    ctx.fill();
+                } else if (p === level) {
+                    // 次に上がる枠（リング＋淡いグロー）
+                    ctx.save();
+                    ctx.shadowBlur = 9;
+                    ctx.shadowColor = 'rgba(142, 200, 255, 0.6)';
+                    roundedRectPath(gx - 1.5, pipsY - 1.5, pipW + 3, pipH + 3, 3);
+                    ctx.strokeStyle = '#8ec8ff';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+            // 段位ラベル
+            ctx.textAlign = 'center';
+            ctx.font = '700 16px sans-serif';
+            ctx.fillStyle = '#cfe2ff';
+            const cur = tierLabels[Math.min(level, 3)];
+            const nxt = tierLabels[Math.min(level + 1, 3)];
+            ctx.fillText(`${cur} → ${nxt}`, cx, pipsY + pipH + 26);
+        }
+
+        // 選択リング（明確化のため枠を二重に）
+        if (selected) {
+            roundedRectPath(x + 1, y + 1, cardWidth - 2, cardHeight - 2, radius);
+            ctx.strokeStyle = `rgba(160, 205, 255, ${0.35 + pulse * 0.25})`;
+            ctx.lineWidth = 1;
+            ctx.stroke();
         }
     });
 
+    // ===== 操作説明 =====
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = 'rgba(228, 240, 255, 0.84)';
     ctx.font = '600 20px sans-serif';
-    ctx.textBaseline = 'alphabetic';
     ctx.fillText('←→：選択 | SPACE：決定', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 40);
+
     ctx.restore();
 }
 
