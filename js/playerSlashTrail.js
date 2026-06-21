@@ -3021,6 +3021,7 @@ export function applySlashTrailMixin(PlayerClass) {
                 holdExisting,
                 sampleTrailScale,
                 sampleRangeEffectScale,
+                continuousAge: true, // 通常コンボは全 step を連続 age の1本にし、後ろから消えるようにする
                 activeTrailId: this.currentAttack && Number.isFinite(this.currentAttack.trailAttackId)
                     ? this.currentAttack.trailAttackId
                     : null
@@ -3037,6 +3038,9 @@ export function applySlashTrailMixin(PlayerClass) {
         const currentStep = pose ? (pose.comboStep || 0) : -1;
         const activeTrailId = Number.isFinite(options.activeTrailId) ? options.activeTrailId : null;
         const keepExistingPointStable = !!options.keepExistingPointStable;
+        // 連続age: 進行中の段も各点を実時間で個別に老化させ、トレイル全体が連続した age を持つ
+        // 1本になるようにする（最古=後ろから順に消える）。本体コンボ＋ミラー分身で有効。
+        const continuousAge = !!options.continuousAge;
         const trimTrailingStepPoints = (step) => {
             if (!Number.isFinite(step) || step <= 0) return;
             while (points.length > 0) {
@@ -3076,8 +3080,14 @@ export function applySlashTrailMixin(PlayerClass) {
             // 高速フェードさせ、剣筋が切っ先より下に残って見えないようにする
             const fastFade5 = (p.step === 5 && p.trailCurveFrozen === true);
             if (matchesActiveTrail && !fastFade5) {
-                // 現在進行中の段のみ鮮度を保つ（age=0リセット）
-                p.age = 0;
+                if (continuousAge) {
+                    // 連続age: 進行中の段でも各点を実時間で個別に老化させる。段内に age 勾配ができ
+                    //（切先=新/根元=古）、凍結後も全 step が連続 age の1本になり、最古(後ろ)から順に消える。
+                    p.age = (p.age || 0) + deltaMs;
+                } else {
+                    // 従来(二刀流など): 現在進行中の段は鮮度を保つ（age=0リセット）
+                    p.age = 0;
+                }
                 // lifeは生成時の値を維持（上書きしない）
             } else if (fastFade5) {
                 p.age = (p.age || 0) + deltaMs * 2.6;
@@ -3709,6 +3719,10 @@ export function applySlashTrailMixin(PlayerClass) {
         const frozenCurves = usesExternalFrozenCurves
             ? options.frozenCurves
             : (!usesExternalPoints && Array.isArray(this.comboSlashTrailFrozenCurves) ? this.comboSlashTrailFrozenCurves : []);
+
+        // 剣筋のフェードは drawGradientLinearTrail 内で「各点の自分自身の age」だけで決める。
+        // step 境界でランプをリセットしないので全 step が age 連続の1本のグラデに繋がり、かつ
+        // age が life に達した点(＝最古の端)から順に消えるので、尾が後ろから引っ込むように見える。
         const getBoostAnchor = typeof options.getBoostAnchor === 'function'
             ? options.getBoostAnchor
             : ((step) => this.comboSlashTrailBoostAnchors ? this.comboSlashTrailBoostAnchors[step] : null);
@@ -4207,12 +4221,18 @@ export function applySlashTrailMixin(PlayerClass) {
             if (!mapped || mapped.length < 2) return;
             const oldestSrc = pts[0];
             const newestSrc = pts[pts.length - 1];
-            const oldestLife = Math.max(1, oldestSrc.life || this.comboSlashTrailActiveLifeMs);
-            const newestLife = Math.max(1, newestSrc.life || this.comboSlashTrailActiveLifeMs);
-            const oldestFade = clamp01(1 - ((oldestSrc.age || 0) / oldestLife));
-            const newestFade = clamp01(1 - ((newestSrc.age || 0) / newestLife));
-            const oldestAlpha = Math.max(0, oldestFade * oldestScale);
-            const newestAlpha = Math.max(0, newestFade * newestScale);
+            const lifeForFade = Math.max(1, newestSrc.life || this.comboSlashTrailActiveLifeMs);
+            // 各点を「自分自身の age」だけでフェードさせる(連続関数)。
+            //   ・step 境界でランプをリセットしない → 全 step が age 連続の1本のグラデに繋がる
+            //   ・古い点ほど薄く、age が life に達した点から消える → 剣筋の「後ろ(最古の端)」から順に
+            //     消えていき、消える位置が前方へ移動する(receding tail)。step 毎に塊で消えるのではなく
+            //     1本の尾が後ろから引っ込むように見える(ユーザー要望)。
+            // ※レイヤーのピーク強度は newestScale。薄さ(尾)は age で決まる。oldestScale は下限の床としてのみ使う。
+            // gamma>1 で尾の締まり(彗星感)を出す。大きいほど古い側が早く細く薄くなる。
+            const TRAIL_FADE_GAMMA = 1.6;
+            const ageFadeOf = (src) => Math.pow(clamp01(1 - (((src && Number.isFinite(src.age)) ? Math.max(0, src.age) : 0) / lifeForFade)), TRAIL_FADE_GAMMA);
+            const oldestAlpha = Math.max(0, newestScale * ageFadeOf(oldestSrc));
+            const newestAlpha = Math.max(0, newestScale * ageFadeOf(newestSrc));
             if (newestAlpha <= 0.01) return;
             const start = mapped[0];
             const end = mapped[mapped.length - 1];

@@ -198,6 +198,8 @@ export class Player {
         this.specialCloneMirroredTrailProfiles = [];
         this.specialCloneDualTrailAnchors = [];
         this.comboSlashTrailSampleIntervalMs = 14;
+        // 剣筋の寿命(フェードアウトに要する時間)。各点は自分自身の age がこの値に達すると消える。
+        // ※全剣筋(通常コンボ/二刀/大薙)共通の値。フェードの「速さ」を変えたい時だけここを触る。
         this.comboSlashTrailActiveLifeMs = 800;
         this.comboSlashTrailAttackSerial = 0;
         // 攻撃終了後は形を保ったまま緩やかにフェードアウトさせる
