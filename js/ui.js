@@ -29,6 +29,27 @@ const BGM_ICON_PATHS = {
 };
 const TITLE_STAR_COUNT = 100;
 let _titleLogoImage = null;   // プロ制作の金紺ロゴ画像（英字＋天下統一＋筆＋装飾を内包）
+let _openingBgImage = null;   // オープニング背景画像
+let _endingBgImage = null;    // エンディング背景画像
+
+// オープニング/エンディングのフルスクリーン背景画像を遅延ロードして描画（読込前は false を返す）
+function drawCinematicBgImage(ctx, phase) {
+    let img;
+    if (phase === 'ending') {
+        if (!_endingBgImage) { _endingBgImage = new Image(); _endingBgImage.src = 'images/ending_bg.png'; }
+        img = _endingBgImage;
+    } else {
+        if (!_openingBgImage) { _openingBgImage = new Image(); _openingBgImage.src = 'images/opening_bg.png'; }
+        img = _openingBgImage;
+    }
+    if (!img.complete || !img.naturalWidth) return false;
+    // 画像は16:9でcanvasとほぼ同アスペクト → そのまま全面に
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(img, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.restore();
+    return true;
+}
 
 const KANJI_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
@@ -2017,7 +2038,7 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
     const lw = (v) => Math.max(1, d(v)); // 罫線は最低1px
 
     // カードだけ「一回り大きく」＋中身も比例拡大。dk/lwk はカード内寸法・文字用。
-    const CARD_K = 1.4;
+    const CARD_K = 1.5;
     const dk = (v) => v * S * CARD_K;
     const lwk = (v) => Math.max(1, dk(v));
     const lerp = (a, b, t) => a + (b - a) * t;
@@ -2314,7 +2335,7 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
     });
 
     // ===== 操作説明（通常マニュアルと同サイズ・カード直下に配置） =====
-    drawScreenManualLine(ctx, '←→：選択 | SPACE：決定', d(cardTopD + CARD_H) + 42);
+    drawScreenManualLine(ctx, '←→：選択 | SPACE：決定', d(cardTopD + CARD_H + GAP_HEAD_CARD));
 
     ctx.restore();
 }
@@ -2620,7 +2641,7 @@ function renderWafuuMessagePanel(ctx, timer, variant = 'opening') {
 
 // イントロ（ストーリー紹介）画面
 export function renderIntro(ctx, timer) {
-    renderWafuuCinematicBackdrop(ctx, timer, 'opening');
+    if (!drawCinematicBgImage(ctx, 'opening')) renderWafuuCinematicBackdrop(ctx, timer, 'opening');  // 画像背景（読込前は従来の和風背景）
     const panel = renderWafuuMessagePanel(ctx, timer, 'opening');
 
     const lines = [
@@ -2668,7 +2689,7 @@ export function renderIntro(ctx, timer) {
 
 // エンディング画面
 export function renderEnding(ctx, timer) {
-    renderWafuuCinematicBackdrop(ctx, timer, 'ending');
+    if (!drawCinematicBgImage(ctx, 'ending')) renderWafuuCinematicBackdrop(ctx, timer, 'ending');  // 画像背景（読込前は従来の和風背景）
     const panel = renderWafuuMessagePanel(ctx, timer, 'ending');
 
     const lines = [
