@@ -111,6 +111,13 @@ class InputManager {
         window.addEventListener('mousedown', (e) => this.onMouseDown(e));
         window.addEventListener('mouseup', (e) => this.onMouseUp(e));
         // mousemoveは今回は省略（ドラッグ操作がないため）
+
+        // タップ位置診断モード（?tapdebug=1）。実機での座標ズレ調査用。
+        try {
+            if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('tapdebug')) {
+                window.__TAP_DEBUG = true;
+            }
+        } catch { /* noop */ }
     }
     
     onMouseDown(e) {
@@ -144,6 +151,7 @@ class InputManager {
         this.updateTouchPosition(fakeTouch);
         this.touchJustPressed = true;
         const pos = this.getCanvasPosition(fakeTouch.clientX, fakeTouch.clientY);
+        this.recordTapDiag(fakeTouch, pos);
         if (pos && this.checkCircleHit(pos.x, pos.y, ...this.getBgmButtonHitArea())) {
             audio.toggleMute();
             return;
@@ -184,6 +192,8 @@ class InputManager {
         audio.init();
         let hasCanvasTouch = false;
         for (const touch of e.changedTouches) {
+            // 診断モードでは canvas 外タップも記録する（領域ズレ調査のため）
+            if (window.__TAP_DEBUG) this.recordTapDiag(touch, this.getCanvasPosition(touch.clientX, touch.clientY));
             if (!this.isTouchInCanvas(touch)) continue;
             hasCanvasTouch = true;
             this.updateTouchPosition(touch);
@@ -342,6 +352,60 @@ class InputManager {
             x: (clientX - r.left) * (CANVAS_WIDTH / r.width),
             y: (clientY - r.top) * (CANVAS_HEIGHT / r.height)
         };
+    }
+
+    // タップ位置診断（?tapdebug=1 のときのみ）。実機の座標ズレ調査用に、
+    // 生のタッチ座標・判定論理座標・各種ビューポート値を画面オーバーレイへ出す。
+    recordTapDiag(touch, pos) {
+        if (typeof window === 'undefined' || !window.__TAP_DEBUG) return;
+        const rect = this.canvas ? this.canvas.getBoundingClientRect() : null;
+        const r = this.getRenderRect();
+        const vv = window.visualViewport;
+        const data = {
+            client: [Math.round(touch.clientX), Math.round(touch.clientY)],
+            logical: pos ? [Math.round(pos.x), Math.round(pos.y)] : null,
+            hit: pos ? this.getTouchActions(pos.x, pos.y) : [],
+            rect: rect ? [Math.round(rect.left), Math.round(rect.top), Math.round(rect.width), Math.round(rect.height)] : null,
+            render: r ? [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)] : null,
+            vv: vv ? [Math.round(vv.offsetLeft), Math.round(vv.offsetTop), Math.round(vv.width), Math.round(vv.height), +(vv.scale || 1).toFixed(2)] : null,
+            inner: [window.innerWidth, window.innerHeight]
+        };
+        this.tapDiag = data;
+        this.showTapDiagOverlay(data);
+    }
+
+    showTapDiagOverlay(d) {
+        if (typeof document === 'undefined') return;
+        let el = document.getElementById('__tapdiag');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = '__tapdiag';
+            el.style.cssText = 'position:fixed;left:0;top:0;z-index:99999;background:rgba(0,0,0,.82);color:#0f0;font:13px/1.5 monospace;padding:8px 10px;white-space:pre;pointer-events:none;max-width:100vw;';
+            document.body.appendChild(el);
+        }
+        el.textContent = [
+            `client 画面px : ${d.client}`,
+            `logical 判定  : ${d.logical}   hit: ${d.hit}`,
+            `canvas rect   : ${d.rect}  (L,T,W,H)`,
+            `renderRect    : ${d.render}  (L,T,W,H)`,
+            `visualViewport: ${d.vv}  (oL,oT,W,H,scale)`,
+            `inner W,H     : ${d.inner}`
+        ].join('\n');
+        let m = document.getElementById('__tapmark');
+        if (!m) {
+            m = document.createElement('div');
+            m.id = '__tapmark';
+            m.style.cssText = 'position:fixed;z-index:99999;pointer-events:none;width:34px;height:34px;margin:-17px 0 0 -17px;border:2px solid #ff2d78;border-radius:50%;box-shadow:0 0 0 1px #fff;';
+            const v = document.createElement('div');
+            v.style.cssText = 'position:absolute;left:15px;top:-8px;width:2px;height:50px;background:#ff2d78;';
+            m.appendChild(v);
+            const h = document.createElement('div');
+            h.style.cssText = 'position:absolute;top:15px;left:-8px;height:2px;width:50px;background:#ff2d78;';
+            m.appendChild(h);
+            document.body.appendChild(m);
+        }
+        m.style.left = d.client[0] + 'px';
+        m.style.top = d.client[1] + 'px';
     }
 
     getStickCenter() {
