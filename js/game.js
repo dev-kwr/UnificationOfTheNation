@@ -299,12 +299,20 @@ class Game {
         if (!vv || !container) return;
         // position:fixed は iOS では visual viewport に貼り付くため、left/top は
         // オフセットせず 0 にする（offsetTop を足すと二重補正で画面ごと上下にずれる）。
-        // 高さ・幅だけを visualViewport に合わせ、container(100dvh)が実表示領域より
-        // 大きくなって canvas が画面外へはみ出すのを防ぐ。
+        // 高さ・幅を visualViewport に合わせ、container が実表示領域より大きくなって
+        // canvas が画面外へはみ出すのを防ぐ。
+        // 注意: CSS の min-width:100vw / min-height:100svh が height/width 指定を
+        // 下限で打ち消すため、min-*/max-* も明示して visualViewport へ固定する。
+        const w = Math.round(vv.width);
+        const h = Math.round(vv.height);
         container.style.left = '0px';
         container.style.top = '0px';
-        container.style.width = Math.round(vv.width) + 'px';
-        container.style.height = Math.round(vv.height) + 'px';
+        container.style.width = w + 'px';
+        container.style.height = h + 'px';
+        container.style.minWidth = w + 'px';
+        container.style.minHeight = h + 'px';
+        container.style.maxWidth = w + 'px';
+        container.style.maxHeight = h + 'px';
     }
 
     getDebugStartStageFromUrl() {
