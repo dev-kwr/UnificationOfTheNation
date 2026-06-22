@@ -28,9 +28,7 @@ const BGM_ICON_PATHS = {
     muted: './icon/volume_off.svg'
 };
 const TITLE_STAR_COUNT = 100;
-let cachedTitleLogoSprite = null;
-let cachedTitleLogoCanvasWidth = null;
-let cachedTitleLogoMetricWidth = null;
+let _titleLogoImage = null;   // プロ制作の金紺ロゴ画像（英字＋天下統一＋筆＋装飾を内包）
 
 const KANJI_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
@@ -165,206 +163,35 @@ export function drawScreenManualLine(ctx, text, y = CANVAS_HEIGHT - 20) {
     ctx.restore();
 }
 
-// タイトルロゴ：UNIFICATION OF THE NATION(手書き筆 Rock Salt・アイボリー箔調・主役で大) ＋ 天下統一(従で小・英字と同じ金箔×墨かすれトーン)。
-// ※金ピカ多段グラデ／ベベル／太縁取り／朱印は「WordArt/パワポっぽい」ため不使用。引き算と箔テクスチャで質感を出す。
-function createTitleLogoSprite(measureCtx) {
-    if (typeof document === 'undefined') return null;
-
-    const heroFamily = '"Rock Salt", cursive';
-    const subFamily = '"Yuji Mai","Yuji Boku","Hiragino Mincho ProN","Yu Mincho",serif';
-    const heroText = 'UNIFICATION OF THE NATION';
-    const subText = '天下統一';
-    const maxHeroWidth = CANVAS_WIDTH * 0.9;
-    const baseHeroSize = 78;
-    const minHeroSize = 46;
-    const heroLSRatio = 0.08;   // 上品でシネマティックな字間
-    const subSize = 34;         // 主役より小さく主従は保ちつつ、貧弱に見えない程度に
-    const subLS = 6;            // 英字の手描きの塊感に合わせ字間をやや詰める
-
-    const heroChars = [...heroText];
-    measureCtx.save();
-    const measureHero = (size) => {
-        measureCtx.font = `400 ${size}px ${heroFamily}`;
-        let w = 0;
-        for (const c of heroChars) w += measureCtx.measureText(c).width;
-        return w + heroLSRatio * size * Math.max(0, heroChars.length - 1);
-    };
-    let heroSize = baseHeroSize;
-    while (heroSize > minHeroSize && measureHero(heroSize) > maxHeroWidth) heroSize -= 2;
-    const heroLS = heroLSRatio * heroSize;
-    measureCtx.font = `400 ${heroSize}px ${heroFamily}`;
-    const heroWs = heroChars.map((c) => measureCtx.measureText(c).width);
-    const heroTotal = heroWs.reduce((a, b) => a + b, 0) + heroLS * Math.max(0, heroChars.length - 1);
-    const hm = measureCtx.measureText(heroText);
-    const heroAsc = hm.actualBoundingBoxAscent || heroSize * 0.7;
-    const heroDesc = hm.actualBoundingBoxDescent || heroSize * 0.08;
-
-    measureCtx.font = `400 ${subSize}px ${subFamily}`;
-    const subChars = [...subText];
-    let subTotal = 0;
-    for (const c of subChars) subTotal += measureCtx.measureText(c).width;
-    subTotal += subLS * Math.max(0, subChars.length - 1);
-    const sm = measureCtx.measureText(subText);
-    const subDesc = sm.actualBoundingBoxDescent || subSize * 0.24;
-    measureCtx.restore();
-
-    const padTop = 30;
-    const heroBaselineY = Math.ceil(padTop + heroAsc);
-    const subBaselineY = Math.ceil(heroBaselineY + heroDesc + 30 + subSize * 0.78);
-
-    const spriteW = Math.ceil(Math.max(heroTotal + 70, subTotal + 90));
-    const spriteH = Math.ceil(subBaselineY + subDesc + 16);
-
-    const dpr = Math.min((typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1, 2);
-    const sprite = document.createElement('canvas');
-    sprite.width = Math.max(1, Math.round(spriteW * dpr));
-    sprite.height = Math.max(1, Math.round(spriteH * dpr));
-    const sctx = sprite.getContext('2d');
-    if (!sctx) return null;
-    sctx.scale(dpr, dpr);
-    sctx.textBaseline = 'alphabetic';
-    sctx.textAlign = 'left';
-
-    const drawX = spriteW / 2;
-
-    // ===== UNIFICATION OF THE NATION（主役：アイボリー〜淡金のフラット箔・効果は引き算） =====
-    const heroGrad = sctx.createLinearGradient(0, heroBaselineY - heroSize * 0.7, 0, heroBaselineY + heroSize * 0.06);
-    heroGrad.addColorStop(0, '#eed490');
-    heroGrad.addColorStop(1, '#b88f3c');
-
-    sctx.font = `400 ${heroSize}px ${heroFamily}`;
-    sctx.lineJoin = 'round';
-    const heroLeft = drawX - heroTotal / 2;
-    const eachHero = (fn) => { let xx = heroLeft; for (let i = 0; i < heroChars.length; i++) { fn(heroChars[i], xx); xx += heroWs[i] + heroLS; } };
-
-    // 柔らかい影だけで奥行きと可読性（月にかかっても沈まない）。ベタ縁取り・ベベルはしない。
-    sctx.save();
-    sctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
-    sctx.shadowBlur = 18;
-    sctx.shadowOffsetY = 2;
-    sctx.fillStyle = heroGrad;
-    eachHero((c, xx) => sctx.fillText(c, xx, heroBaselineY));
-    sctx.restore();
-
-    // ===== 天下統一（従：小。英字と同じ"手描き墨×金箔"トーンに揃えて浮きを解消） =====
-    // テクスチャ前に描く＝heroと同じ箔斑が均一に乗る。色も同じアイボリー〜マット金グラデ。
-    const subGrad = sctx.createLinearGradient(0, subBaselineY - subSize * 0.78, 0, subBaselineY + subSize * 0.08);
-    subGrad.addColorStop(0, '#eed490');
-    subGrad.addColorStop(1, '#b88f3c');
-    sctx.save();
-    sctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-    sctx.shadowBlur = 10;
-    sctx.shadowOffsetY = 2;
-    sctx.font = `400 ${subSize}px ${subFamily}`;
-    sctx.fillStyle = subGrad;
-    wafuFillTextLS(sctx, subText, drawX, subBaselineY, subLS, 'center');
-    sctx.restore();
-
-    // 文字面に墨かすれ／金箔の斑テクスチャ（hero＋天下統一の両方に一度。和の手描き・箔押しの質感）
-    sctx.save();
-    sctx.globalCompositeOperation = 'source-atop';
-    sctx.globalAlpha = 0.85;
-    const ink = getTitleInkTexture();
-    for (let gx = 0; gx < spriteW; gx += ink.width) for (let gy = 0; gy < spriteH; gy += ink.height) sctx.drawImage(ink, gx, gy);
-    sctx.restore();
-
-    return {
-        image: sprite,
-        anchorX: spriteW * 0.5,
-        anchorY: heroBaselineY,
-        drawWidth: spriteW,
-        drawHeight: spriteH
-    };
-}
-
-// ロゴ下の一筆（墨書きの太刀筋風）下線。端が細く中央が太い有機的なストローク
-function drawTitleBrushUnderline(ctx, cx, y, w, timeMs) {
-    const half = w / 2;
-    const segs = 48;
-    const top = [], bot = [];
-    for (let i = 0; i <= segs; i++) {
-        const u = i / segs;                         // 0..1
-        const x = cx - half + u * w;
-        const taper = Math.pow(Math.sin(u * Math.PI), 0.8); // 端0 中央1
-        const th = 1.2 + taper * 5.0;
-        const wob = (Math.sin(u * 8.0 + 1.3) * 0.7 + Math.sin(u * 21.0) * 0.35) * taper;
-        const midY = y + wob - (1 - taper) * 1.2;  // 端を僅かに跳ね上げ
-        top.push([x, midY - th]);
-        bot.push([x, midY + th]);
-    }
-    ctx.save();
-    // 下ににじむ柔らかい影
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
-    ctx.shadowBlur = 5;
-    ctx.shadowOffsetY = 2;
-    ctx.beginPath();
-    ctx.moveTo(top[0][0], top[0][1]);
-    for (const p of top) ctx.lineTo(p[0], p[1]);
-    for (let i = bot.length - 1; i >= 0; i--) ctx.lineTo(bot[i][0], bot[i][1]);
-    ctx.closePath();
-    const g = ctx.createLinearGradient(cx - half, 0, cx + half, 0);
-    g.addColorStop(0.00, 'rgba(190, 154, 92, 0)');
-    g.addColorStop(0.18, 'rgba(204, 170, 106, 0.55)');
-    g.addColorStop(0.50, 'rgba(236, 210, 150, 0.92)');
-    g.addColorStop(0.82, 'rgba(204, 170, 106, 0.55)');
-    g.addColorStop(1.00, 'rgba(190, 154, 92, 0)');
-    ctx.fillStyle = g;
-    ctx.fill();
-    ctx.restore();
-    // 中央に淡い金グロー（静かな艶）
-    ctx.save();
-    ctx.globalCompositeOperation = 'screen';
-    const gg = ctx.createRadialGradient(cx, y, 0, cx, y, half * 0.9);
-    gg.addColorStop(0, 'rgba(236, 210, 150, 0.18)');
-    gg.addColorStop(1, 'rgba(236, 210, 150, 0)');
-    ctx.fillStyle = gg;
-    ctx.fillRect(cx - half, y - 10, w, 20);
-    ctx.restore();
-}
-
+// タイトルロゴ：画像(images/title_logo.png)を描画。背後の月(後光)は renderTitleScreen 側。
 function drawRichTitleLogo(ctx, timeMs) {
     const titleX = CANVAS_WIDTH / 2;
-    const titleY = CANVAS_HEIGHT / 2 - 120;
-    const titleRenderY = titleY + Math.sin(timeMs * 0.0017) * 0.5;
-    const heroFamily = '"Rock Salt", cursive';
+    const titleY = CANVAS_HEIGHT / 2 - 145;
+    const titleRenderY = titleY;   // 固定（±0.5pxの揺れ＋Math.roundで1px単位にカクつく「ピクピク」を防止）
 
-    ctx.save();
-    ctx.font = `400 64px ${heroFamily}`;
-    const metricWidth = Math.round(ctx.measureText('UNIFICATION OF THE NATION').width);
-    ctx.restore();
-
-    const needsSpriteRebuild = !cachedTitleLogoSprite
-        || cachedTitleLogoCanvasWidth !== CANVAS_WIDTH
-        || !Number.isFinite(cachedTitleLogoMetricWidth)
-        || Math.abs(metricWidth - cachedTitleLogoMetricWidth) >= 2;
-
-    if (needsSpriteRebuild) {
-        const sprite = createTitleLogoSprite(ctx);
-        if (sprite) {
-            cachedTitleLogoSprite = sprite;
-            cachedTitleLogoCanvasWidth = CANVAS_WIDTH;
-            cachedTitleLogoMetricWidth = metricWidth;
-        }
+    // プロ制作のロゴ画像を遅延ロード（英字＋天下統一＋筆＋装飾を1枚に内包）
+    if (!_titleLogoImage) {
+        _titleLogoImage = new Image();
+        _titleLogoImage.src = 'images/title_logo.png';
     }
+    const img = _titleLogoImage;
+    if (!img.complete || !img.naturalWidth) return; // 読込前は何も描かない（ポップインのみ）
 
-    if (!cachedTitleLogoSprite) return;
+    const aspect = img.naturalWidth / img.naturalHeight;   // ≈3.02
+    const drawW = Math.round(CANVAS_WIDTH * 0.78);
+    const drawH = Math.round(drawW / aspect);
+    const lx = Math.round(titleX - drawW / 2);
+    const ly = Math.round(titleRenderY - drawH * 0.5);     // 画像中心を titleRenderY に
 
-    const sp = cachedTitleLogoSprite;
-    const lx = Math.round(titleX - sp.anchorX);
-    const ly = Math.round(titleRenderY - sp.anchorY);
-
-    // ロゴ本体（大月の上でも沈まないよう暗いハロを敷く）
     ctx.save();
     ctx.imageSmoothingEnabled = true;
-    ctx.shadowColor = 'rgba(18, 24, 46, 0.4)';
-    ctx.shadowBlur = 14;
+    // 大月の上でも沈まないよう柔らかい影で浮かせる
+    ctx.shadowColor = 'rgba(6, 10, 24, 0.45)';
+    ctx.shadowBlur = 18;
     ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
-    ctx.drawImage(sp.image, lx, ly, sp.drawWidth, sp.drawHeight);
+    ctx.shadowOffsetY = 4;
+    ctx.drawImage(img, lx, ly, drawW, drawH);
     ctx.restore();
-
-    // ロゴ下の一筆下線（墨書き風の有機的なアクセント）
-    drawTitleBrushUnderline(ctx, titleX, ly + sp.drawHeight + Math.max(12, sp.drawHeight * 0.12), sp.drawWidth * 0.54, timeMs);
 }
 
 function drawTitleMistLayers(ctx, timeMs) {
@@ -1519,8 +1346,8 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     const skyGlow = ctx.createRadialGradient(
-        CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.08, 24,
-        CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.08, CANVAS_WIDTH * 0.66
+        CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.28, 24,
+        CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.28, CANVAS_WIDTH * 0.66
     );
     skyGlow.addColorStop(0, 'rgba(150, 196, 255, 0.26)');
     skyGlow.addColorStop(0.45, 'rgba(92, 142, 228, 0.14)');
@@ -1603,7 +1430,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     }
 
     // 月（中央上に大きく配置：ロゴの後光。天下統一に被らないよう高めに）
-    drawTitleMoon(ctx, CANVAS_WIDTH / 2, 55, 205, time);
+    drawTitleMoon(ctx, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 160, 150, time);  // ロゴと相対固定のままグループごと下げ(上下の余白を揃える)
 
     // 靄・前景
     drawTitleMistLayers(ctx, time);
@@ -2190,7 +2017,7 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
     const lw = (v) => Math.max(1, d(v)); // 罫線は最低1px
 
     // カードだけ「一回り大きく」＋中身も比例拡大。dk/lwk はカード内寸法・文字用。
-    const CARD_K = 1.18;
+    const CARD_K = 1.4;
     const dk = (v) => v * S * CARD_K;
     const lwk = (v) => Math.max(1, dk(v));
     const lerp = (a, b, t) => a + (b - a) * t;
@@ -2288,10 +2115,10 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
     fillLS('昇段', d(CXD), d(blockTopD + 66), d(0.16 * 80), 'center');
     ctx.restore();
 
-    // 強化を選択（500 / 15px / 字間.42em）＋ 左右の細い罫線
-    ctx.font = `500 ${d(15)}px "Zen Old Mincho", serif`;
+    // 強化を選択（500 / 22px / 字間.42em）＋ 左右の細い罫線
+    ctx.font = `500 ${d(22)}px "Zen Old Mincho", serif`;
     ctx.fillStyle = 'rgba(206, 226, 255, 0.88)';
-    const subLs = d(0.42 * 15);
+    const subLs = d(0.42 * 22);
     const subBaseY = d(blockTopD + 110);
     const subHalf = measureLS('強化を選択', subLs) / 2;
     fillLS('強化を選択', d(CXD), subBaseY, subLs, 'center');

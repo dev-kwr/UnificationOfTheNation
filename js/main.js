@@ -46,10 +46,6 @@ window.addEventListener('DOMContentLoaded', () => {
             ['400', '500', '700', '900'].forEach((w) => {
                 try { document.fonts.load(`${w} 24px "Zen Old Mincho"`, sample); } catch (e) { /* noop */ }
             });
-            // タイトル英字ロゴの筆書体(Rock Salt)も先読み
-            try { document.fonts.load('400 48px "Rock Salt"', 'UNIFICATION OF THE NATION'); } catch (e) { /* noop */ }
-            // 天下統一サブの毛筆(Yuji Mai/Boku)も先読み（スプライト生成時のフォールバック防止）
-            try { document.fonts.load('400 34px "Yuji Mai"', '天下統一'); document.fonts.load('400 34px "Yuji Boku"', '天下統一'); } catch (e) { /* noop */ }
         }
 
         // フォントの読み込み完了を待機（タイトルロゴのフラッシング防止）
