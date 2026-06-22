@@ -165,21 +165,21 @@ export function drawScreenManualLine(ctx, text, y = CANVAS_HEIGHT - 20) {
     ctx.restore();
 }
 
-// タイトルロゴ：UNIFICATION OF THE NATION(明朝セリフ大文字・上質なアイボリー箔調・主役で大) ＋ 天下統一(従で小・淡金)。
+// タイトルロゴ：UNIFICATION OF THE NATION(手書き筆 Rock Salt・アイボリー箔調・主役で大) ＋ 天下統一(従で小・英字と同じ金箔×墨かすれトーン)。
 // ※金ピカ多段グラデ／ベベル／太縁取り／朱印は「WordArt/パワポっぽい」ため不使用。引き算と箔テクスチャで質感を出す。
 function createTitleLogoSprite(measureCtx) {
     if (typeof document === 'undefined') return null;
 
     const heroFamily = '"Rock Salt", cursive';
-    const subFamily = '"Yuji Boku","Yuji Syuku","Hiragino Mincho ProN","Yu Mincho",serif';
+    const subFamily = '"Yuji Mai","Yuji Boku","Hiragino Mincho ProN","Yu Mincho",serif';
     const heroText = 'UNIFICATION OF THE NATION';
     const subText = '天下統一';
     const maxHeroWidth = CANVAS_WIDTH * 0.9;
     const baseHeroSize = 78;
     const minHeroSize = 46;
     const heroLSRatio = 0.08;   // 上品でシネマティックな字間
-    const subSize = 30;         // 主役より明確に小さく（主従を強調）
-    const subLS = 10;
+    const subSize = 34;         // 主役より小さく主従は保ちつつ、貧弱に見えない程度に
+    const subLS = 6;            // 英字の手描きの塊感に合わせ字間をやや詰める
 
     const heroChars = [...heroText];
     measureCtx.save();
@@ -246,22 +246,26 @@ function createTitleLogoSprite(measureCtx) {
     eachHero((c, xx) => sctx.fillText(c, xx, heroBaselineY));
     sctx.restore();
 
-    // 文字面に墨かすれ／金箔の斑テクスチャ（和の手描き・箔押しの質感。ベタ塗りのパワポ感を回避）
+    // ===== 天下統一（従：小。英字と同じ"手描き墨×金箔"トーンに揃えて浮きを解消） =====
+    // テクスチャ前に描く＝heroと同じ箔斑が均一に乗る。色も同じアイボリー〜マット金グラデ。
+    const subGrad = sctx.createLinearGradient(0, subBaselineY - subSize * 0.78, 0, subBaselineY + subSize * 0.08);
+    subGrad.addColorStop(0, '#eed490');
+    subGrad.addColorStop(1, '#b88f3c');
+    sctx.save();
+    sctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    sctx.shadowBlur = 10;
+    sctx.shadowOffsetY = 2;
+    sctx.font = `400 ${subSize}px ${subFamily}`;
+    sctx.fillStyle = subGrad;
+    wafuFillTextLS(sctx, subText, drawX, subBaselineY, subLS, 'center');
+    sctx.restore();
+
+    // 文字面に墨かすれ／金箔の斑テクスチャ（hero＋天下統一の両方に一度。和の手描き・箔押しの質感）
     sctx.save();
     sctx.globalCompositeOperation = 'source-atop';
     sctx.globalAlpha = 0.85;
     const ink = getTitleInkTexture();
     for (let gx = 0; gx < spriteW; gx += ink.width) for (let gy = 0; gy < spriteH; gy += ink.height) sctx.drawImage(ink, gx, gy);
-    sctx.restore();
-
-    // ===== 天下統一（従：小・淡金。月を高く上げ暗い夜空に置くので淡金でも読める） =====
-    sctx.save();
-    sctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
-    sctx.shadowBlur = 5;
-    sctx.shadowOffsetY = 2;
-    sctx.font = `400 ${subSize}px ${subFamily}`;
-    sctx.fillStyle = 'rgba(226, 210, 170, 0.9)';
-    wafuFillTextLS(sctx, subText, drawX, subBaselineY, subLS, 'center');
     sctx.restore();
 
     return {
