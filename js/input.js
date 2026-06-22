@@ -361,7 +361,13 @@ class InputManager {
         const rect = this.canvas ? this.canvas.getBoundingClientRect() : null;
         const r = this.getRenderRect();
         const vv = window.visualViewport;
+        const ct = this.canvas ? this.canvas.parentElement : null;
+        const crect = ct ? ct.getBoundingClientRect() : null;
+        const ccs = ct ? getComputedStyle(ct) : null;
         const data = {
+            build: 'csync3',
+            container: crect ? [Math.round(crect.width), Math.round(crect.height)] : null,
+            containerMinH: ccs ? ccs.minHeight : null,
             client: [Math.round(touch.clientX), Math.round(touch.clientY)],
             logical: pos ? [Math.round(pos.x), Math.round(pos.y)] : null,
             hit: pos ? this.getTouchActions(pos.x, pos.y) : [],
@@ -384,6 +390,7 @@ class InputManager {
             document.body.appendChild(el);
         }
         el.textContent = [
+            `[BUILD ${d.build}]  container WxH:${d.container}  minH:${d.containerMinH}`,
             `client 画面px : ${d.client}`,
             `logical 判定  : ${d.logical}   hit: ${d.hit}`,
             `canvas rect   : ${d.rect}  (L,T,W,H)`,
