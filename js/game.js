@@ -182,6 +182,12 @@ class Game {
             window.visualViewport.addEventListener('resize', this.scheduleViewportResize);
             window.visualViewport.addEventListener('scroll', this.handleViewportResize);
         }
+
+        // rAF ループが止まる環境/タイミング（回転アニメ中・タブ復帰直後など）の保険として、
+        // 低頻度ポーリングでもビューポート同期を行う。ensureViewportSync は変化検知で
+        // 早期 return するため、変化がなければほぼノーコスト。
+        if (this._viewportPollTimer) clearInterval(this._viewportPollTimer);
+        this._viewportPollTimer = setInterval(() => this.ensureViewportSync(), 250);
         
         // 敵AIなどがスクロール情報を参照できるようにグローバルに公開
         window.game = this;
@@ -257,6 +263,22 @@ class Game {
         );
         this.ctx.imageSmoothingEnabled = true;
         this.ctx.imageSmoothingQuality = isTouchDevice ? 'medium' : 'high';
+    }
+
+    // ゲームループから毎フレーム呼ぶ軽量チェック。表示サイズ/DPRの変化を
+    // 検知したらキャンバス解像度を再構成する。orientationchange/resize が
+    // 発火しない・遅延する環境(iOS横回転など)でも、ループで必ず追従させる保険。
+    ensureViewportSync() {
+        if (!this.canvas || !this.ctx) return;
+        const vw = Math.floor((window.visualViewport && window.visualViewport.width) || window.innerWidth || 0);
+        const vh = Math.floor((window.visualViewport && window.visualViewport.height) || window.innerHeight || 0);
+        const dpr = window.devicePixelRatio || 1;
+        if (vw === this._syncW && vh === this._syncH && dpr === this._syncDpr) return;
+        this._syncW = vw;
+        this._syncH = vh;
+        this._syncDpr = dpr;
+        this.configureCanvasResolution();
+        this.updateInputScale();
     }
 
     getDebugStartStageFromUrl() {
@@ -845,6 +867,7 @@ class Game {
             this.runFrameUpdates(updateDeltaTime);
             
             // 描画
+            this.ensureViewportSync();
             this.render();
         } catch (err) {
             console.error('Game loop error:', err);

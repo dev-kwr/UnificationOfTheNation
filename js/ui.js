@@ -170,7 +170,7 @@ export function drawScreenManualLine(ctx, text, y = CANVAS_HEIGHT - 20) {
 function createTitleLogoSprite(measureCtx) {
     if (typeof document === 'undefined') return null;
 
-    const heroFamily = '"Zen Old Mincho", serif';
+    const heroFamily = '"Rock Salt", cursive';
     const subFamily = '"Yuji Boku","Yuji Syuku","Hiragino Mincho ProN","Yu Mincho",serif';
     const heroText = 'UNIFICATION OF THE NATION';
     const subText = '天下統一';
@@ -184,7 +184,7 @@ function createTitleLogoSprite(measureCtx) {
     const heroChars = [...heroText];
     measureCtx.save();
     const measureHero = (size) => {
-        measureCtx.font = `700 ${size}px ${heroFamily}`;
+        measureCtx.font = `400 ${size}px ${heroFamily}`;
         let w = 0;
         for (const c of heroChars) w += measureCtx.measureText(c).width;
         return w + heroLSRatio * size * Math.max(0, heroChars.length - 1);
@@ -192,7 +192,7 @@ function createTitleLogoSprite(measureCtx) {
     let heroSize = baseHeroSize;
     while (heroSize > minHeroSize && measureHero(heroSize) > maxHeroWidth) heroSize -= 2;
     const heroLS = heroLSRatio * heroSize;
-    measureCtx.font = `700 ${heroSize}px ${heroFamily}`;
+    measureCtx.font = `400 ${heroSize}px ${heroFamily}`;
     const heroWs = heroChars.map((c) => measureCtx.measureText(c).width);
     const heroTotal = heroWs.reduce((a, b) => a + b, 0) + heroLS * Math.max(0, heroChars.length - 1);
     const hm = measureCtx.measureText(heroText);
@@ -232,7 +232,7 @@ function createTitleLogoSprite(measureCtx) {
     heroGrad.addColorStop(0, '#eed490');
     heroGrad.addColorStop(1, '#b88f3c');
 
-    sctx.font = `700 ${heroSize}px ${heroFamily}`;
+    sctx.font = `400 ${heroSize}px ${heroFamily}`;
     sctx.lineJoin = 'round';
     const heroLeft = drawX - heroTotal / 2;
     const eachHero = (fn) => { let xx = heroLeft; for (let i = 0; i < heroChars.length; i++) { fn(heroChars[i], xx); xx += heroWs[i] + heroLS; } };
@@ -322,10 +322,10 @@ function drawRichTitleLogo(ctx, timeMs) {
     const titleX = CANVAS_WIDTH / 2;
     const titleY = CANVAS_HEIGHT / 2 - 120;
     const titleRenderY = titleY + Math.sin(timeMs * 0.0017) * 0.5;
-    const heroFamily = '"Zen Old Mincho", serif';
+    const heroFamily = '"Rock Salt", cursive';
 
     ctx.save();
-    ctx.font = `700 64px ${heroFamily}`;
+    ctx.font = `400 64px ${heroFamily}`;
     const metricWidth = Math.round(ctx.measureText('UNIFICATION OF THE NATION').width);
     ctx.restore();
 
@@ -911,8 +911,11 @@ export class UI {
         ctx.restore();
     }
     
-    // 操作説明（常にキャラ操作のみを表示）
+    // 操作説明（キーボード操作マニュアル）
+    // タップボタンモード（仮想パッド表示中）はキーボード説明を隠す。
+    // ただし物理キーボードの入力が検知されている場合（外部キーボード接続など）は表示する。
     renderControls(ctx) {
+        if (this.isTouchOverlayEnabled() && !input.hasPhysicalKeyboard) return;
         drawControlManualLine(ctx);
     }
     

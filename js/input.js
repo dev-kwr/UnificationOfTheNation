@@ -58,6 +58,9 @@ class InputManager {
         this.lastTouchY = 0;
         this.touchJustPressed = false;
 
+        // 物理キーボードからの入力を検知したか（外部キーボード接続の近似判定）
+        this.hasPhysicalKeyboard = false;
+
         this.virtualStick = {
             active: false,
             touchId: null,
@@ -568,6 +571,8 @@ class InputManager {
     
     onKeyDown(e) {
         audio.init();
+        // 物理キーボードの入力を検知（外部キーボード接続の判定に使う）
+        this.hasPhysicalKeyboard = true;
         // ゲーム中のデフォルト動作を防止
         if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
             e.preventDefault();
