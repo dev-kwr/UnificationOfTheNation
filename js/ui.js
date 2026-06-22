@@ -31,9 +31,12 @@ const TITLE_STAR_COUNT = 100;
 let _titleLogoImage = null;   // プロ制作の金紺ロゴ画像（英字＋天下統一＋筆＋装飾を内包）
 let _openingBgImage = null;   // オープニング背景画像
 let _endingBgImage = null;    // エンディング背景画像
+let _statusBgImage = null;    // ステータス画面背景画像
+let _titleBgImage = null;     // タイトル画面背景画像
 
-// オープニング/エンディングのフルスクリーン背景画像を遅延ロードして描画（読込前は false を返す）
-function drawCinematicBgImage(ctx, phase) {
+// オープニング/エンディングのフルスクリーン背景画像を描画。
+// 読込前も旧背景は出さず、各シーンの平均的な暗色で下地を塗る（フラッシュ防止）。
+function drawCinematicBgImage(ctx, phase, timer) {
     let img;
     if (phase === 'ending') {
         if (!_endingBgImage) { _endingBgImage = new Image(); _endingBgImage.src = 'images/ending_bg.png'; }
@@ -42,13 +45,135 @@ function drawCinematicBgImage(ctx, phase) {
         if (!_openingBgImage) { _openingBgImage = new Image(); _openingBgImage.src = 'images/opening_bg.png'; }
         img = _openingBgImage;
     }
-    if (!img.complete || !img.naturalWidth) return false;
-    // 画像は16:9でcanvasとほぼ同アスペクト → そのまま全面に
     ctx.save();
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(img, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillStyle = (phase === 'ending') ? '#b3855f' : '#0b1430';  // 読込前/保険の下地（旧背景は出さない）
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    if (img.complete && img.naturalWidth) {
+        ctx.imageSmoothingEnabled = true;
+        // Ken Burns：シーン経過に沿った一方向のゆっくり押し込み（はっきり分かる）＋微細な揺れ。
+        // オーバースキャン分だけ拡大し、パンしても端が見えないようにする。
+        const t = Date.now() * 0.001;
+        const prog = Math.min(1, Math.max(0, (timer || 0) / 14000));  // 0→1 を約14秒で
+        const zoom = 1.05 + prog * 0.10 + Math.sin(t * 0.5) * 0.006;  // 1.05→1.15 へ押し込み
+        const panX = prog * 18 + Math.sin(t * 0.09) * 12;             // 右へドリフト
+        const panY = -prog * 12 + Math.cos(t * 0.07) * 9;             // やや上へ
+        const dw = CANVAS_WIDTH * zoom, dh = CANVAS_HEIGHT * zoom;
+        ctx.drawImage(img, (CANVAS_WIDTH - dw) / 2 + panX, (CANVAS_HEIGHT - dh) / 2 + panY, dw, dh);
+        // 重ねるモーション（すべて控えめ・本文の下）：光源グロー→霧→花びら→蛍/光の粒
+        drawCinematicGlow(ctx, t, phase);
+        drawCinematicMist(ctx, t, phase);
+        drawDriftingPetals(ctx, t, phase);
+        drawCinematicMotes(ctx, t, phase);
+    }
     ctx.restore();
-    return true;
+}
+
+// 背景の上に舞う花びら（少数・低α・ループ）
+function drawDriftingPetals(ctx, t, phase) {
+    const N = 12;
+    const tint = (phase === 'ending') ? '255, 214, 206' : '226, 224, 240';  // 夜明け=桜色 / 夜=淡い白
+    const rnd = (x) => { const v = Math.sin(x) * 43758.5453; return v - Math.floor(v); };  // 疑似乱数 0..1
+    ctx.save();
+    for (let i = 0; i < N; i++) {
+        const s = (i + 1) * 12.9898;
+        const fx = rnd(s);
+        const fall = 16 + rnd(s * 1.7) * 20;        // 落下速度 px/s
+        const sway = 16 + rnd(s * 2.3) * 26;        // 横揺れ幅
+        const size = 3 + rnd(s * 3.1) * 3.5;
+        const ph = s * 1.3;
+        const y = ((t * fall + i * 71) % (CANVAS_HEIGHT + 40)) - 20;
+        const x = fx * CANVAS_WIDTH + Math.sin(t * 0.5 + ph) * sway;
+        ctx.globalAlpha = 0.22 + rnd(s * 4.7) * 0.2;
+        ctx.fillStyle = `rgba(${tint}, 1)`;
+        ctx.beginPath();
+        ctx.ellipse(x, y, size, size * 0.58, Math.sin(t * 0.4 + ph), 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.restore();
+}
+
+// 光源(夜=月/夜明け=朝日)の柔らかいグロー明滅
+function drawCinematicGlow(ctx, t, phase) {
+    const cx = (phase === 'ending') ? CANVAS_WIDTH * 0.19 : CANVAS_WIDTH * 0.80;
+    const cy = CANVAS_HEIGHT * 0.13;
+    const pulse = 0.5 + Math.sin(t * 0.5) * 0.5;
+    const a = 0.06 + pulse * 0.10;
+    const r = ((phase === 'ending') ? 160 : 135) * (1 + pulse * 0.08);
+    const col = (phase === 'ending') ? '255, 196, 132' : '250, 244, 220';
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, `rgba(${col}, ${a.toFixed(3)})`);
+    g.addColorStop(1, `rgba(${col}, 0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    ctx.restore();
+}
+
+// 下部に薄く流れる霧（2バンドをゆっくり横流し）
+function drawCinematicMist(ctx, t, phase) {
+    const tint = (phase === 'ending') ? '255, 212, 184' : '178, 198, 234';
+    const bands = [
+        { y: 0.64, h: 64, sp: 13, a: 0.05, amp: 9 },
+        { y: 0.78, h: 86, sp: 9, a: 0.045, amp: 13 }
+    ];
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    for (const b of bands) {
+        const cy = CANVAS_HEIGHT * b.y + Math.sin(t * 0.2 + b.y) * b.amp;
+        const base = (t * b.sp) % (CANVAS_WIDTH + 520);
+        for (let k = -1; k < 3; k++) {
+            const cx = base - 260 + k * 520;
+            const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 330);
+            g.addColorStop(0, `rgba(${tint}, ${b.a})`);
+            g.addColorStop(1, `rgba(${tint}, 0)`);
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.ellipse(cx, cy, 330, b.h, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+    ctx.restore();
+}
+
+// 蛍/光の粒（ゆっくり漂い、明滅）。夜=蛍の緑黄、夜明け=金粉
+function drawCinematicMotes(ctx, t, phase) {
+    const N = 9;
+    const col = (phase === 'ending') ? '255, 238, 206' : '198, 240, 170';
+    const rnd = (x) => { const v = Math.sin(x) * 43758.5453; return v - Math.floor(v); };
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < N; i++) {
+        const s = (i + 1) * 7.317;
+        const x = rnd(s) * CANVAS_WIDTH + Math.sin(t * (0.15 + rnd(s * 1.3) * 0.2) + s) * 55;
+        const y = (0.28 + rnd(s * 1.7) * 0.55) * CANVAS_HEIGHT + Math.cos(t * (0.12 + rnd(s * 2.1) * 0.13) + s * 1.4) * 36;
+        const tw = 0.5 + 0.5 * Math.sin(t * (1.0 + rnd(s * 3.0) * 1.4) + s * 2.0);
+        const a = 0.08 + tw * 0.30;
+        const rad = (1.6 + rnd(s * 4.0) * 2.2) * 4;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
+        g.addColorStop(0, `rgba(${col}, ${a.toFixed(3)})`);
+        g.addColorStop(1, `rgba(${col}, 0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(x, y, rad, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.restore();
+}
+
+// 起動時にオープニング/エンディング背景を先読み（intro/endingで読込前の下地が見えるのを防ぐ）
+export function preloadCinematicBgImages() {
+    if (!_openingBgImage) { _openingBgImage = new Image(); _openingBgImage.src = 'images/opening_bg.png'; }
+    if (!_endingBgImage) { _endingBgImage = new Image(); _endingBgImage.src = 'images/ending_bg.png'; }
+    if (!_statusBgImage) { _statusBgImage = new Image(); _statusBgImage.src = 'images/status_bg.png'; }
+    if (!_titleBgImage) { _titleBgImage = new Image(); _titleBgImage.src = 'images/title_bg.png'; }
+    if (!_titleLogoImage) { _titleLogoImage = new Image(); _titleLogoImage.src = 'images/title_logo.png'; }
+    const wait = (img) => new Promise((resolve) => {
+        if (img.complete && img.naturalWidth) { resolve(); return; }
+        img.addEventListener('load', resolve, { once: true });
+        img.addEventListener('error', resolve, { once: true });
+    });
+    return Promise.all([wait(_openingBgImage), wait(_endingBgImage), wait(_statusBgImage), wait(_titleBgImage), wait(_titleLogoImage)]);
 }
 
 const KANJI_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
@@ -1357,24 +1482,14 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     const time = Date.now();
     const t = time * 0.001;
 
-    // 背景（夜空 + 光彩）
-    const gradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
-    gradient.addColorStop(0, '#081328');
-    gradient.addColorStop(0.26, '#12274f');
-    gradient.addColorStop(0.58, '#1d3a64');
-    gradient.addColorStop(1, '#0b1626');
-    ctx.fillStyle = gradient;
+    // 背景画像（夜空＋月を内包。読込前は紺下地でフォールバック）
+    if (!_titleBgImage) { _titleBgImage = new Image(); _titleBgImage.src = 'images/title_bg.png'; }
+    ctx.fillStyle = '#0b1626';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    const skyGlow = ctx.createRadialGradient(
-        CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.28, 24,
-        CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.28, CANVAS_WIDTH * 0.66
-    );
-    skyGlow.addColorStop(0, 'rgba(150, 196, 255, 0.26)');
-    skyGlow.addColorStop(0.45, 'rgba(92, 142, 228, 0.14)');
-    skyGlow.addColorStop(1, 'rgba(58, 98, 180, 0)');
-    ctx.fillStyle = skyGlow;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    if (_titleBgImage.complete && _titleBgImage.naturalWidth) {
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(_titleBgImage, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    }
 
     // フィルムグレイン（空のバンディングを抑え質感を出す・軽量）
     ctx.save();
@@ -1450,8 +1565,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
         ctx.restore();
     }
 
-    // 月（中央上に大きく配置：ロゴの後光。天下統一に被らないよう高めに）
-    drawTitleMoon(ctx, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 160, 150, time);  // ロゴと相対固定のままグループごと下げ(上下の余白を揃える)
+    // 月は背景画像に内包（drawTitleMoon は廃止）
 
     // 靄・前景
     drawTitleMistLayers(ctx, time);
@@ -1725,7 +1839,15 @@ function wafuFillTextLS(ctx, text, x, y, lsPx, align = 'left') {
 
 // 昇段画面と同じ紺カード：純色グラデ＋上辺の青アクセント＋枠（選択時は青発光＋内リング）
 export function drawWafuCard(ctx, x, y, w, h, opts = {}) {
-    const { radius = 10, selected = false, pulse = 0, accent = true, shadow = true } = opts;
+    const { radius = 10, selected = false, pulse = 0, accent = true, shadow = true, flat = false } = opts;
+
+    // flat=true: 外カードの中に収まる内側行用（枠線なし・薄い背景帯のみ）
+    if (flat && !selected) {
+        wafuRoundRectPath(ctx, x, y, w, h, radius);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.04)';
+        ctx.fill();
+        return;
+    }
 
     // 影／グロー（モダン：大きめブラー・低不透明・浮かせすぎない）
     if (shadow || selected) {
@@ -1854,6 +1976,8 @@ export function drawWafuPips(ctx, x, y, pipW, pipH, gap, level, maxLevel) {
     }
 }
 
+const _statusMenuAnim = { amt: [], last: 0 };
+
 export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, options = {}) {
     const menuIndex = Number.isFinite(options.menuIndex) ? options.menuIndex : 0;
     const selectedWeaponName = options.selectedWeaponName || (player?.currentSubWeapon?.name || '未装備');
@@ -1893,14 +2017,20 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         ctx.globalAlpha = 1;
 
         if (drawBackground) {
-            // モダンな紺：少し明るめの下地＋広いアンビエント光（暗くなりすぎない）
+            // 背景画像（読込前は紺下地＋アンビエント光でフォールバック）
+            if (!_statusBgImage) { _statusBgImage = new Image(); _statusBgImage.src = 'images/status_bg.png'; }
             ctx.fillStyle = '#141d34';
             ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-            const glow = ctx.createRadialGradient(CANVAS_WIDTH * 0.44, CANVAS_HEIGHT * 0.34, 0, CANVAS_WIDTH * 0.44, CANVAS_HEIGHT * 0.34, CANVAS_WIDTH * 0.92);
-            glow.addColorStop(0, 'rgba(66, 96, 168, 0.42)');
-            glow.addColorStop(1, 'rgba(66, 96, 168, 0)');
-            ctx.fillStyle = glow;
-            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            if (_statusBgImage.complete && _statusBgImage.naturalWidth) {
+                ctx.imageSmoothingEnabled = true;
+                ctx.drawImage(_statusBgImage, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            } else {
+                const glow = ctx.createRadialGradient(CANVAS_WIDTH * 0.44, CANVAS_HEIGHT * 0.34, 0, CANVAS_WIDTH * 0.44, CANVAS_HEIGHT * 0.34, CANVAS_WIDTH * 0.92);
+                glow.addColorStop(0, 'rgba(66, 96, 168, 0.42)');
+                glow.addColorStop(1, 'rgba(66, 96, 168, 0)');
+                ctx.fillStyle = glow;
+                ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            }
         }
 
         if (!drawUi) {
@@ -1964,7 +2094,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         // 強化状況カード（ミニ紺カード＋段位＋青ピップ）
         progressionCards.forEach((card, i) => {
             const x = rowX + i * (cardW + cardGap);
-            drawWafuCard(ctx, x, cardY, cardW, cardH, { radius: 8, accent: false, shadow: false });
+            drawWafuCard(ctx, x, cardY, cardW, cardH, { radius: 8, accent: false, shadow: false, flat: true });
 
             ctx.textAlign = 'center';
             ctx.fillStyle = 'rgba(216, 230, 255, 0.9)';
@@ -1987,10 +2117,24 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         const menuW = (menuRightX - menuStartX - menuGap * 2) / 3;
         const menuH = 80;
 
+        // 選択 transition（昇段カードと同方式）
+        const _sNow = Date.now();
+        let _sDt = (_sNow - _statusMenuAnim.last) / 1000;
+        _statusMenuAnim.last = _sNow;
+        if (_statusMenuAnim.amt.length !== menuItems.length || !(_sDt >= 0) || _sDt > 0.25) {
+            _statusMenuAnim.amt = menuItems.map((_, i) => (i === menuIndex ? 1 : 0));
+            _sDt = 0;
+        }
+        const _sEase = 1 - Math.exp(-Math.min(_sDt, 0.1) / 0.07);
+        for (let i = 0; i < menuItems.length; i++) {
+            _statusMenuAnim.amt[i] += ((i === menuIndex ? 1 : 0) - _statusMenuAnim.amt[i]) * _sEase;
+        }
+
         menuItems.forEach((item, i) => {
             const selected = i === menuIndex;
+            const a = _statusMenuAnim.amt[i];
             const x = menuStartX + i * (menuW + menuGap);
-            const y = menuY - (selected ? 4 : 0);
+            const y = menuY - 4 * a;
             drawWafuCard(ctx, x, y, menuW, menuH, { radius: 10, selected, pulse });
 
             ctx.textAlign = 'center';
@@ -2335,7 +2479,7 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
     });
 
     // ===== 操作説明（通常マニュアルと同サイズ・カード直下に配置） =====
-    drawScreenManualLine(ctx, '←→：選択 | SPACE：決定', d(cardTopD + CARD_H + GAP_HEAD_CARD));
+    drawScreenManualLine(ctx, '←→：選択 | SPACE：決定', d(cardTopD + CARD_H + GAP_HEAD_CARD + 24));
 
     ctx.restore();
 }
@@ -2641,7 +2785,7 @@ function renderWafuuMessagePanel(ctx, timer, variant = 'opening') {
 
 // イントロ（ストーリー紹介）画面
 export function renderIntro(ctx, timer) {
-    if (!drawCinematicBgImage(ctx, 'opening')) renderWafuuCinematicBackdrop(ctx, timer, 'opening');  // 画像背景（読込前は従来の和風背景）
+    drawCinematicBgImage(ctx, 'opening', timer);  // 画像背景（読込前は暗色の下地。旧背景は出さない）
     const panel = renderWafuuMessagePanel(ctx, timer, 'opening');
 
     const lines = [
@@ -2689,7 +2833,7 @@ export function renderIntro(ctx, timer) {
 
 // エンディング画面
 export function renderEnding(ctx, timer) {
-    if (!drawCinematicBgImage(ctx, 'ending')) renderWafuuCinematicBackdrop(ctx, timer, 'ending');  // 画像背景（読込前は従来の和風背景）
+    drawCinematicBgImage(ctx, 'ending', timer);  // 画像背景（読込前は暗色の下地。旧背景は出さない）
     const panel = renderWafuuMessagePanel(ctx, timer, 'ending');
 
     const lines = [

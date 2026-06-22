@@ -3,6 +3,7 @@
 // ============================================
 
 import { game } from './game.js';
+import { preloadCinematicBgImages } from './ui.js';
 
 // DOMロード後に初期化
 window.addEventListener('DOMContentLoaded', () => {
@@ -53,10 +54,15 @@ window.addEventListener('DOMContentLoaded', () => {
             ? document.fonts.ready
             : Promise.resolve();
         
+        // オープニング/エンディング背景画像も先読み（intro/endingで読込前の下地が一瞬出るのを防ぐ）
+        const bgReadyPromise = (typeof preloadCinematicBgImages === 'function')
+            ? preloadCinematicBgImages()
+            : Promise.resolve();
+
         // 念のため最大2秒でタイムアウトするようにしておく
         const timeoutPromise = new Promise(resolve => setTimeout(resolve, 2000));
 
-        Promise.race([fontReadyPromise, timeoutPromise]).then(() => {
+        Promise.race([Promise.all([fontReadyPromise, bgReadyPromise]), timeoutPromise]).then(() => {
             if (startupFailed) return;
             
             // ゲーム初期化
