@@ -2917,7 +2917,7 @@ export function renderPauseScreen(ctx, armed = false) {
     ctx.globalAlpha = 1;
     ctx.fillStyle = '#fff';
     ctx.font = '15px "Zen Old Mincho", serif';
-    ctx.fillText(armed ? 'もう一度タップでタイトルへ' : '⏸ タイトルに戻る', btn.x, btn.y);
+    ctx.fillText(armed ? 'もう一度タップでタイトルへ' : 'タイトルに戻る', btn.x, btn.y);
     ctx.restore();
 }
 
