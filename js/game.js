@@ -7,7 +7,7 @@ import { input } from './input.js';
 import { Player } from './player.js';
 import { createSubWeapon } from './weapon.js';
 import { Stage } from './stage.js';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout } from './ui.js';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout } from './ui.js';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js';
 import { saveManager } from './save.js';
 import { shop } from './shop.js';
@@ -29,6 +29,8 @@ class Game {
         this.ctx = null;
         this.state = GAME_STATE.TITLE;
         this.pauseReturnState = GAME_STATE.PLAYING;
+        this.pauseReturnArmed = false;      // ポーズの「タイトルに戻る」2タップ確認状態
+        this.pauseReturnArmedTimer = 0;
         this.lastTime = 0;
         this.deltaTime = 0;
         this.useFixedTimestep = USE_FIXED_TIMESTEP;
@@ -3947,17 +3949,52 @@ class Game {
     }
     
     updatePaused() {
+        // 「タイトルに戻る」の2タップ確認の自動解除
+        if (this.pauseReturnArmed) {
+            this.pauseReturnArmedTimer -= this.deltaTime * 1000;
+            if (this.pauseReturnArmedTimer <= 0) this.pauseReturnArmed = false;
+        }
+
+        // 画面下端中央の「タイトルに戻る」ボタン（キャプチャを邪魔しない控えめ配置・2タップ確認）
+        if (input.touchJustPressed) {
+            const btn = getPauseReturnButton();
+            const tx = input.lastTouchX;
+            const ty = input.lastTouchY;
+            if (Math.abs(tx - btn.x) <= btn.w / 2 && Math.abs(ty - btn.y) <= btn.h / 2) {
+                if (this.pauseReturnArmed) {
+                    this.returnToTitle();
+                } else {
+                    this.pauseReturnArmed = true;
+                    this.pauseReturnArmedTimer = 2500;
+                    if (typeof audio.playSelect === 'function') audio.playSelect();
+                }
+                return;
+            }
+            // ボタン外をタップしたら確認を解除
+            this.pauseReturnArmed = false;
+        }
+
         // ポーズ中でも武器切替は許可
         if (this.player && input.isActionJustPressed('SWITCH_WEAPON')) {
             this.player.switchSubWeapon();
         }
 
         if (input.isActionJustPressed('PAUSE') || input.isActionJustPressed('DEBUG_TOGGLE')) {
+            this.pauseReturnArmed = false;
             this.state = (this.pauseReturnState === GAME_STATE.STAGE_CLEAR)
                 ? GAME_STATE.STAGE_CLEAR
                 : GAME_STATE.PLAYING;
             audio.resumeBgm();
         }
+    }
+
+    // ポーズから タイトルへ戻る（中断）。セーブは保持し、タイトルで「続きから」可能にする。
+    returnToTitle() {
+        this.pauseReturnArmed = false;
+        this.pauseReturnState = GAME_STATE.PLAYING;
+        this.state = GAME_STATE.TITLE;
+        this.titleMenuIndex = 0;
+        audio.playBgm('title');
     }
 
     updateDefeat() {
@@ -4366,7 +4403,7 @@ class Game {
                 } else {
                     this.renderPlaying();
                 }
-                renderPauseScreen(this.ctx);
+                renderPauseScreen(this.ctx, this.pauseReturnArmed);
                 break;
 
             case GAME_STATE.DEFEAT:

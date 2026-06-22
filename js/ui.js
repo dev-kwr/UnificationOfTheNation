@@ -2891,8 +2891,34 @@ export function renderEnding(ctx, timer) {
 }
 
 // ポーズ画面
-export function renderPauseScreen() {
-    // ... (既存のコード) ...
+// ポーズ中の「タイトルに戻る」ボタン。ポーズはキャプチャ(スクショ)用途のため、
+// 画面中央のキャプチャ対象を邪魔しないよう画面下端中央に控えめに配置する。
+// 描画と当たり判定で同じ座標を使うため、この単一の関数を双方が参照する。
+export function getPauseReturnButton() {
+    return { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT - 34, w: 200, h: 40 };
+}
+
+export function renderPauseScreen(ctx, armed = false) {
+    if (!ctx) return;
+    const btn = getPauseReturnButton();
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // 背景（半透明・控えめ。確認待ち時は赤系で警告）
+    ctx.globalAlpha = armed ? 0.9 : 0.55;
+    ctx.fillStyle = armed ? 'rgba(122, 28, 28, 0.82)' : 'rgba(0, 0, 0, 0.5)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.rect(btn.x - btn.w / 2, btn.y - btn.h / 2, btn.w, btn.h);
+    ctx.fill();
+    ctx.stroke();
+    // ラベル
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#fff';
+    ctx.font = '15px "Zen Old Mincho", serif';
+    ctx.fillText(armed ? 'もう一度タップでタイトルへ' : '⏸ タイトルに戻る', btn.x, btn.y);
+    ctx.restore();
 }
 
 // 全クリア画面（通常ステージクリアと同等の透け感で重ねる）
