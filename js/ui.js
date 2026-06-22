@@ -2919,10 +2919,11 @@ export function renderPauseScreen(ctx, armed = false) {
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = armed ? 'rgba(255, 196, 196, 0.9)' : 'rgba(220, 200, 150, 0.7)';
     ctx.stroke();
-    // ラベル（通常/確認で文字数を揃えてバランスを取る）
+    // ラベル（PCはクリック表記。確認は「もう一度〜」で通常と長さを揃える）
+    const actionWord = isTouchOverlayMode() ? 'タップ' : 'クリック';
     ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
     ctx.font = '16px "Zen Old Mincho", serif';
-    ctx.fillText(armed ? 'もう一度タップ' : 'タイトルに戻る', btn.x, btn.y);
+    ctx.fillText(armed ? `もう一度${actionWord}` : 'タイトルに戻る', btn.x, btn.y);
     ctx.restore();
 }
 
