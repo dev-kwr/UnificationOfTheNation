@@ -2905,23 +2905,24 @@ export function getPauseReturnButton() {
 export function renderPauseScreen(ctx, armed = false) {
     if (!ctx) return;
     const btn = getPauseReturnButton();
+    const x = btn.x - btn.w / 2;
+    const y = btn.y - btn.h / 2;
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    // 背景（半透明・控えめ。確認待ち時は赤系で警告）
-    ctx.globalAlpha = armed ? 0.9 : 0.55;
-    ctx.fillStyle = armed ? 'rgba(122, 28, 28, 0.82)' : 'rgba(0, 0, 0, 0.5)';
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
-    ctx.lineWidth = 1.5;
+    // 角丸の控えめなボタン（通常=紺地+金縁／確認待ち=赤系で警告）
     ctx.beginPath();
-    ctx.rect(btn.x - btn.w / 2, btn.y - btn.h / 2, btn.w, btn.h);
+    if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, btn.w, btn.h, 8);
+    else ctx.rect(x, y, btn.w, btn.h);
+    ctx.fillStyle = armed ? 'rgba(140, 38, 38, 0.82)' : 'rgba(16, 22, 40, 0.62)';
     ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = armed ? 'rgba(255, 196, 196, 0.9)' : 'rgba(220, 200, 150, 0.7)';
     ctx.stroke();
-    // ラベル
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = '#fff';
-    ctx.font = '15px "Zen Old Mincho", serif';
-    ctx.fillText(armed ? 'もう一度タップでタイトルへ' : 'タイトルに戻る', btn.x, btn.y);
+    // ラベル（通常/確認で文字数を揃えてバランスを取る）
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.font = '16px "Zen Old Mincho", serif';
+    ctx.fillText(armed ? 'もう一度タップ' : 'タイトルに戻る', btn.x, btn.y);
     ctx.restore();
 }
 
