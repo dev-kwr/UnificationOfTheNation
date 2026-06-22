@@ -92,6 +92,7 @@ export const KEYS = {
     PAUSE: ['Escape'],
     DEBUG_TOGGLE: ['q', 'Q'],
     DEBUG_START: ['Enter'],
+    CONFIRM: [' ', 'Enter'],  // 決定（Space/Enter）。↑(ArrowUp)は含めない＝決定にしない（↑はジャンプ専用）
 };
 
 // ステージ情報

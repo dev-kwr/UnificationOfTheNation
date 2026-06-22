@@ -84,7 +84,7 @@ export function drawFlatButton(ctx, x, y, width, height, label, color) {
     // 不要な枠線描画(strokeRect)を削除
     
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 20px sans-serif';
+    ctx.font = 'bold 20px "Zen Old Mincho", serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, x, y);
@@ -107,37 +107,48 @@ function drawRoundedRectPath(ctx, x, y, width, height, radius) {
 }
 
 function drawRoundedFlatTitleButton(ctx, x, y, width, height, label, options = {}) {
-    const fill = options.fill || 'rgba(30, 34, 46, 0.84)';
-    const border = options.border || 'rgba(220, 230, 255, 0.32)';
-    const textColor = options.textColor || '#f3f7ff';
-    const radius = Number.isFinite(options.radius) ? options.radius : 14;
-    const font = options.font || '700 20px sans-serif';
-    const lineWidth = Number.isFinite(options.lineWidth) ? options.lineWidth : 1.4;
+    // 昇段トンマナの和風カードボタン（選択でグロー）。難易度ボタンは色アクセントで区別。
+    const focused = !!options.focused;
+    const pulse = options.pulse || 0;
+    const radius = Number.isFinite(options.radius) ? options.radius : 12;
+    const font = options.font || '700 22px "Zen Old Mincho", serif';
+    const accentColor = options.accentColor || null;
+    const textColor = options.textColor || (focused ? '#ffffff' : 'rgba(224, 234, 255, 0.82)');
 
     const left = x - width * 0.5;
     const top = y - height * 0.5;
-    ctx.save();
-    drawRoundedRectPath(ctx, left, top, width, height, radius);
-    ctx.fillStyle = fill;
-    ctx.fill();
-    drawRoundedRectPath(ctx, left, top, width, height, radius);
-    ctx.strokeStyle = border;
-    ctx.lineWidth = lineWidth;
-    ctx.stroke();
+
+    drawWafuCard(ctx, left, top, width, height, { radius, selected: focused, pulse, accent: !accentColor });
+
+    if (accentColor) {
+        // 難易度色などの色帯アクセント（青アクセントの代わり）
+        ctx.save();
+        wafuRoundRectPath(ctx, left, top, width, height, radius);
+        ctx.clip();
+        const a = ctx.createLinearGradient(left, 0, left + width, 0);
+        a.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        a.addColorStop(0.5, accentColor);
+        a.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = a;
+        ctx.fillRect(left, top, width, 2);
+        ctx.restore();
+    }
+
     if (label) {
+        ctx.save();
         ctx.fillStyle = textColor;
         ctx.font = font;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(label, x, y);
+        ctx.restore();
     }
-    ctx.restore();
 }
 
 function drawControlManualLine(ctx, y = CANVAS_HEIGHT - 20) {
     ctx.save();
     ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-    ctx.font = '12px sans-serif';
+    ctx.font = '12px "Zen Old Mincho", serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
     ctx.fillText(CONTROL_MANUAL_TEXT, CANVAS_WIDTH / 2, y);
@@ -147,154 +158,175 @@ function drawControlManualLine(ctx, y = CANVAS_HEIGHT - 20) {
 export function drawScreenManualLine(ctx, text, y = CANVAS_HEIGHT - 20) {
     ctx.save();
     ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-    ctx.font = '12px sans-serif';
+    ctx.font = '12px "Zen Old Mincho", serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
     ctx.fillText(text, CANVAS_WIDTH / 2, y);
     ctx.restore();
 }
 
+// タイトルロゴ：UNIFICATION OF THE NATION(明朝セリフ大文字・上質なアイボリー箔調・主役で大) ＋ 天下統一(従で小・淡金)。
+// ※金ピカ多段グラデ／ベベル／太縁取り／朱印は「WordArt/パワポっぽい」ため不使用。引き算と箔テクスチャで質感を出す。
 function createTitleLogoSprite(measureCtx) {
     if (typeof document === 'undefined') return null;
 
-    const brushFamily = '"Rock Salt","Yuji Boku","Yusei Magic","Hiragino Mincho ProN","Yu Mincho",cursive';
-    const subtitleFamily = '"Yuji Mai","Yuji Syuku","Yuji Boku","Yusei Magic","Hiragino Mincho ProN","Yu Mincho",cursive';
-    const titleText = 'Unification of the Nation';
-    const subtitleText = '天下統一';
-    const maxTitleWidth = CANVAS_WIDTH * 0.88;
-    const baseTitleSize = 80;
-    const minTitleSize = 34;
-    const subtitleSize = 44;
-    const ornamentLen = 196;
-    const subtitleYOffset = 74;
-    const ornamentYOffset = subtitleYOffset + 40;
+    const heroFamily = '"Zen Old Mincho", serif';
+    const subFamily = '"Yuji Boku","Yuji Syuku","Hiragino Mincho ProN","Yu Mincho",serif';
+    const heroText = 'UNIFICATION OF THE NATION';
+    const subText = '天下統一';
+    const maxHeroWidth = CANVAS_WIDTH * 0.9;
+    const baseHeroSize = 78;
+    const minHeroSize = 46;
+    const heroLSRatio = 0.08;   // 上品でシネマティックな字間
+    const subSize = 30;         // 主役より明確に小さく（主従を強調）
+    const subLS = 10;
 
-    let titleSize = baseTitleSize;
+    const heroChars = [...heroText];
     measureCtx.save();
-    while (titleSize > minTitleSize) {
-        measureCtx.font = `700 ${titleSize}px ${brushFamily}`;
-        if (measureCtx.measureText(titleText).width <= maxTitleWidth) break;
-        titleSize -= 2;
-    }
-    measureCtx.font = `700 ${titleSize}px ${brushFamily}`;
-    const titleMetrics = measureCtx.measureText(titleText);
-    const titleWidth = titleMetrics.width;
-    const titleAsc = titleMetrics.actualBoundingBoxAscent || titleSize * 0.82;
-    const titleDesc = titleMetrics.actualBoundingBoxDescent || titleSize * 0.3;
-    const titleStrokeWidth = Math.max(2.8, titleSize * 0.064);
+    const measureHero = (size) => {
+        measureCtx.font = `700 ${size}px ${heroFamily}`;
+        let w = 0;
+        for (const c of heroChars) w += measureCtx.measureText(c).width;
+        return w + heroLSRatio * size * Math.max(0, heroChars.length - 1);
+    };
+    let heroSize = baseHeroSize;
+    while (heroSize > minHeroSize && measureHero(heroSize) > maxHeroWidth) heroSize -= 2;
+    const heroLS = heroLSRatio * heroSize;
+    measureCtx.font = `700 ${heroSize}px ${heroFamily}`;
+    const heroWs = heroChars.map((c) => measureCtx.measureText(c).width);
+    const heroTotal = heroWs.reduce((a, b) => a + b, 0) + heroLS * Math.max(0, heroChars.length - 1);
+    const hm = measureCtx.measureText(heroText);
+    const heroAsc = hm.actualBoundingBoxAscent || heroSize * 0.7;
+    const heroDesc = hm.actualBoundingBoxDescent || heroSize * 0.08;
 
-    measureCtx.font = `400 ${subtitleSize}px ${subtitleFamily}`;
-    const subtitleMetrics = measureCtx.measureText(subtitleText);
-    const subtitleWidth = subtitleMetrics.width;
-    const subtitleDesc = subtitleMetrics.actualBoundingBoxDescent || subtitleSize * 0.26;
+    measureCtx.font = `400 ${subSize}px ${subFamily}`;
+    const subChars = [...subText];
+    let subTotal = 0;
+    for (const c of subChars) subTotal += measureCtx.measureText(c).width;
+    subTotal += subLS * Math.max(0, subChars.length - 1);
+    const sm = measureCtx.measureText(subText);
+    const subDesc = sm.actualBoundingBoxDescent || subSize * 0.24;
     measureCtx.restore();
 
-    const spriteW = Math.ceil(Math.max(
-        titleWidth + titleStrokeWidth * 2 + 56,
-        subtitleWidth + 96,
-        ornamentLen * 2 + 76
-    ));
-    const titleBaselineY = Math.ceil(titleAsc + 28);
-    const subtitleY = titleBaselineY + subtitleYOffset;
-    const ornamentY = titleBaselineY + ornamentYOffset;
-    const spriteH = Math.ceil(Math.max(
-        titleBaselineY + titleDesc + 22,
-        subtitleY + subtitleDesc + 16,
-        ornamentY + 16
-    ));
+    const padTop = 30;
+    const heroBaselineY = Math.ceil(padTop + heroAsc);
+    const subBaselineY = Math.ceil(heroBaselineY + heroDesc + 30 + subSize * 0.78);
+
+    const spriteW = Math.ceil(Math.max(heroTotal + 70, subTotal + 90));
+    const spriteH = Math.ceil(subBaselineY + subDesc + 16);
 
     const dpr = Math.min((typeof window !== 'undefined' && window.devicePixelRatio) ? window.devicePixelRatio : 1, 2);
     const sprite = document.createElement('canvas');
     sprite.width = Math.max(1, Math.round(spriteW * dpr));
     sprite.height = Math.max(1, Math.round(spriteH * dpr));
-
     const sctx = sprite.getContext('2d');
     if (!sctx) return null;
     sctx.scale(dpr, dpr);
-    sctx.textAlign = 'center';
     sctx.textBaseline = 'alphabetic';
+    sctx.textAlign = 'left';
 
     const drawX = spriteW / 2;
-    const titleGradient = sctx.createLinearGradient(0, titleBaselineY - 90, 0, titleBaselineY + 28);
-    titleGradient.addColorStop(0, '#fff7df');
-    titleGradient.addColorStop(0.42, '#f2d293');
-    titleGradient.addColorStop(0.78, '#d8a65b');
-    titleGradient.addColorStop(1, '#a47234');
 
-    sctx.font = `700 ${titleSize}px ${brushFamily}`;
-    sctx.lineJoin = 'bevel';
-    sctx.miterLimit = 1.4;
-    sctx.strokeStyle = 'rgba(8, 5, 14, 0.92)';
-    sctx.lineWidth = titleStrokeWidth;
-    sctx.shadowColor = 'rgba(0, 0, 0, 0.62)';
-    sctx.shadowBlur = 8;
-    sctx.strokeText(titleText, drawX, titleBaselineY);
-    sctx.shadowBlur = 0;
+    // ===== UNIFICATION OF THE NATION（主役：アイボリー〜淡金のフラット箔・効果は引き算） =====
+    const heroGrad = sctx.createLinearGradient(0, heroBaselineY - heroSize * 0.7, 0, heroBaselineY + heroSize * 0.06);
+    heroGrad.addColorStop(0, '#eed490');
+    heroGrad.addColorStop(1, '#b88f3c');
 
-    const jitterPasses = 2;
-    for (let i = 0; i < jitterPasses; i++) {
-        const jitterX = Math.sin(i * 1.3) * (0.9 + i * 0.22);
-        const jitterY = Math.cos(i * 1.6) * (0.7 + i * 0.18);
-        const smearAlpha = 0.1 - i * 0.028;
-        sctx.fillStyle = `rgba(26, 17, 20, ${Math.max(0.04, smearAlpha)})`;
-        sctx.fillText(titleText, drawX + jitterX, titleBaselineY + jitterY);
-    }
-    sctx.fillStyle = titleGradient;
-    sctx.fillText(titleText, drawX, titleBaselineY);
-    sctx.strokeStyle = 'rgba(255, 245, 221, 0.38)';
-    sctx.lineWidth = 0.8;
-    sctx.strokeText(titleText, drawX, titleBaselineY - 1);
+    sctx.font = `700 ${heroSize}px ${heroFamily}`;
+    sctx.lineJoin = 'round';
+    const heroLeft = drawX - heroTotal / 2;
+    const eachHero = (fn) => { let xx = heroLeft; for (let i = 0; i < heroChars.length; i++) { fn(heroChars[i], xx); xx += heroWs[i] + heroLS; } };
 
-    sctx.font = `400 ${subtitleSize}px ${subtitleFamily}`;
-    sctx.lineJoin = 'bevel';
-    sctx.miterLimit = 1.4;
-    sctx.shadowColor = 'rgba(84, 130, 220, 0.28)';
-    sctx.shadowBlur = 2;
-    sctx.lineWidth = 1.2;
-    sctx.strokeStyle = 'rgba(10, 12, 20, 0.72)';
-    sctx.strokeText(subtitleText, drawX, subtitleY);
-    sctx.fillStyle = '#d9e8ff';
-    sctx.fillText(subtitleText, drawX, subtitleY);
-    sctx.shadowBlur = 0;
+    // 柔らかい影だけで奥行きと可読性（月にかかっても沈まない）。ベタ縁取り・ベベルはしない。
+    sctx.save();
+    sctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+    sctx.shadowBlur = 18;
+    sctx.shadowOffsetY = 2;
+    sctx.fillStyle = heroGrad;
+    eachHero((c, xx) => sctx.fillText(c, xx, heroBaselineY));
+    sctx.restore();
 
-    sctx.strokeStyle = 'rgba(229, 203, 142, 0.78)';
-    sctx.lineWidth = 2.4;
-    sctx.lineCap = 'round';
-    sctx.beginPath();
-    sctx.moveTo(drawX - 34, ornamentY);
-    sctx.quadraticCurveTo(drawX - 104, ornamentY - 5, drawX - ornamentLen, ornamentY + 2);
-    sctx.moveTo(drawX + 34, ornamentY);
-    sctx.quadraticCurveTo(drawX + 104, ornamentY + 5, drawX + ornamentLen, ornamentY - 1);
-    sctx.stroke();
+    // 文字面に墨かすれ／金箔の斑テクスチャ（和の手描き・箔押しの質感。ベタ塗りのパワポ感を回避）
+    sctx.save();
+    sctx.globalCompositeOperation = 'source-atop';
+    sctx.globalAlpha = 0.85;
+    const ink = getTitleInkTexture();
+    for (let gx = 0; gx < spriteW; gx += ink.width) for (let gy = 0; gy < spriteH; gy += ink.height) sctx.drawImage(ink, gx, gy);
+    sctx.restore();
 
-    sctx.fillStyle = 'rgba(240, 218, 165, 0.92)';
-    sctx.beginPath();
-    sctx.moveTo(drawX - 20, ornamentY);
-    sctx.lineTo(drawX, ornamentY - 10);
-    sctx.lineTo(drawX + 20, ornamentY);
-    sctx.lineTo(drawX, ornamentY + 10);
-    sctx.closePath();
-    sctx.fill();
+    // ===== 天下統一（従：小・淡金。月を高く上げ暗い夜空に置くので淡金でも読める） =====
+    sctx.save();
+    sctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+    sctx.shadowBlur = 5;
+    sctx.shadowOffsetY = 2;
+    sctx.font = `400 ${subSize}px ${subFamily}`;
+    sctx.fillStyle = 'rgba(226, 210, 170, 0.9)';
+    wafuFillTextLS(sctx, subText, drawX, subBaselineY, subLS, 'center');
+    sctx.restore();
 
     return {
         image: sprite,
         anchorX: spriteW * 0.5,
-        anchorY: titleBaselineY,
+        anchorY: heroBaselineY,
         drawWidth: spriteW,
         drawHeight: spriteH
     };
+}
+
+// ロゴ下の一筆（墨書きの太刀筋風）下線。端が細く中央が太い有機的なストローク
+function drawTitleBrushUnderline(ctx, cx, y, w, timeMs) {
+    const half = w / 2;
+    const segs = 48;
+    const top = [], bot = [];
+    for (let i = 0; i <= segs; i++) {
+        const u = i / segs;                         // 0..1
+        const x = cx - half + u * w;
+        const taper = Math.pow(Math.sin(u * Math.PI), 0.8); // 端0 中央1
+        const th = 1.2 + taper * 5.0;
+        const wob = (Math.sin(u * 8.0 + 1.3) * 0.7 + Math.sin(u * 21.0) * 0.35) * taper;
+        const midY = y + wob - (1 - taper) * 1.2;  // 端を僅かに跳ね上げ
+        top.push([x, midY - th]);
+        bot.push([x, midY + th]);
+    }
+    ctx.save();
+    // 下ににじむ柔らかい影
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+    ctx.shadowBlur = 5;
+    ctx.shadowOffsetY = 2;
+    ctx.beginPath();
+    ctx.moveTo(top[0][0], top[0][1]);
+    for (const p of top) ctx.lineTo(p[0], p[1]);
+    for (let i = bot.length - 1; i >= 0; i--) ctx.lineTo(bot[i][0], bot[i][1]);
+    ctx.closePath();
+    const g = ctx.createLinearGradient(cx - half, 0, cx + half, 0);
+    g.addColorStop(0.00, 'rgba(190, 154, 92, 0)');
+    g.addColorStop(0.18, 'rgba(204, 170, 106, 0.55)');
+    g.addColorStop(0.50, 'rgba(236, 210, 150, 0.92)');
+    g.addColorStop(0.82, 'rgba(204, 170, 106, 0.55)');
+    g.addColorStop(1.00, 'rgba(190, 154, 92, 0)');
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.restore();
+    // 中央に淡い金グロー（静かな艶）
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const gg = ctx.createRadialGradient(cx, y, 0, cx, y, half * 0.9);
+    gg.addColorStop(0, 'rgba(236, 210, 150, 0.18)');
+    gg.addColorStop(1, 'rgba(236, 210, 150, 0)');
+    ctx.fillStyle = gg;
+    ctx.fillRect(cx - half, y - 10, w, 20);
+    ctx.restore();
 }
 
 function drawRichTitleLogo(ctx, timeMs) {
     const titleX = CANVAS_WIDTH / 2;
     const titleY = CANVAS_HEIGHT / 2 - 120;
     const titleRenderY = titleY + Math.sin(timeMs * 0.0017) * 0.5;
-    const probeFont = 80;
-    const brushFamily = '"Rock Salt","Yuji Boku","Yusei Magic","Hiragino Mincho ProN","Yu Mincho",cursive';
+    const heroFamily = '"Zen Old Mincho", serif';
 
     ctx.save();
-    ctx.font = `700 ${probeFont}px ${brushFamily}`;
-    const metricWidth = Math.round(ctx.measureText('Unification of the Nation').width);
+    ctx.font = `700 64px ${heroFamily}`;
+    const metricWidth = Math.round(ctx.measureText('UNIFICATION OF THE NATION').width);
     ctx.restore();
 
     const needsSpriteRebuild = !cachedTitleLogoSprite
@@ -313,16 +345,22 @@ function drawRichTitleLogo(ctx, timeMs) {
 
     if (!cachedTitleLogoSprite) return;
 
+    const sp = cachedTitleLogoSprite;
+    const lx = Math.round(titleX - sp.anchorX);
+    const ly = Math.round(titleRenderY - sp.anchorY);
+
+    // ロゴ本体（大月の上でも沈まないよう暗いハロを敷く）
     ctx.save();
     ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(
-        cachedTitleLogoSprite.image,
-        Math.round(titleX - cachedTitleLogoSprite.anchorX),
-        Math.round(titleRenderY - cachedTitleLogoSprite.anchorY),
-        cachedTitleLogoSprite.drawWidth,
-        cachedTitleLogoSprite.drawHeight
-    );
+    ctx.shadowColor = 'rgba(18, 24, 46, 0.4)';
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.drawImage(sp.image, lx, ly, sp.drawWidth, sp.drawHeight);
     ctx.restore();
+
+    // ロゴ下の一筆下線（墨書き風の有機的なアクセント）
+    drawTitleBrushUnderline(ctx, titleX, ly + sp.drawHeight + Math.max(12, sp.drawHeight * 0.12), sp.drawWidth * 0.54, timeMs);
 }
 
 function drawTitleMistLayers(ctx, timeMs) {
@@ -388,6 +426,66 @@ function drawStageStyleCelestialBody(ctx, x, y, radius, coreTop, coreBottom, glo
     ctx.arc(0, 0, radius, 0, Math.PI * 2);
     ctx.fill();
 
+    ctx.restore();
+}
+
+// タイトル専用の満月。発光する球＋淡い海＋縁の艶。
+// グローは月中心の真円・控えめな呼吸（マスクは使わない＝形が歪まない）。
+function drawTitleMoon(ctx, cx, cy, r, timeMs) {
+    // 月中心の円形グロー（穏やかに呼吸。激しくしない）
+    const breath = 0.5 + 0.5 * Math.sin(timeMs * 0.0014); // 0..1, 約4.5s周期
+    const haloA = 0.10 + 0.18 * breath;                   // 0.10..0.28（もう少し強い呼吸）
+    const haloR = r * (2.0 + 0.28 * breath);              // 2.0r..2.28r（広がりも呼吸。中心一致＝真円維持）
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const halo = ctx.createRadialGradient(cx, cy, r * 0.6, cx, cy, haloR);
+    halo.addColorStop(0, `rgba(255, 243, 214, ${haloA.toFixed(3)})`);
+    halo.addColorStop(0.5, `rgba(250, 240, 214, ${(haloA * 0.34).toFixed(3)})`);
+    halo.addColorStop(1, 'rgba(210, 222, 255, 0)');
+    ctx.fillStyle = halo;
+    ctx.beginPath(); ctx.arc(cx, cy, haloR, 0, Math.PI * 2); ctx.fill();
+
+    // --- 本体ディスク（発光する暖アイボリーの放射グラデ。光源は中心やや上） ---
+    ctx.globalCompositeOperation = 'source-over';
+    const lgx = cx, lgy = cy - r * 0.20;
+    const disc = ctx.createRadialGradient(lgx, lgy, r * 0.05, lgx, lgy, r * 1.08);
+    disc.addColorStop(0.00, '#fcf8f0');
+    disc.addColorStop(0.55, '#f4eede');
+    disc.addColorStop(0.85, '#ebe1cd');
+    disc.addColorStop(1.00, '#ded2ba');
+    ctx.fillStyle = disc;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+
+    // 月の海（淡い斑：のっぺり防止。暖グレーを控えめに乗算）
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.clip();
+    ctx.globalCompositeOperation = 'multiply';
+    const maria = [
+        [-0.28, -0.16, 0.36, 0.06],
+        [ 0.24, -0.28, 0.22, 0.05],
+        [ 0.08,  0.26, 0.40, 0.055],
+        [-0.32,  0.30, 0.20, 0.045],
+        [ 0.34,  0.14, 0.16, 0.04]
+    ];
+    for (const m of maria) {
+        const mx = cx + m[0] * r, my = cy + m[1] * r, mr = m[2] * r;
+        const mg = ctx.createRadialGradient(mx, my, 0, mx, my, mr);
+        mg.addColorStop(0, `rgba(168, 156, 132, ${m[3]})`);
+        mg.addColorStop(1, 'rgba(168, 156, 132, 0)');
+        ctx.fillStyle = mg;
+        ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+
+    // 縁の艶（リムライト：上側を明るく細く）
+    ctx.globalCompositeOperation = 'screen';
+    ctx.lineWidth = Math.max(1.5, r * 0.012);
+    const rim = ctx.createLinearGradient(cx, cy - r, cx, cy + r);
+    rim.addColorStop(0, 'rgba(255, 250, 236, 0.55)');
+    rim.addColorStop(0.5, 'rgba(255, 250, 236, 0.06)');
+    rim.addColorStop(1, 'rgba(255, 250, 236, 0)');
+    ctx.strokeStyle = rim;
+    ctx.beginPath(); ctx.arc(cx, cy, r - ctx.lineWidth * 0.5, 0, Math.PI * 2); ctx.stroke();
     ctx.restore();
 }
 
@@ -519,12 +617,13 @@ export class UI {
                 ctx.fill();
             }
 
-            drawRoundedRectPath(gx + 1.5, gy + 1.5, gw - 3, Math.max(1, gh * 0.34), Math.max(2, radius - 2));
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+            // 上端の控えめなシーン（強い光沢は古いので薄く）
+            drawRoundedRectPath(gx + 1.5, gy + 1.5, gw - 3, Math.max(1, gh * 0.4), Math.max(2, radius - 2));
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';
             ctx.fill();
             drawRoundedRectPath(gx, gy, gw, gh, radius);
-            ctx.strokeStyle = 'rgba(180, 204, 255, 0.38)';
-            ctx.lineWidth = 1.2;
+            ctx.strokeStyle = 'rgba(150, 178, 232, 0.26)';
+            ctx.lineWidth = 1;
             ctx.stroke();
         };
 
@@ -553,28 +652,31 @@ export class UI {
         ctx.restore();
 
         const hpRatio = Math.max(0, player.hp / player.maxHp);
-        drawModernGauge(x, y, hpBarWidth, hpBarHeight, hpRatio, [
-            [0, '#ff4a5b'],
-            [0.5, '#ffc955'],
-            [1, '#47e08d']
-        ]);
+        // HP残量に応じた単一色（左右の虹グラデは古いので廃止）：緑→橙→赤
+        const hpHexLerp = (a, b, t) => {
+            const tt = Math.max(0, Math.min(1, t));
+            const pa = [parseInt(a.slice(1, 3), 16), parseInt(a.slice(3, 5), 16), parseInt(a.slice(5, 7), 16)];
+            const pb = [parseInt(b.slice(1, 3), 16), parseInt(b.slice(3, 5), 16), parseInt(b.slice(5, 7), 16)];
+            const c = pa.map((v, i) => Math.round(v + (pb[i] - v) * tt));
+            return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+        };
+        const hpColor = hpRatio > 0.5
+            ? hpHexLerp('#ffc24a', '#46d98a', (hpRatio - 0.5) * 2)
+            : hpHexLerp('#ff5566', '#ffc24a', hpRatio * 2);
+        drawModernGauge(x, y, hpBarWidth, hpBarHeight, hpRatio, [[0, hpColor], [1, hpColor]]);
 
-        ctx.font = '700 16px sans-serif';
         const levelKanji = toKanjiNumber(player.level);
-        
-        // 影（軽量化）
+        const hpStr = `体力：${player.hp} / ${player.maxHp}`;
+        const lvStr = `${levelKanji}段`;
+
+        // 影（軽量化）：体力ラベル=明朝／数字=サンセリフ、段位の漢数字=明朝
         ctx.fillStyle = 'rgba(0,0,0,0.65)';
-        ctx.textAlign = 'left';
-        ctx.fillText(`体力：${player.hp} / ${player.maxHp}`, x + 1, y - 7);
-        ctx.textAlign = 'right';
-        ctx.fillText(`${levelKanji}段`, x + hpBarWidth + 1, y - 7);
-        
+        drawNumMixedText(ctx, hpStr, x + 1, y - 7, 700, 16, 'left');
+        drawNumMixedText(ctx, lvStr, x + hpBarWidth + 1, y - 7, 700, 16, 'right');
         // 本体
         ctx.fillStyle = '#fff';
-        ctx.textAlign = 'left';
-        ctx.fillText(`体力：${player.hp} / ${player.maxHp}`, x, y - 8);
-        ctx.textAlign = 'right';
-        ctx.fillText(`${levelKanji}段`, x + hpBarWidth, y - 8);
+        drawNumMixedText(ctx, hpStr, x, y - 8, 700, 16, 'left');
+        drawNumMixedText(ctx, lvStr, x + hpBarWidth, y - 8, 700, 16, 'right');
         ctx.textAlign = 'left';
 
         const spBarWidth = 250;
@@ -594,7 +696,7 @@ export class UI {
                 : [[0, '#dec06c'], [1, '#9d8644']]
         );
 
-        ctx.font = '700 15px sans-serif';
+        ctx.font = '700 15px "Zen Old Mincho", serif';
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'left';
         
@@ -641,7 +743,7 @@ export class UI {
 
         drawModernGauge(barX, expY, expBarWidth, expBarHeight, expRatio, expColors);
 
-        ctx.font = '700 15px sans-serif';
+        ctx.font = '700 15px "Zen Old Mincho", serif';
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'left';
         ctx.fillStyle = 'rgba(0,0,0,0.65)';
@@ -664,7 +766,7 @@ export class UI {
 
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'right';
-        ctx.font = `900 ${stageFontPx}px sans-serif`;
+        ctx.font = `900 ${stageFontPx}px "Zen Old Mincho", serif`;
 
         // ステージ名（BGMボタン左側）影を軽量化
         ctx.fillStyle = 'rgba(0,0,0,0.62)';
@@ -700,7 +802,7 @@ export class UI {
             
             // 武器名 (大きく)
             ctx.fillStyle = '#fff';
-            ctx.font = '700 15px sans-serif';
+            ctx.font = '700 15px "Zen Old Mincho", serif';
             ctx.textAlign = 'left';
             ctx.textBaseline = 'middle';
             ctx.fillText(player.currentSubWeapon.name, slotX + slotSize + 15, slotY + slotSize / 2);
@@ -710,22 +812,22 @@ export class UI {
             const moneyRightX = panelRightX - panelPadding;
             ctx.textAlign = 'right';
             ctx.textBaseline = 'middle';
-            ctx.font = `900 ${moneyFontPx}px sans-serif`;
+            ctx.font = `800 ${moneyFontPx}px "Helvetica Neue", Arial, sans-serif`;
             const moneyWidth = ctx.measureText(moneyText).width;
             const coinGap = 9;
             const coinHalfW = coinSize * 0.7;
             const coinX = moneyRightX - moneyWidth - coinGap - coinHalfW;
-            
+
             // 影（軽量化）
             ctx.fillStyle = 'rgba(0,0,0,0.62)';
-            ctx.fillText(moneyText, moneyRightX + 1, slotY + slotSize / 2 + 1);
-            
+            drawNumMixedText(ctx, moneyText, moneyRightX + 1, slotY + slotSize / 2 + 1, 800, moneyFontPx, 'right');
+
             // 小判は影なしで描画
             this.drawKoban(ctx, coinX, slotY + slotSize / 2, coinSize);
-            
+
             // テキスト本体
             ctx.fillStyle = COLORS.MONEY;
-            ctx.fillText(moneyText, moneyRightX, slotY + slotSize / 2);
+            drawNumMixedText(ctx, moneyText, moneyRightX, slotY + slotSize / 2, 800, moneyFontPx, 'right');
             
             // 武器切替ヒントの個別表示は廃止（下部マニュアルへ統一）
         }
@@ -761,10 +863,10 @@ export class UI {
             ctx.textBaseline = 'middle';
             activeNinjutsu.forEach((row, i) => {
                 const yy = boxY + 6 + i * rowH + rowH * 0.5;
-                ctx.font = '700 12px sans-serif';
+                ctx.font = '700 12px "Zen Old Mincho", serif';
                 ctx.fillStyle = row.color;
                 ctx.fillText(row.label, boxX + insetX, yy);
-                ctx.font = '700 12px sans-serif';
+                ctx.font = '800 12px "Helvetica Neue", Arial, sans-serif';
                 ctx.fillStyle = 'rgba(235, 245, 255, 0.95)';
                 ctx.textAlign = 'right';
                 ctx.fillText(`${row.sec}s`, boxX + boxW - insetX, yy);
@@ -819,31 +921,45 @@ export class UI {
         if (alpha <= 0) return;
         ctx.save();
         if (alpha < 1) ctx.globalAlpha *= alpha;
-        ctx.fillStyle = isCritical ? '#ffcc00' : '#ffffff';
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 3;
-        ctx.font = isCritical ? 'bold italic 32px sans-serif' : 'bold 24px sans-serif';
         ctx.textAlign = 'center';
-        
-        // 縁取りをつけることで背景に埋もれないように
-        ctx.strokeText(`${damage}`, x, y);
-        
-        // クリティカルなら黄色～赤のグラデーション
+        ctx.textBaseline = 'alphabetic';
+        const text = `${damage}`;
+        // 数字はクリーンなサンセリフ（明朝＋縁取りは古く見えるため）。和文はMincho、数字はSans。
+        ctx.font = isCritical
+            ? '800 italic 36px "Helvetica Neue", Arial, sans-serif'
+            : '800 27px "Helvetica Neue", Arial, sans-serif';
+
+        // 安価なドロップシャドウ（太い黒縁取りをやめ奥行きで視認性を出す）
+        ctx.fillStyle = 'rgba(6, 10, 22, 0.4)';
+        ctx.fillText(text, x + 1.5, y + 2);
+
+        // 細い暗色アウトライン（明るい背景でも沈まない・主張しすぎない）
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = isCritical ? 2.6 : 2;
+        ctx.strokeStyle = 'rgba(8, 12, 24, 0.55)';
+        ctx.strokeText(text, x, y);
+
+        // 本体（縦グラデ：通常=白→淡青／会心=黄金→橙）
         if (isCritical) {
-            const grad = ctx.createLinearGradient(x, y - 20, x, y);
-            grad.addColorStop(0, '#ffff00');
-            grad.addColorStop(1, '#ff4400');
+            const grad = ctx.createLinearGradient(x, y - 26, x, y + 4);
+            grad.addColorStop(0, '#fff1a6');
+            grad.addColorStop(0.55, '#ffd24a');
+            grad.addColorStop(1, '#ff6a2e');
+            ctx.fillStyle = grad;
+        } else {
+            const grad = ctx.createLinearGradient(x, y - 18, x, y + 4);
+            grad.addColorStop(0, '#ffffff');
+            grad.addColorStop(1, '#cfe0ff');
             ctx.fillStyle = grad;
         }
-        
-        ctx.fillText(`${damage}`, x, y);
+        ctx.fillText(text, x, y);
         ctx.restore();
     }
     
     // レベルアップ表示
     renderLevelUp(ctx, x, y) {
         ctx.fillStyle = '#ffff00';
-        ctx.font = 'bold 28px sans-serif';
+        ctx.font = 'bold 28px "Zen Old Mincho", serif';
         ctx.textAlign = 'center';
         ctx.strokeStyle = '#000';
         ctx.lineWidth = 3;
@@ -966,7 +1082,7 @@ export class UI {
         ctx.fillStyle = `rgba(255, 255, 255, ${fallbackAlpha})`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.font = `700 ${Math.round(radius * 0.9)}px sans-serif`;
+        ctx.font = `700 ${Math.round(radius * 0.9)}px "Zen Old Mincho", serif`;
         ctx.fillText(isMuted ? '×' : '♪', x, y + 1);
     }
 
@@ -1008,7 +1124,7 @@ export class UI {
         ctx.fillStyle = `rgba(255,255,255,${alpha})`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.font = `700 ${Math.round(radius * 0.8)}px sans-serif`;
+        ctx.font = `700 ${Math.round(radius * 0.8)}px "Zen Old Mincho", serif`;
         ctx.fillText(glyph, x, y + 1);
         ctx.restore();
     }
@@ -1090,12 +1206,12 @@ export class UI {
         // 改行対応
         const lines = label.split('\n');
         if (lines.length > 1) {
-            ctx.font = 'bold 14px sans-serif';
+            ctx.font = 'bold 14px "Zen Old Mincho", serif';
             ctx.fillText(lines[0], x, y - 8);
-            ctx.font = '12px sans-serif';
+            ctx.font = '12px "Zen Old Mincho", serif';
             ctx.fillText(lines[1], x, y + 8);
         } else {
-            ctx.font = 'bold 20px sans-serif';
+            ctx.font = 'bold 20px "Zen Old Mincho", serif';
             ctx.fillText(label, x, y);
         }
         
@@ -1315,7 +1431,7 @@ export class UI {
                 break;
             default:
                 ctx.fillStyle = '#666';
-                ctx.font = 'bold 20px sans-serif';
+                ctx.font = 'bold 20px "Zen Old Mincho", serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText('?', 0, 0);
@@ -1325,6 +1441,62 @@ export class UI {
     }
 }
 
+// タイトル背景のフィルムグレイン（空のバンディング低減＋質感）。一度だけ生成しキャッシュ。
+let _titleGrainCanvas = null;
+function getTitleGrainCanvas() {
+    if (_titleGrainCanvas) return _titleGrainCanvas;
+    const size = 128;
+    const c = document.createElement('canvas');
+    c.width = size; c.height = size;
+    const gctx = c.getContext('2d');
+    const img = gctx.createImageData(size, size);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+        const v = 110 + Math.floor(Math.random() * 70);
+        d[i] = d[i + 1] = d[i + 2] = v;
+        d[i + 3] = 255;
+    }
+    gctx.putImageData(img, 0, 0);
+    _titleGrainCanvas = c;
+    return c;
+}
+
+// タイトルロゴ文字面の「墨かすれ／金箔の斑」テクスチャ。一度だけ生成しキャッシュ。
+let _titleInkTex = null;
+function getTitleInkTexture() {
+    if (_titleInkTex) return _titleInkTex;
+    const w = 480, h = 140;
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const x = c.getContext('2d');
+    // 墨/かすれ：暗い横ストリーク
+    for (let i = 0; i < 120; i++) {
+        const yy = Math.random() * h;
+        const x0 = Math.random() * w;
+        const len = 16 + Math.random() * 110;
+        x.strokeStyle = `rgba(20, 13, 6, ${0.05 + Math.random() * 0.22})`;
+        x.lineWidth = 0.5 + Math.random() * 1.5;
+        x.beginPath();
+        x.moveTo(x0, yy);
+        x.lineTo(x0 + len, yy + (Math.random() - 0.5) * 2.5);
+        x.stroke();
+    }
+    // 乾いた粒（かすれ）
+    for (let i = 0; i < 900; i++) {
+        x.fillStyle = `rgba(16, 10, 4, ${0.05 + Math.random() * 0.22})`;
+        const s = 0.5 + Math.random() * 1.4;
+        x.fillRect(Math.random() * w, Math.random() * h, s, s);
+    }
+    // 箔の輝き（明るい微粒）
+    for (let i = 0; i < 240; i++) {
+        x.fillStyle = `rgba(255, 246, 222, ${0.06 + Math.random() * 0.18})`;
+        const s = 0.5 + Math.random() * 1.2;
+        x.fillRect(Math.random() * w, Math.random() * h, s, s);
+    }
+    _titleInkTex = c;
+    return c;
+}
+
 // タイトル画面描画
 export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, hasSave = false) {
     const time = Date.now();
@@ -1332,22 +1504,33 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
 
     // 背景（夜空 + 光彩）
     const gradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
-    gradient.addColorStop(0, '#020713');
-    gradient.addColorStop(0.26, '#0a1a3a');
-    gradient.addColorStop(0.58, '#14284a');
-    gradient.addColorStop(1, '#060d1b');
+    gradient.addColorStop(0, '#081328');
+    gradient.addColorStop(0.26, '#12274f');
+    gradient.addColorStop(0.58, '#1d3a64');
+    gradient.addColorStop(1, '#0b1626');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     const skyGlow = ctx.createRadialGradient(
-        CANVAS_WIDTH * 0.68, CANVAS_HEIGHT * 0.1, 24,
-        CANVAS_WIDTH * 0.68, CANVAS_HEIGHT * 0.1, CANVAS_WIDTH * 0.72
+        CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.08, 24,
+        CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.08, CANVAS_WIDTH * 0.66
     );
-    skyGlow.addColorStop(0, 'rgba(136, 186, 255, 0.24)');
-    skyGlow.addColorStop(0.45, 'rgba(88, 138, 224, 0.14)');
+    skyGlow.addColorStop(0, 'rgba(150, 196, 255, 0.26)');
+    skyGlow.addColorStop(0.45, 'rgba(92, 142, 228, 0.14)');
     skyGlow.addColorStop(1, 'rgba(58, 98, 180, 0)');
     ctx.fillStyle = skyGlow;
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // フィルムグレイン（空のバンディングを抑え質感を出す・軽量）
+    ctx.save();
+    ctx.globalAlpha = 0.04;
+    ctx.globalCompositeOperation = 'overlay';
+    const grain = getTitleGrainCanvas();
+    const gs = grain.width * 3;
+    for (let gx = 0; gx < CANVAS_WIDTH; gx += gs) {
+        for (let gy = 0; gy < CANVAS_HEIGHT; gy += gs) ctx.drawImage(grain, gx, gy, gs, gs);
+    }
+    ctx.restore();
 
     // 天頂の薄い光帯
     ctx.save();
@@ -1412,26 +1595,25 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
         ctx.restore();
     }
 
-    // 月（stage準拠スタイルを大きめ）
-    drawStageStyleCelestialBody(
-        ctx,
-        CANVAS_WIDTH - 188,
-        148,
-        70,
-        '#f8f9fa',
-        '#ced4da',
-        'rgba(240, 248, 255, ALPHA)',
-        1,
-        3.4
-    );
+    // 月（中央上に大きく配置：ロゴの後光。天下統一に被らないよう高めに）
+    drawTitleMoon(ctx, CANVAS_WIDTH / 2, 55, 205, time);
 
     // 靄・前景
     drawTitleMistLayers(ctx, time);
 
-    
+    // ビネット（周辺減光で中央へ視線誘導・映画的な没入感）
+    {
+        const vig = ctx.createRadialGradient(CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.44, CANVAS_HEIGHT * 0.46, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.5, CANVAS_WIDTH * 0.82);
+        vig.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        vig.addColorStop(0.82, 'rgba(0, 0, 0, 0.05)');
+        vig.addColorStop(1, 'rgba(0, 0, 0, 0.24)');
+        ctx.fillStyle = vig;
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    }
+
     // タイトルロゴ
     drawRichTitleLogo(ctx, time);
-    
+
     // 難易度選択
     const layout = getTitleScreenLayout(hasSave);
     const diffY = layout.diffY;
@@ -1439,15 +1621,12 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     // 左右の矢印 (削除済み)
 
     
-    // 現在の難易度ボタン
-    const titleActionFill = 'rgba(74, 122, 220, 0.52)';
-    const titleActionStroke = 'rgba(225, 239, 255, 0.92)';
-    let diffColor = '#ddaa00'; // Normal
-    if (currentDifficulty && currentDifficulty.id === 'easy') diffColor = '#44aa44';
-    if (currentDifficulty && currentDifficulty.id === 'hard') diffColor = '#aa4444';
+    // 現在の難易度ボタン（紺カード＋難易度色のアクセント／文字色）
+    const pulse = (Math.sin(time * 0.0026) + 1) * 0.5;
+    let diffColor = '#e7c45a'; // Normal（金）
+    if (currentDifficulty && currentDifficulty.id === 'easy') diffColor = '#7fd08a';
+    if (currentDifficulty && currentDifficulty.id === 'hard') diffColor = '#e08a8a';
     const globalData = saveManager.loadGlobal();
-    const focusedFill = 'rgba(116, 166, 255, 0.78)';
-    const focusedBorder = 'rgba(238, 246, 255, 0.98)';
     drawRoundedFlatTitleButton(
         ctx,
         layout.centerX,
@@ -1455,11 +1634,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
         layout.diffButton.width,
         layout.diffButton.height,
         currentDifficulty ? currentDifficulty.name : '普 (NORMAL)',
-        {
-            fill: diffColor,
-            border: 'rgba(245, 246, 255, 0.5)',
-            font: '700 21px sans-serif'
-        }
+        { accentColor: diffColor, textColor: diffColor, font: '700 21px "Zen Old Mincho", serif', pulse }
     );
 
     // 開始ボタン
@@ -1467,42 +1642,15 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     const actionW = layout.actionButton.width;
     const actionH = layout.actionButton.height;
     const isCleared = globalData.isGameCleared;
-    const goldOutsideFill = 'rgba(10, 10, 15, 0.82)';
-    const goldOutsideFocusedFill = 'rgba(10, 10, 15, 0.82)';
-
-    const btnFocFill   = 'rgba(74, 122, 220, 0.52)';
-    const btnDimFill   = 'rgba(30, 58, 116, 0.4)';
-    const btnFocBorder = 'rgba(225, 239, 255, 0.92)';
-    const btnDimBorder = 'rgba(163, 194, 244, 0.36)';
-    const focusedLineW = 2.0;
-    const normalLineW  = 1.3;
-    const focusedTextColor = '#fff';
-    const dimTextColor     = 'rgba(255, 255, 255, 0.8)';
-    const dimBlackFill = 'rgba(10, 10, 15, 0.45)';
-
-    const actionOpts = (focused) => ({
-        fill:      focused ? btnFocFill : btnDimFill,
-        border:    focused ? btnFocBorder : btnDimBorder,
-        lineWidth: focused ? focusedLineW : normalLineW,
-        textColor: focused ? focusedTextColor : dimTextColor,
-        font:      focused ? '700 22px sans-serif' : '600 22px sans-serif'
-    });
-    const blackOpts = (focused) => ({
-        fill:      focused ? goldOutsideFocusedFill : dimBlackFill,
-        border:    focused ? btnFocBorder : btnDimBorder,
-        lineWidth: focused ? focusedLineW : normalLineW,
-        textColor: focused ? focusedTextColor : dimTextColor,
-        font:      focused ? '700 22px sans-serif' : '600 22px sans-serif'
-    });
 
     if (hasSave) {
-        drawRoundedFlatTitleButton(ctx, layout.centerX, startY,         actionW, actionH, '続きから', actionOpts(titleMenuIndex === 0));
-        drawRoundedFlatTitleButton(ctx, layout.centerX, layout.newGameY, actionW, actionH, '最初から', actionOpts(titleMenuIndex === 1));
+        drawRoundedFlatTitleButton(ctx, layout.centerX, startY,          actionW, actionH, '続きから', { focused: titleMenuIndex === 0, pulse });
+        drawRoundedFlatTitleButton(ctx, layout.centerX, layout.newGameY, actionW, actionH, '最初から', { focused: titleMenuIndex === 1, pulse });
     } else if (isCleared) {
-        drawRoundedFlatTitleButton(ctx, layout.centerX, startY,         actionW, actionH, '出陣', blackOpts(titleMenuIndex === 0));
-        drawRoundedFlatTitleButton(ctx, layout.centerX, layout.newGameY, actionW, actionH, '出陣', actionOpts(titleMenuIndex === 1));
+        drawRoundedFlatTitleButton(ctx, layout.centerX, startY,          actionW, actionH, '出陣', { focused: titleMenuIndex === 0, pulse });
+        drawRoundedFlatTitleButton(ctx, layout.centerX, layout.newGameY, actionW, actionH, '出陣', { focused: titleMenuIndex === 1, pulse });
     } else {
-        drawRoundedFlatTitleButton(ctx, layout.centerX, layout.singleStartY, actionW, actionH, '出陣', actionOpts(true));
+        drawRoundedFlatTitleButton(ctx, layout.centerX, layout.singleStartY, actionW, actionH, '出陣', { focused: true, pulse });
     }
     
     // 不要な描画コード削除
@@ -1512,7 +1660,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     // 右下デバッグモードヒント（⚙アイコン）
     ctx.save();
     ctx.globalAlpha = 0.25 + Math.sin(time * 0.002) * 0.08;
-    ctx.font = '24px sans-serif';
+    ctx.font = '24px "Zen Old Mincho", serif';
     ctx.fillStyle = '#aabbcc';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
@@ -1554,7 +1702,7 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
     ctx.textBaseline = 'alphabetic';
     
     // タイトルを削除し、操作説明のみを上部に小さく表示
-    ctx.font = '500 12px sans-serif';
+    ctx.font = '500 12px "Zen Old Mincho", serif';
     ctx.fillStyle = 'rgba(212, 228, 255, 0.85)';
     ctx.fillText('↑↓：項目 | ←→：変更 | SPACE：決定 | ESC：閉じる', panelX + 24, panelY + 28);
 
@@ -1585,14 +1733,14 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
         
         ctx.textAlign = 'left';
         ctx.fillStyle = selected ? '#ffffff' : 'rgba(225, 236, 255, 0.92)';
-        ctx.font = selected ? '700 13px sans-serif' : '500 13px sans-serif';
+        ctx.font = selected ? '700 13px "Zen Old Mincho", serif' : '500 13px "Zen Old Mincho", serif';
         ctx.fillText(entry.label || '', panelX + 30, y);
 
         ctx.textAlign = 'right';
         const valText = (typeof entry.getValue === 'function') ? entry.getValue() : (entry.value || '');
         const isActionRow = entry.action || valText === '実行';
         ctx.fillStyle = isActionRow ? '#ffe08d' : (selected ? '#dff0ff' : 'rgba(198, 216, 246, 0.92)');
-        ctx.font = selected ? '700 13px sans-serif' : '500 13px sans-serif';
+        ctx.font = selected ? '700 13px "Zen Old Mincho", serif' : '500 13px "Zen Old Mincho", serif';
         ctx.fillText(valText, panelX + panelW - 30, y);
     }
 
@@ -1647,7 +1795,7 @@ export function renderGameOverScreen(ctx, player, stageNumber, fadeTimer = 0) {
     if (fadeProgress >= 1.0) {
         const blink = Math.floor(Date.now() / 500) % 2 === 0;
         if (blink) {
-            ctx.font = 'bold 20px sans-serif';
+            ctx.font = 'bold 20px "Zen Old Mincho", serif';
             ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
             ctx.textAlign = 'center';
             ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
@@ -1663,6 +1811,194 @@ export function renderGameOverScreen(ctx, player, stageNumber, fadeTimer = 0) {
 }
 
 // ステージクリア画面（ステータス画面）
+// ============================================================
+//  昇段画面トンマナ 共有ヘルパー（紺カード／字間テキスト）
+//  ステータス画面・ショップ画面でも同じ世界観を使うため ui.js に集約。
+// ============================================================
+// 数字(ASCII)はサンセリフ、和文(ラベル/単位/漢数字)は明朝で混在描画する。
+// 「数字＝サンセリフ／和文＝明朝」原則。現在の fillStyle / textBaseline をそのまま使う。総幅を返す。
+export function drawNumMixedText(ctx, text, x, y, weight, px, align = 'left') {
+    const sans = `${weight} ${px}px "Helvetica Neue", Arial, sans-serif`;
+    const mincho = `${weight} ${px}px "Zen Old Mincho", serif`;
+    const str = String(text);
+    const isNum = (ch) => /[0-9.,:/%\s+\-]/.test(ch);
+    const segs = [];
+    let cur = '', curNum = null;
+    for (const ch of str) {
+        const n = isNum(ch);
+        if (curNum === null || n === curNum) { cur += ch; curNum = n; }
+        else { segs.push({ t: cur, num: curNum }); cur = ch; curNum = n; }
+    }
+    if (cur) segs.push({ t: cur, num: curNum });
+    let total = 0;
+    for (const s of segs) { ctx.font = s.num ? sans : mincho; total += ctx.measureText(s.t).width; }
+    let sx = align === 'right' ? x - total : align === 'center' ? x - total / 2 : x;
+    const prevAlign = ctx.textAlign;
+    ctx.textAlign = 'left';
+    for (const s of segs) {
+        ctx.font = s.num ? sans : mincho;
+        ctx.fillText(s.t, sx, y);
+        sx += ctx.measureText(s.t).width;
+    }
+    ctx.textAlign = prevAlign;
+    return total;
+}
+
+function wafuRoundRectPath(ctx, x, y, w, h, r) {
+    const rr = Math.max(0, Math.min(r, Math.min(w, h) * 0.5));
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+}
+
+// 字間つきテキスト（canvas に letter-spacing が無いので文字ごとに描く）
+function wafuFillTextLS(ctx, text, x, y, lsPx, align = 'left') {
+    const chars = [...String(text)];
+    if (!chars.length) return;
+    const ws = chars.map((c) => ctx.measureText(c).width);
+    const total = ws.reduce((a, b) => a + b, 0) + lsPx * (chars.length - 1);
+    let px = align === 'center' ? x - total / 2 : align === 'right' ? x - total : x;
+    const prevAlign = ctx.textAlign;
+    ctx.textAlign = 'left';
+    for (let i = 0; i < chars.length; i++) { ctx.fillText(chars[i], px, y); px += ws[i] + lsPx; }
+    ctx.textAlign = prevAlign;
+}
+
+// 昇段画面と同じ紺カード：純色グラデ＋上辺の青アクセント＋枠（選択時は青発光＋内リング）
+export function drawWafuCard(ctx, x, y, w, h, opts = {}) {
+    const { radius = 10, selected = false, pulse = 0, accent = true, shadow = true } = opts;
+
+    // 影／グロー（モダン：大きめブラー・低不透明・浮かせすぎない）
+    if (shadow || selected) {
+        ctx.save();
+        ctx.shadowColor = selected ? `rgba(74, 134, 236, ${0.24 + pulse * 0.12})` : 'rgba(0, 0, 0, 0.28)';
+        ctx.shadowBlur = selected ? 30 : 18;
+        ctx.shadowOffsetY = selected ? 0 : 5;
+        wafuRoundRectPath(ctx, x, y, w, h, radius);
+        ctx.fillStyle = 'rgba(18, 24, 44, 1)';
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // 本体（控えめ・やや低彩度の縦グラデ）
+    const bg = ctx.createLinearGradient(x, y, x, y + h);
+    bg.addColorStop(0, 'rgba(33, 42, 68, 0.96)');
+    bg.addColorStop(1, 'rgba(23, 30, 52, 0.97)');
+    wafuRoundRectPath(ctx, x, y, w, h, radius);
+    ctx.fillStyle = bg;
+    ctx.fill();
+
+    // 上部の淡いシーン（クリスプな上端＝光源感）
+    ctx.save();
+    wafuRoundRectPath(ctx, x, y, w, h, radius);
+    ctx.clip();
+    const sheenH = Math.min(h * 0.5, 56);
+    const sheen = ctx.createLinearGradient(x, y, x, y + sheenH);
+    sheen.addColorStop(0, 'rgba(255, 255, 255, 0.06)');
+    sheen.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = sheen;
+    ctx.fillRect(x, y, w, sheenH);
+    ctx.restore();
+
+    // ヘアライン枠（選択で明るく）
+    wafuRoundRectPath(ctx, x, y, w, h, radius);
+    ctx.strokeStyle = selected ? `rgba(150, 196, 255, ${0.6 + pulse * 0.25})` : 'rgba(146, 172, 226, 0.22)';
+    ctx.lineWidth = selected ? 1.5 : 1;
+    ctx.stroke();
+
+    // 上辺の細い青アクセント
+    if (accent) {
+        ctx.save();
+        wafuRoundRectPath(ctx, x, y, w, h, radius);
+        ctx.clip();
+        const a = ctx.createLinearGradient(x, 0, x + w, 0);
+        a.addColorStop(0, 'rgba(142, 200, 255, 0)');
+        a.addColorStop(0.5, `rgba(142, 200, 255, ${selected ? 0.9 : 0.5})`);
+        a.addColorStop(1, 'rgba(142, 200, 255, 0)');
+        ctx.fillStyle = a;
+        ctx.fillRect(x, y, w, 2);
+        ctx.restore();
+    }
+}
+
+// 短い水平の青グラデ罫線（昇段画面の区切り線）
+export function drawWafuDivider(ctx, cx, y, halfWidth) {
+    const g = ctx.createLinearGradient(cx - halfWidth, 0, cx + halfWidth, 0);
+    g.addColorStop(0, 'rgba(180, 205, 255, 0)');
+    g.addColorStop(0.5, 'rgba(180, 205, 255, 0.5)');
+    g.addColorStop(1, 'rgba(180, 205, 255, 0)');
+    ctx.strokeStyle = g;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx - halfWidth, y);
+    ctx.lineTo(cx + halfWidth, y);
+    ctx.stroke();
+}
+
+// 見出し（明朝・字間つき）＋左右の細い青罫線（昇段画面「強化を選択」と同テイスト）
+export function drawWafuHeading(ctx, cx, baselineY, text, opts = {}) {
+    const { size = 38, weight = 900, ls = 0.14, color = '#f4f9ff', ruleLen = 54, ruleGap = 18, rules = true } = opts;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = `${weight} ${size}px "Zen Old Mincho", serif`;
+    ctx.fillStyle = color;
+    const lsPx = ls * size;
+    wafuFillTextLS(ctx, text, cx, baselineY, lsPx, 'center');
+    if (rules) {
+        // 字間込みの可視幅（末尾字間は含めない）
+        const chars = [...String(text)];
+        let visW = 0;
+        for (const c of chars) visW += ctx.measureText(c).width;
+        visW += lsPx * Math.max(0, chars.length - 1);
+        const half = visW / 2;
+        const ruleY = baselineY - size * 0.32;
+        ctx.lineWidth = 1;
+        let g = ctx.createLinearGradient(cx - half - ruleGap - ruleLen, 0, cx - half - ruleGap, 0);
+        g.addColorStop(0, 'rgba(142, 200, 255, 0)');
+        g.addColorStop(1, 'rgba(142, 200, 255, 0.65)');
+        ctx.strokeStyle = g;
+        ctx.beginPath(); ctx.moveTo(cx - half - ruleGap - ruleLen, ruleY); ctx.lineTo(cx - half - ruleGap, ruleY); ctx.stroke();
+        g = ctx.createLinearGradient(cx + half + ruleGap, 0, cx + half + ruleGap + ruleLen, 0);
+        g.addColorStop(0, 'rgba(142, 200, 255, 0.65)');
+        g.addColorStop(1, 'rgba(142, 200, 255, 0)');
+        ctx.strokeStyle = g;
+        ctx.beginPath(); ctx.moveTo(cx + half + ruleGap, ruleY); ctx.lineTo(cx + half + ruleGap + ruleLen, ruleY); ctx.stroke();
+    }
+    ctx.restore();
+}
+
+// 青ピップ列（昇段画面の段位表示と同テイスト）。filled=点灯, next=次段リング
+export function drawWafuPips(ctx, x, y, pipW, pipH, gap, level, maxLevel) {
+    for (let p = 0; p < maxLevel; p++) {
+        const gx = x + p * (pipW + gap);
+        wafuRoundRectPath(ctx, gx, y, pipW, pipH, 2);
+        ctx.fillStyle = 'rgba(210, 225, 255, 0.16)';
+        ctx.fill();
+        if (p < level) {
+            const g = ctx.createLinearGradient(gx, 0, gx + pipW, 0);
+            g.addColorStop(0, '#6fb6ff');
+            g.addColorStop(1, '#a9d8ff');
+            wafuRoundRectPath(ctx, gx, y, pipW, pipH, 2);
+            ctx.fillStyle = g;
+            ctx.fill();
+        } else if (p === level) {
+            ctx.save();
+            ctx.shadowBlur = 8;
+            ctx.shadowColor = 'rgba(142, 200, 255, 0.6)';
+            wafuRoundRectPath(ctx, gx - 1.5, y - 1.5, pipW + 3, pipH + 3, 3);
+            ctx.strokeStyle = '#8ec8ff';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+}
+
 export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, options = {}) {
     const menuIndex = Number.isFinite(options.menuIndex) ? options.menuIndex : 0;
     const selectedWeaponName = options.selectedWeaponName || (player?.currentSubWeapon?.name || '未装備');
@@ -1674,13 +2010,9 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
     const subTier = Math.max(0, Math.min(3, Number(progression.subWeapon) || 0));
     const specialTier = Math.max(0, Math.min(3, Number(progression.specialClone) || 0));
     const tierLabel = (tier) => ['初級', '中級', '上級', '特級'][Math.max(0, Math.min(3, tier))];
+    const pulse = (Math.sin(Date.now() * 0.0026) + 1) * 0.5;
 
-    // レイアウト定数 (全画面化)
-    const panelX = 0;
-    const panelY = 0;
     const panelW = CANVAS_WIDTH;
-    const panelH = CANVAS_HEIGHT;
-
     const rightColX = 880;
     const rightColW = panelW - rightColX - 40;
 
@@ -1690,169 +2022,107 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         { title: '準備完了' }
     ];
 
-    const subWeaponLabel = '忍具強化';
-
     const progressionCards = [
         { title: '連撃強化', level: normalTier, detail: tierLabel(normalTier) },
-        { title: subWeaponLabel, level: subTier, detail: tierLabel(subTier) },
+        { title: '忍具強化', level: subTier, detail: tierLabel(subTier) },
         { title: '奥義強化', level: specialTier, detail: tierLabel(specialTier) }
     ];
 
     ctx.save();
     try {
-        if (drawBackground) {
-            // ★変更: 背景を明るく（紺→藍寄りに）
-            const bgGrad = ctx.createRadialGradient(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 0, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH);
-            bgGrad.addColorStop(0, '#223055');
-            bgGrad.addColorStop(1, '#131f39');
-            ctx.fillStyle = bgGrad;
-            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        // 呼び出し側の影/合成状態に影響されないようリセット（自己完結描画）
+        ctx.shadowColor = 'rgba(0, 0, 0, 0)';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+        ctx.globalAlpha = 1;
 
-            // フラットな薄いオーバーレイ
-            ctx.fillStyle = 'rgba(130, 170, 255, 0.1)';
-            ctx.fillRect(panelX, panelY, panelW, panelH);
+        if (drawBackground) {
+            // モダンな紺：少し明るめの下地＋広いアンビエント光（暗くなりすぎない）
+            ctx.fillStyle = '#141d34';
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            const glow = ctx.createRadialGradient(CANVAS_WIDTH * 0.44, CANVAS_HEIGHT * 0.34, 0, CANVAS_WIDTH * 0.44, CANVAS_HEIGHT * 0.34, CANVAS_WIDTH * 0.92);
+            glow.addColorStop(0, 'rgba(66, 96, 168, 0.42)');
+            glow.addColorStop(1, 'rgba(66, 96, 168, 0)');
+            ctx.fillStyle = glow;
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
         }
 
         if (!drawUi) {
             return;
         }
 
-        const roundedRectPath = (x, y, w, h, r) => {
-            const rr = Math.max(0, Math.min(r, Math.min(w, h) * 0.5));
-            ctx.beginPath();
-            ctx.moveTo(x + rr, y);
-            ctx.lineTo(x + w - rr, y);
-            ctx.arcTo(x + w, y, x + w, y + rr, rr);
-            ctx.lineTo(x + w, y + h - rr);
-            ctx.arcTo(x + w, y + h, x + w - rr, y + h, rr);
-            ctx.lineTo(x + rr, y + h);
-            ctx.arcTo(x, y + h, x, y + h - rr, rr);
-            ctx.lineTo(x, y + rr);
-            ctx.arcTo(x, y, x + rr, y, rr);
-            ctx.closePath();
-        };
-
-        const snapshotCanvas = document.createElement('canvas');
-        snapshotCanvas.width = CANVAS_WIDTH;
-        snapshotCanvas.height = CANVAS_HEIGHT;
-        const snapshotCtx = snapshotCanvas.getContext('2d');
-        // DPR環境での拡大ゴーストを防ぐため、実バックバッファを論理解像度へ正規化して取得
-        snapshotCtx.drawImage(
-            ctx.canvas,
-            0, 0, ctx.canvas.width, ctx.canvas.height,
-            0, 0, CANVAS_WIDTH, CANVAS_HEIGHT
-        );
-
-        const drawFrostedPanel = (x, y, w, h, radius = 20, {
-            blur = 12,
-            tint = 'rgba(28, 46, 92, 0.42)',
-            stroke = 'rgba(190, 216, 255, 0.36)',
-            lineWidth = 1.2
-        } = {}) => {
-            ctx.save();
-            roundedRectPath(x, y, w, h, radius);
-            ctx.clip();
-            ctx.filter = `blur(${blur}px)`;
-            ctx.drawImage(snapshotCanvas, 0, 0);
-            ctx.filter = 'none';
-            ctx.fillStyle = tint;
-            ctx.fillRect(x, y, w, h);
-            ctx.restore();
-
-            roundedRectPath(x, y, w, h, radius);
-            ctx.strokeStyle = stroke;
-            ctx.lineWidth = lineWidth;
-            ctx.stroke();
-        };
-
-        // --- メインレイアウト構成 ---
+        // --- 右：情報パネル ---
         const infoPanelX = rightColX - 18;
-        const infoPanelY = 90;
+        const infoPanelY = 96;
         const infoPanelW = rightColW + 4;
-        const rowInset = 16;
+        const rowInset = 18;
         const rowX = infoPanelX + rowInset;
         const rowW = infoPanelW - rowInset * 2;
-        const rowStartY = infoPanelY + 24;
-        const rowH = 40;
-        const rowGap = 7;
+        const rowStartY = infoPanelY + 30;
+        const rowH = 38;
         const menuY = CANVAS_HEIGHT - 140;
 
-        ctx.textAlign = 'right';
-
         const statRows = [
-            { label: '段位', value: `${toKanjiNumber(player.level)}段`, color: '#fff' },
-            { label: '体力', value: `${player.maxHp}`, color: '#ff7070' },
-            { label: '小判', value: `${formatMoney(player.money)} 枚`, color: '#ffd700' },
-            { label: '剛力', value: `${(player.attackPower || 1.0).toFixed(1)}倍`, color: '#ffae70' },
-            { label: '韋駄天', value: player.permanentDash ? '習得済' : '未習得', color: '#7affae' },
-            { label: '跳躍', value: `${toKanjiNumber(player.maxJumps || 1)}段`, color: '#7ab5ff' }
+            { label: '段位', value: `${toKanjiNumber(player.level)}段`, color: '#ffffff' },
+            { label: '体力', value: `${player.maxHp}`, color: '#ff8a8a' },
+            { label: '小判', value: `${formatMoney(player.money)}枚`, color: '#ffd96b' },
+            { label: '剛力', value: `${(player.attackPower || 1.0).toFixed(1)}倍`, color: '#ffbe8a' },
+            { label: '韋駄天', value: player.permanentDash ? '習得済' : '未習得', color: '#8ef0b6' },
+            { label: '跳躍', value: `${toKanjiNumber(player.maxJumps || 1)}段`, color: '#8ec8ff' }
         ];
 
-        const statsBottomY = rowStartY + statRows.length * (rowH + rowGap) - rowGap;
-        const cardY = statsBottomY + 20;
+        const statsBottomY = rowStartY + statRows.length * rowH;
+        const cardY = statsBottomY + 18;
         const cardGap = 12;
         const cardW = (rowW - cardGap * 2) / 3;
-        const cardH = 116;
-        const infoPanelBottom = Math.min(cardY + cardH + 18, menuY - 24);
+        const cardH = 110;
+        const infoPanelBottom = Math.min(cardY + cardH + 18, menuY - 22);
         const infoPanelH = infoPanelBottom - infoPanelY;
 
-        drawFrostedPanel(infoPanelX, infoPanelY, infoPanelW, infoPanelH, 22, {
-            blur: 14,
-            tint: 'rgba(24, 40, 86, 0.38)',
-            stroke: 'rgba(186, 214, 255, 0.34)',
-            lineWidth: 1.3
-        });
+        drawWafuCard(ctx, infoPanelX, infoPanelY, infoPanelW, infoPanelH, { radius: 12, pulse });
 
+        // ステータス行（ラベル左／値右＋細い区切り線）
         statRows.forEach((row, i) => {
-            const rowY = rowStartY + i * (rowH + rowGap);
-            const centerY = rowY + rowH / 2;
-
+            const centerY = rowStartY + i * rowH + rowH / 2;
             ctx.textBaseline = 'middle';
-            drawFrostedPanel(rowX, rowY, rowW, rowH, 10, {
-                blur: 9,
-                tint: 'rgba(42, 62, 112, 0.3)',
-                stroke: 'rgba(168, 198, 246, 0.16)',
-                lineWidth: 1.0
-            });
-
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
             ctx.textAlign = 'left';
-            ctx.font = '600 17px sans-serif';
-            ctx.fillText(row.label, rowX + 14, centerY);
+            ctx.fillStyle = 'rgba(206, 222, 255, 0.7)';
+            ctx.font = '500 16px "Zen Old Mincho", serif';
+            ctx.fillText(row.label, rowX + 4, centerY);
 
-            ctx.textAlign = 'right';
-            ctx.fillStyle = row.value === 'undefined段' ? '#fff' : row.color;
-            ctx.font = '700 19px sans-serif';
-            ctx.fillText(row.value, rowX + rowW - 14, centerY);
-            ctx.textAlign = 'left';
+            ctx.fillStyle = row.color;
+            drawNumMixedText(ctx, row.value, rowX + rowW - 4, centerY, 700, 19, 'right');
+
+            if (i < statRows.length - 1) {
+                ctx.strokeStyle = 'rgba(150, 178, 232, 0.14)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(rowX, rowStartY + (i + 1) * rowH);
+                ctx.lineTo(rowX + rowW, rowStartY + (i + 1) * rowH);
+                ctx.stroke();
+            }
         });
-
         ctx.textBaseline = 'alphabetic';
+        ctx.textAlign = 'left';
 
-        // 強化状況カード
+        // 強化状況カード（ミニ紺カード＋段位＋青ピップ）
         progressionCards.forEach((card, i) => {
             const x = rowX + i * (cardW + cardGap);
-            drawFrostedPanel(x, cardY, cardW, cardH, 12, {
-                blur: 10,
-                tint: 'rgba(30, 54, 108, 0.34)',
-                stroke: 'rgba(170, 202, 252, 0.3)',
-                lineWidth: 1.1
-            });
+            drawWafuCard(ctx, x, cardY, cardW, cardH, { radius: 8, accent: false, shadow: false });
 
-            ctx.fillStyle = 'rgba(215, 230, 255, 0.95)';
-            ctx.font = '700 15px sans-serif';
-            ctx.fillText(card.title, x + 12, cardY + 30);
+            ctx.textAlign = 'center';
+            ctx.fillStyle = 'rgba(216, 230, 255, 0.9)';
+            ctx.font = '700 14px "Zen Old Mincho", serif';
+            ctx.fillText(card.title, x + cardW / 2, cardY + 28);
 
-            ctx.fillStyle = '#fff';
-            ctx.font = '700 18px sans-serif';
-            ctx.fillText(card.detail, x + 12, cardY + 64);
+            ctx.fillStyle = '#cfe2ff';
+            ctx.font = '700 18px "Zen Old Mincho", serif';
+            ctx.fillText(card.detail, x + cardW / 2, cardY + 58);
 
-            for (let p = 0; p < 3; p++) {
-                const gx = x + 12 + p * 28;
-                const gy = cardY + 86;
-                ctx.fillStyle = p < card.level ? '#8ec8ff' : 'rgba(255, 255, 255, 0.12)';
-                ctx.fillRect(gx, gy, 22, 7);
-            }
+            const pipW = 20, pipH = 6, pipGap = 7;
+            const pipsW = 3 * pipW + 2 * pipGap;
+            drawWafuPips(ctx, x + cardW / 2 - pipsW / 2, cardY + 78, pipW, pipH, pipGap, card.level, 3);
         });
 
         // --- 下部：メニュー ---
@@ -1865,19 +2135,16 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         menuItems.forEach((item, i) => {
             const selected = i === menuIndex;
             const x = menuStartX + i * (menuW + menuGap);
-            drawFrostedPanel(x, menuY, menuW, menuH, 16, {
-                blur: 10,
-                tint: selected ? 'rgba(74, 122, 220, 0.52)' : 'rgba(30, 58, 116, 0.4)',
-                stroke: selected ? 'rgba(225, 239, 255, 0.92)' : 'rgba(163, 194, 244, 0.36)',
-                lineWidth: selected ? 2.0 : 1.3
-            });
+            const y = menuY - (selected ? 4 : 0);
+            drawWafuCard(ctx, x, y, menuW, menuH, { radius: 10, selected, pulse });
 
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillStyle = selected ? '#fff' : 'rgba(255, 255, 255, 0.8)';
-            ctx.font = selected ? '700 22px sans-serif' : '600 22px sans-serif';
-            ctx.fillText(item.title, x + menuW / 2, menuY + menuH / 2);
+            ctx.fillStyle = selected ? '#ffffff' : 'rgba(224, 234, 255, 0.82)';
+            ctx.font = `700 22px "Zen Old Mincho", serif`;
+            ctx.fillText(item.title, x + menuW / 2, y + menuH / 2);
         });
+        ctx.textBaseline = 'alphabetic';
 
         // 操作説明はタイトル画面と同じ見た目・位置に統一
         drawScreenManualLine(ctx, '←→：選択 | SPACE：決定 | ↑↓：装備切替');
@@ -1887,13 +2154,20 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
     }
 }
 
+// 昇段画面：カード選択/解除の transition をフレーム間で保持（amt[i]:0..1 を実時間でイージング）。
+const _levelUpCardAnim = { amt: [], last: 0 };
+
 /**
  * 案1「紺ベース・中央寄せ整列」昇段（Lvアップ強化選択）画面。
  * --------------------------------------------------------------
  * - choice = { title, subtitle, level?, maxLevel?, durationSec? }
  *     durationSec を持つ＝忍術札（効果時間表示）／持たない＝強化札（ピップ＋段位）
- * - 混在しても要素の高さが揃うよう、フッターを「固定高スロット」にして中身を縦中央寄せ。
- * - 色・サイズは案1のデザイントークン準拠（design_handoff_levelup_screen/README.md 参照）。
+ * - デザイン正本(.dc.html 案1)は 1920×1080 で作成され scale(min(w/1920,h/1080)) で縮小表示される。
+ *   そのため全寸法を「design-px(1920基準)」で記述し、S=CANVAS_WIDTH/1920 で一様スケールして描く
+ *   （= どの解像度でも案1と同じ比率になる）。見出し＋カードは1ブロックとして画面上下中央へ。
+ * - カードは CARD_K 倍に拡大（中身の寸法・文字も比例。dk()/lwk() を使用）。
+ * - 選択/解除は CSS transition 相当を _levelUpCardAnim でフレーム間イージング（持ち上げ・枠・影・発光）。
+ * - Canvas には letter-spacing が無いため、字間は文字ごと描画(fillLS)で再現。
  * - CANVAS_WIDTH / CANVAS_HEIGHT は constants.js からの import を利用。
  */
 export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 0) {
@@ -1901,16 +2175,20 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
     const pulse = (Math.sin(time * 0.0026) + 1) * 0.5; // 選択枠のゆっくりした明滅
 
     const list = Array.isArray(choices) ? choices : [];
-    const cardWidth = 300;
-    const cardHeight = 248;          // 高さ固定（混在しても揃う）
-    const gap = 40;
-    const radius = 4;
 
-    const totalW = list.length * cardWidth + Math.max(0, list.length - 1) * gap;
-    const startX = CANVAS_WIDTH / 2 - totalW / 2;
-    const baseCardY = CANVAS_HEIGHT / 2 - 110;
+    // デザイン正本(1920×1080)→実キャンバスへの一様スケール（16:9前提）。
+    const S = CANVAS_WIDTH / 1920;
+    const d = (v) => v * S;            // design-px → canvas-px（見出し・全体レイアウト）
+    const CXD = 960;                   // デザイン中心X(1920/2)
+    const lw = (v) => Math.max(1, d(v)); // 罫線は最低1px
 
-    // --- 角丸パス ---
+    // カードだけ「一回り大きく」＋中身も比例拡大。dk/lwk はカード内寸法・文字用。
+    const CARD_K = 1.18;
+    const dk = (v) => v * S * CARD_K;
+    const lwk = (v) => Math.max(1, dk(v));
+    const lerp = (a, b, t) => a + (b - a) * t;
+
+    // --- 角丸パス（キャンバス座標） ---
     const roundedRectPath = (x, y, w, h, r) => {
         const rr = Math.max(0, Math.min(r, Math.min(w, h) * 0.5));
         ctx.beginPath();
@@ -1922,7 +2200,27 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
         ctx.closePath();
     };
 
-    // --- 説明文の折返し（中央寄せ用に行配列を返す） ---
+    // --- 字間つきテキスト（canvas には letter-spacing が無いので文字ごとに描く） ---
+    const measureLS = (text, lsPx) => {
+        const chars = [...String(text)];
+        if (!chars.length) return 0;
+        let w = 0;
+        for (const c of chars) w += ctx.measureText(c).width;
+        return w + lsPx * (chars.length - 1); // 字間は文字間のみ（末尾には付けない）
+    };
+    const fillLS = (text, x, y, lsPx, align = 'center') => {
+        const chars = [...String(text)];
+        if (!chars.length) return;
+        const ws = chars.map((c) => ctx.measureText(c).width);
+        const total = ws.reduce((a, b) => a + b, 0) + lsPx * (chars.length - 1);
+        let px = align === 'center' ? x - total / 2 : align === 'right' ? x - total : x;
+        const prevAlign = ctx.textAlign;
+        ctx.textAlign = 'left';
+        for (let i = 0; i < chars.length; i++) { ctx.fillText(chars[i], px, y); px += ws[i] + lsPx; }
+        ctx.textAlign = prevAlign;
+    };
+
+    // --- 説明文の折返し（中央寄せ用に行配列を返す。maxWidth はキャンバスpx） ---
     const wrapTextLines = (text, maxWidth, maxLines = 2) => {
         const src = String(text || '').trim();
         if (!src) return [];
@@ -1940,224 +2238,249 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
         return lines.slice(0, maxLines);
     };
 
+    // --- レイアウト寸法（design-px / 1920基準。カードは CARD_K 倍。GAP/見出しは据え置き） ---
+    const GAP = 40, HEAD_H = 116, GAP_HEAD_CARD = 50;
+    const CARD_W = 300 * CARD_K, CARD_H = 284 * CARD_K; // design-px（拡大後）
+    const totalWD = list.length * CARD_W + Math.max(0, list.length - 1) * GAP;
+    const startXD = CXD - totalWD / 2;
+    const BLOCK_H = HEAD_H + GAP_HEAD_CARD + CARD_H;
+    const blockTopD = (1080 - BLOCK_H) / 2;       // 見出し＋カードを画面上下中央へ
+    const cardTopD = blockTopD + HEAD_H + GAP_HEAD_CARD;
+
+    // --- 選択 transition（amt[i]:0..1）を実時間でイージング（≈0.25sで収束） ---
+    let dt = (time - _levelUpCardAnim.last) / 1000;
+    _levelUpCardAnim.last = time;
+    // 初回表示／再表示（描画が途切れた）／枚数変化 は補間せず即座に確定（CSSのmount相当）
+    if (_levelUpCardAnim.amt.length !== list.length || !(dt >= 0) || dt > 0.25) {
+        _levelUpCardAnim.amt = list.map((_, i) => (i === selectedIndex ? 1 : 0));
+        dt = 0;
+    }
+    const ease = 1 - Math.exp(-Math.min(dt, 0.1) / 0.07);
+    const amt = _levelUpCardAnim.amt;
+    for (let i = 0; i < list.length; i++) {
+        amt[i] += ((i === selectedIndex ? 1 : 0) - amt[i]) * ease;
+    }
+
     ctx.save();
 
-    // ===== 暗幕（没入感） =====
+    // ===== 暗幕（没入感・背後の実ゲーム画面が透ける） =====
     ctx.fillStyle = 'rgba(2, 6, 20, 0.66)';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
     // ===== 見出し =====
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = '#f7fbff';
-    ctx.font = '900 52px sans-serif';
-    ctx.fillText('昇段', CANVAS_WIDTH / 2, 116);
 
-    // 「強化を選択」＋左右の細い罫線
-    ctx.font = '600 18px sans-serif';
-    const subLabel = '強化を選択';
-    const subW = ctx.measureText(subLabel).width;
-    const subY = 158;
+    // 昇段（900 / 80px / 字間.16em / 青いソフトシャドウ）
+    ctx.fillStyle = '#f7fbff';
+    ctx.font = `900 ${d(80)}px "Zen Old Mincho", serif`;
+    ctx.save();
+    ctx.shadowColor = 'rgba(70, 120, 210, 0.4)';
+    ctx.shadowBlur = d(32);
+    ctx.shadowOffsetY = d(4);
+    fillLS('昇段', d(CXD), d(blockTopD + 66), d(0.16 * 80), 'center');
+    ctx.restore();
+
+    // 強化を選択（500 / 15px / 字間.42em）＋ 左右の細い罫線
+    ctx.font = `500 ${d(15)}px "Zen Old Mincho", serif`;
     ctx.fillStyle = 'rgba(206, 226, 255, 0.88)';
-    ctx.fillText(subLabel, CANVAS_WIDTH / 2, subY);
-    const ruleLen = 48, ruleGap = 18;
-    const ruleY = subY - 6;
-    const drawRule = (fromX, dir) => {
-        const grad = ctx.createLinearGradient(fromX, 0, fromX + dir * ruleLen, 0);
-        grad.addColorStop(0, 'rgba(142, 200, 255, 0.7)');
-        grad.addColorStop(1, 'rgba(142, 200, 255, 0)');
-        ctx.strokeStyle = grad;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(fromX, ruleY);
-        ctx.lineTo(fromX + dir * ruleLen, ruleY);
-        ctx.stroke();
-    };
-    drawRule(CANVAS_WIDTH / 2 - subW / 2 - ruleGap, -1);
-    drawRule(CANVAS_WIDTH / 2 + subW / 2 + ruleGap, 1);
+    const subLs = d(0.42 * 15);
+    const subBaseY = d(blockTopD + 110);
+    const subHalf = measureLS('強化を選択', subLs) / 2;
+    fillLS('強化を選択', d(CXD), subBaseY, subLs, 'center');
+
+    const ruleW = d(48), ruleGapX = d(16);
+    const ruleY = subBaseY - d(5); // 15px テキストの視覚中心あたり
+    const cxc = d(CXD);
+    ctx.lineWidth = lw(1);
+    // 左罫線（外→内で透明→水色）
+    const lInner = cxc - subHalf - ruleGapX, lOuter = lInner - ruleW;
+    let g = ctx.createLinearGradient(lOuter, 0, lInner, 0);
+    g.addColorStop(0, 'rgba(142, 200, 255, 0)');
+    g.addColorStop(1, 'rgba(142, 200, 255, 0.7)');
+    ctx.strokeStyle = g;
+    ctx.beginPath(); ctx.moveTo(lOuter, ruleY); ctx.lineTo(lInner, ruleY); ctx.stroke();
+    // 右罫線
+    const rInner = cxc + subHalf + ruleGapX, rOuter = rInner + ruleW;
+    g = ctx.createLinearGradient(rInner, 0, rOuter, 0);
+    g.addColorStop(0, 'rgba(142, 200, 255, 0.7)');
+    g.addColorStop(1, 'rgba(142, 200, 255, 0)');
+    ctx.strokeStyle = g;
+    ctx.beginPath(); ctx.moveTo(rInner, ruleY); ctx.lineTo(rOuter, ruleY); ctx.stroke();
 
     // ===== カード =====
     const tierLabels = ['初級', '中級', '上級', '特級'];
 
     list.forEach((choice, index) => {
-        const selected = index === selectedIndex;
-        const x = startX + index * (cardWidth + gap);
-        const y = baseCardY - (selected ? 4 : 0); // 選択時のみ僅かに持ち上げ
-        const cx = x + cardWidth / 2;
+        const a = amt[index];                           // 選択度 0..1（イージング済み）
+        const xD = startXD + index * (CARD_W + GAP);
+        const x = d(xD), w = dk(300), h = dk(284), r = dk(9);
+        const y = d(cardTopD) - dk(4) * a;              // translateY(-4px) を補間
+        const cx = x + w / 2;
 
         const isDuration = Number.isFinite(choice.durationSec);
         const level = choice.level || 0;
         const maxLevel = choice.maxLevel || 3;
 
-        // 背景グラデ
-        const bg = ctx.createLinearGradient(x, y, x, y + cardHeight);
-        bg.addColorStop(0, 'rgba(28, 38, 72, 0.96)');
-        bg.addColorStop(1, 'rgba(11, 16, 36, 0.97)');
+        // 本体（控えめ・低彩度の縦グラデ）
+        const bg = ctx.createLinearGradient(x, y, x, y + h);
+        bg.addColorStop(0, 'rgba(33, 42, 68, 0.96)');
+        bg.addColorStop(1, 'rgba(23, 30, 52, 0.97)');
 
-        // 影
+        // 影／グロー（黒の柔らかい影→青グローを a で補間。浮かせすぎない）
         ctx.save();
-        ctx.shadowBlur = selected ? 28 : 20;
-        ctx.shadowColor = selected
-            ? `rgba(90, 150, 245, ${0.34 + pulse * 0.12})`
-            : 'rgba(0, 0, 0, 0.55)';
-        ctx.shadowOffsetY = selected ? 8 : 14;
-        roundedRectPath(x, y, cardWidth, cardHeight, radius);
+        ctx.shadowBlur = dk(lerp(34, 44, a));
+        ctx.shadowColor = `rgba(${lerp(0, 74, a) | 0}, ${lerp(0, 134, a) | 0}, ${lerp(0, 236, a) | 0}, ${lerp(0.28, 0.26 + pulse * 0.12, a).toFixed(3)})`;
+        ctx.shadowOffsetY = dk(lerp(6, 0, a));
+        roundedRectPath(x, y, w, h, r);
         ctx.fillStyle = bg;
         ctx.fill();
         ctx.restore();
 
-        // 枠線
-        roundedRectPath(x, y, cardWidth, cardHeight, radius);
-        ctx.strokeStyle = selected
-            ? `rgba(222, 236, 255, ${0.85 + pulse * 0.15})`
-            : 'rgba(150, 178, 232, 0.32)';
-        ctx.lineWidth = selected ? 2 : 1;
-        ctx.stroke();
-
-        // 上辺アクセントライン
+        // 上部の淡いシーン（クリスプな上端＝光源感）
         ctx.save();
-        roundedRectPath(x, y, cardWidth, cardHeight, radius);
+        roundedRectPath(x, y, w, h, r);
         ctx.clip();
-        const acc = ctx.createLinearGradient(x, 0, x + cardWidth, 0);
-        acc.addColorStop(0, 'rgba(142, 200, 255, 0)');
-        acc.addColorStop(0.5, 'rgba(142, 200, 255, 0.85)');
-        acc.addColorStop(1, 'rgba(142, 200, 255, 0)');
-        ctx.fillStyle = acc;
-        ctx.fillRect(x, y, cardWidth, 3);
+        const sheen = ctx.createLinearGradient(x, y, x, y + h * 0.42);
+        sheen.addColorStop(0, 'rgba(255, 255, 255, 0.06)');
+        sheen.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = sheen;
+        ctx.fillRect(x, y, w, h * 0.42);
         ctx.restore();
 
-        // タイトル（中央）
-        ctx.textAlign = 'center';
+        // ヘアライン枠（淡→明 を a で補間）
+        roundedRectPath(x, y, w, h, r);
+        ctx.strokeStyle = `rgba(${lerp(146, 150, a) | 0}, ${lerp(172, 196, a) | 0}, ${lerp(226, 255, a) | 0}, ${lerp(0.22, 0.6 + pulse * 0.25, a).toFixed(3)})`;
+        ctx.lineWidth = lwk(lerp(1, 1.5, a));
+        ctx.stroke();
+
+        // 上辺の細い青アクセント
+        ctx.save();
+        roundedRectPath(x, y, w, h, r);
+        ctx.clip();
+        const acc = ctx.createLinearGradient(x, 0, x + w, 0);
+        acc.addColorStop(0, 'rgba(142, 200, 255, 0)');
+        acc.addColorStop(0.5, `rgba(142, 200, 255, ${lerp(0.5, 0.9, a).toFixed(3)})`);
+        acc.addColorStop(1, 'rgba(142, 200, 255, 0)');
+        ctx.fillStyle = acc;
+        ctx.fillRect(x, y, w, dk(2));
+        ctx.restore();
+
+        // タイトル（900 28px 字間.04em 中央）
+        ctx.textBaseline = 'alphabetic';
         ctx.fillStyle = '#ffffff';
-        ctx.font = '900 28px sans-serif';
-        ctx.fillText(choice.title || '', cx, y + 56);
+        ctx.font = `900 ${dk(28)}px "Zen Old Mincho", serif`;
+        fillLS(choice.title || '', cx, y + dk(60), dk(0.04 * 28), 'center');
 
-        // 区切り線（短い水平罫線・中央）
-        const divY = y + 78;
-        const divHalf = 28;
-        const divGrad = ctx.createLinearGradient(cx - divHalf, 0, cx + divHalf, 0);
-        divGrad.addColorStop(0, 'rgba(180, 205, 255, 0)');
-        divGrad.addColorStop(0.5, 'rgba(180, 205, 255, 0.55)');
-        divGrad.addColorStop(1, 'rgba(180, 205, 255, 0)');
-        ctx.strokeStyle = divGrad;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(cx - divHalf, divY);
-        ctx.lineTo(cx + divHalf, divY);
-        ctx.stroke();
+        // 区切り線（幅56・中央・青の淡グラデ）
+        const divHalf = dk(56) / 2;
+        const divY = y + dk(90);
+        const dg = ctx.createLinearGradient(cx - divHalf, 0, cx + divHalf, 0);
+        dg.addColorStop(0, 'rgba(180, 205, 255, 0)');
+        dg.addColorStop(0.5, 'rgba(180, 205, 255, 0.55)');
+        dg.addColorStop(1, 'rgba(180, 205, 255, 0)');
+        ctx.strokeStyle = dg;
+        ctx.lineWidth = lwk(1);
+        ctx.beginPath(); ctx.moveTo(cx - divHalf, divY); ctx.lineTo(cx + divHalf, divY); ctx.stroke();
 
-        // 説明（中央・最大2行・固定バンド）
-        ctx.font = '500 15px sans-serif';
+        // 説明（500 15px・中央・最大2行・行高1.7）
+        ctx.font = `500 ${dk(15)}px "Zen Old Mincho", serif`;
         ctx.fillStyle = 'rgba(216, 230, 255, 0.82)';
-        const lines = wrapTextLines(choice.subtitle || '', cardWidth - 48, 2);
-        const descTop = y + 104;
-        const lineH = 22;
-        // 1行のときは縦中央に寄せる（バンド高さ=2行分）
-        const offset = lines.length === 1 ? lineH / 2 : 0;
-        lines.forEach((ln, i) => ctx.fillText(ln, cx, descTop + offset + i * lineH));
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const lineH = dk(15 * 1.7);
+        const subMid = y + dk(130);
+        const lines = wrapTextLines(choice.subtitle || '', w - dk(60), 2);
+        if (lines.length <= 1) {
+            ctx.fillText(lines[0] || '', cx, subMid);
+        } else {
+            lines.forEach((ln, i) => ctx.fillText(ln, cx, subMid - lineH / 2 + i * lineH));
+        }
+        ctx.textBaseline = 'alphabetic';
 
-        // ===== フッター（固定高スロット：混在しても揃う） =====
-        const footerTop = y + 158;          // カード上端から固定
-        const footerH = 64;
-        const footerCenterY = footerTop + footerH / 2;
-
-        // フッター上の区切り線
+        // ===== フッター（上端から固定オフセット：混在しても揃う） =====
+        const footLineY = y + dk(171);
+        const footMid = y + dk(212);
         ctx.strokeStyle = 'rgba(150, 178, 232, 0.18)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x + 24, footerTop);
-        ctx.lineTo(x + cardWidth - 24, footerTop);
-        ctx.stroke();
+        ctx.lineWidth = lwk(1);
+        ctx.beginPath(); ctx.moveTo(x + dk(30), footLineY); ctx.lineTo(x + w - dk(30), footLineY); ctx.stroke();
 
         if (isDuration) {
-            // 効果時間（ラベル＋数値を中央に1行）
+            // 効果時間（ラベル＋数値＋秒 を横1行・中央）
             ctx.textBaseline = 'middle';
-            ctx.font = '600 13px sans-serif';
-            const label = '効果時間';
-            const valNum = String(choice.durationSec);
-            const valUnit = '秒';
-            ctx.font = '700 21px sans-serif';
+            const label = '効果時間', valNum = String(choice.durationSec), valUnit = '秒';
+            const labelLs = dk(0.12 * 13);
+            ctx.font = `500 ${dk(13)}px "Zen Old Mincho", serif`;
+            const labelW = measureLS(label, labelLs);
+            ctx.font = `700 ${dk(21)}px "Zen Old Mincho", serif`;
             const numW = ctx.measureText(valNum).width;
-            ctx.font = '600 13px sans-serif';
-            const labelW = ctx.measureText(label).width;
-            ctx.font = '700 13px sans-serif';
+            ctx.font = `500 ${dk(13)}px "Zen Old Mincho", serif`;
             const unitW = ctx.measureText(valUnit).width;
-            const innerGap = 10;
-            const totalRowW = labelW + innerGap + numW + 2 + unitW;
+            const innerGap = dk(10), unitGap = dk(2);
+            const totalRowW = labelW + innerGap + numW + unitGap + unitW;
             let tx = cx - totalRowW / 2;
 
-            ctx.textAlign = 'left';
-            ctx.font = '600 13px sans-serif';
+            ctx.font = `500 ${dk(13)}px "Zen Old Mincho", serif`;
             ctx.fillStyle = 'rgba(180, 200, 236, 0.7)';
-            ctx.fillText(label, tx, footerCenterY);
+            fillLS(label, tx, footMid, labelLs, 'left');
             tx += labelW + innerGap;
 
-            ctx.font = '700 21px sans-serif';
+            ctx.textAlign = 'left';
+            ctx.font = `700 ${dk(21)}px "Zen Old Mincho", serif`;
             ctx.fillStyle = '#c4e8ff';
-            ctx.fillText(valNum, tx, footerCenterY);
-            tx += numW + 2;
+            ctx.fillText(valNum, tx, footMid);
+            tx += numW + unitGap;
 
-            ctx.font = '700 13px sans-serif';
+            ctx.font = `500 ${dk(13)}px "Zen Old Mincho", serif`;
             ctx.fillStyle = 'rgba(196, 232, 255, 0.7)';
-            ctx.fillText(valUnit, tx, footerCenterY + 3);
+            ctx.fillText(valUnit, tx, footMid + dk(2));
 
+            ctx.textAlign = 'center';
             ctx.textBaseline = 'alphabetic';
         } else {
-            // ピップ＋段位ラベル（中央・縦に2段）
-            const pipW = 48, pipH = 9, pipGap = 8;
+            // ピップ（maxLevel個・48×9・中央）＋段位ラベル（縦に2段、フッター中央寄せ）
+            const pipW = dk(48), pipH = dk(9), pipGap = dk(8);
             const pipsTotalW = maxLevel * pipW + (maxLevel - 1) * pipGap;
             const pipsX = cx - pipsTotalW / 2;
-            const pipsY = footerCenterY - 14;
+            const pipsY = footMid - dk(20);
             for (let p = 0; p < maxLevel; p++) {
                 const gx = pipsX + p * (pipW + pipGap);
-                // トラック
-                roundedRectPath(gx, pipsY, pipW, pipH, 2);
+                roundedRectPath(gx, pipsY, pipW, pipH, dk(2)); // トラック
                 ctx.fillStyle = 'rgba(210, 225, 255, 0.16)';
                 ctx.fill();
                 if (p < level) {
                     // 点灯
-                    const g = ctx.createLinearGradient(gx, 0, gx + pipW, 0);
-                    g.addColorStop(0, '#6fb6ff');
-                    g.addColorStop(1, '#a9d8ff');
-                    roundedRectPath(gx, pipsY, pipW, pipH, 2);
-                    ctx.fillStyle = g;
+                    const gg = ctx.createLinearGradient(gx, 0, gx + pipW, 0);
+                    gg.addColorStop(0, '#6fb6ff');
+                    gg.addColorStop(1, '#a9d8ff');
+                    roundedRectPath(gx, pipsY, pipW, pipH, dk(2));
+                    ctx.fillStyle = gg;
                     ctx.fill();
                 } else if (p === level) {
                     // 次に上がる枠（リング＋淡いグロー）
                     ctx.save();
-                    ctx.shadowBlur = 9;
+                    ctx.shadowBlur = dk(9);
                     ctx.shadowColor = 'rgba(142, 200, 255, 0.6)';
-                    roundedRectPath(gx - 1.5, pipsY - 1.5, pipW + 3, pipH + 3, 3);
+                    roundedRectPath(gx - dk(2), pipsY - dk(2), pipW + dk(4), pipH + dk(4), dk(3));
                     ctx.strokeStyle = '#8ec8ff';
-                    ctx.lineWidth = 1.5;
+                    ctx.lineWidth = lwk(1.5);
                     ctx.stroke();
                     ctx.restore();
                 }
             }
-            // 段位ラベル
-            ctx.textAlign = 'center';
-            ctx.font = '700 16px sans-serif';
+            // 段位ラベル（700 16px 字間.05em・ピップ下 margin15）
+            ctx.textBaseline = 'alphabetic';
             ctx.fillStyle = '#cfe2ff';
+            ctx.font = `700 ${dk(16)}px "Zen Old Mincho", serif`;
             const cur = tierLabels[Math.min(level, 3)];
             const nxt = tierLabels[Math.min(level + 1, 3)];
-            ctx.fillText(`${cur} → ${nxt}`, cx, pipsY + pipH + 26);
+            fillLS(`${cur} → ${nxt}`, cx, pipsY + pipH + dk(15) + dk(13), dk(0.05 * 16), 'center');
         }
 
-        // 選択リング（明確化のため枠を二重に）
-        if (selected) {
-            roundedRectPath(x + 1, y + 1, cardWidth - 2, cardHeight - 2, radius);
-            ctx.strokeStyle = `rgba(160, 205, 255, ${0.35 + pulse * 0.25})`;
-            ctx.lineWidth = 1;
-            ctx.stroke();
-        }
     });
 
-    // ===== 操作説明 =====
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = 'rgba(228, 240, 255, 0.84)';
-    ctx.font = '600 20px sans-serif';
-    ctx.fillText('←→：選択 | SPACE：決定', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 40);
+    // ===== 操作説明（通常マニュアルと同サイズ・カード直下に配置） =====
+    drawScreenManualLine(ctx, '←→：選択 | SPACE：決定', d(cardTopD + CARD_H) + 42);
 
     ctx.restore();
 }
@@ -2500,7 +2823,7 @@ export function renderIntro(ctx, timer) {
     if (timer > 1000) {
         const blink = Math.sin(Date.now() / 170) > 0;
         if (blink) {
-            ctx.font = 'bold 20px sans-serif';
+            ctx.font = 'bold 20px "Zen Old Mincho", serif';
             ctx.fillStyle = 'rgba(255, 255, 255, 0.82)';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -2546,7 +2869,7 @@ export function renderEnding(ctx, timer) {
     if (timer > 1200) {
         const blink = Math.sin(Date.now() / 170) > 0;
         if (blink) {
-            ctx.font = 'bold 20px sans-serif';
+            ctx.font = 'bold 20px "Zen Old Mincho", serif';
             ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -2609,7 +2932,7 @@ export function renderGameClearScreen(ctx, timerMs = 0) {
     ctx.fillText('GAME CLEAR', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
 
     if (Math.floor(time / 500) % 2 === 0) {
-        ctx.font = 'bold 20px sans-serif';
+        ctx.font = 'bold 20px "Zen Old Mincho", serif';
         ctx.fillStyle = 'rgba(255, 255, 255, 0.84)';
         ctx.fillText('Press SPACE or Tap Screen to Continue', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 80);
     }
@@ -2672,7 +2995,7 @@ export function renderStageClearAnnouncement(ctx, stageNumber, weaponUnlocked, s
 
     // 新忍具獲得テキスト（バン！）
     if (weaponUnlocked && timer >= weaponDelay) {
-        ctx.font = '700 30px sans-serif';
+        ctx.font = '700 30px "Zen Old Mincho", serif';
         ctx.fillStyle = '#ffeb3b';
         ctx.fillText(`新忍具「${weaponUnlocked}」を獲得！`, CANVAS_WIDTH / 2, centerY + 120);
     }
@@ -2683,7 +3006,7 @@ export function renderStageClearAnnouncement(ctx, stageNumber, weaponUnlocked, s
     if (timer >= pressDelay) {
         const blink = Math.floor(time / 500) % 2 === 0;
         if (blink) {
-            ctx.font = '600 20px sans-serif';
+            ctx.font = '600 20px "Zen Old Mincho", serif';
             ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
             ctx.fillText('Press SPACE or Tap to View Status', CANVAS_WIDTH / 2, centerY + 200);
         }

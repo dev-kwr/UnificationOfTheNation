@@ -589,11 +589,8 @@ class InputManager {
             }
 
             this.pressKey(KEYS[action][0], sourceId); // KEYS定数の最初のキー名を内部IDとして使う
-            
-            // 特殊対応: ArrowUpはUPだが、JUMPとしても扱う
-            if (e.key === 'ArrowUp' || e.code === 'ArrowUp') {
-                this.pressKey(KEYS['JUMP'][0], `${sourceId}:jump`);
-            }
+            // 注: ArrowUp は KEYS.JUMP にも含まれるためジャンプとして機能する。ここで別途スペースを
+            //     押すと「↑＝決定(CONFIRM)」になってしまうため行わない（決定は Space/Enter のみ）。
         }
     }
     
@@ -619,12 +616,10 @@ class InputManager {
                 }
             }
             
-            if (e.key === 'ArrowUp' || e.code === 'ArrowUp') {
-                this.releaseKey(KEYS['JUMP'][0], `${sourceId}:jump`);
-            }
+            // ArrowUp の特殊スペース解放は廃止（↑はスペースを押さない方針）
         }
     }
-    
+
     releaseKey(key, sourceId = 'key') {
         this.setKeySource(key, sourceId, false);
     }

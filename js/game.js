@@ -1011,8 +1011,8 @@ class Game {
             return;
         }
 
-        // SPACEで決定
-        if (input.isActionJustPressed('JUMP')) {
+        // SPACE / Enter で決定
+        if (input.isActionJustPressed('CONFIRM')) {
             this.titleDebugApplyOnStart = false;
             this._handleTitleConfirm(isCleared);
             return;
@@ -1309,7 +1309,7 @@ class Game {
         this.introTimer += this.deltaTime * 1000;
         
         // 操作入力でのみプレイ開始（自動遷移しない）
-        if (this.introTimer > 500 && (input.isActionJustPressed('JUMP') || input.isActionJustPressed('DEBUG_START') || input.touchJustPressed)) {
+        if (this.introTimer > 500 && (input.isActionJustPressed('CONFIRM') || input.touchJustPressed)) {
             // ゲーム開始（フェードイン含む）
             this.startStage();
         }
@@ -2784,9 +2784,7 @@ class Game {
             this.levelUpInputLockMs = 420;
             this.levelUpConfirmCooldownMs = 0;
             this.levelUpRequireRelease =
-                input.isAction('JUMP') ||
-                input.isAction('ATTACK') ||
-                input.isAction('SUB_WEAPON') ||
+                input.isAction('CONFIRM') ||
                 input.touchJustPressed;
             this.levelUpAlpha = 0; // フェードイン開始
             this.levelUpTransitionDir = 1;
@@ -2876,7 +2874,7 @@ class Game {
             audio.playSelect();
         }
 
-        const confirmHeld = input.isAction('JUMP') || input.isAction('ATTACK') || input.isAction('SUB_WEAPON');
+        const confirmHeld = input.isAction('CONFIRM');
         if (this.levelUpRequireRelease) {
             if (!confirmHeld && !input.touchJustPressed) {
                 this.levelUpRequireRelease = false;
@@ -2903,7 +2901,7 @@ class Game {
             }
         }
 
-        if (input.isActionJustPressed('JUMP')) {
+        if (input.isActionJustPressed('CONFIRM')) {
             if (choices[this.levelUpChoiceIndex]) { this.applyLevelUpChoice(choices[this.levelUpChoiceIndex].id || choices[this.levelUpChoiceIndex].type); }
         }
     }
@@ -3953,8 +3951,8 @@ class Game {
             return;
         }
         
-        // SPACEキーまたは画面タップでタイトルへ戻る
-        if (input.isActionJustPressed('JUMP') || input.touchJustPressed) {
+        // SPACE/Enter または画面タップでタイトルへ戻る
+        if (input.isActionJustPressed('CONFIRM') || input.touchJustPressed) {
             this.gameOverWaitTimer = undefined; // リセット
             this.state = GAME_STATE.TITLE;
             audio.playBgm('title', 0);
@@ -3989,12 +3987,12 @@ class Game {
         // 演出フェーズ (Phase 0)
         if (this.stageClearPhase === 0) {
             if (this.stageClearAnnounceTimer < 2400) return; // 演出完了前はスキップ不可
-            if (input.isActionJustPressed('JUMP') || input.touchJustPressed) {
+            if (input.isActionJustPressed('CONFIRM') || input.touchJustPressed) {
                 audio.playSelect();
                 this.stageClearPhase = 1;
                 this.resetStageClearAutoSubWeaponTimer(true);
                 audio.playBgm('shop');
-                input.consumeAction('JUMP');
+                input.consumeAction('CONFIRM');
 
                 // プレイヤーをプレビューモードに初期化
                 if (this.player) {
@@ -4095,8 +4093,8 @@ class Game {
             audio.playSelect();
         }
 
-        // 決定：SPACEキーのみ（UPキー経由のJUMPを除外済み）
-        if (input.isActionJustPressed('JUMP')) {
+        // 決定：SPACE / Enter（↑は装備切替なので決定にしない）
+        if (input.isActionJustPressed('CONFIRM')) {
             this.handleStageClearConfirm();
         }
 
@@ -4242,7 +4240,7 @@ class Game {
 
         // クリア演出後、入力でのみエンディングへ遷移
         const canSkip = this.gameClearTimer > 700;
-        const wantsProceed = canSkip && (input.isActionJustPressed('JUMP') || input.touchJustPressed);
+        const wantsProceed = canSkip && (input.isActionJustPressed('CONFIRM') || input.touchJustPressed);
         if (wantsProceed) {
             this.state = GAME_STATE.ENDING;
             this.endingTimer = 0;
@@ -4254,7 +4252,7 @@ class Game {
         this.endingTimer += this.deltaTime * 1000;
 
         const canSkip = this.endingTimer > 900;
-        const wantsReturn = canSkip && (input.isActionJustPressed('JUMP') || input.isActionJustPressed('DEBUG_START') || input.touchJustPressed);
+        const wantsReturn = canSkip && (input.isActionJustPressed('CONFIRM') || input.touchJustPressed);
         if (wantsReturn) {
             saveManager.deleteSave();
             this.state = GAME_STATE.TITLE;

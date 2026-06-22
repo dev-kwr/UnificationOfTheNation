@@ -5,7 +5,7 @@
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from './constants.js';
 import { input } from './input.js';
 import { audio } from './audio.js';
-import { drawScreenManualLine } from './ui.js';
+import { drawScreenManualLine, drawWafuCard, drawWafuHeading, drawWafuDivider, drawNumMixedText } from './ui.js';
 
 function formatMoneyValue(amount) {
     const safe = Math.max(0, Math.floor(Number(amount) || 0));
@@ -128,8 +128,6 @@ export class Shop {
             this.selectedIndex = Math.max(0, this.selectedIndex - 1);
             audio.playSelect();
             input.consumeAction('UP');
-            // ArrowUpがJUMPと同時入力になるため、このフレームの決定入力は無効化
-            input.consumeAction('JUMP');
             movedSelectionThisFrame = true;
         }
         
@@ -152,13 +150,13 @@ export class Shop {
             input.consumeAction('RIGHT');
         }
         
-        if (!movedSelectionThisFrame && input.isActionJustPressed('JUMP')) {
+        if (!movedSelectionThisFrame && input.isActionJustPressed('CONFIRM')) {
             if (this.footerButtonIndex === 1) {
                 this.close();
             } else {
                 this.purchase(player);
             }
-            input.consumeAction('JUMP');
+            input.consumeAction('CONFIRM');
         }
         
         if (input.isActionJustPressed('SUB_WEAPON') || input.isActionJustPressed('PAUSE')) {
@@ -288,221 +286,129 @@ export class Shop {
     
     render(ctx, player) {
         if (!this.isOpen) return;
-        
+
         ctx.save();
+        // 呼び出し側の影/合成状態に影響されないようリセット（自己完結描画）
+        ctx.shadowColor = 'rgba(0, 0, 0, 0)';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+        ctx.globalAlpha = 1;
         ctx.textBaseline = 'alphabetic';
 
-        const roundedRectPath = (x, y, w, h, r) => {
-            const rr = Math.max(0, Math.min(r, Math.min(w, h) * 0.5));
-            ctx.beginPath();
-            ctx.moveTo(x + rr, y);
-            ctx.lineTo(x + w - rr, y);
-            ctx.arcTo(x + w, y, x + w, y + rr, rr);
-            ctx.lineTo(x + w, y + h - rr);
-            ctx.arcTo(x + w, y + h, x + w - rr, y + h, rr);
-            ctx.lineTo(x + rr, y + h);
-            ctx.arcTo(x, y + h, x, y + h - rr, rr);
-            ctx.lineTo(x, y + rr);
-            ctx.arcTo(x, y, x + rr, y, rr);
-            ctx.closePath();
-        };
-
-        const drawFrostedPanel = (snapshotCanvas, x, y, w, h, radius = 16, {
-            blur = 12,
-            tint = 'rgba(30, 54, 108, 0.42)',
-            stroke = 'rgba(176, 204, 248, 0.34)',
-            lineWidth = 1.2
-        } = {}) => {
-            ctx.save();
-            roundedRectPath(x, y, w, h, radius);
-            ctx.clip();
-            ctx.filter = `blur(${blur}px)`;
-            ctx.drawImage(snapshotCanvas, 0, 0);
-            ctx.filter = 'none';
-            ctx.fillStyle = tint;
-            ctx.fillRect(x, y, w, h);
-            ctx.restore();
-            roundedRectPath(x, y, w, h, radius);
-            ctx.strokeStyle = stroke;
-            ctx.lineWidth = lineWidth;
-            ctx.stroke();
-        };
-
-        ctx.fillStyle = 'rgba(10, 18, 34, 0.9)';
-        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-        
+        const pulse = (Math.sin(Date.now() * 0.0026) + 1) * 0.5;
         const { shopX, shopY, shopW, shopH } = this.getLayout();
-        const snapshotCanvas = document.createElement('canvas');
-        snapshotCanvas.width = CANVAS_WIDTH;
-        snapshotCanvas.height = CANVAS_HEIGHT;
-        const snapshotCtx = snapshotCanvas.getContext('2d');
-        // DPR環境での拡大ゴーストを防ぐため、実バックバッファを論理解像度へ正規化して取得
-        snapshotCtx.drawImage(
-            ctx.canvas,
-            0, 0, ctx.canvas.width, ctx.canvas.height,
-            0, 0, CANVAS_WIDTH, CANVAS_HEIGHT
-        );
-        
-        drawFrostedPanel(snapshotCanvas, shopX, shopY, shopW, shopH, 28, {
-            blur: 14,
-            tint: 'rgba(34, 56, 108, 0.36)',
-            stroke: 'rgba(186, 214, 255, 0.34)',
-            lineWidth: 1.3
-        });
- 
-        ctx.fillStyle = '#f0f6ff';
-        ctx.font = '700 24px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('よろず屋', CANVAS_WIDTH / 2, shopY + 66);
-        
-        ctx.lineWidth = 1.4;
-        ctx.strokeStyle = 'rgba(164, 193, 255, 0.26)';
-        ctx.beginPath();
-        ctx.moveTo(shopX + 42, shopY + 86);
-        ctx.lineTo(shopX + shopW - 42, shopY + 86);
-        ctx.stroke();
- 
-        ctx.font = '700 14px sans-serif';
-        ctx.textAlign = 'right';
+
+        // 暗幕（昇段画面トンマナ：背後のゲームを暗く）
+        ctx.fillStyle = 'rgba(3, 7, 18, 0.82)';
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+        // 本体パネル（紺カード）
+        drawWafuCard(ctx, shopX, shopY, shopW, shopH, { radius: 14, pulse });
+
+        // 見出し「よろず屋」＋区切り線
+        drawWafuHeading(ctx, CANVAS_WIDTH / 2, shopY + 58, 'よろず屋', { size: 30, ls: 0.14, ruleLen: 48, color: '#f4f9ff' });
+        drawWafuDivider(ctx, CANVAS_WIDTH / 2, shopY + 80, (shopW - 96) / 2);
+
+        // 小判（右上）：数字=サンセリフ／和文=明朝
+        ctx.textBaseline = 'middle';
         ctx.fillStyle = '#ffd96b';
-        const moneyLabel = `小判: ${formatMoneyValue(player.money)}`;
-        ctx.fillText(moneyLabel, shopX + shopW - 32, shopY + 66);
- 
+        drawNumMixedText(ctx, `小判 ${formatMoneyValue(player.money)}枚`, shopX + shopW - 32, shopY + 48, 700, 15, 'right');
+
+        // アイテム行
         this.items.forEach((item, i) => {
             const rect = this.getItemRect(i);
             const isSelected = i === this.selectedIndex;
-            
+
             // 完売判定
             let isPurchased = this.purchasedSkills.has(item.id);
             if (item.id === 'attack_up' && this.purchasedUpgrades.attack_up >= 3) isPurchased = true;
-
             const isLocked = item.id === 'triple_jump' && !this.purchasedSkills.has('double_jump');
-            
-            drawFrostedPanel(snapshotCanvas, rect.x, rect.y, rect.w, rect.h, 14, {
-                blur: 10,
-                tint: isSelected
-                    ? 'rgba(92, 140, 228, 0.42)'
-                    : 'rgba(46, 74, 136, 0.24)',
-                stroke: isSelected
-                    ? 'rgba(214, 232, 255, 0.92)'
-                    : 'rgba(158, 189, 240, 0.26)',
-                lineWidth: isSelected ? 1.9 : 1.0
+            const dim = isPurchased || isLocked;
+
+            // 選択行のみ発光＋上辺アクセント、非選択は平坦
+            drawWafuCard(ctx, rect.x, rect.y, rect.w, rect.h, {
+                radius: 9, selected: isSelected, pulse, accent: isSelected, shadow: isSelected
             });
 
             if (isSelected) {
-                ctx.fillStyle = 'rgba(212, 232, 255, 0.98)';
-                ctx.font = '700 16px sans-serif';
+                ctx.fillStyle = '#8ec8ff';
+                ctx.font = '700 15px "Zen Old Mincho", serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText('◆', rect.x + 28, rect.y + rect.h / 2);
+                ctx.fillText('◆', rect.x + 26, rect.y + rect.h / 2);
             }
-            
-            const nameY = rect.y + 19;
-            const descY = rect.y + 38;
-            const priceY = rect.y + rect.h / 2;
 
+            // 名前
             ctx.textAlign = 'left';
             ctx.textBaseline = 'middle';
-            ctx.fillStyle = (isPurchased || isLocked)
-                ? 'rgba(155, 169, 198, 0.7)'
-                : (isSelected ? '#ffffff' : 'rgba(232, 241, 255, 0.93)');
+            ctx.fillStyle = dim ? 'rgba(150, 165, 196, 0.6)' : (isSelected ? '#ffffff' : 'rgba(230, 240, 255, 0.92)');
             let titleSize = 18;
             while (titleSize > 14) {
-                ctx.font = `700 ${titleSize}px sans-serif`;
+                ctx.font = `700 ${titleSize}px "Zen Old Mincho", serif`;
                 if (ctx.measureText(item.name).width <= rect.w - 228) break;
                 titleSize -= 1;
             }
-            ctx.fillText(item.name, rect.x + 62, nameY);
-            
-            ctx.textAlign = 'right';
-            ctx.textBaseline = 'middle';
-            ctx.fillStyle = (isPurchased || isLocked) ? 'rgba(155, 169, 198, 0.7)' : '#ffdb73';
-            ctx.font = '700 15px sans-serif';
-            const price = this.getItemPrice(item);
-            let priceText = `${formatMoneyValue(price)} 枚`;
-            if (isPurchased) priceText = '習得済';
-            else if (isLocked) priceText = '禁制';
-            ctx.fillText(priceText, rect.x + rect.w - 24, priceY);
-            
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'middle';
-            ctx.fillStyle = (isPurchased || isLocked) ? 'rgba(151, 164, 190, 0.7)' : 'rgba(200, 216, 247, 0.82)';
-            ctx.font = '500 11px sans-serif';
+            ctx.fillText(item.name, rect.x + 58, rect.y + 20);
+
+            // 説明
+            ctx.fillStyle = dim ? 'rgba(140, 154, 182, 0.6)' : 'rgba(196, 214, 247, 0.78)';
+            ctx.font = '500 11px "Zen Old Mincho", serif';
             const desc = isLocked ? '前提となる術の習得が必要' : item.description;
-            ctx.fillText(desc, rect.x + 62, descY);
+            ctx.fillText(desc, rect.x + 58, rect.y + 40);
+
+            // 価格：数字=サンセリフ／単位「枚」=明朝
+            const price = this.getItemPrice(item);
+            let priceText = `${formatMoneyValue(price)}枚`;
+            let priceColor = '#ffd96b';
+            if (isPurchased) { priceText = '習得済'; priceColor = 'rgba(150, 165, 196, 0.7)'; }
+            else if (isLocked) { priceText = '禁制'; priceColor = 'rgba(150, 165, 196, 0.7)'; }
+            ctx.fillStyle = priceColor;
+            drawNumMixedText(ctx, priceText, rect.x + rect.w - 22, rect.y + rect.h / 2, 700, 15, 'right');
         });
-        
+
+        // メッセージ
         const buttons = this.getFooterButtons();
         if (this.message) {
             const msgW = shopW - 220;
             const msgX = shopX + (shopW - msgW) * 0.5;
             const msgH = 34;
             const lastRect = this.getItemRect(this.items.length - 1);
-            const topBound = lastRect.y + lastRect.h;
-            const bottomBound = buttons.buy.y;
-            const midY = (topBound + bottomBound) * 0.5;
+            const midY = (lastRect.y + lastRect.h + buttons.buy.y) * 0.5;
             const msgY = midY - msgH * 0.5;
-            drawFrostedPanel(snapshotCanvas, msgX, msgY, msgW, msgH, 10, {
-                blur: 10,
-                tint: 'rgba(44, 72, 132, 0.38)',
-                stroke: 'rgba(176, 204, 248, 0.34)',
-                lineWidth: 1.2
-            });
-            ctx.fillStyle = '#f0f6ff';
+            drawWafuCard(ctx, msgX, msgY, msgW, msgH, { radius: 8, accent: false, shadow: false });
+            ctx.fillStyle = '#dbe8ff';
+            ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            let messageSize = 16;
+            let messageSize = 15;
             while (messageSize > 12) {
-                ctx.font = `700 ${messageSize}px sans-serif`;
-                if (ctx.measureText(this.message).width <= msgW - 20) break;
+                ctx.font = `700 ${messageSize}px "Zen Old Mincho", serif`;
+                if (ctx.measureText(this.message).width <= msgW - 24) break;
                 messageSize -= 1;
             }
-            ctx.textAlign = 'center';
             ctx.fillText(this.message, msgX + msgW / 2, msgY + msgH / 2);
         }
-        
+
+        // ボタン（購入／戻る）
         const buySelected = this.footerButtonIndex === 0;
         const backSelected = this.footerButtonIndex === 1;
-        drawFrostedPanel(snapshotCanvas, buttons.buy.x, buttons.buy.y, buttons.buy.w, buttons.buy.h, 16, {
-            blur: 10,
-            tint: buySelected
-                ? 'rgba(98, 146, 232, 0.56)'
-                : 'rgba(46, 74, 136, 0.36)',
-            stroke: buySelected
-                ? 'rgba(242, 248, 255, 0.96)'
-                : 'rgba(165, 194, 243, 0.38)',
-            lineWidth: buySelected ? 2.0 : 1.3
+        [['購入', buttons.buy, buySelected], ['戻る', buttons.back, backSelected]].forEach(([label, b, sel]) => {
+            drawWafuCard(ctx, b.x, b.y, b.w, b.h, { radius: 10, selected: sel, pulse });
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = sel ? '#ffffff' : 'rgba(224, 234, 255, 0.82)';
+            let fsize = 18;
+            while (fsize > 14) {
+                ctx.font = `700 ${fsize}px "Zen Old Mincho", serif`;
+                if (ctx.measureText(label).width <= b.w - 24) break;
+                fsize -= 1;
+            }
+            ctx.fillText(label, b.x + b.w / 2, b.y + b.h / 2);
         });
-        drawFrostedPanel(snapshotCanvas, buttons.back.x, buttons.back.y, buttons.back.w, buttons.back.h, 16, {
-            blur: 10,
-            tint: backSelected
-                ? 'rgba(98, 146, 232, 0.56)'
-                : 'rgba(46, 74, 136, 0.36)',
-            stroke: backSelected
-                ? 'rgba(242, 248, 255, 0.96)'
-                : 'rgba(165, 194, 243, 0.38)',
-            lineWidth: backSelected ? 2.0 : 1.3
-        });
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#fff';
-        let buyFont = 18;
-        while (buyFont > 14) {
-            ctx.font = `700 ${buyFont}px sans-serif`;
-            if (ctx.measureText('購入').width <= buttons.buy.w - 24) break;
-            buyFont -= 1;
-        }
-        ctx.fillText('購入', buttons.buy.x + buttons.buy.w / 2, buttons.buy.y + buttons.buy.h / 2);
-        let backFont = 18;
-        while (backFont > 14) {
-            ctx.font = `700 ${backFont}px sans-serif`;
-            if (ctx.measureText('戻る').width <= buttons.back.w - 24) break;
-            backFont -= 1;
-        }
-        ctx.fillText('戻る', buttons.back.x + buttons.back.w / 2, buttons.back.y + buttons.back.h / 2);
 
         // 操作説明はタイトル画面と同じ見た目・位置に統一
         drawScreenManualLine(ctx, '↑↓：術選択 | ←→：購入/戻る | SPACE：決定 | X・ESC：戻る');
-        
+
         ctx.restore();
     }
 }

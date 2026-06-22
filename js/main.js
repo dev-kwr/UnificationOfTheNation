@@ -40,9 +40,17 @@ window.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('unhandledrejection', onStartupRejected);
 
     try {
+        // 明朝webフォント(Zen Old Mincho)をcanvas描画前にロード開始（フォールバックのちらつき防止）
+        if (document.fonts && document.fonts.load) {
+            const sample = '昇段強化選択効果時間秒初級中上特連撃忍具奥義分身引寄大薙隠身術天下統一';
+            ['400', '500', '700', '900'].forEach((w) => {
+                try { document.fonts.load(`${w} 24px "Zen Old Mincho"`, sample); } catch (e) { /* noop */ }
+            });
+        }
+
         // フォントの読み込み完了を待機（タイトルロゴのフラッシング防止）
-        const fontReadyPromise = (document.fonts && document.fonts.ready) 
-            ? document.fonts.ready 
+        const fontReadyPromise = (document.fonts && document.fonts.ready)
+            ? document.fonts.ready
             : Promise.resolve();
         
         // 念のため最大2秒でタイムアウトするようにしておく
