@@ -297,8 +297,12 @@ class Game {
         const vv = window.visualViewport;
         const container = this.canvas && this.canvas.parentElement;
         if (!vv || !container) return;
-        container.style.left = Math.round(vv.offsetLeft) + 'px';
-        container.style.top = Math.round(vv.offsetTop) + 'px';
+        // position:fixed は iOS では visual viewport に貼り付くため、left/top は
+        // オフセットせず 0 にする（offsetTop を足すと二重補正で画面ごと上下にずれる）。
+        // 高さ・幅だけを visualViewport に合わせ、container(100dvh)が実表示領域より
+        // 大きくなって canvas が画面外へはみ出すのを防ぐ。
+        container.style.left = '0px';
+        container.style.top = '0px';
         container.style.width = Math.round(vv.width) + 'px';
         container.style.height = Math.round(vv.height) + 'px';
     }
