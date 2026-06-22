@@ -289,7 +289,21 @@ function drawRoundedFlatTitleButton(ctx, x, y, width, height, label, options = {
     }
 }
 
+// タッチUI（仮想パッド）が有効なモードか（端末判定）
+function isTouchOverlayMode() {
+    const isTouchDevice = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) || ('ontouchstart' in window);
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    return isTouchDevice || isMobile || CANVAS_WIDTH <= 800;
+}
+
+// キーボード操作マニュアルを隠すべきか（タップモード かつ 物理キーボード未検知）。
+// 外部キーボードを繋いで keydown が検知されたら表示する。
+function shouldHideKeyboardManual() {
+    return isTouchOverlayMode() && !(input && input.hasPhysicalKeyboard);
+}
+
 function drawControlManualLine(ctx, y = CANVAS_HEIGHT - 20) {
+    if (shouldHideKeyboardManual()) return;
     ctx.save();
     ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
     ctx.font = '12px "Zen Old Mincho", serif';
@@ -300,6 +314,7 @@ function drawControlManualLine(ctx, y = CANVAS_HEIGHT - 20) {
 }
 
 export function drawScreenManualLine(ctx, text, y = CANVAS_HEIGHT - 20) {
+    if (shouldHideKeyboardManual()) return;
     ctx.save();
     ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
     ctx.font = '12px "Zen Old Mincho", serif';
@@ -892,7 +907,7 @@ export class UI {
     // タップボタンモード（仮想パッド表示中）はキーボード説明を隠す。
     // ただし物理キーボードの入力が検知されている場合（外部キーボード接続など）は表示する。
     renderControls(ctx) {
-        if (this.isTouchOverlayEnabled() && !input.hasPhysicalKeyboard) return;
+        // 非表示判定は drawControlManualLine 内（shouldHideKeyboardManual）に集約
         drawControlManualLine(ctx);
     }
     
@@ -948,9 +963,7 @@ export class UI {
     }
 
     isTouchOverlayEnabled() {
-        const isTouchDevice = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) || ('ontouchstart' in window);
-        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        return isTouchDevice || isMobile || CANVAS_WIDTH <= 800;
+        return isTouchOverlayMode();
     }
 
     renderGlobalTouchButtons(ctx) {
