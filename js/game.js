@@ -270,15 +270,37 @@ class Game {
     // 発火しない・遅延する環境(iOS横回転など)でも、ループで必ず追従させる保険。
     ensureViewportSync() {
         if (!this.canvas || !this.ctx) return;
-        const vw = Math.floor((window.visualViewport && window.visualViewport.width) || window.innerWidth || 0);
-        const vh = Math.floor((window.visualViewport && window.visualViewport.height) || window.innerHeight || 0);
+        const vv = window.visualViewport;
+        const vw = Math.floor((vv && vv.width) || window.innerWidth || 0);
+        const vh = Math.floor((vv && vv.height) || window.innerHeight || 0);
+        const ot = vv ? Math.round(vv.offsetTop) : 0;
+        const ol = vv ? Math.round(vv.offsetLeft) : 0;
         const dpr = window.devicePixelRatio || 1;
-        if (vw === this._syncW && vh === this._syncH && dpr === this._syncDpr) return;
+        if (vw === this._syncW && vh === this._syncH && dpr === this._syncDpr
+            && ot === this._syncOT && ol === this._syncOL) return;
         this._syncW = vw;
         this._syncH = vh;
         this._syncDpr = dpr;
+        this._syncOT = ot;
+        this._syncOL = ol;
+        this.syncContainerToViewport();
         this.configureCanvasResolution();
         this.updateInputScale();
+    }
+
+    // standalone(ホーム画面追加アプリ)等では layout viewport が実際の表示領域
+    // (visualViewport)より大きくなり、container(100dvh)中央配置のキャンバスが画面外へ
+    // はみ出してタップ位置が下方向にずれる。container を visualViewport の位置・サイズへ
+    // ぴったり追従させ、キャンバスが表示領域からはみ出さないようにする。
+    // ブラウザ(offset=0)では従来と同じ全画面配置になる。
+    syncContainerToViewport() {
+        const vv = window.visualViewport;
+        const container = this.canvas && this.canvas.parentElement;
+        if (!vv || !container) return;
+        container.style.left = Math.round(vv.offsetLeft) + 'px';
+        container.style.top = Math.round(vv.offsetTop) + 'px';
+        container.style.width = Math.round(vv.width) + 'px';
+        container.style.height = Math.round(vv.height) + 'px';
     }
 
     getDebugStartStageFromUrl() {
