@@ -313,15 +313,6 @@ class Game {
         container.style.minHeight = h + 'px';
         container.style.maxWidth = w + 'px';
         container.style.maxHeight = h + 'px';
-
-        // standalone では position:fixed; top:0 を指定しても canvas が y=62 などに
-        // ずれて配置されることがある（visual/layout viewport の食い違い）。基準を理屈で
-        // 追うのは不安定なので、canvas の実測位置を見て上端が 0 に来るよう top を補正する。
-        // canvas は container 内で中央配置されるため、container を実測ズレ分だけ動かす。
-        const canvasTop = this.canvas.getBoundingClientRect().top;
-        if (Number.isFinite(canvasTop) && Math.abs(canvasTop) > 0.5) {
-            container.style.top = (-canvasTop) + 'px';
-        }
     }
 
     getDebugStartStageFromUrl() {

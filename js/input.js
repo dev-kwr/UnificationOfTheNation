@@ -326,12 +326,19 @@ class InputManager {
         const rect = this.canvas.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) return null;
 
+        // iOS standalone PWA では TouchEvent.clientX/Y は visual viewport 基準だが、
+        // getBoundingClientRect() は layout viewport 基準。canvas の実視覚位置は
+        // rect.left/top + visualViewport.offsetLeft/offsetTop なので、ここで基準を揃える。
+        // ブラウザ・横起動(offset=0)では加算0で従来と完全同一。
+        const vv = window.visualViewport;
+        const vox = vv ? vv.offsetLeft : 0;
+        const voy = vv ? vv.offsetTop : 0;
         const canvasAspect = CANVAS_WIDTH / CANVAS_HEIGHT;
         const rectAspect = rect.width / rect.height;
         let width = rect.width;
         let height = rect.height;
-        let left = rect.left;
-        let top = rect.top;
+        let left = rect.left + vox;
+        let top = rect.top + voy;
 
         if (rectAspect > canvasAspect) {
             // ボックスが論理比より横長 → 左右に余白（ピラーボックス）
