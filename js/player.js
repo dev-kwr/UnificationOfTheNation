@@ -21,8 +21,8 @@ import {
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
 } from './normalComboMotion.js';
-import { applyRendererMixin }    from './playerRenderer.js?v=trail-recede-fade-20260621';
-import { applySlashTrailMixin }  from './playerSlashTrail.js?v=trail-recede-fade-20260621';
+import { applyRendererMixin }    from './playerRenderer.js?v=trail-recede-revert-20260622';
+import { applySlashTrailMixin }  from './playerSlashTrail.js?v=trail-recede-revert-20260622';
 import { applySpecialMixin }     from './playerSpecial.js';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
 import {

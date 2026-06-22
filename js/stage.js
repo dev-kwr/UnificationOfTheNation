@@ -4153,7 +4153,7 @@ export class Stage {
 
         // ラベル
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 12px sans-serif';
+        ctx.font = 'bold 12px "Zen Old Mincho", serif';
         ctx.textAlign = 'right';
         ctx.fillText(this.bossSpawned ? 'BOSS!' : '', x - 12, y + 8);
     }
@@ -4163,7 +4163,7 @@ export class Stage {
         
         // ボス名
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 24px sans-serif';
+        ctx.font = 'bold 24px "Zen Old Mincho", serif';
         ctx.textAlign = 'center';
         ctx.fillText(this.boss.bossName, CANVAS_WIDTH / 2, 50);
         

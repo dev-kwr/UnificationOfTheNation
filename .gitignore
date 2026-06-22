@@ -1,5 +1,7 @@
 .terminal-input-helper/
 scratch/__pycache__/
+scratch/node_modules/
+scratch/package-lock.json
 
 # scratch は検証用の作業ディレクトリ。再現スクリプト(probe_*.js)だけ追跡し、
 # 生成物(ログ・スクショ等)は out/ 配下にまとめて丸ごと除外する

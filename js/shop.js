@@ -7,6 +7,16 @@ import { input } from './input.js';
 import { audio } from './audio.js';
 import { drawScreenManualLine, drawWafuCard, drawWafuHeading, drawWafuDivider, drawNumMixedText } from './ui.js';
 
+// 背景画像キャッシュ
+let _shopBgImg = null;
+function getShopBgImage() {
+    if (!_shopBgImg) {
+        _shopBgImg = new Image();
+        _shopBgImg.src = './images/shop_bg.png';
+    }
+    return _shopBgImg;
+}
+
 function formatMoneyValue(amount) {
     const safe = Math.max(0, Math.floor(Number(amount) || 0));
     return safe.toLocaleString('ja-JP');
@@ -299,12 +309,14 @@ export class Shop {
         const pulse = (Math.sin(Date.now() * 0.0026) + 1) * 0.5;
         const { shopX, shopY, shopW, shopH } = this.getLayout();
 
-        // 暗幕（昇段画面トンマナ：背後のゲームを暗く）
-        ctx.fillStyle = 'rgba(3, 7, 18, 0.82)';
-        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-        // 本体パネル（紺カード）
-        drawWafuCard(ctx, shopX, shopY, shopW, shopH, { radius: 14, pulse });
+        // 背景画像（フォールバック：暗幕）
+        const _bg = getShopBgImage();
+        if (_bg.complete && _bg.naturalWidth > 0) {
+            ctx.drawImage(_bg, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        } else {
+            ctx.fillStyle = '#020610';
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        }
 
         // 見出し「よろず屋」＋区切り線
         drawWafuHeading(ctx, CANVAS_WIDTH / 2, shopY + 58, 'よろず屋', { size: 30, ls: 0.14, ruleLen: 48, color: '#f4f9ff' });
@@ -326,9 +338,9 @@ export class Shop {
             const isLocked = item.id === 'triple_jump' && !this.purchasedSkills.has('double_jump');
             const dim = isPurchased || isLocked;
 
-            // 選択行のみ発光＋上辺アクセント、非選択は平坦
+            // 選択行のみ発光＋上辺アクセント、非選択はフラット（外カードと重なって立体感が出ないよう）
             drawWafuCard(ctx, rect.x, rect.y, rect.w, rect.h, {
-                radius: 9, selected: isSelected, pulse, accent: isSelected, shadow: isSelected
+                radius: 9, selected: isSelected, pulse, accent: isSelected, shadow: isSelected, flat: !isSelected
             });
 
             if (isSelected) {
