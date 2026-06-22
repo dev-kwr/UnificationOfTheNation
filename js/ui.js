@@ -2895,7 +2895,11 @@ export function renderEnding(ctx, timer) {
 // 画面中央のキャプチャ対象を邪魔しないよう画面下端中央に控えめに配置する。
 // 描画と当たり判定で同じ座標を使うため、この単一の関数を双方が参照する。
 export function getPauseReturnButton() {
-    return { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT - 34, w: 200, h: 40 };
+    const pad = VIRTUAL_PAD;
+    // 画面最下端だとセーフエリア等でタップできないため、下部の操作ボタン(攻撃)の
+    // 中心Yに合わせて押せる帯に置く。x は中央（操作ボタンは左右端なので中央は空き）。
+    const y = (CANVAS_HEIGHT - pad.BOTTOM_MARGIN) + (pad.ATTACK?.y || 58);
+    return { x: CANVAS_WIDTH / 2, y, w: 200, h: 40 };
 }
 
 export function renderPauseScreen(ctx, armed = false) {
