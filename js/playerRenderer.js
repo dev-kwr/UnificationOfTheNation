@@ -5354,8 +5354,19 @@ export function applyRendererMixin(PlayerClass) {
 
                 // 分身の状態をセット
                 this.x = cloneDrawX;
-                this.y = cloneDrawY;
-                if (!keepActorHeight) this.height = PLAYER.HEIGHT;
+                // 忍者ミラー分身: 本体と同一の renderModel 幾何にするため、ポーズ計算が使う this.height を
+                // 本体の描画高さ(saved.height: しゃがみ中=61.92, 立ち=72)に揃える。renderModel 内の
+                // renderY = y + this.height - 72 により、y を (PLAYER.HEIGHT - cloneRenderHeight) 補正すれば
+                // sprite原点(renderY)と足元(bottomY)は不変のまま、しゃがみ圧縮だけ本体と一致する。
+                // trail も getWorldHeight()=this.height=61.92 となり offsetY=0 で本体剣筋に追従する。
+                // 将軍(keepActorHeight) / Lv3自律分身(autoAi)は従来どおり PLAYER.HEIGHT のまま(bit-identical)。
+                let cloneRenderHeight = PLAYER.HEIGHT;
+                if (!keepActorHeight && !this.specialCloneAutoAiEnabled && this.characterType !== 'shogun'
+                    && Number.isFinite(saved.height) && saved.height > 0) {
+                    cloneRenderHeight = saved.height;
+                }
+                this.y = cloneDrawY + (PLAYER.HEIGHT - cloneRenderHeight);
+                if (!keepActorHeight) this.height = cloneRenderHeight;
                 this.facingRight = pos.facingRight;
                 this.motionTime = saved.motionTime;
                 this.currentSubWeapon = visualSubWeaponInstance || null;
@@ -5474,6 +5485,13 @@ export function applyRendererMixin(PlayerClass) {
 
                     const cloneModelOptions = resolveCloneModelOptions(pos, i);
                     const cloneUsesDualWeapon = visualSubWeaponInstance && visualSubWeaponInstance.name === '二刀流';
+                    // ミラー分身は 5395 で this.isCrouching=saved.isCrouching 済み(本体しゃがみを踏襲)。
+                    // Lv3自律分身は 5373 で isCrouching=false(独立=しゃがまない)。どちらも this.isCrouching が
+                    // 正しい状態なので、それを直接読んで crouchIntensity を決める(renderModel は未指定だと 1.0
+                    // フル圧縮になるため明示が必須)。
+                    const cloneCrouchIntensity = this.isCrouching
+                        ? (typeof this.getCrouchRenderIntensity === 'function' ? this.getCrouchRenderIntensity() : 0.22)
+                        : 0;
                     this.renderModel(ctx, this.x, this.y, this.facingRight, 1.0, true, {
                         ...cloneModelOptions,
                         useLiveAccessories: true,
@@ -5482,7 +5500,8 @@ export function applyRendererMixin(PlayerClass) {
                         isClone: true,
                         cloneIndex: i,
                         scarfNodes: cloneScarfNodes || undefined,
-                        hairNodes: cloneHairNodes || undefined
+                        hairNodes: cloneHairNodes || undefined,
+                        crouchIntensity: cloneCrouchIntensity
                     });
 
                     if (!Array.isArray(this.specialCloneDualTrailAnchors)) {

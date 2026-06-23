@@ -1392,11 +1392,9 @@ export function applySpecialMixin(PlayerClass) {
         if (this.characterType === 'shogun') {
             return anchorY - SHOGUN_ACTOR_BASE_HEIGHT * 0.62;
         }
-        // 忍者: ワールド身長(72)の0.62 = 44.64
-        const h = (typeof this.getWorldHeight === 'function')
-            ? this.getWorldHeight()
-            : (Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT);
-        return anchorY - h * 0.62;
+        // 忍者: renderModel は drawH=72(PLAYER.HEIGHT)固定。getWorldHeight()はthis.heightを返すため
+        // しゃがみ中(~61.9)を使うと bottomY が地面より8px下になり分身がめり込む。直接 PLAYER.HEIGHT を使う。
+        return anchorY - PLAYER.HEIGHT * 0.62;
     };
 
     PlayerClass.prototype.getSpecialCloneFootY = function(anchorY) {
@@ -1415,8 +1413,9 @@ export function applySpecialMixin(PlayerClass) {
                 : SHOGUN_SCALE);
             return (PLAYER.HEIGHT - SHOGUN_ACTOR_BASE_HEIGHT * 0.62) * scale;
         }
-        const h = Number.isFinite(this.height) ? this.height : PLAYER.HEIGHT;
-        return h * 0.38;
+        // 忍者: renderModel は drawH=72(PLAYER.HEIGHT)固定。getWorldHeight()はthis.heightを返すため
+        // しゃがみ中(~61.9)を使うと anchorY がズレて分身が地面にめり込む。直接 PLAYER.HEIGHT を使う。
+        return PLAYER.HEIGHT * 0.38;
     };
 
     PlayerClass.prototype.getSpecialCloneDurabilityPerUnit = function() {

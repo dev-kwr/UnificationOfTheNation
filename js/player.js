@@ -21,9 +21,9 @@ import {
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
 } from './normalComboMotion.js';
-import { applyRendererMixin }    from './playerRenderer.js?v=trail-recede-revert-20260622';
+import { applyRendererMixin }    from './playerRenderer.js?v=clone-crouch-height-match-20260623';
 import { applySlashTrailMixin }  from './playerSlashTrail.js?v=trail-recede-revert-20260622';
-import { applySpecialMixin }     from './playerSpecial.js';
+import { applySpecialMixin }     from './playerSpecial.js?v=clone-ground-fix2-20260623';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
