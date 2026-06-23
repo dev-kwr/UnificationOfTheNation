@@ -735,6 +735,16 @@ class Game {
             if (typeof this.player.refreshSubWeaponScaling === 'function') {
                 this.player.refreshSubWeaponScaling();
             }
+            // 購入スキル/強化から派生ステータスを再構築する。
+            // applyToPlayer はスキル集合・強化値は復元するが、そこから決まる
+            // 常時ダッシュ(speed_up)・段ジャンプ・攻撃段階(atkLv表示)は反映しないため補う。
+            if (shop) {
+                this.player.permanentDash = shop.purchasedSkills.has('speed_up');
+                this.player.maxJumps = shop.purchasedSkills.has('triple_jump') ? 3
+                    : (shop.purchasedSkills.has('double_jump') ? 2 : 1);
+                const atkUp = shop.purchasedUpgrades && shop.purchasedUpgrades.attack_up;
+                if (Number.isFinite(atkUp)) this.player.atkLv = atkUp;
+            }
             this.scrollX = 0; // スクロール位置リセット
             this.expGems = [];
             this.stageBossDefeatEffects = [];
