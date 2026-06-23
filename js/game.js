@@ -1359,6 +1359,13 @@ class Game {
         this.initStage(this.currentStageNumber);
         this.applyTitleDebugSetupToNewGame();
 
+        // 開始時点でセーブしておき、ゲームオーバー後に「続きから」でこのステージから
+        // 再開できるようにする（デバッグでステージ選択して始めた場合も反映される）。
+        // 通常クリア時のセーブ(次ステージ)とは別に、開始ステージを確実に残す。
+        try {
+            saveManager.save(this.player, this.currentStageNumber, this.unlockedWeapons || []);
+        } catch (e) { /* セーブ失敗時もゲーム進行は継続 */ }
+
         this.state = GAME_STATE.INTRO; // INTROから開始
         this.introTimer = 0;
         audio.playBgm('title'); // イントロ中もタイトル曲を流す
