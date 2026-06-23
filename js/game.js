@@ -1364,6 +1364,9 @@ class Game {
         // 通常クリア時のセーブ(次ステージ)とは別に、開始ステージを確実に残す。
         try {
             saveManager.save(this.player, this.currentStageNumber, this.unlockedWeapons || []);
+            // 忍者/将軍も保存する。continueGame は loadGlobal().characterType を見て
+            // キャラを復元するため、デバッグでキャラを切り替えて始めた場合も続きからに反映させる。
+            saveManager.saveGlobal({ characterType: this.player.characterType || 'ninja' });
         } catch (e) { /* セーブ失敗時もゲーム進行は継続 */ }
 
         this.state = GAME_STATE.INTRO; // INTROから開始
