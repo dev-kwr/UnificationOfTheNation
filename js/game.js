@@ -1660,8 +1660,8 @@ class Game {
                 const hitbox = sw.getHitbox();
                 for (const enemy of collisionEnemies) {
                     if (!sw.hitEnemies.has(enemy)) {
-                        // オブジェクトのプロパティを直接渡すかrectIntersectsを適切に使う
-                        const enemyRect = { x: enemy.x, y: enemy.y, width: enemy.width, height: enemy.height };
+                        // getHitbox() を持つ実体(ラスボス将軍)はワールド寸法の矩形で判定する
+                        const enemyRect = this.getEnemyCollisionRect(enemy);
                         if (this.rectIntersects(hitbox, enemyRect)) {
                             this.damageEnemy(enemy, sw.damage, {
                                 source: 'shockwave',
@@ -2035,7 +2035,8 @@ class Game {
                     if (attackHitbox) {
                         const attackHitboxes = Array.isArray(attackHitbox) ? attackHitbox : [attackHitbox];
                         for (const enemy of activeEnemies) {
-                            if (attackHitboxes.some((box) => this.rectIntersects(box, enemy))) {
+                            const enemyRect = this.getEnemyCollisionRect(enemy);
+                            if (attackHitboxes.some((box) => this.rectIntersects(box, enemyRect))) {
                                 const damage = this.buildPlayerAttackDamage();
                                 this.damageEnemy(enemy, damage, {
                                     source: 'special_shadow',
@@ -2185,7 +2186,7 @@ class Game {
                             }
                         }
 
-                        if (this.rectIntersects(effectiveHitbox, enemy)) {
+                        if (this.rectIntersects(effectiveHitbox, this.getEnemyCollisionRect(enemy))) {
                             this.damageEnemy(enemy, hitboxProfile.damage, { ...hitboxProfile.attackData });
                             if (spearHitEnemies) spearHitEnemies.add(enemy);
                             if (kusaEchoHitEnemies && effectiveHitbox && effectiveHitbox.part === 'echo') {
@@ -2242,7 +2243,7 @@ class Game {
                                 if (cloneHitSet && cloneHitSet.size >= spearMaxHits) continue;
                                 if (cloneKusaEchoSet && effectiveHitbox && effectiveHitbox.part === 'echo' && cloneKusaEchoSet.has(enemy)) continue;
                                 
-                                if (this.rectIntersects(shifted, enemy)) {
+                                if (this.rectIntersects(shifted, this.getEnemyCollisionRect(enemy))) {
                                     this.damageEnemy(enemy, cloneHitboxProfile.damage, { ...cloneHitboxProfile.attackData });
                                     if (cloneHitSet) cloneHitSet.add(enemy);
                                     if (cloneKusaEchoSet && effectiveHitbox && effectiveHitbox.part === 'echo') cloneKusaEchoSet.add(enemy);
@@ -2558,6 +2559,31 @@ class Game {
         return true;
     }
     
+    // 敵の被弾矩形を解決する。getHitbox() を持つ実体(Player ベースのラスボス将軍など)は
+    // 素の x/y/width/height が素体フレーム(40x60)のままで、ワールド寸法(×SHOGUN_SCALE)とずれる。
+    // 通常コンボは getEntityRect 経由で getHitbox() を使うため当たるが、サブ武器/分身は素の矩形で
+    // 判定していたため大槍・大太刀がラスボスに当たらなくなっていた。ここで getHitbox() を優先する。
+    // getHitbox() を持たない通常の敵は enemy をそのまま返すので挙動不変。
+    getEnemyCollisionRect(enemy) {
+        if (!enemy || typeof enemy.getHitbox !== 'function') return enemy;
+        const hb = enemy.getHitbox();
+        if (Array.isArray(hb)) {
+            const rects = hb.filter(b => b &&
+                Number.isFinite(b.x) && Number.isFinite(b.y) &&
+                Number.isFinite(b.width) && Number.isFinite(b.height));
+            if (rects.length === 1) return rects[0];
+            if (rects.length > 1) {
+                const minX = Math.min(...rects.map(b => b.x));
+                const minY = Math.min(...rects.map(b => b.y));
+                const maxX = Math.max(...rects.map(b => b.x + b.width));
+                const maxY = Math.max(...rects.map(b => b.y + b.height));
+                return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+            }
+            return enemy;
+        }
+        return (hb && Number.isFinite(hb.x)) ? hb : enemy;
+    }
+
     rectIntersects(a, b) {
         if (a && a.shape === 'circle') return this.circleIntersectsRect(a, b);
         if (b && b.shape === 'circle') return this.circleIntersectsRect(b, a);
@@ -3111,7 +3137,8 @@ class Game {
                 let didHit = false;
                 for (const enemy of activeEnemies) {
                     if (!enemy || !enemy.isAlive || enemy.isDying) continue;
-                    if (!dualHitboxes.some((hb) => this.rectIntersects(hb, enemy))) continue;
+                    const enemyRect = this.getEnemyCollisionRect(enemy);
+                    if (!dualHitboxes.some((hb) => this.rectIntersects(hb, enemyRect))) continue;
                     didHit = true;
                     this.damageEnemy(enemy, strikeDamage, {
                         source: 'special_shadow',
