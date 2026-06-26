@@ -2375,8 +2375,15 @@ export class Stage {
             ctx.closePath();
             ctx.fillStyle = color;
             ctx.fill();
+            // 立体感：稜線付近を明るく、裾を暗くするグラデを同じ山シェイプに重ねる
+            const shade = ctx.createLinearGradient(0, this.groundY - hA, 0, this.groundY);
+            shade.addColorStop(0, `rgba(255,255,255,${0.07 * alpha})`);
+            shade.addColorStop(0.45, 'rgba(255,255,255,0)');
+            shade.addColorStop(1, `rgba(24,34,50,${0.16 * alpha})`);
+            ctx.fillStyle = shade;
+            ctx.fill();
 
-            ctx.strokeStyle = `rgba(255, 255, 255, ${0.025 + 0.03 * alpha})`;
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.03 + 0.04 * alpha})`;
             ctx.lineWidth = 1;
             ctx.stroke();
 
@@ -2624,6 +2631,13 @@ export class Stage {
                 ctx.fillStyle = treeBand;
                 ctx.fillRect(0, this.groundY - 110, CANVAS_WIDTH, 130);
 
+                // 地平線の霞（遠景の山裾をぼかし、地面の上端までを自然に繋ぐ）
+                const hazeGrad = ctx.createLinearGradient(0, this.groundY - 24, 0, this.groundY + LANE_OFFSET);
+                hazeGrad.addColorStop(0, 'rgba(178,196,212,0)');
+                hazeGrad.addColorStop(1, 'rgba(178,196,212,0.42)');
+                ctx.fillStyle = hazeGrad;
+                ctx.fillRect(0, this.groundY - 24, CANVAS_WIDTH, LANE_OFFSET + 24);
+
                 // 遠景の丘陵を追加して奥行きを補強
                 const hillPara = 0.16;
                 const hillSpan = 420;
@@ -2651,215 +2665,773 @@ export class Stage {
                 }
                 ctx.restore();
 
-                // 下草も針葉樹系のシルエットで統一
-                const underPara = 0.34;
-                const underSpan = 48;
-                const underScroll = p * underPara;
-                const underStart = Math.floor((underScroll - underSpan * 3) / underSpan);
-                const underEnd = Math.ceil((underScroll + CANVAS_WIDTH + underSpan * 3) / underSpan);
-                ctx.fillStyle = this.interpolateColor('#5f7e58', '#2a3f2e', 0.36);
-                for (let i = underStart; i <= underEnd; i++) {
-                    const seed = i * 5.83;
-                    const x = i * underSpan - underScroll + this.noiseSigned(seed + 0.8) * 7;
-                    const y = this.groundY - 4 + this.noiseSigned(seed + 1.5) * 3;
-                    const h = 8 + this.noise1D(seed + 3.1) * 16;
-                    const w = 8 + this.noise1D(seed + 3.6) * 9;
-                    ctx.beginPath();
-                    ctx.moveTo(x, y);
-                    ctx.lineTo(x + w * 0.5, y - h);
-                    ctx.lineTo(x + w, y);
-                    ctx.closePath();
-                    ctx.fill();
+                // 遠景の家並み・林のシルエット（丘陵と中景の間／奥行き層）
+                const midPara = 0.26;
+                const midSpan = 240;
+                const midScroll = p * midPara;
+                const midStart = Math.floor((midScroll - midSpan * 2) / midSpan);
+                const midEnd = Math.ceil((midScroll + CANVAS_WIDTH + midSpan * 2) / midSpan);
+                ctx.save();
+                ctx.globalAlpha = 0.42;
+                for (let i = midStart; i <= midEnd; i++) {
+                    const seed = i * 6.71;
+                    if (this.noise1D(seed + 0.3) < 0.32) continue;
+                    const x = i * midSpan - midScroll + this.noiseSigned(seed + 0.6) * 30;
+                    const r = this.noise1D(seed + 1.3);
+                    if (r < 0.5) {
+                        // 遠い家のシルエット（切妻）
+                        const hw = 30 + this.noise1D(seed + 2.1) * 22;
+                        const hh = 20 + this.noise1D(seed + 2.7) * 12;
+                        ctx.fillStyle = this.interpolateColor(currentPalette.mid, '#39495a', 0.42);
+                        ctx.fillRect(x, this.groundY - hh, hw, hh);
+                        ctx.beginPath();
+                        ctx.moveTo(x - 5, this.groundY - hh);
+                        ctx.lineTo(x + hw * 0.5, this.groundY - hh - 13);
+                        ctx.lineTo(x + hw + 5, this.groundY - hh);
+                        ctx.closePath();
+                        ctx.fill();
+                    } else {
+                        // 遠い林（こんもりした塊）
+                        ctx.fillStyle = this.interpolateColor('#4a6450', '#33485a', 0.5);
+                        const cw = 30 + this.noise1D(seed + 3.2) * 24;
+                        ctx.beginPath();
+                        ctx.ellipse(x, this.groundY - cw * 0.32, cw, cw * 0.46, 0, Math.PI, 0);
+                        ctx.fill();
+                        ctx.fillRect(x - cw, this.groundY - cw * 0.32, cw * 2, cw * 0.32);
+                    }
                 }
+                ctx.restore();
+
+                // 道沿いの草は廃止（スクロール時のチラつきが解消できないため）
 
                 const kPara = 0.68;
                 const kCellSize = 310;
                 const kStartIdx = Math.floor((p * kPara - 260) / kCellSize);
                 const kEndIdx = Math.ceil((CANVAS_WIDTH + p * kPara + 260) / kCellSize);
 
-                const drawKawaraRoof = (x, y, w, h) => {
-                    ctx.fillStyle = this.interpolateColor('#6c6f7a', '#2d323e', 0.5);
+                // ─── 屋根ヘルパー：茅葺き寄棟（むくり屋根）───
+                const drawKayabukiRoof = (cx, eaveY, halfW, ridgeH) => {
+                    const ridgeY = eaveY - ridgeH;
+                    const rHalf = halfW * 0.5;
+                    const Lx = cx - halfW, Rx = cx + halfW;
+                    const RLx = cx - rHalf, RRx = cx + rHalf;
+                    ctx.fillStyle = '#9c7f4c';
                     ctx.beginPath();
-                    ctx.moveTo(x - 16, y + 2);
-                    ctx.quadraticCurveTo(x + w * 0.22, y - h * 0.86, x + w * 0.5, y - h);
-                    ctx.quadraticCurveTo(x + w * 0.78, y - h * 0.86, x + w + 16, y + 2);
-                    ctx.lineTo(x + w + 12, y + 10);
-                    ctx.quadraticCurveTo(x + w * 0.5, y - h * 0.66, x - 12, y + 10);
+                    ctx.moveTo(Lx, eaveY);
+                    ctx.bezierCurveTo(Lx + halfW * 0.18, eaveY - ridgeH * 0.55, RLx - halfW * 0.06, ridgeY + ridgeH * 0.1, RLx, ridgeY);
+                    ctx.lineTo(RRx, ridgeY);
+                    ctx.bezierCurveTo(RRx + halfW * 0.06, ridgeY + ridgeH * 0.1, Rx - halfW * 0.18, eaveY - ridgeH * 0.55, Rx, eaveY);
+                    ctx.bezierCurveTo(cx + halfW * 0.5, eaveY + ridgeH * 0.05, cx - halfW * 0.5, eaveY + ridgeH * 0.05, Lx, eaveY);
                     ctx.closePath();
                     ctx.fill();
-                    ctx.strokeStyle = 'rgba(206, 214, 230, 0.14)';
-                    ctx.lineWidth = 1;
-                    const tiles = Math.max(6, Math.floor(w / 20));
-                    for (let i = 0; i <= tiles; i++) {
-                        const tx = x - 10 + (i / tiles) * (w + 20);
+                    // 左明・右暗
+                    ctx.fillStyle = 'rgba(184,154,98,0.38)';
+                    ctx.beginPath();
+                    ctx.moveTo(Lx, eaveY);
+                    ctx.bezierCurveTo(Lx + halfW * 0.18, eaveY - ridgeH * 0.55, RLx - halfW * 0.06, ridgeY + ridgeH * 0.1, RLx, ridgeY);
+                    ctx.lineTo(cx, ridgeY);
+                    ctx.lineTo(cx, eaveY + ridgeH * 0.03);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = 'rgba(131,106,63,0.42)';
+                    ctx.beginPath();
+                    ctx.moveTo(cx, ridgeY);
+                    ctx.lineTo(RRx, ridgeY);
+                    ctx.bezierCurveTo(RRx + halfW * 0.06, ridgeY + ridgeH * 0.1, Rx - halfW * 0.18, eaveY - ridgeH * 0.55, Rx, eaveY);
+                    ctx.lineTo(cx, eaveY + ridgeH * 0.03);
+                    ctx.closePath();
+                    ctx.fill();
+                    // 棟下の影
+                    ctx.fillStyle = 'rgba(108,85,54,0.4)';
+                    ctx.fillRect(RLx, ridgeY, RRx - RLx, ridgeH * 0.16);
+                    // 葺き目（放射）
+                    ctx.lineWidth = 0.8;
+                    for (let i = 1; i < 16; i++) {
+                        const t = i / 16;
+                        const topx = RLx + (RRx - RLx) * t;
+                        const botx = Lx + (Rx - Lx) * t;
+                        const boty = eaveY - Math.sin(Math.PI * t) * ridgeH * 0.03;
+                        ctx.strokeStyle = t < 0.5 ? 'rgba(196,168,110,0.4)' : 'rgba(124,98,56,0.4)';
                         ctx.beginPath();
-                        ctx.moveTo(tx, y + 4);
-                        ctx.lineTo(tx - 2, y + 10);
+                        ctx.moveTo(topx, ridgeY + 1);
+                        ctx.lineTo(botx, boty);
                         ctx.stroke();
                     }
+                    // 軒口（葺き口の厚み）
+                    ctx.fillStyle = '#c2a468';
+                    ctx.beginPath();
+                    ctx.moveTo(Lx, eaveY - 1);
+                    ctx.bezierCurveTo(cx - halfW * 0.4, eaveY + 2, cx + halfW * 0.4, eaveY + 2, Rx, eaveY - 1);
+                    ctx.lineTo(Rx, eaveY + ridgeH * 0.07);
+                    ctx.bezierCurveTo(cx + halfW * 0.4, eaveY + ridgeH * 0.09, cx - halfW * 0.4, eaveY + ridgeH * 0.09, Lx, eaveY + ridgeH * 0.07);
+                    ctx.closePath();
+                    ctx.fill();
+                    // 棟＋芝棟
+                    ctx.fillStyle = '#544428';
+                    ctx.fillRect(RLx, ridgeY - 5, RRx - RLx, 7);
+                    ctx.fillStyle = '#5e6e3f';
+                    ctx.fillRect(RLx + 2, ridgeY - 8, RRx - RLx - 4, 4);
                 };
 
+                // ─── 一：茅葺き農家 ───
+                const drawFarmhouse = (cx, baseY, seed, scale) => {
+                    const halfW = (94 + this.noise1D(seed + 2.3) * 20) * scale;
+                    const wallH = (62 + this.noise1D(seed + 3.1) * 14) * scale;
+                    const ridgeH = (66 + this.noise1D(seed + 3.6) * 16) * scale;
+                    const wallY = baseY - wallH;
+                    const eaveY = wallY + 4 * scale;
+                    const ww = halfW * 1.5;
+                    const wx = cx - ww / 2;
+                    ctx.fillStyle = 'rgba(63,49,28,0.5)';
+                    ctx.fillRect(wx, wallY, ww, 7 * scale);
+                    ctx.fillStyle = '#d0bd92';
+                    ctx.fillRect(wx, wallY + 4 * scale, ww, baseY - wallY - 4 * scale);
+                    ctx.fillStyle = 'rgba(188,166,120,0.35)';
+                    ctx.fillRect(cx, wallY + 4 * scale, ww / 2, baseY - wallY - 4 * scale);
+                    ctx.fillStyle = '#5a4330';
+                    ctx.fillRect(wx, wallY + 4 * scale, ww, 4 * scale);
+                    ctx.fillStyle = '#52402c';
+                    ctx.fillRect(wx, baseY - 6 * scale, ww, 6 * scale);
+                    ctx.fillStyle = '#5a4330';
+                    for (let i = 0; i <= 4; i++) ctx.fillRect(wx + (i / 4) * ww - 2 * scale, wallY + 4 * scale, 4 * scale, baseY - wallY - 4 * scale);
+                    // 障子（引き違い戸。4枚のうち1枚を開けて屋内の暗がりを見せる）
+                    const sjW = ww * 0.5, sjX = cx - sjW / 2, sjY = wallY + 14 * scale, sjH = baseY - sjY - 8 * scale;
+                    ctx.fillStyle = '#5a4330';
+                    ctx.fillRect(sjX - 3 * scale, sjY - 3 * scale, sjW + 6 * scale, sjH + 6 * scale);
+                    const panes = 4;
+                    const pw = sjW / panes;
+                    for (let pn = 0; pn < panes; pn++) {
+                        const px = sjX + pn * pw;
+                        if (pn === 1) {
+                            ctx.fillStyle = '#33291c';
+                            ctx.fillRect(px, sjY, pw, sjH);
+                        } else {
+                            ctx.fillStyle = '#ece4cf';
+                            ctx.fillRect(px + 1 * scale, sjY, pw - 2 * scale, sjH);
+                            ctx.strokeStyle = 'rgba(120,104,76,0.8)';
+                            ctx.lineWidth = 1;
+                            ctx.beginPath(); ctx.moveTo(px + pw * 0.5, sjY); ctx.lineTo(px + pw * 0.5, sjY + sjH); ctx.stroke();
+                            for (let hr = 1; hr <= 3; hr++) { const yy = sjY + (hr / 4) * sjH; ctx.beginPath(); ctx.moveTo(px + 1 * scale, yy); ctx.lineTo(px + pw - 1 * scale, yy); ctx.stroke(); }
+                        }
+                    }
+                    // 方立（各障子の縦枠）
+                    ctx.fillStyle = '#5a4330';
+                    for (let pn = 0; pn <= panes; pn++) ctx.fillRect(sjX + pn * pw - 1.5 * scale, sjY, 3 * scale, sjH);
+                    const gw = ww * 0.16, gx = wx + ww * 0.08, gy = wallY + 18 * scale, gh = (baseY - gy) * 0.6;
+                    ctx.fillStyle = '#2c2418';
+                    ctx.fillRect(gx, gy, gw, gh);
+                    ctx.strokeStyle = 'rgba(110,84,64,0.85)';
+                    for (let c = 1; c <= 3; c++) { const xx = gx + (c / 4) * gw; ctx.beginPath(); ctx.moveTo(xx, gy); ctx.lineTo(xx, gy + gh); ctx.stroke(); }
+                    ctx.fillStyle = '#8c6f4e';
+                    ctx.fillRect(wx - 3 * scale, baseY - 6 * scale, ww + 6 * scale, 6 * scale);
+                    drawKayabukiRoof(cx, eaveY, halfW, ridgeH);
+                };
+
+                // ─── 二：瓦葺き二階の旅籠 ───
+                const drawHatago = (cx, baseY, seed, scale) => {
+                    const halfW = (80 + this.noise1D(seed + 2.3) * 14) * scale;
+                    const ww = halfW * 1.92;
+                    const wx = cx - ww / 2;
+                    const f1 = (58 + this.noise1D(seed + 3.1) * 8) * scale;
+                    const f2 = (50 + this.noise1D(seed + 3.6) * 8) * scale;
+                    const roofH = (46 + this.noise1D(seed + 4.1) * 10) * scale;
+                    const f2Y = baseY - f1 - f2;
+                    const eaveY = f2Y;
+                    const ridgeY = eaveY - roofH;
+                    const rHalf = halfW * 1.06;
+                    // 切妻瓦屋根
+                    ctx.fillStyle = '#565e6a';
+                    ctx.beginPath();
+                    ctx.moveTo(cx - rHalf, eaveY); ctx.lineTo(cx, ridgeY); ctx.lineTo(cx + rHalf, eaveY); ctx.closePath(); ctx.fill();
+                    ctx.fillStyle = 'rgba(105,114,130,0.5)';
+                    ctx.beginPath(); ctx.moveTo(cx - rHalf, eaveY); ctx.lineTo(cx, ridgeY); ctx.lineTo(cx, eaveY); ctx.closePath(); ctx.fill();
+                    ctx.fillStyle = 'rgba(60,66,76,0.45)';
+                    ctx.beginPath(); ctx.moveTo(cx, ridgeY); ctx.lineTo(cx + rHalf, eaveY); ctx.lineTo(cx, eaveY); ctx.closePath(); ctx.fill();
+                    ctx.strokeStyle = 'rgba(71,77,87,0.55)';
+                    ctx.lineWidth = 0.8;
+                    for (let i = 1; i <= 6; i++) { ctx.beginPath(); ctx.moveTo(cx, ridgeY + 2); ctx.lineTo(cx - rHalf + (rHalf * 2) * (i / 7), eaveY); ctx.stroke(); }
+                    ctx.fillStyle = '#2e333c';
+                    ctx.fillRect(cx - 6 * scale, ridgeY - 2 * scale, 12 * scale, roofH * 0.8);
+                    ctx.fillStyle = '#6e7682';
+                    for (let i = 0; i <= 11; i++) { const bx = cx - rHalf + (rHalf * 2) * (i / 11); ctx.beginPath(); ctx.arc(bx, eaveY, 3 * scale, 0, Math.PI * 2); ctx.fill(); }
+                    // 2階壁
+                    ctx.fillStyle = '#d8cdb5';
+                    ctx.fillRect(wx, f2Y, ww, f2);
+                    ctx.fillStyle = 'rgba(201,189,163,0.4)';
+                    ctx.fillRect(cx, f2Y, ww / 2, f2);
+                    const mw = ww * 0.2;
+                    for (let s = 0; s < 2; s++) {
+                        const mxx = cx + (s === 0 ? -1 : 1) * ww * 0.26 - mw / 2;
+                        const myy = f2Y + f2 * 0.2;
+                        ctx.fillStyle = '#2c2418';
+                        ctx.fillRect(mxx, myy, mw, f2 * 0.42);
+                        ctx.strokeStyle = 'rgba(216,205,181,0.8)';
+                        ctx.lineWidth = 1.2;
+                        for (let c = 1; c <= 3; c++) { const xx = mxx + (c / 4) * mw; ctx.beginPath(); ctx.moveTo(xx, myy); ctx.lineTo(xx, myy + f2 * 0.42); ctx.stroke(); }
+                    }
+                    ctx.fillStyle = '#5a4330';
+                    ctx.fillRect(wx, f2Y + f2 - 9 * scale, ww, 9 * scale);
+                    ctx.strokeStyle = 'rgba(58,44,28,0.9)';
+                    ctx.lineWidth = 1;
+                    for (let i = 1; i < 12; i++) { const xx = wx + (i / 12) * ww; ctx.beginPath(); ctx.moveTo(xx, f2Y + f2 - 9 * scale); ctx.lineTo(xx, f2Y + f2); ctx.stroke(); }
+                    // 下屋庇
+                    ctx.fillStyle = '#565e6a';
+                    ctx.beginPath();
+                    ctx.moveTo(wx - 6 * scale, f2Y + f2 + 6 * scale);
+                    ctx.lineTo(wx + ww + 6 * scale, f2Y + f2 + 6 * scale);
+                    ctx.lineTo(wx + ww, f2Y + f2);
+                    ctx.lineTo(wx, f2Y + f2);
+                    ctx.closePath(); ctx.fill();
+                    // 1階壁
+                    const f1Y = f2Y + f2 + 6 * scale;
+                    ctx.fillStyle = '#cdbb8e';
+                    ctx.fillRect(wx, f1Y, ww, baseY - f1Y);
+                    ctx.fillStyle = '#2c2418';
+                    const gdW = ww * 0.56, gdX = wx + ww * 0.06, gdY = f1Y + 4 * scale, gdH = baseY - gdY - 3 * scale;
+                    ctx.fillRect(gdX, gdY, gdW, gdH);
+                    ctx.strokeStyle = 'rgba(110,84,64,0.85)';
+                    ctx.lineWidth = 1;
+                    for (let c = 1; c < 7; c++) { const xx = gdX + (c / 7) * gdW; ctx.beginPath(); ctx.moveTo(xx, gdY); ctx.lineTo(xx, gdY + gdH); ctx.stroke(); }
+                    ctx.beginPath(); ctx.moveTo(gdX, gdY + gdH * 0.5); ctx.lineTo(gdX + gdW, gdY + gdH * 0.5); ctx.stroke();
+                    ctx.fillStyle = '#34506a';
+                    const nw = ww * 0.28, nx = wx + ww * 0.64, ny = f1Y + 4 * scale, nh = 18 * scale;
+                    ctx.fillRect(nx, ny, nw, nh);
+                    ctx.fillStyle = 'rgba(220,228,238,0.8)';
+                    ctx.fillRect(nx + nw * 0.33, ny, 1.4 * scale, nh);
+                    ctx.fillRect(nx + nw * 0.66, ny, 1.4 * scale, nh);
+                    ctx.fillStyle = '#5a4330';
+                    ctx.fillRect(wx, f1Y, 4 * scale, baseY - f1Y);
+                    ctx.fillRect(wx + ww - 4 * scale, f1Y, 4 * scale, baseY - f1Y);
+                };
+
+                // ─── 三：板葺き石置きの山家 ───
+                const drawYamaie = (cx, baseY, seed, scale) => {
+                    const halfW = (84 + this.noise1D(seed + 2.3) * 16) * scale;
+                    const wallH = (58 + this.noise1D(seed + 3.1) * 10) * scale;
+                    const roofH = (30 + this.noise1D(seed + 3.6) * 8) * scale;
+                    const ww = halfW * 1.7;
+                    const wx = cx - ww / 2;
+                    const eaveY = baseY - wallH;
+                    const ridgeY = eaveY - roofH;
+                    const rHalf = halfW * 1.04;
+                    ctx.fillStyle = '#6f5f48';
+                    ctx.beginPath(); ctx.moveTo(cx - rHalf, eaveY); ctx.lineTo(cx, ridgeY); ctx.lineTo(cx + rHalf, eaveY); ctx.closePath(); ctx.fill();
+                    ctx.fillStyle = 'rgba(130,113,90,0.5)';
+                    ctx.beginPath(); ctx.moveTo(cx - rHalf, eaveY); ctx.lineTo(cx, ridgeY); ctx.lineTo(cx, eaveY); ctx.closePath(); ctx.fill();
+                    ctx.fillStyle = 'rgba(86,74,57,0.45)';
+                    ctx.beginPath(); ctx.moveTo(cx, ridgeY); ctx.lineTo(cx + rHalf, eaveY); ctx.lineTo(cx, eaveY); ctx.closePath(); ctx.fill();
+                    ctx.strokeStyle = 'rgba(86,74,57,0.5)';
+                    ctx.lineWidth = 0.8;
+                    for (let i = 1; i < 7; i++) { ctx.beginPath(); ctx.moveTo(cx, ridgeY + 2); ctx.lineTo(cx - rHalf + (rHalf * 2) * (i / 7), eaveY); ctx.stroke(); }
+                    ctx.fillStyle = '#4f4536';
+                    ctx.fillRect(cx - halfW * 0.28, ridgeY - 2 * scale, halfW * 0.56, 5 * scale);
+                    ctx.fillStyle = '#9a988f';
+                    for (let i = 0; i < 9; i++) {
+                        const t = (i + 0.5) / 9;
+                        const sx = cx - rHalf + (rHalf * 2) * t;
+                        const sy = eaveY - roofH * (1 - Math.abs(t - 0.5) * 2) * 0.72 - 3 * scale;
+                        ctx.beginPath(); ctx.ellipse(sx, sy, 5 * scale, 3 * scale, 0, 0, Math.PI * 2); ctx.fill();
+                    }
+                    ctx.fillStyle = '#5f5240';
+                    ctx.fillRect(cx - rHalf, eaveY, rHalf * 2, 4 * scale);
+                    ctx.fillStyle = 'rgba(63,53,42,0.5)';
+                    ctx.fillRect(wx, eaveY + 4 * scale, ww, 6 * scale);
+                    ctx.fillStyle = '#8c7355';
+                    ctx.fillRect(wx, eaveY + 4 * scale, ww, baseY - eaveY - 4 * scale);
+                    ctx.fillStyle = 'rgba(118,96,63,0.35)';
+                    ctx.fillRect(cx, eaveY + 4 * scale, ww / 2, baseY - eaveY - 4 * scale);
+                    ctx.strokeStyle = 'rgba(90,70,48,0.6)';
+                    ctx.lineWidth = 1;
+                    for (let r = 1; r <= 3; r++) { const yy = eaveY + 4 * scale + (r / 4) * (baseY - eaveY - 4 * scale); ctx.beginPath(); ctx.moveTo(wx, yy); ctx.lineTo(wx + ww, yy); ctx.stroke(); }
+                    ctx.fillStyle = '#2c2418';
+                    const swW = ww * 0.2, swX = wx + ww * 0.1, swY = eaveY + 16 * scale, swH = (baseY - swY) * 0.42;
+                    ctx.fillRect(swX, swY, swW, swH);
+                    ctx.strokeStyle = 'rgba(140,115,85,0.85)';
+                    for (let c = 1; c <= 3; c++) { const xx = swX + (c / 4) * swW; ctx.beginPath(); ctx.moveTo(xx, swY); ctx.lineTo(xx, swY + swH); ctx.stroke(); }
+                    ctx.fillStyle = '#4a3a28';
+                    const dW = ww * 0.32, dX = cx - dW * 0.1, dY = baseY - (baseY - eaveY) * 0.6, dH = baseY - dY - 3 * scale;
+                    ctx.fillRect(dX, dY, dW, dH);
+                    ctx.strokeStyle = 'rgba(46,36,24,0.9)';
+                    for (let c = 1; c <= 3; c++) { const xx = dX + (c / 4) * dW; ctx.beginPath(); ctx.moveTo(xx, dY); ctx.lineTo(xx, dY + dH); ctx.stroke(); }
+                    ctx.fillStyle = '#9a988f';
+                    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.ellipse(wx + ww * (0.15 + i * 0.35), baseY, 8 * scale, 4 * scale, 0, 0, Math.PI * 2); ctx.fill(); }
+                };
+
+                // ─── 四：水車のある茶屋（上掛け水車）───
+                const drawChaya = (cx, baseY, seed, scale) => {
+                    const halfW = (58 + this.noise1D(seed + 2.3) * 10) * scale;
+                    const wallH = (52 + this.noise1D(seed + 3.1) * 8) * scale;
+                    const ridgeH = (46 + this.noise1D(seed + 3.6) * 10) * scale;
+                    const wallY = baseY - wallH;
+                    const eaveY = wallY + 3 * scale;
+                    const ww = halfW * 1.5;
+                    const wx = cx - ww / 2;
+                    ctx.fillStyle = 'rgba(63,49,28,0.5)';
+                    ctx.fillRect(wx, wallY, ww, 6 * scale);
+                    ctx.fillStyle = '#d0bd92';
+                    ctx.fillRect(wx, wallY + 3 * scale, ww, baseY - wallY - 3 * scale);
+                    ctx.fillStyle = 'rgba(188,166,120,0.35)';
+                    ctx.fillRect(cx, wallY + 3 * scale, ww / 2, baseY - wallY - 3 * scale);
+                    ctx.fillStyle = '#5a4330';
+                    ctx.fillRect(wx, wallY + 3 * scale, ww, 4 * scale);
+                    ctx.fillStyle = '#52402c';
+                    ctx.fillRect(wx, baseY - 5 * scale, ww, 5 * scale);
+                    ctx.fillStyle = '#5a4330';
+                    for (let i = 0; i <= 2; i++) ctx.fillRect(wx + (i / 2) * ww - 2 * scale, wallY + 3 * scale, 4 * scale, baseY - wallY - 3 * scale);
+                    ctx.fillStyle = '#34291b';
+                    ctx.fillRect(cx - ww * 0.18, baseY - (baseY - wallY) * 0.58, ww * 0.36, (baseY - wallY) * 0.58 - 5 * scale);
+                    ctx.fillStyle = '#34506a';
+                    const nw = ww * 0.42, nx = cx - nw / 2, ny = wallY + 12 * scale, nh = 15 * scale;
+                    ctx.fillRect(nx, ny, nw, nh);
+                    ctx.fillStyle = 'rgba(220,228,238,0.8)';
+                    ctx.fillRect(nx + nw * 0.33, ny, 1.4 * scale, nh);
+                    ctx.fillRect(nx + nw * 0.66, ny, 1.4 * scale, nh);
+                    ctx.fillStyle = '#8c6f4e';
+                    ctx.fillRect(wx - 24 * scale, baseY - 14 * scale, 30 * scale, 4 * scale);
+                    ctx.fillStyle = '#5f4730';
+                    ctx.fillRect(wx - 22 * scale, baseY - 10 * scale, 3 * scale, 10 * scale);
+                    ctx.fillRect(wx - 1 * scale, baseY - 10 * scale, 3 * scale, 10 * scale);
+                    drawKayabukiRoof(cx, eaveY, halfW, ridgeH);
+                    // 上掛け水車
+                    const wheelR = (30 + this.noise1D(seed + 5.2) * 4) * scale;
+                    const wcx = cx + ww * 0.5 + wheelR + 6 * scale;
+                    const wcy = baseY - wheelR * 0.86;
+                    ctx.strokeStyle = '#7d6a42';
+                    ctx.lineWidth = 5 * scale;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(cx + halfW * 0.7, eaveY - ridgeH * 0.2);
+                    ctx.lineTo(wcx, wcy - wheelR - 2 * scale);
+                    ctx.stroke();
+                    ctx.lineCap = 'butt';
+                    ctx.strokeStyle = 'rgba(186,214,226,0.75)';
+                    ctx.lineWidth = 2 * scale;
+                    ctx.beginPath();
+                    ctx.moveTo(wcx, wcy - wheelR - 2 * scale);
+                    ctx.lineTo(wcx + 2 * scale, wcy - wheelR + 7 * scale);
+                    ctx.stroke();
+                    ctx.fillStyle = '#8a8780';
+                    ctx.beginPath(); ctx.ellipse(wcx, baseY + 1 * scale, wheelR * 1.2, 8 * scale, 0, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = '#6f9bb0';
+                    ctx.beginPath(); ctx.ellipse(wcx, baseY, wheelR * 0.95, 5 * scale, 0, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = 'rgba(220,233,239,0.5)';
+                    ctx.beginPath(); ctx.ellipse(wcx - wheelR * 0.3, baseY - 1 * scale, wheelR * 0.3, 1.6 * scale, 0, 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = '#9a988f';
+                    ctx.beginPath(); ctx.ellipse(wcx - wheelR * 1.12, baseY, 6 * scale, 4 * scale, 0, 0, Math.PI * 2); ctx.fill();
+                    ctx.beginPath(); ctx.ellipse(wcx + wheelR * 1.12, baseY, 6 * scale, 4 * scale, 0, 0, Math.PI * 2); ctx.fill();
+                    ctx.strokeStyle = '#5a4632';
+                    ctx.lineWidth = 5 * scale;
+                    ctx.beginPath(); ctx.arc(wcx, wcy, wheelR, 0, Math.PI * 2); ctx.stroke();
+                    ctx.lineWidth = 3 * scale;
+                    ctx.strokeStyle = '#6e5440';
+                    ctx.beginPath(); ctx.arc(wcx, wcy, wheelR * 0.34, 0, Math.PI * 2); ctx.stroke();
+                    ctx.fillStyle = '#43301f';
+                    ctx.beginPath(); ctx.arc(wcx, wcy, 4 * scale, 0, Math.PI * 2); ctx.fill();
+                    for (let k = 0; k < 8; k++) {
+                        const a = (k / 8) * Math.PI * 2;
+                        ctx.strokeStyle = '#5a4632';
+                        ctx.lineWidth = 2.4 * scale;
+                        ctx.beginPath(); ctx.moveTo(wcx, wcy); ctx.lineTo(wcx + Math.cos(a) * wheelR, wcy + Math.sin(a) * wheelR); ctx.stroke();
+                        ctx.save();
+                        ctx.translate(wcx + Math.cos(a) * wheelR, wcy + Math.sin(a) * wheelR);
+                        ctx.rotate(a);
+                        ctx.fillStyle = '#6e5440';
+                        ctx.fillRect(-5 * scale, -3 * scale, 6 * scale, 6 * scale);
+                        ctx.restore();
+                    }
+                };
+
+                // タイプ振り分け（baseX=左基準を維持）
+                // 相対サイズ目安(プレイヤー72px≒1.6m)：茶屋<山家<農家<二階旅籠。建物<木、添景<人。
                 const drawKominka = (baseX, baseY, seed, scale = 1) => {
-                    const w = (110 + this.noise1D(seed + 2.3) * 70) * scale;
-                    const h = (64 + this.noise1D(seed + 3.1) * 42) * scale;
-                    const x = baseX;
-                    const wallY = baseY - h;
-                    const splitY = wallY + h * (0.48 + this.noiseSigned(seed + 4.2) * 0.06);
-
-                    // 下階木部・上階漆喰
-                    ctx.fillStyle = this.interpolateColor('#8c6e4c', '#392d22', 0.32);
-                    ctx.fillRect(x, splitY, w, baseY - splitY);
-                    ctx.fillStyle = this.interpolateColor('#c9b8a0', '#6a5d50', 0.32);
-                    ctx.fillRect(x + 5, wallY + 8, w - 10, splitY - wallY - 8);
-
-                    // 柱
-                    ctx.fillStyle = this.interpolateColor('#5e442f', '#221a14', 0.36);
-                    const posts = 4 + Math.floor(this.noise1D(seed + 4.9) * 3);
-                    for (let pIdx = 0; pIdx <= posts; pIdx++) {
-                        const px = x + (pIdx / posts) * w;
-                        ctx.fillRect(px - 2, wallY + 8, 4, baseY - wallY - 8);
-                    }
-
-                    // 格子
-                    ctx.fillStyle = 'rgba(40, 30, 22, 0.65)';
-                    const latticeY = splitY + 10;
-                    const latticeH = Math.max(22, baseY - latticeY - 8);
-                    const latticeCols = 5 + Math.floor(this.noise1D(seed + 6.1) * 4);
-                    for (let c = 1; c <= latticeCols; c++) {
-                        const lx = x + 10 + (c / (latticeCols + 1)) * (w - 20);
-                        ctx.fillRect(lx - 1, latticeY, 2, latticeH);
-                    }
-
-                    // 虫籠窓
-                    const mushikoCount = 2 + Math.floor(this.noise1D(seed + 7.2) * 3);
-                    for (let m = 0; m < mushikoCount; m++) {
-                        const mx = x + 14 + m * ((w - 28) / mushikoCount);
-                        const my = wallY + 16 + this.noise1D(seed + 8.3 + m) * 10;
-                        const mw = 16 + this.noise1D(seed + 9.4 + m) * 8;
-                        ctx.fillStyle = 'rgba(32, 28, 24, 0.56)';
-                        ctx.fillRect(mx, my, mw, 13);
-                        ctx.fillStyle = 'rgba(238, 222, 186, 0.14)';
-                        ctx.fillRect(mx + 2, my + 2, mw - 4, 4);
-                    }
-
-                    // のれん
-                    if (this.noise1D(seed + 10.8) > 0.4) {
-                        const nw = Math.min(58 * scale, w * 0.45);
-                        const nx = x + w * (0.24 + this.noise1D(seed + 11.7) * 0.25);
-                        const ny = splitY + 6;
-                        const nh = 18 + this.noise1D(seed + 12.3) * 8;
-                        ctx.fillStyle = this.interpolateColor('#3d566f', '#1e2c3b', 0.35);
-                        ctx.fillRect(nx, ny, nw, nh);
-                        ctx.fillStyle = 'rgba(228, 236, 246, 0.2)';
-                        ctx.fillRect(nx + nw * 0.5 - 1, ny, 2, nh);
-                    }
-
-                    drawKawaraRoof(x, wallY, w, 30 * scale + this.noise1D(seed + 13.6) * 14 * scale);
+                    const jitter = 0.92 + this.noise1D(seed + 5.5) * 0.2; // 個体差
+                    const type = Math.floor(this.noise1D(seed + 1.15) * 4);
+                    const cx = baseX + 100 * scale;
+                    if (type === 0) drawFarmhouse(cx, baseY, seed, scale * jitter * 1.4);
+                    else if (type === 1) drawHatago(cx, baseY, seed, scale * jitter * 1.5);
+                    else if (type === 2) drawYamaie(cx, baseY, seed, scale * jitter * 1.46);
+                    else drawChaya(cx, baseY, seed, scale * jitter * 1.3);
                 };
 
-                const drawPine = (baseX, baseY, seed, scale = 1) => {
-                    const trunkW = (8 + this.noise1D(seed + 0.9) * 6) * scale;
-                    const trunkH = (84 + this.noise1D(seed + 1.5) * 70) * scale;
-                    ctx.fillStyle = this.interpolateColor('#6f543a', '#2b2015', 0.34);
-                    ctx.fillRect(baseX, baseY - trunkH, trunkW, trunkH);
-
-                    const layers = 4 + Math.floor(this.noise1D(seed + 2.4) * 2);
-                    for (let l = layers - 1; l >= 0; l--) {
-                        const ly = baseY - trunkH + l * (trunkH / (layers + 0.8));
-                        const width = (28 + l * 12 + this.noiseSigned(seed + 3.3 + l) * 8) * scale;
-                        const peak = (46 + this.noise1D(seed + 4.6 + l) * 24) * scale;
-                        const grad = ctx.createLinearGradient(baseX - width * 0.55, ly, baseX + trunkW + width * 0.55, ly);
-                        grad.addColorStop(0, '#2d4a35');
-                        grad.addColorStop(0.5, '#4d7652');
-                        grad.addColorStop(1, '#223a2a');
-                        ctx.fillStyle = grad;
+                const drawSugi = (baseX, baseY, seed, scale) => {
+                    ctx.save();
+                    const th = (200 + this.noise1D(seed + 1.5) * 80) * scale;
+                    const tw = (11 + this.noise1D(seed + 0.9) * 5) * scale;
+                    const top = baseY - th;
+                    const leafBottom = baseY - th * 0.36; // 葉の下端（根元の幹をしっかり見せる）
+                    // 葉群（下へ垂れる層を重ねて密に）
+                    const layers = 6;
+                    for (let l = 0; l < layers; l++) {
+                        const t = l / (layers - 1);
+                        const ly = top + t * (leafBottom - top);
+                        const lw = (15 + t * 46) * scale;
+                        const lh = ((leafBottom - top) / layers) * 1.85;
+                        ctx.fillStyle = l % 2 ? '#3c5e43' : '#477049';
                         ctx.beginPath();
-                        ctx.moveTo(baseX - width * 0.52, ly + 14 * scale);
-                        ctx.quadraticCurveTo(baseX + trunkW * 0.5, ly - peak, baseX + trunkW + width * 0.52, ly + 14 * scale);
+                        ctx.moveTo(baseX, ly - lh * 0.5);
+                        ctx.quadraticCurveTo(baseX - lw * 0.55, ly - lh * 0.08, baseX - lw, ly + lh * 0.5);
+                        ctx.quadraticCurveTo(baseX - lw * 0.42, ly + lh * 0.32, baseX - lw * 0.12, ly + lh * 0.46);
+                        ctx.lineTo(baseX, ly + lh * 0.6);
+                        ctx.lineTo(baseX + lw * 0.12, ly + lh * 0.46);
+                        ctx.quadraticCurveTo(baseX + lw * 0.42, ly + lh * 0.32, baseX + lw, ly + lh * 0.5);
+                        ctx.quadraticCurveTo(baseX + lw * 0.55, ly - lh * 0.08, baseX, ly - lh * 0.5);
+                        ctx.closePath();
+                        ctx.fill();
+                        // 左側の光
+                        ctx.fillStyle = 'rgba(150,188,135,0.15)';
+                        ctx.beginPath();
+                        ctx.moveTo(baseX, ly - lh * 0.5);
+                        ctx.quadraticCurveTo(baseX - lw * 0.55, ly - lh * 0.08, baseX - lw, ly + lh * 0.5);
+                        ctx.quadraticCurveTo(baseX - lw * 0.5, ly + lh * 0.12, baseX - lw * 0.16, ly + lh * 0.1);
                         ctx.closePath();
                         ctx.fill();
                     }
+                    // 根元の幹（前面・テーパー＋右に陰）。葉に埋もれないよう最後に描く
+                    const trunkTop = leafBottom + 8 * scale;
+                    ctx.fillStyle = '#5a4632';
+                    ctx.beginPath();
+                    ctx.moveTo(baseX - tw * 0.5, baseY);
+                    ctx.lineTo(baseX - tw * 0.3, trunkTop);
+                    ctx.lineTo(baseX + tw * 0.3, trunkTop);
+                    ctx.lineTo(baseX + tw * 0.5, baseY);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = 'rgba(38,28,18,0.4)';
+                    ctx.beginPath();
+                    ctx.moveTo(baseX + tw * 0.06, baseY);
+                    ctx.lineTo(baseX + tw * 0.14, trunkTop);
+                    ctx.lineTo(baseX + tw * 0.3, trunkTop);
+                    ctx.lineTo(baseX + tw * 0.5, baseY);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.restore();
                 };
 
+                const drawMatsu = (baseX, baseY, seed, scale) => {
+                    ctx.save();
+                    const th = (140 + this.noise1D(seed + 1.5) * 55) * scale;
+                    const bend = this.noiseSigned(seed + 2.1) * 26 * scale;
+                    const topX = baseX + bend, topY = baseY - th;
+                    // 幹（曲がり・テーパー）
+                    ctx.strokeStyle = '#5a4330';
+                    ctx.lineWidth = (11 + this.noise1D(seed + 0.9) * 5) * scale;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(baseX, baseY);
+                    ctx.quadraticCurveTo(baseX + bend * 0.5, baseY - th * 0.55, topX, topY);
+                    ctx.stroke();
+                    // 横へ伸びる枝
+                    ctx.lineWidth = 4 * scale;
+                    ctx.beginPath();
+                    ctx.moveTo(topX, topY + 14 * scale);
+                    ctx.lineTo(topX - 32 * scale, topY - 2 * scale);
+                    ctx.moveTo(topX, topY + 26 * scale);
+                    ctx.lineTo(topX + 36 * scale, topY + 8 * scale);
+                    ctx.stroke();
+                    // 傘状の葉群（平たい段）
+                    const tiers = [{ dx: -32, dy: 0, w: 44 }, { dx: 36, dy: 10, w: 48 }, { dx: 2, dy: -16, w: 52 }];
+                    for (let i = 0; i < tiers.length; i++) {
+                        const tr = tiers[i];
+                        const cxx = topX + tr.dx * scale;
+                        const cyy = topY + tr.dy * scale;
+                        const cw = (tr.w + this.noise1D(seed + 6 + i) * 12) * scale;
+                        ctx.fillStyle = '#33543a';
+                        ctx.beginPath();
+                        ctx.ellipse(cxx, cyy + 4 * scale, cw, cw * 0.34, 0, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.fillStyle = i % 2 ? '#46704c' : '#3f6646';
+                        ctx.beginPath();
+                        ctx.ellipse(cxx, cyy, cw * 0.92, cw * 0.3, 0, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.fillStyle = 'rgba(140,180,125,0.2)';
+                        ctx.beginPath();
+                        ctx.ellipse(cxx - cw * 0.2, cyy - cw * 0.08, cw * 0.5, cw * 0.13, 0, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    ctx.restore();
+                };
+
+                const drawKeyaki = (baseX, baseY, seed, scale) => {
+                    ctx.save();
+                    const th = (160 + this.noise1D(seed + 1.5) * 60) * scale;
+                    const tw = (14 + this.noise1D(seed + 0.9) * 6) * scale;
+                    const forkY = baseY - th * 0.5;
+                    // 幹
+                    ctx.strokeStyle = '#6a5440';
+                    ctx.lineWidth = tw;
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(baseX, baseY);
+                    ctx.quadraticCurveTo(baseX + this.noiseSigned(seed + 3) * 8 * scale, forkY + th * 0.18, baseX, forkY);
+                    ctx.stroke();
+                    // 枝分かれ
+                    ctx.lineWidth = tw * 0.5;
+                    for (const b of [-1, 0.25, 1]) {
+                        ctx.beginPath();
+                        ctx.moveTo(baseX, forkY + 6 * scale);
+                        ctx.quadraticCurveTo(baseX + b * 26 * scale, forkY - 16 * scale, baseX + b * 44 * scale, baseY - th * 0.74);
+                        ctx.stroke();
+                    }
+                    // 樹冠（下に影、塊を重ね、上に光）
+                    const crownY = baseY - th * 0.78;
+                    const cr = (58 + this.noise1D(seed + 2.2) * 26) * scale;
+                    ctx.fillStyle = '#3c5836';
+                    ctx.beginPath();
+                    ctx.ellipse(baseX, crownY + cr * 0.2, cr * 0.92, cr * 0.6, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    for (let b = 0; b < 7; b++) {
+                        const a = (b / 7) * Math.PI * 2;
+                        const bx = baseX + Math.cos(a) * cr * 0.5;
+                        const by = crownY + Math.sin(a) * cr * 0.4;
+                        ctx.fillStyle = b % 2 ? '#4f7544' : '#456b3e';
+                        ctx.beginPath();
+                        ctx.ellipse(bx, by, cr * 0.46, cr * 0.42, 0, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    ctx.fillStyle = '#5c8550';
+                    ctx.beginPath();
+                    ctx.ellipse(baseX - cr * 0.12, crownY - cr * 0.12, cr * 0.5, cr * 0.44, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = 'rgba(150,190,130,0.22)';
+                    ctx.beginPath();
+                    ctx.ellipse(baseX - cr * 0.22, crownY - cr * 0.28, cr * 0.32, cr * 0.18, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                };
+
+                // type: 0=杉 1=松 2=落葉樹。-1で seed からランダム。並木はtype指定で群生を揃える
+                const drawTree = (baseX, baseY, seed, scale = 1, type = -1) => {
+                    // 竹はstage1(竹林)で使うためstage2では出さない。杉・松・落葉樹の3種。
+                    let tt = type;
+                    if (tt < 0) { const t = this.noise1D(seed + 0.33); tt = t < 0.5 ? 0 : (t < 0.78 ? 1 : 2); }
+                    if (tt === 0) drawSugi(baseX, baseY, seed, scale);
+                    else if (tt === 1) drawMatsu(baseX, baseY, seed, scale);
+                    else drawKeyaki(baseX, baseY, seed, scale);
+                };
+
+                // ── 添景 ──
+                const drawToro = (x, baseY, seed, scale) => {
+                    ctx.save();
+                    const h = (54 + this.noise1D(seed + 1.2) * 14) * scale; // 石灯籠は人と同等～やや低く
+                    const w = 18 * scale;
+                    ctx.fillStyle = '#7c7a71';
+                    ctx.fillRect(x - w * 0.7, baseY - 6 * scale, w * 1.4, 6 * scale);
+                    ctx.fillStyle = '#9a988f';
+                    ctx.fillRect(x - w * 0.28, baseY - h * 0.62, w * 0.56, h * 0.62 - 6 * scale);
+                    ctx.fillStyle = '#8a8780';
+                    ctx.fillRect(x - w * 0.5, baseY - h * 0.68, w, h * 0.06);
+                    ctx.fillStyle = '#9a988f';
+                    ctx.fillRect(x - w * 0.5, baseY - h * 0.84, w, h * 0.16);
+                    ctx.fillStyle = 'rgba(255,224,150,0.55)';
+                    ctx.fillRect(x - w * 0.22, baseY - h * 0.8, w * 0.44, h * 0.09);
+                    ctx.fillStyle = '#a8a69d';
+                    ctx.beginPath();
+                    ctx.moveTo(x - w * 0.72, baseY - h * 0.84);
+                    ctx.lineTo(x, baseY - h * 0.98);
+                    ctx.lineTo(x + w * 0.72, baseY - h * 0.84);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = '#b4b2a8';
+                    ctx.beginPath();
+                    ctx.arc(x, baseY - h, 4 * scale, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                };
+
+                const drawMichishirube = (x, baseY, seed) => {
+                    ctx.save();
+                    const h = 56 + this.noise1D(seed + 2.8) * 30;
+                    ctx.fillStyle = '#9a907d';
+                    ctx.fillRect(x, baseY - h, 16, h);
+                    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+                    ctx.fillRect(x + 11, baseY - h, 5, h);
+                    ctx.fillStyle = '#b0a692';
+                    ctx.fillRect(x - 3, baseY - h - 7, 22, 7);
+                    ctx.fillStyle = 'rgba(40,36,30,0.4)';
+                    ctx.fillRect(x + 6, baseY - h + 8, 2, h - 16);
+                    ctx.restore();
+                };
+
+                const drawJizo = (x, baseY, seed) => {
+                    ctx.save();
+                    const h = 48 + this.noise1D(seed + 2.5) * 16;
+                    const w = h * 0.5;
+                    // 台座（石）
+                    ctx.fillStyle = '#86837b';
+                    ctx.fillRect(x - w * 0.62, baseY - h * 0.12, w * 1.24, h * 0.12);
+                    // 胴（丸みのある体）
+                    ctx.fillStyle = '#a6a49b';
+                    ctx.beginPath();
+                    ctx.moveTo(x - w * 0.42, baseY - h * 0.12);
+                    ctx.quadraticCurveTo(x - w * 0.5, baseY - h * 0.6, x, baseY - h * 0.64);
+                    ctx.quadraticCurveTo(x + w * 0.5, baseY - h * 0.6, x + w * 0.42, baseY - h * 0.12);
+                    ctx.closePath();
+                    ctx.fill();
+                    // 頭（大きめの丸・胴と繋がる）
+                    ctx.fillStyle = '#b2b0a6';
+                    ctx.beginPath();
+                    ctx.arc(x, baseY - h * 0.73, w * 0.42, 0, Math.PI * 2);
+                    ctx.fill();
+                    // 赤い頭巾
+                    ctx.fillStyle = 'rgba(192,68,56,0.88)';
+                    ctx.beginPath();
+                    ctx.arc(x, baseY - h * 0.77, w * 0.44, Math.PI * 1.04, Math.PI * 1.96);
+                    ctx.closePath();
+                    ctx.fill();
+                    // 赤い前掛け（涎掛け）
+                    ctx.fillStyle = 'rgba(198,72,60,0.9)';
+                    ctx.beginPath();
+                    ctx.moveTo(x - w * 0.34, baseY - h * 0.54);
+                    ctx.quadraticCurveTo(x, baseY - h * 0.48, x + w * 0.34, baseY - h * 0.54);
+                    ctx.lineTo(x + w * 0.24, baseY - h * 0.16);
+                    ctx.quadraticCurveTo(x, baseY - h * 0.11, x - w * 0.24, baseY - h * 0.16);
+                    ctx.closePath();
+                    ctx.fill();
+                    // 顔（目）
+                    ctx.fillStyle = 'rgba(88,84,76,0.55)';
+                    ctx.beginPath(); ctx.arc(x - w * 0.12, baseY - h * 0.74, w * 0.05, 0, Math.PI * 2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(x + w * 0.12, baseY - h * 0.74, w * 0.05, 0, Math.PI * 2); ctx.fill();
+                    ctx.restore();
+                };
+
+                const drawIdo = (x, baseY, seed, scale) => {
+                    ctx.save();
+                    const r = 25 * scale;
+                    ctx.fillStyle = '#8a8780';
+                    ctx.fillRect(x - r, baseY - 31 * scale, r * 2, 31 * scale);
+                    ctx.fillStyle = '#6f6c64';
+                    ctx.beginPath();
+                    ctx.ellipse(x, baseY - 31 * scale, r, 8 * scale, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#23211d';
+                    ctx.beginPath();
+                    ctx.ellipse(x, baseY - 31 * scale, r * 0.68, 5.4 * scale, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = '#5a4632';
+                    ctx.lineWidth = 4.5 * scale;
+                    ctx.beginPath();
+                    ctx.moveTo(x - r * 0.7, baseY - 31 * scale);
+                    ctx.lineTo(x - r * 0.7, baseY - 70 * scale);
+                    ctx.moveTo(x + r * 0.7, baseY - 31 * scale);
+                    ctx.lineTo(x + r * 0.7, baseY - 70 * scale);
+                    ctx.stroke();
+                    ctx.fillStyle = '#6f5f48';
+                    ctx.beginPath();
+                    ctx.moveTo(x - r * 1.15, baseY - 67 * scale);
+                    ctx.lineTo(x, baseY - 86 * scale);
+                    ctx.lineTo(x + r * 1.15, baseY - 67 * scale);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.restore();
+                };
+
+                const drawIkegaki = (x, baseY, w, seed) => {
+                    ctx.save();
+                    const h = 34 + this.noise1D(seed + 1.4) * 14;
+                    // 刈り込みの本体（上面が緩やかに波打つ連続した塊）
+                    ctx.fillStyle = '#37532e';
+                    ctx.beginPath();
+                    ctx.moveTo(x, baseY);
+                    ctx.lineTo(x, baseY - h * 0.66);
+                    for (let xx = x; xx <= x + w; xx += 20) {
+                        const hh = baseY - h - this.noiseSigned(seed + xx * 0.31) * 4;
+                        ctx.quadraticCurveTo(xx + 5, hh, xx + 10, baseY - h + 2);
+                        ctx.quadraticCurveTo(xx + 15, hh + 3, xx + 20, baseY - h + 1);
+                    }
+                    ctx.lineTo(x + w, baseY);
+                    ctx.closePath();
+                    ctx.fill();
+                    // 葉の塊（明暗の斑で立体感）
+                    for (let s = 0; s * 17 < w; s++) {
+                        const sx = x + 9 + s * 17;
+                        ctx.fillStyle = s % 2 ? 'rgba(96,134,74,0.4)' : 'rgba(74,108,60,0.36)';
+                        ctx.beginPath();
+                        ctx.ellipse(sx, baseY - h * 0.72, 10, 7, 0, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    // 上端のハイライト
+                    ctx.fillStyle = 'rgba(150,186,120,0.22)';
+                    for (let s = 0; s * 24 < w; s++) {
+                        ctx.beginPath();
+                        ctx.ellipse(x + 14 + s * 24, baseY - h * 0.9, 7, 3.5, 0, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    // 根元の影
+                    ctx.fillStyle = 'rgba(28,38,22,0.4)';
+                    ctx.fillRect(x, baseY - 4, w, 4);
+                    ctx.restore();
+                };
+
+                const drawWaraTsumi = (x, baseY, seed) => {
+                    ctx.save();
+                    const h = 54 + this.noise1D(seed + 1.4) * 20;
+                    const w = 32 + this.noise1D(seed + 2.1) * 10;
+                    // 本体（丸みのある藁塚）
+                    ctx.fillStyle = '#c8a85f';
+                    ctx.beginPath();
+                    ctx.moveTo(x - w / 2, baseY);
+                    ctx.quadraticCurveTo(x - w * 0.46, baseY - h * 0.5, x - w * 0.12, baseY - h * 0.92);
+                    ctx.quadraticCurveTo(x, baseY - h * 1.02, x + w * 0.12, baseY - h * 0.92);
+                    ctx.quadraticCurveTo(x + w * 0.46, baseY - h * 0.5, x + w / 2, baseY);
+                    ctx.closePath();
+                    ctx.fill();
+                    // 右側の陰
+                    ctx.fillStyle = 'rgba(120,90,40,0.26)';
+                    ctx.beginPath();
+                    ctx.moveTo(x, baseY - h * 0.98);
+                    ctx.quadraticCurveTo(x + w * 0.46, baseY - h * 0.5, x + w / 2, baseY);
+                    ctx.lineTo(x, baseY);
+                    ctx.closePath();
+                    ctx.fill();
+                    // 藁を巻いた段（緩い弧）
+                    ctx.strokeStyle = 'rgba(150,118,58,0.5)';
+                    ctx.lineWidth = 1.4;
+                    for (let s = 1; s <= 3; s++) {
+                        const tt = s / 4;
+                        const yy = baseY - h * tt;
+                        const ww = (w / 2) * (1 - tt * 0.72);
+                        ctx.beginPath();
+                        ctx.moveTo(x - ww, yy);
+                        ctx.quadraticCurveTo(x, yy + 4, x + ww, yy);
+                        ctx.stroke();
+                    }
+                    // てっぺんの結び
+                    ctx.fillStyle = '#9c7a3c';
+                    ctx.beginPath();
+                    ctx.ellipse(x, baseY - h * 0.95, w * 0.1, h * 0.05, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                };
+
+                // ── 街道らしい配置（集落 → 並木 → 野原のリズム）──
                 for (let i = kStartIdx; i <= kEndIdx; i++) {
                     const seed = i * 9.21;
                     const x = i * kCellSize - p * kPara + this.noiseSigned(seed + 0.7) * 36;
-                    
-                    // 自然に配置
-                    if (x < -200 || x > CANVAS_WIDTH + 200) continue;
-                    
-                    const y = this.groundY - 2;
-                    const roll = this.noise1D(seed + 1.6);
+                    if (x < -280 || x > CANVAS_WIDTH + 280) continue;
+                    const y = this.groundY + LANE_OFFSET; // プレイヤー・敵と同じ接地ライン
+                    const regionType = this.noise1D(Math.floor(i / 3) * 7.3 + 2.0);
+                    const local = this.noise1D(seed + 1.6);
 
-                    if (roll < 0.48) {
-                        drawPine(x, y, seed, 1.0);
-                        if (this.noise1D(seed + 1.93) > 0.42) drawPine(x + 34, y + 3, seed + 2.7, 0.82);
-                    } else if (roll < 0.78) {
+                    if (regionType < 0.42) {
+                        // 集落：古民家＋脇に添景
                         drawKominka(x - 8, y, seed, 1.0);
-                        if (this.noise1D(seed + 2.2) > 0.58) drawPine(x + 122, y + 2, seed + 4.2, 0.74);
-                    } else if (roll < 0.9) {
-                        // 街道脇の道標と石灯籠
-                        const markerH = 52 + this.noise1D(seed + 2.8) * 24;
-                        ctx.fillStyle = this.interpolateColor('#9a907d', '#454038', 0.28);
-                        ctx.beginPath();
-                        ctx.moveTo(x + 8, y);
-                        ctx.lineTo(x + 30, y);
-                        ctx.lineTo(x + 26, y - markerH);
-                        ctx.lineTo(x + 12, y - markerH);
-                        ctx.closePath();
-                        ctx.fill();
-                        ctx.fillStyle = this.interpolateColor('#c2b8a4', '#5f574c', 0.3);
-                        ctx.fillRect(x + 4, y - markerH - 9, 30, 9);
-
-                        const toroX = x + 58;
-                        const toroH = 30 + this.noise1D(seed + 3.8) * 12;
-                        ctx.fillStyle = this.interpolateColor('#8a8376', '#3b362f', 0.34);
-                        ctx.fillRect(toroX + 8, y - toroH, 7, toroH);
-                        ctx.fillRect(toroX + 3, y - toroH - 5, 17, 5);
-                        ctx.fillRect(toroX, y - toroH - 13, 23, 8);
-                        ctx.fillStyle = 'rgba(238, 210, 150, 0.2)';
-                        ctx.fillRect(toroX + 9, y - toroH - 10, 5, 4);
+                        const sub = this.noise1D(seed + 2.2);
+                        if (sub > 0.5) drawToro(x + 158, y, seed, 1.0);
+                        if (this.noise1D(seed + 3.1) > 0.62) drawTree(x + 212, y + 2, seed + 4.2, 0.78);
+                    } else if (regionType < 0.72) {
+                        // 並木：同じ樹種でまとめる（region単位で種類決定→隣の並木は別種でバラける）
+                        const groveType = Math.floor(this.noise1D(Math.floor(i / 3) * 7.3 + 5.0) * 3);
+                        drawTree(x, y, seed, 1.0, groveType);
+                        if (local > 0.4) drawTree(x + 52, y + 3, seed + 2.7, 0.82, groveType);
+                        if (local > 0.72) drawTree(x + 102, y + 1, seed + 5.1, 0.7, groveType);
+                        if (this.noise1D(seed + 6.3) > 0.8) drawJizo(x + 158, y, seed);
                     } else {
-                        const fenceW = 114 + this.noise1D(seed + 2.1) * 66;
-                        const postGap = 18;
-                        ctx.fillStyle = this.interpolateColor('#7f674d', '#2e2418', 0.36);
-                        for (let fx = 0; fx < fenceW; fx += postGap) {
-                            const ph = 16 + this.noise1D(seed + 3.5 + fx) * 13;
-                            ctx.fillRect(x + fx, y - ph, 5, ph);
-                        }
-                        ctx.fillRect(x - 4, y - 16, fenceW + 8, 4);
+                        // 野原：開ける。道標・地蔵
+                        const r = this.noise1D(seed + 2.5);
+                        if (r < 0.5) drawMichishirube(x + 30, y, seed);
+                        else drawJizo(x + 30, y, seed);
+                        if (this.noise1D(seed + 7.7) > 0.58) drawTree(x + 188, y + 2, seed + 8.1, 0.85);
                     }
-                }
-
-                // 旅人シルエットで街道の情報量を底上げ
-                const travelerPara = 0.82;
-                const travelerSpan = 220;
-                const travelerScroll = p * travelerPara;
-                const travelerStart = Math.floor((travelerScroll - travelerSpan * 3) / travelerSpan);
-                const travelerEnd = Math.ceil((travelerScroll + CANVAS_WIDTH + travelerSpan * 3) / travelerSpan);
-                for (let i = travelerStart; i <= travelerEnd; i++) {
-                    const seed = i * 6.29;
-                    if (this.noise1D(seed + 0.9) < 0.58) continue;
-                    const x = i * travelerSpan - travelerScroll + this.noiseSigned(seed + 1.7) * 18;
-                    
-                    // 自然に配置
-                    if (x < -50 || x > CANVAS_WIDTH + 50) continue;
-                    
-                    const y = this.groundY - 5;
-                    const h = 24 + this.noise1D(seed + 2.6) * 14;
-                    const dir = this.noise1D(seed + 3.2) > 0.5 ? 1 : -1;
-                    ctx.fillStyle = 'rgba(64, 52, 40, 0.34)';
-                    ctx.fillRect(x - 2, y - h, 4, h);
-                    ctx.beginPath();
-                    ctx.arc(x, y - h - 5, 4, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.fillStyle = 'rgba(94, 78, 56, 0.34)';
-                    ctx.beginPath();
-                    ctx.moveTo(x - 7, y - h - 4);
-                    ctx.lineTo(x + dir * 12, y - h - 10);
-                    ctx.lineTo(x + dir * 8, y - h + 1);
-                    ctx.closePath();
-                    ctx.fill();
                 }
 
                 break;
@@ -3510,7 +4082,7 @@ export class Stage {
     }
 
     renderGroundKaido(ctx, renderProgress, darken) {
-        const horizonY = this.groundY;
+        const horizonY = this.groundY + LANE_OFFSET; // 土の上端＝接地ライン。中景の家/木/添景が地面に埋もれない
         const bottomY = CANVAS_HEIGHT;
 
         const roadGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
@@ -3521,21 +4093,82 @@ export class Stage {
         ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
 
         ctx.save();
-        const noiseSeedBase = Math.floor(renderProgress / 110);
-        for (let j = 0; j < 8; j++) {
-            const leafDepth = j / 8;
-            const rowY = horizonY + leafDepth * (bottomY - horizonY);
-            ctx.fillStyle = `rgba(0, 0, 0, ${0.15 * (0.4 + leafDepth * 0.6)})`;
-            const rowSpeed = 0.95 + (leafDepth * 0.1);
-            for (let i = 0; i < 15; i++) {
-                const seed = noiseSeedBase + i * 14.2 + j * 9.7;
-                const x = (i * 95 + seed * 1050 - renderProgress * rowSpeed) % (CANVAS_WIDTH + 180) - 90;
-                ctx.fillRect(x, rowY + this.noise1D(seed + 1) * 3, 25 + this.noise1D(seed) * 55, 1.2);
+        // 土の濃淡パッチ（worldIndexで連続スクロール＝seedが切り替わらずフラッシングしない）
+        const patchScroll = renderProgress * 0.92;
+        const patchSpan = 210;
+        for (let j = 0; j < 7; j++) {
+            const depth = (j + 0.5) / 7;
+            const py = horizonY + depth * (bottomY - horizonY);
+            const rowScroll = patchScroll * (0.85 + depth * 0.25);
+            const pStart = Math.floor((rowScroll - patchSpan) / patchSpan);
+            const pEnd = Math.ceil((rowScroll + CANVAS_WIDTH + patchSpan) / patchSpan);
+            for (let i = pStart; i <= pEnd; i++) {
+                const seed = i * 7.3 + j * 3.1;
+                const px = i * patchSpan - rowScroll + this.noiseSigned(seed) * 80;
+                const pw = (60 + this.noise1D(seed + 1) * 110) * (0.6 + depth);
+                const ph = (8 + this.noise1D(seed + 2) * 10) * (0.6 + depth);
+                ctx.fillStyle = this.noise1D(seed + 3) > 0.5
+                    ? `rgba(60,44,28,${0.05 + depth * 0.06})`
+                    : `rgba(214,196,162,${0.04 + depth * 0.05})`;
+                ctx.beginPath();
+                ctx.ellipse(px, py, pw, ph, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // わだち（荷車の轍）：道に沿って横に走る2本の浅い溝。刻みはスクロールで横に流れる
+        const rutDepths = [0.34, 0.52];
+        for (const depth of rutDepths) {
+            const ry = horizonY + depth * (bottomY - horizonY);
+            const scaleD = 0.6 + depth;
+            ctx.strokeStyle = 'rgba(70,52,34,0.14)';
+            ctx.lineWidth = 4 * scaleD;
+            ctx.beginPath();
+            ctx.moveTo(0, ry);
+            ctx.lineTo(CANVAS_WIDTH, ry);
+            ctx.stroke();
+            ctx.strokeStyle = 'rgba(226,208,172,0.09)';
+            ctx.lineWidth = 1.6 * scaleD;
+            ctx.beginPath();
+            ctx.moveTo(0, ry + 3 * scaleD);
+            ctx.lineTo(CANVAS_WIDTH, ry + 3 * scaleD);
+            ctx.stroke();
+            // 轍の刻み（横へ流れる短いダッシュ）
+            ctx.fillStyle = 'rgba(60,44,28,0.16)';
+            const dashGap = 64 * scaleD;
+            const flow = ((renderProgress * (0.9 + depth * 0.3)) % dashGap + dashGap) % dashGap;
+            for (let x = -flow; x < CANVAS_WIDTH; x += dashGap) {
+                ctx.fillRect(x, ry - scaleD, 28 * scaleD, 2 * scaleD);
+            }
+        }
+
+        // 飛び石・小石（手前ほど大きく。worldIndexで連続スクロール）
+        const stoneScroll = renderProgress * 1.0;
+        const stoneSpan = 150;
+        for (let j = 0; j < 6; j++) {
+            const depth = (j + 1) / 6;
+            const sy = horizonY + depth * depth * (bottomY - horizonY);
+            const rowScroll = stoneScroll * (0.8 + depth * 0.35);
+            const sStart = Math.floor((rowScroll - stoneSpan) / stoneSpan);
+            const sEnd = Math.ceil((rowScroll + CANVAS_WIDTH + stoneSpan) / stoneSpan);
+            for (let i = sStart; i <= sEnd; i++) {
+                const seed = i * 12.4 + j * 5.6;
+                if (this.noise1D(seed + 4) < 0.55) continue;
+                const sx = i * stoneSpan - rowScroll + this.noiseSigned(seed) * 60;
+                const sw = (3 + this.noise1D(seed + 1) * 6) * (0.5 + depth);
+                ctx.fillStyle = `rgba(86,70,52,${0.28 + depth * 0.2})`;
+                ctx.beginPath();
+                ctx.ellipse(sx, sy, sw, sw * 0.6, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = `rgba(212,196,162,${0.18 + depth * 0.15})`;
+                ctx.beginPath();
+                ctx.ellipse(sx - sw * 0.2, sy - sw * 0.22, sw * 0.5, sw * 0.32, 0, 0, Math.PI * 2);
+                ctx.fill();
             }
         }
         ctx.restore();
 
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+        ctx.fillStyle = `rgba(0, 0, 0, ${0.18 + darken * 0.1})`;
         ctx.fillRect(0, horizonY, CANVAS_WIDTH, 3);
     }
 
