@@ -3412,25 +3412,28 @@ export class Stage {
                     const regionType = this.noise1D(Math.floor(i / 3) * 7.3 + 2.0);
                     const local = this.noise1D(seed + 1.6);
 
-                    if (regionType < 0.42) {
-                        // 集落：古民家＋脇に添景
+                    if (regionType < 0.4) {
+                        // 集落：古民家＋脇に添景＋木
                         drawKominka(x - 8, y, seed, 1.0);
                         const sub = this.noise1D(seed + 2.2);
                         if (sub > 0.5) drawToro(x + 158, y, seed, 1.0);
-                        if (this.noise1D(seed + 3.1) > 0.62) drawTree(x + 212, y + 2, seed + 4.2, 0.78);
-                    } else if (regionType < 0.72) {
+                        if (this.noise1D(seed + 3.1) > 0.45) drawTree(x + 212, y + 2, seed + 4.2, 0.78);
+                        if (this.noise1D(seed + 9.4) > 0.55) drawTree(x + 258, y + 5, seed + 10.1, 0.64);
+                    } else if (regionType < 0.74) {
                         // 並木：同じ樹種でまとめる（region単位で種類決定→隣の並木は別種でバラける）
                         const groveType = Math.floor(this.noise1D(Math.floor(i / 3) * 7.3 + 5.0) * 3);
                         drawTree(x, y, seed, 1.0, groveType);
-                        if (local > 0.4) drawTree(x + 52, y + 3, seed + 2.7, 0.82, groveType);
-                        if (local > 0.72) drawTree(x + 102, y + 1, seed + 5.1, 0.7, groveType);
-                        if (this.noise1D(seed + 6.3) > 0.8) drawJizo(x + 158, y, seed);
+                        if (local > 0.28) drawTree(x + 50, y + 3, seed + 2.7, 0.82, groveType);
+                        if (local > 0.52) drawTree(x + 98, y + 1, seed + 5.1, 0.72, groveType);
+                        if (local > 0.76) drawTree(x + 146, y + 4, seed + 7.3, 0.64, groveType);
+                        if (this.noise1D(seed + 6.3) > 0.82) drawJizo(x + 192, y, seed);
                     } else {
-                        // 野原：開ける。道標・地蔵
+                        // 野原：開ける。道標・地蔵＋疎らな木
                         const r = this.noise1D(seed + 2.5);
                         if (r < 0.5) drawMichishirube(x + 30, y, seed);
                         else drawJizo(x + 30, y, seed);
-                        if (this.noise1D(seed + 7.7) > 0.58) drawTree(x + 188, y + 2, seed + 8.1, 0.85);
+                        if (this.noise1D(seed + 7.7) > 0.42) drawTree(x + 180, y + 2, seed + 8.1, 0.85);
+                        if (this.noise1D(seed + 11.2) > 0.62) drawTree(x + 244, y + 5, seed + 12.4, 0.6);
                     }
                 }
 
