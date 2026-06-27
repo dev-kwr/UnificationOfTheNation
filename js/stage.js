@@ -2152,15 +2152,15 @@ export class Stage {
             case 3: {
                 const exitImg = this.stage3ExitImage;
                 if (exitImg && exitImg.complete && exitImg.naturalWidth > 0) {
-                    const exitW = 360;
+                    const exitW = 680;
                     const exitH = exitW * (exitImg.naturalHeight / exitImg.naturalWidth);
-                    const exitX = peekWX(CANVAS_WIDTH * 0.57);
-                    const exitY = gY - exitH + 8;
+                    const exitX = peekWX(CANVAS_WIDTH - exitW + 18);
+                    const exitY = gY - exitH + 10;
                     if (exitX + exitW < -80 || exitX > CANVAS_WIDTH + 120) break;
 
                     ctx.save();
-                    ctx.globalAlpha *= 0.9;
-                    ctx.filter = 'brightness(0.78) saturate(0.68) contrast(0.9)';
+                    ctx.globalAlpha *= 0.82;
+                    ctx.filter = 'brightness(0.84) saturate(0.72) contrast(0.94)';
                     ctx.drawImage(exitImg, exitX, exitY, exitW, exitH);
                     ctx.filter = 'none';
                     ctx.restore();
