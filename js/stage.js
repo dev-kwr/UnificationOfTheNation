@@ -124,6 +124,8 @@ export class Stage {
 
         // --- Stage 3 山道添景画像 ---
         if (this.stageNumber === 3) {
+            this.stage3ExitImage = new Image();
+            this.stage3ExitImage.src = 'images/stage3_mountain_exit.png';
             this.stage3PropImages = {};
             const stage3PropPaths = {
                 dosojin: 'images/stage3_prop_dosojin.png',
@@ -2148,148 +2150,21 @@ export class Stage {
             // ─── Stage3（山道） → Stage4（城下町）───────────────────────────
             // 山道を抜けた先に城下町の屋根が見える。瓦屋根のシルエットと石畳の始まり
             case 3: {
-                // 横スクロール背景用の「山道の出口」。地面へ伸びる道や正面門は描かず、
-                // 山の切れ目と遠い町明かりだけで次ステージを予感させる。
-                const wp = 0.6 + Math.sin(time * 1.6) * 0.4;
-                const exitX = peekWX(CANVAS_WIDTH * 0.58);
-                const exitW = 440;
-                const exitR = exitX + exitW;
-                if (exitR < -80 || exitX > CANVAS_WIDTH + 120) break;
+                const exitImg = this.stage3ExitImage;
+                if (exitImg && exitImg.complete && exitImg.naturalWidth > 0) {
+                    const exitW = 360;
+                    const exitH = exitW * (exitImg.naturalHeight / exitImg.naturalWidth);
+                    const exitX = peekWX(CANVAS_WIDTH * 0.57);
+                    const exitY = gY - exitH + 8;
+                    if (exitX + exitW < -80 || exitX > CANVAS_WIDTH + 120) break;
 
-                const glow = (gx, gy, r, a, hot = false) => {
-                    const core = hot ? '255, 178, 92' : '255, 207, 132';
-                    const grd = ctx.createRadialGradient(gx, gy, 0, gx, gy, r);
-                    grd.addColorStop(0, `rgba(${core}, ${a.toFixed(3)})`);
-                    grd.addColorStop(0.48, `rgba(${core}, ${(a * 0.36).toFixed(3)})`);
-                    grd.addColorStop(1, `rgba(${core}, 0)`);
-                    ctx.fillStyle = grd;
-                    ctx.beginPath(); ctx.arc(gx, gy, r, 0, Math.PI * 2); ctx.fill();
-                };
-
-                ctx.save();
-                ctx.globalAlpha *= 0.9;
-
-                // 谷の出口から漏れる薄い町明かり。地平線上だけに留める。
-                const lightBand = ctx.createLinearGradient(0, gY - 74, 0, gY + 2);
-                lightBand.addColorStop(0, 'rgba(255, 188, 104, 0)');
-                lightBand.addColorStop(0.62, `rgba(255, 166, 88, ${(0.12 * wp).toFixed(3)})`);
-                lightBand.addColorStop(1, 'rgba(255, 166, 88, 0)');
-                ctx.fillStyle = lightBand;
-                ctx.fillRect(exitX + 112, gY - 82, exitW - 96, 84);
-
-                // 遠い城下町。高さを抑えて、地面帯の上に貼り付く遠景として見せる。
-                const townBase = gY - 20;
-                const roofs = [
-                    { x: 250, w: 54, h: 20, wall: 18 },
-                    { x: 308, w: 70, h: 26, wall: 22 },
-                    { x: 382, w: 50, h: 18, wall: 16 }
-                ];
-                for (const r of roofs) {
-                    const x = exitX + r.x;
-                    const y = townBase - r.wall;
-                    ctx.fillStyle = this.interpolateColor('#5f4a36', '#2a2018', 0.52);
-                    ctx.fillRect(x, y, r.w, r.wall);
-                    ctx.fillStyle = this.interpolateColor('#2e3442', '#151922', 0.5);
-                    ctx.beginPath();
-                    ctx.moveTo(x - 8, y + 2);
-                    ctx.quadraticCurveTo(x + r.w * 0.5, y - r.h, x + r.w + 8, y + 2);
-                    ctx.lineTo(x + r.w + 4, y + 9);
-                    ctx.quadraticCurveTo(x + r.w * 0.5, y - r.h * 0.45, x - 4, y + 9);
-                    ctx.closePath(); ctx.fill();
-
-                    const lit = Math.sin(r.x * 0.19 + time * 0.7) > -0.1;
-                    ctx.fillStyle = lit ? `rgba(255, 202, 120, ${(0.28 * wp).toFixed(3)})` : 'rgba(28, 23, 26, 0.48)';
-                    ctx.fillRect(x + r.w * 0.38, y + 7, 8, 9);
-                    if (lit) glow(x + r.w * 0.38 + 4, y + 12, 14, 0.08 * wp);
+                    ctx.save();
+                    ctx.globalAlpha *= 0.9;
+                    ctx.filter = 'brightness(0.78) saturate(0.68) contrast(0.9)';
+                    ctx.drawImage(exitImg, exitX, exitY, exitW, exitH);
+                    ctx.filter = 'none';
+                    ctx.restore();
                 }
-
-                // 町のさらに奥の城影。細部は描かず、次ステージの存在だけを示す。
-                const keepX = exitX + 342;
-                ctx.fillStyle = this.interpolateColor('#342b38', '#17131c', 0.48);
-                ctx.fillRect(keepX + 12, gY - 62, 30, 42);
-                ctx.beginPath();
-                ctx.moveTo(keepX + 6, gY - 62);
-                ctx.lineTo(keepX + 27, gY - 78);
-                ctx.lineTo(keepX + 48, gY - 62);
-                ctx.closePath(); ctx.fill();
-                ctx.fillRect(keepX + 17, gY - 88, 20, 20);
-                ctx.beginPath();
-                ctx.moveTo(keepX + 12, gY - 88);
-                ctx.lineTo(keepX + 27, gY - 100);
-                ctx.lineTo(keepX + 42, gY - 88);
-                ctx.closePath(); ctx.fill();
-                glow(keepX + 28, gY - 50, 26, 0.1 * wp, true);
-
-                // 左右の岩肩。山道の「切れ目」に見せ、ゲームの水平地平線に接地させる。
-                const drawRockShoulder = (x, w, h, flip, seed) => {
-                    const top = gY - h;
-                    const lip = flip ? -1 : 1;
-                    const grad = ctx.createLinearGradient(0, top, 0, gY);
-                    grad.addColorStop(0, this.interpolateColor('#6b6070', '#312b38', 0.42));
-                    grad.addColorStop(1, this.interpolateColor('#3d3440', '#18151c', 0.52));
-                    ctx.fillStyle = grad;
-                    ctx.beginPath();
-                    if (!flip) {
-                        ctx.moveTo(x - 18, gY);
-                        ctx.lineTo(x + 4, top + h * 0.32);
-                        ctx.quadraticCurveTo(x + w * 0.26, top - 8, x + w * 0.52, top + h * 0.12);
-                        ctx.quadraticCurveTo(x + w * 0.86, top + h * 0.28, x + w + 22, gY);
-                    } else {
-                        ctx.moveTo(x - 22, gY);
-                        ctx.quadraticCurveTo(x + w * 0.14, top + h * 0.28, x + w * 0.48, top + h * 0.12);
-                        ctx.quadraticCurveTo(x + w * 0.74, top - 8, x + w - 4, top + h * 0.32);
-                        ctx.lineTo(x + w + 18, gY);
-                    }
-                    ctx.closePath(); ctx.fill();
-
-                    ctx.strokeStyle = 'rgba(22, 16, 20, 0.32)';
-                    ctx.lineWidth = 1;
-                    for (let i = 0; i < 4; i++) {
-                        const yy = top + h * (0.34 + i * 0.16);
-                        ctx.beginPath();
-                        ctx.moveTo(x + (flip ? 14 : 10) + i * 8 * lip, yy);
-                        ctx.quadraticCurveTo(x + w * 0.5, yy + 7 + Math.sin(seed + i) * 4, x + w - 16 - i * 5 * lip, yy + 2);
-                        ctx.stroke();
-                    }
-
-                    ctx.fillStyle = 'rgba(138, 114, 86, 0.26)';
-                    for (let i = 0; i < 7; i++) {
-                        const bx = x + 18 + i * (w - 34) / 6 + Math.sin(seed + i * 2.4) * 4;
-                        const bh = 13 + (Math.sin(seed + i) + 1) * 6;
-                        ctx.beginPath();
-                        ctx.moveTo(bx, gY - 2);
-                        ctx.lineTo(bx + 3 * lip, gY - bh);
-                        ctx.lineTo(bx + 6 * lip, gY - 2);
-                        ctx.closePath(); ctx.fill();
-                    }
-                };
-
-                drawRockShoulder(exitX + 34, 116, 82, false, 4.2);
-                drawRockShoulder(exitX + 188, 112, 68, true, 7.8);
-
-                // 低い道標と注連縄だけを置く。通行ゲートではなく、峠の終端サインに留める。
-                const postX = exitX + 176;
-                ctx.strokeStyle = this.interpolateColor('#4c3526', '#211711', 0.36);
-                ctx.lineWidth = 5;
-                ctx.lineCap = 'round';
-                ctx.beginPath(); ctx.moveTo(postX, gY - 8); ctx.lineTo(postX, gY - 58); ctx.stroke();
-                ctx.lineWidth = 4;
-                ctx.beginPath(); ctx.moveTo(postX + 54, gY - 6); ctx.lineTo(postX + 54, gY - 48); ctx.stroke();
-                ctx.strokeStyle = 'rgba(112, 82, 48, 0.78)';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(postX + 1, gY - 48);
-                ctx.quadraticCurveTo(postX + 27, gY - 37, postX + 53, gY - 42);
-                ctx.stroke();
-                ctx.lineCap = 'butt';
-                ctx.fillStyle = this.interpolateColor('#62442c', '#2b1c13', 0.34);
-                ctx.fillRect(postX - 7, gY - 68, 72, 12);
-                ctx.strokeStyle = 'rgba(23, 15, 10, 0.35)';
-                ctx.lineWidth = 1;
-                ctx.strokeRect(postX - 7, gY - 68, 72, 12);
-                glow(postX + 114, gY - 36, 38, 0.11 * wp, true);
-
-                ctx.restore();
                 break;
             }
 
