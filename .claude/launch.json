@@ -6,6 +6,12 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["preview_nocache_server.py", "8779"],
       "port": 8779
+    },
+    {
+      "name": "preview2",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["preview_nocache_server.py", "8781"],
+      "port": 8781
     }
   ]
 }
