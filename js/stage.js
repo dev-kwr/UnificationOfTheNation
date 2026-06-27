@@ -122,6 +122,23 @@ export class Stage {
             this.stairDrawScale = this.stairZoneWidth / sd.totalL; // 描画スケール (360/900=0.4)
         }
 
+        // --- Stage 3 山道添景画像 ---
+        if (this.stageNumber === 3) {
+            this.stage3ExitImage = new Image();
+            this.stage3ExitImage.src = 'images/stage3_mountain_exit.png';
+            this.stage3PropImages = {};
+            const stage3PropPaths = {
+                dosojin: 'images/stage3_prop_dosojin.png',
+                signpost: 'images/stage3_prop_signpost.png',
+                bambooFence: 'images/stage3_prop_bamboo_fence.png'
+            };
+            for (const [key, src] of Object.entries(stage3PropPaths)) {
+                const image = new Image();
+                image.src = src;
+                this.stage3PropImages[key] = image;
+            }
+        }
+
         // キャッシュ用オフスクリーンCanvasの初期化
         this.cachedAssets = {};
         this.initCache();
@@ -1803,12 +1820,14 @@ export class Stage {
                 });
             }
 
-            // 地平線の薄い霞
-            const haze = ctx.createLinearGradient(0, this.groundY - 120, 0, this.groundY + 20);
-            haze.addColorStop(0, 'rgba(255,255,255,0)');
-            haze.addColorStop(1, isSunnyStage ? 'rgba(210,228,255,0.12)' : 'rgba(190,210,255,0.08)');
-            ctx.fillStyle = haze;
-            ctx.fillRect(0, this.groundY - 120, CANVAS_WIDTH, 150);
+            // 地平線の薄い霞。Stage3は夕焼けの地面境界で横帯に見えるため描かない。
+            if (this.stageNumber !== 3) {
+                const haze = ctx.createLinearGradient(0, this.groundY - 120, 0, this.groundY + 20);
+                haze.addColorStop(0, 'rgba(255,255,255,0)');
+                haze.addColorStop(1, isSunnyStage ? 'rgba(210,228,255,0.12)' : 'rgba(190,210,255,0.08)');
+                ctx.fillStyle = haze;
+                ctx.fillRect(0, this.groundY - 120, CANVAS_WIDTH, 150);
+            }
         } else {
             // 室内の時間経過（進行に応じて朱色の光が移ろう）
             const stageP = this.clamp01(this.progress / this.maxProgress);
@@ -2131,9 +2150,7 @@ export class Stage {
             // ─── Stage3（山道） → Stage4（城下町）───────────────────────────
             // 山道を抜けた先に城下町の屋根が見える。瓦屋根のシルエットと石畳の始まり
             case 3: {
-                // 山道を抜けた先に広がる「夜の城下町」。瓦屋根の連なり・灯りのにじみ・火の見櫓
-                const townLeft = peekWX(CANVAS_WIDTH * 0.62);
-                const townRight = peekWX(CANVAS_WIDTH) + 80;
+                // 山道が右へ抜けて城下町へ向かう、進行方向に沿った峠の出口。
                 const wp = 0.6 + Math.sin(time * 1.6) * 0.4; // 灯りの脈動
                 const peekGlow = (gx, gyy, r, a) => {
                     const grd = ctx.createRadialGradient(gx, gyy, 0, gx, gyy, r);
@@ -2144,109 +2161,18 @@ export class Stage {
                     ctx.beginPath(); ctx.arc(gx, gyy, r, 0, Math.PI * 2); ctx.fill();
                 };
 
-                // 谷あいに灯る町明かりの暖色ハロー
-                peekGlow((townLeft + townRight) * 0.5, gY - 26, (townRight - townLeft) * 0.7, 0.16 * wp);
-
-                // 奥の屋根のシルエット（遠い町並み）
-                ctx.fillStyle = this.interpolateColor('#26242f', '#14131b', 0.42);
-                for (let i = 0; i < 7; i++) {
-                    const rx = townLeft + (townRight - townLeft) * (i / 6.5) + Math.sin(i * 12.9) * 8;
-                    const rw = 70 + (Math.sin(i * 7.3) + 1) * 26;
-                    const rh = 28 + (Math.cos(i * 5.1) + 1) * 14;
-                    ctx.beginPath();
-                    ctx.moveTo(rx - 8, gY - 38);
-                    ctx.lineTo(rx + rw * 0.5, gY - 38 - rh);
-                    ctx.lineTo(rx + rw + 8, gY - 38);
-                    ctx.closePath(); ctx.fill();
+                const exitImg = this.stage3ExitImage;
+                if (exitImg && exitImg.complete && exitImg.naturalWidth > 0) {
+                    const exitW = 410;
+                    const exitH = exitW * (exitImg.naturalHeight / exitImg.naturalWidth);
+                    const exitX = peekWX(CANVAS_WIDTH * 0.53);
+                    const exitY = gY - exitH + 24;
+                    ctx.save();
+                    ctx.globalAlpha *= 0.96;
+                    ctx.drawImage(exitImg, exitX, exitY, exitW, exitH);
+                    ctx.restore();
+                    peekGlow(exitX + exitW * 0.42, exitY + exitH * 0.55, 18, 0.12 * wp);
                 }
-
-                // 手前の瓦屋根の連なり（壁＋漆喰＋窓明かり＋反り瓦）
-                const peekRoofs = [
-                    { f: 0.66, w: 150, wallH: 64, rh: 40 },
-                    { f: 0.745, w: 190, wallH: 86, rh: 34 },
-                    { f: 0.84, w: 150, wallH: 72, rh: 46 },
-                    { f: 0.93, w: 130, wallH: 92, rh: 32 },
-                ];
-                for (const d of peekRoofs) {
-                    const x = peekWX(CANVAS_WIDTH * d.f);
-                    const wallY = gY - d.wallH;
-                    ctx.fillStyle = this.interpolateColor('#6a563f', '#2c2218', 0.34);
-                    ctx.fillRect(x, wallY, d.w, d.wallH);
-                    ctx.fillStyle = this.interpolateColor('#b6ab95', '#5e564a', 0.3);
-                    ctx.fillRect(x + 5, wallY + 6, d.w - 10, d.wallH * 0.4);
-                    const wins = d.w > 160 ? 4 : 3;
-                    for (let k = 0; k < wins; k++) {
-                        const wx = x + 16 + k * ((d.w - 32) / wins);
-                        const wy = wallY + 14;
-                        const lit = Math.sin(k * 9.1 + d.f * 30) > -0.25;
-                        ctx.fillStyle = lit ? `rgba(255, 206, 128, ${(0.55 * wp).toFixed(3)})` : 'rgba(28,24,30,0.6)';
-                        ctx.fillRect(wx, wy, 14, 16);
-                        if (lit) peekGlow(wx + 7, wy + 8, 24, 0.26 * wp);
-                    }
-                    ctx.fillStyle = this.interpolateColor('#3f4658', '#1c2029', 0.5);
-                    ctx.beginPath();
-                    ctx.moveTo(x - 18, wallY + 3);
-                    ctx.quadraticCurveTo(x + d.w * 0.5, wallY - d.rh, x + d.w + 18, wallY + 3);
-                    ctx.lineTo(x + d.w + 12, wallY + 13);
-                    ctx.quadraticCurveTo(x + d.w * 0.5, wallY - d.rh * 0.6, x - 12, wallY + 13);
-                    ctx.closePath(); ctx.fill();
-                    ctx.strokeStyle = 'rgba(184, 204, 242, 0.12)';
-                    ctx.lineWidth = 1.3;
-                    ctx.beginPath();
-                    ctx.moveTo(x - 16, wallY + 2);
-                    ctx.quadraticCurveTo(x + d.w * 0.5, wallY - d.rh, x + d.w + 16, wallY + 2);
-                    ctx.stroke();
-                }
-
-                // 火の見櫓のシルエット（町のランドマーク）
-                const peekYx = peekWX(CANVAS_WIDTH * 0.71);
-                const peekYTop = gY - 192, peekYBaseW = 22, peekYTopW = 13;
-                ctx.strokeStyle = this.interpolateColor('#33281c', '#181009', 0.42);
-                ctx.lineWidth = 2.4; ctx.lineCap = 'round';
-                ctx.beginPath();
-                ctx.moveTo(peekYx - peekYBaseW, gY); ctx.lineTo(peekYx - peekYTopW, peekYTop);
-                ctx.moveTo(peekYx + peekYBaseW, gY); ctx.lineTo(peekYx + peekYTopW, peekYTop);
-                ctx.stroke();
-                ctx.lineWidth = 1.2;
-                for (let t = 0; t <= 3; t++) {
-                    const ty = gY + (peekYTop - gY) * (t / 3);
-                    const tw = peekYBaseW + (peekYTopW - peekYBaseW) * (t / 3);
-                    ctx.beginPath(); ctx.moveTo(peekYx - tw, ty); ctx.lineTo(peekYx + tw, ty); ctx.stroke();
-                    if (t < 3) {
-                        const ty2 = gY + (peekYTop - gY) * ((t + 1) / 3);
-                        const tw2 = peekYBaseW + (peekYTopW - peekYBaseW) * ((t + 1) / 3);
-                        ctx.beginPath();
-                        ctx.moveTo(peekYx - tw, ty); ctx.lineTo(peekYx + tw2, ty2);
-                        ctx.moveTo(peekYx + tw, ty); ctx.lineTo(peekYx - tw2, ty2);
-                        ctx.stroke();
-                    }
-                }
-                ctx.lineCap = 'butt';
-                ctx.fillStyle = this.interpolateColor('#3f4658', '#1c2029', 0.5);
-                ctx.beginPath();
-                ctx.moveTo(peekYx - peekYTopW - 6, peekYTop);
-                ctx.lineTo(peekYx, peekYTop - 14);
-                ctx.lineTo(peekYx + peekYTopW + 6, peekYTop);
-                ctx.closePath(); ctx.fill();
-                peekGlow(peekYx, peekYTop, 16, 0.4 * wp);
-
-                // 町の入口の常夜灯（近景・大きめ）
-                const toroX = peekWX(CANVAS_WIDTH * 0.635);
-                const toroH = 58;
-                ctx.fillStyle = this.interpolateColor('#837c72', '#3a352f', 0.36);
-                ctx.fillRect(toroX + 6, gY - toroH, 10, toroH);
-                ctx.fillRect(toroX, gY - toroH - 7, 22, 7);
-                ctx.fillStyle = 'rgba(40,36,30,0.85)';
-                ctx.fillRect(toroX + 1, gY - toroH - 20, 20, 13);
-                ctx.fillStyle = `rgba(255, 214, 130, ${(0.72 * wp).toFixed(3)})`;
-                ctx.fillRect(toroX + 4, gY - toroH - 17, 14, 8);
-                ctx.fillStyle = this.interpolateColor('#837c72', '#3a352f', 0.36);
-                ctx.beginPath();
-                ctx.moveTo(toroX - 4, gY - toroH - 20);
-                ctx.lineTo(toroX + 11, gY - toroH - 30);
-                ctx.lineTo(toroX + 26, gY - toroH - 20);
-                ctx.closePath(); ctx.fill();
-                peekGlow(toroX + 11, gY - toroH - 12, 40, 0.6 * wp);
 
                 break;
             }
@@ -2254,13 +2180,13 @@ export class Stage {
             // ─── Stage4（城下町） → Stage5（城内）───────────────────────────
             // 城の大門に到達。巨大な城門と石垣が右端を塞いでいる
             case 4: {
-                // 巨大な城の最下層に到達。反り立つ石垣と大手門が画面いっぱいにそびえ、上端は画面外へ続く
+                // 巨大な戦国の城の最下層に到達。扇の勾配の石垣と櫓門が画面いっぱいにそびえ、上端は画面外へ続く
                 const baseTopY = -60;                          // 石垣上端（画面外）＝城が巨大である表現
                 const castleL = peekWX(CANVAS_WIDTH * 0.55);   // 石垣の地上左端
                 const castleR = peekWX(CANVAS_WIDTH) + 160;    // 右端（画面外右へ）
-                const topLeftX = castleL + 84;                 // 反り（扇の勾配）で上ほど内側
+                const topLeftX = castleL + 88;                 // 扇の勾配で上ほど内側
                 const gatePulse = 0.62 + Math.sin(time * 1.7) * 0.38;
-                const leftEdgeAt = (y) => castleL + 84 * (gY - y) / (gY - baseTopY);
+                const leftEdgeAt = (y) => castleL + 88 * (gY - y) / (gY - baseTopY);
                 const cGlow = (gx, gyy, r, a, hot) => {
                     const core = hot ? '255, 156, 78' : '255, 204, 128';
                     const grd = ctx.createRadialGradient(gx, gyy, 0, gx, gyy, r);
@@ -2270,7 +2196,7 @@ export class Stage {
                     ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(gx, gyy, r, 0, Math.PI * 2); ctx.fill();
                 };
 
-                // ── 巨大な石垣（反りのある台形・上端は画面外） ──
+                // ── 巨大な石垣（扇の勾配・上端は画面外） ──
                 const stoneGrad = ctx.createLinearGradient(0, baseTopY, 0, gY);
                 stoneGrad.addColorStop(0, this.interpolateColor('#565660', '#2c2b33', 0.42));
                 stoneGrad.addColorStop(1, this.interpolateColor('#33323a', '#161620', 0.5));
@@ -2280,6 +2206,7 @@ export class Stage {
                 ctx.lineTo(castleR, baseTopY);
                 ctx.lineTo(castleR, gY);
                 ctx.lineTo(castleL, gY);
+                ctx.lineTo(castleL + 22, gY - 64);   // 反りの裾（扇の勾配）
                 ctx.closePath();
                 ctx.fill();
 
@@ -2288,29 +2215,24 @@ export class Stage {
                 ctx.lineWidth = 1.2;
                 let stoneRow = 0;
                 for (let y = gY - 30; y > baseTopY; y -= 30) {
-                    const lx = leftEdgeAt(y);
+                    const lx = leftEdgeAt(y) + 4;
                     ctx.beginPath(); ctx.moveTo(lx, y); ctx.lineTo(castleR, y); ctx.stroke();
                     for (let xx = lx + 46 + (stoneRow % 2) * 26; xx < castleR; xx += 56) {
                         ctx.beginPath(); ctx.moveTo(xx, y); ctx.lineTo(xx, y + 30); ctx.stroke();
                     }
                     stoneRow++;
                 }
-                // 左隅の稜線ハイライト（月光）と鏡石（巨石）
+                // 左隅の稜線ハイライト（月光）
                 ctx.strokeStyle = 'rgba(184, 204, 242, 0.14)'; ctx.lineWidth = 2;
                 ctx.beginPath(); ctx.moveTo(castleL, gY); ctx.lineTo(topLeftX, baseTopY); ctx.stroke();
-                ctx.fillStyle = this.interpolateColor('#5e5e68', '#34333b', 0.4);
-                ctx.beginPath();
-                ctx.moveTo(castleL, gY); ctx.lineTo(leftEdgeAt(gY - 76), gY - 76);
-                ctx.lineTo(leftEdgeAt(gY - 76) + 34, gY - 76); ctx.lineTo(castleL + 38, gY);
-                ctx.closePath(); ctx.fill();
 
-                // ── 大手門（石垣の裾に穿たれた巨大な入口） ──
-                const gateW = 250, gateH = 188;
+                // ── 大手門の門口（石垣の裾に穿たれた巨大な入口） ──
+                const gateW = 250, gateH = 176;
                 const gateX = castleL + 150;
                 const gateY = gY - gateH;
                 ctx.fillStyle = this.interpolateColor('#42414a', '#1e1d23', 0.5);
-                ctx.fillRect(gateX - 28, gateY - 6, 28, gateH + 6);
-                ctx.fillRect(gateX + gateW, gateY - 6, 28, gateH + 6);
+                ctx.fillRect(gateX - 26, gateY - 4, 26, gateH + 4);
+                ctx.fillRect(gateX + gateW, gateY - 4, 26, gateH + 4);
                 ctx.fillStyle = 'rgba(8, 7, 9, 0.96)';
                 ctx.fillRect(gateX, gateY, gateW, gateH);
                 const halfW = gateW * 0.47;
@@ -2319,7 +2241,7 @@ export class Stage {
                 ctx.fillRect(gateX + gateW - halfW - 4, gateY + 8, halfW, gateH - 10);
                 ctx.fillStyle = 'rgba(150, 128, 88, 0.4)';
                 for (let r = 0; r < 4; r++) {
-                    const by = gateY + 28 + r * 44;
+                    const by = gateY + 26 + r * 42;
                     ctx.fillRect(gateX + 4, by, halfW, 5);
                     ctx.fillRect(gateX + gateW - halfW - 4, by, halfW, 5);
                 }
@@ -2327,35 +2249,54 @@ export class Stage {
                 ctx.fillRect(gateX + gateW * 0.5 - 5, gateY + 12, 10, gateH - 22);
                 cGlow(gateX + gateW * 0.5, gateY + gateH * 0.55, 150, 0.55 * gatePulse, true);
 
-                // 門の上の反り瓦の大屋根（石垣から張り出す門庇）
-                const roofTopY = gateY - 8;
-                ctx.fillStyle = this.interpolateColor('#4a5366', '#1f2531', 0.54);
-                ctx.beginPath();
-                ctx.moveTo(gateX - 60, roofTopY);
-                ctx.quadraticCurveTo(gateX + gateW * 0.5, roofTopY - 66, gateX + gateW + 60, roofTopY);
-                ctx.lineTo(gateX + gateW + 44, roofTopY + 20);
-                ctx.quadraticCurveTo(gateX + gateW * 0.5, roofTopY - 40, gateX - 44, roofTopY + 20);
-                ctx.closePath(); ctx.fill();
-                ctx.fillStyle = `rgba(255, 220, 120, ${(0.6 + Math.sin(time * 2) * 0.3).toFixed(3)})`;
-                ctx.fillRect(gateX + gateW * 0.5 - 3, roofTopY - 64, 6, 13);
-                ctx.strokeStyle = 'rgba(184, 204, 242, 0.16)'; ctx.lineWidth = 1.6;
-                ctx.beginPath();
-                ctx.moveTo(gateX - 56, roofTopY - 2);
-                ctx.quadraticCurveTo(gateX + gateW * 0.5, roofTopY - 66, gateX + gateW * 0.5, roofTopY - 64);
-                ctx.stroke();
-
-                // 屋根の上の石垣に並ぶ狭間（鉄砲狭間・矢狭間）
-                ctx.fillStyle = 'rgba(18, 16, 20, 0.8)';
-                for (let s = 0; s < 8; s++) {
-                    const sx = gateX - 24 + s * ((gateW + 48) / 7);
-                    const sy = roofTopY - 96;
-                    if (s % 2 === 0) ctx.fillRect(sx - 5, sy, 10, 16);
-                    else { ctx.beginPath(); ctx.moveTo(sx, sy - 2); ctx.lineTo(sx - 8, sy + 16); ctx.lineTo(sx + 8, sy + 16); ctx.closePath(); ctx.fill(); }
+                // ── 渡櫓（門の上に乗る白漆喰の櫓＝戦国の櫓門） ──
+                const yaX = gateX - 42, yaW = gateW + 84, yaH = 86;
+                const yaY = gateY - yaH - 6;
+                ctx.fillStyle = this.interpolateColor('#3c3b43', '#1a191f', 0.5); // 石落としの台
+                ctx.fillRect(yaX - 10, gateY - 14, yaW + 20, 14);
+                ctx.fillStyle = this.interpolateColor('#d6cebd', '#726a5b', 0.26); // 白漆喰壁
+                ctx.fillRect(yaX, yaY, yaW, yaH);
+                ctx.fillStyle = this.interpolateColor('#2e2620', '#14100b', 0.4);  // 腰の下見板
+                ctx.fillRect(yaX, yaY + yaH * 0.6, yaW, yaH * 0.4);
+                // 狭間（鉄砲狭間=四角／矢狭間=三角）
+                ctx.fillStyle = 'rgba(20, 18, 22, 0.88)';
+                for (let s = 0; s < 7; s++) {
+                    const sx = yaX + 28 + s * ((yaW - 56) / 6);
+                    if (s % 2 === 0) ctx.fillRect(sx - 5, yaY + 20, 10, 14);
+                    else { ctx.beginPath(); ctx.moveTo(sx, yaY + 18); ctx.lineTo(sx - 8, yaY + 34); ctx.lineTo(sx + 8, yaY + 34); ctx.closePath(); ctx.fill(); }
                 }
+                // 格子窓（灯り）
+                const winXs = [yaX + yaW * 0.34, yaX + yaW * 0.58];
+                ctx.fillStyle = `rgba(255, 206, 130, ${(0.55 * gatePulse).toFixed(3)})`;
+                for (const wxs of winXs) ctx.fillRect(wxs, yaY + 16, 30, 22);
+                ctx.strokeStyle = 'rgba(40, 32, 22, 0.6)'; ctx.lineWidth = 1;
+                for (const wxs of winXs) for (let g = 1; g < 3; g++) { ctx.beginPath(); ctx.moveTo(wxs + g * 10, yaY + 16); ctx.lineTo(wxs + g * 10, yaY + 38); ctx.stroke(); }
+                cGlow(yaX + yaW * 0.5, yaY + 28, 90, 0.3 * gatePulse, false);
+                // 渡櫓の反り瓦の大屋根
+                const ry = yaY;
+                ctx.fillStyle = this.interpolateColor('#3f4858', '#1b212c', 0.54);
+                ctx.beginPath();
+                ctx.moveTo(yaX - 58, ry + 4);
+                ctx.quadraticCurveTo(yaX + yaW * 0.5, ry - 70, yaX + yaW + 58, ry + 4);
+                ctx.lineTo(yaX + yaW + 42, ry + 22);
+                ctx.quadraticCurveTo(yaX + yaW * 0.5, ry - 42, yaX - 42, ry + 22);
+                ctx.closePath(); ctx.fill();
+                ctx.fillStyle = this.interpolateColor('#2a313d', '#12161d', 0.5); // 大棟
+                ctx.fillRect(yaX + yaW * 0.5 - 44, ry - 64, 88, 8);
+                // 両端の鯱（金）
+                ctx.fillStyle = `rgba(255, 220, 120, ${(0.62 + Math.sin(time * 2) * 0.3).toFixed(3)})`;
+                ctx.fillRect(yaX + yaW * 0.5 - 46, ry - 76, 6, 14);
+                ctx.fillRect(yaX + yaW * 0.5 + 40, ry - 76, 6, 14);
+                // 屋根の月リム
+                ctx.strokeStyle = 'rgba(190, 208, 244, 0.16)'; ctx.lineWidth = 1.6;
+                ctx.beginPath();
+                ctx.moveTo(yaX - 54, ry + 2);
+                ctx.quadraticCurveTo(yaX + yaW * 0.5, ry - 70, yaX + yaW * 0.5, ry - 68);
+                ctx.stroke();
 
                 // 門前の篝火（左右・スケール感と暖かみ）
                 for (let side = 0; side < 2; side++) {
-                    const fx = side === 0 ? gateX - 54 : gateX + gateW + 54;
+                    const fx = side === 0 ? gateX - 50 : gateX + gateW + 50;
                     ctx.strokeStyle = 'rgba(40, 34, 26, 0.85)'; ctx.lineWidth = 3;
                     ctx.beginPath(); ctx.moveTo(fx, gY); ctx.lineTo(fx, gY - 46); ctx.stroke();
                     ctx.fillStyle = 'rgba(50, 42, 30, 0.9)';
@@ -2609,6 +2550,35 @@ export class Stage {
         ctx.globalAlpha = 1;
     }
     
+    renderStage3RoadsideProps(ctx) {
+        const images = this.stage3PropImages;
+        if (!images) return;
+
+        const props = [
+            { type: 'signpost', worldX: 1280, height: 108, y: 4,  alpha: 0.74, parallax: 0.88 },
+            { type: 'bambooFence', worldX: 3180, height: 54,  y: 6,  alpha: 0.64, parallax: 0.84 },
+            { type: 'dosojin', worldX: 5260, height: 66,  y: 5,  alpha: 0.68, parallax: 0.88 },
+            { type: 'bambooFence', worldX: 7280, height: 58,  y: 6,  alpha: 0.60, parallax: 0.84 }
+        ];
+
+        for (const prop of props) {
+            const image = images[prop.type];
+            if (!image || !image.complete || image.naturalWidth <= 0) continue;
+
+            const width = prop.height * (image.naturalWidth / image.naturalHeight);
+            const x = prop.worldX - this.progress * prop.parallax;
+            if (x + width < -80 || x > CANVAS_WIDTH + 80) continue;
+
+            const y = this.groundY - prop.height + prop.y;
+            ctx.save();
+            ctx.globalAlpha *= prop.alpha;
+            ctx.filter = 'brightness(0.74) saturate(0.62) contrast(0.86)';
+            ctx.drawImage(image, x, y, width, prop.height);
+            ctx.filter = 'none';
+            ctx.restore();
+        }
+    }
+
     renderStageElements(ctx, currentPalette) {
         const p = this.progress;
         
@@ -3747,7 +3717,6 @@ export class Stage {
                         }
                     }
                 }
-
                 break;
             }
 
@@ -3795,10 +3764,11 @@ export class Stage {
                 drawMountainBand(0.12, 560, 180, currentPalette.far, 0.36);
                 drawMountainBand(0.22, 430, 130, currentPalette.mid, 0.24);
 
-                // 山際の霧
-                const mist = ctx.createLinearGradient(0, this.groundY - 190, 0, this.groundY - 30);
+                // 山際の霧。地面の境界で線にならないよう下端は薄く戻す。
+                const mist = ctx.createLinearGradient(0, this.groundY - 190, 0, this.groundY - 18);
                 mist.addColorStop(0, 'rgba(220, 210, 230, 0)');
-                mist.addColorStop(1, 'rgba(196, 182, 210, 0.13)');
+                mist.addColorStop(0.72, 'rgba(196, 182, 210, 0.09)');
+                mist.addColorStop(1, 'rgba(196, 182, 210, 0)');
                 ctx.fillStyle = mist;
                 ctx.fillRect(0, this.groundY - 190, CANVAS_WIDTH, 180);
 
@@ -3818,13 +3788,13 @@ export class Stage {
                     
                     const roll = this.noise1D(seed + 6.2);
 
-                    if (roll > 0.62) {
-                        // 苔むした岩
-                        const rw = 18 + this.noise1D(seed + 2.1) * 28;
-                        const rh = 10 + this.noise1D(seed + 2.7) * 18;
+                    if (roll > 0.74) {
+                        // 遠景の小岩。丸い黒い低木には見えないよう、小さく低く抑える。
+                        const rw = 12 + this.noise1D(seed + 2.1) * 18;
+                        const rh = 6 + this.noise1D(seed + 2.7) * 9;
                         const rockGrad = ctx.createLinearGradient(x, this.groundY - rh, x, this.groundY);
-                        rockGrad.addColorStop(0, this.interpolateColor(currentPalette.near, '#3a4438', 0.52));
-                        rockGrad.addColorStop(1, this.interpolateColor(currentPalette.near, '#1a1e18', 0.62));
+                        rockGrad.addColorStop(0, this.interpolateColor(currentPalette.near, '#4a4038', 0.38));
+                        rockGrad.addColorStop(1, this.interpolateColor(currentPalette.near, '#2a201a', 0.46));
                         ctx.fillStyle = rockGrad;
                         ctx.beginPath();
                         ctx.moveTo(x - 4, this.groundY);
@@ -3832,39 +3802,26 @@ export class Stage {
                         ctx.quadraticCurveTo(x + rw * 0.7, this.groundY - rh * 0.88, x + rw + 4, this.groundY);
                         ctx.closePath();
                         ctx.fill();
-                        // 苔のハイライト
-                        ctx.fillStyle = `rgba(86, 112, 72, ${0.18 + this.noise1D(seed + 3.4) * 0.12})`;
+                        // 夕方の弱いリムだけを残す
+                        ctx.fillStyle = `rgba(190, 132, 92, ${0.07 + this.noise1D(seed + 3.4) * 0.05})`;
                         ctx.beginPath();
                         ctx.ellipse(x + rw * 0.45, this.groundY - rh * 0.72, rw * 0.28, rh * 0.22, 0, 0, Math.PI * 2);
                         ctx.fill();
-                    } else if (roll > 0.3) {
-                        // 低木（丸みのある自然なシルエット）
-                        const bw = 14 + this.noise1D(seed + 3.1) * 16;
-                        const bh = 12 + this.noise1D(seed + 3.6) * 14;
-                        const bushColor = this.interpolateColor(currentPalette.near, '#1a2818', 0.48);
-                        ctx.fillStyle = bushColor;
-                        ctx.beginPath();
-                        ctx.ellipse(x + bw * 0.5, this.groundY - bh * 0.5, bw * 0.56, bh * 0.56, 0, 0, Math.PI * 2);
-                        ctx.fill();
-                        // 横に小さい塊を2つ追加して自然に
-                        if (this.noise1D(seed + 4.2) > 0.4) {
-                            ctx.beginPath();
-                            ctx.ellipse(x + bw * 0.9, this.groundY - bh * 0.3, bw * 0.32, bh * 0.36, 0.2, 0, Math.PI * 2);
-                            ctx.fill();
-                        }
                     } else {
                         // 小石の集まり
-                        const stoneCount = 2 + Math.floor(this.noise1D(seed + 5.1) * 3);
-                        ctx.fillStyle = this.interpolateColor(currentPalette.near, '#2a2824', 0.56);
+                        const stoneCount = 1 + Math.floor(this.noise1D(seed + 5.1) * 2);
+                        ctx.fillStyle = this.interpolateColor(currentPalette.near, '#3a3028', 0.38);
                         for (let s = 0; s < stoneCount; s++) {
                             const sx = x + s * (6 + this.noise1D(seed + 5.5 + s) * 8);
-                            const sr = 3 + this.noise1D(seed + 5.8 + s) * 5;
+                            const sr = 2 + this.noise1D(seed + 5.8 + s) * 3;
                             ctx.beginPath();
                             ctx.ellipse(sx, this.groundY - sr * 0.4, sr, sr * 0.6, 0, 0, Math.PI * 2);
                             ctx.fill();
                         }
                     }
                 }
+
+                this.renderStage3RoadsideProps(ctx);
 
                 break;
             }
@@ -3877,7 +3834,7 @@ export class Stage {
                 // 次stage(巨城)peekがスクロールで入る帯は中景の建物を間引いて「町の終わり＝城」に見せる
                 const peekAnchorScreenX = (this.maxProgress - 150 - p) * 0.98;
                 const peekBlockActive = peekAnchorScreenX < CANVAS_WIDTH + 460;
-                const peekBlockLeft = peekAnchorScreenX - 420;
+                const peekBlockLeft = peekAnchorScreenX - 883; // 城左端(-403)+建物最大張り出し(~480)で家が城に被らない
 
                 // 灯りの脈動（位置は固定・輝度のみ）
                 const pulse = (seed) => 0.72 + Math.sin(time * 1.8 + seed) * 0.28;
@@ -4699,18 +4656,193 @@ export class Stage {
     }
 
     renderGroundBamboo(ctx, renderProgress, darken) {
-        const horizonY = this.groundY;
+        const horizonY = this.groundY; // 地平線（奥）。林床はここから手前へ広がる
         const bottomY = CANVAS_HEIGHT;
+        const span = bottomY - horizonY;
 
-        // 1. 路面（天面）- 他ステージと同じく全面路面に変更し、彩度を抑えた苔や土の色に変更
+        // 踏み分け道の中心線（奥は画面中央やや左に収束、手前へ向け緩やかにうねる）
+        // depth=0(奥)〜1(手前)。連続式なのでフラッシングしない。
+        const pathScrollPhase = renderProgress * 0.0016;
+        const pathCenterAt = (depth) => {
+            const conv = CANVAS_WIDTH * (0.46 + this.noiseSigned(0) * 0.0); // 奥の収束点
+            // 手前へ向かうほど中心を少し右へ流し、緩やかなうねりを sin で重ねる
+            const drift = (depth - 0.0) * CANVAS_WIDTH * 0.06;
+            const sway = Math.sin(depth * 2.1 + pathScrollPhase) * CANVAS_WIDTH * 0.05 * depth;
+            return conv + drift + sway;
+        };
+        // 道幅（奥は細く手前は広い台形）
+        const pathHalfWidthAt = (depth) => CANVAS_WIDTH * (0.018 + depth * depth * 0.16);
+
+        // 1. 路面グラデ（湿った苔と土。現状ベースを維持しつつ darken 反映）
         const roadGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
         roadGrad.addColorStop(0, this.interpolateColor('#354026', '#141a0e', darken * 0.65));
         roadGrad.addColorStop(0.6, this.interpolateColor('#445232', '#1a2212', darken * 0.5));
         roadGrad.addColorStop(1, this.interpolateColor('#303a22', '#10150a', darken * 0.65));
         ctx.fillStyle = roadGrad;
-        ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
+        ctx.fillRect(0, horizonY, CANVAS_WIDTH, span);
 
-        // 2. 落ち葉（パース付き） - 静的な装飾。奥に向かって密度を高める。
+        ctx.save();
+
+        // 2. 踏み分け道（土が見える小道）— 奥から手前へ台形状の帯。
+        //    やや明るい土色を縦グラデで敷き、縁は苔へ馴染ませる。
+        const pathStepN = 26;
+        const pathDirt = this.interpolateColor('#5a4a30', '#221a0e', darken * 0.6);
+        const pathDirtLo = this.interpolateColor('#463821', '#181206', darken * 0.6);
+        for (let s = 0; s < pathStepN; s++) {
+            const d0 = s / pathStepN;
+            const d1 = (s + 1) / pathStepN;
+            const y0 = horizonY + d0 * span;
+            const y1 = horizonY + d1 * span;
+            const cx0 = pathCenterAt(d0);
+            const cx1 = pathCenterAt(d1);
+            const hw0 = pathHalfWidthAt(d0);
+            const hw1 = pathHalfWidthAt(d1);
+            // 道の土は手前ほど露出が強い
+            const tDirt = this.interpolateColor(pathDirtLo, pathDirt, d0);
+            const alpha = 0.18 + d0 * 0.30;
+            ctx.fillStyle = tDirt.replace('rgb(', 'rgba(').replace(')', `, ${alpha.toFixed(3)})`);
+            ctx.beginPath();
+            ctx.moveTo(cx0 - hw0, y0);
+            ctx.lineTo(cx0 + hw0, y0);
+            ctx.lineTo(cx1 + hw1, y1);
+            ctx.lineTo(cx1 - hw1, y1);
+            ctx.closePath();
+            ctx.fill();
+        }
+        // 道の中央に踏み締められた明るい筋（手前ほど明瞭）
+        const pathHi = this.interpolateColor('#6f5b3a', '#2a2010', darken * 0.55);
+        for (let s = 0; s < pathStepN; s++) {
+            const d0 = s / pathStepN;
+            const d1 = (s + 1) / pathStepN;
+            const y0 = horizonY + d0 * span;
+            const y1 = horizonY + d1 * span;
+            const cx0 = pathCenterAt(d0);
+            const cx1 = pathCenterAt(d1);
+            const hw0 = pathHalfWidthAt(d0) * 0.5;
+            const hw1 = pathHalfWidthAt(d1) * 0.5;
+            const alpha = (0.05 + d0 * 0.12);
+            ctx.fillStyle = pathHi.replace('rgb(', 'rgba(').replace(')', `, ${alpha.toFixed(3)})`);
+            ctx.beginPath();
+            ctx.moveTo(cx0 - hw0, y0);
+            ctx.lineTo(cx0 + hw0, y0);
+            ctx.lineTo(cx1 + hw1, y1);
+            ctx.lineTo(cx1 - hw1, y1);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // 3. 苔パッチ / 剥き出しの土パッチ（kaido手法・連続スクロールでフラッシング無し）
+        //    道の上では土色寄り、脇では苔(緑)寄りに振り分けムラを出す。
+        const mossGreen = this.interpolateColor('#4c5e2e', '#1c2410', darken * 0.6);
+        const mossDark = this.interpolateColor('#37491f', '#141b0a', darken * 0.6);
+        const dirtBrown = this.interpolateColor('#6a5536', '#241b0d', darken * 0.6);
+        const patchScroll = renderProgress * 0.9;
+        const patchSpan = 200;
+        for (let j = 0; j < 7; j++) {
+            const depth = (j + 0.5) / 7;
+            const py = horizonY + depth * span;
+            const rowScroll = patchScroll * (0.85 + depth * 0.25);
+            const pStart = Math.floor((rowScroll - patchSpan) / patchSpan);
+            const pEnd = Math.ceil((rowScroll + CANVAS_WIDTH + patchSpan) / patchSpan);
+            const cx = pathCenterAt(depth);
+            const hw = pathHalfWidthAt(depth);
+            for (let i = pStart; i <= pEnd; i++) {
+                const seed = i * 7.3 + j * 3.1;
+                const px = i * patchSpan - rowScroll + this.noiseSigned(seed) * 78;
+                if (px < -patchSpan || px > CANVAS_WIDTH + patchSpan) continue;
+                const pw = (54 + this.noise1D(seed + 1) * 104) * (0.55 + depth);
+                const ph = (7 + this.noise1D(seed + 2) * 9) * (0.55 + depth);
+                const onPath = Math.abs(px - cx) < hw * 1.1;
+                const r = this.noise1D(seed + 3);
+                let col;
+                if (onPath) {
+                    // 道の上は土ムラ中心。たまに苔の取り残し。
+                    col = r > 0.78
+                        ? mossDark.replace('rgb(', 'rgba(').replace(')', `, ${(0.05 + depth * 0.06).toFixed(3)})`)
+                        : dirtBrown.replace('rgb(', 'rgba(').replace(')', `, ${(0.05 + depth * 0.07).toFixed(3)})`);
+                } else {
+                    // 林床の脇は苔のパッチと剥き出しの土が混在
+                    if (r > 0.62) {
+                        col = dirtBrown.replace('rgb(', 'rgba(').replace(')', `, ${(0.05 + depth * 0.06).toFixed(3)})`);
+                    } else {
+                        col = (r > 0.32 ? mossGreen : mossDark)
+                            .replace('rgb(', 'rgba(').replace(')', `, ${(0.06 + depth * 0.08).toFixed(3)})`);
+                    }
+                }
+                ctx.fillStyle = col;
+                ctx.beginPath();
+                ctx.ellipse(px, py, pw, ph, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // 4. 落ち枝（短い線分。手前ほど大・濃い。連続スクロール）
+        const twigScroll = renderProgress * 0.96;
+        const twigSpan = 230;
+        const twigCol = this.interpolateColor('#52442c', '#1f180c', darken * 0.6);
+        for (let j = 0; j < 6; j++) {
+            const depth = (j + 1) / 6;
+            const ty = horizonY + depth * depth * span;
+            const rowScroll = twigScroll * (0.8 + depth * 0.3);
+            const tStart = Math.floor((rowScroll - twigSpan) / twigSpan);
+            const tEnd = Math.ceil((rowScroll + CANVAS_WIDTH + twigSpan) / twigSpan);
+            for (let i = tStart; i <= tEnd; i++) {
+                const seed = i * 9.7 + j * 4.3;
+                if (this.noise1D(seed + 6) < 0.6) continue;
+                const tx = i * twigSpan - rowScroll + this.noiseSigned(seed) * 90;
+                if (tx < -60 || tx > CANVAS_WIDTH + 60) continue;
+                const len = (10 + this.noise1D(seed + 1) * 22) * (0.5 + depth);
+                const ang = this.noiseSigned(seed + 2) * 1.2;
+                const dx = Math.cos(ang) * len * 0.5;
+                const dy = Math.sin(ang) * len * 0.5 * 0.4;
+                ctx.strokeStyle = twigCol.replace('rgb(', 'rgba(').replace(')', `, ${(0.2 + depth * 0.25).toFixed(3)})`);
+                ctx.lineWidth = (0.8 + depth * 1.6);
+                ctx.beginPath();
+                ctx.moveTo(tx - dx, ty - dy);
+                ctx.lineTo(tx + dx, ty + dy);
+                ctx.stroke();
+            }
+        }
+
+        // 5. 小石・苔むした石（手前ほど大。石は sy=horizon+depth*depth で手前集中）
+        const stoneScroll = renderProgress * 1.0;
+        const stoneSpan = 160;
+        for (let j = 0; j < 6; j++) {
+            const depth = (j + 1) / 6;
+            const sy = horizonY + depth * depth * span;
+            const rowScroll = stoneScroll * (0.8 + depth * 0.35);
+            const sStart = Math.floor((rowScroll - stoneSpan) / stoneSpan);
+            const sEnd = Math.ceil((rowScroll + CANVAS_WIDTH + stoneSpan) / stoneSpan);
+            for (let i = sStart; i <= sEnd; i++) {
+                const seed = i * 12.4 + j * 5.6;
+                if (this.noise1D(seed + 4) < 0.58) continue;
+                const sx = i * stoneSpan - rowScroll + this.noiseSigned(seed) * 64;
+                if (sx < -40 || sx > CANVAS_WIDTH + 40) continue;
+                const sw = (3 + this.noise1D(seed + 1) * 6) * (0.5 + depth);
+                const mossy = this.noise1D(seed + 7) > 0.5; // 苔むした石
+                // 石本体（土色）と上面ハイライト
+                ctx.fillStyle = `rgba(${Math.round(78 * (1 - darken * 0.55))},${Math.round(66 * (1 - darken * 0.55))},${Math.round(48 * (1 - darken * 0.55))},${(0.26 + depth * 0.2).toFixed(3)})`;
+                ctx.beginPath();
+                ctx.ellipse(sx, sy, sw, sw * 0.62, 0, 0, Math.PI * 2);
+                ctx.fill();
+                if (mossy) {
+                    // 苔むした石：上側に緑の被り
+                    ctx.fillStyle = mossGreen.replace('rgb(', 'rgba(').replace(')', `, ${(0.22 + depth * 0.18).toFixed(3)})`);
+                    ctx.beginPath();
+                    ctx.ellipse(sx - sw * 0.15, sy - sw * 0.2, sw * 0.7, sw * 0.4, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    // 乾いた小石：明るいハイライト
+                    ctx.fillStyle = `rgba(${Math.round(196 * (1 - darken * 0.5))},${Math.round(182 * (1 - darken * 0.5))},${Math.round(150 * (1 - darken * 0.5))},${(0.16 + depth * 0.14).toFixed(3)})`;
+                    ctx.beginPath();
+                    ctx.ellipse(sx - sw * 0.2, sy - sw * 0.22, sw * 0.5, sw * 0.3, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+        ctx.restore();
+
+        // 6. 落ち葉（既存レイヤーを温存。最後に重ねる。連続式 i*spacing-scroll）
         const spacing = 64; // 間隔を広げて負荷軽減
         const scroll = renderProgress * 1.02;
         const start = Math.floor((scroll - 100) / spacing);
@@ -4723,10 +4855,10 @@ export class Stage {
             const leafCount = 9 + Math.floor(this.noise1D(seed + 3.7) * 10);
             for (let l = 0; l < leafCount; l++) {
                 const ls = seed + l * 2.37;
-                
+
                 // 密度勾配: 乱数の累乗などで奥（0）に偏らせる
-                // noise1D を 0.5 乗（平方根）することで 0 寄りの分布にする
-                const leafDepth = Math.pow(this.noise1D(ls + 9.2), 1.6); // 1.6乗することで奥(yが小さい方)に密度を集中させる
+                // noise1D を 1.6 乗することで奥(yが小さい方)に密度を集中させる
+                const leafDepth = Math.pow(this.noise1D(ls + 9.2), 1.6);
                 const lx = i * spacing - scroll + this.noiseSigned(ls + 1.1) * 40;
 
                 if (lx < -40 || lx > CANVAS_WIDTH + 40) continue;
@@ -4734,10 +4866,10 @@ export class Stage {
                 const ly = horizonY + leafDepth * (bottomY - horizonY);
                 const len = 6 + leafDepth * 9; // サイズ範囲を落下葉(6-15)に揃える
                 const rot = this.noise1D(ls + 8.1) * Math.PI * 2;
-                
+
                 // 奥ほど密度高く不透明、手前ほど薄くまばら（darken は夜間補正）
                 const alpha = (0.22 + (1 - leafDepth) * 0.42) * (1.0 - darken * 0.5);
-                
+
                 if (alpha > 0.05) {
                     const stableId = Math.abs(Math.floor(ls * 1000)) % 0xFFFF;
                     this.drawBambooLeaf(ctx, lx, ly, len, rot, '', alpha, stableId, leafDepth);
@@ -4746,10 +4878,8 @@ export class Stage {
         }
         ctx.restore();
 
-        // (落下した葉っぱの描画はStage.render()内のrenderBambooFallingLeavesで行うため、ここでは削除)
-
-        // 境界の影（壁との接地面）
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+        // 7. 地平線との接地に薄い影ライン
+        ctx.fillStyle = `rgba(0, 0, 0, ${(0.2 + darken * 0.12).toFixed(3)})`;
         ctx.fillRect(0, horizonY, CANVAS_WIDTH, 4);
     }
 
@@ -4845,29 +4975,209 @@ export class Stage {
     }
 
     renderGroundMountain(ctx, renderProgress, darken) {
-        const horizonY = this.groundY;
+        const horizonY = this.groundY; // 地面の上端＝地平線（奥行きの起点）
         const bottomY = CANVAS_HEIGHT;
+        const groundH = bottomY - horizonY;
 
+        // 1) 路面グラデ：逢魔が時。奥(遠/明)は低い夕日を拾う暖アンバー褐色、中は陰り、手前(近)は冷たく沈む
         const roadGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
-        roadGrad.addColorStop(0, this.interpolateColor('#5d5146', '#1a1815', darken * 0.6));
-        roadGrad.addColorStop(0.5, this.interpolateColor('#7e6a59', '#3a332d', darken * 0.45));
-        roadGrad.addColorStop(1, this.interpolateColor('#4a3f35', '#15120f', darken * 0.85));
+        roadGrad.addColorStop(0, this.interpolateColor('#8a6e52', '#2c2118', darken * 0.6));
+        roadGrad.addColorStop(0.5, this.interpolateColor('#6f5945', '#241b13', darken * 0.5));
+        roadGrad.addColorStop(1, this.interpolateColor('#33291f', '#0f0b07', darken * 0.85));
         ctx.fillStyle = roadGrad;
-        ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
+        ctx.fillRect(0, horizonY, CANVAS_WIDTH, groundH);
 
-        const gravelSpacing = 62;
-        const scroll = renderProgress * 1.04;
-        const start = Math.floor((scroll - 180) / gravelSpacing);
-        const end = Math.ceil((scroll + CANVAS_WIDTH + 180) / gravelSpacing);
-        for (let i = start; i <= end; i++) {
-            const seed = i * 11.27;
-            const depth = this.noise1D(seed + 5.5);
-            const gx = i * gravelSpacing - scroll + this.noiseSigned(seed + 0.5) * 16;
-            const gy = horizonY + depth * (bottomY - horizonY);
-            const r = (1.5 + depth * 6) * (1 + this.noise1D(seed + 2.6) * 0.5);
-            ctx.fillStyle = this.interpolateColor('#8c7e70', '#25201c', darken * 0.8 + depth * 0.2);
-            ctx.beginPath(); ctx.ellipse(gx, gy, r * 1.3, r * 0.7, this.noiseSigned(seed + 3.8) * 0.5, 0, Math.PI * 2); ctx.fill();
+        ctx.save();
+
+        // 角ばった岩を描くヘルパー：楕円の重ねでなく多角形シルエット＋マットなファセット（陽/陰の面）で立体を出す。
+        // 光沢楕円をやめることで「水滴・流動体」っぽさを消す。光源は右上の夕日。
+        const drawRock = (rx, ry, rw, rh, seed, depth) => {
+            const n = 6 + Math.floor(this.noise1D(seed + 0.5) * 3); // 6〜8頂点
+            const ang0 = this.noiseSigned(seed + 0.9) * 0.6;
+            const vx = [], vy = [];
+            for (let k = 0; k < n; k++) {
+                const a = ang0 + (k / n) * Math.PI * 2;
+                const rr = 0.68 + this.noise1D(seed + k * 2.3 + 1.1) * 0.54; // 半径をばらつかせ角張らせる
+                vx.push(rx + Math.cos(a) * rw * rr);
+                vy.push(ry + Math.sin(a) * rh * rr);
+            }
+            const tracePoly = () => {
+                ctx.beginPath();
+                ctx.moveTo(vx[0], vy[0]);
+                for (let k = 1; k < n; k++) ctx.lineTo(vx[k], vy[k]);
+                ctx.closePath();
+            };
+            // 接地影
+            ctx.fillStyle = `rgba(0,0,0,${0.2 + depth * 0.12})`;
+            ctx.beginPath();
+            ctx.ellipse(rx + rw * 0.16, ry + rh * 0.52, rw, rh * 0.32, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // 本体（中間色）
+            tracePoly();
+            ctx.fillStyle = this.interpolateColor('#5e584f', '#1b1916', darken * 0.6 + depth * 0.12);
+            ctx.fill();
+            // 本体内に限定してマットな面を塗る（上＝陽 / 下＝陰、境界は右上から光が来る向きに傾ける）
+            ctx.save();
+            tracePoly();
+            ctx.clip();
+            ctx.fillStyle = this.interpolateColor('#37332d', '#0c0b09', darken * 0.66 + depth * 0.12); // 陰の面（下・左寄り）
+            ctx.beginPath();
+            ctx.moveTo(rx - rw * 1.6, ry - rh * 0.06);
+            ctx.lineTo(rx + rw * 1.6, ry + rh * 0.12);
+            ctx.lineTo(rx + rw * 1.6, ry + rh * 1.8);
+            ctx.lineTo(rx - rw * 1.6, ry + rh * 1.8);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = this.interpolateColor('#837b6d', '#2c2925', darken * 0.5 + depth * 0.1); // 陽の面（上・右寄り）マット
+            ctx.beginPath();
+            ctx.moveTo(rx - rw * 1.6, ry - rh * 0.5);
+            ctx.lineTo(rx + rw * 1.6, ry - rh * 0.28);
+            ctx.lineTo(rx + rw * 1.6, ry - rh * 1.8);
+            ctx.lineTo(rx - rw * 1.6, ry - rh * 1.8);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+            // 角を締める輪郭線（暗）
+            tracePoly();
+            ctx.strokeStyle = `rgba(18,12,8,${0.45 + depth * 0.12})`;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            // 上側の稜線にだけ細い夕日リム（光沢でなく辺のなぞり）
+            ctx.strokeStyle = `rgba(255,198,132,${(0.16 + depth * 0.08) * (1 - darken * 0.55)})`;
+            ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            let started = false;
+            for (let k = 0; k <= n; k++) {
+                const kk = k % n;
+                if (vy[kk] < ry - rh * 0.12) {
+                    if (!started) { ctx.moveTo(vx[kk], vy[kk]); started = true; }
+                    else ctx.lineTo(vx[kk], vy[kk]);
+                } else { started = false; }
+            }
+            ctx.stroke();
+        };
+
+        // 1b) 地平線近くに低い夕日の照り返し（地面が暖色を拾う帯）
+        const glowH = groundH * 0.28;
+        const sunGlow = ctx.createLinearGradient(0, horizonY, 0, horizonY + glowH);
+        sunGlow.addColorStop(0, `rgba(255,176,104,${(0.20) * (1 - darken * 0.7)})`);
+        sunGlow.addColorStop(1, 'rgba(255,176,104,0)');
+        ctx.fillStyle = sunGlow;
+        ctx.fillRect(0, horizonY, CANVAS_WIDTH, glowH);
+
+        // 2) 乾いたひび割れ（不規則に蛇行・分岐する亀裂の網目。斑点でなく線で乾いた大地を表現。連続スクロールでフラッシングしない）
+        const crackScroll = renderProgress * 0.95;
+        const crackRows = 7;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        for (let j = 1; j <= crackRows; j++) {
+            const depth = j / (crackRows + 0.5);
+            const ry = horizonY + depth * depth * groundH;          // 手前ほど行間を広げる（パース）
+            const nextDepth = (j + 1) / (crackRows + 0.5);
+            const rowGap = (horizonY + nextDepth * nextDepth * groundH) - ry;
+            const cellW = 70 * (0.4 + depth * 1.3);                 // 手前ほどセル大
+            const rowScroll = crackScroll * (0.82 + depth * 0.4);   // 手前ほど速くスクロール
+            const iStart = Math.floor((rowScroll - cellW) / cellW);
+            const iEnd = Math.ceil((rowScroll + CANVAS_WIDTH + cellW) / cellW);
+            const lineW = 0.6 + depth * 1.1;
+            const alpha = (0.10 + depth * 0.13) * (1 - darken * 0.4);
+            const nodeX = (ii) => ii * cellW - rowScroll + this.noiseSigned(ii * 3.1 + j * 7.7) * cellW * 0.34;
+            const nodeY = (ii) => ry + this.noiseSigned(ii * 4.3 + j * 5.1) * (groundH * 0.03 + depth * 8);
+            for (let i = iStart; i <= iEnd; i++) {
+                const x0 = nodeX(i), y0 = nodeY(i);
+                const x1 = nodeX(i + 1), y1 = nodeY(i + 1);
+                if (x1 < -40 || x0 > CANVAS_WIDTH + 40) continue;
+                // 横の亀裂（蛇行する曲線。たまに途切れて自然に）
+                if (this.noise1D(i * 2.7 + j * 9.3) > 0.26) {
+                    const mx = (x0 + x1) / 2 + this.noiseSigned(i * 6.1 + j * 2.2) * cellW * 0.18;
+                    const my = (y0 + y1) / 2 + this.noiseSigned(i * 8.4 + j * 1.7) * 9 * (0.5 + depth);
+                    ctx.strokeStyle = `rgba(26,18,12,${alpha.toFixed(3)})`;
+                    ctx.lineWidth = lineW;
+                    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(mx, my, x1, y1); ctx.stroke();
+                    // 亀裂の下側に薄い明るいリップ（凹んで見える）
+                    ctx.strokeStyle = `rgba(210,180,130,${(alpha * 0.4 * (1 - darken * 0.6)).toFixed(3)})`;
+                    ctx.lineWidth = lineW * 0.6;
+                    ctx.beginPath(); ctx.moveTo(x0, y0 + lineW); ctx.quadraticCurveTo(mx, my + lineW, x1, y1 + lineW); ctx.stroke();
+                }
+                // 縦の亀裂（セルを区切る分岐。次の行へ向けてまばらに）
+                if (this.noise1D(i * 5.5 + j * 3.9) > 0.66) {
+                    const downY = y0 + rowGap * (0.55 + this.noise1D(i * 7.1 + j * 2.9) * 0.3);
+                    const bx = x0 + this.noiseSigned(i * 1.9 + j * 4.4) * cellW * 0.28;
+                    ctx.strokeStyle = `rgba(26,18,12,${(alpha * 0.9).toFixed(3)})`;
+                    ctx.lineWidth = lineW * 0.85;
+                    ctx.beginPath();
+                    ctx.moveTo(x0, y0);
+                    ctx.quadraticCurveTo(bx, (y0 + downY) / 2, x0 + this.noiseSigned(i * 2.1 + j) * cellW * 0.2, downY);
+                    ctx.stroke();
+                }
+            }
         }
+        ctx.lineCap = 'butt';
+        ctx.lineJoin = 'miter';
+
+        // 4) 地面に半ば埋もれた岩（中〜大）：depth行でまばらに。上側に夕日リムライト、下側に陰
+        const rockScroll = renderProgress * 0.96;
+        const rockSpan = 280;
+        for (let j = 0; j < 6; j++) {
+            const depth = (j + 0.7) / 6;
+            const ry = horizonY + depth * depth * groundH;
+            const rowScroll = rockScroll * (0.8 + depth * 0.35);
+            const rStart = Math.floor((rowScroll - rockSpan) / rockSpan);
+            const rEnd = Math.ceil((rowScroll + CANVAS_WIDTH + rockSpan) / rockSpan);
+            for (let i = rStart; i <= rEnd; i++) {
+                const seed = i * 9.1 + j * 4.7;
+                if (this.noise1D(seed + 6) < 0.7) continue; // まばらに
+                const rx = i * rockSpan - rowScroll + this.noiseSigned(seed) * 100;
+                const rw = (7 + this.noise1D(seed + 1) * 14) * (0.4 + depth * 1.0);
+                const rh = rw * (0.62 + this.noise1D(seed + 2) * 0.18);
+                drawRock(rx, ry, rw, rh, seed, depth);
+            }
+        }
+
+        // 5) 砂利／小石（小さな灰色の石。光沢ハイライト＝水滴感をやめてマットに。岩と同系のグレー）
+        const stoneScroll = renderProgress * 1.04;
+        const stoneSpan = 130;
+        for (let j = 0; j < 7; j++) {
+            const depth = (j + 1) / 7;
+            const sy = horizonY + depth * depth * groundH;
+            const rowScroll = stoneScroll * (0.82 + depth * 0.35);
+            const sStart = Math.floor((rowScroll - stoneSpan) / stoneSpan);
+            const sEnd = Math.ceil((rowScroll + CANVAS_WIDTH + stoneSpan) / stoneSpan);
+            for (let i = sStart; i <= sEnd; i++) {
+                const seed = i * 13.3 + j * 5.9;
+                if (this.noise1D(seed + 4) < 0.45) continue;
+                const sx = i * stoneSpan - rowScroll + this.noiseSigned(seed) * 56;
+                const sw = (2 + this.noise1D(seed + 1) * 4.5) * (0.5 + depth * 1.0);
+                ctx.fillStyle = `rgba(20,17,13,${0.16 + depth * 0.12})`;
+                ctx.beginPath();
+                ctx.ellipse(sx + sw * 0.1, sy + sw * 0.28, sw * 1.05, sw * 0.42, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = this.interpolateColor('#615b52', '#242019', darken * 0.6 + depth * 0.16);
+                ctx.beginPath();
+                ctx.ellipse(sx, sy, sw, sw * 0.72, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // 6) 手前のやや大きめの転石（暖色リム＋陰）。連続スクロール
+        const bouldScroll = renderProgress * 1.06;
+        const bouldSpan = 520;
+        const bouldY = horizonY + 0.86 * groundH;
+        const bStart = Math.floor((bouldScroll - bouldSpan) / bouldSpan);
+        const bEnd = Math.ceil((bouldScroll + CANVAS_WIDTH + bouldSpan) / bouldSpan);
+        for (let i = bStart; i <= bEnd; i++) {
+            const seed = i * 17.9 + 2.5;
+            if (this.noise1D(seed + 7) < 0.62) continue;
+            const bx = i * bouldSpan - bouldScroll + this.noiseSigned(seed) * 160;
+            const by = bouldY + this.noiseSigned(seed + 8) * groundH * 0.08;
+            const bw = 12 + this.noise1D(seed + 1) * 16;
+            const bh = bw * (0.62 + this.noise1D(seed + 2) * 0.16);
+            drawRock(bx, by, bw, bh, seed, 1.0);
+        }
+
+        ctx.restore();
+
+        // 地平線の硬い境界線は出さず、夕焼けの照り返しと地面グラデーションでなじませる。
     }
 
     renderGroundTown(ctx, renderProgress, darken) {

@@ -914,6 +914,9 @@ export function applyRendererMixin(PlayerClass) {
             pivotX: x + originalW * 0.5,
             pivotY: y + originalH * 0.62
         };
+        // in-model 描画中の素体スケール変換(world基準pivot)を武器側へ公開する。
+        // 鎖鎌の軌跡など world 座標で蓄積したものを、この変換を打ち消して world で描くために使う。
+        this._renderModelScaleTransform = renderModelScaleTransform;
 
         if (applyScaleTransform) {
             // scaleMultiplier で素体を一様拡大（将軍=SHOGUN_SCALE倍）。ピボットは world箱中心(originalW*0.5, originalH*0.62)。

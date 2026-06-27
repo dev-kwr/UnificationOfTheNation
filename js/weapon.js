@@ -2375,6 +2375,9 @@ export class Kusarigama extends SubWeapon {
         this.autoTrackCooldownMs = 95;
         this.nextAutoTrackTime = 0;
         this.orbitBackAngle = -Math.PI * 0.99; // 行きすぎたので中間へ戻す
+        // 軌跡(彗星リボン)用: 刃先の実座標を毎フレーム記録し、経年でフェードさせる
+        this.trailPoints = [];
+        this.trailMaxAgeMs = 155;
     }
 
     scaleMotionDuration(baseDurationMs) {
@@ -2419,6 +2422,7 @@ export class Kusarigama extends SubWeapon {
         this.attackTimer = this.totalDuration;
         this.echoHitEnemies.clear();
         this.nextAutoTrackTime = 0;
+        this.trailPoints = [];
         const init = this.getMotionState(player);
         this.tipX = init.tipX;
         this.tipY = init.tipY;
@@ -2431,9 +2435,11 @@ export class Kusarigama extends SubWeapon {
         }
     }
 
-    getMotionState(player) {
+    getMotionState(player, progressOverride, skipVelocity) {
         const direction = this.attackDirection;
-        const progress = Math.max(0, Math.min(1, 1 - (this.attackTimer / this.totalDuration)));
+        const progress = (progressOverride != null)
+            ? Math.max(0, Math.min(1, progressOverride))
+            : Math.max(0, Math.min(1, 1 - (this.attackTimer / this.totalDuration)));
         // 将軍など scaleMultiplier が 1 超のキャラクターでは肩位置もスケール済みワールド座標で計算する
         const ownerScale = (player && Number.isFinite(player.scaleMultiplier) && player.scaleMultiplier > 0)
             ? player.scaleMultiplier : 1;
@@ -2442,10 +2448,14 @@ export class Kusarigama extends SubWeapon {
         const shoulderY = player.y + 17 * ownerScale; // player.js の pivotY (idle想定) に合わせる
 
         const effectiveRange = ownerModelRange(this.range, player);
+        const ORBIT_HAND_REACH = 20.2;
         let radius = 0;
         let angle = 0;
         let phase = 'windup';
         let phaseT = 0;
+        let tension = 1;
+        let handX = shoulderX;
+        let handY = shoulderY;
 
         if (progress < this.windupEnd) {
             phase = 'windup';
@@ -2456,28 +2466,9 @@ export class Kusarigama extends SubWeapon {
             // 振りかぶり中は鎖をほぼ伸ばさない
             radius = effectiveRange * this.rangeScale * (0.006 + 0.006 * ease);
             angle = -0.72 + ease * 0.18;
-            const handX = shoulderX + direction * localX;
-            const handY = shoulderY + localY;
-            const chainDirX = direction * Math.cos(angle);
-            const chainDirY = Math.sin(angle);
-            const tipX = handX + chainDirX * radius;
-            const tipY = handY + chainDirY * radius;
-            return {
-                handX,
-                handY,
-                tipX,
-                tipY,
-                radius,
-                angle,
-                progress,
-                direction,
-                phase,
-                phaseT,
-                tension: 0.06 + ease * 0.04,
-                chainDirX,
-                chainDirY,
-                chainHeading: Math.atan2(chainDirY, chainDirX)
-            };
+            handX = shoulderX + direction * localX;
+            handY = shoulderY + localY;
+            tension = 0.06 + ease * 0.04;
         } else if (progress < this.extendEnd) {
             phase = 'throw';
             const throwRaw = (progress - this.windupEnd) / Math.max(0.001, (this.extendEnd - this.windupEnd));
@@ -2497,93 +2488,70 @@ export class Kusarigama extends SubWeapon {
             const holdY = -15.2 + 6.2 * holdEase;
             const localX = holdX + (18.4 - holdX) * launchEase + whip;
             const localY = holdY + (8.6 - holdY) * launchEase + Math.pow(throwT, 1.2) * 0.8;
-            const handX = shoulderX + direction * localX;
-            const handY = shoulderY + localY;
+            handX = shoulderX + direction * localX;
+            handY = shoulderY + localY;
             const radiusEase = 1 - Math.pow(1 - throwT, 2.5);
             radius = effectiveRange * this.rangeScale * (0.015 + 0.985 * radiusEase);
-            angle = -0.56 + 0.66 * throwT - Math.sin(throwT * Math.PI) * 0.04;
-            const chainDirX = direction * Math.cos(angle);
-            const chainDirY = Math.sin(angle);
-            const tipX = handX + chainDirX * radius;
-            const tipY = handY + chainDirY * radius;
-            return {
-                handX,
-                handY,
-                tipX,
-                tipY,
-                radius,
-                angle,
-                progress,
-                direction,
-                phase,
-                phaseT,
-                tension: 0.1 + radiusEase * 0.9,
-                chainDirX,
-                chainDirY,
-                chainHeading: Math.atan2(chainDirY, chainDirX)
-            };
+            // 投擲は地面と水平にまっすぐ前方へ伸ばす（後方への扇形回転は orbit フェーズで行う）
+            // 終点は 0（完全水平）で orbit 開始角と連続。中盤にごく僅かな鞭のしなりだけ残す。
+            angle = -Math.sin(throwT * Math.PI) * 0.03;
+            tension = 0.1 + radiusEase * 0.9;
         } else if (progress < this.orbitEnd) {
             phase = 'orbit';
             phaseT = (progress - this.extendEnd) / (this.orbitEnd - this.extendEnd);
             radius = effectiveRange * this.rangeScale;
-            // 前方へ投げ放った後に遠心力を感じるよう、ゆっくり回し始める
+            // 水平に投げ放った後、遠心力を感じるようゆっくり後方へ回し始める
             const eased = Math.pow(phaseT, 1.22);
-            angle = 0.05 + (this.orbitBackAngle - 0.05) * eased; // 終点は後方斜め上で止める
+            angle = this.orbitBackAngle * eased; // 開始 0（水平）→ 終点は後方
+            // 手元は throw 終端(local≈cos0.5*reach,sin0.5*reach)から後方の小円へ滑らかに引く
+            const orbitHand = 0.5 + (this.orbitBackAngle - 0.5) * eased;
+            handX = shoulderX + direction * (Math.cos(orbitHand) * ORBIT_HAND_REACH);
+            handY = shoulderY + Math.sin(orbitHand) * ORBIT_HAND_REACH - 0.4;
+            tension = 1.0;
         } else {
             phase = 'retract';
             phaseT = (progress - this.orbitEnd) / (1 - this.orbitEnd);
             // 縮退も常に円弧上（角度と半径を同時補間）
             const eased = 0.5 - Math.cos(phaseT * Math.PI) * 0.5;
             radius = effectiveRange * this.rangeScale * (1 - eased * 0.9);
-            const startAngle = this.orbitBackAngle; // 回転終点に合わせて開始角も後方斜め上へ揃える
+            const startAngle = this.orbitBackAngle; // 回転終点に合わせて開始角も後方へ揃える
             const endAngle = -Math.PI * 0.18;
             angle = startAngle + (endAngle - startAngle) * eased;
+            // 回し終わりの手元から収納位置へ戻す
+            const fromX = shoulderX + direction * (Math.cos(this.orbitBackAngle) * ORBIT_HAND_REACH);
+            const fromY = shoulderY + Math.sin(this.orbitBackAngle) * ORBIT_HAND_REACH - 0.4;
+            const toX = shoulderX + direction * 6.5;
+            const toY = shoulderY - 3.0;
+            handX = fromX + (toX - fromX) * eased;
+            handY = fromY + (toY - fromY) * eased;
+            tension = 0.82 + (1 - phaseT) * 0.18;
         }
 
         const chainDirX = direction * Math.cos(angle);
         const chainDirY = Math.sin(angle);
         const chainHeading = Math.atan2(chainDirY, chainDirX);
-
-        let handX = shoulderX;
-        let handY = shoulderY;
-        if (phase === 'orbit') {
-            const eased = Math.pow(phaseT, 1.22);
-            const orbitStart = 0.14;
-            const orbitEnd = this.orbitBackAngle;
-            const orbit = orbitStart + (orbitEnd - orbitStart) * eased;
-            const reach = 20.2;
-            handX = shoulderX + direction * (Math.cos(orbit) * reach);
-            handY = shoulderY + Math.sin(orbit) * reach - 0.4;
-        } else {
-            // 回し終わりから収納へ戻す
-            const eased = 0.5 - Math.cos(phaseT * Math.PI) * 0.5;
-            const fromOrbit = this.orbitBackAngle;
-            const fromX = shoulderX + direction * (Math.cos(fromOrbit) * 20.2);
-            const fromY = shoulderY + Math.sin(fromOrbit) * 20.2 - 0.4;
-            const toX = shoulderX + direction * 6.5;
-            const toY = shoulderY - 3.0;
-            handX = fromX + (toX - fromX) * eased;
-            handY = fromY + (toY - fromY) * eased;
-        }
         const tipX = handX + chainDirX * radius;
         const tipY = handY + chainDirY * radius;
 
-        return {
-            handX,
-            handY,
-            tipX,
-            tipY,
-            radius,
-            angle,
-            progress,
-            direction,
-            phase,
-            phaseT,
-            tension: phase === 'orbit' ? 1.0 : (0.82 + (1 - phaseT) * 0.18),
-            chainDirX,
-            chainDirY,
-            chainHeading
+        const state = {
+            handX, handY, tipX, tipY, radius, angle, progress, direction,
+            phase, phaseT, tension, chainDirX, chainDirY, chainHeading
         };
+
+        // 鎌の切先は常に「実際の進行方向(速度)」へ向ける。
+        // 円運動でも反転しないよう、先端位置を前後に微小サンプルした中心差分で求める。
+        if (skipVelocity) {
+            state.travelHeading = chainHeading;
+        } else {
+            const dp = 0.018;
+            const sa = this.getMotionState(player, Math.min(1, progress + dp), true);
+            const sb = this.getMotionState(player, Math.max(0, progress - dp), true);
+            let vx = sa.tipX - sb.tipX;
+            let vy = sa.tipY - sb.tipY;
+            if (Math.hypot(vx, vy) < 0.4) { vx = chainDirX; vy = chainDirY; } // 静止点では鎖方向で代替
+            state.travelHeading = Math.atan2(vy, vx);
+        }
+        return state;
     }
 
     getHandAnchor(player) {
@@ -2672,45 +2640,81 @@ export class Kusarigama extends SubWeapon {
     }
 
     getSickleGeometry(state) {
-        const travelHeading = state.phase === 'orbit'
-            ? (state.chainHeading - state.direction * Math.PI * 0.5)
-            : state.chainHeading;
-        const rotation = travelHeading + state.direction * Math.PI * 0.28;
+        // 刃の切先は常に実際の進行方向(travelHeading=速度)へ向ける。
+        // これにより throw では水平前方、orbit では円弧の接線方向を向き、後方回転でも上下反転しない。
+        const heading = Number.isFinite(state.travelHeading) ? state.travelHeading : state.chainHeading;
+        // 切先がほんの少し先行するよう、進行方向側へ僅かに倒す
+        const rotation = heading + state.direction * 0.14;
+        // 刃の腹(刃側)を回転の外周側へ揃えるため、左右の振り向きに応じて刃形状を上下反転する。
+        // (描画側で flipBlade を見て ctx.scale(1,-1) する)
+        const flipBlade = state.direction < 0;
         // 将軍など ownerScale > 1 のとき鎌刃の到達距離もスケールする
         const ownerScale = (state.ownerScale && state.ownerScale > 0) ? state.ownerScale : 1;
         const reach = 16 * ownerScale;
-        return { rotation, reach };
+        return { rotation, reach, flipBlade };
     }
     
     update(deltaTime) {
-        if (this.isAttacking) {
-            if (this.owner) {
-                const st = this.getMotionState(this.owner);
-                // 先端位置は常に円弧式から直接決定（直線ドリフトを防止）
-                this.tipX = st.tipX;
-                this.tipY = st.tipY;
+        if (!this.isAttacking) return;
 
-                // 投擲開始の瞬間に音を鳴らす (holdが終わって鎖が伸び始める瞬間)
-                if (!this._hasPlayedThrowSound && st.phase === 'throw') {
-                    const throwRaw = (st.progress - this.windupEnd) / Math.max(0.001, (this.extendEnd - this.windupEnd));
-                    const holdRatio = Math.max(0.28, Math.min(0.62, (this.throwHoldRatio || 0) + 0.24));
-                    if (throwRaw >= holdRatio) {
-                        audio.playDash();
-                        this._hasPlayedThrowSound = true;
-                    }
+        // タイマーを先に進めてから状態を計算する。
+        // こうすると update が記録する刃先位置と、直後の render が描く鎌が同じ progress になり、
+        // 軌跡の頭が刃先からズレない（1フレーム遅れの解消）。
+        this.attackTimer -= deltaTime * 1000;
+        if (this.attackTimer <= 0) {
+            this.isAttacking = false;
+            this.tipX = null;
+            this.tipY = null;
+            this.echoHitEnemies.clear();
+            this.trailPoints = [];
+            return;
+        }
+
+        if (this.owner) {
+            const st = this.getMotionState(this.owner);
+            // 先端位置は常に円弧式から直接決定（直線ドリフトを防止）
+            this.tipX = st.tipX;
+            this.tipY = st.tipY;
+
+            // 軌跡(彗星リボン): 刃先(切先)の world 座標を毎フレーム1回だけ記録する。
+            // （render 側で記録するとクローン/ゴーストの多重描画で汚染されるため update に置く）
+            this.recordTrail(st, deltaTime);
+
+            // 投擲開始の瞬間に音を鳴らす (holdが終わって鎖が伸び始める瞬間)
+            if (!this._hasPlayedThrowSound && st.phase === 'throw') {
+                const throwRaw = (st.progress - this.windupEnd) / Math.max(0.001, (this.extendEnd - this.windupEnd));
+                const holdRatio = Math.max(0.28, Math.min(0.62, (this.throwHoldRatio || 0) + 0.24));
+                if (throwRaw >= holdRatio) {
+                    audio.playDash();
+                    this._hasPlayedThrowSound = true;
                 }
-            }
-
-            this.attackTimer -= deltaTime * 1000;
-            if (this.attackTimer <= 0) {
-                this.isAttacking = false;
-                this.tipX = null;
-                this.tipY = null;
-                this.echoHitEnemies.clear();
             }
         }
     }
-    
+
+    // 刃先(切先)の world 座標を履歴に積み、経年(ms)で減衰させる。
+    // update から毎フレーム1回呼ぶ。記録は「扇回転(orbit)」中だけ
+    // （まっすぐ伸ばす throw/振りかぶり/収納では積まない。retract 中は既存点が経年で自然消滅）。
+    recordTrail(st, deltaTime) {
+        if (!Array.isArray(this.trailPoints)) this.trailPoints = [];
+        const dtMs = Math.max(0, deltaTime * 1000);
+        for (const pt of this.trailPoints) pt.age += dtMs;
+        const maxAge = this.trailMaxAgeMs;
+        if (this.trailPoints.length && this.trailPoints[0].age > maxAge) {
+            this.trailPoints = this.trailPoints.filter(pt => pt.age <= maxAge);
+        }
+        if (st.phase !== 'orbit' || st.radius < 38) return;
+        const ownerScale = (this.owner && Number.isFinite(this.owner.scaleMultiplier) && this.owner.scaleMultiplier > 0)
+            ? this.owner.scaleMultiplier : 1;
+        const sk = this.getSickleGeometry(Object.assign({}, st, { ownerScale }));
+        const bx = st.tipX + Math.cos(sk.rotation) * sk.reach;
+        const by = st.tipY + Math.sin(sk.rotation) * sk.reach;
+        const last = this.trailPoints[this.trailPoints.length - 1];
+        if (last && Math.hypot(bx - last.x, by - last.y) < 1.5 * ownerScale) return;
+        this.trailPoints.push({ x: bx, y: by, age: 0 });
+        if (this.trailPoints.length > 64) this.trailPoints.shift();
+    }
+
     getHitbox(player) {
         if (!this.isAttacking) return null;
 
@@ -2782,52 +2786,9 @@ export class Kusarigama extends SubWeapon {
 
         ctx.save();
 
-        const drawSmoothTrail = (points, width, color) => {
-            if (!points || points.length < 2) return;
-            ctx.strokeStyle = color;
-            ctx.lineWidth = width;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.beginPath();
-            ctx.moveTo(points[0].x, points[0].y);
-            for (let i = 1; i < points.length - 1; i++) {
-                const next = points[i + 1];
-                const midX = (points[i].x + next.x) * 0.5;
-                const midY = (points[i].y + next.y) * 0.5;
-                ctx.quadraticCurveTo(points[i].x, points[i].y, midX, midY);
-            }
-            const last = points[points.length - 1];
-            ctx.lineTo(last.x, last.y);
-            ctx.stroke();
-        };
-
-        // 軌跡は円弧のみ。厚みを分けて視認性を上げる
-        if (st.progress > this.extendEnd && st.radius > 22) {
-            const trailSweep = st.phase === 'orbit' ? Math.PI * 0.58 : Math.PI * 0.34;
-            const trailEnd = st.angle;
-            const trailStart = Math.min(0.12, trailEnd + trailSweep);
-            const samples = st.phase === 'orbit' ? 24 : 16;
-            const points = [];
-            for (let i = 0; i <= samples; i++) {
-                const t = i / samples;
-                const a = trailStart + (trailEnd - trailStart) * t;
-                points.push({
-                    x: st.handX + st.direction * Math.cos(a) * st.radius,
-                    y: st.handY + Math.sin(a) * st.radius
-                });
-            }
-            const tier = this.enhanceTier || 0;
-            const baseAlpha = st.phase === 'orbit' ? 0.42 : 0.28;
-            const baseColor = tier >= 3 ? '255, 194, 142' : '130, 225, 255';
-            const edgeColor = tier >= 3 ? '255, 236, 206' : '210, 250, 255';
-            drawSmoothTrail(points, 10, `rgba(${baseColor}, ${baseAlpha})`);
-            drawSmoothTrail(points, 4.5, `rgba(${edgeColor}, ${baseAlpha * 0.92})`);
-            if (tier >= 2) {
-                // Lv2+: 軌跡を1本追加
-                drawSmoothTrail(points, 2.2, `rgba(${edgeColor}, ${baseAlpha * 0.8})`);
-                drawSmoothTrail(points, 1.4, `rgba(${edgeColor}, ${baseAlpha * 0.62})`);
-            }
-        }
+        // 軌跡(彗星リボン): 刃先が実際に通った経路(this.trailPoints)を、頭=太く明るく / 尾=細く透明にフェードして描く。
+        // 円弧を毎フレーム再計算する旧方式と違い、経路そのものをなぞるため刃先に必ず揃い、半径変化でも破綻しない。
+        this.renderTrail(ctx);
 
         // 鎖（投擲前半はたるみ、加速とともに張る）
         const chainGradient = ctx.createLinearGradient(st.handX, st.handY, st.tipX, st.tipY);
@@ -2885,7 +2846,9 @@ export class Kusarigama extends SubWeapon {
         ctx.translate(st.tipX, st.tipY);
         const sickle = this.getSickleGeometry(st);
         ctx.rotate(sickle.rotation);
-        
+        // 左向き時は刃の腹(刃側)が外周を向くよう上下反転
+        if (sickle.flipBlade) ctx.scale(1, -1);
+
         // 分銅（根元）
         const pommelGrad = ctx.createRadialGradient(-4, 0, 0.2, -4, 0, 3.2);
         pommelGrad.addColorStop(0, '#b6bcc8');
@@ -2943,28 +2906,100 @@ export class Kusarigama extends SubWeapon {
         }
         ctx.restore();
 
-        // 鎌先の風切り
-        if ((st.phase === 'orbit' || st.phase === 'retract') && st.radius > 20) {
-            const sweepAlpha = st.phase === 'orbit' ? 0.34 : 0.22;
-            const tangentX = -st.direction * Math.sin(st.angle);
-            const tangentY = Math.cos(st.angle);
-            ctx.strokeStyle = `rgba(184, 244, 255, ${sweepAlpha})`;
-            ctx.lineWidth = 2.2;
-            ctx.lineCap = 'round';
-            for (let i = 0; i < 3; i++) {
-                const back = 8 + i * 6;
-                const spread = (i - 1) * 2.4;
-                const startX = st.tipX - st.chainDirX * back + tangentX * spread;
-                const startY = st.tipY - st.chainDirY * back + tangentY * spread;
-                const endX = startX + tangentX * (9 + i * 2);
-                const endY = startY + tangentY * (9 + i * 2);
-                ctx.beginPath();
-                ctx.moveTo(startX, startY);
-                ctx.lineTo(endX, endY);
-                ctx.stroke();
-            }
+        ctx.restore();
+    }
+
+    // 軌跡(彗星リボン)を刃先の通過履歴(update で world 座標蓄積)から滑らかにフェード描画する。
+    // ・将軍など _inRenderModel 中は ctx.scale(scaleMultiplier) 済みなので、その素体スケールを
+    //   打ち消して world(camera) 空間で描く（軌跡が遥か彼方へ飛ぶのを防ぐ）。
+    // ・点を直線で繋がず中点経由の二次ベジェで連続曲線化（「点(ビーズ)」化防止）。
+    // ・頭(刃先)側を太く・尾を幅0へ先細り。記録末尾＝現在の刃先なので頭は刃先に一致する。
+    renderTrail(ctx) {
+        const pts = this.trailPoints;
+        if (!pts || pts.length < 3) return;
+        const N = pts.length;
+        const owner = this.owner;
+        const tier = this.enhanceTier || 0;
+        const maxAge = this.trailMaxAgeMs;
+
+        // --- 描画空間を world(camera) へ揃えるための素体スケール変換 ---
+        const xf = owner && owner._renderModelScaleTransform;
+        const ownerScale = (owner && Number.isFinite(owner.scaleMultiplier) && owner.scaleMultiplier > 0)
+            ? owner.scaleMultiplier : 1;
+        // 拡大表示中(_inRenderModel & scale>1)なのに打ち消し用変換が無い場合は、
+        // world 座標を ctx.scale 済み空間でそのまま描くと遥か彼方へ飛ぶので描画しない
+        // （例: 変換を公開しない分身owner）。
+        if (owner && owner._inRenderModel && ownerScale > 1.001 && !xf) return;
+        const scale = (xf && Number.isFinite(xf.scale) && xf.scale > 0) ? xf.scale : 1;
+        const pivotX = xf ? xf.pivotX : 0;
+        const pivotY = xf ? xf.pivotY : 0;
+        const useUndo = !!(owner && owner._inRenderModel && Math.abs(scale - 1) > 0.001);
+
+        const baseColor = tier >= 3 ? '255, 198, 150' : '150, 228, 255';
+        const edgeColor = tier >= 3 ? '255, 240, 214' : '226, 250, 255';
+        const headHalf = (tier >= 2 ? 7.5 : 6.0) * scale; // 頭(刃先)側の半幅(world)
+
+        // 新しさ(0=尾..1=頭)
+        const newness = pts.map(p => 1 - Math.min(1, p.age / maxAge));
+        // 各点の法線（前後点の接線を直交化）
+        const nrm = [];
+        for (let i = 0; i < N; i++) {
+            const a = pts[Math.max(0, i - 1)], b = pts[Math.min(N - 1, i + 1)];
+            let tx = b.x - a.x, ty = b.y - a.y;
+            const L = Math.hypot(tx, ty) || 1; tx /= L; ty /= L;
+            nrm.push({ x: -ty, y: tx });
         }
-        
+        const halfW = i => Math.max(0.25 * scale, headHalf * newness[i]);
+        const upper = pts.map((p, i) => ({ x: p.x + nrm[i].x * halfW(i), y: p.y + nrm[i].y * halfW(i) }));
+        const lower = pts.map((p, i) => ({ x: p.x - nrm[i].x * halfW(i), y: p.y - nrm[i].y * halfW(i) }));
+
+        // 中点経由の二次ベジェで配列を「追記」する（moveTo しない＝サブパス分裂による直線弦を防ぐ）
+        const appendSmooth = (arr) => {
+            for (let i = 1; i < arr.length - 1; i++) {
+                const mx = (arr[i].x + arr[i + 1].x) * 0.5;
+                const my = (arr[i].y + arr[i + 1].y) * 0.5;
+                ctx.quadraticCurveTo(arr[i].x, arr[i].y, mx, my);
+            }
+            ctx.lineTo(arr[arr.length - 1].x, arr[arr.length - 1].y);
+        };
+
+        const tail = pts[0], head = pts[N - 1];
+
+        ctx.save();
+        // 素体スケールを打ち消して world(camera) 空間で描く
+        if (useUndo) {
+            ctx.translate(pivotX, pivotY);
+            ctx.scale(1 / scale, 1 / scale);
+            ctx.translate(-pivotX, -pivotY);
+        }
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+
+        // 帯本体（先細りリボン＝1本の連続サブパスで塗る。尾→頭でα勾配）
+        const fill = ctx.createLinearGradient(tail.x, tail.y, head.x, head.y);
+        fill.addColorStop(0.0, `rgba(${baseColor}, 0)`);
+        fill.addColorStop(1.0, `rgba(${baseColor}, 0.42)`);
+        ctx.beginPath();
+        ctx.moveTo(upper[0].x, upper[0].y);
+        appendSmooth(upper);                          // 上エッジ(尾→頭)
+        ctx.lineTo(lower[N - 1].x, lower[N - 1].y);     // 頭で折り返し
+        appendSmooth(lower.slice().reverse());        // 下エッジ(頭→尾)
+        ctx.closePath();
+        ctx.fillStyle = fill;
+        ctx.fill();
+
+        // 芯（明るい滑らかな曲線。尾→頭でα勾配）
+        const core = ctx.createLinearGradient(tail.x, tail.y, head.x, head.y);
+        core.addColorStop(0.0, `rgba(${edgeColor}, 0)`);
+        core.addColorStop(1.0, `rgba(${edgeColor}, 0.72)`);
+        ctx.strokeStyle = core;
+        ctx.lineWidth = Math.max(1, 1.7 * scale);
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+        appendSmooth(pts);
+        ctx.stroke();
+
         ctx.restore();
     }
 }
