@@ -130,6 +130,16 @@ export class Stage {
         if (this.stageNumber === 2) {
             this.stage2GroundImage = new Image();
             this.stage2GroundImage.src = 'images/stage2_ground_kaido_tile.png';
+            this.stage2PropImages = {};
+            const stage2PropPaths = {
+                villageStrip: 'images/stage2_bg_village_strip.png',
+                roadsideCluster: 'images/stage2_bg_roadside_cluster.png'
+            };
+            for (const [key, src] of Object.entries(stage2PropPaths)) {
+                const image = new Image();
+                image.src = src;
+                this.stage2PropImages[key] = image;
+            }
         }
 
         // --- Stage 3 山道添景画像 ---
@@ -142,7 +152,8 @@ export class Stage {
             const stage3PropPaths = {
                 dosojin: 'images/stage3_prop_dosojin.png',
                 signpost: 'images/stage3_prop_signpost.png',
-                bambooFence: 'images/stage3_prop_bamboo_fence.png'
+                bambooFence: 'images/stage3_prop_bamboo_fence.png',
+                mountainCluster: 'images/stage3_prop_mountain_cluster.png'
             };
             for (const [key, src] of Object.entries(stage3PropPaths)) {
                 const image = new Image();
@@ -2355,6 +2366,36 @@ export class Stage {
         }
     }
 
+    renderStage3RoadsideClusters(ctx) {
+        const image = this.stage3PropImages?.mountainCluster;
+        if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
+
+        const parallax = 0.82;
+        const span = 690;
+        const scroll = this.progress * parallax;
+        const start = Math.floor((scroll - 760) / span);
+        const end = Math.ceil((scroll + CANVAS_WIDTH + 760) / span);
+
+        for (let i = start; i <= end; i++) {
+            const seed = i * 7.91;
+            if (this.noise1D(seed + 0.4) < 0.38) continue;
+
+            const x = i * span - scroll + this.noiseSigned(seed + 1.6) * 74;
+            const width = 175 + this.noise1D(seed + 2.8) * 70;
+            if (x + width < -100 || x > CANVAS_WIDTH + 100) continue;
+
+            this.renderStage4TownImageBlock(
+                ctx,
+                image,
+                x,
+                this.groundY - 1,
+                width,
+                0.82,
+                'brightness(0.72) saturate(0.62) contrast(0.9)'
+            );
+        }
+    }
+
 	renderStage4TownImageBlock(ctx, image, x, baseY, width, alpha = 1, filter = 'brightness(0.84) saturate(0.66) contrast(0.88)') {
 	    if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
 
@@ -3499,6 +3540,59 @@ export class Stage {
                 const houseLimit = (this.maxProgress - CANVAS_WIDTH) * kPara - 200;
                 const sceneLimit = houseLimit + 420;
                 const villagePlan = [0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 0, 0, 1, 1, 2, 2];
+                const stage2VillageImage = this.stage2PropImages?.villageStrip;
+                const stage2ClusterImage = this.stage2PropImages?.roadsideCluster;
+                const stage2ImagePropsReady =
+                    (stage2VillageImage?.complete && stage2VillageImage.naturalWidth > 0) ||
+                    (stage2ClusterImage?.complete && stage2ClusterImage.naturalWidth > 0);
+
+                if (stage2ImagePropsReady) {
+                    const propSpan = 1040;
+                    const propStart = Math.floor((p * kPara - 980) / propSpan);
+                    const propEnd = Math.ceil((CANVAS_WIDTH + p * kPara + 980) / propSpan);
+                    const propBaseY = this.groundY - 10;
+
+                    for (let i = propStart; i <= propEnd; i++) {
+                        const seed = i * 8.37;
+                        const worldX = i * propSpan + this.noiseSigned(seed + 0.4) * 62;
+                        if (worldX > sceneLimit) continue;
+
+                        const x = worldX - p * kPara;
+                        if (x < -900 || x > CANVAS_WIDTH + 900) continue;
+
+                        const useVillage = this.noise1D(seed + 1.1) > 0.34;
+                        const image = useVillage ? stage2VillageImage : stage2ClusterImage;
+                        const width = useVillage
+                            ? 410 + this.noise1D(seed + 2.2) * 95
+                            : 185 + this.noise1D(seed + 2.9) * 54;
+
+                        this.renderStage4TownImageBlock(
+                            ctx,
+                            image,
+                            x,
+                            propBaseY,
+                            width,
+                            useVillage ? 0.66 : 0.64,
+                            'brightness(0.68) saturate(0.56) contrast(0.78)'
+                        );
+
+                        if (useVillage && stage2ClusterImage && this.noise1D(seed + 5.4) > 0.58) {
+                            const clusterWidth = 158 + this.noise1D(seed + 6.2) * 42;
+                            const clusterX = x + width * (0.72 + this.noise1D(seed + 6.8) * 0.18);
+                            this.renderStage4TownImageBlock(
+                                ctx,
+                                stage2ClusterImage,
+                                clusterX,
+                                propBaseY,
+                                clusterWidth,
+                                0.62,
+                                'brightness(0.66) saturate(0.54) contrast(0.78)'
+                            );
+                        }
+                    }
+                    break;
+                }
+
                 for (let i = kStartIdx; i <= kEndIdx; i++) {
                     const seed = i * 9.21;
                     const worldX = i * kCellSize;
@@ -3635,6 +3729,7 @@ export class Stage {
                 }
 
                 this.renderStage3RoadsideProps(ctx);
+                this.renderStage3RoadsideClusters(ctx);
 
                 break;
             }
@@ -4077,7 +4172,8 @@ export class Stage {
 
         const groundHeight = bottomY - horizonY;
         const drawH = Math.ceil(groundHeight + (options.extraHeight ?? 34));
-        const drawW = Math.ceil(drawH * (image.naturalWidth / image.naturalHeight));
+        const baseDrawW = Math.ceil(drawH * (image.naturalWidth / image.naturalHeight));
+        const drawW = Math.ceil(baseDrawW * (options.widthScale ?? 1));
         const scrollScale = options.scrollScale ?? 1;
         const scroll = Math.floor((renderProgress * scrollScale) % drawW);
         const y = Math.floor(horizonY + (options.yOffset ?? -18));
@@ -4088,8 +4184,17 @@ export class Stage {
         ctx.rect(0, horizonY, CANVAS_WIDTH, Math.max(0, groundHeight));
         ctx.clip();
         if (options.filter) ctx.filter = options.filter;
-        for (let x = startX; x < CANVAS_WIDTH + drawW; x += drawW) {
-            ctx.drawImage(image, x, y, drawW + 2, drawH);
+        let tileIndex = 0;
+        for (let x = startX; x < CANVAS_WIDTH + drawW; x += drawW, tileIndex++) {
+            if (options.mirrorRepeat && tileIndex % 2 !== 0) {
+                ctx.save();
+                ctx.translate(x + drawW + 2, y);
+                ctx.scale(-1, 1);
+                ctx.drawImage(image, 0, 0, drawW + 2, drawH);
+                ctx.restore();
+            } else {
+                ctx.drawImage(image, x, y, drawW + 2, drawH);
+            }
         }
         ctx.filter = 'none';
         ctx.restore();
@@ -4652,7 +4757,9 @@ export class Stage {
         if (this.renderGroundImageTile(ctx, this.stage5GroundImage, horizonY, bottomY, renderProgress, {
             filter: 'brightness(0.72) saturate(0.78) contrast(0.95)',
             extraHeight: 48,
-            yOffset: -22
+            yOffset: -22,
+            mirrorRepeat: true,
+            widthScale: 1.35
         })) {
             const lanternSheen = ctx.createLinearGradient(0, horizonY, 0, Math.min(bottomY, horizonY + 240));
             lanternSheen.addColorStop(0, `rgba(255, 190, 104, ${(0.10 * (1 - darken * 0.4)).toFixed(3)})`);

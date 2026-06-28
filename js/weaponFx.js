@@ -166,8 +166,10 @@ export function drawBlastFlash(ctx, cx, cy, radius, progress, opts) {
     fg.addColorStop(1, `rgba(${color},0)`);
     ctx.fillStyle = fg;
     ctx.beginPath(); ctx.arc(cx, cy, fr, 0, Math.PI * 2); ctx.fill();
-    // 速く広がる衝撃波リング
-    const ringR = radius * (1.1 + Math.pow(t, 0.5) * 0.9);
+    // 速く広がる衝撃波リング(ringFrom→ringTo を radius 倍で。判定半径に合わせて狭めると見た目=判定に近づく)
+    const ringFrom = o.ringFrom != null ? o.ringFrom : 1.1;
+    const ringTo = o.ringTo != null ? o.ringTo : 2.0;
+    const ringR = radius * (ringFrom + Math.pow(t, 0.5) * (ringTo - ringFrom));
     ctx.strokeStyle = `rgba(${color},${(a * 0.85).toFixed(3)})`;
     ctx.lineWidth = (1 - t) * 4 + 0.6;
     ctx.beginPath(); ctx.arc(cx, cy, ringR, 0, Math.PI * 2); ctx.stroke();

@@ -174,9 +174,9 @@ export class Bomb {
                 ctx.save();
                 for (const s of fx.smoke) {
                     const sp = progress;
-                    const sr = R * (s.r0 * 0.7 + s.vr * sp * 1.05);                 // ふわっと膨張
-                    const sx = this.x + Math.cos(s.ang) * R * s.dist * sp;
-                    const sy = this.y + Math.sin(s.ang) * R * s.dist * sp * 0.5 - R * (0.4 + s.rise) * sp; // 上昇主体
+                    const sr = R * (s.r0 * 0.55 + s.vr * sp * 0.78);                 // ふわっと膨張(判定外へ広げ過ぎない)
+                    const sx = this.x + Math.cos(s.ang) * R * s.dist * 0.7 * sp;
+                    const sy = this.y + Math.sin(s.ang) * R * s.dist * 0.7 * sp * 0.5 - R * (0.4 + s.rise) * sp; // 上昇主体
                     // 炎より少し遅れて立ち上げ、ゆっくり薄く消える
                     const sa = (sp < 0.35 ? sp / 0.35 : 1 - (sp - 0.35) / 0.65) * 0.24;
                     if (sa <= 0.01) continue;
@@ -195,15 +195,16 @@ export class Bomb {
             ctx.save();
             ctx.globalCompositeOperation = 'lighter';
 
-            // 外側の熱波（オレンジ→深紅→赤黒→透明、煙へ自然接続）
-            const outerGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, currentRadius * 1.25);
+            // 外側の熱波（オレンジ→深紅→赤黒→透明）。爆炎の外縁を当たり判定(explosionRadius)に揃える。
+            const heatR = currentRadius * 1.04;
+            const outerGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, heatR);
             outerGrad.addColorStop(0.25, `rgba(255, 90, 10, ${(alpha * 0.7).toFixed(3)})`);
             outerGrad.addColorStop(0.6, `rgba(170, 30, 5, ${(alpha * 0.45).toFixed(3)})`);
             outerGrad.addColorStop(0.85, `rgba(70, 12, 6, ${(alpha * 0.25).toFixed(3)})`);
             outerGrad.addColorStop(1, 'rgba(0,0,0,0)');
             ctx.fillStyle = outerGrad;
             ctx.beginPath();
-            ctx.arc(this.x, this.y, currentRadius * 1.25, 0, Math.PI * 2);
+            ctx.arc(this.x, this.y, heatR, 0, Math.PI * 2);
             ctx.fill();
 
             // 内側コア（高温青白の芯→白→黄→橙→透明。後半は橙→赤へシフトして燃え尽き)
@@ -240,11 +241,15 @@ export class Bomb {
             ctx.fill();
             ctx.restore();
 
-            // 開幕フラッシュ＋衝撃波リング(瞬間の強さ)。白飛びで目が痛くならないよう暖色芯＋低強度・短めに。
-            drawBlastFlash(ctx, this.x, this.y, R, progress, { duration: 0.16, color: '255,224,170', coreColor: '255,240,210', intensity: 0.5 });
+            // 開幕フラッシュ＋衝撃波リング(瞬間の強さ)。白飛び抑制(暖色芯/低強度)＋
+            // リングは当たり判定の縁(≈explosionRadius)で止め、見た目=判定の範囲を伝える。
+            drawBlastFlash(ctx, this.x, this.y, R, progress, {
+                duration: 0.16, color: '255,224,170', coreColor: '255,240,210', intensity: 0.5,
+                ringFrom: 0.5, ringTo: 1.02
+            });
 
-            // 飛散火花(シード式・放物線・尾を引く)
-            drawSparks(ctx, this.x, this.y, fx.sparks, progress, R * 1.15, { color: '255,205,120' });
+            // 飛散火花(シード式・放物線・尾を引く)。判定外まで飛び散らないよう射程を判定半径内寄りに。
+            drawSparks(ctx, this.x, this.y, fx.sparks, progress, R * 0.92, { color: '255,205,120' });
 
         } else {
             ctx.save();
