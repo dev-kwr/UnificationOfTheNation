@@ -2718,24 +2718,26 @@ export class Enemy {
         const centerX = this.x + this.width / 2;
         const centerY = this.y + this.height / 2;
         const progress = this.deathTimer / this.deathDuration;
-        
-        ctx.fillStyle = `rgba(255, 255, 255, ${0.8 * (1 - progress)})`;
-        
+        // 種別ごとの昇天色（init で this.ascensionColor 設定。未設定は白）。撃破の手応えに個性を出す。
+        const col = this.ascensionColor || '255, 255, 255';
+
+        ctx.fillStyle = `rgba(${col}, ${0.8 * (1 - progress)})`;
+
         // 上昇する粒子
         for (let i = 0; i < 8; i++) {
             const px = centerX + Math.sin(i + this.deathTimer * 0.01) * 20;
             const py = centerY + 30 - (this.deathTimer * 0.05 + i * 10) % 60;
             const size = 2 + Math.sin(this.deathTimer * 0.01 + i) * 1.5;
-            
+
             ctx.beginPath();
             ctx.arc(px, py, size, 0, Math.PI * 2);
             ctx.fill();
         }
-        
+
         // ぼんやりとした光
         const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, 40);
-        gradient.addColorStop(0, `rgba(255, 255, 255, ${0.4 * (1 - progress)})`);
-        gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        gradient.addColorStop(0, `rgba(${col}, ${0.4 * (1 - progress)})`);
+        gradient.addColorStop(1, `rgba(${col}, 0)`);
         ctx.fillStyle = gradient;
         ctx.beginPath();
         ctx.arc(centerX, centerY, 40, 0, Math.PI * 2);
@@ -2766,6 +2768,7 @@ export class Enemy {
 // 足軽（雑魚）
 export class Ashigaru extends Enemy {
     init() {
+        this.ascensionColor = '245, 214, 162'; // 足軽=温かい土気色
         this.width = 42;
         this.height = 66;
         this.hp = 8;      // 一撃で倒せるよう調整
@@ -2994,6 +2997,7 @@ export class Ashigaru extends Enemy {
 // 侍（普通）
 export class Samurai extends Enemy {
     init() {
+        this.ascensionColor = '200, 224, 255'; // 侍=冷たい鋼の青
         this.width = 48;
         this.height = 72;
         this.hp = 28;
@@ -3259,6 +3263,7 @@ export class Samurai extends Enemy {
 // 武将（中ボス）
 export class Busho extends Enemy {
     init() {
+        this.ascensionColor = '255, 222, 150'; // 武将=格の高い金
         this.width = 60;
         this.height = 90;
         this.hp = 58;
@@ -3863,6 +3868,7 @@ export class Busho extends Enemy {
 // 忍者（特殊）
 export class Ninja extends Enemy {
     init() {
+        this.ascensionColor = '170, 232, 220'; // 忍者=冷たい青緑
         this.width = 42;
         this.height = 66;
         this.hp = 20;

@@ -113,6 +113,7 @@ class Game {
         this.returnToStageClearAfterShop = false;
         this.playerDefeatTimer = 0;
         this.defeatRedFlashAlpha = 0;
+        this.playerHurtFlashAlpha = 0; // 被弾時の赤ビネット（実ダメージ時のみ点灯・renderで減衰）
         this.playerDefeatDuration = 1800;
         this.titleDebugOpen = false;
         this.titleDebugCursor = 0;
@@ -1454,7 +1455,17 @@ class Game {
         const preActiveFrameEnemies = preFrameEnemies.filter((enemy) => enemy.isAlive && !enemy.isDying);
         const activeObstacles = this.stage.obstacles.filter(o => !o.isDestroyed);
         this.player.update(this.deltaTime, activeObstacles, preActiveFrameEnemies);
-        
+
+        // ジャンプ着地の土煙（落下速度が一定以上のときだけ・足元から低く広がる）
+        if (this.player.justLanded && this.player.landingImpactSpeed > 2.2) {
+            const inten = Math.min(1, (this.player.landingImpactSpeed - 2.2) / 7);
+            this.spawnGroundDust(
+                this.player.x + this.player.getWorldWidth() * 0.5,
+                this.player.y + this.player.getWorldHeight(),
+                { intensity: inten, count: 6, spread: 0.5, speed: 1.15, rise: 0.5, size: 7, color: '150, 138, 120' }
+            );
+        }
+
         // 爆弾投げ処理は player.update 内で実行されるため削除
         
         // 武器切り替えは player.handleInput() 内で処理されるため、ここでは不要
@@ -3416,6 +3427,18 @@ class Game {
         const hitCount = ++this.frameDamageHitCount;
         const denseHitScale = hitCount >= 28 ? 0.2 : (hitCount >= 18 ? 0.32 : (hitCount >= 10 ? 0.5 : (hitCount >= 6 ? 0.72 : 1.0)));
         const baseFeedback = this.resolveHitFeedback(attackData, damage, killed, isCritical);
+
+        // ボス(高HP)への一撃は格上げ：雑魚連打1ヒットより「1発の重み」を強く返す。
+        const isBossTarget = this.isStageBossEnemy(enemy) || (Number.isFinite(enemy.maxHp) && enemy.maxHp >= 120);
+        if (isBossTarget) {
+            const big = damage >= 60;
+            baseFeedback.shake += big ? 1.6 : 0.6;
+            baseFeedback.hitStopMs += big ? 40 : 14;
+            baseFeedback.sparkCount += big ? 6 : 2;
+            baseFeedback.ringBaseRadius += big ? 5 : 2;
+            if (killed) { baseFeedback.shake += 2.2; baseFeedback.hitStopMs += 60; baseFeedback.sparkCount += 8; }
+        }
+
         const feedback = (!killed && !isCritical && denseHitScale < 1.0)
             ? {
                 ...baseFeedback,
@@ -3456,6 +3479,25 @@ class Game {
                 denseHitScale
             );
             this.frameDamageVisualCount++;
+
+            // 被弾ノックバック時の足元土煙＝物理的な力を受けている実感。
+            // 打ち上げ(launch)中は接地していないので出さない。密集多段ヒット時は denseHitScale で抑制。
+            const kbX = (attackData && typeof attackData.knockbackX === 'number') ? attackData.knockbackX : 5;
+            const launched = !!(attackData && attackData.isLaunch);
+            if (kbX >= 4 && !launched && denseHitScale > 0.5 && enemy.isGrounded !== false) {
+                const enemyCenterX = enemy.x + enemy.width * 0.5;
+                const kbDir = enemyCenterX >= (this.player.x + this.player.getWorldWidth() * 0.5) ? 1 : -1;
+                this.spawnGroundDust(enemyCenterX, enemy.y + enemy.height, {
+                    intensity: Math.min(1, kbX / 9),
+                    count: 4,
+                    dir: kbDir > 0 ? Math.PI : 0, // ノックバックと逆（後ろ）へ巻き上がる
+                    spread: 0.7,
+                    speed: 1.0,
+                    rise: 0.45,
+                    size: 7,
+                    color: '120, 108, 95'
+                });
+            }
         }
         
         if (killed) {
@@ -3702,6 +3744,45 @@ class Game {
         }
 
         this.queueHitFeedback(3.1, 34);
+    }
+
+    // 地面の土煙を少量スポーンする共通処理（着地・敵被弾ノックバックで使用）。
+    // 既存 'dust' kind に乗せるため update/描画は流用。負荷(perfScale/最大数)で自動間引き＝重くしない。
+    spawnGroundDust(cx, cy, opts = {}) {
+        if (!this.hitEffects) return;
+        if (this.hitEffects.length >= this.maxHitEffects - 4) return;
+        const intensity = Math.max(0, Math.min(1, opts.intensity != null ? opts.intensity : 1));
+        if (intensity <= 0.03) return;
+        const perfScale = this.getHitEffectPerformanceScale();
+        const perfCut = perfScale <= 0.5 ? 0.5 : (perfScale <= 0.7 ? 0.74 : 1);
+        const baseCount = opts.count != null ? opts.count : 5;
+        const count = Math.max(1, Math.round(baseCount * (0.5 + intensity * 0.5) * perfCut));
+        const dir = opts.dir; // 指定があれば主飛散方向(rad)。未指定は左右へ割る
+        const spread = opts.spread != null ? opts.spread : 0.8;
+        const speed = (opts.speed != null ? opts.speed : 1.0) * (0.7 + intensity * 0.6);
+        const color = opts.color || '150, 134, 116';
+        const rise = (opts.rise != null ? opts.rise : 0.7) * (0.6 + intensity * 0.7);
+        const sizeBase = (opts.size != null ? opts.size : 8) * (0.8 + intensity * 0.5);
+        for (let i = 0; i < count; i++) {
+            const baseAng = (dir != null) ? dir : (i % 2 === 0 ? 0 : Math.PI);
+            const ang = baseAng + (Math.random() - 0.5) * spread * 2;
+            const sp = (0.4 + Math.random() * 1.3) * speed;
+            const life = 230 + Math.random() * 220;
+            this.hitEffects.push({
+                kind: 'dust',
+                x: cx + (Math.random() - 0.5) * 12,
+                y: cy + (Math.random() - 0.5) * 5,
+                vx: Math.cos(ang) * sp,
+                vy: -(rise + Math.random() * 0.8) + Math.sin(ang) * sp * 0.25,
+                life,
+                maxLife: life,
+                size: sizeBase * (0.7 + Math.random() * 0.7),
+                color
+            });
+        }
+        if (this.hitEffects.length > this.maxHitEffects) {
+            this.hitEffects.splice(0, this.hitEffects.length - this.maxHitEffects);
+        }
     }
 
     noiseOffset(index) {
@@ -4577,6 +4658,24 @@ class Game {
             this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
             this.ctx.restore();
             this.flashAlpha -= this.deltaTime * 3.0; // フェードアウト速度
+        }
+
+        // プレイヤー被弾の赤ビネット（画面端ほど濃く・中央は薄く視界を妨げない）。
+        // gradient 1枚塗りのみ・点灯は被弾後 ~0.25s だけなので軽量。
+        if (this.playerHurtFlashAlpha > 0.01) {
+            const a = Math.min(0.85, this.playerHurtFlashAlpha);
+            this.ctx.save();
+            const g = this.ctx.createRadialGradient(
+                CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.5, CANVAS_HEIGHT * 0.30,
+                CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.5, CANVAS_HEIGHT * 0.74
+            );
+            g.addColorStop(0, 'rgba(190, 20, 20, 0)');
+            g.addColorStop(1, `rgba(150, 12, 12, ${(a * 0.66).toFixed(3)})`);
+            this.ctx.fillStyle = g;
+            this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            this.ctx.restore();
+            this.playerHurtFlashAlpha -= this.deltaTime * 3.4; // フェードアウト速度
+            if (this.playerHurtFlashAlpha < 0) this.playerHurtFlashAlpha = 0;
         }
     }
     

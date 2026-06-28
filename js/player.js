@@ -94,6 +94,7 @@ export class Player {
         this.finisherLandingSeparationTimer = 0;
         this.finisherAirLockTimer = 0;
         this.justLanded = false;
+        this.landingImpactSpeed = 0; // 着地したフレームの落下速度（着地土煙の強さに使用）
         // 攻撃全体の見た目速度（大きいほどゆっくり）
         this.attackMotionScale = 1.7;
         
@@ -1712,6 +1713,13 @@ export class Player {
         this.isGrounded = false;
         audio.playDamage();
 
+        // 被弾の赤ビネット（罠ダメージ時。クールダウン/無敵中はここに来ない）
+        const g = window.game || game;
+        if (g && typeof g.playerHurtFlashAlpha === 'number') {
+            const dr = Math.max(0, Math.min(1, amount / 12));
+            g.playerHurtFlashAlpha = Math.min(0.85, Math.max(g.playerHurtFlashAlpha, 0.42 + dr * 0.4));
+        }
+
         if (this.hp <= 0) {
             this.hp = 0;
             return true;
@@ -1997,6 +2005,7 @@ export class Player {
         }
 
         this.justLanded = !wasGrounded && this.isGrounded;
+        this.landingImpactSpeed = this.justLanded ? Math.max(0, fallingSpeed) : 0;
         if (this.justLanded) {
             this.restrictAirCombo1 = false;
         }
@@ -2097,6 +2106,11 @@ export class Player {
 
         // 被弾フィードバック（ヒットストップ / 画面揺れ）
         const g = window.game || game;
+        // 被弾の赤ビネット（無敵中はここに来ない＝実ダメージ時のみ点灯）。ダメージ量で濃さを変える。
+        if (!disableHitFeedback && g && typeof g.playerHurtFlashAlpha === 'number') {
+            const dr = Math.max(0, Math.min(1, amount / 12));
+            g.playerHurtFlashAlpha = Math.min(0.85, Math.max(g.playerHurtFlashAlpha, 0.42 + dr * 0.4));
+        }
         if (
             !disableHitFeedback &&
             g &&

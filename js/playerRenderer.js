@@ -4235,14 +4235,17 @@ export function applyRendererMixin(PlayerClass) {
                         5.3
                     );
                 }
-                if (renderWeaponVisuals && kusa && typeof kusa.render === 'function') {
+                // 鎖鎌は「軌跡＋鎖(=手の背面) → 手 → 鎌ヘッド(=手の前面)」の順に重ねる。
+                // こうすると刃先が掌(手)の前に出て、近接時に手の背面へ潜らない。
+                const renderKusaLayer = (layer) => {
+                    if (!(renderWeaponVisuals && kusa && typeof kusa.render === 'function')) return;
                     const prevInRenderModel = this._inRenderModel;
                     this._inRenderModel = true;
                     try {
                         ctx.save();
                         try {
                             ctx.globalAlpha = 1.0;
-                            kusa.render(ctx, this);
+                            kusa.render(ctx, this, layer);
                         } finally {
                             ctx.restore();
                         }
@@ -4250,8 +4253,10 @@ export function applyRendererMixin(PlayerClass) {
                         this._inRenderModel = prevInRenderModel;
                     }
                     this.subWeaponRenderedInModel = true;
-                }
+                };
+                renderKusaLayer('behind');
                 drawHand(mainHand.x, mainHand.y, standardRightHandRadius);
+                renderKusaLayer('front');
             }
         } else if (!renderSubWeaponAction && this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
             // === 二刀流の非攻撃時（アイドル姿勢） ===

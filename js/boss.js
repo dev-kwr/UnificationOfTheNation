@@ -323,6 +323,26 @@ class Boss extends Enemy {
         // ─── 1. 衝撃波リング（複数段）───
         ctx.globalCompositeOperation = 'lighter';
 
+        // ─── 1b. 接地ショック（足元から横へ走る地面の衝撃。死が大地へ伝わる接地感）───
+        {
+            const footY = this.y + this.height;
+            const groundP = Math.min(1, p / 0.5); // 前半で走り切る
+            if (groundP > 0.001 && groundP < 1) {
+                const gr = groundP * 210;
+                const gAlpha = Math.pow(1 - groundP, 1.4) * 0.5;
+                ctx.strokeStyle = `rgba(255, 180, 70, ${gAlpha.toFixed(3)})`;
+                ctx.lineWidth = Math.max(1, 6 * (1 - groundP));
+                ctx.beginPath();
+                ctx.ellipse(cx, footY, gr, gr * 0.26, 0, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.strokeStyle = `rgba(255, 240, 180, ${(gAlpha * 0.7).toFixed(3)})`;
+                ctx.lineWidth = Math.max(0.8, 3 * (1 - groundP));
+                ctx.beginPath();
+                ctx.ellipse(cx, footY, gr * 0.78, gr * 0.78 * 0.26, 0, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        }
+
         const waveParams = [
             { delay: 0.00, maxR:  80, baseWidth: 12, color: [255, 245, 120], alphaScale: 1.00 },
             { delay: 0.18, maxR: 128, baseWidth:  8, color: [255, 190,  40], alphaScale: 0.78 },

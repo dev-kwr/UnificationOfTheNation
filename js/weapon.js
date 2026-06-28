@@ -5,6 +5,7 @@
 import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js';
 import { audio } from './audio.js';
 import { SHOGUN_SCALE } from './shogunConstants.js';
+import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js';
 
 // 武器ジオメトリは「武器を振る主体(owner/player)のワールド寸法」を基準に組み立てる。
 // 将軍は width/height が素体(40x60)なので getWorldWidth/Height(=素体×SHOGUN_SCALE) を読む。
@@ -69,8 +70,15 @@ export class Bomb {
         this.damage = 30;
         this.isDestroyed = false;
         this.id = Math.random().toString(36).substr(2, 9); // 一意なID
+        this.trailPoints = []; // 飛翔中の火の粉トレイル（点数capで軽量）
+        // 導火線火花のシード（毎フレーム Math.random だと先端がチラつくため一度だけ固定）
+        this._fuseSeed = Array.from({ length: 3 }, () => ({
+            ox: (Math.random() - 0.5) * 6,
+            oy: (Math.random() - 0.5) * 6,
+            ph: Math.random() * Math.PI * 2
+        }));
     }
-    
+
     update(deltaTime, groundY, enemies = []) {
         if (this.isExploding) {
             this.explosionTimer += deltaTime * 1000;
@@ -84,7 +92,10 @@ export class Bomb {
         this.vy += GRAVITY * 0.5;
         this.x += this.vx;
         this.y += this.vy;
-        
+
+        // 飛翔軌跡（火の粉トレイル用）。記録は update で1回。
+        pushTrailPoint(this.trailPoints, this.x, this.y - this.radius * 0.4, deltaTime * 1000, { maxAge: 120, minDist: 3, cap: 16 });
+
         // 地面に当たったら爆発
         if (this.y + this.radius >= groundY + LANE_OFFSET) {
             this.explode();
@@ -112,6 +123,26 @@ export class Bomb {
         this.explosionTimer = 0;
         this.vx = 0;
         this.vy = 0;
+        // 爆発エフェクト用のシードを「一度だけ」生成し、毎フレーム Math.random で
+        // パーティクルが瞬間移動してチラつくのを防ぐ(鎖鎌の連続軌跡と同じ思想)。
+        const SPIKES = 14;
+        this._fx = {
+            spikes: SPIKES,
+            // 各トゲの基準長(0.55〜0.95)。描画時に低周波 sin を足して炎の揺らぎに。
+            spikeLen: Array.from({ length: SPIKES }, () => 0.55 + Math.random() * 0.4),
+            spikePhase: Array.from({ length: SPIKES }, () => Math.random() * Math.PI * 2),
+            // 飛散火花(放物線)
+            sparks: makeParticles(11, { speedMin: 0.55, speedMax: 1.5, sizeMin: 1.2, sizeMax: 3.2, gravity: 0.55 }),
+            // 煙パフ(中心から各方向へ立ち上がり膨張)
+            smoke: Array.from({ length: 5 }, () => ({
+                ang: Math.random() * Math.PI * 2,
+                dist: 0.15 + Math.random() * 0.5,
+                r0: 0.42 + Math.random() * 0.38,
+                vr: 0.5 + Math.random() * 0.55,
+                rise: 0.3 + Math.random() * 0.5,
+                tone: 0.7 + Math.random() * 0.5,
+            })),
+        };
         audio.playExplosion();
     }
     
@@ -130,75 +161,130 @@ export class Bomb {
     
     render(ctx) {
         if (this.isExploding) {
-            // リッチな多層爆炎エフェクト
+            // 多層爆炎: 煙(下層) → 熱波 → コア炎(揺らぎ星形) → 開幕フラッシュ/衝撃波 → 飛散火花(放物線)
             const progress = this.explosionTimer / this.explosionDuration;
             const currentRadius = this.explosionRadius * Math.pow(progress, 0.4); // 急速に広がり、ゆっくり消える
             const alpha = 1 - Math.pow(progress, 1.5);
-            
+            const fx = this._fx || (this._fx = {});
+            const R = this.explosionRadius;
+
+            // --- 煙(source-over): 炎に照らされた「明るめの暖かいグレー」を薄く柔らかく。
+            // 暗い背景で黒い塊にならないよう色を明るく・αを低く・縁を透明に・主に上方向へ拡散。
+            if (fx.smoke) {
+                ctx.save();
+                for (const s of fx.smoke) {
+                    const sp = progress;
+                    const sr = R * (s.r0 * 0.7 + s.vr * sp * 1.05);                 // ふわっと膨張
+                    const sx = this.x + Math.cos(s.ang) * R * s.dist * sp;
+                    const sy = this.y + Math.sin(s.ang) * R * s.dist * sp * 0.5 - R * (0.4 + s.rise) * sp; // 上昇主体
+                    // 炎より少し遅れて立ち上げ、ゆっくり薄く消える
+                    const sa = (sp < 0.35 ? sp / 0.35 : 1 - (sp - 0.35) / 0.65) * 0.24;
+                    if (sa <= 0.01) continue;
+                    const tone = 94 * s.tone;                                       // 明るめの暖かいグレー
+                    const cr = Math.round(tone + 14), cg = Math.round(tone), cb = Math.round(tone - 14);
+                    const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr);
+                    g.addColorStop(0, `rgba(${cr},${cg},${cb},${(sa * 0.85).toFixed(3)})`);
+                    g.addColorStop(0.55, `rgba(${cr - 22},${cg - 20},${cb - 16},${(sa * 0.42).toFixed(3)})`);
+                    g.addColorStop(1, `rgba(${cr - 30},${cg - 28},${cb - 24},0)`);
+                    ctx.fillStyle = g;
+                    ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI * 2); ctx.fill();
+                }
+                ctx.restore();
+            }
+
             ctx.save();
             ctx.globalCompositeOperation = 'lighter';
 
-            // 外側の熱波（ダークオレンジ～黒）
-            const outerGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, currentRadius * 1.2);
-            outerGrad.addColorStop(0.3, `rgba(255, 80, 0, ${alpha * 0.7})`);
-            outerGrad.addColorStop(0.8, `rgba(150, 20, 0, ${alpha * 0.4})`);
+            // 外側の熱波（オレンジ→深紅→赤黒→透明、煙へ自然接続）
+            const outerGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, currentRadius * 1.25);
+            outerGrad.addColorStop(0.25, `rgba(255, 90, 10, ${(alpha * 0.7).toFixed(3)})`);
+            outerGrad.addColorStop(0.6, `rgba(170, 30, 5, ${(alpha * 0.45).toFixed(3)})`);
+            outerGrad.addColorStop(0.85, `rgba(70, 12, 6, ${(alpha * 0.25).toFixed(3)})`);
             outerGrad.addColorStop(1, 'rgba(0,0,0,0)');
             ctx.fillStyle = outerGrad;
             ctx.beginPath();
-            ctx.arc(this.x, this.y, currentRadius * 1.2, 0, Math.PI * 2);
+            ctx.arc(this.x, this.y, currentRadius * 1.25, 0, Math.PI * 2);
             ctx.fill();
-            
-            // 内側の爆発のコア（白～黄～強烈なオレンジ）
+
+            // 内側コア（高温青白の芯→白→黄→橙→透明。後半は橙→赤へシフトして燃え尽き)
+            const burn = smoothstep01((progress - 0.45) / 0.55); // 後半の赤化
             const innerGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, currentRadius);
-            innerGrad.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
-            innerGrad.addColorStop(0.2, `rgba(255, 255, 150, ${alpha})`);
-            innerGrad.addColorStop(0.6, `rgba(255, 120, 0, ${alpha * 0.9})`);
-            innerGrad.addColorStop(1, 'rgba(255, 50, 0, 0)');
+            // 芯は純白だと加算で白飛びして目が痛いので、暖色寄り＆低αに（青白の高温感は残しつつ控えめ）
+            innerGrad.addColorStop(0, `rgba(255, 247, 232, ${(alpha * 0.5).toFixed(3)})`);
+            innerGrad.addColorStop(0.06, `rgba(222, 236, 252, ${(alpha * 0.42).toFixed(3)})`); // 高温青白の芯(控えめ)
+            innerGrad.addColorStop(0.28, `rgba(255, ${Math.round(238 - burn * 90)}, ${Math.round(148 - burn * 110)}, ${(alpha * 0.92).toFixed(3)})`);
+            innerGrad.addColorStop(0.65, `rgba(255, ${Math.round(120 - burn * 60)}, 0, ${(alpha * 0.9).toFixed(3)})`);
+            innerGrad.addColorStop(1, 'rgba(220, 40, 0, 0)');
             ctx.fillStyle = innerGrad;
 
-            // 星型のギザギザした爆発ポリゴンをつくる
+            // 星型コア: トゲ本数固定、長さはシード＋低周波sinで揺らぎ(本数のガクつき排除)
+            const spikes = (fx.spikes || 14);
+            const t = progress;
             ctx.beginPath();
-            const spikes = 12 + Math.floor(Math.random() * 6);
             for (let i = 0; i < spikes * 2; i++) {
-                const angle = (Math.PI * 2 / (spikes * 2)) * i + progress;
-                const r = (i % 2 === 0) ? currentRadius : currentRadius * (0.4 + Math.random() * 0.3);
+                const angle = (Math.PI * 2 / (spikes * 2)) * i + t * 0.6 + Math.sin(t * 5) * 0.05;
+                let r;
+                if (i % 2 === 0) {
+                    r = currentRadius;
+                } else {
+                    const k = (i - 1) / 2;
+                    const len = (fx.spikeLen ? fx.spikeLen[k % fx.spikeLen.length] : 0.7);
+                    const ph = (fx.spikePhase ? fx.spikePhase[k % fx.spikePhase.length] : 0);
+                    r = currentRadius * (len * 0.55 + 0.15 + 0.12 * Math.sin(t * 8 + ph)); // 炎の揺らぎ
+                }
                 const px = this.x + Math.cos(angle) * r;
                 const py = this.y + Math.sin(angle) * r;
-                if (i === 0) ctx.moveTo(px, py);
-                else ctx.lineTo(px, py);
+                if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
             }
             ctx.closePath();
             ctx.fill();
-
-            // 飛び散る火花（ランダムパーティクル）
-            if (progress < 0.6) {
-                ctx.fillStyle = `rgba(255, 200, 100, ${alpha})`;
-                for(let i=0; i<8; i++) {
-                    const sparkDist = currentRadius * (0.5 + Math.random());
-                    const sparkAngle = Math.random() * Math.PI * 2;
-                    ctx.beginPath();
-                    ctx.arc(this.x + Math.cos(sparkAngle)*sparkDist, this.y + Math.sin(sparkAngle)*sparkDist, 1.5 + Math.random()*2, 0, Math.PI*2);
-                    ctx.fill();
-                }
-            }
-            
             ctx.restore();
+
+            // 開幕フラッシュ＋衝撃波リング(瞬間の強さ)。白飛びで目が痛くならないよう暖色芯＋低強度・短めに。
+            drawBlastFlash(ctx, this.x, this.y, R, progress, { duration: 0.16, color: '255,224,170', coreColor: '255,240,210', intensity: 0.5 });
+
+            // 飛散火花(シード式・放物線・尾を引く)
+            drawSparks(ctx, this.x, this.y, fx.sparks, progress, R * 1.15, { color: '255,205,120' });
 
         } else {
             ctx.save();
-            
-            // 立体的な爆弾本体（球体グラデーション）
+
+            // 燃える導火線から尾を引く火の粉トレイル（本体の後ろ＝飛翔の弧と速度感を出す）。控えめな暖色加算。
+            if (this.trailPoints.length >= 3) {
+                drawCometRibbon(ctx, this.trailPoints, {
+                    maxAge: 120,
+                    headHalf: Math.max(2.4, this.radius * 0.34),
+                    baseColor: '255, 150, 60',
+                    edgeColor: '255, 222, 150',
+                    headAlpha: 0.22,
+                    coreAlpha: 0.32
+                });
+            }
+
+            // 立体的な爆弾本体（球体グラデーション）＋落ち影で浮かせる
             const bodyGrad = ctx.createRadialGradient(
                 this.x - this.radius * 0.3, this.y - this.radius * 0.3, this.radius * 0.1,
                 this.x, this.y, this.radius
             );
-            bodyGrad.addColorStop(0, '#555555'); // ハイライト
-            bodyGrad.addColorStop(0.4, '#242424'); // 基本色
-            bodyGrad.addColorStop(1, '#0a0a0a'); // 影
-            
-            ctx.fillStyle = bodyGrad;
+            bodyGrad.addColorStop(0, '#5e636b'); // ハイライト
+            bodyGrad.addColorStop(0.45, '#262a2f'); // 基本色
+            bodyGrad.addColorStop(1, '#080a0d'); // 影
+            withDropShadow(ctx, { color: 'rgba(0,0,0,0.45)', blur: 3, dx: 1, dy: 2 }, () => {
+                ctx.fillStyle = bodyGrad;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            // 縁の暗いリムで鋳鉄の重量感
+            ctx.strokeStyle = 'rgba(6,8,11,0.7)';
+            ctx.lineWidth = 0.8;
             ctx.beginPath();
-            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.arc(this.x, this.y, this.radius - 0.4, 0, Math.PI * 2);
+            ctx.stroke();
+            // 上部の小ハイライト(光沢)
+            ctx.fillStyle = 'rgba(255,255,255,0.28)';
+            ctx.beginPath();
+            ctx.ellipse(this.x - this.radius * 0.32, this.y - this.radius * 0.38, this.radius * 0.26, this.radius * 0.16, -0.6, 0, Math.PI * 2);
             ctx.fill();
             
             // 金属のリング（口金部分）
@@ -230,11 +316,14 @@ export class Bomb {
             ctx.fill();
             
             ctx.fillStyle = '#ff3300';
-            for(let i=0; i<3; i++) {
-                const ox = (Math.random()-0.5)*6;
-                const oy = (Math.random()-0.5)*6;
+            const ft = time * 0.012;
+            for (let i = 0; i < 3; i++) {
+                const s = this._fuseSeed[i];
+                // シード位置を時間で滑らかに揺らす（毎フレーム乱数の瞬間移動チラつきを排除）
+                const ox = s.ox + Math.sin(ft + s.ph) * 1.5;
+                const oy = s.oy + Math.cos(ft * 1.2 + s.ph) * 1.5;
                 ctx.beginPath();
-                ctx.arc(fuseEndX + ox, fuseEndY - 2 + oy, 1 + Math.random()*1.5, 0, Math.PI*2);
+                ctx.arc(fuseEndX + ox, fuseEndY - 2 + oy, 1.1 + (0.7 + 0.5 * Math.sin(ft * 2 + s.ph)), 0, Math.PI * 2);
                 ctx.fill();
             }
             
@@ -296,28 +385,37 @@ export function drawShurikenShape(ctx, cx, cy, radius, rotation) {
 
     const r = radius;
 
-    // 金属的なグラデーションを追加
+    // 金属的なグラデーション（同系色のまま階調だけ少し増やして金属の深みを出す。色味・印象は据え置き）
     const bladeGrad = ctx.createLinearGradient(-r, -r, r, r);
-    bladeGrad.addColorStop(0, '#e0e5ec'); // 明るい反射
-    bladeGrad.addColorStop(0.5, '#7a8599'); // 基本色
-    bladeGrad.addColorStop(1, '#3d485c'); // 暗い影
-    
-    ctx.fillStyle = bladeGrad;
+    bladeGrad.addColorStop(0, '#e6ebf1');
+    bladeGrad.addColorStop(0.32, '#bac2cd');
+    bladeGrad.addColorStop(0.6, '#7a8599');
+    bladeGrad.addColorStop(1, '#3a4556');
+
+    const bladePath = () => {
+        ctx.beginPath();
+        for (let i = 0; i < 4; i++) {
+            const angle = (Math.PI / 2) * i;
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            const cos45 = Math.cos(angle + Math.PI / 4);
+            const sin45 = Math.sin(angle + Math.PI / 4);
+            if (i === 0) ctx.moveTo(cos * r * 0.85, sin * r * 0.85);
+            else ctx.lineTo(cos * r * 0.85, sin * r * 0.85);
+            ctx.lineTo(cos45 * r * 0.3, sin45 * r * 0.3);
+        }
+        ctx.closePath();
+    };
+
+    // 落ち影で背景から浮かせる（控えめ。影は本体fillのみで後続の線へ伝播させない）
+    withDropShadow(ctx, { color: 'rgba(0,0,0,0.4)', blur: Math.max(1.2, r * 0.16), dx: r * 0.1, dy: r * 0.12 }, () => {
+        ctx.fillStyle = bladeGrad;
+        bladePath();
+        ctx.fill();
+    });
     ctx.strokeStyle = '#2a3441';
     ctx.lineWidth = Math.max(0.8, r * 0.1);
-    ctx.beginPath();
-    for (let i = 0; i < 4; i++) {
-        const angle = (Math.PI / 2) * i;
-        const cos = Math.cos(angle);
-        const sin = Math.sin(angle);
-        const cos45 = Math.cos(angle + Math.PI / 4);
-        const sin45 = Math.sin(angle + Math.PI / 4);
-        if (i === 0) ctx.moveTo(cos * r * 0.85, sin * r * 0.85);
-        else ctx.lineTo(cos * r * 0.85, sin * r * 0.85);
-        ctx.lineTo(cos45 * r * 0.3, sin45 * r * 0.3);
-    }
-    ctx.closePath();
-    ctx.fill();
+    bladePath();
     ctx.stroke();
 
     ctx.fillStyle = '#1a1a1a';
@@ -349,7 +447,7 @@ export class ShurikenProjectile {
         this.damage = damage;
         this.radius = radius;
         this.rotation = 0;
-        this.rotationSpeed = 18;
+        this.rotationSpeed = 18; // 回転速度の大きさ。符号は initialDirection 確定後に投擲方向へ合わせる
         this.life = homing ? 2500 : 1200;
         this.maxLife = this.life;
         this.isDestroyed = false;
@@ -360,6 +458,10 @@ export class ShurikenProjectile {
         this.lastHitMap = new Map();
         this.id = Math.random().toString(36).substr(2, 9);
         this.initialDirection = Math.sign(vx) || 1; // ★修正: 発射時の向きを記憶
+        // 投擲方向に合わせて回転の向きを反転する。手裏剣は world 座標で描かれ、
+        // プレイヤーの水平反転(facing)の外側にあるため、符号を与えないと左右どちらを
+        // 向いても同じ向き(時計回り)に回って見える＝左投げで回転が逆に見えるバグになる。
+        this.rotationSpeed *= this.initialDirection;
         this.baseSpeed = Math.sqrt(vx * vx + vy * vy) || 1;
         this.homingTarget = null;
         this.homingTargetRear = false;
@@ -370,6 +472,7 @@ export class ShurikenProjectile {
         this.defaultFlightY = y;
         this.prevX = x;
         this.prevY = y;
+        this.trailPoints = []; // 追尾弾の彗星リボン軌跡（homing時のみ蓄積。点数capで軽量）
     }
 
     update(deltaTime, enemies = []) {
@@ -493,6 +596,11 @@ export class ShurikenProjectile {
         this.rotation += this.rotationSpeed * dt;
         this.life -= dt * 1000;
 
+        // 追尾弾だけ軌跡点を蓄積（複数同時投擲時の視認性UP）。記録は update で1回＝多重描画パスに汚染されない。
+        if (this.homing) {
+            pushTrailPoint(this.trailPoints, this.x, this.y, dt * 1000, { maxAge: 78, minDist: 4, cap: 11 });
+        }
+
         // --- 地面・画面外判定 ---
         // プレビューでは groundY 前提が異なるため地面判定をスキップする
         if (!inPreviewPage) {
@@ -544,7 +652,21 @@ export class ShurikenProjectile {
         if (this.isDestroyed) return;
         const lifeRatio = this.life / this.maxLife;
         const speed = Math.hypot(this.vx, this.vy);
-        
+
+        // 追尾弾の軌跡（動きの残り香程度に抑える＝レーザービーム化を避ける）。
+        // 芯の明るい線(coreAlpha)を強く出すと連続したレーザーに見えるため、芯は薄く、
+        // 短く淡い柔らかな尾だけにする。色も少し落ち着いた青緑にして発光感を下げる。
+        if (this.homing && this.trailPoints.length >= 3 && lifeRatio > 0.06) {
+            drawCometRibbon(ctx, this.trailPoints, {
+                maxAge: 78,
+                headHalf: Math.max(2.4, this.radius * 0.3),
+                baseColor: '128, 196, 190',
+                edgeColor: '198, 230, 224',
+                headAlpha: 0.2 * Math.min(1, lifeRatio * 3),
+                coreAlpha: 0.16 * Math.min(1, lifeRatio * 3)
+            });
+        }
+
         // モーションブラー（残像エフェクト）
         if (speed > 2 && lifeRatio > 0.1) {
             ctx.save();
@@ -554,7 +676,7 @@ export class ShurikenProjectile {
                 ctx.globalAlpha = alpha;
                 const pastX = this.x - this.vx * (i * 0.5);
                 const pastY = this.y - this.vy * (i * 0.5);
-                const pastRot = this.rotation - (Math.sign(this.vx) * 0.3 * i);
+                const pastRot = this.rotation - (Math.sign(this.rotationSpeed) * 0.3 * i);
                 drawShurikenShape(ctx, pastX, pastY, this.radius * 0.9, pastRot);
             }
             ctx.restore();
@@ -1189,6 +1311,98 @@ export class Spear extends SubWeapon {
         const spearFadeAlpha = this.isAttacking
             ? Math.max(0, Math.min(1, this.attackTimer / 120))
             : 1;
+
+        // === 横突進の風切り（dashの疾走感）===
+        // use() の player.vx += direction*dashBoost で身体が横っ飛びする。その実速度を駆動に、
+        // 穂先軸を中心に後方(-direction)へ流れる「流線」を描く。直線の束(=安っぽい集中線)ではなく、
+        // 両端が点へ収束するテーパー曲線リボン(筆致)＋明るい芯にして風らしい質感を出す。
+        // 速いほど長く濃い＝高tier(dashBoost大)ほど自動で風が強い。前方エネルギーとは別系統・描画専用。
+        const dashSpeed = Math.abs((player && player.vx) || 0);
+        const windInten = Math.max(0, Math.min(1, (dashSpeed - 5) / 22)) * spearFadeAlpha;
+        if (windInten > 0.02) {
+            const wdir = st.direction;
+            const bodyW = ownerWorldWidth(player);
+            const bodyH = ownerWorldHeight(player);
+            const wcx = player.x + bodyW / 2;
+            const windMaxLen = 54 + windInten * 92 + Math.min(74, dashSpeed * 0.8);
+
+            // テーパー付き流線リボン1本（両端が点へ収束）＋細い明るい芯。x0=頭(body/穂先側)、後方へ流れる。
+            const SEG = 16;
+            const drawStreak = (x0, y0, len, sweepY, halfW, alpha, coreBoost) => {
+                if (alpha < 0.012 || len < 4) return;
+                const x1 = x0 - wdir * len;
+                const y1 = y0 + sweepY;
+                const cxp = x0 - wdir * len * 0.5;
+                const cyp = y0 + sweepY * 0.62;
+                const px = [], py = [], pw = [];
+                for (let k = 0; k <= SEG; k++) {
+                    const t = k / SEG, mt = 1 - t;
+                    px.push(mt * mt * x0 + 2 * mt * t * cxp + t * t * x1);
+                    py.push(mt * mt * y0 + 2 * mt * t * cyp + t * t * y1);
+                    // 幅: 両端0・頭寄り(t小)で太い筆致 → 尾は細く点へ収束
+                    pw.push(halfW * smoothstep01(t / 0.18) * Math.pow(1 - t, 1.15));
+                }
+                const ux = [], uy = [], lx = [], ly = [];
+                for (let k = 0; k <= SEG; k++) {
+                    const a = Math.max(0, k - 1), b = Math.min(SEG, k + 1);
+                    let tx = px[b] - px[a], ty = py[b] - py[a];
+                    const L = Math.hypot(tx, ty) || 1; tx /= L; ty /= L;
+                    const nx = -ty, ny = tx;
+                    ux.push(px[k] + nx * pw[k]); uy.push(py[k] + ny * pw[k]);
+                    lx.push(px[k] - nx * pw[k]); ly.push(py[k] - ny * pw[k]);
+                }
+                const g = ctx.createLinearGradient(x0, y0, x1, y1);
+                g.addColorStop(0, `rgba(232,247,255,${alpha.toFixed(3)})`);
+                g.addColorStop(0.5, `rgba(198,230,255,${(alpha * 0.5).toFixed(3)})`);
+                g.addColorStop(1, 'rgba(176,220,255,0)');
+                ctx.fillStyle = g;
+                ctx.beginPath();
+                ctx.moveTo(ux[0], uy[0]);
+                for (let k = 1; k <= SEG; k++) ctx.lineTo(ux[k], uy[k]);
+                for (let k = SEG; k >= 0; k--) ctx.lineTo(lx[k], ly[k]);
+                ctx.closePath(); ctx.fill();
+                if (coreBoost > 0) {
+                    const cg = ctx.createLinearGradient(x0, y0, x1, y1);
+                    cg.addColorStop(0, `rgba(246,252,255,${(alpha * coreBoost).toFixed(3)})`);
+                    cg.addColorStop(0.65, `rgba(222,243,255,${(alpha * coreBoost * 0.4).toFixed(3)})`);
+                    cg.addColorStop(1, 'rgba(222,243,255,0)');
+                    ctx.strokeStyle = cg;
+                    ctx.lineWidth = Math.max(0.5, halfW * 0.34);
+                    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+                    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(cxp, cyp, x1, y1); ctx.stroke();
+                }
+            };
+
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.lineJoin = 'round';
+            const midY = st.y;                  // 穂先の高さ＝風の主軸
+            const halfSpread = bodyH * 0.34;
+            const iw = 0.6 + 0.4 * windInten;
+            // 穂先軸を中心に上下へ広がる流線（本数を絞り質感を上げる。中央=主流、外側=淡い裾）
+            const streaks = [
+                { off:  0.00, sweep:   0, lenS: 1.00, hw: 3.0, aS: 1.00, core: 0.95 },
+                { off: -0.46, sweep: -12, lenS: 0.84, hw: 2.1, aS: 0.72, core: 0.50 },
+                { off:  0.46, sweep:  12, lenS: 0.84, hw: 2.1, aS: 0.72, core: 0.50 },
+                { off: -0.92, sweep: -26, lenS: 0.60, hw: 1.5, aS: 0.46, core: 0.00 },
+                { off:  0.92, sweep:  26, lenS: 0.60, hw: 1.5, aS: 0.46, core: 0.00 },
+            ];
+            for (let i = 0; i < streaks.length; i++) {
+                const s = streaks[i];
+                const seed = ((i * 73) % 11) / 11;
+                const y0 = midY + s.off * halfSpread;
+                const x0 = wcx - wdir * (bodyW * 0.30 + seed * 7); // 身体の後縁から後方へ流れ出す
+                const len = windMaxLen * s.lenS * (0.86 + 0.22 * seed);
+                drawStreak(x0, y0, len, s.sweep * iw, s.hw * (0.7 + 0.5 * windInten), windInten * 0.46 * s.aS, s.core);
+            }
+            // 穂先の弓状気流：風が穂先で上下に割れ後方へ流れる＝「切ってる」感（同じ筆致リボンで統一）
+            const bowLen = 30 + windInten * 46 + Math.min(44, dashSpeed * 0.5);
+            const bowSweep = 14 + windInten * 12;
+            drawStreak(st.spearEnd + wdir * 5, st.y, bowLen, -bowSweep, 1.7 * iw, windInten * 0.5, 0.4);
+            drawStreak(st.spearEnd + wdir * 5, st.y, bowLen,  bowSweep, 1.7 * iw, windInten * 0.5, 0.4);
+            ctx.restore();
+        }
+
         const shaftDX = st.shaftEndX - st.shaftStartX;
         const shaftDY = st.shaftEndY - st.shaftStartY;
         const shaftLen = Math.max(1, Math.hypot(shaftDX, shaftDY));
@@ -1338,9 +1552,12 @@ export class Spear extends SubWeapon {
             ctx.closePath();
         };
 
-        ctx.fillStyle = bladeGrad;
-        traceBladePath();
-        ctx.fill();
+        // 落ち影で背景から浮かせる（控えめ。影は本体fillのみで後続の陰影/鎬へ伝播させない）
+        withDropShadow(ctx, { color: 'rgba(0,0,0,0.45)', blur: 2.4, dx: 0.8, dy: 1.4 }, () => {
+            ctx.fillStyle = bladeGrad;
+            traceBladePath();
+            ctx.fill();
+        });
 
         // 刃断面の陰影（崩れ防止のためレイヤーを整理）
         ctx.save();
@@ -1390,14 +1607,37 @@ export class Spear extends SubWeapon {
         ctx.stroke();
         ctx.restore();
 
-        // 突き先の残光
+        // 切先グリント（穂先に集中する鋭い光点）
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.beginPath();
+        ctx.arc(localTip - 1.2, -0.4, 0.95, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 突き先の残光（グロー弧＋コア弧の二重＋切先フラッシュ）
         if (this.thrustPulse > 0) {
             const pulseRatio = this.thrustPulse / 180;
-            ctx.strokeStyle = `rgba(184, 246, 255, ${pulseRatio * 0.85})`;
-            ctx.lineWidth = 2.8;
+            const rr = 10 + (1 - pulseRatio) * 14;
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            // 外側グロー（太く低α）
+            ctx.strokeStyle = `rgba(120, 210, 255, ${(pulseRatio * 0.4).toFixed(3)})`;
+            ctx.lineWidth = 5.0;
             ctx.beginPath();
-            ctx.arc(localTip + 3.8, 0, 10 + (1 - pulseRatio) * 14, -0.92, 0.92);
+            ctx.arc(localTip + 3.8, 0, rr, -0.98, 0.98);
             ctx.stroke();
+            // 内側コア（細く高α）
+            ctx.strokeStyle = `rgba(244, 255, 255, ${(pulseRatio * 0.9).toFixed(3)})`;
+            ctx.lineWidth = 1.8;
+            ctx.beginPath();
+            ctx.arc(localTip + 3.8, 0, rr, -0.86, 0.86);
+            ctx.stroke();
+            // 切先の刺突フラッシュ
+            const fg = ctx.createRadialGradient(localTip + 2, 0, 0, localTip + 2, 0, 6);
+            fg.addColorStop(0, `rgba(230, 250, 255, ${(pulseRatio * 0.8).toFixed(3)})`);
+            fg.addColorStop(1, 'rgba(180, 235, 255, 0)');
+            ctx.fillStyle = fg;
+            ctx.beginPath(); ctx.arc(localTip + 2, 0, 6, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
         }
 
         ctx.restore();
@@ -1408,77 +1648,86 @@ export class Spear extends SubWeapon {
             ctx.translate(st.spearEnd, st.y);
             ctx.scale(st.direction, 1);
             const tier = this.enhanceTier || 0;
-            const attackWave = Math.max(0, Math.sin(st.progress * Math.PI));
-            const thrustSnap = Math.max(0, Math.min(1, (st.progress - 0.16) / 0.34));
-            const fadeOut = 1 - Math.max(0, (st.progress - 0.76) / 0.24);
-            const alpha = attackWave * fadeOut;
+            // エネルギーは槍の押し出し(extend)に同期させ、突き切る瞬間(progress≈0.78)で
+            // ピークを迎えてから減衰させる。sin(progress*π)では0.5で先行ピークし、槍が
+            // 伸び切る前にエフェクトがだれていた。
+            const extend = Math.max(0, Math.min(1, (st.progress - 0.22) / 0.56)); // 1 at apex
+            const release = Math.max(0, Math.min(1, (st.progress - 0.78) / 0.22)); // 突き切り後の余韻
+            const drive = smoothstep01(extend);
+            const settle = 1 - smoothstep01(release);
+            const alpha = drive * settle;
             if (alpha <= 0.001) {
                 ctx.restore();
                 return;
             }
+            // apex直前で尖る貫通感（前方への伸び・コーンの鋭さに使う）
+            const pierce = Math.pow(extend, 2.2) * settle;
 
             const streakBase = 86 + tier * 20;
-            const burstReach = 56 + thrustSnap * (34 + tier * 10);
+            const burstReach = 50 + pierce * (44 + tier * 12);
             ctx.globalCompositeOperation = 'lighter';
 
-            // コアの刺突光
-            const coreGrad = ctx.createLinearGradient(0, 0, streakBase + 90, 0);
-            coreGrad.addColorStop(0, `rgba(244, 255, 255, ${(alpha * 0.92).toFixed(3)})`);
-            coreGrad.addColorStop(0.36, `rgba(190, 246, 255, ${(alpha * 0.64).toFixed(3)})`);
+            // コアの刺突光（前方へまっすぐ・apexで前へ伸びる）
+            const coreLen = streakBase + 64 + pierce * 46;
+            const coreGrad = ctx.createLinearGradient(-8, 0, coreLen, 0);
+            coreGrad.addColorStop(0, `rgba(244, 255, 255, ${(alpha * 0.94).toFixed(3)})`);
+            coreGrad.addColorStop(0.34, `rgba(190, 246, 255, ${(alpha * 0.62).toFixed(3)})`);
             coreGrad.addColorStop(1, 'rgba(112, 210, 255, 0)');
             ctx.strokeStyle = coreGrad;
-            ctx.lineWidth = 2.8 + tier * 0.65;
+            ctx.lineWidth = 2.6 + tier * 0.6;
             ctx.lineCap = 'round';
             ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.lineTo(streakBase + 90, 0);
+            ctx.moveTo(-8, 0);
+            ctx.lineTo(coreLen, 0);
             ctx.stroke();
 
-            // 多層ストリーク（速度感）
+            // 多層ストリーク（前方へタイトに走る。下方への垂れを抑え貫通感を出す）
             for (let i = 0; i < 4; i++) {
                 const lane = i - 1.5;
-                const laneAlpha = alpha * (0.5 - i * 0.07);
-                const laneLen = streakBase + 28 + i * 15 + thrustSnap * (18 + i * 6);
-                ctx.strokeStyle = `rgba(186, 236, 255, ${Math.max(0.08, laneAlpha).toFixed(3)})`;
-                ctx.lineWidth = Math.max(0.9, 1.6 - i * 0.2);
+                const laneAlpha = alpha * (0.46 - i * 0.06);
+                const laneLen = streakBase + 24 + i * 14 + pierce * (24 + i * 6);
+                ctx.strokeStyle = `rgba(190, 238, 255, ${Math.max(0.06, laneAlpha).toFixed(3)})`;
+                ctx.lineWidth = Math.max(0.8, 1.5 - i * 0.2);
                 ctx.beginPath();
-                ctx.moveTo(6 + i * 2.2, lane * 3.8);
-                ctx.quadraticCurveTo(laneLen * 0.44, lane * (6.2 + i * 1.0), laneLen, lane * (8.8 + i * 1.5));
+                ctx.moveTo(4 + i * 2, lane * 2.4);
+                ctx.quadraticCurveTo(laneLen * 0.5, lane * (3.4 + i * 0.5), laneLen, lane * (4.6 + i * 0.7));
                 ctx.stroke();
             }
 
-            // 先端の圧縮衝撃（コーン）
-            const burstGrad = ctx.createLinearGradient(0, 0, burstReach + 56, 0);
-            burstGrad.addColorStop(0, `rgba(236, 255, 255, ${(alpha * 0.86).toFixed(3)})`);
-            burstGrad.addColorStop(0.52, `rgba(158, 226, 255, ${(alpha * 0.42).toFixed(3)})`);
+            // 先端の圧縮衝撃（鋭いコーン。apexで尖って前へ伸びる）
+            const coneHalf = 5.0 + pierce * 5.4;
+            const coneTip = burstReach + 42 + pierce * 28;
+            const burstGrad = ctx.createLinearGradient(-4, 0, coneTip, 0);
+            burstGrad.addColorStop(0, `rgba(236, 255, 255, ${(alpha * 0.84).toFixed(3)})`);
+            burstGrad.addColorStop(0.5, `rgba(158, 226, 255, ${(alpha * 0.4).toFixed(3)})`);
             burstGrad.addColorStop(1, 'rgba(108, 192, 255, 0)');
             ctx.fillStyle = burstGrad;
             ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.lineTo(burstReach * 0.56, -6.8 - thrustSnap * 8.0);
-            ctx.lineTo(burstReach + 56 + thrustSnap * 24, 0);
-            ctx.lineTo(burstReach * 0.56, 6.8 + thrustSnap * 8.0);
+            ctx.moveTo(-4, 0);
+            ctx.lineTo(burstReach * 0.5, -coneHalf);
+            ctx.lineTo(coneTip, 0);
+            ctx.lineTo(burstReach * 0.5, coneHalf);
             ctx.closePath();
             ctx.fill();
 
-            // 先端周辺のリング状ショック
-            ctx.strokeStyle = `rgba(224, 248, 255, ${(alpha * 0.66).toFixed(3)})`;
-            ctx.lineWidth = 1.7;
+            // 先端周辺のリング状ショック（apexで開く）
+            ctx.strokeStyle = `rgba(224, 248, 255, ${(alpha * 0.62).toFixed(3)})`;
+            ctx.lineWidth = 1.6;
             ctx.beginPath();
-            ctx.arc(8 + thrustSnap * 8, 0, 7 + thrustSnap * 14, -0.78, 0.78);
+            ctx.arc(6 + pierce * 8, 0, 6 + pierce * 15, -0.7, 0.7);
             ctx.stroke();
 
             if (tier >= 3 && st.progress > 0.74 && st.progress < 0.98) {
-                const shockAlpha = alpha * 0.72;
-                ctx.strokeStyle = `rgba(216, 246, 255, ${shockAlpha})`;
-                ctx.lineWidth = 4.8;
+                const shockAlpha = alpha * 0.7;
+                ctx.strokeStyle = `rgba(216, 246, 255, ${shockAlpha.toFixed(3)})`;
+                ctx.lineWidth = 4.6;
                 ctx.lineCap = 'round';
                 const far = CANVAS_WIDTH + 120;
                 ctx.beginPath();
-                ctx.moveTo(8, -6.4);
-                ctx.lineTo(far, -6.4);
-                ctx.moveTo(8, 6.4);
-                ctx.lineTo(far, 6.4);
+                ctx.moveTo(8, -6.2);
+                ctx.lineTo(far, -6.2);
+                ctx.moveTo(8, 6.2);
+                ctx.lineTo(far, 6.2);
                 ctx.stroke();
             }
 
@@ -2110,35 +2359,58 @@ export class DualBlades extends SubWeapon {
     renderProjectiles(ctx) {
         // 飛翔する交差斬撃（高輝度の三日月クロス）
         for (const p of this.projectiles) {
-            const alpha = p.life / p.maxLife;
+            const lifeRatio = p.life / p.maxLife;
+            const drawA = Math.pow(Math.max(0, lifeRatio), 0.65); // 消え際を粘らせる
             const sizeScale = Number.isFinite(p.sizeScale) ? p.sizeScale : 1.0;
+            const dissipate = 1 + Math.pow(1 - lifeRatio, 0.6) * 0.08; // 末期ほど拡散が加速（残像が薄れる質感）
             ctx.save();
             ctx.translate(p.x, p.y);
-            ctx.scale(p.direction * 1.35 * sizeScale, 1.35 * sizeScale);
+            ctx.scale(p.direction * 1.35 * sizeScale * dissipate, 1.35 * sizeScale * dissipate);
 
-            const travelRatio = 1 - alpha;
+            const travelRatio = 1 - lifeRatio;
             const forward = travelRatio * 18;
-            const drawCrescent = (color, angle) => {
-                ctx.save();
-                ctx.translate(forward, 0);
-                ctx.rotate(angle);
-                ctx.globalAlpha = alpha;
-                // ctx.shadowColor = color;
-                // ctx.shadowBlur = 20;
-                ctx.fillStyle = color;
-
+            const crescentPath = () => {
                 ctx.beginPath();
                 ctx.moveTo(0, -46);
                 ctx.bezierCurveTo(24, -22, 24, 22, 0, 46);
                 ctx.bezierCurveTo(7, 22, 7, -22, 0, -46);
+                ctx.closePath();
+            };
+            // stops: 刃幅方向(内側x0→外側x24)。glow: 縁のエネルギー発光色。
+            const drawCrescent = (stops, glow, angle) => {
+                ctx.save();
+                ctx.translate(forward, 0);
+                ctx.rotate(angle);
+                // 本体: 多層グラデ＋縁の発光(shadow)
+                ctx.globalAlpha = drawA;
+                ctx.shadowColor = glow;
+                ctx.shadowBlur = 13;
+                const g = ctx.createLinearGradient(0, 0, 24, 0);
+                stops.forEach(([o, c]) => g.addColorStop(o, c));
+                ctx.fillStyle = g;
+                crescentPath();
                 ctx.fill();
-
+                ctx.shadowBlur = 0;
+                // 芯発光(加算で内側に細い明るい三日月)。travelとともに開花させ、末期に芯だけ輝いて消える。
+                ctx.globalCompositeOperation = 'lighter';
+                ctx.globalAlpha = drawA * 0.7 * (0.12 + 0.88 * smoothstep01(travelRatio));
+                ctx.fillStyle = 'rgba(255,255,255,0.55)';
+                ctx.beginPath();
+                ctx.moveTo(0, -40);
+                ctx.bezierCurveTo(16, -19, 16, 19, 0, 40);
+                ctx.bezierCurveTo(9.5, 19, 9.5, -19, 0, -40);
+                ctx.closePath();
+                ctx.fill();
                 ctx.restore();
             };
 
             // 近接の剣筋と色対応を揃える（奥の刀=青→上の三日月が青、手前の刀=赤→下の三日月が赤）
-            drawCrescent('rgba(80, 200, 255, 0.98)', -Math.PI / 4);
-            drawCrescent('rgba(255, 80, 80, 0.98)', Math.PI / 4);
+            drawCrescent([
+                [0, 'rgba(38,118,178,0.92)'], [0.5, 'rgba(120,220,255,1)'], [1, 'rgba(224,248,255,1)']
+            ], 'rgba(90,200,255,0.95)', -Math.PI / 4);
+            drawCrescent([
+                [0, 'rgba(150,38,38,0.92)'], [0.5, 'rgba(255,112,112,1)'], [1, 'rgba(255,234,234,1)']
+            ], 'rgba(255,90,90,0.95)', Math.PI / 4);
 
             ctx.restore();
         }
@@ -2307,7 +2579,17 @@ export class DualBlades extends SubWeapon {
             // 1本の剣につき剣筋は常に1本だけ表示する
             ctx.arc(-6, 0, this.range + 10, -0.72, 0.72);
             ctx.stroke();
-            
+
+            // 中間グロー層(加算): Z剣筋(playerSlashTrail)と同じ「色→発光→白芯」の三層構造に揃える
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.strokeStyle = `${baseColorPrefix}, ${(slashAlpha * 0.4).toFixed(3)})`;
+            ctx.lineWidth = 7;
+            ctx.beginPath();
+            ctx.arc(-5, 0, this.range + 9, -0.70, 0.70);
+            ctx.stroke();
+            ctx.restore();
+
             // 内側の細いハイライト (白)
             // ctx.shadowBlur = 5;
             // ctx.shadowColor = 'white';
@@ -2465,7 +2747,8 @@ export class Kusarigama extends SubWeapon {
             const localY = 1.6 + (-15.2 - 1.6) * ease;
             // 振りかぶり中は鎖をほぼ伸ばさない
             radius = effectiveRange * this.rangeScale * (0.006 + 0.006 * ease);
-            angle = -0.72 + ease * 0.18;
+            // throw 開始角(0=前方)へ繋げ、刃の向き(=chainHeading)が境界で跳ねないようにする
+            angle = -0.72 + ease * 0.72;
             handX = shoulderX + direction * localX;
             handY = shoulderY + localY;
             tension = 0.06 + ease * 0.04;
@@ -2492,9 +2775,10 @@ export class Kusarigama extends SubWeapon {
             handY = shoulderY + localY;
             const radiusEase = 1 - Math.pow(1 - throwT, 2.5);
             radius = effectiveRange * this.rangeScale * (0.015 + 0.985 * radiusEase);
-            // 投擲は地面と水平にまっすぐ前方へ伸ばす（後方への扇形回転は orbit フェーズで行う）
-            // 終点は 0（完全水平）で orbit 開始角と連続。中盤にごく僅かな鞭のしなりだけ残す。
-            angle = -Math.sin(throwT * Math.PI) * 0.03;
+            // 投擲は伸び切るまで終始「地面と水平」にまっすぐ前方へ伸ばす（角度0で固定）。
+            // 以前は中盤に微小な鞭のしなり(-0.03rad)を入れていたが、伸び切る前に鎖が斜め上に
+            // 見えるため除去。後方への扇形回転は orbit フェーズで行う。
+            angle = 0;
             tension = 0.1 + radiusEase * 0.9;
         } else if (progress < this.orbitEnd) {
             phase = 'orbit';
@@ -2503,27 +2787,37 @@ export class Kusarigama extends SubWeapon {
             // 水平に投げ放った後、遠心力を感じるようゆっくり後方へ回し始める
             const eased = Math.pow(phaseT, 1.22);
             angle = this.orbitBackAngle * eased; // 開始 0（水平）→ 終点は後方
-            // 手元は throw 終端(local≈cos0.5*reach,sin0.5*reach)から後方の小円へ滑らかに引く
-            const orbitHand = 0.5 + (this.orbitBackAngle - 0.5) * eased;
-            handX = shoulderX + direction * (Math.cos(orbitHand) * ORBIT_HAND_REACH);
-            handY = shoulderY + Math.sin(orbitHand) * ORBIT_HAND_REACH - 0.4;
+            // 手元(グリップ)を肩から「鎖の方向」へ armReach 伸ばし、腕と鎖を一直線に保つ
+            // （腕が鎖の振れ角に追従する）。throw 終端の手元から序盤15%で滑らかに移行。
+            const armReach = 20;
+            const cdx = direction * Math.cos(angle), cdy = Math.sin(angle);
+            const followX = shoulderX + cdx * armReach;
+            const followY = shoulderY + cdy * armReach;
+            const teX = shoulderX + direction * 18.4, teY = shoulderY + 9.4; // throw終端の手元
+            const bt = Math.min(1, phaseT / 0.15); const b = bt * bt * (3 - 2 * bt);
+            handX = teX + (followX - teX) * b;
+            handY = teY + (followY - teY) * b;
             tension = 1.0;
         } else {
             phase = 'retract';
             phaseT = (progress - this.orbitEnd) / (1 - this.orbitEnd);
-            // 縮退も常に円弧上（角度と半径を同時補間）
             const eased = 0.5 - Math.cos(phaseT * Math.PI) * 0.5;
-            radius = effectiveRange * this.rangeScale * (1 - eased * 0.9);
-            const startAngle = this.orbitBackAngle; // 回転終点に合わせて開始角も後方へ揃える
-            const endAngle = -Math.PI * 0.18;
+            // 鎖は前半(〜0.6)でほぼ手元まで巻き取る。後半は手元で畳まれ render 側でフェードアウト。
+            const rt = Math.min(1, phaseT / 0.6); const reel = rt * rt * (3 - 2 * rt);
+            radius = effectiveRange * this.rangeScale * (1 - reel * 0.94);
+            const startAngle = this.orbitBackAngle;
+            const endAngle = -Math.PI * 0.08;
             angle = startAngle + (endAngle - startAngle) * eased;
-            // 回し終わりの手元から収納位置へ戻す
-            const fromX = shoulderX + direction * (Math.cos(this.orbitBackAngle) * ORBIT_HAND_REACH);
-            const fromY = shoulderY + Math.sin(this.orbitBackAngle) * ORBIT_HAND_REACH - 0.4;
-            const toX = shoulderX + direction * 6.5;
-            const toY = shoulderY - 3.0;
-            handX = fromX + (toX - fromX) * eased;
-            handY = fromY + (toY - fromY) * eased;
+            // 手元は鎖方向へ伸ばし続け(腕が鎖に追従)、終わりに「腕を下ろしたリラックス位置」(アイドル相当)へ収束。
+            // → 最後のコマがアイドルとほぼ一致し、復帰時のスナップを抑える。
+            const armReach = 20;
+            const cdx = direction * Math.cos(angle), cdy = Math.sin(angle);
+            const followX = shoulderX + cdx * armReach;
+            const followY = shoulderY + cdy * armReach;
+            const toX = shoulderX + direction * 8.0;
+            const toY = shoulderY + 11.0; // 体側へ下ろす
+            handX = followX + (toX - followX) * eased;
+            handY = followY + (toY - followY) * eased;
             tension = 0.82 + (1 - phaseT) * 0.18;
         }
 
@@ -2537,20 +2831,7 @@ export class Kusarigama extends SubWeapon {
             handX, handY, tipX, tipY, radius, angle, progress, direction,
             phase, phaseT, tension, chainDirX, chainDirY, chainHeading
         };
-
-        // 鎌の切先は常に「実際の進行方向(速度)」へ向ける。
-        // 円運動でも反転しないよう、先端位置を前後に微小サンプルした中心差分で求める。
-        if (skipVelocity) {
-            state.travelHeading = chainHeading;
-        } else {
-            const dp = 0.018;
-            const sa = this.getMotionState(player, Math.min(1, progress + dp), true);
-            const sb = this.getMotionState(player, Math.max(0, progress - dp), true);
-            let vx = sa.tipX - sb.tipX;
-            let vy = sa.tipY - sb.tipY;
-            if (Math.hypot(vx, vy) < 0.4) { vx = chainDirX; vy = chainDirY; } // 静止点では鎖方向で代替
-            state.travelHeading = Math.atan2(vy, vx);
-        }
+        // 鎌の向きは getSickleGeometry がフェーズ毎に解析的に決める（速度の数値微分は低速時に暴れるため不使用）。
         return state;
     }
 
@@ -2640,18 +2921,26 @@ export class Kusarigama extends SubWeapon {
     }
 
     getSickleGeometry(state) {
-        // 刃の切先は常に実際の進行方向(travelHeading=速度)へ向ける。
-        // これにより throw では水平前方、orbit では円弧の接線方向を向き、後方回転でも上下反転しない。
-        const heading = Number.isFinite(state.travelHeading) ? state.travelHeading : state.chainHeading;
-        // 切先がほんの少し先行するよう、進行方向側へ僅かに倒す
-        const rotation = heading + state.direction * 0.14;
-        // 刃の腹(刃側)を回転の外周側へ揃えるため、左右の振り向きに応じて刃形状を上下反転する。
-        // (描画側で flipBlade を見て ctx.scale(1,-1) する)
+        // L字鎖鎌: 柄を「鎖方向(chainHeading)」に沿わせる。原点(tipX)=肘=刃の付け根。
+        // 柄は手元側(-X=chainの内向き)へ伸び、柄尻の鎖環は -X 端。刃は肘から局所 -Y へ直角に湾曲。
+        // → 柄が放射方向に並ぶので、orbit では刃(直角=-Y)が自動的に接線(進行方向)を向く。
+        //   速度の数値微分を使わないので投げ始めの溜めでも刃先がフラつかない。
+        const rotation = state.chainHeading;
+        // 左右の振り向きで刃の腹(切刃)が外周側を向くよう、刃形状を上下反転(描画は ctx.scale(1,-1))。
         const flipBlade = state.direction < 0;
-        // 将軍など ownerScale > 1 のとき鎌刃の到達距離もスケールする
         const ownerScale = (state.ownerScale && state.ownerScale > 0) ? state.ownerScale : 1;
-        const reach = 16 * ownerScale;
-        return { rotation, reach, flipBlade };
+        const cos = Math.cos(rotation), sin = Math.sin(rotation);
+        // 柄尻の鎖環(分銅) ローカル(-HANDLE_LEN, 0) → ワールド。鎖はここへ繋ぐ。
+        const HANDLE_LEN = 18 * ownerScale;
+        const ringX = state.tipX + (-HANDLE_LEN) * cos;
+        const ringY = state.tipY + (-HANDLE_LEN) * sin;
+        // 刃の切先 ローカル(-5, -18.5)(flipでY反転) → ワールド。軌跡/判定はこの点を刃先とする。
+        const btx = -5 * ownerScale;
+        const bty = (flipBlade ? 18.5 : -18.5) * ownerScale;
+        const bladeTipX = state.tipX + (btx * cos - bty * sin);
+        const bladeTipY = state.tipY + (btx * sin + bty * cos);
+        const reach = 18 * ownerScale; // 互換(肘から刃先までの目安)
+        return { rotation, flipBlade, reach, ringX, ringY, bladeTipX, bladeTipY };
     }
     
     update(deltaTime) {
@@ -2707,8 +2996,8 @@ export class Kusarigama extends SubWeapon {
         const ownerScale = (this.owner && Number.isFinite(this.owner.scaleMultiplier) && this.owner.scaleMultiplier > 0)
             ? this.owner.scaleMultiplier : 1;
         const sk = this.getSickleGeometry(Object.assign({}, st, { ownerScale }));
-        const bx = st.tipX + Math.cos(sk.rotation) * sk.reach;
-        const by = st.tipY + Math.sin(sk.rotation) * sk.reach;
+        const bx = sk.bladeTipX; // L字刃の切先(直角に湾曲した刃の先端)
+        const by = sk.bladeTipY;
         const last = this.trailPoints[this.trailPoints.length - 1];
         if (last && Math.hypot(bx - last.x, by - last.y) < 1.5 * ownerScale) return;
         this.trailPoints.push({ x: bx, y: by, age: 0 });
@@ -2726,10 +3015,11 @@ export class Kusarigama extends SubWeapon {
         st.ownerScale = ownerScale;
         if (st.radius < 16) return null;
         const sickle = this.getSickleGeometry(st);
-        const sickleTipX = st.tipX + Math.cos(sickle.rotation) * sickle.reach;
-        const sickleTipY = st.tipY + Math.sin(sickle.rotation) * sickle.reach;
-        const bladeRootX = st.tipX + Math.cos(sickle.rotation) * 4.2 * ownerScale;
-        const bladeRootY = st.tipY + Math.sin(sickle.rotation) * 4.2 * ownerScale;
+        // L字刃: 肘(tipX=刃の付け根)から直角に湾曲した刃の切先(bladeTip)までをカプセル判定にする。
+        const sickleTipX = sickle.bladeTipX;
+        const sickleTipY = sickle.bladeTipY;
+        const bladeRootX = st.tipX;
+        const bladeRootY = st.tipY;
         const tipRadius = 8.8 * ownerScale;
         const tipHitbox = this.createCapsuleHitbox(bladeRootX, bladeRootY, sickleTipX, sickleTipY, tipRadius, 'tip');
         const hitboxes = [tipHitbox];
@@ -2778,42 +3068,70 @@ export class Kusarigama extends SubWeapon {
         return hitboxes;
     }
     
-    render(ctx, player) {
+    // layer: 'all'(既定) | 'behind'(軌跡＋鎖=手の背面) | 'front'(鎌ヘッド=手の前面)
+    // renderModel から behind→drawHand→front の順で呼べば、刃先が掌(手)の前に出る。
+    render(ctx, player, layer = 'all') {
         if (!this.isAttacking && (!player || !player.forceSubWeaponRender)) return;
 
         const st = this.getRenderState(player);
         if (st.radius < 4) return;
 
+        const doBehind = layer === 'all' || layer === 'behind';
+        const doFront = layer === 'all' || layer === 'front';
+
         ctx.save();
 
-        // 軌跡(彗星リボン): 刃先が実際に通った経路(this.trailPoints)を、頭=太く明るく / 尾=細く透明にフェードして描く。
-        // 円弧を毎フレーム再計算する旧方式と違い、経路そのものをなぞるため刃先に必ず揃い、半径変化でも破綻しない。
-        this.renderTrail(ctx);
+        // retract 後半で鎖・鎌・軌跡をフェードアウトさせ、アイドル復帰時に「パッと消える」のを防ぐ。
+        // (鎖は前半で手元へ巻き取り済みなので、フェードは手元付近で起こる)
+        let phaseFade = 1;
+        if (st.phase === 'retract') {
+            const ft = (st.phaseT - 0.55) / 0.45;
+            phaseFade = ft <= 0 ? 1 : (ft >= 1 ? 0 : 1 - ft);
+        }
+        if (phaseFade <= 0.001) { ctx.restore(); return; }
+        ctx.globalAlpha *= phaseFade;
+
+        // 軌跡(彗星リボン)は背面レイヤー。刃先が通った経路を頭=太く明るく / 尾=細く透明にフェード。
+        if (doBehind) {
+            this.renderTrail(ctx);
+        }
+
+        // 鎖・鎌は前面レイヤー(頭/手より前)。鎖が頭の後ろへ回り込んで隠れるのを防ぐ。
+        if (doFront) {
+        // 鎖の終端は柄尻の鎖環（getSickleGeometry が算出）に繋ぐ。
+        const _sg = this.getSickleGeometry(st);
+        const ringX = _sg.ringX;
+        const ringY = _sg.ringY;
+        const _cdx = ringX - st.handX, _cdy = ringY - st.handY;
+        const _clen = Math.hypot(_cdx, _cdy) || 1;
+        const chainSt = Object.assign({}, st, {
+            tipX: ringX, tipY: ringY, chainDirX: _cdx / _clen, chainDirY: _cdy / _clen
+        });
 
         // 鎖（投擲前半はたるみ、加速とともに張る）
-        const chainGradient = ctx.createLinearGradient(st.handX, st.handY, st.tipX, st.tipY);
+        const chainGradient = ctx.createLinearGradient(chainSt.handX, chainSt.handY, chainSt.tipX, chainSt.tipY);
         chainGradient.addColorStop(0, 'rgba(170, 176, 188, 0.95)');
         chainGradient.addColorStop(0.55, 'rgba(128, 136, 150, 0.98)');
         chainGradient.addColorStop(1, 'rgba(92, 102, 118, 0.95)');
-        const curve = this.getChainCurveControl(st);
+        const curve = this.getChainCurveControl(chainSt);
         ctx.lineDashOffset = -st.progress * 150; // 鎖が動いているような視覚効果
         ctx.strokeStyle = chainGradient;
         ctx.lineWidth = 2.4;
         ctx.setLineDash([5, 3]);
         ctx.beginPath();
-        ctx.moveTo(st.handX, st.handY);
-        ctx.quadraticCurveTo(curve.ctrlX, curve.ctrlY, st.tipX, st.tipY);
+        ctx.moveTo(chainSt.handX, chainSt.handY);
+        ctx.quadraticCurveTo(curve.ctrlX, curve.ctrlY, chainSt.tipX, chainSt.tipY);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.strokeStyle = 'rgba(230, 245, 255, 0.45)';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(st.handX + st.chainDirY * 1.4, st.handY - st.chainDirX * 1.4);
+        ctx.moveTo(chainSt.handX + chainSt.chainDirY * 1.4, chainSt.handY - chainSt.chainDirX * 1.4);
         ctx.quadraticCurveTo(
-            curve.ctrlX + st.chainDirY * 1.4,
-            curve.ctrlY - st.chainDirX * 1.4,
-            st.tipX + st.chainDirY * 1.4,
-            st.tipY - st.chainDirX * 1.4
+            curve.ctrlX + chainSt.chainDirY * 1.4,
+            curve.ctrlY - chainSt.chainDirX * 1.4,
+            chainSt.tipX + chainSt.chainDirY * 1.4,
+            chainSt.tipY - chainSt.chainDirX * 1.4
         );
         ctx.stroke();
 
@@ -2825,10 +3143,10 @@ export class Kusarigama extends SubWeapon {
         for (let i = 1; i < chainLinks; i++) {
             const t = i / chainLinks;
             const inv = 1 - t;
-            const px = inv * inv * st.handX + 2 * inv * t * curve.ctrlX + t * t * st.tipX;
-            const py = inv * inv * st.handY + 2 * inv * t * curve.ctrlY + t * t * st.tipY;
-            const tx = 2 * inv * (curve.ctrlX - st.handX) + 2 * t * (st.tipX - curve.ctrlX);
-            const ty = 2 * inv * (curve.ctrlY - st.handY) + 2 * t * (st.tipY - curve.ctrlY);
+            const px = inv * inv * chainSt.handX + 2 * inv * t * curve.ctrlX + t * t * chainSt.tipX;
+            const py = inv * inv * chainSt.handY + 2 * inv * t * curve.ctrlY + t * t * chainSt.tipY;
+            const tx = 2 * inv * (curve.ctrlX - chainSt.handX) + 2 * t * (chainSt.tipX - curve.ctrlX);
+            const ty = 2 * inv * (curve.ctrlY - chainSt.handY) + 2 * t * (chainSt.tipY - curve.ctrlY);
             const angle = Math.atan2(ty, tx);
             const linkR = 1.25 + (1 - curve.chainTension) * 0.35;
             ctx.save();
@@ -2841,72 +3159,161 @@ export class Kusarigama extends SubWeapon {
             ctx.restore();
         }
 
-        // 鎌ヘッド
-        ctx.save();
-        ctx.translate(st.tipX, st.tipY);
-        const sickle = this.getSickleGeometry(st);
-        ctx.rotate(sickle.rotation);
-        // 左向き時は刃の腹(刃側)が外周を向くよう上下反転
-        if (sickle.flipBlade) ctx.scale(1, -1);
+            // 鎌ヘッド（高品質描画）
+            ctx.save();
+            ctx.translate(st.tipX, st.tipY);
+            const sickle = this.getSickleGeometry(st);
+            ctx.rotate(sickle.rotation);
+            // 左向き時は刃の腹(刃側)が外周を向くよう上下反転
+            if (sickle.flipBlade) ctx.scale(1, -1);
+            this.drawSickleHead(ctx);
+            ctx.restore();
+        } // end doFront
 
-        // 分銅（根元）
-        const pommelGrad = ctx.createRadialGradient(-4, 0, 0.2, -4, 0, 3.2);
-        pommelGrad.addColorStop(0, '#b6bcc8');
-        pommelGrad.addColorStop(0.55, '#636d7e');
-        pommelGrad.addColorStop(1, '#2a2f38');
-        ctx.fillStyle = pommelGrad;
-        ctx.beginPath();
-        ctx.arc(-4, 0, 3, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // 刃の金属グラデーション（キャッシュ）
-        if (!this._cachedSickleGrad) {
-            this._cachedSickleGrad = ctx.createLinearGradient(0, -12, 30, 6);
-            this._cachedSickleGrad.addColorStop(0, '#f6f8fb');
-            this._cachedSickleGrad.addColorStop(0.22, '#c9d0d8');
-            this._cachedSickleGrad.addColorStop(0.55, '#8f99a9');
-            this._cachedSickleGrad.addColorStop(1, '#4a5565');
-        }
-        ctx.fillStyle = this._cachedSickleGrad;
-        ctx.strokeStyle = '#313943';
-        ctx.lineWidth = 1.1;
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        // 鎌の形状をシャープに
-        ctx.quadraticCurveTo(20, -13, 30, -1.6);
-        ctx.quadraticCurveTo(18, 3.0, 3, 5.2);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        
-        // ハイライト線
-        ctx.strokeStyle = 'rgba(255,255,255,0.68)';
-        ctx.lineWidth = 0.8;
-        ctx.beginPath();
-        ctx.moveTo(2.4, -1.6);
-        ctx.quadraticCurveTo(15.5, -7.2, 26.5, -2.2);
-        ctx.stroke();
-        
-        // 柄
-        const handleGrad = ctx.createLinearGradient(-3.2, -1.8, 3.2, 1.8);
-        handleGrad.addColorStop(0, '#3b2a1c');
-        handleGrad.addColorStop(1, '#1f140c');
-        ctx.fillStyle = handleGrad;
-        ctx.fillRect(-3.2, -1.7, 6.4, 3.4);
-        ctx.strokeStyle = 'rgba(255, 230, 188, 0.26)';
-        ctx.lineWidth = 0.7;
-        ctx.strokeRect(-2.8, -1.2, 5.6, 2.4);
-        ctx.strokeStyle = 'rgba(24, 12, 5, 0.72)';
-        ctx.lineWidth = 0.6;
-        for (let x = -2.2; x <= 2.2; x += 1.2) {
+        ctx.restore();
+    }
+
+    // 鎌ヘッドを描く（呼び出し側で tip(=肘/刃の付け根) へ translate / rotation / flip 済み）。
+    // L字構造: 柄は局所X軸（手元側 -X に柄尻の鎖環）、刃は肘(原点)から局所 -Y へ「直角」に立ち上がり湾曲する(実物準拠)。
+    drawSickleHead(ctx) {
+        const HL = 18; // 柄長: 肘(原点) → 柄尻(-HL,0)。柄は手元側(-X)へ伸びる。
+        // 刃: 肘(0,0)から -Y(柄に直角)へ立ち上がり、切先は柄側(-X)へ反る三日月。
+        const bladeOutline = () => {
             ctx.beginPath();
-            ctx.moveTo(x, -1.7);
-            ctx.lineTo(x + 0.9, 1.7);
-            ctx.stroke();
+            ctx.moveTo(2.6, 0.4);                            // 付け根(背側/外角)
+            ctx.quadraticCurveTo(3.4, -10.5, -1.8, -18.6);   // 棟(背, 外カーブ)→切先方向
+            ctx.quadraticCurveTo(-4.6, -20.8, -5.8, -18.0);  // 切先(柄側へ反る)
+            ctx.quadraticCurveTo(-3.8, -9.0, -1.3, -0.9);    // 刃(belly=切刃, 内カーブ)→付け根
+            ctx.quadraticCurveTo(0.4, 0.0, 2.6, 0.4);
+            ctx.closePath();
+        };
+
+        // --- 落ち影（背景から浮かせる）---
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 2.6; ctx.shadowOffsetX = 0.9; ctx.shadowOffsetY = 1.5;
+        bladeOutline();
+        ctx.fillStyle = 'rgba(18,22,28,0.9)';
+        ctx.fill();
+        ctx.restore(); // 影リセット必須
+
+        // === 柄尻の鎖環（分銅）: 手元側 (-HL,0)。鎖はここへ繋がる。===
+        if (!this._gradWeight) {
+            this._gradWeight = ctx.createRadialGradient(-HL - 1, -1, 0.3, -HL, 0.6, 4.4);
+            this._gradWeight.addColorStop(0, '#b8c0cc');
+            this._gradWeight.addColorStop(0.5, '#5d6776');
+            this._gradWeight.addColorStop(1, '#202530');
         }
+        ctx.fillStyle = this._gradWeight;
+        ctx.beginPath(); ctx.arc(-HL, 0, 2.9, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(8,10,14,0.75)'; ctx.lineWidth = 0.55; ctx.stroke();
+        ctx.fillStyle = 'rgba(8,10,14,0.88)';
+        ctx.beginPath(); ctx.arc(-HL, 0, 1.05, 0, Math.PI * 2); ctx.fill(); // 環の穴
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        ctx.beginPath(); ctx.arc(-HL - 1, -1, 0.65, 0, Math.PI * 2); ctx.fill();
+
+        // === 柄（木+柄巻）: 局所X (-HL+1.4)..(-0.5) ===
+        if (!this._gradHandle) {
+            this._gradHandle = ctx.createLinearGradient(0, -2.6, 0, 2.6);
+            this._gradHandle.addColorStop(0, '#6a4a2c');
+            this._gradHandle.addColorStop(0.5, '#3c2917');
+            this._gradHandle.addColorStop(1, '#20150b');
+        }
+        const gx0 = -HL + 1.4, gx1 = -0.5, gh = 2.5;
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(gx0, -gh + 0.6); ctx.lineTo(gx1, -gh + 0.2);
+        ctx.lineTo(gx1, gh - 0.2); ctx.lineTo(gx0, gh - 0.6);
+        ctx.quadraticCurveTo(gx0 - 1.2, 0, gx0, -gh + 0.6);
+        ctx.closePath();
+        ctx.fillStyle = this._gradHandle; ctx.fill(); ctx.clip();
+        ctx.strokeStyle = 'rgba(255,226,182,0.10)'; ctx.lineWidth = 0.32;
+        for (let gy = -1.6; gy <= 1.6; gy += 0.8) { ctx.beginPath(); ctx.moveTo(gx0, gy); ctx.lineTo(gx1, gy); ctx.stroke(); }
+        ctx.strokeStyle = 'rgba(12,7,3,0.6)'; ctx.lineWidth = 0.95;
+        for (let wx = gx0 + 0.6; wx < gx1 - 0.4; wx += 2.0) {
+            ctx.beginPath(); ctx.moveTo(wx, -gh); ctx.lineTo(wx + 1.7, gh); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(wx + 1.7, -gh); ctx.lineTo(wx, gh); ctx.stroke();
+        }
+        ctx.strokeStyle = 'rgba(255,228,180,0.14)'; ctx.lineWidth = 0.4;
+        for (let wx = gx0 + 0.6; wx < gx1 - 0.4; wx += 2.0) { ctx.beginPath(); ctx.moveTo(wx - 0.3, -gh); ctx.lineTo(wx + 1.4, gh); ctx.stroke(); }
         ctx.restore();
 
+        // === 口金（肘の継ぎ目: 柄と刃の付け根）===
+        if (!this._gradFerrule) {
+            this._gradFerrule = ctx.createLinearGradient(0, -3.2, 0, 3.2);
+            this._gradFerrule.addColorStop(0, '#e6d39a');
+            this._gradFerrule.addColorStop(0.5, '#ab8c43');
+            this._gradFerrule.addColorStop(1, '#5a421a');
+        }
+        ctx.fillStyle = this._gradFerrule;
+        ctx.beginPath();
+        ctx.moveTo(-2.4, -2.9); ctx.lineTo(2.9, -2.6);
+        ctx.lineTo(2.9, 2.8); ctx.lineTo(-2.4, 2.7);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = 'rgba(40,28,8,0.65)'; ctx.lineWidth = 0.5; ctx.stroke();
+        ctx.fillStyle = '#36280f'; ctx.beginPath(); ctx.arc(0.4, 0.4, 0.72, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,236,184,0.55)'; ctx.beginPath(); ctx.arc(0.15, 0.1, 0.3, 0, Math.PI * 2); ctx.fill();
+
+        // === 刃本体 ===
+        if (!this._gradBlade) {
+            this._gradBlade = ctx.createLinearGradient(3, -1, -7, -19);
+            this._gradBlade.addColorStop(0, '#454f5e');
+            this._gradBlade.addColorStop(0.22, '#6c7889');
+            this._gradBlade.addColorStop(0.5, '#9fabba');
+            this._gradBlade.addColorStop(0.82, '#d6dee8');
+            this._gradBlade.addColorStop(1, '#f7fafe');
+        }
+        bladeOutline();
+        ctx.fillStyle = this._gradBlade;
+        ctx.fill();
+
+        // 棟(背)陰影＋鎬＋刃文（刃の内側にクリップ）
+        ctx.save();
+        bladeOutline(); ctx.clip();
+        if (!this._gradSpine) {
+            // 背(外角=+X側)を暗く、刃(belly=-X側)を明るく
+            this._gradSpine = ctx.createLinearGradient(3.5, 0, -6, -18);
+            this._gradSpine.addColorStop(0, 'rgba(34,42,54,0.80)');
+            this._gradSpine.addColorStop(0.5, 'rgba(50,60,76,0.22)');
+            this._gradSpine.addColorStop(1, 'rgba(60,70,86,0)');
+        }
+        ctx.fillStyle = this._gradSpine;
+        bladeOutline(); ctx.fill();
+        // 鎬(しのぎ)ライン
+        ctx.strokeStyle = 'rgba(255,255,255,0.38)';
+        ctx.lineWidth = 0.6;
+        ctx.beginPath();
+        ctx.moveTo(1.4, -1.0); ctx.quadraticCurveTo(-0.6, -10, -4.0, -17.8);
+        ctx.stroke();
+        // 刃文(はもん): 切刃(belly)沿いの白い波
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 0.45;
+        ctx.beginPath();
+        ctx.moveTo(-1.0, -1.0);
+        for (let s = 0; s <= 1.0001; s += 0.12) {
+            const x = -1.0 + (-5.2 - (-1.0)) * s;
+            const y = -1.0 + (-17.6 - (-1.0)) * s + Math.sin(s * 7) * 0.4;
+            ctx.lineTo(x, y);
+        }
+        ctx.stroke();
         ctx.restore();
+
+        // 切刃(belly)の明るい縁
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 0.7;
+        ctx.beginPath();
+        ctx.moveTo(-1.3, -0.9); ctx.quadraticCurveTo(-3.8, -9.0, -5.7, -17.8);
+        ctx.stroke();
+
+        // 全体輪郭
+        bladeOutline();
+        ctx.strokeStyle = 'rgba(28,34,44,0.92)';
+        ctx.lineWidth = 0.6;
+        ctx.stroke();
+
+        // 切先グリント
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.beginPath(); ctx.arc(-5.4, -18.8, 0.8, 0, Math.PI * 2); ctx.fill();
     }
 
     // 軌跡(彗星リボン)を刃先の通過履歴(update で world 座標蓄積)から滑らかにフェード描画する。
@@ -2949,7 +3356,14 @@ export class Kusarigama extends SubWeapon {
             const L = Math.hypot(tx, ty) || 1; tx /= L; ty /= L;
             nrm.push({ x: -ty, y: tx });
         }
-        const halfW = i => Math.max(0.25 * scale, headHalf * newness[i]);
+        // 幅プロファイル: 両端を点へ収束させて四角いキャップを無くす。
+        // ・尾(i=0)…経年(newness)に加え末尾位置でも0へ(序盤は全点が若く newness が高いため)。
+        // ・頭(i=N-1=現在の刃先)…刃先へ向け点に収束させ、鎌の脇から満幅キャップがはみ出すのを防ぐ。
+        const denom = Math.max(1, N - 1);
+        const tailTaper = i => Math.sqrt(i / denom);            // 尾(i=0)=0 → 1
+        const headFrac = i => ((N - 1) - i) / denom;            // 頭=0 → 尾=1
+        const headTaper = i => Math.min(1, headFrac(i) / 0.22); // 頭側~22%を点へ収束
+        const halfW = i => headHalf * newness[i] * tailTaper(i) * headTaper(i);
         const upper = pts.map((p, i) => ({ x: p.x + nrm[i].x * halfW(i), y: p.y + nrm[i].y * halfW(i) }));
         const lower = pts.map((p, i) => ({ x: p.x - nrm[i].x * halfW(i), y: p.y - nrm[i].y * halfW(i) }));
 
@@ -3454,17 +3868,21 @@ export class Odachi extends SubWeapon {
     }
 
     spawnImpactDebris() {
-        for (let i = 0; i < 16; i++) {
+        for (let i = 0; i < 18; i++) {
             const side = i % 2 === 0 ? -1 : 1;
-            const speed = 2.8 + Math.random() * 4.8;
+            const isSpark = i % 3 === 0; // 1/3 を火花(明・速)、残りを土塊(暗・遅)
+            const speed = (isSpark ? 4.4 : 2.6) + Math.random() * (isSpark ? 4.6 : 3.6);
             this.impactDebris.push({
                 x: this.impactX,
                 y: this.impactY - 6,
                 vx: side * speed * (0.6 + Math.random() * 0.6),
-                vy: -2.8 - Math.random() * 4.2,
-                size: 1.8 + Math.random() * 2.8,
-                life: 320 + Math.random() * 220,
-                maxLife: 520
+                vy: (isSpark ? -4.4 : -2.8) - Math.random() * 4.2,
+                size: (isSpark ? 1.0 : 1.8) + Math.random() * (isSpark ? 1.3 : 2.8),
+                life: (isSpark ? 240 : 340) + Math.random() * 220,
+                maxLife: 560,
+                type: isSpark ? 'spark' : 'dirt',
+                rot: Math.random() * Math.PI * 2,
+                vrot: (Math.random() - 0.5) * 0.45,
             });
         }
     }
@@ -3646,6 +4064,7 @@ export class Odachi extends SubWeapon {
                 p.vy += 0.42;
                 p.x += p.vx;
                 p.y += p.vy;
+                if (p.vrot) p.rot += p.vrot;
                 p.life -= deltaTime * 1000;
                 return p.life > 0;
             });
@@ -3892,9 +4311,12 @@ export class Odachi extends SubWeapon {
             bladeGrad.addColorStop(0.76, '#778391');
             bladeGrad.addColorStop(1.00, '#1e2b3b');
 
-            ctx.fillStyle = bladeGrad;
-            drawBladePath();
-            ctx.fill();
+            // 落ち影で背景から浮かせる(影は本体fillのみ。後続の陰影/刃文へ伝播させない)
+            withDropShadow(ctx, { color: 'rgba(0,0,0,0.5)', blur: 3.0, dx: 1.2, dy: 2.0 }, () => {
+                ctx.fillStyle = bladeGrad;
+                drawBladePath();
+                ctx.fill();
+            });
 
             ctx.save();
             drawBladePath();
@@ -3965,6 +4387,12 @@ export class Odachi extends SubWeapon {
             ctx.lineJoin = 'round';
             ctx.miterLimit = 2;
             ctx.stroke();
+
+            // 切先グリント(切先に集中する鋭い光点)
+            ctx.fillStyle = 'rgba(255,255,255,0.9)';
+            ctx.beginPath();
+            ctx.arc(tipX - 3.0, -0.7, 1.05, 0, Math.PI * 2);
+            ctx.fill();
 
             // 刀身描画後に鎺を一枚だけ重ね、刃元の接合を整理する
             const rootSleeveGrad = ctx.createLinearGradient(18.4, -4.8, 26.2, 4.8);
@@ -4038,8 +4466,37 @@ export class Odachi extends SubWeapon {
                         ctx.beginPath();
                         ctx.arc(0, 0, arcRadius, coreStart, endAngle - 0.05, false);
                         ctx.stroke();
+
+                        // 弧に沿ったテーパー彗星リボン（motionから引かれた連続感。点追跡不要＝弧から解析生成）。
+                        // head(endAngle=切先の現在位置)をage0で最太、tailをage最大で点へ収束させる。
+                        const RN = 9;
+                        const ribbon = [];
+                        for (let k = 0; k < RN; k++) {
+                            const t = k / (RN - 1); // 0=尾, 1=頭(切先)
+                            const ang = startAngle + arcSpan * t;
+                            ribbon.push({ x: Math.cos(ang) * arcRadius, y: Math.sin(ang) * arcRadius, age: (1 - t) * 130 });
+                        }
+                        drawCometRibbon(ctx, ribbon, {
+                            maxAge: 135,
+                            headHalf: 7,
+                            baseColor: '255, 196, 128',
+                            edgeColor: '255, 246, 224',
+                            headAlpha: slashAlpha * 0.5,
+                            coreAlpha: slashAlpha * 0.62
+                        });
+
+                        // 切先の先導フレア（剣がいま空気を裂いている先端の光）
+                        const tipA = slashAlpha * 0.6;
+                        const tx = Math.cos(endAngle) * arcRadius, ty = Math.sin(endAngle) * arcRadius;
+                        const fg = ctx.createRadialGradient(tx, ty, 0, tx, ty, 13);
+                        fg.addColorStop(0, `rgba(255, 250, 235, ${tipA.toFixed(3)})`);
+                        fg.addColorStop(1, 'rgba(255, 210, 150, 0)');
+                        ctx.fillStyle = fg;
+                        ctx.beginPath();
+                        ctx.arc(tx, ty, 13, 0, Math.PI * 2);
+                        ctx.fill();
                     }
-                    
+
                     ctx.restore();
                 }
             }
@@ -4049,27 +4506,47 @@ export class Odachi extends SubWeapon {
         if (!this.suppressGroundEffectsRender && this.impactFlashTimer > 0) {
             const scaleMultiplier = (player && player.scaleMultiplier) ? player.scaleMultiplier : 1.0;
             const alpha = Math.max(0, this.impactFlashTimer / 170);
+            const ix = this.impactX, iy = this.impactY;
+            const grow = 1 - alpha;
             ctx.save();
             ctx.globalCompositeOperation = 'lighter';
-            
-            ctx.strokeStyle = `rgba(255, 200, 100, ${alpha})`;
-            ctx.lineWidth = (6 + (1 - alpha) * 4) * scaleMultiplier;
+
+            // 放射光条(地面から弾ける光のスパイク。上半球を中心に放射)
+            ctx.strokeStyle = `rgba(255, 235, 180, ${(alpha * 0.7).toFixed(3)})`;
+            ctx.lineCap = 'round';
+            for (let i = 0; i <= 8; i++) {
+                const a = -Math.PI + (Math.PI / 8) * i;
+                const len = (14 + grow * 62) * (0.55 + 0.45 * Math.abs(Math.sin(i * 1.7))) * scaleMultiplier;
+                ctx.lineWidth = Math.max(0.6, 4 * alpha * scaleMultiplier);
+                ctx.beginPath();
+                ctx.moveTo(ix, iy);
+                ctx.lineTo(ix + Math.cos(a) * len, iy + Math.sin(a) * len * 0.85);
+                ctx.stroke();
+            }
+
+            // 1本目のリング
+            ctx.strokeStyle = `rgba(255, 200, 100, ${alpha.toFixed(3)})`;
+            ctx.lineWidth = (6 + grow * 4) * scaleMultiplier;
             ctx.beginPath();
-            ctx.ellipse(
-                this.impactX, 
-                this.impactY, 
-                (20 + (1 - alpha) * 45) * scaleMultiplier, 
-                (8 + (1 - alpha) * 12) * scaleMultiplier, 
-                0, 
-                0, 
-                Math.PI * 2
-            );
+            ctx.ellipse(ix, iy, (20 + grow * 45) * scaleMultiplier, (8 + grow * 12) * scaleMultiplier, 0, 0, Math.PI * 2);
             ctx.stroke();
-            
-            const coreAlpha = Math.pow(alpha, 0.5);
-            ctx.fillStyle = `rgba(255, 230, 200, ${coreAlpha * 0.8})`;
+            // 2本目のリング(やや遅れて大きく薄く=タイムラグ)
+            const a2 = Math.max(0, alpha - 0.13), g2 = 1 - a2;
+            ctx.strokeStyle = `rgba(255, 170, 70, ${(a2 * 0.5).toFixed(3)})`;
+            ctx.lineWidth = (3 + g2 * 3) * scaleMultiplier;
             ctx.beginPath();
-            ctx.arc(this.impactX, this.impactY, 12 * scaleMultiplier, 0, Math.PI * 2);
+            ctx.ellipse(ix, iy, (28 + g2 * 66) * scaleMultiplier, (11 + g2 * 18) * scaleMultiplier, 0, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // 中心コア(radialで締める)
+            const coreAlpha = Math.pow(alpha, 0.5);
+            const cg = ctx.createRadialGradient(ix, iy, 0, ix, iy, 17 * scaleMultiplier);
+            cg.addColorStop(0, `rgba(255,255,245,${coreAlpha.toFixed(3)})`);
+            cg.addColorStop(0.5, `rgba(255,226,182,${(coreAlpha * 0.7).toFixed(3)})`);
+            cg.addColorStop(1, 'rgba(255,200,120,0)');
+            ctx.fillStyle = cg;
+            ctx.beginPath();
+            ctx.arc(ix, iy, 17 * scaleMultiplier, 0, Math.PI * 2);
             ctx.fill();
             ctx.restore();
         }
@@ -4092,11 +4569,24 @@ export class Odachi extends SubWeapon {
                 ctx.globalCompositeOperation = 'lighter';
                 
                 const thickness = sw.thickness || 8;
+                // 外周グロー(広く薄い橙のにじみ)
+                const glowGrad = ctx.createLinearGradient(0, -thickness * 1.7, 0, thickness * 1.7);
+                glowGrad.addColorStop(0, 'rgba(255,150,40,0)');
+                glowGrad.addColorStop(0.5, 'rgba(255,172,64,0.3)');
+                glowGrad.addColorStop(1, 'rgba(255,150,40,0)');
+                ctx.fillStyle = glowGrad;
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.quadraticCurveTo(26, -thickness * 0.98, 52, 0);
+                ctx.quadraticCurveTo(26, thickness * 0.72, 0, 2);
+                ctx.fill();
+                // 本体(多層: 透明→淡橙→白芯→淡橙→透明)
                 const waveGrad = ctx.createLinearGradient(0, -thickness, 0, thickness);
-                waveGrad.addColorStop(0, 'rgba(255, 200, 50, 0)');
-                waveGrad.addColorStop(0.5, 'rgba(255, 255, 200, 1)');
-                waveGrad.addColorStop(1, 'rgba(255, 200, 50, 0)');
-            
+                waveGrad.addColorStop(0.0, 'rgba(255, 190, 60, 0)');
+                waveGrad.addColorStop(0.3, 'rgba(255, 222, 128, 0.85)');
+                waveGrad.addColorStop(0.5, 'rgba(255, 255, 222, 1)');
+                waveGrad.addColorStop(0.7, 'rgba(255, 208, 108, 0.8)');
+                waveGrad.addColorStop(1.0, 'rgba(255, 160, 50, 0)');
                 ctx.fillStyle = waveGrad;
                 ctx.beginPath();
                 ctx.moveTo(0, 0);
@@ -4120,13 +4610,34 @@ export class Odachi extends SubWeapon {
             const scaleMultiplier = (player && player.scaleMultiplier) ? player.scaleMultiplier : 1.0;
             for (const p of this.impactDebris) {
                 const life = Math.max(0, p.life / p.maxLife);
-                ctx.save();
-                ctx.globalAlpha = life;
-                ctx.fillStyle = 'rgba(198, 166, 116, 0.72)';
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, p.size * (0.75 + life * 0.5) * scaleMultiplier, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.restore();
+                if (p.type === 'spark') {
+                    // 火花: 加算合成の明るい橙白＋速度方向の短い尾
+                    const sz = Math.max(0.5, p.size * (0.6 + life * 0.5) * scaleMultiplier);
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'lighter';
+                    ctx.strokeStyle = `rgba(255,210,140,${(life * 0.7).toFixed(3)})`;
+                    ctx.lineWidth = sz; ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(p.x - p.vx * 1.6 * scaleMultiplier, p.y - p.vy * 1.6 * scaleMultiplier);
+                    ctx.lineTo(p.x, p.y); ctx.stroke();
+                    ctx.fillStyle = `rgba(255,240,200,${life.toFixed(3)})`;
+                    ctx.beginPath(); ctx.arc(p.x, p.y, sz * 0.9, 0, Math.PI * 2); ctx.fill();
+                    ctx.restore();
+                } else {
+                    // 土塊: 回転する楕円＋中心明→縁暗のグラデで質感
+                    const sz = p.size * (0.75 + life * 0.5) * scaleMultiplier;
+                    ctx.save();
+                    ctx.globalAlpha = life * 0.95;
+                    ctx.translate(p.x, p.y);
+                    ctx.rotate(p.rot || 0);
+                    const g = ctx.createRadialGradient(-sz * 0.3, -sz * 0.3, 0, 0, 0, sz);
+                    g.addColorStop(0, 'rgba(214,184,134,0.95)');
+                    g.addColorStop(0.6, 'rgba(170,138,94,0.9)');
+                    g.addColorStop(1, 'rgba(96,74,46,0.7)');
+                    ctx.fillStyle = g;
+                    ctx.beginPath(); ctx.ellipse(0, 0, sz, sz * 0.72, 0, 0, Math.PI * 2); ctx.fill();
+                    ctx.restore();
+                }
             }
         }
     }
