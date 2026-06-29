@@ -22,7 +22,7 @@ import {
     prepareNormalComboFinisherProfile
 } from './normalComboMotion.js';
 import { applyRendererMixin }    from './playerRenderer.js?v=clone-crouch-height-match-20260623';
-import { applySlashTrailMixin }  from './playerSlashTrail.js?v=trail-recede-revert-20260622';
+import { applySlashTrailMixin }  from './playerSlashTrail.js?v=trail-step4-window-20260629l';
 import { applySpecialMixin }     from './playerSpecial.js?v=clone-ground-fix2-20260623';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
 import {
@@ -65,6 +65,7 @@ export class Player {
         this.jumpCount = 0;
         this.maxJumps = 1;  // 一段ジャンプ（二段以上はショップで解禁）
         this.facingRight = true;
+        this.dropThroughPlatformTimer = 0;
         
         // ダッシュ
         this.isDashing = false;
@@ -201,6 +202,8 @@ export class Player {
         this.comboSlashTrailSampleIntervalMs = 14;
         // 剣筋の寿命(フェードアウトに要する時間)。各点は自分自身の age がこの値に達すると消える。
         // ※全剣筋(通常コンボ/二刀/大薙)共通の値。フェードの「速さ」を変えたい時だけここを触る。
+        // 末尾掃引フェードは short step(step1等)の消え方が不自然になったため一旦撤回し、単純線形に戻した。
+        // 鎖鎌のような「末尾→先端へ退く」掃引は、2端点グラデ構造では別途per-point/多stop実装が要る(要検討)。
         this.comboSlashTrailActiveLifeMs = 800;
         this.comboSlashTrailAttackSerial = 0;
         // 攻撃終了後は形を保ったまま緩やかにフェードアウトさせる
@@ -806,6 +809,9 @@ export class Player {
         }
         if (this.dashCooldown > 0) {
             this.dashCooldown -= deltaTime * 1000;
+        }
+        if (this.dropThroughPlatformTimer > 0) {
+            this.dropThroughPlatformTimer = Math.max(0, this.dropThroughPlatformTimer - deltaMs);
         }
         if (this.dashTimer > 0) {
             this.dashTimer -= deltaTime * 1000;
@@ -1840,6 +1846,25 @@ export class Player {
         const effectiveColliders = (this.isAttacking && comboStep === 4)
             ? colliders.filter((wall) => !(wall && wall.type === 'rock'))
             : colliders;
+        const platformDropRequested = this.isGrounded && input.isActionJustPressed('DOWN');
+        if (platformDropRequested) {
+            const footY = this.y + this.getWorldHeight();
+            const standingOnOneWayPlatform = effectiveColliders.some((wall) => (
+                wall &&
+                wall.isOneWayPlatform &&
+                !wall.isDestroyed &&
+                this.x + this.getWorldWidth() > wall.x + 3 &&
+                this.x < wall.x + wall.width - 3 &&
+                Math.abs(footY - wall.y) <= 4
+            ));
+            if (standingOnOneWayPlatform) {
+                this.dropThroughPlatformTimer = 220;
+                this.isGrounded = false;
+                this.isCrouching = false;
+                this.y += 4;
+                this.vy = Math.max(this.vy, 1.2);
+            }
+        }
 
         // 高速横移動時のめり込み防止: 移動予定線上で先に停止位置を確定する
         let horizontalBlockedDir = 0;
@@ -1856,6 +1881,7 @@ export class Player {
                 const currentRight = this.x + worldW;
                 for (const wall of effectiveColliders) {
                     if (!this.isSolidCollider(wall)) continue;
+                    if (wall.isOneWayPlatform) continue;
                     const overlapY = Math.min(sweepBottom, wall.y + wall.height) - Math.max(sweepTop, wall.y);
                     if (overlapY <= edgeTolerance) continue;
                     if (currentRight <= wall.x + 0.5 && nextX + worldW > wall.x) {
@@ -1867,6 +1893,7 @@ export class Player {
                 const currentLeft = this.x;
                 for (const wall of effectiveColliders) {
                     if (!this.isSolidCollider(wall)) continue;
+                    if (wall.isOneWayPlatform) continue;
                     const overlapY = Math.min(sweepBottom, wall.y + wall.height) - Math.max(sweepTop, wall.y);
                     if (overlapY <= edgeTolerance) continue;
                     const wallRight = wall.x + wall.width;
@@ -1893,6 +1920,7 @@ export class Player {
         // 壁との当たり判定
         for (const wall of effectiveColliders) {
             if (!this.isSolidCollider(wall)) continue;
+            if (wall.isOneWayPlatform) continue;
             if (this.intersects(wall)) {
                 const wasAboveWall = prevY + this.getWorldHeight() <= wall.y + 2;
                 const wasBelowWall = prevY >= wall.y + wall.height - 2;
@@ -1928,6 +1956,7 @@ export class Player {
         let supportTopY = null;
         for (const wall of effectiveColliders) {
             if (!this.isSolidCollider(wall)) continue;
+            if (wall.isOneWayPlatform && this.dropThroughPlatformTimer > 0) continue;
 
             const wallLeft = wall.x;
             const wallRight = wall.x + wall.width;
@@ -1942,7 +1971,7 @@ export class Player {
             const currentBottom = this.y + this.getWorldHeight();
 
             // 下から頭をぶつけた場合
-            if (this.vy < 0 && prevTop >= wallBottom - 2 && currentTop <= wallBottom) {
+            if (!wall.isOneWayPlatform && this.vy < 0 && prevTop >= wallBottom - 2 && currentTop <= wallBottom) {
                 this.y = wallBottom;
                 this.vy = 0;
                 continue;

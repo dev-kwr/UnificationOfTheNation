@@ -1454,7 +1454,13 @@ class Game {
         const preFrameEnemies = this.stage.getAllEnemies();
         const preActiveFrameEnemies = preFrameEnemies.filter((enemy) => enemy.isAlive && !enemy.isDying);
         const activeObstacles = this.stage.obstacles.filter(o => !o.isDestroyed);
-        this.player.update(this.deltaTime, activeObstacles, preActiveFrameEnemies);
+        const stage4RoofColliders = (this.currentStageNumber === 4 && this.stage && typeof this.stage.getStage4RoofColliders === 'function')
+            ? this.stage.getStage4RoofColliders(this.scrollX - 200, this.scrollX + CANVAS_WIDTH + 200)
+            : [];
+        const playerPhysicsObstacles = stage4RoofColliders.length > 0
+            ? activeObstacles.concat(stage4RoofColliders)
+            : activeObstacles;
+        this.player.update(this.deltaTime, playerPhysicsObstacles, preActiveFrameEnemies);
 
         // ジャンプ着地の土煙（落下速度が一定以上のときだけ・足元から低く広がる）
         if (this.player.justLanded && this.player.landingImpactSpeed > 2.2) {

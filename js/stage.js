@@ -130,10 +130,11 @@ export class Stage {
         if (this.stageNumber === 2) {
             this.stage2GroundImage = new Image();
             this.stage2GroundImage.src = 'images/stage2_ground_kaido_tile.png';
+            this.stage2MountainPassImage = new Image();
+            this.stage2MountainPassImage.src = 'images/stage2_mountain_pass_entrance.png';
             this.stage2PropImages = {};
             const stage2PropPaths = {
-                villageStrip: 'images/stage2_bg_village_strip.png',
-                roadsideCluster: 'images/stage2_bg_roadside_cluster.png'
+                houseBlock: 'images/stage2_kaido_house_block.png'
             };
             for (const [key, src] of Object.entries(stage2PropPaths)) {
                 const image = new Image();
@@ -153,7 +154,7 @@ export class Stage {
                 dosojin: 'images/stage3_prop_dosojin.png',
                 signpost: 'images/stage3_prop_signpost.png',
                 bambooFence: 'images/stage3_prop_bamboo_fence.png',
-                mountainCluster: 'images/stage3_prop_mountain_cluster.png'
+                roadsideBlock: 'images/stage3_mountain_roadside_block.png'
             };
             for (const [key, src] of Object.entries(stage3PropPaths)) {
                 const image = new Image();
@@ -167,8 +168,12 @@ export class Stage {
             this.stage4TownImages = {};
             const stage4TownPaths = {
                 machiyaBlock: 'images/stage4_town_block_machiya.png',
+                platformAlignedRow: 'images/stage4_town_row_platform_aligned_v1.png',
+                machiyaRow: 'images/stage4_town_row_machiya.png',
+                shopsRow: 'images/stage4_town_row_shops.png',
+                kuraRow: 'images/stage4_town_row_kura.png',
                 sanmonGate: 'images/stage4_town_gate_sanmon.png',
-	                yaguraTower: 'images/stage4_town_yagura.png',
+                yaguraTower: 'images/stage4_town_yagura.png',
                 samuraiWall: 'images/stage4_town_samurai_wall.png',
                 nagayaBlock: 'images/stage4_town_nagaya.png',
                 yatai: 'images/stage4_town_yatai.png',
@@ -485,6 +490,95 @@ export class Stage {
 
         const progress = this.getStairClimbProgress(playerX);
         return this.baseGroundY - stairH * progress;
+    }
+
+    getStage4TownRowSpecs() {
+        return [
+            {
+                key: 'platformAlignedRow',
+                height: 350,
+                platforms: [
+                    { level: 1, x1: 0, x2: 590, y: 198 },
+                    { level: 1, x1: 620, x2: 1220, y: 204 },
+                    { level: 1, x1: 1248, x2: 2148, y: 204 },
+                    { level: 2, x1: 22, x2: 365, y: 28 },
+                    { level: 2, x1: 395, x2: 615, y: 28 },
+                    { level: 2, x1: 642, x2: 935, y: 42 },
+                    { level: 2, x1: 958, x2: 1218, y: 22 },
+                    { level: 2, x1: 1246, x2: 1770, y: 42 },
+                    { level: 2, x1: 1800, x2: 2070, y: 28 }
+                ]
+            }
+        ];
+    }
+
+    getStage4TownRowsInRange(leftWorld, rightWorld) {
+        if (this.stageNumber !== 4) return [];
+
+        const allSpecs = this.getStage4TownRowSpecs();
+        const specs = [allSpecs[0]];
+        const span = 1650;
+        const start = Math.floor((leftWorld - 900) / span);
+        const end = Math.ceil((rightWorld + 900) / span);
+        const castleImage = this.stage4TownImages?.castleEntrance;
+        const castleH = 620;
+        const castleStopX = -100;
+        const castleWorldX = (this.maxProgress - CANVAS_WIDTH) + castleStopX;
+        const castleMetrics = this.getStage4CastleLowerMetrics(castleImage, castleH);
+        const castleW = castleMetrics ? castleMetrics.width : 0;
+        const rows = [];
+
+        for (let i = start; i <= end; i++) {
+            const seed = i * 9.21;
+            const spec = specs[((i % specs.length) + specs.length) % specs.length];
+            const image = this.stage4TownImages?.[spec.key];
+            const ratio = (image && image.naturalWidth > 0 && image.naturalHeight > 0)
+                ? image.naturalWidth / image.naturalHeight
+                : 3.0;
+            const height = spec.height;
+            const width = height * ratio;
+            const worldX = i * span - 36 + this.noiseSigned(seed + 0.7) * 10;
+
+            if (castleW > 0 && worldX + width > castleWorldX - 24) continue;
+            if (worldX > rightWorld + 900 || worldX + width < leftWorld - 900) continue;
+
+            rows.push({
+                ...spec,
+                image,
+                worldX,
+                width,
+                height,
+                drawY: this.groundY - height + 1
+            });
+        }
+
+        return rows;
+    }
+
+    getStage4RoofColliders(leftWorld, rightWorld) {
+        if (this.stageNumber !== 4) return [];
+
+        return this.getStage4TownRowsInRange(leftWorld, rightWorld)
+            .flatMap((row) => {
+                if (!row.image || row.image.naturalWidth <= 0 || row.image.naturalHeight <= 0) return [];
+
+                const scaleX = row.width / row.image.naturalWidth;
+                const scaleY = row.height / row.image.naturalHeight;
+                const roofWalkInsetY = 0;
+                return (row.platforms || []).map((platform) => ({
+                    x: row.worldX + platform.x1 * scaleX,
+                    y: row.drawY + (platform.y + roofWalkInsetY) * scaleY,
+                    width: Math.max(48, (platform.x2 - platform.x1) * scaleX),
+                    height: 12,
+                    isDestroyed: false,
+                    isStage4RoofPlatform: true,
+                    isOneWayPlatform: true,
+                    roofLevel: platform.level
+                })).filter((platform) => (
+                    platform.x + platform.width >= leftWorld &&
+                    platform.x <= rightWorld
+                ));
+            });
     }
 
     /** フロア遷移を開始する */
@@ -1006,7 +1100,8 @@ export class Stage {
         
         // 敵更新
         const activeObstacles = this.obstacles.filter(o => !o.isDestroyed);
-        this.updateEnemies(deltaTime, player, activeObstacles);
+        const enemyObstacles = this.getStageEnemyObstacles(activeObstacles);
+        this.updateEnemies(deltaTime, player, enemyObstacles);
         this.updateObstacles(deltaTime);
     }
     
@@ -1046,7 +1141,8 @@ export class Stage {
                 this.boss.attackCooldown = Math.max(this.boss.attackCooldown || 0, 300);
             }
             const activeObstacles = this.obstacles.filter(o => !o.isDestroyed);
-            this.updateEnemies(deltaTime, player, activeObstacles);
+            const enemyObstacles = this.getStageEnemyObstacles(activeObstacles);
+            this.updateEnemies(deltaTime, player, enemyObstacles);
             this.updateObstacles(deltaTime);
             return;
         }
@@ -1076,7 +1172,8 @@ export class Stage {
         
         // 残りの雑魚敵も更新
         const activeObstacles = this.obstacles.filter(o => !o.isDestroyed);
-        this.updateEnemies(deltaTime, player, activeObstacles);
+        const enemyObstacles = this.getStageEnemyObstacles(activeObstacles);
+        this.updateEnemies(deltaTime, player, enemyObstacles);
         this.updateObstacles(deltaTime);
 
         // ボス戦中も少量の雑魚敵を出現させる（BUSHOは除外）
@@ -1099,6 +1196,7 @@ export class Stage {
         // 置き去りになった敵は前方に再登場させ、走り抜け時の敵枯渇を防ぐ
         const nextEnemies = [];
         for (const enemy of this.enemies) {
+            this.updateStage4EnemyRoofMovement(enemy, player, obstacles, deltaTime);
             const shouldRemove = enemy.update(deltaTime, player, obstacles);
             if (shouldRemove) continue;
 
@@ -1113,6 +1211,43 @@ export class Stage {
             nextEnemies.push(enemy);
         }
         this.enemies = nextEnemies;
+    }
+
+    updateStage4EnemyRoofMovement(enemy, player, obstacles = [], deltaTime = 0) {
+        if (this.stageNumber !== 4 || !enemy || enemy.type !== ENEMY_TYPES.NINJA) return;
+
+        enemy.stage4RoofJumpCooldown = Math.max(0, (enemy.stage4RoofJumpCooldown || 0) - deltaTime * 1000);
+        if (enemy.stage4RoofJumpCooldown > 0 || !enemy.isGrounded) return;
+
+        const enemyCenterX = enemy.x + enemy.width * 0.5;
+        const enemyFootY = enemy.y + enemy.height;
+        const roofPlatforms = obstacles.filter((obs) => (
+            obs &&
+            obs.isStage4RoofPlatform &&
+            obs.y < enemyFootY - 42 &&
+            obs.y > enemyFootY - 280 &&
+            enemyCenterX > obs.x - 170 &&
+            enemyCenterX < obs.x + obs.width + 170
+        ));
+        if (roofPlatforms.length === 0) return;
+
+        const target = roofPlatforms.sort((a, b) => Math.abs(enemyCenterX - (a.x + a.width * 0.5)) - Math.abs(enemyCenterX - (b.x + b.width * 0.5)))[0];
+        const targetCenterX = target.x + target.width * 0.5;
+        const direction = enemyCenterX < targetCenterX ? 1 : -1;
+        const horizontalBoost = target.roofLevel >= 2 ? 3.1 : 2.35;
+        enemy.vx += direction * horizontalBoost;
+        enemy.vy = Math.min(enemy.vy, target.roofLevel >= 2 ? -20.5 : -17.5);
+        enemy.isGrounded = false;
+        enemy.stage4RoofJumpCooldown = 520;
+    }
+
+    getStageEnemyObstacles(baseObstacles = []) {
+        if (this.stageNumber !== 4 || typeof this.getStage4RoofColliders !== 'function') {
+            return baseObstacles;
+        }
+
+        const roofColliders = this.getStage4RoofColliders(this.progress - 260, this.progress + CANVAS_WIDTH + 360);
+        return roofColliders.length > 0 ? baseObstacles.concat(roofColliders) : baseObstacles;
     }
 
     shouldRecycleBehindEnemy(enemy) {
@@ -1131,10 +1266,34 @@ export class Stage {
         return enemy;
     }
 
+    placeEnemyOnStage4Roof(enemy, x) {
+        if (this.stageNumber !== 4 || !enemy || typeof this.getStage4RoofColliders !== 'function') return false;
+
+        const enemyW = Number.isFinite(enemy.width) ? enemy.width : 36;
+        const platforms = this.getStage4RoofColliders(x - 220, x + 420)
+            .filter((platform) => platform.width >= enemyW + 18)
+            .sort((a, b) => (a.roofLevel || 0) - (b.roofLevel || 0));
+        if (platforms.length === 0) return false;
+
+        const preferred = platforms.find((platform) => x + enemyW * 0.5 >= platform.x && x + enemyW * 0.5 <= platform.x + platform.width)
+            || platforms[0];
+        const targetX = Math.max(preferred.x + 10, Math.min(x, preferred.x + preferred.width - enemyW - 10));
+        enemy.x = targetX;
+        enemy.groundY = this.groundY;
+        enemy.y = preferred.y - enemy.height;
+        enemy.vy = 0;
+        enemy.isGrounded = true;
+        enemy.isOnStage4Roof = true;
+        return true;
+    }
+
     spawnRecycledEnemyAhead(type) {
         const spawnX = this.progress + CANVAS_WIDTH + 80 + Math.random() * 180;
         const recycled = this.createGroundedEnemy(type || ENEMY_TYPES.ASHIGARU, spawnX);
         if (!recycled) return null;
+        if ((type || ENEMY_TYPES.ASHIGARU) === ENEMY_TYPES.NINJA && Math.random() < 0.55) {
+            this.placeEnemyOnStage4Roof(recycled, spawnX);
+        }
         recycled.facingRight = false;
         return recycled;
     }
@@ -1212,6 +1371,9 @@ export class Stage {
             
             const enemy = this.createGroundedEnemy(type, x);
             if (!enemy) continue;
+            if (type === ENEMY_TYPES.NINJA && Math.random() < 0.72) {
+                this.placeEnemyOnStage4Roof(enemy, x);
+            }
             enemy.facingRight = facingRight;
             this.enemies.push(enemy);
         }
@@ -2039,6 +2201,22 @@ export class Stage {
                 const CW = CANVAS_WIDTH;
                 const bY = gY; // 地平線基準（他ステージ共通の奥行き）
                 const ax = peekAnchorX; // 入口の基準スクリーンx。scrollXに追従して右から流れ込む
+                const passImg = this.stage2MountainPassImage;
+                if (passImg && passImg.complete && passImg.naturalWidth > 0 && passImg.naturalHeight > 0) {
+                    const passH = 288;
+                    const passW = passH * (passImg.naturalWidth / passImg.naturalHeight);
+                    const passX = peekWX(CANVAS_WIDTH - passW + 18);
+                    const passY = bY - passH + 6;
+                    if (passX + passW < -100 || passX > CANVAS_WIDTH + 140) break;
+
+                    ctx.save();
+                    ctx.filter = 'brightness(0.78) saturate(0.68) contrast(0.9)';
+                    ctx.drawImage(passImg, passX, passY, passW, passH);
+                    ctx.filter = 'none';
+                    ctx.restore();
+                    break;
+                }
+
                 // 岩山本体（昼の岩肌＝灰褐色。ゴツゴツした稜線で右に迫る。緑要素は使わない）
                 // 高さを増して家(二階建て≒230px)より十分高い山に見せる。my()=高さvを倍率付きでスクリーンyへ
                 const mH = 1.5;            // 主稜線の高さ倍率
@@ -2342,10 +2520,10 @@ export class Stage {
         if (!images) return;
 
         const props = [
-            { type: 'signpost', worldX: 1280, height: 108, y: 4,  alpha: 0.74, parallax: 0.88 },
-            { type: 'bambooFence', worldX: 3180, height: 54,  y: 6,  alpha: 0.64, parallax: 0.84 },
-            { type: 'dosojin', worldX: 5260, height: 66,  y: 5,  alpha: 0.68, parallax: 0.88 },
-            { type: 'bambooFence', worldX: 7280, height: 58,  y: 6,  alpha: 0.60, parallax: 0.84 }
+            { type: 'signpost', worldX: 1280, height: 108, y: 4,  alpha: 0.92, parallax: 0.88 },
+            { type: 'bambooFence', worldX: 3180, height: 54,  y: 6,  alpha: 0.9,  parallax: 0.84 },
+            { type: 'dosojin', worldX: 5260, height: 66,  y: 5,  alpha: 0.9,  parallax: 0.88 },
+            { type: 'bambooFence', worldX: 7280, height: 58,  y: 6,  alpha: 0.88, parallax: 0.84 }
         ];
 
         for (const prop of props) {
@@ -2367,11 +2545,11 @@ export class Stage {
     }
 
     renderStage3RoadsideClusters(ctx) {
-        const image = this.stage3PropImages?.mountainCluster;
+        const image = this.stage3PropImages?.roadsideBlock;
         if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
 
         const parallax = 0.82;
-        const span = 690;
+        const span = 820;
         const scroll = this.progress * parallax;
         const start = Math.floor((scroll - 760) / span);
         const end = Math.ceil((scroll + CANVAS_WIDTH + 760) / span);
@@ -2381,18 +2559,15 @@ export class Stage {
             if (this.noise1D(seed + 0.4) < 0.38) continue;
 
             const x = i * span - scroll + this.noiseSigned(seed + 1.6) * 74;
-            const width = 175 + this.noise1D(seed + 2.8) * 70;
-            if (x + width < -100 || x > CANVAS_WIDTH + 100) continue;
+            const height = 92 + this.noise1D(seed + 3.4) * 14;
+            const width = height * (image.naturalWidth / image.naturalHeight);
+            if (x + width < -120 || x > CANVAS_WIDTH + 120) continue;
 
-            this.renderStage4TownImageBlock(
-                ctx,
-                image,
-                x,
-                this.groundY - 1,
-                width,
-                0.82,
-                'brightness(0.72) saturate(0.62) contrast(0.9)'
-            );
+            ctx.save();
+            ctx.filter = 'brightness(0.7) saturate(0.62) contrast(0.9)';
+            ctx.drawImage(image, x, this.groundY - height + 3, width, height);
+            ctx.filter = 'none';
+            ctx.restore();
         }
     }
 
@@ -3540,55 +3715,31 @@ export class Stage {
                 const houseLimit = (this.maxProgress - CANVAS_WIDTH) * kPara - 200;
                 const sceneLimit = houseLimit + 420;
                 const villagePlan = [0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 0, 0, 1, 1, 2, 2];
-                const stage2VillageImage = this.stage2PropImages?.villageStrip;
-                const stage2ClusterImage = this.stage2PropImages?.roadsideCluster;
-                const stage2ImagePropsReady =
-                    (stage2VillageImage?.complete && stage2VillageImage.naturalWidth > 0) ||
-                    (stage2ClusterImage?.complete && stage2ClusterImage.naturalWidth > 0);
+                const stage2HouseBlock = this.stage2PropImages?.houseBlock;
+                const isImageReady = (image) => image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
+                const stage2ImagePropsReady = isImageReady(stage2HouseBlock);
 
                 if (stage2ImagePropsReady) {
-                    const propSpan = 1040;
+                    const propSpan = 980;
                     const propStart = Math.floor((p * kPara - 980) / propSpan);
                     const propEnd = Math.ceil((CANVAS_WIDTH + p * kPara + 980) / propSpan);
-                    const propBaseY = this.groundY - 10;
+                    const propBaseY = this.groundY + 2;
 
                     for (let i = propStart; i <= propEnd; i++) {
                         const seed = i * 8.37;
-                        const worldX = i * propSpan + this.noiseSigned(seed + 0.4) * 62;
+                        const worldX = i * propSpan + this.noiseSigned(seed + 0.4) * 48;
                         if (worldX > sceneLimit) continue;
 
                         const x = worldX - p * kPara;
-                        if (x < -900 || x > CANVAS_WIDTH + 900) continue;
+                        const height = 208 + this.noise1D(seed + 2.7) * 26;
+                        const width = height * (stage2HouseBlock.naturalWidth / stage2HouseBlock.naturalHeight);
+                        if (x + width < -220 || x > CANVAS_WIDTH + 220) continue;
 
-                        const useVillage = this.noise1D(seed + 1.1) > 0.34;
-                        const image = useVillage ? stage2VillageImage : stage2ClusterImage;
-                        const width = useVillage
-                            ? 410 + this.noise1D(seed + 2.2) * 95
-                            : 185 + this.noise1D(seed + 2.9) * 54;
-
-                        this.renderStage4TownImageBlock(
-                            ctx,
-                            image,
-                            x,
-                            propBaseY,
-                            width,
-                            useVillage ? 0.66 : 0.64,
-                            'brightness(0.68) saturate(0.56) contrast(0.78)'
-                        );
-
-                        if (useVillage && stage2ClusterImage && this.noise1D(seed + 5.4) > 0.58) {
-                            const clusterWidth = 158 + this.noise1D(seed + 6.2) * 42;
-                            const clusterX = x + width * (0.72 + this.noise1D(seed + 6.8) * 0.18);
-                            this.renderStage4TownImageBlock(
-                                ctx,
-                                stage2ClusterImage,
-                                clusterX,
-                                propBaseY,
-                                clusterWidth,
-                                0.62,
-                                'brightness(0.66) saturate(0.54) contrast(0.78)'
-                            );
-                        }
+                        ctx.save();
+                        ctx.filter = 'brightness(0.74) saturate(0.68) contrast(0.86)';
+                        ctx.drawImage(stage2HouseBlock, x, propBaseY - height + 3, width, height);
+                        ctx.filter = 'none';
+                        ctx.restore();
                     }
                     break;
                 }
@@ -3741,104 +3892,25 @@ export class Stage {
 
                 // Stage4の町並みは画像アセットだけで構成し、Canvas製の建物フォールバックは使わない。
 
-                // ───────── 中景：区画(district)制で城下町を作る ─────────
-                const kCell = 760;
-                const kStart = Math.floor((p - 900) / kCell);
-                const kEnd = Math.ceil((CANVAS_WIDTH + p + 900) / kCell);
-                const townBlockImage = this.stage4TownImages?.machiyaBlock;
-                const sanmonGateImage = this.stage4TownImages?.sanmonGate;
-                const yaguraTowerImage = this.stage4TownImages?.yaguraTower;
-                const samuraiWallImage = this.stage4TownImages?.samuraiWall;
-                const nagayaBlockImage = this.stage4TownImages?.nagayaBlock;
-                const yataiImage = this.stage4TownImages?.yatai;
+                // ───────── 中景：分割した町並み画像を密に並べる ─────────
                 const castleImage = this.stage4TownImages?.castleEntrance;
                 const castleH = 620;
                 const castleStopX = -100;
                 const castleWorldX = (this.maxProgress - CANVAS_WIDTH) + castleStopX;
                 const castleX = castleWorldX - p;
-                const castleMetrics = this.getStage4CastleLowerMetrics(castleImage, castleH);
-                const castleW = castleMetrics ? castleMetrics.width : 0;
-                const overlapsCastleWorld = (leftWorld, width) => (
-                    castleW > 0 &&
-                    leftWorld + width > castleWorldX - 140 &&
-                    leftWorld < castleWorldX + castleW + 60
-                );
-
-                for (let i = kStart; i <= kEnd; i++) {
-                    const seed = i * 9.21;
-                    if (this.noise1D(seed + 0.18) < 0.08 && i % 6 !== 1) continue;
-                    const worldX = i * kCell + this.noiseSigned(seed + 0.7) * 70;
-                    const x = worldX - p;
-                    if (x < -900 || x > CANVAS_WIDTH + 900) continue;
-                    const baseY = this.groundY - 2;
-                    let districtType = Math.floor(this.noise1D(seed + 2.35) * 5); // 0商家 1門前 2辻 3武家 4裏長屋
-                    if (i % 9 === 2) districtType = 1;
-                    else if (i % 8 === 5) districtType = 3;
-                    else if (i % 7 === 4) districtType = 2;
-                    const local = this.noise1D(seed + 1.6);
-                    const cellInGroup = ((i % 3) + 3) % 3; // 区画内の位置（0,1,2）。象徴建物は中央(1)だけに置く
-                    const scale = 0.88 + this.noise1D(seed + 4.9) * 0.22;
-
-                    if (districtType === 0) {
-                        // 商家通り（町家が連続して賑わう）
-                        const blockW = (local > 0.72 ? 520 : 680) * scale + this.noise1D(seed + 5.3) * 90;
-                        const blockWorldX = worldX - 32 + this.noiseSigned(seed + 6.4) * 10;
-                        if (overlapsCastleWorld(blockWorldX, blockW)) continue;
-                        const blockX = blockWorldX - p;
-                        this.renderStage4TownImageBlock(ctx, townBlockImage, blockX, baseY, blockW, 0.94);
-                        const yataiWorldX = blockWorldX + blockW + 22;
-                        if (local > 0.68 && !overlapsCastleWorld(yataiWorldX, 112)) {
-                            this.renderStage4TownImageBlock(ctx, yataiImage, yataiWorldX - p, baseY, 112, 0.9);
-                        } else if (local < 0.22) {
-                            const yataiLeftWorldX = blockWorldX - 128;
-                            if (!overlapsCastleWorld(yataiLeftWorldX, 108)) {
-                                this.renderStage4TownImageBlock(ctx, yataiImage, yataiLeftWorldX - p, baseY, 108, 0.86);
-                            }
-                        }
-                    } else if (districtType === 1) {
-                        // 寺社の門前：中央に山門、両隣は町家＋常夜灯/松
-                        if (cellInGroup === 1 || local > 0.78) {
-                            const gateW = (360 + this.noise1D(seed + 6.3) * 70) * scale;
-                            const gateWorldX = worldX - 42;
-                            if (overlapsCastleWorld(gateWorldX, gateW)) continue;
-                            this.renderStage4TownImageBlock(ctx, sanmonGateImage, gateWorldX - p, baseY, gateW, 0.94);
-                        } else {
-                            const w = (560 + this.noise1D(seed + 7.4) * 120) * scale;
-                            const blockWorldX = worldX - 28;
-                            if (overlapsCastleWorld(blockWorldX, w)) continue;
-                            this.renderStage4TownImageBlock(ctx, townBlockImage, blockWorldX - p, baseY, w, 0.88);
-                        }
-                    } else if (districtType === 2) {
-                        // 辻：中央に火の見櫓、両隣は町家＋天水桶/蔵
-                        if (cellInGroup === 1 || local < 0.38) {
-                            const towerW = (70 + this.noise1D(seed + 8.4) * 24) * scale;
-                            const towerWorldX = worldX + 50 - towerW * 0.5;
-                            if (overlapsCastleWorld(towerWorldX, towerW)) continue;
-                            this.renderStage4TownImageBlock(ctx, yaguraTowerImage, towerWorldX - p, baseY, towerW, 0.9);
-                            const sideWorldX = worldX + 170;
-                            const sideW = 520 + this.noise1D(seed + 8.9) * 110;
-                            if (local > 0.45 && !overlapsCastleWorld(sideWorldX, sideW)) {
-                                this.renderStage4TownImageBlock(ctx, townBlockImage, sideWorldX - p, baseY, sideW, 0.84);
-                            }
-                        } else {
-                            const w = (590 + this.noise1D(seed + 9.5) * 120) * scale;
-                            const blockWorldX = worldX - 20;
-                            if (overlapsCastleWorld(blockWorldX, w)) continue;
-                            this.renderStage4TownImageBlock(ctx, townBlockImage, blockWorldX - p, baseY, w, 0.9);
-                        }
-                    } else if (districtType === 3) {
-                        // 武家屋敷（海鼠塀が連続・中央に蔵＋常夜灯、塀越しに松）
-                        const wallW = (500 + this.noise1D(seed + 10.8) * 160) * scale;
-                        const wallWorldX = worldX - 22;
-                        if (overlapsCastleWorld(wallWorldX, wallW)) continue;
-                        this.renderStage4TownImageBlock(ctx, samuraiWallImage, wallWorldX - p, baseY, wallW, 0.9);
-                    } else {
-                        // 裏長屋（棟割が連続）
-                        const w = (620 + this.noise1D(seed + 12.5) * 190) * scale;
-                        const blockWorldX = worldX - 18;
-                        if (overlapsCastleWorld(blockWorldX, w)) continue;
-                        this.renderStage4TownImageBlock(ctx, nagayaBlockImage, blockWorldX - p, baseY, w, 0.9);
-                    }
+                const townRows = this.getStage4TownRowsInRange(p - 900, p + CANVAS_WIDTH + 900);
+                for (const row of townRows) {
+                    const x = row.worldX - p;
+                    if (x + row.width < -900 || x > CANVAS_WIDTH + 900) continue;
+                    this.renderStage4TownImageBlock(
+                        ctx,
+                        row.image,
+                        x,
+                        this.groundY - 2,
+                        row.width,
+                        0.96,
+                        'brightness(0.82) saturate(0.72) contrast(0.92)'
+                    );
                 }
 
                 this.renderStage4CastleLower(ctx, castleImage, castleX, this.groundY - 2, castleH);

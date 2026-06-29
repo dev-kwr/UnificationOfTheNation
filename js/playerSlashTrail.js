@@ -1699,7 +1699,9 @@ export function applySlashTrailMixin(PlayerClass) {
             case 1: return { start: 0.0, end: 0.82 };
             case 2: return { start: 0.0, end: 1.0 };
             case 3: return { start: 0.28, end: 1.0 };
-            case 4: return { start: 0.0, end: 1.0 };
+            // 四段(天穿"返り")は振り上げ後に返し/空中の戻りがある。end:1.0 だと戻りまで剣筋を記録し続け
+            // 頭が新鮮なまま＝消え始めが1テンポ遅れる。step1同様に振り切り後の戻りは含めず end:0.82 で打ち切る。
+            case 4: return { start: 0.0, end: 0.82 };
             case 5: return { start: 0.15, end: 0.98 };
             default: return { start: 0, end: 1 };
         }
@@ -3090,10 +3092,12 @@ export function applySlashTrailMixin(PlayerClass) {
                 }
                 // lifeは生成時の値を維持（上書きしない）
             } else if (fastFade5) {
-                p.age = (p.age || 0) + deltaMs * 2.6;
+                // step5も他段とほぼ同じ老化速度に揃える(鎖鎌のような等速で後ろから退く消え方)。
+                // 刀の戻りより先に消すためごく僅かだけ速める程度に留める(旧2.6は突出して速かった)。
+                p.age = (p.age || 0) + deltaMs * 1.4;
             } else if (holdExisting) {
-                // 戻りモーション中はやや緩やかにフェード
-                p.age = (p.age || 0) + deltaMs * 0.5;
+                // 戻りモーション中もほぼ等速に揃える(旧0.5は遅すぎてstep間で消え方が不揃いだった)
+                p.age = (p.age || 0) + deltaMs * 0.85;
                 // lifeは上書きしない
             } else {
                 // 過去段または完全終了後：実時間で老化
@@ -4245,18 +4249,28 @@ export function applySlashTrailMixin(PlayerClass) {
             const newestSrc = pts[pts.length - 1];
             const lifeForFade = Math.max(1, newestSrc.life || this.comboSlashTrailActiveLifeMs);
             let oldestAlpha, newestAlpha;
+            let dissolveAlphaAt = null; // 通常コンボ/大薙の「消える前線(末尾→先端へ走る)」用
             if (_trailAgeBasedFade) {
-                // 通常コンボ/大薙: 「明暗グラデ」と「消え方」を分離する。
-                //   ・グラデ = トレイル内の相対位置 relPos(全点の age 範囲で正規化)。
-                //     relPos=0(最古/後ろ)→oldestScale, relPos=1(切先/新)→newestScale を内挿。
-                //     step 境界でリセットせず1本に繋がり、life を変えてもグラデの濃淡比は一定。
-                //   ・持続/後退 = 各点の絶対 age の線形フェード A=(1-age/life)。古い点ほど薄く、
-                //     age=life で消える＝後ろ(最古)から順に退く。A は線形なので持続時間は life どおり(縮まない)。
-                const relPosOf = (src) => clamp01((_trailMaxAge - (((src && Number.isFinite(src.age)) ? Math.max(0, src.age) : 0))) / _trailAgeSpan);
-                const absFadeOf = (src) => clamp01(1 - (((src && Number.isFinite(src.age)) ? Math.max(0, src.age) : 0) / lifeForFade));
-                const gradAlphaOf = (src) => (oldestScale + (newestScale - oldestScale) * relPosOf(src)) * absFadeOf(src);
-                oldestAlpha = Math.max(0, gradAlphaOf(oldestSrc));
-                newestAlpha = Math.max(0, gradAlphaOf(newestSrc));
+                // 明暗グラデ(位置 s: 0=最古/後ろ→oldestScale, 1=切先/新→newestScale)に「消える前線」を重ねる。
+                // 前線は切先(newest)が古び始めてから s=0(末尾)→s=1(先端)へ走り、後ろから順に透明化＝鎖鎌の退き。
+                // 振り中(headAge小)は前線が手前(負側)で全可視＝全弧が出る。2端点線形では出せない掃引を多stopで表現。
+                const headAge = Math.max(0, newestSrc.age || 0);
+                const HOLD = 25, EDGE = 0.3;
+                // 後続段が既に出ている“過去段”のトレイルは素早く退かせ、次段への被り/もたつきを防ぐ
+                // (特に step4=斬り上げは長く空中に残りがちで step5 に被る)。最新段/連撃終了後は通常速度でしっとり消す。
+                const _trailStep = options.trailStep || (newestSrc && newestSrc.step) || 0;
+                const _curStep = (this.isAttacking && this.currentAttack) ? (this.currentAttack.comboStep || 0) : 0;
+                const SWEEP = (_trailStep > 0 && _curStep > _trailStep) ? 130 : 250;
+                const sweepRaw = clamp01((headAge - HOLD) / SWEEP);
+                // ease-out: 末尾(暗い側)は素早く退き、明るい先端へ近づくほど前線が緩んで“スッと急に消える”感を抑える。
+                const sweepP = 1 - Math.pow(1 - sweepRaw, 1.8);
+                const fr = sweepP * (1 + EDGE) - EDGE;
+                dissolveAlphaAt = (s) => {
+                    const vis = clamp01((s - fr) / EDGE);
+                    return Math.max(0, (oldestScale + (newestScale - oldestScale) * s) * vis);
+                };
+                oldestAlpha = dissolveAlphaAt(0);
+                newestAlpha = dissolveAlphaAt(1);
             } else {
                 // 二刀流(forceLinearSmooth): 各カーブは均一 age。従来の位置ベース彗星(oldestScale→newestScale)×age を維持。
                 const oldestFade = clamp01(1 - ((oldestSrc.age || 0) / lifeForFade));
@@ -4268,9 +4282,14 @@ export function applySlashTrailMixin(PlayerClass) {
             const start = mapped[0];
             const end = mapped[mapped.length - 1];
             const grad = ctx.createLinearGradient(start.x, start.y, end.x, end.y);
-            grad.addColorStop(0, colorRgba(rgb, oldestAlpha));
-            grad.addColorStop(0.52, colorRgba(rgb, oldestAlpha + (newestAlpha - oldestAlpha) * 0.58));
-            grad.addColorStop(1, colorRgba(rgb, newestAlpha));
+            if (dissolveAlphaAt) {
+                const DS = 10;
+                for (let k = 0; k <= DS; k++) { const s = k / DS; grad.addColorStop(s, colorRgba(rgb, dissolveAlphaAt(s))); }
+            } else {
+                grad.addColorStop(0, colorRgba(rgb, oldestAlpha));
+                grad.addColorStop(0.52, colorRgba(rgb, oldestAlpha + (newestAlpha - oldestAlpha) * 0.58));
+                grad.addColorStop(1, colorRgba(rgb, newestAlpha));
+            }
             ctx.strokeStyle = grad;
             ctx.lineWidth = width;
             const prevLineCap = ctx.lineCap;
@@ -4286,9 +4305,126 @@ export function applySlashTrailMixin(PlayerClass) {
             ctx.globalCompositeOperation = prevComposite;
             if (options.lineCap) ctx.lineCap = prevLineCap;
         };
+        // 両端が点へ収束するテーパー付き塗りリボン(忍具 drawCometRibbon と同方式)。
+        // 均一幅ストロークの「チューブ感」を脱し、剣の弧らしい筆致にする。α/フェードは
+        // drawGradientLinearTrail と同一計算＝持続/後退の挙動(見た目=判定・連続age)は不変。lighten 合成も維持。
+        const drawTaperedRibbonTrail = (pts, baseWidth, rgb, oldestScale, newestScale, projectFn = null, options = {}) => {
+            if (_oonagiSuppressStroke) return;
+            const mappedRaw = buildProjected(pts, projectFn);
+            let mapped = options.smoothEnhanced
+                ? buildChaikinSmoothedStrip(mappedRaw, options.smoothIterations || 2)
+                : mappedRaw;
+            if (!mapped || mapped.length < 2) {
+                drawGradientLinearTrail(pts, baseWidth, rgb, oldestScale, newestScale, projectFn, options);
+                return;
+            }
+            let totalLen = 0;
+            for (let i = 1; i < mapped.length; i++) totalLen += Math.hypot(mapped[i].x - mapped[i - 1].x, mapped[i].y - mapped[i - 1].y);
+            if (totalLen < 7.5) {
+                drawGradientLinearTrail(pts, baseWidth, rgb, oldestScale, newestScale, projectFn, options);
+                return;
+            }
+            // 2点(直線スラッシュ: step3等)は中間点を補間し、テーパーの解像度を持たせてリボン化する。
+            // 端点(位置/age/life)は不変なのでグラデ・フェード・見た目=判定は変わらない。
+            if (mapped.length === 2) {
+                const a = mapped[0], b = mapped[1];
+                const SUB = 9;
+                const sub = [];
+                const lifeDefault = this.comboSlashTrailActiveLifeMs;
+                for (let i = 0; i <= SUB; i++) {
+                    const t = i / SUB;
+                    sub.push({
+                        x: a.x + (b.x - a.x) * t,
+                        y: a.y + (b.y - a.y) * t,
+                        age: (a.age || 0) + ((b.age || 0) - (a.age || 0)) * t,
+                        life: Math.max(1, (a.life || lifeDefault) + ((b.life || lifeDefault) - (a.life || lifeDefault)) * t)
+                    });
+                }
+                mapped = sub;
+            }
+            const oldestSrc = pts[0];
+            const newestSrc = pts[pts.length - 1];
+            const lifeForFade = Math.max(1, newestSrc.life || this.comboSlashTrailActiveLifeMs);
+            let oldestAlpha, newestAlpha;
+            let dissolveAlphaAt = null; // 通常コンボ/大薙の「消える前線(末尾→先端へ走る)」用
+            if (_trailAgeBasedFade) {
+                // 明暗グラデ(位置 s)に「消える前線」を重ね、切先が古び始めてから末尾→先端へ走らせる(鎖鎌の退き)。
+                // drawGradientLinearTrail と同一ロジック(芯と本体で同じ前線にする)。
+                const headAge = Math.max(0, newestSrc.age || 0);
+                const HOLD = 25, EDGE = 0.3;
+                // 後続段が既に出ている“過去段”のトレイルは素早く退かせ、次段への被り/もたつきを防ぐ
+                // (特に step4=斬り上げは長く空中に残りがちで step5 に被る)。最新段/連撃終了後は通常速度でしっとり消す。
+                const _trailStep = options.trailStep || (newestSrc && newestSrc.step) || 0;
+                const _curStep = (this.isAttacking && this.currentAttack) ? (this.currentAttack.comboStep || 0) : 0;
+                const SWEEP = (_trailStep > 0 && _curStep > _trailStep) ? 130 : 250;
+                const sweepRaw = clamp01((headAge - HOLD) / SWEEP);
+                // ease-out: 末尾(暗い側)は素早く退き、明るい先端へ近づくほど前線が緩んで“スッと急に消える”感を抑える。
+                const sweepP = 1 - Math.pow(1 - sweepRaw, 1.8);
+                const fr = sweepP * (1 + EDGE) - EDGE;
+                dissolveAlphaAt = (s) => {
+                    const vis = clamp01((s - fr) / EDGE);
+                    return Math.max(0, (oldestScale + (newestScale - oldestScale) * s) * vis);
+                };
+                oldestAlpha = dissolveAlphaAt(0);
+                newestAlpha = dissolveAlphaAt(1);
+            } else {
+                const oldestFade = clamp01(1 - ((oldestSrc.age || 0) / lifeForFade));
+                const newestFade = clamp01(1 - ((newestSrc.age || 0) / lifeForFade));
+                oldestAlpha = Math.max(0, oldestFade * oldestScale);
+                newestAlpha = Math.max(0, newestFade * newestScale);
+            }
+            if (newestAlpha <= 0.01) return;
+
+            const N = mapped.length;
+            const nrm = [];
+            for (let i = 0; i < N; i++) {
+                const a = mapped[Math.max(0, i - 1)], b = mapped[Math.min(N - 1, i + 1)];
+                let tx = b.x - a.x, ty = b.y - a.y;
+                const L = Math.hypot(tx, ty) || 1; tx /= L; ty /= L;
+                nrm.push({ x: -ty, y: tx });
+            }
+            const denom = Math.max(1, N - 1);
+            const baseHalf = baseWidth * 0.5;
+            // 幅プロファイル(頭寄り涙滴 P2): pow0.62で根本を細く膨らみを頭側へ寄せ、切先は最後10%だけ点へ。
+            // (F=pow0.8×tip0.05 も試したが、アーモンドはユーザー認識相違だったため元の P2 に戻す)
+            const tailTaper = (i) => Math.pow(i / denom, 0.62);
+            const headTaper = (i) => Math.min(1, (((N - 1) - i) / denom) / 0.1);
+            const halfW = (i) => baseHalf * tailTaper(i) * headTaper(i);
+            const upper = mapped.map((p, i) => ({ x: p.x + nrm[i].x * halfW(i), y: p.y + nrm[i].y * halfW(i) }));
+            const lower = mapped.map((p, i) => ({ x: p.x - nrm[i].x * halfW(i), y: p.y - nrm[i].y * halfW(i) }));
+            const appendSmooth = (arr) => {
+                for (let i = 1; i < arr.length - 1; i++) {
+                    const mx = (arr[i].x + arr[i + 1].x) * 0.5, my = (arr[i].y + arr[i + 1].y) * 0.5;
+                    ctx.quadraticCurveTo(arr[i].x, arr[i].y, mx, my);
+                }
+                ctx.lineTo(arr[arr.length - 1].x, arr[arr.length - 1].y);
+            };
+            const start = mapped[0], end = mapped[N - 1];
+            const grad = ctx.createLinearGradient(start.x, start.y, end.x, end.y);
+            if (dissolveAlphaAt) {
+                const DS = 10;
+                for (let k = 0; k <= DS; k++) { const s = k / DS; grad.addColorStop(s, colorRgba(rgb, dissolveAlphaAt(s))); }
+            } else {
+                grad.addColorStop(0, colorRgba(rgb, oldestAlpha));
+                grad.addColorStop(0.52, colorRgba(rgb, oldestAlpha + (newestAlpha - oldestAlpha) * 0.58));
+                grad.addColorStop(1, colorRgba(rgb, newestAlpha));
+            }
+            const prevComposite = ctx.globalCompositeOperation;
+            ctx.globalCompositeOperation = 'lighten';
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.moveTo(upper[0].x, upper[0].y);
+            appendSmooth(upper);
+            ctx.lineTo(lower[N - 1].x, lower[N - 1].y);
+            appendSmooth(lower.slice().reverse());
+            ctx.closePath();
+            ctx.fill();
+            ctx.globalCompositeOperation = prevComposite;
+        };
         const drawBlueTrailLayers = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
             if (_oonagiSuppressStroke) return; // 大薙中は通常サイズ剣筋を隠す
-            drawGradientLinearTrail(
+            // 本体: 両端テーパーの塗りリボン(忍具水準の筆致)。均一幅チューブを脱する。
+            drawTaperedRibbonTrail(
                 pts,
                 baseWidth,
                 bluePalette.front,
@@ -4297,12 +4433,13 @@ export function applySlashTrailMixin(PlayerClass) {
                 projectFn,
                 options
             );
+            // 明るい芯(中心線・切先側を強める。やや青白で「内側から発光」感)
             drawGradientLinearTrail(
                 pts,
-                Math.max(1.4, baseWidth * 0.18),
-                [255, 255, 255],
-                oldestScale * 0.2,
-                newestScale * 0.46,
+                Math.max(1.4, baseWidth * 0.2),
+                [232, 248, 255],
+                oldestScale * 0.18,
+                newestScale * 0.66,
                 projectFn,
                 options
             );
@@ -5077,16 +5214,19 @@ export function applySlashTrailMixin(PlayerClass) {
                     life: Math.max(1, newestSrc.life || this.comboSlashTrailActiveLifeMs)
                 }
             ];
+            const _lineTrailStep = options.comboStep || (newestSrc && newestSrc.step) || 0;
             if (manualTipAlignedLayers) {
-                drawGradientLinearTrail(
+                // step3(直線スラッシュ): 本体を両端テーパー塗りリボンにして他段と質感を統一。
+                drawTaperedRibbonTrail(
                     linePts,
                     baseWidth,
                     bluePalette.front,
                     oldestScale * 0.62,
                     newestScale,
                     projectFn,
-                    { lineCap: options.lineCap }
+                    { lineCap: options.lineCap, trailStep: _lineTrailStep }
                 );
+                // 明るい芯(切先=実刀身の innerEnd へ tip-align。色/明るさは新コアに合わせる)
                 drawGradientLinearTrail(
                     [
                         linePts[0],
@@ -5097,15 +5237,16 @@ export function applySlashTrailMixin(PlayerClass) {
                         }
                     ],
                     manualTipAlignedLayers.innerWidth,
-                    [255, 255, 255],
-                    oldestScale * 0.2,
-                    newestScale * 0.46,
+                    [232, 248, 255],
+                    oldestScale * 0.18,
+                    newestScale * 0.66,
                     projectFn,
-                    { lineCap: options.lineCap }
+                    { lineCap: options.lineCap, trailStep: _lineTrailStep }
                 );
             } else {
                 drawBlueTrailLayers(linePts, baseWidth, oldestScale, newestScale, projectFn, {
-                    lineCap: options.lineCap
+                    lineCap: options.lineCap,
+                    trailStep: _lineTrailStep
                 });
             }
         };
@@ -5262,7 +5403,7 @@ export function applySlashTrailMixin(PlayerClass) {
                     )
                 });
             }
-            drawBlueTrailLayers(strip, baseWidth, oldestScale, newestScale, projectFn);
+            drawBlueTrailLayers(strip, baseWidth, oldestScale, newestScale, projectFn, { trailStep: (newestSrc && newestSrc.step) || 0 });
         };
         const drawFixedBezierTrail = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
             if (_oonagiSuppressStroke) return; // 大薙中は通常サイズ剣筋を隠す
@@ -5479,7 +5620,7 @@ export function applySlashTrailMixin(PlayerClass) {
                     )
                 });
             }
-            drawBlueTrailLayers(mergedStrip, baseWidth, oldestScale, newestScale, projectFn);
+            drawBlueTrailLayers(mergedStrip, baseWidth, oldestScale, newestScale, projectFn, { trailStep: (newestSrc && newestSrc.step) || 0 });
         };
         const drawSampledBezierTrail = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {
             if (_oonagiSuppressStroke) return; // 大薙中は通常サイズ剣筋を隠す
@@ -5490,7 +5631,7 @@ export function applySlashTrailMixin(PlayerClass) {
                 const trimFactor = Number.isFinite(options.trimFactor) ? options.trimFactor : 0.5;
                 curveStrip = trimTrailEndPoint(curveStrip, baseWidth * trimFactor);
             }
-            drawBlueTrailLayers(curveStrip, baseWidth, oldestScale, newestScale, projectFn);
+            drawBlueTrailLayers(curveStrip, baseWidth, oldestScale, newestScale, projectFn, { trailStep: comboStep });
         };
         const forceLinearSmooth = !!options.forceLinearSmooth;
         // 各ストリップ（段ごとの軌跡）を独立して描画

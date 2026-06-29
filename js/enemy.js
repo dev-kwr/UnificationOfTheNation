@@ -2359,7 +2359,7 @@ export class Enemy {
             
             // ボスクラス（bossName を持つ）はジャンプ力を制限しない
             const isBossClass = !!this.bossName;
-            if (!isBossClass && window.game && window.game.player) {
+            if (!isBossClass && this.type !== ENEMY_TYPES.NINJA && window.game && window.game.player) {
                 const player = window.game.player;
                 // 自分より 50px 以上高い位置にプレイヤーがいないなら、ジャンプ力を抑える
                 const isPlayerHigh = player.y < (this.y - 50);
@@ -2462,6 +2462,8 @@ export class Enemy {
                     this.y = obs.y - this.height;
                     this.vy = 0;
                     this.isGrounded = true;
+                } else if (obs.isOneWayPlatform) {
+                    continue;
                 } else if (this.vy < 0 && this.oldY >= obs.y + obs.height - 10) {
                     this.y = obs.y + obs.height;
                     this.vy = 0;
@@ -3874,9 +3876,9 @@ export class Ninja extends Enemy {
         this.hp = 20;
         this.maxHp = 20;
         this.damage = 1;
-        this.speed = 3.15;
-        this.speedVarianceRange = 0.28;
-        this.speedVarianceBias = 0.03;
+        this.speed = 3.85;
+        this.speedVarianceRange = 0.34;
+        this.speedVarianceBias = 0.08;
         this.expReward = 20;
         this.moneyReward = 10;
         this.specialGaugeReward = 15; // 10 -> 15
@@ -3892,14 +3894,14 @@ export class Ninja extends Enemy {
         if (this.state === 'chase' && distanceToPlayer < 200) {
             // 近すぎると離れて距離を取る（忍者の立ち回り）
             const desiredVX = -this.speed * playerDirection;
-            this.applyDesiredVx(desiredVX, 0.32);
+            this.applyDesiredVx(desiredVX, 0.42);
             this.facingRight = playerDirection > 0;
-            this.tryJump(0.03, -22, 550);
+            this.tryJump(0.045, -25, 430);
         } else {
             super.updateAI(deltaTime, player);
             // chase状態でも時々ジャンプしてかく乱
             if (this.state === 'chase') {
-                this.tryJump(0.01, -20, 550);
+                this.tryJump(0.018, -23.5, 430);
             }
         }
     }
