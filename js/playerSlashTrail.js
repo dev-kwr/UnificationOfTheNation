@@ -1701,7 +1701,7 @@ export function applySlashTrailMixin(PlayerClass) {
             case 3: return { start: 0.28, end: 1.0 };
             // 四段(天穿"返り")は振り上げ後に返し/空中の戻りがある。end:1.0 だと戻りまで剣筋を記録し続け
             // 頭が新鮮なまま＝消え始めが1テンポ遅れる。step1同様に振り切り後の戻りは含めず end:0.82 で打ち切る。
-            case 4: return { start: 0.0, end: 0.74 };
+            case 4: return { start: 0.0, end: 0.87 };
             case 5: return { start: 0.15, end: 0.98 };
             default: return { start: 0, end: 1 };
         }
@@ -4255,16 +4255,16 @@ export function applySlashTrailMixin(PlayerClass) {
                 // 前線は切先(newest)が古び始めてから s=0(末尾)→s=1(先端)へ走り、後ろから順に透明化＝鎖鎌の退き。
                 // 振り中(headAge小)は前線が手前(負側)で全可視＝全弧が出る。2端点線形では出せない掃引を多stopで表現。
                 const headAge = Math.max(0, newestSrc.age || 0);
-                const HOLD = 25, EDGE = 0.5; // 前線を広めにとり消え際をふんわり柔らかく
+                const HOLD = 35, EDGE = 0.5; // 前線を広めにとり消え際をふんわり柔らかく
                 // 後続段が既に出ている“過去段”は素早く退かせ次段への被りを防ぐ。最新段/連撃終了後は通常速度。
                 const _trailStep = options.trailStep || (newestSrc && newestSrc.step) || 0;
                 const _curStep = (this.isAttacking && this.currentAttack) ? (this.currentAttack.comboStep || 0) : 0;
-                let SWEEP = (_trailStep > 0 && _curStep > _trailStep) ? 130 : 250;
-                if (_trailStep === 4) SWEEP = Math.min(SWEEP, 165); // step4(斬り上げ)は表示が長くなりがちなので退きを速める
+                let SWEEP = (_trailStep > 0 && _curStep > _trailStep) ? 150 : 280;
+                if (_trailStep === 4) SWEEP = Math.min(SWEEP, 200); // step4(斬り上げ)は表示が長くなりがちなので退きを速める
                 const sweepRaw = clamp01((headAge - HOLD) / SWEEP);
                 const sweepP = 1 - Math.pow(1 - sweepRaw, 1.8); // ease-out: 末尾は素早く・明るい先端は緩やかに
                 const fr = sweepP * (1 + EDGE) - EDGE;
-                const _globalFade = 1 - 0.35 * sweepP; // 退きと同時に全体も少し薄める＝フワッと消える(二重フェード)
+                const _globalFade = 1 - 0.22 * sweepP; // 退きと同時に全体も少し薄める＝フワッと消える(二重フェード)
                 dissolveAlphaAt = (s) => {
                     const e = clamp01((s - fr) / EDGE);
                     const vis = e * e * (3 - 2 * e); // smoothstep: 前線の角を丸めて滑らかに
@@ -4352,16 +4352,16 @@ export function applySlashTrailMixin(PlayerClass) {
                 // 明暗グラデ(位置 s)に「消える前線」を重ね、切先が古び始めてから末尾→先端へ走らせる(鎖鎌の退き)。
                 // drawGradientLinearTrail と同一ロジック(芯と本体で同じ前線にする)。
                 const headAge = Math.max(0, newestSrc.age || 0);
-                const HOLD = 25, EDGE = 0.5; // 前線を広めにとり消え際をふんわり柔らかく
+                const HOLD = 35, EDGE = 0.5; // 前線を広めにとり消え際をふんわり柔らかく
                 // 後続段が既に出ている“過去段”は素早く退かせ次段への被りを防ぐ。最新段/連撃終了後は通常速度。
                 const _trailStep = options.trailStep || (newestSrc && newestSrc.step) || 0;
                 const _curStep = (this.isAttacking && this.currentAttack) ? (this.currentAttack.comboStep || 0) : 0;
-                let SWEEP = (_trailStep > 0 && _curStep > _trailStep) ? 130 : 250;
-                if (_trailStep === 4) SWEEP = Math.min(SWEEP, 165); // step4(斬り上げ)は表示が長くなりがちなので退きを速める
+                let SWEEP = (_trailStep > 0 && _curStep > _trailStep) ? 150 : 280;
+                if (_trailStep === 4) SWEEP = Math.min(SWEEP, 200); // step4(斬り上げ)は表示が長くなりがちなので退きを速める
                 const sweepRaw = clamp01((headAge - HOLD) / SWEEP);
                 const sweepP = 1 - Math.pow(1 - sweepRaw, 1.8); // ease-out: 末尾は素早く・明るい先端は緩やかに
                 const fr = sweepP * (1 + EDGE) - EDGE;
-                const _globalFade = 1 - 0.35 * sweepP; // 退きと同時に全体も少し薄める＝フワッと消える(二重フェード)
+                const _globalFade = 1 - 0.22 * sweepP; // 退きと同時に全体も少し薄める＝フワッと消える(二重フェード)
                 dissolveAlphaAt = (s) => {
                     const e = clamp01((s - fr) / EDGE);
                     const vis = e * e * (3 - 2 * e); // smoothstep: 前線の角を丸めて滑らかに
@@ -5267,6 +5267,12 @@ export function applySlashTrailMixin(PlayerClass) {
             const newestAlpha = newestFade * newestScale;
             if (newestAlpha <= 0.01) return;
 
+            // 通常コンボに合わせた「消える前線」: 弧の後端(最古角)を前端(現在の刃)へ詰めて末尾→先端へ退かせ、
+            // 全体も少し薄める(フワッと)。タイミング/イーズ/二重フェードは通常コンボの dissolve と共通値。
+            const _hAge = Math.max(0, newestSrc.age || 0);
+            const _sweepP = 1 - Math.pow(1 - clamp01((_hAge - 35) / 280), 1.8);
+            const _gFade = 1 - 0.22 * _sweepP;
+
             const newest = mapped[mapped.length - 1];
             const prev = mapped[Math.max(0, mapped.length - 3)];
             const oldest = mapped[0];
@@ -5296,7 +5302,11 @@ export function applySlashTrailMixin(PlayerClass) {
             const visibleSpan = Math.abs(normalizeAngleDelta(end, start));
             if (visibleSpan < 0.09) return;
             const ccw = end < start;
-            const frontAlpha = Math.max(0.03, newestAlpha);
+            // 退き: 後端(最古角)を前端へ詰める。movingForwardなら start側が最古、後退中なら end側が最古。
+            let drawStart = start, drawEnd = end;
+            if (movingForward) drawStart = start + (end - start) * _sweepP;
+            else drawEnd = end - (end - start) * _sweepP;
+            const frontAlpha = Math.max(0.03, newestAlpha) * _gFade;
             const backAlpha = frontAlpha * 0.42;
 
             // 二刀流(青)に寄せた4層の円弧
@@ -5319,13 +5329,13 @@ export function applySlashTrailMixin(PlayerClass) {
             ctx.strokeStyle = colorRgba(bluePalette.front, frontAlpha);
             ctx.lineWidth = baseWidth;
             ctx.beginPath();
-            ctx.arc(trailCenterX, trailCenterY, radius, start, end, ccw);
+            ctx.arc(trailCenterX, trailCenterY, radius, drawStart, drawEnd, ccw);
             ctx.stroke();
 
             ctx.strokeStyle = colorRgba([255, 255, 255], frontAlpha * 0.46);
             ctx.lineWidth = Math.max(1.4, baseWidth * 0.18);
             ctx.beginPath();
-            ctx.arc(trailCenterX, trailCenterY, Math.max(2, radius - 2.2), start + 0.03, end + 0.03, ccw);
+            ctx.arc(trailCenterX, trailCenterY, Math.max(2, radius - 2.2), drawStart + 0.03, drawEnd + 0.03, ccw);
             ctx.stroke();
         };
         const drawStep4AnchoredArcTrail = (pts, baseWidth, oldestScale, newestScale, projectFn = null, options = {}) => {

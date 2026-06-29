@@ -590,13 +590,13 @@ export class Stage {
         if (this.stageNumber !== 4) return [];
 
         const climbTemplates = [
-            { x: 150, y: 72, width: 92 },
-            { x: 352, y: 136, width: 104 },
-            { x: 708, y: 72, width: 96 },
-            { x: 900, y: 136, width: 112 },
-            { x: 1338, y: 72, width: 96 },
-            { x: 1576, y: 136, width: 108 },
-            { x: 1960, y: 72, width: 96 }
+            { x: 120, y: 74, width: 170, kind: 'low' },
+            { x: 335, y: 136, width: 178, kind: 'mid' },
+            { x: 680, y: 74, width: 170, kind: 'low' },
+            { x: 880, y: 136, width: 178, kind: 'mid' },
+            { x: 1308, y: 74, width: 170, kind: 'low' },
+            { x: 1554, y: 136, width: 178, kind: 'mid' },
+            { x: 1918, y: 74, width: 170, kind: 'low' }
         ];
 
         return this.getStage4TownRowsInRange(leftWorld, rightWorld)
@@ -608,6 +608,7 @@ export class Stage {
                 isDestroyed: false,
                 isStage4ClimbPlatform: true,
                 isOneWayPlatform: true,
+                climbKind: template.kind,
                 roofLevel: template.y > 100 ? 1 : 0
             })))
             .filter((platform) => (
@@ -5467,54 +5468,24 @@ export class Stage {
     renderStage4ClimbPlatforms(ctx) {
         const platforms = this.getStage4ClimbPlatformColliders(this.progress - 120, this.progress + CANVAS_WIDTH + 160);
         for (const platform of platforms) {
-            const topY = platform.y;
-            const x = platform.x;
-            const w = platform.width;
-            const h = platform.roofLevel >= 1 ? 34 : 28;
-            const baseY = topY + h;
+            const isMid = platform.climbKind === 'mid';
+            const image = isMid
+                ? this.stage4TownImages?.climbScaffoldMid
+                : this.stage4TownImages?.climbScaffoldLow;
+            if (!image || image.naturalWidth <= 0 || image.naturalHeight <= 0) continue;
+
+            const sourceSurfaceY = isMid ? 50 : 8;
+            const platformHeight = (this.groundY + LANE_OFFSET) - platform.y;
+            const scale = platformHeight / Math.max(1, image.naturalHeight - sourceSurfaceY);
+            const drawW = image.naturalWidth * scale;
+            const drawH = image.naturalHeight * scale;
+            const drawX = platform.x + platform.width * 0.5 - drawW * 0.5;
+            const drawY = platform.y - sourceSurfaceY * scale;
 
             ctx.save();
-            ctx.globalAlpha = 0.96;
-
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
-            ctx.beginPath();
-            ctx.ellipse(x + w * 0.5, baseY + 4, w * 0.48, 5, 0, 0, Math.PI * 2);
-            ctx.fill();
-
-            const boardGrad = ctx.createLinearGradient(x, topY, x, topY + 10);
-            boardGrad.addColorStop(0, '#806044');
-            boardGrad.addColorStop(1, '#3f2a1b');
-            ctx.fillStyle = boardGrad;
-            ctx.fillRect(x - 4, topY - 4, w + 8, 10);
-            ctx.strokeStyle = 'rgba(24, 16, 10, 0.7)';
-            ctx.lineWidth = 1.2;
-            ctx.strokeRect(x - 4, topY - 4, w + 8, 10);
-
-            const crateCount = platform.roofLevel >= 1 ? 2 : 1;
-            const crateW = Math.min(38, w / (crateCount + 0.6));
-            for (let i = 0; i < crateCount; i++) {
-                const cx = x + 8 + i * (crateW + 8);
-                const cy = topY + 7;
-                const crateH = h - 5;
-                const crateGrad = ctx.createLinearGradient(cx, cy, cx, cy + crateH);
-                crateGrad.addColorStop(0, '#735437');
-                crateGrad.addColorStop(1, '#3a281b');
-                ctx.fillStyle = crateGrad;
-                ctx.fillRect(cx, cy, crateW, crateH);
-                ctx.strokeStyle = 'rgba(25, 16, 10, 0.75)';
-                ctx.strokeRect(cx, cy, crateW, crateH);
-                ctx.beginPath();
-                ctx.moveTo(cx + 5, cy + 5);
-                ctx.lineTo(cx + crateW - 5, cy + crateH - 5);
-                ctx.moveTo(cx + crateW - 5, cy + 5);
-                ctx.lineTo(cx + 5, cy + crateH - 5);
-                ctx.stroke();
-            }
-
-            const postX = x + w - 15;
-            ctx.fillStyle = '#4a3322';
-            ctx.fillRect(postX, topY + 5, 8, h + 10);
-            ctx.fillRect(x + 8, topY + 5, 8, h + 10);
+            ctx.globalAlpha = 0.98;
+            ctx.filter = 'brightness(0.86) saturate(0.82) contrast(0.94)';
+            ctx.drawImage(image, drawX, drawY, drawW, drawH);
             ctx.restore();
         }
     }
