@@ -78,6 +78,15 @@ export class Enemy {
         this.animState = 'idle';
         this.motionTime = Math.random() * 1000;
         this.jumpCooldown = 0;
+        this.dropThroughPlatformTimer = 0;
+        this.stage4ForcedMoveTimer = 0;
+        this.stage4ForcedMoveVx = 0;
+        this.stage4RoofDecisionDelayMs = Math.random() * 260;
+        // stage4 屋根昇降の「個性」: プレイヤーのY追従を一斉・即時にしないための個体差
+        this.stage4VerticalAggression = 0.38 + Math.random() * 0.62; // 0.38..1.0（高いほど追従に積極的）
+        this.stage4LastPlayerRank = null;   // 直近にこの個体が反応したプレイヤー段位
+        this.stage4ReactTimer = 0;          // 段位変化に反応するまでの個別遅延（ばらつき）
+        this.stage4FollowCommit = true;     // 今回の段位変化を追うと決めたか（追わない＝その場に留まる）
         this.torsoLean = 0;
         this.armSwing = 0;
         
@@ -128,6 +137,18 @@ export class Enemy {
         this.motionTime += deltaTime * 1000;
         if (this.jumpCooldown > 0) {
             this.jumpCooldown -= deltaTime * 1000;
+        }
+        if (this.dropThroughPlatformTimer > 0) {
+            this.dropThroughPlatformTimer = Math.max(0, this.dropThroughPlatformTimer - deltaTime * 1000);
+        }
+        if (this.stage4ForcedMoveTimer > 0) {
+            this.stage4ForcedMoveTimer = Math.max(0, this.stage4ForcedMoveTimer - deltaTime * 1000);
+            if (this.stage4ForcedMoveTimer <= 0) {
+                this.stage4ForcedMoveVx = 0;
+            }
+        }
+        if (this.stage4RoofDecisionDelayMs > 0) {
+            this.stage4RoofDecisionDelayMs = Math.max(0, this.stage4RoofDecisionDelayMs - deltaTime * 1000);
         }
 
         if (this.slowTimer > 0) {
@@ -2221,6 +2242,16 @@ export class Enemy {
             return;
         }
 
+        if (this.stage4ForcedMoveTimer > 0) {
+            desiredVX = this.stage4ForcedMoveVx || 0;
+            if (Math.abs(desiredVX) > 0.08 && this.hitTimer <= 0) {
+                this.facingRight = desiredVX > 0;
+            }
+            this.state = 'chase';
+            this.applyDesiredVx(desiredVX, 0.36);
+            return;
+        }
+
         // 攻撃中または攻撃クールダウン中は移動しない
         if (this.isAttacking || this.attackCooldown > 0) {
             desiredVX = 0;
@@ -2458,7 +2489,9 @@ export class Enemy {
         for (const obs of obstacles) {
             if (this.intersects(obs)) {
                 // 縦方向の補正（乗る判定を優先）
-                if (this.vy >= 0 && this.oldY + this.height <= obs.y + 10) {
+                if (obs.isOneWayPlatform && this.dropThroughPlatformTimer > 0) {
+                    continue;
+                } else if (this.vy >= 0 && this.oldY + this.height <= obs.y + 10) {
                     this.y = obs.y - this.height;
                     this.vy = 0;
                     this.isGrounded = true;
@@ -3349,8 +3382,8 @@ export class Busho extends Enemy {
                 if (Math.random() < 0.02) this.moveType = 'dash';
             }
             
-            // 時々ジャンプ（プレイヤーがジャンプ中なら頻度アップ）
-            const jumpChance = (!player.isGrounded) ? 0.05 : 0.018;
+            // プレイヤーのジャンプには同期させず、敵自身の間合い調整としてだけ跳ぶ
+            const jumpChance = 0.018;
             this.tryJump(jumpChance, -15.5, 650);
             
         } else {

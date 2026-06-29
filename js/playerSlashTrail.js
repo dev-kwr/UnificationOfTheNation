@@ -2139,6 +2139,8 @@ export function applySlashTrailMixin(PlayerClass) {
             : { x: startPose.x, y: startPose.y };
         const mid = { x: midPose.x, y: midPose.y };
         const end = { x: endPose.x, y: endPose.y };
+        // 注: step3終点をここ(spec)で +X しても、実機のstep3記録トレイル/step4接続は『記録点(サンプル)』を使うため
+        // 反映されない(spec はライブ点が無い時のフォールバックのみ)。step3↔step4 の交差調整は別途、記録トレイル側で行う。
         const startPoseProgress = Number.isFinite(startPose.progress) ? startPose.progress : startProgress;
         const midPoseProgress = Number.isFinite(midPose.progress) ? midPose.progress : midProgress;
         const endPoseProgress = Number.isFinite(endPose.progress) ? endPose.progress : endProgress;
@@ -2272,9 +2274,19 @@ export function applySlashTrailMixin(PlayerClass) {
             : pointAt(0.0, startBody.x, startBody.y);
         const mid = pointAt(0.24, midBody.x, midBody.y);
         const end = pointAt(0.42, endBody.x, endBody.y);
-        // 天穿の縦剣筋は完全な垂直線にする: Xはすべて始点（=三段目終端との結合点）へ固定し、
-        // 体ドリフト由来の横ブレも持ち込まない（Xデルタも始点値へ統一して投影後も垂直を保証）
-        end.x = start.x;
+        // 【天穿=完全な垂直線・切先Xへ整列】(ユーザー要望:「垂直にしたい」「始点Xを切先へ寄せて」)
+        // ・step4始点 = step3終点(fixedStartPoint)。生の刀ポーズ(getComboSwordPoseState/Reference)はstep4の
+        //   振り回し(途中で大きく横へ振れる)を拾い、見えている『クリーンな縦の剣筋』とは別物なので切先源に使えない。
+        // ・対策(全て見た目専用ノブ=当たり判定不変):
+        //   (a) end.x = control.x = start.x で完全な垂直線(以前の lean/STEP4_TIP_REACH は撤廃)。
+        //   (b) 垂直線全体を facing方向へ STEP4_START_X_SHIFT 寄せ、始点Xを刀身の切先X(=step3終点より外側)へ重ねる。
+        //   (c) 高さ(切先Yへの到達)は STEP4_VERTICAL_RISE_SCALE で調整(1.0=模型/手前, 大=上へ伸びる)。
+        //   START_X_SHIFT / RISE_SCALE は実機で振って微調整する。step3終点との接続はstep3剣筋フェード中で軽微差は隠れる。
+        const STEP4_START_X_SHIFT = 22;          // step4縦線を切先Xへ寄せる横移動(world px, facing方向)。実機の切先=457
+        const STEP4_VERTICAL_RISE_SCALE = 1.32;  // 縦の高さ(1.0=模型/短い, 大=切先Yへ届く)
+        start.x += dir * STEP4_START_X_SHIFT;
+        end.x = start.x;                                                    // 完全な垂直線(X固定)
+        end.y = start.y + (end.y - start.y) * STEP4_VERTICAL_RISE_SCALE;    // 高さだけ係数で調整
         mid.x = start.x;
         const chordLen = Math.max(1, Math.abs(end.y - start.y));
         // t=0.5 で固定の中間点を通る制御点を逆算する（Xは垂直固定のため始点と同値）
@@ -3092,12 +3104,12 @@ export function applySlashTrailMixin(PlayerClass) {
                 }
                 // lifeは生成時の値を維持（上書きしない）
             } else if (fastFade5) {
-                // step5も他段とほぼ同じ老化速度に揃える(鎖鎌のような等速で後ろから退く消え方)。
-                // 刀の戻りより先に消すためごく僅かだけ速める程度に留める(旧2.6は突出して速かった)。
-                p.age = (p.age || 0) + deltaMs * 1.4;
+                // 全step共通の退き(ユーザー要望)。step5/戻り中も含め実時間1×で揃える。
+                // 段ごとの老化レート差(旧 step5=1.4× / 戻り=0.85×)が「2刀step5だけ長い」等の不揃いの原因だった。
+                p.age = (p.age || 0) + deltaMs;
             } else if (holdExisting) {
-                // 戻りモーション中もほぼ等速に揃える(旧0.5は遅すぎてstep間で消え方が不揃いだった)
-                p.age = (p.age || 0) + deltaMs * 0.85;
+                // 戻りモーション中も実時間1×に統一(他段と完全に同速で後ろから退く)
+                p.age = (p.age || 0) + deltaMs;
                 // lifeは上書きしない
             } else {
                 // 過去段または完全終了後：実時間で老化
@@ -4250,17 +4262,14 @@ export function applySlashTrailMixin(PlayerClass) {
             const lifeForFade = Math.max(1, newestSrc.life || this.comboSlashTrailActiveLifeMs);
             let oldestAlpha, newestAlpha;
             let dissolveAlphaAt = null; // 通常コンボ/大薙の「消える前線(末尾→先端へ走る)」用
-            if (_trailAgeBasedFade) {
+            if (true) { // 通常コンボも二刀(forceLinearSmooth)も「消える前線(dissolve)」で統一
                 // 明暗グラデ(位置 s: 0=最古/後ろ→oldestScale, 1=切先/新→newestScale)に「消える前線」を重ねる。
                 // 前線は切先(newest)が古び始めてから s=0(末尾)→s=1(先端)へ走り、後ろから順に透明化＝鎖鎌の退き。
                 // 振り中(headAge小)は前線が手前(負側)で全可視＝全弧が出る。2端点線形では出せない掃引を多stopで表現。
                 const headAge = Math.max(0, newestSrc.age || 0);
-                const HOLD = 35, EDGE = 0.5; // 前線を広めにとり消え際をふんわり柔らかく
-                // 後続段が既に出ている“過去段”は素早く退かせ次段への被りを防ぐ。最新段/連撃終了後は通常速度。
-                const _trailStep = options.trailStep || (newestSrc && newestSrc.step) || 0;
-                const _curStep = (this.isAttacking && this.currentAttack) ? (this.currentAttack.comboStep || 0) : 0;
-                let SWEEP = (_trailStep > 0 && _curStep > _trailStep) ? 150 : 280;
-                if (_trailStep === 4) SWEEP = Math.min(SWEEP, 200); // step4(斬り上げ)は表示が長くなりがちなので退きを速める
+                // 表示継続は全step共通の長さに統一(ユーザー要望)。過去段の高速化(superseded)/step4個別短縮
+                // ＝不揃いの原因だったので廃止。少し長めに。HOLD=退き始めまでの間, SWEEP=退き速さ(大=長く残る)。
+                const HOLD = 40, EDGE = 0.5, SWEEP = 340;
                 const sweepRaw = clamp01((headAge - HOLD) / SWEEP);
                 const sweepP = 1 - Math.pow(1 - sweepRaw, 1.8); // ease-out: 末尾は素早く・明るい先端は緩やかに
                 const fr = sweepP * (1 + EDGE) - EDGE;
@@ -4348,16 +4357,13 @@ export function applySlashTrailMixin(PlayerClass) {
             const lifeForFade = Math.max(1, newestSrc.life || this.comboSlashTrailActiveLifeMs);
             let oldestAlpha, newestAlpha;
             let dissolveAlphaAt = null; // 通常コンボ/大薙の「消える前線(末尾→先端へ走る)」用
-            if (_trailAgeBasedFade) {
+            if (true) { // 通常コンボも二刀(forceLinearSmooth)も「消える前線(dissolve)」で統一
                 // 明暗グラデ(位置 s)に「消える前線」を重ね、切先が古び始めてから末尾→先端へ走らせる(鎖鎌の退き)。
                 // drawGradientLinearTrail と同一ロジック(芯と本体で同じ前線にする)。
                 const headAge = Math.max(0, newestSrc.age || 0);
-                const HOLD = 35, EDGE = 0.5; // 前線を広めにとり消え際をふんわり柔らかく
-                // 後続段が既に出ている“過去段”は素早く退かせ次段への被りを防ぐ。最新段/連撃終了後は通常速度。
-                const _trailStep = options.trailStep || (newestSrc && newestSrc.step) || 0;
-                const _curStep = (this.isAttacking && this.currentAttack) ? (this.currentAttack.comboStep || 0) : 0;
-                let SWEEP = (_trailStep > 0 && _curStep > _trailStep) ? 150 : 280;
-                if (_trailStep === 4) SWEEP = Math.min(SWEEP, 200); // step4(斬り上げ)は表示が長くなりがちなので退きを速める
+                // 表示継続は全step共通の長さに統一(ユーザー要望)。過去段の高速化(superseded)/step4個別短縮
+                // ＝不揃いの原因だったので廃止。少し長めに。HOLD=退き始めまでの間, SWEEP=退き速さ(大=長く残る)。
+                const HOLD = 40, EDGE = 0.5, SWEEP = 340;
                 const sweepRaw = clamp01((headAge - HOLD) / SWEEP);
                 const sweepP = 1 - Math.pow(1 - sweepRaw, 1.8); // ease-out: 末尾は素早く・明るい先端は緩やかに
                 const fr = sweepP * (1 + EDGE) - EDGE;
@@ -5202,6 +5208,18 @@ export function applySlashTrailMixin(PlayerClass) {
                         : null
                 };
             }
+            // 【step3 描画終端の前進延長】描画される剣筋の先端だけ進行方向へ少し伸ばし刀身の切先まで届かせる
+            // (ニンジャは visualTipReachPaddingPx=0 で丸キャップ分手前で止まり「短い」とユーザー指摘)。
+            // 記録(_step3LiveDraw は上で焼込済)も step4始点の参照元(記録 trailCurveEnd)も変えない=step4位置(457)不変=描画専用。
+            // この関数はライブ(5892)・凍結(6111)の両経路が通るので両フレームで同じだけ伸びる。Yは固定で水平を維持。
+            {
+                const STEP3_DRAW_REACH_EXTEND = (this.characterType === 'shogun') ? 0 : 24; // 切先まで届かせる前進量(px)。要実機調整
+                if (STEP3_DRAW_REACH_EXTEND > 0) {
+                    const _extDir = (drawEndX >= drawStartX ? 1 : -1);
+                    drawEndX += _extDir * STEP3_DRAW_REACH_EXTEND;
+                    if (manualTipAlignedLayers) manualTipAlignedLayers.innerEndX += _extDir * STEP3_DRAW_REACH_EXTEND;
+                }
+            }
             const linePts = [
                 {
                     x: drawStartX,
@@ -5270,7 +5288,7 @@ export function applySlashTrailMixin(PlayerClass) {
             // 通常コンボに合わせた「消える前線」: 弧の後端(最古角)を前端(現在の刃)へ詰めて末尾→先端へ退かせ、
             // 全体も少し薄める(フワッと)。タイミング/イーズ/二重フェードは通常コンボの dissolve と共通値。
             const _hAge = Math.max(0, newestSrc.age || 0);
-            const _sweepP = 1 - Math.pow(1 - clamp01((_hAge - 35) / 280), 1.8);
+            const _sweepP = 1 - Math.pow(1 - clamp01((_hAge - 40) / 340), 1.8);
             const _gFade = 1 - 0.22 * _sweepP;
 
             const newest = mapped[mapped.length - 1];

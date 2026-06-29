@@ -179,8 +179,10 @@ export class Stage {
                 yatai: 'images/stage4_town_yatai.png',
                 groundTile: 'images/stage4_ground_stone_tile.png',
                 castleEntrance: 'images/stage4_castle_lower_wide.png',
-                climbScaffoldLow: 'images/stage4_climb_scaffold_low.png',
-                climbScaffoldMid: 'images/stage4_climb_scaffold_mid.png'
+                climbPropCrates: 'images/stage4_climb_prop_crates.png',
+                climbPropHandcart: 'images/stage4_climb_prop_handcart.png',
+                climbPropBench: 'images/stage4_climb_prop_bench.png',
+                climbPropSakeBarrels: 'images/stage4_climb_prop_sake_barrels.png'
             };
             for (const [key, src] of Object.entries(stage4TownPaths)) {
                 const image = new Image();
@@ -515,6 +517,86 @@ export class Stage {
         ];
     }
 
+    getStage4SurfaceRankFromFootY(footY) {
+        const heightAboveGround = (this.groundY + LANE_OFFSET) - footY;
+        if (heightAboveGround > 285) return 4;
+        if (heightAboveGround > 188) return 3;
+        if (heightAboveGround > 118) return 2;
+        if (heightAboveGround > 42) return 1;
+        return 0;
+    }
+
+    getStage4PlatformRank(platform) {
+        if (platform && Number.isFinite(platform.stage4SurfaceRank)) {
+            return platform.stage4SurfaceRank;
+        }
+        return this.getStage4SurfaceRankFromFootY(platform?.y || this.groundY + LANE_OFFSET);
+    }
+
+    getStage4ClimbPropDefinitions() {
+        return {
+            crates: {
+                imageKey: 'climbPropCrates',
+                sourceWidth: 311,
+                sourceHeight: 173,
+                sourceSurfaceY: 10,
+                visualHeight: 86,
+                colliderWidth: 132,
+                rank: 1
+            },
+            handcart: {
+                imageKey: 'climbPropHandcart',
+                sourceWidth: 1176,
+                sourceHeight: 317,
+                sourceSurfaceY: 16,
+                visualHeight: 54,
+                colliderWidth: 690,
+                rank: 1
+            },
+            bench: {
+                imageKey: 'climbPropBench',
+                sourceWidth: 373,
+                sourceHeight: 139,
+                sourceSurfaceY: 54,
+                visualHeight: 84,
+                colliderWidth: 172,
+                rank: 1
+            },
+            sakeBarrels: {
+                imageKey: 'climbPropSakeBarrels',
+                sourceWidth: 400,
+                sourceHeight: 289,
+                sourceSurfaceY: 18,
+                visualHeight: 104,
+                colliderWidth: 168,
+                rank: 1
+            }
+        };
+    }
+
+    getStage4ClimbPropTemplates(rowIndex = 0) {
+        // 足場プロップは間引いて配置する（建物の屋根とは別の登攀用オブジェクト）。
+        // 以前は1行3個で過密だったため、平均 約1.5個/行（およそ半減）まで減らし、
+        // 種類・位置を散らして単調さと密度を抑える。各行に最低1個は残す。
+        const patterns = [
+            [
+                { type: 'crates', x: 640 },
+                { type: 'handcart', x: 1640 }
+            ],
+            [
+                { type: 'bench', x: 900 }
+            ],
+            [
+                { type: 'sakeBarrels', x: 360 },
+                { type: 'crates', x: 1520 }
+            ],
+            [
+                { type: 'handcart', x: 1060 }
+            ]
+        ];
+        return patterns[((rowIndex % patterns.length) + patterns.length) % patterns.length];
+    }
+
     getStage4TownRowsInRange(leftWorld, rightWorld) {
         if (this.stageNumber !== 4) return [];
 
@@ -548,6 +630,7 @@ export class Stage {
             rows.push({
                 ...spec,
                 image,
+                rowIndex: i,
                 worldX,
                 width,
                 height,
@@ -568,16 +651,20 @@ export class Stage {
                 const scaleX = row.width / row.image.naturalWidth;
                 const scaleY = row.height / row.image.naturalHeight;
                 const roofWalkInsetY = 0;
-                return (row.platforms || []).map((platform) => ({
-                    x: row.worldX + platform.x1 * scaleX,
-                    y: row.drawY + (platform.y + roofWalkInsetY) * scaleY,
-                    width: Math.max(48, (platform.x2 - platform.x1) * scaleX),
-                    height: 12,
-                    isDestroyed: false,
-                    isStage4RoofPlatform: true,
-                    isOneWayPlatform: true,
-                    roofLevel: platform.level
-                })).filter((platform) => (
+                return (row.platforms || []).map((platform) => {
+                    const y = row.drawY + (platform.y + roofWalkInsetY) * scaleY;
+                    return {
+                        x: row.worldX + platform.x1 * scaleX,
+                        y,
+                        width: Math.max(48, (platform.x2 - platform.x1) * scaleX),
+                        height: 12,
+                        isDestroyed: false,
+                        isStage4RoofPlatform: true,
+                        isOneWayPlatform: true,
+                        roofLevel: platform.level,
+                        stage4SurfaceRank: this.getStage4SurfaceRankFromFootY(y)
+                    };
+                }).filter((platform) => (
                     platform.x + platform.width >= leftWorld &&
                     platform.x <= rightWorld
                 ));
@@ -589,28 +676,43 @@ export class Stage {
     getStage4ClimbPlatformColliders(leftWorld, rightWorld) {
         if (this.stageNumber !== 4) return [];
 
-        const climbTemplates = [
-            { x: 120, y: 74, width: 170, kind: 'low' },
-            { x: 335, y: 136, width: 178, kind: 'mid' },
-            { x: 680, y: 74, width: 170, kind: 'low' },
-            { x: 880, y: 136, width: 178, kind: 'mid' },
-            { x: 1308, y: 74, width: 170, kind: 'low' },
-            { x: 1554, y: 136, width: 178, kind: 'mid' },
-            { x: 1918, y: 74, width: 170, kind: 'low' }
-        ];
-
+        const defs = this.getStage4ClimbPropDefinitions();
+        const baseY = this.groundY + LANE_OFFSET;
         return this.getStage4TownRowsInRange(leftWorld, rightWorld)
-            .flatMap((row) => climbTemplates.map((template) => ({
-                x: row.worldX + template.x * (row.width / 2148),
-                y: this.groundY - template.y,
-                width: template.width * (row.width / 2148),
-                height: 12,
-                isDestroyed: false,
-                isStage4ClimbPlatform: true,
-                isOneWayPlatform: true,
-                climbKind: template.kind,
-                roofLevel: template.y > 100 ? 1 : 0
-            })))
+            .flatMap((row) => this.getStage4ClimbPropTemplates(row.rowIndex).map((template) => {
+                const def = defs[template.type];
+                if (!def) return null;
+
+                const image = this.stage4TownImages?.[def.imageKey];
+                const sourceWidth = (image && image.naturalWidth > 0) ? image.naturalWidth : def.sourceWidth;
+                const sourceHeight = (image && image.naturalHeight > 0) ? image.naturalHeight : def.sourceHeight;
+                const scale = def.visualHeight / Math.max(1, sourceHeight);
+                const drawWidth = sourceWidth * scale;
+                const drawHeight = sourceHeight * scale;
+                const centerX = row.worldX + template.x * (row.width / 2148);
+                const drawX = centerX - drawWidth * 0.5;
+                const drawY = baseY - drawHeight;
+                const platformY = drawY + def.sourceSurfaceY * scale;
+                const platformWidth = Math.min(drawWidth - 20, Math.max(52, def.colliderWidth * scale));
+
+                return {
+                    x: centerX - platformWidth * 0.5,
+                    y: platformY,
+                    width: platformWidth,
+                    height: 12,
+                    isDestroyed: false,
+                    isStage4ClimbPlatform: true,
+                    isOneWayPlatform: true,
+                    climbKind: template.type,
+                    roofLevel: def.rank,
+                    stage4SurfaceRank: def.rank,
+                    imageKey: def.imageKey,
+                    drawX,
+                    drawY,
+                    drawWidth,
+                    drawHeight
+                };
+            }).filter(Boolean))
             .filter((platform) => (
                 platform.x + platform.width >= leftWorld &&
                 platform.x <= rightWorld
@@ -908,9 +1010,9 @@ export class Stage {
                 multiSpawnPeak: 0.40,
                 leftSpawnBase: 0.22,
                 leftSpawnPeak: 0.3,
-                obstacleChance: 0.31,
-                obstacleIntervalMin: 2000,
-                obstacleIntervalMax: 3400
+                obstacleChance: 0.14,
+                obstacleIntervalMin: 3600,
+                obstacleIntervalMax: 5600
             },
             5: {
                 spawnStart: 1460,
@@ -1228,6 +1330,17 @@ export class Stage {
     }
     
     updateEnemies(deltaTime, player, obstacles = []) {
+        // stage4: プレイヤーの「安定段位」を毎フレーム1回だけ確定させる。
+        // 着地中の段位のみ採用し、ジャンプ中は直前の地上段位を保持することで、
+        // 「プレイヤーが跳ねただけ」で敵が一斉反応するのを防ぐ。
+        if (this.stageNumber === 4 && player) {
+            const playerFootY = player.y + player.getWorldHeight();
+            const rawRank = this.getStage4SurfaceRankFromFootY(playerFootY);
+            if (player.isGrounded || this.stage4PlayerStableRank === undefined) {
+                this.stage4PlayerStableRank = rawRank;
+            }
+        }
+
         // 敵を更新し、削除すべきものをフィルタ
         // 置き去りになった敵は前方に再登場させ、走り抜け時の敵枯渇を防ぐ
         const nextEnemies = [];
@@ -1250,49 +1363,158 @@ export class Stage {
     }
 
     updateStage4EnemyRoofMovement(enemy, player, obstacles = [], deltaTime = 0) {
-        if (this.stageNumber !== 4 || !enemy) return;
+        if (this.stageNumber !== 4 || !enemy || !player) return;
 
         enemy.stage4RoofJumpCooldown = Math.max(0, (enemy.stage4RoofJumpCooldown || 0) - deltaTime * 1000);
+        if (enemy.stage4ReactTimer > 0) {
+            enemy.stage4ReactTimer = Math.max(0, enemy.stage4ReactTimer - deltaTime * 1000);
+        }
         if (enemy.stage4RoofJumpCooldown > 0 || !enemy.isGrounded) return;
+        if ((enemy.stage4RoofDecisionDelayMs || 0) > 0) return;
 
         const enemyCenterX = enemy.x + enemy.width * 0.5;
         const enemyFootY = enemy.y + enemy.height;
+        const playerCenterX = player.x + player.getWorldWidth() * 0.5;
+        const playerFootY = player.y + player.getWorldHeight();
+        const isNinja = enemy.type === ENEMY_TYPES.NINJA;
+        const currentRank = this.getStage4SurfaceRankFromFootY(enemyFootY);
+        // 安定段位（着地時のみ更新）を狙う。ジャンプ中の一時的な段位変化には反応しない。
+        const targetRank = (this.stage4PlayerStableRank !== undefined)
+            ? this.stage4PlayerStableRank
+            : this.getStage4SurfaceRankFromFootY(playerFootY);
+        const isPlayerAirborne = player.isGrounded === false;
+        const horizGap = Math.abs(playerCenterX - enemyCenterX);
+        const aggression = (enemy.stage4VerticalAggression !== undefined)
+            ? enemy.stage4VerticalAggression
+            : 0.7;
+
+        // --- プレイヤーの段位「変化」に対しては、個体ごとにばらけた遅延を置いてから反応する ---
+        // これにより「プレイヤーが昇降した瞬間に全員が同時に追従する」現象を防ぐ。
+        if (enemy.stage4LastPlayerRank === null || enemy.stage4LastPlayerRank === undefined) {
+            enemy.stage4LastPlayerRank = targetRank;
+        }
+        if (targetRank !== enemy.stage4LastPlayerRank) {
+            enemy.stage4LastPlayerRank = targetRank;
+            // 積極的な個体ほど短く、消極的な個体ほど長い遅延。さらに個別ジッターを足す。
+            const reactBase = (isNinja ? 220 : 300) + (1 - aggression) * (isNinja ? 880 : 1180);
+            enemy.stage4ReactTimer = reactBase + Math.random() * 440;
+            // 今回の変化を「追うか／その場に留まるか」を個性＋距離で確率的に決める。
+            // 近いほど・積極的なほど追いやすい。遠い相手にはまず横移動で詰めさせる。
+            const proximityBias = horizGap < 260 ? 0.28 : (horizGap < 560 ? 0.08 : -0.2);
+            const followChance = Math.max(0.12, Math.min(0.95, aggression * 0.7 + 0.18 + proximityBias));
+            enemy.stage4FollowCommit = Math.random() < followChance;
+            return;
+        }
+
+        // 反応待ちウィンドウ中は動かない（個体ごとにずれて発火する）
+        if (enemy.stage4ReactTimer > 0) return;
+
+        // この個体は今回「その場に留まる」と決めた。一定時間そのまま待ち、たまに再判断する。
+        if (enemy.stage4FollowCommit === false) {
+            enemy.stage4RoofDecisionDelayMs = (isNinja ? 900 : 1300) + Math.random() * 2200;
+            // 再判断時により追従しやすくして、いつまでも放置されないようにする。
+            enemy.stage4FollowCommit = Math.random() < (aggression * 0.55 + 0.3);
+            return;
+        }
+
+        if (currentRank > targetRank) {
+            const currentPlatform = obstacles
+                .filter((obs) => obs && (obs.isStage4RoofPlatform || obs.isStage4ClimbPlatform))
+                .find((platform) => (
+                    enemyCenterX >= platform.x - 8 &&
+                    enemyCenterX <= platform.x + platform.width + 8 &&
+                    Math.abs(platform.y - enemyFootY) < 18
+                ));
+
+            if (currentPlatform) {
+                const playerIsBelow = playerFootY > enemyFootY + 34;
+                if (playerIsBelow && currentPlatform.isOneWayPlatform) {
+                    const direction = Math.abs(playerCenterX - enemyCenterX) > 18
+                        ? (playerCenterX > enemyCenterX ? 1 : -1)
+                        : 0;
+                    enemy.dropThroughPlatformTimer = isNinja ? 190 : 220;
+                    enemy.stage4ForcedMoveVx = direction * enemy.speed * (isNinja ? 1.35 : 1.02);
+                    enemy.stage4ForcedMoveTimer = isNinja ? 260 : 320;
+                    enemy.isGrounded = false;
+                    enemy.isOnStage4Roof = false;
+                    enemy.isOnStage4ClimbPlatform = false;
+                    enemy.y += 5;
+                    enemy.vy = Math.max(enemy.vy, isNinja ? 1.8 : 1.35);
+                    enemy.stage4RoofJumpCooldown = isNinja ? 180 : 260;
+                    enemy.stage4RoofDecisionDelayMs = isNinja
+                        ? 80 + Math.random() * 140
+                        : 130 + Math.random() * 220;
+                    return;
+                }
+
+                const leftEdgeDist = Math.abs(enemyCenterX - currentPlatform.x);
+                const rightEdgeDist = Math.abs(enemyCenterX - (currentPlatform.x + currentPlatform.width));
+                let direction = playerCenterX < enemyCenterX ? -1 : 1;
+                if (playerCenterX > currentPlatform.x && playerCenterX < currentPlatform.x + currentPlatform.width) {
+                    direction = leftEdgeDist < rightEdgeDist ? -1 : 1;
+                }
+                enemy.stage4ForcedMoveVx = direction * enemy.speed * (isNinja ? 1.75 : 1.38);
+                enemy.stage4ForcedMoveTimer = 340;
+                enemy.stage4RoofJumpCooldown = isNinja ? 80 : 120;
+                enemy.stage4RoofDecisionDelayMs = isNinja
+                    ? 80 + Math.random() * 130
+                    : 130 + Math.random() * 220;
+                return;
+            }
+        }
+
+        if (targetRank <= currentRank) return;
+        if (isPlayerAirborne) return;
+
         const roofPlatforms = obstacles.filter((obs) => (
             obs &&
             (obs.isStage4RoofPlatform || obs.isStage4ClimbPlatform) &&
             obs.y < enemyFootY - 28 &&
-            obs.y > enemyFootY - 255 &&
-            enemyCenterX > obs.x - 190 &&
-            enemyCenterX < obs.x + obs.width + 190
+            obs.y > enemyFootY - (isNinja ? 330 : 235) &&
+            enemyCenterX > obs.x - (isNinja ? 260 : 205) &&
+            enemyCenterX < obs.x + obs.width + (isNinja ? 260 : 205)
         ));
         if (roofPlatforms.length === 0) return;
 
-        const heightAboveGround = (this.groundY + LANE_OFFSET) - enemyFootY;
-        const currentLevel = heightAboveGround > 150 ? 2 : (heightAboveGround > 54 ? 1 : 0);
+        const maxRankStep = 2;
+        const desiredRank = Math.min(targetRank, currentRank + maxRankStep);
         const reachablePlatforms = roofPlatforms
             .filter((platform) => {
-                const targetLevel = platform.isStage4ClimbPlatform ? (platform.roofLevel || 0) : 2;
-                return targetLevel <= currentLevel + 1 || enemy.type === ENEMY_TYPES.NINJA;
+                const platformRank = this.getStage4PlatformRank(platform);
+                return platformRank > currentRank && platformRank <= desiredRank;
             });
         if (reachablePlatforms.length === 0) return;
 
-        const target = reachablePlatforms.sort((a, b) => Math.abs(enemyCenterX - (a.x + a.width * 0.5)) - Math.abs(enemyCenterX - (b.x + b.width * 0.5)))[0];
+        const target = reachablePlatforms.sort((a, b) => {
+            const ar = this.getStage4PlatformRank(a);
+            const br = this.getStage4PlatformRank(b);
+            const ax = a.x + a.width * 0.5;
+            const bx = b.x + b.width * 0.5;
+            const aScore = Math.abs(ar - desiredRank) * 240 + Math.abs(enemyCenterX - ax) + Math.abs(playerCenterX - ax) * 0.25;
+            const bScore = Math.abs(br - desiredRank) * 240 + Math.abs(enemyCenterX - bx) + Math.abs(playerCenterX - bx) * 0.25;
+            return aScore - bScore;
+        })[0];
         const targetCenterX = target.x + target.width * 0.5;
-        const direction = enemyCenterX < targetCenterX ? 1 : -1;
-        const isNinja = enemy.type === ENEMY_TYPES.NINJA;
-        const targetLevel = target.isStage4ClimbPlatform ? (target.roofLevel || 0) : 2;
+        const dx = targetCenterX - enemyCenterX;
+        const direction = Math.abs(dx) < 10 ? (playerCenterX >= enemyCenterX ? 1 : -1) : (dx > 0 ? 1 : -1);
+        const targetRankForJump = this.getStage4PlatformRank(target);
         const horizontalBoost = isNinja
-            ? (targetLevel >= 2 ? 3.1 : 2.35)
-            : (targetLevel >= 2 ? 2.25 : 1.75);
+            ? (targetRankForJump >= 3 ? 3.35 : 2.65)
+            : (targetRankForJump >= 3 ? 2.4 : 1.85);
         enemy.vx += direction * horizontalBoost;
         const jumpVelocity = isNinja
-            ? (targetLevel >= 2 ? -20.5 : -17.5)
-            : (targetLevel >= 2 ? -18.2 : (targetLevel >= 1 ? -15.4 : -12.8));
+            ? (targetRankForJump >= 3 ? -21.5 : -18.2)
+            : (targetRankForJump >= 3 ? -18.7 : (targetRankForJump >= 2 ? -16.2 : -13.6));
         enemy.vy = Math.min(enemy.vy, jumpVelocity);
         enemy.isGrounded = false;
         enemy.isOnStage4Roof = false;
         enemy.isOnStage4ClimbPlatform = false;
-        enemy.stage4RoofJumpCooldown = isNinja ? 520 : 760;
+        enemy.stage4ForcedMoveVx = direction * enemy.speed * (isNinja ? 1.7 : 1.34);
+        enemy.stage4ForcedMoveTimer = 260;
+        enemy.stage4RoofJumpCooldown = isNinja ? 420 : 620;
+        enemy.stage4RoofDecisionDelayMs = isNinja
+            ? 90 + Math.random() * 190
+            : 160 + Math.random() * 320;
     }
 
     getStageEnemyObstacles(baseObstacles = []) {
@@ -1445,7 +1667,9 @@ export class Stage {
 
     spawnObstacle() {
         // ステージごとの発生率にボーナスを加算（上限1.0）
-        const obstacleChance = Math.min(1, this.balanceProfile.obstacleChance + OBSTACLE_CHANCE_BOOST);
+        const obstacleChance = this.stageNumber === 4
+            ? this.balanceProfile.obstacleChance
+            : Math.min(1, this.balanceProfile.obstacleChance + OBSTACLE_CHANCE_BOOST);
         if (Math.random() > obstacleChance) return;
 
         // 画面外（右側）から出現（Stage 5 左方向フロアは左側から出現）
@@ -2675,6 +2899,48 @@ export class Stage {
 	    ctx.restore();
 	    return true;
 	}
+
+    renderStage4CastleApproach(ctx, castleWorldX, p, baseY) {
+        const wallImage = this.stage4TownImages?.samuraiWall;
+        const gateImage = this.stage4TownImages?.sanmonGate;
+        const approachBlocks = [
+            {
+                image: wallImage,
+                worldX: castleWorldX - 900,
+                width: 640,
+                alpha: 0.9,
+                filter: 'brightness(0.74) saturate(0.66) contrast(0.9)'
+            },
+            {
+                image: wallImage,
+                worldX: castleWorldX - 520,
+                width: 560,
+                alpha: 0.84,
+                filter: 'brightness(0.7) saturate(0.62) contrast(0.88)'
+            },
+            {
+                image: gateImage,
+                worldX: castleWorldX - 390,
+                width: 470,
+                alpha: 0.9,
+                filter: 'brightness(0.76) saturate(0.68) contrast(0.92)'
+            }
+        ];
+
+        for (const block of approachBlocks) {
+            const x = block.worldX - p;
+            if (x + block.width < -180 || x > CANVAS_WIDTH + 180) continue;
+            this.renderStage4TownImageBlock(
+                ctx,
+                block.image,
+                x,
+                baseY,
+                block.width,
+                block.alpha,
+                block.filter
+            );
+        }
+    }
 
 	renderStageElements(ctx, currentPalette) {
         const p = this.progress;
@@ -3970,6 +4236,7 @@ export class Stage {
                     );
                 }
 
+                this.renderStage4CastleApproach(ctx, castleWorldX, p, this.groundY - 2);
                 this.renderStage4CastleLower(ctx, castleImage, castleX, this.groundY - 2, castleH);
 
                 // ───────── 手前：石畳の濡れた照り返し（near, 速いパララックス） ─────────
@@ -5468,24 +5735,13 @@ export class Stage {
     renderStage4ClimbPlatforms(ctx) {
         const platforms = this.getStage4ClimbPlatformColliders(this.progress - 120, this.progress + CANVAS_WIDTH + 160);
         for (const platform of platforms) {
-            const isMid = platform.climbKind === 'mid';
-            const image = isMid
-                ? this.stage4TownImages?.climbScaffoldMid
-                : this.stage4TownImages?.climbScaffoldLow;
+            const image = this.stage4TownImages?.[platform.imageKey];
             if (!image || image.naturalWidth <= 0 || image.naturalHeight <= 0) continue;
 
-            const sourceSurfaceY = isMid ? 50 : 8;
-            const platformHeight = (this.groundY + LANE_OFFSET) - platform.y;
-            const scale = platformHeight / Math.max(1, image.naturalHeight - sourceSurfaceY);
-            const drawW = image.naturalWidth * scale;
-            const drawH = image.naturalHeight * scale;
-            const drawX = platform.x + platform.width * 0.5 - drawW * 0.5;
-            const drawY = platform.y - sourceSurfaceY * scale;
-
             ctx.save();
-            ctx.globalAlpha = 0.98;
-            ctx.filter = 'brightness(0.86) saturate(0.82) contrast(0.94)';
-            ctx.drawImage(image, drawX, drawY, drawW, drawH);
+            ctx.globalAlpha = 0.96;
+            ctx.filter = 'brightness(0.84) saturate(0.78) contrast(0.92)';
+            ctx.drawImage(image, platform.drawX, platform.drawY, platform.drawWidth, platform.drawHeight);
             ctx.restore();
         }
     }

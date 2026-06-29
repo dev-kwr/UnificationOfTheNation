@@ -44,7 +44,8 @@ export function applySpecialMixin(PlayerClass) {
             facingRight: this.facingRight,
             prevX: a.x,
             lastAnchorX: a.x,
-            lastAnchorY: a.y
+            lastAnchorY: a.y,
+            groundY: this.getSpecialCloneFootY(a.y) - LANE_OFFSET
         }));
         this.specialCloneScarfNodes = this.specialCloneSlots.map(() => null);
         this.specialCloneHairNodes = this.specialCloneSlots.map(() => null);
@@ -378,7 +379,7 @@ export function applySpecialMixin(PlayerClass) {
                 vx: clonePos ? (clonePos.renderVx || 0) : this.vx,
                 vy: clonePos ? (clonePos.cloneVy || 0) : this.vy,
                 speed: this.speed,
-                groundY: clonePos ? (clonePos.groundY || this.groundY) : this.groundY,
+                groundY: clonePos ? (clonePos.groundY || (this.getSpecialCloneFootY(clonePos.y) - LANE_OFFSET)) : this.groundY,
                 trailPoints: Array.isArray(this.specialCloneSlashTrailPoints)
                     ? this.specialCloneSlashTrailPoints[index]
                     : null
@@ -518,9 +519,9 @@ export function applySpecialMixin(PlayerClass) {
     PlayerClass.prototype.buildSpecialCloneSubWeaponOwner = function(index, inst = null) {
         const pos = this.specialClonePositions ? this.specialClonePositions[index] : null;
         if (!pos) return null;
-        const cloneGroundY = typeof this.getSpecialCloneGroundYAtX === 'function'
-            ? this.getSpecialCloneGroundYAtX(pos.x)
-            : this.groundY;
+        const cloneGroundY = Number.isFinite(pos.groundY)
+            ? pos.groundY
+            : (this.getSpecialCloneFootY(pos.y) - LANE_OFFSET);
         const worldWidth = typeof this.getWorldWidth === 'function' ? this.getWorldWidth() : PLAYER.WIDTH;
         const worldHeight = typeof this.getWorldHeight === 'function' ? this.getWorldHeight() : PLAYER.HEIGHT;
         return {
@@ -827,7 +828,8 @@ export function applySpecialMixin(PlayerClass) {
             lastAnchorY: a.y,
             jumping: false,
             cloneVy: 0,
-            comboVx: 0
+            comboVx: 0,
+            groundY: this.getSpecialCloneFootY(a.y) - LANE_OFFSET
         }));
 
         for (let i = 0; i < this.specialCloneSlots.length; i++) {
@@ -979,10 +981,6 @@ export function applySpecialMixin(PlayerClass) {
             const pos = this.specialClonePositions[i];
             const anchor = anchors[i];
             const previousAnchorX = Number.isFinite(pos.lastAnchorX) ? pos.lastAnchorX : null;
-            // Lv3分身が独立移動している場合、実際のX位置の地面Yを使う（プレイヤー相対のanchor.yではなく）
-            const cloneRestY = typeof this.getSpecialCloneAnchorYAtX === 'function'
-                ? this.getSpecialCloneAnchorYAtX(pos.x)
-                : anchor.y;
             const prevY = pos.y;
 
             const frameStartX = pos.x;
@@ -1210,17 +1208,33 @@ export function applySpecialMixin(PlayerClass) {
                 pos.cloneVy = -12;
             }
 
+            const footOffset = this._getCloneFootOffset();
+            const currentFootY = this.getSpecialCloneFootY(pos.y);
+            const currentSupportY = this.getSpecialCloneLandingAnchorY(pos, currentFootY - 2, currentFootY + 2);
+            if (!pos.jumping && Math.abs(pos.y - currentSupportY) > 3) {
+                pos.jumping = true;
+                pos.cloneVy = Math.max(pos.cloneVy || 0, 0.6);
+            }
+
             if (pos.jumping) {
+                const beforeY = pos.y;
+                const beforeFootY = this.getSpecialCloneFootY(beforeY);
                 pos.cloneVy += 0.6;
-                pos.y += pos.cloneVy * deltaTime * 60;
-                if (pos.y >= cloneRestY) {
-                    pos.y = cloneRestY;
+                const nextY = pos.y + pos.cloneVy * deltaTime * 60;
+                const nextFootY = nextY + footOffset;
+                const landingY = this.getSpecialCloneLandingAnchorY(pos, beforeFootY, nextFootY);
+                if (pos.cloneVy >= 0 && nextY >= landingY) {
+                    pos.y = landingY;
                     pos.jumping = false;
                     pos.cloneVy = 0;
+                } else {
+                    pos.y = nextY;
                 }
             } else {
-                pos.y = cloneRestY;
+                pos.y = currentSupportY;
+                pos.cloneVy = 0;
             }
+            pos.groundY = this.getSpecialCloneFootY(pos.y) - LANE_OFFSET;
 
             this.constrainSpecialClonePosition(pos);
 
@@ -1360,11 +1374,7 @@ export function applySpecialMixin(PlayerClass) {
     };
 
     PlayerClass.prototype.getSpecialCloneAnchorY = function() {
-        const mirrorPlayerMotion = !this.specialCloneAutoAiEnabled || this.specialCastTimer > 0;
-        if (mirrorPlayerMotion) {
-            return this.getFootY() - this._getCloneFootOffset();
-        }
-        return this.getSpecialCloneAnchorYAtX(this.getWorldCenterX());
+        return this.getFootY() - this._getCloneFootOffset();
     };
 
     PlayerClass.prototype.getSpecialCloneGroundYAtX = function(worldX = this.getWorldCenterX()) {
@@ -1377,6 +1387,42 @@ export function applySpecialMixin(PlayerClass) {
 
     PlayerClass.prototype.getSpecialCloneAnchorYAtX = function(worldX = this.getWorldCenterX()) {
         return this.getSpecialCloneGroundYAtX(worldX) + LANE_OFFSET - this._getCloneFootOffset();
+    };
+
+    PlayerClass.prototype.getSpecialCloneLandingAnchorY = function(pos, previousFootY, nextFootY) {
+        const footOffset = this._getCloneFootOffset();
+        const worldX = pos && Number.isFinite(pos.x) ? pos.x : this.getWorldCenterX();
+        const groundFootY = this.getSpecialCloneGroundYAtX(worldX) + LANE_OFFSET;
+        let landingFootY = groundFootY;
+
+        const stage = (window.game && window.game.stage) ? window.game.stage : null;
+        if (
+            stage &&
+            stage.stageNumber === 4 &&
+            typeof stage.getStage4RoofColliders === 'function' &&
+            Number.isFinite(previousFootY) &&
+            Number.isFinite(nextFootY)
+        ) {
+            const cloneHalfW = Math.max(16, (typeof this.getWorldWidth === 'function' ? this.getWorldWidth() : this.width) * 0.36);
+            const topY = Math.min(previousFootY, nextFootY) - 6;
+            const bottomY = Math.max(previousFootY, nextFootY) + 6;
+            const supports = stage.getStage4RoofColliders(worldX - cloneHalfW - 12, worldX + cloneHalfW + 12)
+                .filter((platform) => (
+                    platform &&
+                    !platform.isDestroyed &&
+                    platform.isOneWayPlatform &&
+                    worldX + cloneHalfW > platform.x + 4 &&
+                    worldX - cloneHalfW < platform.x + platform.width - 4 &&
+                    platform.y >= topY &&
+                    platform.y <= bottomY
+                ))
+                .sort((a, b) => a.y - b.y);
+            if (supports.length > 0) {
+                landingFootY = supports[0].y;
+            }
+        }
+
+        return landingFootY - footOffset;
     };
 
     PlayerClass.prototype.getSpecialCloneSpacing = function() {
@@ -1447,12 +1493,8 @@ export function applySpecialMixin(PlayerClass) {
         const spacing = typeof this.getSpecialCloneSpacing === 'function'
             ? this.getSpecialCloneSpacing()
             : (this.specialCloneSpacing || 180);
-        // Lv1-2はプレイヤー追従（centerY）を使用し、Lv3+のみ地面ベースのY座標を使用する
-        const useCloneGround = this.specialCloneCombatStarted && this.specialCastTimer <= 0 && this.specialCloneAutoAiEnabled;
         const resolveY = (x, unit) => {
-            return useCloneGround && typeof this.getSpecialCloneAnchorYAtX === 'function'
-                ? this.getSpecialCloneAnchorYAtX(x)
-                : centerY;
+            return centerY;
         };
         const anchors = this.specialCloneSlots.map((unit, index) => ({
             x: centerX + unit * spacing,
@@ -1625,7 +1667,8 @@ export function applySpecialMixin(PlayerClass) {
             this.specialClonePositions = anchors.map(a => ({
                 x: a.x, y: a.y, facingRight: this.facingRight, prevX: a.x,
                 lastAnchorX: a.x, lastAnchorY: a.y,
-                cloneVy: 0, jumping: false, legPhase: 0, legAngle: 0
+                cloneVy: 0, jumping: false, legPhase: 0, legAngle: 0,
+                groundY: this.getSpecialCloneFootY(a.y) - LANE_OFFSET
             }));
             // アクセサリノードの初期化
             for (let i = 0; i < this.specialCloneSlots.length; i++) {
