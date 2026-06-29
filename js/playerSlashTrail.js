@@ -1701,7 +1701,7 @@ export function applySlashTrailMixin(PlayerClass) {
             case 3: return { start: 0.28, end: 1.0 };
             // 四段(天穿"返り")は振り上げ後に返し/空中の戻りがある。end:1.0 だと戻りまで剣筋を記録し続け
             // 頭が新鮮なまま＝消え始めが1テンポ遅れる。step1同様に振り切り後の戻りは含めず end:0.82 で打ち切る。
-            case 4: return { start: 0.0, end: 0.82 };
+            case 4: return { start: 0.0, end: 0.74 };
             case 5: return { start: 0.15, end: 0.98 };
             default: return { start: 0, end: 1 };
         }
@@ -4255,19 +4255,20 @@ export function applySlashTrailMixin(PlayerClass) {
                 // 前線は切先(newest)が古び始めてから s=0(末尾)→s=1(先端)へ走り、後ろから順に透明化＝鎖鎌の退き。
                 // 振り中(headAge小)は前線が手前(負側)で全可視＝全弧が出る。2端点線形では出せない掃引を多stopで表現。
                 const headAge = Math.max(0, newestSrc.age || 0);
-                const HOLD = 25, EDGE = 0.3;
-                // 後続段が既に出ている“過去段”のトレイルは素早く退かせ、次段への被り/もたつきを防ぐ
-                // (特に step4=斬り上げは長く空中に残りがちで step5 に被る)。最新段/連撃終了後は通常速度でしっとり消す。
+                const HOLD = 25, EDGE = 0.5; // 前線を広めにとり消え際をふんわり柔らかく
+                // 後続段が既に出ている“過去段”は素早く退かせ次段への被りを防ぐ。最新段/連撃終了後は通常速度。
                 const _trailStep = options.trailStep || (newestSrc && newestSrc.step) || 0;
                 const _curStep = (this.isAttacking && this.currentAttack) ? (this.currentAttack.comboStep || 0) : 0;
-                const SWEEP = (_trailStep > 0 && _curStep > _trailStep) ? 130 : 250;
+                let SWEEP = (_trailStep > 0 && _curStep > _trailStep) ? 130 : 250;
+                if (_trailStep === 4) SWEEP = Math.min(SWEEP, 165); // step4(斬り上げ)は表示が長くなりがちなので退きを速める
                 const sweepRaw = clamp01((headAge - HOLD) / SWEEP);
-                // ease-out: 末尾(暗い側)は素早く退き、明るい先端へ近づくほど前線が緩んで“スッと急に消える”感を抑える。
-                const sweepP = 1 - Math.pow(1 - sweepRaw, 1.8);
+                const sweepP = 1 - Math.pow(1 - sweepRaw, 1.8); // ease-out: 末尾は素早く・明るい先端は緩やかに
                 const fr = sweepP * (1 + EDGE) - EDGE;
+                const _globalFade = 1 - 0.35 * sweepP; // 退きと同時に全体も少し薄める＝フワッと消える(二重フェード)
                 dissolveAlphaAt = (s) => {
-                    const vis = clamp01((s - fr) / EDGE);
-                    return Math.max(0, (oldestScale + (newestScale - oldestScale) * s) * vis);
+                    const e = clamp01((s - fr) / EDGE);
+                    const vis = e * e * (3 - 2 * e); // smoothstep: 前線の角を丸めて滑らかに
+                    return Math.max(0, (oldestScale + (newestScale - oldestScale) * s) * vis * _globalFade);
                 };
                 oldestAlpha = dissolveAlphaAt(0);
                 newestAlpha = dissolveAlphaAt(1);
@@ -4283,7 +4284,7 @@ export function applySlashTrailMixin(PlayerClass) {
             const end = mapped[mapped.length - 1];
             const grad = ctx.createLinearGradient(start.x, start.y, end.x, end.y);
             if (dissolveAlphaAt) {
-                const DS = 10;
+                const DS = 16;
                 for (let k = 0; k <= DS; k++) { const s = k / DS; grad.addColorStop(s, colorRgba(rgb, dissolveAlphaAt(s))); }
             } else {
                 grad.addColorStop(0, colorRgba(rgb, oldestAlpha));
@@ -4351,19 +4352,20 @@ export function applySlashTrailMixin(PlayerClass) {
                 // 明暗グラデ(位置 s)に「消える前線」を重ね、切先が古び始めてから末尾→先端へ走らせる(鎖鎌の退き)。
                 // drawGradientLinearTrail と同一ロジック(芯と本体で同じ前線にする)。
                 const headAge = Math.max(0, newestSrc.age || 0);
-                const HOLD = 25, EDGE = 0.3;
-                // 後続段が既に出ている“過去段”のトレイルは素早く退かせ、次段への被り/もたつきを防ぐ
-                // (特に step4=斬り上げは長く空中に残りがちで step5 に被る)。最新段/連撃終了後は通常速度でしっとり消す。
+                const HOLD = 25, EDGE = 0.5; // 前線を広めにとり消え際をふんわり柔らかく
+                // 後続段が既に出ている“過去段”は素早く退かせ次段への被りを防ぐ。最新段/連撃終了後は通常速度。
                 const _trailStep = options.trailStep || (newestSrc && newestSrc.step) || 0;
                 const _curStep = (this.isAttacking && this.currentAttack) ? (this.currentAttack.comboStep || 0) : 0;
-                const SWEEP = (_trailStep > 0 && _curStep > _trailStep) ? 130 : 250;
+                let SWEEP = (_trailStep > 0 && _curStep > _trailStep) ? 130 : 250;
+                if (_trailStep === 4) SWEEP = Math.min(SWEEP, 165); // step4(斬り上げ)は表示が長くなりがちなので退きを速める
                 const sweepRaw = clamp01((headAge - HOLD) / SWEEP);
-                // ease-out: 末尾(暗い側)は素早く退き、明るい先端へ近づくほど前線が緩んで“スッと急に消える”感を抑える。
-                const sweepP = 1 - Math.pow(1 - sweepRaw, 1.8);
+                const sweepP = 1 - Math.pow(1 - sweepRaw, 1.8); // ease-out: 末尾は素早く・明るい先端は緩やかに
                 const fr = sweepP * (1 + EDGE) - EDGE;
+                const _globalFade = 1 - 0.35 * sweepP; // 退きと同時に全体も少し薄める＝フワッと消える(二重フェード)
                 dissolveAlphaAt = (s) => {
-                    const vis = clamp01((s - fr) / EDGE);
-                    return Math.max(0, (oldestScale + (newestScale - oldestScale) * s) * vis);
+                    const e = clamp01((s - fr) / EDGE);
+                    const vis = e * e * (3 - 2 * e); // smoothstep: 前線の角を丸めて滑らかに
+                    return Math.max(0, (oldestScale + (newestScale - oldestScale) * s) * vis * _globalFade);
                 };
                 oldestAlpha = dissolveAlphaAt(0);
                 newestAlpha = dissolveAlphaAt(1);
@@ -4402,7 +4404,7 @@ export function applySlashTrailMixin(PlayerClass) {
             const start = mapped[0], end = mapped[N - 1];
             const grad = ctx.createLinearGradient(start.x, start.y, end.x, end.y);
             if (dissolveAlphaAt) {
-                const DS = 10;
+                const DS = 16;
                 for (let k = 0; k <= DS; k++) { const s = k / DS; grad.addColorStop(s, colorRgba(rgb, dissolveAlphaAt(s))); }
             } else {
                 grad.addColorStop(0, colorRgba(rgb, oldestAlpha));

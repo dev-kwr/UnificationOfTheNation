@@ -178,7 +178,9 @@ export class Stage {
                 nagayaBlock: 'images/stage4_town_nagaya.png',
                 yatai: 'images/stage4_town_yatai.png',
                 groundTile: 'images/stage4_ground_stone_tile.png',
-                castleEntrance: 'images/stage4_castle_lower_wide.png'
+                castleEntrance: 'images/stage4_castle_lower_wide.png',
+                climbScaffoldLow: 'images/stage4_climb_scaffold_low.png',
+                climbScaffoldMid: 'images/stage4_climb_scaffold_mid.png'
             };
             for (const [key, src] of Object.entries(stage4TownPaths)) {
                 const image = new Image();
@@ -500,7 +502,8 @@ export class Stage {
                 platforms: [
                     { level: 1, x1: 0, x2: 590, y: 198 },
                     { level: 1, x1: 620, x2: 1220, y: 204 },
-                    { level: 1, x1: 1248, x2: 2148, y: 204 },
+                    { level: 1, x1: 1248, x2: 1770, y: 214 },
+                    { level: 1, x1: 1800, x2: 2148, y: 204 },
                     { level: 2, x1: 22, x2: 365, y: 28 },
                     { level: 2, x1: 395, x2: 615, y: 28 },
                     { level: 2, x1: 642, x2: 935, y: 42 },
@@ -558,7 +561,7 @@ export class Stage {
     getStage4RoofColliders(leftWorld, rightWorld) {
         if (this.stageNumber !== 4) return [];
 
-        return this.getStage4TownRowsInRange(leftWorld, rightWorld)
+        const roofColliders = this.getStage4TownRowsInRange(leftWorld, rightWorld)
             .flatMap((row) => {
                 if (!row.image || row.image.naturalWidth <= 0 || row.image.naturalHeight <= 0) return [];
 
@@ -579,6 +582,38 @@ export class Stage {
                     platform.x <= rightWorld
                 ));
             });
+
+        return roofColliders.concat(this.getStage4ClimbPlatformColliders(leftWorld, rightWorld));
+    }
+
+    getStage4ClimbPlatformColliders(leftWorld, rightWorld) {
+        if (this.stageNumber !== 4) return [];
+
+        const climbTemplates = [
+            { x: 150, y: 72, width: 92 },
+            { x: 352, y: 136, width: 104 },
+            { x: 708, y: 72, width: 96 },
+            { x: 900, y: 136, width: 112 },
+            { x: 1338, y: 72, width: 96 },
+            { x: 1576, y: 136, width: 108 },
+            { x: 1960, y: 72, width: 96 }
+        ];
+
+        return this.getStage4TownRowsInRange(leftWorld, rightWorld)
+            .flatMap((row) => climbTemplates.map((template) => ({
+                x: row.worldX + template.x * (row.width / 2148),
+                y: this.groundY - template.y,
+                width: template.width * (row.width / 2148),
+                height: 12,
+                isDestroyed: false,
+                isStage4ClimbPlatform: true,
+                isOneWayPlatform: true,
+                roofLevel: template.y > 100 ? 1 : 0
+            })))
+            .filter((platform) => (
+                platform.x + platform.width >= leftWorld &&
+                platform.x <= rightWorld
+            ));
     }
 
     /** フロア遷移を開始する */
@@ -1214,7 +1249,7 @@ export class Stage {
     }
 
     updateStage4EnemyRoofMovement(enemy, player, obstacles = [], deltaTime = 0) {
-        if (this.stageNumber !== 4 || !enemy || enemy.type !== ENEMY_TYPES.NINJA) return;
+        if (this.stageNumber !== 4 || !enemy) return;
 
         enemy.stage4RoofJumpCooldown = Math.max(0, (enemy.stage4RoofJumpCooldown || 0) - deltaTime * 1000);
         if (enemy.stage4RoofJumpCooldown > 0 || !enemy.isGrounded) return;
@@ -1223,22 +1258,40 @@ export class Stage {
         const enemyFootY = enemy.y + enemy.height;
         const roofPlatforms = obstacles.filter((obs) => (
             obs &&
-            obs.isStage4RoofPlatform &&
-            obs.y < enemyFootY - 42 &&
-            obs.y > enemyFootY - 280 &&
-            enemyCenterX > obs.x - 170 &&
-            enemyCenterX < obs.x + obs.width + 170
+            (obs.isStage4RoofPlatform || obs.isStage4ClimbPlatform) &&
+            obs.y < enemyFootY - 28 &&
+            obs.y > enemyFootY - 255 &&
+            enemyCenterX > obs.x - 190 &&
+            enemyCenterX < obs.x + obs.width + 190
         ));
         if (roofPlatforms.length === 0) return;
 
-        const target = roofPlatforms.sort((a, b) => Math.abs(enemyCenterX - (a.x + a.width * 0.5)) - Math.abs(enemyCenterX - (b.x + b.width * 0.5)))[0];
+        const heightAboveGround = (this.groundY + LANE_OFFSET) - enemyFootY;
+        const currentLevel = heightAboveGround > 150 ? 2 : (heightAboveGround > 54 ? 1 : 0);
+        const reachablePlatforms = roofPlatforms
+            .filter((platform) => {
+                const targetLevel = platform.isStage4ClimbPlatform ? (platform.roofLevel || 0) : 2;
+                return targetLevel <= currentLevel + 1 || enemy.type === ENEMY_TYPES.NINJA;
+            });
+        if (reachablePlatforms.length === 0) return;
+
+        const target = reachablePlatforms.sort((a, b) => Math.abs(enemyCenterX - (a.x + a.width * 0.5)) - Math.abs(enemyCenterX - (b.x + b.width * 0.5)))[0];
         const targetCenterX = target.x + target.width * 0.5;
         const direction = enemyCenterX < targetCenterX ? 1 : -1;
-        const horizontalBoost = target.roofLevel >= 2 ? 3.1 : 2.35;
+        const isNinja = enemy.type === ENEMY_TYPES.NINJA;
+        const targetLevel = target.isStage4ClimbPlatform ? (target.roofLevel || 0) : 2;
+        const horizontalBoost = isNinja
+            ? (targetLevel >= 2 ? 3.1 : 2.35)
+            : (targetLevel >= 2 ? 2.25 : 1.75);
         enemy.vx += direction * horizontalBoost;
-        enemy.vy = Math.min(enemy.vy, target.roofLevel >= 2 ? -20.5 : -17.5);
+        const jumpVelocity = isNinja
+            ? (targetLevel >= 2 ? -20.5 : -17.5)
+            : (targetLevel >= 2 ? -18.2 : (targetLevel >= 1 ? -15.4 : -12.8));
+        enemy.vy = Math.min(enemy.vy, jumpVelocity);
         enemy.isGrounded = false;
-        enemy.stage4RoofJumpCooldown = 520;
+        enemy.isOnStage4Roof = false;
+        enemy.isOnStage4ClimbPlatform = false;
+        enemy.stage4RoofJumpCooldown = isNinja ? 520 : 760;
     }
 
     getStageEnemyObstacles(baseObstacles = []) {
@@ -1271,6 +1324,7 @@ export class Stage {
 
         const enemyW = Number.isFinite(enemy.width) ? enemy.width : 36;
         const platforms = this.getStage4RoofColliders(x - 220, x + 420)
+            .filter((platform) => platform.isStage4RoofPlatform)
             .filter((platform) => platform.width >= enemyW + 18)
             .sort((a, b) => (a.roofLevel || 0) - (b.roofLevel || 0));
         if (platforms.length === 0) return false;
@@ -1435,7 +1489,9 @@ export class Stage {
             ? OBSTACLE_TYPES.SPIKE
             : (this.stageNumber === 3)
                 ? OBSTACLE_TYPES.ROCK
-                : (Math.random() < spikeChance ? OBSTACLE_TYPES.SPIKE : OBSTACLE_TYPES.ROCK);
+                : (this.stageNumber === 4)
+                    ? OBSTACLE_TYPES.SPIKE
+                    : (Math.random() < spikeChance ? OBSTACLE_TYPES.SPIKE : OBSTACLE_TYPES.ROCK);
         const rockChainChance = this.stageNumber === 3 ? 0.88 : 0.65;
         const rockChainCount = this.stageNumber === 3
             ? 3 + Math.floor(Math.random() * 4)
@@ -5400,8 +5456,66 @@ export class Stage {
     }
 
     renderObstacles(ctx) {
+        if (this.stageNumber === 4) {
+            this.renderStage4ClimbPlatforms(ctx);
+        }
         for (const obs of this.obstacles) {
             obs.render(ctx);
+        }
+    }
+
+    renderStage4ClimbPlatforms(ctx) {
+        const platforms = this.getStage4ClimbPlatformColliders(this.progress - 120, this.progress + CANVAS_WIDTH + 160);
+        for (const platform of platforms) {
+            const topY = platform.y;
+            const x = platform.x;
+            const w = platform.width;
+            const h = platform.roofLevel >= 1 ? 34 : 28;
+            const baseY = topY + h;
+
+            ctx.save();
+            ctx.globalAlpha = 0.96;
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+            ctx.beginPath();
+            ctx.ellipse(x + w * 0.5, baseY + 4, w * 0.48, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            const boardGrad = ctx.createLinearGradient(x, topY, x, topY + 10);
+            boardGrad.addColorStop(0, '#806044');
+            boardGrad.addColorStop(1, '#3f2a1b');
+            ctx.fillStyle = boardGrad;
+            ctx.fillRect(x - 4, topY - 4, w + 8, 10);
+            ctx.strokeStyle = 'rgba(24, 16, 10, 0.7)';
+            ctx.lineWidth = 1.2;
+            ctx.strokeRect(x - 4, topY - 4, w + 8, 10);
+
+            const crateCount = platform.roofLevel >= 1 ? 2 : 1;
+            const crateW = Math.min(38, w / (crateCount + 0.6));
+            for (let i = 0; i < crateCount; i++) {
+                const cx = x + 8 + i * (crateW + 8);
+                const cy = topY + 7;
+                const crateH = h - 5;
+                const crateGrad = ctx.createLinearGradient(cx, cy, cx, cy + crateH);
+                crateGrad.addColorStop(0, '#735437');
+                crateGrad.addColorStop(1, '#3a281b');
+                ctx.fillStyle = crateGrad;
+                ctx.fillRect(cx, cy, crateW, crateH);
+                ctx.strokeStyle = 'rgba(25, 16, 10, 0.75)';
+                ctx.strokeRect(cx, cy, crateW, crateH);
+                ctx.beginPath();
+                ctx.moveTo(cx + 5, cy + 5);
+                ctx.lineTo(cx + crateW - 5, cy + crateH - 5);
+                ctx.moveTo(cx + crateW - 5, cy + 5);
+                ctx.lineTo(cx + 5, cy + crateH - 5);
+                ctx.stroke();
+            }
+
+            const postX = x + w - 15;
+            ctx.fillStyle = '#4a3322';
+            ctx.fillRect(postX, topY + 5, 8, h + 10);
+            ctx.fillRect(x + 8, topY + 5, 8, h + 10);
+            ctx.restore();
         }
     }
     
