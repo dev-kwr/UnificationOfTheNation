@@ -174,17 +174,7 @@ export class Stage {
         if (this.stageNumber === 4) {
             this.stage4TownImages = {};
             const stage4TownPaths = {
-                machiyaBlock: 'images/stage4_town_block_machiya.png',
                 platformAlignedRow: 'images/stage4_town_row_platform_aligned_v1.png',
-                machiyaRow: 'images/stage4_town_row_machiya.png',
-                shopsRow: 'images/stage4_town_row_shops.png',
-                kuraRow: 'images/stage4_town_row_kura.png',
-                sanmonGate: 'images/stage4_town_gate_sanmon.png',
-                yaguraTower: 'images/stage4_town_yagura.png',
-                samuraiWall: 'images/stage4_town_samurai_wall.png',
-                farStrip: 'images/stage4_town_far_strip.png',
-                nagayaBlock: 'images/stage4_town_nagaya.png',
-                yatai: 'images/stage4_town_yatai.png',
                 groundTile: 'images/stage4_ground_stone_tile.png',
                 castleEntrance: 'images/stage4_castle_lower_wide.png',
                 castleApproachDistrict: 'images/stage4_castle_approach_district.png',
@@ -710,21 +700,23 @@ export class Stage {
         };
 
         const approachImage = this.stage4TownImages?.castleApproachDistrict;
-        const sourceW = (approachImage && approachImage.naturalWidth > 0) ? approachImage.naturalWidth : 1969;
-        const sourceH = (approachImage && approachImage.naturalHeight > 0) ? approachImage.naturalHeight : 432;
+        const sourceW = (approachImage && approachImage.naturalWidth > 0) ? approachImage.naturalWidth : 2023;
+        const sourceH = (approachImage && approachImage.naturalHeight > 0) ? approachImage.naturalHeight : 554;
         const drawH = layout.approachHeight;
         const drawW = layout.approachWidth || drawH * (sourceW / sourceH);
         const drawY = baseY - drawH + 3;
         const sx = drawW / sourceW;
         const sy = drawH / sourceH;
         const approachPlatforms = [
-            { level: 2, x1: 0, x2: 715, y: 42, kind: 'approach-nagaya-upper-roof' },
-            { level: 1, x1: 0, x2: 728, y: 214, kind: 'approach-nagaya-lower-roof' },
-            { level: 1, x1: 706, x2: 922, y: 252, kind: 'approach-left-wall-roof' },
-            { level: 2, x1: 910, x2: 1204, y: 166, kind: 'approach-gate-main-roof' },
-            { level: 1, x1: 1200, x2: 1402, y: 254, kind: 'approach-right-wall-roof' },
-            { level: 2, x1: 1426, x2: 1492, y: 198, kind: 'approach-watch-roof' },
-            { level: 1, x1: 1376, x2: 1568, y: 286, kind: 'approach-outer-wall-roof' }
+            { level: 1, x1: 10, x2: 218, y: 384, kind: 'approach-left-low-wall-roof' },
+            { level: 2, x1: 218, x2: 444, y: 342, kind: 'approach-side-gate-roof' },
+            { level: 1, x1: 446, x2: 708, y: 348, kind: 'approach-left-wall-roof' },
+            { level: 4, x1: 576, x2: 1408, y: 28, kind: 'approach-residence-upper-roof' },
+            { level: 3, x1: 496, x2: 1492, y: 104, kind: 'approach-residence-lower-roof' },
+            { level: 2, x1: 704, x2: 1105, y: 204, kind: 'approach-main-gate-roof' },
+            { level: 1, x1: 1058, x2: 1326, y: 346, kind: 'approach-right-wall-roof' },
+            { level: 1, x1: 1320, x2: 1496, y: 390, kind: 'approach-outer-low-roof' },
+            { level: 1, x1: 1496, x2: 1805, y: 410, kind: 'approach-outer-wall-roof' }
         ];
 
         for (const platform of approachPlatforms) {
@@ -2595,8 +2587,10 @@ export class Stage {
             // 遠景（ゆっくりスクロール 0.2）
             if (!isBambooForest && !isTenshuStageBg) {
                 if (currentPalette.elements === 'kaido') {
-                    // Stage2は地面際のCanvas製近景シルエットを出さず、遠方の山々だけを残す。
-                    this.renderBackgroundLayer(ctx, currentPalette.far, 0.16, 0.48, 132);
+                    // Stage2はCanvas製の家・木・道標は出さず、以前のなだらかな山々の3層だけを残す。
+                    this.renderBackgroundLayer(ctx, currentPalette.far, 0.2, 0.7, 100);
+                    this.renderBackgroundLayer(ctx, currentPalette.mid, 0.4, 0.8, 60);
+                    this.renderBackgroundLayer(ctx, currentPalette.near, 0.7, 1.0, 20);
                 } else {
                     this.renderBackgroundLayer(ctx, currentPalette.far, 0.2, 0.7, 100);
                     
@@ -2611,6 +2605,11 @@ export class Stage {
         
         // ステージ固有の背景要素
         this.renderStageElements(ctx, currentPalette);
+
+        // Stage2のラストオブジェクトは背景パララックスに混ぜず、地面と同じワールド座標で固定配置する。
+        if (this.stageNumber === 2) {
+            this.renderStage2MountainPassEntrance(ctx);
+        }
 
         // ボス部屋の右側に次ステージへの「出入口」を描画。
         // ※ Stage1（竹林）は竹を動的に削って覗かせると不自然なため peek は描かず、竹は全画面のまま。
@@ -2645,16 +2644,19 @@ export class Stage {
         }
     }
 
-    renderStage2MountainPassEntrance(ctx, p, baseY) {
+    renderStage2MountainPassEntrance(ctx) {
         if (this.stageNumber !== 2) return false;
 
         const passImg = this.stage2MountainPassImage;
         if (!passImg || !passImg.complete || passImg.naturalWidth <= 0 || passImg.naturalHeight <= 0) return false;
 
+        const p = this.progress;
+        const baseY = this.groundY;
         const passH = Math.min(CANVAS_HEIGHT * 0.66, baseY + 28);
         const passW = passH * (passImg.naturalWidth / passImg.naturalHeight);
         const passStopX = CANVAS_WIDTH - passW + 18;
-        const passWorldX = (this.maxProgress - CANVAS_WIDTH) + passStopX;
+        const cameraStopX = Math.max(0, this.maxProgress - CANVAS_WIDTH);
+        const passWorldX = cameraStopX + passStopX;
         const passX = passWorldX - p;
         const passY = baseY - passH + 1;
         if (passX + passW < -100 || passX > CANVAS_WIDTH + 140) return false;
@@ -2686,7 +2688,6 @@ export class Stage {
     renderNextStagePeek(ctx) {
         const gY   = this.groundY;
         const p    = this.progress;
-        const time = this.stageTime * 0.001;
         // ラストオブジェクトは地面と同じパララックス(1.0)でワールド配置にする。
         // stage4の城(renderStageElementsで worldX - p)に仕様を統一し、近景がわずかに
         // ずれて流れる(0.98)違和感をなくす。peekWX(xFixed)/peekAnchorX/toSx は
@@ -2711,150 +2712,7 @@ export class Stage {
 
         switch (this.stageNumber) {
 
-            // ─── Stage1（竹林）は peek を描かない（竹を削らず全画面のまま）。renderNextStagePeek の
-            //     呼び出し側で stageNumber>=2 に限定済みのため、ここに case 1 は無い。───────────────
-
-            // ─── Stage2（街道・昼） → Stage3（山道・昼〜夕方入口）──────────────
-            // 街道の先に、夕暮れ(逢魔が時)の山道入口=stage3 を予感させる（ワールド座標でスクロールにフレームイン）
-            case 2: {
-                const CW = CANVAS_WIDTH;
-                const bY = gY; // 地平線基準（他ステージ共通の奥行き）
-                const ax = peekAnchorX; // 入口の基準スクリーンx。scrollXに追従して右から流れ込む
-                const passImg = this.stage2MountainPassImage;
-                const backMountainImg = this.stage2MountainBackImage;
-                if (passImg && passImg.complete && passImg.naturalWidth > 0 && passImg.naturalHeight > 0) {
-                    const passH = Math.min(CANVAS_HEIGHT * 0.66, bY + 28);
-                    const passW = passH * (passImg.naturalWidth / passImg.naturalHeight);
-                    // stage2のラスト入口は地面と同じワールド座標で置く。
-                    // peekWXを介すと背景レイヤー内の固定演出に見えやすいため、停止時の表示位置からワールドXを直接求める。
-                    const passStopX = CANVAS_WIDTH - passW + 18;
-                    const passWorldX = (this.maxProgress - CANVAS_WIDTH) + passStopX;
-                    const passX = passWorldX - p;
-                    const passY = bY - passH + 1;
-                    if (passX + passW < -100 || passX > CANVAS_WIDTH + 140) break;
-
-                    if (backMountainImg && backMountainImg.complete && backMountainImg.naturalWidth > 0 && backMountainImg.naturalHeight > 0) {
-                        const backH = Math.min(CANVAS_HEIGHT * 0.82, bY + 70);
-                        const backW = backH * (backMountainImg.naturalWidth / backMountainImg.naturalHeight);
-                        const backX = passX + passW * 0.5 - backW * 0.5;
-                        const backY = bY - backH + 1;
-
-                        ctx.save();
-                        ctx.filter = 'brightness(0.58) saturate(0.58) contrast(0.88)';
-                        ctx.drawImage(backMountainImg, backX, backY, backW, backH);
-                        ctx.filter = 'none';
-                        ctx.restore();
-                    }
-
-                    ctx.save();
-                    ctx.filter = 'brightness(0.74) saturate(0.66) contrast(0.9)';
-                    ctx.drawImage(passImg, passX, passY, passW, passH);
-                    ctx.filter = 'none';
-                    ctx.restore();
-                    break;
-                }
-
-                // 岩山本体（昼の岩肌＝灰褐色。ゴツゴツした稜線で右に迫る。緑要素は使わない）
-                // 高さを増して家(二階建て≒230px)より十分高い山に見せる。my()=高さvを倍率付きでスクリーンyへ
-                const mH = 1.5;            // 主稜線の高さ倍率
-                const my = (v) => bY - v * mH;
-                const mtnGrad = ctx.createLinearGradient(0, bY - 470, 0, bY);
-                mtnGrad.addColorStop(0, '#7c766b');
-                mtnGrad.addColorStop(1, '#403a32');
-                ctx.fillStyle = mtnGrad;
-                ctx.beginPath();
-                ctx.moveTo(ax - 300, bY);
-                ctx.lineTo(ax - 200, my(142));
-                ctx.lineTo(ax - 130, my(104));
-                ctx.lineTo(ax - 44, my(232));
-                ctx.lineTo(ax + 30, my(178));
-                ctx.lineTo(ax + 104, my(292));
-                ctx.lineTo(ax + 178, my(210));
-                ctx.lineTo(ax + 260, my(258));
-                ctx.lineTo(ax + 354, my(192));
-                ctx.lineTo(CW + 80, my(226));
-                ctx.lineTo(CW + 80, bY);
-                ctx.closePath();
-                ctx.fill();
-                // 岩肌の影（峰の右斜面）
-                ctx.fillStyle = 'rgba(42,35,28,0.32)';
-                ctx.beginPath();
-                ctx.moveTo(ax + 104, my(292));
-                ctx.lineTo(ax + 178, my(210));
-                ctx.lineTo(ax + 134, my(150));
-                ctx.lineTo(ax + 72, my(196));
-                ctx.closePath();
-                ctx.fill();
-                ctx.beginPath();
-                ctx.moveTo(ax - 44, my(232));
-                ctx.lineTo(ax + 30, my(178));
-                ctx.lineTo(ax - 8, my(120));
-                ctx.lineTo(ax - 54, my(168));
-                ctx.closePath();
-                ctx.fill();
-                // 日向側のハイライト（左斜面）
-                ctx.fillStyle = 'rgba(220,212,196,0.13)';
-                ctx.beginPath();
-                ctx.moveTo(ax + 104, my(292));
-                ctx.lineTo(ax + 30, my(178));
-                ctx.lineTo(ax + 66, my(150));
-                ctx.lineTo(ax + 88, my(210));
-                ctx.closePath();
-                ctx.fill();
-                // 露出した岩の段（横の筋）
-                ctx.strokeStyle = 'rgba(52,44,36,0.32)';
-                ctx.lineWidth = 1.5;
-                for (let r = 0; r < 3; r++) {
-                    const ry = bY - (70 + r * 46) * mH;
-                    ctx.beginPath();
-                    ctx.moveTo(ax - 120 + r * 34, ry);
-                    ctx.lineTo(ax + 80 + r * 56, ry - 10);
-                    ctx.lineTo(ax + 232 + r * 34, ry + 5);
-                    ctx.stroke();
-                }
-                // 手前の尾根（低い岩・濃い灰褐色）
-                ctx.fillStyle = '#352f28';
-                ctx.beginPath();
-                ctx.moveTo(ax - 240, bY);
-                ctx.lineTo(ax - 140, my(96));
-                ctx.lineTo(ax - 58, my(64));
-                ctx.lineTo(ax + 44, my(138));
-                ctx.lineTo(ax + 134, my(92));
-                ctx.lineTo(ax + 234, my(130));
-                ctx.lineTo(ax + 356, my(80));
-                ctx.lineTo(CW + 80, my(104));
-                ctx.lineTo(CW + 80, bY);
-                ctx.closePath();
-                ctx.fill();
-                // 明神鳥居（朱・昼）。山に対して大きすぎないよう控えめに、笠木は端が反り上がる明神形
-                const tx = ax, tH = 118, tW = 90, pw = 10;
-                const tTop = bY - tH;
-                const nukiY = bY - tH * 0.6;
-                ctx.fillStyle = '#b83418';
-                ctx.fillRect(tx - pw / 2, tTop, pw, tH);                         // 左柱
-                ctx.fillRect(tx + tW - pw / 2, tTop, pw, tH);                    // 右柱
-                ctx.fillRect(tx - 9, nukiY, tW + 18, 7);                         // 貫
-                ctx.fillRect(tx + tW / 2 - 5, tTop + 9, 10, nukiY - tTop - 9);   // 額束
-                ctx.fillStyle = '#a62b11';
-                ctx.fillRect(tx - 16, tTop, tW + 32, 9);                         // 島木
-                ctx.beginPath();                                                  // 笠木（端が反り上がる）
-                ctx.moveTo(tx - 24, tTop - 12);
-                ctx.quadraticCurveTo(tx + tW / 2, tTop + 2, tx + tW + 24, tTop - 12);
-                ctx.lineTo(tx + tW + 24, tTop - 4);
-                ctx.quadraticCurveTo(tx + tW / 2, tTop + 8, tx - 24, tTop - 4);
-                ctx.closePath();
-                ctx.fill();
-                ctx.fillStyle = 'rgba(60,18,8,0.28)';                            // 柱の陰
-                ctx.fillRect(tx + pw / 2 - 3, tTop, 3, tH);
-                ctx.fillRect(tx + tW + pw / 2 - 3, tTop, 3, tH);
-                // 山裾の霞（昼の薄青）
-                const hz = ctx.createLinearGradient(0, bY - 70, 0, bY);
-                hz.addColorStop(0, 'rgba(200,212,224,0)');
-                hz.addColorStop(1, 'rgba(200,212,224,0.3)');
-                ctx.fillStyle = hz;
-                ctx.fillRect(ax - 260, bY - 64, CW + 60 - (ax - 260), 64);
-                break;
-            }
+            // Stage2は専用の固定ワールドオブジェクトとして描くため、ここではStage3/4だけを扱う。
 
             // ─── Stage3（山道） → Stage4（城下町）───────────────────────────
             // 山道を抜けた先に城下町の屋根が見える。瓦屋根のシルエットと石畳の始まり
@@ -4330,7 +4188,6 @@ export class Stage {
                         ctx.restore();
 
                     }
-                    this.renderStage2MountainPassEntrance(ctx, p, this.groundY);
                     break;
                 }
 
@@ -4359,11 +4216,9 @@ export class Stage {
                         ctx.filter = 'none';
                         ctx.restore();
                     }
-                    this.renderStage2MountainPassEntrance(ctx, p, this.groundY);
                     break;
                 }
 
-                this.renderStage2MountainPassEntrance(ctx, p, this.groundY);
                 break;
             }
 
