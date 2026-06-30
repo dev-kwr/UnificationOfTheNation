@@ -1,0 +1,121 @@
+<svg viewBox="0 0 1170 660" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+  <defs>
+    <radialGradient id="auraGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#bfefff" stop-opacity="0.9"/>
+      <stop offset="35%" stop-color="#5cc8ff" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#2f7fd0" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="bladeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#3a82c8" stop-opacity="0.15"/>
+      <stop offset="55%" stop-color="#7fe0ff" stop-opacity="0.55"/>
+      <stop offset="92%" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.2"/>
+    </linearGradient>
+    <linearGradient id="crescentGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2f6fb0" stop-opacity="0.08"/>
+      <stop offset="60%" stop-color="#5fc6ff" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#d8f6ff" stop-opacity="0.9"/>
+    </linearGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+    <filter id="soft2" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="10"/>
+    </filter>
+  </defs>
+
+  <rect x="0" y="0" width="1170" height="660" fill="#23272e"/>
+  <text x="585" y="40" fill="#e9f4ff" font-size="26" font-weight="bold" text-anchor="middle">大薙 0ベース案 — 二重剣筋（前後コピー）をやめた3方向</text>
+  <text x="585" y="64" fill="#9fb6cc" font-size="14" text-anchor="middle">広い間合い（前方リーチ＝明るい縁／後方も少し）＋高威力。青リボン・lighten・軽量は共通。下のどれかをお選びください。</text>
+
+  <!-- ============ Panel A: 単一の大三日月 ============ -->
+  <g>
+    <rect x="18" y="85" width="372" height="545" rx="14" fill="#2b3039" stroke="#3f4a59" stroke-width="1.5"/>
+    <text x="204" y="116" fill="#bfe6ff" font-size="19" font-weight="bold" text-anchor="middle">A. 単一の大三日月（一閃）</text>
+
+    <!-- reach guide -->
+    <line x1="150" y1="560" x2="320" y2="560" stroke="#5a6b7d" stroke-width="1" stroke-dasharray="4 4"/>
+    <text x="235" y="578" fill="#7c93a8" font-size="11" text-anchor="middle">前方リーチ112px = 三日月の外縁</text>
+
+    <!-- ninja -->
+    <g stroke="#0c0e12" fill="#0c0e12">
+      <circle cx="120" cy="300" r="13"/>
+      <rect x="108" y="293" width="26" height="7" rx="3" fill="#37b6ef" stroke="none"/>
+      <line x1="120" y1="312" x2="120" y2="362" stroke-width="9" stroke-linecap="round"/>
+      <line x1="120" y1="322" x2="150" y2="334" stroke-width="7" stroke-linecap="round"/>
+      <line x1="120" y1="362" x2="106" y2="402" stroke-width="7" stroke-linecap="round"/>
+      <line x1="120" y1="362" x2="134" y2="402" stroke-width="7" stroke-linecap="round"/>
+    </g>
+    <line x1="150" y1="334" x2="196" y2="318" stroke="#cfd6dd" stroke-width="2.5" stroke-linecap="round"/>
+
+    <!-- single big crescent sweep -->
+    <path d="M196,150 C330,235 332,420 252,470 C300,380 296,255 188,168 Z" fill="url(#crescentGrad)" filter="url(#soft)"/>
+    <path d="M196,150 C330,235 332,420 252,470" fill="none" stroke="#eaffff" stroke-width="4" stroke-linecap="round" filter="url(#soft)"/>
+    <path d="M196,150 C330,235 332,420 252,470" fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round"/>
+    <text x="204" y="612" fill="#cdd9e4" font-size="12.5" text-anchor="middle">間合い全体を覆う1枚の大きな薙ぎ。</text>
+    <text x="204" y="630" fill="#cdd9e4" font-size="12.5" text-anchor="middle">明るい刃縁＝判定の縁。大薙＝大きく薙ぐに直球。</text>
+  </g>
+
+  <!-- ============ Panel B: エネルギー圧・衝撃波 ============ -->
+  <g>
+    <rect x="399" y="85" width="372" height="545" rx="14" fill="#2b3039" stroke="#3f4a59" stroke-width="1.5"/>
+    <text x="585" y="116" fill="#bfe6ff" font-size="19" font-weight="bold" text-anchor="middle">B. エネルギー圧・衝撃波</text>
+
+    <line x1="531" y1="560" x2="701" y2="560" stroke="#5a6b7d" stroke-width="1" stroke-dasharray="4 4"/>
+    <text x="616" y="578" fill="#7c93a8" font-size="11" text-anchor="middle">前方リーチ112px = 圧の到達端</text>
+
+    <!-- hot aura around blade -->
+    <circle cx="545" cy="330" r="70" fill="url(#auraGlow)" filter="url(#soft2)"/>
+
+    <!-- ninja -->
+    <g stroke="#0c0e12" fill="#0c0e12">
+      <circle cx="501" cy="300" r="13"/>
+      <rect x="489" y="293" width="26" height="7" rx="3" fill="#37b6ef" stroke="none"/>
+      <line x1="501" y1="312" x2="501" y2="362" stroke-width="9" stroke-linecap="round"/>
+      <line x1="501" y1="322" x2="531" y2="334" stroke-width="7" stroke-linecap="round"/>
+      <line x1="501" y1="362" x2="487" y2="402" stroke-width="7" stroke-linecap="round"/>
+      <line x1="501" y1="362" x2="515" y2="402" stroke-width="7" stroke-linecap="round"/>
+    </g>
+    <!-- single slash -->
+    <path d="M531,334 L612,300" stroke="#eaffff" stroke-width="5" stroke-linecap="round" filter="url(#soft)"/>
+    <path d="M531,334 L612,300" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+
+    <!-- forward pressure / shockwave arcs (fainter forward) -->
+    <path d="M598,250 Q660,330 600,415" fill="none" stroke="#9fe9ff" stroke-width="6" stroke-linecap="round" opacity="0.8" filter="url(#soft)"/>
+    <path d="M648,255 Q706,330 650,410" fill="none" stroke="#7fdcff" stroke-width="4.5" stroke-linecap="round" opacity="0.5" filter="url(#soft)"/>
+    <path d="M692,262 Q742,330 694,402" fill="none" stroke="#6fd0ff" stroke-width="3" stroke-linecap="round" opacity="0.3" filter="url(#soft)"/>
+    <text x="585" y="612" fill="#cdd9e4" font-size="12.5" text-anchor="middle">斬撃から前方へ走る圧／衝撃波（間合い）</text>
+    <text x="585" y="630" fill="#cdd9e4" font-size="12.5" text-anchor="middle">＋高温の発光オーラ（高威力）。斬撃は1本。</text>
+  </g>
+
+  <!-- ============ Panel C: 巨大化する光刃 ============ -->
+  <g>
+    <rect x="780" y="85" width="372" height="545" rx="14" fill="#2b3039" stroke="#3f4a59" stroke-width="1.5"/>
+    <text x="966" y="116" fill="#bfe6ff" font-size="19" font-weight="bold" text-anchor="middle">C. 巨大化する光刃</text>
+
+    <line x1="912" y1="560" x2="1082" y2="560" stroke="#5a6b7d" stroke-width="1" stroke-dasharray="4 4"/>
+    <text x="997" y="578" fill="#7c93a8" font-size="11" text-anchor="middle">前方リーチ112px = 光刃の先端</text>
+
+    <!-- ninja -->
+    <g stroke="#0c0e12" fill="#0c0e12">
+      <circle cx="876" cy="300" r="13"/>
+      <rect x="864" y="293" width="26" height="7" rx="3" fill="#37b6ef" stroke="none"/>
+      <line x1="876" y1="312" x2="876" y2="362" stroke-width="9" stroke-linecap="round"/>
+      <line x1="876" y1="322" x2="906" y2="334" stroke-width="7" stroke-linecap="round"/>
+      <line x1="876" y1="362" x2="862" y2="402" stroke-width="7" stroke-linecap="round"/>
+      <line x1="876" y1="362" x2="890" y2="402" stroke-width="7" stroke-linecap="round"/>
+    </g>
+
+    <!-- giant energy blade extending forward (tapered polygon) -->
+    <path d="M906,334 L1090,300 L906,326 Z" fill="url(#bladeGrad)" filter="url(#soft)"/>
+    <path d="M906,334 L1090,300 L906,344 Z" fill="url(#bladeGrad)" opacity="0.7" filter="url(#soft)"/>
+    <!-- convergence lines -->
+    <line x1="912" y1="318" x2="1086" y2="302" stroke="#dffaff" stroke-width="1.4" opacity="0.7"/>
+    <line x1="912" y1="350" x2="1086" y2="300" stroke="#dffaff" stroke-width="1.4" opacity="0.7"/>
+    <!-- bright core line + tip flare -->
+    <line x1="906" y1="332" x2="1086" y2="301" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" filter="url(#soft)"/>
+    <circle cx="1088" cy="300" r="16" fill="url(#auraGlow)" filter="url(#soft)"/>
+    <text x="966" y="612" fill="#cdd9e4" font-size="12.5" text-anchor="middle">刀身がエネルギーで巨大な光の刃に伸び</text>
+    <text x="966" y="630" fill="#cdd9e4" font-size="12.5" text-anchor="middle">間合いへ到達。収束線＋切先閃光で高威力。</text>
+  </g>
+</svg>

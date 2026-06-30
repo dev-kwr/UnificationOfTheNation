@@ -87,6 +87,10 @@ export class Enemy {
         this.stage4LastPlayerRank = null;   // 直近にこの個体が反応したプレイヤー段位
         this.stage4ReactTimer = 0;          // 段位変化に反応するまでの個別遅延（ばらつき）
         this.stage4FollowCommit = true;     // 今回の段位変化を追うと決めたか（追わない＝その場に留まる）
+        this.stage4LedgeGuard = false;      // 登攀中の足場で縁から踏み外して落ちるのを防ぐ
+        this.stage4PlatformLeft = 0;        // 現在乗っている足場の左端（縁ガード用）
+        this.stage4PlatformRight = 0;       // 現在乗っている足場の右端（縁ガード用）
+        this.stage4OnElevatedRoof = false;  // 高所の屋根/足場に乗っている間は通常ランダムジャンプを抑止（段の行き来防止）
         this.torsoLean = 0;
         this.armSwing = 0;
         
@@ -2385,6 +2389,10 @@ export class Enemy {
     }
     
     tryJump(chance, power = -15.5, cooldown = 700) {
+        // stage4: 高所の屋根/足場に乗っている間は通常のランダムジャンプをしない。
+        // （プレイヤーと同段に着いた後も跳ねて上の屋根へ乗り降りを繰り返すのを防ぐ。
+        //   意図的な登攀/降下は roof AI が vy を直接操作するので影響しない）
+        if (this.stage4OnElevatedRoof) return false;
         if (this.isGrounded && this.jumpCooldown <= 0 && Math.random() < chance) {
             let actualPower = power;
             
@@ -2479,6 +2487,26 @@ export class Enemy {
         // 判定処理の中で適切に更新する。
         this.isGrounded = false;
         
+        // stage4: 登攀中の足場で縁を踏み外して落ちないようにクランプする。
+        // （ジャンプ中 vy<0 は除外＝次の段へ飛ぶ水平移動は妨げない）
+        if (this.stage4LedgeGuard && this.vy >= 0) {
+            const half = this.width * 0.5;
+            let minX = this.stage4PlatformLeft + 6 - half;
+            let maxX = this.stage4PlatformRight - 6 - half;
+            if (maxX < minX) {
+                const center = (this.stage4PlatformLeft + this.stage4PlatformRight) * 0.5;
+                minX = maxX = center - half;
+            }
+            const nextX = this.x + this.vx;
+            if (nextX < minX) {
+                this.x = Math.max(this.x, minX);
+                if (this.vx < 0) this.vx = 0;
+            } else if (nextX > maxX) {
+                this.x = Math.min(this.x, maxX);
+                if (this.vx > 0) this.vx = 0;
+            }
+        }
+
         // 位置更新
         this.oldX = this.x;
         this.oldY = this.y;

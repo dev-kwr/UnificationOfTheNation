@@ -2,7 +2,7 @@
 // Unification of the Nation - メインエントリーポイント
 // ============================================
 
-import { game } from './game.js';
+import { game } from './game.js?v=20260630-castle-ai';
 import { preloadCinematicBgImages } from './ui.js';
 
 // DOMロード後に初期化

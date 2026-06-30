@@ -3,7 +3,7 @@
 // ============================================
 
 import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js';
-import { Enemy } from './enemy.js';
+import { Enemy } from './enemy.js?v=20260630-castle-ai';
 import { createSubWeapon } from './weapon.js';
 import { audio } from './audio.js';
 import { Player } from './player.js';

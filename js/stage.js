@@ -3,8 +3,8 @@
 // ============================================
 
 import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR } from './constants.js';
-import { createEnemy } from './enemy.js';
-import { createBoss } from './boss.js';
+import { createEnemy } from './enemy.js?v=20260630-castle-ai';
+import { createBoss } from './boss.js?v=20260630-castle-ai';
 import { createObstacle } from './obstacle.js';
 import { audio } from './audio.js';
 import { generateStairsCanvas } from './stairRenderer.js';
@@ -641,6 +641,16 @@ export class Stage {
         return rows;
     }
 
+    // 城手前の「白壁武家屋敷の接近路」が始まるワールドX。
+    // ここより右は町並み(platformAlignedRow)を描画クリップし、足場コライダーも除去する。
+    // （武家屋敷は不透明で描き、その上に町家の屋根足場が透けたり宙に立てたりしないようにする）
+    getStage4CastleApproachStartX() {
+        if (this.stageNumber !== 4) return Infinity;
+        const castleWorldX = (this.maxProgress - CANVAS_WIDTH) - 100; // castleStopX = -100
+        const gateLeft = castleWorldX - 470; // gateWidth = 470
+        return gateLeft - 1320; // 武家屋敷区間の長さ
+    }
+
     getStage4RoofColliders(leftWorld, rightWorld) {
         if (this.stageNumber !== 4) return [];
 
@@ -670,7 +680,10 @@ export class Stage {
                 ));
             });
 
-        return roofColliders.concat(this.getStage4ClimbPlatformColliders(leftWorld, rightWorld));
+        const approachStartX = this.getStage4CastleApproachStartX();
+        const all = roofColliders.concat(this.getStage4ClimbPlatformColliders(leftWorld, rightWorld));
+        // 接近路ゾーン（白壁屋敷）には足場を置かない＝屋敷上の浮き足場/宙立ちを防ぐ
+        return all.filter((c) => (c.x + c.width * 0.5) < approachStartX);
     }
 
     getStage4ClimbPlatformColliders(leftWorld, rightWorld) {
@@ -715,7 +728,9 @@ export class Stage {
             }).filter(Boolean))
             .filter((platform) => (
                 platform.x + platform.width >= leftWorld &&
-                platform.x <= rightWorld
+                platform.x <= rightWorld &&
+                // 接近路ゾーン（白壁屋敷）には登り台を置かない（描画・判定とも）
+                (platform.x + platform.width * 0.5) < this.getStage4CastleApproachStartX()
             ));
     }
 
@@ -1369,6 +1384,11 @@ export class Stage {
         if (enemy.stage4ReactTimer > 0) {
             enemy.stage4ReactTimer = Math.max(0, enemy.stage4ReactTimer - deltaTime * 1000);
         }
+
+        // 縁ガードは毎フレーム更新する（早期returnで通常chaseに移っても、
+        // 登攀中の足場から踏み外して落ちる「乗り降りの繰り返し」を防ぐため）。
+        this.updateStage4EnemyLedgeGuard(enemy, obstacles);
+
         if (enemy.stage4RoofJumpCooldown > 0 || !enemy.isGrounded) return;
         if ((enemy.stage4RoofDecisionDelayMs || 0) > 0) return;
 
@@ -1466,38 +1486,84 @@ export class Stage {
         if (targetRank <= currentRank) return;
         if (isPlayerAirborne) return;
 
-        const roofPlatforms = obstacles.filter((obs) => (
-            obs &&
-            (obs.isStage4RoofPlatform || obs.isStage4ClimbPlatform) &&
-            obs.y < enemyFootY - 28 &&
-            obs.y > enemyFootY - (isNinja ? 330 : 235) &&
-            enemyCenterX > obs.x - (isNinja ? 260 : 205) &&
-            enemyCenterX < obs.x + obs.width + (isNinja ? 260 : 205)
-        ));
-        if (roofPlatforms.length === 0) return;
-
         const maxRankStep = 2;
         const desiredRank = Math.min(targetRank, currentRank + maxRankStep);
-        const reachablePlatforms = roofPlatforms
-            .filter((platform) => {
-                const platformRank = this.getStage4PlatformRank(platform);
-                return platformRank > currentRank && platformRank <= desiredRank;
-            });
-        if (reachablePlatforms.length === 0) return;
+        const vertReach = isNinja ? 330 : 235;
+        const onGround = currentRank === 0;
+        // 地上では「登り口」が真上に無いことが多い（建物の屋根は rank3/4、低い足場は離れた位置）。
+        // そこで地上では横方向の探索を大きく広げ、最寄りの登り口まで回り込めるようにする。
+        // 既に高所にいる場合は近接した屋根だけを対象にし、足場から踏み外して落ちないようにする。
+        const routeCorridor = onGround ? (isNinja ? 1400 : 1150) : (isNinja ? 420 : 360);
+        const stepStones = obstacles.filter((obs) => {
+            if (!obs || !(obs.isStage4RoofPlatform || obs.isStage4ClimbPlatform)) return false;
+            if (obs.y >= enemyFootY - 28 || obs.y <= enemyFootY - vertReach) return false;
+            const r = this.getStage4PlatformRank(obs);
+            if (r <= currentRank || r > desiredRank) return false;
+            return enemyCenterX > obs.x - routeCorridor && enemyCenterX < obs.x + obs.width + routeCorridor;
+        });
 
-        const target = reachablePlatforms.sort((a, b) => {
+        if (stepStones.length === 0) {
+            // 一段上がれる登り口が近くに無い。地上ならプレイヤー側へはっきり歩み寄り、
+            // 真下での左右ブレを止めて登り口を探しに行く。
+            if (onGround && Math.abs(playerCenterX - enemyCenterX) > 40) {
+                const dir = playerCenterX > enemyCenterX ? 1 : -1;
+                enemy.facingRight = dir > 0;
+                enemy.stage4ForcedMoveVx = dir * enemy.speed * (isNinja ? 1.4 : 1.12);
+                enemy.stage4ForcedMoveTimer = 240;
+                enemy.stage4RoofDecisionDelayMs = 110 + Math.random() * 120;
+            }
+            return;
+        }
+
+        // 登り口の選択：低い段（入口）を優先しつつ、敵から近く・プレイヤー寄りのものを選ぶ。
+        // さらに「プレイヤーと逆方向」の足場には強いペナルティを付け、
+        // わざわざ逆側へ飛んでから引き返して落ちる挙動を避ける。
+        const playerDir = Math.sign(playerCenterX - enemyCenterX);
+        const wrongSidePenalty = (platCenterX) => {
+            if (Math.abs(playerCenterX - enemyCenterX) <= 36) return 0; // ほぼ真上ならどちらでも可
+            return (Math.sign(platCenterX - enemyCenterX) === -playerDir) ? 300 : 0;
+        };
+        const target = stepStones.sort((a, b) => {
             const ar = this.getStage4PlatformRank(a);
             const br = this.getStage4PlatformRank(b);
             const ax = a.x + a.width * 0.5;
             const bx = b.x + b.width * 0.5;
-            const aScore = Math.abs(ar - desiredRank) * 240 + Math.abs(enemyCenterX - ax) + Math.abs(playerCenterX - ax) * 0.25;
-            const bScore = Math.abs(br - desiredRank) * 240 + Math.abs(enemyCenterX - bx) + Math.abs(playerCenterX - bx) * 0.25;
+            const aScore = (ar - currentRank) * 70 + Math.abs(enemyCenterX - ax) + Math.abs(playerCenterX - ax) * 0.5 + wrongSidePenalty(ax);
+            const bScore = (br - currentRank) * 70 + Math.abs(enemyCenterX - bx) + Math.abs(playerCenterX - bx) * 0.5 + wrongSidePenalty(bx);
             return aScore - bScore;
         })[0];
+
+        const tLeft = target.x;
+        const tRight = target.x + target.width;
         const targetCenterX = target.x + target.width * 0.5;
+        const targetRankForJump = this.getStage4PlatformRank(target);
+        // 真下（＋ジャンプで横移動できる余裕）に来ているか
+        const alignTol = onGround ? (isNinja ? 120 : 90) : (isNinja ? 220 : 170);
+        const underSpan = enemyCenterX > tLeft - alignTol && enemyCenterX < tRight + alignTol;
+
+        if (onGround && !underSpan) {
+            // まず登り口の真下まで横移動する（ルート移動）。ここではジャンプしない。
+            const dir = enemyCenterX < tLeft ? 1 : (enemyCenterX > tRight ? -1 : (targetCenterX >= enemyCenterX ? 1 : -1));
+            enemy.facingRight = dir > 0;
+            enemy.stage4ForcedMoveVx = dir * enemy.speed * (isNinja ? 1.55 : 1.24);
+            enemy.stage4ForcedMoveTimer = 220;
+            enemy.stage4RoofJumpCooldown = 0;
+            // forcedMoveTimer より短い間隔で再判断し、歩きが途切れて震えないようにする。
+            enemy.stage4RoofDecisionDelayMs = 90 + Math.random() * 90;
+            return;
+        }
+
+        if (!onGround && !underSpan) {
+            // 既に高所の足場にいるが、次の登り口が真上(ジャンプ到達圏)に無い。
+            // 無理に跳ぶと届かず落ちて「乗り降りの繰り返し」になるため、跳ばずに留まる。
+            // （足場から踏み外さないよう縁ガードが働く。少し待ってから再判断）
+            enemy.stage4RoofDecisionDelayMs = (isNinja ? 260 : 360) + Math.random() * 260;
+            return;
+        }
+
+        // 真下に到達（または高所で近接） → 登り口へジャンプ。
         const dx = targetCenterX - enemyCenterX;
         const direction = Math.abs(dx) < 10 ? (playerCenterX >= enemyCenterX ? 1 : -1) : (dx > 0 ? 1 : -1);
-        const targetRankForJump = this.getStage4PlatformRank(target);
         const horizontalBoost = isNinja
             ? (targetRankForJump >= 3 ? 3.35 : 2.65)
             : (targetRankForJump >= 3 ? 2.4 : 1.85);
@@ -1509,12 +1575,49 @@ export class Stage {
         enemy.isGrounded = false;
         enemy.isOnStage4Roof = false;
         enemy.isOnStage4ClimbPlatform = false;
+        enemy.stage4LedgeGuard = false; // ジャンプ中は縁ガードを外す（次の段への水平移動を妨げない）
         enemy.stage4ForcedMoveVx = direction * enemy.speed * (isNinja ? 1.7 : 1.34);
         enemy.stage4ForcedMoveTimer = 260;
         enemy.stage4RoofJumpCooldown = isNinja ? 420 : 620;
         enemy.stage4RoofDecisionDelayMs = isNinja
             ? 90 + Math.random() * 190
             : 160 + Math.random() * 320;
+    }
+
+    // 登攀中の足場（高所の一方通行床）に乗っている間、縁から踏み外して落ちないように
+    // 現在の足場の左右端を記録する。プレイヤーが下にいる（降りるべき）場合や
+    // 意図的な落下中は記録せず、降下は妨げない。
+    updateStage4EnemyLedgeGuard(enemy, obstacles = []) {
+        enemy.stage4LedgeGuard = false;
+        enemy.stage4OnElevatedRoof = false;
+        if (!enemy.isGrounded) return;
+
+        const footY = enemy.y + enemy.height;
+        const currentRank = this.getStage4SurfaceRankFromFootY(footY);
+        if (currentRank < 1) return; // 地上では縁ガードも跳ね抑止も不要
+
+        const centerX = enemy.x + enemy.width * 0.5;
+        const platform = obstacles.find((obs) => (
+            obs && (obs.isStage4RoofPlatform || obs.isStage4ClimbPlatform) &&
+            Math.abs(obs.y - footY) < 18 &&
+            centerX >= obs.x - 6 && centerX <= obs.x + obs.width + 6
+        ));
+        if (!platform) return;
+
+        // 高所の足場に乗っている：通常のランダムジャンプを抑止（屋根上で段を行き来しない）
+        enemy.stage4OnElevatedRoof = true;
+
+        // 縁ガードは「プレイヤーが厳密に上（＝まだ登攀中）」かつ意図的降下中でないときだけ。
+        // 同段や下のときは自由に動かし（足場上で固まらせない／降りて回り込める）。
+        if ((enemy.dropThroughPlatformTimer || 0) > 0) return;
+        const targetRank = (this.stage4PlayerStableRank !== undefined)
+            ? this.stage4PlayerStableRank
+            : currentRank;
+        if (targetRank <= currentRank) return;
+
+        enemy.stage4LedgeGuard = true;
+        enemy.stage4PlatformLeft = platform.x;
+        enemy.stage4PlatformRight = platform.x + platform.width;
     }
 
     getStageEnemyObstacles(baseObstacles = []) {
@@ -2903,41 +3006,36 @@ export class Stage {
     renderStage4CastleApproach(ctx, castleWorldX, p, baseY) {
         const wallImage = this.stage4TownImages?.samuraiWall;
         const gateImage = this.stage4TownImages?.sanmonGate;
-        const approachBlocks = [
-            {
-                image: wallImage,
-                worldX: castleWorldX - 900,
-                width: 640,
-                alpha: 0.9,
-                filter: 'brightness(0.74) saturate(0.66) contrast(0.9)'
-            },
-            {
-                image: wallImage,
-                worldX: castleWorldX - 520,
-                width: 560,
-                alpha: 0.84,
-                filter: 'brightness(0.7) saturate(0.62) contrast(0.88)'
-            },
-            {
-                image: gateImage,
-                worldX: castleWorldX - 390,
-                width: 470,
-                alpha: 0.9,
-                filter: 'brightness(0.76) saturate(0.68) contrast(0.92)'
-            }
-        ];
 
-        for (const block of approachBlocks) {
-            const x = block.worldX - p;
-            if (x + block.width < -180 || x > CANVAS_WIDTH + 180) continue;
+        // 大手門は天守の直前（右端＝castleWorldX）に単独で立てる。
+        // 塀は門の「左側」だけに連続させ、門の真後ろには重ねない。
+        // （以前は門の背後に塀が重なり、塀の灯籠が開口部の中央に被って不自然だった）
+        const gateWidth = 470;
+        const gateLeft = castleWorldX - gateWidth;
+        const approachStartX = this.getStage4CastleApproachStartX();
+
+        // 白壁の武家屋敷を「不透明」でタイリングして接近路を埋める。
+        // 町並みは approachStartX で描画クリップ済みなので背後に透けない。
+        // 屋敷は半端な alpha にしない（松や白壁が透けないように 1.0）。
+        if (wallImage) {
+            const resW = 680; // 1枚の表示幅（高さ≈291）
+            const step = resW - 10; // 10px重ねて継ぎ目を消す
+            for (let wx = approachStartX; wx < gateLeft - 6; wx += step) {
+                const x = wx - p;
+                if (x + resW < -180 || x > CANVAS_WIDTH + 180) continue;
+                this.renderStage4TownImageBlock(
+                    ctx, wallImage, x, baseY, resW, 1.0,
+                    'brightness(0.82) saturate(0.72) contrast(0.92)'
+                );
+            }
+        }
+
+        // 大手門（最前面。天守は門の右隣にそびえる）
+        const gx = gateLeft - p;
+        if (gateImage && gx + gateWidth >= -180 && gx <= CANVAS_WIDTH + 180) {
             this.renderStage4TownImageBlock(
-                ctx,
-                block.image,
-                x,
-                baseY,
-                block.width,
-                block.alpha,
-                block.filter
+                ctx, gateImage, gx, baseY, gateWidth, 1.0,
+                'brightness(0.82) saturate(0.7) contrast(0.94)'
             );
         }
     }
@@ -4222,6 +4320,12 @@ export class Stage {
                 const castleWorldX = (this.maxProgress - CANVAS_WIDTH) + castleStopX;
                 const castleX = castleWorldX - p;
                 const townRows = this.getStage4TownRowsInRange(p - 900, p + CANVAS_WIDTH + 900);
+                // 城手前の白壁屋敷より右には町並みを描かない（屋敷の背後に町家が透ける/食み出すのを防ぐ）。
+                const approachStartScreenX = this.getStage4CastleApproachStartX() - p;
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(0, -400, Math.max(0, approachStartScreenX), CANVAS_HEIGHT + 800);
+                ctx.clip();
                 for (const row of townRows) {
                     const x = row.worldX - p;
                     if (x + row.width < -900 || x > CANVAS_WIDTH + 900) continue;
@@ -4235,6 +4339,7 @@ export class Stage {
                         'brightness(0.82) saturate(0.72) contrast(0.92)'
                     );
                 }
+                ctx.restore();
 
                 this.renderStage4CastleApproach(ctx, castleWorldX, p, this.groundY - 2);
                 this.renderStage4CastleLower(ctx, castleImage, castleX, this.groundY - 2, castleH);

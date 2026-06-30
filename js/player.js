@@ -22,7 +22,7 @@ import {
     prepareNormalComboFinisherProfile
 } from './normalComboMotion.js';
 import { applyRendererMixin }    from './playerRenderer.js?v=clone-crouch-height-match-20260623';
-import { applySlashTrailMixin }  from './playerSlashTrail.js?v=trail-step3-drawextend-20260630y';
+import { applySlashTrailMixin }  from './playerSlashTrail.js?v=step5-roof-land-20260630f2';
 import { applySpecialMixin }     from './playerSpecial.js?v=clone-ground-fix2-20260623';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
 import {
@@ -2033,6 +2033,12 @@ export class Player {
             this.isGrounded = false;
         }
 
+        // 接地中の『立ち面ワールドY(足元)』を保持。屋根/岩などプラットフォーム上では this.groundY(ステージ地面)
+        // ではなくこの面で着地すべき(step5叩きつけ剣筋の着地シミュ等が使う)。空中(hop)中は直近接地面を維持。
+        if (this.isGrounded) {
+            this._lastGroundSurfaceY = this.y + groundWorldH;
+        }
+
         this.justLanded = !wasGrounded && this.isGrounded;
         this.landingImpactSpeed = this.justLanded ? Math.max(0, fallingSpeed) : 0;
         if (this.justLanded) {
@@ -2319,6 +2325,18 @@ export class Player {
             ? physicalScale
             : ((Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0) ? this.scaleMultiplier : 1);
         return Math.min(PLAYER.OONAGI_REACH_MAX_PX, PLAYER.OONAGI_REACH_PX * Math.max(1, ps * 0.86));
+    }
+
+    // 大薙の後方リーチ(px, ワールド座標)。当たり判定は scaleBox(2.45×)で中心から後方にも広がる(前方端だけ
+    // pinFrontToOonagi で切先+前方リーチに固定)。その後方拡張ぶんを剣筋の見た目にも出すための推定値(段別)。
+    // 前方(getOonagiForwardReachPx=112)より小さい。体格倍率(将軍)で軽くスケール。調整はここの段別値で。
+    getOonagiBackReachPx(comboStep = null, physicalScale = null) {
+        const ps = Number.isFinite(physicalScale) && physicalScale > 0
+            ? physicalScale
+            : ((Number.isFinite(this.scaleMultiplier) && this.scaleMultiplier > 0) ? this.scaleMultiplier : 1);
+        const byStep = { 1: 40, 2: 42, 3: 45, 4: 42, 5: 46 };
+        const base = byStep[comboStep] || 42;
+        return Math.min(74, base * Math.max(1, ps * 0.86));
     }
 
     getCrouchCollisionHeight() {

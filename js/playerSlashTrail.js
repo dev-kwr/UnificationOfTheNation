@@ -2368,11 +2368,18 @@ export function applySlashTrailMixin(PlayerClass) {
             const frameMs = 1000 / 60;
             const groundY = Number.isFinite(state.groundY) ? state.groundY : this.groundY;
             // 実際の着地ライン（体トップY、正規化空間）。
-            // 5段目はattackTimer同様「着地まで継続」するため、シミュレーションも
-            // 固定時間ではなく着地までを再現する（step4の高い頂点から繋いだ場合に
-            // 終点が空中で止まるのを防ぐ）
-            const landSimY = Number.isFinite(groundY)
-                ? y + (((groundY + LANE_OFFSET) - PLAYER.HEIGHT * renderScale) - y) / renderScale
+            // 5段目はattackTimer同様「着地まで継続」するため、シミュレーションも固定時間ではなく着地までを再現する。
+            // 【屋根着地の修正】着地面のワールドYは、屋根/岩などプラットフォーム上では this.groundY(遥か下のステージ地面)
+            // ではなく『直近に立っていた面 _lastGroundSurfaceY(接地時の足元ワールドY)』を使う。これで屋根上の step5 が
+            // ステージ地面まで巨大な縦アークで伸びる不具合を防ぎ、立っている面で着地する。平地では _lastGroundSurfaceY
+            // = groundY+LANE_OFFSET なので従来と一致。state.landSurfaceWorldY で明示指定も可。
+            const surfaceWorldY = Number.isFinite(state.landSurfaceWorldY)
+                ? state.landSurfaceWorldY
+                : (Number.isFinite(this._lastGroundSurfaceY)
+                    ? this._lastGroundSurfaceY
+                    : (Number.isFinite(groundY) ? groundY + LANE_OFFSET : null));
+            const landSimY = Number.isFinite(surfaceWorldY)
+                ? y + ((surfaceWorldY - PLAYER.HEIGHT * renderScale) - y) / renderScale
                 : Infinity;
             let simX = x;
             let simY = y;
@@ -4266,7 +4273,12 @@ export function applySlashTrailMixin(PlayerClass) {
                 // 明暗グラデ(位置 s: 0=最古/後ろ→oldestScale, 1=切先/新→newestScale)に「消える前線」を重ねる。
                 // 前線は切先(newest)が古び始めてから s=0(末尾)→s=1(先端)へ走り、後ろから順に透明化＝鎖鎌の退き。
                 // 振り中(headAge小)は前線が手前(負側)で全可視＝全弧が出る。2端点線形では出せない掃引を多stopで表現。
-                const headAge = Math.max(0, newestSrc.age || 0);
+                // 二刀(forceLinearSmooth)は headAgeOverride(振り進行ベースの退きクロック)で駆動し、
+                // step5(切先0.96までサンプル)も他段と同位相(p=0.70)で退き始める＋次コンボ開始時のpoint age急増に依存しない。
+                // 通常コンボ/大薙は override 無し→従来どおり newestSrc.age 駆動。
+                const headAge = Number.isFinite(options.headAgeOverride)
+                    ? Math.max(0, options.headAgeOverride)
+                    : Math.max(0, newestSrc.age || 0);
                 // 表示継続は全step共通の長さに統一(ユーザー要望)。過去段の高速化(superseded)/step4個別短縮
                 // ＝不揃いの原因だったので廃止。少し長めに。HOLD=退き始めまでの間, SWEEP=退き速さ(大=長く残る)。
                 const HOLD = 40, EDGE = 0.5, SWEEP = 340;
@@ -4360,7 +4372,12 @@ export function applySlashTrailMixin(PlayerClass) {
             if (true) { // 通常コンボも二刀(forceLinearSmooth)も「消える前線(dissolve)」で統一
                 // 明暗グラデ(位置 s)に「消える前線」を重ね、切先が古び始めてから末尾→先端へ走らせる(鎖鎌の退き)。
                 // drawGradientLinearTrail と同一ロジック(芯と本体で同じ前線にする)。
-                const headAge = Math.max(0, newestSrc.age || 0);
+                // 二刀(forceLinearSmooth)は headAgeOverride(振り進行ベースの退きクロック)で駆動し、
+                // step5(切先0.96までサンプル)も他段と同位相(p=0.70)で退き始める＋次コンボ開始時のpoint age急増に依存しない。
+                // 通常コンボ/大薙は override 無し→従来どおり newestSrc.age 駆動。
+                const headAge = Number.isFinite(options.headAgeOverride)
+                    ? Math.max(0, options.headAgeOverride)
+                    : Math.max(0, newestSrc.age || 0);
                 // 表示継続は全step共通の長さに統一(ユーザー要望)。過去段の高速化(superseded)/step4個別短縮
                 // ＝不揃いの原因だったので廃止。少し長めに。HOLD=退き始めまでの間, SWEEP=退き速さ(大=長く残る)。
                 const HOLD = 40, EDGE = 0.5, SWEEP = 340;
@@ -4881,25 +4898,23 @@ export function applySlashTrailMixin(PlayerClass) {
                 x: p.x + reachDir * reachPx
             }));
 
-            // 大薙は既存剣筋の前方に太めの外側剣筋を1本足して、広い間合いを見せる。
-            drawGradientLinearTrail(
-                outerStrip,
-                baseWidth * 1.86,
-                bluePalette.front,
-                (options.newestScale || baseNewestAlpha) * 0.2,
-                (options.newestScale || baseNewestAlpha) * 0.64,
-                null,
-                { smooth: comboStep !== 3 }
-            );
-            drawGradientLinearTrail(
-                outerStrip,
-                Math.max(3.2, baseWidth * 0.32),
-                [255, 255, 255],
-                (options.newestScale || baseNewestAlpha) * 0.14,
-                (options.newestScale || baseNewestAlpha) * 0.5,
-                null,
-                { smooth: comboStep !== 3 }
-            );
+            // 【大薙の0ベース刷新】通常コンボを刷新したのと同じ"新リボン系"で描く＝旧 drawGradientLinearTrail(均一線)の
+            // 直貼りは廃止し、drawBlueTrailLayers(両端テーパー塗りリボン＋明るい芯, lighten合成) と drawTaperedRibbonTrail を使用。
+            // 「広い間合い＋高威力」を: 前方=主体の太い明るいリボン(切先+reachPx到達), 後方=控えめなリボン(判定の後方拡張),
+            // 背景=幅広・薄リボンで間合いの面、で表現。各stepの innerStrip 形に追従。reverseReach(二刀step2)は reachDir 反転で
+            // 後方主体に自動対応。前方=getOonagiForwardReachPx(112), 後方=getOonagiBackReachPx(段別~42) で見た目=判定。描画専用=判定不変。
+            const a = options.newestScale || baseNewestAlpha;
+            const sm = comboStep !== 3;
+            const backReachPx = (typeof this.getOonagiBackReachPx === 'function')
+                ? this.getOonagiBackReachPx(comboStep, physicalScale)
+                : 42;
+            const backStrip = innerStrip.map((p) => ({ ...p, x: p.x - reachDir * backReachPx }));
+            // 背景掃き(間合いの面・広さ): 幅広・薄のテーパーリボン。前方を広めに。
+            drawTaperedRibbonTrail(outerStrip, baseWidth * 2.5, bluePalette.back, a * 0.05, a * 0.16, null, { smooth: sm });
+            // 後方range(控えめ・新リボン+芯): 判定が後方にも及ぶ手応え
+            drawBlueTrailLayers(backStrip, baseWidth * 1.3, a * 0.22, a * 0.44, null, { smooth: sm });
+            // 前方の薙ぎ本体(主体・高威力・新リボン+明るい芯): 大きめ幅で広い一閃、切先側ほど明るい
+            drawBlueTrailLayers(outerStrip, baseWidth * 2.0, a * 0.5, a, null, { smooth: sm });
         };
         const buildStraightLinearStrip = (pts, projectFn = null) => {
             const mapped = buildProjected(pts, projectFn);
@@ -5213,12 +5228,26 @@ export function applySlashTrailMixin(PlayerClass) {
             // 記録(_step3LiveDraw は上で焼込済)も step4始点の参照元(記録 trailCurveEnd)も変えない=step4位置(457)不変=描画専用。
             // この関数はライブ(5892)・凍結(6111)の両経路が通るので両フレームで同じだけ伸びる。Yは固定で水平を維持。
             {
-                const STEP3_DRAW_REACH_EXTEND = (this.characterType === 'shogun') ? 0 : 24; // 切先まで届かせる前進量(px)。要実機調整
+                const STEP3_DRAW_REACH_EXTEND = (this.characterType === 'shogun') ? 0 : 10; // 切先まで届かせる前進量(px)。24は行き過ぎ→削れ側に寄せて10。要実機調整
                 if (STEP3_DRAW_REACH_EXTEND > 0) {
                     const _extDir = (drawEndX >= drawStartX ? 1 : -1);
                     drawEndX += _extDir * STEP3_DRAW_REACH_EXTEND;
                     if (manualTipAlignedLayers) manualTipAlignedLayers.innerEndX += _extDir * STEP3_DRAW_REACH_EXTEND;
                 }
+            }
+            // 【ライブ/凍結の"芯の到達"を統一】ライブ(forceHorizontalToTip)は manualTipAlignedLayers で明るい芯を
+            // 切先(innerEndX = drawEndX + 外側round cap分)までpokeする。凍結は manualTipAlignedLayers が無く
+            // drawBlueTrailLayers で芯=外側端(drawEndX)止まり→芯が ~baseWidth*0.41 短く「凍結だけ削れて見える」食い違いになる。
+            // 凍結側にも同一の芯pokeレイヤーを与え、ライブと完全に同じ終端(外側=drawEndX, 芯=drawEndX+poke)で描く。
+            if (!manualTipAlignedLayers) {
+                const _innerWidth = Math.max(1.4, baseWidth * 0.18);
+                const _corePoke = Math.max(0, baseWidth * 0.5 - _innerWidth * 0.5); // 外側round cap分だけ芯を前へ(=ライブの innerEndX-drawEndX と一致)
+                const _ed = (drawEndX >= drawStartX ? 1 : -1);
+                manualTipAlignedLayers = {
+                    innerEndX: drawEndX + _ed * _corePoke,
+                    innerEndY: drawEndY,
+                    innerWidth: _innerWidth
+                };
             }
             const linePts = [
                 {
@@ -5754,7 +5783,7 @@ export function applySlashTrailMixin(PlayerClass) {
             if (forceLinearSmooth) {
                 // 二刀流用: Chaikin平滑化 + スムーズ曲線描画
                 const smoothed = buildChaikinSmoothedStrip(strip, 2);
-                drawBlueTrailLayers(smoothed, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { smooth: true });
+                drawBlueTrailLayers(smoothed, 13.8 * activeWidthScale, boostOldest, outerNewestAlpha, projFn, { smooth: true, headAgeOverride: options.headAgeOverride });
                 drawOonagiRangeEffect(strip, stripStep, null, {
                     effectStrip: smoothed,
                     newestScale: outerNewestAlpha,
@@ -6468,8 +6497,7 @@ export function applySlashTrailMixin(PlayerClass) {
             if (comboStep === 5 && p > 0.96) settleSuppress = true;
         }
 
-        // スイング切替直後の1フレームは、アンカー(renderModel由来)が前スイング位置の
-        // ままなのでサンプルしない。前スイングの点はクリアせず老化フェードに任せる。
+        // スイング切替直後の1フレームは、アンカー(renderModel由来)が前スイング位置のままなのでサンプルしない。
         let lastSwingId = state.lastSwingId;
         let skipSampleThisFrame = false;
         let backSampleTimerIn = state.backSampleTimer;
@@ -6482,8 +6510,34 @@ export function applySlashTrailMixin(PlayerClass) {
             // 片方だけ欠け、剣筋の端の到達位置（例: step1 の下端）が変わってしまう。
             backSampleTimerIn = 0;
             frontSampleTimerIn = 0;
+            // 【二刀step5再描画の修正】退きは単一クロック(_dualFadeClockMs)駆動で、新スイングで0へリセットされる。
+            // 前スイングの点をバッファに残すと、その0リセットで前スイング点が満タン表示に戻る(=消えた剣筋が次の
+            // コンボ/段で再描画される回帰)。新スイング開始時に前スイング(別trailAttackId)の点を除去し、クロックが
+            // 常に現スイングのみへ効くようにする。これで step5 の良い退きは保ったまま再描画/挙動の乱れを解消。
+            const _dropOtherSwings = (pts) => {
+                if (!Array.isArray(pts)) return;
+                for (let i = pts.length - 1; i >= 0; i--) {
+                    if (pts[i] && pts[i].trailAttackId !== activeTrailId) pts.splice(i, 1);
+                }
+            };
+            _dropOtherSwings(state.backPoints);
+            _dropOtherSwings(state.frontPoints);
         }
         if (!active) lastSwingId = -1;
+
+        // 【二刀 退きクロック】dissolve を振り進行ベースで駆動する時計(ms)。renderで headAgeOverride として使う。
+        // step5 は切先を底へ届かせるため p>0.96 までサンプルするが、退きは他段と同じ p=UNIFIED_FADE_START(0.70)で
+        // 開始し、振り終了後も実時間で進む。dissolve がこの時計駆動になることで、次コンボ開始時に残存点の age が
+        // 急増(matchesActiveTrail=false化)しても前線が飽和せず＝『step5だけ退きが遅い/次コンボで即消え』を両方解消。
+        const UNIFIED_FADE_START = 0.70;
+        if (active && state.lastSwingId !== swingId) {
+            this._dualFadeClockMs = 0; // 新スイング開始で退きをリセット(満タンから)
+        }
+        if (active && p < UNIFIED_FADE_START) {
+            this._dualFadeClockMs = 0; // 振り前半(退き開始前)は満タン維持
+        } else {
+            this._dualFadeClockMs = (this._dualFadeClockMs || 0) + deltaMs; // 退き開始後/振り終了後は実時間で進む
+        }
 
         const trailScale = Number.isFinite(state.trailScale) ? state.trailScale : 1;
         const rangeEffectScale = Number.isFinite(state.rangeEffectScale) ? state.rangeEffectScale : 1;
@@ -6594,6 +6648,8 @@ export function applySlashTrailMixin(PlayerClass) {
                 forceLinearSmooth: true,
                 isAttacking: isDualZActive,
                 physicalScale,
+                // 二刀の退き(dissolve)を振り進行ベースのクロックで駆動(step5の退き遅延/次コンボ即消えの対策)
+                headAgeOverride: this._dualFadeClockMs,
                 getBoostAnchor: (id) => (id !== null && id !== undefined ? (anchors.back[id] || null) : null),
                 setBoostAnchor: (id, v) => {
                     if (id === null || id === undefined) return;
@@ -6608,6 +6664,8 @@ export function applySlashTrailMixin(PlayerClass) {
                 forceLinearSmooth: true,
                 isAttacking: isDualZActive,
                 physicalScale,
+                // 二刀の退き(dissolve)を振り進行ベースのクロックで駆動(step5の退き遅延/次コンボ即消えの対策)
+                headAgeOverride: this._dualFadeClockMs,
                 getBoostAnchor: (id) => (id !== null && id !== undefined ? (anchors.front[id] || null) : null),
                 setBoostAnchor: (id, v) => {
                     if (id === null || id === undefined) return;

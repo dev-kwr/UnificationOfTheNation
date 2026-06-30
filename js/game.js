@@ -6,7 +6,7 @@ import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_T
 import { input } from './input.js';
 import { Player } from './player.js';
 import { createSubWeapon } from './weapon.js';
-import { Stage } from './stage.js';
+import { Stage } from './stage.js?v=20260630-castle-ai';
 import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout } from './ui.js';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js';
 import { saveManager } from './save.js';
