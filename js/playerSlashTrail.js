@@ -3746,6 +3746,7 @@ export function applySlashTrailMixin(PlayerClass) {
             ? options.frozenCurves
             : (!usesExternalPoints && Array.isArray(this.comboSlashTrailFrozenCurves) ? this.comboSlashTrailFrozenCurves : []);
 
+
         // フェードの決め方を選ぶフラグ。
         //  ・通常コンボ/大薙(continuousAge で各点が連続 age を持つ): グラデ(薄→濃)と消え方を分離する。
         //      - 明暗グラデ = トレイル内の「相対位置」(全点の age 範囲で正規化)。step 境界でリセットせず
@@ -4895,63 +4896,12 @@ export function applySlashTrailMixin(PlayerClass) {
                 : Math.max(58, Math.min(176, (84 + (effectScale - 1) * 42) * Math.max(1, physicalScale * 0.86)));
             const innerStrip = buildOonagiCenterStrip(pts, comboStep, projectFn, options, baseWidth);
             if (!Array.isArray(innerStrip) || innerStrip.length < 2) return;
-            const outerStrip = innerStrip.map((p) => ({
-                ...p,
-                x: p.x + reachDir * reachPx
-            }));
-
-            // 【大薙 = C: 刀身が巨大化して伸びる光刃】剣筋(スラッシュ軌跡)を加工する方式は全部NGだった
-            // (前方平行移動=遠くの細い線 / 端点継ぎ足し=ループ乱れ / 接線延長=逆向きの尾)。
-            // ユーザーのイメージ=「刀身自体がオーラを纏って巨大に伸びる」。→ 現在の刀ポーズ(柄 armEnd → 切先 tip = 刀身の軸)
-            // に沿って、刀身を巨大化した"1本の光刃+オーラ"を描く。刀の振りに追従(軸=swordAngle)。新リボン系のみ。描画専用=判定不変。
+            // 【大薙の剣筋】巨大刃の本体は drawKatana(大薙中は刀身を常時"巨大光刃"化)が描く。ここは斬撃の掃引=剣筋。
+            // 記録済みトレイル(innerStrip=実刃の切先掃引)を"そのまま"描く＝本体Yでスケール/移動しない(固定)。
+            // ※「刀の向きへ reachPx 平行移動して巨大切先へ届かせる」案は、振り中に刀の向きが回転して剣筋が
+            //   フレーム毎に揺れる(おかしい)ため撤回。剣筋は実刃の自然な掃引リボンに固定する。巨大刃(光刃)とは別スタイル。
             const a = options.newestScale || baseNewestAlpha;
-            const attackState = renderOptions.attackState || { currentAttack: this.currentAttack, attackTimer: this.attackTimer };
-            const atk = (attackState && attackState.currentAttack) || this.currentAttack;
-            if (!atk || typeof this.getComboSwordPoseState !== 'function') return;
-            const wW = (typeof this.getWorldWidth === 'function') ? this.getWorldWidth() : (this.width || 32);
-            const wH = (typeof this.getWorldHeight === 'function') ? this.getWorldHeight() : (this.height || 64);
-            const pose = this.getComboSwordPoseState({
-                x: this.x, y: this.y, width: wW, height: wH,
-                facingRight: this.facingRight, isCrouching: this.isCrouching,
-                currentAttack: atk,
-                attackTimer: Number.isFinite(attackState.attackTimer) ? attackState.attackTimer : this.attackTimer
-            });
-            if (!pose || !Number.isFinite(pose.armEndX) || !Number.isFinite(pose.tipX)) return;
-            const hx = pose.armEndX, hy = pose.armEndY;     // 柄(刀身の根元)
-            let dx = pose.tipX - hx, dy = pose.tipY - hy;   // 刀身の向き
-            const dlen = Math.hypot(dx, dy) || (pose.bladeLen || 40);
-            dx /= dlen; dy /= dlen;
-            // 刀身を巨大化: 実刃長 + 前方リーチ(reachPx) の長さへ柄起点で伸ばす(刀の角度に沿う=追従)。先端=間合いの縁(見た目=判定)。
-            const giantLen = dlen + reachPx;
-            const ageVal = (pts[pts.length - 1] && pts[pts.length - 1].age) || 0;
-            const lifeVal = (pts[pts.length - 1] && pts[pts.length - 1].life) || this.comboSlashTrailActiveLifeMs;
-            // 【しなり(反り)】実際の刀(drawKatana)の刀身は getArcY = -(t^1.8 * bl*0.18) で湾曲している。
-            // 巨大刃も同じ反りプロファイルで湾曲させ、実際の刀のしなりに一致させる(直線だと刀とズレて不自然)。
-            // 反りは刀身軸(dx,dy)に垂直方向(px,py)へオフセット。符号(向き)は実機スクショで確認して調整。
-            const SORI_RATIO = 0.18;
-            const curveAmt = giantLen * SORI_RATIO * (this._oonagiSoriSign || 1);
-            const px = -dy, py = dx; // 軸に垂直
-            const SEG = 10;
-            const bladeStrip = [];
-            for (let i = 0; i <= SEG; i++) {
-                const t = i / SEG;
-                const along = giantLen * t;
-                const bend = -curveAmt * Math.pow(t, 1.8);
-                bladeStrip.push({ x: hx + dx * along + px * bend, y: hy + dy * along + py * bend, age: ageVal, life: lifeVal });
-            }
-            // (0) 剣筋(巨大刃の切先が薙いだ軌跡): 実際の剣筋(innerStrip=実刃の切先掃引)を柄起点で tipScale 倍に広げ、
-            //     巨大刃の切先が描く掃引軌跡にする。後方へ流れる帯(dissolveで後ろから消える)＝オーラ/刃本体とは別レイヤーで被り回避。
-            const tipScale = giantLen / Math.max(1, dlen);
-            const trailStrip = innerStrip.map((q) => ({ ...q, x: hx + (q.x - hx) * tipScale, y: hy + (q.y - hy) * tipScale }));
-            if (trailStrip.length >= 2) {
-                drawBlueTrailLayers(trailStrip, baseWidth * 1.7, a * 0.26, a * 0.72, null, { smooth: true });
-            }
-            // (1) 刀身を包むオーラ(刃にタイトに・幅控えめ=剣筋と被らせない)
-            drawTaperedRibbonTrail(bladeStrip, baseWidth * 4.0, bluePalette.back, a * 0.07, a * 0.16, null, { smooth: true });
-            // (2) 巨大化した光刃 本体(太い両端テーパーリボン+明るい芯)
-            drawBlueTrailLayers(bladeStrip, baseWidth * 3.0, a * 0.55, a, null, { smooth: true });
-            // (3) 高温の芯(細め・明るい): lighten合成で中心が最も明るく=高威力の発光
-            drawBlueTrailLayers(bladeStrip, baseWidth * 1.3, a * 0.55, a, null, { smooth: true });
+            drawBlueTrailLayers(innerStrip, baseWidth * 1.7, a * 0.28, a * 0.74, null, { smooth: comboStep !== 3 });
         };
         const buildStraightLinearStrip = (pts, projectFn = null) => {
             const mapped = buildProjected(pts, projectFn);

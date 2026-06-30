@@ -167,6 +167,78 @@ export function applyRendererMixin(PlayerClass) {
                 lowerPoints.push({ x: getTX(t), y: getWhiteLowerY(t) });
             }
 
+            // 【大薙: 巨大化する光刃(常時)】大薙ブースト中は、刀身を"巨大な発光刃"にして常時オーラを纏わせる
+            // (待機中も巨大刃を構える=ユーザー要望)。刀のローカル座標系で反り(getArcY)を前方リーチぶん延長し、
+            // 太い発光ブレード(オーラ→本体→明るい芯)を通常刀身の背後に描く。通常刀身は鋭い芯として手前に残す。
+            // 二刀は各刀でこの関数が呼ばれるので両刀が巨大光刃化する。lighten 合成・描画専用=判定不変。
+            if (drawBlade && typeof this.isXAttackBoostActive === 'function' && this.isXAttackBoostActive()) {
+                // 【元の刀の形状そのままに、柄基点で幅・長さを増して覆いかぶせる】
+                // 中心線は実刀の getArcY と"一致"させる: 巨大刃の x が刀身の位置に来る所では gArcY が getArcY と同値に
+                // なるよう、katanaT = t*lengthScale で実刀式 -(katanaT^1.8 * bl*0.18) を使う(刀身範囲は刀を覆い、その先は同式で延長)。
+                // 幅は whiteHalf を widthScale 倍に広げて刀を覆う。形状は元の刀のまま(別カーブにしない=歪まない)。
+                const lengthScale = 1.85;   // 長さ(刀の何倍まで伸ばすか)
+                const widthScale = 9.0;     // 幅(刀の何倍に覆い広げるか)
+                const gBl = (bladeEnd - bladeStart) * lengthScale;
+                const gTX = (t) => bladeStart + gBl * t;
+                const gArcY = (t) => -(Math.pow(t * lengthScale, 1.8) * (bl * 0.18)) + 0.06; // 実刀 getArcY に一致(覆う)
+                const gHalf = whiteHalf * widthScale;
+                // 刀身らしい幅プロファイル: 柄側で素早く立ち上げ→刀身は一定幅→切先側で先細り(元の刀と同様)。
+                const gHalfW = (t) => gHalf * Math.min(1, t / 0.04) * Math.min(1, (1 - t) / 0.10);
+                const SEGg = 40;
+                const _now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
+                // 【明滅】エネルギーのちらつき: 低周波の脈動＋高周波のクラックルを重ねた有機的な明滅
+                // (金属/氷の静的な清潔光でなく、エネルギーがちらつき脈動する感じ)。
+                const flick = 0.62 + 0.38 * (0.40 * Math.sin(_now * 0.013) + 0.26 * Math.sin(_now * 0.030) + 0.18 * Math.sin(_now * 0.059) + 0.16 * Math.sin(_now * 0.108));
+                // 幅factor wf を掛けたシルエット(同心=幅方向グラデ用)
+                const traceSilhouetteW = (wf) => {
+                    ctx.beginPath();
+                    for (let i = 0; i <= SEGg; i++) { const t = i / SEGg; const x = gTX(t), y = gArcY(t) - gHalfW(t) * wf; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+                    for (let i = SEGg; i >= 0; i--) { const t = i / SEGg; ctx.lineTo(gTX(t), gArcY(t) + gHalfW(t) * wf); }
+                    ctx.closePath();
+                };
+                const traceCenter = () => {
+                    ctx.beginPath();
+                    for (let i = 0; i <= SEGg; i++) { const t = i / SEGg; if (i === 0) ctx.moveTo(gTX(t), gArcY(t)); else ctx.lineTo(gTX(t), gArcY(t)); }
+                };
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighten';
+                ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+                const fA = 0.5 + 0.5 * flick;   // 明滅の強さ(0..1)。塗り全体がこれで脈動=ちらつく
+                // 硬い輪郭は引かない=金属/氷でなくエネルギー。芯ほど明るい同心塗り(幅方向グラデ)で「光が内側から滲む」エネルギーに。
+                // (1) 外周オーラ(ぼかし): 刃形に沿う広い光暈
+                ctx.shadowColor = 'rgba(140,232,255,' + (0.85 * flick) + ')';
+                ctx.shadowBlur = 26;
+                ctx.fillStyle = 'rgba(118,208,255,' + (0.18 * fA) + ')';
+                traceSilhouetteW(1.0); ctx.fill();
+                ctx.shadowBlur = 0;
+                // (2) 幅方向グラデ: 同心シルエットを重ね、縁=淡→芯=明のエネルギー本体(幅がしっかり見える)
+                ctx.fillStyle = 'rgba(138,220,255,' + (0.30 * fA) + ')'; traceSilhouetteW(1.0); ctx.fill();
+                ctx.fillStyle = 'rgba(172,234,255,' + (0.30 * fA) + ')'; traceSilhouetteW(0.62); ctx.fill();
+                ctx.fillStyle = 'rgba(224,247,255,' + (0.34 * fA) + ')'; traceSilhouetteW(0.30); ctx.fill();
+                // (3) 高温の芯(ぼかし発光・明滅): 中心の白熱
+                ctx.shadowColor = 'rgba(220,246,255,' + (0.8 * flick) + ')';
+                ctx.shadowBlur = 10;
+                ctx.strokeStyle = 'rgba(245,253,255,' + (0.3 + 0.5 * flick) + ')';
+                ctx.lineWidth = Math.max(2, gHalf * 0.3);
+                traceCenter(); ctx.stroke();
+                ctx.shadowBlur = 0;
+                // (4) 流動ハイライト: 明るい帯が芯に沿って柄→切先へ繰り返し流れる(エネルギーの流動)
+                const sMove = (_now * 0.00075) % 1;
+                const i0 = Math.max(0, Math.floor((sMove - 0.06) * SEGg));
+                const i1 = Math.min(SEGg, Math.ceil((sMove + 0.06) * SEGg));
+                if (i1 > i0) {
+                    ctx.shadowColor = 'rgba(255,255,255,0.95)';
+                    ctx.shadowBlur = 12;
+                    ctx.strokeStyle = 'rgba(255,255,255,' + (0.6 + 0.35 * flick) + ')';
+                    ctx.lineWidth = Math.max(1.8, gHalf * 0.4);
+                    ctx.beginPath();
+                    for (let i = i0; i <= i1; i++) { const t = i / SEGg; if (i === i0) ctx.moveTo(gTX(t), gArcY(t)); else ctx.lineTo(gTX(t), gArcY(t)); }
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
+                }
+                ctx.restore();
+            }
+
             // 先端形状:
             // 峰側(上)はそのまま終端まで伸ばし、刃側(下)だけ先端へ向かって絞る
             const tipY = upperPoints[seg].y;

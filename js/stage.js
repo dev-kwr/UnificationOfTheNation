@@ -187,6 +187,7 @@ export class Stage {
                 yatai: 'images/stage4_town_yatai.png',
                 groundTile: 'images/stage4_ground_stone_tile.png',
                 castleEntrance: 'images/stage4_castle_lower_wide.png',
+                castleApproachBuildings: 'images/stage4_castle_approach_town_roofs.png',
                 climbPropCrates: 'images/stage4_climb_prop_crates.png',
                 climbPropHandcart: 'images/stage4_climb_prop_handcart.png',
                 climbPropBench: 'images/stage4_climb_prop_bench.png',
@@ -655,22 +656,18 @@ export class Stage {
 
         const castleWorldX = this.getStage4CastleWorldX();
         const approachStartX = this.getStage4CastleApproachStartX();
-        const gateWidth = 360;
-        const gateWorldX = approachStartX + 520;
+        const approachWorldX = approachStartX + 8;
+        const approachHeight = 350;
 
         return {
             castleWorldX,
             approachStartX,
-            gateWidth,
-            gateWorldX,
-            rampartStartX: gateWorldX + gateWidth - 18,
-            rampartEndX: castleWorldX + 180,
-            startTowerX: approachStartX + 180,
-            finalTowerX: castleWorldX - 300
+            approachWorldX,
+            approachHeight
         };
     }
 
-    // 城手前の「白壁武家屋敷の接近路」が始まるワールドX。
+    // 城手前の「町家屋根の接近路」が始まるワールドX。
     // ここより右は城郭接近路として扱い、町家の屋根足場を持ち込まない。
     getStage4CastleApproachStartX() {
         if (this.stageNumber !== 4) return Infinity;
@@ -686,10 +683,72 @@ export class Stage {
         return i * span - 36 + rowW; // 行 i の右端
     }
 
-    // 城前の接近路は背景専用。見える門や櫓を足場にしないことで、
-    // 終盤の敵配置が屋根上に吸われたり、見た目と判定がズレたりするのを避ける。
     getStage4CastleApproachColliders(leftWorld, rightWorld) {
-        return [];
+        if (this.stageNumber !== 4) return [];
+
+        const layout = this.getStage4CastleApproachLayout();
+        if (!layout) return [];
+
+        const baseY = this.groundY - 2;
+        const colliders = [];
+        const addPlatform = (x, y, width, rank, kind) => {
+            if (width <= 0) return;
+            colliders.push({
+                x,
+                y,
+                width,
+                height: 12,
+                isDestroyed: false,
+                isStage4RoofPlatform: true,
+                isOneWayPlatform: true,
+                roofLevel: rank,
+                stage4SurfaceRank: this.getStage4SurfaceRankFromFootY(y),
+                stage4ApproachKind: kind
+            });
+        };
+
+        const approachImage = this.stage4TownImages?.castleApproachBuildings;
+        const sourceW = (approachImage && approachImage.naturalWidth > 0) ? approachImage.naturalWidth : 3000;
+        const sourceH = (approachImage && approachImage.naturalHeight > 0) ? approachImage.naturalHeight : 445;
+        const drawH = layout.approachHeight;
+        const drawW = drawH * (sourceW / sourceH);
+        const drawY = baseY - drawH + 3;
+        const sx = drawW / sourceW;
+        const sy = drawH / sourceH;
+        const basePlatforms = this.getStage4TownRowSpecs()[0]?.platforms || [];
+        const extensionX = 2088;
+        const extensionSourceEnd = Math.max(0, sourceW - extensionX);
+        const approachPlatforms = [
+            ...basePlatforms.map((platform) => ({
+                ...platform,
+                kind: `approach-base-${platform.level}-${Math.round(platform.x1)}`
+            })),
+            ...basePlatforms
+                .filter((platform) => platform.x1 < extensionSourceEnd && platform.x2 > 0)
+                .map((platform) => ({
+                    level: platform.level,
+                    x1: extensionX + Math.max(0, platform.x1),
+                    x2: extensionX + Math.min(extensionSourceEnd, platform.x2),
+                    y: platform.y,
+                    kind: `approach-extension-${platform.level}-${Math.round(platform.x1)}`
+                }))
+                .filter((platform) => platform.x2 - platform.x1 >= 44)
+        ];
+
+        for (const platform of approachPlatforms) {
+            addPlatform(
+                layout.approachWorldX + platform.x1 * sx,
+                drawY + platform.y * sy,
+                (platform.x2 - platform.x1) * sx,
+                platform.level,
+                platform.kind
+            );
+        }
+
+        return colliders.filter((platform) => (
+            platform.x + platform.width >= leftWorld &&
+            platform.x <= rightWorld
+        ));
     }
 
     getStage4RoofColliders(leftWorld, rightWorld) {
@@ -732,7 +791,9 @@ export class Stage {
         if (this.stageNumber !== 4) return [];
 
         const defs = this.getStage4ClimbPropDefinitions();
-        const baseY = this.groundY + LANE_OFFSET;
+        // 背景の家並みに馴染むよう、足場プロップはプレイヤー接地レーンより少し奥へ置く。
+        // drawY と platformY が同じ baseY から出るので、見た目と足場判定は一緒に動く。
+        const baseY = this.groundY + 12;
         return this.getStage4TownRowsInRange(leftWorld, rightWorld)
             .flatMap((row) => this.getStage4ClimbPropTemplates(row.rowIndex).map((template) => {
                 const def = defs[template.type];
@@ -2541,13 +2602,18 @@ export class Stage {
         if (!isCastleInterior) {
             // 遠景（ゆっくりスクロール 0.2）
             if (!isBambooForest && !isTenshuStageBg) {
-                this.renderBackgroundLayer(ctx, currentPalette.far, 0.2, 0.7, 100);
-                
-                // 中景 (0.4)
-                this.renderBackgroundLayer(ctx, currentPalette.mid, 0.4, 0.8, 60);
-                
-                // 近景 (0.7)
-                this.renderBackgroundLayer(ctx, currentPalette.near, 0.7, 1.0, 20);
+                if (currentPalette.elements === 'kaido') {
+                    // Stage2は地面際のCanvas製近景シルエットを出さず、遠方の山々だけを残す。
+                    this.renderBackgroundLayer(ctx, currentPalette.far, 0.16, 0.48, 132);
+                } else {
+                    this.renderBackgroundLayer(ctx, currentPalette.far, 0.2, 0.7, 100);
+                    
+                    // 中景 (0.4)
+                    this.renderBackgroundLayer(ctx, currentPalette.mid, 0.4, 0.8, 60);
+                    
+                    // 近景 (0.7)
+                    this.renderBackgroundLayer(ctx, currentPalette.near, 0.7, 1.0, 20);
+                }
             }
         }
         
@@ -2556,8 +2622,9 @@ export class Stage {
 
         // ボス部屋の右側に次ステージへの「出入口」を描画。
         // ※ Stage1（竹林）は竹を動的に削って覗かせると不自然なため peek は描かず、竹は全画面のまま。
+        // ※ Stage2（街道）は山道入口をステージ内の通常背景として描画する。
         // ※ Stage5（城内）は画像ベースの階段（stairImage）が出口を兼ねるため peek は描かない。
-        if (this.stageNumber >= 2 && this.stageNumber <= 4) {
+        if (this.stageNumber >= 3 && this.stageNumber <= 4) {
             this.renderNextStagePeek(ctx);
         }
 
@@ -2584,6 +2651,42 @@ export class Stage {
             ctx.fillStyle = shadowGrad;
             ctx.fillRect(0, this.groundY - 60, CANVAS_WIDTH, 65);
         }
+    }
+
+    renderStage2MountainPassEntrance(ctx, p, baseY) {
+        if (this.stageNumber !== 2) return false;
+
+        const passImg = this.stage2MountainPassImage;
+        if (!passImg || !passImg.complete || passImg.naturalWidth <= 0 || passImg.naturalHeight <= 0) return false;
+
+        const passH = Math.min(CANVAS_HEIGHT * 0.66, baseY + 28);
+        const passW = passH * (passImg.naturalWidth / passImg.naturalHeight);
+        const passStopX = CANVAS_WIDTH - passW + 18;
+        const passWorldX = (this.maxProgress - CANVAS_WIDTH) + passStopX;
+        const passX = passWorldX - p;
+        const passY = baseY - passH + 1;
+        if (passX + passW < -100 || passX > CANVAS_WIDTH + 140) return false;
+
+        const backMountainImg = this.stage2MountainBackImage;
+        if (backMountainImg && backMountainImg.complete && backMountainImg.naturalWidth > 0 && backMountainImg.naturalHeight > 0) {
+            const backH = Math.min(CANVAS_HEIGHT * 0.96, baseY + 160);
+            const backW = backH * (backMountainImg.naturalWidth / backMountainImg.naturalHeight);
+            const backX = passX + passW * 0.5 - backW * 0.5;
+            const backY = baseY - backH + 1;
+
+            ctx.save();
+            ctx.filter = 'brightness(0.58) saturate(0.58) contrast(0.88)';
+            ctx.drawImage(backMountainImg, backX, backY, backW, backH);
+            ctx.filter = 'none';
+            ctx.restore();
+        }
+
+        ctx.save();
+        ctx.filter = 'brightness(0.74) saturate(0.66) contrast(0.9)';
+        ctx.drawImage(passImg, passX, passY, passW, passH);
+        ctx.filter = 'none';
+        ctx.restore();
+        return true;
     }
 
     // ボス部屋の右3/4から画面右端にかけて次ステージへの「出入口」を描画
@@ -2630,7 +2733,11 @@ export class Stage {
                 if (passImg && passImg.complete && passImg.naturalWidth > 0 && passImg.naturalHeight > 0) {
                     const passH = Math.min(CANVAS_HEIGHT * 0.66, bY + 28);
                     const passW = passH * (passImg.naturalWidth / passImg.naturalHeight);
-                    const passX = peekWX(CANVAS_WIDTH - passW + 18);
+                    // stage2のラスト入口は地面と同じワールド座標で置く。
+                    // peekWXを介すと背景レイヤー内の固定演出に見えやすいため、停止時の表示位置からワールドXを直接求める。
+                    const passStopX = CANVAS_WIDTH - passW + 18;
+                    const passWorldX = (this.maxProgress - CANVAS_WIDTH) + passStopX;
+                    const passX = passWorldX - p;
                     const passY = bY - passH + 1;
                     if (passX + passW < -100 || passX > CANVAS_WIDTH + 140) break;
 
@@ -3057,41 +3164,52 @@ export class Stage {
 	    return true;
 	}
 
+    getStage4CastleRampartDrawSpec(startWorldX, endWorldX, baseY) {
+        const width = endWorldX - startWorldX;
+        if (width <= 0) return null;
+
+        const height = 328;
+        const drawY = baseY - height + 5;
+        return {
+            worldX: startWorldX,
+            width,
+            height,
+            drawY,
+            roofY: drawY + 70,
+            sourceXRatio: 0,
+            sourceYRatio: 0.13,
+            sourceWRatio: 1,
+            sourceHRatio: 0.76
+        };
+    }
+
     renderStage4CastleRampart(ctx, image, startWorldX, endWorldX, p, baseY) {
         if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
 
-        const x = startWorldX - p;
-        const width = endWorldX - startWorldX;
-        if (width <= 0 || x + width < -180 || x > CANVAS_WIDTH + 180) return false;
+        const spec = this.getStage4CastleRampartDrawSpec(startWorldX, endWorldX, baseY);
+        if (!spec) return false;
 
-        const sourceX = 0;
-        const sourceY = Math.round(image.naturalHeight * 0.13);
-        const sourceW = Math.round(image.naturalWidth * 0.46);
-        const sourceH = Math.round(image.naturalHeight * 0.76);
-        const drawH = 328;
-        const drawW = drawH * (sourceW / sourceH);
-        const step = drawW - 14;
+        const x = spec.worldX - p;
+        if (x + spec.width < -180 || x > CANVAS_WIDTH + 180) return false;
+
+        const sourceX = Math.round(image.naturalWidth * spec.sourceXRatio);
+        const sourceY = Math.round(image.naturalHeight * spec.sourceYRatio);
+        const sourceW = Math.round(image.naturalWidth * spec.sourceWRatio);
+        const sourceH = Math.round(image.naturalHeight * spec.sourceHRatio);
 
         ctx.save();
-        ctx.beginPath();
-        ctx.rect(x, baseY - drawH - 8, width, drawH + 18);
-        ctx.clip();
         ctx.filter = 'brightness(0.75) saturate(0.68) contrast(0.9)';
-        for (let wx = startWorldX; wx < endWorldX; wx += step) {
-            const drawX = wx - p;
-            if (drawX + drawW < -180 || drawX > CANVAS_WIDTH + 180) continue;
-            ctx.drawImage(
-                image,
-                sourceX,
-                sourceY,
-                sourceW,
-                sourceH,
-                drawX,
-                baseY - drawH + 5,
-                drawW,
-                drawH
-            );
-        }
+        ctx.drawImage(
+            image,
+            sourceX,
+            sourceY,
+            sourceW,
+            sourceH,
+            x,
+            spec.drawY,
+            spec.width,
+            spec.height
+        );
         ctx.filter = 'none';
         ctx.restore();
         return true;
@@ -3100,20 +3218,18 @@ export class Stage {
     renderStage4ApproachFarStrip(ctx, image, startWorldX, endWorldX, p, baseY) {
         if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
 
-        const height = 116;
-        const width = height * (image.naturalWidth / image.naturalHeight);
-        const step = width - 4;
-        for (let wx = startWorldX; wx < endWorldX; wx += step) {
-            const x = wx - p;
-            if (x + width < -160 || x > CANVAS_WIDTH + 160) continue;
+        const span = Math.max(1, endWorldX - startWorldX);
+        const width = Math.min(2180, span);
+        const height = width * (image.naturalHeight / image.naturalWidth);
+        const x = endWorldX - width - p;
+        if (x + width < -180 || x > CANVAS_WIDTH + 180) return false;
 
-            ctx.save();
-            ctx.globalAlpha *= 0.48;
-            ctx.filter = 'brightness(0.52) saturate(0.55) contrast(0.82)';
-            ctx.drawImage(image, x, baseY - height - 112, width, height);
-            ctx.filter = 'none';
-            ctx.restore();
-        }
+        ctx.save();
+        ctx.globalAlpha *= 0.64;
+        ctx.filter = 'brightness(0.54) saturate(0.58) contrast(0.84)';
+        ctx.drawImage(image, x, baseY - height + 8, width, height);
+        ctx.filter = 'none';
+        ctx.restore();
         return true;
     }
 
@@ -3134,58 +3250,22 @@ export class Stage {
     }
 
     renderStage4CastleApproach(ctx, p, baseY) {
-        const wallImage = this.stage4TownImages?.samuraiWall;
-        const gateImage = this.stage4TownImages?.sanmonGate;
-        const towerImage = this.stage4TownImages?.yaguraTower;
-        const castleImage = this.stage4TownImages?.castleEntrance;
-        const farStripImage = this.stage4TownImages?.farStrip;
+        const approachImage = this.stage4TownImages?.castleApproachBuildings;
         const layout = this.getStage4CastleApproachLayout();
         if (!layout) return false;
 
-        const {
-            approachStartX,
-            gateWidth,
-            gateWorldX,
-            rampartStartX,
-            rampartEndX,
-            startTowerX,
-            finalTowerX
-        } = layout;
+        const x = layout.approachWorldX - p;
+        if (!approachImage || !approachImage.complete || approachImage.naturalWidth <= 0 || approachImage.naturalHeight <= 0) return false;
+        const width = layout.approachHeight * (approachImage.naturalWidth / approachImage.naturalHeight);
+        if (x + width < -180 || x > CANVAS_WIDTH + 180) return false;
 
-        this.renderStage4ApproachFarStrip(
-            ctx,
-            farStripImage,
-            approachStartX - 220,
-            rampartEndX + 260,
-            p,
-            baseY
-        );
+        ctx.save();
+        ctx.globalAlpha *= 0.96;
+        ctx.filter = 'brightness(0.82) saturate(0.72) contrast(0.92)';
+        ctx.drawImage(approachImage, x, baseY - layout.approachHeight + 3, width, layout.approachHeight);
+        ctx.filter = 'none';
+        ctx.restore();
 
-        this.renderStage4CastleRampart(ctx, castleImage, rampartStartX, rampartEndX, p, baseY);
-
-        // 町家から城郭へ切り替わる一枚だけの武家屋敷。反復させず、接続役に留める。
-        if (wallImage) {
-            const residenceWidth = 560;
-            const x = approachStartX - 34 - p;
-            if (x + residenceWidth >= -180 && x <= CANVAS_WIDTH + 180) {
-                this.renderStage4TownImageBlock(
-                    ctx, wallImage, x, baseY, residenceWidth, 0.98,
-                    'brightness(0.8) saturate(0.68) contrast(0.9)'
-                );
-            }
-        }
-
-        this.renderStage4ApproachTower(ctx, towerImage, startTowerX, p, baseY, 108, 0.94);
-
-        const gx = gateWorldX - p;
-        if (gateImage && gx + gateWidth >= -180 && gx <= CANVAS_WIDTH + 180) {
-            this.renderStage4TownImageBlock(
-                ctx, gateImage, gx, baseY, gateWidth, 1.0,
-                'brightness(0.8) saturate(0.68) contrast(0.92)'
-            );
-        }
-
-        this.renderStage4ApproachTower(ctx, towerImage, finalTowerX, p, baseY, 116, 0.9);
         return true;
     }
 
@@ -3345,85 +3425,6 @@ export class Stage {
             }
                 
             case 'kaido': {
-                const treeBand = ctx.createLinearGradient(0, this.groundY - 110, 0, this.groundY + 6);
-                treeBand.addColorStop(0, 'rgba(70, 104, 82, 0.04)');
-                treeBand.addColorStop(1, 'rgba(44, 74, 57, 0.2)');
-                ctx.fillStyle = treeBand;
-                ctx.fillRect(0, this.groundY - 110, CANVAS_WIDTH, 130);
-
-                // 地平線の霞（遠景の山裾をぼかして奥行きを補強。地面にはかぶせない）
-                const hazeGrad = ctx.createLinearGradient(0, this.groundY - 30, 0, this.groundY);
-                hazeGrad.addColorStop(0, 'rgba(178,196,212,0)');
-                hazeGrad.addColorStop(1, 'rgba(178,196,212,0.4)');
-                ctx.fillStyle = hazeGrad;
-                ctx.fillRect(0, this.groundY - 30, CANVAS_WIDTH, 30);
-
-                // 遠景の丘陵を追加して奥行きを補強
-                const hillPara = 0.16;
-                const hillSpan = 420;
-                const hillScroll = p * hillPara;
-                const hillStart = Math.floor((hillScroll - hillSpan * 3) / hillSpan);
-                const hillEnd = Math.ceil((hillScroll + CANVAS_WIDTH + hillSpan * 3) / hillSpan);
-                ctx.save();
-                ctx.globalAlpha = 0.26;
-                ctx.fillStyle = this.interpolateColor(currentPalette.far, '#2d3d4b', 0.34);
-                for (let i = hillStart; i <= hillEnd; i++) {
-                    const seed = i * 4.17;
-                    const x = i * hillSpan - hillScroll + this.noiseSigned(seed + 0.7) * 44;
-                    const w = hillSpan * (0.9 + this.noise1D(seed + 1.4) * 0.65);
-                    const h = 72 + this.noise1D(seed + 2.6) * 56;
-                    ctx.beginPath();
-                    ctx.moveTo(x - 42, this.groundY);
-                    ctx.bezierCurveTo(
-                        x + w * 0.18, this.groundY - h * 0.9,
-                        x + w * 0.48, this.groundY - h * 0.72,
-                        x + w * 0.72, this.groundY - h * 0.4
-                    );
-                    ctx.quadraticCurveTo(x + w * 0.9, this.groundY - h * 0.22, x + w + 36, this.groundY);
-                    ctx.closePath();
-                    ctx.fill();
-                }
-                ctx.restore();
-
-                // 遠景の家並み・林のシルエット（丘陵と中景の間／奥行き層）
-                const midPara = 0.26;
-                const midSpan = 240;
-                const midScroll = p * midPara;
-                const midStart = Math.floor((midScroll - midSpan * 2) / midSpan);
-                const midEnd = Math.ceil((midScroll + CANVAS_WIDTH + midSpan * 2) / midSpan);
-                ctx.save();
-                ctx.globalAlpha = 0.42;
-                for (let i = midStart; i <= midEnd; i++) {
-                    const seed = i * 6.71;
-                    if (this.noise1D(seed + 0.3) < 0.32) continue;
-                    const x = i * midSpan - midScroll + this.noiseSigned(seed + 0.6) * 30;
-                    const r = this.noise1D(seed + 1.3);
-                    if (r < 0.5) {
-                        // 遠い家のシルエット（切妻）
-                        const hw = 30 + this.noise1D(seed + 2.1) * 22;
-                        const hh = 20 + this.noise1D(seed + 2.7) * 12;
-                        ctx.fillStyle = this.interpolateColor(currentPalette.mid, '#39495a', 0.42);
-                        ctx.fillRect(x, this.groundY - hh, hw, hh);
-                        ctx.beginPath();
-                        ctx.moveTo(x - 5, this.groundY - hh);
-                        ctx.lineTo(x + hw * 0.5, this.groundY - hh - 13);
-                        ctx.lineTo(x + hw + 5, this.groundY - hh);
-                        ctx.closePath();
-                        ctx.fill();
-                    } else {
-                        // 遠い林（こんもりした塊）
-                        ctx.fillStyle = this.interpolateColor('#4a6450', '#33485a', 0.5);
-                        const cw = 30 + this.noise1D(seed + 3.2) * 24;
-                        ctx.beginPath();
-                        ctx.ellipse(x, this.groundY - cw * 0.32, cw, cw * 0.46, 0, Math.PI, 0);
-                        ctx.fill();
-                        ctx.fillRect(x - cw, this.groundY - cw * 0.32, cw * 2, cw * 0.32);
-                    }
-                }
-                ctx.restore();
-
-                // 道沿いの草は廃止（スクロール時のチラつきが解消できないため）
-
                 const kPara = 0.68;
                 const kCellSize = 310;
                 const kStartIdx = Math.floor((p * kPara - 260) / kCellSize);
@@ -4286,23 +4287,23 @@ export class Stage {
                 const villagePlan = [0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 0, 0, 1, 1, 2, 2];
                 const isImageReady = (image) => image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
                 const stage2RuralPropPlan = [
-                    { key: 'ruralFarmhouse', h: 224, xBias: -12, filter: 'brightness(0.76) saturate(0.72) contrast(0.9)' },
-                    { key: 'ruralShrine', h: 146, xBias: 26, filter: 'brightness(0.72) saturate(0.66) contrast(0.86)' },
-                    { key: 'ruralTeahouse', h: 180, xBias: -8, filter: 'brightness(0.75) saturate(0.7) contrast(0.9)' },
-                    null,
-                    { key: 'ruralShed', h: 158, xBias: 18, filter: 'brightness(0.7) saturate(0.64) contrast(0.88)' },
-                    { key: 'ruralRestHut', h: 190, xBias: -6, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
-                    { key: 'ruralShrine', h: 132, xBias: 36, filter: 'brightness(0.68) saturate(0.62) contrast(0.84)' },
-                    { key: 'ruralFarmhouse', h: 214, xBias: -18, filter: 'brightness(0.74) saturate(0.68) contrast(0.88)' },
-                    null,
-                    { key: 'ruralTeahouse', h: 166, xBias: 18, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
-                    { key: 'ruralShed', h: 148, xBias: -2, filter: 'brightness(0.68) saturate(0.6) contrast(0.86)' },
-                    null
+                    { key: 'ruralFarmhouse', h: 268, xBias: -12, filter: 'brightness(0.76) saturate(0.72) contrast(0.9)' },
+                    { key: 'ruralShrine', h: 154, xBias: 26, filter: 'brightness(0.72) saturate(0.66) contrast(0.86)' },
+                    { key: 'ruralTeahouse', h: 218, xBias: -8, filter: 'brightness(0.75) saturate(0.7) contrast(0.9)' },
+                    { key: 'ruralShed', h: 176, xBias: 22, filter: 'brightness(0.69) saturate(0.63) contrast(0.86)' },
+                    { key: 'ruralShed', h: 190, xBias: 18, filter: 'brightness(0.7) saturate(0.64) contrast(0.88)' },
+                    { key: 'ruralRestHut', h: 230, xBias: -6, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
+                    { key: 'ruralShrine', h: 142, xBias: 36, filter: 'brightness(0.68) saturate(0.62) contrast(0.84)' },
+                    { key: 'ruralFarmhouse', h: 256, xBias: -18, filter: 'brightness(0.74) saturate(0.68) contrast(0.88)' },
+                    { key: 'ruralShrine', h: 132, xBias: -4, filter: 'brightness(0.66) saturate(0.6) contrast(0.84)' },
+                    { key: 'ruralTeahouse', h: 202, xBias: 18, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
+                    { key: 'ruralShed', h: 178, xBias: -2, filter: 'brightness(0.68) saturate(0.6) contrast(0.86)' },
+                    { key: 'ruralRestHut', h: 198, xBias: 30, filter: 'brightness(0.7) saturate(0.62) contrast(0.86)' }
                 ];
                 const ruralImagesReady = stage2RuralPropPlan.some((item) => item && isImageReady(this.stage2PropImages?.[item.key]));
 
                 if (ruralImagesReady) {
-                    const slotSpan = 430;
+                    const slotSpan = 540;
                     const propStart = Math.floor((p * kPara - 640) / slotSpan);
                     const propEnd = Math.ceil((CANVAS_WIDTH + p * kPara + 640) / slotSpan);
                     const propBaseY = this.groundY + 2;
@@ -4315,18 +4316,9 @@ export class Stage {
                         if (worldX > sceneLimit) continue;
 
                         const x = worldX - p * kPara;
-                        if (x < -280 || x > CANVAS_WIDTH + 280) continue;
-                        if (worldX > houseLimit) {
-                            if (this.noise1D(seed + 3.3) > 0.38) {
-                                drawTree(x + 28, propBaseY, seed, 0.76);
-                            }
-                            continue;
-                        }
+                        if (worldX > houseLimit) continue;
 
                         if (!item) {
-                            if (this.noise1D(seed + 2.5) > 0.46) {
-                                drawTree(x + 36, propBaseY, seed, 0.78);
-                            }
                             continue;
                         }
 
@@ -4345,10 +4337,8 @@ export class Stage {
                         ctx.filter = 'none';
                         ctx.restore();
 
-                        if (item.key === 'ruralShrine' && this.noise1D(seed + 4.8) > 0.54) {
-                            drawMichishirube(drawX + width + 28, propBaseY, seed + 1.9);
-                        }
                     }
+                    this.renderStage2MountainPassEntrance(ctx, p, this.groundY);
                     break;
                 }
 
@@ -4377,40 +4367,11 @@ export class Stage {
                         ctx.filter = 'none';
                         ctx.restore();
                     }
+                    this.renderStage2MountainPassEntrance(ctx, p, this.groundY);
                     break;
                 }
 
-                for (let i = kStartIdx; i <= kEndIdx; i++) {
-                    const seed = i * 9.21;
-                    const worldX = i * kCellSize;
-                    const x = worldX - p * kPara + this.noiseSigned(seed + 0.7) * 36;
-                    if (x < -280 || x > CANVAS_WIDTH + 280) continue;
-                    if (worldX > sceneLimit) continue; // ボス部屋手前で添景も打ち切り（山道入口の裏に家・木が入り込まないように）
-                    const y = this.groundY; // 背景は地平線に接地（プレイヤーは手前のgroundY+LANE_OFFSET）
-                    if (i % 2 === 0) {
-                        // 家スロット：計画配列の種を引いて区画ごとにまとめる。houseLimit内は必ず建てる（農家含め全種が確実に出る）
-                        if (worldX < houseLimit) {
-                            const j = i / 2;
-                            const houseType = villagePlan[(((j % villagePlan.length) + villagePlan.length) % villagePlan.length)];
-                            drawKominka(x - 8, y, seed, 1.0, houseType);
-                        } else {
-                            // 集落の外れ：杉並木
-                            if (this.noise1D(seed + 3.3) > 0.4) drawTree(x + 20, y, seed, 0.95);
-                        }
-                    } else {
-                        // 家の間：杉・道標・石灯籠をまばらに（隙間スロットなので家や茶屋の水車に重ならない）。地蔵はごく稀に
-                        const r = this.noise1D(seed + 2.5);
-                        if (r < 0.42) {
-                            drawTree(x + 20, y, seed, 0.95);
-                        } else if (r < 0.56) {
-                            drawMichishirube(x + 30, y, seed);
-                        } else if (r < 0.72) {
-                            drawToro(x + 30, y, seed, 1.0);
-                        } else if (r > 0.94) {
-                            drawJizo(x + 30, y, seed);
-                        }
-                    }
-                }
+                this.renderStage2MountainPassEntrance(ctx, p, this.groundY);
                 break;
             }
 
