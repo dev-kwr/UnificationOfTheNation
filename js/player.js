@@ -22,7 +22,7 @@ import {
     prepareNormalComboFinisherProfile
 } from './normalComboMotion.js';
 import { applyRendererMixin }    from './playerRenderer.js?v=clone-crouch-height-match-20260623';
-import { applySlashTrailMixin }  from './playerSlashTrail.js?v=step5-roof-land-20260630f2';
+import { applySlashTrailMixin }  from './playerSlashTrail.js?v=oonagiC-sori-kenmuji-20260630m2';
 import { applySpecialMixin }     from './playerSpecial.js?v=clone-ground-fix2-20260623';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
 import {
@@ -1954,6 +1954,7 @@ export class Player {
 
         // 障害物の上面・下面の判定（岩に乗れるようにする）
         let supportTopY = null;
+        let landingTop = null; // 足元以下で最も近い(高い)コライダー上面=着地予測面(step5叩きつけ剣筋用, 空中でも更新)
         for (const wall of effectiveColliders) {
             if (!this.isSolidCollider(wall)) continue;
             if (wall.isOneWayPlatform && this.dropThroughPlatformTimer > 0) continue;
@@ -1969,6 +1970,12 @@ export class Player {
             const prevBottom = prevY + this.getWorldHeight();
             const currentTop = this.y;
             const currentBottom = this.y + this.getWorldHeight();
+
+            // 足元以下にあるコライダー上面のうち最も近い(高い)もの=着地予測面。空中(step4上昇→step5叩きつけ)でも更新し、
+            // 発動した下段屋根ではなく実際に着地する面(上段屋根など)で step5 剣筋が収まるようにする。
+            if (wallTop >= currentBottom - 2 && (landingTop === null || wallTop < landingTop)) {
+                landingTop = wallTop;
+            }
 
             // 下から頭をぶつけた場合
             if (!wall.isOneWayPlatform && this.vy < 0 && prevTop >= wallBottom - 2 && currentTop <= wallBottom) {
@@ -1987,7 +1994,12 @@ export class Player {
                 }
             }
         }
-        
+        // step5叩きつけ剣筋の着地面: 足元以下の最も近いコライダー上面(なければステージ地面)。立ち面が変わる
+        // (下段屋根で発動→step4上昇→上段屋根へ着地)ケースでも、実際に着地する面で剣筋の縦の伸びが収まる。
+        this._landingSurfaceY = (landingTop !== null)
+            ? Math.min(landingTop, this.groundY + LANE_OFFSET)
+            : (this.groundY + LANE_OFFSET);
+
         // 大太刀の突き刺し中は、柄にぶら下がる姿勢を維持する
         const hangingOnOdachi = this.isHangingOnOdachi();
 

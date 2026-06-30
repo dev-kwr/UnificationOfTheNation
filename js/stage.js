@@ -130,11 +130,18 @@ export class Stage {
         if (this.stageNumber === 2) {
             this.stage2GroundImage = new Image();
             this.stage2GroundImage.src = 'images/stage2_ground_kaido_tile.png';
+            this.stage2MountainBackImage = new Image();
+            this.stage2MountainBackImage.src = 'images/stage2_mountain_back_wall.png';
             this.stage2MountainPassImage = new Image();
-            this.stage2MountainPassImage.src = 'images/stage2_mountain_pass_entrance.png';
+            this.stage2MountainPassImage.src = 'images/stage2_mountain_pass_wall.png';
             this.stage2PropImages = {};
             const stage2PropPaths = {
-                houseBlock: 'images/stage2_kaido_house_block.png'
+                houseBlock: 'images/stage2_kaido_house_block.png',
+                ruralFarmhouse: 'images/stage2_kaido_farmhouse_front.png',
+                ruralTeahouse: 'images/stage2_rural_teahouse.png',
+                ruralShed: 'images/stage2_rural_shed.png',
+                ruralShrine: 'images/stage2_rural_shrine.png',
+                ruralRestHut: 'images/stage2_rural_rest_hut.png'
             };
             for (const [key, src] of Object.entries(stage2PropPaths)) {
                 const image = new Image();
@@ -175,6 +182,7 @@ export class Stage {
                 sanmonGate: 'images/stage4_town_gate_sanmon.png',
                 yaguraTower: 'images/stage4_town_yagura.png',
                 samuraiWall: 'images/stage4_town_samurai_wall.png',
+                farStrip: 'images/stage4_town_far_strip.png',
                 nagayaBlock: 'images/stage4_town_nagaya.png',
                 yatai: 'images/stage4_town_yatai.png',
                 groundTile: 'images/stage4_ground_stone_tile.png',
@@ -605,12 +613,9 @@ export class Stage {
         const span = 1650;
         const start = Math.floor((leftWorld - 900) / span);
         const end = Math.ceil((rightWorld + 900) / span);
-        const castleImage = this.stage4TownImages?.castleEntrance;
-        const castleH = 620;
-        const castleStopX = -100;
-        const castleWorldX = (this.maxProgress - CANVAS_WIDTH) + castleStopX;
-        const castleMetrics = this.getStage4CastleLowerMetrics(castleImage, castleH);
-        const castleW = castleMetrics ? castleMetrics.width : 0;
+        // 城手前の白壁屋敷の手前で町並みを打ち切る（屋敷ゾーンには町家を描かない／判定も作らない）。
+        // 行の「中心」で判定するので、建物が途中で切れたり継ぎ目に隙間が出たりしない。
+        const approachStartX = this.getStage4CastleApproachStartX();
         const rows = [];
 
         for (let i = start; i <= end; i++) {
@@ -624,7 +629,7 @@ export class Stage {
             const width = height * ratio;
             const worldX = i * span - 36 + this.noiseSigned(seed + 0.7) * 10;
 
-            if (castleW > 0 && worldX + width > castleWorldX - 24) continue;
+            if ((worldX + width * 0.5) > approachStartX) continue;
             if (worldX > rightWorld + 900 || worldX + width < leftWorld - 900) continue;
 
             rows.push({
@@ -641,14 +646,50 @@ export class Stage {
         return rows;
     }
 
+    getStage4CastleWorldX() {
+        return (this.maxProgress - CANVAS_WIDTH) - 100;
+    }
+
+    getStage4CastleApproachLayout() {
+        if (this.stageNumber !== 4) return null;
+
+        const castleWorldX = this.getStage4CastleWorldX();
+        const approachStartX = this.getStage4CastleApproachStartX();
+        const gateWidth = 360;
+        const gateWorldX = approachStartX + 520;
+
+        return {
+            castleWorldX,
+            approachStartX,
+            gateWidth,
+            gateWorldX,
+            rampartStartX: gateWorldX + gateWidth - 18,
+            rampartEndX: castleWorldX + 180,
+            startTowerX: approachStartX + 180,
+            finalTowerX: castleWorldX - 300
+        };
+    }
+
     // 城手前の「白壁武家屋敷の接近路」が始まるワールドX。
-    // ここより右は町並み(platformAlignedRow)を描画クリップし、足場コライダーも除去する。
-    // （武家屋敷は不透明で描き、その上に町家の屋根足場が透けたり宙に立てたりしないようにする）
+    // ここより右は城郭接近路として扱い、町家の屋根足場を持ち込まない。
     getStage4CastleApproachStartX() {
         if (this.stageNumber !== 4) return Infinity;
-        const castleWorldX = (this.maxProgress - CANVAS_WIDTH) - 100; // castleStopX = -100
-        const gateLeft = castleWorldX - 470; // gateWidth = 470
-        return gateLeft - 1320; // 武家屋敷区間の長さ
+        const castleWorldX = this.getStage4CastleWorldX();
+        // 町並み行の「右端」にスナップして返す。
+        // こうすると町家を途中で切らずに済み、接近路の始まりも毎回安定する。
+        const img = this.stage4TownImages?.platformAlignedRow;
+        const ratio = (img && img.naturalWidth > 0 && img.naturalHeight > 0) ? (img.naturalWidth / img.naturalHeight) : 4.826;
+        const rowW = 350 * ratio;
+        const span = 1650;
+        const desired = castleWorldX - 2150;
+        const i = Math.floor((desired + 36 - rowW) / span);
+        return i * span - 36 + rowW; // 行 i の右端
+    }
+
+    // 城前の接近路は背景専用。見える門や櫓を足場にしないことで、
+    // 終盤の敵配置が屋根上に吸われたり、見た目と判定がズレたりするのを避ける。
+    getStage4CastleApproachColliders(leftWorld, rightWorld) {
+        return [];
     }
 
     getStage4RoofColliders(leftWorld, rightWorld) {
@@ -680,10 +721,11 @@ export class Stage {
                 ));
             });
 
-        const approachStartX = this.getStage4CastleApproachStartX();
-        const all = roofColliders.concat(this.getStage4ClimbPlatformColliders(leftWorld, rightWorld));
-        // 接近路ゾーン（白壁屋敷）には足場を置かない＝屋敷上の浮き足場/宙立ちを防ぐ
-        return all.filter((c) => (c.x + c.width * 0.5) < approachStartX);
+        // 町並み(platformAlignedRow)は接近路の手前で打ち切られる（getStage4TownRowsInRangeでクリップ）。
+        // 城前の接近路は背景専用なので、足場はここで増やさない。
+        return roofColliders
+            .concat(this.getStage4ClimbPlatformColliders(leftWorld, rightWorld))
+            .concat(this.getStage4CastleApproachColliders(leftWorld, rightWorld));
     }
 
     getStage4ClimbPlatformColliders(leftWorld, rightWorld) {
@@ -728,9 +770,7 @@ export class Stage {
             }).filter(Boolean))
             .filter((platform) => (
                 platform.x + platform.width >= leftWorld &&
-                platform.x <= rightWorld &&
-                // 接近路ゾーン（白壁屋敷）には登り台を置かない（描画・判定とも）
-                (platform.x + platform.width * 0.5) < this.getStage4CastleApproachStartX()
+                platform.x <= rightWorld
             ));
     }
 
@@ -2586,15 +2626,29 @@ export class Stage {
                 const bY = gY; // 地平線基準（他ステージ共通の奥行き）
                 const ax = peekAnchorX; // 入口の基準スクリーンx。scrollXに追従して右から流れ込む
                 const passImg = this.stage2MountainPassImage;
+                const backMountainImg = this.stage2MountainBackImage;
                 if (passImg && passImg.complete && passImg.naturalWidth > 0 && passImg.naturalHeight > 0) {
-                    const passH = 288;
+                    const passH = Math.min(CANVAS_HEIGHT * 0.66, bY + 28);
                     const passW = passH * (passImg.naturalWidth / passImg.naturalHeight);
                     const passX = peekWX(CANVAS_WIDTH - passW + 18);
-                    const passY = bY - passH + 6;
+                    const passY = bY - passH + 1;
                     if (passX + passW < -100 || passX > CANVAS_WIDTH + 140) break;
 
+                    if (backMountainImg && backMountainImg.complete && backMountainImg.naturalWidth > 0 && backMountainImg.naturalHeight > 0) {
+                        const backH = Math.min(CANVAS_HEIGHT * 0.82, bY + 70);
+                        const backW = backH * (backMountainImg.naturalWidth / backMountainImg.naturalHeight);
+                        const backX = passX + passW * 0.5 - backW * 0.5;
+                        const backY = bY - backH + 1;
+
+                        ctx.save();
+                        ctx.filter = 'brightness(0.58) saturate(0.58) contrast(0.88)';
+                        ctx.drawImage(backMountainImg, backX, backY, backW, backH);
+                        ctx.filter = 'none';
+                        ctx.restore();
+                    }
+
                     ctx.save();
-                    ctx.filter = 'brightness(0.78) saturate(0.68) contrast(0.9)';
+                    ctx.filter = 'brightness(0.74) saturate(0.66) contrast(0.9)';
                     ctx.drawImage(passImg, passX, passY, passW, passH);
                     ctx.filter = 'none';
                     ctx.restore();
@@ -3003,41 +3057,136 @@ export class Stage {
 	    return true;
 	}
 
-    renderStage4CastleApproach(ctx, castleWorldX, p, baseY) {
+    renderStage4CastleRampart(ctx, image, startWorldX, endWorldX, p, baseY) {
+        if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
+
+        const x = startWorldX - p;
+        const width = endWorldX - startWorldX;
+        if (width <= 0 || x + width < -180 || x > CANVAS_WIDTH + 180) return false;
+
+        const sourceX = 0;
+        const sourceY = Math.round(image.naturalHeight * 0.13);
+        const sourceW = Math.round(image.naturalWidth * 0.46);
+        const sourceH = Math.round(image.naturalHeight * 0.76);
+        const drawH = 328;
+        const drawW = drawH * (sourceW / sourceH);
+        const step = drawW - 14;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, baseY - drawH - 8, width, drawH + 18);
+        ctx.clip();
+        ctx.filter = 'brightness(0.75) saturate(0.68) contrast(0.9)';
+        for (let wx = startWorldX; wx < endWorldX; wx += step) {
+            const drawX = wx - p;
+            if (drawX + drawW < -180 || drawX > CANVAS_WIDTH + 180) continue;
+            ctx.drawImage(
+                image,
+                sourceX,
+                sourceY,
+                sourceW,
+                sourceH,
+                drawX,
+                baseY - drawH + 5,
+                drawW,
+                drawH
+            );
+        }
+        ctx.filter = 'none';
+        ctx.restore();
+        return true;
+    }
+
+    renderStage4ApproachFarStrip(ctx, image, startWorldX, endWorldX, p, baseY) {
+        if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
+
+        const height = 116;
+        const width = height * (image.naturalWidth / image.naturalHeight);
+        const step = width - 4;
+        for (let wx = startWorldX; wx < endWorldX; wx += step) {
+            const x = wx - p;
+            if (x + width < -160 || x > CANVAS_WIDTH + 160) continue;
+
+            ctx.save();
+            ctx.globalAlpha *= 0.48;
+            ctx.filter = 'brightness(0.52) saturate(0.55) contrast(0.82)';
+            ctx.drawImage(image, x, baseY - height - 112, width, height);
+            ctx.filter = 'none';
+            ctx.restore();
+        }
+        return true;
+    }
+
+    renderStage4ApproachTower(ctx, image, worldX, p, baseY, width, alpha = 1) {
+        if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
+
+        const height = width * (image.naturalHeight / image.naturalWidth);
+        const x = worldX - p;
+        if (x + width < -140 || x > CANVAS_WIDTH + 140) return false;
+
+        ctx.save();
+        ctx.globalAlpha *= alpha;
+        ctx.filter = 'brightness(0.78) saturate(0.68) contrast(0.9)';
+        ctx.drawImage(image, x, baseY - height + 4, width, height);
+        ctx.filter = 'none';
+        ctx.restore();
+        return true;
+    }
+
+    renderStage4CastleApproach(ctx, p, baseY) {
         const wallImage = this.stage4TownImages?.samuraiWall;
         const gateImage = this.stage4TownImages?.sanmonGate;
+        const towerImage = this.stage4TownImages?.yaguraTower;
+        const castleImage = this.stage4TownImages?.castleEntrance;
+        const farStripImage = this.stage4TownImages?.farStrip;
+        const layout = this.getStage4CastleApproachLayout();
+        if (!layout) return false;
 
-        // 大手門は天守の直前（右端＝castleWorldX）に単独で立てる。
-        // 塀は門の「左側」だけに連続させ、門の真後ろには重ねない。
-        // （以前は門の背後に塀が重なり、塀の灯籠が開口部の中央に被って不自然だった）
-        const gateWidth = 470;
-        const gateLeft = castleWorldX - gateWidth;
-        const approachStartX = this.getStage4CastleApproachStartX();
+        const {
+            approachStartX,
+            gateWidth,
+            gateWorldX,
+            rampartStartX,
+            rampartEndX,
+            startTowerX,
+            finalTowerX
+        } = layout;
 
-        // 白壁の武家屋敷を「不透明」でタイリングして接近路を埋める。
-        // 町並みは approachStartX で描画クリップ済みなので背後に透けない。
-        // 屋敷は半端な alpha にしない（松や白壁が透けないように 1.0）。
+        this.renderStage4ApproachFarStrip(
+            ctx,
+            farStripImage,
+            approachStartX - 220,
+            rampartEndX + 260,
+            p,
+            baseY
+        );
+
+        this.renderStage4CastleRampart(ctx, castleImage, rampartStartX, rampartEndX, p, baseY);
+
+        // 町家から城郭へ切り替わる一枚だけの武家屋敷。反復させず、接続役に留める。
         if (wallImage) {
-            const resW = 680; // 1枚の表示幅（高さ≈291）
-            const step = resW - 10; // 10px重ねて継ぎ目を消す
-            for (let wx = approachStartX; wx < gateLeft - 6; wx += step) {
-                const x = wx - p;
-                if (x + resW < -180 || x > CANVAS_WIDTH + 180) continue;
+            const residenceWidth = 560;
+            const x = approachStartX - 34 - p;
+            if (x + residenceWidth >= -180 && x <= CANVAS_WIDTH + 180) {
                 this.renderStage4TownImageBlock(
-                    ctx, wallImage, x, baseY, resW, 1.0,
-                    'brightness(0.82) saturate(0.72) contrast(0.92)'
+                    ctx, wallImage, x, baseY, residenceWidth, 0.98,
+                    'brightness(0.8) saturate(0.68) contrast(0.9)'
                 );
             }
         }
 
-        // 大手門（最前面。天守は門の右隣にそびえる）
-        const gx = gateLeft - p;
+        this.renderStage4ApproachTower(ctx, towerImage, startTowerX, p, baseY, 108, 0.94);
+
+        const gx = gateWorldX - p;
         if (gateImage && gx + gateWidth >= -180 && gx <= CANVAS_WIDTH + 180) {
             this.renderStage4TownImageBlock(
                 ctx, gateImage, gx, baseY, gateWidth, 1.0,
-                'brightness(0.82) saturate(0.7) contrast(0.94)'
+                'brightness(0.8) saturate(0.68) contrast(0.92)'
             );
         }
+
+        this.renderStage4ApproachTower(ctx, towerImage, finalTowerX, p, baseY, 116, 0.9);
+        return true;
     }
 
 	renderStageElements(ctx, currentPalette) {
@@ -4129,15 +4278,81 @@ export class Stage {
                     ctx.restore();
                 };
 
-                // ── 街道の集落配置：区画ごとに同種の家をまとめ、区画サイズを不揃いにして単調さを避ける。
-                //    家スロット(偶数i, j=i/2)ごとの建物タイプ計画。0=農家 1=旅籠 2=山家 3=茶屋。
-                //    茅葺き農家(0)は序盤(j0-2)と中盤以降(j10-11)の2区画に必ず置き、本編中に確実に登場させる。 ──
-                // 家はボス部屋(山道入口)に残らないよう手前で打ち切る。その先は杉のフリンジだけ少し置き、ボス部屋中央は開けて山道入口を遮らない
+                // ── 街道の集落配置：田舎道として城下町(stage4)と差別化する。
+                //    瓦屋根の長屋ではなく、茅葺き・板葺き・小社・農具小屋を不規則に置く。
+                //    家はボス部屋(山道入口)に残らないよう手前で打ち切る。
                 const houseLimit = (this.maxProgress - CANVAS_WIDTH) * kPara - 200;
                 const sceneLimit = houseLimit + 420;
                 const villagePlan = [0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 0, 0, 1, 1, 2, 2];
-                const stage2HouseBlock = this.stage2PropImages?.houseBlock;
                 const isImageReady = (image) => image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
+                const stage2RuralPropPlan = [
+                    { key: 'ruralFarmhouse', h: 224, xBias: -12, filter: 'brightness(0.76) saturate(0.72) contrast(0.9)' },
+                    { key: 'ruralShrine', h: 146, xBias: 26, filter: 'brightness(0.72) saturate(0.66) contrast(0.86)' },
+                    { key: 'ruralTeahouse', h: 180, xBias: -8, filter: 'brightness(0.75) saturate(0.7) contrast(0.9)' },
+                    null,
+                    { key: 'ruralShed', h: 158, xBias: 18, filter: 'brightness(0.7) saturate(0.64) contrast(0.88)' },
+                    { key: 'ruralRestHut', h: 190, xBias: -6, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
+                    { key: 'ruralShrine', h: 132, xBias: 36, filter: 'brightness(0.68) saturate(0.62) contrast(0.84)' },
+                    { key: 'ruralFarmhouse', h: 214, xBias: -18, filter: 'brightness(0.74) saturate(0.68) contrast(0.88)' },
+                    null,
+                    { key: 'ruralTeahouse', h: 166, xBias: 18, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
+                    { key: 'ruralShed', h: 148, xBias: -2, filter: 'brightness(0.68) saturate(0.6) contrast(0.86)' },
+                    null
+                ];
+                const ruralImagesReady = stage2RuralPropPlan.some((item) => item && isImageReady(this.stage2PropImages?.[item.key]));
+
+                if (ruralImagesReady) {
+                    const slotSpan = 430;
+                    const propStart = Math.floor((p * kPara - 640) / slotSpan);
+                    const propEnd = Math.ceil((CANVAS_WIDTH + p * kPara + 640) / slotSpan);
+                    const propBaseY = this.groundY + 2;
+
+                    for (let i = propStart; i <= propEnd; i++) {
+                        const seed = i * 8.37;
+                        const planIndex = (((i % stage2RuralPropPlan.length) + stage2RuralPropPlan.length) % stage2RuralPropPlan.length);
+                        const item = stage2RuralPropPlan[planIndex];
+                        const worldX = i * slotSpan + this.noiseSigned(seed + 0.4) * 42;
+                        if (worldX > sceneLimit) continue;
+
+                        const x = worldX - p * kPara;
+                        if (x < -280 || x > CANVAS_WIDTH + 280) continue;
+                        if (worldX > houseLimit) {
+                            if (this.noise1D(seed + 3.3) > 0.38) {
+                                drawTree(x + 28, propBaseY, seed, 0.76);
+                            }
+                            continue;
+                        }
+
+                        if (!item) {
+                            if (this.noise1D(seed + 2.5) > 0.46) {
+                                drawTree(x + 36, propBaseY, seed, 0.78);
+                            }
+                            continue;
+                        }
+
+                        const image = this.stage2PropImages?.[item.key];
+                        if (!isImageReady(image)) continue;
+
+                        const scaleJitter = 0.94 + this.noise1D(seed + 2.7) * 0.12;
+                        const height = item.h * scaleJitter;
+                        const width = height * (image.naturalWidth / image.naturalHeight);
+                        const drawX = x + item.xBias + this.noiseSigned(seed + 3.1) * 18;
+                        if (drawX + width < -180 || drawX > CANVAS_WIDTH + 180) continue;
+
+                        ctx.save();
+                        ctx.filter = item.filter;
+                        ctx.drawImage(image, drawX, propBaseY - height + 3, width, height);
+                        ctx.filter = 'none';
+                        ctx.restore();
+
+                        if (item.key === 'ruralShrine' && this.noise1D(seed + 4.8) > 0.54) {
+                            drawMichishirube(drawX + width + 28, propBaseY, seed + 1.9);
+                        }
+                    }
+                    break;
+                }
+
+                const stage2HouseBlock = this.stage2PropImages?.houseBlock;
                 const stage2ImagePropsReady = isImageReady(stage2HouseBlock);
 
                 if (stage2ImagePropsReady) {
@@ -4316,16 +4531,11 @@ export class Stage {
                 // ───────── 中景：分割した町並み画像を密に並べる ─────────
                 const castleImage = this.stage4TownImages?.castleEntrance;
                 const castleH = 620;
-                const castleStopX = -100;
-                const castleWorldX = (this.maxProgress - CANVAS_WIDTH) + castleStopX;
+                const castleWorldX = this.getStage4CastleWorldX();
                 const castleX = castleWorldX - p;
+                // 町並みは getStage4TownRowsInRange 側で接近路の手前までに打ち切られている
+                // （行中心で判定＝建物を途中で切らない）。ここではクリップ矩形は使わない。
                 const townRows = this.getStage4TownRowsInRange(p - 900, p + CANVAS_WIDTH + 900);
-                // 城手前の白壁屋敷より右には町並みを描かない（屋敷の背後に町家が透ける/食み出すのを防ぐ）。
-                const approachStartScreenX = this.getStage4CastleApproachStartX() - p;
-                ctx.save();
-                ctx.beginPath();
-                ctx.rect(0, -400, Math.max(0, approachStartScreenX), CANVAS_HEIGHT + 800);
-                ctx.clip();
                 for (const row of townRows) {
                     const x = row.worldX - p;
                     if (x + row.width < -900 || x > CANVAS_WIDTH + 900) continue;
@@ -4339,9 +4549,8 @@ export class Stage {
                         'brightness(0.82) saturate(0.72) contrast(0.92)'
                     );
                 }
-                ctx.restore();
 
-                this.renderStage4CastleApproach(ctx, castleWorldX, p, this.groundY - 2);
+                this.renderStage4CastleApproach(ctx, p, this.groundY - 2);
                 this.renderStage4CastleLower(ctx, castleImage, castleX, this.groundY - 2, castleH);
 
                 // ───────── 手前：石畳の濡れた照り返し（near, 速いパララックス） ─────────
