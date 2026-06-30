@@ -187,7 +187,7 @@ export class Stage {
                 yatai: 'images/stage4_town_yatai.png',
                 groundTile: 'images/stage4_ground_stone_tile.png',
                 castleEntrance: 'images/stage4_castle_lower_wide.png',
-                castleApproachBuildings: 'images/stage4_castle_approach_town_roofs.png',
+                castleApproachDistrict: 'images/stage4_castle_approach_district.png',
                 climbPropCrates: 'images/stage4_climb_prop_crates.png',
                 climbPropHandcart: 'images/stage4_climb_prop_handcart.png',
                 climbPropBench: 'images/stage4_climb_prop_bench.png',
@@ -657,17 +657,19 @@ export class Stage {
         const castleWorldX = this.getStage4CastleWorldX();
         const approachStartX = this.getStage4CastleApproachStartX();
         const approachWorldX = approachStartX + 8;
-        const approachHeight = 350;
+        const approachHeight = 380;
+        const approachWidth = Math.max(0, castleWorldX - approachWorldX - 64);
 
         return {
             castleWorldX,
             approachStartX,
             approachWorldX,
-            approachHeight
+            approachHeight,
+            approachWidth
         };
     }
 
-    // 城手前の「町家屋根の接近路」が始まるワールドX。
+    // 城手前の「町家列から武家屋敷区画へ切り替わる地点」のワールドX。
     // ここより右は城郭接近路として扱い、町家の屋根足場を持ち込まない。
     getStage4CastleApproachStartX() {
         if (this.stageNumber !== 4) return Infinity;
@@ -707,32 +709,22 @@ export class Stage {
             });
         };
 
-        const approachImage = this.stage4TownImages?.castleApproachBuildings;
-        const sourceW = (approachImage && approachImage.naturalWidth > 0) ? approachImage.naturalWidth : 3000;
-        const sourceH = (approachImage && approachImage.naturalHeight > 0) ? approachImage.naturalHeight : 445;
+        const approachImage = this.stage4TownImages?.castleApproachDistrict;
+        const sourceW = (approachImage && approachImage.naturalWidth > 0) ? approachImage.naturalWidth : 1969;
+        const sourceH = (approachImage && approachImage.naturalHeight > 0) ? approachImage.naturalHeight : 432;
         const drawH = layout.approachHeight;
-        const drawW = drawH * (sourceW / sourceH);
+        const drawW = layout.approachWidth || drawH * (sourceW / sourceH);
         const drawY = baseY - drawH + 3;
         const sx = drawW / sourceW;
         const sy = drawH / sourceH;
-        const basePlatforms = this.getStage4TownRowSpecs()[0]?.platforms || [];
-        const extensionX = 2088;
-        const extensionSourceEnd = Math.max(0, sourceW - extensionX);
         const approachPlatforms = [
-            ...basePlatforms.map((platform) => ({
-                ...platform,
-                kind: `approach-base-${platform.level}-${Math.round(platform.x1)}`
-            })),
-            ...basePlatforms
-                .filter((platform) => platform.x1 < extensionSourceEnd && platform.x2 > 0)
-                .map((platform) => ({
-                    level: platform.level,
-                    x1: extensionX + Math.max(0, platform.x1),
-                    x2: extensionX + Math.min(extensionSourceEnd, platform.x2),
-                    y: platform.y,
-                    kind: `approach-extension-${platform.level}-${Math.round(platform.x1)}`
-                }))
-                .filter((platform) => platform.x2 - platform.x1 >= 44)
+            { level: 2, x1: 0, x2: 715, y: 42, kind: 'approach-nagaya-upper-roof' },
+            { level: 1, x1: 0, x2: 728, y: 214, kind: 'approach-nagaya-lower-roof' },
+            { level: 1, x1: 706, x2: 922, y: 252, kind: 'approach-left-wall-roof' },
+            { level: 2, x1: 910, x2: 1204, y: 166, kind: 'approach-gate-main-roof' },
+            { level: 1, x1: 1200, x2: 1402, y: 254, kind: 'approach-right-wall-roof' },
+            { level: 2, x1: 1426, x2: 1492, y: 198, kind: 'approach-watch-roof' },
+            { level: 1, x1: 1376, x2: 1568, y: 286, kind: 'approach-outer-wall-roof' }
         ];
 
         for (const platform of approachPlatforms) {
@@ -781,7 +773,7 @@ export class Stage {
             });
 
         // 町並み(platformAlignedRow)は接近路の手前で打ち切られる（getStage4TownRowsInRangeでクリップ）。
-        // 城前の接近路は背景専用なので、足場はここで増やさない。
+        // 城前の接近路は新規の武家屋敷区画画像だけに合わせて、瓦屋根上の足場を足す。
         return roofColliders
             .concat(this.getStage4ClimbPlatformColliders(leftWorld, rightWorld))
             .concat(this.getStage4CastleApproachColliders(leftWorld, rightWorld));
@@ -3250,13 +3242,13 @@ export class Stage {
     }
 
     renderStage4CastleApproach(ctx, p, baseY) {
-        const approachImage = this.stage4TownImages?.castleApproachBuildings;
+        const approachImage = this.stage4TownImages?.castleApproachDistrict;
         const layout = this.getStage4CastleApproachLayout();
         if (!layout) return false;
 
         const x = layout.approachWorldX - p;
         if (!approachImage || !approachImage.complete || approachImage.naturalWidth <= 0 || approachImage.naturalHeight <= 0) return false;
-        const width = layout.approachHeight * (approachImage.naturalWidth / approachImage.naturalHeight);
+        const width = layout.approachWidth || layout.approachHeight * (approachImage.naturalWidth / approachImage.naturalHeight);
         if (x + width < -180 || x > CANVAS_WIDTH + 180) return false;
 
         ctx.save();
