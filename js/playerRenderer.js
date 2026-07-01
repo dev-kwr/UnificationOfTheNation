@@ -171,130 +171,67 @@ export function applyRendererMixin(PlayerClass) {
             // (待機中も巨大刃を構える=ユーザー要望)。刀のローカル座標系で反り(getArcY)を前方リーチぶん延長し、
             // 太い発光ブレード(オーラ→本体→明るい芯)を通常刀身の背後に描く。通常刀身は鋭い芯として手前に残す。
             // 二刀は各刀でこの関数が呼ばれるので両刀が巨大光刃化する。lighten 合成・描画専用=判定不変。
-            if (drawBlade && typeof this.isXAttackBoostActive === 'function' && this.isXAttackBoostActive()) {
-                // ===== 大薙: 電光薙(HIGH-VOLTAGE ENERGY KATANA) =====
-                // 形状: 実刀の反り(getArcY同式)を lengthScale 倍に延長した SLIM な光刃(刀を覆う)。
-                // 生命感: 滑らかなsine明滅は廃止。落ち着いた明るい芯 + 刃に沿って走る稀なジグザグ電弧。
-                //         明滅は「電弧の張り替え(バケット)に同期した鋭い白フラッシュ」=弾ける瞬間だけ増光。
-                const lengthScale = 1.85;            // 長さ(刀の何倍まで伸ばすか)
+            const oonagiBladeActive = drawBlade && typeof this.isXAttackBoostActive === 'function' && this.isXAttackBoostActive();
+            if (oonagiBladeActive) {
+                // ===== 大薙: ライトセーバー風(淡く発光を繰り返す) =====
+                // シルエット(巨刀の形状)は現状のまま。グラフィックはリセット: 白熱の芯→青いブレード→青い外グロー
+                // の同心塗りだけで構成し、全体がゆっくり淡く明滅(呼吸)する。リム/さざ波/フレネル/色ドリフトは撤去。
+                // ぼかしは外グロー1パスのみ=非常に軽量。
+                const lengthScale = 1.8;             // 長さ(刀の何倍まで伸ばすか)
                 const gBl = (bladeEnd - bladeStart) * lengthScale;
                 const gTX = (t) => bladeStart + gBl * t;
-                const gArcY = (t) => -(Math.pow(t * lengthScale, 1.8) * (bl * 0.18)) + 0.06; // 実刀 getArcY に一致(覆う)
-                // SLIM: 旧 widthScale 9.0 → 3.4。木の葉(レンズ)状プロファイルで細身の片刃刀に。
-                const gHalf = whiteHalf * 3.4;
-                const gHalfW = (t) => {
-                    const root = Math.min(1, t / 0.05);                                  // 柄側で素早く立ち上げ
-                    const tip = Math.pow(Math.min(1, (1 - t) / 0.22), 0.85);             // 切先へ鋭く先細り
-                    const belly = 0.72 + 0.28 * Math.sin(Math.min(1, t * 1.15) * Math.PI); // 中央やや膨らみ
-                    return gHalf * root * tip * belly;
-                };
+                const gArcY = (t) => -(Math.pow(t * lengthScale, 1.8) * (bl * 0.18)) + 0.06; // 実刀の反りに一致(覆う)
                 const SEGg = 44;
                 const _now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
-                const dt = 1 / SEGg;
-                const tangentAt = (t) => {
-                    const ta = Math.max(0, t - dt), tb = Math.min(1, t + dt);
-                    const dx = gTX(tb) - gTX(ta), dy = gArcY(tb) - gArcY(ta);
-                    const len = Math.hypot(dx, dy) || 1;
-                    return { tx: dx / len, ty: dy / len };
+                // SLIM 幅プロファイル。根本(t=0=柄接続点)は「すぼめない」=通常刀同様のフル幅で始め、
+                // 切先へ向けて緩やかに細くなり、先端付近だけ鋭く絞る(点に収束)。旧 ramp(t/0.05)は根本を0に絞る→廃止。
+                const gHalf = whiteHalf * 3.4;
+                const gHalfW = (t) => {
+                    const body = 1 - 0.35 * t;                               // 全体に緩く細く(根本1.0→切先側0.65)
+                    const tip  = Math.pow(Math.min(1, (1 - t) / 0.16), 0.8); // 先端付近だけ鋭く絞る
+                    return gHalf * body * tip;
                 };
                 const traceSilhouetteW = (wf) => {
                     ctx.beginPath();
-                    for (let i = 0; i <= SEGg; i++) { const t = i / SEGg; ctx.lineTo(gTX(t), gArcY(t) - gHalfW(t) * wf); }
+                    for (let i = 0; i <= SEGg; i++) { const t = i / SEGg; const x = gTX(t), y = gArcY(t) - gHalfW(t) * wf; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
                     for (let i = SEGg; i >= 0; i--) { const t = i / SEGg; ctx.lineTo(gTX(t), gArcY(t) + gHalfW(t) * wf); }
                     ctx.closePath();
                 };
-                const traceCenter = () => {
-                    ctx.beginPath();
-                    for (let i = 0; i <= SEGg; i++) { const t = i / SEGg; ctx.lineTo(gTX(t), gArcY(t)); }
-                };
-                // 決定的擬似乱数(時間バケット種): 毎フレームのランダムちらつきでなく一定間隔で「張り替わる」電弧。
-                const hash = (n) => { const s = Math.sin(n * 12.9898) * 43758.5453; return s - Math.floor(s); };
+                // 【呼吸アニメーション】ゆっくり滑らかに膨らんで萎む(周期~3.9s)。追加描画なし=負荷増ゼロ。
+                // breath 0..1(cosで滑らかな in-out)。グローは大きく呼吸(明るさ/ぼかし/広がりが一緒に膨縮=はっきり呼吸に見える)。
+                // 芯・本体も緩やかに連動して明滅。位相をわずかにずらして「吸って吐く」有機的な間を出す。
+                const breath  = 0.5 - 0.5 * Math.cos(_now * 0.0046);           // 0..1, ~1.4s(スパン短め=分かりやすい)
+                const breath2 = 0.5 - 0.5 * Math.cos(_now * 0.0046 - 0.6);     // グローは少し先行
 
                 ctx.save();
                 ctx.globalCompositeOperation = 'lighten';
                 ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
-                // (A) 刃本体: 落ち着いた定常エネルギー(明滅させない=premium)。±6%の微呼吸のみ。
-                const breath = 0.94 + 0.06 * Math.sin(_now * 0.0016);
-                ctx.shadowColor = 'rgba(120,214,255,0.6)';
-                ctx.shadowBlur = 20;
-                ctx.fillStyle = 'rgba(96,196,255,' + (0.11 * breath) + ')';
+                // (1) 外グロー(色・ぼかし1パス): 呼吸で 明るさ・ぼかし半径・広がり が一緒に膨縮する光暈。
+                // ピーク時の発光範囲(最大値)を拡大: ぼかし半径 max42・シルエット幅 max1.62 まで広げる。
+                ctx.shadowColor = 'rgba(96,176,255,' + (0.26 + 0.56 * breath2) + ')';
+                ctx.shadowBlur = 12 + 30 * breath2;                          // 12..42(呼吸ピークで大きく発光)
+                ctx.fillStyle = 'rgba(64,146,255,' + (0.09 + 0.26 * breath2) + ')';
+                traceSilhouetteW(1.15 + 0.47 * breath2); ctx.fill();          // wf 1.15..1.62(ピークで外へ大きく広がる)
+                ctx.shadowBlur = 0;
+
+                // (2) ブレード本体(青・ぼかし無し): 緩やかに連動
+                ctx.fillStyle = 'rgba(118,192,255,' + (0.34 + 0.16 * breath) + ')';
                 traceSilhouetteW(1.0); ctx.fill();
-                ctx.shadowBlur = 0;
-                // 幅方向グラデ: 縁=淡青 → 芯=白熱(細身でも内側発光が分かる同心3層)。外層は控えめ=電弧が映える。
-                ctx.fillStyle = 'rgba(120,210,255,' + (0.18 * breath) + ')'; traceSilhouetteW(1.0); ctx.fill();
-                ctx.fillStyle = 'rgba(168,232,255,' + (0.30 * breath) + ')'; traceSilhouetteW(0.58); ctx.fill();
-                ctx.fillStyle = 'rgba(232,250,255,' + (0.40 * breath) + ')'; traceSilhouetteW(0.26); ctx.fill();
-                // 白熱の芯(細い・定常)
-                ctx.shadowColor = 'rgba(214,244,255,0.85)';
-                ctx.shadowBlur = 8;
-                ctx.strokeStyle = 'rgba(244,252,255,0.82)';
-                ctx.lineWidth = Math.max(1.4, gHalf * 0.34);
-                traceCenter(); ctx.stroke();
-                ctx.shadowBlur = 0;
 
-                // (B) 電弧フィラメント: 刃に沿って走る稀なジグザグ。数フレームで張り替わる。1〜3本・細身・additive。
-                const BUCKET_MS = 90;
-                const bucket = Math.floor(_now / BUCKET_MS);
-                const NODES = 9;
-                const nArcs = 1 + (hash(bucket * 7.1) < 0.30 ? 1 : 0) + (hash(bucket * 3.7) < 0.12 ? 1 : 0);
-                const drawFilament = (seed, t0, t1, amp, lw, coreAlpha, glowAlpha) => {
-                    const pts = [];
-                    for (let k = 0; k <= NODES; k++) {
-                        const f = k / NODES;
-                        const t = t0 + (t1 - t0) * f;
-                        const cx = gTX(t), cy = gArcY(t);
-                        const { tx, ty } = tangentAt(t);
-                        const env = Math.sin(f * Math.PI);                // 端は中心へ収束(刃から浮かない)
-                        const r = hash(seed + k * 1.37 + bucket * 0.013);
-                        const r2 = hash(seed + k * 2.71 + bucket * 0.019);
-                        const sign = (r2 < 0.78) ? 1 : -1;                // 大半は片側へ=刃から跳ねる稲妻
-                        const off = sign * amp * env * (0.35 + 0.65 * r); // 中ほどで刃の外へ突き出す
-                        pts.push({ x: cx - ty * off, y: cy + tx * off }); // 法線方向(-ty, tx)
-                    }
-                    ctx.shadowColor = 'rgba(150,224,255,' + glowAlpha + ')';
-                    ctx.shadowBlur = 9;
-                    ctx.strokeStyle = 'rgba(176,232,255,' + glowAlpha + ')';
-                    ctx.lineWidth = lw + 1.4;
-                    ctx.beginPath();
-                    for (let k = 0; k <= NODES; k++) { const p = pts[k]; if (k === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }
-                    ctx.stroke();
-                    ctx.shadowBlur = 0;
-                    ctx.strokeStyle = 'rgba(248,253,255,' + coreAlpha + ')';
-                    ctx.lineWidth = lw;
-                    ctx.beginPath();
-                    for (let k = 0; k <= NODES; k++) { const p = pts[k]; if (k === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }
-                    ctx.stroke();
-                };
-                const arcAmp = gHalf * 2.4;                             // 刃幅を明確に越えて外へ跳ねる(暗背景に映え=視認性)
-                for (let a = 0; a < nArcs; a++) {
-                    const seed = bucket * 13.0 + a * 101.3;
-                    const s = 0.06 + 0.5 * hash(seed + 0.5);
-                    const span = 0.28 + 0.34 * hash(seed + 1.5);
-                    const t0 = s, t1 = Math.min(0.98, s + span);
-                    const phase = (_now - bucket * BUCKET_MS) / BUCKET_MS; // 0..1
-                    const life = Math.pow(1 - phase, 1.2);                 // 減衰(スパーク感だが視認できる程度に持続)
-                    if (life < 0.05) continue;
-                    const amp = arcAmp * (0.6 + 0.4 * hash(seed + 2.5));
-                    drawFilament(seed, t0, t1, amp, Math.max(1.6, gHalf * 0.2), 1.0 * life, 0.8 * life);
-                }
+                // (3) 白熱の芯(白に近い・少し細い): 呼吸で明るさが上下(常に明るめ)
+                ctx.fillStyle = 'rgba(220,238,255,' + (0.62 + 0.22 * breath) + ')';
+                traceSilhouetteW(0.55); ctx.fill();
 
-                // (C) フラッシュ: 電弧の立ち上がり(各バケット冒頭)に同期した鋭い白閃光=sine明滅の置換。
-                const phase0 = (_now - bucket * BUCKET_MS) / BUCKET_MS;
-                const flash = Math.pow(1 - Math.min(1, phase0 / 0.45), 2.2);
-                const flashGate = 0.45 + 0.55 * hash(bucket * 5.3);
-                if (flash * flashGate > 0.06) {
-                    const fa = flash * flashGate;
-                    ctx.shadowColor = 'rgba(226,246,255,' + (0.9 * fa) + ')';
-                    ctx.shadowBlur = 12;
-                    ctx.strokeStyle = 'rgba(255,255,255,' + (0.55 * fa) + ')';
-                    ctx.lineWidth = Math.max(1.6, gHalf * 0.40);
-                    traceCenter(); ctx.stroke();
-                    ctx.shadowBlur = 0;
-                }
+                // (4) 最内の白(細い芯=白熱)
+                ctx.fillStyle = 'rgba(255,255,255,' + (0.78 + 0.20 * breath) + ')';
+                traceSilhouetteW(0.26); ctx.fill();
+
                 ctx.restore();
             }
 
+            // 【大薙中は黒刀の刀身を隠し、巨大ライトセーバーのみ表示】(芯に黒い筋が出ないように)
+            if (!oonagiBladeActive) {
             // 先端形状:
             // 峰側(上)はそのまま終端まで伸ばし、刃側(下)だけ先端へ向かって絞る
             const tipY = upperPoints[seg].y;
@@ -436,6 +373,7 @@ export function applyRendererMixin(PlayerClass) {
             // 切っ先の頂点 (upperPoints[seg]) へ正確に結ぶ
             ctx.bezierCurveTo(edgeCtrl2X, edgeCtrl2Y, edgeCtrl1X, edgeCtrl1Y, upperPoints[seg].x, upperPoints[seg].y);
             ctx.stroke();
+            }   // /if (!oonagiBladeActive)
         }
 
         ctx.restore();

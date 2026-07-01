@@ -131,9 +131,15 @@ export class Stage {
             this.stage2GroundImage = new Image();
             this.stage2GroundImage.src = 'images/stage2_ground_kaido_tile.png';
             this.stage2MountainBackImage = new Image();
+            this.stage2MountainBackImage.decoding = 'async';
+            this.stage2MountainBackImage.loading = 'eager';
             this.stage2MountainBackImage.src = 'images/stage2_mountain_back_wall.png';
+            this.stage2MountainBackImage.decode?.().catch(() => {});
             this.stage2MountainPassImage = new Image();
+            this.stage2MountainPassImage.decoding = 'async';
+            this.stage2MountainPassImage.loading = 'eager';
             this.stage2MountainPassImage.src = 'images/stage2_mountain_pass_wall.png';
+            this.stage2MountainPassImage.decode?.().catch(() => {});
             this.stage2PropImages = {};
             const stage2PropPaths = {
                 houseBlock: 'images/stage2_kaido_house_block.png',
@@ -141,7 +147,15 @@ export class Stage {
                 ruralTeahouse: 'images/stage2_rural_teahouse.png',
                 ruralShed: 'images/stage2_rural_shed.png',
                 ruralShrine: 'images/stage2_rural_shrine.png',
-                ruralRestHut: 'images/stage2_rural_rest_hut.png'
+                ruralRestHut: 'images/stage2_rural_rest_hut.png',
+                woodSignpost: 'images/stage2_prop_wood_signpost.png',
+                roadsideJizo: 'images/stage2_prop_jizo.png',
+                stoneWell: 'images/stage2_prop_stone_well.png',
+                firewoodStack: 'images/stage2_prop_firewood_stack.png',
+                strawBundles: 'images/stage2_prop_straw_bundles.png',
+                lowFence: 'images/stage2_prop_low_fence.png',
+                jarsBucket: 'images/stage2_prop_jars_bucket.png',
+                stoneMarker: 'images/stage2_prop_stone_marker.png'
             };
             for (const [key, src] of Object.entries(stage2PropPaths)) {
                 const image = new Image();
@@ -161,7 +175,13 @@ export class Stage {
                 dosojin: 'images/stage3_prop_dosojin.png',
                 signpost: 'images/stage3_prop_signpost.png',
                 bambooFence: 'images/stage3_prop_bamboo_fence.png',
-                roadsideBlock: 'images/stage3_mountain_roadside_block.png'
+                woodFence: 'images/stage3_prop_weathered_wood_fence.png',
+                bambooRail: 'images/stage3_prop_bamboo_rail.png',
+                stoneLantern: 'images/stage3_prop_stone_lantern.png',
+                jizoLarge: 'images/stage3_prop_jizo_large.png',
+                mountainSign: 'images/stage3_prop_mountain_sign.png',
+                boulderGrass: 'images/stage3_prop_boulder_grass.png',
+                firewoodPile: 'images/stage3_prop_firewood_pile.png'
             };
             for (const [key, src] of Object.entries(stage3PropPaths)) {
                 const image = new Image();
@@ -712,8 +732,9 @@ export class Stage {
             { level: 2, x1: 218, x2: 444, y: 342, kind: 'approach-side-gate-roof' },
             { level: 1, x1: 446, x2: 708, y: 348, kind: 'approach-left-wall-roof' },
             { level: 4, x1: 576, x2: 1408, y: 28, kind: 'approach-residence-upper-roof' },
-            { level: 3, x1: 496, x2: 1492, y: 104, kind: 'approach-residence-lower-roof' },
+            { level: 3, x1: 418, x2: 576, y: 166, kind: 'approach-residence-left-wing-roof' },
             { level: 2, x1: 704, x2: 1105, y: 204, kind: 'approach-main-gate-roof' },
+            { level: 3, x1: 1408, x2: 1600, y: 166, kind: 'approach-residence-right-wing-roof' },
             { level: 1, x1: 1058, x2: 1326, y: 346, kind: 'approach-right-wall-roof' },
             { level: 1, x1: 1320, x2: 1496, y: 390, kind: 'approach-outer-low-roof' },
             { level: 1, x1: 1496, x2: 1805, y: 410, kind: 'approach-outer-wall-roof' }
@@ -2648,21 +2669,28 @@ export class Stage {
         if (this.stageNumber !== 2) return false;
 
         const passImg = this.stage2MountainPassImage;
-        if (!passImg || !passImg.complete || passImg.naturalWidth <= 0 || passImg.naturalHeight <= 0) return false;
+        const backMountainImg = this.stage2MountainBackImage;
+        const passReady = passImg && passImg.complete && passImg.naturalWidth > 0 && passImg.naturalHeight > 0;
+        const backReady = backMountainImg && backMountainImg.complete && backMountainImg.naturalWidth > 0 && backMountainImg.naturalHeight > 0;
+        if (!passReady && !backReady) return false;
 
         const p = this.progress;
         const baseY = this.groundY;
+        const passAspect = passReady ? passImg.naturalWidth / passImg.naturalHeight : 1667 / 888;
         const passH = Math.min(CANVAS_HEIGHT * 0.66, baseY + 28);
-        const passW = passH * (passImg.naturalWidth / passImg.naturalHeight);
+        const passW = passH * passAspect;
         const passStopX = CANVAS_WIDTH - passW + 18;
         const cameraStopX = Math.max(0, this.maxProgress - CANVAS_WIDTH);
         const passWorldX = cameraStopX + passStopX;
         const passX = passWorldX - p;
         const passY = baseY - passH + 1;
-        if (passX + passW < -100 || passX > CANVAS_WIDTH + 140) return false;
 
-        const backMountainImg = this.stage2MountainBackImage;
-        if (backMountainImg && backMountainImg.complete && backMountainImg.naturalWidth > 0 && backMountainImg.naturalHeight > 0) {
+        // 画面に入る直前まで描画を切ると大きい画像のデコードも直前になり、後出しに見える。
+        // 右側のかなり外から通常オブジェクトとして描画対象に入れて、自然な画面インにする。
+        const prewarmMarginRight = CANVAS_WIDTH * 2.4;
+        if (passX + passW < -160 || passX > CANVAS_WIDTH + prewarmMarginRight) return false;
+
+        if (backReady) {
             const backH = Math.min(CANVAS_HEIGHT * 0.96, baseY + 160);
             const backW = backH * (backMountainImg.naturalWidth / backMountainImg.naturalHeight);
             const backX = passX + passW * 0.5 - backW * 0.5;
@@ -2675,11 +2703,13 @@ export class Stage {
             ctx.restore();
         }
 
-        ctx.save();
-        ctx.filter = 'brightness(0.74) saturate(0.66) contrast(0.9)';
-        ctx.drawImage(passImg, passX, passY, passW, passH);
-        ctx.filter = 'none';
-        ctx.restore();
+        if (passReady) {
+            ctx.save();
+            ctx.filter = 'brightness(0.74) saturate(0.66) contrast(0.9)';
+            ctx.drawImage(passImg, passX, passY, passW, passH);
+            ctx.filter = 'none';
+            ctx.restore();
+        }
         return true;
     }
 
@@ -2915,10 +2945,19 @@ export class Stage {
         if (!images) return;
 
         const props = [
-            { type: 'signpost', worldX: 1280, height: 108, y: 4,  alpha: 0.92, parallax: 0.88 },
-            { type: 'bambooFence', worldX: 3180, height: 54,  y: 6,  alpha: 0.9,  parallax: 0.84 },
-            { type: 'dosojin', worldX: 5260, height: 66,  y: 5,  alpha: 0.9,  parallax: 0.88 },
-            { type: 'bambooFence', worldX: 7280, height: 58,  y: 6,  alpha: 0.88, parallax: 0.84 }
+            { type: 'woodFence', worldX: 980,  height: 92,  y: 3, alpha: 0.88 },
+            { type: 'stoneLantern', worldX: 1480, height: 110, y: 2, alpha: 0.82 },
+            { type: 'boulderGrass', worldX: 2040, height: 84,  y: 4, alpha: 0.9 },
+            { type: 'signpost', worldX: 2660, height: 112, y: 4, alpha: 0.88 },
+            { type: 'bambooRail', worldX: 3420, height: 76,  y: 4, alpha: 0.86 },
+            { type: 'dosojin', worldX: 4210, height: 70,  y: 4, alpha: 0.88 },
+            { type: 'firewoodPile', worldX: 4930, height: 54, y: 4, alpha: 0.88 },
+            { type: 'mountainSign', worldX: 5700, height: 126, y: 4, alpha: 0.86 },
+            { type: 'jizoLarge', worldX: 6550, height: 94, y: 4, alpha: 0.86 },
+            { type: 'woodFence', worldX: 7350, height: 82, y: 4, alpha: 0.84 },
+            { type: 'boulderGrass', worldX: 8120, height: 96, y: 4, alpha: 0.88 },
+            { type: 'bambooFence', worldX: 9050, height: 58, y: 5, alpha: 0.82 },
+            { type: 'stoneLantern', worldX: 9860, height: 96, y: 3, alpha: 0.78 }
         ];
 
         for (const prop of props) {
@@ -2926,7 +2965,7 @@ export class Stage {
             if (!image || !image.complete || image.naturalWidth <= 0) continue;
 
             const width = prop.height * (image.naturalWidth / image.naturalHeight);
-            const x = prop.worldX - this.progress * prop.parallax;
+            const x = prop.worldX - this.progress;
             if (x + width < -80 || x > CANVAS_WIDTH + 80) continue;
 
             const y = this.groundY - prop.height + prop.y;
@@ -2940,27 +2979,47 @@ export class Stage {
     }
 
     renderStage3RoadsideClusters(ctx) {
-        const image = this.stage3PropImages?.roadsideBlock;
-        if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
+        const images = this.stage3PropImages;
+        if (!images) return;
 
-        const parallax = 0.82;
-        const span = 820;
-        const scroll = this.progress * parallax;
+        const plan = [
+            { type: 'boulderGrass', h: 72, alpha: 0.74, xBias: -34 },
+            null,
+            { type: 'firewoodPile', h: 46, alpha: 0.72, xBias: 22 },
+            { type: 'bambooRail', h: 62, alpha: 0.68, xBias: -16 },
+            null,
+            { type: 'woodFence', h: 72, alpha: 0.72, xBias: 28 },
+            { type: 'jizoLarge', h: 76, alpha: 0.7, xBias: -18 },
+            null,
+            { type: 'stoneLantern', h: 88, alpha: 0.68, xBias: 18 },
+            { type: 'boulderGrass', h: 80, alpha: 0.74, xBias: 6 }
+        ];
+        const span = 620;
+        const scroll = this.progress;
         const start = Math.floor((scroll - 760) / span);
         const end = Math.ceil((scroll + CANVAS_WIDTH + 760) / span);
+        const finalClearWorldX = Math.max(0, this.maxProgress - CANVAS_WIDTH + 360);
 
         for (let i = start; i <= end; i++) {
             const seed = i * 7.91;
-            if (this.noise1D(seed + 0.4) < 0.38) continue;
+            const item = plan[((i % plan.length) + plan.length) % plan.length];
+            if (!item || this.noise1D(seed + 0.4) < 0.2) continue;
 
-            const x = i * span - scroll + this.noiseSigned(seed + 1.6) * 74;
-            const height = 92 + this.noise1D(seed + 3.4) * 14;
+            const worldX = i * span + this.noiseSigned(seed + 1.6) * 74;
+            if (worldX > finalClearWorldX) continue;
+
+            const x = worldX - scroll;
+            const image = images[item.type];
+            if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) continue;
+
+            const height = item.h * (0.92 + this.noise1D(seed + 3.4) * 0.16);
             const width = height * (image.naturalWidth / image.naturalHeight);
             if (x + width < -120 || x > CANVAS_WIDTH + 120) continue;
 
             ctx.save();
+            ctx.globalAlpha *= item.alpha;
             ctx.filter = 'brightness(0.7) saturate(0.62) contrast(0.9)';
-            ctx.drawImage(image, x, this.groundY - height + 3, width, height);
+            ctx.drawImage(image, x + item.xBias, this.groundY - height + 4, width, height);
             ctx.filter = 'none';
             ctx.restore();
         }
@@ -3275,7 +3334,9 @@ export class Stage {
             }
                 
             case 'kaido': {
-                const kPara = 0.68;
+                // 街道上の建物・添景は地面と同じワールド固定で描く。
+                // 遠方のなだらかな山だけをCanvasパララックスとして残す。
+                const kPara = 1.0;
                 const kCellSize = 310;
                 const kStartIdx = Math.floor((p * kPara - 260) / kCellSize);
                 const kEndIdx = Math.ceil((CANVAS_WIDTH + p * kPara + 260) / kCellSize);
@@ -4150,7 +4211,26 @@ export class Stage {
                     { key: 'ruralShed', h: 178, xBias: -2, filter: 'brightness(0.68) saturate(0.6) contrast(0.86)' },
                     { key: 'ruralRestHut', h: 198, xBias: 30, filter: 'brightness(0.7) saturate(0.62) contrast(0.86)' }
                 ];
+                const stage2RoadsideDetailPlan = [
+                    { key: 'woodSignpost', h: 96, xBias: -18, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
+                    null,
+                    { key: 'lowFence', h: 54, xBias: 12, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
+                    { key: 'jarsBucket', h: 56, xBias: -6, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
+                    null,
+                    { key: 'strawBundles', h: 78, xBias: -14, filter: 'brightness(0.76) saturate(0.72) contrast(0.9)' },
+                    { key: 'stoneMarker', h: 72, xBias: 18, filter: 'brightness(0.7) saturate(0.62) contrast(0.86)' },
+                    null,
+                    { key: 'firewoodStack', h: 70, xBias: -10, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
+                    { key: 'roadsideJizo', h: 80, xBias: 20, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
+                    null,
+                    { key: 'lowFence', h: 48, xBias: -8, filter: 'brightness(0.7) saturate(0.64) contrast(0.86)' },
+                    { key: 'stoneWell', h: 112, xBias: 8, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
+                    null,
+                    { key: 'jarsBucket', h: 50, xBias: 24, filter: 'brightness(0.72) saturate(0.64) contrast(0.86)' },
+                    { key: 'strawBundles', h: 70, xBias: -20, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' }
+                ];
                 const ruralImagesReady = stage2RuralPropPlan.some((item) => item && isImageReady(this.stage2PropImages?.[item.key]));
+                const roadDetailsReady = stage2RoadsideDetailPlan.some((item) => item && isImageReady(this.stage2PropImages?.[item.key]));
 
                 if (ruralImagesReady) {
                     const slotSpan = 540;
@@ -4187,6 +4267,38 @@ export class Stage {
                         ctx.filter = 'none';
                         ctx.restore();
 
+                    }
+                    if (roadDetailsReady) {
+                        const detailSpan = 360;
+                        const detailStart = Math.floor((p * kPara - 520) / detailSpan);
+                        const detailEnd = Math.ceil((CANVAS_WIDTH + p * kPara + 520) / detailSpan);
+                        const detailBaseY = this.groundY + 3;
+                        const detailLimit = houseLimit + 80;
+
+                        for (let i = detailStart; i <= detailEnd; i++) {
+                            const seed = i * 9.71;
+                            const item = stage2RoadsideDetailPlan[((i % stage2RoadsideDetailPlan.length) + stage2RoadsideDetailPlan.length) % stage2RoadsideDetailPlan.length];
+                            if (!item || this.noise1D(seed + 0.9) < 0.18) continue;
+
+                            const worldX = 260 + i * detailSpan + this.noiseSigned(seed + 1.4) * 52;
+                            if (worldX > detailLimit) continue;
+
+                            const image = this.stage2PropImages?.[item.key];
+                            if (!isImageReady(image)) continue;
+
+                            const scaleJitter = 0.92 + this.noise1D(seed + 2.6) * 0.16;
+                            const height = item.h * scaleJitter;
+                            const width = height * (image.naturalWidth / image.naturalHeight);
+                            const drawX = worldX - p * kPara + item.xBias + this.noiseSigned(seed + 3.2) * 14;
+                            if (drawX + width < -140 || drawX > CANVAS_WIDTH + 140) continue;
+
+                            ctx.save();
+                            ctx.globalAlpha *= 0.86 + this.noise1D(seed + 4.6) * 0.08;
+                            ctx.filter = item.filter;
+                            ctx.drawImage(image, drawX, detailBaseY - height + 3, width, height);
+                            ctx.filter = 'none';
+                            ctx.restore();
+                        }
                     }
                     break;
                 }

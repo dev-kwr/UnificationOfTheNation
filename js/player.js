@@ -21,8 +21,8 @@ import {
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
 } from './normalComboMotion.js';
-import { applyRendererMixin }    from './playerRenderer.js?v=oonagi-arc-katana-20260701c';
-import { applySlashTrailMixin }  from './playerSlashTrail.js?v=oonagiC-kenmuji-natural-20260630y2';
+import { applyRendererMixin }    from './playerRenderer.js?v=oonagi-lightsaber-breath-20260701h';
+import { applySlashTrailMixin }  from './playerSlashTrail.js?v=oonagi-trail-hilt-pivot-20260702c';
 import { applySpecialMixin }     from './playerSpecial.js?v=clone-ground-fix2-20260623';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
 import {

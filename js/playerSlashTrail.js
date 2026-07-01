@@ -4896,12 +4896,43 @@ export function applySlashTrailMixin(PlayerClass) {
                 : Math.max(58, Math.min(176, (84 + (effectScale - 1) * 42) * Math.max(1, physicalScale * 0.86)));
             const innerStrip = buildOonagiCenterStrip(pts, comboStep, projectFn, options, baseWidth);
             if (!Array.isArray(innerStrip) || innerStrip.length < 2) return;
-            // 【大薙の剣筋】巨大刃の本体は drawKatana(大薙中は刀身を常時"巨大光刃"化)が描く。ここは斬撃の掃引=剣筋。
-            // 記録済みトレイル(innerStrip=実刃の切先掃引)を"そのまま"描く＝本体Yでスケール/移動しない(固定)。
-            // ※「刀の向きへ reachPx 平行移動して巨大切先へ届かせる」案は、振り中に刀の向きが回転して剣筋が
-            //   フレーム毎に揺れる(おかしい)ため撤回。剣筋は実刃の自然な掃引リボンに固定する。巨大刃(光刃)とは別スタイル。
+
+            // 【大薙の剣筋=巨大光刃に一致】drawKatana は刀身を「柄(bladeStart)基点で lengthScale(1.8)倍」に伸ばす。
+            // 剣筋(記録した実刃の切先掃引)も同じく「柄(armEnd)を軸に 1.8 倍」ラジアルスケールすれば、
+            // 剣筋の切先が巨大刃の切先と一致する(実測: armEnd+(tip-armEnd)*1.8 = 巨大切先)。
+            // ・軸=柄(armEnd)。pose から取得し projectFn で innerStrip と同じ投影空間へ写す(projectFn=null なら素通し)。
+            //   ※前回の失敗は軸を innerStrip[0](=最古の切先)にしたこと→遠い点基準で拡大し剣筋が巨大化・遊離した。
+            // ・方向ベクトル/端点追加は一切しない(点数・順序不変)=振り中の揺れ無し。判定は PLAYER.OONAGI_REACH_* で別途(描画専用)。
+            let scaledInner = innerStrip;
+            const oonagiActive = (typeof this.isXAttackBoostActive === 'function' && this.isXAttackBoostActive())
+                || options.forceRangeEffectActive === true;
+            if (oonagiActive && typeof this.getComboSwordPoseState === 'function') {
+                const OONAGI_BLADE_LENGTH_SCALE = 1.8; // drawKatana(playerRenderer.js)の lengthScale と一致させること
+                let pose = null;
+                try {
+                    pose = this.getComboSwordPoseState({
+                        x: this.x, y: this.y,
+                        width: (typeof this.getWorldWidth === 'function') ? this.getWorldWidth() : undefined,
+                        height: (typeof this.getWorldHeight === 'function') ? this.getWorldHeight() : undefined,
+                        facingRight: this.facingRight, isCrouching: this.isCrouching,
+                        currentAttack: this.currentAttack, attackTimer: this.attackTimer
+                    });
+                } catch (e) { pose = null; }
+                if (pose && Number.isFinite(pose.armEndX) && Number.isFinite(pose.armEndY)) {
+                    const pre = { x: pose.armEndX, y: pose.armEndY, age: 0, life: 1 };
+                    const pivot = projectFn ? projectFn(pre) : pre;
+                    if (pivot && Number.isFinite(pivot.x) && Number.isFinite(pivot.y)) {
+                        scaledInner = innerStrip.map((p) => ({
+                            ...p,
+                            x: pivot.x + (p.x - pivot.x) * OONAGI_BLADE_LENGTH_SCALE,
+                            y: pivot.y + (p.y - pivot.y) * OONAGI_BLADE_LENGTH_SCALE
+                        }));
+                    }
+                }
+            }
+
             const a = options.newestScale || baseNewestAlpha;
-            drawBlueTrailLayers(innerStrip, baseWidth * 1.7, a * 0.28, a * 0.74, null, { smooth: comboStep !== 3 });
+            drawBlueTrailLayers(scaledInner, baseWidth * 1.7, a * 0.28, a * 0.74, null, { smooth: comboStep !== 3 });
         };
         const buildStraightLinearStrip = (pts, projectFn = null) => {
             const mapped = buildProjected(pts, projectFn);
