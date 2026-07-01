@@ -154,8 +154,7 @@ export class Stage {
                 firewoodStack: 'images/stage2_prop_firewood_stack.png',
                 strawBundles: 'images/stage2_prop_straw_bundles.png',
                 lowFence: 'images/stage2_prop_low_fence.png',
-                jarsBucket: 'images/stage2_prop_jars_bucket.png',
-                stoneMarker: 'images/stage2_prop_stone_marker.png'
+                jarsBucket: 'images/stage2_prop_jars_bucket.png'
             };
             for (const [key, src] of Object.entries(stage2PropPaths)) {
                 const image = new Image();
@@ -4218,7 +4217,7 @@ export class Stage {
                     { key: 'jarsBucket', h: 56, xBias: -6, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
                     null,
                     { key: 'strawBundles', h: 78, xBias: -14, filter: 'brightness(0.76) saturate(0.72) contrast(0.9)' },
-                    { key: 'stoneMarker', h: 72, xBias: 18, filter: 'brightness(0.7) saturate(0.62) contrast(0.86)' },
+                    { key: 'woodSignpost', h: 84, xBias: 18, filter: 'brightness(0.7) saturate(0.62) contrast(0.86)' },
                     null,
                     { key: 'firewoodStack', h: 70, xBias: -10, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
                     { key: 'roadsideJizo', h: 80, xBias: 20, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },

@@ -188,7 +188,7 @@ export function applyRendererMixin(PlayerClass) {
                 const gHalf = whiteHalf * 3.4;
                 const gHalfW = (t) => {
                     const body = 1 - 0.35 * t;                               // 全体に緩く細く(根本1.0→切先側0.65)
-                    const tip  = Math.pow(Math.min(1, (1 - t) / 0.16), 0.8); // 先端付近だけ鋭く絞る
+                    const tip  = Math.pow(Math.min(1, (1 - t) / 0.22), 0.9); // 先端をやや長く滑らかに絞る(針先=雑さ回避)
                     return gHalf * body * tip;
                 };
                 const traceSilhouetteW = (wf) => {
@@ -207,12 +207,22 @@ export function applyRendererMixin(PlayerClass) {
                 ctx.globalCompositeOperation = 'lighten';
                 ctx.lineJoin = 'round'; ctx.lineCap = 'round';
 
-                // (1) 外グロー(色・ぼかし1パス): 呼吸で 明るさ・ぼかし半径・広がり が一緒に膨縮する光暈。
-                // ピーク時の発光範囲(最大値)を拡大: ぼかし半径 max42・シルエット幅 max1.62 まで広げる。
+                // (1) 外グロー(色・ぼかし1パス): 中ほど最大・両端が滑らかに細る「紡錘形」。
+                // 刀身シルエットの一律wf倍だと 根本=幅広の平ら断面(ずんぐり)・先端=急絞りのブロブ で雑になる→
+                // glowProfile(sin系)で 根本は控えめに丸く/中ほど最大/切先は長く滑らかな点 にして雑さを解消。
+                // 呼吸で全体が膨縮(発光範囲の最大は維持)。刀身本体(2-4)は根本フル幅のまま。
+                const glowProfile = (t) => Math.pow(Math.sin(Math.PI * (0.24 + 0.76 * t)), 0.5); // t0:~0.83, 中:1.0, t1:0
+                const glowWf = 1.12 + 0.45 * breath2;   // 呼吸ピークの広がり(発光範囲の最大値)
+                const traceGlow = () => {
+                    ctx.beginPath();
+                    for (let i = 0; i <= SEGg; i++) { const t = i / SEGg; const w = gHalf * glowWf * glowProfile(t); if (i === 0) ctx.moveTo(gTX(t), gArcY(t) - w); else ctx.lineTo(gTX(t), gArcY(t) - w); }
+                    for (let i = SEGg; i >= 0; i--) { const t = i / SEGg; const w = gHalf * glowWf * glowProfile(t); ctx.lineTo(gTX(t), gArcY(t) + w); }
+                    ctx.closePath();
+                };
                 ctx.shadowColor = 'rgba(96,176,255,' + (0.26 + 0.56 * breath2) + ')';
                 ctx.shadowBlur = 12 + 30 * breath2;                          // 12..42(呼吸ピークで大きく発光)
                 ctx.fillStyle = 'rgba(64,146,255,' + (0.09 + 0.26 * breath2) + ')';
-                traceSilhouetteW(1.15 + 0.47 * breath2); ctx.fill();          // wf 1.15..1.62(ピークで外へ大きく広がる)
+                traceGlow(); ctx.fill();
                 ctx.shadowBlur = 0;
 
                 // (2) ブレード本体(青・ぼかし無し): 緩やかに連動
