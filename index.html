@@ -8,7 +8,7 @@
     <meta http-equiv="Expires" content="0">
     <title>Unification of the Nation - 天下統一</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rock+Salt&family=Yuji+Boku&family=Yuji+Mai&family=Yuji+Syuku&family=Yusei+Magic&family=Zen+Old+Mincho:wght@400;500;700;900&display=block">
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=20260702_v1">
     <link rel="icon" href="favicon-64.png?v=20260426" type="image/png" sizes="64x64">
     <link rel="alternate icon" href="favicon-64.png?v=20260426" type="image/png">
     <link rel="apple-touch-icon" href="apple-touch-icon.png?v=20260426">
@@ -17,7 +17,35 @@
     <div id="game-container">
         <canvas id="game-canvas"></canvas>
     </div>
-    
-    <script type="module" src="js/main.js?v=20260630_v1"></script>
+
+    <!-- 音の設定ゲート: 初回タップをオーディオ解錠のユーザージェスチャとして使う -->
+    <div id="sound-gate" hidden>
+        <div class="sg-card" role="dialog" aria-modal="true" aria-label="音の設定">
+            <h1 class="sg-title">音の設定</h1>
+            <div class="sg-divider"></div>
+            <p class="sg-sub">BGM・効果音を鳴らしますか？</p>
+            <div class="sg-buttons">
+                <button id="sg-btn-on" class="sg-btn" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M4.5 10.2H7.7L11.7 6.8V17.2L7.7 13.8H4.5V10.2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                        <path d="M14.8 9.2C15.9 10.1 16.6 11.5 16.6 12.9C16.6 14.3 15.9 15.7 14.8 16.6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M17.6 6.8C19.4 8.3 20.5 10.6 20.5 12.9C20.5 15.2 19.4 17.5 17.6 19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                    <span>音あり</span>
+                </button>
+                <button id="sg-btn-off" class="sg-btn" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M4.5 10.2H7.7L11.7 6.8V17.2L7.7 13.8H4.5V10.2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+                        <path d="M15.2 9L20.2 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M20.2 9L15.2 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                    <span>音なし</span>
+                </button>
+            </div>
+            <p class="sg-note">ゲーム中もいつでも切り替えられます</p>
+        </div>
+    </div>
+
+    <script type="module" src="js/main.js?v=20260702_v2"></script>
 </body>
 </html>

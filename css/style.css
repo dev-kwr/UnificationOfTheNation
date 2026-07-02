@@ -84,3 +84,141 @@ canvas {
     font-family: 'Courier New', monospace;
     text-shadow: 2px 2px 0 #000;
 }
+
+/* ============================================
+   音の設定ゲート（ページ読み込み時のBGMオン/オフ選択）
+   ============================================ */
+#sound-gate {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at center, rgba(10, 14, 26, 0.82) 0%, rgba(3, 5, 10, 0.94) 100%);
+    opacity: 0;
+    transition: opacity 260ms ease;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+}
+#sound-gate[hidden] { display: none; }
+#sound-gate.sg-visible { opacity: 1; }
+#sound-gate.sg-closing {
+    opacity: 0;
+    transition: opacity 340ms ease;
+    pointer-events: none;
+}
+
+.sg-card {
+    font-family: 'Zen Old Mincho', serif;
+    color: #e9eefb;
+    background: linear-gradient(180deg, rgba(33, 42, 68, 0.97), rgba(23, 30, 52, 0.98));
+    border: 1px solid rgba(146, 172, 226, 0.28);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    padding: 26px 34px 18px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+    max-width: min(88vw, 430px);
+    transition: transform 340ms ease;
+}
+#sound-gate.sg-closing .sg-card { transform: scale(0.96); }
+
+/* 上辺の青アクセント（drawWafuCardと同じ意匠） */
+.sg-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, rgba(142, 200, 255, 0), rgba(142, 200, 255, 0.85), rgba(142, 200, 255, 0));
+}
+
+.sg-title {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.42em;
+    text-indent: 0.42em;
+    color: #dce6ff;
+}
+
+.sg-divider {
+    height: 1px;
+    margin: 12px auto 14px;
+    width: 72%;
+    background: linear-gradient(90deg, rgba(180, 205, 255, 0), rgba(180, 205, 255, 0.5), rgba(180, 205, 255, 0));
+}
+
+.sg-sub {
+    font-size: 14px;
+    letter-spacing: 0.12em;
+    color: rgba(233, 238, 251, 0.85);
+}
+
+.sg-buttons {
+    display: flex;
+    gap: 14px;
+    justify-content: center;
+    margin: 18px 0 14px;
+}
+
+.sg-btn {
+    font-family: inherit;
+    font-weight: 600;
+    width: 136px;
+    padding: 15px 0 13px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(146, 172, 226, 0.25);
+    border-radius: 10px;
+    color: rgba(220, 230, 255, 0.72);
+    font-size: 16px;
+    letter-spacing: 0.3em;
+    text-indent: 0.3em;
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s, color 0.15s, background-color 0.15s, transform 0.1s;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+.sg-btn svg {
+    width: 34px;
+    height: 34px;
+}
+.sg-btn.is-active {
+    color: #f2f6ff;
+    background: rgba(74, 134, 236, 0.14);
+    border-color: rgba(150, 196, 255, 0.75);
+    box-shadow: 0 0 22px rgba(74, 134, 236, 0.35), inset 0 0 12px rgba(74, 134, 236, 0.12);
+    animation: sg-pulse 1.6s ease-in-out infinite;
+}
+.sg-btn:active { transform: scale(0.96); }
+
+@keyframes sg-pulse {
+    0%, 100% { box-shadow: 0 0 22px rgba(74, 134, 236, 0.35), inset 0 0 12px rgba(74, 134, 236, 0.12); }
+    50% { box-shadow: 0 0 30px rgba(74, 134, 236, 0.5), inset 0 0 14px rgba(74, 134, 236, 0.18); }
+}
+
+.sg-note {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: rgba(210, 222, 248, 0.55);
+}
+
+/* 横持ちスマホなど高さが低い画面ではコンパクトに */
+@media (max-height: 430px) {
+    .sg-card { padding: 16px 24px 12px; }
+    .sg-title { font-size: 18px; }
+    .sg-divider { margin: 8px auto 10px; }
+    .sg-sub { font-size: 12px; }
+    .sg-buttons { margin: 12px 0 10px; gap: 12px; }
+    .sg-btn { width: 118px; padding: 10px 0 9px; font-size: 14px; }
+    .sg-btn svg { width: 26px; height: 26px; }
+    .sg-note { font-size: 10px; }
+}

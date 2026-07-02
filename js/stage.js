@@ -3288,16 +3288,16 @@ export class Stage {
         drawStrip(images.far, {
             parallax: 0.18,
             drawHeight: 800,
-            baseOffset: 8,
-            alpha: 0.34,
+            baseOffset: 42,
+            alpha: 0.66,
             widthScale: 0.66,
             filter: 'brightness(0.5) saturate(0.54) contrast(0.78)'
         });
         drawStrip(images.far, {
             parallax: 0.24,
             drawHeight: 760,
-            baseOffset: 6,
-            alpha: 0.16,
+            baseOffset: 40,
+            alpha: 0.34,
             widthScale: 0.62,
             phaseOffset: 0.45,
             filter: 'brightness(0.48) saturate(0.5) contrast(0.76)'
@@ -3305,16 +3305,16 @@ export class Stage {
         drawStrip(images.mid, {
             parallax: 0.44,
             drawHeight: 790,
-            baseOffset: 8,
-            alpha: 0.52,
+            baseOffset: 44,
+            alpha: 0.96,
             widthScale: 0.66,
             filter: 'brightness(0.62) saturate(0.64) contrast(0.86)'
         });
         drawStrip(images.mid, {
             parallax: 0.57,
             drawHeight: 750,
-            baseOffset: 7,
-            alpha: 0.22,
+            baseOffset: 42,
+            alpha: 0.46,
             widthScale: 0.62,
             phaseOffset: 0.38,
             filter: 'brightness(0.58) saturate(0.6) contrast(0.84)'
@@ -3322,20 +3322,29 @@ export class Stage {
         drawStrip(images.near, {
             parallax: 0.82,
             drawHeight: 760,
-            baseOffset: 10,
-            alpha: 0.62,
+            baseOffset: 48,
+            alpha: 1,
             widthScale: 0.64,
             filter: 'brightness(0.66) saturate(0.66) contrast(0.88)'
         });
         drawStrip(images.near, {
             parallax: 0.96,
             drawHeight: 720,
-            baseOffset: 10,
-            alpha: 0.22,
+            baseOffset: 46,
+            alpha: 0.5,
             widthScale: 0.6,
             phaseOffset: 0.33,
             filter: 'brightness(0.62) saturate(0.62) contrast(0.86)'
         });
+
+        ctx.save();
+        const rootFog = ctx.createLinearGradient(0, this.groundY - 96, 0, this.groundY + 8);
+        rootFog.addColorStop(0, 'rgba(21, 30, 28, 0)');
+        rootFog.addColorStop(0.62, 'rgba(23, 34, 30, 0.62)');
+        rootFog.addColorStop(1, 'rgba(17, 25, 21, 0.9)');
+        ctx.fillStyle = rootFog;
+        ctx.fillRect(0, this.groundY - 96, CANVAS_WIDTH, 112);
+        ctx.restore();
 
         return true;
     }

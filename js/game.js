@@ -3738,7 +3738,8 @@ class Game {
                 life,
                 maxLife: life,
                 size: (6.5 + Math.random() * 7.5) * rockScale,
-                color: dustPalette[i % dustPalette.length]
+                color: dustPalette[i % dustPalette.length],
+                fadeColor: palette.dark
             });
         }
 
@@ -4018,9 +4019,10 @@ class Game {
                 if (useSimpleDust) {
                     ctx.fillStyle = `rgba(${effect.color || '104, 94, 84'}, ${0.1 + lifeRatio * 0.22})`;
                 } else {
+                    const fadeColor = effect.fadeColor || '70, 60, 52';
                     const grad = ctx.createRadialGradient(effect.x, effect.y, 0, effect.x, effect.y, radius);
                     grad.addColorStop(0, `rgba(${effect.color || '104, 94, 84'}, ${0.14 + lifeRatio * 0.26})`);
-                    grad.addColorStop(1, 'rgba(70, 60, 52, 0)');
+                    grad.addColorStop(1, `rgba(${fadeColor}, 0)`);
                     ctx.fillStyle = grad;
                 }
                 ctx.beginPath();

@@ -5,6 +5,91 @@
 import { game } from './game.js?v=20260630-castle-ai';
 import { preloadCinematicBgImages } from './ui.js';
 
+// ============================================
+// 音の設定ゲート
+// タップデバイスでは自動再生制限により初回タップまでBGMが流れないため、
+// 起動時にオン/オフを選ばせ、その選択タップをオーディオ解錠のジェスチャとして使う。
+// ============================================
+function setupSoundGate() {
+    const gate = document.getElementById('sound-gate');
+    const btnOn = document.getElementById('sg-btn-on');
+    const btnOff = document.getElementById('sg-btn-off');
+    const audio = window.gameAudio;
+    if (!gate || !btnOn || !btnOff || !audio) return;
+
+    // タップモード（タッチ端末/モバイル）のみ表示。ui.js の isTouchOverlayMode と同じ端末判定。
+    // キーボード環境は初回キー入力で既存のBGMリトライが働くためゲート不要。
+    const isTouchDevice = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) || ('ontouchstart' in window);
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    if (!isTouchDevice && !isMobile) {
+        gate.remove();
+        return;
+    }
+
+    const buttons = [btnOn, btnOff];
+    // 前回の選択（ミュート永続化状態）を初期フォーカスに反映
+    let focusIndex = audio.isMuted ? 1 : 0;
+    let closed = false;
+
+    const applyFocus = () => {
+        buttons.forEach((b, i) => b.classList.toggle('is-active', i === focusIndex));
+    };
+    applyFocus();
+
+    // ゲート上のポインタ/タッチ操作が window 登録のゲーム入力(input.js)へ
+    // バブリングして誤操作にならないよう、ゲート要素で堰き止める
+    const stopBubble = (e) => { e.stopPropagation(); };
+    ['pointerdown', 'pointerup', 'touchstart', 'touchmove', 'touchend', 'mousedown', 'mouseup', 'click']
+        .forEach((type) => gate.addEventListener(type, stopBubble));
+
+    const choose = (soundOn) => {
+        if (closed) return;
+        closed = true;
+        // このハンドラはユーザージェスチャ内なので、ここでオーディオを起動・再生する
+        if (audio.isMuted === soundOn) {
+            audio.toggleMute(); // 選択と現状が食い違う時だけ反転（localStorage永続化込み）
+        } else {
+            audio.persistMuteState(); // 初回起動でも選択を記憶させる
+        }
+        audio.init();
+        audio.resume();
+        if (soundOn) audio.tryPlayCurrentBgm(true);
+
+        focusIndex = soundOn ? 0 : 1;
+        applyFocus();
+        gate.classList.add('sg-closing');
+        setTimeout(() => {
+            window.removeEventListener('keydown', onKeyDown, true);
+            gate.remove();
+        }, 380);
+    };
+
+    // キーボード操作（←→/A/Dで切替、Space/Enterで決定）。
+    // capture段階で止め、タイトル画面のメニュー決定に貫通させない
+    const onKeyDown = (e) => {
+        if (closed) return;
+        e.stopImmediatePropagation();
+        const key = e.key;
+        if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'a' || key === 'A' || key === 'd' || key === 'D') {
+            focusIndex = focusIndex === 0 ? 1 : 0;
+            applyFocus();
+            e.preventDefault();
+        } else if (key === ' ' || key === 'Enter') {
+            choose(focusIndex === 0);
+            e.preventDefault();
+        }
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+
+    btnOn.addEventListener('click', () => choose(true));
+    btnOff.addEventListener('click', () => choose(false));
+    btnOn.addEventListener('pointerenter', () => { if (!closed) { focusIndex = 0; applyFocus(); } });
+    btnOff.addEventListener('pointerenter', () => { if (!closed) { focusIndex = 1; applyFocus(); } });
+
+    gate.hidden = false;
+    requestAnimationFrame(() => gate.classList.add('sg-visible'));
+}
+
 // DOMロード後に初期化
 window.addEventListener('DOMContentLoaded', () => {
     const canvas = document.getElementById('game-canvas');
@@ -77,6 +162,7 @@ window.addEventListener('DOMContentLoaded', () => {
                     requestAnimationFrame(() => {
                         if (startupFailed) return;
                         document.body.classList.add('game-ready');
+                        setupSoundGate();
                         cleanupStartupGuards();
                         console.log('Unification of the Nation - Game Loaded!');
                     });
