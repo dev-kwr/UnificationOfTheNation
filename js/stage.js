@@ -143,18 +143,16 @@ export class Stage {
             this.stage2PropImages = {};
             const stage2PropPaths = {
                 houseBlock: 'images/stage2_kaido_house_block.png',
-                ruralFarmhouse: 'images/stage2_kaido_farmhouse_front.png',
-                ruralTeahouse: 'images/stage2_rural_teahouse.png',
-                ruralShed: 'images/stage2_rural_shed.png',
+                ruralFarmhouse: 'images/stage2_rural_farmhouse_clean.png',
+                ruralTeahouse: 'images/stage2_rural_teahouse_clean.png',
+                ruralShed: 'images/stage2_rural_shed_clean.png',
                 ruralShrine: 'images/stage2_rural_shrine.png',
-                ruralRestHut: 'images/stage2_rural_rest_hut.png',
-                woodSignpost: 'images/stage2_prop_wood_signpost.png',
-                roadsideJizo: 'images/stage2_prop_jizo.png',
-                stoneWell: 'images/stage2_prop_stone_well.png',
-                firewoodStack: 'images/stage2_prop_firewood_stack.png',
-                strawBundles: 'images/stage2_prop_straw_bundles.png',
-                lowFence: 'images/stage2_prop_low_fence.png',
-                jarsBucket: 'images/stage2_prop_jars_bucket.png'
+                cleanLowFence: 'images/stage2_prop_clean_low_fence.png',
+                cleanStrawBundles: 'images/stage2_prop_clean_straw_bundles.png',
+                cleanJars: 'images/stage2_prop_clean_jars.png',
+                cleanStoneWell: 'images/stage2_prop_clean_stone_well.png',
+                cleanWoodSignpost: 'images/stage2_prop_clean_wood_signpost.png',
+                cleanGrassClump: 'images/stage2_prop_clean_grass_clump.png'
             };
             for (const [key, src] of Object.entries(stage2PropPaths)) {
                 const image = new Image();
@@ -193,7 +191,9 @@ export class Stage {
         if (this.stageNumber === 4) {
             this.stage4TownImages = {};
             const stage4TownPaths = {
-                platformAlignedRow: 'images/stage4_town_row_platform_aligned_v1.png',
+                townMachiya: 'images/stage4_town_part_machiya.png',
+                townShops: 'images/stage4_town_part_shops.png',
+                townNagaya: 'images/stage4_town_part_nagaya.png',
                 groundTile: 'images/stage4_ground_stone_tile.png',
                 castleEntrance: 'images/stage4_castle_lower_wide.png',
                 castleApproachDistrict: 'images/stage4_castle_approach_district.png',
@@ -517,22 +517,94 @@ export class Stage {
     getStage4TownRowSpecs() {
         return [
             {
-                key: 'platformAlignedRow',
+                key: 'townMachiya',
                 height: 350,
+                sourceWidth: 1721,
+                sourceHeight: 665,
                 platforms: [
-                    { level: 1, x1: 0, x2: 590, y: 198 },
-                    { level: 1, x1: 620, x2: 1220, y: 204 },
-                    { level: 1, x1: 1248, x2: 1770, y: 214 },
-                    { level: 1, x1: 1800, x2: 2148, y: 204 },
-                    { level: 2, x1: 22, x2: 365, y: 28 },
-                    { level: 2, x1: 395, x2: 615, y: 28 },
-                    { level: 2, x1: 642, x2: 935, y: 42 },
-                    { level: 2, x1: 958, x2: 1218, y: 22 },
-                    { level: 2, x1: 1246, x2: 1770, y: 42 },
-                    { level: 2, x1: 1800, x2: 2070, y: 28 }
+                    { level: 2, x1: 45, x2: 610, y: 58 },
+                    { level: 2, x1: 640, x2: 1168, y: 58 },
+                    { level: 2, x1: 1210, x2: 1682, y: 58 },
+                    { level: 1, x1: 18, x2: 615, y: 318 },
+                    { level: 1, x1: 628, x2: 1168, y: 318 },
+                    { level: 1, x1: 1188, x2: 1700, y: 318 }
+                ]
+            },
+            {
+                key: 'townShops',
+                height: 350,
+                sourceWidth: 1671,
+                sourceHeight: 663,
+                platforms: [
+                    { level: 2, x1: 65, x2: 590, y: 62 },
+                    { level: 2, x1: 610, x2: 1142, y: 62 },
+                    { level: 2, x1: 1162, x2: 1610, y: 62 },
+                    { level: 1, x1: 80, x2: 562, y: 318 },
+                    { level: 1, x1: 610, x2: 1128, y: 318 },
+                    { level: 1, x1: 1160, x2: 1605, y: 318 }
+                ]
+            },
+            {
+                key: 'townNagaya',
+                height: 350,
+                sourceWidth: 1677,
+                sourceHeight: 655,
+                platforms: [
+                    { level: 2, x1: 62, x2: 560, y: 54 },
+                    { level: 2, x1: 604, x2: 1120, y: 96 },
+                    { level: 2, x1: 1165, x2: 1618, y: 68 },
+                    { level: 1, x1: 25, x2: 568, y: 308 },
+                    { level: 1, x1: 594, x2: 1120, y: 318 },
+                    { level: 1, x1: 1150, x2: 1640, y: 310 }
                 ]
             }
         ];
+    }
+
+    getStage4TownSpecMetrics(spec) {
+        const image = this.stage4TownImages?.[spec.key];
+        const sourceWidth = (image && image.naturalWidth > 0) ? image.naturalWidth : spec.sourceWidth;
+        const sourceHeight = (image && image.naturalHeight > 0) ? image.naturalHeight : spec.sourceHeight;
+        const height = spec.height;
+        const width = height * (sourceWidth / sourceHeight);
+
+        return { sourceWidth, sourceHeight, width, height };
+    }
+
+    // townShops（緑・青・赤の三連暖簾の店）は意匠が目立つので城下町全体で一度だけ登場させ、
+    // アクセントとして町並みの列の中央に置く（残りは町家/長屋の繰り返しなので単調さが減る）。
+    // stage4の城下町は全9区画(worldX -36〜約7878)。区画4がちょうど列の真ん中(前後4区画ずつ)。
+    // 残りの区画は町家(machiya)と長屋(nagaya)を交互に敷き詰める。
+    getStage4TownRowKeyForIndex(index) {
+        const shopsIndex = 4;
+        if (index === shopsIndex) return 'townShops';
+        const alt = index > shopsIndex ? index - 1 : index;
+        return (alt % 2 === 0) ? 'townMachiya' : 'townNagaya';
+    }
+
+    getStage4TownRowSequenceUntil(limitX) {
+        const specs = this.getStage4TownRowSpecs();
+        const rows = [];
+        if (!specs.length) return rows;
+
+        const specsByKey = new Map(specs.map((spec) => [spec.key, spec]));
+        const joinOverlap = 22;
+        let worldX = -36;
+        for (let i = 0; i < 64 && worldX < limitX + 1200; i++) {
+            const spec = specsByKey.get(this.getStage4TownRowKeyForIndex(i)) || specs[0];
+            const metrics = this.getStage4TownSpecMetrics(spec);
+            rows.push({
+                ...spec,
+                ...metrics,
+                image: this.stage4TownImages?.[spec.key],
+                rowIndex: i,
+                worldX,
+                drawY: this.groundY - metrics.height + 1
+            });
+            worldX += Math.max(480, metrics.width - joinOverlap);
+        }
+
+        return rows;
     }
 
     getStage4SurfaceRankFromFootY(footY) {
@@ -618,42 +690,15 @@ export class Stage {
     getStage4TownRowsInRange(leftWorld, rightWorld) {
         if (this.stageNumber !== 4) return [];
 
-        const allSpecs = this.getStage4TownRowSpecs();
-        const specs = [allSpecs[0]];
-        const span = 1650;
-        const start = Math.floor((leftWorld - 900) / span);
-        const end = Math.ceil((rightWorld + 900) / span);
         // 城手前の白壁屋敷の手前で町並みを打ち切る（屋敷ゾーンには町家を描かない／判定も作らない）。
-        // 行の「中心」で判定するので、建物が途中で切れたり継ぎ目に隙間が出たりしない。
+        // 各パーツの右端で判定するので、建物が途中で切れたり継ぎ目に隙間が出たりしない。
         const approachStartX = this.getStage4CastleApproachStartX();
-        const rows = [];
-
-        for (let i = start; i <= end; i++) {
-            const seed = i * 9.21;
-            const spec = specs[((i % specs.length) + specs.length) % specs.length];
-            const image = this.stage4TownImages?.[spec.key];
-            const ratio = (image && image.naturalWidth > 0 && image.naturalHeight > 0)
-                ? image.naturalWidth / image.naturalHeight
-                : 3.0;
-            const height = spec.height;
-            const width = height * ratio;
-            const worldX = i * span - 36 + this.noiseSigned(seed + 0.7) * 10;
-
-            if ((worldX + width * 0.5) > approachStartX) continue;
-            if (worldX > rightWorld + 900 || worldX + width < leftWorld - 900) continue;
-
-            rows.push({
-                ...spec,
-                image,
-                rowIndex: i,
-                worldX,
-                width,
-                height,
-                drawY: this.groundY - height + 1
-            });
-        }
-
-        return rows;
+        return this.getStage4TownRowSequenceUntil(Math.min(rightWorld + 900, approachStartX))
+            .filter((row) => (
+                row.worldX + row.width <= approachStartX + 1 &&
+                row.worldX <= rightWorld + 900 &&
+                row.worldX + row.width >= leftWorld - 900
+            ));
     }
 
     getStage4CastleWorldX() {
@@ -685,13 +730,14 @@ export class Stage {
         const castleWorldX = this.getStage4CastleWorldX();
         // 町並み行の「右端」にスナップして返す。
         // こうすると町家を途中で切らずに済み、接近路の始まりも毎回安定する。
-        const img = this.stage4TownImages?.platformAlignedRow;
-        const ratio = (img && img.naturalWidth > 0 && img.naturalHeight > 0) ? (img.naturalWidth / img.naturalHeight) : 4.826;
-        const rowW = 350 * ratio;
-        const span = 1650;
         const desired = castleWorldX - 2150;
-        const i = Math.floor((desired + 36 - rowW) / span);
-        return i * span - 36 + rowW; // 行 i の右端
+        const rows = this.getStage4TownRowSequenceUntil(desired + 1200);
+        let selected = rows[0];
+        for (const row of rows) {
+            if (row.worldX + row.width > desired) break;
+            selected = row;
+        }
+        return selected ? selected.worldX + selected.width : desired;
     }
 
     getStage4CastleApproachColliders(leftWorld, rightWorld) {
@@ -730,13 +776,16 @@ export class Stage {
             { level: 1, x1: 10, x2: 218, y: 384, kind: 'approach-left-low-wall-roof' },
             { level: 2, x1: 218, x2: 444, y: 342, kind: 'approach-side-gate-roof' },
             { level: 1, x1: 446, x2: 708, y: 348, kind: 'approach-left-wall-roof' },
-            { level: 4, x1: 576, x2: 1408, y: 28, kind: 'approach-residence-upper-roof' },
-            { level: 3, x1: 418, x2: 576, y: 166, kind: 'approach-residence-left-wing-roof' },
-            { level: 2, x1: 704, x2: 1105, y: 204, kind: 'approach-main-gate-roof' },
-            { level: 3, x1: 1408, x2: 1600, y: 166, kind: 'approach-residence-right-wing-roof' },
+            { level: 4, x1: 576, x2: 1392, y: 28, kind: 'approach-residence-upper-roof' },
+            // 翼屋根は瓦のある範囲だけを足場にする（内側は母屋の壁・柱・縁側で瓦が無い）。
+            { level: 3, x1: 418, x2: 508, y: 175, kind: 'approach-residence-left-wing-roof' },
+            { level: 2, x1: 704, x2: 1030, y: 204, kind: 'approach-main-gate-roof' },
+            { level: 3, x1: 1436, x2: 1600, y: 175, kind: 'approach-residence-right-wing-roof' },
             { level: 1, x1: 1058, x2: 1326, y: 346, kind: 'approach-right-wall-roof' },
             { level: 1, x1: 1320, x2: 1496, y: 390, kind: 'approach-outer-low-roof' },
-            { level: 1, x1: 1496, x2: 1805, y: 410, kind: 'approach-outer-wall-roof' }
+            // 外塀は櫓のあたりで一段下がる。瓦の棟に合わせて左右で高さを分ける（右側は約13px低い）。
+            { level: 1, x1: 1496, x2: 1662, y: 410, kind: 'approach-outer-wall-roof' },
+            { level: 1, x1: 1662, x2: 1805, y: 423, kind: 'approach-outer-wall-roof-far' }
         ];
 
         for (const platform of approachPlatforms) {
@@ -784,7 +833,7 @@ export class Stage {
                 ));
             });
 
-        // 町並み(platformAlignedRow)は接近路の手前で打ち切られる（getStage4TownRowsInRangeでクリップ）。
+        // 町並みは接近路の手前で打ち切られる（getStage4TownRowsInRangeでクリップ）。
         // 城前の接近路は新規の武家屋敷区画画像だけに合わせて、瓦屋根上の足場を足す。
         return roofColliders
             .concat(this.getStage4ClimbPlatformColliders(leftWorld, rightWorld))
@@ -809,7 +858,7 @@ export class Stage {
                 const scale = def.visualHeight / Math.max(1, sourceHeight);
                 const drawWidth = sourceWidth * scale;
                 const drawHeight = sourceHeight * scale;
-                const centerX = row.worldX + template.x * (row.width / 2148);
+                const centerX = row.worldX + template.x * (row.width / row.sourceWidth);
                 const drawX = centerX - drawWidth * 0.5;
                 const drawY = baseY - drawHeight;
                 const platformY = drawY + def.sourceSurfaceY * scale;
@@ -4197,45 +4246,43 @@ export class Stage {
                 const villagePlan = [0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 0, 0, 1, 1, 2, 2];
                 const isImageReady = (image) => image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
                 const stage2RuralPropPlan = [
-                    { key: 'ruralFarmhouse', h: 268, xBias: -12, filter: 'brightness(0.76) saturate(0.72) contrast(0.9)' },
-                    { key: 'ruralShrine', h: 154, xBias: 26, filter: 'brightness(0.72) saturate(0.66) contrast(0.86)' },
-                    { key: 'ruralTeahouse', h: 218, xBias: -8, filter: 'brightness(0.75) saturate(0.7) contrast(0.9)' },
-                    { key: 'ruralShed', h: 176, xBias: 22, filter: 'brightness(0.69) saturate(0.63) contrast(0.86)' },
-                    { key: 'ruralShed', h: 190, xBias: 18, filter: 'brightness(0.7) saturate(0.64) contrast(0.88)' },
-                    { key: 'ruralRestHut', h: 230, xBias: -6, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
-                    { key: 'ruralShrine', h: 142, xBias: 36, filter: 'brightness(0.68) saturate(0.62) contrast(0.84)' },
-                    { key: 'ruralFarmhouse', h: 256, xBias: -18, filter: 'brightness(0.74) saturate(0.68) contrast(0.88)' },
-                    { key: 'ruralShrine', h: 132, xBias: -4, filter: 'brightness(0.66) saturate(0.6) contrast(0.84)' },
-                    { key: 'ruralTeahouse', h: 202, xBias: 18, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
-                    { key: 'ruralShed', h: 178, xBias: -2, filter: 'brightness(0.68) saturate(0.6) contrast(0.86)' },
-                    { key: 'ruralRestHut', h: 198, xBias: 30, filter: 'brightness(0.7) saturate(0.62) contrast(0.86)' }
+                    { key: 'ruralFarmhouse', h: 244, xBias: -10, filter: 'brightness(0.76) saturate(0.72) contrast(0.9)' },
+                    { key: 'ruralTeahouse', h: 232, xBias: 12, filter: 'brightness(0.75) saturate(0.7) contrast(0.9)' },
+                    { key: 'ruralShed', h: 202, xBias: -18, filter: 'brightness(0.7) saturate(0.64) contrast(0.88)' },
+                    null,
+                    { key: 'ruralFarmhouse', h: 236, xBias: 22, filter: 'brightness(0.74) saturate(0.68) contrast(0.88)' },
+                    { key: 'ruralTeahouse', h: 220, xBias: -14, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
+                    { key: 'ruralShrine', h: 136, xBias: 28, filter: 'brightness(0.68) saturate(0.62) contrast(0.84)' },
+                    null,
+                    { key: 'ruralShed', h: 196, xBias: 18, filter: 'brightness(0.69) saturate(0.63) contrast(0.86)' },
+                    { key: 'ruralFarmhouse', h: 252, xBias: -16, filter: 'brightness(0.76) saturate(0.7) contrast(0.88)' },
+                    { key: 'ruralTeahouse', h: 214, xBias: 20, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
+                    null,
+                    { key: 'ruralShed', h: 188, xBias: -4, filter: 'brightness(0.68) saturate(0.6) contrast(0.86)' }
                 ];
                 const stage2RoadsideDetailPlan = [
-                    { key: 'woodSignpost', h: 96, xBias: -18, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
+                    { key: 'cleanLowFence', h: 46, xBias: -16, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
+                    { key: 'cleanStrawBundles', h: 58, xBias: 18, filter: 'brightness(0.76) saturate(0.72) contrast(0.9)' },
+                    { key: 'cleanJars', h: 48, xBias: -10, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
                     null,
-                    { key: 'lowFence', h: 54, xBias: 12, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
-                    { key: 'jarsBucket', h: 56, xBias: -6, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
+                    { key: 'cleanGrassClump', h: 46, xBias: 18, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
+                    { key: 'cleanWoodSignpost', h: 76, xBias: -18, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
+                    { key: 'cleanLowFence', h: 40, xBias: 24, filter: 'brightness(0.7) saturate(0.64) contrast(0.86)' },
+                    { key: 'cleanStoneWell', h: 92, xBias: -8, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
                     null,
-                    { key: 'strawBundles', h: 78, xBias: -14, filter: 'brightness(0.76) saturate(0.72) contrast(0.9)' },
-                    { key: 'woodSignpost', h: 84, xBias: 18, filter: 'brightness(0.7) saturate(0.62) contrast(0.86)' },
-                    null,
-                    { key: 'firewoodStack', h: 70, xBias: -10, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
-                    { key: 'roadsideJizo', h: 80, xBias: 20, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
-                    null,
-                    { key: 'lowFence', h: 48, xBias: -8, filter: 'brightness(0.7) saturate(0.64) contrast(0.86)' },
-                    { key: 'stoneWell', h: 112, xBias: 8, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
-                    null,
-                    { key: 'jarsBucket', h: 50, xBias: 24, filter: 'brightness(0.72) saturate(0.64) contrast(0.86)' },
-                    { key: 'strawBundles', h: 70, xBias: -20, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' }
+                    { key: 'cleanJars', h: 42, xBias: 22, filter: 'brightness(0.72) saturate(0.64) contrast(0.86)' },
+                    { key: 'cleanStrawBundles', h: 52, xBias: -20, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
+                    { key: 'cleanGrassClump', h: 40, xBias: 10, filter: 'brightness(0.7) saturate(0.64) contrast(0.86)' }
                 ];
                 const ruralImagesReady = stage2RuralPropPlan.some((item) => item && isImageReady(this.stage2PropImages?.[item.key]));
                 const roadDetailsReady = stage2RoadsideDetailPlan.some((item) => item && isImageReady(this.stage2PropImages?.[item.key]));
 
                 if (ruralImagesReady) {
-                    const slotSpan = 540;
+                    const slotSpan = 470;
                     const propStart = Math.floor((p * kPara - 640) / slotSpan);
                     const propEnd = Math.ceil((CANVAS_WIDTH + p * kPara + 640) / slotSpan);
                     const propBaseY = this.groundY + 2;
+                    const stage2HouseWorldBounds = [];
 
                     for (let i = propStart; i <= propEnd; i++) {
                         const seed = i * 8.37;
@@ -4257,8 +4304,13 @@ export class Stage {
                         const scaleJitter = 0.94 + this.noise1D(seed + 2.7) * 0.12;
                         const height = item.h * scaleJitter;
                         const width = height * (image.naturalWidth / image.naturalHeight);
-                        const drawX = x + item.xBias + this.noiseSigned(seed + 3.1) * 18;
+                        const worldDrawX = worldX + item.xBias + this.noiseSigned(seed + 3.1) * 18;
+                        const drawX = worldDrawX - p * kPara;
                         if (drawX + width < -180 || drawX > CANVAS_WIDTH + 180) continue;
+                        stage2HouseWorldBounds.push({
+                            left: worldDrawX,
+                            right: worldDrawX + width
+                        });
 
                         ctx.save();
                         ctx.filter = item.filter;
@@ -4268,7 +4320,7 @@ export class Stage {
 
                     }
                     if (roadDetailsReady) {
-                        const detailSpan = 360;
+                        const detailSpan = 250;
                         const detailStart = Math.floor((p * kPara - 520) / detailSpan);
                         const detailEnd = Math.ceil((CANVAS_WIDTH + p * kPara + 520) / detailSpan);
                         const detailBaseY = this.groundY + 3;
@@ -4277,7 +4329,7 @@ export class Stage {
                         for (let i = detailStart; i <= detailEnd; i++) {
                             const seed = i * 9.71;
                             const item = stage2RoadsideDetailPlan[((i % stage2RoadsideDetailPlan.length) + stage2RoadsideDetailPlan.length) % stage2RoadsideDetailPlan.length];
-                            if (!item || this.noise1D(seed + 0.9) < 0.18) continue;
+                            if (!item || this.noise1D(seed + 0.9) < 0.08) continue;
 
                             const worldX = 260 + i * detailSpan + this.noiseSigned(seed + 1.4) * 52;
                             if (worldX > detailLimit) continue;
@@ -4288,7 +4340,13 @@ export class Stage {
                             const scaleJitter = 0.92 + this.noise1D(seed + 2.6) * 0.16;
                             const height = item.h * scaleJitter;
                             const width = height * (image.naturalWidth / image.naturalHeight);
-                            const drawX = worldX - p * kPara + item.xBias + this.noiseSigned(seed + 3.2) * 14;
+                            const worldDrawX = worldX + item.xBias + this.noiseSigned(seed + 3.2) * 14;
+                            const blocksHouse = stage2HouseWorldBounds.some((bounds) => (
+                                worldDrawX + width > bounds.left - 44 && worldDrawX < bounds.right + 44
+                            ));
+                            if (blocksHouse) continue;
+
+                            const drawX = worldDrawX - p * kPara;
                             if (drawX + width < -140 || drawX > CANVAS_WIDTH + 140) continue;
 
                             ctx.save();

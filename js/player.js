@@ -20,9 +20,9 @@ import {
     applyNormalComboStartMotion,
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
-} from './normalComboMotion.js';
-import { applyRendererMixin }    from './playerRenderer.js?v=oonagi-lightsaber-spindle-20260702i';
-import { applySlashTrailMixin }  from './playerSlashTrail.js?v=oonagi-trail-hilt-pivot-20260702c';
+} from './normalComboMotion.js?v=oonagi-step3-dash-20260702n';
+import { applyRendererMixin }    from './playerRenderer.js?v=oonagi-ext-parametric-20260702q';
+import { applySlashTrailMixin }  from './playerSlashTrail.js?v=oonagi-giant-tip-match-20260702q';
 import { applySpecialMixin }     from './playerSpecial.js?v=clone-ground-fix2-20260623';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
 import {
@@ -2265,6 +2265,14 @@ export class Player {
         this.tempNinjutsuTimers.expMagnet = Math.max(0, (this.tempNinjutsuTimers.expMagnet || 0) - deltaMs);
         this.tempNinjutsuTimers.xAttack = Math.max(0, (this.tempNinjutsuTimers.xAttack || 0) - deltaMs);
         this.tempNinjutsuTimers.ghostVeil = Math.max(0, (this.tempNinjutsuTimers.ghostVeil || 0) - deltaMs);
+        // 【大薙 点火/収納アニメ】発動(false→true)で点火タイマー、終了(true→false)で収納タイマーを起点0に。
+        // 各フレーム加算し、drawKatana が刃の伸縮(柄基点)＋閃光に使う(描画専用=判定不変)。
+        const xActive = this.tempNinjutsuTimers.xAttack > 0;
+        if (xActive && !this._oonagiPrevActive) this._oonagiIgniteMs = 0;
+        if (!xActive && this._oonagiPrevActive) this._oonagiRetractMs = 0;
+        this._oonagiPrevActive = xActive;
+        this._oonagiIgniteMs = Math.min(99999, (Number.isFinite(this._oonagiIgniteMs) ? this._oonagiIgniteMs : 99999) + deltaMs);
+        this._oonagiRetractMs = Math.min(99999, (Number.isFinite(this._oonagiRetractMs) ? this._oonagiRetractMs : 99999) + deltaMs);
     }
 
     resetTemporaryNinjutsuTimers() {

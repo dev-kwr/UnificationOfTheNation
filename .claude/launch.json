@@ -4,20 +4,23 @@
     {
       "name": "preview",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["preview_nocache_server.py", "8779"],
-      "port": 8779
+      "runtimeArgs": ["preview_nocache_server.py"],
+      "port": 8779,
+      "autoPort": true
     },
     {
       "name": "preview2",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["preview_nocache_server.py", "8781"],
-      "port": 8781
+      "runtimeArgs": ["preview_nocache_server.py"],
+      "port": 8781,
+      "autoPort": true
     },
     {
       "name": "preview3",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["preview_nocache_server.py", "8783"],
-      "port": 8783
+      "runtimeArgs": ["preview_nocache_server.py"],
+      "port": 8783,
+      "autoPort": true
     }
   ]
 }

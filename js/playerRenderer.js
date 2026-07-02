@@ -171,7 +171,17 @@ export function applyRendererMixin(PlayerClass) {
             // (待機中も巨大刃を構える=ユーザー要望)。刀のローカル座標系で反り(getArcY)を前方リーチぶん延長し、
             // 太い発光ブレード(オーラ→本体→明るい芯)を通常刀身の背後に描く。通常刀身は鋭い芯として手前に残す。
             // 二刀は各刀でこの関数が呼ばれるので両刀が巨大光刃化する。lighten 合成・描画専用=判定不変。
-            const oonagiBladeActive = drawBlade && typeof this.isXAttackBoostActive === 'function' && this.isXAttackBoostActive();
+            // 大薙ブースト中は巨刀を描く。加えて「終了直後の収納アニメ中(_oonagiRetractMs<RETRACT)」も描き続け、
+            // 刃が柄へ縮んでから通常刀身に戻す。発動直後は _oonagiIgniteMs で刃が柄から伸びる(点火)。
+            const _oonagiBoost = drawBlade && typeof this.isXAttackBoostActive === 'function' && this.isXAttackBoostActive();
+            const OONAGI_IGNITE_MS = 150, OONAGI_RETRACT_MS = 220;
+            const _oonagiIgniteMs = Number.isFinite(this._oonagiIgniteMs) ? this._oonagiIgniteMs : 99999;
+            const _oonagiRetractMs = Number.isFinite(this._oonagiRetractMs) ? this._oonagiRetractMs : 99999;
+            const _oonagiRetracting = drawBlade && !_oonagiBoost && _oonagiRetractMs < OONAGI_RETRACT_MS;
+            const oonagiBladeActive = _oonagiBoost || _oonagiRetracting;
+            // 通常刀身を常に先に描く(大薙中も)。大薙エフェクトはこの後 lighten で"上"に重なる=刀が消えない。
+            // drawNormalKatanaBlade は関数宣言(この if(drawBlade)ブロック内で巻き上げ)なので定義前でも呼べる。
+            drawNormalKatanaBlade();
             if (oonagiBladeActive) {
                 // ===== 大薙: ライトセーバー風(淡く発光を繰り返す) =====
                 // シルエット(巨刀の形状)は現状のまま。グラフィックはリセット: 白熱の芯→青いブレード→青い外グロー
@@ -179,22 +189,47 @@ export function applyRendererMixin(PlayerClass) {
                 // ぼかしは外グロー1パスのみ=非常に軽量。
                 const lengthScale = 1.8;             // 長さ(刀の何倍まで伸ばすか)
                 const gBl = (bladeEnd - bladeStart) * lengthScale;
-                const gTX = (t) => bladeStart + gBl * t;
-                const gArcY = (t) => -(Math.pow(t * lengthScale, 1.8) * (bl * 0.18)) + 0.06; // 実刀の反りに一致(覆う)
                 const SEGg = 44;
                 const _now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
+
+                // 点火/収納の伸縮率 oonagiExt。ctx.scale の均一縮小は反り(t^1.8 の非線形)まで縮めて
+                // 元刀のカーブと一致しない(切先xは合うがyがズレる)ため廃止し、「パラメトリック延長」にする:
+                // 巨刀の中心線は元刀と同じ曲線族 u∈[0,1.8](gArcY(t)=katanaArc(t*1.8)) なので、
+                // 描画パラメータを t*oonagiExt に置換すれば ext=1/1.8 で元刀の反り・長さと厳密一致する。
+                const OONAGI_EXT_MIN = 1 / lengthScale;   // ≈0.556 = 元刀の長さ
+                let oonagiExt = 1;
+                if (_oonagiRetracting) {
+                    const r = Math.min(1, _oonagiRetractMs / OONAGI_RETRACT_MS);            // 0→1
+                    oonagiExt = 1 - (1 - OONAGI_EXT_MIN) * (r * r);                         // 1→元刀長(収納)
+                } else if (_oonagiIgniteMs < OONAGI_IGNITE_MS) {
+                    const r = Math.min(1, _oonagiIgniteMs / OONAGI_IGNITE_MS);              // 0→1
+                    oonagiExt = OONAGI_EXT_MIN + (1 - OONAGI_EXT_MIN) * (1 - Math.pow(1 - r, 2.4)); // 元刀長→1(点火)
+                }
+                oonagiExt = Math.max(OONAGI_EXT_MIN, Math.min(1, oonagiExt));
+                // 伸縮進行 0(元刀サイズ)→1(巨刀)。幅・グローの立ち上がりに使う。
+                const extQ = (oonagiExt - OONAGI_EXT_MIN) / (1 - OONAGI_EXT_MIN);
+
+                const gTX = (t) => bladeStart + gBl * t * oonagiExt;
+                const gArcY = (t) => -(Math.pow(t * oonagiExt * lengthScale, 1.8) * (bl * 0.18)) + 0.06; // 実刀の反りに一致(覆う)
                 // SLIM 幅プロファイル。根本(t=0=柄接続点)は「すぼめない」=通常刀同様のフル幅で始め、
                 // 切先へ向けて緩やかに細くなり、先端付近だけ鋭く絞る(点に収束)。旧 ramp(t/0.05)は根本を0に絞る→廃止。
-                const gHalf = whiteHalf * 3.4;
+                // 幅は伸縮進行で「元刀の白刃幅(whiteHalf)→巨刀幅(3.4whiteHalf)」へ補間=点火開始/収納終わりは元刀とピッタリ。
+                const gHalf = whiteHalf * (1 + 2.4 * extQ);
                 const gHalfW = (t) => {
                     const body = 1 - 0.35 * t;                               // 全体に緩く細く(根本1.0→切先側0.65)
                     const tip  = Math.pow(Math.min(1, (1 - t) / 0.22), 0.9); // 先端をやや長く滑らかに絞る(針先=雑さ回避)
                     return gHalf * body * tip;
                 };
+                // 根本の平ら(四角)な断面を丸める: 柄側(-x)へ浅く膨らむ楕円キャップ。
+                // radiusX=浅め(前後の膨らみ)・radiusY=根本半幅。左右にだけ広がる平面→前後にも丸みが付いて四角さ解消。
+                const rootCapEllipse = (w0) => {
+                    if (w0 > 0.4) ctx.ellipse(gTX(0), gArcY(0), Math.max(0.5, w0 * 0.62), w0, 0, Math.PI * 0.5, Math.PI * 1.5, false);
+                };
                 const traceSilhouetteW = (wf) => {
                     ctx.beginPath();
                     for (let i = 0; i <= SEGg; i++) { const t = i / SEGg; const x = gTX(t), y = gArcY(t) - gHalfW(t) * wf; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
                     for (let i = SEGg; i >= 0; i--) { const t = i / SEGg; ctx.lineTo(gTX(t), gArcY(t) + gHalfW(t) * wf); }
+                    rootCapEllipse(gHalfW(0) * wf);
                     ctx.closePath();
                 };
                 // 【呼吸アニメーション】ゆっくり滑らかに膨らんで萎む(周期~3.9s)。追加描画なし=負荷増ゼロ。
@@ -206,6 +241,7 @@ export function applyRendererMixin(PlayerClass) {
                 ctx.save();
                 ctx.globalCompositeOperation = 'lighten';
                 ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+                // 伸縮は gTX/gArcY のパラメトリック置換と gHalf の幅補間で表現済み(ctx.scale は使わない)。
 
                 // (1) 外グロー(色・ぼかし1パス): 中ほど最大・両端が滑らかに細る「紡錘形」。
                 // 刀身シルエットの一律wf倍だと 根本=幅広の平ら断面(ずんぐり)・先端=急絞りのブロブ で雑になる→
@@ -217,10 +253,11 @@ export function applyRendererMixin(PlayerClass) {
                     ctx.beginPath();
                     for (let i = 0; i <= SEGg; i++) { const t = i / SEGg; const w = gHalf * glowWf * glowProfile(t); if (i === 0) ctx.moveTo(gTX(t), gArcY(t) - w); else ctx.lineTo(gTX(t), gArcY(t) - w); }
                     for (let i = SEGg; i >= 0; i--) { const t = i / SEGg; const w = gHalf * glowWf * glowProfile(t); ctx.lineTo(gTX(t), gArcY(t) + w); }
+                    rootCapEllipse(gHalf * glowWf * glowProfile(0));
                     ctx.closePath();
                 };
                 ctx.shadowColor = 'rgba(96,176,255,' + (0.26 + 0.56 * breath2) + ')';
-                ctx.shadowBlur = 12 + 30 * breath2;                          // 12..42(呼吸ピークで大きく発光)
+                ctx.shadowBlur = (12 + 30 * breath2) * (0.35 + 0.65 * extQ); // 12..42(呼吸ピークで大きく発光)。点火/収納中は絞る
                 ctx.fillStyle = 'rgba(64,146,255,' + (0.09 + 0.26 * breath2) + ')';
                 traceGlow(); ctx.fill();
                 ctx.shadowBlur = 0;
@@ -238,10 +275,31 @@ export function applyRendererMixin(PlayerClass) {
                 traceSilhouetteW(0.26); ctx.fill();
 
                 ctx.restore();
+
+                // 点火/収納の閃光: 柄で白熱が一瞬広がって消える(ext スケール外=固定サイズ)。
+                // 発動=点火(0..140ms)・終了=収納(0..100ms)の頭で強く光る。lighten・描画専用。
+                const _flashT = _oonagiRetracting
+                    ? (_oonagiRetractMs / 100)
+                    : (_oonagiIgniteMs / 140);
+                if (_flashT >= 0 && _flashT < 1) {
+                    const fa = Math.pow(1 - _flashT, 1.8);           // 1→0 急減衰
+                    const hx = bladeStart, hy = gArcY(0);
+                    const fr = gHalf * (2.0 + 3.2 * (1 - fa));       // 広がりながら消える
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'lighten';
+                    const grad = ctx.createRadialGradient(hx, hy, 0, hx, hy, fr);
+                    grad.addColorStop(0, 'rgba(232,248,255,' + (0.9 * fa) + ')');
+                    grad.addColorStop(0.4, 'rgba(120,200,255,' + (0.45 * fa) + ')');
+                    grad.addColorStop(1, 'rgba(90,170,255,0)');
+                    ctx.fillStyle = grad;
+                    ctx.beginPath(); ctx.arc(hx, hy, fr, 0, Math.PI * 2); ctx.fill();
+                    ctx.restore();
+                }
             }
 
-            // 【大薙中は黒刀の刀身を隠し、巨大ライトセーバーのみ表示】(芯に黒い筋が出ないように)
-            if (!oonagiBladeActive) {
+            // 通常刀身(黒刀)を描く関数。大薙エフェクトは常にこの刀の"上"に lighten で重ねる
+            // (発動/収納アニメ中も刀が消えず自然。full大薙では明るい刃が刀を覆う)。関数宣言=巻き上げで前方から呼べる。
+            function drawNormalKatanaBlade() {
             // 先端形状:
             // 峰側(上)はそのまま終端まで伸ばし、刃側(下)だけ先端へ向かって絞る
             const tipY = upperPoints[seg].y;
@@ -383,7 +441,7 @@ export function applyRendererMixin(PlayerClass) {
             // 切っ先の頂点 (upperPoints[seg]) へ正確に結ぶ
             ctx.bezierCurveTo(edgeCtrl2X, edgeCtrl2Y, edgeCtrl1X, edgeCtrl1Y, upperPoints[seg].x, upperPoints[seg].y);
             ctx.stroke();
-            }   // /if (!oonagiBladeActive)
+            }   // /drawNormalKatanaBlade
         }
 
         ctx.restore();

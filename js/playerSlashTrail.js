@@ -522,7 +522,23 @@ export function applySlashTrailMixin(PlayerClass) {
             : Math.max(1, Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1);
         const attackForProgress = options.attack || this.currentAttack;
         const boostAnchors = options.boostAnchors || this.comboSlashTrailBoostAnchors || {};
-        
+        // 【大薙 凍結の剣筋を巨刀サイズで固定するための軸】凍結した瞬間の柄(armEnd)を保存する。
+        // 描画側(drawOonagiRangeEffect)はこの固定軸まわりに 1.8 倍する→本体が動いても位置固定・サイズ維持。
+        // boostAnchor が無い場合でも常に軸を持てるようにする(=通常サイズ化/ドリフトの根治)。
+        let oonagiHiltX = null, oonagiHiltY = null;
+        if (typeof this.getComboSwordPoseState === 'function') {
+            try {
+                const _fp = this.getComboSwordPoseState({
+                    x: ownerX, y: ownerY, width: ownerW, height: ownerH,
+                    facingRight: this.facingRight, isCrouching: this.isCrouching,
+                    currentAttack: attackForProgress, attackTimer: this.attackTimer
+                });
+                if (_fp && Number.isFinite(_fp.armEndX) && Number.isFinite(_fp.armEndY)) {
+                    oonagiHiltX = _fp.armEndX; oonagiHiltY = _fp.armEndY;
+                }
+            } catch (e) { /* noop */ }
+        }
+
         // メインバッファ内の軌跡を段ごとにグループ化
         const stepGroups = new Map();
         for (let i = 0; i < sourcePoints.length; i++) {
@@ -628,6 +644,8 @@ export function applySlashTrailMixin(PlayerClass) {
                         life: Math.max(1, lastPt.life || this.comboSlashTrailActiveLifeMs),
                         trailCurveFrozen: true,
                         boostAnchor: frozenBoostAnchor,
+                        oonagiHiltX: oonagiHiltX,
+                        oonagiHiltY: oonagiHiltY,
                         frozenTrailCenterX: frozenTrailCenterX,
                         frozenTrailCenterY: frozenTrailCenterY,
                         trailWidthScale: frozenTrailWidthScale,
@@ -741,6 +759,8 @@ export function applySlashTrailMixin(PlayerClass) {
                         oldestAge: Math.max(0, firstPt.age || 0), // 古い（根本の）フェードアウト度合い
                         life: Math.max(1, lastPt.life || this.comboSlashTrailActiveLifeMs),
                         boostAnchor: frozenBoostAnchor,
+                        oonagiHiltX: oonagiHiltX,
+                        oonagiHiltY: oonagiHiltY,
                         frozenTrailCenterX: frozenTrailCenterX,
                         frozenTrailCenterY: frozenTrailCenterY,
                         trailWidthScale: frozenTrailWidthScale,
@@ -4897,37 +4917,83 @@ export function applySlashTrailMixin(PlayerClass) {
             const innerStrip = buildOonagiCenterStrip(pts, comboStep, projectFn, options, baseWidth);
             if (!Array.isArray(innerStrip) || innerStrip.length < 2) return;
 
-            // 【大薙の剣筋=巨大光刃に一致】drawKatana は刀身を「柄(bladeStart)基点で lengthScale(1.8)倍」に伸ばす。
-            // 剣筋(記録した実刃の切先掃引)も同じく「柄(armEnd)を軸に 1.8 倍」ラジアルスケールすれば、
-            // 剣筋の切先が巨大刃の切先と一致する(実測: armEnd+(tip-armEnd)*1.8 = 巨大切先)。
-            // ・軸=柄(armEnd)。pose から取得し projectFn で innerStrip と同じ投影空間へ写す(projectFn=null なら素通し)。
-            //   ※前回の失敗は軸を innerStrip[0](=最古の切先)にしたこと→遠い点基準で拡大し剣筋が巨大化・遊離した。
-            // ・方向ベクトル/端点追加は一切しない(点数・順序不変)=振り中の揺れ無し。判定は PLAYER.OONAGI_REACH_* で別途(描画専用)。
+            // 【大薙の剣筋=巨大光刃の切先軌跡に一致】巨刀切先の実軌跡は giantTip(τ)=tip(τ)+0.8*(tip(τ)-柄(τ))。
+            // ・step3/4(直線系): 1.8倍ラジアルスケールは掃引長を二重拡大(step3は突進1.8倍化と重複)し
+            //   終端が巨刀切先を追い越すため使わない。刃長L(定数)による平行移動/基部固定延長で切先軌跡へ合わせる。
+            //   使う値は全て攻撃中不変(記録曲線・L・dir)=フレーム間不動・凍結も同変換で自動連続(ジャンプ無し)。
+            // ・弧系(1/2/5): 従来どおり1.8倍ラジアルスケール(ライブ=柄armEnd軸/凍結=保存pivot軸)。
             let scaledInner = innerStrip;
-            const oonagiActive = (typeof this.isXAttackBoostActive === 'function' && this.isXAttackBoostActive())
-                || options.forceRangeEffectActive === true;
-            if (oonagiActive && typeof this.getComboSwordPoseState === 'function') {
-                const OONAGI_BLADE_LENGTH_SCALE = 1.8; // drawKatana(playerRenderer.js)の lengthScale と一致させること
-                let pose = null;
+            const OONAGI_BLADE_LENGTH_SCALE = 1.8; // drawKatana(playerRenderer.js)の lengthScale と一致させること
+            if ((comboStep === 3 || comboStep === 4) && !options.effectStrip) {
+                // 刃長L: poseの柄→切先距離(キャラ定数。凍結描画時のpose呼びでも同値=安定)
+                let bladeLen = null;
                 try {
-                    pose = this.getComboSwordPoseState({
+                    const poseL = this.getComboSwordPoseState({
                         x: this.x, y: this.y,
                         width: (typeof this.getWorldWidth === 'function') ? this.getWorldWidth() : undefined,
                         height: (typeof this.getWorldHeight === 'function') ? this.getWorldHeight() : undefined,
                         facingRight: this.facingRight, isCrouching: this.isCrouching,
                         currentAttack: this.currentAttack, attackTimer: this.attackTimer
                     });
-                } catch (e) { pose = null; }
-                if (pose && Number.isFinite(pose.armEndX) && Number.isFinite(pose.armEndY)) {
-                    const pre = { x: pose.armEndX, y: pose.armEndY, age: 0, life: 1 };
-                    const pivot = projectFn ? projectFn(pre) : pre;
-                    if (pivot && Number.isFinite(pivot.x) && Number.isFinite(pivot.y)) {
-                        scaledInner = innerStrip.map((p) => ({
-                            ...p,
-                            x: pivot.x + (p.x - pivot.x) * OONAGI_BLADE_LENGTH_SCALE,
-                            y: pivot.y + (p.y - pivot.y) * OONAGI_BLADE_LENGTH_SCALE
-                        }));
+                    if (poseL && Number.isFinite(poseL.armEndX) && Number.isFinite(poseL.tipX)) {
+                        bladeLen = Math.hypot(poseL.tipX - poseL.armEndX, poseL.tipY - poseL.armEndY);
                     }
+                } catch (e) { bladeLen = null; }
+                if (!Number.isFinite(bladeLen) || bladeLen < 8) bladeLen = 58 * Math.max(1, physicalScale);
+                const ext = (OONAGI_BLADE_LENGTH_SCALE - 1) * bladeLen; // ≈0.8L: 巨刀が実刃より前へ出る量
+                if (comboStep === 3) {
+                    // step3(水平斬り): 帯全体を前方へ 0.8L 平行移動。
+                    // 始点=step2の巨大化終端(hilt軸1.8倍の終端=実終点+0.8L)と一致、
+                    // 終端=切先追従ヘッド+0.8L=巨刀切先と一致(実測 gx=tip+0.8L)。長さは記録掃引のまま(突進1.8倍込み)。
+                    const sx = dir * ext;
+                    scaledInner = innerStrip.map((p) => ({ ...p, x: p.x + sx }));
+                } else {
+                    // step4(垂直ロンチ): 柱を前方へ ext*KX、基部(innerStrip[0])固定で上へ ext*KY 延長。
+                    // KX/KY は巨刀切先軌跡の実測(上昇期gx/頂点gy)にキャラ別の柱様式(基準x/柱高H)を合わせた係数。
+                    //   忍者: 柱708 vs 巨刀上昇期gx≈779-792 → KX=1.2(+73) / 頂点151相当 → KY=0.95
+                    //   将軍: 柱914 vs gx≈896-909 → KX=0(既に一致) / 頂点-92相当 → KY=0.5
+                    const isShogun = this.characterType === 'shogun';
+                    const sx = dir * ext * (isShogun ? 0 : 1.2);
+                    const csY = Number.isFinite(newestSrc.trailCurveStartY) ? newestSrc.trailCurveStartY : null;
+                    const ceY = Number.isFinite(newestSrc.trailCurveEndY) ? newestSrc.trailCurveEndY : null;
+                    const colH = (csY !== null && ceY !== null) ? Math.abs(ceY - csY) : 0;
+                    const kY = colH > 1 ? 1 + (ext * (isShogun ? 0.5 : 0.95)) / colH : 1;
+                    const baseY = innerStrip[0].y;
+                    scaledInner = innerStrip.map((p) => ({
+                        ...p,
+                        x: p.x + sx,
+                        y: baseY + (p.y - baseY) * kY
+                    }));
+                }
+            } else {
+                let pivot = null;
+                if (Number.isFinite(options.oonagiFrozenPivotX) && Number.isFinite(options.oonagiFrozenPivotY)) {
+                    // 凍結(弧系): 凍結時に保存した固定拡大中心をそのまま軸に(既に innerStrip と同空間)。
+                    pivot = { x: options.oonagiFrozenPivotX, y: options.oonagiFrozenPivotY };
+                } else if ((typeof this.isXAttackBoostActive === 'function' && this.isXAttackBoostActive())
+                    && typeof this.getComboSwordPoseState === 'function') {
+                    // ライブ(弧系): 現在の柄(armEnd)を投影して軸に
+                    let pose = null;
+                    try {
+                        pose = this.getComboSwordPoseState({
+                            x: this.x, y: this.y,
+                            width: (typeof this.getWorldWidth === 'function') ? this.getWorldWidth() : undefined,
+                            height: (typeof this.getWorldHeight === 'function') ? this.getWorldHeight() : undefined,
+                            facingRight: this.facingRight, isCrouching: this.isCrouching,
+                            currentAttack: this.currentAttack, attackTimer: this.attackTimer
+                        });
+                    } catch (e) { pose = null; }
+                    if (pose && Number.isFinite(pose.armEndX) && Number.isFinite(pose.armEndY)) {
+                        const pre = { x: pose.armEndX, y: pose.armEndY, age: 0, life: 1 };
+                        pivot = projectFn ? projectFn(pre) : pre;
+                    }
+                }
+                if (pivot && Number.isFinite(pivot.x) && Number.isFinite(pivot.y)) {
+                    scaledInner = innerStrip.map((p) => ({
+                        ...p,
+                        x: pivot.x + (p.x - pivot.x) * OONAGI_BLADE_LENGTH_SCALE,
+                        y: pivot.y + (p.y - pivot.y) * OONAGI_BLADE_LENGTH_SCALE
+                    }));
                 }
             }
 
@@ -6046,7 +6112,10 @@ export function applySlashTrailMixin(PlayerClass) {
                             newestScale: baseNewestAlpha,
                             comboStep: fc.step,
                             trimEnd: true,
-                            trimFactor: fc.step === 5 ? getComboStep5EndTrimFactor(physicalScale) : 0.5
+                            trimFactor: fc.step === 5 ? getComboStep5EndTrimFactor(physicalScale) : 0.5,
+                            // 大薙: 凍結時の固定拡大中心を軸に 1.8 倍(位置固定・サイズ維持)
+                            oonagiFrozenPivotX: Number.isFinite(fc.oonagiHiltX) ? fc.oonagiHiltX : (fc.boostAnchor ? fc.boostAnchor.baseCenterX : undefined),
+                            oonagiFrozenPivotY: Number.isFinite(fc.oonagiHiltY) ? fc.oonagiHiltY : (fc.boostAnchor ? fc.boostAnchor.baseCenterY : undefined)
                         });
                     }
                 } else if (fc.type === 'bezier' || !fc.type) {
@@ -6125,7 +6194,10 @@ export function applySlashTrailMixin(PlayerClass) {
                             offsetX: offsetX,
                             offsetY: offsetY,
                             trimEnd: true,
-                            trimFactor: fc.step === 5 ? getComboStep5EndTrimFactor(physicalScale) : 0.5
+                            trimFactor: fc.step === 5 ? getComboStep5EndTrimFactor(physicalScale) : 0.5,
+                            // 大薙: 凍結時の固定拡大中心を軸に 1.8 倍(位置固定・サイズ維持)
+                            oonagiFrozenPivotX: Number.isFinite(fc.oonagiHiltX) ? fc.oonagiHiltX : (fc.boostAnchor ? fc.boostAnchor.baseCenterX : undefined),
+                            oonagiFrozenPivotY: Number.isFinite(fc.oonagiHiltY) ? fc.oonagiHiltY : (fc.boostAnchor ? fc.boostAnchor.baseCenterY : undefined)
                         });
                     }
                 } else if (fc.type === 'points' && Array.isArray(fc.frozenPoints)) {
@@ -6176,7 +6248,10 @@ export function applySlashTrailMixin(PlayerClass) {
                             rangeEffectScale: fc.rangeEffectScale,
                             forceRangeEffectActive: true,
                             newestScale: baseNewestAlpha,
-                            useRelativeIfAvailable: true
+                            useRelativeIfAvailable: true,
+                            // 大薙: 凍結時の固定拡大中心を軸に 1.8 倍(step4等の位置固定・サイズ維持)
+                            oonagiFrozenPivotX: Number.isFinite(fc.oonagiHiltX) ? fc.oonagiHiltX : (fc.boostAnchor ? fc.boostAnchor.baseCenterX : undefined),
+                            oonagiFrozenPivotY: Number.isFinite(fc.oonagiHiltY) ? fc.oonagiHiltY : (fc.boostAnchor ? fc.boostAnchor.baseCenterY : undefined)
                         });
                     }
                     

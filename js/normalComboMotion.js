@@ -73,7 +73,10 @@ export function applyNormalComboStartMotion(actor, attackProfile, options = {}) 
         const scaleMult = actor.scaleMultiplier || 1.0;
         // 横の踏み込みは体格(scaleMult)等倍だと突進が体格比を超えて長すぎるため係数で抑える。
         const hLungeScale = 1 + (scaleMult - 1) * NORMAL_COMBO_STEP3_LUNGE_HSCALE_COEF;
-        actor.vx = actor.vx * 0.12 + direction * impulse * 1.71 * hLungeScale;
+        // 大薙中は剣筋を lengthScale(1.8)倍に伸ばすため、突進も同率で伸ばさないと切先の掃引が
+        // 記録距離を超えて剣筋を描ききれない。大薙中のみ前進を約1.8倍にして剣筋の掃引距離を確保する。
+        const oonagiLungeMult = (typeof actor.isXAttackBoostActive === 'function' && actor.isXAttackBoostActive()) ? 1.8 : 1.0;
+        actor.vx = actor.vx * 0.12 + direction * impulse * 1.71 * hLungeScale * oonagiLungeMult;
         actor.vy = Math.min(actor.vy, NORMAL_COMBO_STEP3_LAUNCH_VY);
         actor.isGrounded = false;
         return true;
