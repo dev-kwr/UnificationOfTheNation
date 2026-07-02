@@ -542,6 +542,27 @@ export class Rock extends Obstacle {
         }
     }
 
+    getDamageScarPosition(index, damageRatio) {
+        const anchors = {
+            slab: [
+                [0.36, 0.47], [0.58, 0.38], [0.7, 0.57], [0.25, 0.64], [0.48, 0.68], [0.78, 0.72]
+            ],
+            tall: [
+                [0.48, 0.34], [0.62, 0.52], [0.38, 0.58], [0.54, 0.72], [0.42, 0.78], [0.66, 0.68]
+            ],
+            jagged: [
+                [0.42, 0.38], [0.58, 0.48], [0.34, 0.6], [0.68, 0.63], [0.48, 0.74], [0.76, 0.54]
+            ]
+        };
+        const list = anchors[this.variant] || anchors.slab;
+        const base = list[index % list.length];
+        const jitter = 0.02 + damageRatio * 0.018;
+        return {
+            x: this.width * (base[0] + this.noiseJitter(80.5 + index * 2.7, jitter)),
+            y: this.height * (base[1] + this.noiseJitter(87.3 + index * 2.1, jitter))
+        };
+    }
+
     renderCrackChips(ctx, crack, offsetX, offsetY, damageRatio, seedOffset) {
         const palette = getRockVisualPalette(this.variant);
         for (let i = 0; i < crack.length - 1; i++) {
@@ -584,40 +605,67 @@ export class Rock extends Obstacle {
         if (this.hp >= this.maxHp) return;
         const damageRatio = 1 - (this.hp / this.maxHp);
         const palette = getRockVisualPalette(this.variant);
-        const crackAlpha = 0.56 + damageRatio * 0.24;
-        const cracks = [
-            { path: this.crackLines.primary, seed: 30.5, width: 1 },
-            { path: this.crackLines.branchA, seed: 43.8, width: 0.82, enabled: this.hp <= 2 },
-            { path: this.crackLines.branchB, seed: 57.2, width: 0.78, enabled: this.hp <= 1 }
-        ];
+        const scarCount = this.hp <= 1 ? 7 : (this.hp <= 2 ? 5 : 3);
+        const baseSize = Math.max(4.2, Math.min(this.width, this.height) * 0.14);
 
         ctx.save();
+        this.drawPolygon(ctx, this.profile, offsetX, offsetY);
+        ctx.clip();
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
 
-        for (const crack of cracks) {
-            if (crack.enabled === false) continue;
-            const baseWidth = (1.15 + damageRatio * 0.85) * crack.width;
+        for (let i = 0; i < scarCount; i++) {
+            const local = this.getDamageScarPosition(i, damageRatio);
+            const cx = offsetX + local.x;
+            const cy = offsetY + local.y;
+            const angle = -0.85 + this.seeded(92.4 + i * 3.9) * 1.7;
+            const ux = Math.cos(angle);
+            const uy = Math.sin(angle);
+            const nx = -uy;
+            const ny = ux;
+            const len = baseSize * (1.18 + this.seeded(101.2 + i * 1.7) * 1.15) * (0.85 + damageRatio * 0.4);
+            const chip = baseSize * (0.9 + this.seeded(116.8 + i * 1.4) * 0.6);
+            const side = this.seeded(121.3 + i) > 0.5 ? 1 : -1;
 
-            ctx.strokeStyle = `rgba(${palette.outline}, ${0.14 + damageRatio * 0.18})`;
-            ctx.lineWidth = baseWidth + 2.2;
-            this.drawCrackPath(ctx, crack.path, offsetX, offsetY);
+            ctx.fillStyle = `rgba(${palette.dark}, ${0.32 + damageRatio * 0.24})`;
+            ctx.beginPath();
+            ctx.moveTo(cx - ux * len * 0.42, cy - uy * len * 0.42);
+            ctx.lineTo(cx + ux * len * 0.48, cy + uy * len * 0.48);
+            ctx.lineTo(cx + nx * side * chip * 0.78, cy + ny * side * chip * 0.78);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.fillStyle = `rgba(${palette.outline}, ${0.18 + damageRatio * 0.18})`;
+            ctx.beginPath();
+            ctx.moveTo(cx - ux * len * 0.22, cy - uy * len * 0.22);
+            ctx.lineTo(cx + ux * len * 0.24, cy + uy * len * 0.24);
+            ctx.lineTo(cx + nx * side * chip * 0.42, cy + ny * side * chip * 0.42);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.strokeStyle = `rgba(${palette.crack}, ${0.44 + damageRatio * 0.22})`;
+            ctx.lineWidth = Math.max(0.9, baseSize * 0.2);
+            ctx.beginPath();
+            ctx.moveTo(cx - ux * len * 0.48, cy - uy * len * 0.48);
+            ctx.lineTo(cx + ux * len * 0.34, cy + uy * len * 0.34);
             ctx.stroke();
 
-            ctx.strokeStyle = `rgba(${palette.crack}, ${crackAlpha})`;
-            ctx.lineWidth = baseWidth;
-            this.drawCrackPath(ctx, crack.path, offsetX, offsetY);
-            ctx.stroke();
+            if (damageRatio > 0.38 && i % 2 === 0) {
+                const branchLen = len * (0.18 + this.seeded(129.2 + i) * 0.12);
+                ctx.strokeStyle = `rgba(${palette.crack}, ${0.24 + damageRatio * 0.1})`;
+                ctx.lineWidth = Math.max(0.55, baseSize * 0.11);
+                ctx.beginPath();
+                ctx.moveTo(cx + ux * len * 0.05, cy + uy * len * 0.05);
+                ctx.lineTo(cx + nx * side * branchLen, cy + ny * side * branchLen);
+                ctx.stroke();
+            }
 
-            ctx.save();
-            ctx.translate(-0.75, -0.55);
-            ctx.strokeStyle = `rgba(${palette.crackLight}, ${0.1 + damageRatio * 0.13})`;
-            ctx.lineWidth = Math.max(0.45, baseWidth * 0.42);
-            this.drawCrackPath(ctx, crack.path, offsetX, offsetY);
+            ctx.strokeStyle = `rgba(${palette.crackLight}, ${0.14 + damageRatio * 0.1})`;
+            ctx.lineWidth = Math.max(0.55, baseSize * 0.09);
+            ctx.beginPath();
+            ctx.moveTo(cx - ux * len * 0.28 - nx * side * 0.8, cy - uy * len * 0.28 - ny * side * 0.8);
+            ctx.lineTo(cx + nx * side * chip * 0.42, cy + ny * side * chip * 0.42);
             ctx.stroke();
-            ctx.restore();
-
-            this.renderCrackChips(ctx, crack.path, offsetX, offsetY, damageRatio, crack.seed);
         }
         ctx.restore();
     }

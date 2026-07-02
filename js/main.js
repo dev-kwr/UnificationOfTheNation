@@ -86,8 +86,8 @@ function setupSoundGate() {
     btnOn.addEventListener('pointerenter', () => { if (!closed) { focusIndex = 0; applyFocus(); } });
     btnOff.addEventListener('pointerenter', () => { if (!closed) { focusIndex = 1; applyFocus(); } });
 
+    // マスクはフェードさせず最初から暗いまま表示（起動直後に明るい画面が一瞬見えるのを防ぐ）
     gate.hidden = false;
-    requestAnimationFrame(() => gate.classList.add('sg-visible'));
 }
 
 // DOMロード後に初期化

@@ -96,15 +96,13 @@ canvas {
     align-items: center;
     justify-content: center;
     background: radial-gradient(ellipse at center, rgba(10, 14, 26, 0.82) 0%, rgba(3, 5, 10, 0.94) 100%);
-    opacity: 0;
-    transition: opacity 260ms ease;
     touch-action: manipulation;
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
 }
 #sound-gate[hidden] { display: none; }
-#sound-gate.sg-visible { opacity: 1; }
+/* マスクは最初から暗いまま出し、閉じる時だけフェードで明るくする */
 #sound-gate.sg-closing {
     opacity: 0;
     transition: opacity 340ms ease;
@@ -123,9 +121,18 @@ canvas {
     position: relative;
     overflow: hidden;
     max-width: min(88vw, 430px);
+    animation: sg-card-in 420ms ease both;
+}
+#sound-gate.sg-closing .sg-card {
+    animation: none;
+    transform: scale(0.96);
     transition: transform 340ms ease;
 }
-#sound-gate.sg-closing .sg-card { transform: scale(0.96); }
+
+@keyframes sg-card-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: none; }
+}
 
 /* 上辺の青アクセント（drawWafuCardと同じ意匠） */
 .sg-card::before {
@@ -209,6 +216,18 @@ canvas {
     font-size: 11px;
     letter-spacing: 0.08em;
     color: rgba(210, 222, 248, 0.55);
+}
+
+/* 縦持ちスマホでは画面幅に対して大きくなりすぎないようコンパクトに */
+@media (orientation: portrait) and (max-width: 600px) {
+    .sg-card { padding: 18px 22px 12px; max-width: 300px; }
+    .sg-title { font-size: 16px; }
+    .sg-divider { margin: 9px auto 10px; }
+    .sg-sub { font-size: 12px; }
+    .sg-buttons { margin: 14px 0 10px; gap: 10px; }
+    .sg-btn { width: 104px; padding: 11px 0 10px; font-size: 13px; }
+    .sg-btn svg { width: 24px; height: 24px; }
+    .sg-note { font-size: 10px; }
 }
 
 /* 横持ちスマホなど高さが低い画面ではコンパクトに */

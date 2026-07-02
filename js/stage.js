@@ -191,7 +191,6 @@ export class Stage {
                 stoneLantern: 'images/stage3_prop_stone_lantern.png',
                 jizoLarge: 'images/stage3_prop_jizo_large.png',
                 mountainSign: 'images/stage3_prop_mountain_sign.png',
-                boulderGrass: 'images/stage3_prop_boulder_grass.png',
                 firewoodPile: 'images/stage3_prop_firewood_pile.png'
             };
             for (const [key, src] of Object.entries(stage3PropPaths)) {
@@ -243,7 +242,7 @@ export class Stage {
     initCache() {
         // 竹の葉のプリレンダリング
         if (this.stageNumber === 1) {
-            const colors = ['#8dc46a', '#a0c878', '#b4d47e', '#7ab85a', '#c8d472'];
+            const colors = ['#5f7650', '#6e8055', '#7d895c', '#53684a', '#8a8f60'];
             this.cachedAssets.bambooLeaves = colors.map((color) => {
                 const offCanvas = document.createElement('canvas');
                 offCanvas.width = 32;
@@ -258,7 +257,7 @@ export class Stage {
                 octx.quadraticCurveTo(size * 0.1, size * 0.36, -size * 0.54, 0);
                 octx.closePath();
                 octx.fill();
-                octx.strokeStyle = 'rgba(236, 248, 220, 0.4)';
+                octx.strokeStyle = 'rgba(170, 190, 130, 0.32)';
                 octx.lineWidth = 0.8;
                 octx.beginPath();
                 octx.moveTo(-size * 0.32, 0);
@@ -2281,7 +2280,7 @@ export class Stage {
             ctx.quadraticCurveTo(size * 0.1, size * 0.36, -size * 0.54, 0);
             ctx.closePath();
             ctx.fill();
-            ctx.strokeStyle = `rgba(236, 248, 220, ${(alpha * 0.48).toFixed(3)})`;
+            ctx.strokeStyle = `rgba(170, 190, 130, ${(alpha * 0.38).toFixed(3)})`;
             ctx.lineWidth = 0.8;
             ctx.beginPath();
             ctx.moveTo(-size * 0.32, 0);
@@ -3014,7 +3013,6 @@ export class Stage {
         const props = [
             { type: 'woodFence', worldX: 980,  height: 92,  y: 3, alpha: 0.88 },
             { type: 'stoneLantern', worldX: 1480, height: 110, y: 2, alpha: 0.82 },
-            { type: 'boulderGrass', worldX: 2040, height: 84,  y: 4, alpha: 0.9 },
             { type: 'signpost', worldX: 2660, height: 112, y: 4, alpha: 0.88 },
             { type: 'bambooRail', worldX: 3420, height: 76,  y: 4, alpha: 0.86 },
             { type: 'dosojin', worldX: 4210, height: 70,  y: 4, alpha: 0.88 },
@@ -3022,7 +3020,6 @@ export class Stage {
             { type: 'mountainSign', worldX: 5700, height: 126, y: 4, alpha: 0.86 },
             { type: 'jizoLarge', worldX: 6550, height: 94, y: 4, alpha: 0.86 },
             { type: 'woodFence', worldX: 7350, height: 82, y: 4, alpha: 0.84 },
-            { type: 'boulderGrass', worldX: 8120, height: 96, y: 4, alpha: 0.88 },
             { type: 'bambooFence', worldX: 9050, height: 58, y: 5, alpha: 0.82 },
             { type: 'stoneLantern', worldX: 9860, height: 96, y: 3, alpha: 0.78 }
         ];
@@ -3038,7 +3035,7 @@ export class Stage {
             const y = this.groundY - prop.height + prop.y;
             ctx.save();
             ctx.globalAlpha *= prop.alpha;
-            ctx.filter = 'brightness(0.74) saturate(0.62) contrast(0.86)';
+            ctx.filter = 'brightness(0.66) sepia(0.22) saturate(0.68) contrast(0.86) hue-rotate(-6deg)';
             ctx.drawImage(image, x, y, width, prop.height);
             ctx.filter = 'none';
             ctx.restore();
@@ -3050,7 +3047,7 @@ export class Stage {
         if (!images) return;
 
         const plan = [
-            { type: 'boulderGrass', h: 72, alpha: 0.74, xBias: -34 },
+            { type: 'woodFence', h: 68, alpha: 0.7, xBias: -34 },
             null,
             { type: 'firewoodPile', h: 46, alpha: 0.72, xBias: 22 },
             { type: 'bambooRail', h: 62, alpha: 0.68, xBias: -16 },
@@ -3059,7 +3056,7 @@ export class Stage {
             { type: 'jizoLarge', h: 76, alpha: 0.7, xBias: -18 },
             null,
             { type: 'stoneLantern', h: 88, alpha: 0.68, xBias: 18 },
-            { type: 'boulderGrass', h: 80, alpha: 0.74, xBias: 6 }
+            { type: 'bambooFence', h: 54, alpha: 0.7, xBias: 6 }
         ];
         const span = 620;
         const scroll = this.progress;
@@ -3085,7 +3082,7 @@ export class Stage {
 
             ctx.save();
             ctx.globalAlpha *= item.alpha;
-            ctx.filter = 'brightness(0.7) saturate(0.62) contrast(0.9)';
+            ctx.filter = 'brightness(0.62) sepia(0.22) saturate(0.68) contrast(0.88) hue-rotate(-6deg)';
             ctx.drawImage(image, x + item.xBias, this.groundY - height + 4, width, height);
             ctx.filter = 'none';
             ctx.restore();
@@ -3288,63 +3285,54 @@ export class Stage {
         drawStrip(images.far, {
             parallax: 0.18,
             drawHeight: 800,
-            baseOffset: 42,
-            alpha: 0.66,
+            baseOffset: 96,
+            alpha: 0.72,
             widthScale: 0.66,
-            filter: 'brightness(0.5) saturate(0.54) contrast(0.78)'
+            filter: 'brightness(0.54) sepia(0.16) saturate(0.68) contrast(0.84) hue-rotate(-16deg)'
         });
         drawStrip(images.far, {
             parallax: 0.24,
             drawHeight: 760,
-            baseOffset: 40,
+            baseOffset: 94,
             alpha: 0.34,
             widthScale: 0.62,
             phaseOffset: 0.45,
-            filter: 'brightness(0.48) saturate(0.5) contrast(0.76)'
+            filter: 'brightness(0.5) sepia(0.16) saturate(0.66) contrast(0.82) hue-rotate(-16deg)'
         });
         drawStrip(images.mid, {
             parallax: 0.44,
             drawHeight: 790,
-            baseOffset: 44,
-            alpha: 0.96,
+            baseOffset: 104,
+            alpha: 1,
             widthScale: 0.66,
-            filter: 'brightness(0.62) saturate(0.64) contrast(0.86)'
+            filter: 'brightness(0.64) sepia(0.16) saturate(0.76) contrast(0.9) hue-rotate(-16deg)'
         });
         drawStrip(images.mid, {
             parallax: 0.57,
             drawHeight: 750,
-            baseOffset: 42,
+            baseOffset: 100,
             alpha: 0.46,
             widthScale: 0.62,
             phaseOffset: 0.38,
-            filter: 'brightness(0.58) saturate(0.6) contrast(0.84)'
+            filter: 'brightness(0.58) sepia(0.16) saturate(0.72) contrast(0.88) hue-rotate(-16deg)'
         });
         drawStrip(images.near, {
             parallax: 0.82,
             drawHeight: 760,
-            baseOffset: 48,
+            baseOffset: 108,
             alpha: 1,
             widthScale: 0.64,
-            filter: 'brightness(0.66) saturate(0.66) contrast(0.88)'
+            filter: 'brightness(0.7) sepia(0.16) saturate(0.82) contrast(0.94) hue-rotate(-16deg)'
         });
         drawStrip(images.near, {
             parallax: 0.96,
             drawHeight: 720,
-            baseOffset: 46,
-            alpha: 0.5,
+            baseOffset: 104,
+            alpha: 0.48,
             widthScale: 0.6,
             phaseOffset: 0.33,
-            filter: 'brightness(0.62) saturate(0.62) contrast(0.86)'
+            filter: 'brightness(0.64) sepia(0.16) saturate(0.78) contrast(0.92) hue-rotate(-16deg)'
         });
-
-        ctx.save();
-        const rootFog = ctx.createLinearGradient(0, this.groundY - 96, 0, this.groundY + 8);
-        rootFog.addColorStop(0, 'rgba(21, 30, 28, 0)');
-        rootFog.addColorStop(0.62, 'rgba(23, 34, 30, 0.62)');
-        rootFog.addColorStop(1, 'rgba(17, 25, 21, 0.9)');
-        ctx.fillStyle = rootFog;
-        ctx.fillRect(0, this.groundY - 96, CANVAS_WIDTH, 112);
-        ctx.restore();
 
         return true;
     }
@@ -3355,9 +3343,9 @@ export class Stage {
         const image = this.stage1BambooExitImage;
         if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
 
-        const baseY = this.groundY + 24;
-        const exitH = Math.min(CANVAS_HEIGHT * 0.92, this.groundY + 140);
-        const exitW = exitH * (image.naturalWidth / image.naturalHeight);
+        const baseY = this.groundY + 34;
+        const exitH = Math.min(CANVAS_HEIGHT * 0.84, this.groundY + 96);
+        const exitW = exitH * (image.naturalWidth / image.naturalHeight) * 0.54;
         const cameraStopX = Math.max(0, this.maxProgress - CANVAS_WIDTH);
         const stopX = Math.round(CANVAS_WIDTH * 0.5 - exitW * 0.5);
         const worldX = cameraStopX + stopX;
@@ -3368,7 +3356,7 @@ export class Stage {
         if (x + exitW < -180 || x > CANVAS_WIDTH + prewarmMarginRight) return false;
 
         ctx.save();
-        ctx.filter = 'brightness(0.68) saturate(0.68) contrast(0.88)';
+        ctx.filter = 'brightness(0.68) sepia(0.16) saturate(0.8) contrast(0.94) hue-rotate(-16deg)';
         ctx.drawImage(image, x, y, exitW, exitH);
         ctx.filter = 'none';
         ctx.restore();
@@ -4655,8 +4643,8 @@ export class Stage {
                         const rw = 12 + this.noise1D(seed + 2.1) * 18;
                         const rh = 6 + this.noise1D(seed + 2.7) * 9;
                         const rockGrad = ctx.createLinearGradient(x, this.groundY - rh, x, this.groundY);
-                        rockGrad.addColorStop(0, this.interpolateColor(currentPalette.near, '#4a4038', 0.38));
-                        rockGrad.addColorStop(1, this.interpolateColor(currentPalette.near, '#2a201a', 0.46));
+                        rockGrad.addColorStop(0, this.interpolateColor(currentPalette.near, '#5a4638', 0.46));
+                        rockGrad.addColorStop(1, this.interpolateColor(currentPalette.near, '#241814', 0.54));
                         ctx.fillStyle = rockGrad;
                         ctx.beginPath();
                         ctx.moveTo(x - 4, this.groundY);
@@ -4665,7 +4653,7 @@ export class Stage {
                         ctx.closePath();
                         ctx.fill();
                         // 夕方の弱いリムだけを残す
-                        ctx.fillStyle = `rgba(190, 132, 92, ${0.07 + this.noise1D(seed + 3.4) * 0.05})`;
+                        ctx.fillStyle = `rgba(220, 136, 84, ${0.08 + this.noise1D(seed + 3.4) * 0.06})`;
                         ctx.beginPath();
                         ctx.ellipse(x + rw * 0.45, this.groundY - rh * 0.72, rw * 0.28, rh * 0.22, 0, 0, Math.PI * 2);
                         ctx.fill();
@@ -5402,13 +5390,13 @@ export class Stage {
             ctx.fill();
             // 本体（中間色）
             tracePoly();
-            ctx.fillStyle = this.interpolateColor('#5e584f', '#1b1916', darken * 0.6 + depth * 0.12);
+            ctx.fillStyle = this.interpolateColor('#51463d', '#171310', darken * 0.6 + depth * 0.12);
             ctx.fill();
             // 本体内に限定してマットな面を塗る（上＝陽 / 下＝陰、境界は右上から光が来る向きに傾ける）
             ctx.save();
             tracePoly();
             ctx.clip();
-            ctx.fillStyle = this.interpolateColor('#37332d', '#0c0b09', darken * 0.66 + depth * 0.12); // 陰の面（下・左寄り）
+            ctx.fillStyle = this.interpolateColor('#302720', '#0b0907', darken * 0.66 + depth * 0.12); // 陰の面（下・左寄り）
             ctx.beginPath();
             ctx.moveTo(rx - rw * 1.6, ry - rh * 0.06);
             ctx.lineTo(rx + rw * 1.6, ry + rh * 0.12);
@@ -5416,7 +5404,7 @@ export class Stage {
             ctx.lineTo(rx - rw * 1.6, ry + rh * 1.8);
             ctx.closePath();
             ctx.fill();
-            ctx.fillStyle = this.interpolateColor('#837b6d', '#2c2925', darken * 0.5 + depth * 0.1); // 陽の面（上・右寄り）マット
+            ctx.fillStyle = this.interpolateColor('#6f5d4b', '#2b241d', darken * 0.5 + depth * 0.1); // 陽の面（上・右寄り）マット
             ctx.beginPath();
             ctx.moveTo(rx - rw * 1.6, ry - rh * 0.5);
             ctx.lineTo(rx + rw * 1.6, ry - rh * 0.28);
@@ -5431,7 +5419,7 @@ export class Stage {
             ctx.lineWidth = 1;
             ctx.stroke();
             // 上側の稜線にだけ細い夕日リム（光沢でなく辺のなぞり）
-            ctx.strokeStyle = `rgba(255,198,132,${(0.16 + depth * 0.08) * (1 - darken * 0.55)})`;
+            ctx.strokeStyle = `rgba(255,174,108,${(0.14 + depth * 0.07) * (1 - darken * 0.55)})`;
             ctx.lineWidth = 1.4;
             ctx.beginPath();
             let started = false;
@@ -5540,7 +5528,7 @@ export class Stage {
                 ctx.beginPath();
                 ctx.ellipse(sx + sw * 0.1, sy + sw * 0.28, sw * 1.05, sw * 0.42, 0, 0, Math.PI * 2);
                 ctx.fill();
-                ctx.fillStyle = this.interpolateColor('#615b52', '#242019', darken * 0.6 + depth * 0.16);
+                ctx.fillStyle = this.interpolateColor('#514840', '#211a15', darken * 0.6 + depth * 0.16);
                 ctx.beginPath();
                 ctx.ellipse(sx, sy, sw, sw * 0.72, 0, 0, Math.PI * 2);
                 ctx.fill();
@@ -6210,6 +6198,13 @@ export class Stage {
             this.renderStage4ClimbPlatforms(ctx);
         }
         for (const obs of this.obstacles) {
+            if (this.stageNumber === 3 && obs.type === OBSTACLE_TYPES.ROCK) {
+                ctx.save();
+                ctx.filter = 'brightness(0.74) sepia(0.18) saturate(0.72) contrast(0.93) hue-rotate(-6deg)';
+                obs.render(ctx);
+                ctx.restore();
+                continue;
+            }
             obs.render(ctx);
         }
     }
