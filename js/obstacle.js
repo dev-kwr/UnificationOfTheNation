@@ -5,6 +5,105 @@
 import { OBSTACLE_TYPES, OBSTACLE_SETTINGS, LANE_OFFSET } from './constants.js';
 import { audio } from './audio.js';
 
+const OBSTACLE_SPRITE_PATHS = {
+    spike: 'images/obstacle_spike_bamboo_trap.png',
+    spikeStake: 'images/obstacle_bamboo_stake.png',
+    spikeRope: 'images/obstacle_bamboo_rope.png',
+    rockSlab: 'images/obstacle_rock_slab.png',
+    rockTall: 'images/obstacle_rock_tall.png',
+    rockJagged: 'images/obstacle_rock_jagged.png'
+};
+const obstacleSpriteCache = {};
+
+const ROCK_VISUAL_PALETTES = {
+    slab: {
+        light: '139, 133, 122',
+        mid: '96, 92, 86',
+        dark: '48, 44, 39',
+        outline: '24, 21, 18',
+        crack: '23, 20, 18',
+        crackLight: '136, 128, 116',
+        dust: '89, 80, 71',
+        ring: '82, 74, 66',
+        shards: ['112, 105, 96', '91, 86, 79', '71, 67, 62', '124, 116, 104']
+    },
+    tall: {
+        light: '130, 127, 119',
+        mid: '83, 82, 79',
+        dark: '42, 41, 38',
+        outline: '22, 21, 19',
+        crack: '20, 19, 17',
+        crackLight: '128, 124, 114',
+        dust: '82, 77, 70',
+        ring: '76, 71, 65',
+        shards: ['101, 99, 94', '82, 81, 77', '61, 60, 57', '116, 111, 102']
+    },
+    jagged: {
+        light: '132, 126, 118',
+        mid: '86, 82, 79',
+        dark: '43, 40, 38',
+        outline: '22, 20, 18',
+        crack: '21, 18, 17',
+        crackLight: '128, 121, 112',
+        dust: '84, 77, 70',
+        ring: '77, 70, 63',
+        shards: ['104, 98, 91', '84, 80, 75', '62, 59, 56', '119, 110, 101']
+    }
+};
+
+export function getRockVisualPalette(variant = 'slab') {
+    return ROCK_VISUAL_PALETTES[variant] || ROCK_VISUAL_PALETTES.slab;
+}
+
+function loadObstacleSprite(key) {
+    if (typeof Image === 'undefined') return null;
+    if (!OBSTACLE_SPRITE_PATHS[key]) return null;
+    if (!obstacleSpriteCache[key]) {
+        const image = new Image();
+        image.decoding = 'async';
+        image.loading = 'eager';
+        image.src = OBSTACLE_SPRITE_PATHS[key];
+        image.decode?.().catch(() => {});
+        obstacleSpriteCache[key] = image;
+    }
+    return obstacleSpriteCache[key];
+}
+
+function isSpriteReady(image) {
+    return !!(image && image.complete && image.naturalWidth > 0 && image.naturalHeight > 0);
+}
+
+function drawObstacleSprite(ctx, image, x, y, width, height, alpha = 1) {
+    ctx.save();
+    ctx.globalAlpha *= alpha;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(image, x, y, width, height);
+    ctx.restore();
+}
+
+function drawObstacleSpriteBottomRotated(ctx, image, centerX, bottomY, width, height, angle = 0, alpha = 1) {
+    ctx.save();
+    ctx.globalAlpha *= alpha;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.translate(centerX, bottomY);
+    ctx.rotate(angle);
+    ctx.drawImage(image, -width * 0.5, -height, width, height);
+    ctx.restore();
+}
+
+function drawObstacleSpriteCenteredRotated(ctx, image, centerX, centerY, width, height, angle = 0, alpha = 1) {
+    ctx.save();
+    ctx.globalAlpha *= alpha;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.translate(centerX, centerY);
+    ctx.rotate(angle);
+    ctx.drawImage(image, -width * 0.5, -height * 0.5, width, height);
+    ctx.restore();
+}
+
 // 障害物基底クラス
 export class Obstacle {
     constructor(x, groundY, type) {
@@ -58,7 +157,9 @@ export class Obstacle {
     render(ctx) {
         if (this.hitTimer > 0) {
             ctx.save();
-            ctx.filter = 'brightness(150%)';
+            ctx.filter = this.type === OBSTACLE_TYPES.ROCK
+                ? 'brightness(132%) contrast(104%)'
+                : 'brightness(142%)';
         }
         
         this.renderBody(ctx);
@@ -118,11 +219,67 @@ export class Spike extends Obstacle {
 
         const countScale = 1 + Math.min(0.42, Math.max(0, this.spikeCount - 7) * 0.032 + stageFactor * 0.08);
         this.damage = Math.max(2, Math.round((this.damage || 2) * countScale));
+        this.spriteImage = loadObstacleSprite('spike');
+        this.stakeImage = loadObstacleSprite('spikeStake');
+        this.ropeImage = loadObstacleSprite('spikeRope');
     }
 
     seeded(seed) {
         const x = Math.sin((seed + this.spikeSeed * 17.0) * 97.13) * 43758.5453123;
         return x - Math.floor(x);
+    }
+
+    renderSpriteTrap(ctx, bottomY) {
+        const spikeCount = this.spikeCount || 6;
+        const spikeW = this.spikeThickness || 9;
+        const spikeGap = this.spikeGap || 1.5;
+        const startX = this.x + (this.sidePadding || 8);
+        const heights = this.spikeHeights || Array.from({ length: spikeCount }, () => this.height - 8);
+        const stageFactor = Math.max(0, Math.min(1, (this.stageNumber - 1) / 5));
+
+        for (let i = 0; i < spikeCount; i++) {
+            const spikeHeight = Math.max(22, heights[i] || 28);
+            const cx = startX + i * (spikeW + spikeGap) + spikeW * 0.5
+                + (this.seeded(21.9 + i * 0.77) - 0.5) * 2.2;
+            const centerBias = spikeCount <= 1 ? 0 : ((i / (spikeCount - 1)) - 0.5);
+            const lean = centerBias * 0.07 + (this.seeded(18.2 + i * 0.93) - 0.5) * (0.065 + stageFactor * 0.018);
+            const widthScale = 1.26 + this.seeded(24.3 + i * 1.17) * 0.28;
+            const heightJitter = 1 + (this.seeded(31.8 + i * 0.71) - 0.5) * 0.035;
+            const drawW = spikeW * widthScale;
+            const drawH = Math.max(25, spikeHeight * heightJitter + 8);
+            const baseDrop = 1.2 + this.seeded(38.5 + i * 0.61) * 2.2;
+            drawObstacleSpriteBottomRotated(
+                ctx,
+                this.stakeImage,
+                cx,
+                bottomY + baseDrop,
+                drawW,
+                drawH,
+                lean,
+                0.98
+            );
+        }
+
+        const ropeY = bottomY - 7;
+        const ropeH = Math.max(9.5, Math.min(16, this.height * 0.23));
+        const ropeW = this.width + 10;
+        drawObstacleSprite(ctx, this.ropeImage, this.x - 5, ropeY - ropeH * 0.5, ropeW, ropeH, 0.98);
+
+        const wrapCount = Math.max(1, Math.min(5, Math.floor((spikeCount + 1) / 4)));
+        for (let j = 0; j < wrapCount; j++) {
+            const t = (j + 1) / (wrapCount + 1);
+            const wx = this.x + this.width * t + (this.seeded(50.7 + j * 1.9) - 0.5) * 5;
+            drawObstacleSpriteCenteredRotated(
+                ctx,
+                this.ropeImage,
+                wx,
+                ropeY + (this.seeded(55.2 + j) - 0.5) * 1.8,
+                ropeH * (1.65 + this.seeded(60.4 + j) * 0.35),
+                ropeH * 0.72,
+                Math.PI * 0.5 + (this.seeded(65.6 + j) - 0.5) * 0.14,
+                0.94
+            );
+        }
     }
     
     renderBody(ctx) {
@@ -134,6 +291,25 @@ export class Spike extends Obstacle {
         const shadowY = bottomY + 2; 
         ctx.ellipse(this.x + this.width / 2, shadowY, this.width * 0.48, 3.4, 0, 0, Math.PI * 2);
         ctx.fill();
+
+        if (isSpriteReady(this.stakeImage) && isSpriteReady(this.ropeImage)) {
+            this.renderSpriteTrap(ctx, bottomY);
+            return;
+        }
+
+        if (isSpriteReady(this.spriteImage)) {
+            const drawW = this.width * 1.1;
+            const drawH = this.height * 1.08;
+            drawObstacleSprite(
+                ctx,
+                this.spriteImage,
+                this.x + (this.width - drawW) * 0.5,
+                bottomY - drawH,
+                drawW,
+                drawH
+            );
+            return;
+        }
 
         // 台座
         const baseGrad = ctx.createLinearGradient(this.x, bottomY - 7, this.x, bottomY + 4);
@@ -230,6 +406,7 @@ export class Rock extends Obstacle {
         this.y = groundY + LANE_OFFSET - this.height; // 固定レーン接地
         this.profile = this.createProfile();
         this.crackLines = this.createCrackLines();
+        this.spriteImage = loadObstacleSprite(`rock${this.variant.charAt(0).toUpperCase()}${this.variant.slice(1)}`);
     }
 
     seeded(seed) {
@@ -365,31 +542,84 @@ export class Rock extends Obstacle {
         }
     }
 
+    renderCrackChips(ctx, crack, offsetX, offsetY, damageRatio, seedOffset) {
+        const palette = getRockVisualPalette(this.variant);
+        for (let i = 0; i < crack.length - 1; i++) {
+            const roll = this.seeded(seedOffset + i * 1.31);
+            if (roll < 0.22 + damageRatio * 0.24) continue;
+
+            const a = crack[i];
+            const b = crack[i + 1];
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const len = Math.max(1, Math.hypot(dx, dy));
+            const ux = dx / len;
+            const uy = dy / len;
+            const nx = -uy;
+            const ny = ux;
+            const side = this.seeded(seedOffset + 7.1 + i) > 0.5 ? 1 : -1;
+            const t = 0.26 + this.seeded(seedOffset + 11.4 + i) * 0.48;
+            const x = offsetX + a.x + dx * t;
+            const y = offsetY + a.y + dy * t;
+            const chipSize = (1.8 + this.seeded(seedOffset + 15.6 + i) * 2.2) * (0.8 + damageRatio * 0.6);
+
+            ctx.fillStyle = `rgba(${palette.dark}, ${0.18 + damageRatio * 0.24})`;
+            ctx.beginPath();
+            ctx.moveTo(x - ux * chipSize * 0.62, y - uy * chipSize * 0.62);
+            ctx.lineTo(x + ux * chipSize * 0.56, y + uy * chipSize * 0.56);
+            ctx.lineTo(x + nx * side * chipSize * 0.95, y + ny * side * chipSize * 0.95);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.strokeStyle = `rgba(${palette.crackLight}, ${0.13 + damageRatio * 0.12})`;
+            ctx.lineWidth = 0.55;
+            ctx.beginPath();
+            ctx.moveTo(x - ux * chipSize * 0.42, y - uy * chipSize * 0.42);
+            ctx.lineTo(x + nx * side * chipSize * 0.7, y + ny * side * chipSize * 0.7);
+            ctx.stroke();
+        }
+    }
+
     renderDamageCracks(ctx, offsetX, offsetY) {
         if (this.hp >= this.maxHp) return;
         const damageRatio = 1 - (this.hp / this.maxHp);
-        const crackAlpha = 0.62 + damageRatio * 0.26;
+        const palette = getRockVisualPalette(this.variant);
+        const crackAlpha = 0.56 + damageRatio * 0.24;
+        const cracks = [
+            { path: this.crackLines.primary, seed: 30.5, width: 1 },
+            { path: this.crackLines.branchA, seed: 43.8, width: 0.82, enabled: this.hp <= 2 },
+            { path: this.crackLines.branchB, seed: 57.2, width: 0.78, enabled: this.hp <= 1 }
+        ];
 
+        ctx.save();
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
-        ctx.strokeStyle = `rgba(28, 22, 18, ${crackAlpha})`;
-        ctx.lineWidth = 1.4 + damageRatio * 0.9;
-        this.drawCrackPath(ctx, this.crackLines.primary, offsetX, offsetY);
-        ctx.stroke();
 
-        if (this.hp <= 2) {
-            this.drawCrackPath(ctx, this.crackLines.branchA, offsetX, offsetY);
-            ctx.stroke();
-        }
-        if (this.hp <= 1) {
-            this.drawCrackPath(ctx, this.crackLines.branchB, offsetX, offsetY);
-            ctx.stroke();
-        }
+        for (const crack of cracks) {
+            if (crack.enabled === false) continue;
+            const baseWidth = (1.15 + damageRatio * 0.85) * crack.width;
 
-        ctx.strokeStyle = `rgba(120, 108, 96, ${0.22 + damageRatio * 0.15})`;
-        ctx.lineWidth = 0.7;
-        this.drawCrackPath(ctx, this.crackLines.primary, offsetX, offsetY);
-        ctx.stroke();
+            ctx.strokeStyle = `rgba(${palette.outline}, ${0.14 + damageRatio * 0.18})`;
+            ctx.lineWidth = baseWidth + 2.2;
+            this.drawCrackPath(ctx, crack.path, offsetX, offsetY);
+            ctx.stroke();
+
+            ctx.strokeStyle = `rgba(${palette.crack}, ${crackAlpha})`;
+            ctx.lineWidth = baseWidth;
+            this.drawCrackPath(ctx, crack.path, offsetX, offsetY);
+            ctx.stroke();
+
+            ctx.save();
+            ctx.translate(-0.75, -0.55);
+            ctx.strokeStyle = `rgba(${palette.crackLight}, ${0.1 + damageRatio * 0.13})`;
+            ctx.lineWidth = Math.max(0.45, baseWidth * 0.42);
+            this.drawCrackPath(ctx, crack.path, offsetX, offsetY);
+            ctx.stroke();
+            ctx.restore();
+
+            this.renderCrackChips(ctx, crack.path, offsetX, offsetY, damageRatio, crack.seed);
+        }
+        ctx.restore();
     }
 
     renderBody(ctx) {
@@ -397,13 +627,28 @@ export class Rock extends Obstacle {
         const offsetY = this.y;
         const cx = this.x + this.width * 0.5;
         const shadowW = this.width * (1.02 + this.seeded(20.2) * 0.12);
+        const spriteReady = isSpriteReady(this.spriteImage);
 
         // 接地影
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        const shadowY = this.y + this.height - 1;
+        ctx.save();
+        ctx.translate(cx, shadowY);
+        ctx.scale(shadowW * 0.62, spriteReady ? 3.4 : 4.6);
+        const shadowGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+        shadowGrad.addColorStop(0, spriteReady ? 'rgba(0, 0, 0, 0.2)' : 'rgba(0, 0, 0, 0.28)');
+        shadowGrad.addColorStop(0.65, spriteReady ? 'rgba(0, 0, 0, 0.08)' : 'rgba(0, 0, 0, 0.13)');
+        shadowGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = shadowGrad;
         ctx.beginPath();
-        const shadowY = this.groundY + LANE_OFFSET + 2; // 固定レーン付近に影を置く
-        ctx.ellipse(cx, shadowY, shadowW * 0.56, 5.0, 0, 0, Math.PI * 2); // 縦を少し潰す
+        ctx.arc(0, 0, 1, 0, Math.PI * 2);
         ctx.fill();
+        ctx.restore();
+
+        if (spriteReady) {
+            drawObstacleSprite(ctx, this.spriteImage, this.x, this.y, this.width, this.height, 0.98);
+            this.renderDamageCracks(ctx, offsetX, offsetY);
+            return;
+        }
 
         // 単体岩
         const rockGrad = ctx.createLinearGradient(
@@ -412,9 +657,10 @@ export class Rock extends Obstacle {
             this.x + this.width * 1.1,
             this.groundY
         );
-        rockGrad.addColorStop(0, '#6b665f');
-        rockGrad.addColorStop(0.45, '#555049');
-        rockGrad.addColorStop(1, '#2f2c29');
+        const palette = getRockVisualPalette(this.variant);
+        rockGrad.addColorStop(0, `rgb(${palette.light})`);
+        rockGrad.addColorStop(0.45, `rgb(${palette.mid})`);
+        rockGrad.addColorStop(1, `rgb(${palette.dark})`);
         this.drawPolygon(ctx, this.profile, offsetX, offsetY);
         ctx.fillStyle = rockGrad;
         ctx.fill();
@@ -431,7 +677,7 @@ export class Rock extends Obstacle {
 
         // 輪郭
         this.drawPolygon(ctx, this.profile, offsetX, offsetY);
-        ctx.strokeStyle = 'rgba(22, 20, 18, 0.72)';
+        ctx.strokeStyle = `rgba(${palette.outline}, 0.72)`;
         ctx.lineWidth = 1.25;
         ctx.stroke();
 

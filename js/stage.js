@@ -126,6 +126,19 @@ export class Stage {
         if (this.stageNumber === 1) {
             this.stage1GroundImage = new Image();
             this.stage1GroundImage.src = 'images/stage1_ground_bamboo_tile.png';
+            this.stage1BambooImages = {};
+            const stage1BambooPaths = {
+                far: 'images/stage1_bamboo_far_strip.png',
+                mid: 'images/stage1_bamboo_mid_strip.png',
+                near: 'images/stage1_bamboo_near_strip.png'
+            };
+            for (const [key, src] of Object.entries(stage1BambooPaths)) {
+                const image = new Image();
+                image.src = src;
+                this.stage1BambooImages[key] = image;
+            }
+            this.stage1BambooExitImage = new Image();
+            this.stage1BambooExitImage.src = 'images/stage1_bamboo_exit.png';
         }
         if (this.stageNumber === 2) {
             this.stage2GroundImage = new Image();
@@ -152,7 +165,8 @@ export class Stage {
                 cleanJars: 'images/stage2_prop_clean_jars.png',
                 cleanStoneWell: 'images/stage2_prop_clean_stone_well.png',
                 cleanWoodSignpost: 'images/stage2_prop_clean_wood_signpost.png',
-                cleanGrassClump: 'images/stage2_prop_clean_grass_clump.png'
+                cleanGrassClump: 'images/stage2_prop_clean_grass_clump.png',
+                cleanJizo: 'images/stage2_prop_clean_jizo.png'
             };
             for (const [key, src] of Object.entries(stage2PropPaths)) {
                 const image = new Image();
@@ -2675,6 +2689,11 @@ export class Stage {
         // ステージ固有の背景要素
         this.renderStageElements(ctx, currentPalette);
 
+        // Stage1のラストオブジェクトは竹林の出口として、背景パララックスではなく地面と同じワールド座標で固定配置する。
+        if (this.stageNumber === 1) {
+            this.renderStage1BambooExit(ctx);
+        }
+
         // Stage2のラストオブジェクトは背景パララックスに混ぜず、地面と同じワールド座標で固定配置する。
         if (this.stageNumber === 2) {
             this.renderStage2MountainPassEntrance(ctx);
@@ -3226,6 +3245,127 @@ export class Stage {
         return true;
     }
 
+    renderStage1BambooImageBackdrop(ctx, progress) {
+        const images = this.stage1BambooImages;
+        const isReady = (image) => image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
+        if (!images || !isReady(images.far) || !isReady(images.mid) || !isReady(images.near)) {
+            return false;
+        }
+
+        const drawStrip = (image, {
+            parallax,
+            drawHeight,
+            baseOffset = 0,
+            alpha = 1,
+            filter = 'none',
+            mirrorRepeat = true,
+            widthScale = 1,
+            phaseOffset = 0
+        }) => {
+            const drawWidth = Math.ceil(drawHeight * (image.naturalWidth / image.naturalHeight) * widthScale);
+            const scroll = ((progress * parallax + drawWidth * phaseOffset) % drawWidth + drawWidth) % drawWidth;
+            const y = Math.round(this.groundY + baseOffset - drawHeight);
+            const startX = -scroll - drawWidth;
+
+            ctx.save();
+            ctx.globalAlpha *= alpha;
+            ctx.filter = filter;
+            for (let x = startX, tile = 0; x < CANVAS_WIDTH + drawWidth; x += drawWidth, tile++) {
+                if (mirrorRepeat && tile % 2 !== 0) {
+                    ctx.save();
+                    ctx.translate(Math.round(x + drawWidth + 2), y);
+                    ctx.scale(-1, 1);
+                    ctx.drawImage(image, 0, 0, drawWidth + 2, drawHeight);
+                    ctx.restore();
+                } else {
+                    ctx.drawImage(image, Math.round(x), y, drawWidth + 2, drawHeight);
+                }
+            }
+            ctx.filter = 'none';
+            ctx.restore();
+        };
+
+        drawStrip(images.far, {
+            parallax: 0.18,
+            drawHeight: 800,
+            baseOffset: 8,
+            alpha: 0.34,
+            widthScale: 0.66,
+            filter: 'brightness(0.5) saturate(0.54) contrast(0.78)'
+        });
+        drawStrip(images.far, {
+            parallax: 0.24,
+            drawHeight: 760,
+            baseOffset: 6,
+            alpha: 0.16,
+            widthScale: 0.62,
+            phaseOffset: 0.45,
+            filter: 'brightness(0.48) saturate(0.5) contrast(0.76)'
+        });
+        drawStrip(images.mid, {
+            parallax: 0.44,
+            drawHeight: 790,
+            baseOffset: 8,
+            alpha: 0.52,
+            widthScale: 0.66,
+            filter: 'brightness(0.62) saturate(0.64) contrast(0.86)'
+        });
+        drawStrip(images.mid, {
+            parallax: 0.57,
+            drawHeight: 750,
+            baseOffset: 7,
+            alpha: 0.22,
+            widthScale: 0.62,
+            phaseOffset: 0.38,
+            filter: 'brightness(0.58) saturate(0.6) contrast(0.84)'
+        });
+        drawStrip(images.near, {
+            parallax: 0.82,
+            drawHeight: 760,
+            baseOffset: 10,
+            alpha: 0.62,
+            widthScale: 0.64,
+            filter: 'brightness(0.66) saturate(0.66) contrast(0.88)'
+        });
+        drawStrip(images.near, {
+            parallax: 0.96,
+            drawHeight: 720,
+            baseOffset: 10,
+            alpha: 0.22,
+            widthScale: 0.6,
+            phaseOffset: 0.33,
+            filter: 'brightness(0.62) saturate(0.62) contrast(0.86)'
+        });
+
+        return true;
+    }
+
+    renderStage1BambooExit(ctx) {
+        if (this.stageNumber !== 1) return false;
+
+        const image = this.stage1BambooExitImage;
+        if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
+
+        const baseY = this.groundY + 24;
+        const exitH = Math.min(CANVAS_HEIGHT * 0.92, this.groundY + 140);
+        const exitW = exitH * (image.naturalWidth / image.naturalHeight);
+        const cameraStopX = Math.max(0, this.maxProgress - CANVAS_WIDTH);
+        const stopX = Math.round(CANVAS_WIDTH * 0.5 - exitW * 0.5);
+        const worldX = cameraStopX + stopX;
+        const x = worldX - this.progress;
+        const y = baseY - exitH;
+
+        const prewarmMarginRight = CANVAS_WIDTH * 2.2;
+        if (x + exitW < -180 || x > CANVAS_WIDTH + prewarmMarginRight) return false;
+
+        ctx.save();
+        ctx.filter = 'brightness(0.68) saturate(0.68) contrast(0.88)';
+        ctx.drawImage(image, x, y, exitW, exitH);
+        ctx.filter = 'none';
+        ctx.restore();
+        return true;
+    }
+
 	renderStageElements(ctx, currentPalette) {
         const p = this.progress;
         
@@ -3234,6 +3374,10 @@ export class Stage {
         
         switch (currentPalette.elements) {
             case 'bamboo': {
+                if (this.renderStage1BambooImageBackdrop(ctx, p)) {
+                    break;
+                }
+
                 // spacing 拡大で描画本数を削減（パフォーマンス改善）
                 const bambooLayers = [
                     { parallax: 0.28, spacing: 52, widthMin: 3, widthVar: 3, hMin: 320, hVar: 220, alpha: 0.34, sway: 1.8 },
@@ -4252,7 +4396,7 @@ export class Stage {
                     null,
                     { key: 'ruralFarmhouse', h: 236, xBias: 22, filter: 'brightness(0.74) saturate(0.68) contrast(0.88)' },
                     { key: 'ruralTeahouse', h: 220, xBias: -14, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
-                    { key: 'ruralShrine', h: 136, xBias: 28, filter: 'brightness(0.68) saturate(0.62) contrast(0.84)' },
+                    { key: 'ruralShrine', h: 176, xBias: 18, filter: 'brightness(0.7) saturate(0.64) contrast(0.86)' },
                     null,
                     { key: 'ruralShed', h: 196, xBias: 18, filter: 'brightness(0.69) saturate(0.63) contrast(0.86)' },
                     { key: 'ruralFarmhouse', h: 252, xBias: -16, filter: 'brightness(0.76) saturate(0.7) contrast(0.88)' },
@@ -4261,18 +4405,19 @@ export class Stage {
                     { key: 'ruralShed', h: 188, xBias: -4, filter: 'brightness(0.68) saturate(0.6) contrast(0.86)' }
                 ];
                 const stage2RoadsideDetailPlan = [
-                    { key: 'cleanLowFence', h: 46, xBias: -16, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
-                    { key: 'cleanStrawBundles', h: 58, xBias: 18, filter: 'brightness(0.76) saturate(0.72) contrast(0.9)' },
-                    { key: 'cleanJars', h: 48, xBias: -10, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
+                    { key: 'cleanLowFence', h: 82, xBias: -18, filter: 'brightness(0.76) saturate(0.7) contrast(0.92)' },
+                    { key: 'cleanStrawBundles', h: 88, xBias: 18, filter: 'brightness(0.78) saturate(0.74) contrast(0.92)' },
+                    { key: 'cleanJars', h: 68, xBias: -10, filter: 'brightness(0.76) saturate(0.7) contrast(0.92)' },
                     null,
-                    { key: 'cleanGrassClump', h: 46, xBias: 18, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
-                    { key: 'cleanWoodSignpost', h: 76, xBias: -18, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
-                    { key: 'cleanLowFence', h: 40, xBias: 24, filter: 'brightness(0.7) saturate(0.64) contrast(0.86)' },
-                    { key: 'cleanStoneWell', h: 92, xBias: -8, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
+                    { key: 'cleanGrassClump', h: 58, xBias: 18, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
+                    { key: 'cleanWoodSignpost', h: 122, xBias: -18, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
+                    { key: 'cleanLowFence', h: 72, xBias: 24, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
+                    { key: 'cleanStoneWell', h: 132, xBias: -8, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
                     null,
-                    { key: 'cleanJars', h: 42, xBias: 22, filter: 'brightness(0.72) saturate(0.64) contrast(0.86)' },
-                    { key: 'cleanStrawBundles', h: 52, xBias: -20, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
-                    { key: 'cleanGrassClump', h: 40, xBias: 10, filter: 'brightness(0.7) saturate(0.64) contrast(0.86)' }
+                    { key: 'cleanJars', h: 62, xBias: 22, filter: 'brightness(0.74) saturate(0.68) contrast(0.88)' },
+                    { key: 'cleanStrawBundles', h: 78, xBias: -20, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
+                    { key: 'cleanGrassClump', h: 52, xBias: 10, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
+                    { key: 'cleanJizo', h: 96, xBias: -14, filter: 'brightness(0.7) saturate(0.62) contrast(0.86)' }
                 ];
                 const ruralImagesReady = stage2RuralPropPlan.some((item) => item && isImageReady(this.stage2PropImages?.[item.key]));
                 const roadDetailsReady = stage2RoadsideDetailPlan.some((item) => item && isImageReady(this.stage2PropImages?.[item.key]));
@@ -4350,11 +4495,48 @@ export class Stage {
                             if (drawX + width < -140 || drawX > CANVAS_WIDTH + 140) continue;
 
                             ctx.save();
-                            ctx.globalAlpha *= 0.86 + this.noise1D(seed + 4.6) * 0.08;
+                            ctx.globalAlpha *= 0.94 + this.noise1D(seed + 4.6) * 0.06;
                             ctx.filter = item.filter;
                             ctx.drawImage(image, drawX, detailBaseY - height + 3, width, height);
                             ctx.filter = 'none';
                             ctx.restore();
+                        }
+
+                        const grassImage = this.stage2PropImages?.cleanGrassClump;
+                        if (isImageReady(grassImage)) {
+                            const grassSpan = 150;
+                            const grassStart = Math.floor((p * kPara - 420) / grassSpan);
+                            const grassEnd = Math.ceil((CANVAS_WIDTH + p * kPara + 420) / grassSpan);
+
+                            for (let i = grassStart; i <= grassEnd; i++) {
+                                const seed = i * 6.43;
+                                const groupIndex = Math.floor(i / 3);
+                                const slotInGroup = ((i % 3) + 3) % 3;
+                                const selectedSlot = Math.floor(this.noise1D(groupIndex * 5.31 + 0.7) * 3);
+                                if (slotInGroup !== selectedSlot || this.noise1D(seed + 0.2) < 0.18) continue;
+
+                                const worldX = 150 + i * grassSpan + this.noiseSigned(seed + 1.1) * 36;
+                                if (worldX > detailLimit) continue;
+
+                                const scaleJitter = 0.86 + this.noise1D(seed + 2.3) * 0.34;
+                                const height = 36 * scaleJitter;
+                                const width = height * (grassImage.naturalWidth / grassImage.naturalHeight);
+                                const worldDrawX = worldX + this.noiseSigned(seed + 3.4) * 16;
+                                const blocksHouse = stage2HouseWorldBounds.some((bounds) => (
+                                    worldDrawX + width > bounds.left - 18 && worldDrawX < bounds.right + 18
+                                ));
+                                if (blocksHouse) continue;
+
+                                const drawX = worldDrawX - p * kPara;
+                                if (drawX + width < -100 || drawX > CANVAS_WIDTH + 100) continue;
+
+                                ctx.save();
+                                ctx.globalAlpha *= 0.78 + this.noise1D(seed + 4.1) * 0.12;
+                                ctx.filter = 'brightness(0.72) saturate(0.66) contrast(0.86)';
+                                ctx.drawImage(grassImage, drawX, detailBaseY - height + 3, width, height);
+                                ctx.filter = 'none';
+                                ctx.restore();
+                            }
                         }
                     }
                     break;

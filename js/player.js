@@ -22,7 +22,7 @@ import {
     prepareNormalComboFinisherProfile
 } from './normalComboMotion.js?v=oonagi-step3-dash-20260702n';
 import { applyRendererMixin }    from './playerRenderer.js?v=oonagi-ext-parametric-20260702q';
-import { applySlashTrailMixin }  from './playerSlashTrail.js?v=oonagi-giant-tip-match-20260702q';
+import { applySlashTrailMixin }  from './playerSlashTrail.js?v=oonagi-tip-finetune-20260702v';
 import { applySpecialMixin }     from './playerSpecial.js?v=clone-ground-fix2-20260623';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
 import {

@@ -654,7 +654,12 @@ export function applySlashTrailMixin(PlayerClass) {
                 }
             } else {
                 // リニア/アーク段(3, 4など): ポイント配列を保存
-                if (stepPoints.length >= 2) {
+                // step4 はスイング後半(~230ms)に内部リセットでバッファが最新1点まで減るが、
+                // 柱の曲線データ(trailCurve*)は最新点に完備しており描画側(drawStep4AnchoredArcTrail/
+                // buildOonagiStep4CenterStrip)は1点で描ける。2点要求のままだと遅めの連鎖で
+                // 凍結スナップショットが作られず柱が瞬時に消える(=フリーズずれ/消失)ため、step4のみ1点で凍結。
+                const minFreezePoints = stepNum === 4 ? 1 : 2;
+                if (stepPoints.length >= minFreezePoints) {
                     const lastPt = stepPoints[stepPoints.length - 1];
                     const firstPt = stepPoints[0];
                     const footY = Number.isFinite(options.footY)
@@ -747,7 +752,7 @@ export function applySlashTrailMixin(PlayerClass) {
                             frozenLast.progress = 1.0;
                         }
                     }
-                    if (frozenPoints.length < 2) continue;
+                    if (frozenPoints.length < minFreezePoints) continue;
                     frozenCurves.push({
                         type: 'points',
                         step: stepNum,
@@ -4925,7 +4930,11 @@ export function applySlashTrailMixin(PlayerClass) {
             let scaledInner = innerStrip;
             const OONAGI_BLADE_LENGTH_SCALE = 1.8; // drawKatana(playerRenderer.js)の lengthScale と一致させること
             if ((comboStep === 3 || comboStep === 4) && !options.effectStrip) {
-                // 刃長L: poseの柄→切先距離(キャラ定数。凍結描画時のpose呼びでも同値=安定)
+                // 刃長L: poseの柄→切先距離(キャラ定数)。
+                // 【重要】非攻撃中(コンボ攻撃なし)は pose が無効(armEnd非有限)になり、素の
+                // フォールバック(58×physicalScale≠実L)に落ちると ext が変わって凍結帯/柱が
+                // コンボの合間に±15px級で平行移動ジャンプする(実機で実測)。→ ライブ描画(攻撃中=
+                // pose常に有効)で得た L をキャッシュし、pose無効時はキャッシュを使う=常に同一値。
                 let bladeLen = null;
                 try {
                     const poseL = this.getComboSwordPoseState({
@@ -4939,21 +4948,38 @@ export function applySlashTrailMixin(PlayerClass) {
                         bladeLen = Math.hypot(poseL.tipX - poseL.armEndX, poseL.tipY - poseL.armEndY);
                     }
                 } catch (e) { bladeLen = null; }
-                if (!Number.isFinite(bladeLen) || bladeLen < 8) bladeLen = 58 * Math.max(1, physicalScale);
+                if (Number.isFinite(bladeLen) && bladeLen >= 8) {
+                    this._oonagiBladeLenCache = bladeLen;
+                } else {
+                    bladeLen = Number.isFinite(this._oonagiBladeLenCache)
+                        ? this._oonagiBladeLenCache
+                        : 58 * Math.max(1, physicalScale);
+                }
                 const ext = (OONAGI_BLADE_LENGTH_SCALE - 1) * bladeLen; // ≈0.8L: 巨刀が実刃より前へ出る量
                 if (comboStep === 3) {
                     // step3(水平斬り): 帯全体を前方へ 0.8L 平行移動。
                     // 始点=step2の巨大化終端(hilt軸1.8倍の終端=実終点+0.8L)と一致、
                     // 終端=切先追従ヘッド+0.8L=巨刀切先と一致(実測 gx=tip+0.8L)。長さは記録掃引のまま(突進1.8倍込み)。
                     const sx = dir * ext;
-                    scaledInner = innerStrip.map((p) => ({ ...p, x: p.x + sx }));
+                    // Y: 水平のまま「終点(巨刀切先の最終位置)のY」へ帯全体を合わせる。
+                    // 帯の水平基準は従来スペック始点Y(yH=startY)だが、終了ポーズの刃は前上がり
+                    // (切先が柄より上)のため巨刀切先の終点Yは帯より上に来る。
+                    // 基準は必ず innerStrip[0].y(=帯の始点Y)にする: trailCurveEndY は凍結時に
+                    // ベース剣筋のライブ最終描画が焼き込まれて水平化(=startYと同値)されるため、
+                    // 終点Y基準だと凍結の瞬間に将軍で21px上へ飛ぶ(実測)。始点Yは焼き込みでも不変。
+                    // RY2 = (スペック終点Y-始点Y + 0.8L×終了ポーズ刃ベクトルy) / 0.8L (キャラ別実測定数):
+                    //   忍者: 幾何値-0.402にユーザー微調整(切先に対し少し低い→約7px上げ=-0.12)を加えて-0.52
+                    //   将軍: (429.3-408.1 - 14.8)/61 = +0.105
+                    const RY2 = this.characterType === 'shogun' ? 0.105 : -0.52;
+                    const sy = ext * RY2;
+                    scaledInner = innerStrip.map((p) => ({ ...p, x: p.x + sx, y: p.y + sy }));
                 } else {
                     // step4(垂直ロンチ): 柱を前方へ ext*KX、基部(innerStrip[0])固定で上へ ext*KY 延長。
                     // KX/KY は巨刀切先軌跡の実測(上昇期gx/頂点gy)にキャラ別の柱様式(基準x/柱高H)を合わせた係数。
-                    //   忍者: 柱708 vs 巨刀上昇期gx≈779-792 → KX=1.2(+73) / 頂点151相当 → KY=0.95
+                    //   忍者: 幾何値KX=1.2にユーザー微調整(切先に対し少しx遠い→約11px手前=-0.2)で1.0 / 頂点151相当 → KY=0.95
                     //   将軍: 柱914 vs gx≈896-909 → KX=0(既に一致) / 頂点-92相当 → KY=0.5
                     const isShogun = this.characterType === 'shogun';
-                    const sx = dir * ext * (isShogun ? 0 : 1.2);
+                    const sx = dir * ext * (isShogun ? 0 : 1.0);
                     const csY = Number.isFinite(newestSrc.trailCurveStartY) ? newestSrc.trailCurveStartY : null;
                     const ceY = Number.isFinite(newestSrc.trailCurveEndY) ? newestSrc.trailCurveEndY : null;
                     const colH = (csY !== null && ceY !== null) ? Math.abs(ceY - csY) : 0;
@@ -6203,8 +6229,9 @@ export function applySlashTrailMixin(PlayerClass) {
                 } else if (fc.type === 'points' && Array.isArray(fc.frozenPoints)) {
                     // ポイント系段 (3, 4)
                     // ポイントごとに保持されている正しい age をそのまま渡す。
+                    // step4 は曲線データが最新点に完備しているため1点でも描ける(凍結側の1点許容と対)。
                     const pts = fc.frozenPoints;
-                    if (pts.length < 2) { ctx.restore(); continue; }
+                    if (pts.length < (fc.step === 4 ? 1 : 2)) { ctx.restore(); continue; }
                     
                     const currentFootX = this.getFootX ? this.getFootX() : (this.x + this.getWorldWidth() * 0.5);
                     const currentFootY = this.getFootY ? this.getFootY() : (this.y + this.getWorldHeight());

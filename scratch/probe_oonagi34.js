@@ -116,7 +116,24 @@ const btn = char === 'ninja' ? 'btnModeNinja' : 'btnModeShogun';
                     } : null,
                     fsp: atk && atk.fixedStartWorldPoint ? { x: +atk.fixedStartWorldPoint.x.toFixed(1), y: +atk.fixedStartWorldPoint.y.toFixed(1) } : null,
                     ttp: atk && Number.isFinite(atk.trailTransformPlayerX) ? { x: +atk.trailTransformPlayerX.toFixed(1), y: +atk.trailTransformPlayerY.toFixed(1) } : null,
-                    gt
+                    gt,
+                    buf: (() => {
+                        const h = {};
+                        for (const q of (p.comboSlashTrailPoints || [])) { const s = q.step || 0; h[s] = (h[s] || 0) + 1; }
+                        return h;
+                    })(),
+                    fcs: (p.comboSlashTrailFrozenCurves || []).map(f => {
+                        const r1 = (v) => Number.isFinite(v) ? +v.toFixed(1) : null;
+                        const lp = (Array.isArray(f.frozenPoints) && f.frozenPoints.length)
+                            ? f.frozenPoints[f.frozenPoints.length - 1] : f;
+                        return {
+                            ty: f.type, st: f.step, res: r1(f.rangeEffectScale),
+                            cs: [r1(lp.trailCurveStartX), r1(lp.trailCurveStartY)],
+                            ce: [r1(lp.trailCurveEndX), r1(lp.trailCurveEndY)],
+                            rel: !!lp.trailIsRelative, dir: Number.isFinite(lp.dir) ? lp.dir : null,
+                            plY: r1(lp.playerY), age: r1(f.age), life: r1(f.life)
+                        };
+                    })
                 };
             };
             return { boostOn, step2Done: true, px: +p.x.toFixed(1) };
@@ -147,8 +164,23 @@ const btn = char === 'ninja' ? 'btnModeNinja' : 'btnModeShogun';
 
     // ---- step3 実測 ----
     const f3 = await measureStep(3, 26);
-    // ---- step4 実測 ----
-    const f4 = await measureStep(4, 26);
+    // ---- step4 実測(el≈250=バッファ1点まで減った後で連鎖→1点凍結の検証) ----
+    const f4 = await measureStep(4, 15);
+    // ---- step5 連鎖(step4剣筋がここで凍結される) ----
+    const f5 = await measureStep(5, 12);
+    // ---- 追加数フレーム ----
+    const fPost = [];
+    for (let i = 0; i < 4; i++) {
+        await page.evaluate('window.__stepOne()');
+        await new Promise(r => setTimeout(r, 85));
+        await page.evaluate('window.__capA()');
+        await page.evaluate('window.__hideTrail()');
+        await new Promise(r => setTimeout(r, 95));
+        const m = await page.evaluate('window.__capBDiffRestore()');
+        m.i = i;
+        fPost.push(m);
+        if (i === 2) await page.screenshot({ path: `out/oonagi_${char}_post_frozen.png` });
+    }
 
     const summarize = (frames, label) => {
         const act = frames.filter(f => f.attacking && f.pale && f.paleN > 300);
@@ -172,5 +204,7 @@ const btn = char === 'ninja' ? 'btnModeNinja' : 'btnModeShogun';
     summarize(f3, 'STEP3');
     for (const f of f4) console.log('S4', JSON.stringify(f));
     summarize(f4, 'STEP4');
+    for (const f of f5) console.log('S5', JSON.stringify(f));
+    for (const f of fPost) console.log('SP', JSON.stringify(f));
     await browser.close();
 })();

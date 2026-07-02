@@ -14,6 +14,7 @@ import { shop } from './shop.js';
 import { audio } from './audio.js';
 import { ShadowRenderer } from './shadow.js';
 import { applyShogunCombat } from './shogunCombatHelper.js';
+import { getRockVisualPalette } from './obstacle.js';
 
 const DAMAGE_NUMBER_DESCENT_FADE_MIN_SPAN = 24;
 const DAMAGE_NUMBER_GROUND_Y_OFFSET = 2;
@@ -22,6 +23,20 @@ const DAMAGE_NUMBER_GROUND_Y_OFFSET = 2;
 const USE_FIXED_TIMESTEP = true;
 const FIXED_TIMESTEP_SECONDS = 1 / 60;
 const MAX_FIXED_UPDATES_PER_FRAME = 4;
+
+function createRockShardPoints(pointCount, aspect) {
+    const points = [];
+    const start = Math.random() * Math.PI * 2;
+    for (let i = 0; i < pointCount; i++) {
+        const angle = start + (i / pointCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.42;
+        const radius = 0.58 + Math.random() * 0.46;
+        points.push({
+            x: Math.cos(angle) * radius * aspect,
+            y: Math.sin(angle) * radius
+        });
+    }
+    return points;
+}
 
 class Game {
     constructor() {
@@ -3693,6 +3708,8 @@ class Game {
         const sourceX = Number.isFinite(impactX) ? impactX : cx;
         const sourceY = Number.isFinite(impactY) ? impactY : cy;
         const launchBase = Math.atan2(cy - sourceY, cx - sourceX);
+        const palette = getRockVisualPalette(rock.variant);
+        const rockScale = Math.max(0.78, Math.min(1.45, (rock.width + rock.height) / 145));
 
         this.hitEffects.push({
             kind: 'ring',
@@ -3703,44 +3720,53 @@ class Game {
             life: 190,
             maxLife: 190,
             radius: 11,
-            color: '120, 106, 92'
+            color: palette.ring
         });
 
         const dustCount = 9;
+        const dustPalette = [palette.dust, palette.mid, palette.dark];
         for (let i = 0; i < dustCount; i++) {
             const dir = launchBase + this.noiseOffset(i) * 0.75;
             const speed = 0.7 + Math.random() * 1.8;
+            const life = 280 + Math.random() * 220;
             this.hitEffects.push({
                 kind: 'dust',
                 x: cx + (Math.random() - 0.5) * 10,
                 y: cy + (Math.random() - 0.5) * 6,
                 vx: Math.cos(dir) * speed,
                 vy: Math.sin(dir) * speed - (0.5 + Math.random() * 0.6),
-                life: 280 + Math.random() * 220,
-                maxLife: 280 + Math.random() * 220,
-                size: 7 + Math.random() * 8,
-                color: '106, 95, 84'
+                life,
+                maxLife: life,
+                size: (6.5 + Math.random() * 7.5) * rockScale,
+                color: dustPalette[i % dustPalette.length]
             });
         }
 
-        const shardCount = 16;
-        const shardPalette = ['114, 106, 96', '92, 86, 79', '72, 68, 63', '130, 122, 111'];
+        const shardCount = 18;
+        const shardPalette = palette.shards || [palette.mid, palette.dark, palette.light];
         for (let i = 0; i < shardCount; i++) {
             const dirJitter = (Math.random() - 0.5) * 0.9;
             const dir = launchBase + (Math.PI * (i / shardCount - 0.5)) + dirJitter;
-            const speed = 1.8 + Math.random() * 3.8;
+            const isLarge = i < 5;
+            const speed = (isLarge ? 1.45 : 1.85) + Math.random() * (isLarge ? 2.8 : 3.9);
+            const life = (isLarge ? 500 : 410) + Math.random() * (isLarge ? 300 : 230);
+            const pointCount = 4 + Math.floor(Math.random() * 3);
+            const aspect = 0.72 + Math.random() * 0.68;
             this.hitEffects.push({
                 kind: 'rockShard',
                 x: cx + (Math.random() - 0.5) * 12,
                 y: cy - Math.random() * 10,
                 vx: Math.cos(dir) * speed,
                 vy: Math.sin(dir) * speed - (1.4 + Math.random() * 1.1),
-                life: 420 + Math.random() * 280,
-                maxLife: 420 + Math.random() * 280,
-                size: 4.2 + Math.random() * 5.6,
+                life,
+                maxLife: life,
+                size: ((isLarge ? 6.8 : 3.8) + Math.random() * (isLarge ? 5.2 : 4.8)) * rockScale,
                 rotation: Math.random() * Math.PI * 2,
-                spin: (Math.random() - 0.5) * 0.34,
-                color: shardPalette[i % shardPalette.length]
+                spin: (Math.random() - 0.5) * (isLarge ? 0.22 : 0.38),
+                color: shardPalette[i % shardPalette.length],
+                darkColor: palette.outline,
+                lightColor: palette.light,
+                points: createRockShardPoints(pointCount, aspect)
             });
         }
 
@@ -3932,20 +3958,57 @@ class Game {
             } else if (effect.kind === 'rockShard') {
                 if (ultraOverloaded && (i % 2 === 0)) continue;
                 const size = (effect.size || 5) * (0.78 + lifeRatio * 0.45);
+                const points = effect.points || [
+                    { x: -0.75, y: -0.42 },
+                    { x: -0.12, y: -0.8 },
+                    { x: 0.7, y: -0.2 },
+                    { x: 0.5, y: 0.62 },
+                    { x: -0.35, y: 0.72 }
+                ];
+                const color = effect.color || '92, 86, 79';
+                const darkColor = effect.darkColor || '24, 20, 18';
+                const lightColor = effect.lightColor || '126, 119, 108';
                 ctx.save();
                 ctx.translate(effect.x, effect.y);
                 ctx.rotate(effect.rotation || 0);
-                ctx.fillStyle = `rgba(${effect.color || '102, 96, 88'}, ${0.24 + lifeRatio * 0.68})`;
-                ctx.strokeStyle = `rgba(24, 20, 18, ${0.18 + lifeRatio * 0.42})`;
-                ctx.lineWidth = 1;
+                const shardGrad = ctx.createLinearGradient(-size, -size, size, size);
+                shardGrad.addColorStop(0, `rgba(${lightColor}, ${0.18 + lifeRatio * 0.24})`);
+                shardGrad.addColorStop(0.38, `rgba(${color}, ${0.3 + lifeRatio * 0.58})`);
+                shardGrad.addColorStop(1, `rgba(${darkColor}, ${0.28 + lifeRatio * 0.48})`);
+                ctx.fillStyle = shardGrad;
                 ctx.beginPath();
-                ctx.moveTo(-size * 0.75, -size * 0.42);
-                ctx.lineTo(-size * 0.12, -size * 0.8);
-                ctx.lineTo(size * 0.7, -size * 0.2);
-                ctx.lineTo(size * 0.5, size * 0.62);
-                ctx.lineTo(-size * 0.35, size * 0.72);
+                ctx.moveTo(points[0].x * size, points[0].y * size);
+                for (let p = 1; p < points.length; p++) {
+                    ctx.lineTo(points[p].x * size, points[p].y * size);
+                }
                 ctx.closePath();
                 ctx.fill();
+
+                if (!overloaded && points.length >= 3) {
+                    ctx.fillStyle = `rgba(${lightColor}, ${0.08 + lifeRatio * 0.18})`;
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(points[0].x * size, points[0].y * size);
+                    ctx.lineTo(points[1].x * size, points[1].y * size);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    ctx.strokeStyle = `rgba(${lightColor}, ${0.08 + lifeRatio * 0.18})`;
+                    ctx.lineWidth = 0.7;
+                    ctx.beginPath();
+                    ctx.moveTo(-size * 0.16, -size * 0.05);
+                    ctx.lineTo(size * 0.34, size * 0.18);
+                    ctx.stroke();
+                }
+
+                ctx.strokeStyle = `rgba(${darkColor}, ${0.2 + lifeRatio * 0.42})`;
+                ctx.lineWidth = 0.9;
+                ctx.beginPath();
+                ctx.moveTo(points[0].x * size, points[0].y * size);
+                for (let p = 1; p < points.length; p++) {
+                    ctx.lineTo(points[p].x * size, points[p].y * size);
+                }
+                ctx.closePath();
                 ctx.stroke();
                 ctx.restore();
             } else if (effect.kind === 'dust') {
