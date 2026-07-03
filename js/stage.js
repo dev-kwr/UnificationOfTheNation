@@ -10,7 +10,6 @@ import { audio } from './audio.js';
 import { generateStairsCanvas } from './stairRenderer.js';
 
 const OBSTACLE_CHANCE_BOOST = 0.8;
-const HIDE_STAGE1_BAMBOO_FOR_SKY_CHECK = false;
 
 // ステージクラス
 export class Stage {
@@ -113,7 +112,7 @@ export class Stage {
         this.bossEntranceTargetRatio = 0.8;
         
         // --- 竹林ステージの初期落ち葉配置 ---
-        if (this.stageNumber === 1 && !HIDE_STAGE1_BAMBOO_FOR_SKY_CHECK) {
+        if (this.stageNumber === 1) {
             this.initBambooLeaves();
         }
 
@@ -129,7 +128,7 @@ export class Stage {
         }
 
         // --- Stage 1/2 地面画像 ---
-        if (this.stageNumber === 1 && !HIDE_STAGE1_BAMBOO_FOR_SKY_CHECK) {
+        if (this.stageNumber === 1) {
             this.stage1GroundImage = new Image();
             this.stage1GroundImage.src = 'images/stage1_ground_bamboo_tile.png?v=20260703_green';
             this.stage1BambooImages = {};
@@ -2084,7 +2083,7 @@ export class Stage {
     }
 
     updateBambooLeafEffects(deltaTime) {
-        if (this.stageNumber !== 1 || HIDE_STAGE1_BAMBOO_FOR_SKY_CHECK) {
+        if (this.stageNumber !== 1) {
             this.bambooFallingLeaves.length = 0;
             this.bambooLeafSpawnTimer = 0;
             return;
@@ -2209,7 +2208,7 @@ export class Stage {
     }
 
     renderBambooFallingLeaves(ctx) {
-        if (this.stageNumber !== 1 || HIDE_STAGE1_BAMBOO_FOR_SKY_CHECK || this.bambooFallingLeaves.length === 0) return;
+        if (this.stageNumber !== 1 || this.bambooFallingLeaves.length === 0) return;
 
         ctx.save();
         for (const leaf of this.bambooFallingLeaves) {
@@ -3120,8 +3119,6 @@ export class Stage {
     }
 
     renderStage1BambooImageBackdrop(ctx, progress) {
-        if (HIDE_STAGE1_BAMBOO_FOR_SKY_CHECK) return false;
-
         const images = this.stage1BambooImages;
         const isReady = (image) => image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
         if (!images || !isReady(images.far) || !isReady(images.mid) || !isReady(images.near)) {
@@ -3263,22 +3260,53 @@ export class Stage {
             filter: 'brightness(0.95) saturate(0.72) contrast(1.04) hue-rotate(30deg)'
         });
 
+        this.renderStage1BambooRootFloor(ctx, progress);
+
+        return true;
+    }
+
+    renderStage1BambooRootFloor(ctx, progress) {
+        const image = this.stage1GroundImage;
+        if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
+
+        const stripTop = this.groundY - 118;
+        const stripBottom = this.groundY + 18;
+        const stripH = stripBottom - stripTop;
+        const srcY = Math.floor(image.naturalHeight * 0.48);
+        const srcH = Math.floor(image.naturalHeight * 0.22);
+        const drawW = Math.ceil(stripH * (image.naturalWidth / srcH) * 1.18);
+        const scroll = progress * 0.56;
+        const firstTile = Math.floor(scroll / drawW) - 1;
+        const lastTile = Math.ceil((scroll + CANVAS_WIDTH) / drawW) + 1;
+
         ctx.save();
-        ctx.globalCompositeOperation = 'multiply';
-        const undergrowthMul = ctx.createLinearGradient(0, this.groundY - 240, 0, this.groundY + 18);
-        undergrowthMul.addColorStop(0, 'rgba(64, 112, 72, 0)');
-        undergrowthMul.addColorStop(0.45, 'rgba(38, 104, 56, 0.18)');
-        undergrowthMul.addColorStop(1, 'rgba(20, 88, 48, 0.34)');
-        ctx.fillStyle = undergrowthMul;
-        ctx.fillRect(0, this.groundY - 240, CANVAS_WIDTH, 258);
+        ctx.beginPath();
+        ctx.rect(0, stripTop, CANVAS_WIDTH, stripH);
+        ctx.clip();
+        ctx.globalAlpha = 0.92;
+        ctx.filter = 'brightness(0.62) saturate(0.58) contrast(1.12) hue-rotate(18deg)';
+        for (let tile = firstTile; tile <= lastTile; tile++) {
+            const x = Math.round(tile * drawW - scroll);
+            if (x + drawW < -2 || x > CANVAS_WIDTH + 2) continue;
+            if (Math.abs(tile) % 2 === 1) {
+                ctx.save();
+                ctx.translate(x + drawW + 2, stripTop);
+                ctx.scale(-1, 1);
+                ctx.drawImage(image, 0, srcY, image.naturalWidth, srcH, 0, 0, drawW + 2, stripH);
+                ctx.restore();
+            } else {
+                ctx.drawImage(image, 0, srcY, image.naturalWidth, srcH, x, stripTop, drawW + 2, stripH);
+            }
+        }
+        ctx.filter = 'none';
         ctx.restore();
 
-        const baseTint = ctx.createLinearGradient(0, this.groundY - 260, 0, this.groundY + 24);
-        baseTint.addColorStop(0, 'rgba(16, 66, 45, 0)');
-        baseTint.addColorStop(0.42, 'rgba(14, 66, 40, 0.14)');
-        baseTint.addColorStop(1, 'rgba(8, 48, 30, 0.32)');
-        ctx.fillStyle = baseTint;
-        ctx.fillRect(0, this.groundY - 260, CANVAS_WIDTH, 284);
+        const rootShade = ctx.createLinearGradient(0, stripTop, 0, stripBottom);
+        rootShade.addColorStop(0, 'rgba(8, 35, 28, 0)');
+        rootShade.addColorStop(0.42, 'rgba(8, 38, 26, 0.30)');
+        rootShade.addColorStop(1, 'rgba(5, 26, 18, 0.64)');
+        ctx.fillStyle = rootShade;
+        ctx.fillRect(0, stripTop, CANVAS_WIDTH, stripH);
 
         return true;
     }
@@ -3291,9 +3319,7 @@ export class Stage {
         
         switch (currentPalette.elements) {
             case 'bamboo': {
-                if (!HIDE_STAGE1_BAMBOO_FOR_SKY_CHECK) {
-                    this.renderStage1BambooImageBackdrop(ctx, p);
-                }
+                this.renderStage1BambooImageBackdrop(ctx, p);
                 break;
             }
                 
@@ -4781,7 +4807,7 @@ export class Stage {
         }
 
         // 竹林の動的な葉の降下エフェクト（地面描画の後に重ねる）
-        if (this.stageNumber === 1 && !HIDE_STAGE1_BAMBOO_FOR_SKY_CHECK) {
+        if (this.stageNumber === 1) {
             this.renderBambooFallingLeaves(ctx);
         }
     }
@@ -4858,7 +4884,7 @@ export class Stage {
         ctx.fillStyle = roadGrad;
         ctx.fillRect(0, horizonY, CANVAS_WIDTH, span);
 
-        if (!HIDE_STAGE1_BAMBOO_FOR_SKY_CHECK && this.renderGroundImageTile(ctx, this.stage1GroundImage, horizonY, bottomY, renderProgress, {
+        if (this.renderGroundImageTile(ctx, this.stage1GroundImage, horizonY, bottomY, renderProgress, {
             filter: 'brightness(0.98) saturate(0.86) contrast(1.04) hue-rotate(18deg)',
             extraHeight: 38,
             yOffset: -18
