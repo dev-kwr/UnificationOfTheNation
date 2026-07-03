@@ -2,11 +2,11 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET } from './constants.js';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, getDeviceProfile, setUiScaleFromFitScale, setSafeInsets } from './constants.js';
 import { input } from './input.js';
 import { Player } from './player.js';
 import { createSubWeapon } from './weapon.js';
-import { Stage } from './stage.js?v=20260630-castle-ai';
+import { Stage } from './stage.js?v=20260703-p3';
 import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout } from './ui.js';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js';
 import { saveManager } from './save.js';
@@ -111,6 +111,17 @@ class Game {
         this.maxShakeIntensity = 9.0;
         this.shakeOffsetX = 0;
         this.shakeOffsetY = 0;
+
+        // 縦追従カメラ (P2b): 世界ズーム時の上部クロップを高所で動的に回復するリフト量。
+        // z=1(SCREEN_WIDTH=1280)の端末では可動域0で常に無効。
+        this.cameraLift = 0;
+        this.cameraLiftTarget = 0;
+        this._prefersReducedMotion = (typeof window !== 'undefined' && window.matchMedia)
+            ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+            : false;
+        // 低スペック検知(持続的なフレーム落ち)でタッチ端末のDPR上限を1.5→1.25へ降格
+        this._dprDowngraded = false;
+        this._slowFrameAccumSec = 0;
         this.shakeSampleTimerMs = 0;
         this.shakeSampleIntervalMs = 33;
         this.hitStopTimer = 0;
@@ -166,13 +177,10 @@ class Game {
 
         // 入力管理にキャンバスを渡す（タッチ座標用）
         input.setCanvas(canvas);
-        // 初期スケール設定
-        this.updateInputScale();
-        
+
         // リサイズイベント
         this.handleViewportResize = () => {
             this.configureCanvasResolution();
-            this.updateInputScale();
         };
         // iOS等では orientationchange/resize 直後に画面寸法が確定せず、
         // 回転前（縦向き）のキャンバスサイズが残ってしまうことがある。
@@ -191,10 +199,20 @@ class Game {
             this.scheduleViewportResize();
         };
         window.addEventListener('resize', this.scheduleViewportResize);
-        window.addEventListener('orientationchange', this.scheduleViewportResize);
+        window.addEventListener('orientationchange', () => {
+            // 回転アニメ中(レイアウト未確定)の被弾を防ぐため自動ポーズ (P3)
+            this.autoPauseIfPlaying();
+            this.scheduleViewportResize();
+        });
         window.addEventListener('focus', this.handleWindowFocus);
         document.addEventListener('visibilitychange', () => {
-            if (!document.hidden) this.handleWindowFocus();
+            if (document.hidden) {
+                // バックグラウンドでの無防備な進行を防ぐ(Androidの分割画面等ではrAFが
+                // 止まらないケースがある)。既存のポーズ機構をそのまま使う (P3)
+                this.autoPauseIfPlaying();
+            } else {
+                this.handleWindowFocus();
+            }
         });
         if (window.visualViewport) {
             window.visualViewport.addEventListener('resize', this.scheduleViewportResize);
@@ -206,6 +224,14 @@ class Game {
         // 早期 return するため、変化がなければほぼノーコスト。
         if (this._viewportPollTimer) clearInterval(this._viewportPollTimer);
         this._viewportPollTimer = setInterval(() => this.ensureViewportSync(), 250);
+
+        // 折りたたみ展開・Split View 等で「起動時に固定したスクリーン幅」と実画面が
+        // 乖離した場合の再読み込み案内 (P4)。screen基準(URLバーの伸縮に非反応)・
+        // ゲーム中は出さない・強制リロードしない・1セッション1回だけ。
+        this._aspectMismatchSince = 0;
+        this._aspectToastShown = false;
+        if (this._aspectWatchTimer) clearInterval(this._aspectWatchTimer);
+        this._aspectWatchTimer = setInterval(() => this.checkAspectDrift(), 1000);
         
         // 敵AIなどがスクロール情報を参照できるようにグローバルに公開
         window.game = this;
@@ -237,7 +263,7 @@ class Game {
             (window.visualViewport && window.visualViewport.width) ||
             window.innerWidth ||
             document.documentElement.clientWidth ||
-            CANVAS_WIDTH
+            SCREEN_WIDTH
         );
         const viewportHeight = Math.floor(
             (window.visualViewport && window.visualViewport.height) ||
@@ -252,17 +278,33 @@ class Game {
         if (availableWidth < 100 || availableHeight < 100) return;
 
         const fitScale = Math.max(0.1, Math.min(
-            availableWidth / CANVAS_WIDTH,
+            availableWidth / SCREEN_WIDTH,
             availableHeight / CANVAS_HEIGHT
         ));
+        // HUD/仮想パッドの物理サイズアンカーを更新（タッチ端末のみ>1になる）
+        setUiScaleFromFitScale(fitScale);
 
-        const cssWidth = Math.max(1, Math.floor(CANVAS_WIDTH * fitScale));
+        // セーフエリア(ノッチ/Dynamic Island)を論理pxへ換算して共有 (P3)。
+        // #game-container の --sai-* (env(safe-area-inset-*)) を読む。
+        // viewport-fit=cover でない環境や非ノッチ端末では 0。
+        if (container && typeof getComputedStyle === 'function') {
+            try {
+                const cs = getComputedStyle(container);
+                const readPx = (name) => {
+                    const v = parseFloat(cs.getPropertyValue(name));
+                    return Number.isFinite(v) ? v : 0;
+                };
+                setSafeInsets(readPx('--sai-l') / fitScale, readPx('--sai-r') / fitScale);
+            } catch { /* 非致命 */ }
+        }
+
+        const cssWidth = Math.max(1, Math.floor(SCREEN_WIDTH * fitScale));
         const cssHeight = Math.max(1, Math.floor(CANVAS_HEIGHT * fitScale));
         this.canvas.style.width = `${cssWidth}px`;
         this.canvas.style.height = `${cssHeight}px`;
 
-        const isTouchDevice = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) || ('ontouchstart' in window);
-        const dprCap = isTouchDevice ? 1.5 : 2.0;
+        const isTouchDevice = getDeviceProfile().isTouchDevice;
+        const dprCap = isTouchDevice ? (this._dprDowngraded ? 1.25 : 1.5) : 2.0;
         const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, dprCap));
         const backingWidth = Math.max(1, Math.round(cssWidth * dpr));
         const backingHeight = Math.max(1, Math.round(cssHeight * dpr));
@@ -272,7 +314,7 @@ class Game {
         }
 
         this.ctx.setTransform(
-            backingWidth / CANVAS_WIDTH,
+            backingWidth / SCREEN_WIDTH,
             0,
             0,
             backingHeight / CANVAS_HEIGHT,
@@ -303,7 +345,101 @@ class Game {
         this._syncOL = ol;
         this.syncContainerToViewport();
         this.configureCanvasResolution();
-        this.updateInputScale();
+    }
+
+    checkAspectDrift() {
+        if (this._aspectToastShown) return;
+        const p = getDeviceProfile();
+        if (!p.isTouchDevice && !p.isMobileUA) return;
+        const sw = (window.screen && window.screen.width) || 0;
+        const sh = (window.screen && window.screen.height) || 0;
+        if (!(sw > 0 && sh > 0)) return;
+        const cur = Math.max(sw, sh) / Math.min(sw, sh);
+        const configured = SCREEN_WIDTH / CANVAS_HEIGHT;
+        if (Math.abs(cur / configured - 1) > 0.15) {
+            if (!this._aspectMismatchSince) this._aspectMismatchSince = Date.now();
+            const stable = Date.now() - this._aspectMismatchSince > 3000;
+            if (stable && this.state !== GAME_STATE.PLAYING) {
+                this._aspectToastShown = true;
+                this.showReloadToast();
+            }
+        } else {
+            this._aspectMismatchSince = 0;
+        }
+    }
+
+    showReloadToast() {
+        try {
+            const el = document.createElement('div');
+            el.id = 'aspect-toast';
+            el.textContent = '画面構成が変わりました。再読み込みで表示を最適化できます';
+            document.body.appendChild(el);
+            setTimeout(() => el.classList.add('show'), 30);
+            setTimeout(() => el.remove(), 8000);
+        } catch { /* 非致命 */ }
+    }
+
+    // 回転・バックグラウンド遷移・縦持ち検知の自動ポーズ (P3)。
+    // 既存のポーズ機構(PAUSED状態+ポーズ画面)をそのまま使い、再開はユーザー操作に委ねる。
+    autoPauseIfPlaying() {
+        if (this.state !== GAME_STATE.PLAYING) return;
+        this.pauseReturnState = GAME_STATE.PLAYING;
+        this.state = GAME_STATE.PAUSED;
+        audio.pauseBgm();
+    }
+
+    // 可視ワールド上端(論理px)。z = SCREEN_WIDTH/CANVAS_WIDTH の下端アンカーズームで
+    // 生じる上部クロップから cameraLift ぶんだけ持ち上げた値。z=1 → 常に 0。
+    // renderPlaying のズームwrapと getVisibleWorldBounds が必ず同じ値を共有する。
+    getCameraVisTop() {
+        const z = SCREEN_WIDTH / CANVAS_WIDTH;
+        const crop = CANVAS_HEIGHT - CANVAS_HEIGHT / z;
+        return Math.max(0, Math.min(crop, crop - (this.cameraLift || 0)));
+    }
+
+    // 可視ワールド境界の単一ソース (screen_adaptation_plan.md §2)。
+    // 水平は恒等式により常に幅1280（カリング/クランプ/アリーナは端末非依存）。
+    // 垂直はズームwrapと同じ visTop を共有する
+    // (weapon.js の __previewViewWorldBounds の一般形)。
+    getVisibleWorldBounds() {
+        const scrollX = this.scrollX || 0; // タイトル等、startNewGame前はscrollX未初期化
+        const z = SCREEN_WIDTH / CANVAS_WIDTH;
+        const visTop = this.getCameraVisTop();
+        return {
+            left: scrollX,
+            right: scrollX + CANVAS_WIDTH,
+            top: visTop,
+            bottom: visTop + CANVAS_HEIGHT / z
+        };
+    }
+
+    // 縦追従カメラの更新 (P2b §2.3)。接地時のみターゲットを更新し、空中の三段ジャンプで
+    // リフトを発火させない（頂点の頭切れは一瞬のため許容し、酔いの原因になるカメラ上下動を
+    // 避ける）。stage4屋根・stage5階段の「接地した高所」で自動的に持ち上がる。
+    // PAUSED/DEFEAT/LEVEL_UP 中は呼び出し元(updatePlaying)へ来ないため自動凍結。
+    updateCameraLift(dt) {
+        const z = SCREEN_WIDTH / CANVAS_WIDTH;
+        const crop = CANVAS_HEIGHT - CANVAS_HEIGHT / z; // リフト可動域。z=1 端末は 0
+        if (crop <= 0.5) {
+            this.cameraLift = 0;
+            this.cameraLiftTarget = 0;
+            return;
+        }
+        const HEADROOM = 90;  // 高所接地時に頭上へ確保する余白(world px)
+        const DEADBAND = 24;  // 微小な段差でターゲットを揺らさない不感帯
+        if (this.player && this.player.isGrounded) {
+            // stage5 は updatePlaying で getStairGroundY 同期済みの groundY をそのまま使う
+            const feetY = this.player.groundY + LANE_OFFSET;
+            const topY = feetY - this.player.getWorldHeight();
+            const raw = Math.max(0, Math.min(crop, crop + HEADROOM - topY));
+            if (Math.abs(raw - this.cameraLiftTarget) > DEADBAND) this.cameraLiftTarget = raw;
+        }
+        // 非対称平滑: 上昇(リフト増)ゆっくり k=3/s・復帰すばやく k=6/s（フレームレート非依存）。
+        // prefers-reduced-motion 時はさらに緩やかに(カメラ酔い対策)
+        const reduce = this._prefersReducedMotion ? 0.5 : 1;
+        const k = ((this.cameraLiftTarget > this.cameraLift) ? 3 : 6) * reduce;
+        this.cameraLift += (this.cameraLiftTarget - this.cameraLift) * (1 - Math.exp(-k * dt));
+        if (Math.abs(this.cameraLiftTarget - this.cameraLift) < 0.1) this.cameraLift = this.cameraLiftTarget;
     }
 
     // standalone(ホーム画面追加アプリ)等では layout viewport が実際の表示領域
@@ -691,16 +827,6 @@ class Game {
         this.titleDebugApplyOnStart = false;
     }
     
-    updateInputScale() {
-        if (!this.canvas) return;
-        const rect = this.canvas.getBoundingClientRect();
-        // input.js の getTouchAction は 1280x720 の内部座標を期待しているため、
-        // クライアント矩形の幅に対する内部座標の比率を渡す。
-        const scaleX = CANVAS_WIDTH / rect.width;
-        const scaleY = CANVAS_HEIGHT / rect.height;
-        input.setScale(scaleX, scaleY);
-    }
-    
     continueGame(saveData) {
         if (!saveData) return;
         
@@ -762,6 +888,8 @@ class Game {
                 if (Number.isFinite(atkUp)) this.player.atkLv = atkUp;
             }
             this.scrollX = 0; // スクロール位置リセット
+            this.cameraLift = 0;
+            this.cameraLiftTarget = 0;
             this.expGems = [];
             this.stageBossDefeatEffects = [];
             
@@ -833,6 +961,8 @@ class Game {
         // スクロール位置初期化
         this.scrollX = 0;
         this.cameraY = 0;
+        this.cameraLift = 0;
+        this.cameraLiftTarget = 0;
         
         // ─── デバッグ：ボス部屋からスタート ───────────────────────────
         if (this.debugBossRoomStart) {
@@ -876,6 +1006,21 @@ class Game {
         this.lastTime = currentTime;
         this.frameDamageHitCount = 0;
         this.frameDamageVisualCount = 0;
+
+        // 低スペック検知 (P4): PLAYING中の持続的なフレーム落ち(>24ms)が累計3秒に達したら
+        // タッチ端末のバッキング解像度を一段落として(1.5→1.25)描画負荷を約31%削減する。
+        // 一度だけ発動・セッション内不可逆(行き来によるちらつき防止)。
+        if (!this._dprDowngraded && this.state === GAME_STATE.PLAYING) {
+            if (rawDeltaTime > 0.024) {
+                this._slowFrameAccumSec += rawDeltaTime;
+                if (this._slowFrameAccumSec > 3) {
+                    this._dprDowngraded = true;
+                    this.configureCanvasResolution();
+                }
+            } else {
+                this._slowFrameAccumSec = Math.max(0, this._slowFrameAccumSec - rawDeltaTime * 0.5);
+            }
+        }
         
         // ヒットストップ処理
         let updateDeltaTime = rawDeltaTime;
@@ -1119,7 +1264,7 @@ class Game {
             const centerX = layout.centerX;
 
             // 右下コーナータッチでデバッグウィンドウ開閉
-            if (tX > CANVAS_WIDTH - 120 && tY > CANVAS_HEIGHT - 100) {
+            if (tX > SCREEN_WIDTH - 120 && tY > CANVAS_HEIGHT - 100) {
                 this.titleDebugOpen = !this.titleDebugOpen;
                 const count = this.getTitleDebugEntries().length;
                 this.titleDebugCursor = Math.max(0, Math.min(count - 1, this.titleDebugCursor));
@@ -1316,7 +1461,7 @@ class Game {
         const tY = input.lastTouchY;
 
         const panelW = 540;
-        const panelX = CANVAS_WIDTH - panelW - 40;
+        const panelX = SCREEN_WIDTH - panelW - 40;
         const panelY = 40;
         const rowH = 26; 
         const headerH = 40;
@@ -1404,7 +1549,7 @@ class Game {
         this.introTimer += this.deltaTime * 1000;
         
         // 操作入力でのみプレイ開始（自動遷移しない）
-        if (this.introTimer > 500 && (input.isActionJustPressed('CONFIRM') || input.touchJustPressed)) {
+        if (this.introTimer > 500 && (input.isActionJustPressed('CONFIRM') || input.wasScreenTapped())) {
             // ゲーム開始（フェードイン含む）
             this.startStage();
         }
@@ -1755,12 +1900,15 @@ class Game {
             this.player.specialGauge = this.player.maxSpecialGauge;
         }
 
+        // 縦追従カメラ（プレイヤーの最終座標確定後・接地状態で評価）
+        this.updateCameraLift(this.deltaTime);
+
         // ゲームオーバーチェック
         if (this.player.hp <= 0) {
             this.beginPlayerDefeat();
         }
     }
-    
+
     updateBombs(enemies = [], obstacles = null) {
         this.bombs = this.bombs.filter((bomb) => {
             // 敵弾（将軍の火薬玉）は敵リストを渡さない（プレイヤーへの当たりのみ）
@@ -3026,7 +3174,7 @@ class Game {
             const cardWidth = 300;
             const gap = 36;
             const totalWidth = choices.length * cardWidth + (choices.length - 1) * gap;
-            const startX = CANVAS_WIDTH / 2 - totalWidth / 2;
+            const startX = SCREEN_WIDTH / 2 - totalWidth / 2;
             const cardY = CANVAS_HEIGHT / 2 - 120;
             for (let index = 0; index < choices.length; index++) {
                 const x = startX + index * (cardWidth + gap);
@@ -4245,7 +4393,7 @@ class Game {
         }
         
         // SPACE/Enter または画面タップでタイトルへ戻る
-        if (input.isActionJustPressed('CONFIRM') || input.touchJustPressed) {
+        if (input.isActionJustPressed('CONFIRM') || input.wasScreenTapped()) {
             this.gameOverWaitTimer = undefined; // リセット
             this.state = GAME_STATE.TITLE;
             audio.playBgm('title', 0);
@@ -4280,7 +4428,7 @@ class Game {
         // 演出フェーズ (Phase 0)
         if (this.stageClearPhase === 0) {
             if (this.stageClearAnnounceTimer < 2400) return; // 演出完了前はスキップ不可
-            if (input.isActionJustPressed('CONFIRM') || input.touchJustPressed) {
+            if (input.isActionJustPressed('CONFIRM') || input.wasScreenTapped()) {
                 audio.playSelect();
                 this.stageClearPhase = 1;
                 this.resetStageClearAutoSubWeaponTimer(true);
@@ -4394,7 +4542,7 @@ class Game {
         if (input.touchJustPressed) {
             const tx = input.lastTouchX;
             const ty = input.lastTouchY;
-            const panelW = CANVAS_WIDTH;
+            const panelW = SCREEN_WIDTH;
             const menuY = CANVAS_HEIGHT - 160;
             const menuW = (panelW - 120) / 3;
             const menuH = 80;
@@ -4533,7 +4681,7 @@ class Game {
 
         // クリア演出後、入力でのみエンディングへ遷移
         const canSkip = this.gameClearTimer > 700;
-        const wantsProceed = canSkip && (input.isActionJustPressed('CONFIRM') || input.touchJustPressed);
+        const wantsProceed = canSkip && (input.isActionJustPressed('CONFIRM') || input.wasScreenTapped());
         if (wantsProceed) {
             this.state = GAME_STATE.ENDING;
             this.endingTimer = 0;
@@ -4545,7 +4693,7 @@ class Game {
         this.endingTimer += this.deltaTime * 1000;
 
         const canSkip = this.endingTimer > 900;
-        const wantsReturn = canSkip && (input.isActionJustPressed('CONFIRM') || input.touchJustPressed);
+        const wantsReturn = canSkip && (input.isActionJustPressed('CONFIRM') || input.wasScreenTapped());
         if (wantsReturn) {
             saveManager.deleteSave();
             this.state = GAME_STATE.TITLE;
@@ -4560,7 +4708,7 @@ class Game {
         // 変換行列が失われても毎フレーム復元して描画崩れを防ぐ
         if (this.canvas && this.ctx) {
             this.ctx.setTransform(
-                this.canvas.width / CANVAS_WIDTH,
+                this.canvas.width / SCREEN_WIDTH,
                 0,
                 0,
                 this.canvas.height / CANVAS_HEIGHT,
@@ -4571,7 +4719,7 @@ class Game {
 
         // 画面クリア
         this.ctx.fillStyle = '#0f0f23';
-        this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        this.ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
         
         // 画面揺れ適用
         this.ctx.save();
@@ -4637,26 +4785,26 @@ class Game {
                     redGrad.addColorStop(0.5, `rgba(60, 0, 0, ${redAlpha * 0.95})`);
                     redGrad.addColorStop(1, `rgba(30, 0, 0, ${redAlpha * 0.85})`);
                     this.ctx.fillStyle = redGrad;
-                    this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                    this.ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
 
                     // ビネット
                     const vignetteStrength = isGameOver
                         ? 0.5 + Math.min(1, (this.gameOverFadeInTimer || 0) / 400) * 0.45
                         : defeatProgress * 0.45;
                     const vignette = this.ctx.createRadialGradient(
-                        CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH * 0.08,
-                        CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH * 0.62
+                        SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2, SCREEN_WIDTH * 0.08,
+                        SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2, SCREEN_WIDTH * 0.62
                     );
                     vignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
                     vignette.addColorStop(1, `rgba(0, 0, 0, ${vignetteStrength})`);
                     this.ctx.fillStyle = vignette;
-                    this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                    this.ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
 
                     // 追加の暗転層
                     if (isGameOver) {
                         const darkProgress = Math.min(1, (this.gameOverFadeInTimer || 0) / 500);
                         this.ctx.fillStyle = `rgba(0, 0, 0, ${darkProgress * 0.45})`;
-                        this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                        this.ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
 
                         this.ctx.save();
                         renderGameOverScreen(this.ctx, this.player, this.currentStageNumber, this.gameOverFadeInTimer, this.stage);
@@ -4715,7 +4863,7 @@ class Game {
             this.ctx.save();
             const alpha = Math.min(1.0, this.transitionTimer);
             this.ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
-            this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            this.ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
             this.ctx.restore();
             
             this.transitionTimer -= this.deltaTime * 2; // フェードアウト速度
@@ -4726,7 +4874,7 @@ class Game {
             this.ctx.save();
             this.ctx.globalAlpha = Math.min(1.0, this.flashAlpha);
             this.ctx.fillStyle = '#fff';
-            this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            this.ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
             this.ctx.restore();
             this.flashAlpha -= this.deltaTime * 3.0; // フェードアウト速度
         }
@@ -4737,13 +4885,13 @@ class Game {
             const a = Math.min(0.85, this.playerHurtFlashAlpha);
             this.ctx.save();
             const g = this.ctx.createRadialGradient(
-                CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.5, CANVAS_HEIGHT * 0.30,
-                CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.5, CANVAS_HEIGHT * 0.74
+                SCREEN_WIDTH * 0.5, CANVAS_HEIGHT * 0.5, CANVAS_HEIGHT * 0.30,
+                SCREEN_WIDTH * 0.5, CANVAS_HEIGHT * 0.5, CANVAS_HEIGHT * 0.74
             );
             g.addColorStop(0, 'rgba(190, 20, 20, 0)');
             g.addColorStop(1, `rgba(150, 12, 12, ${(a * 0.66).toFixed(3)})`);
             this.ctx.fillStyle = g;
-            this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            this.ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
             this.ctx.restore();
             this.playerHurtFlashAlpha -= this.deltaTime * 3.4; // フェードアウト速度
             if (this.playerHurtFlashAlpha < 0) this.playerHurtFlashAlpha = 0;
@@ -5137,6 +5285,20 @@ class Game {
         ctx.restore();
         
         ctx.save();
+
+        // --- 世界ズームwrap (P2b §2.2) ---
+        // 世界パス(背景〜ダメージ数値)のみ z = SCREEN_WIDTH/CANVAS_WIDTH 倍・下端アンカー。
+        // 可視ワールド幅は SCREEN_WIDTH/z ≡ 1280 で不変（恒等式）。z=1 端末では恒等変換。
+        // HUD・オーバーレイは wrap 外の等倍スクリーン空間。
+        const worldZoom = SCREEN_WIDTH / CANVAS_WIDTH;
+        const visTop = this.getCameraVisTop();
+        ctx.save();
+        ctx.scale(worldZoom, worldZoom);
+        ctx.translate(0, -visTop);
+
+        // P3 空補償: 星・雲・天体・stage5天井が可視域に収まるよう stage 側へ上端を通知
+        this.stage.skyVisTop = visTop;
+
         // 1. 背景
         this.stage.renderBackground(ctx);
         
@@ -5209,6 +5371,8 @@ class Game {
         }
         
         ctx.restore(); // 水平スクロール保存の復元
+
+        ctx.restore(); // 世界ズームwrapの復元（以降のHUD/フロアUIは等倍スクリーン空間）
         
         // 3. HUD（カメラ固定）
         
@@ -5232,6 +5396,10 @@ class Game {
         if (this.currentStageNumber === 5 && this.stage.isFloorTransitioning) {
             this.stage.renderFloorTransition(ctx);
         }
+
+        // 冒頭(背景描画前)の save の復元。renderPlaying を自己完結で均衡化する。
+        // HUD より前で戻すと HUD が継承する描画状態が変わるため、必ず関数末尾で戻す。
+        ctx.restore();
     }
 
     renderStatusCharPreview() {
@@ -5311,12 +5479,12 @@ class Game {
             this.ctx.save();
             const alpha = Math.min(1.0, 1.0 - (this.stageTransitionTimer / 0.8));
             this.ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
-            this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            this.ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
             this.ctx.restore();
         } else if (this.stageTransitionPhase === 2) {
             this.ctx.save();
             this.ctx.fillStyle = '#000000';
-            this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            this.ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
             this.ctx.restore();
         }
     }

@@ -75,9 +75,14 @@ export class Stage {
         
         // 地面
         this.groundY = Math.round(CANVAS_HEIGHT * (2 / 3));
+
+        // P3 空補償: 可視ワールド上端(論理px)。game.renderPlaying が世界ズームwrap確定後に
+        // 毎フレーム設定する。z=1 端末では常に 0 = 従来描画と完全一致。
+        this.skyVisTop = 0;
         
         // 背景レイヤー（多重スクロール）
         this.bgLayers = this.createBackgroundLayers();
+
         
         // ステージ固有の敵構成
         this.enemyWeights = this.getEnemyWeights();
@@ -125,12 +130,12 @@ export class Stage {
         // --- Stage 1/2 地面画像 ---
         if (this.stageNumber === 1) {
             this.stage1GroundImage = new Image();
-            this.stage1GroundImage.src = 'images/stage1_ground_bamboo_tile.png';
+            this.stage1GroundImage.src = 'images/stage1_ground_bamboo_tile.png?v=20260703_green';
             this.stage1BambooImages = {};
             const stage1BambooPaths = {
-                far: 'images/stage1_bamboo_far_strip.png',
-                mid: 'images/stage1_bamboo_mid_strip.png',
-                near: 'images/stage1_bamboo_near_strip.png'
+                far: 'images/stage1_bamboo_far_strip.png?v=20260703_thin',
+                mid: 'images/stage1_bamboo_mid_strip.png?v=20260703_thin',
+                near: 'images/stage1_bamboo_near_strip.png?v=20260703_thin'
             };
             for (const [key, src] of Object.entries(stage1BambooPaths)) {
                 const image = new Image();
@@ -138,7 +143,7 @@ export class Stage {
                 this.stage1BambooImages[key] = image;
             }
             this.stage1BambooExitImage = new Image();
-            this.stage1BambooExitImage.src = 'images/stage1_bamboo_exit.png';
+            this.stage1BambooExitImage.src = 'images/stage1_bamboo_exit.png?v=20260703_seamless_exit';
         }
         if (this.stageNumber === 2) {
             this.stage2GroundImage = new Image();
@@ -242,7 +247,7 @@ export class Stage {
     initCache() {
         // 竹の葉のプリレンダリング
         if (this.stageNumber === 1) {
-            const colors = ['#5f7650', '#6e8055', '#7d895c', '#53684a', '#8a8f60'];
+            const colors = ['#587763', '#668369', '#758d70', '#4f6b58', '#87906f'];
             this.cachedAssets.bambooLeaves = colors.map((color) => {
                 const offCanvas = document.createElement('canvas');
                 offCanvas.width = 32;
@@ -257,7 +262,7 @@ export class Stage {
                 octx.quadraticCurveTo(size * 0.1, size * 0.36, -size * 0.54, 0);
                 octx.closePath();
                 octx.fill();
-                octx.strokeStyle = 'rgba(170, 190, 130, 0.32)';
+                octx.strokeStyle = 'rgba(160, 190, 145, 0.32)';
                 octx.lineWidth = 0.8;
                 octx.beginPath();
                 octx.moveTo(-size * 0.32, 0);
@@ -284,99 +289,6 @@ export class Stage {
             slCtx.stroke();
         }
         this.cachedAssets.speedLines = speedLineCanvas;
-
-        // 城のシルエット（城下町ステージ）
-        if (this.stageNumber === 4) {
-            const castleCanvas = document.createElement('canvas');
-            castleCanvas.width = CANVAS_WIDTH;
-            castleCanvas.height = 420; 
-            const cctx = castleCanvas.getContext('2d');
-            const wallBaseY = 326;
-
-            // 遠景の低い稜線
-            cctx.fillStyle = '#13151b';
-            cctx.beginPath();
-            cctx.moveTo(-80, 420);
-            cctx.lineTo(CANVAS_WIDTH * 0.1, wallBaseY - 16);
-            cctx.lineTo(CANVAS_WIDTH * 0.34, wallBaseY - 30);
-            cctx.lineTo(CANVAS_WIDTH * 0.62, wallBaseY - 18);
-            cctx.lineTo(CANVAS_WIDTH * 0.86, wallBaseY - 36);
-            cctx.lineTo(CANVAS_WIDTH + 80, 420);
-            cctx.closePath();
-            cctx.fill();
-
-            // 石垣の台座
-            const stoneGrad = cctx.createLinearGradient(0, wallBaseY - 16, 0, wallBaseY + 82);
-            stoneGrad.addColorStop(0, '#2a2c34');
-            stoneGrad.addColorStop(1, '#1a1c22');
-            cctx.fillStyle = stoneGrad;
-            cctx.fillRect(-20, wallBaseY - 12, CANVAS_WIDTH + 40, 110);
-            cctx.strokeStyle = 'rgba(74, 82, 96, 0.3)';
-            cctx.lineWidth = 1.2;
-            for (let y = wallBaseY + 2; y < wallBaseY + 84; y += 18) {
-                cctx.beginPath();
-                cctx.moveTo(-20, y);
-                cctx.lineTo(CANVAS_WIDTH + 20, y);
-                cctx.stroke();
-            }
-
-            // 左右の櫓
-            cctx.fillStyle = '#14161c';
-            cctx.fillRect(CANVAS_WIDTH * 0.08, wallBaseY - 174, 118, 162);
-            cctx.fillRect(CANVAS_WIDTH * 0.78, wallBaseY - 188, 126, 176);
-            cctx.fillStyle = 'rgba(198, 204, 220, 0.18)';
-            cctx.fillRect(CANVAS_WIDTH * 0.08 + 12, wallBaseY - 156, 94, 48);
-            cctx.fillRect(CANVAS_WIDTH * 0.78 + 14, wallBaseY - 168, 98, 52);
-
-            // 中央の天守（段構造）
-            const cx = CANVAS_WIDTH * 0.5;
-            cctx.fillStyle = '#13151b';
-            cctx.beginPath();
-            cctx.moveTo(cx - 136, wallBaseY - 6);
-            cctx.lineTo(cx - 102, wallBaseY - 208);
-            cctx.lineTo(cx + 102, wallBaseY - 208);
-            cctx.lineTo(cx + 136, wallBaseY - 6);
-            cctx.closePath();
-            cctx.fill();
-            cctx.fillStyle = 'rgba(214, 220, 236, 0.2)';
-            cctx.fillRect(cx - 88, wallBaseY - 190, 176, 54);
-
-            cctx.fillStyle = '#101218';
-            cctx.beginPath();
-            cctx.moveTo(cx - 90, wallBaseY - 208);
-            cctx.lineTo(cx - 60, wallBaseY - 286);
-            cctx.lineTo(cx + 60, wallBaseY - 286);
-            cctx.lineTo(cx + 90, wallBaseY - 208);
-            cctx.closePath();
-            cctx.fill();
-            cctx.fillStyle = 'rgba(228, 234, 246, 0.2)';
-            cctx.fillRect(cx - 52, wallBaseY - 270, 104, 42);
-
-            cctx.fillStyle = '#0d0f15';
-            cctx.beginPath();
-            cctx.moveTo(cx - 46, wallBaseY - 286);
-            cctx.lineTo(cx - 28, wallBaseY - 344);
-            cctx.lineTo(cx + 28, wallBaseY - 344);
-            cctx.lineTo(cx + 46, wallBaseY - 286);
-            cctx.closePath();
-            cctx.fill();
-            cctx.fillStyle = 'rgba(236, 242, 255, 0.26)';
-            cctx.fillRect(cx - 20, wallBaseY - 334, 40, 28);
-
-            // 屋根の輪郭
-            cctx.strokeStyle = 'rgba(160, 172, 198, 0.34)';
-            cctx.lineWidth = 2;
-            cctx.beginPath();
-            cctx.moveTo(cx - 164, wallBaseY - 198);
-            cctx.quadraticCurveTo(cx, wallBaseY - 246, cx + 164, wallBaseY - 198);
-            cctx.stroke();
-            cctx.beginPath();
-            cctx.moveTo(cx - 112, wallBaseY - 278);
-            cctx.quadraticCurveTo(cx, wallBaseY - 316, cx + 112, wallBaseY - 278);
-            cctx.stroke();
-
-            this.cachedAssets.castle = castleCanvas;
-        }
 
         // 星のグロー（プリレンダリング）
         const starGlow = document.createElement('canvas');
@@ -2071,15 +1983,25 @@ export class Stage {
         audio.playBgm('boss', this.stageNumber, 1000, 0);
     }
     
+    // P3 空補償: 空バンド [0, groundY] を [skyVisTop, groundY] へアフィン圧縮する。
+    // skyVisTop=0 のとき恒等写像。groundY 側は不動点＝地平線基準の要素は不変。
+    // 世界ズームの上部クロップで星・雲・天体が恒常的に画面外へ出るのを防ぐ。
+    skyY(y) {
+        const t = this.skyVisTop || 0;
+        return t + y * (this.groundY - t) / this.groundY;
+    }
+
+    // 検証用の一括描画パス（ライブ描画は game.renderPlaying が層別に呼ぶ。ここは未使用）。
+    // ボスUI/進捗バーはスクリーン空間のUIなのでここには含めない
+    // （ボスUIは game.js の HUD 層 renderBossUI 呼び出しに一本化）。
     render(ctx) {
         this.renderBackground(ctx);
         this.renderGround(ctx);
         this.renderObstacles(ctx);
         this.renderEnemies(ctx);
-        
+
         if (this.boss && this.bossSpawned) {
             this.boss.render(ctx);
-            this.renderBossUI(ctx);
         }
 
         // ボス戦中の全ステージ共通演出 ─ 背景より手前（ボスより奥）に描画
@@ -2099,9 +2021,6 @@ export class Stage {
             ctx.restore();
             this.bossEntranceFlash = Math.max(0, this.bossEntranceFlash - 0.04);
         }
-        
-        // ステージ進捗バー
-        this.renderProgressBar(ctx);
     }
     
 
@@ -2280,7 +2199,7 @@ export class Stage {
             ctx.quadraticCurveTo(size * 0.1, size * 0.36, -size * 0.54, 0);
             ctx.closePath();
             ctx.fill();
-            ctx.strokeStyle = `rgba(170, 190, 130, ${(alpha * 0.38).toFixed(3)})`;
+            ctx.strokeStyle = `rgba(160, 190, 145, ${(alpha * 0.38).toFixed(3)})`;
             ctx.lineWidth = 0.8;
             ctx.beginPath();
             ctx.moveTo(-size * 0.32, 0);
@@ -2335,7 +2254,7 @@ export class Stage {
             if (this.noise1D(seed + 0.8) > density) continue;
 
             const x = i * span - offset + this.noiseSigned(seed + 1.6) * 48;
-            const y = baseY
+            const y = this.skyY(baseY)
                 + Math.sin(worldIndex * 0.72 + time * 0.82) * waveAmp
                 + this.noiseSigned(seed + 2.9) * 8;
             const w = span * (0.8 + this.noise1D(seed + 3.7) * 1.1);
@@ -2574,8 +2493,8 @@ export class Stage {
                     density: 0.7,
                     trail: 130
                 });
-            } else if (this.stageNumber !== 6) {
-                // ステージ6以外の通常の雲
+            } else if (this.stageNumber !== 1 && this.stageNumber !== 6) {
+                // ステージ1は竹林画像で密度を出すため、空の雲・もやは描かない。
                 this.renderFlowingCloudLayer(ctx, {
                     time,
                     color: 'rgba(206, 220, 245, 0.14)',
@@ -2602,8 +2521,8 @@ export class Stage {
                 });
             }
 
-            // 地平線の薄い霞。Stage3は夕焼けの地面境界で横帯に見えるため描かない。
-            if (this.stageNumber !== 3) {
+            // 地平線の薄い霞。Stage1は竹林の奥に白いもやが出るため描かず、Stage3は夕焼けの地面境界で横帯に見えるため描かない。
+            if (this.stageNumber !== 1 && this.stageNumber !== 3) {
                 const haze = ctx.createLinearGradient(0, this.groundY - 120, 0, this.groundY + 20);
                 haze.addColorStop(0, 'rgba(255,255,255,0)');
                 haze.addColorStop(1, isSunnyStage ? 'rgba(210,228,255,0.12)' : 'rgba(190,210,255,0.08)');
@@ -3257,28 +3176,60 @@ export class Stage {
             filter = 'none',
             mirrorRepeat = true,
             widthScale = 1,
-            phaseOffset = 0
+            phaseOffset = 0,
+            bendAmount = 0,
+            bendSpeed = 0.6,
+            bendPhase = 0
         }) => {
             const drawWidth = Math.ceil(drawHeight * (image.naturalWidth / image.naturalHeight) * widthScale);
-            const scroll = ((progress * parallax + drawWidth * phaseOffset) % drawWidth + drawWidth) % drawWidth;
+            const scrollWorld = progress * parallax + drawWidth * phaseOffset;
             const y = Math.round(this.groundY + baseOffset - drawHeight);
-            const startX = -scroll - drawWidth;
+            this.stage1BambooRenderCache ??= new Map();
+            const tileWidth = drawWidth + 2;
+            const cacheKey = `${image.src}|${drawHeight}|${tileWidth}|${filter}`;
+            let tileImage = this.stage1BambooRenderCache.get(cacheKey);
+            if (!tileImage) {
+                tileImage = document.createElement('canvas');
+                tileImage.width = tileWidth;
+                tileImage.height = drawHeight;
+                const tileCtx = tileImage.getContext('2d');
+                tileCtx.filter = filter;
+                tileCtx.drawImage(image, 0, 0, tileWidth, drawHeight);
+                tileCtx.filter = 'none';
+                this.stage1BambooRenderCache.set(cacheKey, tileImage);
+            }
+            const bend = bendAmount > 0
+                ? Math.sin(this.stageTime * 0.001 * bendSpeed + bendPhase) * bendAmount
+                : 0;
+            const drawBentTile = (dx, dy) => {
+                if (bendAmount <= 0) {
+                    ctx.drawImage(tileImage, dx, dy);
+                    return;
+                }
+                const midStart = Math.floor(drawHeight * 0.34);
+                const lockStart = Math.floor(drawHeight * 0.64);
+                ctx.drawImage(tileImage, 0, lockStart, tileWidth, drawHeight - lockStart, dx, dy + lockStart, tileWidth, drawHeight - lockStart);
+                ctx.drawImage(tileImage, 0, midStart, tileWidth, lockStart - midStart + 1, dx + bend * 0.38, dy + midStart, tileWidth, lockStart - midStart + 1);
+                ctx.drawImage(tileImage, 0, 0, tileWidth, midStart + 1, dx + bend, dy, tileWidth, midStart + 1);
+            };
 
             ctx.save();
             ctx.globalAlpha *= alpha;
-            ctx.filter = filter;
-            for (let x = startX, tile = 0; x < CANVAS_WIDTH + drawWidth; x += drawWidth, tile++) {
-                if (mirrorRepeat && tile % 2 !== 0) {
+            const firstTile = Math.floor(scrollWorld / drawWidth) - 1;
+            const lastTile = Math.ceil((scrollWorld + CANVAS_WIDTH) / drawWidth) + 1;
+            for (let tile = firstTile; tile <= lastTile; tile++) {
+                const x = tile * drawWidth - scrollWorld;
+                if (x + drawWidth < -2 || x > CANVAS_WIDTH + 2) continue;
+                if (mirrorRepeat && Math.abs(tile) % 2 === 1) {
                     ctx.save();
                     ctx.translate(Math.round(x + drawWidth + 2), y);
                     ctx.scale(-1, 1);
-                    ctx.drawImage(image, 0, 0, drawWidth + 2, drawHeight);
+                    drawBentTile(0, 0);
                     ctx.restore();
                 } else {
-                    ctx.drawImage(image, Math.round(x), y, drawWidth + 2, drawHeight);
+                    drawBentTile(Math.round(x), y);
                 }
             }
-            ctx.filter = 'none';
             ctx.restore();
         };
 
@@ -3286,52 +3237,70 @@ export class Stage {
             parallax: 0.18,
             drawHeight: 800,
             baseOffset: 96,
-            alpha: 0.72,
-            widthScale: 0.66,
-            filter: 'brightness(0.54) sepia(0.16) saturate(0.68) contrast(0.84) hue-rotate(-16deg)'
+            alpha: 0.66,
+            widthScale: 0.58,
+            bendAmount: 0.5,
+            bendSpeed: 0.35,
+            bendPhase: 0.6,
+            filter: 'brightness(0.68) saturate(0.66) contrast(0.84) hue-rotate(-22deg)'
         });
         drawStrip(images.far, {
             parallax: 0.24,
             drawHeight: 760,
             baseOffset: 94,
-            alpha: 0.34,
-            widthScale: 0.62,
+            alpha: 0.28,
+            widthScale: 0.56,
             phaseOffset: 0.45,
-            filter: 'brightness(0.5) sepia(0.16) saturate(0.66) contrast(0.82) hue-rotate(-16deg)'
+            bendAmount: 0.4,
+            bendSpeed: 0.32,
+            bendPhase: 2.2,
+            filter: 'brightness(0.64) saturate(0.64) contrast(0.82) hue-rotate(-22deg)'
         });
         drawStrip(images.mid, {
             parallax: 0.44,
             drawHeight: 790,
             baseOffset: 104,
-            alpha: 1,
-            widthScale: 0.66,
-            filter: 'brightness(0.64) sepia(0.16) saturate(0.76) contrast(0.9) hue-rotate(-16deg)'
+            alpha: 0.9,
+            widthScale: 0.54,
+            bendAmount: 0.9,
+            bendSpeed: 0.45,
+            bendPhase: 1.4,
+            filter: 'brightness(0.76) saturate(0.74) contrast(0.9) hue-rotate(-22deg)'
         });
         drawStrip(images.mid, {
             parallax: 0.57,
             drawHeight: 750,
             baseOffset: 100,
-            alpha: 0.46,
-            widthScale: 0.62,
+            alpha: 0.34,
+            widthScale: 0.52,
             phaseOffset: 0.38,
-            filter: 'brightness(0.58) sepia(0.16) saturate(0.72) contrast(0.88) hue-rotate(-16deg)'
+            bendAmount: 0.7,
+            bendSpeed: 0.42,
+            bendPhase: 3.1,
+            filter: 'brightness(0.7) saturate(0.7) contrast(0.88) hue-rotate(-22deg)'
         });
         drawStrip(images.near, {
             parallax: 0.82,
             drawHeight: 760,
             baseOffset: 108,
-            alpha: 1,
-            widthScale: 0.64,
-            filter: 'brightness(0.7) sepia(0.16) saturate(0.82) contrast(0.94) hue-rotate(-16deg)'
+            alpha: 0.86,
+            widthScale: 0.5,
+            bendAmount: 1.2,
+            bendSpeed: 0.52,
+            bendPhase: 0,
+            filter: 'brightness(0.84) saturate(0.78) contrast(0.94) hue-rotate(-22deg)'
         });
         drawStrip(images.near, {
             parallax: 0.96,
             drawHeight: 720,
             baseOffset: 104,
-            alpha: 0.48,
-            widthScale: 0.6,
+            alpha: 0.28,
+            widthScale: 0.5,
             phaseOffset: 0.33,
-            filter: 'brightness(0.64) sepia(0.16) saturate(0.78) contrast(0.92) hue-rotate(-16deg)'
+            bendAmount: 0.9,
+            bendSpeed: 0.48,
+            bendPhase: 2.7,
+            filter: 'brightness(0.78) saturate(0.74) contrast(0.92) hue-rotate(-22deg)'
         });
 
         return true;
@@ -3343,20 +3312,22 @@ export class Stage {
         const image = this.stage1BambooExitImage;
         if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
 
-        const baseY = this.groundY + 34;
-        const exitH = Math.min(CANVAS_HEIGHT * 0.84, this.groundY + 96);
-        const exitW = exitH * (image.naturalWidth / image.naturalHeight) * 0.54;
+        // 通常背景の延長として描き、下端は地面レイヤーに沈めて浮きを防ぐ
+        const baseY = this.groundY + 64;
+        const exitH = Math.min(CANVAS_HEIGHT * 0.82, this.groundY + 110);
+        const exitW = Math.min(CANVAS_WIDTH * 1.18, exitH * (image.naturalWidth / image.naturalHeight));
         const cameraStopX = Math.max(0, this.maxProgress - CANVAS_WIDTH);
-        const stopX = Math.round(CANVAS_WIDTH * 0.5 - exitW * 0.5);
+        const stopX = Math.round(CANVAS_WIDTH - exitW + 72);
         const worldX = cameraStopX + stopX;
         const x = worldX - this.progress;
         const y = baseY - exitH;
 
         const prewarmMarginRight = CANVAS_WIDTH * 2.2;
-        if (x + exitW < -180 || x > CANVAS_WIDTH + prewarmMarginRight) return false;
+        if (x + exitW < -200 || x > CANVAS_WIDTH + prewarmMarginRight) return false;
 
         ctx.save();
-        ctx.filter = 'brightness(0.68) sepia(0.16) saturate(0.8) contrast(0.94) hue-rotate(-16deg)';
+        ctx.globalAlpha *= 0.9;
+        ctx.filter = 'brightness(0.78) saturate(0.74) contrast(0.9) hue-rotate(-12deg)';
         ctx.drawImage(image, x, y, exitW, exitH);
         ctx.filter = 'none';
         ctx.restore();
@@ -4751,10 +4722,13 @@ export class Stage {
                 const beamScroll = p * 0.36;
                 const beamStart = Math.floor((beamScroll - beamSpan * 2) / beamSpan);
                 const beamEnd = Math.ceil((beamScroll + CANVAS_WIDTH + beamSpan * 2) / beamSpan);
+                // 空補償: 天井帯は上端0起点を維持し下端をクロップ分だけ下げる
+                // (リフト中も帯が途切れない)。skyVisTop=0 で従来と同一。
+                const ceilCrop = this.skyVisTop || 0;
                 ctx.fillStyle = 'rgba(88, 38, 24, 0.82)';
-                ctx.fillRect(0, 0, CANVAS_WIDTH, 46);
+                ctx.fillRect(0, 0, CANVAS_WIDTH, 46 + ceilCrop);
                 for (let i = beamStart; i <= beamEnd; i++) {
-                    ctx.fillRect(i * beamSpan - beamScroll, 46, 32, 100);
+                    ctx.fillRect(i * beamSpan - beamScroll, 46 + ceilCrop, 32, 100);
                 }
 
                 // 柱・壁・金具（窓は置かない）
@@ -4813,7 +4787,7 @@ export class Stage {
                     // 家紋プレート
                     if (this.noise1D(seed + 3.2) > 0.42) {
                         const monX = panelX + panelSpan * (0.42 + this.noiseSigned(seed + 4.6) * 0.12);
-                        const monY = 96 + this.noise1D(seed + 5.4) * 38;
+                        const monY = 96 + (this.skyVisTop || 0) + this.noise1D(seed + 5.4) * 38;
                         const monR = 12 + this.noise1D(seed + 6.1) * 6;
                         ctx.fillStyle = `rgba(248, 210, 150, ${0.18 + warmPulse * 0.1})`;
                         ctx.beginPath();
@@ -4835,12 +4809,12 @@ export class Stage {
                 for (let i = lanternStart; i <= lanternEnd; i++) {
                     const seed = i * 6.31;
                     const lx = i * lanternSpan - lanternScroll + 120;
-                    const ly = 92 + this.noiseSigned(seed + 1.2) * 10;
+                    const ly = 92 + (this.skyVisTop || 0) + this.noiseSigned(seed + 1.2) * 10;
                     const r = 10 + this.noise1D(seed + 2.6) * 4;
                     ctx.strokeStyle = 'rgba(86, 52, 34, 0.7)';
                     ctx.lineWidth = 1.2;
                     ctx.beginPath();
-                    ctx.moveTo(lx, 44);
+                    ctx.moveTo(lx, 44 + (this.skyVisTop || 0));
                     ctx.lineTo(lx, ly - r);
                     ctx.stroke();
                     ctx.fillStyle = `rgba(252, 210, 146, ${0.28 + warmPulse * 0.12})`;
@@ -5081,7 +5055,7 @@ export class Stage {
         ctx.fillRect(0, horizonY, CANVAS_WIDTH, span);
 
         if (this.renderGroundImageTile(ctx, this.stage1GroundImage, horizonY, bottomY, renderProgress, {
-            filter: 'brightness(0.76) saturate(0.76) contrast(0.92)',
+            filter: 'brightness(0.82) saturate(0.72) contrast(0.9) hue-rotate(-14deg)',
             extraHeight: 38,
             yOffset: -18
         })) {
@@ -5983,7 +5957,7 @@ export class Stage {
 
         for (const particle of this.skyParticles) {
             const x = particle.nx * CANVAS_WIDTH;
-            const y = 20 + particle.ny * (this.groundY * 0.55);
+            const y = this.skyY(20 + particle.ny * (this.groundY * 0.55));
             // 2周波ブレンドで不規則な瞬き（subSpeedが無い旧データでも単一sineにフォールバック）
             const flick = particle.subSpeed
                 ? (Math.sin(time * particle.speed + particle.phase) * 0.6 + Math.sin(time * particle.subSpeed + particle.subPhase) * 0.4)
@@ -6032,7 +6006,11 @@ export class Stage {
         
         // 物理的な軌道パラメータ
         const orbitRadiusX = CANVAS_WIDTH * (isTenshuStage ? 0.35 : 0.42);
-        const orbitRadiusY = this.groundY * (isTenshuStage ? 0.6 : 0.5);
+        // 空補償: 中心yは触らず縦半径だけ縮める＝地平線の出入りの見た目は不変のまま
+        // 天頂(南中)の高度をクロップ分だけ下げる。skyVisTop=0 で従来値に一致。
+        const skyCrop = this.skyVisTop || 0;
+        const orbitRadiusY = this.groundY * (isTenshuStage ? 0.6 : 0.5)
+            - skyCrop * (isTenshuStage ? 1.05 : 0.62);
         const orbitCenterX = CANVAS_WIDTH * 0.5;
         const orbitCenterY = this.groundY * 0.95;
 
@@ -6221,24 +6199,6 @@ export class Stage {
             ctx.drawImage(image, platform.drawX, platform.drawY, platform.drawWidth, platform.drawHeight);
             ctx.restore();
         }
-    }
-    
-    renderProgressBar(ctx) {
-        const barWidth = 200;
-        const barHeight = 8;
-        const x = CANVAS_WIDTH - barWidth - 20;
-        const y = 110;
-
-        // 進捗
-        const progress = Math.min(this.progress / this.maxProgress, 1);
-        ctx.fillStyle = this.bossSpawned ? '#f24d4d' : '#3db9e8';
-        ctx.fillRect(x, y, barWidth * progress, barHeight);
-
-        // ラベル
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 12px "Zen Old Mincho", serif';
-        ctx.textAlign = 'right';
-        ctx.fillText(this.bossSpawned ? 'BOSS!' : '', x - 12, y + 8);
     }
     
     renderBossUI(ctx) {

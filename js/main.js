@@ -2,8 +2,9 @@
 // Unification of the Nation - メインエントリーポイント
 // ============================================
 
-import { game } from './game.js?v=20260630-castle-ai';
+import { game } from './game.js?v=20260703-p3';
 import { preloadCinematicBgImages } from './ui.js';
+import { getDeviceProfile } from './constants.js';
 
 // ============================================
 // 音の設定ゲート
@@ -19,9 +20,12 @@ function setupSoundGate() {
 
     // タップモード（タッチ端末/モバイル）のみ表示。ui.js の isTouchOverlayMode と同じ端末判定。
     // キーボード環境は初回キー入力で既存のBGMリトライが働くためゲート不要。
-    const isTouchDevice = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) || ('ontouchstart' in window);
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    if (!isTouchDevice && !isMobile) {
+    const profile = getDeviceProfile();
+    // 縦持ちゲート(#rotate-gate)のCSS表示条件もこのクラスで駆動する
+    if (profile.isTouchDevice || profile.isMobileUA) {
+        document.body.classList.add('touch-device');
+    }
+    if (!profile.isTouchDevice && !profile.isMobileUA) {
         gate.remove();
         return;
     }

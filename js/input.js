@@ -2,7 +2,7 @@
 // Unification of the Nation - 入力管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, KEYS, VIRTUAL_PAD } from './constants.js';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, KEYS, VIRTUAL_PAD, getDeviceProfile, getPadLayout } from './constants.js';
 import { audio } from './audio.js';
 
 class InputManager {
@@ -48,9 +48,7 @@ class InputManager {
         // タッチ操作用
         this.touches = {}; // touchId -> actionName[]
         this.canvas = null;
-        this.scaleX = 1;
-        this.scaleY = 1;
-        
+
         this.init();
         
         // 汎用タップ判定用
@@ -163,12 +161,6 @@ class InputManager {
         }
     }
 
-    // 動的スケーリング設定
-    setScale(sx, sy) {
-        this.scaleX = sx;
-        this.scaleY = sy;
-    }
-
     focusCanvas() {
         if (!this.canvas || typeof this.canvas.focus !== 'function') return;
         if (document.activeElement === this.canvas) return;
@@ -196,6 +188,10 @@ class InputManager {
             this.handleTouch(touch);
         }
         if (hasCanvasTouch) {
+            // タッチでゲーム操作した時点で「物理キーボード使用中」を解除する。
+            // keydown→true の片方向ラッチのままだと、外付けキーボードを外した後も
+            // キーボード用の操作説明が出続ける(最後に使った入力種別を優先する)。
+            this.hasPhysicalKeyboard = false;
             e.preventDefault();
         }
     }
@@ -261,16 +257,9 @@ class InputManager {
     }
     
     getTouchActions(x, y, touchId = null) {
-        const pad = VIRTUAL_PAD;
-        const bottomY = CANVAS_HEIGHT - pad.BOTTOM_MARGIN;
-        const leftX = pad.SAFE_MARGIN_X;
-        const rightX = CANVAS_WIDTH - pad.SAFE_MARGIN_X;
-        const touchScale = pad.BUTTON_TOUCH_SCALE || 1.14;
-        const attackRadius = (pad.ATTACK_BUTTON_RADIUS || pad.BUTTON_SIZE) * touchScale;
-        const auxRadius = (pad.AUX_BUTTON_RADIUS || pad.BUTTON_SIZE) * touchScale;
-        const pauseRadius = (pad.PAUSE_BUTTON_RADIUS || 22) * touchScale;
-        const pauseX = leftX + (pad.STICK.x || 0) + (pad.PAUSE_BUTTON?.x || 0);
-        const pauseY = bottomY + (pad.STICK.y || 0) + (pad.PAUSE_BUTTON?.y || 0);
+        // 描画(ui.js renderVirtualPad)と同一の幾何導出を共有する(constants.getPadLayout)
+        const L = getPadLayout();
+        const touchScale = L.touchScale;
 
         // --- 左側：アナログスティック ---
         const hasTouchId = touchId !== null && touchId !== undefined;
@@ -286,15 +275,15 @@ class InputManager {
         }
 
         // 左スティック左下の一時停止ボタン
-        if (this.checkCircleHit(x, y, pauseX, pauseY, pauseRadius)) return ['PAUSE'];
+        if (this.checkCircleHit(x, y, L.pause.x, L.pause.y, L.pause.r * touchScale)) return ['PAUSE'];
 
         // --- 右側：アクション（円ボタン） ---
-        if (this.checkCircleHit(x, y, rightX + pad.ATTACK.x, bottomY + pad.ATTACK.y, attackRadius)) return ['ATTACK'];
-        if (this.checkCircleHit(x, y, rightX + pad.SUB_WEAPON.x, bottomY + pad.SUB_WEAPON.y, auxRadius)) return ['SUB_WEAPON'];
-        if (this.checkCircleHit(x, y, rightX + pad.SPECIAL.x, bottomY + pad.SPECIAL.y, auxRadius)) {
+        if (this.checkCircleHit(x, y, L.attack.x, L.attack.y, L.attack.r * touchScale)) return ['ATTACK'];
+        if (this.checkCircleHit(x, y, L.sub.x, L.sub.y, L.sub.r * touchScale)) return ['SUB_WEAPON'];
+        if (this.checkCircleHit(x, y, L.special.x, L.special.y, L.special.r * touchScale)) {
             return this.canTriggerSpecialFromTouch() ? ['SPECIAL'] : [];
         }
-        if (this.checkCircleHit(x, y, rightX + pad.SWITCH.x, bottomY + pad.SWITCH.y, auxRadius)) return ['SWITCH_WEAPON'];
+        if (this.checkCircleHit(x, y, L.switch.x, L.switch.y, L.switch.r * touchScale)) return ['SWITCH_WEAPON'];
 
         return [];
     }
@@ -313,6 +302,11 @@ class InputManager {
     // ボックスが厳密に 16:9 のときは補正ゼロ（従来挙動と同一）。
     getRenderRect() {
         if (!this.canvas) return null;
+        // ピンチズーム中は client座標系と layout座標系の対応が崩れ、全タッチが系統的に
+        // ずれる(iOSはアクセシビリティ目的で maximum-scale=1 を無視できる)。誤動作するより
+        // 入力を無視する方が安全(ピンチアウトで戻せば即復帰)。
+        const vvScale = window.visualViewport ? window.visualViewport.scale : 1;
+        if (vvScale > 1.02) return null;
         const rect = this.canvas.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) return null;
 
@@ -323,7 +317,7 @@ class InputManager {
         const vv = window.visualViewport;
         const vox = vv ? vv.offsetLeft : 0;
         const voy = vv ? vv.offsetTop : 0;
-        const canvasAspect = CANVAS_WIDTH / CANVAS_HEIGHT;
+        const canvasAspect = SCREEN_WIDTH / CANVAS_HEIGHT;
         const rectAspect = rect.width / rect.height;
         let width = rect.width;
         let height = rect.height;
@@ -346,37 +340,43 @@ class InputManager {
         const r = this.getRenderRect();
         if (!r) return null;
         return {
-            x: (clientX - r.left) * (CANVAS_WIDTH / r.width),
+            x: (clientX - r.left) * (SCREEN_WIDTH / r.width),
             y: (clientY - r.top) * (CANVAS_HEIGHT / r.height)
         };
     }
 
     getStickCenter() {
-        const pad = VIRTUAL_PAD;
-        return {
-            x: pad.SAFE_MARGIN_X + pad.STICK.x,
-            y: CANVAS_HEIGHT - pad.BOTTOM_MARGIN + pad.STICK.y
-        };
+        const L = getPadLayout();
+        return { x: L.stick.x, y: L.stick.y };
+    }
+
+    // 「画面のどこをタップしても進む」系の消費専用ヘルパー (P2b)。
+    // レターボックスが消えると画面物理端＝キャンバス端になるため、
+    // 端24論理px(ベゼル・角R・持ち手の誤タップ帯)を無視する。
+    // 仮想パッド・BGM・メニュー等の座標ヒットテストには絶対に使わない
+    // (それらは従来どおり touchJustPressed + lastTouchX/Y を直接読む)。
+    wasScreenTapped(margin = 24) {
+        if (!this.touchJustPressed) return false;
+        return this.lastTouchX >= margin &&
+               this.lastTouchX <= SCREEN_WIDTH - margin &&
+               this.lastTouchY >= margin &&
+               this.lastTouchY <= CANVAS_HEIGHT - margin;
     }
 
     getBgmButtonHitArea() {
-        const pad = VIRTUAL_PAD;
+        const L = getPadLayout();
         // スマホでのタップしやすさを考慮し、描画サイズよりも意図的にヒットエリアを広げる
-        const isTouch = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) || ('ontouchstart' in window);
-        const hitRadius = pad.BGM_BUTTON_RADIUS + (isTouch ? 24 : 12); 
-        return [
-            CANVAS_WIDTH - pad.BGM_BUTTON_MARGIN_RIGHT,
-            pad.BGM_BUTTON_MARGIN_TOP,
-            hitRadius
-        ];
+        const isTouch = getDeviceProfile().isTouchDevice;
+        const hitRadius = L.bgm.r + (isTouch ? 24 : 12) * L.s;
+        return [L.bgm.x, L.bgm.y, hitRadius];
     }
 
     // 新規タッチがスティック始動エリア内か（固定中心からの距離で判定）
     isStickStartPoint(x, y) {
-        const pad = VIRTUAL_PAD;
+        const L = getPadLayout();
         const center = this.getStickCenter();
         const dist = Math.hypot(x - center.x, y - center.y);
-        return dist <= pad.STICK_TOUCH_RADIUS;
+        return dist <= L.stick.touchRadius;
     }
 
     // スティックを掴み始める。基点は固定中心から開始する。
@@ -394,7 +394,7 @@ class InputManager {
     // 表示は固定中心のまわりにノブを描くので、見た目は固定スティックのまま。
     updateHeldStick(x, y) {
         const pad = VIRTUAL_PAD;
-        const maxD = pad.STICK_MAX_DISTANCE || 1;
+        const maxD = getPadLayout().stick.maxDistance || 1;
 
         let ox = this.virtualStick.originX;
         let oy = this.virtualStick.originY;
@@ -578,8 +578,9 @@ class InputManager {
     
     onKeyDown(e) {
         audio.init();
-        // 物理キーボードの入力を検知（外部キーボード接続の判定に使う）
-        this.hasPhysicalKeyboard = true;
+        // 物理キーボードの入力を検知（外部キーボード接続の判定に使う）。
+        // リピートで打ち直すとタッチ併用時に操作説明がまたたくため初回押下のみ。
+        if (!e.repeat) this.hasPhysicalKeyboard = true;
         // ゲーム中のデフォルト動作を防止
         if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
             e.preventDefault();

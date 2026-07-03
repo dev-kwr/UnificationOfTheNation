@@ -2,13 +2,16 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="manifest.json">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Unification of the Nation - 天下統一</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rock+Salt&family=Yuji+Boku&family=Yuji+Mai&family=Yuji+Syuku&family=Yusei+Magic&family=Zen+Old+Mincho:wght@400;500;700;900&display=block">
-    <link rel="stylesheet" href="css/style.css?v=20260702_v3">
+    <link rel="stylesheet" href="css/style.css?v=20260703_p3c">
     <link rel="icon" href="favicon-64.png?v=20260426" type="image/png" sizes="64x64">
     <link rel="alternate icon" href="favicon-64.png?v=20260426" type="image/png">
     <link rel="apple-touch-icon" href="apple-touch-icon.png?v=20260426">
@@ -16,6 +19,14 @@
 <body>
     <div id="game-container">
         <canvas id="game-canvas"></canvas>
+    </div>
+
+    <!-- 縦持ちゲート: 横持ち専用。タッチ端末が縦向きのときだけCSSで表示 -->
+    <div id="rotate-gate">
+        <div class="rg-card">
+            <div class="rg-icon"></div>
+            <p class="rg-text">横向きにしてください</p>
+        </div>
     </div>
 
     <!-- 音の設定ゲート: 初回タップをオーディオ解錠のユーザージェスチャとして使う -->
@@ -46,6 +57,6 @@
         </div>
     </div>
 
-    <script type="module" src="js/main.js?v=20260702_v3"></script>
+    <script type="module" src="js/main.js?v=20260703_p3"></script>
 </body>
 </html>

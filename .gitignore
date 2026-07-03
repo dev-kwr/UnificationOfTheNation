@@ -1,8 +1,5 @@
 .terminal-input-helper/
-scratch/__pycache__/
-scratch/node_modules/
-scratch/package-lock.json
 
-# scratch は検証用の作業ディレクトリ。再現スクリプト(probe_*.js)だけ追跡し、
-# 生成物(ログ・スクショ等)は out/ 配下にまとめて丸ごと除外する
-scratch/out/
+# scratch/ は検証用の一時作業ディレクトリ。生成物・スクリプト・依存環境を含め
+# Git では一切追跡しない(物理ファイルはローカルにのみ保持する)
+scratch/

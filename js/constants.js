@@ -3,8 +3,49 @@
 // ============================================
 
 // キャンバスサイズ
+// CANVAS_WIDTH = 可視ワールド幅（ゲームプレイ窓）。世界ロジック(カメラ/クランプ/
+// アリーナ/カリング/スポーン)は必ずこちらを参照する。恒久に1280固定。
 export const CANVAS_WIDTH = 1280;
 export const CANVAS_HEIGHT = 720;
+// SCREEN_WIDTH = キャンバス実論理幅（プレゼンテーション層: 表示変換/フルスクリーン塗り/
+// スクリーンUI/入力変換が参照）。タッチ端末のみ、端末の横長アスペクトから起動時に1回だけ
+// 決定しセッション固定（回転・リサイズで再計算しない）。世界ズーム z = SCREEN_WIDTH /
+// CANVAS_WIDTH の恒等式により可視ワールド幅は常に1280（端末別の難易度差を構成的に排除）。
+// 注意: let のためモジュールスコープで `const HALF = SCREEN_WIDTH/2` の様な派生定数を
+// 作らないこと（凍結値バグ）。スクリーン寸法は必ず関数内で毎回参照する。
+export let SCREEN_WIDTH = CANVAS_WIDTH;
+(function initScreenWidth() {
+    try {
+        if (typeof window === 'undefined') return;
+        // ?wide=0/1 はキルスイッチ(localStorage)を書き換えるエントリポイント。
+        // PWA standalone では URL を打てないため localStorage が正本。
+        try {
+            const q = new URLSearchParams(window.location.search).get('wide');
+            if (q === '0' || q === '1') window.localStorage.setItem('uon_wide_mode', q);
+        } catch { /* localStorage不可環境では無視 */ }
+        let wideFlag = null;
+        try { wideFlag = window.localStorage.getItem('uon_wide_mode'); } catch { /* noop */ }
+        if (wideFlag === '0') return; // キルスイッチ: 従来の1280固定へ退避
+        const p = getDeviceProfile();
+        if (!p.isTouchDevice && !p.isMobileUA) return; // 非タッチPCは1280固定
+        // screen 基準（物理・回転不変）。visualViewport/innerサイズは Safari のURLバー等で
+        // 縦が痩せてアスペクトを誤認するためフォールバック限定。
+        const sw = (window.screen && window.screen.width) || window.innerWidth || 0;
+        const sh = (window.screen && window.screen.height) || window.innerHeight || 0;
+        if (!(sw > 0 && sh > 0)) return;
+        const aspect = Math.max(sw, sh) / Math.min(sw, sh); // 横長比（縦持ち起動でも同値）
+        SCREEN_WIDTH = Math.max(CANVAS_WIDTH, Math.min(1600, Math.round((CANVAS_HEIGHT * aspect) / 2) * 2));
+    } catch { /* 失敗時は1280のまま（安全側） */ }
+})();
+
+// 端末プロファイル判定の単一ソース（従来4ファイルに複製されていた式を一元化）。
+// P2b（可変スクリーン幅）で pointer:coarse 併用の複合判定へ精緻化する予定
+// (screen_adaptation_plan.md §2.8)。それまでは従来と同一の式を維持する。
+export function getDeviceProfile() {
+    const isTouchDevice = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) || ('ontouchstart' in window);
+    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    return { isTouchDevice, isMobileUA };
+}
 
 // 物理定数
 export const GRAVITY = 0.8;
@@ -184,6 +225,67 @@ export const VIRTUAL_PAD = {
     SPECIAL: { x: -53, y: -21 },     // S: 中間
     SWITCH: { x: 36, y: -44 }        // C: 右上
 };
+
+// ============================================
+// uiScale: HUD/仮想パッドの物理サイズアンカー (screen_adaptation_plan.md §2.6)
+// スマホは fitScale≈0.52-0.60 でボタン41.5css-px/文字13css-pxまで縮み
+// 44pt/18px基準を割るため、タッチ端末のみ 0.72/fitScale (1.0〜1.45) で拡大する。
+// game.js configureCanvasResolution が fitScale 確定のたびに更新する。
+// ============================================
+let _uiScale = 1;
+export function setUiScaleFromFitScale(fitScale) {
+    const p = getDeviceProfile();
+    _uiScale = ((p.isTouchDevice || p.isMobileUA) && fitScale > 0)
+        ? Math.min(1.45, Math.max(1.0, 0.72 / fitScale))
+        : 1.0;
+}
+export function getUiScale() { return _uiScale; }
+
+// セーフエリア(ノッチ/Dynamic Island)の論理pxインセット (P3)。
+// game.js configureCanvasResolution が env(safe-area-inset-*) を getComputedStyle で読み、
+// fitScale で除して論理pxへ換算してから設定する。描画(ui.js)と判定(input.js)は
+// getPadLayout 経由で同じ値を共有する。
+let _safeInsetL = 0;
+let _safeInsetR = 0;
+export function setSafeInsets(leftPx, rightPx) {
+    _safeInsetL = Number.isFinite(leftPx) ? Math.max(0, leftPx) : 0;
+    _safeInsetR = Number.isFinite(rightPx) ? Math.max(0, rightPx) : 0;
+}
+export function getSafeInsets() { return { left: _safeInsetL, right: _safeInsetR }; }
+
+// 仮想パッド幾何の単一導出。描画(ui.js)と判定(input.js)は必ずこれを読むこと
+// （clamp式や座標式を両ファイルへ複製するとヒットと見た目が必ずズレる）。
+// s=1 のとき全値が従来定数と数値同一＝ピクセル不変。
+export function getPadLayout() {
+    const s = _uiScale;
+    const pad = VIRTUAL_PAD;
+    const bottomY = CANVAS_HEIGHT - pad.BOTTOM_MARGIN * s;
+    // 左右アンカーはセーフエリア(ノッチ)内へ退避。スクリーン右端は SCREEN_WIDTH 基準。
+    const rightX = SCREEN_WIDTH - _safeInsetR - pad.SAFE_MARGIN_X * s;
+    const stickX = _safeInsetL + (pad.SAFE_MARGIN_X + pad.STICK.x) * s;
+    const stickY = bottomY + pad.STICK.y * s;
+    return {
+        s,
+        touchScale: pad.BUTTON_TOUCH_SCALE || 1.14,
+        stick: {
+            x: stickX, y: stickY,
+            baseRadius: pad.STICK_BASE_RADIUS * s,
+            knobRadius: pad.STICK_KNOB_RADIUS * s,
+            maxDistance: pad.STICK_MAX_DISTANCE * s,
+            touchRadius: pad.STICK_TOUCH_RADIUS * s
+        },
+        pause:   { x: stickX + pad.PAUSE_BUTTON.x * s, y: stickY + pad.PAUSE_BUTTON.y * s, r: pad.PAUSE_BUTTON_RADIUS * s },
+        attack:  { x: rightX + pad.ATTACK.x * s,     y: bottomY + pad.ATTACK.y * s,     r: pad.ATTACK_BUTTON_RADIUS * s },
+        sub:     { x: rightX + pad.SUB_WEAPON.x * s, y: bottomY + pad.SUB_WEAPON.y * s, r: pad.AUX_BUTTON_RADIUS * s },
+        special: { x: rightX + pad.SPECIAL.x * s,    y: bottomY + pad.SPECIAL.y * s,    r: pad.AUX_BUTTON_RADIUS * s },
+        switch:  { x: rightX + pad.SWITCH.x * s,     y: bottomY + pad.SWITCH.y * s,     r: pad.AUX_BUTTON_RADIUS * s },
+        bgm: {
+            x: SCREEN_WIDTH - _safeInsetR - pad.BGM_BUTTON_MARGIN_RIGHT * s,
+            y: pad.BGM_BUTTON_MARGIN_TOP * s,
+            r: pad.BGM_BUTTON_RADIUS * s
+        }
+    };
+}
 
 // Stage 5 フロア制の定数
 export const STAGE5_FLOOR = {

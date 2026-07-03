@@ -2,10 +2,10 @@
 // Unification of the Nation - ショップ機能
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from './constants.js';
+import { SCREEN_WIDTH, CANVAS_HEIGHT } from './constants.js';
 import { input } from './input.js';
 import { audio } from './audio.js';
-import { drawScreenManualLine, drawWafuCard, drawWafuHeading, drawWafuDivider, drawNumMixedText } from './ui.js';
+import { drawScreenManualLine, drawWafuCard, drawWafuHeading, drawWafuDivider, drawNumMixedText, drawBgCover } from './ui.js';
 
 // 背景画像キャッシュ
 let _shopBgImg = null;
@@ -58,7 +58,7 @@ export class Shop {
     getLayout() {
         const shopW = 760;
         const shopH = CANVAS_HEIGHT - 164;
-        const shopX = CANVAS_WIDTH / 2 - shopW / 2;
+        const shopX = SCREEN_WIDTH / 2 - shopW / 2;
         const shopY = 82;
         return { shopX, shopY, shopW, shopH };
     }
@@ -312,15 +312,15 @@ export class Shop {
         // 背景画像（フォールバック：暗幕）
         const _bg = getShopBgImage();
         if (_bg.complete && _bg.naturalWidth > 0) {
-            ctx.drawImage(_bg, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            drawBgCover(ctx, _bg, 0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
         } else {
             ctx.fillStyle = '#020610';
-            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
         }
 
         // 見出し「よろず屋」＋区切り線
-        drawWafuHeading(ctx, CANVAS_WIDTH / 2, shopY + 58, 'よろず屋', { size: 30, ls: 0.14, ruleLen: 48, color: '#f4f9ff' });
-        drawWafuDivider(ctx, CANVAS_WIDTH / 2, shopY + 80, (shopW - 96) / 2);
+        drawWafuHeading(ctx, SCREEN_WIDTH / 2, shopY + 58, 'よろず屋', { size: 30, ls: 0.14, ruleLen: 48, color: '#f4f9ff' });
+        drawWafuDivider(ctx, SCREEN_WIDTH / 2, shopY + 80, (shopW - 96) / 2);
 
         // 小判（右上）：数字=サンセリフ／和文=明朝
         ctx.textBaseline = 'middle';

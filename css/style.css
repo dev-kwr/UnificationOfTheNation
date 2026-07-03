@@ -38,6 +38,9 @@ body.game-ready #game-container {
 }
 
 #game-container {
+    /* セーフエリア(env)をJSへ引き渡すためのプローブ変数 (game.js configureCanvasResolution が読む) */
+    --sai-l: env(safe-area-inset-left, 0px);
+    --sai-r: env(safe-area-inset-right, 0px);
     position: fixed;
     top: 0;
     left: 0;
@@ -95,6 +98,8 @@ canvas {
     display: flex;
     align-items: center;
     justify-content: center;
+    /* ノッチ/Dynamic Island/角丸にカードが食われないよう退避 (viewport-fit=cover対応) */
+    padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
     background: radial-gradient(ellipse at center, rgba(10, 14, 26, 0.82) 0%, rgba(3, 5, 10, 0.94) 100%);
     touch-action: manipulation;
     user-select: none;
@@ -228,6 +233,93 @@ canvas {
     .sg-btn { width: 104px; padding: 11px 0 10px; font-size: 13px; }
     .sg-btn svg { width: 24px; height: 24px; }
     .sg-note { font-size: 10px; }
+}
+
+/* 画面構成変化(折りたたみ/Split View)の再読み込み案内トースト */
+#aspect-toast {
+    position: fixed;
+    left: 50%;
+    bottom: max(24px, env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%) translateY(12px);
+    z-index: 25;
+    font-family: 'Zen Old Mincho', serif;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    color: #e9eefb;
+    background: rgba(23, 30, 52, 0.94);
+    border: 1px solid rgba(146, 172, 226, 0.4);
+    border-radius: 8px;
+    padding: 10px 18px;
+    opacity: 0;
+    transition: opacity 300ms ease, transform 300ms ease;
+    pointer-events: none;
+}
+#aspect-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* ============================================
+   縦持ちゲート（横持ち専用ゲームの回転促し）
+   タッチ端末(body.touch-device)が縦向きのときだけ表示。
+   ゲーム側は orientationchange で自動ポーズする。
+   ============================================ */
+#rotate-gate {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    align-items: center;
+    justify-content: center;
+    /* 背景を透けさせず単色で塗りつぶす（下地の #000）+ 中央のわずかな明かり */
+    background-color: #05070d;
+    background-image: radial-gradient(ellipse at center, rgba(20, 28, 50, 0.6) 0%, rgba(5, 7, 13, 0) 70%);
+    padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px)) max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
+    user-select: none;
+    -webkit-user-select: none;
+}
+@media (orientation: portrait) {
+    body.touch-device #rotate-gate { display: flex; }
+}
+.rg-card {
+    font-family: 'Zen Old Mincho', serif;
+    color: #dce6ff;
+    text-align: center;
+}
+/* スマホ型の枠。文字グリフと違い矩形は幾何中心＝見た目中心が一致するため
+   transform-origin:center で自然な中心回転になる（縦→横に倒れる演出）。 */
+.rg-icon {
+    width: 46px;
+    height: 78px;
+    margin: 0 auto;
+    border: 3px solid rgba(150, 196, 255, 0.9);
+    border-radius: 11px;
+    position: relative;
+    transform-origin: 50% 50%;
+    animation: rg-rotate 2.4s ease-in-out infinite;
+}
+.rg-icon::after {
+    /* ホームインジケータ風の短線（向きの手がかり） */
+    content: '';
+    position: absolute;
+    bottom: 7px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 16px;
+    height: 2px;
+    border-radius: 1px;
+    background: rgba(150, 196, 255, 0.7);
+}
+.rg-text {
+    margin-top: 22px;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.24em;
+    text-indent: 0.24em;
+}
+@keyframes rg-rotate {
+    0%, 55%, 100% { transform: rotate(0deg); }
+    25%, 35% { transform: rotate(-90deg); }
 }
 
 /* 横持ちスマホなど高さが低い画面ではコンパクトに */

@@ -2,7 +2,7 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD } from './constants.js';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, getUiScale } from './constants.js';
 import { input } from './input.js';
 import { audio } from './audio.js';
 import { saveManager } from './save.js';
@@ -36,6 +36,17 @@ let _titleBgImage = null;     // タイトル画面背景画像
 
 // オープニング/エンディングのフルスクリーン背景画像を描画。
 // 読込前も旧背景は出さず、各シーンの平均的な暗色で下地を塗る（フラッシュ防止）。
+// 全画面背景画像の cover-crop 描画（短辺フィット+中央クロップ、ソース矩形指定）。
+// 可変スクリーン幅でも非一様ストレッチ（月の楕円化など）を起こさない。
+// dest がソースと同アスペクトのときはソース全面≒従来描画。
+export function drawBgCover(ctx, img, dx, dy, dw, dh) {
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    if (!(iw > 0 && ih > 0 && dw > 0 && dh > 0)) return;
+    const s = Math.max(dw / iw, dh / ih);
+    const sw = dw / s, sh = dh / s;
+    ctx.drawImage(img, (iw - sw) / 2, (ih - sh) / 2, sw, sh, dx, dy, dw, dh);
+}
+
 function drawCinematicBgImage(ctx, phase, timer) {
     let img;
     if (phase === 'ending') {
@@ -47,7 +58,7 @@ function drawCinematicBgImage(ctx, phase, timer) {
     }
     ctx.save();
     ctx.fillStyle = (phase === 'ending') ? '#b3855f' : '#0b1430';  // 読込前/保険の下地（旧背景は出さない）
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
     if (img.complete && img.naturalWidth) {
         ctx.imageSmoothingEnabled = true;
         // Ken Burns：シーン経過に沿った一方向のゆっくり押し込み（はっきり分かる）＋微細な揺れ。
@@ -57,8 +68,8 @@ function drawCinematicBgImage(ctx, phase, timer) {
         const zoom = 1.05 + prog * 0.10 + Math.sin(t * 0.5) * 0.006;  // 1.05→1.15 へ押し込み
         const panX = prog * 18 + Math.sin(t * 0.09) * 12;             // 右へドリフト
         const panY = -prog * 12 + Math.cos(t * 0.07) * 9;             // やや上へ
-        const dw = CANVAS_WIDTH * zoom, dh = CANVAS_HEIGHT * zoom;
-        ctx.drawImage(img, (CANVAS_WIDTH - dw) / 2 + panX, (CANVAS_HEIGHT - dh) / 2 + panY, dw, dh);
+        const dw = SCREEN_WIDTH * zoom, dh = CANVAS_HEIGHT * zoom;
+        drawBgCover(ctx, img, (SCREEN_WIDTH - dw) / 2 + panX, (CANVAS_HEIGHT - dh) / 2 + panY, dw, dh);
         // 重ねるモーション（すべて控えめ・本文の下）：光源グロー→霧→花びら→蛍/光の粒
         drawCinematicGlow(ctx, t, phase);
         drawCinematicMist(ctx, t, phase);
@@ -82,7 +93,7 @@ function drawDriftingPetals(ctx, t, phase) {
         const size = 3 + rnd(s * 3.1) * 3.5;
         const ph = s * 1.3;
         const y = ((t * fall + i * 71) % (CANVAS_HEIGHT + 40)) - 20;
-        const x = fx * CANVAS_WIDTH + Math.sin(t * 0.5 + ph) * sway;
+        const x = fx * SCREEN_WIDTH + Math.sin(t * 0.5 + ph) * sway;
         ctx.globalAlpha = 0.22 + rnd(s * 4.7) * 0.2;
         ctx.fillStyle = `rgba(${tint}, 1)`;
         ctx.beginPath();
@@ -94,7 +105,7 @@ function drawDriftingPetals(ctx, t, phase) {
 
 // 光源(夜=月/夜明け=朝日)の柔らかいグロー明滅
 function drawCinematicGlow(ctx, t, phase) {
-    const cx = (phase === 'ending') ? CANVAS_WIDTH * 0.19 : CANVAS_WIDTH * 0.80;
+    const cx = (phase === 'ending') ? SCREEN_WIDTH * 0.19 : SCREEN_WIDTH * 0.80;
     const cy = CANVAS_HEIGHT * 0.13;
     const pulse = 0.5 + Math.sin(t * 0.5) * 0.5;
     const a = 0.06 + pulse * 0.10;
@@ -121,7 +132,7 @@ function drawCinematicMist(ctx, t, phase) {
     ctx.globalCompositeOperation = 'screen';
     for (const b of bands) {
         const cy = CANVAS_HEIGHT * b.y + Math.sin(t * 0.2 + b.y) * b.amp;
-        const base = (t * b.sp) % (CANVAS_WIDTH + 520);
+        const base = (t * b.sp) % (SCREEN_WIDTH + 520);
         for (let k = -1; k < 3; k++) {
             const cx = base - 260 + k * 520;
             const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 330);
@@ -145,7 +156,7 @@ function drawCinematicMotes(ctx, t, phase) {
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < N; i++) {
         const s = (i + 1) * 7.317;
-        const x = rnd(s) * CANVAS_WIDTH + Math.sin(t * (0.15 + rnd(s * 1.3) * 0.2) + s) * 55;
+        const x = rnd(s) * SCREEN_WIDTH + Math.sin(t * (0.15 + rnd(s * 1.3) * 0.2) + s) * 55;
         const y = (0.28 + rnd(s * 1.7) * 0.55) * CANVAS_HEIGHT + Math.cos(t * (0.12 + rnd(s * 2.1) * 0.13) + s * 1.4) * 36;
         const tw = 0.5 + 0.5 * Math.sin(t * (1.0 + rnd(s * 3.0) * 1.4) + s * 2.0);
         const a = 0.08 + tw * 0.30;
@@ -291,9 +302,8 @@ function drawRoundedFlatTitleButton(ctx, x, y, width, height, label, options = {
 
 // タッチUI（仮想パッド）が有効なモードか（端末判定）
 function isTouchOverlayMode() {
-    const isTouchDevice = (navigator.maxTouchPoints && navigator.maxTouchPoints > 0) || ('ontouchstart' in window);
-    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    return isTouchDevice || isMobile || CANVAS_WIDTH <= 800;
+    const profile = getDeviceProfile();
+    return profile.isTouchDevice || profile.isMobileUA || SCREEN_WIDTH <= 800;
 }
 
 // キーボード操作マニュアルを隠すべきか（タップモード かつ 物理キーボード未検知）。
@@ -309,7 +319,7 @@ function drawControlManualLine(ctx, y = CANVAS_HEIGHT - 20) {
     ctx.font = '12px "Zen Old Mincho", serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText(CONTROL_MANUAL_TEXT, CANVAS_WIDTH / 2, y);
+    ctx.fillText(CONTROL_MANUAL_TEXT, SCREEN_WIDTH / 2, y);
     ctx.restore();
 }
 
@@ -320,13 +330,13 @@ export function drawScreenManualLine(ctx, text, y = CANVAS_HEIGHT - 20) {
     ctx.font = '12px "Zen Old Mincho", serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText(text, CANVAS_WIDTH / 2, y);
+    ctx.fillText(text, SCREEN_WIDTH / 2, y);
     ctx.restore();
 }
 
 // タイトルロゴ：画像(images/title_logo.png)を描画。背後の月(後光)は renderTitleScreen 側。
 function drawRichTitleLogo(ctx, timeMs) {
-    const titleX = CANVAS_WIDTH / 2;
+    const titleX = SCREEN_WIDTH / 2;
     const titleY = CANVAS_HEIGHT / 2 - 145;
     const titleRenderY = titleY;   // 固定（±0.5pxの揺れ＋Math.roundで1px単位にカクつく「ピクピク」を防止）
 
@@ -339,7 +349,8 @@ function drawRichTitleLogo(ctx, timeMs) {
     if (!img.complete || !img.naturalWidth) return; // 読込前は何も描かない（ポップインのみ）
 
     const aspect = img.naturalWidth / img.naturalHeight;   // ≈3.02
-    const drawW = Math.round(CANVAS_WIDTH * 0.78);
+    // 可変スクリーン幅でも難易度ボタンへめり込まないよう上限1000pxでクランプ
+    const drawW = Math.min(Math.round(SCREEN_WIDTH * 0.78), 1000);
     const drawH = Math.round(drawW / aspect);
     const lx = Math.round(titleX - drawW / 2);
     const ly = Math.round(titleRenderY - drawH * 0.5);     // 画像中心を titleRenderY に
@@ -368,7 +379,7 @@ function drawTitleMistLayers(ctx, timeMs) {
     const densityStep = 1;
     for (const layer of layers) {
         for (let i = -2; i < 5; i += densityStep) {
-            const travel = ((timeMs * layer.speed * 0.001) + i * (layer.w * 0.72)) % (CANVAS_WIDTH + layer.w * 1.35);
+            const travel = ((timeMs * layer.speed * 0.001) + i * (layer.w * 0.72)) % (SCREEN_WIDTH + layer.w * 1.35);
             const cx = travel - layer.w * 0.65;
             const cy = layer.y + Math.sin(t * (0.82 + i * 0.14) + i * 1.23) * layer.amp;
             const grad = ctx.createRadialGradient(cx, cy, layer.w * 0.06, cx, cy, layer.w * 0.58);
@@ -387,7 +398,7 @@ function drawTitleMistLayers(ctx, timeMs) {
     depthFog.addColorStop(0.45, 'rgba(146, 176, 236, 0.06)');
     depthFog.addColorStop(1, 'rgba(120, 154, 214, 0.11)');
     ctx.fillStyle = depthFog;
-    ctx.fillRect(0, CANVAS_HEIGHT * 0.54, CANVAS_WIDTH, CANVAS_HEIGHT * 0.46);
+    ctx.fillRect(0, CANVAS_HEIGHT * 0.54, SCREEN_WIDTH, CANVAS_HEIGHT * 0.46);
     ctx.restore();
 }
 
@@ -508,21 +519,21 @@ function drawTitleBackdropSilhouettes(ctx, timeMs) {
         const shift = (timeMs * layer.drift) % layer.step;
         ctx.beginPath();
         ctx.moveTo(-layer.step - shift, CANVAS_HEIGHT);
-        for (let x = -layer.step - shift; x <= CANVAS_WIDTH + layer.step * 1.5; x += layer.step) {
+        for (let x = -layer.step - shift; x <= SCREEN_WIDTH + layer.step * 1.5; x += layer.step) {
             const peak = layer.baseY - layer.heightBase
                 - Math.sin((x + 160) * 0.011 + t * 0.33) * layer.heightAmp
                 - Math.cos((x + 70) * 0.018 + t * 0.21) * (layer.heightAmp * 0.42);
             ctx.lineTo(x + layer.step * 0.38, peak);
             ctx.lineTo(x + layer.step, layer.baseY);
         }
-        ctx.lineTo(CANVAS_WIDTH + layer.step * 2, CANVAS_HEIGHT);
+        ctx.lineTo(SCREEN_WIDTH + layer.step * 2, CANVAS_HEIGHT);
         ctx.closePath();
         ctx.fill();
     }
 
     const shrineY = CANVAS_HEIGHT * 0.74;
     ctx.fillStyle = 'rgba(16, 9, 24, 0.82)';
-    ctx.fillRect(0, shrineY, CANVAS_WIDTH, CANVAS_HEIGHT - shrineY);
+    ctx.fillRect(0, shrineY, SCREEN_WIDTH, CANVAS_HEIGHT - shrineY);
     for (let i = -1; i < 6; i++) {
         const gateX = i * 240 - ((timeMs * 0.021) % 240) + 40;
         ctx.fillRect(gateX, shrineY - 10, 120, 10);
@@ -534,7 +545,7 @@ function drawTitleBackdropSilhouettes(ctx, timeMs) {
 }
 
 export function getTitleScreenLayout() {
-    const centerX = CANVAS_WIDTH / 2;
+    const centerX = SCREEN_WIDTH / 2;
     const diffY = CANVAS_HEIGHT / 2 + 64;
     const startY = diffY + 108;
     const buttonGap = 64;
@@ -620,6 +631,13 @@ export class UI {
         };
 
         // --- 左上HUD（刷新） ---
+        // uiScale>1(スマホ)のときだけ原点アンカーで一様拡大する。
+        // s=1 の端末では save/scale 自体を行わず既存描画と完全同一のパスを通す。
+        const uiS = getUiScale();
+        if (uiS !== 1) {
+            ctx.save();
+            ctx.scale(uiS, uiS);
+        }
         const hpBarWidth = 300;
         const hpBarHeight = 18;
         const panelPadding = 18;
@@ -744,28 +762,15 @@ export class UI {
         ctx.fillText('熟練', x, expY + expBarHeight / 2);
         
         // --- Stage Info + マネー（右上） ---
+        // ステージ名は右端アンカーのため uiScale ラップの外(後段)で描く。
+        // 宣言のみここで行う(moneyText/coinSize はサブ武器行が使用)。
         const stageFloorKanji = toKanjiNumber(stage?.stageNumber || 1);
         const stageLabel = (stage && stage.name) ? stage.name : `第${stageFloorKanji}階層`;
         const stageFontPx = 16;
         const moneyFontPx = 16;
-        const bgmCenterX = CANVAS_WIDTH - VIRTUAL_PAD.BGM_BUTTON_MARGIN_RIGHT;
-        const bgmCenterY = VIRTUAL_PAD.BGM_BUTTON_MARGIN_TOP;
-        const bgmLeftX = bgmCenterX - VIRTUAL_PAD.BGM_BUTTON_RADIUS;
-        const stageRightX = bgmLeftX - 12; // BGMボタン左側に余白を確保
-        const stageTextY = bgmCenterY;
         const moneyText = formatMoney(player.money);
         const coinSize = 9;
 
-        ctx.textBaseline = 'middle';
-        ctx.textAlign = 'right';
-        ctx.font = `900 ${stageFontPx}px "Zen Old Mincho", serif`;
-
-        // ステージ名（BGMボタン左側）影を軽量化
-        ctx.fillStyle = 'rgba(0,0,0,0.62)';
-        ctx.fillText(stageLabel, stageRightX + 1, stageTextY + 1);
-        ctx.fillStyle = '#fff';
-        ctx.fillText(stageLabel, stageRightX, stageTextY);
-        
         // --- 装備中のサブ武器表示 (Icon Slot Style) ---
         if (player.currentSubWeapon) {
             const slotX = x;
@@ -866,8 +871,28 @@ export class UI {
             });
             ctx.restore();
         }
-        
-        // 仮想パッド
+
+        // 左上HUDの uiScale ラップをここで閉じる（以降は等倍スクリーン座標）
+        if (uiS !== 1) ctx.restore();
+
+        // 右上ステージ名（右端アンカー・BGMボタン左）。BGMボタンと同じ getPadLayout を
+        // 参照するため、uiScale 拡大時もボタンとの相対位置が保たれる。
+        {
+            const B = getPadLayout().bgm;
+            const stageRightX = (B.x - B.r) - 12 * uiS;
+            ctx.save();
+            ctx.textBaseline = 'middle';
+            ctx.textAlign = 'right';
+            ctx.font = `900 ${Math.round(stageFontPx * uiS)}px "Zen Old Mincho", serif`;
+            // ステージ名（BGMボタン左側）影を軽量化
+            ctx.fillStyle = 'rgba(0,0,0,0.62)';
+            ctx.fillText(stageLabel, stageRightX + 1, B.y + 1);
+            ctx.fillStyle = '#fff';
+            ctx.fillText(stageLabel, stageRightX, B.y);
+            ctx.restore();
+        }
+
+        // 仮想パッド（getPadLayout で自己スケールするためラップ外に置く）
         this.renderVirtualPad(ctx, player);
     }
     
@@ -967,10 +992,9 @@ export class UI {
     }
 
     renderGlobalTouchButtons(ctx) {
-        const pad = VIRTUAL_PAD;
-        const bgmButtonX = CANVAS_WIDTH - pad.BGM_BUTTON_MARGIN_RIGHT;
-        const bgmButtonY = pad.BGM_BUTTON_MARGIN_TOP;
-        this.drawBgmToggleButton(ctx, bgmButtonX, bgmButtonY, pad.BGM_BUTTON_RADIUS, !!audio.isMuted);
+        // ヒット判定(input.getBgmButtonHitArea)と同一の幾何導出を共有
+        const B = getPadLayout().bgm;
+        this.drawBgmToggleButton(ctx, B.x, B.y, B.r, !!audio.isMuted);
     }
     
     renderVirtualPad(ctx, player) {
@@ -979,67 +1003,58 @@ export class UI {
 
         ctx.save();
         ctx.setLineDash([]);
-        
-        const pad = VIRTUAL_PAD;
-        const bottomY = CANVAS_HEIGHT - pad.BOTTOM_MARGIN;
-        
+
+        // ヒット判定(input.getTouchActions)と同一の幾何導出を共有(constants.getPadLayout)
+        const L = getPadLayout();
+
         // --- 左側：アナログスティック ---
-        const leftX = pad.SAFE_MARGIN_X;
-        const stickCenterX = leftX + pad.STICK.x;
-        const stickCenterY = bottomY + pad.STICK.y;
         const stickState = input.getVirtualStickState();
         this.drawAnalogStick(
             ctx,
-            stickCenterX,
-            stickCenterY,
-            pad.STICK_BASE_RADIUS,
-            pad.STICK_KNOB_RADIUS,
+            L.stick.x,
+            L.stick.y,
+            L.stick.baseRadius,
+            L.stick.knobRadius,
             stickState.knobX,
             stickState.knobY,
             stickState.active
         );
 
         // 左スティック左下：一時停止ボタン（小）
-        const pauseX = stickCenterX + (pad.PAUSE_BUTTON?.x || 0);
-        const pauseY = stickCenterY + (pad.PAUSE_BUTTON?.y || 0);
-        const pauseRadius = pad.PAUSE_BUTTON_RADIUS || 22;
         this.drawActionCircleButton(
-            ctx, pauseX, pauseY, pauseRadius, 'pause', input.isAction('PAUSE')
+            ctx, L.pause.x, L.pause.y, L.pause.r, 'pause', input.isAction('PAUSE')
         );
-        
+
         // --- 右側：アクションキー（ダイヤ配置・円ボタン） ---
-        const rightX = CANVAS_WIDTH - pad.SAFE_MARGIN_X;
-        const attackRadius = pad.ATTACK_BUTTON_RADIUS || pad.BUTTON_SIZE;
-        const auxRadius = pad.AUX_BUTTON_RADIUS || pad.BUTTON_SIZE;
         const isSpecialReady = !!player && Number.isFinite(player.specialGauge) && Number.isFinite(player.maxSpecialGauge)
             ? player.specialGauge >= player.maxSpecialGauge
             : true;
 
         this.drawActionCircleButton(
-            ctx, rightX + pad.ATTACK.x, bottomY + pad.ATTACK.y, attackRadius, 'attack', input.isAction('ATTACK')
+            ctx, L.attack.x, L.attack.y, L.attack.r, 'attack', input.isAction('ATTACK')
         );
         this.drawActionCircleButton(
-            ctx, rightX + pad.SUB_WEAPON.x, bottomY + pad.SUB_WEAPON.y, auxRadius, 'sub', input.isAction('SUB_WEAPON')
+            ctx, L.sub.x, L.sub.y, L.sub.r, 'sub', input.isAction('SUB_WEAPON')
         );
-        
+
         if (isSpecialReady) {
             const t = Date.now() * 0.005;
             const pulse = (Math.sin(t) + 1) / 2;
             ctx.save();
             ctx.beginPath();
-            ctx.arc(rightX + pad.SPECIAL.x, bottomY + pad.SPECIAL.y, auxRadius + 4 + pulse * 6, 0, Math.PI * 2);
+            ctx.arc(L.special.x, L.special.y, L.special.r + (4 + pulse * 6) * L.s, 0, Math.PI * 2);
             ctx.fillStyle = `rgba(255, 210, 80, ${0.15 + pulse * 0.25})`;
             ctx.fill();
             ctx.restore();
         }
 
         this.drawActionCircleButton(
-            ctx, rightX + pad.SPECIAL.x, bottomY + pad.SPECIAL.y, auxRadius, 'special', input.isAction('SPECIAL'), !isSpecialReady
+            ctx, L.special.x, L.special.y, L.special.r, 'special', input.isAction('SPECIAL'), !isSpecialReady
         );
         this.drawActionCircleButton(
-            ctx, rightX + pad.SWITCH.x, bottomY + pad.SWITCH.y, auxRadius, 'switch', input.isAction('SWITCH_WEAPON')
+            ctx, L.switch.x, L.switch.y, L.switch.r, 'switch', input.isAction('SWITCH_WEAPON')
         );
-        
+
         ctx.restore();
     }
 
@@ -1498,10 +1513,10 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     // 背景画像（夜空＋月を内包。読込前は紺下地でフォールバック）
     if (!_titleBgImage) { _titleBgImage = new Image(); _titleBgImage.src = 'images/title_bg.png'; }
     ctx.fillStyle = '#0b1626';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
     if (_titleBgImage.complete && _titleBgImage.naturalWidth) {
         ctx.imageSmoothingEnabled = true;
-        ctx.drawImage(_titleBgImage, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        drawBgCover(ctx, _titleBgImage, 0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
     }
 
     // フィルムグレイン（空のバンディングを抑え質感を出す・軽量）
@@ -1510,7 +1525,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     ctx.globalCompositeOperation = 'overlay';
     const grain = getTitleGrainCanvas();
     const gs = grain.width * 3;
-    for (let gx = 0; gx < CANVAS_WIDTH; gx += gs) {
+    for (let gx = 0; gx < SCREEN_WIDTH; gx += gs) {
         for (let gy = 0; gy < CANVAS_HEIGHT; gy += gs) ctx.drawImage(grain, gx, gy, gs, gs);
     }
     ctx.restore();
@@ -1521,7 +1536,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     const skyBandCount = 3;
     for (let i = 0; i < skyBandCount; i++) {
         const bandY = CANVAS_HEIGHT * (0.16 + i * 0.1);
-        const bandW = CANVAS_WIDTH * (1.25 - i * 0.1);
+        const bandW = SCREEN_WIDTH * (1.25 - i * 0.1);
         const drift = Math.sin(t * (0.22 + i * 0.08) + i * 1.4) * 90;
         const bandGrad = ctx.createLinearGradient(0, bandY - 36, 0, bandY + 36);
         bandGrad.addColorStop(0, 'rgba(130, 181, 255, 0)');
@@ -1530,11 +1545,11 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
         ctx.fillStyle = bandGrad;
         ctx.beginPath();
         ctx.moveTo(-120 + drift, bandY);
-        ctx.quadraticCurveTo(CANVAS_WIDTH * 0.34, bandY - 34, CANVAS_WIDTH * 0.64, bandY - 8);
-        ctx.quadraticCurveTo(CANVAS_WIDTH * 0.88, bandY + 26, bandW + drift, bandY - 8);
+        ctx.quadraticCurveTo(SCREEN_WIDTH * 0.34, bandY - 34, SCREEN_WIDTH * 0.64, bandY - 8);
+        ctx.quadraticCurveTo(SCREEN_WIDTH * 0.88, bandY + 26, bandW + drift, bandY - 8);
         ctx.lineTo(bandW + drift, bandY + 44);
-        ctx.quadraticCurveTo(CANVAS_WIDTH * 0.88, bandY + 56, CANVAS_WIDTH * 0.6, bandY + 20);
-        ctx.quadraticCurveTo(CANVAS_WIDTH * 0.3, bandY - 8, -120 + drift, bandY + 28);
+        ctx.quadraticCurveTo(SCREEN_WIDTH * 0.88, bandY + 56, SCREEN_WIDTH * 0.6, bandY + 20);
+        ctx.quadraticCurveTo(SCREEN_WIDTH * 0.3, bandY - 8, -120 + drift, bandY + 28);
         ctx.closePath();
         ctx.fill();
     }
@@ -1542,9 +1557,9 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
 
     // 星空（旧挙動: 右上→左下）
     for (let i = 0; i < TITLE_STAR_COUNT; i++) {
-        const x = (i * 137.5 - time * 0.02) % CANVAS_WIDTH;
+        const x = (i * 137.5 - time * 0.02) % SCREEN_WIDTH;
         const y = (i * 219.7 + time * 0.01) % CANVAS_HEIGHT;
-        const finalX = x < 0 ? x + CANVAS_WIDTH : x;
+        const finalX = x < 0 ? x + SCREEN_WIDTH : x;
         const finalY = y % CANVAS_HEIGHT;
         const size = (Math.sin(i * 0.5) + 1) * 0.5 + 0.5;
         const alpha = (Math.sin(time * 0.001 + i) + 1) * 0.5;
@@ -1558,7 +1573,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     const shootingStarInterval = 4000;
     const starCycle = time % shootingStarInterval;
     const starSeed = Math.floor(time / shootingStarInterval);
-    const starStartX = (starSeed * 543) % (CANVAS_WIDTH + 400);
+    const starStartX = (starSeed * 543) % (SCREEN_WIDTH + 400);
     const starStartY = -100;
 
     if (starCycle < 1500) {
@@ -1585,12 +1600,12 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
 
     // ビネット（周辺減光で中央へ視線誘導・映画的な没入感）
     {
-        const vig = ctx.createRadialGradient(CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.44, CANVAS_HEIGHT * 0.46, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.5, CANVAS_WIDTH * 0.82);
+        const vig = ctx.createRadialGradient(SCREEN_WIDTH / 2, CANVAS_HEIGHT * 0.44, CANVAS_HEIGHT * 0.46, SCREEN_WIDTH / 2, CANVAS_HEIGHT * 0.5, SCREEN_WIDTH * 0.82);
         vig.addColorStop(0, 'rgba(0, 0, 0, 0)');
         vig.addColorStop(0.82, 'rgba(0, 0, 0, 0.05)');
         vig.addColorStop(1, 'rgba(0, 0, 0, 0.24)');
         ctx.fillStyle = vig;
-        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
     }
 
     // タイトルロゴ
@@ -1646,7 +1661,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     ctx.fillStyle = '#aabbcc';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('⚙', CANVAS_WIDTH - 18, CANVAS_HEIGHT - 14);
+    ctx.fillText('⚙', SCREEN_WIDTH - 18, CANVAS_HEIGHT - 14);
     ctx.restore();
 
     // タイトル画面用の操作説明
@@ -1656,7 +1671,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
 export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
     if (!Array.isArray(entries) || entries.length === 0) return;
     const panelW = 540;
-    const panelX = CANVAS_WIDTH - panelW - 40;
+    const panelX = SCREEN_WIDTH - panelW - 40;
     const rowH = 26;
     const headerH = 40;
     const spacingH = 10;
@@ -1670,7 +1685,7 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
 
     ctx.save();
     ctx.fillStyle = 'rgba(2, 6, 18, 0.88)';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
 
     const bg = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelH);
     bg.addColorStop(0, 'rgba(24, 38, 84, 0.96)');
@@ -1747,7 +1762,7 @@ export function renderGameOverScreen(ctx, player, stageNumber, fadeTimer = 0) {
         const offset = i * (cycleDuration / 15);
         const cycleProgress = ((loopTime + offset) % cycleDuration) / cycleDuration;
         
-        const px = CANVAS_WIDTH/2 + Math.sin(loopTime * 0.001 + i * 0.7) * 200;
+        const px = SCREEN_WIDTH/2 + Math.sin(loopTime * 0.001 + i * 0.7) * 200;
         const py = CANVAS_HEIGHT/2 - 100 + Math.cos(loopTime * 0.0008 + i * 0.9) * 100 + cycleProgress * 120;
         const size = 2 + Math.sin(i * 0.5) * 1.5;
         
@@ -1766,12 +1781,12 @@ export function renderGameOverScreen(ctx, player, stageNumber, fadeTimer = 0) {
     ctx.textAlign = 'center';
     ctx.shadowColor = '#500';
     ctx.shadowBlur = 20;
-    ctx.fillText('無 念', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 80);
+    ctx.fillText('無 念', SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2 - 80);
     
     ctx.font = 'bold 40px serif';
     ctx.fillStyle = 'rgba(204, 0, 0, 1)';
     ctx.shadowBlur = 0;
-    ctx.fillText('GAME OVER', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
+    ctx.fillText('GAME OVER', SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
     
     // 続行メッセージ（画面中央寄りに配置）
     if (fadeProgress >= 1.0) {
@@ -1782,14 +1797,14 @@ export function renderGameOverScreen(ctx, player, stageNumber, fadeTimer = 0) {
             ctx.textAlign = 'center';
             ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
             ctx.shadowBlur = 4;
-            ctx.fillText('Press SPACE or Tap Screen to Return to Title', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 80);
+            ctx.fillText('Press SPACE or Tap Screen to Return to Title', SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2 + 80);
             ctx.shadowBlur = 0;
         }
     }
     ctx.globalAlpha = 1.0;
 
     // タップ用ボタン
-    drawFlatButton(ctx, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 80, 400, 60, '', 'rgba(0, 0, 0, 0)');
+    drawFlatButton(ctx, SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2 + 80, 400, 60, '', 'rgba(0, 0, 0, 0)');
 }
 
 // ステージクリア画面（ステータス画面）
@@ -2004,8 +2019,8 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
     const tierLabel = (tier) => ['初級', '中級', '上級', '特級'][Math.max(0, Math.min(3, tier))];
     const pulse = (Math.sin(Date.now() * 0.0026) + 1) * 0.5;
 
-    const panelW = CANVAS_WIDTH;
-    const rightColX = 880;
+    const panelW = SCREEN_WIDTH;
+    const rightColX = SCREEN_WIDTH - 400; // 右端アンカー（W=1280で従来の880）
     const rightColW = panelW - rightColX - 40;
 
     const menuItems = [
@@ -2033,16 +2048,16 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
             // 背景画像（読込前は紺下地＋アンビエント光でフォールバック）
             if (!_statusBgImage) { _statusBgImage = new Image(); _statusBgImage.src = 'images/status_bg.png'; }
             ctx.fillStyle = '#141d34';
-            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
             if (_statusBgImage.complete && _statusBgImage.naturalWidth) {
                 ctx.imageSmoothingEnabled = true;
-                ctx.drawImage(_statusBgImage, 0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                drawBgCover(ctx, _statusBgImage, 0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
             } else {
-                const glow = ctx.createRadialGradient(CANVAS_WIDTH * 0.44, CANVAS_HEIGHT * 0.34, 0, CANVAS_WIDTH * 0.44, CANVAS_HEIGHT * 0.34, CANVAS_WIDTH * 0.92);
+                const glow = ctx.createRadialGradient(SCREEN_WIDTH * 0.44, CANVAS_HEIGHT * 0.34, 0, SCREEN_WIDTH * 0.44, CANVAS_HEIGHT * 0.34, SCREEN_WIDTH * 0.92);
                 glow.addColorStop(0, 'rgba(66, 96, 168, 0.42)');
                 glow.addColorStop(1, 'rgba(66, 96, 168, 0)');
                 ctx.fillStyle = glow;
-                ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+                ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
             }
         }
 
@@ -2175,12 +2190,12 @@ const _levelUpCardAnim = { amt: [], last: 0 };
  * - choice = { title, subtitle, level?, maxLevel?, durationSec? }
  *     durationSec を持つ＝忍術札（効果時間表示）／持たない＝強化札（ピップ＋段位）
  * - デザイン正本(.dc.html 案1)は 1920×1080 で作成され scale(min(w/1920,h/1080)) で縮小表示される。
- *   そのため全寸法を「design-px(1920基準)」で記述し、S=CANVAS_WIDTH/1920 で一様スケールして描く
+ *   そのため全寸法を「design-px(1920基準)」で記述し、S=SCREEN_WIDTH/1920 で一様スケールして描く
  *   （= どの解像度でも案1と同じ比率になる）。見出し＋カードは1ブロックとして画面上下中央へ。
  * - カードは CARD_K 倍に拡大（中身の寸法・文字も比例。dk()/lwk() を使用）。
  * - 選択/解除は CSS transition 相当を _levelUpCardAnim でフレーム間イージング（持ち上げ・枠・影・発光）。
  * - Canvas には letter-spacing が無いため、字間は文字ごと描画(fillLS)で再現。
- * - CANVAS_WIDTH / CANVAS_HEIGHT は constants.js からの import を利用。
+ * - SCREEN_WIDTH / CANVAS_HEIGHT は constants.js からの import を利用。
  */
 export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 0) {
     const time = Date.now();
@@ -2188,9 +2203,12 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
 
     const list = Array.isArray(choices) ? choices : [];
 
-    // デザイン正本(1920×1080)→実キャンバスへの一様スケール（16:9前提）。
-    const S = CANVAS_WIDTH / 1920;
-    const d = (v) => v * S;            // design-px → canvas-px（見出し・全体レイアウト）
+    // デザイン正本(1920×1080)→実キャンバスへの一様スケール。
+    // 可変スクリーン幅では高さ律速(=全端末で0.6667固定)にし、1920バンドを水平中央へ置く。
+    const S = Math.min(SCREEN_WIDTH / 1920, CANVAS_HEIGHT / 1080);
+    const d = (v) => v * S;            // design-px → canvas-px（寸法・縦座標）
+    const OX = (SCREEN_WIDTH - 1920 * S) / 2; // 水平センタリングオフセット（W=1280で0）
+    const dx = (v) => OX + d(v);       // 水平座標専用（寸法には使わない）
     const CXD = 960;                   // デザイン中心X(1920/2)
     const lw = (v) => Math.max(1, d(v)); // 罫線は最低1px
 
@@ -2277,7 +2295,7 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
 
     // ===== 暗幕（没入感・背後の実ゲーム画面が透ける） =====
     ctx.fillStyle = 'rgba(2, 6, 20, 0.66)';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
 
     // ===== 見出し =====
     ctx.textAlign = 'center';
@@ -2290,7 +2308,7 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
     ctx.shadowColor = 'rgba(70, 120, 210, 0.4)';
     ctx.shadowBlur = d(32);
     ctx.shadowOffsetY = d(4);
-    fillLS('昇段', d(CXD), d(blockTopD + 66), d(0.16 * 80), 'center');
+    fillLS('昇段', dx(CXD), d(blockTopD + 66), d(0.16 * 80), 'center');
     ctx.restore();
 
     // 強化を選択（500 / 22px / 字間.42em）＋ 左右の細い罫線
@@ -2299,11 +2317,11 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
     const subLs = d(0.42 * 22);
     const subBaseY = d(blockTopD + 110);
     const subHalf = measureLS('強化を選択', subLs) / 2;
-    fillLS('強化を選択', d(CXD), subBaseY, subLs, 'center');
+    fillLS('強化を選択', dx(CXD), subBaseY, subLs, 'center');
 
     const ruleW = d(48), ruleGapX = d(16);
     const ruleY = subBaseY - d(5); // 15px テキストの視覚中心あたり
-    const cxc = d(CXD);
+    const cxc = dx(CXD);
     ctx.lineWidth = lw(1);
     // 左罫線（外→内で透明→水色）
     const lInner = cxc - subHalf - ruleGapX, lOuter = lInner - ruleW;
@@ -2326,7 +2344,7 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
     list.forEach((choice, index) => {
         const a = amt[index];                           // 選択度 0..1（イージング済み）
         const xD = startXD + index * (CARD_W + GAP);
-        const x = d(xD), w = dk(300), h = dk(284), r = dk(9);
+        const x = dx(xD), w = dk(300), h = dk(284), r = dk(9);
         const y = d(cardTopD) - dk(4) * a;              // translateY(-4px) を補間
         const cx = x + w / 2;
 
@@ -2550,23 +2568,23 @@ function renderWafuuCinematicBackdrop(ctx, timer, variant = 'opening') {
     sky.addColorStop(0.5, palette.skyMid);
     sky.addColorStop(1, palette.skyBottom);
     ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
 
     const upperGlow = ctx.createRadialGradient(
-        CANVAS_WIDTH * 0.72, CANVAS_HEIGHT * 0.12, 30,
-        CANVAS_WIDTH * 0.72, CANVAS_HEIGHT * 0.12, CANVAS_WIDTH * 0.78
+        SCREEN_WIDTH * 0.72, CANVAS_HEIGHT * 0.12, 30,
+        SCREEN_WIDTH * 0.72, CANVAS_HEIGHT * 0.12, SCREEN_WIDTH * 0.78
     );
     upperGlow.addColorStop(0, palette.upperGlow);
     upperGlow.addColorStop(1, 'rgba(255, 255, 255, 0)');
     ctx.fillStyle = upperGlow;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
 
     const horizonGlow = ctx.createLinearGradient(0, CANVAS_HEIGHT * 0.42, 0, CANVAS_HEIGHT);
     horizonGlow.addColorStop(0, 'rgba(255,255,255,0)');
     horizonGlow.addColorStop(0.5, palette.horizonGlow);
     horizonGlow.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = horizonGlow;
-    ctx.fillRect(0, CANVAS_HEIGHT * 0.42, CANVAS_WIDTH, CANVAS_HEIGHT * 0.58);
+    ctx.fillRect(0, CANVAS_HEIGHT * 0.42, SCREEN_WIDTH, CANVAS_HEIGHT * 0.58);
 
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
@@ -2580,11 +2598,11 @@ function renderWafuuCinematicBackdrop(ctx, timer, variant = 'opening') {
         ctx.fillStyle = band;
         ctx.beginPath();
         ctx.moveTo(-160 + drift, y + 4);
-        ctx.quadraticCurveTo(CANVAS_WIDTH * 0.32, y - 34, CANVAS_WIDTH * 0.64, y - 6);
-        ctx.quadraticCurveTo(CANVAS_WIDTH * 0.94, y + 28, CANVAS_WIDTH + 140 + drift, y - 8);
-        ctx.lineTo(CANVAS_WIDTH + 140 + drift, y + 40);
-        ctx.quadraticCurveTo(CANVAS_WIDTH * 0.86, y + 58, CANVAS_WIDTH * 0.54, y + 18);
-        ctx.quadraticCurveTo(CANVAS_WIDTH * 0.24, y - 2, -160 + drift, y + 26);
+        ctx.quadraticCurveTo(SCREEN_WIDTH * 0.32, y - 34, SCREEN_WIDTH * 0.64, y - 6);
+        ctx.quadraticCurveTo(SCREEN_WIDTH * 0.94, y + 28, SCREEN_WIDTH + 140 + drift, y - 8);
+        ctx.lineTo(SCREEN_WIDTH + 140 + drift, y + 40);
+        ctx.quadraticCurveTo(SCREEN_WIDTH * 0.86, y + 58, SCREEN_WIDTH * 0.54, y + 18);
+        ctx.quadraticCurveTo(SCREEN_WIDTH * 0.24, y - 2, -160 + drift, y + 26);
         ctx.closePath();
         ctx.fill();
     }
@@ -2594,7 +2612,7 @@ function renderWafuuCinematicBackdrop(ctx, timer, variant = 'opening') {
     if (variant === 'ending') {
         drawStageStyleCelestialBody(
             ctx,
-            CANVAS_WIDTH * 0.23,
+            SCREEN_WIDTH * 0.23,
             CANVAS_HEIGHT * 0.22,
             82,
             '#ffd9b4',
@@ -2606,7 +2624,7 @@ function renderWafuuCinematicBackdrop(ctx, timer, variant = 'opening') {
     } else {
         drawStageStyleCelestialBody(
             ctx,
-            CANVAS_WIDTH * 0.78,
+            SCREEN_WIDTH * 0.78,
             CANVAS_HEIGHT * 0.22,
             74,
             '#f8f9fa',
@@ -2623,7 +2641,7 @@ function renderWafuuCinematicBackdrop(ctx, timer, variant = 'opening') {
         const seedA = hash01(i + 0.9);
         const seedB = hash01(i * 1.8 + 3.2);
         const depth = i % 3;
-        const px = (seedA * (CANVAS_WIDTH + 180) - 90 + timer * (0.002 + depth * 0.0014)) % (CANVAS_WIDTH + 180) - 90;
+        const px = (seedA * (SCREEN_WIDTH + 180) - 90 + timer * (0.002 + depth * 0.0014)) % (SCREEN_WIDTH + 180) - 90;
         const py = (seedB * (CANVAS_HEIGHT * 0.58) + Math.sin(time * (0.7 + depth * 0.22) + i * 0.8) * (6 + depth * 4));
         const twinkle = (Math.sin(time * (1.6 + depth * 0.38) + i * 1.4) + 1) * 0.5;
         const alpha = (variant === 'ending' ? 0.2 : 0.14) + twinkle * (variant === 'ending' ? 0.2 : 0.38);
@@ -2638,14 +2656,14 @@ function renderWafuuCinematicBackdrop(ctx, timer, variant = 'opening') {
         ctx.fillStyle = color;
         ctx.beginPath();
         ctx.moveTo(-step - shift, CANVAS_HEIGHT);
-        for (let x = -step - shift; x <= CANVAS_WIDTH + step * 1.4; x += step) {
+        for (let x = -step - shift; x <= SCREEN_WIDTH + step * 1.4; x += step) {
             const peak = baseY - heightBase
                 - Math.sin((x + 80) * 0.012 + time * 0.29) * heightAmp
                 - Math.cos((x + 30) * 0.018 + time * 0.18) * (heightAmp * 0.45);
             ctx.lineTo(x + step * 0.34, peak);
             ctx.lineTo(x + step, baseY);
         }
-        ctx.lineTo(CANVAS_WIDTH + step * 2, CANVAS_HEIGHT);
+        ctx.lineTo(SCREEN_WIDTH + step * 2, CANVAS_HEIGHT);
         ctx.closePath();
         ctx.fill();
     };
@@ -2657,7 +2675,7 @@ function renderWafuuCinematicBackdrop(ctx, timer, variant = 'opening') {
     ctx.lineWidth = 1.1;
     ctx.beginPath();
     ctx.moveTo(0, CANVAS_HEIGHT * 0.64);
-    for (let x = 0; x <= CANVAS_WIDTH; x += 16) {
+    for (let x = 0; x <= SCREEN_WIDTH; x += 16) {
         const y = CANVAS_HEIGHT * 0.64 + Math.sin(x * 0.012 + time * 0.2) * 10 + Math.cos(x * 0.02 + time * 0.15) * 5;
         ctx.lineTo(x, y);
     }
@@ -2666,9 +2684,9 @@ function renderWafuuCinematicBackdrop(ctx, timer, variant = 'opening') {
     // 地平線の鳥居シルエット
     const shrineY = CANVAS_HEIGHT * 0.63;
     ctx.fillStyle = palette.shrine;
-    ctx.fillRect(0, shrineY, CANVAS_WIDTH, 20);
+    ctx.fillRect(0, shrineY, SCREEN_WIDTH, 20);
     ctx.fillStyle = palette.shrineEdge;
-    ctx.fillRect(0, shrineY - 2, CANVAS_WIDTH, 2);
+    ctx.fillRect(0, shrineY - 2, SCREEN_WIDTH, 2);
     ctx.fillStyle = palette.shrine;
     for (let i = -1; i < 6; i++) {
         const gateX = 80 + i * 245 - ((timer * 0.025) % 245);
@@ -2709,7 +2727,7 @@ function renderWafuuCinematicBackdrop(ctx, timer, variant = 'opening') {
         const layer = i % 4;
         const pattern = i % 6;
 
-        const spanX = CANVAS_WIDTH + 260;
+        const spanX = SCREEN_WIDTH + 260;
         const spanY = CANVAS_HEIGHT + 320;
         const baseX = seedA * spanX - 130;
         const baseY = seedB * spanY - 160;
@@ -2775,21 +2793,21 @@ function renderWafuuCinematicBackdrop(ctx, timer, variant = 'opening') {
 
     // 周辺減光
     const vignette = ctx.createRadialGradient(
-        CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.5, CANVAS_WIDTH * 0.14,
-        CANVAS_WIDTH * 0.5, CANVAS_HEIGHT * 0.5, CANVAS_WIDTH * 0.82
+        SCREEN_WIDTH * 0.5, CANVAS_HEIGHT * 0.5, SCREEN_WIDTH * 0.14,
+        SCREEN_WIDTH * 0.5, CANVAS_HEIGHT * 0.5, SCREEN_WIDTH * 0.82
     );
     vignette.addColorStop(0, 'rgba(0,0,0,0)');
     vignette.addColorStop(1, variant === 'ending' ? 'rgba(0,0,0,0.22)' : 'rgba(0,0,0,0.44)');
     ctx.fillStyle = vignette;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
 }
 
 function renderWafuuMessagePanel(ctx, timer, variant = 'opening') {
     // テキスト配置ガイドのみ返す（パネル背景・枠は描画しない）
     const panelY = CANVAS_HEIGHT * 0.14;
-    const panelW = CANVAS_WIDTH * 0.74;
+    const panelW = SCREEN_WIDTH * 0.74;
     const panelH = CANVAS_HEIGHT * 0.7;
-    const panelX = (CANVAS_WIDTH - panelW) * 0.5;
+    const panelX = (SCREEN_WIDTH - panelW) * 0.5;
     void ctx;
     void timer;
     void variant;
@@ -2828,7 +2846,7 @@ export function renderIntro(ctx, timer) {
         ctx.fillStyle = `rgba(244, 248, 255, ${alpha})`;
         ctx.shadowColor = 'rgba(0, 0, 0, 0.65)';
         ctx.shadowBlur = 7;
-        ctx.fillText(line, CANVAS_WIDTH / 2, textTop + i * lineHeight + rise);
+        ctx.fillText(line, SCREEN_WIDTH / 2, textTop + i * lineHeight + rise);
     });
     ctx.shadowBlur = 0;
 
@@ -2839,7 +2857,7 @@ export function renderIntro(ctx, timer) {
             ctx.fillStyle = 'rgba(255, 255, 255, 0.82)';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText('Press SPACE or Tap Screen to Skip', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 66);
+            ctx.fillText('Press SPACE or Tap Screen to Skip', SCREEN_WIDTH / 2, CANVAS_HEIGHT - 66);
         }
     }
 }
@@ -2874,7 +2892,7 @@ export function renderEnding(ctx, timer) {
         ctx.fillStyle = `rgba(255, 247, 234, ${alpha})`;
         ctx.shadowColor = 'rgba(0, 0, 0, 0.58)';
         ctx.shadowBlur = 7;
-        ctx.fillText(line, CANVAS_WIDTH / 2, textTop + i * lineHeight + rise);
+        ctx.fillText(line, SCREEN_WIDTH / 2, textTop + i * lineHeight + rise);
     });
     ctx.shadowBlur = 0;
 
@@ -2885,7 +2903,7 @@ export function renderEnding(ctx, timer) {
             ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText('Press SPACE or Tap Screen to Return to Title', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 66);
+            ctx.fillText('Press SPACE or Tap Screen to Return to Title', SCREEN_WIDTH / 2, CANVAS_HEIGHT - 66);
         }
     }
 }
@@ -2895,11 +2913,11 @@ export function renderEnding(ctx, timer) {
 // 画面中央のキャプチャ対象を邪魔しないよう画面下端中央に控えめに配置する。
 // 描画と当たり判定で同じ座標を使うため、この単一の関数を双方が参照する。
 export function getPauseReturnButton() {
-    const pad = VIRTUAL_PAD;
     // 画面最下端だとセーフエリア等でタップできないため、下部の操作ボタン(攻撃)の
     // 中心Yに合わせて押せる帯に置く。x は中央（操作ボタンは左右端なので中央は空き）。
-    const y = (CANVAS_HEIGHT - pad.BOTTOM_MARGIN) + (pad.ATTACK?.y || 58);
-    return { x: CANVAS_WIDTH / 2, y, w: 200, h: 40 };
+    // uiScale 追従のため攻撃ボタンと同じ getPadLayout を参照する。
+    const L = getPadLayout();
+    return { x: SCREEN_WIDTH / 2, y: L.attack.y, w: 200 * L.s, h: 40 * L.s };
 }
 
 export function renderPauseScreen(ctx, armed = false) {
@@ -2922,7 +2940,7 @@ export function renderPauseScreen(ctx, armed = false) {
     // ラベル（PCはクリック表記。確認は「もう一度〜」で通常と長さを揃える）
     const actionWord = isTouchOverlayMode() ? 'タップ' : 'クリック';
     ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    ctx.font = '16px "Zen Old Mincho", serif';
+    ctx.font = `${Math.round(16 * getUiScale())}px "Zen Old Mincho", serif`;
     ctx.fillText(armed ? `もう一度${actionWord}` : 'タイトルに戻る', btn.x, btn.y);
     ctx.restore();
 }
@@ -2934,18 +2952,18 @@ export function renderGameClearScreen(ctx, timerMs = 0) {
 
     // 通常ステージクリア寄りの半透明オーバーレイ
     ctx.fillStyle = `rgba(180, 132, 54, ${0.2 + pulse * 0.06})`;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
 
     const grad = ctx.createRadialGradient(
-        CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 0,
-        CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH * 0.72
+        SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2, 0,
+        SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2, SCREEN_WIDTH * 0.72
     );
     grad.addColorStop(0, `rgba(255, 226, 146, ${0.24 + pulse * 0.08})`);
     grad.addColorStop(1, 'rgba(0, 0, 0, 0.16)');
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
     ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
     ctx.restore();
 
     // 金粉パーティクル（透け感を維持）
@@ -2953,7 +2971,7 @@ export function renderGameClearScreen(ctx, timerMs = 0) {
         const cycleDuration = 4000;
         const offset = i * (cycleDuration / 15);
         const cycleProgress = ((time + offset) % cycleDuration) / cycleDuration;
-        const px = CANVAS_WIDTH / 2 + Math.sin(time * 0.001 + i * 0.72) * 200;
+        const px = SCREEN_WIDTH / 2 + Math.sin(time * 0.001 + i * 0.72) * 200;
         const py = CANVAS_HEIGHT / 2 - 100 + Math.cos(time * 0.0008 + i * 0.9) * 100 + cycleProgress * 120;
         const size = 2 + Math.sin(i * 0.5) * 1.5;
         const particleAlpha = Math.sin(cycleProgress * Math.PI) * 0.28;
@@ -2969,16 +2987,16 @@ export function renderGameClearScreen(ctx, timerMs = 0) {
 
     ctx.fillStyle = 'rgba(255, 247, 224, 0.98)';
     ctx.font = 'bold 80px serif';
-    ctx.fillText('天下統一', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 80);
+    ctx.fillText('天下統一', SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2 - 80);
 
     ctx.font = 'bold 40px serif';
     ctx.fillStyle = 'rgba(255, 218, 108, 0.98)';
-    ctx.fillText('GAME CLEAR', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
+    ctx.fillText('GAME CLEAR', SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
 
     if (Math.floor(time / 500) % 2 === 0) {
         ctx.font = 'bold 20px "Zen Old Mincho", serif';
         ctx.fillStyle = 'rgba(255, 255, 255, 0.84)';
-        ctx.fillText('Press SPACE or Tap Screen to Continue', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 80);
+        ctx.fillText('Press SPACE or Tap Screen to Continue', SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2 + 80);
     }
     ctx.shadowBlur = 0;
 }
@@ -3002,17 +3020,17 @@ export function renderStageClearAnnouncement(ctx, stageNumber, weaponUnlocked, s
 
     // 緑っぽく明るい背景
     ctx.fillStyle = 'rgba(60, 180, 100, 0.25)';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
 
     const grad = ctx.createRadialGradient(
-        CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, 0,
-        CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH * 0.7
+        SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2, 0,
+        SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2, SCREEN_WIDTH * 0.7
     );
     grad.addColorStop(0, 'rgba(120, 255, 180, 0.4)');
     grad.addColorStop(1, 'rgba(0, 0, 0, 0.2)');
     ctx.fillStyle = grad;
     ctx.globalCompositeOperation = 'screen';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
 
     ctx.globalCompositeOperation = 'source-over';
     ctx.textAlign = 'center';
@@ -3027,21 +3045,21 @@ export function renderStageClearAnnouncement(ctx, stageNumber, weaponUnlocked, s
         const stageName = (stage && stage.name) ? stage.name : `第${stageStr}階層`;
         ctx.fillStyle = '#ffffff';
         ctx.font = '700 42px serif';
-        ctx.fillText(stageName, CANVAS_WIDTH / 2, centerY - 100);
+        ctx.fillText(stageName, SCREEN_WIDTH / 2, centerY - 100);
     }
 
     // 「突破」（バン！）
     if (timer >= clearDelay) {
         ctx.font = '700 110px serif';
         ctx.fillStyle = '#ffd700';
-        ctx.fillText('突 破', CANVAS_WIDTH / 2, centerY);
+        ctx.fillText('突 破', SCREEN_WIDTH / 2, centerY);
     }
 
     // 新忍具獲得テキスト（バン！）
     if (weaponUnlocked && timer >= weaponDelay) {
         ctx.font = '700 30px "Zen Old Mincho", serif';
         ctx.fillStyle = '#ffeb3b';
-        ctx.fillText(`新忍具「${weaponUnlocked}」を獲得！`, CANVAS_WIDTH / 2, centerY + 120);
+        ctx.fillText(`新忍具「${weaponUnlocked}」を獲得！`, SCREEN_WIDTH / 2, centerY + 120);
     }
 
     ctx.shadowBlur = 0;
@@ -3052,7 +3070,7 @@ export function renderStageClearAnnouncement(ctx, stageNumber, weaponUnlocked, s
         if (blink) {
             ctx.font = '600 20px "Zen Old Mincho", serif';
             ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-            ctx.fillText('Press SPACE or Tap to View Status', CANVAS_WIDTH / 2, centerY + 200);
+            ctx.fillText('Press SPACE or Tap to View Status', SCREEN_WIDTH / 2, centerY + 200);
         }
     }
 
