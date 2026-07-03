@@ -1,5 +1,8 @@
 .terminal-input-helper/
 
+# ~/.gemini を指す絶対パス symlink。誤って混入したため追跡しない(他環境で壊れる)
+.antigravitycli/
+
 # scratch/ は検証用の一時作業ディレクトリ。生成物・スクリプト・依存環境を含め
 # Git では一切追跡しない(物理ファイルはローカルにのみ保持する)
 scratch/
