@@ -3168,6 +3168,20 @@ export class Stage {
             return false;
         }
 
+        const exitReveal = this.getStage1BambooExitRevealRect();
+        let drawCtx = ctx;
+        let layerCtx = null;
+        if (exitReveal) {
+            this.stage1BambooLayerCanvas ??= document.createElement('canvas');
+            if (this.stage1BambooLayerCanvas.width !== CANVAS_WIDTH || this.stage1BambooLayerCanvas.height !== CANVAS_HEIGHT) {
+                this.stage1BambooLayerCanvas.width = CANVAS_WIDTH;
+                this.stage1BambooLayerCanvas.height = CANVAS_HEIGHT;
+            }
+            layerCtx = this.stage1BambooLayerCanvas.getContext('2d');
+            layerCtx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            drawCtx = layerCtx;
+        }
+
         const drawStrip = (image, {
             parallax,
             drawHeight,
@@ -3203,44 +3217,35 @@ export class Stage {
                 : 0;
             const drawBentTile = (dx, dy) => {
                 if (bendAmount <= 0) {
-                    ctx.drawImage(tileImage, dx, dy);
+                    drawCtx.drawImage(tileImage, dx, dy);
                     return;
                 }
                 const midStart = Math.floor(drawHeight * 0.34);
                 const lockStart = Math.floor(drawHeight * 0.64);
-                ctx.drawImage(tileImage, 0, lockStart, tileWidth, drawHeight - lockStart, dx, dy + lockStart, tileWidth, drawHeight - lockStart);
-                ctx.drawImage(tileImage, 0, midStart, tileWidth, lockStart - midStart + 1, dx + bend * 0.38, dy + midStart, tileWidth, lockStart - midStart + 1);
-                ctx.drawImage(tileImage, 0, 0, tileWidth, midStart + 1, dx + bend, dy, tileWidth, midStart + 1);
+                drawCtx.drawImage(tileImage, 0, lockStart, tileWidth, drawHeight - lockStart, dx, dy + lockStart, tileWidth, drawHeight - lockStart);
+                drawCtx.drawImage(tileImage, 0, midStart, tileWidth, lockStart - midStart + 1, dx + bend * 0.38, dy + midStart, tileWidth, lockStart - midStart + 1);
+                drawCtx.drawImage(tileImage, 0, 0, tileWidth, midStart + 1, dx + bend, dy, tileWidth, midStart + 1);
             };
 
-            ctx.save();
-            ctx.globalAlpha *= alpha;
+            drawCtx.save();
+            drawCtx.globalAlpha *= alpha;
             const firstTile = Math.floor(scrollWorld / drawWidth) - 1;
             const lastTile = Math.ceil((scrollWorld + CANVAS_WIDTH) / drawWidth) + 1;
             for (let tile = firstTile; tile <= lastTile; tile++) {
                 const x = tile * drawWidth - scrollWorld;
                 if (x + drawWidth < -2 || x > CANVAS_WIDTH + 2) continue;
                 if (mirrorRepeat && Math.abs(tile) % 2 === 1) {
-                    ctx.save();
-                    ctx.translate(Math.round(x + drawWidth + 2), y);
-                    ctx.scale(-1, 1);
+                    drawCtx.save();
+                    drawCtx.translate(Math.round(x + drawWidth + 2), y);
+                    drawCtx.scale(-1, 1);
                     drawBentTile(0, 0);
-                    ctx.restore();
+                    drawCtx.restore();
                 } else {
                     drawBentTile(Math.round(x), y);
                 }
             }
-            ctx.restore();
+            drawCtx.restore();
         };
-
-        const exitReveal = this.getStage1BambooExitRevealRect();
-        ctx.save();
-        if (exitReveal) {
-            ctx.beginPath();
-            ctx.rect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-            ctx.rect(exitReveal.x, exitReveal.y, exitReveal.width, exitReveal.height);
-            ctx.clip('evenodd');
-        }
 
         drawStrip(images.far, {
             parallax: 0.18,
@@ -3312,7 +3317,30 @@ export class Stage {
             filter: 'brightness(0.82) saturate(0.72) contrast(0.92) hue-rotate(-22deg)'
         });
 
-        ctx.restore();
+        if (exitReveal && layerCtx) {
+            const cx = exitReveal.x + exitReveal.width * 0.82;
+            const cy = exitReveal.y + exitReveal.height * 0.48;
+            const rx = exitReveal.width * 0.32;
+            const ry = exitReveal.height * 0.48;
+            const fades = [
+                { scale: 1.08, alpha: 0.06 },
+                { scale: 0.9, alpha: 0.14 },
+                { scale: 0.72, alpha: 0.32 },
+                { scale: 0.54, alpha: 0.66 },
+                { scale: 0.38, alpha: 0.98 }
+            ];
+
+            layerCtx.save();
+            layerCtx.globalCompositeOperation = 'destination-out';
+            for (const fade of fades) {
+                layerCtx.fillStyle = `rgba(0,0,0,${fade.alpha})`;
+                layerCtx.beginPath();
+                layerCtx.ellipse(cx, cy, rx * fade.scale, ry * fade.scale, 0, 0, Math.PI * 2);
+                layerCtx.fill();
+            }
+            layerCtx.restore();
+            ctx.drawImage(this.stage1BambooLayerCanvas, 0, 0);
+        }
         return true;
     }
 
@@ -3324,7 +3352,7 @@ export class Stage {
         const exitH = Math.min(CANVAS_HEIGHT * 0.82, this.groundY + 110);
         const exitW = Math.min(CANVAS_WIDTH * 1.18, exitH * (image.naturalWidth / image.naturalHeight));
         const cameraStopX = Math.max(0, this.maxProgress - CANVAS_WIDTH);
-        const stopX = Math.round(CANVAS_WIDTH - exitW + 72);
+        const stopX = Math.round(CANVAS_WIDTH - exitW + 110);
         const worldX = cameraStopX + stopX;
 
         return {
@@ -3339,9 +3367,9 @@ export class Stage {
         const spec = this.getStage1BambooExitDrawSpec();
         if (!spec) return null;
 
-        const left = Math.max(0, spec.x + spec.width * 0.28);
-        const right = Math.min(CANVAS_WIDTH, spec.x + spec.width * 0.84);
-        const top = Math.max(0, spec.y + spec.height * 0.08);
+        const left = Math.max(0, spec.x + spec.width * 0.5);
+        const right = Math.min(CANVAS_WIDTH, spec.x + spec.width * 0.95);
+        const top = Math.max(0, spec.y + spec.height * 0.1);
         const bottom = Math.min(this.groundY + 24, spec.y + spec.height * 0.9);
         const width = right - left;
         const height = bottom - top;
