@@ -3242,7 +3242,7 @@ export class Stage {
             bendAmount: 0.5,
             bendSpeed: 0.35,
             bendPhase: 0.6,
-            filter: 'brightness(0.86) saturate(0.58) contrast(0.82) hue-rotate(-22deg)'
+            filter: 'brightness(1.16) saturate(1.08) contrast(0.92) hue-rotate(8deg)'
         });
         drawStrip(images.far, {
             parallax: 0.24,
@@ -3254,7 +3254,7 @@ export class Stage {
             bendAmount: 0.4,
             bendSpeed: 0.32,
             bendPhase: 2.2,
-            filter: 'brightness(0.82) saturate(0.56) contrast(0.82) hue-rotate(-22deg)'
+            filter: 'brightness(1.12) saturate(1.04) contrast(0.9) hue-rotate(8deg)'
         });
         drawStrip(images.mid, {
             parallax: 0.44,
@@ -3265,7 +3265,7 @@ export class Stage {
             bendAmount: 0.9,
             bendSpeed: 0.45,
             bendPhase: 1.4,
-            filter: 'brightness(0.82) saturate(0.72) contrast(0.9) hue-rotate(-22deg)'
+            filter: 'brightness(1.18) saturate(1.16) contrast(0.98) hue-rotate(8deg)'
         });
         drawStrip(images.mid, {
             parallax: 0.57,
@@ -3277,7 +3277,7 @@ export class Stage {
             bendAmount: 0.7,
             bendSpeed: 0.42,
             bendPhase: 3.1,
-            filter: 'brightness(0.76) saturate(0.68) contrast(0.88) hue-rotate(-22deg)'
+            filter: 'brightness(1.12) saturate(1.08) contrast(0.94) hue-rotate(8deg)'
         });
         drawStrip(images.near, {
             parallax: 0.82,
@@ -3288,7 +3288,7 @@ export class Stage {
             bendAmount: 1.2,
             bendSpeed: 0.52,
             bendPhase: 0,
-            filter: 'brightness(0.88) saturate(0.76) contrast(0.94) hue-rotate(-22deg)'
+            filter: 'brightness(1.2) saturate(1.18) contrast(1.0) hue-rotate(8deg)'
         });
         drawStrip(images.near, {
             parallax: 0.96,
@@ -3300,7 +3300,7 @@ export class Stage {
             bendAmount: 0.9,
             bendSpeed: 0.48,
             bendPhase: 2.7,
-            filter: 'brightness(0.82) saturate(0.72) contrast(0.92) hue-rotate(-22deg)'
+            filter: 'brightness(1.12) saturate(1.08) contrast(0.96) hue-rotate(8deg)'
         });
 
         return true;
@@ -5058,20 +5058,23 @@ export class Stage {
 
         // 1. 路面グラデ（湿った苔と土）
         const roadGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
-        roadGrad.addColorStop(0, this.interpolateColor('#354026', '#141a0e', darken * 0.65));
-        roadGrad.addColorStop(0.6, this.interpolateColor('#445232', '#1a2212', darken * 0.5));
-        roadGrad.addColorStop(1, this.interpolateColor('#303a22', '#10150a', darken * 0.65));
+        roadGrad.addColorStop(0, this.interpolateColor('#496f36', '#22311b', darken * 0.45));
+        roadGrad.addColorStop(0.6, this.interpolateColor('#5b7b43', '#293b23', darken * 0.38));
+        roadGrad.addColorStop(1, this.interpolateColor('#3f5f31', '#1a2616', darken * 0.5));
         ctx.fillStyle = roadGrad;
         ctx.fillRect(0, horizonY, CANVAS_WIDTH, span);
 
         if (this.renderGroundImageTile(ctx, this.stage1GroundImage, horizonY, bottomY, renderProgress, {
-            filter: 'brightness(0.82) saturate(0.72) contrast(0.9) hue-rotate(-14deg)',
+            filter: 'brightness(1.08) saturate(0.92) contrast(0.96) hue-rotate(30deg)',
             extraHeight: 38,
             yOffset: -18
         })) {
+            ctx.fillStyle = 'rgba(42, 112, 62, 0.16)';
+            ctx.fillRect(0, horizonY, CANVAS_WIDTH, span);
+
             const bottomShade = ctx.createLinearGradient(0, horizonY + span * 0.34, 0, bottomY);
             bottomShade.addColorStop(0, 'rgba(0,0,0,0)');
-            bottomShade.addColorStop(1, `rgba(0,0,0,${(0.18 + darken * 0.16).toFixed(3)})`);
+            bottomShade.addColorStop(1, `rgba(0,0,0,${(0.08 + darken * 0.1).toFixed(3)})`);
             ctx.fillStyle = bottomShade;
             ctx.fillRect(0, horizonY, CANVAS_WIDTH, span);
             return;

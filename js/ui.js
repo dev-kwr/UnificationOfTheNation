@@ -2,7 +2,7 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, getUiScale } from './constants.js';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, getUiScale, getSafeInsets } from './constants.js';
 import { input } from './input.js';
 import { audio } from './audio.js';
 import { saveManager } from './save.js';
@@ -631,12 +631,16 @@ export class UI {
         };
 
         // --- 左上HUD（刷新） ---
-        // uiScale>1(スマホ)のときだけ原点アンカーで一様拡大する。
-        // s=1 の端末では save/scale 自体を行わず既存描画と完全同一のパスを通す。
+        // uiScale>1(スマホ)のとき原点アンカーで一様拡大。加えてノッチ/Dynamic Island
+        // 分だけ右へ寄せる(safeL は scale の外＝等倍論理pxで平行移動)。
+        // s=1 かつ safeL=0 の端末では save 自体を行わず既存描画と完全同一のパスを通す。
         const uiS = getUiScale();
-        if (uiS !== 1) {
+        const hudSafeL = getSafeInsets().left;
+        const hudWrap = (uiS !== 1) || hudSafeL > 0;
+        if (hudWrap) {
             ctx.save();
-            ctx.scale(uiS, uiS);
+            if (hudSafeL > 0) ctx.translate(hudSafeL, 0);
+            if (uiS !== 1) ctx.scale(uiS, uiS);
         }
         const hpBarWidth = 300;
         const hpBarHeight = 18;
@@ -872,8 +876,8 @@ export class UI {
             ctx.restore();
         }
 
-        // 左上HUDの uiScale ラップをここで閉じる（以降は等倍スクリーン座標）
-        if (uiS !== 1) ctx.restore();
+        // 左上HUDの uiScale/セーフエリア ラップをここで閉じる（以降は等倍スクリーン座標）
+        if (hudWrap) ctx.restore();
 
         // 右上ステージ名（右端アンカー・BGMボタン左）。BGMボタンと同じ getPadLayout を
         // 参照するため、uiScale 拡大時もボタンとの相対位置が保たれる。
@@ -2279,7 +2283,10 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
     const totalWD = list.length * CARD_W + Math.max(0, list.length - 1) * GAP;
     const startXD = CXD - totalWD / 2;
     const BLOCK_H = HEAD_H + GAP_HEAD_CARD + CARD_H;
-    const blockTopD = (1080 - BLOCK_H) / 2;       // 見出し＋カードを画面上下中央へ
+    // スマホ(uiScale>1)は下端の仮想パッドにカードが被らないようブロックを上へ寄せる。
+    // PC/iPad(uiScale=1)は LIFT_D=0 で従来どおり画面上下中央。
+    const LIFT_D = (getUiScale() - 1) * 400;
+    const blockTopD = (1080 - BLOCK_H) / 2 - LIFT_D;
     const cardTopD = blockTopD + HEAD_H + GAP_HEAD_CARD;
 
     // --- 選択 transition（amt[i]:0..1）を実時間でイージング（≈0.25sで収束） ---
