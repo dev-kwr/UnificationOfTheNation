@@ -3233,102 +3233,137 @@ export class Stage {
             ctx.restore();
         };
 
+        const exitReveal = this.getStage1BambooExitRevealRect();
+        ctx.save();
+        if (exitReveal) {
+            ctx.beginPath();
+            ctx.rect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            ctx.rect(exitReveal.x, exitReveal.y, exitReveal.width, exitReveal.height);
+            ctx.clip('evenodd');
+        }
+
         drawStrip(images.far, {
             parallax: 0.18,
-            drawHeight: 800,
-            baseOffset: 96,
-            alpha: 0.66,
-            widthScale: 0.58,
+            drawHeight: 720,
+            baseOffset: 82,
+            alpha: 0.42,
+            widthScale: 0.44,
             bendAmount: 0.5,
             bendSpeed: 0.35,
             bendPhase: 0.6,
-            filter: 'brightness(0.68) saturate(0.66) contrast(0.84) hue-rotate(-22deg)'
+            filter: 'brightness(0.76) saturate(0.64) contrast(0.86) hue-rotate(-22deg)'
         });
         drawStrip(images.far, {
             parallax: 0.24,
-            drawHeight: 760,
-            baseOffset: 94,
-            alpha: 0.28,
-            widthScale: 0.56,
+            drawHeight: 690,
+            baseOffset: 80,
+            alpha: 0.1,
+            widthScale: 0.42,
             phaseOffset: 0.45,
             bendAmount: 0.4,
             bendSpeed: 0.32,
             bendPhase: 2.2,
-            filter: 'brightness(0.64) saturate(0.64) contrast(0.82) hue-rotate(-22deg)'
+            filter: 'brightness(0.72) saturate(0.62) contrast(0.84) hue-rotate(-22deg)'
         });
         drawStrip(images.mid, {
             parallax: 0.44,
-            drawHeight: 790,
-            baseOffset: 104,
-            alpha: 0.9,
-            widthScale: 0.54,
+            drawHeight: 720,
+            baseOffset: 92,
+            alpha: 0.68,
+            widthScale: 0.42,
             bendAmount: 0.9,
             bendSpeed: 0.45,
             bendPhase: 1.4,
-            filter: 'brightness(0.76) saturate(0.74) contrast(0.9) hue-rotate(-22deg)'
+            filter: 'brightness(0.82) saturate(0.72) contrast(0.9) hue-rotate(-22deg)'
         });
         drawStrip(images.mid, {
             parallax: 0.57,
-            drawHeight: 750,
-            baseOffset: 100,
-            alpha: 0.34,
-            widthScale: 0.52,
+            drawHeight: 690,
+            baseOffset: 88,
+            alpha: 0.12,
+            widthScale: 0.4,
             phaseOffset: 0.38,
             bendAmount: 0.7,
             bendSpeed: 0.42,
             bendPhase: 3.1,
-            filter: 'brightness(0.7) saturate(0.7) contrast(0.88) hue-rotate(-22deg)'
+            filter: 'brightness(0.76) saturate(0.68) contrast(0.88) hue-rotate(-22deg)'
         });
         drawStrip(images.near, {
             parallax: 0.82,
-            drawHeight: 760,
-            baseOffset: 108,
-            alpha: 0.86,
-            widthScale: 0.5,
+            drawHeight: 700,
+            baseOffset: 98,
+            alpha: 0.72,
+            widthScale: 0.38,
             bendAmount: 1.2,
             bendSpeed: 0.52,
             bendPhase: 0,
-            filter: 'brightness(0.84) saturate(0.78) contrast(0.94) hue-rotate(-22deg)'
+            filter: 'brightness(0.88) saturate(0.76) contrast(0.94) hue-rotate(-22deg)'
         });
         drawStrip(images.near, {
             parallax: 0.96,
-            drawHeight: 720,
-            baseOffset: 104,
-            alpha: 0.28,
-            widthScale: 0.5,
+            drawHeight: 660,
+            baseOffset: 94,
+            alpha: 0.08,
+            widthScale: 0.36,
             phaseOffset: 0.33,
             bendAmount: 0.9,
             bendSpeed: 0.48,
             bendPhase: 2.7,
-            filter: 'brightness(0.78) saturate(0.74) contrast(0.92) hue-rotate(-22deg)'
+            filter: 'brightness(0.82) saturate(0.72) contrast(0.92) hue-rotate(-22deg)'
         });
 
+        ctx.restore();
         return true;
     }
 
-    renderStage1BambooExit(ctx) {
-        if (this.stageNumber !== 1) return false;
+    getStage1BambooExitDrawSpec(image = this.stage1BambooExitImage) {
+        if (this.stageNumber !== 1) return null;
+        if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return null;
 
-        const image = this.stage1BambooExitImage;
-        if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
-
-        // 通常背景の延長として描き、下端は地面レイヤーに沈めて浮きを防ぐ
         const baseY = this.groundY + 64;
         const exitH = Math.min(CANVAS_HEIGHT * 0.82, this.groundY + 110);
         const exitW = Math.min(CANVAS_WIDTH * 1.18, exitH * (image.naturalWidth / image.naturalHeight));
         const cameraStopX = Math.max(0, this.maxProgress - CANVAS_WIDTH);
         const stopX = Math.round(CANVAS_WIDTH - exitW + 72);
         const worldX = cameraStopX + stopX;
-        const x = worldX - this.progress;
-        const y = baseY - exitH;
+
+        return {
+            x: worldX - this.progress,
+            y: baseY - exitH,
+            width: exitW,
+            height: exitH
+        };
+    }
+
+    getStage1BambooExitRevealRect() {
+        const spec = this.getStage1BambooExitDrawSpec();
+        if (!spec) return null;
+
+        const left = Math.max(0, spec.x + spec.width * 0.28);
+        const right = Math.min(CANVAS_WIDTH, spec.x + spec.width * 0.84);
+        const top = Math.max(0, spec.y + spec.height * 0.08);
+        const bottom = Math.min(this.groundY + 24, spec.y + spec.height * 0.9);
+        const width = right - left;
+        const height = bottom - top;
+
+        if (width <= 2 || height <= 2) return null;
+        return { x: left, y: top, width, height };
+    }
+
+    renderStage1BambooExit(ctx) {
+        if (this.stageNumber !== 1) return false;
+
+        const image = this.stage1BambooExitImage;
+        const spec = this.getStage1BambooExitDrawSpec(image);
+        if (!spec) return false;
 
         const prewarmMarginRight = CANVAS_WIDTH * 2.2;
-        if (x + exitW < -200 || x > CANVAS_WIDTH + prewarmMarginRight) return false;
+        if (spec.x + spec.width < -200 || spec.x > CANVAS_WIDTH + prewarmMarginRight) return false;
 
         ctx.save();
-        ctx.globalAlpha *= 0.9;
-        ctx.filter = 'brightness(0.78) saturate(0.74) contrast(0.9) hue-rotate(-12deg)';
-        ctx.drawImage(image, x, y, exitW, exitH);
+        ctx.globalAlpha *= 0.95;
+        ctx.filter = 'brightness(0.82) saturate(0.78) contrast(0.92) hue-rotate(-12deg)';
+        ctx.drawImage(image, spec.x, spec.y, spec.width, spec.height);
         ctx.filter = 'none';
         ctx.restore();
         return true;
