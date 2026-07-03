@@ -2216,6 +2216,11 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
     const CARD_K = 1.5;
     const dk = (v) => v * S * CARD_K;
     const lwk = (v) => Math.max(1, dk(v));
+    // カード内テキストの物理サイズアンカー: スマホ(uiScale>1)では文字だけ拡大する。
+    // カードのボックス・位置・pips は dk() のまま据え置き（右の仮想パッドと衝突させない）。
+    // PC/iPad は uiScale=1 で dkt===dk＝従来と完全一致。
+    const textScale = getUiScale();
+    const dkt = (v) => dk(v) * textScale;
     const lerp = (a, b, t) => a + (b - a) * t;
 
     // --- 角丸パス（キャンバス座標） ---
@@ -2399,8 +2404,8 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
         // タイトル（900 28px 字間.04em 中央）
         ctx.textBaseline = 'alphabetic';
         ctx.fillStyle = '#ffffff';
-        ctx.font = `900 ${dk(28)}px "Zen Old Mincho", serif`;
-        fillLS(choice.title || '', cx, y + dk(60), dk(0.04 * 28), 'center');
+        ctx.font = `900 ${dkt(28)}px "Zen Old Mincho", serif`;
+        fillLS(choice.title || '', cx, y + dk(60), dkt(0.04 * 28), 'center');
 
         // 区切り線（幅56・中央・青の淡グラデ）
         const divHalf = dk(56) / 2;
@@ -2414,11 +2419,11 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
         ctx.beginPath(); ctx.moveTo(cx - divHalf, divY); ctx.lineTo(cx + divHalf, divY); ctx.stroke();
 
         // 説明（500 15px・中央・最大2行・行高1.7）
-        ctx.font = `500 ${dk(15)}px "Zen Old Mincho", serif`;
+        ctx.font = `500 ${dkt(15)}px "Zen Old Mincho", serif`;
         ctx.fillStyle = 'rgba(216, 230, 255, 0.82)';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const lineH = dk(15 * 1.7);
+        const lineH = dkt(15 * 1.7);
         const subMid = y + dk(130);
         const lines = wrapTextLines(choice.subtitle || '', w - dk(60), 2);
         if (lines.length <= 1) {
@@ -2439,29 +2444,29 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
             // 効果時間（ラベル＋数値＋秒 を横1行・中央）
             ctx.textBaseline = 'middle';
             const label = '効果時間', valNum = String(choice.durationSec), valUnit = '秒';
-            const labelLs = dk(0.12 * 13);
-            ctx.font = `500 ${dk(13)}px "Zen Old Mincho", serif`;
+            const labelLs = dkt(0.12 * 13);
+            ctx.font = `500 ${dkt(13)}px "Zen Old Mincho", serif`;
             const labelW = measureLS(label, labelLs);
-            ctx.font = `700 ${dk(21)}px "Zen Old Mincho", serif`;
+            ctx.font = `700 ${dkt(21)}px "Zen Old Mincho", serif`;
             const numW = ctx.measureText(valNum).width;
-            ctx.font = `500 ${dk(13)}px "Zen Old Mincho", serif`;
+            ctx.font = `500 ${dkt(13)}px "Zen Old Mincho", serif`;
             const unitW = ctx.measureText(valUnit).width;
             const innerGap = dk(10), unitGap = dk(2);
             const totalRowW = labelW + innerGap + numW + unitGap + unitW;
             let tx = cx - totalRowW / 2;
 
-            ctx.font = `500 ${dk(13)}px "Zen Old Mincho", serif`;
+            ctx.font = `500 ${dkt(13)}px "Zen Old Mincho", serif`;
             ctx.fillStyle = 'rgba(180, 200, 236, 0.7)';
             fillLS(label, tx, footMid, labelLs, 'left');
             tx += labelW + innerGap;
 
             ctx.textAlign = 'left';
-            ctx.font = `700 ${dk(21)}px "Zen Old Mincho", serif`;
+            ctx.font = `700 ${dkt(21)}px "Zen Old Mincho", serif`;
             ctx.fillStyle = '#c4e8ff';
             ctx.fillText(valNum, tx, footMid);
             tx += numW + unitGap;
 
-            ctx.font = `500 ${dk(13)}px "Zen Old Mincho", serif`;
+            ctx.font = `500 ${dkt(13)}px "Zen Old Mincho", serif`;
             ctx.fillStyle = 'rgba(196, 232, 255, 0.7)';
             ctx.fillText(valUnit, tx, footMid + dk(2));
 
@@ -2501,10 +2506,10 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
             // 段位ラベル（700 16px 字間.05em・ピップ下 margin15）
             ctx.textBaseline = 'alphabetic';
             ctx.fillStyle = '#cfe2ff';
-            ctx.font = `700 ${dk(16)}px "Zen Old Mincho", serif`;
+            ctx.font = `700 ${dkt(16)}px "Zen Old Mincho", serif`;
             const cur = tierLabels[Math.min(level, 3)];
             const nxt = tierLabels[Math.min(level + 1, 3)];
-            fillLS(`${cur} → ${nxt}`, cx, pipsY + pipH + dk(15) + dk(13), dk(0.05 * 16), 'center');
+            fillLS(`${cur} → ${nxt}`, cx, pipsY + pipH + dk(15) + dk(13), dkt(0.05 * 16), 'center');
         }
 
     });

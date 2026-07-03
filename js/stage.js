@@ -3168,20 +3168,6 @@ export class Stage {
             return false;
         }
 
-        const exitReveal = this.getStage1BambooExitRevealRect();
-        let drawCtx = ctx;
-        let layerCtx = null;
-        if (exitReveal) {
-            this.stage1BambooLayerCanvas ??= document.createElement('canvas');
-            if (this.stage1BambooLayerCanvas.width !== CANVAS_WIDTH || this.stage1BambooLayerCanvas.height !== CANVAS_HEIGHT) {
-                this.stage1BambooLayerCanvas.width = CANVAS_WIDTH;
-                this.stage1BambooLayerCanvas.height = CANVAS_HEIGHT;
-            }
-            layerCtx = this.stage1BambooLayerCanvas.getContext('2d');
-            layerCtx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-            drawCtx = layerCtx;
-        }
-
         const drawStrip = (image, {
             parallax,
             drawHeight,
@@ -3217,65 +3203,65 @@ export class Stage {
                 : 0;
             const drawBentTile = (dx, dy) => {
                 if (bendAmount <= 0) {
-                    drawCtx.drawImage(tileImage, dx, dy);
+                    ctx.drawImage(tileImage, dx, dy);
                     return;
                 }
                 const midStart = Math.floor(drawHeight * 0.34);
                 const lockStart = Math.floor(drawHeight * 0.64);
-                drawCtx.drawImage(tileImage, 0, lockStart, tileWidth, drawHeight - lockStart, dx, dy + lockStart, tileWidth, drawHeight - lockStart);
-                drawCtx.drawImage(tileImage, 0, midStart, tileWidth, lockStart - midStart + 1, dx + bend * 0.38, dy + midStart, tileWidth, lockStart - midStart + 1);
-                drawCtx.drawImage(tileImage, 0, 0, tileWidth, midStart + 1, dx + bend, dy, tileWidth, midStart + 1);
+                ctx.drawImage(tileImage, 0, lockStart, tileWidth, drawHeight - lockStart, dx, dy + lockStart, tileWidth, drawHeight - lockStart);
+                ctx.drawImage(tileImage, 0, midStart, tileWidth, lockStart - midStart + 1, dx + bend * 0.38, dy + midStart, tileWidth, lockStart - midStart + 1);
+                ctx.drawImage(tileImage, 0, 0, tileWidth, midStart + 1, dx + bend, dy, tileWidth, midStart + 1);
             };
 
-            drawCtx.save();
-            drawCtx.globalAlpha *= alpha;
+            ctx.save();
+            ctx.globalAlpha *= alpha;
             const firstTile = Math.floor(scrollWorld / drawWidth) - 1;
             const lastTile = Math.ceil((scrollWorld + CANVAS_WIDTH) / drawWidth) + 1;
             for (let tile = firstTile; tile <= lastTile; tile++) {
                 const x = tile * drawWidth - scrollWorld;
                 if (x + drawWidth < -2 || x > CANVAS_WIDTH + 2) continue;
                 if (mirrorRepeat && Math.abs(tile) % 2 === 1) {
-                    drawCtx.save();
-                    drawCtx.translate(Math.round(x + drawWidth + 2), y);
-                    drawCtx.scale(-1, 1);
+                    ctx.save();
+                    ctx.translate(Math.round(x + drawWidth + 2), y);
+                    ctx.scale(-1, 1);
                     drawBentTile(0, 0);
-                    drawCtx.restore();
+                    ctx.restore();
                 } else {
                     drawBentTile(Math.round(x), y);
                 }
             }
-            drawCtx.restore();
+            ctx.restore();
         };
 
         drawStrip(images.far, {
             parallax: 0.18,
             drawHeight: 720,
             baseOffset: 82,
-            alpha: 0.42,
-            widthScale: 0.44,
+            alpha: 0.22,
+            widthScale: 0.36,
             bendAmount: 0.5,
             bendSpeed: 0.35,
             bendPhase: 0.6,
-            filter: 'brightness(0.76) saturate(0.64) contrast(0.86) hue-rotate(-22deg)'
+            filter: 'brightness(0.86) saturate(0.58) contrast(0.82) hue-rotate(-22deg)'
         });
         drawStrip(images.far, {
             parallax: 0.24,
             drawHeight: 690,
             baseOffset: 80,
-            alpha: 0.1,
-            widthScale: 0.42,
+            alpha: 0.04,
+            widthScale: 0.34,
             phaseOffset: 0.45,
             bendAmount: 0.4,
             bendSpeed: 0.32,
             bendPhase: 2.2,
-            filter: 'brightness(0.72) saturate(0.62) contrast(0.84) hue-rotate(-22deg)'
+            filter: 'brightness(0.82) saturate(0.56) contrast(0.82) hue-rotate(-22deg)'
         });
         drawStrip(images.mid, {
             parallax: 0.44,
             drawHeight: 720,
             baseOffset: 92,
-            alpha: 0.68,
-            widthScale: 0.42,
+            alpha: 0.46,
+            widthScale: 0.34,
             bendAmount: 0.9,
             bendSpeed: 0.45,
             bendPhase: 1.4,
@@ -3285,8 +3271,8 @@ export class Stage {
             parallax: 0.57,
             drawHeight: 690,
             baseOffset: 88,
-            alpha: 0.12,
-            widthScale: 0.4,
+            alpha: 0.04,
+            widthScale: 0.32,
             phaseOffset: 0.38,
             bendAmount: 0.7,
             bendSpeed: 0.42,
@@ -3297,8 +3283,8 @@ export class Stage {
             parallax: 0.82,
             drawHeight: 700,
             baseOffset: 98,
-            alpha: 0.72,
-            widthScale: 0.38,
+            alpha: 0.52,
+            widthScale: 0.3,
             bendAmount: 1.2,
             bendSpeed: 0.52,
             bendPhase: 0,
@@ -3308,8 +3294,8 @@ export class Stage {
             parallax: 0.96,
             drawHeight: 660,
             baseOffset: 94,
-            alpha: 0.08,
-            widthScale: 0.36,
+            alpha: 0.03,
+            widthScale: 0.28,
             phaseOffset: 0.33,
             bendAmount: 0.9,
             bendSpeed: 0.48,
@@ -3317,30 +3303,6 @@ export class Stage {
             filter: 'brightness(0.82) saturate(0.72) contrast(0.92) hue-rotate(-22deg)'
         });
 
-        if (exitReveal && layerCtx) {
-            const cx = exitReveal.x + exitReveal.width * 0.82;
-            const cy = exitReveal.y + exitReveal.height * 0.48;
-            const rx = exitReveal.width * 0.32;
-            const ry = exitReveal.height * 0.48;
-            const fades = [
-                { scale: 1.08, alpha: 0.06 },
-                { scale: 0.9, alpha: 0.14 },
-                { scale: 0.72, alpha: 0.32 },
-                { scale: 0.54, alpha: 0.66 },
-                { scale: 0.38, alpha: 0.98 }
-            ];
-
-            layerCtx.save();
-            layerCtx.globalCompositeOperation = 'destination-out';
-            for (const fade of fades) {
-                layerCtx.fillStyle = `rgba(0,0,0,${fade.alpha})`;
-                layerCtx.beginPath();
-                layerCtx.ellipse(cx, cy, rx * fade.scale, ry * fade.scale, 0, 0, Math.PI * 2);
-                layerCtx.fill();
-            }
-            layerCtx.restore();
-            ctx.drawImage(this.stage1BambooLayerCanvas, 0, 0);
-        }
         return true;
     }
 
@@ -3361,21 +3323,6 @@ export class Stage {
             width: exitW,
             height: exitH
         };
-    }
-
-    getStage1BambooExitRevealRect() {
-        const spec = this.getStage1BambooExitDrawSpec();
-        if (!spec) return null;
-
-        const left = Math.max(0, spec.x + spec.width * 0.5);
-        const right = Math.min(CANVAS_WIDTH, spec.x + spec.width * 0.95);
-        const top = Math.max(0, spec.y + spec.height * 0.1);
-        const bottom = Math.min(this.groundY + 24, spec.y + spec.height * 0.9);
-        const width = right - left;
-        const height = bottom - top;
-
-        if (width <= 2 || height <= 2) return null;
-        return { x: left, y: top, width, height };
     }
 
     renderStage1BambooExit(ctx) {
