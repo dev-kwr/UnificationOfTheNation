@@ -2411,8 +2411,9 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
         // タイトル（900 28px 字間.04em 中央）
         ctx.textBaseline = 'alphabetic';
         ctx.fillStyle = '#ffffff';
-        ctx.font = `900 ${dkt(28)}px "Zen Old Mincho", serif`;
-        fillLS(choice.title || '', cx, y + dk(60), dkt(0.04 * 28), 'center');
+        // タイトルは元々読めるサイズなので拡大しない（dk のまま）
+        ctx.font = `900 ${dk(28)}px "Zen Old Mincho", serif`;
+        fillLS(choice.title || '', cx, y + dk(60), dk(0.04 * 28), 'center');
 
         // 区切り線（幅56・中央・青の淡グラデ）
         const divHalf = dk(56) / 2;
@@ -2513,10 +2514,11 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
             // 段位ラベル（700 16px 字間.05em・ピップ下 margin15）
             ctx.textBaseline = 'alphabetic';
             ctx.fillStyle = '#cfe2ff';
-            ctx.font = `700 ${dkt(16)}px "Zen Old Mincho", serif`;
+            // 段位ラベルは拡大しない（dk のまま）
+            ctx.font = `700 ${dk(16)}px "Zen Old Mincho", serif`;
             const cur = tierLabels[Math.min(level, 3)];
             const nxt = tierLabels[Math.min(level + 1, 3)];
-            fillLS(`${cur} → ${nxt}`, cx, pipsY + pipH + dk(15) + dk(13), dkt(0.05 * 16), 'center');
+            fillLS(`${cur} → ${nxt}`, cx, pipsY + pipH + dk(15) + dk(13), dk(0.05 * 16), 'center');
         }
 
     });
