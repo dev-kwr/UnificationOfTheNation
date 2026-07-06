@@ -108,6 +108,7 @@ export class ShadowRenderer {
     getSunTheta(stage) {
         const p = Math.max(0, Math.min(1, stage.progress / stage.maxProgress));
         const stageP = stage.smoothstep ? stage.smoothstep(0, 1, p) : p;
+        const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
         switch (stage.stageNumber) {
             case 1:  return Math.PI * (-0.34 + stageP * 0.58);
@@ -115,7 +116,16 @@ export class ShadowRenderer {
             case 3:  return Math.PI * (0.34 - stageP * 0.42);
             case 4:  return Math.PI * (0.06 - stageP * 0.38);
             case 5:  return Math.PI * (0.24 - stageP * 0.24);
-            case 6:  return Math.PI * (-0.56 + stageP * 0.7);
+            case 6: {
+                if (typeof stage.getStage6SunTheta === 'function') {
+                    return stage.getStage6SunTheta();
+                }
+                const stopX = Math.max(1, stage.maxProgress - CANVAS_WIDTH);
+                const scrollP = clamp01(stage.progress / stopX);
+                const rawPhase = clamp01((scrollP - 0.82) / 0.18);
+                const phase = stage.smoothstep ? stage.smoothstep(0, 1, rawPhase) : rawPhase;
+                return -0.22 + phase * 0.42;
+            }
             default: return Math.PI * (0.24 - stageP * 0.24);
         }
     }
