@@ -130,13 +130,13 @@ export class Stage {
         // --- Stage 1/2 地面画像 ---
         if (this.stageNumber === 1) {
             this.stage1GroundImage = new Image();
-            this.stage1GroundImage.src = 'images/stage1_ground_bamboo_tile.png?v=20260706_rich1';
+            this.stage1GroundImage.src = 'images/stage1_ground_bamboo_tile.png?v=20260706_new1';
             this.stage1BambooBackLayerImage = new Image();
-            this.stage1BambooBackLayerImage.src = 'images/stage1_bamboo_back_layer.png?v=20260706_rich1';
+            this.stage1BambooBackLayerImage.src = 'images/stage1_bamboo_back_layer.png?v=20260706_new1';
             this.stage1BambooMidLayerImage = new Image();
-            this.stage1BambooMidLayerImage.src = 'images/stage1_bamboo_mid_layer.png?v=20260706_rich1';
+            this.stage1BambooMidLayerImage.src = 'images/stage1_bamboo_mid_layer.png?v=20260706_new1';
             this.stage1BambooLastObjectImage = new Image();
-            this.stage1BambooLastObjectImage.src = 'images/stage1_bamboo_last_object.png?v=20260706_rich1';
+            this.stage1BambooLastObjectImage.src = 'images/stage1_bamboo_last_object.png?v=20260706_new1';
         }
         if (this.stageNumber === 2) {
             this.stage2GroundImage = new Image();
@@ -221,12 +221,16 @@ export class Stage {
 
         // --- Stage 5 城内床画像 ---
         if (this.stageNumber === 5) {
+            this.stage5InteriorWallImage = new Image();
+            this.stage5InteriorWallImage.src = 'images/stage5_castle_interior_wall.png?v=20260706_bg1';
             this.stage5GroundImage = new Image();
             this.stage5GroundImage.src = 'images/stage5_ground_wood_tile.png';
         }
 
         // --- Stage 6 天守床画像 ---
         if (this.stageNumber === 6) {
+            this.stage6TenshuBackdropImage = new Image();
+            this.stage6TenshuBackdropImage.src = 'images/stage6_tenshu_rooftop_backdrop.png?v=20260706_bg2';
             this.stage6GroundImage = new Image();
             this.stage6GroundImage.src = 'images/stage6_ground_lacquer_tile.png';
         }
@@ -3080,6 +3084,45 @@ export class Stage {
         return true;
     }
 
+    renderStageBackdropTile(ctx, image, progress, {
+        parallax = 0.35,
+        drawHeight = CANVAS_HEIGHT,
+        bottomY = CANVAS_HEIGHT,
+        alpha = 1,
+        filter = 'none',
+        widthScale = 1,
+        mirrorRepeat = false
+    } = {}) {
+        if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) {
+            return false;
+        }
+
+        const drawH = Math.max(1, Math.ceil(drawHeight));
+        const drawW = Math.ceil(drawH * (image.naturalWidth / image.naturalHeight) * widthScale);
+        const scroll = progress * parallax;
+        const offset = ((scroll % drawW) + drawW) % drawW;
+        const startX = -offset - drawW;
+        const y = Math.round(bottomY - drawH);
+
+        ctx.save();
+        ctx.globalAlpha *= alpha;
+        ctx.filter = filter;
+        for (let x = startX; x < CANVAS_WIDTH + drawW; x += drawW) {
+            if (mirrorRepeat && Math.abs(Math.round((x + offset) / drawW)) % 2 === 1) {
+                ctx.save();
+                ctx.translate(Math.round(x + drawW + 2), y);
+                ctx.scale(-1, 1);
+                ctx.drawImage(image, 0, 0, drawW + 2, drawH);
+                ctx.restore();
+            } else {
+                ctx.drawImage(image, Math.round(x), y, drawW + 2, drawH);
+            }
+        }
+        ctx.filter = 'none';
+        ctx.restore();
+        return true;
+    }
+
     renderStage1BambooTileLayer(ctx, image, progress, {
         parallax = 0.35,
         alpha = 1,
@@ -3126,89 +3169,28 @@ export class Stage {
     renderStage1BambooImageBackdrop(ctx, progress) {
         const backImage = this.stage1BambooBackLayerImage;
         const midImage = this.stage1BambooMidLayerImage;
-        const exitOpening = this.getStage1BambooExitOpeningLayout(progress);
-        const targetCtx = exitOpening ? this.getStage1BambooCompositeContext() : ctx;
         let rendered = false;
-        if (targetCtx !== ctx) {
-            targetCtx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-        }
 
-        rendered = this.renderStage1BambooTileLayer(targetCtx, backImage, progress, {
+        rendered = this.renderStage1BambooTileLayer(ctx, backImage, progress, {
             parallax: 0.1,
             alpha: 0.3,
             drawHeight: this.groundY + 108,
-            bottomOffset: 14,
+            bottomOffset: 72,
             phase: 250,
             widthScale: 0.72,
             filter: 'blur(0.65px) brightness(0.78) saturate(0.78) contrast(0.8)'
         }) || rendered;
-        rendered = this.renderStage1BambooTileLayer(targetCtx, midImage, progress, {
+        rendered = this.renderStage1BambooTileLayer(ctx, midImage, progress, {
             parallax: 0.28,
             alpha: 0.9,
             drawHeight: this.groundY + 126,
-            bottomOffset: 20,
+            bottomOffset: 88,
             phase: 0,
             widthScale: 0.74,
             filter: 'brightness(0.88) saturate(0.92) contrast(1.02)'
         }) || rendered;
 
-        if (targetCtx !== ctx) {
-            this.clearStage1BambooExitOpening(targetCtx, exitOpening);
-            ctx.drawImage(this.stage1BambooCompositeCanvas, 0, 0);
-        }
         return rendered;
-    }
-
-    getStage1BambooCompositeContext() {
-        if (!this.stage1BambooCompositeCanvas) {
-            this.stage1BambooCompositeCanvas = document.createElement('canvas');
-            this.stage1BambooCompositeCanvas.width = CANVAS_WIDTH;
-            this.stage1BambooCompositeCanvas.height = CANVAS_HEIGHT;
-            this.stage1BambooCompositeCtx = this.stage1BambooCompositeCanvas.getContext('2d');
-        }
-        return this.stage1BambooCompositeCtx;
-    }
-
-    getStage1BambooLastObjectCompositeContext(width, height) {
-        if (!this.stage1BambooLastObjectCompositeCanvas) {
-            this.stage1BambooLastObjectCompositeCanvas = document.createElement('canvas');
-            this.stage1BambooLastObjectCompositeCtx = this.stage1BambooLastObjectCompositeCanvas.getContext('2d');
-        }
-        if (this.stage1BambooLastObjectCompositeCanvas.width !== width) {
-            this.stage1BambooLastObjectCompositeCanvas.width = width;
-        }
-        if (this.stage1BambooLastObjectCompositeCanvas.height !== height) {
-            this.stage1BambooLastObjectCompositeCanvas.height = height;
-        }
-        return this.stage1BambooLastObjectCompositeCtx;
-    }
-
-    clearStage1BambooExitOpening(ctx, opening) {
-        if (!opening) return;
-        const fadeStart = Math.max(-80, Math.min(CANVAS_WIDTH + 80, opening.fadeStart));
-        const solidX = Math.max(fadeStart + 24, Math.min(CANVAS_WIDTH + 100, opening.solidX));
-        const top = -400;
-        const height = CANVAS_HEIGHT + 800;
-        ctx.save();
-        ctx.globalCompositeOperation = 'destination-out';
-        const feather = ctx.createLinearGradient(fadeStart, 0, solidX, 0);
-        feather.addColorStop(0, 'rgba(0,0,0,0)');
-        feather.addColorStop(1, 'rgba(0,0,0,1)');
-        ctx.fillStyle = feather;
-        ctx.fillRect(fadeStart, top, solidX - fadeStart, height);
-        ctx.fillStyle = 'rgba(0,0,0,1)';
-        ctx.fillRect(solidX, top, CANVAS_WIDTH - solidX + 120, height);
-        ctx.restore();
-    }
-
-    getStage1BambooExitOpeningLayout(progress = this.progress) {
-        const layout = this.getStage1BambooLastObjectLayout(progress);
-        if (!layout) {
-            return null;
-        }
-        const fadeStart = Math.round(layout.x + layout.w * 0.22);
-        const solidX = Math.round(layout.x + layout.w * 0.46);
-        return { fadeStart, solidX };
     }
 
     getStage1BambooLastObjectLayout(progress = this.progress) {
@@ -3218,12 +3200,12 @@ export class Stage {
             return null;
         }
 
-        const drawH = 520;
-        const drawW = Math.ceil(drawH * (image.naturalWidth / image.naturalHeight) * 0.82);
+        const drawH = 560;
+        const drawW = Math.ceil(drawH * (image.naturalWidth / image.naturalHeight) * 0.86);
         const cameraStopX = Math.max(0, this.maxProgress - CANVAS_WIDTH);
         const worldX = cameraStopX + CANVAS_WIDTH - drawW + 24;
         const x = Math.round(worldX - progress);
-        const y = Math.round(this.groundY + 24 - drawH);
+        const y = Math.round(this.groundY + 108 - drawH);
         if (x + drawW < -120 || x > CANVAS_WIDTH + 120) {
             return null;
         }
@@ -3234,26 +3216,11 @@ export class Stage {
         const layout = this.getStage1BambooLastObjectLayout(progress);
         if (!layout) return false;
 
-        const w = Math.ceil(layout.w);
-        const h = Math.ceil(layout.h);
-        const offCtx = this.getStage1BambooLastObjectCompositeContext(w, h);
-        offCtx.clearRect(0, 0, w, h);
-        offCtx.save();
-        offCtx.filter = 'brightness(0.88) saturate(0.9) contrast(0.98)';
-        offCtx.drawImage(layout.image, 0, 0, w, h);
-        offCtx.filter = 'none';
-        offCtx.globalCompositeOperation = 'destination-in';
-        const fadeWidth = Math.min(w * 0.24, 180);
-        const mask = offCtx.createLinearGradient(0, 0, fadeWidth, 0);
-        mask.addColorStop(0, 'rgba(0,0,0,0)');
-        mask.addColorStop(1, 'rgba(0,0,0,1)');
-        offCtx.fillStyle = mask;
-        offCtx.fillRect(0, 0, fadeWidth, h);
-        offCtx.fillStyle = 'rgba(0,0,0,1)';
-        offCtx.fillRect(fadeWidth, 0, w - fadeWidth, h);
-        offCtx.restore();
-
-        ctx.drawImage(this.stage1BambooLastObjectCompositeCanvas, layout.x, layout.y);
+        ctx.save();
+        ctx.filter = 'brightness(0.88) saturate(0.9) contrast(0.98)';
+        ctx.drawImage(layout.image, layout.x, layout.y, layout.w, layout.h);
+        ctx.filter = 'none';
+        ctx.restore();
         return true;
     }
 
@@ -3266,7 +3233,6 @@ export class Stage {
         switch (currentPalette.elements) {
             case 'bamboo': {
                 this.renderStage1BambooImageBackdrop(ctx, p);
-                this.renderStage1BambooLastObject(ctx, p);
                 break;
             }
                 
@@ -3492,169 +3458,30 @@ export class Stage {
             }
 
             case 'castle': {
-                const warmPulse = 0.55 + Math.sin(this.stageTime * 0.0016) * 0.45;
-
-                // 朱塗りの内壁
-                const wallGrad = ctx.createLinearGradient(0, 0, 0, this.groundY);
-                wallGrad.addColorStop(0, 'rgba(156, 46, 28, 0.9)');
-                wallGrad.addColorStop(0.42, 'rgba(118, 36, 24, 0.9)');
-                wallGrad.addColorStop(1, 'rgba(74, 24, 18, 0.92)');
-                ctx.fillStyle = wallGrad;
-                ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY);
-
-                // 天井梁
-                const beamSpan = 220;
-                const beamScroll = p * 0.36;
-                const beamStart = Math.floor((beamScroll - beamSpan * 2) / beamSpan);
-                const beamEnd = Math.ceil((beamScroll + CANVAS_WIDTH + beamSpan * 2) / beamSpan);
-                // 空補償: 天井帯は上端0起点を維持し下端をクロップ分だけ下げる
-                // (リフト中も帯が途切れない)。skyVisTop=0 で従来と同一。
-                const ceilCrop = this.skyVisTop || 0;
-                ctx.fillStyle = 'rgba(88, 38, 24, 0.82)';
-                ctx.fillRect(0, 0, CANVAS_WIDTH, 46 + ceilCrop);
-                for (let i = beamStart; i <= beamEnd; i++) {
-                    ctx.fillRect(i * beamSpan - beamScroll, 46 + ceilCrop, 32, 100);
-                }
-
-                // 柱・壁・金具（窓は置かない）
-                const panelSpan = 340;
-                const panelPara = 0.4;
-                const panelScroll = p * panelPara;
-                const panelStart = Math.floor((panelScroll - panelSpan * 3) / panelSpan);
-                const panelEnd = Math.ceil((panelScroll + CANVAS_WIDTH + panelSpan * 3) / panelSpan);
-                for (let i = panelStart; i <= panelEnd; i++) {
-                    const panelX = i * panelSpan - panelScroll;
-                    
-                    // 自然に配置
-                    if (panelX < -panelSpan || panelX > CANVAS_WIDTH + panelSpan) continue;
-                    
-                    const seed = i * 9.17;
-
-                    // 柱
-                    ctx.fillStyle = 'rgba(66, 28, 20, 0.9)';
-                    ctx.fillRect(panelX, 0, 30, this.groundY);
-                    ctx.fillRect(panelX + panelSpan - 30, 0, 30, this.groundY);
-
-                    // 漆壁
-                    const panelGrad = ctx.createLinearGradient(0, 78, 0, this.groundY - 14);
-                    panelGrad.addColorStop(0, 'rgba(134, 44, 30, 0.42)');
-                    panelGrad.addColorStop(1, 'rgba(84, 28, 22, 0.5)');
-                    ctx.fillStyle = panelGrad;
-                    ctx.fillRect(panelX + 30, 78, panelSpan - 60, this.groundY - 160);
-
-                    // 横桟
-                    ctx.strokeStyle = 'rgba(190, 118, 72, 0.2)';
-                    ctx.lineWidth = 2;
-                    for (let y = 112; y < this.groundY - 44; y += 42) {
-                        ctx.beginPath();
-                        ctx.moveTo(panelX + 36, y);
-                        ctx.lineTo(panelX + panelSpan - 36, y);
-                        ctx.stroke();
-                    }
-
-                    // 障子意匠（外は見えない）
-                    ctx.fillStyle = 'rgba(220, 188, 144, 0.13)';
-                    const shojiY = this.groundY - 174;
-                    const shojiH = 156;
-                    ctx.fillRect(panelX + 48, shojiY, panelSpan - 96, shojiH);
-                    ctx.strokeStyle = 'rgba(110, 66, 42, 0.65)';
-                    ctx.lineWidth = 1.4;
-                    ctx.strokeRect(panelX + 48, shojiY, panelSpan - 96, shojiH);
-                    const splits = 3 + Math.floor(this.noise1D(seed + 1.8) * 3);
-                    for (let s = 1; s <= splits; s++) {
-                        const sx = panelX + 48 + (s / (splits + 1)) * (panelSpan - 96);
-                        ctx.beginPath();
-                        ctx.moveTo(sx, shojiY + 2);
-                        ctx.lineTo(sx, shojiY + shojiH - 2);
-                        ctx.stroke();
-                    }
-
-                    // 家紋プレート
-                    if (this.noise1D(seed + 3.2) > 0.42) {
-                        const monX = panelX + panelSpan * (0.42 + this.noiseSigned(seed + 4.6) * 0.12);
-                        const monY = 96 + (this.skyVisTop || 0) + this.noise1D(seed + 5.4) * 38;
-                        const monR = 12 + this.noise1D(seed + 6.1) * 6;
-                        ctx.fillStyle = `rgba(248, 210, 150, ${0.18 + warmPulse * 0.1})`;
-                        ctx.beginPath();
-                        ctx.arc(monX, monY, monR, 0, Math.PI * 2);
-                        ctx.fill();
-                        ctx.strokeStyle = 'rgba(68, 34, 22, 0.6)';
-                        ctx.lineWidth = 1.2;
-                        ctx.beginPath();
-                        ctx.arc(monX, monY, monR * 0.45, 0, Math.PI * 2);
-                        ctx.stroke();
-                    }
-                }
-
-                // 吊り灯り
-                const lanternSpan = 250;
-                const lanternScroll = p * 0.5;
-                const lanternStart = Math.floor((lanternScroll - lanternSpan * 2) / lanternSpan);
-                const lanternEnd = Math.ceil((lanternScroll + CANVAS_WIDTH + lanternSpan * 2) / lanternSpan);
-                for (let i = lanternStart; i <= lanternEnd; i++) {
-                    const seed = i * 6.31;
-                    const lx = i * lanternSpan - lanternScroll + 120;
-                    const ly = 92 + (this.skyVisTop || 0) + this.noiseSigned(seed + 1.2) * 10;
-                    const r = 10 + this.noise1D(seed + 2.6) * 4;
-                    ctx.strokeStyle = 'rgba(86, 52, 34, 0.7)';
-                    ctx.lineWidth = 1.2;
-                    ctx.beginPath();
-                    ctx.moveTo(lx, 44 + (this.skyVisTop || 0));
-                    ctx.lineTo(lx, ly - r);
-                    ctx.stroke();
-                    ctx.fillStyle = `rgba(252, 210, 146, ${0.28 + warmPulse * 0.12})`;
-                    ctx.beginPath();
-                    ctx.ellipse(lx, ly, r, r * 1.35, 0, 0, Math.PI * 2);
-                    ctx.fill();
+                const crop = this.skyVisTop || 0;
+                if (!this.renderStageBackdropTile(ctx, this.stage5InteriorWallImage, p, {
+                    parallax: 0.36,
+                    drawHeight: CANVAS_HEIGHT + crop,
+                    bottomY: CANVAS_HEIGHT,
+                    filter: 'brightness(0.76) saturate(0.78) contrast(0.96)'
+                })) {
+                    const wallGrad = ctx.createLinearGradient(0, 0, 0, this.groundY);
+                    wallGrad.addColorStop(0, 'rgba(92, 30, 22, 0.92)');
+                    wallGrad.addColorStop(1, 'rgba(42, 15, 12, 0.94)');
+                    ctx.fillStyle = wallGrad;
+                    ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY);
                 }
 
                 break;
             }
 
             case 'tenshu': {
-                // 最上層の屋根上回廊（遠景の天守・楕円雲は出さない）
-                const horizonGlow = ctx.createLinearGradient(0, this.groundY - 210, 0, this.groundY - 40);
-                horizonGlow.addColorStop(0, 'rgba(180, 206, 238, 0)');
-                horizonGlow.addColorStop(1, 'rgba(132, 162, 202, 0.14)');
-                ctx.fillStyle = horizonGlow;
-                ctx.fillRect(0, this.groundY - 210, CANVAS_WIDTH, 190);
-
-                // 背後の屋根稜線
-                const ridgeParallax = 0.38;
-                const ridgeSpan = 180;
-                const ridgeScroll = p * ridgeParallax;
-                const ridgeStart = Math.floor((ridgeScroll - ridgeSpan * 3) / ridgeSpan);
-                const ridgeEnd = Math.ceil((ridgeScroll + CANVAS_WIDTH + ridgeSpan * 3) / ridgeSpan);
-                for (let i = ridgeStart; i <= ridgeEnd; i++) {
-                    const seed = i * 5.47;
-                    const x = i * ridgeSpan - ridgeScroll;
-                    const ridgeH = 44 + this.noise1D(seed + 1.4) * 18;
-                    ctx.fillStyle = this.interpolateColor('#556079', '#202633', 0.42);
-                    ctx.beginPath();
-                    ctx.moveTo(x - 32, this.groundY - 122);
-                    ctx.quadraticCurveTo(x + ridgeSpan * 0.5, this.groundY - 122 - ridgeH, x + ridgeSpan + 32, this.groundY - 122);
-                    ctx.lineTo(x + ridgeSpan + 24, this.groundY - 108);
-                    ctx.quadraticCurveTo(x + ridgeSpan * 0.5, this.groundY - 108 - ridgeH * 0.58, x - 24, this.groundY - 108);
-                    ctx.closePath();
-                    ctx.fill();
-                }
-
-                // 回廊の手前欄干
-                const railParallax = 1.0;
-                const railSpacing = 72;
-                const railScroll = p * railParallax;
-                const railStart = Math.floor((railScroll - railSpacing * 2) / railSpacing);
-                const railEnd = Math.ceil((railScroll + CANVAS_WIDTH + railSpacing * 2) / railSpacing);
-                ctx.fillStyle = this.interpolateColor(currentPalette.near, '#111217', 0.34);
-                ctx.fillRect(0, this.groundY - 72, CANVAS_WIDTH, 32);
-                for (let i = railStart; i <= railEnd; i++) {
-                    const x = i * railSpacing - railScroll;
-                    ctx.fillRect(x + 10, this.groundY - 72, 8, 72);
-                    ctx.fillRect(x + 38, this.groundY - 72, 8, 72);
-                    ctx.fillStyle = 'rgba(188, 204, 232, 0.15)';
-                    ctx.fillRect(x + 10, this.groundY - 72, 36, 2);
-                    ctx.fillStyle = this.interpolateColor(currentPalette.near, '#111217', 0.34);
-                }
+                this.renderStageBackdropTile(ctx, this.stage6TenshuBackdropImage, p, {
+                    parallax: 0.5,
+                    drawHeight: Math.max(420, this.groundY * 0.8),
+                    bottomY: this.groundY + 30,
+                    filter: 'brightness(0.76) saturate(0.86) contrast(0.98)'
+                });
 
                 // ボス戦中：最終ステージなので次のステージはないが、夜明け（クリア後の朝焼け）を予感させる光を遠くに表示
                 if (this.bossSpawned) {
@@ -3678,51 +3505,6 @@ export class Stage {
                     ctx.fillStyle = horizonBand;
                     ctx.fillRect(0, this.groundY - 30, CANVAS_WIDTH, 40);
                     ctx.restore();
-                }
-
-                // 屋根瓦列
-                const tileSpan = 60;
-                const tileScroll = p * 1.08;
-                const tileStart = Math.floor((tileScroll - tileSpan * 3) / tileSpan);
-                const tileEnd = Math.ceil((tileScroll + CANVAS_WIDTH + tileSpan * 3) / tileSpan);
-                for (let i = tileStart; i <= tileEnd; i++) {
-                    const x = i * tileSpan - tileScroll;
-                    const tileH = 10 + this.noise1D(i * 2.3 + 1.9) * 2;
-                    ctx.fillStyle = 'rgba(90, 98, 118, 0.82)';
-                    ctx.beginPath();
-                    ctx.moveTo(x, this.groundY - 42);
-                    ctx.quadraticCurveTo(x + 30, this.groundY - 42 - tileH, x + 60, this.groundY - 42);
-                    ctx.lineTo(x + 60, this.groundY - 28);
-                    ctx.quadraticCurveTo(x + 30, this.groundY - 19, x, this.groundY - 28);
-                    ctx.closePath();
-                    ctx.fill();
-                }
-
-                // 幟
-                const flagSpan = 280;
-                const flagScroll = p * 0.76;
-                const flagStart = Math.floor((flagScroll - flagSpan * 2) / flagSpan);
-                const flagEnd = Math.ceil((flagScroll + CANVAS_WIDTH + flagSpan * 2) / flagSpan);
-                for (let i = flagStart; i <= flagEnd; i++) {
-                    const seed = i * 4.37;
-                    const fx = i * flagSpan - flagScroll + 130;
-                    const fy = this.groundY - 154 + this.noiseSigned(seed + 1.4) * 8;
-                    const flagH = 62 + this.noise1D(seed + 2.1) * 34;
-                    const wave = Math.sin(this.stageTime * 0.004 + seed) * 9;
-                    ctx.strokeStyle = 'rgba(44, 50, 66, 0.9)';
-                    ctx.lineWidth = 2.3;
-                    ctx.beginPath();
-                    ctx.moveTo(fx, this.groundY - 72);
-                    ctx.lineTo(fx, fy - flagH);
-                    ctx.stroke();
-                    ctx.fillStyle = 'rgba(208, 218, 242, 0.42)';
-                    ctx.beginPath();
-                    ctx.moveTo(fx, fy - flagH + 8);
-                    ctx.lineTo(fx + 28 + wave * 0.42, fy - flagH + 16);
-                    ctx.lineTo(fx + 22 + wave * 0.4, fy - flagH + 42);
-                    ctx.lineTo(fx, fy - flagH + 36);
-                    ctx.closePath();
-                    ctx.fill();
                 }
                 break;
             }
@@ -3763,6 +3545,7 @@ export class Stage {
 
         // 竹林の動的な葉の降下エフェクト（地面描画の後に重ねる）
         if (this.stageNumber === 1) {
+            this.renderStage1BambooLastObject(ctx, renderProgress);
             this.renderBambooFallingLeaves(ctx);
         }
     }
@@ -3995,25 +3778,7 @@ export class Stage {
             return;
         }
 
-        const tatamiWidth = 200;
-        const scroll = renderProgress; // 完全に物理座標と同期させるためパララックスを廃止(1.0倍)
-        const start = Math.floor((scroll - 250) / tatamiWidth);
-        const end = Math.ceil((scroll + CANVAS_WIDTH + 250) / tatamiWidth);
-        ctx.strokeStyle = this.interpolateColor('#2d3a24', '#0a1005', darken * 0.82);
-        ctx.lineWidth = 5;
-        for (let i = start; i <= end; i++) {
-            const tx = i * tatamiWidth - scroll;
-            const bottomX = tx; // 斜めの3Dパースを排除し、完全な垂直線(2Dサイドビュー)にする
-            ctx.beginPath(); ctx.moveTo(tx, horizonY); ctx.lineTo(bottomX, bottomY); ctx.stroke();
-        }
-        
-        // 畳の目
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.05)';
-        ctx.lineWidth = 1;
-        for (let j = 0; j < 36; j++) { // 行数をさらに増やす
-            const hy = horizonY + (j / 12) * 600;
-            ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(CANVAS_WIDTH, hy); ctx.stroke();
-        }
+        // 画像未読込時はベースグラデーションだけで待ち、旧Canvas畳目へは戻さない。
     }
 
     renderGroundTenshu(ctx, renderProgress, darken) {
@@ -4051,32 +3816,7 @@ export class Stage {
             return;
         }
 
-        // 装飾目地（金）
-        const decoWidth = 140;
-        const scroll = renderProgress * 1.05;
-        const start = Math.floor((scroll - 200) / decoWidth);
-        const end = Math.ceil((scroll + CANVAS_WIDTH + 200) / decoWidth);
-        for (let i = start; i <= end; i++) {
-            const tx = i * decoWidth - scroll;
-            const bottomX = tx - 80;
-            const goldGrad = ctx.createLinearGradient(tx, horizonY, bottomX, bottomY);
-            goldGrad.addColorStop(0, this.interpolateColor('#ffd700', '#4a3c00', darken * 0.7));
-            goldGrad.addColorStop(1, this.interpolateColor('#b8860b', '#2a1a00', darken * 0.9));
-            ctx.strokeStyle = goldGrad;
-            ctx.lineWidth = 2.5;
-            ctx.beginPath(); ctx.moveTo(tx, horizonY); ctx.lineTo(bottomX, bottomY); ctx.stroke();
-        }
-
-        // 漆の反射のような横ライン（視認性向上のため少し強める）
-        ctx.globalAlpha = 0.3 - darken * 0.1;
-        const shineGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
-        shineGrad.addColorStop(0, 'rgba(255, 230, 100, 0)');
-        shineGrad.addColorStop(0.4, 'rgba(255, 230, 100, 0.25)');
-        shineGrad.addColorStop(1, 'rgba(255, 230, 100, 0)');
-        ctx.fillStyle = shineGrad;
-        ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
-
-        // ボス戦時のヴィネット効果→render()に一本化済みなのでここでは呼ばない
+        // 画像未読込時はベースグラデーションだけで待ち、旧Canvas金目地へは戻さない。
         ctx.restore();
     }
 
