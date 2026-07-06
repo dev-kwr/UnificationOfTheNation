@@ -157,13 +157,13 @@ export class Stage {
                 ruralTeahouse: 'images/stage2_rural_teahouse_clean.png',
                 ruralShed: 'images/stage2_rural_shed_clean.png',
                 ruralShrine: 'images/stage2_rural_shrine.png',
-                cleanLowFence: 'images/stage2_prop_clean_low_fence.png',
-                cleanStrawBundles: 'images/stage2_prop_clean_straw_bundles.png',
-                cleanJars: 'images/stage2_prop_clean_jars.png',
-                cleanStoneWell: 'images/stage2_prop_clean_stone_well.png',
-                cleanWoodSignpost: 'images/stage2_prop_clean_wood_signpost.png',
-                cleanGrassClump: 'images/stage2_prop_clean_grass_clump.png',
-                cleanJizo: 'images/stage2_prop_clean_jizo.png'
+                cleanLowFence: 'images/stage2_prop_clean_low_fence.png?v=20260706_front1',
+                cleanStrawBundles: 'images/stage2_prop_clean_straw_bundles.png?v=20260706_front1',
+                cleanJars: 'images/stage2_prop_clean_jars.png?v=20260706_front1',
+                cleanStoneWell: 'images/stage2_prop_clean_stone_well.png?v=20260706_front1',
+                cleanWoodSignpost: 'images/stage2_prop_clean_wood_signpost.png?v=20260706_front1',
+                cleanGrassClump: 'images/stage2_prop_clean_grass_clump.png?v=20260706_front1',
+                cleanJizo: 'images/stage2_prop_clean_jizo.png?v=20260706_front1'
             };
             for (const [key, src] of Object.entries(stage2PropPaths)) {
                 const image = new Image();
@@ -180,15 +180,15 @@ export class Stage {
             this.stage3GroundImage.src = 'images/stage3_ground_mountain_tile.png';
             this.stage3PropImages = {};
             const stage3PropPaths = {
-                dosojin: 'images/stage3_prop_dosojin.png',
-                signpost: 'images/stage3_prop_signpost.png',
-                bambooFence: 'images/stage3_prop_bamboo_fence.png',
-                woodFence: 'images/stage3_prop_weathered_wood_fence.png',
-                bambooRail: 'images/stage3_prop_bamboo_rail.png',
-                stoneLantern: 'images/stage3_prop_stone_lantern.png',
-                jizoLarge: 'images/stage3_prop_jizo_large.png',
-                mountainSign: 'images/stage3_prop_mountain_sign.png',
-                firewoodPile: 'images/stage3_prop_firewood_pile.png'
+                dosojin: 'images/stage3_prop_dosojin.png?v=20260706_front1',
+                signpost: 'images/stage3_prop_signpost.png?v=20260706_front1',
+                bambooFence: 'images/stage3_prop_bamboo_fence.png?v=20260706_front1',
+                woodFence: 'images/stage3_prop_weathered_wood_fence.png?v=20260706_front1',
+                bambooRail: 'images/stage3_prop_bamboo_rail.png?v=20260706_front1',
+                stoneLantern: 'images/stage3_prop_stone_lantern.png?v=20260706_front1',
+                jizoLarge: 'images/stage3_prop_jizo_large.png?v=20260706_front1',
+                mountainSign: 'images/stage3_prop_mountain_sign.png?v=20260706_front1',
+                firewoodPile: 'images/stage3_prop_firewood_pile.png?v=20260706_front1'
             };
             for (const [key, src] of Object.entries(stage3PropPaths)) {
                 const image = new Image();
@@ -207,8 +207,8 @@ export class Stage {
                 groundTile: 'images/stage4_ground_stone_tile.png',
                 castleEntrance: 'images/stage4_castle_lower_wide.png',
                 castleApproachDistrict: 'images/stage4_castle_approach_district.png',
-                climbPropCrates: 'images/stage4_climb_prop_crates.png',
-                climbPropHandcart: 'images/stage4_climb_prop_handcart.png',
+                climbPropCrates: 'images/stage4_climb_prop_crates.png?v=20260706_front1',
+                climbPropHandcart: 'images/stage4_climb_prop_handcart.png?v=20260706_front1',
                 climbPropBench: 'images/stage4_climb_prop_bench.png',
                 climbPropSakeBarrels: 'images/stage4_climb_prop_sake_barrels.png'
             };
@@ -548,9 +548,9 @@ export class Stage {
         return {
             crates: {
                 imageKey: 'climbPropCrates',
-                sourceWidth: 311,
-                sourceHeight: 173,
-                sourceSurfaceY: 10,
+                sourceWidth: 760,
+                sourceHeight: 505,
+                sourceSurfaceY: 32,
                 visualHeight: 86,
                 colliderWidth: 132,
                 rank: 1
@@ -2626,7 +2626,7 @@ export class Stage {
         const cameraStopX = Math.max(0, this.maxProgress - CANVAS_WIDTH);
         const passWorldX = cameraStopX + passStopX;
         const passX = passWorldX - p;
-        const passY = baseY - passH + 1;
+        const passY = baseY - passH + 12;
 
         // 画面に入る直前まで描画を切ると大きい画像のデコードも直前になり、後出しに見える。
         // 右側のかなり外から通常オブジェクトとして描画対象に入れて、自然な画面インにする。
@@ -2637,7 +2637,7 @@ export class Stage {
             const backH = Math.min(CANVAS_HEIGHT * 0.96, baseY + 160);
             const backW = backH * (backMountainImg.naturalWidth / backMountainImg.naturalHeight);
             const backX = passX + passW * 0.5 - backW * 0.5;
-            const backY = baseY - backH + 1;
+            const backY = baseY - backH + 8;
 
             ctx.save();
             ctx.filter = 'brightness(0.58) saturate(0.58) contrast(0.88)';
