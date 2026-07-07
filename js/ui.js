@@ -268,12 +268,24 @@ function drawRoundedFlatTitleButton(ctx, x, y, width, height, label, options = {
     const radius = Number.isFinite(options.radius) ? options.radius : 12;
     const font = options.font || '700 22px "Zen Old Mincho", serif';
     const accentColor = options.accentColor || null;
-    const textColor = options.textColor || (focused ? '#ffffff' : 'rgba(224, 234, 255, 0.82)');
+    // royal: 将軍の出陣。通常（忍者）と差をつけるため金の気配をまとわせる
+    const royal = !!options.royal;
+    const textColor = options.textColor
+        || (royal
+            ? (focused ? '#fdefc9' : 'rgba(236, 214, 158, 0.88)')
+            : (focused ? '#ffffff' : 'rgba(224, 234, 255, 0.82)'));
 
     const left = x - width * 0.5;
     const top = y - height * 0.5;
 
-    drawWafuCard(ctx, left, top, width, height, { radius, selected: focused, pulse, accent: !accentColor });
+    // royal は通常と同一の描画経路。差は色（グロー／枠／上辺アクセント／文字）だけ
+    drawWafuCard(ctx, left, top, width, height, {
+        radius, selected: focused, pulse,
+        accent: !accentColor,
+        glowRGB: royal ? '214, 176, 92' : undefined,
+        borderSelRGB: royal ? '232, 202, 120' : undefined,
+        accentRGB: royal ? '240, 210, 120' : undefined
+    });
 
     if (accentColor) {
         // 難易度色などの色帯アクセント（青アクセントの代わり）
@@ -1648,7 +1660,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
         drawRoundedFlatTitleButton(ctx, layout.centerX, startY,          actionW, actionH, '続きから', { focused: titleMenuIndex === 0, pulse });
         drawRoundedFlatTitleButton(ctx, layout.centerX, layout.newGameY, actionW, actionH, '最初から', { focused: titleMenuIndex === 1, pulse });
     } else if (isCleared) {
-        drawRoundedFlatTitleButton(ctx, layout.centerX, startY,          actionW, actionH, '出陣', { focused: titleMenuIndex === 0, pulse });
+        drawRoundedFlatTitleButton(ctx, layout.centerX, startY,          actionW, actionH, '出陣', { focused: titleMenuIndex === 0, pulse, royal: true });
         drawRoundedFlatTitleButton(ctx, layout.centerX, layout.newGameY, actionW, actionH, '出陣', { focused: titleMenuIndex === 1, pulse });
     } else {
         drawRoundedFlatTitleButton(ctx, layout.centerX, layout.singleStartY, actionW, actionH, '出陣', { focused: true, pulse });
@@ -1872,6 +1884,10 @@ function wafuFillTextLS(ctx, text, x, y, lsPx, align = 'left') {
 // 昇段画面と同じ紺カード：純色グラデ＋上辺の青アクセント＋枠（選択時は青発光＋内リング）
 export function drawWafuCard(ctx, x, y, w, h, opts = {}) {
     const { radius = 10, selected = false, pulse = 0, accent = true, shadow = true, flat = false } = opts;
+    // 選択時のグロー／枠／上辺アクセントの色（既定は青。将軍などの特別ボタンは金へ差し替え可）
+    const glowRGB = opts.glowRGB || '74, 134, 236';
+    const borderSelRGB = opts.borderSelRGB || '150, 196, 255';
+    const accentRGB = opts.accentRGB || '142, 200, 255';
 
     // flat=true: 外カードの中に収まる内側行用（枠線なし・薄い背景帯のみ）
     if (flat && !selected) {
@@ -1884,7 +1900,7 @@ export function drawWafuCard(ctx, x, y, w, h, opts = {}) {
     // 影／グロー（モダン：大きめブラー・低不透明・浮かせすぎない）
     if (shadow || selected) {
         ctx.save();
-        ctx.shadowColor = selected ? `rgba(74, 134, 236, ${0.24 + pulse * 0.12})` : 'rgba(0, 0, 0, 0.28)';
+        ctx.shadowColor = selected ? `rgba(${glowRGB}, ${0.24 + pulse * 0.12})` : 'rgba(0, 0, 0, 0.28)';
         ctx.shadowBlur = selected ? 30 : 18;
         ctx.shadowOffsetY = selected ? 0 : 5;
         wafuRoundRectPath(ctx, x, y, w, h, radius);
@@ -1915,19 +1931,19 @@ export function drawWafuCard(ctx, x, y, w, h, opts = {}) {
 
     // ヘアライン枠（選択で明るく）
     wafuRoundRectPath(ctx, x, y, w, h, radius);
-    ctx.strokeStyle = selected ? `rgba(150, 196, 255, ${0.6 + pulse * 0.25})` : 'rgba(146, 172, 226, 0.22)';
+    ctx.strokeStyle = selected ? `rgba(${borderSelRGB}, ${0.6 + pulse * 0.25})` : 'rgba(146, 172, 226, 0.22)';
     ctx.lineWidth = selected ? 1.5 : 1;
     ctx.stroke();
 
-    // 上辺の細い青アクセント
+    // 上辺の細いアクセント（既定は青。accentRGB で色のみ差し替え）
     if (accent) {
         ctx.save();
         wafuRoundRectPath(ctx, x, y, w, h, radius);
         ctx.clip();
         const a = ctx.createLinearGradient(x, 0, x + w, 0);
-        a.addColorStop(0, 'rgba(142, 200, 255, 0)');
-        a.addColorStop(0.5, `rgba(142, 200, 255, ${selected ? 0.9 : 0.5})`);
-        a.addColorStop(1, 'rgba(142, 200, 255, 0)');
+        a.addColorStop(0, `rgba(${accentRGB}, 0)`);
+        a.addColorStop(0.5, `rgba(${accentRGB}, ${selected ? 0.9 : 0.5})`);
+        a.addColorStop(1, `rgba(${accentRGB}, 0)`);
         ctx.fillStyle = a;
         ctx.fillRect(x, y, w, 2);
         ctx.restore();

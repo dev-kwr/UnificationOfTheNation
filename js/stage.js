@@ -130,13 +130,13 @@ export class Stage {
         // --- Stage 1/2 地面画像 ---
         if (this.stageNumber === 1) {
             this.stage1GroundImage = new Image();
-            this.stage1GroundImage.src = 'images/stage1_ground_bamboo_tile.png?v=20260706_new2';
+            this.stage1GroundImage.src = 'images/stage1_ground_bamboo_tile.png?v=20260707_ground2';
             this.stage1BambooBackLayerImage = new Image();
-            this.stage1BambooBackLayerImage.src = 'images/stage1_bamboo_back_layer.png?v=20260706_new2';
+            this.stage1BambooBackLayerImage.src = 'images/stage1_bamboo_back_layer.png?v=20260707_dense1';
             this.stage1BambooMidLayerImage = new Image();
-            this.stage1BambooMidLayerImage.src = 'images/stage1_bamboo_mid_layer.png?v=20260706_new2';
+            this.stage1BambooMidLayerImage.src = 'images/stage1_bamboo_mid_layer.png?v=20260707_dense1';
             this.stage1BambooLastObjectImage = new Image();
-            this.stage1BambooLastObjectImage.src = 'images/stage1_bamboo_last_object.png?v=20260706_new3';
+            this.stage1BambooLastObjectImage.src = 'images/stage1_bamboo_last_object.png?v=20260707_back2';
         }
         if (this.stageNumber === 2) {
             this.stage2GroundImage = new Image();
@@ -182,13 +182,10 @@ export class Stage {
             const stage3PropPaths = {
                 dosojin: 'images/stage3_prop_dosojin.png?v=20260706_front1',
                 signpost: 'images/stage3_prop_signpost.png?v=20260706_front1',
-                bambooFence: 'images/stage3_prop_bamboo_fence.png?v=20260706_front1',
                 woodFence: 'images/stage3_prop_weathered_wood_fence.png?v=20260706_front1',
-                bambooRail: 'images/stage3_prop_bamboo_rail.png?v=20260706_front1',
                 stoneLantern: 'images/stage3_prop_stone_lantern.png?v=20260706_front1',
                 jizoLarge: 'images/stage3_prop_jizo_large.png?v=20260706_front1',
-                mountainSign: 'images/stage3_prop_mountain_sign.png?v=20260706_front1',
-                firewoodPile: 'images/stage3_prop_firewood_pile.png?v=20260706_front1'
+                mountainSign: 'images/stage3_prop_mountain_sign.png?v=20260706_front1'
             };
             for (const [key, src] of Object.entries(stage3PropPaths)) {
                 const image = new Image();
@@ -208,7 +205,7 @@ export class Stage {
                 castleEntrance: 'images/stage4_castle_lower_wide.png',
                 castleApproachDistrict: 'images/stage4_castle_approach_district.png',
                 climbPropCrates: 'images/stage4_climb_prop_crates.png?v=20260706_front1',
-                climbPropHandcart: 'images/stage4_climb_prop_handcart.png?v=20260706_front1',
+                climbPropHandcart: 'images/stage4_climb_prop_handcart.png?v=20260706_side2',
                 climbPropBench: 'images/stage4_climb_prop_bench.png',
                 climbPropSakeBarrels: 'images/stage4_climb_prop_sake_barrels.png'
             };
@@ -2695,7 +2692,9 @@ export class Stage {
                     const exitW = 680;
                     const exitH = exitW * (exitImg.naturalHeight / exitImg.naturalWidth);
                     const exitX = peekWX(CANVAS_WIDTH - exitW + 18);
-                    const exitY = gY - exitH + 10;
+                    // 画像下部に透明余白が約10.8%あるため、不透明部分の下端で接地させる。
+                    const visibleBottomRatio = 829 / 929;
+                    const exitY = Math.round(gY + 8 - exitH * visibleBottomRatio);
                     if (exitX + exitW < -80 || exitX > CANVAS_WIDTH + 120) break;
 
 	                    ctx.save();
@@ -2865,23 +2864,40 @@ export class Stage {
         ctx.fillRect(0, this.groundY - 190, CANVAS_WIDTH, 180);
     }
     
+    getStage3RoadsidePropPlan() {
+        return [
+            { type: 'woodFence', worldX: 980,  height: 92,  y: 3, alpha: 0.88 },
+            { type: 'stoneLantern', worldX: 1480, height: 110, y: 2, alpha: 0.82 },
+            { type: 'signpost', worldX: 2660, height: 112, y: 4, alpha: 0.88 },
+            { type: 'dosojin', worldX: 4210, height: 70,  y: 4, alpha: 0.88 },
+            { type: 'mountainSign', worldX: 5700, height: 126, y: 4, alpha: 0.86 },
+            { type: 'jizoLarge', worldX: 6550, height: 94, y: 4, alpha: 0.86 },
+            { type: 'woodFence', worldX: 7350, height: 82, y: 4, alpha: 0.84 },
+            { type: 'stoneLantern', worldX: 9860, height: 96, y: 3, alpha: 0.78 }
+        ];
+    }
+
+    getStage3PropAspect(type) {
+        const image = this.stage3PropImages?.[type];
+        if (image?.naturalWidth > 0 && image?.naturalHeight > 0) {
+            return image.naturalWidth / image.naturalHeight;
+        }
+        const fallbackAspect = {
+            dosojin: 628 / 760,
+            jizoLarge: 276 / 760,
+            mountainSign: 393 / 760,
+            signpost: 429 / 760,
+            stoneLantern: 348 / 760,
+            woodFence: 760 / 418
+        };
+        return fallbackAspect[type] || 1;
+    }
+
     renderStage3RoadsideProps(ctx) {
         const images = this.stage3PropImages;
         if (!images) return;
 
-        const props = [
-            { type: 'woodFence', worldX: 980,  height: 92,  y: 3, alpha: 0.88 },
-            { type: 'stoneLantern', worldX: 1480, height: 110, y: 2, alpha: 0.82 },
-            { type: 'signpost', worldX: 2660, height: 112, y: 4, alpha: 0.88 },
-            { type: 'bambooRail', worldX: 3420, height: 76,  y: 4, alpha: 0.86 },
-            { type: 'dosojin', worldX: 4210, height: 70,  y: 4, alpha: 0.88 },
-            { type: 'firewoodPile', worldX: 4930, height: 54, y: 4, alpha: 0.88 },
-            { type: 'mountainSign', worldX: 5700, height: 126, y: 4, alpha: 0.86 },
-            { type: 'jizoLarge', worldX: 6550, height: 94, y: 4, alpha: 0.86 },
-            { type: 'woodFence', worldX: 7350, height: 82, y: 4, alpha: 0.84 },
-            { type: 'bambooFence', worldX: 9050, height: 58, y: 5, alpha: 0.82 },
-            { type: 'stoneLantern', worldX: 9860, height: 96, y: 3, alpha: 0.78 }
-        ];
+        const props = this.getStage3RoadsidePropPlan();
 
         for (const prop of props) {
             const image = images[prop.type];
@@ -2908,20 +2924,25 @@ export class Stage {
         const plan = [
             { type: 'woodFence', h: 68, alpha: 0.7, xBias: -34 },
             null,
-            { type: 'firewoodPile', h: 46, alpha: 0.72, xBias: 22 },
-            { type: 'bambooRail', h: 62, alpha: 0.68, xBias: -16 },
-            null,
             { type: 'woodFence', h: 72, alpha: 0.72, xBias: 28 },
             { type: 'jizoLarge', h: 76, alpha: 0.7, xBias: -18 },
             null,
             { type: 'stoneLantern', h: 88, alpha: 0.68, xBias: 18 },
-            { type: 'bambooFence', h: 54, alpha: 0.7, xBias: 6 }
+            null
         ];
         const span = 620;
         const scroll = this.progress;
         const start = Math.floor((scroll - 760) / span);
         const end = Math.ceil((scroll + CANVAS_WIDTH + 760) / span);
         const finalClearWorldX = Math.max(0, this.maxProgress - CANVAS_WIDTH + 360);
+        const occupiedRanges = this.getStage3RoadsidePropPlan()
+            .map((prop) => {
+                const width = prop.height * this.getStage3PropAspect(prop.type);
+                const x = prop.worldX - scroll;
+                return { left: x - 58, right: x + width + 58 };
+            })
+            .filter((range) => range.right >= -220 && range.left <= CANVAS_WIDTH + 220);
+        const overlapsOccupied = (left, right) => occupiedRanges.some((range) => left < range.right && right > range.left);
 
         for (let i = start; i <= end; i++) {
             const seed = i * 7.91;
@@ -2937,12 +2958,17 @@ export class Stage {
 
             const height = item.h * (0.92 + this.noise1D(seed + 3.4) * 0.16);
             const width = height * (image.naturalWidth / image.naturalHeight);
-            if (x + width < -120 || x > CANVAS_WIDTH + 120) continue;
+            const drawX = x + item.xBias;
+            if (drawX + width < -120 || drawX > CANVAS_WIDTH + 120) continue;
+            const occupiedLeft = drawX - 46;
+            const occupiedRight = drawX + width + 46;
+            if (overlapsOccupied(occupiedLeft, occupiedRight)) continue;
+            occupiedRanges.push({ left: occupiedLeft, right: occupiedRight });
 
             ctx.save();
             ctx.globalAlpha *= item.alpha;
             ctx.filter = 'brightness(0.62) sepia(0.22) saturate(0.68) contrast(0.88) hue-rotate(-6deg)';
-            ctx.drawImage(image, x + item.xBias, this.groundY - height + 4, width, height);
+            ctx.drawImage(image, drawX, this.groundY - height + 4, width, height);
             ctx.filter = 'none';
             ctx.restore();
         }
@@ -3217,16 +3243,16 @@ export class Stage {
             return null;
         }
 
-        const sourceX = Math.round(image.naturalWidth * 0.39);
+        const sourceX = 0;
         const sourceY = 0;
-        const sourceW = image.naturalWidth - sourceX;
+        const sourceW = image.naturalWidth;
         const sourceH = image.naturalHeight;
-        const drawH = 500;
-        const drawW = Math.ceil(drawH * (sourceW / sourceH) * 0.98);
+        const drawH = 430;
+        const drawW = Math.ceil(drawH * (sourceW / sourceH));
         const cameraStopX = Math.max(0, this.maxProgress - CANVAS_WIDTH);
-        const worldX = cameraStopX + CANVAS_WIDTH - drawW + 8;
+        const worldX = cameraStopX + CANVAS_WIDTH - drawW + 78;
         const x = Math.round(worldX - progress);
-        const y = Math.round(this.groundY + 100 - drawH);
+        const y = Math.round(this.groundY + 86 - drawH);
         if (x + drawW < -120 || x > CANVAS_WIDTH + 120) {
             return null;
         }
@@ -3237,14 +3263,46 @@ export class Stage {
         const layout = this.getStage1BambooLastObjectLayout(progress);
         if (!layout) return false;
 
-        ctx.save();
-        ctx.filter = 'brightness(0.88) saturate(0.9) contrast(0.98)';
-        ctx.drawImage(
+        const buffer = this.cachedAssets.stage1LastObjectBuffer || document.createElement('canvas');
+        this.cachedAssets.stage1LastObjectBuffer = buffer;
+        if (buffer.width !== layout.w || buffer.height !== layout.h) {
+            buffer.width = layout.w;
+            buffer.height = layout.h;
+        }
+
+        const bctx = buffer.getContext('2d');
+        bctx.clearRect(0, 0, layout.w, layout.h);
+        bctx.filter = 'brightness(0.74) saturate(0.78) contrast(0.9) hue-rotate(-6deg)';
+        bctx.drawImage(
             layout.image,
             layout.sourceX, layout.sourceY, layout.sourceW, layout.sourceH,
-            layout.x, layout.y, layout.w, layout.h
+            0, 0, layout.w, layout.h
         );
-        ctx.filter = 'none';
+        bctx.filter = 'none';
+
+        // ラスト画像は背景側の右奥だけに溶かし、地面は通常Stage1地面に任せる。
+        bctx.globalCompositeOperation = 'destination-in';
+        const horizontalMask = bctx.createLinearGradient(0, 0, layout.w, 0);
+        horizontalMask.addColorStop(0, 'rgba(0,0,0,0)');
+        horizontalMask.addColorStop(0.18, 'rgba(0,0,0,0.34)');
+        horizontalMask.addColorStop(0.34, 'rgba(0,0,0,0.86)');
+        horizontalMask.addColorStop(1, 'rgba(0,0,0,1)');
+        bctx.fillStyle = horizontalMask;
+        bctx.fillRect(0, 0, layout.w, layout.h);
+
+        const verticalMask = bctx.createLinearGradient(0, 0, 0, layout.h);
+        verticalMask.addColorStop(0, 'rgba(0,0,0,1)');
+        verticalMask.addColorStop(0.62, 'rgba(0,0,0,0.96)');
+        verticalMask.addColorStop(0.82, 'rgba(0,0,0,0.32)');
+        verticalMask.addColorStop(0.96, 'rgba(0,0,0,0)');
+        verticalMask.addColorStop(1, 'rgba(0,0,0,0)');
+        bctx.fillStyle = verticalMask;
+        bctx.fillRect(0, 0, layout.w, layout.h);
+        bctx.globalCompositeOperation = 'source-over';
+
+        ctx.save();
+        ctx.globalAlpha *= 0.84;
+        ctx.drawImage(buffer, layout.x, layout.y);
         ctx.restore();
         return true;
     }
@@ -3258,6 +3316,7 @@ export class Stage {
         switch (currentPalette.elements) {
             case 'bamboo': {
                 this.renderStage1BambooImageBackdrop(ctx, p);
+                this.renderStage1BambooLastObject(ctx, p);
                 break;
             }
                 
@@ -3570,7 +3629,6 @@ export class Stage {
 
         // 竹林の動的な葉の降下エフェクト（地面描画の後に重ねる）
         if (this.stageNumber === 1) {
-            this.renderStage1BambooLastObject(ctx, renderProgress);
             this.renderStage1BambooGroundBlend(ctx, renderProgress, darken);
             this.renderBambooFallingLeaves(ctx);
         }
@@ -3647,49 +3705,13 @@ export class Stage {
         ctx.rect(0, bandTop, CANVAS_WIDTH, bandBottom - bandTop);
         ctx.clip();
 
-        // 背景と同じ生成竹レイヤーを足元だけ重ね、地面画像の硬い切れ目を隠す。
-        this.renderStage1BambooTileLayer(ctx, this.stage1BambooBackLayerImage, renderProgress, {
-            parallax: 0.1,
-            alpha: 0.07,
-            drawHeight: this.groundY + 108,
-            bottomOffset: 72,
-            phase: 250,
-            widthScale: 0.72,
-            filter: 'blur(0.8px) brightness(0.72) saturate(0.76) contrast(0.82)'
-        });
-        this.renderStage1BambooTileLayer(ctx, this.stage1BambooMidLayerImage, renderProgress, {
-            parallax: 0.28,
-            alpha: 0.22,
-            drawHeight: this.groundY + 126,
-            bottomOffset: 88,
-            phase: 0,
-            widthScale: 0.74,
-            filter: 'brightness(0.76) saturate(0.88) contrast(0.98)'
-        });
-
         const rootWash = ctx.createLinearGradient(0, horizonY - 68, 0, horizonY + 118);
         rootWash.addColorStop(0, 'rgba(17, 43, 27, 0)');
-        rootWash.addColorStop(0.28, `rgba(20, 55, 31, ${(0.08 + darken * 0.03).toFixed(3)})`);
-        rootWash.addColorStop(0.58, `rgba(32, 45, 25, ${(0.11 + darken * 0.04).toFixed(3)})`);
+        rootWash.addColorStop(0.3, `rgba(20, 55, 31, ${(0.06 + darken * 0.025).toFixed(3)})`);
+        rootWash.addColorStop(0.64, `rgba(32, 45, 25, ${(0.08 + darken * 0.03).toFixed(3)})`);
         rootWash.addColorStop(1, 'rgba(20, 28, 18, 0)');
         ctx.fillStyle = rootWash;
         ctx.fillRect(0, bandTop, CANVAS_WIDTH, bandBottom - bandTop);
-
-        const leafScroll = renderProgress * 0.5;
-        const step = 54;
-        const first = Math.floor((leafScroll - step) / step);
-        const last = Math.ceil((leafScroll + CANVAS_WIDTH + step) / step);
-        for (let i = first; i <= last; i++) {
-            const seed = i * 9.37;
-            const x = i * step - leafScroll + this.noiseSigned(seed) * 18;
-            const y = horizonY + 8 + this.noise1D(seed + 1.8) * 92;
-            if (x < -36 || x > CANVAS_WIDTH + 36) continue;
-            const clumpAlpha = (0.035 + this.noise1D(seed + 2.6) * 0.035) * (1 - darken * 0.35);
-            ctx.fillStyle = `rgba(58, 75, 35, ${clumpAlpha.toFixed(3)})`;
-            ctx.beginPath();
-            ctx.ellipse(x, y, 18 + this.noise1D(seed + 3.1) * 26, 4 + this.noise1D(seed + 4.4) * 5, this.noiseSigned(seed + 5.2) * 0.22, 0, Math.PI * 2);
-            ctx.fill();
-        }
 
         ctx.restore();
     }
@@ -3708,12 +3730,9 @@ export class Stage {
         ctx.fillRect(0, horizonY, CANVAS_WIDTH, span);
 
         if (this.renderGroundImageTile(ctx, this.stage1GroundImage, horizonY, bottomY, renderProgress, {
-            filter: 'brightness(1.02) saturate(0.96) contrast(1.02)',
-            extraHeight: 56,
-            yOffset: -34,
-            clipTopOffset: -16,
-            mirrorRepeat: true,
-            widthScale: 1.55
+            filter: 'brightness(0.9) saturate(0.88) contrast(0.94)',
+            extraHeight: 34,
+            yOffset: -16
         })) {
             ctx.fillStyle = 'rgba(20, 64, 42, 0.08)';
             ctx.fillRect(0, horizonY - 36, CANVAS_WIDTH, span + 36);
