@@ -132,11 +132,11 @@ export class Stage {
             this.stage1GroundImage = new Image();
             this.stage1GroundImage.src = 'images/stage1_ground_bamboo_tile.png?v=20260707_ground2';
             this.stage1BambooBackLayerImage = new Image();
-            this.stage1BambooBackLayerImage.src = 'images/stage1_bamboo_back_layer.png?v=20260707_dense1';
+            this.stage1BambooBackLayerImage.src = 'images/stage1_bamboo_back_layer.png?v=20260707_slim1';
             this.stage1BambooMidLayerImage = new Image();
-            this.stage1BambooMidLayerImage.src = 'images/stage1_bamboo_mid_layer.png?v=20260707_dense1';
-            this.stage1BambooLastObjectImage = new Image();
-            this.stage1BambooLastObjectImage.src = 'images/stage1_bamboo_last_object.png?v=20260707_back2';
+            this.stage1BambooMidLayerImage.src = 'images/stage1_bamboo_mid_layer.png?v=20260707_slim1';
+            this.stage1BambooRootScreenImage = new Image();
+            this.stage1BambooRootScreenImage.src = 'images/stage1_bamboo_root_screen.png?v=20260707_root1';
         }
         if (this.stageNumber === 2) {
             this.stage2GroundImage = new Image();
@@ -2565,15 +2565,13 @@ export class Stage {
         // ステージ固有の背景要素
         this.renderStageElements(ctx, currentPalette);
 
-        // Stage1のラスト背景は通常竹レイヤー内で、右奥へ抜ける固定背景として描画する。
-
         // Stage2のラストオブジェクトは背景パララックスに混ぜず、地面と同じワールド座標で固定配置する。
         if (this.stageNumber === 2) {
             this.renderStage2MountainPassEntrance(ctx);
         }
 
         // ボス部屋の右側に次ステージへの「出入口」を描画。
-        // ※ Stage1（竹林）は専用の固定背景で右奥の抜け道を描くため、汎用peekは使わない。
+        // ※ Stage1（竹林）は通常背景を最後まで連続させるため、汎用peekは使わない。
         // ※ Stage2（街道）は山道入口をステージ内の通常背景として描画する。
         // ※ Stage5（城内）は画像ベースの階段（stairImage）が出口を兼ねるため peek は描かない。
         if (this.stageNumber >= 3 && this.stageNumber <= 4) {
@@ -3173,14 +3171,18 @@ export class Stage {
         bottomOffset = 28,
         phase = 0,
         widthScale = 1,
-        filter = 'none'
+        filter = 'none',
+        sourceBottomTrim = 0
     } = {}) {
         if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) {
             return false;
         }
 
+        const trimRatio = Math.max(0, Math.min(0.4, sourceBottomTrim));
+        const sourceW = image.naturalWidth;
+        const sourceH = Math.max(1, Math.round(image.naturalHeight * (1 - trimRatio)));
         const drawH = Math.min(CANVAS_HEIGHT + 120, drawHeight);
-        const drawWidth = Math.ceil(drawH * (image.naturalWidth / image.naturalHeight) * widthScale);
+        const drawWidth = Math.ceil(drawH * (sourceW / sourceH) * widthScale);
         const bottomY = this.groundY + bottomOffset;
         const y = Math.round(bottomY - drawH);
         const scrollWorld = progress * parallax + phase;
@@ -3197,10 +3199,10 @@ export class Stage {
                 ctx.save();
                 ctx.translate(x + drawWidth + 2, y);
                 ctx.scale(-1, 1);
-                ctx.drawImage(image, 0, 0, drawWidth + 2, drawH);
+                ctx.drawImage(image, 0, 0, sourceW, sourceH, 0, 0, drawWidth + 2, drawH);
                 ctx.restore();
             } else {
-                ctx.drawImage(image, x, y, drawWidth + 2, drawH);
+                ctx.drawImage(image, 0, 0, sourceW, sourceH, x, y, drawWidth + 2, drawH);
             }
         }
         ctx.filter = 'none';
@@ -3215,96 +3217,25 @@ export class Stage {
         let rendered = false;
 
         rendered = this.renderStage1BambooTileLayer(ctx, backImage, progress, {
-            parallax: 0.1,
-            alpha: 0.3,
-            drawHeight: this.groundY + 108,
-            bottomOffset: 72,
+            parallax: 0.55,
+            alpha: 0.24,
+            drawHeight: this.groundY + 260,
+            bottomOffset: 128,
             phase: 250,
-            widthScale: 0.72,
-            filter: 'blur(0.65px) brightness(0.78) saturate(0.78) contrast(0.8)'
+            widthScale: 0.68,
+            filter: 'blur(0.65px) brightness(0.72) saturate(0.74) contrast(0.8)'
         }) || rendered;
         rendered = this.renderStage1BambooTileLayer(ctx, midImage, progress, {
-            parallax: 0.28,
-            alpha: 0.9,
-            drawHeight: this.groundY + 126,
-            bottomOffset: 88,
+            parallax: 0.78,
+            alpha: 0.7,
+            drawHeight: this.groundY + 270,
+            bottomOffset: 136,
             phase: 0,
-            widthScale: 0.74,
-            filter: 'brightness(0.88) saturate(0.92) contrast(1.02)'
+            widthScale: 0.64,
+            filter: 'brightness(0.76) saturate(0.82) contrast(0.9)'
         }) || rendered;
 
         return rendered;
-    }
-
-    getStage1BambooLastObjectLayout(progress = this.progress) {
-        if (this.stageNumber !== 1) return null;
-        const image = this.stage1BambooLastObjectImage;
-        if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) {
-            return null;
-        }
-
-        const sourceX = 0;
-        const sourceY = 0;
-        const sourceW = image.naturalWidth;
-        const sourceH = image.naturalHeight;
-        const drawH = 430;
-        const drawW = Math.ceil(drawH * (sourceW / sourceH));
-        const cameraStopX = Math.max(0, this.maxProgress - CANVAS_WIDTH);
-        const worldX = cameraStopX + CANVAS_WIDTH - drawW + 78;
-        const x = Math.round(worldX - progress);
-        const y = Math.round(this.groundY + 86 - drawH);
-        if (x + drawW < -120 || x > CANVAS_WIDTH + 120) {
-            return null;
-        }
-        return { image, sourceX, sourceY, sourceW, sourceH, x, y, w: drawW, h: drawH };
-    }
-
-    renderStage1BambooLastObject(ctx, progress = this.progress) {
-        const layout = this.getStage1BambooLastObjectLayout(progress);
-        if (!layout) return false;
-
-        const buffer = this.cachedAssets.stage1LastObjectBuffer || document.createElement('canvas');
-        this.cachedAssets.stage1LastObjectBuffer = buffer;
-        if (buffer.width !== layout.w || buffer.height !== layout.h) {
-            buffer.width = layout.w;
-            buffer.height = layout.h;
-        }
-
-        const bctx = buffer.getContext('2d');
-        bctx.clearRect(0, 0, layout.w, layout.h);
-        bctx.filter = 'brightness(0.74) saturate(0.78) contrast(0.9) hue-rotate(-6deg)';
-        bctx.drawImage(
-            layout.image,
-            layout.sourceX, layout.sourceY, layout.sourceW, layout.sourceH,
-            0, 0, layout.w, layout.h
-        );
-        bctx.filter = 'none';
-
-        // ラスト画像は背景側の右奥だけに溶かし、地面は通常Stage1地面に任せる。
-        bctx.globalCompositeOperation = 'destination-in';
-        const horizontalMask = bctx.createLinearGradient(0, 0, layout.w, 0);
-        horizontalMask.addColorStop(0, 'rgba(0,0,0,0)');
-        horizontalMask.addColorStop(0.18, 'rgba(0,0,0,0.34)');
-        horizontalMask.addColorStop(0.34, 'rgba(0,0,0,0.86)');
-        horizontalMask.addColorStop(1, 'rgba(0,0,0,1)');
-        bctx.fillStyle = horizontalMask;
-        bctx.fillRect(0, 0, layout.w, layout.h);
-
-        const verticalMask = bctx.createLinearGradient(0, 0, 0, layout.h);
-        verticalMask.addColorStop(0, 'rgba(0,0,0,1)');
-        verticalMask.addColorStop(0.62, 'rgba(0,0,0,0.96)');
-        verticalMask.addColorStop(0.82, 'rgba(0,0,0,0.32)');
-        verticalMask.addColorStop(0.96, 'rgba(0,0,0,0)');
-        verticalMask.addColorStop(1, 'rgba(0,0,0,0)');
-        bctx.fillStyle = verticalMask;
-        bctx.fillRect(0, 0, layout.w, layout.h);
-        bctx.globalCompositeOperation = 'source-over';
-
-        ctx.save();
-        ctx.globalAlpha *= 0.84;
-        ctx.drawImage(buffer, layout.x, layout.y);
-        ctx.restore();
-        return true;
     }
 
 	renderStageElements(ctx, currentPalette) {
@@ -3316,7 +3247,6 @@ export class Stage {
         switch (currentPalette.elements) {
             case 'bamboo': {
                 this.renderStage1BambooImageBackdrop(ctx, p);
-                this.renderStage1BambooLastObject(ctx, p);
                 break;
             }
                 
@@ -3707,13 +3637,38 @@ export class Stage {
 
         const rootWash = ctx.createLinearGradient(0, horizonY - 68, 0, horizonY + 118);
         rootWash.addColorStop(0, 'rgba(17, 43, 27, 0)');
-        rootWash.addColorStop(0.3, `rgba(20, 55, 31, ${(0.06 + darken * 0.025).toFixed(3)})`);
-        rootWash.addColorStop(0.64, `rgba(32, 45, 25, ${(0.08 + darken * 0.03).toFixed(3)})`);
+        rootWash.addColorStop(0.3, `rgba(20, 55, 31, ${(0.16 + darken * 0.035).toFixed(3)})`);
+        rootWash.addColorStop(0.64, `rgba(32, 45, 25, ${(0.18 + darken * 0.04).toFixed(3)})`);
         rootWash.addColorStop(1, 'rgba(20, 28, 18, 0)');
         ctx.fillStyle = rootWash;
         ctx.fillRect(0, bandTop, CANVAS_WIDTH, bandBottom - bandTop);
 
+        this.renderStage1RootScreenImage(ctx, renderProgress, darken);
+
         ctx.restore();
+    }
+
+    renderStage1RootScreenImage(ctx, renderProgress, darken) {
+        const image = this.stage1BambooRootScreenImage;
+        if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) {
+            return false;
+        }
+
+        const drawH = 104;
+        const drawW = Math.ceil(drawH * (image.naturalWidth / image.naturalHeight));
+        const y = Math.round(this.groundY - 76);
+        const scroll = Math.floor((renderProgress * 0.92) % drawW);
+        const startX = -scroll - drawW;
+
+        ctx.save();
+        ctx.globalAlpha *= 0.88;
+        ctx.filter = `brightness(${(0.76 - darken * 0.06).toFixed(3)}) saturate(0.74) contrast(0.92)`;
+        for (let x = startX; x < CANVAS_WIDTH + drawW; x += drawW) {
+            ctx.drawImage(image, x, y, drawW + 2, drawH);
+        }
+        ctx.filter = 'none';
+        ctx.restore();
+        return true;
     }
 
     renderGroundBamboo(ctx, renderProgress, darken) {
@@ -3730,7 +3685,7 @@ export class Stage {
         ctx.fillRect(0, horizonY, CANVAS_WIDTH, span);
 
         if (this.renderGroundImageTile(ctx, this.stage1GroundImage, horizonY, bottomY, renderProgress, {
-            filter: 'brightness(0.9) saturate(0.88) contrast(0.94)',
+            filter: 'brightness(0.96) saturate(0.82) contrast(0.9) hue-rotate(8deg)',
             extraHeight: 34,
             yOffset: -16
         })) {
