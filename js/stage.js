@@ -10,6 +10,11 @@ import { audio } from './audio.js';
 import { generateStairsCanvas } from './stairRenderer.js';
 
 const OBSTACLE_CHANCE_BOOST = 0.8;
+// Stage1地面タイルの描画幅1206pxに合わせ、worldX=9648で位相0から接続する。
+const STAGE1_GROUND_TRANSITION_LENGTH = 2352;
+const STAGE1_BAMBOO_TREE_LINE_OFFSET = 1020;
+const STAGE1_FENCE_END_OFFSET = 12;
+const STAGE1_BOSS_SUN_HOUR = 8.25;
 
 // ステージクラス
 export class Stage {
@@ -46,7 +51,8 @@ export class Stage {
             this.floorNameDisplayTimer = 0;
             this.floorNameDisplayDuration = 1800; // ms
         } else {
-            this.maxProgress = 12000;
+            // 最終ステージは天守外周を4区間に分けて巡るため、通常ステージの2倍。
+            this.maxProgress = this.stageNumber === 6 ? 24000 : 12000;
             this.currentFloor = 0;
             this.floorScrollDirection = 1;
         }
@@ -132,11 +138,15 @@ export class Stage {
             this.stage1GroundImage = new Image();
             this.stage1GroundImage.src = 'images/stage1_ground_bamboo_tile.png?v=20260707_ground2';
             this.stage1BambooBackLayerImage = new Image();
-            this.stage1BambooBackLayerImage.src = 'images/stage1_bamboo_back_layer.png?v=20260707_slim1';
+            this.stage1BambooBackLayerImage.src = 'images/stage1_bamboo_back_layer.png?v=20260712_opaque1';
             this.stage1BambooMidLayerImage = new Image();
-            this.stage1BambooMidLayerImage.src = 'images/stage1_bamboo_mid_layer.png?v=20260707_slim1';
+            this.stage1BambooMidLayerImage.src = 'images/stage1_bamboo_mid_layer_v2.png?v=20260712_opaque1';
+            this.stage1BambooFrontLayerImage = new Image();
+            this.stage1BambooFrontLayerImage.src = 'images/stage1_bamboo_front_layer.png?v=20260712_opaque1';
             this.stage1BambooRootScreenImage = new Image();
             this.stage1BambooRootScreenImage.src = 'images/stage1_bamboo_root_screen.png?v=20260707_root1';
+            this.stage1GroundToKaidoImage = new Image();
+            this.stage1GroundToKaidoImage.src = 'images/stage1_ground_to_kaido.png?v=20260710_edge4';
         }
         if (this.stageNumber === 2) {
             this.stage2GroundImage = new Image();
@@ -240,26 +250,39 @@ export class Stage {
     initCache() {
         // 竹の葉のプリレンダリング
         if (this.stageNumber === 1) {
-            const colors = ['#587763', '#668369', '#758d70', '#4f6b58', '#87906f'];
-            this.cachedAssets.bambooLeaves = colors.map((color) => {
+            const palettes = [
+                { top: '#2b4930', bottom: '#17291d', vein: 'rgba(8, 18, 11, 0.58)' },
+                { top: '#38543a', bottom: '#203323', vein: 'rgba(10, 22, 13, 0.56)' },
+                { top: '#4a5f3b', bottom: '#293623', vein: 'rgba(15, 23, 12, 0.54)' },
+                { top: '#555d37', bottom: '#343921', vein: 'rgba(23, 24, 10, 0.52)' },
+                { top: '#3f5132', bottom: '#24301f', vein: 'rgba(12, 19, 10, 0.56)' }
+            ];
+            this.cachedAssets.bambooLeaves = palettes.map((palette) => {
                 const offCanvas = document.createElement('canvas');
                 offCanvas.width = 32;
                 offCanvas.height = 32;
                 const octx = offCanvas.getContext('2d');
                 const size = 12;
                 octx.translate(16, 16);
-                octx.fillStyle = color;
+                const fill = octx.createLinearGradient(-size * 0.55, 0, size * 0.65, 0);
+                fill.addColorStop(0, palette.bottom);
+                fill.addColorStop(0.48, palette.top);
+                fill.addColorStop(1, palette.bottom);
+                octx.fillStyle = fill;
                 octx.beginPath();
-                octx.moveTo(-size * 0.54, 0);
-                octx.quadraticCurveTo(-size * 0.1, -size * 0.42, size * 0.62, -size * 0.1);
-                octx.quadraticCurveTo(size * 0.1, size * 0.36, -size * 0.54, 0);
+                octx.moveTo(-size * 0.62, 0.5);
+                octx.quadraticCurveTo(-size * 0.08, -size * 0.34, size * 0.68, -size * 0.05);
+                octx.quadraticCurveTo(size * 0.08, size * 0.3, -size * 0.62, 0.5);
                 octx.closePath();
                 octx.fill();
-                octx.strokeStyle = 'rgba(160, 190, 145, 0.32)';
-                octx.lineWidth = 0.8;
+                octx.strokeStyle = 'rgba(118, 132, 76, 0.34)';
+                octx.lineWidth = 0.75;
+                octx.stroke();
+                octx.strokeStyle = palette.vein;
+                octx.lineWidth = 0.65;
                 octx.beginPath();
-                octx.moveTo(-size * 0.32, 0);
-                octx.lineTo(size * 0.5, -size * 0.03);
+                octx.moveTo(-size * 0.45, 0.25);
+                octx.quadraticCurveTo(0, -0.35, size * 0.53, -size * 0.03);
                 octx.stroke();
                 return offCanvas;
             });
@@ -312,7 +335,7 @@ export class Stage {
                 vy: 0,
                 rot: Math.random() * Math.PI * 2,
                 rotV: 0,
-                size: 6 + Math.random() * 9,
+                size: (8 + Math.random() * 6) * (0.86 + depth * 0.14),
                 depth,
                 state: 'grounded',
                 groundLife: 4000 + Math.random() * 8000,
@@ -357,6 +380,17 @@ export class Stage {
         return this._getStairPhysicalEnd(this.floorScrollDirection);
     }
 
+    /** 最終階の右端にある、天守閣へ続く背景専用の階段か */
+    isFinalFloorExitStair() {
+        return this.stageNumber === 5 && this.currentFloor >= this.maxFloor;
+    }
+
+    /** 最終階の出口階段へ進入できる限界X */
+    getFinalFloorExitBarrierX() {
+        if (!this.isFinalFloorExitStair()) return Infinity;
+        return this._getStairPhysicalStart(this.floorScrollDirection);
+    }
+
     /** プレイヤーが階段区間にいるか判定 */
     isInStairZone(playerX) {
         if (this.stageNumber !== 5) return false;
@@ -373,7 +407,7 @@ export class Stage {
 
     /** 階段内の登り進行度（0=階段入口, 1=階段頂上）を返す */
     getStairClimbProgress(playerX) {
-        if (this.stageNumber !== 5) return 0;
+        if (this.stageNumber !== 5 || this.isFinalFloorExitStair()) return 0;
         const dir = this.floorScrollDirection;
         const physStart = this._getStairPhysicalStart(dir);
         const physEnd = this._getStairPhysicalEnd(dir);
@@ -418,6 +452,9 @@ export class Stage {
                 }
             }
         }
+
+        // 最終階の右端は天守閣へ続く背景専用階段。傾斜として扱わない。
+        if (this.isFinalFloorExitStair()) return this.baseGroundY;
 
         // --- 次のフロアへ登る階段（ゴール地点）の判定 ---
         if (dir === 1) {
@@ -2058,13 +2095,21 @@ export class Stage {
         return `rgb(${r}, ${g}, ${b})`;
     }
 
-    noise1D(seed) {
-        const x = Math.sin(seed * 127.1 + this.stageNumber * 311.7) * 43758.5453123;
+    noise1DForStage(seed, stageNumber = this.stageNumber) {
+        const x = Math.sin(seed * 127.1 + stageNumber * 311.7) * 43758.5453123;
         return x - Math.floor(x);
     }
 
+    noise1D(seed) {
+        return this.noise1DForStage(seed, this.stageNumber);
+    }
+
+    noiseSignedForStage(seed, stageNumber = this.stageNumber) {
+        return this.noise1DForStage(seed, stageNumber) * 2 - 1;
+    }
+
     noiseSigned(seed) {
-        return this.noise1D(seed) * 2 - 1;
+        return this.noiseSignedForStage(seed, this.stageNumber);
     }
 
     clamp01(v) {
@@ -2093,7 +2138,20 @@ export class Stage {
         return -0.22 + this.smoothstep(0, 1, this.getStage6SunPhase()) * 0.42;
     }
 
-    updateBambooLeafEffects(deltaTime) {
+    getStage1GroundTransitionStartX() {
+        return Math.max(0, this.maxProgress - STAGE1_GROUND_TRANSITION_LENGTH);
+    }
+
+    getStage1BambooTreeLineX() {
+        return Math.max(0, this.maxProgress - STAGE1_BAMBOO_TREE_LINE_OFFSET);
+    }
+
+    getStage1SunHour() {
+        const scrollProgress = this.clamp01(this.progress / this.getBossScrollStopX());
+        return 4.5 + (STAGE1_BOSS_SUN_HOUR - 4.5) * this.smoothstep(0, 1, scrollProgress);
+    }
+
+    updateBambooLeafEffects(deltaTime, progressDelta = 0) {
         if (this.stageNumber !== 1) {
             this.bambooFallingLeaves.length = 0;
             this.bambooLeafSpawnTimer = 0;
@@ -2107,41 +2165,70 @@ export class Stage {
         const bossActive = this.bossSpawned && !this.bossDefeated;
         const spawnMultiplier = bossActive ? 4.5 : 1.0;
         
-        this.updateBambooFallingLeaves(dtMs, dtScale, spawnMultiplier);
+        this.updateBambooFallingLeaves(dtMs, dtScale, spawnMultiplier, progressDelta);
     }
 
-    updateBambooFallingLeaves(dtMs, dtScale, spawnMultiplier = 1.0) {
-
-        const maxLeaves = Math.floor(12 * spawnMultiplier);
-        const spawnInterval = 520 / spawnMultiplier;
+    updateBambooFallingLeaves(dtMs, dtScale, spawnMultiplier = 1.0, progressDelta = 0) {
+        const bambooEdgeScreenX = this.getStage1BambooTreeLineX() - this.progress;
+        const spawnXMax = Math.min(CANVAS_WIDTH + 60, bambooEdgeScreenX + 40);
+        const visibleForestWidth = Math.max(0, Math.min(CANVAS_WIDTH + 120, spawnXMax + 60));
+        const forestCoverage = visibleForestWidth / (CANVAS_WIDTH + 120);
+        const bossDensityBlend = this.smoothstep(0.45, 1, forestCoverage);
+        const effectiveMultiplier = 1 + (spawnMultiplier - 1) * bossDensityBlend;
+        const maxLeaves = Math.floor(14 * effectiveMultiplier * forestCoverage);
+        const spawnInterval = 460 / (effectiveMultiplier * Math.max(0.12, forestCoverage));
         this.bambooLeafSpawnTimer += dtMs;
 
-        // Stage1はボス戦でも竹林全域を維持し、右1/4を削る演出を行わない
-        const shouldTrimBambooForBoss = this.bossSpawned && this.stageNumber !== 1;
-        const spawnXMax = shouldTrimBambooForBoss
-            ? CANVAS_WIDTH * 0.75
-            : CANVAS_WIDTH + 60;
+        let fallingCount = this.bambooFallingLeaves.filter(l => l.state === 'falling').length;
+        let excessFallingLeaves = Math.max(0, fallingCount - maxLeaves);
+        for (let i = this.bambooFallingLeaves.length - 1; i >= 0 && excessFallingLeaves > 0; i--) {
+            if (this.bambooFallingLeaves[i].state !== 'falling') continue;
+            this.bambooFallingLeaves.splice(i, 1);
+            fallingCount--;
+            excessFallingLeaves--;
+        }
 
-        const fallingCount = this.bambooFallingLeaves.filter(l => l.state === 'falling').length;
         while (this.bambooLeafSpawnTimer >= spawnInterval) {
             this.bambooLeafSpawnTimer -= spawnInterval;
-            if (fallingCount >= maxLeaves) break;
+            if (spawnXMax <= -40 || maxLeaves <= 0) {
+                this.bambooLeafSpawnTimer = 0;
+                break;
+            }
+            if (fallingCount >= maxLeaves) {
+                this.bambooLeafSpawnTimer = Math.min(this.bambooLeafSpawnTimer, spawnInterval);
+                break;
+            }
             const depth = 0.45 + Math.random() * 0.55;
-            const screenX = -60 + Math.random() * (spawnXMax + 60);
+            const movingForward = progressDelta > 0.05;
+            const forwardSpawnMin = Math.min(
+                CANVAS_WIDTH * 0.35,
+                Math.max(-60, spawnXMax - 200)
+            );
+            const spawnXMin = movingForward ? forwardSpawnMin : -60;
+            const screenX = spawnXMin + Math.random() * Math.max(1, spawnXMax - spawnXMin);
+            const terminalVy = (0.62 + Math.random() * 0.72) * (0.86 + depth * 0.34);
+            const rotDirection = Math.random() < 0.5 ? -1 : 1;
             this.bambooFallingLeaves.push({
                 worldX: screenX + this.progress,
-                y: -30 - Math.random() * 180,
-                vx: (-0.22 - Math.random() * 0.5) * depth,
-                vy: (0.88 + Math.random() * 1.28) * (0.82 + depth * 0.55),
+                y: -10 + Math.random() * 170,
+                vx: (-0.1 - Math.random() * 0.24) * depth,
+                vy: terminalVy * 0.72,
+                terminalVy,
                 rot: Math.random() * Math.PI * 2,
-                rotV: (Math.random() - 0.5) * 0.06,
-                size: 6 + Math.random() * 9,
+                rotV: (0.006 + Math.random() * 0.009) * rotDirection,
+                swayPhase: Math.random() * Math.PI * 2,
+                swaySpeed: 0.0036 + Math.random() * 0.0018,
+                swayAmp: 0.1 + Math.random() * 0.16,
+                gustPhase: Math.random() * Math.PI * 2,
+                gustSpeed: 0.00035 + Math.random() * 0.0002,
+                size: (14 + Math.random() * 8) * (0.92 + depth * 0.08),
                 depth,
                 state: 'falling',
                 groundLife: 400 + Math.random() * 400,
                 maxGroundLife: 800,
                 leafId: (this._leafIdCounter = ((this._leafIdCounter || 0) + 1) & 0xFFFF)
             });
+            fallingCount++;
         }
 
         for (let i = this.bambooFallingLeaves.length - 1; i >= 0; i--) {
@@ -2149,9 +2236,15 @@ export class Stage {
             const targetY = this.groundY + LANE_OFFSET + (leaf.depth - 0.5) * 16;
             
             if (leaf.state === 'falling') {
-                leaf.worldX += leaf.vx * dtScale;
-                leaf.y += leaf.vy * dtScale;
-                leaf.rot += leaf.rotV * dtScale + Math.sin((this.stageTime + i * 37) * 0.0038) * 0.003;
+                const flutterPhase = this.stageTime * (leaf.swaySpeed || 0.0045) + (leaf.swayPhase || 0);
+                const gustPhase = this.stageTime * (leaf.gustSpeed || 0.00045) + (leaf.gustPhase || 0);
+                const flutter = Math.sin(flutterPhase);
+                const gust = Math.sin(gustPhase);
+                const targetVy = (leaf.terminalVy || leaf.vy) * (0.76 + Math.abs(flutter) * 0.25);
+                leaf.vy += (targetVy - leaf.vy) * Math.min(1, 0.045 * dtScale);
+                leaf.worldX += (leaf.vx + flutter * (leaf.swayAmp || 0.14) + gust * 0.1) * dtScale;
+                leaf.y += Math.max(0.18, leaf.vy - Math.max(0, flutter) * 0.06) * dtScale;
+                leaf.rot += (leaf.rotV + Math.cos(flutterPhase) * 0.008 + gust * 0.003) * dtScale;
                 
                 if (leaf.y >= targetY) {
                     leaf.y = targetY;
@@ -2201,18 +2294,19 @@ export class Stage {
             ctx.save();
             ctx.translate(x, y);
             ctx.rotate(rot);
-            ctx.fillStyle = color.includes('rgba') ? color : color.replace('rgb(', 'rgba(').replace(')', `, ${alpha.toFixed(3)})`);
+            ctx.globalAlpha *= alpha;
+            ctx.fillStyle = color || '#364b2d';
             ctx.beginPath();
-            ctx.moveTo(-size * 0.54, 0);
-            ctx.quadraticCurveTo(-size * 0.1, -size * 0.42, size * 0.62, -size * 0.1);
-            ctx.quadraticCurveTo(size * 0.1, size * 0.36, -size * 0.54, 0);
+            ctx.moveTo(-size * 0.62, 0.5);
+            ctx.quadraticCurveTo(-size * 0.08, -size * 0.34, size * 0.68, -size * 0.05);
+            ctx.quadraticCurveTo(size * 0.08, size * 0.3, -size * 0.62, 0.5);
             ctx.closePath();
             ctx.fill();
-            ctx.strokeStyle = `rgba(160, 190, 145, ${(alpha * 0.38).toFixed(3)})`;
-            ctx.lineWidth = 0.8;
+            ctx.strokeStyle = 'rgba(10, 20, 11, 0.56)';
+            ctx.lineWidth = 0.65;
             ctx.beginPath();
-            ctx.moveTo(-size * 0.32, 0);
-            ctx.lineTo(size * 0.5, -size * 0.03);
+            ctx.moveTo(-size * 0.45, 0.25);
+            ctx.quadraticCurveTo(0, -0.35, size * 0.53, -size * 0.03);
             ctx.stroke();
             ctx.restore();
         }
@@ -2226,10 +2320,10 @@ export class Stage {
             const screenX = leaf.worldX - this.progress;
             // 落下中または舞い上がり中
             if (leaf.state !== 'grounded') {
-                this.drawBambooLeaf(ctx, screenX, leaf.y, leaf.size, leaf.rot, '', 0.5 + leaf.depth * 0.4, leaf.leafId ?? -1, leaf.depth);
+                this.drawBambooLeaf(ctx, screenX, leaf.y, leaf.size, leaf.rot, '', 0.58 + leaf.depth * 0.38, leaf.leafId ?? -1, leaf.depth);
             } else {
                 const lifeAlpha = Math.max(0, Math.min(1, leaf.groundLife / leaf.maxGroundLife));
-                this.drawBambooLeaf(ctx, screenX, leaf.y, leaf.size, leaf.rot, '', (0.4 + leaf.depth * 0.3) * lifeAlpha, leaf.leafId ?? -1, leaf.depth);
+                this.drawBambooLeaf(ctx, screenX, leaf.y, leaf.size, leaf.rot, '', (0.18 + leaf.depth * 0.24) * lifeAlpha, leaf.leafId ?? -1, leaf.depth);
             }
         }
         ctx.restore();
@@ -2560,6 +2654,8 @@ export class Stage {
             this.renderBackgroundLayer(ctx, currentPalette.far, 0.2, 0.7, 100);
             this.renderBackgroundLayer(ctx, currentPalette.mid, 0.4, 0.8, 60);
             this.renderBackgroundLayer(ctx, currentPalette.near, 0.7, 1.0, 20);
+        } else if (isBambooForest) {
+            this.renderStage1FixedRoadMountains(ctx);
         }
         
         // ステージ固有の背景要素
@@ -2571,7 +2667,7 @@ export class Stage {
         }
 
         // ボス部屋の右側に次ステージへの「出入口」を描画。
-        // ※ Stage1（竹林）は通常背景を最後まで連続させるため、汎用peekは使わない。
+        // ※ Stage1（竹林）は管理林縁から街道へ接続する専用終端を使うため、汎用peekは使わない。
         // ※ Stage2（街道）は山道入口をステージ内の通常背景として描画する。
         // ※ Stage5（城内）は画像ベースの階段（stairImage）が出口を兼ねるため peek は描かない。
         if (this.stageNumber >= 3 && this.stageNumber <= 4) {
@@ -2758,12 +2854,37 @@ export class Stage {
         }
     }
 
-    renderBackgroundLayer(ctx, color, parallax, alpha, yOffsetBase = 50) {
+    renderStage1FixedRoadMountains(ctx) {
+        const cameraX = Math.floor(this.progress);
+        const startX = this.getStage1BambooTreeLineX() - cameraX;
+        if (startX >= CANVAS_WIDTH) return false;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(startX, -400, CANVAS_WIDTH - startX, CANVAS_HEIGHT + 800);
+        ctx.clip();
+        ctx.translate(startX, 0);
+
+        const stage2Start = { far: '#607182', mid: '#728595', near: '#8398a8' };
+        const fixedStage2Options = { progress: 0, noiseStageNumber: 2 };
+        this.renderBackgroundLayer(ctx, stage2Start.far, 0.2, 0.7, 100, fixedStage2Options);
+        this.renderBackgroundLayer(ctx, stage2Start.mid, 0.4, 0.8, 60, fixedStage2Options);
+        this.renderBackgroundLayer(ctx, stage2Start.near, 0.7, 1, 20, fixedStage2Options);
+
+        ctx.restore();
+        return true;
+    }
+
+    renderBackgroundLayer(ctx, color, parallax, alpha, yOffsetBase = 50, options = {}) {
         ctx.save();
         ctx.globalAlpha *= alpha;
 
         const segmentBase = 230 + parallax * 130;
-        const scroll = this.progress * parallax;
+        const renderProgress = options.progress ?? this.progress;
+        const noiseStageNumber = options.noiseStageNumber ?? this.stageNumber;
+        const noise1D = (seed) => this.noise1DForStage(seed, noiseStageNumber);
+        const noiseSigned = (seed) => this.noiseSignedForStage(seed, noiseStageNumber);
+        const scroll = renderProgress * parallax;
         const offset = ((scroll % segmentBase) + segmentBase) % segmentBase;
         const start = -2;
         const end = Math.ceil(CANVAS_WIDTH / segmentBase) + 3;
@@ -2771,13 +2892,13 @@ export class Stage {
         for (let i = start; i <= end; i++) {
             const worldIndex = i + Math.floor(scroll / segmentBase);
             const seed = worldIndex * (8.17 + parallax * 4.31);
-            const ridgeW = segmentBase * (0.8 + this.noise1D(seed + 0.93) * 0.95);
-            const x = i * segmentBase - offset + this.noiseSigned(seed + 1.27) * (segmentBase * 0.18);
+            const ridgeW = segmentBase * (0.8 + noise1D(seed + 0.93) * 0.95);
+            const x = i * segmentBase - offset + noiseSigned(seed + 1.27) * (segmentBase * 0.18);
 
-            const hA = Math.max(22, yOffsetBase + 24 + this.noiseSigned(seed + 2.11) * 38);
-            const hB = Math.max(18, yOffsetBase + 10 + this.noiseSigned(seed + 3.73) * 34);
-            const hC = Math.max(12, yOffsetBase - 8 + this.noiseSigned(seed + 5.19) * 28);
-            const hD = Math.max(10, yOffsetBase - 2 + this.noiseSigned(seed + 6.41) * 24);
+            const hA = Math.max(22, yOffsetBase + 24 + noiseSigned(seed + 2.11) * 38);
+            const hB = Math.max(18, yOffsetBase + 10 + noiseSigned(seed + 3.73) * 34);
+            const hC = Math.max(12, yOffsetBase - 8 + noiseSigned(seed + 5.19) * 28);
+            const hD = Math.max(10, yOffsetBase - 2 + noiseSigned(seed + 6.41) * 24);
 
             ctx.beginPath();
             ctx.moveTo(x - 24, this.groundY);
@@ -3164,78 +3285,94 @@ export class Stage {
         return true;
     }
 
-    renderStage1BambooTileLayer(ctx, image, progress, {
-        parallax = 0.35,
-        alpha = 1,
-        drawHeight = this.groundY + 190,
-        bottomOffset = 28,
+    renderStage1BambooImageBackdrop(ctx, progress) {
+        let rendered = false;
+
+        rendered = this.renderStage1BambooLayer(ctx, this.stage1BambooBackLayerImage, progress, {
+            parallax: 0.96,
+            drawHeight: 742,
+            widthScale: 1,
+            bottomOffset: 112,
+            endInset: 72,
+            phase: 390,
+            alpha: 1,
+            filter: 'brightness(0.5) saturate(0.7) contrast(0.76) hue-rotate(8deg)',
+            mirrorRepeat: true
+        }) || rendered;
+        rendered = this.renderStage1BambooLayer(ctx, this.stage1BambooMidLayerImage, progress, {
+            parallax: 0.985,
+            drawHeight: 792,
+            widthScale: 1.15,
+            bottomOffset: 126,
+            endInset: 46,
+            phase: 130,
+            alpha: 1,
+            filter: 'brightness(0.64) saturate(0.76) contrast(0.88) hue-rotate(4deg)',
+            mirrorRepeat: true
+        }) || rendered;
+        rendered = this.renderStage1BambooLayer(ctx, this.stage1BambooFrontLayerImage, progress, {
+            parallax: 1,
+            drawHeight: 836,
+            widthScale: 0.92,
+            bottomOffset: 140,
+            endInset: 24,
+            alpha: 1,
+            filter: 'brightness(0.78) saturate(0.94) contrast(1.02)',
+            mirrorRepeat: true
+        }) || rendered;
+
+        return rendered;
+    }
+
+    renderStage1BambooLayer(ctx, image, progress, {
+        parallax,
+        drawHeight,
+        widthScale,
+        bottomOffset,
+        endInset,
         phase = 0,
-        widthScale = 1,
-        filter = 'none',
-        sourceBottomTrim = 0
-    } = {}) {
+        alpha = 1,
+        filter,
+        mirrorRepeat
+    }) {
         if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) {
             return false;
         }
 
-        const trimRatio = Math.max(0, Math.min(0.4, sourceBottomTrim));
-        const sourceW = image.naturalWidth;
-        const sourceH = Math.max(1, Math.round(image.naturalHeight * (1 - trimRatio)));
-        const drawH = Math.min(CANVAS_HEIGHT + 120, drawHeight);
-        const drawWidth = Math.ceil(drawH * (sourceW / sourceH) * widthScale);
-        const bottomY = this.groundY + bottomOffset;
-        const y = Math.round(bottomY - drawH);
-        const scrollWorld = progress * parallax + phase;
-        const firstTile = Math.floor(scrollWorld / drawWidth) - 1;
-        const lastTile = Math.ceil((scrollWorld + CANVAS_WIDTH) / drawWidth) + 1;
+        const fixedCameraX = Math.floor(progress);
+        const treeLineX = this.getStage1BambooTreeLineX() - fixedCameraX;
+        const clipRight = Math.max(0, Math.min(CANVAS_WIDTH, treeLineX - endInset));
+        if (clipRight <= 0) return false;
+
+        const drawH = Math.min(CANVAS_HEIGHT + 160, drawHeight);
+        const drawW = Math.ceil(drawH * (image.naturalWidth / image.naturalHeight) * widthScale);
+        const y = Math.round(this.groundY + bottomOffset - drawH);
+        const layerScroll = progress * parallax + phase;
+        const firstTile = Math.floor(layerScroll / drawW) - 1;
+        const lastTile = Math.ceil((layerScroll + CANVAS_WIDTH) / drawW) + 1;
 
         ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, -400, clipRight, CANVAS_HEIGHT + 800);
+        ctx.clip();
         ctx.globalAlpha *= alpha;
         ctx.filter = filter;
         for (let tile = firstTile; tile <= lastTile; tile++) {
-            const x = Math.round(tile * drawWidth - scrollWorld);
-            if (x + drawWidth < -2 || x > CANVAS_WIDTH + 2) continue;
-            if (Math.abs(tile) % 2 === 1) {
+            const x = Math.round(tile * drawW - layerScroll);
+            if (x + drawW < -2 || x > CANVAS_WIDTH + 2) continue;
+            if (mirrorRepeat && Math.abs(tile) % 2 === 1) {
                 ctx.save();
-                ctx.translate(x + drawWidth + 2, y);
+                ctx.translate(x + drawW + 2, y);
                 ctx.scale(-1, 1);
-                ctx.drawImage(image, 0, 0, sourceW, sourceH, 0, 0, drawWidth + 2, drawH);
+                ctx.drawImage(image, 0, 0, drawW + 2, drawH);
                 ctx.restore();
             } else {
-                ctx.drawImage(image, 0, 0, sourceW, sourceH, x, y, drawWidth + 2, drawH);
+                ctx.drawImage(image, x, y, drawW + 2, drawH);
             }
         }
         ctx.filter = 'none';
         ctx.restore();
-
         return true;
-    }
-
-    renderStage1BambooImageBackdrop(ctx, progress) {
-        const backImage = this.stage1BambooBackLayerImage;
-        const midImage = this.stage1BambooMidLayerImage;
-        let rendered = false;
-
-        rendered = this.renderStage1BambooTileLayer(ctx, backImage, progress, {
-            parallax: 0.55,
-            alpha: 0.24,
-            drawHeight: this.groundY + 260,
-            bottomOffset: 128,
-            phase: 250,
-            widthScale: 0.68,
-            filter: 'blur(0.65px) brightness(0.72) saturate(0.74) contrast(0.8)'
-        }) || rendered;
-        rendered = this.renderStage1BambooTileLayer(ctx, midImage, progress, {
-            parallax: 0.78,
-            alpha: 0.7,
-            drawHeight: this.groundY + 270,
-            bottomOffset: 136,
-            phase: 0,
-            widthScale: 0.64,
-            filter: 'brightness(0.76) saturate(0.82) contrast(0.9)'
-        }) || rendered;
-
-        return rendered;
     }
 
 	renderStageElements(ctx, currentPalette) {
@@ -3474,7 +3611,7 @@ export class Stage {
             case 'castle': {
                 const crop = this.skyVisTop || 0;
                 if (!this.renderStageBackdropTile(ctx, this.stage5InteriorWallImage, p, {
-                    parallax: 0.36,
+                    parallax: 1,
                     drawHeight: CANVAS_HEIGHT + crop,
                     bottomY: CANVAS_HEIGHT,
                     filter: 'brightness(0.76) saturate(0.78) contrast(0.96)'
@@ -3491,7 +3628,7 @@ export class Stage {
 
             case 'tenshu': {
                 this.renderStageBackdropTile(ctx, this.stage6TenshuBackdropImage, p, {
-                    parallax: 0.5,
+                    parallax: 1,
                     drawHeight: Math.max(420, this.groundY * 0.8),
                     bottomY: this.groundY + 30,
                     filter: 'brightness(0.76) saturate(0.86) contrast(0.98)'
@@ -3531,6 +3668,11 @@ export class Stage {
         // グローバルな進行度に基づく環境光の強さ（暗さ）を計算し、地面の色に反映
         const globalProgress = (this.stageNumber - 1 + p) / STAGES.length;
         const darken = Math.pow(globalProgress, 1.5) * 0.75;
+
+        // 竹垣は固定背景として先に描き、地面が根元を自然に覆う。
+        if (this.stageNumber === 1) {
+            this.renderStage1BambooGroundBlend(ctx, renderProgress, darken);
+        }
         
         // 各ステージ独自の地面描画メソッドを呼び出し、路面・断面・パースを完結させる
         switch (this.stageNumber) {
@@ -3557,9 +3699,8 @@ export class Stage {
                 break;
         }
 
-        // 竹林の動的な葉の降下エフェクト（地面描画の後に重ねる）
+        // 竹林の動的な葉の降下エフェクト
         if (this.stageNumber === 1) {
-            this.renderStage1BambooGroundBlend(ctx, renderProgress, darken);
             this.renderBambooFallingLeaves(ctx);
         }
     }
@@ -3597,7 +3738,9 @@ export class Stage {
         const baseDrawW = Math.ceil(drawH * (image.naturalWidth / image.naturalHeight));
         const drawW = Math.ceil(baseDrawW * (options.widthScale ?? 1));
         const scrollScale = options.scrollScale ?? 1;
-        const scroll = Math.floor((renderProgress * scrollScale) % drawW);
+        const scrollWorld = renderProgress * scrollScale;
+        const firstTileIndex = Math.floor(scrollWorld / drawW) - 1;
+        const scroll = Math.floor(((scrollWorld % drawW) + drawW) % drawW);
         const y = Math.floor(horizonY + (options.yOffset ?? -18));
         const startX = -scroll - drawW;
         const clipTop = horizonY + (options.clipTopOffset ?? 0);
@@ -3608,9 +3751,9 @@ export class Stage {
         ctx.clip();
         ctx.globalAlpha *= options.alpha ?? 1;
         if (options.filter) ctx.filter = options.filter;
-        let tileIndex = 0;
+        let tileIndex = firstTileIndex;
         for (let x = startX; x < CANVAS_WIDTH + drawW; x += drawW, tileIndex++) {
-            if (options.mirrorRepeat && tileIndex % 2 !== 0) {
+            if (options.mirrorRepeat && Math.abs(tileIndex) % 2 !== 0) {
                 ctx.save();
                 ctx.translate(x + drawW + 2, y);
                 ctx.scale(-1, 1);
@@ -3626,26 +3769,7 @@ export class Stage {
     }
 
     renderStage1BambooGroundBlend(ctx, renderProgress, darken) {
-        const horizonY = this.groundY;
-        const bandTop = horizonY - 82;
-        const bandBottom = horizonY + 108;
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(0, bandTop, CANVAS_WIDTH, bandBottom - bandTop);
-        ctx.clip();
-
-        const rootWash = ctx.createLinearGradient(0, horizonY - 68, 0, horizonY + 118);
-        rootWash.addColorStop(0, 'rgba(17, 43, 27, 0)');
-        rootWash.addColorStop(0.3, `rgba(20, 55, 31, ${(0.16 + darken * 0.035).toFixed(3)})`);
-        rootWash.addColorStop(0.64, `rgba(32, 45, 25, ${(0.18 + darken * 0.04).toFixed(3)})`);
-        rootWash.addColorStop(1, 'rgba(20, 28, 18, 0)');
-        ctx.fillStyle = rootWash;
-        ctx.fillRect(0, bandTop, CANVAS_WIDTH, bandBottom - bandTop);
-
         this.renderStage1RootScreenImage(ctx, renderProgress, darken);
-
-        ctx.restore();
     }
 
     renderStage1RootScreenImage(ctx, renderProgress, darken) {
@@ -3656,16 +3780,48 @@ export class Stage {
 
         const drawH = 104;
         const drawW = Math.ceil(drawH * (image.naturalWidth / image.naturalHeight));
-        const y = Math.round(this.groundY - 76);
-        const scroll = Math.floor((renderProgress * 0.92) % drawW);
+        const y = Math.round(this.groundY - drawH + 12);
+        const fixedCameraX = Math.floor(renderProgress);
+        const scroll = ((fixedCameraX % drawW) + drawW) % drawW;
         const startX = -scroll - drawW;
+        const forestEndX = this.getStage1BambooTreeLineX() - fixedCameraX + STAGE1_FENCE_END_OFFSET;
+        const clipRight = Math.max(0, Math.min(CANVAS_WIDTH, forestEndX - 6));
+        if (forestEndX <= -16) return false;
+
+        if (clipRight > 0) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(0, y - 8, clipRight, drawH + 16);
+            ctx.clip();
+            ctx.globalAlpha *= 0.88;
+            ctx.filter = `brightness(${(0.76 - darken * 0.06).toFixed(3)}) saturate(0.74) contrast(0.92)`;
+            for (let x = startX; x < CANVAS_WIDTH + drawW; x += drawW) {
+                ctx.drawImage(image, x, y, drawW + 2, drawH);
+            }
+            ctx.filter = 'none';
+            ctx.restore();
+        }
+
+        if (forestEndX > 0 && forestEndX < CANVAS_WIDTH + 32) {
+            this.renderStage1FenceTerminal(ctx, image, forestEndX, y, drawH, darken);
+        }
+        return true;
+    }
+
+    renderStage1FenceTerminal(ctx, image, fenceEndX, fenceY, fenceH, darken) {
+        const filter = `brightness(${(0.76 - darken * 0.06).toFixed(3)}) saturate(0.74) contrast(0.92)`;
 
         ctx.save();
         ctx.globalAlpha *= 0.88;
-        ctx.filter = `brightness(${(0.76 - darken * 0.06).toFixed(3)}) saturate(0.74) contrast(0.92)`;
-        for (let x = startX; x < CANVAS_WIDTH + drawW; x += drawW) {
-            ctx.drawImage(image, x, y, drawW + 2, drawH);
-        }
+        ctx.filter = filter;
+
+        // 通常柵は高さを保ったまま止め、同素材の縦柱で切断面を受ける。
+        ctx.save();
+        ctx.translate(fenceEndX - 12, fenceY + fenceH);
+        ctx.rotate(-Math.PI / 2);
+        ctx.drawImage(image, 260, 210, 220, 28, 0, 0, 82, 12);
+        ctx.restore();
+
         ctx.filter = 'none';
         ctx.restore();
         return true;
@@ -3675,37 +3831,118 @@ export class Stage {
         const horizonY = this.groundY; // 地平線（奥）。林床はここから手前へ広がる
         const bottomY = CANVAS_HEIGHT;
         const span = bottomY - horizonY;
+        const stageP = this.clamp01(renderProgress / this.getBossScrollStopX());
+        const nightWeight = 1 - this.smoothstep(0.08, 0.74, stageP);
+        const stageDarken = Math.max(darken, nightWeight * 0.62);
 
         // 1. 路面グラデ（湿った苔と土）
         const roadGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
-        roadGrad.addColorStop(0, this.interpolateColor('#496f36', '#22311b', darken * 0.45));
-        roadGrad.addColorStop(0.6, this.interpolateColor('#5b7b43', '#293b23', darken * 0.38));
-        roadGrad.addColorStop(1, this.interpolateColor('#3f5f31', '#1a2616', darken * 0.5));
+        roadGrad.addColorStop(0, this.interpolateColor('#496f36', '#16241b', stageDarken * 0.58));
+        roadGrad.addColorStop(0.6, this.interpolateColor('#5b7b43', '#1b2b1f', stageDarken * 0.5));
+        roadGrad.addColorStop(1, this.interpolateColor('#3f5f31', '#101b12', stageDarken * 0.66));
         ctx.fillStyle = roadGrad;
         ctx.fillRect(0, horizonY, CANVAS_WIDTH, span);
 
+        const groundBrightness = 0.76 + (1 - nightWeight) * 0.32;
+        const groundSaturation = 0.68 + (1 - nightWeight) * 0.12;
+        const groundContrast = 0.9 + (1 - nightWeight) * 0.02;
         if (this.renderGroundImageTile(ctx, this.stage1GroundImage, horizonY, bottomY, renderProgress, {
-            filter: 'brightness(0.96) saturate(0.82) contrast(0.9) hue-rotate(8deg)',
+            filter: `brightness(${groundBrightness.toFixed(3)}) saturate(${groundSaturation.toFixed(3)}) contrast(${groundContrast.toFixed(3)}) hue-rotate(5deg)`,
             extraHeight: 34,
-            yOffset: -16
+            yOffset: -16,
+            widthScale: 2.2,
+            mirrorRepeat: true
         })) {
-            ctx.fillStyle = 'rgba(20, 64, 42, 0.08)';
+            ctx.fillStyle = `rgba(168, 151, 102, ${(0.028 * (1 - nightWeight * 0.72)).toFixed(3)})`;
             ctx.fillRect(0, horizonY - 36, CANVAS_WIDTH, span + 36);
 
             const seamSoftener = ctx.createLinearGradient(0, horizonY - 68, 0, horizonY + 112);
             seamSoftener.addColorStop(0, 'rgba(37, 66, 35, 0)');
-            seamSoftener.addColorStop(0.44, `rgba(31, 61, 34, ${(0.12 + darken * 0.04).toFixed(3)})`);
+            seamSoftener.addColorStop(0.44, `rgba(35, 54, 38, ${(0.075 + stageDarken * 0.04).toFixed(3)})`);
             seamSoftener.addColorStop(1, 'rgba(18, 32, 20, 0)');
             ctx.fillStyle = seamSoftener;
             ctx.fillRect(0, horizonY - 68, CANVAS_WIDTH, 180);
 
             const bottomShade = ctx.createLinearGradient(0, horizonY + span * 0.34, 0, bottomY);
             bottomShade.addColorStop(0, 'rgba(0,0,0,0)');
-            bottomShade.addColorStop(1, `rgba(0,0,0,${(0.08 + darken * 0.10).toFixed(3)})`);
+            bottomShade.addColorStop(1, `rgba(0,0,0,${(0.03 + darken * 0.05).toFixed(3)})`);
             ctx.fillStyle = bottomShade;
             ctx.fillRect(0, horizonY, CANVAS_WIDTH, span);
-            return;
+
+            if (nightWeight > 0.001) {
+                const nightShade = ctx.createLinearGradient(0, horizonY - 32, 0, bottomY);
+                nightShade.addColorStop(0, `rgba(3, 10, 28, ${(0.18 * nightWeight).toFixed(3)})`);
+                nightShade.addColorStop(0.58, `rgba(2, 8, 20, ${(0.24 * nightWeight).toFixed(3)})`);
+                nightShade.addColorStop(1, `rgba(0, 4, 12, ${(0.34 * nightWeight).toFixed(3)})`);
+                ctx.fillStyle = nightShade;
+                ctx.fillRect(0, horizonY - 32, CANVAS_WIDTH, span + 32);
+            }
         }
+
+        this.renderStage1GroundToKaido(ctx, renderProgress);
+    }
+
+    renderStage1GroundToKaido(ctx, renderProgress) {
+        const image = this.stage1GroundToKaidoImage;
+        if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) {
+            return false;
+        }
+
+        const worldStart = this.getStage1GroundTransitionStartX();
+        const drawW = this.maxProgress - worldStart;
+        const x = worldStart - Math.floor(renderProgress);
+        if (x >= CANVAS_WIDTH || x + drawW <= 0) return false;
+
+        const y = this.groundY - 16;
+        const drawH = CANVAS_HEIGHT - this.groundY + 34;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, this.groundY, CANVAS_WIDTH, CANVAS_HEIGHT - this.groundY);
+        ctx.clip();
+        ctx.filter = 'brightness(1.15) saturate(0.78) contrast(0.88) hue-rotate(5deg)';
+
+        const blendW = Math.min(320, drawW);
+        const stripCount = 32;
+        const sourcePerPixel = image.naturalWidth / drawW;
+        const baseAlpha = ctx.globalAlpha;
+        for (let i = 0; i < stripCount; i++) {
+            const stripLeft = blendW * (i / stripCount);
+            const stripRight = blendW * ((i + 1) / stripCount);
+            const stripW = stripRight - stripLeft;
+            const sourceX = stripLeft * sourcePerPixel;
+            const sourceW = Math.max(1, stripW * sourcePerPixel + 1);
+            ctx.globalAlpha = baseAlpha * this.smoothstep(0, 1, i / (stripCount - 1));
+            ctx.drawImage(
+                image,
+                sourceX,
+                0,
+                sourceW,
+                image.naturalHeight,
+                Math.round(x + stripLeft),
+                y,
+                Math.ceil(stripW + 1),
+                drawH
+            );
+        }
+
+        const opaqueSourceX = blendW * sourcePerPixel;
+        ctx.globalAlpha = baseAlpha;
+        ctx.drawImage(
+            image,
+            opaqueSourceX,
+            0,
+            image.naturalWidth - opaqueSourceX,
+            image.naturalHeight,
+            Math.round(x + blendW),
+            y,
+            drawW - blendW,
+            drawH
+        );
+
+        ctx.filter = 'none';
+        ctx.restore();
+        return true;
     }
 
     renderGroundKaido(ctx, renderProgress, darken) {
@@ -3867,7 +4104,7 @@ export class Stage {
             filter: 'brightness(0.74) saturate(0.9) contrast(1.02)',
             extraHeight: 40,
             yOffset: -20,
-            scrollScale: 1.05
+            scrollScale: 1
         })) {
             const shineGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
             shineGrad.addColorStop(0, 'rgba(255, 230, 100, 0)');
@@ -4143,8 +4380,10 @@ export class Stage {
         }
         if (starAlphaMultiplier <= 0) return;
 
+        const starParallaxRate = this.stageNumber === 1 ? 0.018 : 0.01;
+        const starParallaxOffset = this.progress * starParallaxRate;
         for (const particle of this.skyParticles) {
-            const x = particle.nx * CANVAS_WIDTH;
+            const x = ((particle.nx * CANVAS_WIDTH - starParallaxOffset) % CANVAS_WIDTH + CANVAS_WIDTH) % CANVAS_WIDTH;
             const y = this.skyY(20 + particle.ny * (this.groundY * 0.55));
             // 2周波ブレンドで不規則な瞬き（subSpeedが無い旧データでも単一sineにフォールバック）
             const flick = particle.subSpeed
@@ -4287,7 +4526,7 @@ export class Stage {
         if (sn <= 4) {
             let startHour, endHour, isSun = true;
             switch(sn) {
-                case 1: startHour = 4.5; endHour = 7.65; break;
+                case 1: startHour = 4.5; endHour = STAGE1_BOSS_SUN_HOUR; break;
                 case 2: startHour = 11; endHour = 14; break;
                 case 3: startHour = 14.0; endHour = 17.8; break; // 明るい夕方開始〜日没スレスレ
                 case 4: startHour = 18.3; endHour = 24; isSun = false; break; // 月の出〜真上(24時)
@@ -4295,17 +4534,13 @@ export class Stage {
             }
 
             let currentHour;
-            // ボス戦中は月/太陽を指定位置に固定
-            if (this.bossSpawned && sn === 3) {
+            // Stage1の太陽はボス出現フラグでは動かさず、スクロール終端へ連続的につなぐ。
+            if (sn === 1) {
+                currentHour = this.getStage1SunHour();
+            } else if (this.bossSpawned && sn === 3) {
                 currentHour = 17.8; // 日が地平線スレスレに固定
             } else if (this.bossSpawned && sn === 4) {
                 currentHour = 24.0; // 月が真上（天頂）に固定
-            } else if (sn === 1) {
-                if (progress < 0.38) {
-                    currentHour = 4.5 + (1.3 / 0.38) * progress;
-                } else {
-                    currentHour = 5.8 + ((endHour - 5.8) / 0.62) * (progress - 0.38);
-                }
             } else {
                 currentHour = startHour + (endHour - startHour) * progress;
             }

@@ -290,7 +290,7 @@ export function getPadLayout() {
 // Stage 5 フロア制の定数
 export const STAGE5_FLOOR = {
     COUNT: 5,
-    PROGRESS_PER_FLOOR: 3000,
+    PROGRESS_PER_FLOOR: 8100,
     STAIR_WIDTH: 360,               // 階段区間の幅（プレビュー画像を drawScale=0.4 で描画）
     STAIR_HEIGHT: 320,              // 階段で登る高さ（= 800 * 0.4 : プレビューのアスペクト比を維持）
     STAIR_STEP_COUNT: 36,           // 段数（密度を大幅に増加）

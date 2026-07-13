@@ -1597,6 +1597,58 @@ class Game {
         const scrollMult = Number.isFinite(this.difficulty?.stage3ScrollMult) ? this.difficulty.stage3ScrollMult : 1.0;
         this.stage3AutoScrollSpeed = this.stage3AutoScrollBaseSpeed * scrollMult;
     }
+
+    getStage5PlayerGroundProbeX() {
+        const playerWidth = this.player.getWorldWidth();
+        return this.stage.floorScrollDirection === 1
+            ? this.player.x + playerWidth
+            : this.player.x;
+    }
+
+    updateStage5FloorTransition() {
+        if (this.currentStageNumber !== 5 || !this.stage?.isFloorTransitioning) return false;
+
+        const prevPhase = this.stage.floorTransitionPhase;
+        this.stage.updateFloorTransition(this.deltaTime);
+        const currentPhase = this.stage.floorTransitionPhase;
+
+        // 完全に暗転した時点で次階へ移し、フェードイン中に旧位置が見えないようにする。
+        if (prevPhase === 1 && currentPhase === 2) {
+            const isRightDir = this.stage.floorScrollDirection === 1;
+            const playerWidth = this.player.getWorldWidth();
+            const groundProbeInset = 100;
+            this.player.x = isRightDir
+                ? groundProbeInset - playerWidth
+                : this.stage.maxProgress - groundProbeInset;
+            this.player.facingRight = isRightDir;
+
+            const targetScrollX = isRightDir
+                ? 0
+                : Math.max(0, this.stage.maxProgress - CANVAS_WIDTH);
+            this.scrollX = targetScrollX;
+            this.stage.progress = targetScrollX;
+        }
+
+        // 暗転中は入力更新を行わず、階段の接地点に固定する。
+        this.player.vx = 0;
+        this.player.vy = 0;
+        const groundProbeX = this.getStage5PlayerGroundProbeX();
+        this.player.groundY = this.stage.getStairGroundY(groundProbeX);
+        this.player.y = this.player.groundY + LANE_OFFSET - this.player.getWorldHeight();
+        this.player.isGrounded = true;
+
+        this.stage.update(this.deltaTime, this.player);
+
+        if (prevPhase === 3 && currentPhase === 0) {
+            const targetScrollX = this.stage.floorScrollDirection === 1
+                ? 0
+                : Math.max(0, this.stage.maxProgress - CANVAS_WIDTH);
+            this.scrollX = targetScrollX;
+            this.stage.progress = targetScrollX;
+        }
+
+        return true;
+    }
     
     updatePlaying() {
         // ポーズ
@@ -1606,6 +1658,9 @@ class Game {
             audio.pauseBgm();
             return;
         }
+
+        // フロア遷移中は移動入力を受け付けず、暗転処理だけを進める。
+        if (this.updateStage5FloorTransition()) return;
         
         // プレイヤー更新
         // NOTE:
@@ -1636,55 +1691,6 @@ class Game {
         
         // 武器切り替えは player.handleInput() 内で処理されるため、ここでは不要
         
-
-        
-        // --- Stage 5 フロア遷移中の処理 ---
-        if (this.currentStageNumber === 5 && this.stage && this.stage.isFloorTransitioning) {
-            const prevPhase = this.stage.floorTransitionPhase;
-            const stillTransitioning = this.stage.updateFloorTransition(this.deltaTime);
-            const currentPhase = this.stage.floorTransitionPhase;
-
-            // フェードイン開始の瞬間（Phase 2 -> 3 への切り替わり）のみ位置をリセット
-            if (prevPhase === 2 && currentPhase === 3) {
-                const dir = this.stage.floorScrollDirection; // 1:右へ(左端開始), -1:左へ(右端開始)
-                const isRightDir = dir === 1;
-                
-                // 次のフロアの開始位置を決定
-                // 前フロアから登ってきた階段（穴）の斜面途中からスタートし、登りきらせる
-                const spawnOffset = 80; // 穴の幅(200)の内側
-                this.player.x = isRightDir ? spawnOffset : this.stage.maxProgress - spawnOffset;
-                this.player.vx = 0;
-                this.player.vy = 0;
-                this.player.facingRight = isRightDir; // 2F(dir=-1)なら左を向く
-                
-                // スクロール位置の決定
-                const targetScrollX = isRightDir ? 0 : Math.max(0, this.stage.maxProgress - CANVAS_WIDTH);
-                
-                this.scrollX = targetScrollX;
-                this.stage.progress = targetScrollX;
-                
-                // 接地（中心で正確に取る）
-                const playerCenterX = this.player.x + this.player.getWorldWidth() / 2;
-                this.player.groundY = this.stage.getStairGroundY(playerCenterX);
-                this.player.y = this.player.groundY + LANE_OFFSET - this.player.getWorldHeight();
-                this.player.isGrounded = true; // 念のため接地フラグもオンにしておく
-            }
-            
-            // 遷移中も接地判定だけは最新の座標で更新し続ける（操作不能スタック防止）
-            const tpCenterX = this.player.x + this.player.getWorldWidth() / 2;
-            this.player.groundY = this.stage.getStairGroundY(tpCenterX);
-            this.stage.update(this.deltaTime, this.player);
-            
-            // 遷移が完了したフレーム(Phase 3 -> 0)
-            if (prevPhase === 3 && currentPhase === 0) {
-                const dir = this.stage.floorScrollDirection;
-                const targetScrollX = (dir === 1) ? 0 : Math.max(0, this.stage.maxProgress - CANVAS_WIDTH);
-                this.scrollX = targetScrollX;
-                this.stage.progress = targetScrollX;
-            }
-            return;
-        }
-
         // --- スクロール処理 ---
         const stage3AutoScrollActive = (this.currentStageNumber === 3 && this.stage && !this.stage.bossSpawned);
         const screenCenter = CANVAS_WIDTH / 2;
@@ -1741,9 +1747,19 @@ class Game {
         
         // --- Stage 5 各エンティティの物理同期 ---
         if (this.currentStageNumber === 5 && this.stage) {
-            // プレイヤーの接地更新 (体の中心で判定)
-            const playerCenterX = this.player.x + this.player.getWorldWidth() / 2;
-            this.player.groundY = this.stage.getStairGroundY(playerCenterX);
+            // 接地と到達判定を進行方向側の足元に統一する。
+            const playerGroundProbeX = this.getStage5PlayerGroundProbeX();
+            this.player.groundY = this.stage.getStairGroundY(playerGroundProbeX);
+
+            // 五階右端の階段は天守閣へ続く背景専用オブジェクトとして進入を止める。
+            if (this.stage.isFinalFloorExitStair()) {
+                const exitBarrierX = this.stage.getFinalFloorExitBarrierX();
+                const maxPlayerX = exitBarrierX - this.player.getWorldWidth();
+                if (this.player.x > maxPlayerX) {
+                    this.player.x = maxPlayerX;
+                    if (this.player.vx > 0) this.player.vx = 0;
+                }
+            }
             
             // 敵全員の接地更新（踊り場対応）
             const allEnemies = this.stage.getAllEnemies();
@@ -1762,11 +1778,14 @@ class Game {
             }
             
             // 登りきったら次のフロアへ（最終階を除く）
-            const transitionProbeX = this.stage.floorScrollDirection === 1
-                ? this.player.x + this.player.getWorldWidth()
-                : this.player.x;
-            const stairProgress = this.stage.getStairClimbProgress(transitionProbeX);
+            const stairProgress = this.stage.getStairClimbProgress(playerGroundProbeX);
             if (stairProgress >= 1.0 && !this.stage.isFloorTransitioning && this.stage.currentFloor < this.stage.maxFloor) {
+                const stairTopGroundY = this.stage.baseGroundY - this.stage.stairHeightPx;
+                this.player.groundY = stairTopGroundY;
+                this.player.y = stairTopGroundY + LANE_OFFSET - this.player.getWorldHeight();
+                this.player.vx = 0;
+                this.player.vy = 0;
+                this.player.isGrounded = true;
                 this.stage.startFloorTransition();
             }
         }
