@@ -252,6 +252,14 @@ export class Stage {
             this.stage6FinalThresholdImage.src = 'images/stage6_final_threshold_transition.png?v=20260714_zone1';
             this.stage6GroundImage = new Image();
             this.stage6GroundImage.src = 'images/stage6_ground_lacquer_neutral.png?v=20260714_neutral1';
+            this.stage6UpperGalleryGroundImage = new Image();
+            this.stage6UpperGalleryGroundImage.src = 'images/stage6_ground_upper_gallery.png?v=20260714_zone1';
+            this.stage6RoofRidgeGroundImage = new Image();
+            this.stage6RoofRidgeGroundImage.src = 'images/stage6_ground_roof_ridge.png?v=20260714_zone1';
+            this.stage6FinalTerraceGroundImage = new Image();
+            this.stage6FinalTerraceGroundImage.src = 'images/stage6_ground_final_terrace.png?v=20260714_zone1';
+            this.stage6GroundThresholdImage = new Image();
+            this.stage6GroundThresholdImage.src = 'images/stage6_ground_threshold_strip.png?v=20260714_zone1';
         }
 
         // キャッシュ用オフスクリーンCanvasの初期化
@@ -3920,6 +3928,106 @@ export class Stage {
         return true;
     }
 
+    renderStage6GroundRegion(ctx, image, renderProgress, {
+        worldStart,
+        worldEnd,
+        horizonY,
+        bottomY,
+        filter,
+        mirrorRepeat = true
+    }) {
+        if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
+
+        const screenStart = worldStart - renderProgress;
+        const screenEnd = worldEnd - renderProgress;
+        if (screenEnd <= 0 || screenStart >= CANVAS_WIDTH) return false;
+
+        const drawH = Math.ceil(bottomY - horizonY + 40);
+        const drawW = Math.ceil(drawH * (image.naturalWidth / image.naturalHeight));
+        const y = Math.floor(horizonY - 20);
+        const firstTile = Math.floor((renderProgress - worldStart) / drawW) - 1;
+        const lastTile = Math.ceil((renderProgress + CANVAS_WIDTH - worldStart) / drawW) + 1;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(
+            Math.max(0, screenStart),
+            horizonY,
+            Math.max(0, Math.min(CANVAS_WIDTH, screenEnd) - Math.max(0, screenStart)),
+            Math.max(0, bottomY - horizonY)
+        );
+        ctx.clip();
+        ctx.filter = filter;
+
+        for (let tileIndex = firstTile; tileIndex <= lastTile; tileIndex++) {
+            const x = Math.round(worldStart + tileIndex * drawW - renderProgress);
+            if (mirrorRepeat && Math.abs(tileIndex) % 2 === 1) {
+                ctx.save();
+                ctx.translate(x + drawW + 2, y);
+                ctx.scale(-1, 1);
+                ctx.drawImage(image, 0, 0, drawW + 2, drawH);
+                ctx.restore();
+            } else {
+                ctx.drawImage(image, x, y, drawW + 2, drawH);
+            }
+        }
+
+        ctx.filter = 'none';
+        ctx.restore();
+        return true;
+    }
+
+    renderStage6GroundZones(ctx, renderProgress, horizonY, bottomY) {
+        const zoneWidth = this.maxProgress / 4;
+        const filter = 'brightness(0.88) saturate(0.72) contrast(0.98)';
+        const zones = [
+            { image: this.stage6GroundImage, start: 0, end: zoneWidth },
+            { image: this.stage6UpperGalleryGroundImage, start: zoneWidth, end: zoneWidth * 2 },
+            { image: this.stage6RoofRidgeGroundImage, start: zoneWidth * 2, end: zoneWidth * 3 },
+            { image: this.stage6FinalTerraceGroundImage, start: zoneWidth * 3, end: this.maxProgress }
+        ];
+
+        let rendered = false;
+        for (const zone of zones) {
+            rendered = this.renderStage6GroundRegion(ctx, zone.image, renderProgress, {
+                worldStart: zone.start,
+                worldEnd: zone.end,
+                horizonY,
+                bottomY,
+                filter
+            }) || rendered;
+        }
+        if (rendered) {
+            this.renderStage6GroundThresholds(ctx, renderProgress, horizonY, bottomY);
+        }
+        return rendered;
+    }
+
+    renderStage6GroundThresholds(ctx, renderProgress, horizonY, bottomY) {
+        const image = this.stage6GroundThresholdImage;
+        if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
+
+        const zoneWidth = this.maxProgress / 4;
+        const drawH = Math.ceil(bottomY - horizonY + 8);
+        const drawW = Math.max(68, Math.ceil(drawH * (image.naturalWidth / image.naturalHeight) * 1.6));
+        const y = Math.floor(horizonY - 4);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, horizonY, CANVAS_WIDTH, Math.max(0, bottomY - horizonY));
+        ctx.clip();
+        ctx.filter = 'brightness(0.82) saturate(0.62) contrast(1.02)';
+
+        for (let zoneIndex = 1; zoneIndex < 4; zoneIndex++) {
+            const x = Math.round(zoneWidth * zoneIndex - renderProgress - drawW * 0.5);
+            if (x + drawW <= 0 || x >= CANVAS_WIDTH) continue;
+            ctx.drawImage(image, x, y, drawW, drawH);
+        }
+
+        ctx.filter = 'none';
+        ctx.restore();
+    }
+
     renderStage1BambooGroundBlend(ctx, renderProgress, darken) {
         this.renderStage1RootScreenImage(ctx, renderProgress, darken);
     }
@@ -4244,20 +4352,15 @@ export class Stage {
         const horizonY = this.groundY;
         const bottomY = CANVAS_HEIGHT;
 
-        // 漆塗りの床（反射を強調 - 少し明るめに調整）
+        // 区画画像の読込中にも床が抜けないよう、暗い中立色だけを敷いて待つ。
         const roadGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
-        roadGrad.addColorStop(0, this.interpolateColor('#2a0d0a', '#0a0402', darken));
-        roadGrad.addColorStop(0.35, this.interpolateColor('#4a1d18', '#1a0d0a', darken));
-        roadGrad.addColorStop(1, this.interpolateColor('#200805', '#000000', darken * 1.2));
+        roadGrad.addColorStop(0, this.interpolateColor('#32343a', '#111216', darken));
+        roadGrad.addColorStop(0.35, this.interpolateColor('#292b30', '#0d0e11', darken));
+        roadGrad.addColorStop(1, this.interpolateColor('#17181c', '#050506', darken * 1.2));
         ctx.fillStyle = roadGrad;
         ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
 
-        if (this.renderGroundImageTile(ctx, this.stage6GroundImage, horizonY, bottomY, renderProgress, {
-            filter: 'brightness(0.88) saturate(0.72) contrast(0.98)',
-            extraHeight: 40,
-            yOffset: -20,
-            scrollScale: 1
-        })) {
+        if (this.renderStage6GroundZones(ctx, renderProgress, horizonY, bottomY)) {
             const moonSheen = ctx.createLinearGradient(0, horizonY, 0, bottomY);
             moonSheen.addColorStop(0, 'rgba(210, 224, 232, 0)');
             moonSheen.addColorStop(0.34, `rgba(210, 224, 232, ${(0.07 - darken * 0.02).toFixed(3)})`);
