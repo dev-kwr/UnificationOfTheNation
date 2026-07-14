@@ -238,8 +238,20 @@ export class Stage {
         if (this.stageNumber === 6) {
             this.stage6TenshuBackdropImage = new Image();
             this.stage6TenshuBackdropImage.src = 'images/stage6_tenshu_rooftop_backdrop.png?v=20260706_bg2';
+            this.stage6UpperGalleryImage = new Image();
+            this.stage6UpperGalleryImage.src = 'images/stage6_upper_gallery_backdrop.png?v=20260714_zone1';
+            this.stage6RoofRidgeImage = new Image();
+            this.stage6RoofRidgeImage.src = 'images/stage6_roof_ridge_backdrop.png?v=20260714_zone1';
+            this.stage6FinalTerraceImage = new Image();
+            this.stage6FinalTerraceImage.src = 'images/stage6_final_terrace_backdrop.png?v=20260714_zone1';
+            this.stage6CornerTurretImage = new Image();
+            this.stage6CornerTurretImage.src = 'images/stage6_corner_turret_transition.png?v=20260714_zone1';
+            this.stage6RoofGateImage = new Image();
+            this.stage6RoofGateImage.src = 'images/stage6_final_gate_transition.png?v=20260714_zone1';
+            this.stage6FinalThresholdImage = new Image();
+            this.stage6FinalThresholdImage.src = 'images/stage6_final_threshold_transition.png?v=20260714_zone1';
             this.stage6GroundImage = new Image();
-            this.stage6GroundImage.src = 'images/stage6_ground_lacquer_tile.png';
+            this.stage6GroundImage.src = 'images/stage6_ground_lacquer_neutral.png?v=20260714_neutral1';
         }
 
         // キャッシュ用オフスクリーンCanvasの初期化
@@ -3285,6 +3297,151 @@ export class Stage {
         return true;
     }
 
+    renderStage6BackdropRegion(ctx, image, progress, {
+        worldStart,
+        worldEnd,
+        drawHeight,
+        bottomY,
+        filter = 'none',
+        widthScale = 1,
+        mirrorRepeat = false
+    }) {
+        if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
+
+        const screenStart = worldStart - progress;
+        const screenEnd = worldEnd - progress;
+        if (screenEnd <= 0 || screenStart >= CANVAS_WIDTH) return false;
+
+        const drawH = Math.max(1, Math.ceil(drawHeight));
+        const drawW = Math.ceil(drawH * (image.naturalWidth / image.naturalHeight) * widthScale);
+        const firstTile = Math.floor((progress - worldStart) / drawW) - 1;
+        const lastTile = Math.ceil((progress + CANVAS_WIDTH - worldStart) / drawW) + 1;
+        const y = Math.round(bottomY - drawH);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(
+            Math.max(0, screenStart),
+            -400,
+            Math.max(0, Math.min(CANVAS_WIDTH, screenEnd) - Math.max(0, screenStart)),
+            CANVAS_HEIGHT + 800
+        );
+        ctx.clip();
+        ctx.filter = filter;
+
+        for (let tileIndex = firstTile; tileIndex <= lastTile; tileIndex++) {
+            const x = Math.round(worldStart + tileIndex * drawW - progress);
+            if (mirrorRepeat && Math.abs(tileIndex) % 2 === 1) {
+                ctx.save();
+                ctx.translate(x + drawW + 2, y);
+                ctx.scale(-1, 1);
+                ctx.drawImage(image, 0, 0, drawW + 2, drawH);
+                ctx.restore();
+            } else {
+                ctx.drawImage(image, x, y, drawW + 2, drawH);
+            }
+        }
+
+        ctx.filter = 'none';
+        ctx.restore();
+        return true;
+    }
+
+    renderStage6FixedBackdrop(ctx, image, worldCenterX, progress, {
+        drawHeight,
+        bottomY,
+        filter = 'none',
+        bottomOffset = 0
+    }) {
+        if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
+
+        const drawH = Math.max(1, Math.ceil(drawHeight));
+        const drawW = Math.ceil(drawH * (image.naturalWidth / image.naturalHeight));
+        const x = Math.round(worldCenterX - progress - drawW * 0.5);
+        if (x + drawW <= 0 || x >= CANVAS_WIDTH) return false;
+
+        ctx.save();
+        ctx.filter = filter;
+        ctx.drawImage(image, x, Math.round(bottomY - drawH + bottomOffset), drawW, drawH);
+        ctx.filter = 'none';
+        ctx.restore();
+        return true;
+    }
+
+    renderStage6BackdropZones(ctx, progress) {
+        const zoneWidth = this.maxProgress / 4;
+        const drawHeight = Math.max(420, this.groundY * 0.8);
+        const bottomY = this.groundY + 30;
+        const filter = 'brightness(0.84) saturate(0.8) contrast(0.98)';
+        const getTransitionHalfWidth = (image) => {
+            if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return 0;
+            const drawWidth = Math.ceil(drawHeight * (image.naturalWidth / image.naturalHeight));
+            return Math.max(0, Math.floor(drawWidth * 0.5) - 2);
+        };
+
+        const cornerX = zoneWidth;
+        const roofGateX = zoneWidth * 2;
+        const finalThresholdX = zoneWidth * 3;
+        const cornerHalfWidth = getTransitionHalfWidth(this.stage6CornerTurretImage);
+        const roofGateHalfWidth = getTransitionHalfWidth(this.stage6RoofGateImage);
+        const finalThresholdHalfWidth = getTransitionHalfWidth(this.stage6FinalThresholdImage);
+
+        const zones = [
+            {
+                image: this.stage6TenshuBackdropImage,
+                start: 0,
+                end: cornerX - cornerHalfWidth,
+                mirrorRepeat: false
+            },
+            {
+                image: this.stage6UpperGalleryImage,
+                start: cornerX + cornerHalfWidth,
+                end: roofGateX - roofGateHalfWidth,
+                mirrorRepeat: true
+            },
+            {
+                image: this.stage6RoofRidgeImage,
+                start: roofGateX + roofGateHalfWidth,
+                end: finalThresholdX - finalThresholdHalfWidth,
+                mirrorRepeat: true
+            },
+            {
+                image: this.stage6FinalTerraceImage,
+                start: finalThresholdX + finalThresholdHalfWidth,
+                end: this.maxProgress,
+                mirrorRepeat: true
+            }
+        ];
+
+        for (const zone of zones) {
+            this.renderStage6BackdropRegion(ctx, zone.image, progress, {
+                worldStart: zone.start,
+                worldEnd: zone.end,
+                drawHeight,
+                bottomY,
+                filter,
+                mirrorRepeat: zone.mirrorRepeat
+            });
+        }
+
+        this.renderStage6FixedBackdrop(ctx, this.stage6CornerTurretImage, cornerX, progress, {
+            drawHeight,
+            bottomY,
+            filter
+        });
+        this.renderStage6FixedBackdrop(ctx, this.stage6RoofGateImage, roofGateX, progress, {
+            drawHeight,
+            bottomY,
+            filter
+        });
+        this.renderStage6FixedBackdrop(ctx, this.stage6FinalThresholdImage, finalThresholdX, progress, {
+            drawHeight,
+            bottomY,
+            filter,
+            bottomOffset: Math.round(drawHeight * 0.16)
+        });
+    }
+
     renderStage1BambooImageBackdrop(ctx, progress) {
         let rendered = false;
 
@@ -3627,12 +3784,7 @@ export class Stage {
             }
 
             case 'tenshu': {
-                this.renderStageBackdropTile(ctx, this.stage6TenshuBackdropImage, p, {
-                    parallax: 1,
-                    drawHeight: Math.max(420, this.groundY * 0.8),
-                    bottomY: this.groundY + 30,
-                    filter: 'brightness(0.76) saturate(0.86) contrast(0.98)'
-                });
+                this.renderStage6BackdropZones(ctx, p);
 
                 // ボス戦中：最終ステージなので次のステージはないが、夜明け（クリア後の朝焼け）を予感させる光を遠くに表示
                 if (this.bossSpawned) {
@@ -4101,16 +4253,16 @@ export class Stage {
         ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
 
         if (this.renderGroundImageTile(ctx, this.stage6GroundImage, horizonY, bottomY, renderProgress, {
-            filter: 'brightness(0.74) saturate(0.9) contrast(1.02)',
+            filter: 'brightness(0.88) saturate(0.72) contrast(0.98)',
             extraHeight: 40,
             yOffset: -20,
             scrollScale: 1
         })) {
-            const shineGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
-            shineGrad.addColorStop(0, 'rgba(255, 230, 100, 0)');
-            shineGrad.addColorStop(0.38, `rgba(255, 230, 100, ${(0.14 - darken * 0.04).toFixed(3)})`);
-            shineGrad.addColorStop(1, 'rgba(255, 230, 100, 0)');
-            ctx.fillStyle = shineGrad;
+            const moonSheen = ctx.createLinearGradient(0, horizonY, 0, bottomY);
+            moonSheen.addColorStop(0, 'rgba(210, 224, 232, 0)');
+            moonSheen.addColorStop(0.34, `rgba(210, 224, 232, ${(0.07 - darken * 0.02).toFixed(3)})`);
+            moonSheen.addColorStop(1, 'rgba(210, 224, 232, 0)');
+            ctx.fillStyle = moonSheen;
             ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
 
             const bottomShade = ctx.createLinearGradient(0, horizonY + (bottomY - horizonY) * 0.35, 0, bottomY);
