@@ -5188,53 +5188,8 @@ class Game {
             });
             ctx.restore();
 
-            const shogunFrame = typeof player.getShogunRenderModelFrame === 'function'
-                ? player.getShogunRenderModelFrame()
-                : null;
-            const renderScaledTrail = (pivotX, pivotY, draw) => {
-                ctx.save();
-                ctx.translate(shogunFrame.renderPivotX, shogunFrame.renderPivotY);
-                ctx.scale(shogunFrame.scale, shogunFrame.scale);
-                ctx.translate(-pivotX, -pivotY);
-                draw();
-                ctx.restore();
-            };
-
-            // 本体の通常コンボ剣筋・二刀軌跡は忍者・将軍とも同じ経路で描く（相対共通化）。
-            // 将軍は _projectShogunTrailPoseToWorldScale でサンプリング時にワールド座標化済みのため、
-            // canvas変換(renderScaledTrail)は不要。physicalScale で線幅のみスケールする。
-            const trailPhysicalScale = (shogunFrame && shogunFrame.scale > 1)
-                ? shogunFrame.scale
-                : 1;
-            if (typeof player.renderComboSlashTrail === 'function') {
-                player.renderComboSlashTrail(ctx, trailPhysicalScale > 1
-                    ? { physicalScale: trailPhysicalScale }
-                    : {});
-            }
-            if (typeof player.renderDualBladeSlashTrails === 'function') {
-                player.renderDualBladeSlashTrails(ctx, trailPhysicalScale > 1
-                    ? { physicalScale: trailPhysicalScale }
-                    : {});
-            }
-
-            if (
-                player.currentSubWeapon &&
-                player.subWeaponRenderedInModel &&
-                typeof player.currentSubWeapon.renderWorldEffects === 'function'
-            ) {
-                ctx.save();
-                if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
-                player.currentSubWeapon.renderWorldEffects(ctx, player);
-                ctx.restore();
-            } else if (
-                player.currentSubWeapon &&
-                !player.subWeaponRenderedInModel &&
-                typeof player.currentSubWeapon.render === 'function'
-            ) {
-                ctx.save();
-                if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
-                player.currentSubWeapon.render(ctx, player);
-                ctx.restore();
+            if (typeof player.renderCombatEffectLayer === 'function') {
+                player.renderCombatEffectLayer(ctx, { worldEffectAlpha: playerAlpha });
             }
 
             // 分身（レベル2以下を含む）のサブウェポンエフェクト（大太刀着地時の地面衝撃波など）を描画

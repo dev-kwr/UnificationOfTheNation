@@ -244,6 +244,8 @@ export class Stage {
             this.stage6RoofRidgeImage.src = 'images/stage6_roof_ridge_backdrop.png?v=20260714_zone1';
             this.stage6FinalTerraceImage = new Image();
             this.stage6FinalTerraceImage.src = 'images/stage6_final_terrace_backdrop.png?v=20260714_zone1';
+            this.stage6BossPavilionImage = new Image();
+            this.stage6BossPavilionImage.src = 'images/stage6_boss_pavilion_backdrop.png?v=20260715_boss1';
             this.stage6CornerTurretImage = new Image();
             this.stage6CornerTurretImage.src = 'images/stage6_corner_turret_transition.png?v=20260714_zone1';
             this.stage6RoofGateImage = new Image();
@@ -253,11 +255,11 @@ export class Stage {
             this.stage6GroundImage = new Image();
             this.stage6GroundImage.src = 'images/stage6_ground_lacquer_neutral.png?v=20260714_neutral1';
             this.stage6UpperGalleryGroundImage = new Image();
-            this.stage6UpperGalleryGroundImage.src = 'images/stage6_ground_upper_gallery.png?v=20260714_zone1';
+            this.stage6UpperGalleryGroundImage.src = 'images/stage6_ground_upper_gallery.png?v=20260715_parallel1';
             this.stage6RoofRidgeGroundImage = new Image();
             this.stage6RoofRidgeGroundImage.src = 'images/stage6_ground_roof_ridge.png?v=20260714_zone1';
             this.stage6FinalTerraceGroundImage = new Image();
-            this.stage6FinalTerraceGroundImage.src = 'images/stage6_ground_final_terrace.png?v=20260714_zone1';
+            this.stage6FinalTerraceGroundImage.src = 'images/stage6_ground_final_terrace.png?v=20260715_seam1';
             this.stage6GroundThresholdImage = new Image();
             this.stage6GroundThresholdImage.src = 'images/stage6_ground_threshold_strip.png?v=20260714_zone1';
         }
@@ -3448,6 +3450,18 @@ export class Stage {
             filter,
             bottomOffset: Math.round(drawHeight * 0.16)
         });
+
+        const bossPavilion = this.stage6BossPavilionImage;
+        if (bossPavilion?.complete && bossPavilion.naturalWidth > 0 && bossPavilion.naturalHeight > 0) {
+            const bossPavilionWidth = Math.ceil(drawHeight * (bossPavilion.naturalWidth / bossPavilion.naturalHeight));
+            this.renderStage6FixedBackdrop(
+                ctx,
+                bossPavilion,
+                this.maxProgress - bossPavilionWidth * 0.5,
+                progress,
+                { drawHeight, bottomY, filter }
+            );
+        }
     }
 
     renderStage1BambooImageBackdrop(ctx, progress) {
@@ -3933,8 +3947,7 @@ export class Stage {
         worldEnd,
         horizonY,
         bottomY,
-        filter,
-        mirrorRepeat = true
+        filter
     }) {
         if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
 
@@ -3961,15 +3974,7 @@ export class Stage {
 
         for (let tileIndex = firstTile; tileIndex <= lastTile; tileIndex++) {
             const x = Math.round(worldStart + tileIndex * drawW - renderProgress);
-            if (mirrorRepeat && Math.abs(tileIndex) % 2 === 1) {
-                ctx.save();
-                ctx.translate(x + drawW + 2, y);
-                ctx.scale(-1, 1);
-                ctx.drawImage(image, 0, 0, drawW + 2, drawH);
-                ctx.restore();
-            } else {
-                ctx.drawImage(image, x, y, drawW + 2, drawH);
-            }
+            ctx.drawImage(image, x, y, drawW + 2, drawH);
         }
 
         ctx.filter = 'none';

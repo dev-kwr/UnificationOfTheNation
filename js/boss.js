@@ -1283,6 +1283,17 @@ function hasLiveWeaponPayload(weapon) {
     return hasProjectiles || hasLingeringOdachi || !!weapon.isAttacking;
 }
 
+function renderInactiveBossWeaponPayloads(owner, ctx) {
+    for (const weapon of owner.subWeapons || []) {
+        if (!weapon || weapon === owner.currentSubWeapon || !hasLiveWeaponPayload(weapon)) continue;
+        if (typeof weapon.render === 'function') {
+            weapon.render(ctx, owner);
+        } else if (typeof weapon.renderWorldEffects === 'function') {
+            weapon.renderWorldEffects(ctx, owner);
+        }
+    }
+}
+
 function collectWeaponHitboxes(owner, weapon) {
     if (!owner || !weapon || typeof weapon.getHitbox !== 'function') return [];
     if (weapon !== owner.currentSubWeapon && !hasLiveWeaponPayload(weapon)) return [];
@@ -1653,14 +1664,10 @@ function createShogunBossPlayer(x, _y, _type, groundY) {
             ctx.filter = `brightness(${brightness}%) saturate(${saturation}%)`;
         }
         playerRender(ctx, { skipGlow: true });
-        for (const weapon of this.subWeapons || []) {
-            if (!weapon || typeof weapon.render !== 'function') continue;
-            const hasProjectiles = Array.isArray(weapon.projectiles) && weapon.projectiles.length > 0;
-            const shouldRenderCurrentProjectile = weapon.name === '手裏剣';
-            if (hasProjectiles && (weapon !== this.currentSubWeapon || shouldRenderCurrentProjectile)) {
-                weapon.render(ctx, this);
-            }
+        if (typeof this.renderCombatEffectLayer === 'function') {
+            this.renderCombatEffectLayer(ctx);
         }
+        renderInactiveBossWeaponPayloads(this, ctx);
         ctx.restore();
         ctx.filter = 'none';
     };

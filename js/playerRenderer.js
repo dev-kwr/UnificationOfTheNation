@@ -30,6 +30,42 @@ export function applyRendererMixin(PlayerClass) {
         return 80;
     };
 
+    PlayerClass.prototype.renderCombatEffectLayer = function(ctx, options = {}) {
+        if (!ctx) return;
+
+        const shogunFrame = typeof this.getShogunRenderModelFrame === 'function'
+            ? this.getShogunRenderModelFrame()
+            : null;
+        const trailPhysicalScale = (shogunFrame && shogunFrame.scale > 1)
+            ? shogunFrame.scale
+            : 1;
+        const trailOptions = trailPhysicalScale > 1
+            ? { physicalScale: trailPhysicalScale }
+            : {};
+
+        if (typeof this.renderComboSlashTrail === 'function') {
+            this.renderComboSlashTrail(ctx, trailOptions);
+        }
+        if (typeof this.renderDualBladeSlashTrails === 'function') {
+            this.renderDualBladeSlashTrails(ctx, trailOptions);
+        }
+
+        const weapon = this.currentSubWeapon;
+        if (!weapon) return;
+
+        ctx.save();
+        const worldEffectAlpha = Number.isFinite(options.worldEffectAlpha)
+            ? Math.max(0, Math.min(1, options.worldEffectAlpha))
+            : 1;
+        ctx.globalAlpha *= worldEffectAlpha;
+        if (this.subWeaponRenderedInModel && typeof weapon.renderWorldEffects === 'function') {
+            weapon.renderWorldEffects(ctx, this);
+        } else if (!this.subWeaponRenderedInModel && typeof weapon.render === 'function') {
+            weapon.render(ctx, this);
+        }
+        ctx.restore();
+    };
+
     PlayerClass.prototype.drawKatana = function(
         ctx,
         x,
