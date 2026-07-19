@@ -27,6 +27,14 @@ const BGM_ICON_PATHS = {
     unmuted: './icon/volume_on.svg',
     muted: './icon/volume_off.svg'
 };
+const WEAPON_ICON_PATHS = {
+    '手裏剣': './images/hud_weapons/shuriken.png?v=20260718-6',
+    '火薬玉': './images/hud_weapons/bomb.svg?v=20260719-2',
+    '大槍': './images/hud_weapons/spear.png?v=20260718-6',
+    '二刀流': './images/hud_weapons/dual.png?v=20260718-3',
+    '鎖鎌': './images/hud_weapons/kusarigama.png?v=20260719-1',
+    '大太刀': './images/hud_weapons/odachi.png?v=20260718-6'
+};
 const TITLE_STAR_COUNT = 100;
 let _titleLogoImage = null;   // プロ制作の金紺ロゴ画像（英字＋天下統一＋筆＋装飾を内包）
 let _openingBgImage = null;   // オープニング背景画像
@@ -589,6 +597,9 @@ export class UI {
             unmuted: this.createUiImage(BGM_ICON_PATHS.unmuted),
             muted: this.createUiImage(BGM_ICON_PATHS.muted)
         };
+        this.weaponIcons = Object.fromEntries(
+            Object.entries(WEAPON_ICON_PATHS).map(([name, src]) => [name, this.createUiImage(src)])
+        );
     }
 
     createUiImage(src) {
@@ -804,13 +815,18 @@ export class UI {
             drawRoundedRectPath(slotX + 1.2, slotY + 1.2, slotSize - 2.4, Math.max(1, slotSize * 0.32), 8);
             ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
             ctx.fill();
+            // 武器アイコンは角丸内へクリップし、画像が枠線へ被らないようにする。
+            ctx.save();
+            drawRoundedRectPath(slotX + 0.8, slotY + 0.8, slotSize - 1.6, slotSize - 1.6, 9.2);
+            ctx.clip();
+            this.drawWeaponIcon(ctx, slotX + slotSize/2, slotY + slotSize/2, slotSize * 0.88, player.currentSubWeapon.name);
+            ctx.restore();
+
+            // 枠線は必ず画像の後に描き、前面の輪郭として見せる。
             drawRoundedRectPath(slotX, slotY, slotSize, slotSize, 10);
             ctx.strokeStyle = 'rgba(180, 204, 255, 0.38)';
             ctx.lineWidth = 1.2;
             ctx.stroke();
-            
-            // 武器アイコン（変形なしで描画）
-            this.drawWeaponIcon(ctx, slotX + slotSize/2, slotY + slotSize/2, slotSize * 0.6, player.currentSubWeapon.name);
             ctx.restore();
             
             // 武器名 (大きく)
@@ -1242,10 +1258,22 @@ export class UI {
         ctx.restore();
     }
 
-    // 武器アイコンの簡略化描画
+    // 武器アイコン画像を優先し、読込前・読込失敗時だけ旧Canvas描画へフォールバックする。
     drawWeaponIcon(ctx, x, y, size, name) {
         ctx.save();
         ctx.translate(x, y);
+
+        const icon = this.weaponIcons?.[name];
+        if (icon && icon.complete && icon.naturalWidth > 0) {
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.48)';
+            ctx.shadowBlur = Math.max(1, size * 0.12);
+            ctx.shadowOffsetY = Math.max(0.5, size * 0.025);
+            ctx.drawImage(icon, -size / 2, -size / 2, size, size);
+            ctx.restore();
+            return;
+        }
 
         const half = size / 2;
         const bladeGrad = ctx.createLinearGradient(-half, -half, half, half);

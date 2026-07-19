@@ -2924,7 +2924,11 @@ class Game {
         if (!this.expGems || this.expGems.length === 0 || !this.player) return;
 
         const pickupRadius = 26;
-        const normalMagnetRadius = 120;
+        const normalMagnetRadius = 180;
+        const normalPullMin = 0.42;
+        const normalPullMax = 1.14;
+        const magnetBoostPullMin = 0.85;
+        const magnetBoostPullMax = 2.2;
         const magnetBoostActive = !!(this.player.isExpMagnetBoostActive && this.player.isExpMagnetBoostActive());
         const magnetRadius = magnetBoostActive
             ? Math.hypot(CANVAS_WIDTH, CANVAS_HEIGHT) * 1.2
@@ -2968,15 +2972,14 @@ class Game {
             const distance = minDistance || 1;
 
             if (distance < magnetRadius) {
-                let pull = 0.42 + (normalMagnetRadius - Math.min(distance, normalMagnetRadius)) * 0.006;
+                const normalPullProgress = 1 - Math.min(distance, normalMagnetRadius) / normalMagnetRadius;
+                let pull = normalPullMin + (normalPullMax - normalPullMin) * normalPullProgress;
                 let maxSpeed = Infinity;
 
-                if (magnetBoostActive && distance > normalMagnetRadius) {
-                    const farRatio = (distance - normalMagnetRadius) / Math.max(1, magnetRadius - normalMagnetRadius);
-                    pull = 0.85 + Math.min(1, farRatio) * 1.35;
+                if (magnetBoostActive) {
+                    const boostPullProgress = 1 - Math.min(distance, magnetRadius) / magnetRadius;
+                    pull = magnetBoostPullMin + (magnetBoostPullMax - magnetBoostPullMin) * boostPullProgress;
                     maxSpeed = 14.8;
-                } else if (magnetBoostActive) {
-                    maxSpeed = 8.0;
                 }
                 gem.vx += (dx / distance) * pull;
                 gem.vy += (dy / distance) * pull;

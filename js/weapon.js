@@ -55,6 +55,301 @@ function resolveSubWeaponEnhanceTier(owner, fallbackTier = 0) {
     return clampEnhanceTier(fallbackTier);
 }
 
+function resolveVisualEffectScale(value) {
+    const scale = Number(value);
+    return Number.isFinite(scale) && scale > 0
+        ? Math.max(0.5, Math.min(3, scale))
+        : 1;
+}
+
+// 真横から見た口金＋導火線。繰り返し模様は節に見えるため使わず、
+// 根元から先端まで一続きの短い繊維として描く。
+function drawFirebombFuse(ctx, cx, cy, radius, time, seeds, visualScale = 1) {
+    const r = Math.max(1, radius);
+    const fxScale = resolveVisualEffectScale(visualScale);
+    // 将軍では火の粉の飛散距離は2.2倍を保ちつつ、導火線先端の火だけを少し抑える。
+    // 忍者の通常・Lv3サイズアップ（1.5倍未満）は従来比率のまま。
+    const coreScale = fxScale > 1.5
+        ? 1 + (fxScale - 1) * 0.78
+        : fxScale;
+    const collarY = cy - r * 0.99;
+    // 口金側は固定し、先端へ近づくほどごく小さくしなる。
+    // 単一の大きな正弦波ではなく低速の2波を混ぜ、機械的な往復やミミズ状の動きを避ける。
+    const swayPhase = time * 0.00580 + (seeds?.[0]?.ph || 0) * 0.12;
+    const tipSwayX = (
+        Math.sin(swayPhase) * 0.78 +
+        Math.sin(swayPhase * 0.57 + 1.35) * 0.22
+    ) * r * 0.060;
+    const tipSwayY = Math.sin(swayPhase * 0.71 + 2.1) * r * 0.012;
+    const p0 = { x: cx + r * 0.02, y: collarY + r * 0.06 };
+    const p1 = {
+        x: cx + r * 0.16 + tipSwayX * 0.10,
+        y: collarY - r * 0.08 + tipSwayY * 0.08
+    };
+    const p2 = {
+        x: cx + r * 0.23 + tipSwayX * 0.46,
+        y: collarY - r * 0.29 + tipSwayY * 0.42
+    };
+    const p3 = {
+        x: cx + r * 0.29 + tipSwayX,
+        y: collarY - r * 0.47 + tipSwayY
+    };
+    const traceFuse = () => {
+        ctx.beginPath();
+        ctx.moveTo(p0.x, p0.y);
+        ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+    };
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // 焦げた縁と縄色を重ね、節のない一本の芯に見せる。
+    traceFuse();
+    ctx.strokeStyle = '#241207';
+    ctx.lineWidth = Math.max(2.0, r * 0.25);
+    ctx.stroke();
+    traceFuse();
+    ctx.strokeStyle = '#81502a';
+    ctx.lineWidth = Math.max(1.4, r * 0.17);
+    ctx.stroke();
+    traceFuse();
+    ctx.strokeStyle = 'rgba(224, 173, 103, 0.30)';
+    ctx.lineWidth = Math.max(0.45, r * 0.035);
+    ctx.stroke();
+
+    // 平面視点の口金。HUDと同じく、上端の押さえ・胴・下端の受けを
+    // 重ねて金属部品らしくする。上面の穴や楕円は描かない。
+    const collarW = r * 0.44;
+    const collarH = r * 0.20;
+    const collarX = cx - collarW * 0.5;
+
+    const baseX = collarX - r * 0.03;
+    const baseY = collarY + r * 0.13;
+    const baseW = collarW + r * 0.06;
+    const baseH = r * 0.09;
+    const baseGrad = ctx.createLinearGradient(baseX, baseY, baseX, baseY + baseH);
+    baseGrad.addColorStop(0, '#3b4048');
+    baseGrad.addColorStop(0.48, '#20242a');
+    baseGrad.addColorStop(1, '#0e1115');
+    ctx.fillStyle = baseGrad;
+    ctx.strokeStyle = '#111419';
+    ctx.lineWidth = Math.max(0.65, r * 0.060);
+    ctx.beginPath();
+    ctx.roundRect(baseX, baseY, baseW, baseH, r * 0.030);
+    ctx.fill();
+    ctx.stroke();
+
+    const collarGrad = ctx.createLinearGradient(collarX, collarY, collarX + collarW, collarY + collarH);
+    collarGrad.addColorStop(0, '#858b94');
+    collarGrad.addColorStop(0.28, '#60666f');
+    collarGrad.addColorStop(0.72, '#292d34');
+    collarGrad.addColorStop(1, '#15181d');
+    ctx.fillStyle = collarGrad;
+    ctx.strokeStyle = '#171a1f';
+    ctx.lineWidth = Math.max(0.7, r * 0.075);
+    ctx.beginPath();
+    ctx.roundRect(collarX, collarY, collarW, collarH, r * 0.045);
+    ctx.fill();
+    ctx.stroke();
+
+    const lipX = collarX + r * 0.055;
+    const lipY = collarY - r * 0.018;
+    const lipW = collarW - r * 0.11;
+    const lipH = r * 0.06;
+    const lipGrad = ctx.createLinearGradient(lipX, lipY, lipX + lipW, lipY + lipH);
+    lipGrad.addColorStop(0, '#9ca2aa');
+    lipGrad.addColorStop(0.46, '#5f656d');
+    lipGrad.addColorStop(1, '#272b31');
+    ctx.fillStyle = lipGrad;
+    ctx.strokeStyle = '#1b1f24';
+    ctx.lineWidth = Math.max(0.55, r * 0.047);
+    ctx.beginPath();
+    ctx.roundRect(lipX, lipY, lipW, lipH, r * 0.024);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(216, 222, 231, 0.32)';
+    ctx.lineWidth = Math.max(0.45, r * 0.038);
+    ctx.beginPath();
+    ctx.moveTo(collarX + r * 0.055, collarY + r * 0.052);
+    ctx.lineTo(collarX + collarW - r * 0.055, collarY + r * 0.052);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(7, 9, 12, 0.62)';
+    ctx.lineWidth = Math.max(0.45, r * 0.040);
+    ctx.beginPath();
+    ctx.moveTo(baseX + r * 0.04, baseY + baseH * 0.72);
+    ctx.lineTo(baseX + baseW - r * 0.04, baseY + baseH * 0.72);
+    ctx.stroke();
+
+    // 導火線先端の不規則な点火閃光と、両端が細い流線型の火花を描く。
+    // 丸や縦長の炎を置かず、短い閃光として方向性を出す。
+    ctx.globalCompositeOperation = 'lighter';
+    const flicker = Math.sin(time * 0.041) * 0.30 + Math.sin(time * 0.073 + 1.4) * 0.18;
+    const fuseDX = p3.x - p2.x;
+    const fuseDY = p3.y - p2.y;
+    const fuseLength = Math.hypot(fuseDX, fuseDY) || 1;
+    const fuseTangent = { x: fuseDX / fuseLength, y: fuseDY / fuseLength };
+    const flareRadius = (2.45 + flicker * 0.24) * coreScale;
+    const flareCenterX = p3.x + fuseTangent.x * flareRadius * 0.20;
+    const flareCenterY = p3.y + fuseTangent.y * flareRadius * 0.20;
+    const glowRadius = (3.7 + flicker * 0.72) * coreScale;
+    const glow = ctx.createRadialGradient(flareCenterX, flareCenterY, 0, flareCenterX, flareCenterY, glowRadius);
+    glow.addColorStop(0, 'rgba(255, 190, 45, 0.64)');
+    glow.addColorStop(0.42, 'rgba(255, 92, 12, 0.32)');
+    glow.addColorStop(1, 'rgba(255, 72, 5, 0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(flareCenterX, flareCenterY, glowRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    const ft = time * 0.00135;
+    const sparkCount = 7;
+    const sparkOriginX = flareCenterX + fuseTangent.x * flareRadius * 0.18;
+    const sparkOriginY = flareCenterY + fuseTangent.y * flareRadius * 0.18;
+    for (let i = 0; i < sparkCount; i++) {
+        const s = seeds?.[i] || { ox: 0, oy: 0, ph: i * 2.1 };
+        // 等間隔に発火する細い火花を扇状へ散らす。上向き一辺倒にせず、
+        // 左右へ飛んだ後にわずかに落ちる線香花火状の短い放物線にする。
+        const life = ((ft + i / sparkCount) % 1 + 1) % 1;
+        const previousLife = Math.max(0, life - 0.34);
+        const visibility = Math.pow(1 - life, 0.48);
+        const baseAngle = -2.86 + i * 0.44;
+        const angle = baseAngle + Math.sin(s.ph + ft * Math.PI * 2) * 0.12;
+        const speed = 11.6 + (i % 4) * 1.6;
+        const gravity = (2.8 + (i % 2) * 0.7) * fxScale;
+        const pointAt = (phase) => {
+            const distance = (2.0 + phase * speed) * fxScale;
+            return {
+                x: sparkOriginX + Math.cos(angle) * distance,
+                y: sparkOriginY + Math.sin(angle) * distance + gravity * phase * phase
+            };
+        };
+        const tail = pointAt(previousLife);
+        const middle = pointAt((previousLife + life) * 0.5);
+        const spark = pointAt(life);
+        const streakHalf = (0.20 + visibility * 0.38) * fxScale;
+        const streakDX = spark.x - tail.x;
+        const streakDY = spark.y - tail.y;
+        const streakLength = Math.hypot(streakDX, streakDY) || 1;
+        const streakNormalX = -streakDY / streakLength;
+        const streakNormalY = streakDX / streakLength;
+        // 点火直後は橙、離れるほど赤へ冷える配色。中心の黄色い芯とは明確に分ける。
+        const green = Math.round(132 - life * 54 + (i % 2) * 10);
+
+        const streakGrad = ctx.createLinearGradient(tail.x, tail.y, spark.x, spark.y);
+        streakGrad.addColorStop(0, `rgba(220, 38, 12, ${(0.14 * visibility).toFixed(3)})`);
+        streakGrad.addColorStop(0.36, `rgba(255, ${green}, 24, ${(0.88 * visibility).toFixed(3)})`);
+        streakGrad.addColorStop(1, `rgba(255, ${Math.min(166, green + 28)}, 40, ${visibility.toFixed(3)})`);
+        ctx.shadowColor = `rgba(255, 58, 10, ${(0.54 * visibility).toFixed(3)})`;
+        ctx.shadowBlur = 2.4 * fxScale;
+        ctx.fillStyle = streakGrad;
+        ctx.beginPath();
+        ctx.moveTo(tail.x, tail.y);
+        ctx.quadraticCurveTo(
+            middle.x + streakNormalX * streakHalf,
+            middle.y + streakNormalY * streakHalf,
+            spark.x,
+            spark.y
+        );
+        ctx.quadraticCurveTo(
+            middle.x - streakNormalX * streakHalf,
+            middle.y - streakNormalY * streakHalf,
+            tail.x,
+            tail.y
+        );
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.shadowColor = 'rgba(0,0,0,0)';
+    }
+
+    // 根本は尖った炎や星ではなく、横に広い非対称の赤熱した火種として描く。
+    ctx.save();
+    ctx.translate(flareCenterX, flareCenterY);
+    ctx.rotate(
+        Math.atan2(fuseTangent.y, fuseTangent.x) + Math.PI / 2 +
+        Math.sin(time * 0.009 + (seeds?.[1]?.ph || 0)) * 0.08
+    );
+    const flarePulse = 1 + Math.sin(time * 0.053 + (seeds?.[2]?.ph || 0)) * 0.07;
+    const emberW = flareRadius * 0.96 * flarePulse;
+    const emberH = flareRadius * 0.66 * (2 - flarePulse);
+    const emberGrad = ctx.createRadialGradient(
+        -emberW * 0.20,
+        -emberH * 0.14,
+        0,
+        0,
+        0,
+        emberW * 1.04
+    );
+    emberGrad.addColorStop(0, '#fff07a');
+    emberGrad.addColorStop(0.34, '#ffc126');
+    emberGrad.addColorStop(0.66, '#ff6613');
+    emberGrad.addColorStop(1, '#c9270c');
+    ctx.fillStyle = emberGrad;
+    ctx.beginPath();
+    ctx.moveTo(-emberW * 0.82, emberH * 0.16);
+    ctx.bezierCurveTo(
+        -emberW * 0.98,
+        -emberH * 0.38,
+        -emberW * 0.46,
+        -emberH * 0.78,
+        emberW * 0.06,
+        -emberH * 0.68
+    );
+    ctx.bezierCurveTo(
+        emberW * 0.62,
+        -emberH * 0.62,
+        emberW * 0.94,
+        -emberH * 0.12,
+        emberW * 0.76,
+        emberH * 0.30
+    );
+    ctx.bezierCurveTo(
+        emberW * 0.48,
+        emberH * 0.76,
+        -emberW * 0.46,
+        emberH * 0.70,
+        -emberW * 0.82,
+        emberH * 0.16
+    );
+    ctx.closePath();
+    ctx.fill();
+
+    // 中心発光も輪郭へ沿う小さな歪み面にして、点や星形を作らない。
+    ctx.fillStyle = 'rgba(255, 241, 124, 0.88)';
+    ctx.beginPath();
+    ctx.moveTo(-emberW * 0.42, emberH * 0.04);
+    ctx.bezierCurveTo(
+        -emberW * 0.40,
+        -emberH * 0.32,
+        -emberW * 0.08,
+        -emberH * 0.44,
+        emberW * 0.24,
+        -emberH * 0.24
+    );
+    ctx.bezierCurveTo(
+        emberW * 0.44,
+        emberH * 0.02,
+        emberW * 0.16,
+        emberH * 0.36,
+        -emberW * 0.18,
+        emberH * 0.32
+    );
+    ctx.bezierCurveTo(
+        -emberW * 0.34,
+        emberH * 0.30,
+        -emberW * 0.46,
+        emberH * 0.18,
+        -emberW * 0.42,
+        emberH * 0.04
+    );
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    ctx.restore();
+}
+
 // 爆弾クラス
 export class Bomb {
     constructor(x, y, velocityX, velocityY) {
@@ -63,6 +358,7 @@ export class Bomb {
         this.vx = velocityX;
         this.vy = velocityY;
         this.radius = 8;
+        this.visualScale = 1;
         this.isExploding = false;
         this.explosionTimer = 0;
         this.explosionDuration = 300;
@@ -72,7 +368,7 @@ export class Bomb {
         this.id = Math.random().toString(36).substr(2, 9); // 一意なID
         this.trailPoints = []; // 飛翔中の火の粉トレイル（点数capで軽量）
         // 導火線火花のシード（毎フレーム Math.random だと先端がチラつくため一度だけ固定）
-        this._fuseSeed = Array.from({ length: 3 }, () => ({
+        this._fuseSeed = Array.from({ length: 7 }, () => ({
             ox: (Math.random() - 0.5) * 6,
             oy: (Math.random() - 0.5) * 6,
             ph: Math.random() * Math.PI * 2
@@ -93,8 +389,13 @@ export class Bomb {
         this.x += this.vx;
         this.y += this.vy;
 
-        // 飛翔軌跡（火の粉トレイル用）。記録は update で1回。
-        pushTrailPoint(this.trailPoints, this.x, this.y - this.radius * 0.4, deltaTime * 1000, { maxAge: 120, minDist: 3, cap: 16 });
+        // 飛翔軌跡（火の粉トレイル用）。将軍時は太さだけでなく残る長さも同倍率にする。
+        const trailScale = resolveVisualEffectScale(this.visualScale);
+        pushTrailPoint(this.trailPoints, this.x, this.y - this.radius * 0.4, deltaTime * 1000, {
+            maxAge: 120 * trailScale,
+            minDist: 3 * trailScale,
+            cap: 16
+        });
 
         // 地面に当たったら爆発
         if (this.y + this.radius >= groundY + LANE_OFFSET) {
@@ -256,9 +557,10 @@ export class Bomb {
 
             // 燃える導火線から尾を引く火の粉トレイル（本体の後ろ＝飛翔の弧と速度感を出す）。控えめな暖色加算。
             if (this.trailPoints.length >= 3) {
+                const trailScale = resolveVisualEffectScale(this.visualScale);
                 drawCometRibbon(ctx, this.trailPoints, {
-                    maxAge: 120,
-                    headHalf: Math.max(2.4, this.radius * 0.34),
+                    maxAge: 120 * trailScale,
+                    headHalf: Math.max(2.4 * trailScale, this.radius * 0.34),
                     baseColor: '255, 150, 60',
                     edgeColor: '255, 222, 150',
                     headAlpha: 0.22,
@@ -268,11 +570,12 @@ export class Bomb {
 
             // 立体的な爆弾本体（球体グラデーション）＋落ち影で浮かせる
             const bodyGrad = ctx.createRadialGradient(
-                this.x - this.radius * 0.3, this.y - this.radius * 0.3, this.radius * 0.1,
+                this.x - this.radius * 0.34, this.y - this.radius * 0.34, this.radius * 0.04,
                 this.x, this.y, this.radius
             );
-            bodyGrad.addColorStop(0, '#5e636b'); // ハイライト
-            bodyGrad.addColorStop(0.45, '#262a2f'); // 基本色
+            bodyGrad.addColorStop(0, '#666c75'); // 柔らかな入射光
+            bodyGrad.addColorStop(0.18, '#454a52');
+            bodyGrad.addColorStop(0.50, '#262a2f'); // 基本色
             bodyGrad.addColorStop(1, '#080a0d'); // 影
             withDropShadow(ctx, { color: 'rgba(0,0,0,0.45)', blur: 3, dx: 1, dy: 2 }, () => {
                 ctx.fillStyle = bodyGrad;
@@ -286,51 +589,62 @@ export class Bomb {
             ctx.beginPath();
             ctx.arc(this.x, this.y, this.radius - 0.4, 0, Math.PI * 2);
             ctx.stroke();
-            // 上部の小ハイライト(光沢)
-            ctx.fillStyle = 'rgba(255,255,255,0.28)';
+            // 左上の球面反射。単色の白い楕円ではなく、HUD画像と同じく
+            // 拡散光→細い主反射→外周リムの順で柔らかく重ねる。
+            ctx.save();
             ctx.beginPath();
-            ctx.ellipse(this.x - this.radius * 0.32, this.y - this.radius * 0.38, this.radius * 0.26, this.radius * 0.16, -0.6, 0, Math.PI * 2);
+            ctx.arc(this.x, this.y, this.radius - 0.7, 0, Math.PI * 2);
+            ctx.clip();
+
+            const diffuseHighlight = ctx.createRadialGradient(
+                this.x - this.radius * 0.42,
+                this.y - this.radius * 0.46,
+                0,
+                this.x - this.radius * 0.22,
+                this.y - this.radius * 0.26,
+                this.radius * 0.76
+            );
+            diffuseHighlight.addColorStop(0, 'rgba(236,241,248,0.17)');
+            diffuseHighlight.addColorStop(0.30, 'rgba(207,214,224,0.085)');
+            diffuseHighlight.addColorStop(0.68, 'rgba(161,170,183,0.03)');
+            diffuseHighlight.addColorStop(1, 'rgba(130,140,154,0)');
+            ctx.fillStyle = diffuseHighlight;
+            ctx.fillRect(
+                this.x - this.radius,
+                this.y - this.radius,
+                this.radius * 2,
+                this.radius * 2
+            );
+
+            // 主反射は淡い楕円グラデーションにして、中心も白飛びさせない。
+            ctx.save();
+            ctx.translate(
+                this.x - this.radius * 0.37,
+                this.y - this.radius * 0.43
+            );
+            ctx.rotate(-0.58);
+            ctx.scale(this.radius * 0.36, this.radius * 0.10);
+            const specularHighlight = ctx.createRadialGradient(-0.22, -0.12, 0, 0, 0, 1);
+            specularHighlight.addColorStop(0, 'rgba(248,250,253,0.28)');
+            specularHighlight.addColorStop(0.42, 'rgba(230,235,242,0.13)');
+            specularHighlight.addColorStop(1, 'rgba(210,218,229,0)');
+            ctx.fillStyle = specularHighlight;
+            ctx.beginPath();
+            ctx.arc(0, 0, 1, 0, Math.PI * 2);
             ctx.fill();
-            
-            // 金属のリング（口金部分）
-            ctx.fillStyle = '#6b7075';
-            ctx.fillRect(this.x - 3, this.y - this.radius - 2, 6, 3);
-            ctx.fillStyle = '#42454a';
-            ctx.fillRect(this.x - 3, this.y - this.radius - 0.5, 6, 1.5);
-            
-            // 導火線
-            const fuseLen = 14;
-            const fuseWiggle = Math.sin(this.lifeTime || performance.now() * 0.01) * 3;
-            const fuseEndX = this.x + 4 + fuseWiggle;
-            const fuseEndY = this.y - this.radius - fuseLen;
-            
-            ctx.strokeStyle = '#8B5A2B';
-            ctx.lineWidth = 2.5;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            ctx.moveTo(this.x, this.y - this.radius - 2);
-            ctx.quadraticCurveTo(this.x + 8, this.y - this.radius - 6, fuseEndX, fuseEndY);
-            ctx.stroke();
-            
-            // 燃え盛る火花（ランダムなパーティクル）
-            const time = performance.now();
-            ctx.globalCompositeOperation = 'lighter';
-            ctx.fillStyle = '#ffaa00';
-            ctx.beginPath();
-            ctx.arc(fuseEndX, fuseEndY, 3 + Math.sin(time*0.05)*1, 0, Math.PI*2);
-            ctx.fill();
-            
-            ctx.fillStyle = '#ff3300';
-            const ft = time * 0.012;
-            for (let i = 0; i < 3; i++) {
-                const s = this._fuseSeed[i];
-                // シード位置を時間で滑らかに揺らす（毎フレーム乱数の瞬間移動チラつきを排除）
-                const ox = s.ox + Math.sin(ft + s.ph) * 1.5;
-                const oy = s.oy + Math.cos(ft * 1.2 + s.ph) * 1.5;
-                ctx.beginPath();
-                ctx.arc(fuseEndX + ox, fuseEndY - 2 + oy, 1.1 + (0.7 + 0.5 * Math.sin(ft * 2 + s.ph)), 0, Math.PI * 2);
-                ctx.fill();
-            }
+            ctx.restore();
+
+            ctx.restore();
+
+            drawFirebombFuse(
+                ctx,
+                this.x,
+                this.y,
+                this.radius,
+                performance.now(),
+                this._fuseSeed,
+                this.visualScale
+            );
             
             ctx.restore();
         }
@@ -444,13 +758,14 @@ export function drawShurikenShape(ctx, cx, cy, radius, rotation) {
 
 // 手裏剣の飛翔体
 export class ShurikenProjectile {
-    constructor(x, y, vx, vy, damage, radius, pierce = false, homing = false, targetIndex = 0) {
+    constructor(x, y, vx, vy, damage, radius, pierce = false, homing = false, targetIndex = 0, visualScale = 1) {
         this.x = x;
         this.y = y;
         this.vx = vx;
         this.vy = vy;
         this.damage = damage;
         this.radius = radius;
+        this.visualScale = resolveVisualEffectScale(visualScale);
         this.rotation = 0;
         this.rotationSpeed = 18; // 回転速度の大きさ。符号は initialDirection 確定後に投擲方向へ合わせる
         this.life = homing ? 2500 : 1200;
@@ -603,7 +918,11 @@ export class ShurikenProjectile {
 
         // 追尾弾だけ軌跡点を蓄積（複数同時投擲時の視認性UP）。記録は update で1回＝多重描画パスに汚染されない。
         if (this.homing) {
-            pushTrailPoint(this.trailPoints, this.x, this.y, dt * 1000, { maxAge: 78, minDist: 4, cap: 11 });
+            pushTrailPoint(this.trailPoints, this.x, this.y, dt * 1000, {
+                maxAge: 78 * this.visualScale,
+                minDist: 4 * this.visualScale,
+                cap: 11
+            });
         }
 
         // --- 地面・画面外判定 ---
@@ -663,8 +982,8 @@ export class ShurikenProjectile {
         // 短く淡い柔らかな尾だけにする。色も少し落ち着いた青緑にして発光感を下げる。
         if (this.homing && this.trailPoints.length >= 3 && lifeRatio > 0.06) {
             drawCometRibbon(ctx, this.trailPoints, {
-                maxAge: 78,
-                headHalf: Math.max(2.4, this.radius * 0.3),
+                maxAge: 78 * this.visualScale,
+                headHalf: Math.max(2.4 * this.visualScale, this.radius * 0.3),
                 baseColor: '128, 196, 190',
                 edgeColor: '198, 230, 224',
                 headAlpha: 0.2 * Math.min(1, lifeRatio * 3),
@@ -679,8 +998,8 @@ export class ShurikenProjectile {
             for (let i = 1; i <= blurSteps; i++) {
                 const alpha = (1 - (i / blurSteps)) * 0.4 * Math.min(1, lifeRatio * 2);
                 ctx.globalAlpha = alpha;
-                const pastX = this.x - this.vx * (i * 0.5);
-                const pastY = this.y - this.vy * (i * 0.5);
+                const pastX = this.x - this.vx * (i * 0.5 * this.visualScale);
+                const pastY = this.y - this.vy * (i * 0.5 * this.visualScale);
                 const pastRot = this.rotation - (Math.sign(this.rotationSpeed) * 0.3 * i);
                 drawShurikenShape(ctx, pastX, pastY, this.radius * 0.9, pastRot);
             }
@@ -860,10 +1179,11 @@ export class Shuriken extends SubWeapon {
         const spawnX = baseX + direction * 18;
         const spawnY = baseY + 16;
         const speed = this.bulletSpeed || 20;
-        const scale = (this.owner && Number.isFinite(this.owner.scaleMultiplier)) ? this.owner.scaleMultiplier : 1.0;
-        const r = this.sizeUp
-            ? (homing ? 17 : 14) * scale
+        const scale = resolveVisualEffectScale(this.owner && this.owner.scaleMultiplier);
+        const baseRadius = this.sizeUp
+            ? (homing ? 17 : 14)
             : (homing ? this.projectileRadiusHoming : this.projectileRadius);
+        const r = baseRadius * scale;
 
         const proj = new ShurikenProjectile(
             spawnX,
@@ -874,7 +1194,8 @@ export class Shuriken extends SubWeapon {
             r,
             pierce,
             homing,
-            0
+            0,
+            scale
         );
         if (homing && launchLock && launchLock.target) {
             proj.homingTarget = launchLock.target;
@@ -1045,10 +1366,11 @@ export class Firebomb extends SubWeapon {
             vx,
             vy
         );
-        const ownerScale = (player && Number.isFinite(player.scaleMultiplier)) ? player.scaleMultiplier : 1.0;
+        const ownerScale = resolveVisualEffectScale(player && player.scaleMultiplier);
         const baseBombDamage = sizeUp ? Math.round(this.damage * 1.22) : this.damage;
         bomb.damage = Math.max(1, Math.round(baseBombDamage * attackMultiplier));
         bomb.radius = (sizeUp ? 14 : 11) * ownerScale;
+        bomb.visualScale = resolveVisualEffectScale(bomb.radius / 11);
         bomb.explosionRadius = sizeUp ? Math.round(this.range * 1.16) : this.range;
         bomb.explosionDuration = sizeUp ? 380 : 300;
         this._assignThrowTransformPivot(bomb, player, player.x + ownerWorldWidth(player) / 2, player.y);
@@ -1071,6 +1393,7 @@ export class Firebomb extends SubWeapon {
                     );
                     cloneBomb.damage = Math.max(1, Math.round(baseBombDamage * attackMultiplier));
                     cloneBomb.radius = bomb.radius;
+                    cloneBomb.visualScale = bomb.visualScale;
                     cloneBomb.explosionRadius = bomb.explosionRadius;
                     cloneBomb.explosionDuration = bomb.explosionDuration;
                     this._assignThrowTransformPivot(cloneBomb, player, cloneBaseX, cloneBaseY);
@@ -3526,6 +3849,17 @@ export class Odachi extends SubWeapon {
         return Math.max(0, Math.min(1, 1 - (this.attackTimer / this.totalDuration)));
     }
 
+    getBladeMetrics() {
+        // HUDイラストの比率（太身だが長く伸びる約5:1の刀身）を描画・接地・判定で共有する。
+        // bladeEnd を一か所に集約し、見た目だけが地面や当たり判定からはみ出す状態を防ぐ。
+        return {
+            bladeStart: 20,
+            bladeEnd: this.range + 48,
+            halfWidth: 10.5,
+            hitThickness: 22
+        };
+    }
+
     // 着地後の「刺さり状態」かどうか
     isPlanted() {
         return this.hasImpacted && this.plantedTimer > 0;
@@ -3546,9 +3880,8 @@ export class Odachi extends SubWeapon {
             let phase = 'rise';
             let flipT = 0;
 
-            // 刀身の長さ
-            const bladeLen = this.range + 18;
-            const bladeEnd = bladeLen + 8; // getBladeGeometry と完全に同期
+            // 刀身の長さ（描画・接地・判定で共通）
+            const bladeEnd = this.getBladeMetrics().bladeEnd;
 
             // --- 地面判定の基準 ---
             // _worldGroundY が利用可能な場合はワールド座標のgroundYを使用する
@@ -3579,7 +3912,7 @@ export class Odachi extends SubWeapon {
                 const handX = centerX + direction * (ownerWorldWidth(player) * 0.48);
                 const handY = player.y + ownerWorldHeight(player) * 0.40 + (player.bob || 0) * 0.8;
                 
-                return { progress, phase, direction, rotation, handX, handY, bladeLen };
+                return { progress, phase, direction, rotation, handX, handY, bladeEnd };
             }
 
             // 着地後は刺さりポーズ
@@ -3599,7 +3932,7 @@ export class Odachi extends SubWeapon {
                 if (tipY > maxTipY) {
                     adjustedHandY -= (tipY - maxTipY);
                 }
-                const plantedPose = { progress, phase, direction, rotation, handX, handY: adjustedHandY, bladeLen };
+                const plantedPose = { progress, phase, direction, rotation, handX, handY: adjustedHandY, bladeEnd };
                 // 常に 1.0倍基準で計算しているため、再帰呼び出しなしで単純コピー保存
                 this.lastPlantedPose = { ...plantedPose };
                 return plantedPose;
@@ -3639,7 +3972,7 @@ export class Odachi extends SubWeapon {
             handY -= lift * 1.6;
         }
 
-            return { progress, phase, direction, rotation, handX, handY, bladeLen };
+            return { progress, phase, direction, rotation, handX, handY, bladeEnd };
         } finally {
             if (player && prevIRM !== undefined) {
                 player._inRenderModel = prevIRM;
@@ -3648,13 +3981,14 @@ export class Odachi extends SubWeapon {
     }
 
     getHandleMetrics() {
-        const back = -30;
-        const front = 18;
+        // HUDイラスト準拠。刀身を主役にし、金具込みでも太く見えない細身の両手柄。
+        const back = -14;
+        const front = 16;
         return {
             back,
             front,
             center: (back + front) * 0.5,
-            thickness: 10.5
+            thickness: 8.6
         };
     }
 
@@ -3776,7 +4110,7 @@ export class Odachi extends SubWeapon {
 
     getPlantedOwnerY(player) {
         if (!player) return null;
-        const bladeEnd = (this.range + 18) + 8;
+        const bladeEnd = this.getBladeMetrics().bladeEnd;
         const maxTipY = player.groundY + LANE_OFFSET;
         const handHeightRatio = 0.125;
         const scale = this.getOwnerVisualScale(player);
@@ -3815,12 +4149,15 @@ export class Odachi extends SubWeapon {
 
     getHandAnchor(player) {
         const pose = this.getPose(player);
+        const handle = this.getHandleMetrics();
         const ownerScale = Math.max(1, (player?.height || 60) / 60);
-        // 刃の部分にかからないよう、柄の端方向（負の方向）へオフセットを拡大
-        // ready（構え）時は柄の中央寄りをしっかり握る
-        const gripOffset = ((pose.phase === 'plunge' || pose.phase === 'planted') ? -22
-                         : (pose.phase === 'ready') ? -8
-                         : -15) * ownerScale;
+        // 短くした柄の内側へ必ず収める。接地時は柄頭寄り、構え時は中央を握る。
+        const localGrip = (pose.phase === 'plunge' || pose.phase === 'planted')
+            ? handle.back + 6
+            : (pose.phase === 'ready')
+                ? handle.center
+                : handle.center - 3;
+        const gripOffset = localGrip * ownerScale;
         return {
             x: pose.handX + Math.cos(pose.rotation) * gripOffset,
             y: pose.handY + Math.sin(pose.rotation) * gripOffset,
@@ -3830,8 +4167,9 @@ export class Odachi extends SubWeapon {
     }
 
     getBladeGeometry(pose) {
-        const bladeStart = 22;
-        const bladeEnd = pose.bladeLen + 8;
+        const metrics = this.getBladeMetrics();
+        const bladeStart = metrics.bladeStart;
+        const bladeEnd = Number.isFinite(pose.bladeEnd) ? pose.bladeEnd : metrics.bladeEnd;
         const cosR = Math.cos(pose.rotation);
         const sinR = Math.sin(pose.rotation);
         const rootX = pose.handX + cosR * bladeStart;
@@ -3845,7 +4183,7 @@ export class Odachi extends SubWeapon {
             rootY,
             tipX,
             tipY,
-            hitThickness: 22
+            hitThickness: metrics.hitThickness
         };
     }
 
@@ -3952,7 +4290,9 @@ export class Odachi extends SubWeapon {
 
                     // 接地判定の精密計算
                     const pose = this.getPose(this.owner);
-                    const bladeEnd = pose.bladeLen + 8;
+                    const bladeEnd = Number.isFinite(pose.bladeEnd)
+                        ? pose.bladeEnd
+                        : this.getBladeMetrics().bladeEnd;
                     const maxTipY = this.owner.groundY + LANE_OFFSET;
                     const tipY = pose.handY + Math.sin(pose.rotation) * bladeEnd;
 
@@ -4190,134 +4530,119 @@ export class Odachi extends SubWeapon {
                 ctx.rotate(pose.rotation);
             }
 
-            // 柄: 刀身を邪魔しない程度に抑えた柄巻きと金具
+            // 柄: HUDイラストの細身の両手柄。木地→鮫皮→柄巻き→金具の順に重ねる。
             const handleBack = handle.back;
             const handleFront = handle.front;
             const handleHalfH = (handle.thickness || 9) * 0.5;
             const handleLength = handleFront - handleBack;
             const handleGrad = ctx.createLinearGradient(handleBack, -handleHalfH, handleFront, handleHalfH);
-            handleGrad.addColorStop(0.00, '#2a190b');
-            handleGrad.addColorStop(0.42, '#5b3919');
-            handleGrad.addColorStop(0.68, '#44260f');
-            handleGrad.addColorStop(1.00, '#241105');
+            handleGrad.addColorStop(0.00, '#24150a');
+            handleGrad.addColorStop(0.30, '#6b4020');
+            handleGrad.addColorStop(0.62, '#4b2913');
+            handleGrad.addColorStop(1.00, '#1b0d06');
             ctx.fillStyle = handleGrad;
             ctx.beginPath();
-            ctx.moveTo(handleBack + 3.5, -handleHalfH);
-            ctx.lineTo(handleFront - 2.0, -handleHalfH);
-            ctx.quadraticCurveTo(handleFront + 0.8, 0, handleFront - 2.0, handleHalfH);
-            ctx.lineTo(handleBack + 3.5, handleHalfH);
-            ctx.quadraticCurveTo(handleBack - 0.8, 0, handleBack + 3.5, -handleHalfH);
+            ctx.moveTo(handleBack + 2.2, -handleHalfH);
+            ctx.lineTo(handleFront - 1.5, -handleHalfH);
+            ctx.quadraticCurveTo(handleFront + 0.35, 0, handleFront - 1.5, handleHalfH);
+            ctx.lineTo(handleBack + 2.2, handleHalfH);
+            ctx.quadraticCurveTo(handleBack - 0.45, 0, handleBack + 2.2, -handleHalfH);
             ctx.closePath();
             ctx.fill();
 
-            // 柄巻き: 交差する帯と中央の菱目
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect(handleBack + 1.5, -handleHalfH - 0.8, handleLength - 2.5, handleHalfH * 2 + 1.6);
-            ctx.clip();
-            ctx.lineWidth = 1.55;
-            ctx.lineCap = 'round';
-            for (let x = handleBack - 6; x < handleFront + 8; x += 8.2) {
-                ctx.strokeStyle = 'rgba(25, 14, 7, 0.58)';
+            // 暗い鮫皮の菱目。小さな明暗差だけを残し、縮小時のノイズを抑える。
+            ctx.fillStyle = 'rgba(196, 160, 98, 0.26)';
+            for (let x = handleBack + 5.0; x < handleFront - 3.0; x += 7.4) {
                 ctx.beginPath();
-                ctx.moveTo(x, -handleHalfH - 0.9);
-                ctx.lineTo(x + 8.6, handleHalfH + 0.9);
-                ctx.stroke();
-                ctx.strokeStyle = 'rgba(123, 85, 43, 0.30)';
-                ctx.beginPath();
-                ctx.moveTo(x + 4.0, handleHalfH + 0.8);
-                ctx.lineTo(x + 12.2, -handleHalfH - 0.8);
-                ctx.stroke();
-            }
-            ctx.fillStyle = 'rgba(224, 181, 105, 0.08)';
-            for (let x = handleBack + 6; x < handleFront - 6; x += 16.4) {
-                ctx.beginPath();
-                ctx.moveTo(x, -2.1);
-                ctx.lineTo(x + 4.2, 0);
-                ctx.lineTo(x, 2.1);
-                ctx.lineTo(x - 4.2, 0);
+                ctx.moveTo(x - 1.9, 0);
+                ctx.lineTo(x, -1.55);
+                ctx.lineTo(x + 1.9, 0);
+                ctx.lineTo(x, 1.55);
                 ctx.closePath();
                 ctx.fill();
             }
+
+            // 柄巻き: 帯幅を細くし、柄本体の太さを増やさず立体感だけを加える。
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(handleBack + 1.2, -handleHalfH - 0.5, handleLength - 1.8, handleHalfH * 2 + 1.0);
+            ctx.clip();
+            ctx.lineWidth = 1.15;
+            ctx.lineCap = 'round';
+            for (let x = handleBack - 4.5; x < handleFront + 5; x += 7.4) {
+                ctx.strokeStyle = 'rgba(17, 9, 5, 0.90)';
+                ctx.beginPath();
+                ctx.moveTo(x, -handleHalfH - 0.55);
+                ctx.lineTo(x + 7.7, handleHalfH + 0.55);
+                ctx.stroke();
+                ctx.strokeStyle = 'rgba(112, 72, 40, 0.62)';
+                ctx.beginPath();
+                ctx.moveTo(x + 3.7, handleHalfH + 0.45);
+                ctx.lineTo(x + 11.4, -handleHalfH - 0.45);
+                ctx.stroke();
+            }
             ctx.restore();
 
-            // 柄頭と縁金
+            // 柄頭と縁金: 面積を抑え、細い柄のシルエットを維持する。
             const metalGrad = ctx.createLinearGradient(handleBack, -handleHalfH, handleFront, handleHalfH);
-            metalGrad.addColorStop(0, '#70521e');
-            metalGrad.addColorStop(0.42, '#c7a750');
-            metalGrad.addColorStop(0.78, '#806026');
-            metalGrad.addColorStop(1, '#d7bd68');
+            metalGrad.addColorStop(0, '#594017');
+            metalGrad.addColorStop(0.35, '#d7b85b');
+            metalGrad.addColorStop(0.66, '#8a6829');
+            metalGrad.addColorStop(1, '#3d2a0d');
             ctx.fillStyle = metalGrad;
             ctx.beginPath();
-            ctx.roundRect(handleBack - 3.2, -handleHalfH - 0.7, 6.2, handleHalfH * 2 + 1.4, 1.8);
+            ctx.roundRect(handleBack - 1.9, -handleHalfH - 0.45, 4.2, handleHalfH * 2 + 0.9, 1.2);
             ctx.fill();
             ctx.beginPath();
-            ctx.roundRect(handleFront - 4.4, -handleHalfH - 0.8, 5.4, handleHalfH * 2 + 1.6, 1.5);
+            ctx.roundRect(handleFront - 3.0, -handleHalfH - 0.5, 3.8, handleHalfH * 2 + 1.0, 1.0);
             ctx.fill();
 
-            ctx.strokeStyle = 'rgba(255, 226, 142, 0.24)';
-            ctx.lineWidth = 0.65;
-            ctx.beginPath();
-            ctx.moveTo(handleBack + 2.5, -handleHalfH + 1.0);
-            ctx.lineTo(handleFront - 5.2, -handleHalfH + 0.9);
-            ctx.stroke();
-            ctx.strokeStyle = 'rgba(14, 8, 3, 0.78)';
-            ctx.lineWidth = 0.75;
-            ctx.beginPath();
-            ctx.moveTo(handleBack + 3.4, -handleHalfH);
-            ctx.lineTo(handleFront - 2.5, -handleHalfH);
-            ctx.quadraticCurveTo(handleFront + 1.4, 0, handleFront - 2.5, handleHalfH);
-            ctx.lineTo(handleBack + 3.4, handleHalfH);
-            ctx.quadraticCurveTo(handleBack - 1.4, 0, handleBack + 3.4, -handleHalfH);
-            ctx.closePath();
-            ctx.stroke();
-
-            // 鍔: 根元で主張しすぎない薄めの受け
-            const tsubaGrad = ctx.createLinearGradient(15.0, -4.8, 22.0, 4.8);
-            tsubaGrad.addColorStop(0, '#7d5c20');
-            tsubaGrad.addColorStop(0.45, '#d5b85f');
-            tsubaGrad.addColorStop(1, '#6c4a19');
-            ctx.fillStyle = tsubaGrad;
-            ctx.beginPath();
-            ctx.moveTo(15.2, -3.9);
-            ctx.bezierCurveTo(18.0, -5.2, 21.4, -4.6, 22.2, -0.9);
-            ctx.bezierCurveTo(21.8, 3.3, 18.0, 4.8, 15.0, 3.7);
-            ctx.bezierCurveTo(16.0, 1.4, 16.0, -1.7, 15.2, -3.9);
-            ctx.closePath();
-            ctx.fill();
-            ctx.strokeStyle = '#2c1d09';
-            ctx.lineWidth = 0.75;
-            ctx.stroke();
-            ctx.strokeStyle = 'rgba(255, 237, 166, 0.28)';
+            ctx.strokeStyle = 'rgba(255, 226, 142, 0.32)';
             ctx.lineWidth = 0.45;
             ctx.beginPath();
-            ctx.moveTo(16.7, -2.8);
-            ctx.bezierCurveTo(18.6, -3.5, 20.6, -3.0, 21.4, -1.2);
+            ctx.moveTo(handleBack + 2.2, -handleHalfH + 0.65);
+            ctx.lineTo(handleFront - 3.2, -handleHalfH + 0.65);
+            ctx.stroke();
+            ctx.strokeStyle = 'rgba(14, 8, 3, 0.78)';
+            ctx.lineWidth = 0.6;
+            ctx.beginPath();
+            ctx.moveTo(handleBack + 2.2, -handleHalfH);
+            ctx.lineTo(handleFront - 1.5, -handleHalfH);
+            ctx.quadraticCurveTo(handleFront + 0.35, 0, handleFront - 1.5, handleHalfH);
+            ctx.lineTo(handleBack + 2.2, handleHalfH);
+            ctx.quadraticCurveTo(handleBack - 0.45, 0, handleBack + 2.2, -handleHalfH);
+            ctx.closePath();
             ctx.stroke();
 
-            // 刀身: 忍者標準サイズを基準に、刃形状でクリップして反射/刃文がはみ出ないように描く
+            // 刀身: HUDイラストの長い太身を基準に、刀らしい非対称の鋒と面構成を描く。
             const bladeStart = blade.bladeStart;
             const bladeEnd = blade.bladeEnd;
-            const tipX = blade.bladeEnd + 5.0;
-            const tipY = 0.0;
+            const bladeHalf = this.getBladeMetrics().halfWidth;
+            const rootX = bladeStart + 1.5;
+            const tipX = bladeEnd;
+            const tipY = -3.1;
+            const kissakiStart = bladeEnd - 25;
             const drawBladePath = () => {
                 ctx.beginPath();
-                ctx.moveTo(bladeStart + 1.8, -4.8);
-                ctx.bezierCurveTo(bladeStart + 20, -8.6, bladeEnd - 26, -8.4, tipX, tipY);
-                ctx.bezierCurveTo(bladeEnd - 26, 8.4, bladeStart + 20, 8.6, bladeStart + 1.8, 4.8);
-                ctx.quadraticCurveTo(bladeStart - 0.6, 0, bladeStart + 1.8, -4.8);
+                ctx.moveTo(rootX, -bladeHalf + 0.3);
+                // 峰側はほぼ直線、刃側だけを長く反らせて短剣のような左右対称形を避ける。
+                ctx.lineTo(kissakiStart, -bladeHalf + 1.3);
+                ctx.quadraticCurveTo(bladeEnd - 7.0, -bladeHalf + 2.1, tipX, tipY);
+                ctx.quadraticCurveTo(bladeEnd - 4.0, 2.4, kissakiStart, bladeHalf - 1.4);
+                ctx.lineTo(rootX, bladeHalf - 0.3);
+                ctx.quadraticCurveTo(bladeStart - 0.7, 0, rootX, -bladeHalf + 0.3);
                 ctx.closePath();
             };
-            const bladeGrad = ctx.createLinearGradient(bladeStart, -7, bladeEnd, 7);
-            bladeGrad.addColorStop(0.00, '#b8c0ca');
-            bladeGrad.addColorStop(0.14, '#eef3f8');
-            bladeGrad.addColorStop(0.34, '#ffffff');
-            bladeGrad.addColorStop(0.55, '#cbd3dd');
-            bladeGrad.addColorStop(0.76, '#778391');
-            bladeGrad.addColorStop(1.00, '#1e2b3b');
+            const bladeGrad = ctx.createLinearGradient(0, -bladeHalf, 0, bladeHalf);
+            bladeGrad.addColorStop(0.00, '#263446');
+            bladeGrad.addColorStop(0.22, '#657384');
+            bladeGrad.addColorStop(0.43, '#dce4ec');
+            bladeGrad.addColorStop(0.57, '#f7fafc');
+            bladeGrad.addColorStop(0.78, '#c6d0da');
+            bladeGrad.addColorStop(1.00, '#8e9baa');
 
-            // 落ち影で背景から浮かせる(影は本体fillのみ。後続の陰影/刃文へ伝播させない)
-            withDropShadow(ctx, { color: 'rgba(0,0,0,0.5)', blur: 3.0, dx: 1.2, dy: 2.0 }, () => {
+            // 輪郭影は刀身本体だけへ適用し、反射線がにじまないようにする。
+            withDropShadow(ctx, { color: 'rgba(0,0,0,0.56)', blur: 3.2, dx: 1.1, dy: 1.8 }, () => {
                 ctx.fillStyle = bladeGrad;
                 drawBladePath();
                 ctx.fill();
@@ -4327,100 +4652,167 @@ export class Odachi extends SubWeapon {
             drawBladePath();
             ctx.clip();
 
-            // 峰側の重い陰影
-            const spineGrad = ctx.createLinearGradient(bladeStart, -10, bladeEnd, -3);
-            spineGrad.addColorStop(0, 'rgba(79, 91, 108, 0.22)');
-            spineGrad.addColorStop(0.7, 'rgba(27, 42, 61, 0.58)');
-            spineGrad.addColorStop(1, 'rgba(13, 26, 42, 0.72)');
+            // 峰・鎬地: 濃紺の細長い面で大太刀の重量感を出す。
+            const spineGrad = ctx.createLinearGradient(bladeStart, -bladeHalf, bladeEnd, -2);
+            spineGrad.addColorStop(0, 'rgba(28, 42, 59, 0.56)');
+            spineGrad.addColorStop(0.56, 'rgba(54, 69, 88, 0.76)');
+            spineGrad.addColorStop(1, 'rgba(16, 28, 44, 0.88)');
             ctx.fillStyle = spineGrad;
             ctx.beginPath();
-            ctx.moveTo(bladeStart + 3, -4.9);
-            ctx.bezierCurveTo(bladeStart + 28, -7.4, bladeEnd - 30, -7.3, tipX - 1.2, -0.2);
-            ctx.bezierCurveTo(bladeEnd - 18, -3.0, bladeStart + 38, -2.6, bladeStart + 8, -1.0);
+            ctx.moveTo(rootX, -bladeHalf + 0.25);
+            ctx.lineTo(kissakiStart, -bladeHalf + 1.35);
+            ctx.quadraticCurveTo(bladeEnd - 7, -bladeHalf + 2.1, tipX, tipY);
+            ctx.quadraticCurveTo(bladeEnd - 12, -2.0, kissakiStart - 2, -1.0);
+            ctx.lineTo(bladeStart + 8, -0.45);
             ctx.closePath();
             ctx.fill();
 
-            // 刃側の明るい面
-            const edgeGrad = ctx.createLinearGradient(bladeStart, 3, bladeEnd, 7);
-            edgeGrad.addColorStop(0, 'rgba(255, 255, 255, 0.18)');
-            edgeGrad.addColorStop(0.45, 'rgba(255, 255, 255, 0.40)');
-            edgeGrad.addColorStop(1, 'rgba(219, 230, 243, 0.06)');
+            // 平地: 中央を広く明るく取り、HUDの白銀色を再現する。
+            const flatGrad = ctx.createLinearGradient(bladeStart, 0, bladeEnd, 4);
+            flatGrad.addColorStop(0, 'rgba(238, 244, 249, 0.46)');
+            flatGrad.addColorStop(0.42, 'rgba(255, 255, 255, 0.64)');
+            flatGrad.addColorStop(0.76, 'rgba(198, 210, 224, 0.22)');
+            flatGrad.addColorStop(1, 'rgba(247, 250, 253, 0.54)');
+            ctx.fillStyle = flatGrad;
+            ctx.beginPath();
+            ctx.moveTo(bladeStart + 7, -0.7);
+            ctx.lineTo(kissakiStart - 2, -1.2);
+            ctx.quadraticCurveTo(bladeEnd - 11, -2.0, tipX, tipY);
+            ctx.quadraticCurveTo(bladeEnd - 12, 0.8, kissakiStart - 3, 3.4);
+            ctx.lineTo(bladeStart + 8, 3.9);
+            ctx.closePath();
+            ctx.fill();
+
+            // 刃先側: 細い高輝度面。面積を絞り、白い棒に見えないようにする。
+            const edgeGrad = ctx.createLinearGradient(0, 2.8, 0, bladeHalf);
+            edgeGrad.addColorStop(0, 'rgba(210, 221, 232, 0.22)');
+            edgeGrad.addColorStop(0.62, 'rgba(252, 254, 255, 0.82)');
+            edgeGrad.addColorStop(1, 'rgba(222, 231, 240, 0.62)');
             ctx.fillStyle = edgeGrad;
             ctx.beginPath();
-            ctx.moveTo(bladeStart + 5, 4.6);
-            ctx.bezierCurveTo(bladeStart + 38, 6.2, bladeEnd - 30, 4.8, tipX - 8, 1.6);
-            ctx.bezierCurveTo(bladeEnd - 34, 2.0, bladeStart + 42, 1.3, bladeStart + 9, 1.7);
+            ctx.moveTo(bladeStart + 5, bladeHalf - 0.45);
+            ctx.lineTo(kissakiStart, bladeHalf - 1.55);
+            ctx.quadraticCurveTo(bladeEnd - 4, 2.4, tipX, tipY);
+            ctx.quadraticCurveTo(bladeEnd - 12, 1.0, kissakiStart - 3, 4.1);
+            ctx.lineTo(bladeStart + 9, 4.5);
             ctx.closePath();
             ctx.fill();
 
-            // 中央の反射筋
-            const shineGrad = ctx.createLinearGradient(bladeStart + 12, 0, bladeEnd - 10, 0);
-            shineGrad.addColorStop(0, 'rgba(255, 255, 255, 0.08)');
-            shineGrad.addColorStop(0.45, 'rgba(255, 255, 255, 0.56)');
-            shineGrad.addColorStop(1, 'rgba(255, 255, 255, 0.05)');
-            ctx.strokeStyle = shineGrad;
-            ctx.lineWidth = 1.8;
+            // 鎬筋: 柄から切先へ一本で通し、刀身の長さと中心軸を明確にする。
+            const shinogiGrad = ctx.createLinearGradient(bladeStart + 8, 0, kissakiStart, 0);
+            shinogiGrad.addColorStop(0, 'rgba(255,255,255,0.30)');
+            shinogiGrad.addColorStop(0.45, 'rgba(255,255,255,0.72)');
+            shinogiGrad.addColorStop(1, 'rgba(215,228,240,0.24)');
+            ctx.strokeStyle = shinogiGrad;
+            ctx.lineWidth = 1.15;
             ctx.lineCap = 'round';
             ctx.beginPath();
-            ctx.moveTo(bladeStart + 15, 1.9);
-            ctx.bezierCurveTo(bladeStart + 36, 1.1, bladeEnd - 58, 0.8, bladeEnd - 42, -0.35);
+            ctx.moveTo(bladeStart + 9, -0.35);
+            ctx.lineTo(kissakiStart - 2, -1.0);
             ctx.stroke();
 
-            // 控えめな刃文
-            ctx.strokeStyle = 'rgba(231, 240, 250, 0.30)';
-            ctx.lineWidth = 0.85;
+            // 刃文: 小振りな互の目を連続させ、静止時だけ読める程度へ抑える。
+            ctx.strokeStyle = 'rgba(242, 247, 252, 0.42)';
+            ctx.lineWidth = 0.72;
             ctx.beginPath();
-            ctx.moveTo(bladeStart + 14, 3.7);
-            ctx.bezierCurveTo(bladeStart + 36, 4.5, bladeStart + 52, 3.4, bladeStart + 68, 3.8);
-            ctx.bezierCurveTo(bladeStart + 86, 4.2, bladeEnd - 48, 2.7, bladeEnd - 36, 1.7);
+            ctx.moveTo(bladeStart + 12, 7.25);
+            ctx.bezierCurveTo(bladeStart + 22, 8.15, bladeStart + 27, 6.45, bladeStart + 37, 7.15);
+            ctx.bezierCurveTo(bladeStart + 48, 8.05, bladeStart + 54, 6.35, bladeStart + 65, 7.0);
+            ctx.bezierCurveTo(bladeStart + 76, 7.75, kissakiStart - 12, 6.15, kissakiStart - 2, 4.45);
             ctx.stroke();
 
-            // 根元の磨き残し
-            ctx.fillStyle = 'rgba(80, 92, 106, 0.18)';
+            // 横手と鋒の反射面。
+            ctx.strokeStyle = 'rgba(234, 242, 250, 0.56)';
+            ctx.lineWidth = 0.62;
             ctx.beginPath();
-            ctx.moveTo(bladeStart, -3.7);
-            ctx.lineTo(bladeStart + 13, -3.0);
-            ctx.lineTo(bladeStart + 13, 3.9);
-            ctx.lineTo(bladeStart + 1, 4.4);
+            ctx.moveTo(kissakiStart, -bladeHalf + 1.55);
+            ctx.lineTo(kissakiStart + 1.2, bladeHalf - 1.75);
+            ctx.stroke();
+
+            const kissakiGrad = ctx.createLinearGradient(kissakiStart, -7, tipX, 5);
+            kissakiGrad.addColorStop(0, 'rgba(235,242,249,0.06)');
+            kissakiGrad.addColorStop(0.55, 'rgba(255,255,255,0.34)');
+            kissakiGrad.addColorStop(1, 'rgba(184,199,215,0.10)');
+            ctx.fillStyle = kissakiGrad;
+            ctx.beginPath();
+            ctx.moveTo(kissakiStart + 0.8, -bladeHalf + 1.7);
+            ctx.lineTo(tipX, tipY);
+            ctx.lineTo(kissakiStart + 1.2, 3.7);
+            ctx.closePath();
+            ctx.fill();
+
+            // 根元の磨き残しで鎺との境界を落ち着かせる。
+            ctx.fillStyle = 'rgba(49, 62, 78, 0.17)';
+            ctx.beginPath();
+            ctx.moveTo(bladeStart, -bladeHalf + 1.0);
+            ctx.lineTo(bladeStart + 11, -bladeHalf + 1.7);
+            ctx.lineTo(bladeStart + 11, bladeHalf - 1.1);
+            ctx.lineTo(bladeStart + 0.8, bladeHalf - 0.7);
             ctx.closePath();
             ctx.fill();
             ctx.restore();
 
             drawBladePath();
-            ctx.strokeStyle = '#243244';
-            ctx.lineWidth = 1.1;
+            ctx.strokeStyle = '#1d2b3c';
+            ctx.lineWidth = 1.0;
             ctx.lineJoin = 'round';
             ctx.miterLimit = 2;
             ctx.stroke();
 
-            // 切先グリント(切先に集中する鋭い光点)
-            ctx.fillStyle = 'rgba(255,255,255,0.9)';
-            ctx.beginPath();
-            ctx.arc(tipX - 3.0, -0.7, 1.05, 0, Math.PI * 2);
-            ctx.fill();
-
-            // 刀身描画後に鎺を一枚だけ重ね、刃元の接合を整理する
-            const rootSleeveGrad = ctx.createLinearGradient(18.4, -4.8, 26.2, 4.8);
-            rootSleeveGrad.addColorStop(0, '#6e4b18');
-            rootSleeveGrad.addColorStop(0.42, '#d9bd6d');
-            rootSleeveGrad.addColorStop(0.82, '#8e6923');
-            rootSleeveGrad.addColorStop(1, '#4c3210');
+            // 鎺: 刀身幅へ沿う薄い台形。大きな金色の塊に見えない長さへ抑える。
+            const habakiBack = 18.0;
+            const habakiFront = bladeStart + 4.1;
+            const rootSleeveGrad = ctx.createLinearGradient(habakiBack, -9.4, habakiFront, 9.4);
+            rootSleeveGrad.addColorStop(0, '#684716');
+            rootSleeveGrad.addColorStop(0.34, '#e0c26d');
+            rootSleeveGrad.addColorStop(0.66, '#9a7328');
+            rootSleeveGrad.addColorStop(1, '#49300f');
             ctx.fillStyle = rootSleeveGrad;
             ctx.beginPath();
-            ctx.moveTo(18.4, -3.7);
-            ctx.lineTo(bladeStart + 4.2, -4.4);
-            ctx.lineTo(bladeStart + 4.2, 4.4);
-            ctx.lineTo(18.4, 3.7);
+            ctx.moveTo(habakiBack, -8.55);
+            ctx.lineTo(habakiFront, -9.35);
+            ctx.lineTo(habakiFront, 9.35);
+            ctx.lineTo(habakiBack, 8.55);
             ctx.closePath();
             ctx.fill();
-            ctx.strokeStyle = 'rgba(39, 24, 7, 0.62)';
-            ctx.lineWidth = 0.55;
+            ctx.strokeStyle = 'rgba(46, 29, 8, 0.72)';
+            ctx.lineWidth = 0.5;
             ctx.stroke();
-            ctx.strokeStyle = 'rgba(255, 233, 178, 0.22)';
-            ctx.lineWidth = 0.45;
+            ctx.strokeStyle = 'rgba(255, 238, 188, 0.38)';
+            ctx.lineWidth = 0.42;
             ctx.beginPath();
-            ctx.moveTo(19.6, -2.5);
-            ctx.lineTo(bladeStart + 3.1, -3.1);
+            ctx.moveTo(habakiBack + 1.0, -7.0);
+            ctx.lineTo(habakiFront - 0.8, -7.7);
+            ctx.stroke();
+
+            // 鍔: 横幅は確保しつつ厚みを薄くして、柄と刀身の接続を軽く見せる。
+            const tsubaX = 17.8;
+            const tsubaGrad = ctx.createLinearGradient(tsubaX - 2.5, -12.2, tsubaX + 2.5, 12.2);
+            tsubaGrad.addColorStop(0, '#5f4013');
+            tsubaGrad.addColorStop(0.34, '#dfc36f');
+            tsubaGrad.addColorStop(0.62, '#997128');
+            tsubaGrad.addColorStop(1, '#432a0b');
+            ctx.fillStyle = tsubaGrad;
+            ctx.beginPath();
+            ctx.ellipse(tsubaX, 0, 2.35, 12.1, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#2a1a07';
+            ctx.lineWidth = 0.68;
+            ctx.stroke();
+            ctx.strokeStyle = 'rgba(255, 240, 190, 0.48)';
+            ctx.lineWidth = 0.46;
+            ctx.beginPath();
+            ctx.ellipse(tsubaX - 0.25, -0.45, 1.45, 9.9, 0, -Math.PI * 0.62, Math.PI * 0.42);
+            ctx.stroke();
+
+            // 切羽の細線を二本だけ加え、柄・鍔・鎺の層を明瞭にする。
+            ctx.strokeStyle = 'rgba(47, 29, 8, 0.80)';
+            ctx.lineWidth = 0.55;
+            ctx.beginPath();
+            ctx.moveTo(15.9, -5.2);
+            ctx.lineTo(15.9, 5.2);
+            ctx.moveTo(19.7, -5.8);
+            ctx.lineTo(19.7, 5.8);
             ctx.stroke();
 
             ctx.restore();
@@ -4437,7 +4829,9 @@ export class Odachi extends SubWeapon {
                     ctx.translate(pose.handX, pose.handY);
                     ctx.scale(pose.direction, 1);
 
-                    const arcRadius = pose.bladeLen + 6;
+                    const arcRadius = (Number.isFinite(pose.bladeEnd)
+                        ? pose.bladeEnd
+                        : this.getBladeMetrics().bladeEnd) + 4;
                     
                     // 剣は真上(-PI/2)から真下(PI/2)へ振り下ろす
                     // 剣筋の起点は常に真上（振り始めの位置）に固定
