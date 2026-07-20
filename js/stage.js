@@ -73,9 +73,9 @@ export class Stage {
             this.transitionWaitMs = STAGE6_CORNER.TRANSITION_WAIT_MS;
             this.transitionFadeInMs = STAGE6_CORNER.TRANSITION_FADEIN_MS;
             this.floorTransitionTotalMs = this.transitionFadeMs + this.transitionWaitMs + this.transitionFadeInMs;
-            this.floorNameDisplayDuration = STAGE6_CORNER.NAME_DISPLAY_MS;
-            // ステージ開始時に一巡目のカードを表示する
-            this.floorNameDisplayTimer = this.floorNameDisplayDuration;
+            // 階層カードは出さない（背景の高度進行で語る方針）
+            this.floorNameDisplayDuration = 1;
+            this.floorNameDisplayTimer = 0;
         }
         
         // 敵管理
@@ -1048,9 +1048,6 @@ export class Stage {
         // stage6のgroundYは動かさない設計だが明示的に戻しておく
         this.groundY = this.baseGroundY;
 
-        // 階層カード表示（黒画面中に読ませる）
-        this.floorNameDisplayTimer = this.floorNameDisplayDuration;
-
         // progress/maxProgressは触らない（stage5と違い世界座標は連続。xスナップはgame.js側）
     }
 
@@ -1087,26 +1084,12 @@ export class Stage {
         ctx.restore();
     }
 
-    /** 階層カードの文言を返す（stage5=フロア名 / stage6=廻縁名+巡回数） */
-    getFloorCardText() {
-        if (this.stageNumber === 5) {
-            const floorNames = ['一階', '二階', '三階', '四階', '五階'];
-            return { title: floorNames[this.currentFloor - 1] || '', subtitle: '' };
-        }
-        if (this.stageNumber === 6) {
-            const zoneNames = ['天守屋根', '上層回廊', '大棟', '最終テラス'];
-            const lapNames = ['一巡目', '二巡目', '三巡目', '四巡目'];
-            const index = Math.max(0, Math.min(zoneNames.length - 1, this.cornersClimbed));
-            return { title: zoneNames[index], subtitle: lapNames[index] };
-        }
-        return { title: '', subtitle: '' };
-    }
-
-    /** 階層カード（「一階」「上層回廊/二巡目」等）を表示する */
+    /** フロア名（「一階」「二階」等）を表示する。stage6は文字を出さず背景で語る方針 */
     renderFloorName(ctx) {
-        if ((this.stageNumber !== 5 && this.stageNumber !== 6) || this.floorNameDisplayTimer <= 0) return;
-        const { title, subtitle } = this.getFloorCardText();
-        if (!title) return;
+        if (this.stageNumber !== 5 || this.floorNameDisplayTimer <= 0) return;
+        const floorNames = ['一階', '二階', '三階', '四階', '五階'];
+        const name = floorNames[this.currentFloor - 1] || '';
+        if (!name) return;
 
         const progress = 1 - this.floorNameDisplayTimer / this.floorNameDisplayDuration;
         // フェードイン → 持続 → フェードアウト
@@ -1128,16 +1111,8 @@ export class Stage {
         // 縁取り
         ctx.strokeStyle = 'rgba(40, 20, 10, 0.8)';
         ctx.lineWidth = 4;
-        ctx.strokeText(title, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.3);
-        ctx.fillText(title, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.3);
-
-        if (subtitle) {
-            ctx.font = 'bold 22px serif';
-            ctx.strokeStyle = 'rgba(40, 20, 10, 0.7)';
-            ctx.lineWidth = 3;
-            ctx.strokeText(subtitle, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.3 + 52);
-            ctx.fillText(subtitle, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.3 + 52);
-        }
+        ctx.strokeText(name, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.3);
+        ctx.fillText(name, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.3);
         ctx.restore();
     }
 
@@ -1449,8 +1424,8 @@ export class Stage {
             this.bossIntroTimer = Math.max(0, this.bossIntroTimer - deltaTime * 1000);
         }
 
-        // Stage 5/6 階層カード表示タイマー
-        if ((this.stageNumber === 5 || this.stageNumber === 6) && this.floorNameDisplayTimer > 0) {
+        // Stage 5 フロア名表示タイマー
+        if (this.stageNumber === 5 && this.floorNameDisplayTimer > 0) {
             this.floorNameDisplayTimer = Math.max(0, this.floorNameDisplayTimer - deltaTime * 1000);
         }
 
@@ -3530,63 +3505,57 @@ export class Stage {
      * 距離の層: 遠景=その方角の土地(地平線際)、近景=下層屋根と城下(共通)、上層ゾーンは雲。
      */
     renderStage6Panorama(ctx, progress) {
-        const gY = this.groundY;
         const zone = Math.max(0, Math.min(3, this.cornersClimbed || 0));
         const farFilter = 'brightness(0.82) saturate(0.7)';
         const nearFilter = 'brightness(0.85) saturate(0.72)';
-        const time = this.stageTime * 0.001; // renderFlowingCloudLayer は秒単位
+
+        // 各ゾーン背景の柵(不透明バンド)上端の世界y実測値。パノラマ帯はこの上に覗かせる。
+        // 高度進行の主役は城下の屋根(town_near): 巡回ごとに縮小しながら柵の裏へ沈み、最後は霞に消える。
+        // 遠景(竹林/街道/連山)は「遠いものは高さで見え方がほぼ変わらない」ためサイズを保ち、題材だけ方角で変える。
+        const FENCE_TOP_Y = [380, 348, 365, 372];
+        const fence = FENCE_TOP_Y[zone];
 
         if (zone === 0) {
-            // 一巡目(天守屋根): 竹林の帯が地平線際に。城下の町はまだ大きい。
+            // 一巡目: まだ低い。城下の大屋根がすぐ目の高さに大きく迫る。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaBambooFarImage, progress, {
-                parallax: 0.08, drawHeight: 250, bottomY: gY - 50, filter: farFilter, mirrorRepeat: true
+                parallax: 0.08, drawHeight: 240, bottomY: fence + 30, filter: farFilter, mirrorRepeat: true
             });
             this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
-                parallax: 0.18, drawHeight: 190, bottomY: gY, alpha: 0.95, filter: nearFilter, mirrorRepeat: true
+                parallax: 0.2, drawHeight: 300, bottomY: fence + 30, alpha: 0.97, filter: nearFilter, mirrorRepeat: true
             });
         } else if (zone === 1) {
-            // 二巡目(上層回廊): 方角が変わり街道筋。町は欄干の裏へ沈み始める。
+            // 二巡目: 一段登った。屋根が小さくなり、柵の裏へ沈み始める。方角が変わり街道筋が見える。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaKaidoFarImage, progress, {
-                parallax: 0.08, drawHeight: 210, bottomY: gY - 30, filter: farFilter, mirrorRepeat: true
+                parallax: 0.08, drawHeight: 220, bottomY: fence + 30, filter: farFilter, mirrorRepeat: true
             });
             this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
-                parallax: 0.16, drawHeight: 150, bottomY: gY + 15, alpha: 0.9, filter: nearFilter, mirrorRepeat: true
+                parallax: 0.16, drawHeight: 165, bottomY: fence + 42, alpha: 0.9, filter: nearFilter, mirrorRepeat: true
             });
         } else if (zone === 2) {
-            // 三巡目(大棟): 連山の稜線だけが残り、雲が目線の高さに来る。
+            // 三巡目: 屋根は棟先が柵際に覗くだけ。視界は遠くの連山まで開ける。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
-                parallax: 0.06, drawHeight: 160, bottomY: gY - 15, filter: farFilter, mirrorRepeat: true
+                parallax: 0.06, drawHeight: 200, bottomY: fence + 30, filter: farFilter, mirrorRepeat: true
             });
             this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
-                parallax: 0.14, drawHeight: 110, bottomY: gY + 35, alpha: 0.8, filter: nearFilter, mirrorRepeat: true
-            });
-            this.renderFlowingCloudLayer(ctx, {
-                time, color: 'rgba(214, 226, 248, 0.16)', alpha: 0.18,
-                baseY: 230, span: 340, height: 48, speed: 6, waveAmp: 10, density: 0.72, trail: 150
-            });
-            this.renderFlowingCloudLayer(ctx, {
-                time: time * 0.82, color: 'rgba(196, 212, 240, 0.13)', alpha: 0.14,
-                baseY: 285, span: 300, height: 42, speed: 8, waveAmp: 8, density: 0.74, trail: 120
+                parallax: 0.14, drawHeight: 95, bottomY: fence + 48, alpha: 0.78, filter: nearFilter, mirrorRepeat: true
             });
         } else {
-            // 四巡目(最終テラス): 雲海が下界を隠し、峰の先だけが覗く。
+            // 四巡目(最上層): 明け方の霞が城下を覆い、屋根は霞の下。遠くの連山と夜明けだけが残る。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
-                parallax: 0.05, drawHeight: 90, bottomY: gY - 160, alpha: 0.35, filter: farFilter, mirrorRepeat: true
+                parallax: 0.06, drawHeight: 190, bottomY: fence + 30, filter: farFilter, mirrorRepeat: true
+            });
+            // 霞に沈む屋根: ごく淡く棟先だけ透かせる
+            this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
+                parallax: 0.14, drawHeight: 80, bottomY: fence + 52, alpha: 0.3, filter: nearFilter, mirrorRepeat: true
+            });
+            // 朝靄の薄帯(雲海画像を霞として低不透明度で使う)
+            this.renderStageBackdropTile(ctx, this.stage6PanoramaCloudSeaImage, progress, {
+                parallax: 0.1, drawHeight: 85, bottomY: fence + 34, alpha: 0.42,
+                filter: 'brightness(0.86) saturate(0.6)', mirrorRepeat: true
             });
             this.renderStageBackdropTile(ctx, this.stage6PanoramaCloudSeaImage, progress, {
-                parallax: 0.12, drawHeight: 190, bottomY: gY + 20, filter: farFilter, mirrorRepeat: true
-            });
-            this.renderStageBackdropTile(ctx, this.stage6PanoramaCloudSeaImage, progress, {
-                parallax: 0.16, drawHeight: 170, bottomY: gY + 20, alpha: 0.7,
-                filter: 'brightness(0.9) saturate(0.66)', widthScale: 1.18, mirrorRepeat: true
-            });
-            this.renderFlowingCloudLayer(ctx, {
-                time, color: 'rgba(226, 234, 252, 0.16)', alpha: 0.16,
-                baseY: 300, span: 320, height: 44, speed: 7, waveAmp: 9, density: 0.7, trail: 140
-            });
-            this.renderFlowingCloudLayer(ctx, {
-                time: time * 0.78, color: 'rgba(206, 220, 244, 0.12)', alpha: 0.13,
-                baseY: 330, span: 280, height: 38, speed: 9, waveAmp: 7, density: 0.74, trail: 110
+                parallax: 0.14, drawHeight: 70, bottomY: fence + 40, alpha: 0.3,
+                filter: 'brightness(0.92) saturate(0.55)', widthScale: 1.22, mirrorRepeat: true
             });
         }
     }

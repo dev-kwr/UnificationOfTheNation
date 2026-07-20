@@ -5421,11 +5421,6 @@ class Game {
             this.stage.renderFloorTransition(ctx);
         }
 
-        // Stage 6: 階層カードは暗転より上に描き、黒画面中に読ませる
-        if (this.currentStageNumber === 6 && this.stage.stageNumber === 6) {
-            this.stage.renderFloorName(ctx);
-        }
-
         // 冒頭(背景描画前)の save の復元。renderPlaying を自己完結で均衡化する。
         // HUD より前で戻すと HUD が継承する描画状態が変わるため、必ず関数末尾で戻す。
         ctx.restore();
