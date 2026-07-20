@@ -302,17 +302,19 @@ export const STAGE5_FLOOR = {
 };
 
 // Stage 6 螺旋回廊（廻縁）の定数
-// 天守外周を1周ごとに隅櫓の階段で1段登る。角=ゾーン境界(maxProgress/4 の倍数)。
+// 天守外周を1周ごとに巡り、角=ゾーン境界(maxProgress/4 の倍数)の全高壁の通用門をくぐって次の面へ。
+// 壁が境界の先を視界から隠すことで「向こう側は一段上」という省略が成立する。
 export const STAGE6_CORNER = {
     CORNER_XS: [6000, 12000, 18000],
-    SLOPE_WIDTH: 420,               // 坂の水平長（約18°の緩坂。坂上でも戦闘可能な傾斜）
-    SLOPE_HEIGHT: 140,              // 1段で登る高さ
-    SNAP_AFTER_PX: 380,             // 暗転中に境界の先へ置くプレイヤーx（境界基準）
+    WALL_LEFT_PX: 200,              // 壁の左端（境界からの距離）
+    WALL_RIGHT_PX: 520,             // 壁の右端（接近中に画面右へ次ゾーンが漏れない幅）
+    DOOR_TRIGGER_INSET: 120,        // 通用門のトリガーx（境界からの手前距離。発火時の画面右端が壁の右端を越えない値）
+    SNAP_AFTER_PX: 760,             // 暗転中に壁の先へ置くプレイヤーx（境界基準、壁右端+240）
+    POST_FADE_CAMERA_LAG: 380,      // 暗転明けのカメラ位置（プレイヤーの手前距離。壁が画面左に残る）
     SPAWN_BUFFER: 250,              // 角帯の敵/障害物スポーン禁止バッファ
     TRANSITION_FADE_MS: 400,
     TRANSITION_WAIT_MS: 650,
     TRANSITION_FADEIN_MS: 450,
-    NAME_DISPLAY_MS: 2400,
 };
 
 // 各ステージの初期装備（デフォルト武器）

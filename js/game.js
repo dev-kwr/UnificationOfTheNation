@@ -1627,6 +1627,8 @@ class Game {
                 : Math.max(0, this.stage.maxProgress - CANVAS_WIDTH);
             this.scrollX = targetScrollX;
             this.stage.progress = targetScrollX;
+            // 瞬間移動で鉢巻・髪の追従連鎖が伸び切るのを防ぐ(stage6の角遷移と同じ扱い)
+            this.player.resetVisualTrails();
         }
 
         // 暗転中は入力更新を行わず、階段の接地点に固定する。
@@ -1658,14 +1660,17 @@ class Game {
         this.stage.updateFloorTransition(this.deltaTime);
         const currentPhase = this.stage.floorTransitionPhase;
 
-        // 完全暗転の瞬間: 境界の先へスナップし、画面左端=境界(隅櫓が背後に残る構図)にする。
+        // 完全暗転の瞬間: 壁の先へスナップ。カメラはプレイヤーの手前に置き、
+        // くぐってきた壁が画面左に残る構図にする(後退クランプで壁は一方通行)。
         // stage5と違い世界座標は連続なので progress はスナップ先に合わせるだけ。
         if (prevPhase === 1 && currentPhase === 2) {
             this.player.x = this.stage.lastClimbedCornerX + STAGE6_CORNER.SNAP_AFTER_PX;
             this.player.facingRight = true;
-            this.scrollX = this.stage.lastClimbedCornerX;
+            this.scrollX = this.player.x - STAGE6_CORNER.POST_FADE_CAMERA_LAG;
             this.stage.progress = this.scrollX;
             this.stage.lastProgress = this.scrollX; // progressDeltaスパイク防止
+            // 鉢巻・髪の物理ノードは世界座標の追従連鎖なので、瞬間移動すると伸び切る。転移先で張り直す。
+            this.player.resetVisualTrails();
         }
 
         // 暗転中は入力更新を行わず、接地点に固定する。
@@ -1777,8 +1782,8 @@ class Game {
         // 背景パララックス用にStage側のprogressも更新
         this.stage.progress = this.scrollX;
         
-        // --- Stage 5/6 各エンティティの物理同期（階段坂の接地追従） ---
-        if ((this.currentStageNumber === 5 || this.currentStageNumber === 6) && this.stage) {
+        // --- Stage 5 各エンティティの物理同期 ---
+        if (this.currentStageNumber === 5 && this.stage) {
             // 接地と到達判定を進行方向側の足元に統一する。
             const playerGroundProbeX = this.getStage5PlayerGroundProbeX();
             this.player.groundY = this.stage.getStairGroundY(playerGroundProbeX);
@@ -1811,8 +1816,7 @@ class Game {
             
             // 登りきったら次のフロアへ（最終階を除く）
             const stairProgress = this.stage.getStairClimbProgress(playerGroundProbeX);
-            if (this.currentStageNumber === 5 &&
-                stairProgress >= 1.0 && !this.stage.isFloorTransitioning && this.stage.currentFloor < this.stage.maxFloor) {
+            if (stairProgress >= 1.0 && !this.stage.isFloorTransitioning && this.stage.currentFloor < this.stage.maxFloor) {
                 const stairTopGroundY = this.stage.baseGroundY - this.stage.stairHeightPx;
                 this.player.groundY = stairTopGroundY;
                 this.player.y = stairTopGroundY + LANE_OFFSET - this.player.getWorldHeight();
@@ -1821,16 +1825,14 @@ class Game {
                 this.player.isGrounded = true;
                 this.stage.startFloorTransition();
             }
+        }
 
-            // Stage 6: 隅櫓の坂を登りきったら角遷移（暗転→次の廻縁へ）
-            if (this.currentStageNumber === 6 &&
-                stairProgress >= 1.0 && !this.stage.isFloorTransitioning && this.stage.hasPendingStage6Corner()) {
-                const slopeTopGroundY = this.stage.baseGroundY - STAGE6_CORNER.SLOPE_HEIGHT;
-                this.player.groundY = slopeTopGroundY;
-                this.player.y = slopeTopGroundY + LANE_OFFSET - this.player.getWorldHeight();
+        // --- Stage 6: 角の全高壁の通用門に達したら暗転遷移（壁の向こうは見えていない） ---
+        if (this.currentStageNumber === 6 && this.stage &&
+            !this.stage.isFloorTransitioning && this.stage.hasPendingStage6Corner()) {
+            const doorX = this.stage.getStage6ActiveCornerX() - STAGE6_CORNER.DOOR_TRIGGER_INSET;
+            if (this.player.x + this.player.getWorldWidth() >= doorX) {
                 this.player.vx = 0;
-                this.player.vy = 0;
-                this.player.isGrounded = true;
                 this.stage.startCornerTransition();
             }
         }
@@ -5329,12 +5331,12 @@ class Game {
         // 2. 地面
         this.stage.renderGround(ctx);
         
-        // 3. Stage 5/6: 階段描画
+        // 3. Stage 5: 階段描画 / Stage 6: 角の全高壁(視界遮断)
         if (this.currentStageNumber === 5 && this.stage.stageNumber === 5) {
             this.stage.renderPreviousStairTop(ctx, this.scrollX);
             this.stage.renderStairZone(ctx, this.scrollX);
         } else if (this.currentStageNumber === 6 && this.stage.stageNumber === 6) {
-            this.stage.renderStage6CornerStairs(ctx, this.scrollX);
+            this.stage.renderStage6CornerWalls(ctx, this.scrollX);
         }
         
         // 4. 影

@@ -286,17 +286,26 @@ export class Stage {
 
             // --- 螺旋回廊: 柵越しの眼下パノラマ＋隅櫓の階段 ---
             this.stage6PanoramaTownNearImage = new Image();
-            this.stage6PanoramaTownNearImage.src = 'images/stage6_panorama_town_near.png?v=20260720_spiral1';
+            this.stage6PanoramaTownNearImage.src = 'images/stage6_panorama_town_near.png?v=20260721_loop1';
             this.stage6PanoramaBambooFarImage = new Image();
-            this.stage6PanoramaBambooFarImage.src = 'images/stage6_panorama_bamboo_far.png?v=20260720_spiral1';
+            this.stage6PanoramaBambooFarImage.src = 'images/stage6_panorama_bamboo_far.png?v=20260721_loop1';
             this.stage6PanoramaKaidoFarImage = new Image();
-            this.stage6PanoramaKaidoFarImage.src = 'images/stage6_panorama_kaido_far.png?v=20260720_spiral1';
+            this.stage6PanoramaKaidoFarImage.src = 'images/stage6_panorama_kaido_far.png?v=20260721_loop1';
             this.stage6PanoramaMountainsFarImage = new Image();
-            this.stage6PanoramaMountainsFarImage.src = 'images/stage6_panorama_mountains_far.png?v=20260720_spiral1';
+            this.stage6PanoramaMountainsFarImage.src = 'images/stage6_panorama_mountains_far.png?v=20260721_loop1';
             this.stage6PanoramaCloudSeaImage = new Image();
-            this.stage6PanoramaCloudSeaImage.src = 'images/stage6_panorama_cloudsea.png?v=20260720_spiral1';
-            this.stage6CornerStairImage = new Image();
-            this.stage6CornerStairImage.src = 'images/stage6_corner_stair_steps.png?v=20260720_spiral1';
+            this.stage6PanoramaCloudSeaImage.src = 'images/stage6_panorama_cloudsea.png?v=20260721_loop1';
+
+            // 角の全高壁(視界遮断+通用門)。境界ごとに別アセット。
+            this.stage6CornerWallImages = [
+                'images/stage6_wall_corner_turret.png?v=20260720_wall1',
+                'images/stage6_wall_gatehouse.png?v=20260720_wall1',
+                'images/stage6_wall_final_gate.png?v=20260720_wall1'
+            ].map((src) => {
+                const img = new Image();
+                img.src = src;
+                return img;
+            });
         }
 
         // キャッシュ用オフスクリーンCanvasの初期化
@@ -455,11 +464,12 @@ export class Stage {
         return this.stageNumber === 6 && this.cornersClimbed < STAGE6_CORNER.CORNER_XS.length;
     }
 
-    /** Stage6: xがいずれかの角帯(坂+バッファ)内か。敵/障害物のスポーン除外に使う */
+    /** Stage6: xがいずれかの角帯(壁+バッファ)内か。敵/障害物のスポーン除外に使う */
     isInStage6CornerBand(x, buffer = STAGE6_CORNER.SPAWN_BUFFER) {
         if (this.stageNumber !== 6) return false;
         for (const cornerX of STAGE6_CORNER.CORNER_XS) {
-            if (x >= cornerX - STAGE6_CORNER.SLOPE_WIDTH - buffer && x <= cornerX + buffer) {
+            if (x >= cornerX - STAGE6_CORNER.WALL_LEFT_PX - buffer &&
+                x <= cornerX + STAGE6_CORNER.WALL_RIGHT_PX + buffer) {
                 return true;
             }
         }
@@ -474,10 +484,6 @@ export class Stage {
 
     /** プレイヤーが階段区間にいるか判定 */
     isInStairZone(playerX) {
-        if (this.stageNumber === 6) {
-            const cornerX = this.getStage6ActiveCornerX();
-            return playerX >= cornerX - STAGE6_CORNER.SLOPE_WIDTH && playerX <= cornerX;
-        }
         if (this.stageNumber !== 5) return false;
         const dir = this.floorScrollDirection;
         const physStart = this._getStairPhysicalStart(dir);
@@ -492,12 +498,6 @@ export class Stage {
 
     /** 階段内の登り進行度（0=階段入口, 1=階段頂上）を返す */
     getStairClimbProgress(playerX) {
-        if (this.stageNumber === 6) {
-            const cornerX = this.getStage6ActiveCornerX();
-            if (!Number.isFinite(cornerX)) return 0;
-            const slopeStart = cornerX - STAGE6_CORNER.SLOPE_WIDTH;
-            return Math.max(0, Math.min(1, (playerX - slopeStart) / STAGE6_CORNER.SLOPE_WIDTH));
-        }
         if (this.stageNumber !== 5 || this.isFinalFloorExitStair()) return 0;
         const dir = this.floorScrollDirection;
         const physStart = this._getStairPhysicalStart(dir);
@@ -516,14 +516,6 @@ export class Stage {
 
     /** 階段上のプレイヤー位置に対応する動的groundYを返す */
     getStairGroundY(playerX) {
-        if (this.stageNumber === 6) {
-            // アクティブな角の坂だけが傾斜。坂手前は平地、坂先(頂上越え)は
-            // 遷移発火までの間クランプで頂上高さを維持する(stage5と同じ扱い)。
-            const cornerX = this.getStage6ActiveCornerX();
-            if (!Number.isFinite(cornerX)) return this.baseGroundY;
-            if (playerX < cornerX - STAGE6_CORNER.SLOPE_WIDTH) return this.baseGroundY;
-            return this.baseGroundY - STAGE6_CORNER.SLOPE_HEIGHT * this.getStairClimbProgress(playerX);
-        }
         if (this.stageNumber !== 5) return this.groundY;
         // 5Fでもボス部屋として階段の高さを利用するため制限を解除
 
@@ -3411,7 +3403,9 @@ export class Stage {
         ctx.globalAlpha *= alpha;
         ctx.filter = filter;
         for (let x = startX; x < CANVAS_WIDTH + drawW; x += drawW) {
-            if (mirrorRepeat && Math.abs(Math.round((x + offset) / drawW)) % 2 === 1) {
+            // 反転の偶奇は「世界側のタイル番号」で決める。画面側の番号(x+offset)で決めると
+            // スクロールがタイル幅を跨いだ瞬間に全タイルの反転が入れ替わり、画面全体がガクッと切り替わる。
+            if (mirrorRepeat && Math.abs(Math.round((x + scroll) / drawW)) % 2 === 1) {
                 ctx.save();
                 ctx.translate(Math.round(x + drawW + 2), y);
                 ctx.scale(-1, 1);
@@ -3518,72 +3512,76 @@ export class Stage {
         if (zone === 0) {
             // 一巡目: まだ低い。城下の大屋根がすぐ目の高さに大きく迫る。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaBambooFarImage, progress, {
-                parallax: 0.08, drawHeight: 240, bottomY: fence + 30, filter: farFilter, mirrorRepeat: true
+                parallax: 0.08, drawHeight: 240, bottomY: fence + 30, filter: farFilter, mirrorRepeat: false
             });
             this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
-                parallax: 0.2, drawHeight: 300, bottomY: fence + 30, alpha: 0.97, filter: nearFilter, mirrorRepeat: true
+                parallax: 0.2, drawHeight: 300, bottomY: fence + 30, alpha: 0.97, filter: nearFilter, mirrorRepeat: false
             });
         } else if (zone === 1) {
             // 二巡目: 一段登った。屋根が小さくなり、柵の裏へ沈み始める。方角が変わり街道筋が見える。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaKaidoFarImage, progress, {
-                parallax: 0.08, drawHeight: 220, bottomY: fence + 30, filter: farFilter, mirrorRepeat: true
+                parallax: 0.08, drawHeight: 220, bottomY: fence + 30, filter: farFilter, mirrorRepeat: false
             });
             this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
-                parallax: 0.16, drawHeight: 165, bottomY: fence + 42, alpha: 0.9, filter: nearFilter, mirrorRepeat: true
+                parallax: 0.16, drawHeight: 165, bottomY: fence + 42, alpha: 0.9, filter: nearFilter, mirrorRepeat: false
             });
         } else if (zone === 2) {
             // 三巡目: 屋根は棟先が柵際に覗くだけ。視界は遠くの連山まで開ける。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
-                parallax: 0.06, drawHeight: 200, bottomY: fence + 30, filter: farFilter, mirrorRepeat: true
+                parallax: 0.06, drawHeight: 200, bottomY: fence + 30, filter: farFilter, mirrorRepeat: false
             });
             this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
-                parallax: 0.14, drawHeight: 95, bottomY: fence + 48, alpha: 0.78, filter: nearFilter, mirrorRepeat: true
+                parallax: 0.14, drawHeight: 95, bottomY: fence + 48, alpha: 0.78, filter: nearFilter, mirrorRepeat: false
             });
         } else {
             // 四巡目(最上層): 明け方の霞が城下を覆い、屋根は霞の下。遠くの連山と夜明けだけが残る。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
-                parallax: 0.06, drawHeight: 190, bottomY: fence + 30, filter: farFilter, mirrorRepeat: true
+                parallax: 0.06, drawHeight: 190, bottomY: fence + 30, filter: farFilter, mirrorRepeat: false
             });
             // 霞に沈む屋根: ごく淡く棟先だけ透かせる
             this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
-                parallax: 0.14, drawHeight: 80, bottomY: fence + 52, alpha: 0.3, filter: nearFilter, mirrorRepeat: true
+                parallax: 0.14, drawHeight: 80, bottomY: fence + 52, alpha: 0.3, filter: nearFilter, mirrorRepeat: false
             });
             // 朝靄の薄帯(雲海画像を霞として低不透明度で使う)
             this.renderStageBackdropTile(ctx, this.stage6PanoramaCloudSeaImage, progress, {
                 parallax: 0.1, drawHeight: 85, bottomY: fence + 34, alpha: 0.42,
-                filter: 'brightness(0.86) saturate(0.6)', mirrorRepeat: true
+                filter: 'brightness(0.86) saturate(0.6)', mirrorRepeat: false
             });
             this.renderStageBackdropTile(ctx, this.stage6PanoramaCloudSeaImage, progress, {
                 parallax: 0.14, drawHeight: 70, bottomY: fence + 40, alpha: 0.3,
-                filter: 'brightness(0.92) saturate(0.55)', widthScale: 1.22, mirrorRepeat: true
+                filter: 'brightness(0.92) saturate(0.55)', widthScale: 1.22, mirrorRepeat: false
             });
         }
     }
 
+    /** Stage6: 指定した角の全高壁画像が使えるか */
+    getStage6CornerWallImage(cornerIndex) {
+        const img = this.stage6CornerWallImages?.[cornerIndex];
+        return (img?.complete && img.naturalWidth > 0 && img.naturalHeight > 0) ? img : null;
+    }
+
     /**
-     * Stage6 螺旋回廊: 隅櫓へ登る木造階段の描画。
-     * アクティブな角(未登攀)だけに描く。踏面ラインは getStairGroundY の物理ランプと一致:
-     * 560×300のワールド枠で、踏面が左(40,220)→右(460,80)を通る(下80pxはスカート、上は頭上余白)。
-     * 画像未読込時は描かない(物理ランプは画像と独立に機能する)。
+     * Stage6 螺旋回廊: 角の全高壁の描画。
+     * ゾーン境界の先(次の面)を視界から隠す「関所」。地上の通用門をくぐると暗転遷移する。
+     * 通過済みの角にも描き続ける(暗転明けに壁が背後へ残り、通ってきた構造として矛盾しない)。
+     * ワールド枠: [cornerX - WALL_LEFT_PX, cornerX + WALL_RIGHT_PX] × 全高。
+     * 画像未読込時は描かない(従来の透かし櫓背景がフォールバックとして残る)。
      */
-    renderStage6CornerStairs(ctx, scrollX) {
-        if (this.stageNumber !== 6 || !this.hasPendingStage6Corner()) return;
-        const img = this.stage6CornerStairImage;
-        if (!img?.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) return;
-
-        const cornerX = this.getStage6ActiveCornerX();
-        const slopeStart = cornerX - STAGE6_CORNER.SLOPE_WIDTH;
-        const frameW = 560;
-        const frameH = 300;
-        const x = Math.round(slopeStart - 40 - scrollX);
-        if (x + frameW <= 0 || x >= CANVAS_WIDTH) return;
-        const y = Math.round(this.baseGroundY + LANE_OFFSET - 220);
-
-        ctx.save();
-        ctx.filter = 'brightness(0.88) saturate(0.72)';
-        ctx.drawImage(img, x, y, frameW, frameH);
-        ctx.filter = 'none';
-        ctx.restore();
+    renderStage6CornerWalls(ctx, scrollX) {
+        if (this.stageNumber !== 6) return;
+        const frameW = STAGE6_CORNER.WALL_LEFT_PX + STAGE6_CORNER.WALL_RIGHT_PX;
+        for (let i = 0; i < STAGE6_CORNER.CORNER_XS.length; i++) {
+            const img = this.getStage6CornerWallImage(i);
+            if (!img) continue;
+            const cornerX = STAGE6_CORNER.CORNER_XS[i];
+            const x = Math.round(cornerX - STAGE6_CORNER.WALL_LEFT_PX - scrollX);
+            if (x + frameW <= 0 || x >= CANVAS_WIDTH) continue;
+            ctx.save();
+            ctx.filter = 'brightness(0.86) saturate(0.76)';
+            ctx.drawImage(img, x, 0, frameW, CANVAS_HEIGHT);
+            ctx.filter = 'none';
+            ctx.restore();
+        }
     }
 
     renderStage6BackdropZones(ctx, progress) {
@@ -3591,41 +3589,37 @@ export class Stage {
         const drawHeight = Math.max(420, this.groundY * 0.8);
         const bottomY = this.groundY + 30;
         const filter = 'brightness(0.84) saturate(0.8) contrast(0.98)';
-        const getTransitionHalfWidth = (image) => {
-            if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return 0;
-            const drawWidth = Math.ceil(drawHeight * (image.naturalWidth / image.naturalHeight));
-            return Math.max(0, Math.floor(drawWidth * 0.5) - 2);
-        };
 
         const cornerX = zoneWidth;
         const roofGateX = zoneWidth * 2;
         const finalThresholdX = zoneWidth * 3;
-        const cornerHalfWidth = getTransitionHalfWidth(this.stage6CornerTurretImage);
-        const roofGateHalfWidth = getTransitionHalfWidth(this.stage6RoofGateImage);
-        const finalThresholdHalfWidth = getTransitionHalfWidth(this.stage6FinalThresholdImage);
 
+        // ゾーン背景は境界で正確に突き合わせ、その上に関所(全高壁/透かし櫓)を重ねる。
+        // 以前は透かし櫓の半幅ぶん背景側に隙間を空けていたが、暗転明けのカメラ位置によって
+        // 隙間や櫓の切れ端が露出し「ループの継ぎ目」に見えるため廃止した。
+        // 境界の絵柄ジョイントは関所オーバーレイの不透明部が覆う。
         const zones = [
             {
                 image: this.stage6TenshuBackdropImage,
                 start: 0,
-                end: cornerX - cornerHalfWidth,
+                end: cornerX,
                 mirrorRepeat: false
             },
             {
                 image: this.stage6UpperGalleryImage,
-                start: cornerX + cornerHalfWidth,
-                end: roofGateX - roofGateHalfWidth,
+                start: cornerX,
+                end: roofGateX,
                 mirrorRepeat: true
             },
             {
                 image: this.stage6RoofRidgeImage,
-                start: roofGateX + roofGateHalfWidth,
-                end: finalThresholdX - finalThresholdHalfWidth,
+                start: roofGateX,
+                end: finalThresholdX,
                 mirrorRepeat: true
             },
             {
                 image: this.stage6FinalTerraceImage,
-                start: finalThresholdX + finalThresholdHalfWidth,
+                start: finalThresholdX,
                 end: this.maxProgress,
                 mirrorRepeat: true
             }
@@ -3642,22 +3636,33 @@ export class Stage {
             });
         }
 
-        this.renderStage6FixedBackdrop(ctx, this.stage6CornerTurretImage, cornerX, progress, {
-            drawHeight,
-            bottomY,
-            filter
-        });
-        this.renderStage6FixedBackdrop(ctx, this.stage6RoofGateImage, roofGateX, progress, {
-            drawHeight,
-            bottomY,
-            filter
-        });
-        this.renderStage6FixedBackdrop(ctx, this.stage6FinalThresholdImage, finalThresholdX, progress, {
-            drawHeight,
-            bottomY,
-            filter,
-            bottomOffset: Math.round(drawHeight * 0.16)
-        });
+        // 透かし絵の境界ランドマーク(フォールバック)は、
+        // ・全高壁アセットが使える角では描かない(壁が主役になる)
+        // ・通過済みの角でも描かない(暗転明けに切れ端が画面左に露出して継ぎ目に見えるため。
+        //   消える瞬間は完全暗転中で見えず、後退クランプで戻ることもできない)
+        const climbed = this.cornersClimbed || 0;
+        if (!this.getStage6CornerWallImage(0) && climbed <= 0) {
+            this.renderStage6FixedBackdrop(ctx, this.stage6CornerTurretImage, cornerX, progress, {
+                drawHeight,
+                bottomY,
+                filter
+            });
+        }
+        if (!this.getStage6CornerWallImage(1) && climbed <= 1) {
+            this.renderStage6FixedBackdrop(ctx, this.stage6RoofGateImage, roofGateX, progress, {
+                drawHeight,
+                bottomY,
+                filter
+            });
+        }
+        if (!this.getStage6CornerWallImage(2) && climbed <= 2) {
+            this.renderStage6FixedBackdrop(ctx, this.stage6FinalThresholdImage, finalThresholdX, progress, {
+                drawHeight,
+                bottomY,
+                filter,
+                bottomOffset: Math.round(drawHeight * 0.16)
+            });
+        }
 
         const bossPavilion = this.stage6BossPavilionImage;
         if (bossPavilion?.complete && bossPavilion.naturalWidth > 0 && bossPavilion.naturalHeight > 0) {

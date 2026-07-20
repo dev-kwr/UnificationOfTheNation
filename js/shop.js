@@ -57,10 +57,11 @@ export class Shop {
 
     getLayout() {
         // タッチ端末では一様スケール s で拡大（PC は s=1 で従来値と数値同一）。
-        // 縦収まり上限でクランプ（上下に約29px 確保）。s=1 で shopY=82 を再現。
-        const s = Math.max(1, Math.min(getUiScale(), (CANVAS_HEIGHT - 58) / 556));
+        // 縦収まり上限でクランプ（上下に約20px 確保）。s=1 で shopY=62 を再現。
+        // shopH=596 は行高 62 化に伴い拡張（旧 556）。
+        const s = Math.max(1, Math.min(getUiScale(), (CANVAS_HEIGHT - 40) / 596));
         const shopW = 760 * s;
-        const shopH = 556 * s;
+        const shopH = 596 * s;
         const shopX = SCREEN_WIDTH / 2 - shopW / 2;
         const shopY = (CANVAS_HEIGHT - shopH) / 2;
         return { shopX, shopY, shopW, shopH, s };
@@ -69,7 +70,8 @@ export class Shop {
     getItemRect(index) {
         const { shopX, shopY, shopW, s } = this.getLayout();
         const listTop = shopY + 102 * s;
-        const rowH = 54 * s;
+        // 行高は説明文を読める大きさにするため 54→62 へ拡張（名前と説明の縦余白を確保）。
+        const rowH = 62 * s;
         const rowGap = 8 * s;
         return {
             x: shopX + 30 * s,
@@ -364,13 +366,18 @@ export class Shop {
                 if (ctx.measureText(item.name).width <= rect.w - 228 * s) break;
                 titleSize -= 1;
             }
-            ctx.fillText(item.name, rect.x + 58 * s, rect.y + 20 * s);
+            ctx.fillText(item.name, rect.x + 58 * s, rect.y + 22 * s);
 
-            // 説明
+            // 説明：視認性優先で 11→13px に拡大。長文は行幅に収まるよう 11px まで縮小。
             ctx.fillStyle = dim ? 'rgba(140, 154, 182, 0.6)' : 'rgba(196, 214, 247, 0.78)';
-            ctx.font = `500 ${11 * s}px "Zen Old Mincho", serif`;
             const desc = isLocked ? '前提となる術の習得が必要' : item.description;
-            ctx.fillText(desc, rect.x + 58 * s, rect.y + 40 * s);
+            let descSize = 13 * s;
+            while (descSize > 11 * s) {
+                ctx.font = `500 ${descSize}px "Zen Old Mincho", serif`;
+                if (ctx.measureText(desc).width <= rect.w - 76 * s) break;
+                descSize -= 1;
+            }
+            ctx.fillText(desc, rect.x + 58 * s, rect.y + 44 * s);
 
             // 価格：数字=サンセリフ／単位「枚」=明朝
             const price = this.getItemPrice(item);
