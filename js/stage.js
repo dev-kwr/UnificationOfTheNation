@@ -2,7 +2,7 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR } from './constants.js';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js';
 import { createEnemy } from './enemy.js?v=20260630-castle-ai';
 import { createBoss } from './boss.js?v=20260630-castle-ai';
 import { createObstacle } from './obstacle.js';
@@ -43,7 +43,10 @@ export class Stage {
             this.isFloorTransitioning = false;
             this.floorTransitionTimer = 0;
             this.floorTransitionPhase = 0; // 0=なし, 1=暗転中, 2=暗転待機, 3=フェードイン
-            this.floorTransitionTotalMs = STAGE5_FLOOR.TRANSITION_FADE_MS + STAGE5_FLOOR.TRANSITION_WAIT_MS + STAGE5_FLOOR.TRANSITION_FADEIN_MS;
+            this.transitionFadeMs = STAGE5_FLOOR.TRANSITION_FADE_MS;
+            this.transitionWaitMs = STAGE5_FLOOR.TRANSITION_WAIT_MS;
+            this.transitionFadeInMs = STAGE5_FLOOR.TRANSITION_FADEIN_MS;
+            this.floorTransitionTotalMs = this.transitionFadeMs + this.transitionWaitMs + this.transitionFadeInMs;
             // 前フロアから登ってきた階段を表示するか
             this.showPreviousStair = false;
             this.previousStairDirection = 0; // 前フロアの方向
@@ -55,6 +58,24 @@ export class Stage {
             this.maxProgress = this.stageNumber === 6 ? 24000 : 12000;
             this.currentFloor = 0;
             this.floorScrollDirection = 1;
+        }
+
+        // --- Stage 6 螺旋回廊（廻縁）---
+        // 各ゾーン=1つの重の廻縁。角(ゾーン境界)の隅櫓で1段登る。
+        if (this.stageNumber === 6) {
+            this.baseGroundY = Math.round(CANVAS_HEIGHT * (2 / 3));
+            this.cornersClimbed = 0;        // 登り済みの角の数 = 現在ゾーンindex(0〜3)
+            this.lastClimbedCornerX = 0;
+            this.isFloorTransitioning = false;
+            this.floorTransitionTimer = 0;
+            this.floorTransitionPhase = 0;
+            this.transitionFadeMs = STAGE6_CORNER.TRANSITION_FADE_MS;
+            this.transitionWaitMs = STAGE6_CORNER.TRANSITION_WAIT_MS;
+            this.transitionFadeInMs = STAGE6_CORNER.TRANSITION_FADEIN_MS;
+            this.floorTransitionTotalMs = this.transitionFadeMs + this.transitionWaitMs + this.transitionFadeInMs;
+            this.floorNameDisplayDuration = STAGE6_CORNER.NAME_DISPLAY_MS;
+            // ステージ開始時に一巡目のカードを表示する
+            this.floorNameDisplayTimer = this.floorNameDisplayDuration;
         }
         
         // 敵管理
@@ -262,6 +283,20 @@ export class Stage {
             this.stage6FinalTerraceGroundImage.src = 'images/stage6_ground_final_terrace.png?v=20260715_seam1';
             this.stage6GroundThresholdImage = new Image();
             this.stage6GroundThresholdImage.src = 'images/stage6_ground_threshold_strip.png?v=20260714_zone1';
+
+            // --- 螺旋回廊: 柵越しの眼下パノラマ＋隅櫓の階段 ---
+            this.stage6PanoramaTownNearImage = new Image();
+            this.stage6PanoramaTownNearImage.src = 'images/stage6_panorama_town_near.png?v=20260720_spiral1';
+            this.stage6PanoramaBambooFarImage = new Image();
+            this.stage6PanoramaBambooFarImage.src = 'images/stage6_panorama_bamboo_far.png?v=20260720_spiral1';
+            this.stage6PanoramaKaidoFarImage = new Image();
+            this.stage6PanoramaKaidoFarImage.src = 'images/stage6_panorama_kaido_far.png?v=20260720_spiral1';
+            this.stage6PanoramaMountainsFarImage = new Image();
+            this.stage6PanoramaMountainsFarImage.src = 'images/stage6_panorama_mountains_far.png?v=20260720_spiral1';
+            this.stage6PanoramaCloudSeaImage = new Image();
+            this.stage6PanoramaCloudSeaImage.src = 'images/stage6_panorama_cloudsea.png?v=20260720_spiral1';
+            this.stage6CornerStairImage = new Image();
+            this.stage6CornerStairImage.src = 'images/stage6_corner_stair_steps.png?v=20260720_spiral1';
         }
 
         // キャッシュ用オフスクリーンCanvasの初期化
@@ -407,6 +442,30 @@ export class Stage {
         return this.stageNumber === 5 && this.currentFloor >= this.maxFloor;
     }
 
+    /** Stage6: 次に登る角(隅櫓)のワールドX。全て登り済みなら Infinity */
+    getStage6ActiveCornerX() {
+        if (this.stageNumber !== 6) return Infinity;
+        return this.cornersClimbed < STAGE6_CORNER.CORNER_XS.length
+            ? STAGE6_CORNER.CORNER_XS[this.cornersClimbed]
+            : Infinity;
+    }
+
+    /** Stage6: まだ登っていない角が残っているか */
+    hasPendingStage6Corner() {
+        return this.stageNumber === 6 && this.cornersClimbed < STAGE6_CORNER.CORNER_XS.length;
+    }
+
+    /** Stage6: xがいずれかの角帯(坂+バッファ)内か。敵/障害物のスポーン除外に使う */
+    isInStage6CornerBand(x, buffer = STAGE6_CORNER.SPAWN_BUFFER) {
+        if (this.stageNumber !== 6) return false;
+        for (const cornerX of STAGE6_CORNER.CORNER_XS) {
+            if (x >= cornerX - STAGE6_CORNER.SLOPE_WIDTH - buffer && x <= cornerX + buffer) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** 最終階の出口階段へ進入できる限界X */
     getFinalFloorExitBarrierX() {
         if (!this.isFinalFloorExitStair()) return Infinity;
@@ -415,6 +474,10 @@ export class Stage {
 
     /** プレイヤーが階段区間にいるか判定 */
     isInStairZone(playerX) {
+        if (this.stageNumber === 6) {
+            const cornerX = this.getStage6ActiveCornerX();
+            return playerX >= cornerX - STAGE6_CORNER.SLOPE_WIDTH && playerX <= cornerX;
+        }
         if (this.stageNumber !== 5) return false;
         const dir = this.floorScrollDirection;
         const physStart = this._getStairPhysicalStart(dir);
@@ -429,6 +492,12 @@ export class Stage {
 
     /** 階段内の登り進行度（0=階段入口, 1=階段頂上）を返す */
     getStairClimbProgress(playerX) {
+        if (this.stageNumber === 6) {
+            const cornerX = this.getStage6ActiveCornerX();
+            if (!Number.isFinite(cornerX)) return 0;
+            const slopeStart = cornerX - STAGE6_CORNER.SLOPE_WIDTH;
+            return Math.max(0, Math.min(1, (playerX - slopeStart) / STAGE6_CORNER.SLOPE_WIDTH));
+        }
         if (this.stageNumber !== 5 || this.isFinalFloorExitStair()) return 0;
         const dir = this.floorScrollDirection;
         const physStart = this._getStairPhysicalStart(dir);
@@ -447,6 +516,14 @@ export class Stage {
 
     /** 階段上のプレイヤー位置に対応する動的groundYを返す */
     getStairGroundY(playerX) {
+        if (this.stageNumber === 6) {
+            // アクティブな角の坂だけが傾斜。坂手前は平地、坂先(頂上越え)は
+            // 遷移発火までの間クランプで頂上高さを維持する(stage5と同じ扱い)。
+            const cornerX = this.getStage6ActiveCornerX();
+            if (!Number.isFinite(cornerX)) return this.baseGroundY;
+            if (playerX < cornerX - STAGE6_CORNER.SLOPE_WIDTH) return this.baseGroundY;
+            return this.baseGroundY - STAGE6_CORNER.SLOPE_HEIGHT * this.getStairClimbProgress(playerX);
+        }
         if (this.stageNumber !== 5) return this.groundY;
         // 5Fでもボス部屋として階段の高さを利用するため制限を解除
 
@@ -870,25 +947,37 @@ export class Stage {
         if (this.stageNumber !== 5 || this.isFloorTransitioning) return;
         this.isFloorTransitioning = true;
         this.floorTransitionPhase = 1; // 暗転開始
-        this.floorTransitionTimer = STAGE5_FLOOR.TRANSITION_FADE_MS;
+        this.floorTransitionTimer = this.transitionFadeMs;
+    }
+
+    /** Stage6: 角(隅櫓)遷移を開始する */
+    startCornerTransition() {
+        if (this.stageNumber !== 6 || this.isFloorTransitioning) return;
+        this.isFloorTransitioning = true;
+        this.floorTransitionPhase = 1; // 暗転開始
+        this.floorTransitionTimer = this.transitionFadeMs;
     }
 
     /** フロア遷移のアニメーション更新 (deltaTime in seconds) */
     updateFloorTransition(deltaTime) {
         if (!this.isFloorTransitioning) return false;
-        
+
         this.floorTransitionTimer -= deltaTime * 1000;
-        
+
         if (this.floorTransitionTimer <= 0) {
             if (this.floorTransitionPhase === 1) {
-                // 暗転完了 → 暗転待機（この間にフロア切り替え）
+                // 暗転完了 → 暗転待機（この間にフロア/ゾーン切り替え）
                 this.floorTransitionPhase = 2;
-                this.floorTransitionTimer = STAGE5_FLOOR.TRANSITION_WAIT_MS;
-                this.advanceFloor();
+                this.floorTransitionTimer = this.transitionWaitMs;
+                if (this.stageNumber === 6) {
+                    this.advanceCorner();
+                } else {
+                    this.advanceFloor();
+                }
             } else if (this.floorTransitionPhase === 2) {
                 // 暗転待機完了 → フェードイン開始
                 this.floorTransitionPhase = 3;
-                this.floorTransitionTimer = STAGE5_FLOOR.TRANSITION_FADEIN_MS;
+                this.floorTransitionTimer = this.transitionFadeInMs;
             } else if (this.floorTransitionPhase === 3) {
                 // フェードイン完了 → 遷移終了
                 this.isFloorTransitioning = false;
@@ -942,6 +1031,29 @@ export class Stage {
         this.balanceProfile = this.getBalanceProfile();
     }
 
+    /** Stage6: 次の廻縁(ゾーン)へ移行する。完全暗転中に呼ばれる。 */
+    advanceCorner() {
+        if (this.stageNumber !== 6) return;
+
+        // 登った角を記録してから次の角をアクティブ化する
+        this.lastClimbedCornerX = this.getStage6ActiveCornerX();
+        this.cornersClimbed++;
+
+        // 敵・障害物をリセット（プレイヤーを境界の先へ飛ばすため、残すと瞬間湧きに見える）
+        this.enemies = [];
+        this.obstacles = [];
+        this.spawnTimer = 800;
+        this.obstacleTimer = 0;
+
+        // stage6のgroundYは動かさない設計だが明示的に戻しておく
+        this.groundY = this.baseGroundY;
+
+        // 階層カード表示（黒画面中に読ませる）
+        this.floorNameDisplayTimer = this.floorNameDisplayDuration;
+
+        // progress/maxProgressは触らない（stage5と違い世界座標は連続。xスナップはgame.js側）
+    }
+
     /** フロアごとの難易度倍率を返す */
     getFloorDifficultyMult() {
         if (this.stageNumber !== 5 || !this.currentFloor) return 1.0;
@@ -954,13 +1066,13 @@ export class Stage {
         if (!this.isFloorTransitioning) return 0;
         if (this.floorTransitionPhase === 1) {
             // 暗転中: 0 → 1
-            return 1 - this.floorTransitionTimer / STAGE5_FLOOR.TRANSITION_FADE_MS;
+            return 1 - this.floorTransitionTimer / this.transitionFadeMs;
         } else if (this.floorTransitionPhase === 2) {
             // 暗転待機: 常に1
             return 1;
         } else if (this.floorTransitionPhase === 3) {
             // フェードイン: 1 → 0
-            return this.floorTransitionTimer / STAGE5_FLOOR.TRANSITION_FADEIN_MS;
+            return this.floorTransitionTimer / this.transitionFadeInMs;
         }
         return 0;
     }
@@ -975,13 +1087,27 @@ export class Stage {
         ctx.restore();
     }
 
-    /** フロア名（「一階」「二階」等）を表示する */
+    /** 階層カードの文言を返す（stage5=フロア名 / stage6=廻縁名+巡回数） */
+    getFloorCardText() {
+        if (this.stageNumber === 5) {
+            const floorNames = ['一階', '二階', '三階', '四階', '五階'];
+            return { title: floorNames[this.currentFloor - 1] || '', subtitle: '' };
+        }
+        if (this.stageNumber === 6) {
+            const zoneNames = ['天守屋根', '上層回廊', '大棟', '最終テラス'];
+            const lapNames = ['一巡目', '二巡目', '三巡目', '四巡目'];
+            const index = Math.max(0, Math.min(zoneNames.length - 1, this.cornersClimbed));
+            return { title: zoneNames[index], subtitle: lapNames[index] };
+        }
+        return { title: '', subtitle: '' };
+    }
+
+    /** 階層カード（「一階」「上層回廊/二巡目」等）を表示する */
     renderFloorName(ctx) {
-        if (this.stageNumber !== 5 || this.floorNameDisplayTimer <= 0) return;
-        const floorNames = ['一階', '二階', '三階', '四階', '五階'];
-        const name = floorNames[this.currentFloor - 1] || '';
-        if (!name) return;
-        
+        if ((this.stageNumber !== 5 && this.stageNumber !== 6) || this.floorNameDisplayTimer <= 0) return;
+        const { title, subtitle } = this.getFloorCardText();
+        if (!title) return;
+
         const progress = 1 - this.floorNameDisplayTimer / this.floorNameDisplayDuration;
         // フェードイン → 持続 → フェードアウト
         let alpha = 1;
@@ -991,19 +1117,27 @@ export class Stage {
             alpha = (1 - progress) / 0.3;
         }
         alpha = Math.max(0, Math.min(1, alpha));
-        
+
         ctx.save();
         ctx.globalAlpha = alpha;
         ctx.fillStyle = '#e8d5a3';
         ctx.font = 'bold 48px serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        
+
         // 縁取り
         ctx.strokeStyle = 'rgba(40, 20, 10, 0.8)';
         ctx.lineWidth = 4;
-        ctx.strokeText(name, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.3);
-        ctx.fillText(name, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.3);
+        ctx.strokeText(title, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.3);
+        ctx.fillText(title, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.3);
+
+        if (subtitle) {
+            ctx.font = 'bold 22px serif';
+            ctx.strokeStyle = 'rgba(40, 20, 10, 0.7)';
+            ctx.lineWidth = 3;
+            ctx.strokeText(subtitle, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.3 + 52);
+            ctx.fillText(subtitle, CANVAS_WIDTH / 2, CANVAS_HEIGHT * 0.3 + 52);
+        }
         ctx.restore();
     }
 
@@ -1315,8 +1449,8 @@ export class Stage {
             this.bossIntroTimer = Math.max(0, this.bossIntroTimer - deltaTime * 1000);
         }
 
-        // Stage 5 フロア名表示タイマー
-        if (this.stageNumber === 5 && this.floorNameDisplayTimer > 0) {
+        // Stage 5/6 階層カード表示タイマー
+        if ((this.stageNumber === 5 || this.stageNumber === 6) && this.floorNameDisplayTimer > 0) {
             this.floorNameDisplayTimer = Math.max(0, this.floorNameDisplayTimer - deltaTime * 1000);
         }
 
@@ -1879,6 +2013,11 @@ export class Stage {
             if (this.stageNumber === 5 && (this.isInStairZone(x) || x > this.maxProgress - 100)) {
                 continue;
             }
+
+            // Stage 6: 角帯(隅櫓の坂+バッファ)でのスポーンを制限
+            if (this.isInStage6CornerBand(x)) {
+                continue;
+            }
             
             const enemy = this.createGroundedEnemy(type, x);
             if (!enemy) continue;
@@ -1931,6 +2070,11 @@ export class Stage {
             if (inExtendedStairZone || isNearStart || isNearEnd) {
                 return;
             }
+        }
+
+        // Stage 6: 角帯(隅櫓の坂+バッファ)には障害物を置かない
+        if (this.isInStage6CornerBand(x)) {
+            return;
         }
 
         // ボス部屋(最終1画面)には竹槍・大岩などの障害物を置かない。
@@ -3378,6 +3522,101 @@ export class Stage {
         return true;
     }
 
+    /**
+     * Stage6 螺旋回廊: 柵越しに見える眼下のパノラマ。
+     * 高度の証拠として、ゾーン(=cornersClimbed)ごとに層セットを丸ごと切り替える。
+     * 低パララックス層をワールドXで区切るとシームが画面上を漂うため、
+     * 切替はゾーンindexで行い、実際の切替は角遷移の完全暗転中に起こる。
+     * 距離の層: 遠景=その方角の土地(地平線際)、近景=下層屋根と城下(共通)、上層ゾーンは雲。
+     */
+    renderStage6Panorama(ctx, progress) {
+        const gY = this.groundY;
+        const zone = Math.max(0, Math.min(3, this.cornersClimbed || 0));
+        const farFilter = 'brightness(0.82) saturate(0.7)';
+        const nearFilter = 'brightness(0.85) saturate(0.72)';
+        const time = this.stageTime * 0.001; // renderFlowingCloudLayer は秒単位
+
+        if (zone === 0) {
+            // 一巡目(天守屋根): 竹林の帯が地平線際に。城下の町はまだ大きい。
+            this.renderStageBackdropTile(ctx, this.stage6PanoramaBambooFarImage, progress, {
+                parallax: 0.08, drawHeight: 250, bottomY: gY - 50, filter: farFilter, mirrorRepeat: true
+            });
+            this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
+                parallax: 0.18, drawHeight: 190, bottomY: gY, alpha: 0.95, filter: nearFilter, mirrorRepeat: true
+            });
+        } else if (zone === 1) {
+            // 二巡目(上層回廊): 方角が変わり街道筋。町は欄干の裏へ沈み始める。
+            this.renderStageBackdropTile(ctx, this.stage6PanoramaKaidoFarImage, progress, {
+                parallax: 0.08, drawHeight: 210, bottomY: gY - 30, filter: farFilter, mirrorRepeat: true
+            });
+            this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
+                parallax: 0.16, drawHeight: 150, bottomY: gY + 15, alpha: 0.9, filter: nearFilter, mirrorRepeat: true
+            });
+        } else if (zone === 2) {
+            // 三巡目(大棟): 連山の稜線だけが残り、雲が目線の高さに来る。
+            this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
+                parallax: 0.06, drawHeight: 160, bottomY: gY - 15, filter: farFilter, mirrorRepeat: true
+            });
+            this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
+                parallax: 0.14, drawHeight: 110, bottomY: gY + 35, alpha: 0.8, filter: nearFilter, mirrorRepeat: true
+            });
+            this.renderFlowingCloudLayer(ctx, {
+                time, color: 'rgba(214, 226, 248, 0.16)', alpha: 0.18,
+                baseY: 230, span: 340, height: 48, speed: 6, waveAmp: 10, density: 0.72, trail: 150
+            });
+            this.renderFlowingCloudLayer(ctx, {
+                time: time * 0.82, color: 'rgba(196, 212, 240, 0.13)', alpha: 0.14,
+                baseY: 285, span: 300, height: 42, speed: 8, waveAmp: 8, density: 0.74, trail: 120
+            });
+        } else {
+            // 四巡目(最終テラス): 雲海が下界を隠し、峰の先だけが覗く。
+            this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
+                parallax: 0.05, drawHeight: 90, bottomY: gY - 160, alpha: 0.35, filter: farFilter, mirrorRepeat: true
+            });
+            this.renderStageBackdropTile(ctx, this.stage6PanoramaCloudSeaImage, progress, {
+                parallax: 0.12, drawHeight: 190, bottomY: gY + 20, filter: farFilter, mirrorRepeat: true
+            });
+            this.renderStageBackdropTile(ctx, this.stage6PanoramaCloudSeaImage, progress, {
+                parallax: 0.16, drawHeight: 170, bottomY: gY + 20, alpha: 0.7,
+                filter: 'brightness(0.9) saturate(0.66)', widthScale: 1.18, mirrorRepeat: true
+            });
+            this.renderFlowingCloudLayer(ctx, {
+                time, color: 'rgba(226, 234, 252, 0.16)', alpha: 0.16,
+                baseY: 300, span: 320, height: 44, speed: 7, waveAmp: 9, density: 0.7, trail: 140
+            });
+            this.renderFlowingCloudLayer(ctx, {
+                time: time * 0.78, color: 'rgba(206, 220, 244, 0.12)', alpha: 0.13,
+                baseY: 330, span: 280, height: 38, speed: 9, waveAmp: 7, density: 0.74, trail: 110
+            });
+        }
+    }
+
+    /**
+     * Stage6 螺旋回廊: 隅櫓へ登る木造階段の描画。
+     * アクティブな角(未登攀)だけに描く。踏面ラインは getStairGroundY の物理ランプと一致:
+     * 560×300のワールド枠で、踏面が左(40,220)→右(460,80)を通る(下80pxはスカート、上は頭上余白)。
+     * 画像未読込時は描かない(物理ランプは画像と独立に機能する)。
+     */
+    renderStage6CornerStairs(ctx, scrollX) {
+        if (this.stageNumber !== 6 || !this.hasPendingStage6Corner()) return;
+        const img = this.stage6CornerStairImage;
+        if (!img?.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) return;
+
+        const cornerX = this.getStage6ActiveCornerX();
+        const slopeStart = cornerX - STAGE6_CORNER.SLOPE_WIDTH;
+        const frameW = 560;
+        const frameH = 300;
+        const x = Math.round(slopeStart - 40 - scrollX);
+        if (x + frameW <= 0 || x >= CANVAS_WIDTH) return;
+        const y = Math.round(this.baseGroundY + LANE_OFFSET - 220);
+
+        ctx.save();
+        ctx.filter = 'brightness(0.88) saturate(0.72)';
+        ctx.drawImage(img, x, y, frameW, frameH);
+        ctx.filter = 'none';
+        ctx.restore();
+    }
+
     renderStage6BackdropZones(ctx, progress) {
         const zoneWidth = this.maxProgress / 4;
         const drawHeight = Math.max(420, this.groundY * 0.8);
@@ -3806,6 +4045,8 @@ export class Stage {
             }
 
             case 'tenshu': {
+                // 眼下パノラマ(高度の証拠)は欄干バンド(ゾーン背景の不透明下部)の奥に描く
+                this.renderStage6Panorama(ctx, p);
                 this.renderStage6BackdropZones(ctx, p);
 
                 // ボス戦中：最終ステージなので次のステージはないが、夜明け（クリア後の朝焼け）を予感させる光を遠くに表示

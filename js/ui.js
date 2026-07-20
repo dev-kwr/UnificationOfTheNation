@@ -1911,7 +1911,7 @@ function wafuFillTextLS(ctx, text, x, y, lsPx, align = 'left') {
 
 // 昇段画面と同じ紺カード：純色グラデ＋上辺の青アクセント＋枠（選択時は青発光＋内リング）
 export function drawWafuCard(ctx, x, y, w, h, opts = {}) {
-    const { radius = 10, selected = false, pulse = 0, accent = true, shadow = true, flat = false } = opts;
+    const { radius = 10, selected = false, pulse = 0, accent = true, shadow = true, flat = false, bgAlpha = 1 } = opts;
     // 選択時のグロー／枠／上辺アクセントの色（既定は青。将軍などの特別ボタンは金へ差し替え可）
     const glowRGB = opts.glowRGB || '74, 134, 236';
     const borderSelRGB = opts.borderSelRGB || '150, 196, 255';
@@ -1932,15 +1932,15 @@ export function drawWafuCard(ctx, x, y, w, h, opts = {}) {
         ctx.shadowBlur = selected ? 30 : 18;
         ctx.shadowOffsetY = selected ? 0 : 5;
         wafuRoundRectPath(ctx, x, y, w, h, radius);
-        ctx.fillStyle = 'rgba(18, 24, 44, 1)';
+        ctx.fillStyle = `rgba(18, 24, 44, ${bgAlpha})`;
         ctx.fill();
         ctx.restore();
     }
 
     // 本体（控えめ・やや低彩度の縦グラデ）
     const bg = ctx.createLinearGradient(x, y, x, y + h);
-    bg.addColorStop(0, 'rgba(33, 42, 68, 0.96)');
-    bg.addColorStop(1, 'rgba(23, 30, 52, 0.97)');
+    bg.addColorStop(0, `rgba(33, 42, 68, ${0.96 * bgAlpha})`);
+    bg.addColorStop(1, `rgba(23, 30, 52, ${0.97 * bgAlpha})`);
     wafuRoundRectPath(ctx, x, y, w, h, radius);
     ctx.fillStyle = bg;
     ctx.fill();
@@ -2141,7 +2141,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         const infoPanelBottom = Math.min(cardY + cardH + 18, menuY - 22);
         const infoPanelH = infoPanelBottom - infoPanelY;
 
-        drawWafuCard(ctx, infoPanelX, infoPanelY, infoPanelW, infoPanelH, { radius: 12, pulse });
+        drawWafuCard(ctx, infoPanelX, infoPanelY, infoPanelW, infoPanelH, { radius: 12, pulse, bgAlpha: 0.55 });
 
         // ステータス行（ラベル左／値右＋細い区切り線）
         statRows.forEach((row, i) => {

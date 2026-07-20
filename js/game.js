@@ -2,7 +2,7 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, getDeviceProfile, setUiScaleFromFitScale, setSafeInsets } from './constants.js';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, getDeviceProfile, setUiScaleFromFitScale, setSafeInsets } from './constants.js';
 import { input } from './input.js';
 import { Player } from './player.js';
 import { createSubWeapon } from './weapon.js';
@@ -1649,7 +1649,38 @@ class Game {
 
         return true;
     }
-    
+
+    /** Stage6 角(隅櫓)遷移の更新。updateStage5FloorTransition のミラー。 */
+    updateStage6CornerTransition() {
+        if (this.currentStageNumber !== 6 || !this.stage?.isFloorTransitioning) return false;
+
+        const prevPhase = this.stage.floorTransitionPhase;
+        this.stage.updateFloorTransition(this.deltaTime);
+        const currentPhase = this.stage.floorTransitionPhase;
+
+        // 完全暗転の瞬間: 境界の先へスナップし、画面左端=境界(隅櫓が背後に残る構図)にする。
+        // stage5と違い世界座標は連続なので progress はスナップ先に合わせるだけ。
+        if (prevPhase === 1 && currentPhase === 2) {
+            this.player.x = this.stage.lastClimbedCornerX + STAGE6_CORNER.SNAP_AFTER_PX;
+            this.player.facingRight = true;
+            this.scrollX = this.stage.lastClimbedCornerX;
+            this.stage.progress = this.scrollX;
+            this.stage.lastProgress = this.scrollX; // progressDeltaスパイク防止
+        }
+
+        // 暗転中は入力更新を行わず、接地点に固定する。
+        this.player.vx = 0;
+        this.player.vy = 0;
+        const groundProbeX = this.getStage5PlayerGroundProbeX();
+        this.player.groundY = this.stage.getStairGroundY(groundProbeX);
+        this.player.y = this.player.groundY + LANE_OFFSET - this.player.getWorldHeight();
+        this.player.isGrounded = true;
+
+        this.stage.update(this.deltaTime, this.player);
+
+        return true;
+    }
+
     updatePlaying() {
         // ポーズ
         if (input.isActionJustPressed('PAUSE')) {
@@ -1659,8 +1690,9 @@ class Game {
             return;
         }
 
-        // フロア遷移中は移動入力を受け付けず、暗転処理だけを進める。
+        // フロア/角遷移中は移動入力を受け付けず、暗転処理だけを進める。
         if (this.updateStage5FloorTransition()) return;
+        if (this.updateStage6CornerTransition()) return;
         
         // プレイヤー更新
         // NOTE:
@@ -1745,8 +1777,8 @@ class Game {
         // 背景パララックス用にStage側のprogressも更新
         this.stage.progress = this.scrollX;
         
-        // --- Stage 5 各エンティティの物理同期 ---
-        if (this.currentStageNumber === 5 && this.stage) {
+        // --- Stage 5/6 各エンティティの物理同期（階段坂の接地追従） ---
+        if ((this.currentStageNumber === 5 || this.currentStageNumber === 6) && this.stage) {
             // 接地と到達判定を進行方向側の足元に統一する。
             const playerGroundProbeX = this.getStage5PlayerGroundProbeX();
             this.player.groundY = this.stage.getStairGroundY(playerGroundProbeX);
@@ -1779,7 +1811,8 @@ class Game {
             
             // 登りきったら次のフロアへ（最終階を除く）
             const stairProgress = this.stage.getStairClimbProgress(playerGroundProbeX);
-            if (stairProgress >= 1.0 && !this.stage.isFloorTransitioning && this.stage.currentFloor < this.stage.maxFloor) {
+            if (this.currentStageNumber === 5 &&
+                stairProgress >= 1.0 && !this.stage.isFloorTransitioning && this.stage.currentFloor < this.stage.maxFloor) {
                 const stairTopGroundY = this.stage.baseGroundY - this.stage.stairHeightPx;
                 this.player.groundY = stairTopGroundY;
                 this.player.y = stairTopGroundY + LANE_OFFSET - this.player.getWorldHeight();
@@ -1787,6 +1820,18 @@ class Game {
                 this.player.vy = 0;
                 this.player.isGrounded = true;
                 this.stage.startFloorTransition();
+            }
+
+            // Stage 6: 隅櫓の坂を登りきったら角遷移（暗転→次の廻縁へ）
+            if (this.currentStageNumber === 6 &&
+                stairProgress >= 1.0 && !this.stage.isFloorTransitioning && this.stage.hasPendingStage6Corner()) {
+                const slopeTopGroundY = this.stage.baseGroundY - STAGE6_CORNER.SLOPE_HEIGHT;
+                this.player.groundY = slopeTopGroundY;
+                this.player.y = slopeTopGroundY + LANE_OFFSET - this.player.getWorldHeight();
+                this.player.vx = 0;
+                this.player.vy = 0;
+                this.player.isGrounded = true;
+                this.stage.startCornerTransition();
             }
         }
 
@@ -5284,10 +5329,12 @@ class Game {
         // 2. 地面
         this.stage.renderGround(ctx);
         
-        // 3. Stage 5: 階段描画
+        // 3. Stage 5/6: 階段描画
         if (this.currentStageNumber === 5 && this.stage.stageNumber === 5) {
             this.stage.renderPreviousStairTop(ctx, this.scrollX);
             this.stage.renderStairZone(ctx, this.scrollX);
+        } else if (this.currentStageNumber === 6 && this.stage.stageNumber === 6) {
+            this.stage.renderStage6CornerStairs(ctx, this.scrollX);
         }
         
         // 4. 影
@@ -5369,9 +5416,14 @@ class Game {
             this.stage.renderFloorName(ctx);
         }
 
-        // Stage 5: フロア遷移暗転オーバーレイ（最前面）
-        if (this.currentStageNumber === 5 && this.stage.isFloorTransitioning) {
+        // Stage 5/6: フロア/角遷移の暗転オーバーレイ（最前面）
+        if ((this.currentStageNumber === 5 || this.currentStageNumber === 6) && this.stage.isFloorTransitioning) {
             this.stage.renderFloorTransition(ctx);
+        }
+
+        // Stage 6: 階層カードは暗転より上に描き、黒画面中に読ませる
+        if (this.currentStageNumber === 6 && this.stage.stageNumber === 6) {
+            this.stage.renderFloorName(ctx);
         }
 
         // 冒頭(背景描画前)の save の復元。renderPlaying を自己完結で均衡化する。

@@ -2446,10 +2446,10 @@ export class Player {
             weapon.damage = Math.max(1, Math.round(baseDamage * damageScale));
             weapon.range = Math.max(24, Math.round(baseRange * rangeScale * ownerRangeScale));
             weapon.cooldown = Math.max(70, Math.round(baseCooldown));
-            if (weapon.name === '手裏剣') {
-                if (Number.isFinite(weapon.projectileRadius)) weapon.projectileRadius *= ownerScale;
-                if (Number.isFinite(weapon.projectileRadiusHoming)) weapon.projectileRadiusHoming *= ownerScale;
-            }
+            // 手裏剣飛翔体の半径スケールは _spawnProjectile 側の
+            // resolveVisualEffectScale(owner.scaleMultiplier) に一本化する。
+            // ここで projectileRadius を事前スケールすると発射時に二重適用され、
+            // 特級(tier3)がハードコード半径で1回しか掛からないためサイズ逆転する。
         }
     }
 

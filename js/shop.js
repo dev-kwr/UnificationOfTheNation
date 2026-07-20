@@ -2,7 +2,7 @@
 // Unification of the Nation - ショップ機能
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT } from './constants.js';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, getUiScale } from './constants.js';
 import { input } from './input.js';
 import { audio } from './audio.js';
 import { drawScreenManualLine, drawWafuCard, drawWafuHeading, drawWafuDivider, drawNumMixedText, drawBgCover } from './ui.js';
@@ -56,34 +56,37 @@ export class Shop {
     }
 
     getLayout() {
-        const shopW = 760;
-        const shopH = CANVAS_HEIGHT - 164;
+        // タッチ端末では一様スケール s で拡大（PC は s=1 で従来値と数値同一）。
+        // 縦収まり上限でクランプ（上下に約29px 確保）。s=1 で shopY=82 を再現。
+        const s = Math.max(1, Math.min(getUiScale(), (CANVAS_HEIGHT - 58) / 556));
+        const shopW = 760 * s;
+        const shopH = 556 * s;
         const shopX = SCREEN_WIDTH / 2 - shopW / 2;
-        const shopY = 82;
-        return { shopX, shopY, shopW, shopH };
+        const shopY = (CANVAS_HEIGHT - shopH) / 2;
+        return { shopX, shopY, shopW, shopH, s };
     }
 
     getItemRect(index) {
-        const { shopX, shopY, shopW } = this.getLayout();
-        const listTop = shopY + 102;
-        const rowH = 54;
-        const rowGap = 8;
+        const { shopX, shopY, shopW, s } = this.getLayout();
+        const listTop = shopY + 102 * s;
+        const rowH = 54 * s;
+        const rowGap = 8 * s;
         return {
-            x: shopX + 30,
+            x: shopX + 30 * s,
             y: listTop + index * (rowH + rowGap),
-            w: shopW - 60,
+            w: shopW - 60 * s,
             h: rowH
         };
     }
 
     getFooterButtons() {
-        const { shopX, shopY, shopW, shopH } = this.getLayout();
-        const h = 52;
-        const w = 154;
-        const gap = 20;
+        const { shopX, shopY, shopW, shopH, s } = this.getLayout();
+        const h = 52 * s;
+        const w = 154 * s;
+        const gap = 20 * s;
         const totalW = w * 2 + gap;
         const startX = shopX + (shopW - totalW) * 0.5;
-        const y = shopY + shopH - h - 30;
+        const y = shopY + shopH - h - 30 * s;
         return {
             buy: { x: startX, y, w, h },
             back: { x: startX + w + gap, y, w, h }
@@ -307,7 +310,7 @@ export class Shop {
         ctx.textBaseline = 'alphabetic';
 
         const pulse = (Math.sin(Date.now() * 0.0026) + 1) * 0.5;
-        const { shopX, shopY, shopW, shopH } = this.getLayout();
+        const { shopX, shopY, shopW, shopH, s } = this.getLayout();
 
         // 背景画像（フォールバック：暗幕）
         const _bg = getShopBgImage();
@@ -319,13 +322,13 @@ export class Shop {
         }
 
         // 見出し「よろず屋」＋区切り線
-        drawWafuHeading(ctx, SCREEN_WIDTH / 2, shopY + 58, 'よろず屋', { size: 30, ls: 0.14, ruleLen: 48, color: '#f4f9ff' });
-        drawWafuDivider(ctx, SCREEN_WIDTH / 2, shopY + 80, (shopW - 96) / 2);
+        drawWafuHeading(ctx, SCREEN_WIDTH / 2, shopY + 58 * s, 'よろず屋', { size: 30 * s, ls: 0.14, ruleLen: 48 * s, color: '#f4f9ff' });
+        drawWafuDivider(ctx, SCREEN_WIDTH / 2, shopY + 80 * s, (shopW - 96 * s) / 2);
 
         // 小判（右上）：数字=サンセリフ／和文=明朝
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#ffd96b';
-        drawNumMixedText(ctx, `小判 ${formatMoneyValue(player.money)}枚`, shopX + shopW - 32, shopY + 48, 700, 15, 'right');
+        drawNumMixedText(ctx, `小判 ${formatMoneyValue(player.money)}枚`, shopX + shopW - 32 * s, shopY + 48 * s, 700, 15 * s, 'right');
 
         // アイテム行
         this.items.forEach((item, i) => {
@@ -340,34 +343,34 @@ export class Shop {
 
             // 選択行のみ発光＋上辺アクセント、非選択はフラット（外カードと重なって立体感が出ないよう）
             drawWafuCard(ctx, rect.x, rect.y, rect.w, rect.h, {
-                radius: 9, selected: isSelected, pulse, accent: isSelected, shadow: isSelected, flat: !isSelected
+                radius: 9 * s, selected: isSelected, pulse, accent: isSelected, shadow: isSelected, flat: !isSelected
             });
 
             if (isSelected) {
                 ctx.fillStyle = '#8ec8ff';
-                ctx.font = '700 15px "Zen Old Mincho", serif';
+                ctx.font = `700 ${15 * s}px "Zen Old Mincho", serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText('◆', rect.x + 26, rect.y + rect.h / 2);
+                ctx.fillText('◆', rect.x + 26 * s, rect.y + rect.h / 2);
             }
 
             // 名前
             ctx.textAlign = 'left';
             ctx.textBaseline = 'middle';
             ctx.fillStyle = dim ? 'rgba(150, 165, 196, 0.6)' : (isSelected ? '#ffffff' : 'rgba(230, 240, 255, 0.92)');
-            let titleSize = 18;
-            while (titleSize > 14) {
+            let titleSize = 18 * s;
+            while (titleSize > 14 * s) {
                 ctx.font = `700 ${titleSize}px "Zen Old Mincho", serif`;
-                if (ctx.measureText(item.name).width <= rect.w - 228) break;
+                if (ctx.measureText(item.name).width <= rect.w - 228 * s) break;
                 titleSize -= 1;
             }
-            ctx.fillText(item.name, rect.x + 58, rect.y + 20);
+            ctx.fillText(item.name, rect.x + 58 * s, rect.y + 20 * s);
 
             // 説明
             ctx.fillStyle = dim ? 'rgba(140, 154, 182, 0.6)' : 'rgba(196, 214, 247, 0.78)';
-            ctx.font = '500 11px "Zen Old Mincho", serif';
+            ctx.font = `500 ${11 * s}px "Zen Old Mincho", serif`;
             const desc = isLocked ? '前提となる術の習得が必要' : item.description;
-            ctx.fillText(desc, rect.x + 58, rect.y + 40);
+            ctx.fillText(desc, rect.x + 58 * s, rect.y + 40 * s);
 
             // 価格：数字=サンセリフ／単位「枚」=明朝
             const price = this.getItemPrice(item);
@@ -376,26 +379,26 @@ export class Shop {
             if (isPurchased) { priceText = '習得済'; priceColor = 'rgba(150, 165, 196, 0.7)'; }
             else if (isLocked) { priceText = '禁制'; priceColor = 'rgba(150, 165, 196, 0.7)'; }
             ctx.fillStyle = priceColor;
-            drawNumMixedText(ctx, priceText, rect.x + rect.w - 22, rect.y + rect.h / 2, 700, 15, 'right');
+            drawNumMixedText(ctx, priceText, rect.x + rect.w - 22 * s, rect.y + rect.h / 2, 700, 15 * s, 'right');
         });
 
         // メッセージ
         const buttons = this.getFooterButtons();
         if (this.message) {
-            const msgW = shopW - 220;
+            const msgW = shopW - 220 * s;
             const msgX = shopX + (shopW - msgW) * 0.5;
-            const msgH = 34;
+            const msgH = 34 * s;
             const lastRect = this.getItemRect(this.items.length - 1);
             const midY = (lastRect.y + lastRect.h + buttons.buy.y) * 0.5;
             const msgY = midY - msgH * 0.5;
-            drawWafuCard(ctx, msgX, msgY, msgW, msgH, { radius: 8, accent: false, shadow: false });
+            drawWafuCard(ctx, msgX, msgY, msgW, msgH, { radius: 8 * s, accent: false, shadow: false });
             ctx.fillStyle = '#dbe8ff';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            let messageSize = 15;
-            while (messageSize > 12) {
+            let messageSize = 15 * s;
+            while (messageSize > 12 * s) {
                 ctx.font = `700 ${messageSize}px "Zen Old Mincho", serif`;
-                if (ctx.measureText(this.message).width <= msgW - 24) break;
+                if (ctx.measureText(this.message).width <= msgW - 24 * s) break;
                 messageSize -= 1;
             }
             ctx.fillText(this.message, msgX + msgW / 2, msgY + msgH / 2);
@@ -405,14 +408,14 @@ export class Shop {
         const buySelected = this.footerButtonIndex === 0;
         const backSelected = this.footerButtonIndex === 1;
         [['購入', buttons.buy, buySelected], ['戻る', buttons.back, backSelected]].forEach(([label, b, sel]) => {
-            drawWafuCard(ctx, b.x, b.y, b.w, b.h, { radius: 10, selected: sel, pulse });
+            drawWafuCard(ctx, b.x, b.y, b.w, b.h, { radius: 10 * s, selected: sel, pulse });
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillStyle = sel ? '#ffffff' : 'rgba(224, 234, 255, 0.82)';
-            let fsize = 18;
-            while (fsize > 14) {
+            let fsize = 18 * s;
+            while (fsize > 14 * s) {
                 ctx.font = `700 ${fsize}px "Zen Old Mincho", serif`;
-                if (ctx.measureText(label).width <= b.w - 24) break;
+                if (ctx.measureText(label).width <= b.w - 24 * s) break;
                 fsize -= 1;
             }
             ctx.fillText(label, b.x + b.w / 2, b.y + b.h / 2);
