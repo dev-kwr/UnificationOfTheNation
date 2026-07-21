@@ -60,11 +60,15 @@ export class Shop {
         // 縦収まり上限でクランプ（上下に約20px 確保）。s=1 で shopY=62 を再現。
         // shopH=596 は行高 62 化に伴い拡張（旧 556）。
         const s = Math.max(1, Math.min(getUiScale(), (CANVAS_HEIGHT - 40) / 596));
+        // fs: フォント専用スケール。s はパネル縦収まりで ~1.14 に頭打ちになるため、
+        // 文字だけは uiScale (SP実機 1.3-1.45) をフルに使って視認性を確保する。
+        // 行高 62*s に対し文字は余裕があるので行内配置は崩れない。PC は fs=1。
+        const fs = Math.max(s, getUiScale());
         const shopW = 760 * s;
         const shopH = 596 * s;
         const shopX = SCREEN_WIDTH / 2 - shopW / 2;
         const shopY = (CANVAS_HEIGHT - shopH) / 2;
-        return { shopX, shopY, shopW, shopH, s };
+        return { shopX, shopY, shopW, shopH, s, fs };
     }
 
     getItemRect(index) {
@@ -312,7 +316,7 @@ export class Shop {
         ctx.textBaseline = 'alphabetic';
 
         const pulse = (Math.sin(Date.now() * 0.0026) + 1) * 0.5;
-        const { shopX, shopY, shopW, shopH, s } = this.getLayout();
+        const { shopX, shopY, shopW, shopH, s, fs } = this.getLayout();
 
         // 背景画像（フォールバック：暗幕）
         const _bg = getShopBgImage();
@@ -324,13 +328,13 @@ export class Shop {
         }
 
         // 見出し「よろず屋」＋区切り線
-        drawWafuHeading(ctx, SCREEN_WIDTH / 2, shopY + 58 * s, 'よろず屋', { size: 30 * s, ls: 0.14, ruleLen: 48 * s, color: '#f4f9ff' });
+        drawWafuHeading(ctx, SCREEN_WIDTH / 2, shopY + 58 * s, 'よろず屋', { size: 30 * fs, ls: 0.14, ruleLen: 48 * s, color: '#f4f9ff' });
         drawWafuDivider(ctx, SCREEN_WIDTH / 2, shopY + 80 * s, (shopW - 96 * s) / 2);
 
         // 小判（右上）：数字=サンセリフ／和文=明朝
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#ffd96b';
-        drawNumMixedText(ctx, `小判 ${formatMoneyValue(player.money)}枚`, shopX + shopW - 32 * s, shopY + 48 * s, 700, 15 * s, 'right');
+        drawNumMixedText(ctx, `小判 ${formatMoneyValue(player.money)}枚`, shopX + shopW - 32 * s, shopY + 48 * s, 700, 15 * fs, 'right');
 
         // アイテム行
         this.items.forEach((item, i) => {
@@ -350,7 +354,7 @@ export class Shop {
 
             if (isSelected) {
                 ctx.fillStyle = '#8ec8ff';
-                ctx.font = `700 ${15 * s}px "Zen Old Mincho", serif`;
+                ctx.font = `700 ${15 * fs}px "Zen Old Mincho", serif`;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText('◆', rect.x + 26 * s, rect.y + rect.h / 2);
@@ -360,17 +364,17 @@ export class Shop {
             ctx.textAlign = 'left';
             ctx.textBaseline = 'middle';
             ctx.fillStyle = dim ? 'rgba(150, 165, 196, 0.6)' : (isSelected ? '#ffffff' : 'rgba(230, 240, 255, 0.92)');
-            let titleSize = 18 * s;
-            while (titleSize > 14 * s) {
+            let titleSize = 18 * fs;
+            while (titleSize > 14 * fs) {
                 ctx.font = `700 ${titleSize}px "Zen Old Mincho", serif`;
                 if (ctx.measureText(item.name).width <= rect.w - 228 * s) break;
                 titleSize -= 1;
             }
             ctx.fillText(item.name, rect.x + 58 * s, rect.y + 22 * s);
 
-            // 説明：13px 固定（全項目が行幅に収まることを確認済み）。
+            // 説明：13px 基準（全項目が行幅に収まることを確認済み）。
             ctx.fillStyle = dim ? 'rgba(140, 154, 182, 0.6)' : 'rgba(196, 214, 247, 0.78)';
-            ctx.font = `500 ${13 * s}px "Zen Old Mincho", serif`;
+            ctx.font = `500 ${13 * fs}px "Zen Old Mincho", serif`;
             const desc = isLocked ? '前提となる術の習得が必要' : item.description;
             ctx.fillText(desc, rect.x + 58 * s, rect.y + 44 * s);
 
@@ -381,7 +385,7 @@ export class Shop {
             if (isPurchased) { priceText = '習得済'; priceColor = 'rgba(150, 165, 196, 0.7)'; }
             else if (isLocked) { priceText = '禁制'; priceColor = 'rgba(150, 165, 196, 0.7)'; }
             ctx.fillStyle = priceColor;
-            drawNumMixedText(ctx, priceText, rect.x + rect.w - 22 * s, rect.y + rect.h / 2, 700, 15 * s, 'right');
+            drawNumMixedText(ctx, priceText, rect.x + rect.w - 22 * s, rect.y + rect.h / 2, 700, 15 * fs, 'right');
         });
 
         // メッセージ
@@ -397,8 +401,8 @@ export class Shop {
             ctx.fillStyle = '#dbe8ff';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            let messageSize = 15 * s;
-            while (messageSize > 12 * s) {
+            let messageSize = 15 * fs;
+            while (messageSize > 12 * fs) {
                 ctx.font = `700 ${messageSize}px "Zen Old Mincho", serif`;
                 if (ctx.measureText(this.message).width <= msgW - 24 * s) break;
                 messageSize -= 1;
@@ -414,8 +418,8 @@ export class Shop {
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillStyle = sel ? '#ffffff' : 'rgba(224, 234, 255, 0.82)';
-            let fsize = 18 * s;
-            while (fsize > 14 * s) {
+            let fsize = 18 * fs;
+            while (fsize > 14 * fs) {
                 ctx.font = `700 ${fsize}px "Zen Old Mincho", serif`;
                 if (ctx.measureText(label).width <= b.w - 24 * s) break;
                 fsize -= 1;

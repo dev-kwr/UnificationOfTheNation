@@ -306,6 +306,18 @@ export class Stage {
                 img.src = src;
                 return img;
             });
+
+            // --- 大棟化: 四巡目=天守大屋根の上(柵なし・棟瓦・眼下に朝靄)。
+            //     未配置の間は従来のテラス床/東屋/柵付き背景へフォールバックする。
+            this.stage6RidgeTilesGroundImage = new Image();
+            this.stage6RidgeTilesGroundImage.src = 'images/stage6_ground_ridge_tiles.png?v=20260722_ridge1';
+            this.stage6RidgeFlanksImage = new Image();
+            this.stage6RidgeFlanksImage.src = 'images/stage6_ridge_flanks_backdrop.png?v=20260722_ridge1';
+            this.stage6RidgeShachiImage = new Image();
+            this.stage6RidgeShachiImage.src = 'images/stage6_ridge_shachi.png?v=20260722_ridge1';
+            // 三巡目の床置き換え(鉄板リベット→黒漆の板張り)
+            this.stage6GalleryWoodGroundImage = new Image();
+            this.stage6GalleryWoodGroundImage.src = 'images/stage6_ground_gallery_wood.png?v=20260722_ridge1';
         }
 
         // キャッシュ用オフスクリーンCanvasの初期化
@@ -1981,9 +1993,14 @@ export class Stage {
                 continue;
             }
 
-            // Stage 6: 角帯(隅櫓の坂+バッファ)でのスポーンを制限
+            // Stage 6: 角帯(全高壁の周囲)でのスポーンを制限
             if (this.isInStage6CornerBand(x)) {
                 continue;
+            }
+
+            // Stage 6: 大屋根の上(四巡目)に鎧武将は登ってこない。忍者に差し替え
+            if (this.stageNumber === 6 && x >= this.maxProgress * 0.75 && type === ENEMY_TYPES.BUSHO) {
+                type = ENEMY_TYPES.NINJA;
             }
             
             const enemy = this.createGroundedEnemy(type, x);
@@ -2039,8 +2056,15 @@ export class Stage {
             }
         }
 
-        // Stage 6: 角帯(隅櫓の坂+バッファ)には障害物を置かない
-        if (this.isInStage6CornerBand(x)) {
+        // Stage 6: 角帯(全高壁の周囲)には障害物を置かない。
+        // 連なりは右へ最大~440px伸びるため、原点だけでなく連なりの右端も帯判定する
+        // (門前に竹槍の列が食い込むのを防ぐ)。
+        if (this.isInStage6CornerBand(x) || this.isInStage6CornerBand(x + 440)) {
+            return;
+        }
+
+        // Stage 6: 大屋根の上(四巡目)に竹槍・岩は据え付けられない
+        if (this.stageNumber === 6 && x + 440 >= this.maxProgress * 0.75) {
             return;
         }
 
@@ -3618,10 +3642,14 @@ export class Stage {
                 mirrorRepeat: true
             },
             {
-                image: this.stage6FinalTerraceImage,
+                // 大棟化: 四巡目は柵なしの「奥側屋根斜面+破風」帯(シームレス素直ループ)。
+                // 未配置の間は従来の柵付きテラス背景(ミラータイル)。
+                image: this.isStage6ImageReady(this.stage6RidgeFlanksImage)
+                    ? this.stage6RidgeFlanksImage
+                    : this.stage6FinalTerraceImage,
                 start: finalThresholdX,
                 end: this.maxProgress,
-                mirrorRepeat: true
+                mirrorRepeat: !this.isStage6ImageReady(this.stage6RidgeFlanksImage)
             }
         ];
 
@@ -3664,17 +3692,25 @@ export class Stage {
             });
         }
 
-        const bossPavilion = this.stage6BossPavilionImage;
-        if (bossPavilion?.complete && bossPavilion.naturalWidth > 0 && bossPavilion.naturalHeight > 0) {
-            const bossPavilionWidth = Math.ceil(drawHeight * (bossPavilion.naturalWidth / bossPavilion.naturalHeight));
+        // ボス背後のランドマーク: 大棟化後は棟端の巨大金鯱、未配置の間は従来の東屋。
+        const useShachi = this.isStage6ImageReady(this.stage6RidgeShachiImage);
+        const landmark = useShachi ? this.stage6RidgeShachiImage : this.stage6BossPavilionImage;
+        if (landmark?.complete && landmark.naturalWidth > 0 && landmark.naturalHeight > 0) {
+            const landmarkHeight = useShachi ? Math.round(drawHeight * 1.06) : drawHeight;
+            const landmarkWidth = Math.ceil(landmarkHeight * (landmark.naturalWidth / landmark.naturalHeight));
             this.renderStage6FixedBackdrop(
                 ctx,
-                bossPavilion,
-                this.maxProgress - bossPavilionWidth * 0.5,
+                landmark,
+                this.maxProgress - landmarkWidth * 0.5 - (useShachi ? 40 : 0),
                 progress,
-                { drawHeight, bottomY, filter }
+                { drawHeight: landmarkHeight, bottomY, filter }
             );
         }
+    }
+
+    /** stage6アセットが読込済みで使えるか(404はcomplete=trueでもnaturalWidth=0) */
+    isStage6ImageReady(img) {
+        return !!(img?.complete && img.naturalWidth > 0 && img.naturalHeight > 0);
     }
 
     renderStage1BambooImageBackdrop(ctx, progress) {
@@ -4203,8 +4239,22 @@ export class Stage {
         const zones = [
             { image: this.stage6GroundImage, start: 0, end: zoneWidth },
             { image: this.stage6UpperGalleryGroundImage, start: zoneWidth, end: zoneWidth * 2 },
-            { image: this.stage6RoofRidgeGroundImage, start: zoneWidth * 2, end: zoneWidth * 3 },
-            { image: this.stage6FinalTerraceGroundImage, start: zoneWidth * 3, end: this.maxProgress }
+            {
+                // 大棟化: 三巡目の床は黒漆の板張りへ置き換え(旧: 鉄板リベット床は壁面に見えるため廃止)
+                image: this.isStage6ImageReady(this.stage6GalleryWoodGroundImage)
+                    ? this.stage6GalleryWoodGroundImage
+                    : this.stage6RoofRidgeGroundImage,
+                start: zoneWidth * 2,
+                end: zoneWidth * 3
+            },
+            {
+                // 大棟化: 四巡目の床は大棟の棟瓦+手前側屋根斜面
+                image: this.isStage6ImageReady(this.stage6RidgeTilesGroundImage)
+                    ? this.stage6RidgeTilesGroundImage
+                    : this.stage6FinalTerraceGroundImage,
+                start: zoneWidth * 3,
+                end: this.maxProgress
+            }
         ];
 
         let rendered = false;
