@@ -2106,9 +2106,9 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
     const tierLabel = (tier) => ['初級', '中級', '上級', '特級'][Math.max(0, Math.min(3, tier))];
     const pulse = (Math.sin(Date.now() * 0.0026) + 1) * 0.5;
 
-    const panelW = SCREEN_WIDTH;
-    const rightColX = SCREEN_WIDTH - 400; // 右端アンカー（W=1280で従来の880）
-    const rightColW = panelW - rightColX - 40;
+    // レイアウトとスケールの単一導出（タップ判定 game.updateStageClear と共有）
+    const L = getStatusScreenLayout();
+    const s = L.s;
 
     const menuItems = [
         { title: `忍具：${selectedWeaponName}` },

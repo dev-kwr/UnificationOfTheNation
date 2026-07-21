@@ -4611,14 +4611,13 @@ class Game {
         if (input.touchJustPressed) {
             const tx = input.lastTouchX;
             const ty = input.lastTouchY;
-            const panelW = SCREEN_WIDTH;
-            const menuY = CANVAS_HEIGHT - 160;
-            const menuW = (panelW - 120) / 3;
-            const menuH = 80;
+            // メニュー矩形は描画(renderStatusScreen)と同じ getStatusScreenLayout から単一導出
+            const L = getStatusScreenLayout();
+            const slop = 10 * L.s;
 
             for (let i = 0; i < menuCount; i++) {
-                const x = 40 + i * (menuW + 20);
-                if (tx >= x - 10 && tx <= x + menuW + 10 && ty >= menuY - 10 && ty <= menuY + menuH + 10) {
+                const r = L.menuRects[i];
+                if (tx >= r.x - slop && tx <= r.x + r.w + slop && ty >= r.y - slop && ty <= r.y + r.h + slop) {
                     this.stageClearMenuIndex = i;
                     this.handleStageClearConfirm();
                     return;
