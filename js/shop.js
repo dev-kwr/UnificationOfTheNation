@@ -368,15 +368,10 @@ export class Shop {
             }
             ctx.fillText(item.name, rect.x + 58 * s, rect.y + 22 * s);
 
-            // 説明：視認性優先で 11→13px に拡大。長文は行幅に収まるよう 11px まで縮小。
+            // 説明：13px 固定（全項目が行幅に収まることを確認済み）。
             ctx.fillStyle = dim ? 'rgba(140, 154, 182, 0.6)' : 'rgba(196, 214, 247, 0.78)';
+            ctx.font = `500 ${13 * s}px "Zen Old Mincho", serif`;
             const desc = isLocked ? '前提となる術の習得が必要' : item.description;
-            let descSize = 13 * s;
-            while (descSize > 11 * s) {
-                ctx.font = `500 ${descSize}px "Zen Old Mincho", serif`;
-                if (ctx.measureText(desc).width <= rect.w - 76 * s) break;
-                descSize -= 1;
-            }
             ctx.fillText(desc, rect.x + 58 * s, rect.y + 44 * s);
 
             // 価格：数字=サンセリフ／単位「枚」=明朝

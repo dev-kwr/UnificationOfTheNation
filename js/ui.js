@@ -2054,6 +2054,45 @@ export function drawWafuPips(ctx, x, y, pipW, pipH, gap, level, maxLevel) {
 
 const _statusMenuAnim = { amt: [], last: 0 };
 
+// ステータス画面（ステージクリア）の一様スケール・レイアウトの単一導出。
+// 描画(renderStatusScreen)とタップ判定(game.updateStageClear)は必ずこれを読むこと。
+// s=1 で従来の固定px値と数値同一（ピクセル不変）。
+// 方針：ステータスカードは「右上角を固定」して左＝幅・下＝高さへ s 倍で拡大する。
+//   右上を動かさないので右上の BGM ボタンと衝突しない（カード上端96 > ボタン下端62u が常に成立）。
+//   メニューは下端を固定して上へ s 倍。上限 1.12 はカード下端とメニュー上端が衝突しない範囲。
+export function getStatusScreenLayout() {
+    const s = Math.max(1, Math.min(getUiScale(), 1.12));
+    const anchorRight = SCREEN_WIDTH - 54;   // s=1 の infoPanel 右端（固定）
+    const anchorTop = 96;                    // s=1 の infoPanel 上端（固定）
+    const infoPanelW = 364 * s;              // 左へ拡大
+    const infoPanelH = 404 * s;              // 下へ拡大
+    const infoPanelX = anchorRight - infoPanelW;
+    const infoPanelY = anchorTop;
+    const rowInset = 18 * s;
+    const rowH = 38 * s;
+    const rowStartY = infoPanelY + 30 * s;
+    const cardY = rowStartY + 6 * rowH + 18 * s;
+    const cardH = 110 * s;
+    const cardGap = 12 * s;
+    const menuH = 80 * s;
+    const menuY = (CANVAS_HEIGHT - 60) - menuH;   // 下端 660 を固定して上へ拡大（s=1 で 580）
+    const menuStartX = 40;
+    const menuGap = 20 * s;
+    const menuW = (anchorRight - menuStartX - menuGap * 2) / 3;
+    return {
+        s,
+        infoPanel: { x: infoPanelX, y: infoPanelY, w: infoPanelW, h: infoPanelH },
+        rowX: infoPanelX + rowInset,
+        rowW: infoPanelW - rowInset * 2,
+        rowStartY, rowH,
+        cardY,
+        cardW: (infoPanelW - rowInset * 2 - cardGap * 2) / 3,
+        cardH, cardGap,
+        menuRects: [0, 1, 2].map((i) => ({ x: menuStartX + i * (menuW + menuGap), y: menuY, w: menuW, h: menuH })),
+        menuBottom: menuY + menuH
+    };
+}
+
 export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, options = {}) {
     const menuIndex = Number.isFinite(options.menuIndex) ? options.menuIndex : 0;
     const selectedWeaponName = options.selectedWeaponName || (player?.currentSubWeapon?.name || '未装備');
@@ -2113,16 +2152,12 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
             return;
         }
 
-        // --- 右：情報パネル ---
-        const infoPanelX = rightColX - 18;
-        const infoPanelY = 96;
-        const infoPanelW = rightColW + 4;
-        const rowInset = 18;
-        const rowX = infoPanelX + rowInset;
-        const rowW = infoPanelW - rowInset * 2;
-        const rowStartY = infoPanelY + 30;
-        const rowH = 38;
-        const menuY = CANVAS_HEIGHT - 140;
+        // --- 右：情報パネル（右上角固定・左下拡大。L から単一導出）---
+        const { x: infoPanelX, y: infoPanelY, w: infoPanelW, h: infoPanelH } = L.infoPanel;
+        const rowX = L.rowX;
+        const rowW = L.rowW;
+        const rowStartY = L.rowStartY;
+        const rowH = L.rowH;
 
         const statRows = [
             { label: '段位', value: `${toKanjiNumber(player.level)}段`, color: '#ffffff' },
@@ -2133,15 +2168,12 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
             { label: '跳躍', value: `${toKanjiNumber(player.maxJumps || 1)}段`, color: '#8ec8ff' }
         ];
 
-        const statsBottomY = rowStartY + statRows.length * rowH;
-        const cardY = statsBottomY + 18;
-        const cardGap = 12;
-        const cardW = (rowW - cardGap * 2) / 3;
-        const cardH = 110;
-        const infoPanelBottom = Math.min(cardY + cardH + 18, menuY - 22);
-        const infoPanelH = infoPanelBottom - infoPanelY;
+        const cardY = L.cardY;
+        const cardGap = L.cardGap;
+        const cardW = L.cardW;
+        const cardH = L.cardH;
 
-        drawWafuCard(ctx, infoPanelX, infoPanelY, infoPanelW, infoPanelH, { radius: 12, pulse, bgAlpha: 0.55 });
+        drawWafuCard(ctx, infoPanelX, infoPanelY, infoPanelW, infoPanelH, { radius: 12 * s, pulse, bgAlpha: 0.55 });
 
         // ステータス行（ラベル左／値右＋細い区切り線）
         statRows.forEach((row, i) => {
@@ -2149,11 +2181,11 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'left';
             ctx.fillStyle = 'rgba(206, 222, 255, 0.7)';
-            ctx.font = '500 16px "Zen Old Mincho", serif';
-            ctx.fillText(row.label, rowX + 4, centerY);
+            ctx.font = `500 ${16 * s}px "Zen Old Mincho", serif`;
+            ctx.fillText(row.label, rowX + 4 * s, centerY);
 
             ctx.fillStyle = row.color;
-            drawNumMixedText(ctx, row.value, rowX + rowW - 4, centerY, 700, 19, 'right');
+            drawNumMixedText(ctx, row.value, rowX + rowW - 4 * s, centerY, 700, 19 * s, 'right');
 
             if (i < statRows.length - 1) {
                 ctx.strokeStyle = 'rgba(150, 178, 232, 0.14)';
@@ -2170,29 +2202,23 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         // 強化状況カード（ミニ紺カード＋段位＋青ピップ）
         progressionCards.forEach((card, i) => {
             const x = rowX + i * (cardW + cardGap);
-            drawWafuCard(ctx, x, cardY, cardW, cardH, { radius: 8, accent: false, shadow: false, flat: true });
+            drawWafuCard(ctx, x, cardY, cardW, cardH, { radius: 8 * s, accent: false, shadow: false, flat: true });
 
             ctx.textAlign = 'center';
             ctx.fillStyle = 'rgba(216, 230, 255, 0.9)';
-            ctx.font = '700 14px "Zen Old Mincho", serif';
-            ctx.fillText(card.title, x + cardW / 2, cardY + 28);
+            ctx.font = `700 ${14 * s}px "Zen Old Mincho", serif`;
+            ctx.fillText(card.title, x + cardW / 2, cardY + 28 * s);
 
             ctx.fillStyle = '#cfe2ff';
-            ctx.font = '700 18px "Zen Old Mincho", serif';
-            ctx.fillText(card.detail, x + cardW / 2, cardY + 58);
+            ctx.font = `700 ${18 * s}px "Zen Old Mincho", serif`;
+            ctx.fillText(card.detail, x + cardW / 2, cardY + 58 * s);
 
-            const pipW = 20, pipH = 6, pipGap = 7;
+            const pipW = 20 * s, pipH = 6 * s, pipGap = 7 * s;
             const pipsW = 3 * pipW + 2 * pipGap;
-            drawWafuPips(ctx, x + cardW / 2 - pipsW / 2, cardY + 78, pipW, pipH, pipGap, card.level, 3);
+            drawWafuPips(ctx, x + cardW / 2 - pipsW / 2, cardY + 78 * s, pipW, pipH, pipGap, card.level, 3);
         });
 
-        // --- 下部：メニュー ---
-        const menuStartX = 40;
-        const menuRightX = infoPanelX + infoPanelW;
-        const menuGap = 20;
-        const menuW = (menuRightX - menuStartX - menuGap * 2) / 3;
-        const menuH = 80;
-
+        // --- 下部：メニュー（L から単一導出。描画とタップ判定で共有）---
         // 選択 transition（昇段カードと同方式）
         const _sNow = Date.now();
         let _sDt = (_sNow - _statusMenuAnim.last) / 1000;
@@ -2209,20 +2235,20 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         menuItems.forEach((item, i) => {
             const selected = i === menuIndex;
             const a = _statusMenuAnim.amt[i];
-            const x = menuStartX + i * (menuW + menuGap);
-            const y = menuY - 4 * a;
-            drawWafuCard(ctx, x, y, menuW, menuH, { radius: 10, selected, pulse });
+            const r = L.menuRects[i];
+            const y = r.y - 4 * s * a;
+            drawWafuCard(ctx, r.x, y, r.w, r.h, { radius: 10 * s, selected, pulse });
 
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillStyle = selected ? '#ffffff' : 'rgba(224, 234, 255, 0.82)';
-            ctx.font = `700 22px "Zen Old Mincho", serif`;
-            ctx.fillText(item.title, x + menuW / 2, y + menuH / 2);
+            ctx.font = `700 ${22 * s}px "Zen Old Mincho", serif`;
+            ctx.fillText(item.title, r.x + r.w / 2, y + r.h / 2);
         });
         ctx.textBaseline = 'alphabetic';
 
-        // 操作説明はタイトル画面と同じ見た目・位置に統一
-        drawScreenManualLine(ctx, '←→：選択 | SPACE：決定 | ↑↓：装備切替');
+        // 操作説明はタイトル画面と同じ見た目・位置に統一（メニュー底辺と重ならない位置へ）
+        drawScreenManualLine(ctx, '←→：選択 | SPACE：決定 | ↑↓：装備切替', Math.max(CANVAS_HEIGHT - 20, L.menuBottom + 14));
 
     } finally {
         ctx.restore();
