@@ -1712,17 +1712,24 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     drawScreenManualLine(ctx, TITLE_MANUAL_TEXT);
 }
 
-export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
-    if (!Array.isArray(entries) || entries.length === 0) return;
+// デバッグウィンドウの幾何の単一導出。描画(renderTitleDebugWindow)と
+// タップ判定(game.handleTitleDebugTouch)は必ずこれを読むこと（panelYは項目数依存の縦センタリング）。
+export function getTitleDebugLayout(entriesCount) {
     const panelW = 540;
     const panelX = SCREEN_WIDTH - panelW - 40;
     const rowH = 26;
     const headerH = 40;
     const spacingH = 10;
-    const entriesCount = entries.length;
     const panelH = headerH + spacingH + entriesCount * rowH + 10;
     const panelY = Math.max(10, Math.round((CANVAS_HEIGHT - panelH) / 2));
-    const maxRows = entriesCount; 
+    return { panelX, panelY, panelW, panelH, rowH, listStartY: panelY + 65 };
+}
+
+export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
+    if (!Array.isArray(entries) || entries.length === 0) return;
+    const entriesCount = entries.length;
+    const { panelX, panelY, panelW, panelH, rowH, listStartY } = getTitleDebugLayout(entriesCount);
+    const maxRows = entriesCount;
     const clampedCursor = Math.max(0, Math.min(entries.length - 1, cursor));
     const start = Math.max(0, Math.min(clampedCursor - Math.floor(maxRows / 2), Math.max(0, entries.length - maxRows)));
     const end = Math.min(entries.length, start + maxRows);
@@ -1754,7 +1761,6 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
     ctx.lineTo(panelX + panelW - 20, panelY + 40);
     ctx.stroke();
 
-    const listStartY = panelY + 65; // 余白をもう少し設ける
     const boxH = rowH - 4;
 
     ctx.textBaseline = 'middle';

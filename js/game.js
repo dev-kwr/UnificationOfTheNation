@@ -7,7 +7,7 @@ import { input } from './input.js';
 import { Player } from './player.js';
 import { createSubWeapon } from './weapon.js';
 import { Stage } from './stage.js?v=20260703-p3';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout } from './ui.js';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout } from './ui.js';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js';
 import { saveManager } from './save.js';
 import { shop } from './shop.js';
@@ -1460,14 +1460,8 @@ class Game {
         const tX = input.lastTouchX;
         const tY = input.lastTouchY;
 
-        const panelW = 540;
-        const panelX = SCREEN_WIDTH - panelW - 40;
-        const panelY = 40;
-        const rowH = 26; 
-        const headerH = 40;
-        const listStartY = panelY + 65; 
-        const entriesCount = entries.length;
-        const panelH = headerH + 10 + entriesCount * rowH + 10;
+        // 幾何は描画(renderTitleDebugWindow)と同じ getTitleDebugLayout から単一導出
+        const { panelX, panelY, panelW, panelH, rowH, listStartY } = getTitleDebugLayout(entries.length);
 
         // パネル範囲内かチェック
         if (tX >= panelX && tX <= panelX + panelW && tY >= panelY && tY <= panelY + panelH + 20) {
