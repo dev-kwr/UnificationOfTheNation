@@ -298,9 +298,9 @@ export class Stage {
 
             // 角の全高壁(視界遮断+通用門)。境界ごとに別アセット。
             this.stage6CornerWallImages = [
-                'images/stage6_wall_corner_turret.png?v=20260722_alpha1',
-                'images/stage6_wall_gatehouse.png?v=20260722_alpha1',
-                'images/stage6_wall_final_gate.png?v=20260722_alpha1'
+                'images/stage6_wall_corner_turret.png?v=20260722_wall2',
+                'images/stage6_wall_gatehouse.png?v=20260722_wall2',
+                'images/stage6_wall_final_gate.png?v=20260722_wall2'
             ].map((src) => {
                 const img = new Image();
                 img.src = src;
