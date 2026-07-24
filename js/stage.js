@@ -286,7 +286,7 @@ export class Stage {
 
             // --- 螺旋回廊: 柵越しの眼下パノラマ＋隅櫓の階段 ---
             this.stage6PanoramaTownNearImage = new Image();
-            this.stage6PanoramaTownNearImage.src = 'images/stage6_panorama_town_near.png?v=20260721_loop1';
+            this.stage6PanoramaTownNearImage.src = 'images/stage6_panorama_town_near.png?v=20260722_town3';
             this.stage6PanoramaBambooFarImage = new Image();
             this.stage6PanoramaBambooFarImage.src = 'images/stage6_panorama_bamboo_far.png?v=20260721_loop1';
             this.stage6PanoramaKaidoFarImage = new Image();
@@ -298,9 +298,9 @@ export class Stage {
 
             // 角の全高壁(視界遮断+通用門)。境界ごとに別アセット。
             this.stage6CornerWallImages = [
-                'images/stage6_wall_corner_turret.png?v=20260722_wall2',
-                'images/stage6_wall_gatehouse.png?v=20260722_wall2',
-                'images/stage6_wall_final_gate.png?v=20260722_wall2'
+                'images/stage6_wall_corner_turret.png?v=20260724_dechecker1',
+                'images/stage6_wall_gatehouse.png?v=20260724_dechecker1',
+                'images/stage6_wall_final_gate.png?v=20260724_dechecker1'
             ].map((src) => {
                 const img = new Image();
                 img.src = src;
@@ -310,14 +310,20 @@ export class Stage {
             // --- 大棟化: 四巡目=天守大屋根の上(柵なし・棟瓦・眼下に朝靄)。
             //     未配置の間は従来のテラス床/東屋/柵付き背景へフォールバックする。
             this.stage6RidgeTilesGroundImage = new Image();
-            this.stage6RidgeTilesGroundImage.src = 'images/stage6_ground_ridge_tiles.png?v=20260722_ridge1';
+            this.stage6RidgeTilesGroundImage.src = 'images/stage6_ground_ridge_tiles.png?v=20260723_final1';
             this.stage6RidgeFlanksImage = new Image();
-            this.stage6RidgeFlanksImage.src = 'images/stage6_ridge_flanks_backdrop.png?v=20260722_ridge1';
+            this.stage6RidgeFlanksImage.src = 'images/stage6_ridge_flanks_backdrop.png?v=20260723_final1';
             this.stage6RidgeShachiImage = new Image();
             this.stage6RidgeShachiImage.src = 'images/stage6_ridge_shachi.png?v=20260722_ridge1';
             // 三巡目の床置き換え(鉄板リベット→黒漆の板張り)
             this.stage6GalleryWoodGroundImage = new Image();
             this.stage6GalleryWoodGroundImage.src = 'images/stage6_ground_gallery_wood.png?v=20260722_ridge1';
+            // 角3をくぐった後の「屋根に突き出た出口の破風」(未配置時は妻壁のまま)
+            this.stage6RoofExitGableImage = new Image();
+            this.stage6RoofExitGableImage.src = 'images/stage6_roof_exit_gable.png?v=20260723_final1';
+            // 大棟の床v3: 軒先で終わり下端透過(軒下にコードが「遥か下の世界」を描く)。未配置時はridge_tiles
+            this.stage6RidgeEavesGroundImage = new Image();
+            this.stage6RidgeEavesGroundImage.src = 'images/stage6_ground_ridge_eaves.png?v=20260724_eaves1';
         }
 
         // キャッシュ用オフスクリーンCanvasの初期化
@@ -3558,22 +3564,14 @@ export class Stage {
                 parallax: 0.14, drawHeight: 95, bottomY: fence + 48, alpha: 0.78, filter: nearFilter, mirrorRepeat: false
             });
         } else {
-            // 四巡目(最上層): 明け方の霞が城下を覆い、屋根は霞の下。遠くの連山と夜明けだけが残る。
+            // 四巡目(最上層): 遠くの連山と夜明けのみ。
+            // 半透明の「霞に沈む町」バンドと屋根レベルの靄バンドは廃止した——
+            // 明るい空を背景にした半透明要素は浮遊物に見え、屋根に乗る靄は
+            // 「歩いている屋根が透けている」ように読めるため(靄の焼き込み禁止と同じ理由)。
+            // bottomYは向こう側斜面(flanks)の不透明上端(≈427)より深く差し込む。
+            // 浅いと連山の裾と斜面の間に素の空が横一線に露出し「謎の空白ライン」になる。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
-                parallax: 0.06, drawHeight: 190, bottomY: fence + 30, filter: farFilter, mirrorRepeat: false
-            });
-            // 霞に沈む屋根: ごく淡く棟先だけ透かせる
-            this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
-                parallax: 0.14, drawHeight: 80, bottomY: fence + 52, alpha: 0.3, filter: nearFilter, mirrorRepeat: false
-            });
-            // 朝靄の薄帯(雲海画像を霞として低不透明度で使う)
-            this.renderStageBackdropTile(ctx, this.stage6PanoramaCloudSeaImage, progress, {
-                parallax: 0.1, drawHeight: 85, bottomY: fence + 34, alpha: 0.42,
-                filter: 'brightness(0.86) saturate(0.6)', mirrorRepeat: false
-            });
-            this.renderStageBackdropTile(ctx, this.stage6PanoramaCloudSeaImage, progress, {
-                parallax: 0.14, drawHeight: 70, bottomY: fence + 40, alpha: 0.3,
-                filter: 'brightness(0.92) saturate(0.55)', widthScale: 1.22, mirrorRepeat: false
+                parallax: 0.06, drawHeight: 190, bottomY: fence + 60, filter: farFilter, mirrorRepeat: false
             });
         }
     }
@@ -3588,22 +3586,64 @@ export class Stage {
      * Stage6 螺旋回廊: 角の全高壁の描画。
      * ゾーン境界の先(次の面)を視界から隠す「関所」。地上の通用門をくぐると暗転遷移する。
      * 通過済みの角にも描き続ける(暗転明けに壁が背後へ残り、通ってきた構造として矛盾しない)。
-     * ワールド枠: [cornerX - WALL_LEFT_PX, cornerX + WALL_RIGHT_PX] × 全高。
+     *
+     * 投影文法: このゲームの地面帯(y=groundY..720)は「俯瞰で手前へ後退する床面」で、
+     * 立面を差し込んでよいのは y<足元ライン(groundY+LANE_OFFSET=512) だけ(stage1〜5の全構造物と同じ)。
+     * そこで壁画像は「開口下端=画像y比0.711」より上だけを切り出して y=0..512 に描く。
+     * 0.711×720=512 なのでアスペクトは完全維持され、石垣部(0.711以深)は使わない。
+     * 床帯には床テクスチャと敷居ストリップ(renderStage6GroundThresholds)がそのまま残り、
+     * 「門の下を床が通り抜ける」という他ステージの門・出入口と同じ語彙になる。
      * 画像未読込時は描かない(従来の透かし櫓背景がフォールバックとして残る)。
      */
     renderStage6CornerWalls(ctx, scrollX) {
         if (this.stageNumber !== 6) return;
         const frameW = STAGE6_CORNER.WALL_LEFT_PX + STAGE6_CORNER.WALL_RIGHT_PX;
+        const laneY = this.groundY + LANE_OFFSET; // 512 = 通用門の開口下端の着地先(足元ライン)
         for (let i = 0; i < STAGE6_CORNER.CORNER_XS.length; i++) {
+            const cornerX = STAGE6_CORNER.CORNER_XS[i];
+
+            // 角3(大屋根への出口)だけは、くぐった後は回廊の妻壁ではなく
+            // 「屋根に突き出た出口の破風」に差し替える(廊下の建物が屋根の上に立つ矛盾を避ける)。
+            // アセット未配置時は従来どおり妻壁を描き続ける。
+            if (i === 2 && this.cornersClimbed >= 3 && this.isStage6ImageReady(this.stage6RoofExitGableImage)) {
+                const gable = this.stage6RoofExitGableImage;
+                const gW = 380;
+                const gH = Math.round(gW * (gable.naturalHeight / gable.naturalWidth));
+                const gx = Math.round(cornerX + STAGE6_CORNER.WALL_RIGHT_PX - gW - scrollX);
+                if (gx + gW > 0 && gx < CANVAS_WIDTH) {
+                    ctx.save();
+                    ctx.filter = 'brightness(0.86) saturate(0.76)';
+                    ctx.drawImage(gable, gx, laneY - gH, gW, gH);
+                    ctx.filter = 'none';
+                    const gGrad = ctx.createLinearGradient(0, laneY, 0, laneY + 22);
+                    gGrad.addColorStop(0, 'rgba(0, 0, 0, 0.4)');
+                    gGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                    ctx.fillStyle = gGrad;
+                    ctx.fillRect(gx, laneY, gW, 22);
+                    ctx.restore();
+                }
+                continue;
+            }
+
             const img = this.getStage6CornerWallImage(i);
             if (!img) continue;
-            const cornerX = STAGE6_CORNER.CORNER_XS[i];
             const x = Math.round(cornerX - STAGE6_CORNER.WALL_LEFT_PX - scrollX);
             if (x + frameW <= 0 || x >= CANVAS_WIDTH) continue;
             ctx.save();
             ctx.filter = 'brightness(0.86) saturate(0.76)';
-            ctx.drawImage(img, x, 0, frameW, CANVAS_HEIGHT);
+            // 画像全面を枠(WALL_LEFT+WALL_RIGHT)×512に描く。
+            // v5(2304×1456)は枠810×512と同比率でぴったり。v4(2048×1456)は暫定で横+12%伸びるが
+            // 門下端=画像最下端の関係と壁右端までの遮蔽が保たれることを優先する。
+            ctx.drawImage(img, x, 0, frameW, laneY);
             ctx.filter = 'none';
+
+            // 接地影: 基部と俯瞰床の継ぎ目を沈める(エンティティの落ち影と同じ考え方)
+            const shadowH = 26;
+            const grad = ctx.createLinearGradient(0, laneY, 0, laneY + shadowH);
+            grad.addColorStop(0, 'rgba(0, 0, 0, 0.42)');
+            grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(x, laneY, frameW, shadowH);
             ctx.restore();
         }
     }
@@ -3643,13 +3683,16 @@ export class Stage {
             },
             {
                 // 大棟化: 四巡目は柵なしの「奥側屋根斜面+破風」帯(シームレス素直ループ)。
-                // 未配置の間は従来の柵付きテラス背景(ミラータイル)。
+                // 向こう側斜面は強い前縮みで「棟際の薄い帯」にしか見えないはずなので、
+                // 描画高さを圧縮する(フルサイズだと瓦の壁が立ち上がって見え、別の屋根と誤読される)。
+                // 未配置の間は従来の柵付きテラス背景(ミラータイル・フルサイズ)。
                 image: this.isStage6ImageReady(this.stage6RidgeFlanksImage)
                     ? this.stage6RidgeFlanksImage
                     : this.stage6FinalTerraceImage,
                 start: finalThresholdX,
                 end: this.maxProgress,
-                mirrorRepeat: !this.isStage6ImageReady(this.stage6RidgeFlanksImage)
+                mirrorRepeat: !this.isStage6ImageReady(this.stage6RidgeFlanksImage),
+                drawHeight: this.isStage6ImageReady(this.stage6RidgeFlanksImage) ? 250 : undefined
             }
         ];
 
@@ -3657,7 +3700,7 @@ export class Stage {
             this.renderStage6BackdropRegion(ctx, zone.image, progress, {
                 worldStart: zone.start,
                 worldEnd: zone.end,
-                drawHeight,
+                drawHeight: zone.drawHeight || drawHeight,
                 bottomY,
                 filter,
                 mirrorRepeat: zone.mirrorRepeat
@@ -4062,24 +4105,20 @@ export class Stage {
                 // ボス戦中：最終ステージなので次のステージはないが、夜明け（クリア後の朝焼け）を予感させる光を遠くに表示
                 if (this.bossSpawned) {
                     ctx.save();
-                    // 地平線の強い朝焼けグロー
+                    // 朝焼けの大グローのみ。「地平線の細い光の帯」は廃止——
+                    // 帯はパノラマの上に直接描かれるため、連山と屋根の間に
+                    // 「謎の明るい線」として乗ってしまう(湖・空白ラインに誤読される)。
+                    // 基準は空と連山の境(真の地平線 ≈ groundY-125)。
+                    const dawnHorizonY = this.groundY - 125;
                     const dawnGlow = ctx.createRadialGradient(
-                        CANVAS_WIDTH * 0.5, this.groundY, 0,
-                        CANVAS_WIDTH * 0.5, this.groundY, CANVAS_WIDTH * 0.7
+                        CANVAS_WIDTH * 0.5, dawnHorizonY, 0,
+                        CANVAS_WIDTH * 0.5, dawnHorizonY, CANVAS_WIDTH * 0.7
                     );
                     dawnGlow.addColorStop(0,   `rgba(255, 180, 60, ${0.22 * this.bossEncounterBlend})`);
                     dawnGlow.addColorStop(0.35, `rgba(255, 120, 30, ${0.14 * this.bossEncounterBlend})`);
                     dawnGlow.addColorStop(1,   'rgba(255, 60, 10, 0)');
                     ctx.fillStyle = dawnGlow;
-                    ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY);
-
-                    // 地平線の細い光の帯
-                    const horizonBand = ctx.createLinearGradient(0, this.groundY - 30, 0, this.groundY + 10);
-                    horizonBand.addColorStop(0, 'rgba(255, 200, 80, 0)');
-                    horizonBand.addColorStop(0.4, `rgba(255, 190, 60, ${0.28 * this.bossEncounterBlend})`);
-                    horizonBand.addColorStop(1, 'rgba(255, 140, 30, 0)');
-                    ctx.fillStyle = horizonBand;
-                    ctx.fillRect(0, this.groundY - 30, CANVAS_WIDTH, 40);
+                    ctx.fillRect(0, 0, CANVAS_WIDTH, dawnHorizonY);
                     ctx.restore();
                 }
                 break;
@@ -4198,7 +4237,8 @@ export class Stage {
         worldEnd,
         horizonY,
         bottomY,
-        filter
+        filter,
+        topAlign = false
     }) {
         if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
 
@@ -4206,9 +4246,14 @@ export class Stage {
         const screenEnd = worldEnd - renderProgress;
         if (screenEnd <= 0 || screenStart >= CANVAS_WIDTH) return false;
 
-        const drawH = Math.ceil(bottomY - horizonY + 40);
+        // topAlign: 画像上端を床上端(horizonY)にぴったり合わせる。
+        // 大棟の床は上端17%が「棟の冠(鳥衾+のし瓦)」で、通常のオーバースキャン(-20px)だと
+        // 冠が刈り取られて奥側斜面との継ぎ目が裸になるため、大棟ゾーンだけ整列させる。
+        const drawH = topAlign
+            ? Math.ceil(bottomY - horizonY)
+            : Math.ceil(bottomY - horizonY + 40);
         const drawW = Math.ceil(drawH * (image.naturalWidth / image.naturalHeight));
-        const y = Math.floor(horizonY - 20);
+        const y = topAlign ? horizonY : Math.floor(horizonY - 20);
         const firstTile = Math.floor((renderProgress - worldStart) / drawW) - 1;
         const lastTile = Math.ceil((renderProgress + CANVAS_WIDTH - worldStart) / drawW) + 1;
 
@@ -4236,41 +4281,106 @@ export class Stage {
     renderStage6GroundZones(ctx, renderProgress, horizonY, bottomY) {
         const zoneWidth = this.maxProgress / 4;
         const filter = 'brightness(0.88) saturate(0.72) contrast(0.98)';
+        // 床テクスチャの切り替え位置は動的。壁は立面として y<512 しか覆えないため、
+        // 境界ちょうどで切ると接近中に俯瞰床帯へ「次の面の床」が素通しで見えてしまう。
+        // - 未通過の角: 壁右端(+520)。トリガー時の画面右端(≈+500)より先=接近中は不可視
+        // - 通過済みの角: 暗転明けのカメラ左端(+380)。旧床を一切引きずらず、画面は最初から新しい床だけ
+        // 切り替え自体は完全暗転中(advanceCornerのcornersClimbed++)に起き、後退クランプで再訪もできない。
+        const seamFor = (cornerIndex) => (
+            this.cornersClimbed > cornerIndex
+                ? STAGE6_CORNER.POST_FADE_CAMERA_LAG
+                : STAGE6_CORNER.WALL_RIGHT_PX
+        );
+        const b1 = zoneWidth + seamFor(0);
+        const b2 = zoneWidth * 2 + seamFor(1);
+        const b3 = zoneWidth * 3 + seamFor(2);
         const zones = [
-            { image: this.stage6GroundImage, start: 0, end: zoneWidth },
-            { image: this.stage6UpperGalleryGroundImage, start: zoneWidth, end: zoneWidth * 2 },
+            { image: this.stage6GroundImage, start: 0, end: b1 },
+            { image: this.stage6UpperGalleryGroundImage, start: b1, end: b2 },
             {
                 // 大棟化: 三巡目の床は黒漆の板張りへ置き換え(旧: 鉄板リベット床は壁面に見えるため廃止)
                 image: this.isStage6ImageReady(this.stage6GalleryWoodGroundImage)
                     ? this.stage6GalleryWoodGroundImage
                     : this.stage6RoofRidgeGroundImage,
-                start: zoneWidth * 2,
-                end: zoneWidth * 3
+                start: b2,
+                end: b3
             },
             {
-                // 大棟化: 四巡目の床は大棟の棟瓦+手前側屋根斜面
-                image: this.isStage6ImageReady(this.stage6RidgeTilesGroundImage)
-                    ? this.stage6RidgeTilesGroundImage
-                    : this.stage6FinalTerraceGroundImage,
-                start: zoneWidth * 3,
-                end: this.maxProgress
+                // 大棟化: 四巡目の床は大棟の棟瓦+手前側屋根斜面。
+                // 画像上端17%が棟の冠(鳥衾+のし瓦)なので上端を床上端に整列させ、
+                // 冠帯(480..521)が足元ライン512をまたいで奥側斜面との継ぎ目を覆うようにする。
+                // v3(eaves)は軒先で終わり下端が透過——軒下には別レイヤーで遥か下の世界が覗く。
+                image: this.isStage6ImageReady(this.stage6RidgeEavesGroundImage)
+                    ? this.stage6RidgeEavesGroundImage
+                    : (this.isStage6ImageReady(this.stage6RidgeTilesGroundImage)
+                        ? this.stage6RidgeTilesGroundImage
+                        : this.stage6FinalTerraceGroundImage),
+                start: b3,
+                end: this.maxProgress,
+                topAlign: this.isStage6ImageReady(this.stage6RidgeEavesGroundImage) ||
+                    this.isStage6ImageReady(this.stage6RidgeTilesGroundImage),
+                underworld: this.isStage6ImageReady(this.stage6RidgeEavesGroundImage)
             }
         ];
 
         let rendered = false;
         for (const zone of zones) {
+            // 軒下の世界(遥か下の朝靄と城下): 軒先で終わる床(下端透過)の下に敷く
+            if (zone.underworld) {
+                this.renderStage6Underworld(ctx, renderProgress, zone.start, zone.end, horizonY, bottomY);
+            }
             rendered = this.renderStage6GroundRegion(ctx, zone.image, renderProgress, {
                 worldStart: zone.start,
                 worldEnd: zone.end,
                 horizonY,
                 bottomY,
-                filter
+                filter,
+                topAlign: !!zone.topAlign
             }) || rendered;
         }
-        if (rendered) {
-            this.renderStage6GroundThresholds(ctx, renderProgress, horizonY, bottomY);
-        }
+        // 敷居ストリップは廃止: 床の切り替え位置が動的になった結果、
+        // 未通過側(+520)は接近中の画面右端(+500)より先、通過側(+380)は暗転明けの画面左端ちょうどで、
+        // どの局面でも継ぎ目が画面に映らなくなったため、受け手のマーキング自体が不要になった。
         return rendered;
+    }
+
+    /**
+     * Stage6 大棟: 軒下に覗く「遥か下の世界」。
+     * 床アセット(ridge_eaves)は軒先で終わり下端が透過なので、その下に
+     * 空気遠近の深い藍+かすかな城下の灯+朝靄を敷く。屋根の上にいる高度の決定的な証拠。
+     */
+    renderStage6Underworld(ctx, renderProgress, worldStart, worldEnd, horizonY, bottomY) {
+        const screenStart = worldStart - renderProgress;
+        const screenEnd = worldEnd - renderProgress;
+        if (screenEnd <= 0 || screenStart >= CANVAS_WIDTH) return;
+        const clipX = Math.max(0, screenStart);
+        const clipW = Math.max(0, Math.min(CANVAS_WIDTH, screenEnd) - clipX);
+        if (clipW <= 0) return;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(clipX, horizonY, clipW, Math.max(0, bottomY - horizonY));
+        ctx.clip();
+
+        // 深い藍(下=遠い地上ほど夜が残る)
+        const grad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
+        grad.addColorStop(0, '#10151f');
+        grad.addColorStop(1, '#070a12');
+        ctx.fillStyle = grad;
+        ctx.fillRect(clipX, horizonY, clipW, Math.max(0, bottomY - horizonY));
+
+        // 眼下の町(かすか・低パララックス=遥か遠い)
+        this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, renderProgress, {
+            parallax: 0.3, drawHeight: 130, bottomY: bottomY + 30, alpha: 0.4,
+            filter: 'brightness(0.72) saturate(0.7)', mirrorRepeat: false
+        });
+        // 朝靄が屋根の際から下界へ薄くかかる
+        this.renderStageBackdropTile(ctx, this.stage6PanoramaCloudSeaImage, renderProgress, {
+            parallax: 0.24, drawHeight: 80, bottomY: bottomY + 6, alpha: 0.35,
+            filter: 'brightness(0.85) saturate(0.55)', mirrorRepeat: false
+        });
+
+        ctx.restore();
     }
 
     renderStage6GroundThresholds(ctx, renderProgress, horizonY, bottomY) {
@@ -4288,8 +4398,9 @@ export class Stage {
         ctx.clip();
         ctx.filter = 'brightness(0.82) saturate(0.62) contrast(1.02)';
 
+        // 敷居ストリップは床テクスチャの実際の切り替え位置(壁右端)に置き、継ぎ目を受ける
         for (let zoneIndex = 1; zoneIndex < 4; zoneIndex++) {
-            const x = Math.round(zoneWidth * zoneIndex - renderProgress - drawW * 0.5);
+            const x = Math.round(zoneWidth * zoneIndex + STAGE6_CORNER.WALL_RIGHT_PX - renderProgress - drawW * 0.5);
             if (x + drawW <= 0 || x >= CANVAS_WIDTH) continue;
             ctx.drawImage(image, x, y, drawW, drawH);
         }

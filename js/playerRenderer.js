@@ -10,7 +10,7 @@ import {
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
 } from './playerData.js';
-import { applyShogunRendererMixin } from './shogunRendererHelper.js';
+import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=shogun-run-legs-20260724a';
 import {
     SHOGUN_SCALE,
     SHOGUN_ACTOR_BASE_HEIGHT,
@@ -19,8 +19,18 @@ import {
     SHOGUN_CROUCH_INTENSITY,
     SHOGUN_HEAD_SCALE,
     SHOGUN_HIP_LIFT_PX,
-    SHOGUN_AIRBORNE_TUCK_SCALE
-} from './shogunConstants.js';
+    SHOGUN_AIRBORNE_TUCK_SCALE,
+    SHOGUN_RUN_STRIDE_AMP,
+    SHOGUN_DASH_STRIDE_AMP,
+    SHOGUN_RUN_LIFT_AMP,
+    SHOGUN_DASH_LIFT_AMP,
+    NINJA_RUN_STRIDE_AMP,
+    NINJA_DASH_STRIDE_AMP,
+    NINJA_RUN_LIFT_AMP,
+    NINJA_DASH_LIFT_AMP,
+    SHOGUN_RUN_STANCE_DUTY,
+    SHOGUN_RUN_STRIDE_CENTER_BIAS
+} from './shogunConstants.js?v=shogun-run-legs-20260724c';
 
 export function applyRendererMixin(PlayerClass) {
     applyShogunRendererMixin(PlayerClass);
@@ -2197,6 +2207,31 @@ export function applyRendererMixin(PlayerClass) {
                     rightFootY += (idlePose.rightFootY - rightFootY) * recover;
                 }
             }
+            // 共通ポスト処理(宙返りの4段目は体軸回転があるため除外):
+            //  - 空中では足を体の上昇に追従させ、接地係数の名残による脚の間延びを畳む
+            //  - 膝は hip→foot 直線から必ず進行方向側へ張り出し、逆反り・伸び切りを防ぐ
+            //  - 突進の滑走中(接地で|vx|大)は膝を深めてブレース(踏ん張り)を見せる
+            if (comboStep !== 4) {
+                const braceBend = isGrounded ? Math.min(2.2, Math.abs(vx) * 0.24) : Math.min(1.6, Math.abs(vx) * 0.1);
+                const refineComboLeg = (hipX0, hipY0, kneeX0, kneeY0, footX0, footY0) => {
+                    let footYAdj = footY0;
+                    if (!isGrounded) footYAdj -= airborneLift * 0.34;
+                    const dX = footX0 - hipX0, dY = footYAdj - hipY0;
+                    const len = Math.max(0.001, Math.hypot(dX, dY));
+                    const ux = dX / len, uy = dY / len;
+                    const proj = (kneeX0 - hipX0) * ux + (kneeY0 - hipY0) * uy;
+                    const t = Math.max(0.42, Math.min(0.62, proj / len));
+                    let nX = -uy, nY = ux;
+                    if (nX * dir < 0) { nX = -nX; nY = -nY; }
+                    const perp = (kneeX0 - (hipX0 + dX * t)) * nX + (kneeY0 - (hipY0 + dY * t)) * nY;
+                    const bend = Math.max(1.5, perp) + braceBend;
+                    return { kneeX: hipX0 + dX * t + nX * bend, kneeY: hipY0 + dY * t + nY * bend, footY: footYAdj };
+                };
+                const refL = refineComboLeg(leftHipX, hipLocalY + 0.35, leftKneeX, leftKneeY, leftFootX, leftFootY);
+                leftKneeX = refL.kneeX; leftKneeY = refL.kneeY; leftFootY = refL.footY;
+                const refR = refineComboLeg(rightHipX, hipLocalY + 0.12, rightKneeX, rightKneeY, rightFootX, rightFootY);
+                rightKneeX = refR.kneeX; rightKneeY = refR.kneeY; rightFootY = refR.footY;
+            }
             drawJointedLeg(leftHipX, hipLocalY + 0.35, leftKneeX, leftKneeY, leftFootX, leftFootY, false, 1.12);
             drawJointedLeg(rightHipX, hipLocalY + 0.12, rightKneeX, rightKneeY, rightFootX, rightFootY, true, 1.06);
         } else if (isCrouchPose) {
@@ -2238,9 +2273,10 @@ export function applyRendererMixin(PlayerClass) {
             const spearLegSpan = Math.max(14, (bottomY - 0.2) - (standHipY - hipLiftPx));
             const spearLegScale = spearLegSpan / 23.8;
 
-            // 後ろ足: 斜め後方へ長く蹴る（蹴り姿勢）
+            // 後ろ足: 斜め後方へ長く蹴る（蹴り姿勢）。突進が乗るほど足先を後方上へ蹴り上げ、
+            // 棒立ちに見えないよう横っ飛びの勢いを脚で表現する
             const kickRearFootX = rearHipX - dir * (14.1 + rearDrive * 3.1) * spearLegScale;
-            const kickRearFootY = hipLocalY + (12.9 + rearDrive * 0.24) * spearLegScale;
+            const kickRearFootY = hipLocalY + (12.9 - rearDrive * 4.6) * spearLegScale;
             // 前足: 曲げ感を維持しつつ通常脚長に近い長さ（蹴り姿勢）
             const kickFrontKneeX = rightHipX2 + dir * (3.95 + rearDrive * 0.6);
             const kickFrontKneeY = hipLocalY + (8.7 + rearDrive * 0.24) * spearLegScale;
@@ -2272,7 +2308,64 @@ export function applyRendererMixin(PlayerClass) {
         } else {
             // 空中 or 走り or 待機の足描画
             if (!this.isGrounded) {
-                // 画像参照に合わせ、前脚を強めに畳み、後脚はやや後方へ流す空中姿勢
+                const leftHipX = torsoHipX + dir * 1.28;
+                const rightHipX3 = torsoHipX - dir * 1.18;
+                // キャラ固有の自然脚長(忍者≒23.8、将軍は腰リフト分長い)に比例させる
+                const airLegSpanScale = Math.max(14, (bottomY - 0.2) - (standHipY - hipLiftPx)) / 23.8;
+                // hip→foot 直線から必ず指定方向側へ膝を張り出すヘルパー(逆反り防止)
+                const bendKneeToward = (hx, hy, fx, fy, t, bend, towardSign) => {
+                    const dX = fx - hx, dY = fy - hy;
+                    const len = Math.max(0.001, Math.hypot(dX, dY));
+                    let nX = -dY / len, nY = dX / len;
+                    if (nX * towardSign < 0) { nX = -nX; nY = -nY; }
+                    return { x: hx + dX * t + nX * bend, y: hy + dY * t + nY * bend };
+                };
+                // 大太刀のジャンプ叩きつけ中はフェーズ別の専用脚
+                const odachiWeapon = (subWeaponAction === '大太刀' && this.currentSubWeapon &&
+                    this.currentSubWeapon.name === '大太刀' && typeof this.currentSubWeapon.getPose === 'function')
+                    ? this.currentSubWeapon : null;
+                const odachiPose = odachiWeapon ? odachiWeapon.getPose(this) : null;
+                const odachiPhase = (odachiPose && ['rise', 'stall', 'flip', 'plunge', 'planted'].indexOf(odachiPose.phase) >= 0)
+                    ? odachiPose.phase : null;
+                if (odachiPhase) {
+                    const s = airLegSpanScale;
+                    let leftKneeX, leftKneeY, leftFootX, leftFootY, rightKneeX, rightKneeY, rightFootX, rightFootY;
+                    if (odachiPhase === 'rise') {
+                        // 突き上げ跳躍: 前脚を力強く畳み、後脚は蹴り切った余韻で後方へ流す
+                        const kick = Math.max(0, Math.min(1, -this.vy / 18));
+                        leftKneeX = leftHipX + dir * 3.0; leftKneeY = hipY + 6.5 * s;
+                        leftFootX = leftKneeX - dir * 1.4; leftFootY = leftKneeY + 4.8 * s;
+                        rightFootX = rightHipX3 - dir * (4.2 + kick * 3.6); rightFootY = hipY + (11.0 + kick * 2.6) * s;
+                        const rkRise = bendKneeToward(rightHipX3, hipY, rightFootX, rightFootY, 0.52, (1.6 + kick * 0.8) * s, dir);
+                        rightKneeX = rkRise.x; rightKneeY = rkRise.y;
+                    } else if (odachiPhase === 'stall' || odachiPhase === 'flip') {
+                        // 頂点〜宙返り: 両脚を胸側へタック
+                        leftKneeX = leftHipX + dir * 3.4; leftKneeY = hipY + 5.6 * s;
+                        leftFootX = leftKneeX - dir * 2.4; leftFootY = leftKneeY + 4.0 * s;
+                        rightKneeX = rightHipX3 + dir * 2.2; rightKneeY = hipY + 6.2 * s;
+                        rightFootX = rightKneeX - dir * 2.8; rightFootY = rightKneeY + 4.4 * s;
+                    } else if (odachiPhase === 'plunge') {
+                        // 急降下: 刀に体重を乗せ、両脚は後方上へ流す
+                        leftFootX = leftHipX - dir * 4.6; leftFootY = hipY + 7.2 * s;
+                        const lkPl = bendKneeToward(leftHipX, hipY, leftFootX, leftFootY, 0.5, 2.0 * s, dir);
+                        leftKneeX = lkPl.x; leftKneeY = lkPl.y;
+                        rightFootX = rightHipX3 - dir * 6.6; rightFootY = hipY + 9.0 * s;
+                        const rkPl = bendKneeToward(rightHipX3, hipY, rightFootX, rightFootY, 0.5, 1.5 * s, dir);
+                        rightKneeX = rkPl.x; rightKneeY = rkPl.y;
+                    } else {
+                        // planted: 柄にぶら下がり、脚はだらんと垂らして微揺れ
+                        const sway = Math.sin(this.motionTime * 0.004) * 1.2;
+                        leftKneeX = leftHipX + dir * 0.9 + sway * 0.4; leftKneeY = hipY + 8.6 * s;
+                        leftFootX = leftKneeX - dir * 0.8 + sway; leftFootY = leftKneeY + 6.8 * s;
+                        rightKneeX = rightHipX3 + dir * 0.5 + sway * 0.3; rightKneeY = hipY + 8.0 * s;
+                        rightFootX = rightKneeX - dir * 1.0 + sway * 0.8; rightFootY = rightKneeY + 6.2 * s;
+                    }
+                    drawJointedLeg(leftHipX, hipY + 0.2, leftKneeX, leftKneeY, leftFootX, leftFootY, false, 0.9);
+                    drawJointedLeg(rightHipX3, hipY + 0.1, rightKneeX, rightKneeY, rightFootX, rightFootY, true, 1.02);
+                } else {
+                // 汎用空中: 走りの勢い(vx)に応じた前後シザーで跳躍の勢いを見せる。
+                // 移動方向側の脚(lead)は膝から前へ持ち上げ、反対脚(trail)は後方へ流す。
+                // 垂直跳び(vx≈0)ではシザーが消え、従来相当の中立空中ポーズに収束する。
                 const drift = Math.max(-1, Math.min(1, this.vx / Math.max(1, this.speed * 1.45)));
                 const rise = this.vy < 0 ? Math.min(1, Math.abs(this.vy) / 14) : 0;
                 const descend = this.vy > 0 ? Math.min(1, this.vy / 13) : 0;
@@ -2281,28 +2374,30 @@ export function applyRendererMixin(PlayerClass) {
                 const tuck = isShogunMode ? tuckBase * SHOGUN_AIRBORNE_TUCK_SCALE : tuckBase;
                 const open = descend * 0.62;
                 const settle = Math.max(0, Math.min(1, (descend - 0.28) / 0.72));
-                const leftHipX = torsoHipX + dir * 1.28;
-                const rightHipX3 = torsoHipX - dir * 1.18;
-
-                // 奥足は曲げ（短め）、手前足は伸ばし（長め）
-                let leftKneeX = leftHipX + dir * (2.78 + tuck * 2.25 - open * 1.24) + dir * drift * 0.2;
-                let leftKneeY = hipY + 8.25 - tuck * 3.1 + open * 0.9;
-                let leftFootX = leftKneeX - dir * (3.22 + tuck * 1.12 - open * 0.58) + dir * drift * 0.1;
-                let leftFootY = leftKneeY + 7.02 - tuck * 1.86 + open * 1.62;
-
-                let rightKneeX = rightHipX3 - dir * (2.36 + tuck * 1.7 - open * 0.76) - dir * drift * 0.18;
-                let rightKneeY = hipY + 8.88 - tuck * 1.02 + open * 0.98;
-                let rightFootX = rightKneeX - dir * (3.72 + tuck * 1.35 - open * 0.62) - dir * drift * 0.02;
-                let rightFootY = rightKneeY + 7.28 - tuck * 0.35 + open * 1.82;
-
-                // 将軍は脚が長いため空中姿勢でも足先を下方に延ばす
-                if (isShogunMode) {
-                    const extend = 7.0 * (1 - settle);
-                    leftKneeY += extend * 0.5;
-                    leftFootY += extend;
-                    rightKneeY += extend * 0.5;
-                    rightFootY += extend;
-                }
+                const scissor = Math.min(1, Math.abs(drift)) * (1 - settle * 0.75);
+                const m = Math.abs(this.vx) > 0.4 ? Math.sign(this.vx) : dir; // 移動方向
+                const s = airLegSpanScale;
+                const poseLead = (hipX0) => {
+                    // 膝を移動方向へ高く駆動し、すねは畳む。落下時は足を下ろして着地準備
+                    const kneeX = hipX0 + m * (2.5 + 3.4 * scissor) * s;
+                    const kneeY = hipY + (8.3 - tuck * 2.7 - scissor * 1.3) * s;
+                    const footX = kneeX + m * (descend * 2.6 - 1.0) * s;
+                    const footY = kneeY + (6.4 - tuck * 1.8 + open * 1.8) * s;
+                    return { kneeX, kneeY, footX, footY };
+                };
+                const poseTrail = (hipX0) => {
+                    // 後方へ流し、膝は移動方向側へ曲げる
+                    const footX = hipX0 - m * (3.4 + 4.8 * scissor - open * 1.2) * s;
+                    const footY = hipY + (12.4 - tuck * 2.4 - scissor * 2.4 + open * 1.8) * s;
+                    const bend = (1.3 + 1.9 * scissor + tuck * 0.9) * s;
+                    const k = bendKneeToward(hipX0, hipY, footX, footY, 0.55, bend, m);
+                    return { kneeX: k.x, kneeY: k.y, footX, footY };
+                };
+                const leadIsLeft = (m === dir);
+                const poseL = leadIsLeft ? poseLead(leftHipX) : poseTrail(leftHipX);
+                const poseR = leadIsLeft ? poseTrail(rightHipX3) : poseLead(rightHipX3);
+                let leftKneeX = poseL.kneeX, leftKneeY = poseL.kneeY, leftFootX = poseL.footX, leftFootY = poseL.footY;
+                let rightKneeX = poseR.kneeX, rightKneeY = poseR.kneeY, rightFootX = poseR.footX, rightFootY = poseR.footY;
 
                 // 接地直前は地上待機姿勢へ自然に戻す
                 leftKneeX += (leftHipX + dir * 0.62 - leftKneeX) * (settle * 0.64);
@@ -2316,8 +2411,9 @@ export function applyRendererMixin(PlayerClass) {
 
                 drawJointedLeg(leftHipX, hipY + 0.2, leftKneeX, leftKneeY, leftFootX, leftFootY, false, 0.9);
                 drawJointedLeg(rightHipX3, hipY + 0.1, rightKneeX, rightKneeY, rightFootX, rightFootY, true, 1.02);
+                }
             } else {
-                const runPhase = isRunLike ? Math.sin(this.legPhase || this.motionTime * 0.012) : 0;
+                const runAngle = this.legPhase || this.motionTime * 0.012;
                 if (!isRunLike) {
                     const idlePhase = Math.sin(this.motionTime * 0.0042);
                     const idleSpread = 2.5 + Math.abs(idlePhase) * 0.3;
@@ -2325,25 +2421,57 @@ export function applyRendererMixin(PlayerClass) {
                     drawJointedLeg(leftHipX, hipY + 0.22, leftHipX + dir * 0.55, hipY + 9.9, centerX + dir * idleSpread, bottomY + 0.1, false, 0.0);
                     drawJointedLeg(rightHipX4, hipY + 0.14, rightHipX4 + dir * 0.6, hipY + 9.6, centerX - dir * idleSpread, bottomY - 0.1, true, 0.18);
                 } else {
+                    // 走行サイクル(忍者/将軍共通・接地ロック式):
+                    //  - stance(接地・周期のSHOGUN_RUN_STANCE_DUTY割合)は +A→-A の線形スイープ。
+                    //    位相速度側(player.js updateLegLocomotion)が ω=duty・πv/A を保証するため
+                    //    足が地面に正確にロックされる。duty<0.5 が生む滞空で歩行(行進)ではなく走りになる
+                    //  - swing(戻し)は足を体の後ろ側で畳んで持ち上げ(bell指数<1で早出しの山)、
+                    //    前方へは遅らせて出す(pos指数>1)。「前方で高い足」=兵隊の蹴り出しを避ける
+                    //  - ストライド中心を後方バイアスし着地を体に寄せる(後傾の読みを消す)
+                    //  - 振幅は素体差(将軍は脚長)を吸収するためキャラ別定数
                     const runBlend = Math.min(1, speedAbs / Math.max(1, this.speed * 1.25));
-                    const strideAmp = isDashLike ? 13.8 : 10.4; const liftAmp = isDashLike ? 5.6 : 4.2;
+                    const strideAmp = isDashLike
+                        ? (isShogunMode ? SHOGUN_DASH_STRIDE_AMP : NINJA_DASH_STRIDE_AMP)
+                        : (isShogunMode ? SHOGUN_RUN_STRIDE_AMP : NINJA_RUN_STRIDE_AMP);
+                    const liftAmp = isDashLike
+                        ? (isShogunMode ? SHOGUN_DASH_LIFT_AMP : NINJA_DASH_LIFT_AMP)
+                        : (isShogunMode ? SHOGUN_RUN_LIFT_AMP : NINJA_RUN_LIFT_AMP);
                     const legSpread = 0.8; const baseStepScale = 0.45 + runBlend * 0.88;
-                    const legSpanY = bottomY - hipY;
-                    const drawGroundLeg = (legSign, isFrontLeg) => {
-                        const phase = runPhase * legSign;
-                        const forward = phase * strideAmp * baseStepScale;
-                        const lift = Math.max(0, -phase) * liftAmp * (0.3 + runBlend * 0.95);
-                        const plant = Math.max(0, phase) * (0.72 + runBlend * 0.58);
+                    const TWO_PI = Math.PI * 2;
+                    const stanceSpan = SHOGUN_RUN_STANCE_DUTY * TWO_PI;
+                    const swingSpan = TWO_PI - stanceSpan;
+                    const drawRunGroundLeg = (legSign, isFrontLeg) => {
+                        // この脚の周回位相(両脚は半周期ずれ、m=0がstance開始)を[0,2π)へ正規化
+                        let m = (runAngle + (legSign > 0 ? 0 : Math.PI) - Math.PI * 0.5) % TWO_PI;
+                        if (m < 0) m += TWO_PI;
+                        let pos, bell;
+                        if (m < stanceSpan) {
+                            const s = m / stanceSpan;
+                            pos = 1 - 2 * s; bell = 0;
+                        } else {
+                            const s = (m - stanceSpan) / swingSpan;
+                            pos = -Math.cos(Math.PI * Math.pow(s, 1.25));
+                            bell = Math.sin(Math.PI * Math.pow(s, 0.85));
+                        }
+                        const forward = (pos - SHOGUN_RUN_STRIDE_CENTER_BIAS) * strideAmp * baseStepScale;
+                        const lift = bell * liftAmp * (0.3 + runBlend * 0.95);
                         const depthShift = isFrontLeg ? 0 : 0.45;
                         const hipX = torsoHipX + dir * legSign * 0.88;
                         const hipLocalY = hipY + (isFrontLeg ? 0.12 : 0.26);
                         const footX = centerX + dir * (forward + legSign * legSpread);
                         const footY = bottomY - lift + depthShift * 0.25;
-                        const kneeX = hipX + dir * (forward * 0.44 + legSign * (legSpread * 0.56 + 0.62));
-                        const kneeY = hipY + legSpanY * (0.56 + runBlend * 0.04) - lift * 0.75 + plant * 0.3 + depthShift;
+                        const legDX = footX - hipX;
+                        const legDY = footY - hipLocalY;
+                        const legLen = Math.max(0.001, Math.hypot(legDX, legDY));
+                        let bendNX = -legDY / legLen; let bendNY = legDX / legLen;
+                        if (bendNX * dir < 0) { bendNX = -bendNX; bendNY = -bendNY; }
+                        const bend = 1.4 + 4.6 * bell;
+                        const kneeT = 0.56;
+                        const kneeX = hipX + legDX * kneeT + bendNX * bend;
+                        const kneeY = hipLocalY + legDY * kneeT + bendNY * bend + depthShift;
                         drawJointedLeg(hipX, hipLocalY, kneeX, kneeY, footX, footY, isFrontLeg, 0.34);
                     };
-                    drawGroundLeg(1, false); drawGroundLeg(-1, true);
+                    drawRunGroundLeg(1, false); drawRunGroundLeg(-1, true);
                 }
             }
         }

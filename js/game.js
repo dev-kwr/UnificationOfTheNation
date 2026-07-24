@@ -984,6 +984,13 @@ class Game {
                 this.stage.previousStairDirection = -1;
             }
 
+            // Stage 6 の場合は全角通過済み(=四巡目・大棟)の状態にする。
+            // これを怠ると角1の門トリガーが「足が門より右」で即発火し、
+            // ボス部屋からプレイヤーが角1の先へスナップで引き戻される。
+            if (this.currentStageNumber === 6 && this.stage.stageNumber === 6) {
+                this.stage.cornersClimbed = STAGE6_CORNER.CORNER_XS.length;
+            }
+
             this.stage.spawnBoss();           // ボス即スポーン
 
             // プレイヤーをボス部屋の本来のカメラ到達時の立ち位置（画面左から30%）へ配置
@@ -1825,7 +1832,10 @@ class Game {
         if (this.currentStageNumber === 6 && this.stage &&
             !this.stage.isFloorTransitioning && this.stage.hasPendingStage6Corner()) {
             const doorX = this.stage.getStage6ActiveCornerX() - STAGE6_CORNER.DOOR_TRIGGER_INSET;
-            if (this.player.x + this.player.getWorldWidth() >= doorX) {
+            const probe = this.player.x + this.player.getWorldWidth();
+            // 上限も見る: 「門に歩き入った」ときだけ発火。
+            // 下限だけだと、デバッグワープ等で門より先にいるだけで誤発火する。
+            if (probe >= doorX && probe <= doorX + 200) {
                 this.player.vx = 0;
                 this.stage.startCornerTransition();
             }

@@ -21,15 +21,20 @@ import {
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
 } from './normalComboMotion.js?v=oonagi-step3-dash-20260702n';
-import { applyRendererMixin }    from './playerRenderer.js?v=oonagi-ext-parametric-20260702q';
+import { applyRendererMixin }    from './playerRenderer.js?v=motion-legs-20260724d';
 import { applySlashTrailMixin }  from './playerSlashTrail.js?v=oonagi-tip-finetune-20260702v';
 import { applySpecialMixin }     from './playerSpecial.js?v=clone-ground-fix2-20260623';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
-    SHOGUN_CROUCH_INTENSITY
-} from './shogunConstants.js';
+    SHOGUN_CROUCH_INTENSITY,
+    SHOGUN_RUN_STRIDE_AMP,
+    SHOGUN_DASH_STRIDE_AMP,
+    NINJA_RUN_STRIDE_AMP,
+    NINJA_DASH_STRIDE_AMP,
+    SHOGUN_RUN_STANCE_DUTY
+} from './shogunConstants.js?v=shogun-run-legs-20260724c';
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
@@ -346,17 +351,37 @@ export class Player {
             nextLegPhase = 0;
             nextLegAngle += (0 - nextLegAngle) * 0.34;
         } else if (movingOnGround) {
-            const baseFreq = Number.isFinite(runBaseFreq)
-                ? runBaseFreq
-                : (isDashing ? 0.027 : (isCrouching ? 0.017 : 0.018));
-            const speedScale = isDashing ? 1.0 : Math.min(1.25, speedAbs / Math.max(1, this.speed));
-            nextLegPhase += deltaMs * baseFreq * (0.72 + speedScale * 0.68);
+            if (!isCrouching) {
+                // 走行(忍者/将軍共通): 接地中の足が地面に正確にロックされる位相速度。
+                // stance(周期のSHOGUN_RUN_STANCE_DUTY割合=S rad)で足が素体2Aだけ線形に
+                // 後方スイープするため、地面速度と一致させる条件は ω = S・v/(2A) = duty・π・v/A。
+                // これによりケイデンスが移動距離に自動追従する(空回り防止)。
+                // 描画波形(playerRenderer drawRunGroundLeg)がこのロック前提のため、
+                // runBaseFreq の明示指定(旧固定周波数)より優先する。
+                const isShogun = this.characterType === 'shogun';
+                const runBlend = Math.min(1, speedAbs / Math.max(1, this.speed * 1.25));
+                const strideAmp = isDashing
+                    ? (isShogun ? SHOGUN_DASH_STRIDE_AMP : NINJA_DASH_STRIDE_AMP)
+                    : (isShogun ? SHOGUN_RUN_STRIDE_AMP : NINJA_RUN_STRIDE_AMP);
+                const ampModel = Math.max(1, strideAmp * (0.45 + runBlend * 0.88));
+                const scale = this.scaleMultiplier || 1;
+                const vModelPerMs = (speedAbs / scale) * 60 / 1000; // px/frame(60fps)→素体px/ms
+                nextLegPhase += deltaMs * SHOGUN_RUN_STANCE_DUTY * Math.PI * vModelPerMs / ampModel;
+                const amplitude = Number.isFinite(runAmplitude)
+                    ? runAmplitude
+                    : (isDashing ? 1.08 : 0.86);
+                const targetAngle = Math.sin(nextLegPhase) * amplitude;
+                nextLegAngle += (targetAngle - nextLegAngle) * 0.52;
+            } else {
+                // しゃがみ歩きは旧式(固定周波数)のまま
+                const baseFreq = Number.isFinite(runBaseFreq) ? runBaseFreq : 0.017;
+                const speedScale = Math.min(1.25, speedAbs / Math.max(1, this.speed));
+                nextLegPhase += deltaMs * baseFreq * (0.72 + speedScale * 0.68);
 
-            const amplitude = Number.isFinite(runAmplitude)
-                ? runAmplitude
-                : (isDashing ? 1.08 : (isCrouching ? 0.62 : 0.86));
-            const targetAngle = Math.sin(nextLegPhase) * amplitude;
-            nextLegAngle += (targetAngle - nextLegAngle) * 0.52;
+                const amplitude = Number.isFinite(runAmplitude) ? runAmplitude : 0.62;
+                const targetAngle = Math.sin(nextLegPhase) * amplitude;
+                nextLegAngle += (targetAngle - nextLegAngle) * 0.52;
+            }
         } else if (isGrounded) {
             nextLegPhase = 0;
             nextLegAngle += (0 - nextLegAngle) * 0.24;

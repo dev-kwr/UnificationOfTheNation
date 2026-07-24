@@ -274,6 +274,17 @@ export function applyShogunRendererMixin(PlayerClass) {
         const bootCX = footX + dir * 0.8;
         const bY = footY + 1.8;
 
+        // すねの後傾量からつま先ピッチを導出(後方へ流れた足はつま先下がり、接地時は水平)
+        const shinDX2 = footX - kneeX;
+        const shinLen2 = Math.hypot(shinDX2, footY - kneeY) || 1;
+        const leanBack = Math.max(0, -(shinDX2 * dir) / shinLen2);
+        const bootPitch = 0.55 * Math.min(1, Math.max(0, (leanBack - 0.12) / 0.88));
+
+        ctx.save();
+        ctx.translate(footX, footY);
+        ctx.rotate(dir * bootPitch);
+        ctx.translate(-footX, -footY);
+
         ctx.fillStyle = '#0a0a0e';
         ctx.beginPath();
         ctx.ellipse(bootCX, bY - bootH, bootW, bootH, 0, Math.PI, Math.PI * 2);
@@ -286,6 +297,8 @@ export function applyShogunRendererMixin(PlayerClass) {
         ctx.beginPath();
         ctx.arc(bootCX + dir * bootW * 0.75, bY - bootH * 0.35, 0.75, 0, Math.PI * 2);
         ctx.fill();
+
+        ctx.restore();
 
         return true;
     };

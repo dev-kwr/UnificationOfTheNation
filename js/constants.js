@@ -307,10 +307,13 @@ export const STAGE5_FLOOR = {
 export const STAGE6_CORNER = {
     CORNER_XS: [6000, 12000, 18000],
     WALL_LEFT_PX: 200,              // 壁の左端（境界からの距離）
-    WALL_RIGHT_PX: 520,             // 壁の右端（接近中に画面右へ次ゾーンが漏れない幅）
-    DOOR_TRIGGER_INSET: 120,        // 通用門のトリガーx（境界からの手前距離。発火時の画面右端が壁の右端を越えない値）
-    SNAP_AFTER_PX: 760,             // 暗転中に壁の先へ置くプレイヤーx（境界基準、壁右端+240）
-    POST_FADE_CAMERA_LAG: 380,      // 暗転明けのカメラ位置（プレイヤーの手前距離。壁が画面左に残る）
+    WALL_RIGHT_PX: 610,             // 壁の右端。門中心(-79)で発火した時の画面右端(+561)を確実に覆う幅
+                                    // (壁アセットv5は2304×1456=枠810×512。v4(2048)は暫定で横に伸びる)
+    DOOR_TRIGGER_INSET: 55,         // 通用門のトリガーx（境界からの手前距離）。
+                                    // 門洞中心=cornerX-79に対し、プレイヤー中心(=probe-24)が門中心に
+                                    // 達した瞬間(probe=cornerX-55)に発火=門の正面に立ってから暗転する。
+    SNAP_AFTER_PX: 850,             // 暗転中に壁の先へ置くプレイヤーx（境界基準、壁右端+240）
+    POST_FADE_CAMERA_LAG: 380,      // 暗転明けのカメラ位置（プレイヤーの手前距離。壁が画面左に140px残る）
     SPAWN_BUFFER: 250,              // 角帯の敵/障害物スポーン禁止バッファ
     TRANSITION_FADE_MS: 400,
     TRANSITION_WAIT_MS: 650,
