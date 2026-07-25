@@ -36,7 +36,7 @@ import {
     NINJA_CROUCH_LIFT_AMP,
     SHOGUN_CROUCH_LIFT_AMP,
     SHOGUN_RUN_STRIDE_CENTER_BIAS
-} from './shogunConstants.js?v=shogun-run-legs-20260725a';
+} from './shogunConstants.js?v=shogun-run-legs-20260725c';
 
 export function applyRendererMixin(PlayerClass) {
     applyShogunRendererMixin(PlayerClass);
@@ -859,16 +859,68 @@ export function applyRendererMixin(PlayerClass) {
         ctx.restore();
     };
 
+    // 被弾/無敵のヒットフラッシュ用 canvas filter を返す(該当しなければ null)。
+    // `brightness(0) invert(x)` は「全パーツを一旦真っ黒にしてから反転」するため、
+    // 元の色(忍者の黒/将軍の金)に関係なく均一な白系シルエットになる。
+    // 全パーツが同色になるので重なりが濃くなる問題が原理的に起きない(半透明の代替)。
+    // 忍者/将軍の両描画パスから共通で呼ぶ。
+    PlayerClass.prototype.getHitFlashFilter = function(ghostVeilActive = false) {
+        if (ghostVeilActive || this.isDefeated) return null;
+        // 被弾直後は強い白フラッシュ。140ms と短いので**点滅させない**——
+        // 48ms周期で明滅させると消灯フレームが半分を占め、被弾タイミング次第で
+        // 「光る時と光らない時がある」不安定な見た目になる(ユーザー指摘)。
+        // 敵側(enemy.js hitTimer)も同様に常時点灯で揃えている。
+        if (this.damageFlashTimer > 0) {
+            return 'brightness(0) invert(1)';
+        }
+        return null;
+    };
+
+    // 無敵時間中の明滅は廃止(ユーザー選択)。被弾表現は短い白フラッシュ＋
+    // 既存のヒットストップ/ノックバック/赤ビネットに任せる。
+    // 復活させる場合はここを実装すれば両描画パスに効く。
+    PlayerClass.prototype.isInvincibleBlinkHidden = function() {
+        return false;
+    };
+
+    // 被弾ノックバック中に上体を後方へ反らす(足元を軸に本体ごと回転)。
+    // 敵側(enemy.js hitTimer)と同じ表現で、殴られて体が仰け反る衝撃を出す。
+    // 変換を適用したら true を返すので、呼び出し側は描画後に ctx.restore() する。
+    PlayerClass.prototype.applyHurtRecoilTransform = function(ctx) {
+        const timer = this.hurtRecoilTimer || 0;
+        if (timer <= 0 || this.isDefeated) return false;
+        const t = Math.min(1, timer / 300);
+        const dir = this.facingRight ? 1 : -1;
+        const worldW = typeof this.getWorldWidth === 'function' ? this.getWorldWidth() : this.width;
+        const worldH = typeof this.getWorldHeight === 'function' ? this.getWorldHeight() : this.height;
+        const pivotX = this.x + worldW * 0.5;
+        const footY = this.y + worldH;
+        ctx.save();
+        ctx.translate(pivotX, footY);
+        ctx.rotate(-dir * 0.15 * t);
+        ctx.translate(-pivotX, -footY);
+        return true;
+    };
+
     PlayerClass.prototype.render = function(ctx, options = {}) {
         const ghostVeilActive = options.ghostVeilActive !== undefined 
             ? options.ghostVeilActive 
             : (typeof this.isGhostVeilActive === 'function' ? this.isGhostVeilActive() : false);
         const skipSpecialRender = options.skipSpecialRender || false;
 
-        // 将軍モード時は独自描画のみを行い、忍者の描画（残像含む）を一切スキップする
+        // 将軍モード時は独自描画のみを行い、忍者の描画（残像含む）を一切スキップする。
+        // ただし被弾/無敵の点滅は忍者と同じ表現を適用する(この早期returnのため
+        // 従来は将軍だけ被弾エフェクトが皆無だった)
         if (this.characterType === 'shogun') {
             this.renderSpecialReadyGlow(ctx, options);
+            // 無敵点滅の消灯フレームは本体を描かない(古典的な明滅)
+            if (this.isInvincibleBlinkHidden(ghostVeilActive)) return;
+            const shogunHitFilter = this.getHitFlashFilter(ghostVeilActive);
+            if (shogunHitFilter) ctx.filter = shogunHitFilter;
+            const shogunRecoiled = this.applyHurtRecoilTransform(ctx);
             this._renderShogunBody(ctx, ghostVeilActive, ghostVeilActive ? 0.0 : 1.0);
+            if (shogunRecoiled) ctx.restore();
+            if (shogunHitFilter) ctx.filter = 'none';
             return;
         }
 
@@ -884,22 +936,13 @@ export function applyRendererMixin(PlayerClass) {
             filterParts.push(`brightness(${100 + progress * 28}%)`);
         }
 
-        const damageFlashActive = this.damageFlashTimer > 0;
-
         // 奥義MAX到達時の発光エフェクト
         this.renderSpecialReadyGlow(ctx, options);
 
-        // 無敵時間中は点滅（死亡中は点滅しない）。半透明(globalAlpha)はパーツの重なりが
-        // 乗算のように透けて目立つため使わず、不透明のまま invert でシルエットを
-        // 灰色へフラッシュさせる(体がほぼ黒なので brightness では光らない)
-        if (!this.isGhostVeilActive() && !this.isDefeated && !this.isUsingSpecial && this.invincibleTimer > 0 && Math.floor(this.invincibleTimer / 100) % 2 === 0) {
-            filterParts.push('invert(26%)');
-        }
-        // 被弾フラッシュも同様に不透明の invert 点滅にする(重なりの透け防止)
-        if (damageFlashActive && !ghostVeilActive && !this.isDefeated) {
-            const flashStep = Math.floor((this.motionTime + this.damageFlashTimer) / 48) % 2;
-            if (flashStep === 0) filterParts.push('invert(14%)');
-        }
+        // 被弾/無敵の白フラッシュ(2Dアクション定番のヒットフラッシュ)。
+        // 半透明(globalAlpha)はパーツの重なりが乗算のように透けるため使わない
+        const hitFlashFilter = this.getHitFlashFilter(ghostVeilActive);
+        if (hitFlashFilter) filterParts.push(hitFlashFilter);
 
         // 隠れ身の術中は本体のみ透明化（全体フィルタは重いので適用しない）
         if (filterParts.length > 0) {
@@ -913,8 +956,12 @@ export function applyRendererMixin(PlayerClass) {
             this.renderSpecial(ctx, options.specialRenderOptions || {});
         }
 
-        // 本体描画
-        if (this.characterType === 'shogun') {
+        // 本体描画（無敵点滅の消灯フレームは丸ごと省く＝古典的な明滅）
+        const invincibleBlinkHidden = this.isInvincibleBlinkHidden(ghostVeilActive);
+        const hurtRecoiled = invincibleBlinkHidden ? false : this.applyHurtRecoilTransform(ctx);
+        if (invincibleBlinkHidden) {
+            // 本体は描かない（剣筋など他レイヤーは呼び出し側で描かれる）
+        } else if (this.characterType === 'shogun') {
             // ── 将軍モード: boss.js Shogun.renderBody と同一のパイプラインで描画 ──
             const ghostAlpha = ghostVeilActive ? 0.0 : 1.0;
             this._renderShogunBody(ctx, ghostVeilActive, ghostAlpha);
@@ -931,6 +978,7 @@ export function applyRendererMixin(PlayerClass) {
                     : 0 // 将軍の姿勢に近い、重心を落とすポーズを適用
             });
         }
+        if (hurtRecoiled) ctx.restore();
 
         ctx.restore();
         ctx.filter = 'none';
@@ -1233,7 +1281,10 @@ export function applyRendererMixin(PlayerClass) {
                     : clamp01(1 - (attackTimer / Math.max(1, (comboPoseAttack && comboPoseAttack.durationMs) || PLAYER.ATTACK_COOLDOWN)))
             )
             : 0;
-        const isRunLike = !isNinNinPose && !comboAttackingPose && !legTransitionLocked && isGrounded && speedAbs > 0.85;
+        // 被弾ノックバックで後方へ滑っている間は走行サイクルを使わない
+        // (後ろ向きに歩いて見えるため)。よろけ姿勢＋待機脚で「押されている」表現にする
+        const isRunLike = !isNinNinPose && !comboAttackingPose && !legTransitionLocked && isGrounded
+            && speedAbs > 0.85 && !(this.hurtRecoilTimer > 0);
         const isDashLike = !isNinNinPose && !comboAttackingPose && !legTransitionLocked && (isDashing || speedAbs > this.speed * 1.45);
         const locomotionPhase = isRunLike ? Math.sin(this.legPhase || this.motionTime * 0.012) : 0;
         const crouchWalkPhase = (isCrouchPose && isRunLike) ? locomotionPhase : 0;
@@ -1269,10 +1320,9 @@ export function applyRendererMixin(PlayerClass) {
             : this.height;
         const headRadius = (baseHeightForHead * headRatio * 0.5) * headScale;
         
-        // しゃがみの圧縮強度（忍者デフォルト0.74=浅め, SHOGUN_CROUCH_INTENSITY=0.35）。
-        // フル圧縮(1.0)は頭が腰まで落ちて胴が頭に埋まり「頭から脚」に見えるため、
-        // 将軍同様に浅くしてシルエットを保つ(ユーザー了承済み。当たり判定は不変)
-        const crouchIntensity = isCrouchPose ? (options.crouchIntensity ?? 0.74) : 0;
+        // しゃがみの圧縮強度（プレイヤー忍者は player.js getCrouchRenderIntensity()=0.22、
+        // 将軍は renderModel 内で SHOGUN_CROUCH_INTENSITY に上書き。ここは options 未指定時の既定値）
+        const crouchIntensity = isCrouchPose ? (options.crouchIntensity ?? 1.0) : 0;
         const crouchPoseT = crouchIntensity;
         const crouchPick = (standValue, crouchValue) => isCrouchPose ? lerp(standValue, crouchValue, crouchPoseT) : standValue;
         
@@ -1308,14 +1358,27 @@ export function applyRendererMixin(PlayerClass) {
             ? lerp(centerX + dir * 0.2, centerX + dir * 1.3 + dir * crouchLeanShift * 0.55, crouchPoseT)
             : (centerX + dir * 0.2);
         let headCenterX = centerX;
-        // しゃがみ: 頭が大きく腰が頭の真下に来るため、そのままだと胴が頭に隠れて
-        // 「頭から脚が生えている」ように見える。頭を大きく前へ・腰を後ろへずらし、
+        // しゃがみ: 頭が大きく(半径≈16.8)腰が頭の真下に来るため、そのままだと胴が頭に
+        // 隠れて「頭から脚が生えている」ように見える。頭を前へ・腰を後ろへずらし、
         // 尻を引いて頭で覗き込む忍びの前傾シルエットにして胴の対角線を見せる。
-        // 頭(半径≈16.8)の影から腰が水平にも抜ける量が必要(+6では不足だった)
+        // **crouchPoseT に比例させない**: プレイヤー忍者は T=0.22 と小さく、比例させると
+        // 実効2pxで効かない(ユーザーに「何も変わってない」と再指摘された原因)。
+        // 圧縮量とは独立に姿勢だけ作るため、しゃがみ中はほぼフルで適用する。
         if (isCrouchPose) {
-            headCenterX += dir * 10.0 * crouchPoseT;
-            torsoShoulderX += dir * 3.5 * crouchPoseT;
-            torsoHipX -= dir * 6.0 * crouchPoseT;
+            const crouchShiftT = Math.max(0.85, crouchPoseT);
+            // 胴だけを前傾させる(肩を前・尻を後ろ)。頭は肩と同じ量だけ動かして
+            // 首の長さと「頭は肩の上」の関係を保つ——頭だけ大きく前に出すと
+            // 首が折れて生物的に不自然になる(ユーザー指摘の気持ち悪さの原因)
+            // 傾きは肩の前進だけで作る。腰を後ろへ引く/下げると「尻を突き出した
+            // 前かがみ」になって見た目が悪い(ユーザー指摘)ため、腰はほぼ動かさない
+            const crouchLean = 3.8 * crouchShiftT;
+            torsoShoulderX += dir * crouchLean;
+            torsoHipX -= dir * 1.2 * crouchShiftT;
+            headCenterX += dir * crouchLean;
+            // 垂直は頭と肩を同量持ち上げるだけ(首を伸ばさない・腰は下げない)
+            const crouchLift = 2.6 * crouchShiftT;
+            headY -= crouchLift;
+            bodyTopY -= crouchLift;
         }
         let headSpinAngle = 0;
         const baseTorsoShoulderXForHeadTrack = torsoShoulderX;
@@ -2471,7 +2534,12 @@ export function applyRendererMixin(PlayerClass) {
                 const open = descend * 0.62;
                 const settle = Math.max(0, Math.min(1, (descend - 0.28) / 0.72));
                 const scissor = Math.min(1, Math.abs(drift)) * (1 - settle * 0.75);
-                const m = Math.abs(this.vx) > 0.4 ? Math.sign(this.vx) : dir; // 移動方向
+                // シザーの向き。被弾ノックバック中は後方へ飛ぶので、移動方向を採ると
+                // 脚が後ろへリーチして膝も後方に折れ「膝が逆に曲がった」見た目になる
+                // (ユーザー指摘)。仰け反り中は体の向きを基準にして自然な前後関係を保つ
+                const m = (this.hurtRecoilTimer > 0)
+                    ? dir
+                    : (Math.abs(this.vx) > 0.4 ? Math.sign(this.vx) : dir);
                 const s = airLegSpanScale;
                 const poseLead = (hipX0) => {
                     // 膝を移動方向へ高く駆動し、すねは畳む。落下時は足を下ろして着地準備
@@ -2482,11 +2550,12 @@ export function applyRendererMixin(PlayerClass) {
                     return { kneeX, kneeY, footX, footY };
                 };
                 const poseTrail = (hipX0) => {
-                    // 後方へ流し、膝は移動方向側へ曲げる
+                    // 後方へ流す。膝は必ず「体の向き(dir)」側へ曲げる——人体の膝は
+                    // 移動方向に関係なく正面側にしか曲がらないため(逆関節防止)
                     const footX = hipX0 - m * (3.4 + 4.8 * scissor - open * 1.2) * s;
                     const footY = hipY + (12.4 - tuck * 2.4 - scissor * 2.4 + open * 1.8) * s;
                     const bend = (1.3 + 1.9 * scissor + tuck * 0.9) * s;
-                    const k = bendKneeToward(hipX0, hipY, footX, footY, 0.55, bend, m);
+                    const k = bendKneeToward(hipX0, hipY, footX, footY, 0.55, bend, dir);
                     return { kneeX: k.x, kneeY: k.y, footX, footY };
                 };
                 const leadIsLeft = (m === dir);
@@ -3738,9 +3807,9 @@ export function applyRendererMixin(PlayerClass) {
             let rightReach = 18.8;
             const idleArmWaveLocal = Math.sin(this.motionTime * 0.01);
             // アイドル時の各手の基準位置
-            const idleLeftHandX = centerX + dir * crouchPick(14.0, 11.5);
-            const idleLeftHandY = leftShoulderY + crouchPick(7.8, 6.2) + idleArmWaveLocal * crouchPick(1.7, 0.8);
-            const idleRightHandX = centerX - dir * crouchPick(7.2, 4.6);
+            const idleLeftHandX = centerX + dir * crouchPick(15.6, 12.8);
+            const idleLeftHandY = leftShoulderY + crouchPick(8.3, 6.6) + idleArmWaveLocal * crouchPick(1.7, 0.8);
+            const idleRightHandX = centerX - dir * crouchPick(8.0, 5.2);
             const idleRightHandY = rightShoulderY + crouchPick(8.5, 6.8) + Math.sin(this.motionTime * 0.01 + 0.5) * crouchPick(1.7, 0.8);
 
             // 1-2撃目: 動かない方の手はアイドル位置に固定
@@ -4171,13 +4240,13 @@ export function applyRendererMixin(PlayerClass) {
             const idleLeftHand = options.idleHands && options.idleHands.left
                 ? options.idleHands.left
                 : {
-                    x: centerX + dir * crouchPick(14.0, 11.5),
-                    y: leftShoulderY + crouchPick(7.8, 6.2)
+                    x: centerX + dir * crouchPick(15.6, 12.8),
+                    y: leftShoulderY + crouchPick(8.3, 6.6)
                 };
             const idleRightHand = options.idleHands && options.idleHands.right
                 ? options.idleHands.right
                 : {
-                    x: centerX - dir * crouchPick(7.2, 4.6),
+                    x: centerX - dir * crouchPick(8.0, 5.2),
                     y: rightShoulderY + crouchPick(8.5, 6.8)
                 };
             
@@ -4253,9 +4322,9 @@ export function applyRendererMixin(PlayerClass) {
             const lerp = (a, b, t) => a + (b - a) * t;
 
             // --- 二刀流アイドル座標・角度 ---
-            let singleKatanaLeftHandX = centerX + dir * crouchPick(14.0, 11.5);
-            let singleKatanaLeftHandY = leftShoulderY + crouchPick(7.8, 6.2);
-            let dualWieldRightHandX = centerX - dir * crouchPick(7.2, 4.6);
+            let singleKatanaLeftHandX = centerX + dir * crouchPick(15.6, 12.8);
+            let singleKatanaLeftHandY = leftShoulderY + crouchPick(8.3, 6.6);
+            let dualWieldRightHandX = centerX - dir * crouchPick(8.0, 5.2);
             let dualWieldRightHandY = rightShoulderY + crouchPick(8.5, 6.8);
             if (options.idleHands) {
                 singleKatanaLeftHandX = options.idleHands.left.x;
@@ -4673,9 +4742,9 @@ export function applyRendererMixin(PlayerClass) {
             const holdProgress = (Date.now() % 3000) / 3000;
             const holdPulse = Math.sin(holdProgress * Math.PI * 2) * 0.1;
 
-            let bx = centerX + dir * crouchPick(14.0, 11.5) + holdPulse * 0.2;
-            let by = leftShoulderY + crouchPick(7.8, 6.2) - holdPulse * 0.1;
-            let fx = centerX - dir * crouchPick(7.2, 4.6) - holdPulse * 0.15;
+            let bx = centerX + dir * crouchPick(15.6, 12.8) + holdPulse * 0.2;
+            let by = leftShoulderY + crouchPick(8.3, 6.6) - holdPulse * 0.1;
+            let fx = centerX - dir * crouchPick(8.0, 5.2) - holdPulse * 0.15;
             let fy = rightShoulderY + crouchPick(8.5, 6.8) + holdPulse * 0.08;
             if (options.idleHands) {
                 bx = options.idleHands.left.x + holdPulse * 0.2;

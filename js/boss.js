@@ -3,7 +3,7 @@
 // ============================================
 
 import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js';
-import { Enemy } from './enemy.js?v=20260630-castle-ai';
+import { Enemy } from './enemy.js?v=boss-stagger-20260726e';
 import { createSubWeapon } from './weapon.js';
 import { audio } from './audio.js';
 import { Player } from './player.js';
@@ -1378,11 +1378,20 @@ function startShogunBossPlayerAttack(owner, target) {
         return pool[Math.floor(Math.random() * pool.length)];
     };
 
+    // 将軍は身長が2倍あり手裏剣の発射高度も高いため、追尾になる Lv3 未満では
+    // 接地している忍者の背丈に当たらない。当たらない攻撃で手数を浪費しないよう、
+    // 「忍具Lv3」または「相手が空中(ジャンプ中)」のときだけ手裏剣を選ぶ。
+    const shurikenUseful = (owner.getSubWeaponEnhanceTier
+        ? owner.getSubWeaponEnhanceTier() >= 3
+        : false) || !!(target && target.isGrounded === false);
+
     let action;
     if (dist >= 900) {
         action = '大槍';
     } else if (dist > 300) {
-        action = pickFrom(['手裏剣', '二刀流_合体', '鎖鎌']);
+        action = pickFrom(shurikenUseful
+            ? ['手裏剣', '二刀流_合体', '鎖鎌']
+            : ['二刀流_合体', '鎖鎌']);
     } else if (dist > 150) {
         action = pickFrom(['火薬玉', '大太刀']);
     } else if (owner._lastAttackType === '通常コンボ') {
@@ -1659,6 +1668,13 @@ function createShogunBossPlayer(x, _y, _type, groundY) {
             disableHitFeedback: true
         });
         this.hitTimer = 140;
+        // 通常打では動じず、ダメージが一定量たまったときだけ大きくよろける
+        // (enemy.js のボス共通ルールと同じ閾値7%。将軍は Player 実装なので個別に持つ)
+        this.staggerAccum = (this.staggerAccum || 0) + scaledDamage;
+        if (this.staggerAccum >= Math.max(1, this.maxHp * 0.07)) {
+            this.staggerAccum = 0;
+            this.staggerTimer = 420;
+        }
         if (attackData && Number.isFinite(attackData.slowDurationMs) && attackData.slowDurationMs > 0) {
             this.slowMultiplier = Math.min(this.slowMultiplier || 1, attackData.slowMultiplier || 0.7);
             this.slowTimer = Math.max(this.slowTimer || 0, attackData.slowDurationMs);
@@ -1679,13 +1695,34 @@ function createShogunBossPlayer(x, _y, _type, groundY) {
             const progress = Math.max(0, Math.min(1, this.deathTimer / Math.max(1, this.deathDuration)));
             ctx.globalAlpha *= 0.7 * (1 - progress);
         }
-        if (this.hitTimer > 0) {
-            const hitRatio = Math.max(0, Math.min(1, this.hitTimer / 140));
-            const brightness = 150 + hitRatio * 130;
-            const saturation = Math.max(30, 100 - hitRatio * 60);
-            ctx.filter = `brightness(${brightness}%) saturate(${saturation}%)`;
+        // 被弾表現(雑魚と差別化): 通常打は薄い白ティント＋微振動で動じず、
+        // ダメージ蓄積で発火する「よろけ」だけ全身白フラッシュ＋大きく後傾する
+        let shogunHitShake = 0;
+        let shogunStaggerLean = 0;
+        if (this.staggerTimer > 0) {
+            // よろけだけ全身白フラッシュ＋大きく後傾(色変化はこの1種類のみ)。
+            // 白は最初の100msだけにして長引かせない(残りは後傾のみ)
+            const st = Math.max(0, Math.min(1, this.staggerTimer / 420));
+            if (this.staggerTimer > 320) ctx.filter = 'brightness(0) invert(1)';
+            shogunStaggerLean = -(this.facingRight ? 1 : -1) * 0.22 * st;
+        } else if (this.hitTimer > 0) {
+            // 通常打は色を変えず微振動のみ(薄いティントは装飾の色を奪い
+            // 「グレーに点滅」して見えるため入れない)
+            const hitRatio = Math.max(0, Math.min(1, this.hitTimer / 90));
+            shogunHitShake = Math.sin(this.hitTimer * 0.85) * 2.4 * hitRatio;
         }
+        if (shogunStaggerLean !== 0) {
+            const pivotX = this.x + this.getWorldWidth() * 0.5;
+            const footY = this.y + this.getWorldHeight();
+            ctx.save();
+            ctx.translate(pivotX, footY);
+            ctx.rotate(shogunStaggerLean);
+            ctx.translate(-pivotX, -footY);
+        }
+        if (shogunHitShake !== 0) ctx.translate(shogunHitShake, 0);
         playerRender(ctx, { skipGlow: true });
+        if (shogunHitShake !== 0) ctx.translate(-shogunHitShake, 0);
+        if (shogunStaggerLean !== 0) ctx.restore();
         if (typeof this.renderCombatEffectLayer === 'function') {
             this.renderCombatEffectLayer(ctx);
         }
@@ -1707,6 +1744,7 @@ function createShogunBossPlayer(x, _y, _type, groundY) {
         }
         if (!this.isAlive) return true;
         if (this.hitTimer > 0) this.hitTimer = Math.max(0, this.hitTimer - deltaMs);
+        if (this.staggerTimer > 0) this.staggerTimer = Math.max(0, this.staggerTimer - deltaMs);
         if (this.slowTimer > 0) {
             this.slowTimer = Math.max(0, this.slowTimer - deltaMs);
             if (this.slowTimer <= 0) this.slowMultiplier = 1;

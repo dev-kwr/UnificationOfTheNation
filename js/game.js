@@ -6,7 +6,7 @@ import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICUL
 import { input } from './input.js';
 import { Player } from './player.js';
 import { createSubWeapon } from './weapon.js';
-import { Stage } from './stage.js?v=20260703-p3';
+import { Stage } from './stage.js?v=boss-stagger-20260726e';
 import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout } from './ui.js';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js';
 import { saveManager } from './save.js';
@@ -1633,8 +1633,12 @@ class Game {
         }
 
         // 暗転中は入力更新を行わず、階段の接地点に固定する。
+        // 走行位相も畳んで、暗転明けに走りポーズで現れないようにする。
         this.player.vx = 0;
         this.player.vy = 0;
+        this.player.legPhase = 0;
+        this.player.isDashing = false;
+        this.player.isCrouching = false;
         const groundProbeX = this.getStage5PlayerGroundProbeX();
         this.player.groundY = this.stage.getStairGroundY(groundProbeX);
         this.player.y = this.player.groundY + LANE_OFFSET - this.player.getWorldHeight();
@@ -1682,8 +1686,13 @@ class Game {
         }
 
         // 暗転中は入力更新を行わず、接地点に固定する。
+        // 走行位相(legPhase)も畳む: vxを0にしても位相が走りのまま残ると、
+        // 暗転明けに「バラバラっと走りながら登場」して見える(直立で現れるのが正)。
         this.player.vx = 0;
         this.player.vy = 0;
+        this.player.legPhase = 0;
+        this.player.isDashing = false;
+        this.player.isCrouching = false;
         const groundProbeX = this.getStage5PlayerGroundProbeX();
         this.player.groundY = this.stage.getStairGroundY(groundProbeX);
         this.player.y = this.player.groundY + LANE_OFFSET - this.player.getWorldHeight();
@@ -1842,25 +1851,32 @@ class Game {
             }
         }
 
-        // --- Stage 6: 角の関所に達したら暗転遷移 ---
-        // 角1・2は通用門をくぐる。角3(最上階へ)は門をくぐらず「大屋根へ飛び乗る」ため、
-        // 軒下でジャンプして頭上の軒の高さに達したら発火する(門と最上階が繋がらない
-        // 辻褄の破れを解消。屋根に飛び乗った設定と導線を一致させる)。
+        // --- Stage 6: 角の遷移 ---
+        // 角1・2: 通用門をくぐる(隣の面へ回り込む=同じ高さの移動なので門で足りる)。
+        // 角3(最上階へ): 廻縁は最上重の「下の重」を回っているので、突き当たりで見上げると
+        //   頭上に最上重の軒が張り出している。そこへジャンプで飛びつく=屋根の上へ。
+        //   (門の奥に屋根へ続く階段がある、という理屈は実際の天守に無く成立しない)
         if (this.currentStageNumber === 6 && this.stage &&
             !this.stage.isFloorTransitioning && this.stage.hasPendingStage6Corner()) {
             const cornerX = this.stage.getStage6ActiveCornerX();
-            const isFinalCorner = this.stage.cornersClimbed === 2;
-            const doorX = cornerX - STAGE6_CORNER.DOOR_TRIGGER_INSET;
             const probe = this.player.x + this.player.getWorldWidth();
-            const inTriggerBand = isFinalCorner
-                // 飛び乗り: 軒の手前の帯に居て、ジャンプで一定高さまで上がった時
-                ? (probe >= cornerX - STAGE6_CORNER.JUMP_ZONE_PX && probe <= cornerX + 120
+            const isFinalCorner = this.stage.cornersClimbed === 2;
+            let fire = false;
+            if (isFinalCorner) {
+                // 行き止まりの手前(受付帯)にいて、ジャンプで軒に手が届く高さまで上がったら発火
+                const footY = this.player.y + this.player.getWorldHeight();
+                const reachY = this.stage.baseGroundY + LANE_OFFSET - STAGE6_CORNER.EAVE_REACH_HEIGHT;
+                fire = probe >= cornerX - STAGE6_CORNER.EAVE_JUMP_ZONE_PX
+                    && probe <= cornerX + 80
                     && !this.player.isGrounded
-                    && this.player.y + this.player.getWorldHeight()
-                        <= this.stage.baseGroundY + LANE_OFFSET - STAGE6_CORNER.JUMP_TRIGGER_HEIGHT)
-                // 通用門: 門の正面に立った時
-                : (probe >= doorX && probe <= doorX + 200);
-            if (inTriggerBand) {
+                    && footY <= reachY;
+            } else {
+                const doorX = cornerX - STAGE6_CORNER.DOOR_TRIGGER_INSET;
+                // 上限も見る: 「門に歩き入った」ときだけ発火。
+                // 下限だけだと、デバッグワープ等で門より先にいるだけで誤発火する。
+                fire = probe >= doorX && probe <= doorX + 200;
+            }
+            if (fire) {
                 this.player.vx = 0;
                 this.stage.startCornerTransition();
             }

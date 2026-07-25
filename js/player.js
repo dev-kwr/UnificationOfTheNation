@@ -21,7 +21,7 @@ import {
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
 } from './normalComboMotion.js?v=oonagi-step3-dash-20260702n';
-import { applyRendererMixin }    from './playerRenderer.js?v=motion-legs-20260725h';
+import { applyRendererMixin }    from './playerRenderer.js?v=boss-stagger-20260726e';
 import { applySlashTrailMixin }  from './playerSlashTrail.js?v=combo-hands-20260725e';
 import { applySpecialMixin }     from './playerSpecial.js?v=clone-ground-fix2-20260623';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
@@ -38,7 +38,7 @@ import {
     SHOGUN_CROUCH_STANCE_DUTY,
     NINJA_CROUCH_STRIDE_AMP,
     SHOGUN_CROUCH_STRIDE_AMP
-} from './shogunConstants.js?v=shogun-run-legs-20260725a';
+} from './shogunConstants.js?v=shogun-run-legs-20260725c';
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
@@ -174,6 +174,7 @@ export class Player {
         // 無敵時間
         this.invincibleTimer = 0;
         this.damageFlashTimer = 0;
+        this.hurtRecoilTimer = 0; // 被弾ノックバックのよろけ姿勢用
         this.isDefeated = false;
         this.burstVanished = false;
         this.trapDamageCooldown = 0;
@@ -816,6 +817,11 @@ export class Player {
         if (this.damageFlashTimer > 0) {
             this.damageFlashTimer -= deltaMs;
         }
+        // 被弾ノックバックのよろけ(後傾)タイマー。白フラッシュより長く残して
+        // ノックバックしている間ずっと衝撃姿勢を見せる
+        if (this.hurtRecoilTimer > 0) {
+            this.hurtRecoilTimer = Math.max(0, this.hurtRecoilTimer - deltaMs);
+        }
         
         // クールダウン更新
         if (this.attackCooldown > 0) {
@@ -1029,9 +1035,14 @@ export class Player {
             this.switchSubWeapon();
         }
 
-        // しゃがみ（攻撃中もDOWN押下中なら維持）
+        // しゃがみ（攻撃中もDOWN押下中なら維持。ただし下記の限定ルールが優先）
         const keepCrouchDuringDualSwing = this.subWeaponAction === '二刀_Z' && this.subWeaponCrouchLock;
-        const wantsCrouch = this.isGrounded && (input.isAction('DOWN') || keepCrouchDuringDualSwing);
+        // しゃがみ攻撃は手裏剣/火薬玉だけを許可し、それ以外(通常コンボ・大槍・
+        // 二刀流・鎖鎌・大太刀)はモーション中しゃがみを解除して立ち姿勢で出す。
+        // (しゃがみ専用の攻撃モーションを個別に作り込まずに済ませるための仕様)
+        const wantsCrouch = this.isGrounded
+            && (input.isAction('DOWN') || keepCrouchDuringDualSwing)
+            && this.isCrouchActionAllowed();
         if (wantsCrouch) {
             if (!this.isCrouching) {
                 this.isCrouching = true;
@@ -1046,6 +1057,7 @@ export class Player {
             // クールダウン中は発動不可
             if (this.subWeaponTimer > 0) return;
             if (!this.currentSubWeapon) return;
+
 
             if (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
                 // 連打防止：既に衝撃波が出ていたら撃てない (一個目が消えるまで)
@@ -1143,8 +1155,9 @@ export class Player {
                 this.dashDirection = moveDir >= 0 ? 1 : -1;
                 this.dashTimer = Math.max(this.dashTimer, this.dashDuration * 0.5);
             } else {
-                // しゃがみ中は65%速度でゆっくり移動
-                this.vx = moveDir * this.speed * (this.isCrouching ? 0.65 : 1.0);
+                // しゃがみ中は45%速度でゆっくり移動(すり足。歩幅を詰めた
+                // *_CROUCH_STRIDE_AMP と対で、足が体の近くに留まる歩容にする)
+                this.vx = moveDir * this.speed * (this.isCrouching ? 0.45 : 1.0);
             }
             this.facingRight = moveDir > 0;
         } else if (odachiAttacking) {
@@ -1286,6 +1299,9 @@ export class Player {
 
         this.comboStep1IdleTransitionTimer = 0;
 
+        // コンボ攻撃(単刀Z・二刀Z)はしゃがみ姿勢を持たないため立ち姿勢で出す。
+        // モーション起点(構え・剣筋)がしゃがみ基準にならないよう発動フレームで解除する
+        this.isCrouching = false;
 
         this.attackBuffered = false;
         this.attackBufferTimer = 0;
@@ -1317,7 +1333,10 @@ export class Player {
             this.currentSubWeapon.use(this, 'main');
             this.subWeaponTimer = this.currentSubWeapon.mainDuration || 190;
             this.subWeaponAction = '二刀_Z';
-            this.subWeaponCrouchLock = this.isGrounded && (this.isCrouching || input.isAction('DOWN'));
+            // 二刀Zは立ち姿勢で出す仕様になったため、しゃがみロック(姿勢維持＋
+            // その場で振る＝前進インパルスを殺す特殊処理)は使わない。
+            // DOWN押下中でも通常の段別モーション・前進が適用される
+            this.subWeaponCrouchLock = false;
             const step = this.currentSubWeapon.comboIndex || 0;
             const direction = this.facingRight ? 1 : -1;
             const wasGrounded = this.isGrounded;
@@ -1733,12 +1752,14 @@ export class Player {
             ? (options.knockbackDir > 0 ? 1 : -1)
             : 0;
         const cooldownMs = (typeof options.cooldownMs === 'number') ? options.cooldownMs : 780;
-        const flashMs = (typeof options.flashMs === 'number') ? options.flashMs : 280;
+        // 白フラッシュは短く(目に付きすぎないよう 280→90ms)
+        const flashMs = (typeof options.flashMs === 'number') ? options.flashMs : 90;
         const invincibleMs = (typeof options.invincibleMs === 'number') ? options.invincibleMs : 780;
 
         this.hp -= amount;
         this.trapDamageCooldown = cooldownMs;
         this.damageFlashTimer = Math.max(this.damageFlashTimer, flashMs);
+        this.hurtRecoilTimer = Math.max(this.hurtRecoilTimer || 0, 300);
         this.invincibleTimer = Math.max(this.invincibleTimer, invincibleMs);
 
         const playerCenterX = this.getWorldCenterX();
@@ -2164,7 +2185,8 @@ export class Player {
         const knockbackX = (typeof options.knockbackX === 'number') ? options.knockbackX : 3.2;
         const knockbackY = (typeof options.knockbackY === 'number') ? options.knockbackY : -1.9;
         const invincibleMs = (typeof options.invincibleMs === 'number') ? options.invincibleMs : 1200;
-        const flashMs = (typeof options.flashMs === 'number') ? options.flashMs : 220;
+        // 白フラッシュは短く(目に付きすぎないよう 220→80ms)
+        const flashMs = (typeof options.flashMs === 'number') ? options.flashMs : 80;
         const disableHitFeedback = options.disableHitFeedback === true;
 
         // しゃがみ中はダメージ半減
@@ -2174,7 +2196,13 @@ export class Player {
 
         this.hp -= amount;
         this.invincibleTimer = invincibleMs;
-        this.damageFlashTimer = flashMs;
+        // disableHitFeedback=true は将軍ボス(Player実装を流用する敵)からの呼び出し。
+        // プレイヤー用の白フラッシュ/よろけを立てると boss.js 側のボス専用表現
+        // (薄いティント＋微振動＋蓄積よろけ)を上書きしてしまうため設定しない
+        if (!disableHitFeedback) {
+            this.damageFlashTimer = flashMs;
+            this.hurtRecoilTimer = Math.max(this.hurtRecoilTimer || 0, 280);
+        }
         
         // ノックバック（被弾源から離れる方向）
         const playerCenterX = this.getWorldCenterX();
@@ -2395,6 +2423,14 @@ export class Player {
 
     getCrouchCollisionHeight() {
         return PLAYER.HEIGHT * 0.86;
+    }
+
+    // しゃがみ姿勢のまま出せるのは忍具(X)だけ。コンボ攻撃(単刀Z・二刀Z)は
+    // しゃがみ専用モーションを持たないためモーション中は立ち姿勢に戻す。
+    isCrouchActionAllowed() {
+        if (this.isAttacking && this.currentAttack && this.currentAttack.comboStep) return false;
+        if (this.subWeaponAction === '二刀_Z' && this.subWeaponTimer > 0) return false;
+        return true;
     }
 
     getCrouchRenderIntensity() {

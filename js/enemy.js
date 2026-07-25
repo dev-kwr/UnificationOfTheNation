@@ -168,6 +168,11 @@ export class Enemy {
             this.hitTimer -= deltaTime * 1000;
         }
 
+        // ボスのよろけ(蓄積ダメージ到達時の大きな反応)
+        if (this.staggerTimer > 0) {
+            this.staggerTimer = Math.max(0, this.staggerTimer - deltaTime * 1000);
+        }
+
         // 被弾直後の短い無敵
         if (this.invincibleTimer > 0) {
             this.invincibleTimer -= deltaTime * 1000;
@@ -2585,8 +2590,19 @@ export class Enemy {
         if (this.invincibleTimer > 0) return null;
         
         this.hp -= damage;
-        this.hitTimer = 140; // ヒットエフェクト
+        this.hitTimer = 90; // ヒットエフェクト(雑魚の白フラッシュ。長いと目に付きすぎる)
         this.invincibleTimer = attackData && attackData.isLaunch ? 120 : 80;
+
+        // ボスは通常打では動じず、ダメージが一定量たまったときだけ大きくよろける
+        // (毎回のけぞる/白光りすると巨躯が軽く見えるため。雑魚は毎回のけぞる)
+        if (this.bossName) {
+            this.staggerAccum = (this.staggerAccum || 0) + damage;
+            const staggerThreshold = Math.max(1, this.maxHp * 0.07);
+            if (this.staggerAccum >= staggerThreshold) {
+                this.staggerAccum = 0;
+                this.staggerTimer = 420;
+            }
+        }
 
         if (attackData && Number.isFinite(attackData.slowDurationMs) && attackData.slowDurationMs > 0) {
             const nextSlow = Number.isFinite(attackData.slowMultiplier)
@@ -2675,16 +2691,24 @@ export class Enemy {
         }
 
         // 通常の描画
-        if (this.hitTimer > 0) {
-            // 被弾時は白寄りに発光
-            const hitRatio = Math.max(0, Math.min(1, this.hitTimer / 140));
-            const brightness = 150 + hitRatio * 130;
-            const saturation = Math.max(30, 100 - hitRatio * 60);
-            ctx.filter = `brightness(${brightness}%) saturate(${saturation}%)`;
+        const isBossActor = !!this.bossName;
+        if (isBossActor && this.staggerTimer > 0) {
+            // よろけ(蓄積ダメージ到達)だけ全身白フラッシュ。ボスの色変化はこの1種類のみで、
+            // 通常打では一切色を変えない——薄いティントを入れると装飾の色が失われて
+            // 「グレーに点滅する」ように見えるため(ユーザー指摘)。通常打は振動で伝える。
+            // 白は最初の100msだけ(よろけ420ms全部白いと長すぎる=ユーザー指摘)。
+            // 以降は色を戻し、後傾だけを残して「よろけている」を見せる
+            if (this.staggerTimer > 320) ctx.filter = 'brightness(0) invert(1)';
+        } else if (this.hitTimer > 0) {
+            if (isBossActor) {
+                // ボスの通常打は色を変えない(微振動＋ヒットストップのみ)
+            } else {
+                // 雑魚は全身白フラッシュ(brightness(0)で真っ黒にしてから反転するので
+                // 黒いシルエットでも確実に白くなる。旧 brightness(150〜280%) は効かなかった)
+                ctx.filter = 'brightness(0) invert(1)';
+            }
         }
-        if (this.invincibleTimer > 0 && Math.floor(this.invincibleTimer / 70) % 2 === 0) {
-            ctx.globalAlpha *= 0.75;
-        }
+        // 無敵中の半透明はパーツの重なりが透けて汚いため廃止(プレイヤーと同方針)
         
         // 2.5Dの奥行き感を共通付与（真横シルエットを避ける）
         {
@@ -2698,6 +2722,27 @@ export class Enemy {
             ctx.translate(pivotX, pivotY);
             ctx.transform(1, 0, yawSkew, 1, 0, 0);
             ctx.scale(0.982, 1);
+            // 被弾リアクション。雑魚は上体を後方へ反らし(足元を軸に回転)、
+            // ボスは仰け反らせず微振動だけにする＝スーパーアーマーの重量感を出す
+            // (ボスは被弾回数が多く、毎回のけぞると軽く見えてしまう)
+            if (isBossActor && this.staggerTimer > 0) {
+                // よろけ: 足元を軸に大きく後傾し、ゆっくり戻る
+                const st = Math.max(0, Math.min(1, this.staggerTimer / 420));
+                const footY = this.y + this.height;
+                ctx.translate(0, footY - pivotY);
+                ctx.rotate(-dir * 0.22 * st);
+                ctx.translate(0, pivotY - footY);
+            } else if (this.hitTimer > 0) {
+                const hurt = Math.max(0, Math.min(1, this.hitTimer / 90));
+                if (isBossActor) {
+                    ctx.translate(Math.sin(this.hitTimer * 0.85) * 2.0 * hurt, 0);
+                } else {
+                    const footY = this.y + this.height;
+                    ctx.translate(0, footY - pivotY);
+                    ctx.rotate(-dir * 0.16 * hurt);
+                    ctx.translate(0, pivotY - footY);
+                }
+            }
             ctx.translate(-pivotX, -pivotY);
             this.renderBody(ctx);
             ctx.restore();

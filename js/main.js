@@ -2,7 +2,7 @@
 // Unification of the Nation - メインエントリーポイント
 // ============================================
 
-import { game } from './game.js?v=20260703-p3h';
+import { game } from './game.js?v=boss-stagger-20260726e';
 import { preloadCinematicBgImages } from './ui.js';
 import { getDeviceProfile } from './constants.js';
 

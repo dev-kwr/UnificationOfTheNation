@@ -3,8 +3,8 @@
 // ============================================
 
 import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js';
-import { createEnemy } from './enemy.js?v=20260630-castle-ai';
-import { createBoss } from './boss.js?v=20260630-castle-ai';
+import { createEnemy } from './enemy.js?v=boss-stagger-20260726e';
+import { createBoss } from './boss.js?v=boss-stagger-20260726e';
 import { createObstacle } from './obstacle.js';
 import { audio } from './audio.js';
 import { generateStairsCanvas } from './stairRenderer.js';
@@ -268,24 +268,10 @@ export class Stage {
             this.stage6UpperGalleryImage.src = 'images/stage6_upper_gallery_backdrop.png?v=20260714_zone1';
             this.stage6RoofRidgeImage = new Image();
             this.stage6RoofRidgeImage.src = 'images/stage6_roof_ridge_backdrop.png?v=20260714_zone1';
-            this.stage6FinalTerraceImage = new Image();
-            this.stage6FinalTerraceImage.src = 'images/stage6_final_terrace_backdrop.png?v=20260714_zone1';
-            this.stage6BossPavilionImage = new Image();
-            this.stage6BossPavilionImage.src = 'images/stage6_boss_pavilion_backdrop.png?v=20260715_boss1';
-            this.stage6CornerTurretImage = new Image();
-            this.stage6CornerTurretImage.src = 'images/stage6_corner_turret_transition.png?v=20260714_zone1';
-            this.stage6RoofGateImage = new Image();
-            this.stage6RoofGateImage.src = 'images/stage6_final_gate_transition.png?v=20260714_zone1';
-            this.stage6FinalThresholdImage = new Image();
-            this.stage6FinalThresholdImage.src = 'images/stage6_final_threshold_transition.png?v=20260714_zone1';
             this.stage6GroundImage = new Image();
             this.stage6GroundImage.src = 'images/stage6_ground_lacquer_neutral.png?v=20260714_neutral1';
             this.stage6UpperGalleryGroundImage = new Image();
             this.stage6UpperGalleryGroundImage.src = 'images/stage6_ground_upper_gallery.png?v=20260715_parallel1';
-            this.stage6RoofRidgeGroundImage = new Image();
-            this.stage6RoofRidgeGroundImage.src = 'images/stage6_ground_roof_ridge.png?v=20260714_zone1';
-            this.stage6FinalTerraceGroundImage = new Image();
-            this.stage6FinalTerraceGroundImage.src = 'images/stage6_ground_final_terrace.png?v=20260715_seam1';
             this.stage6GroundThresholdImage = new Image();
             this.stage6GroundThresholdImage.src = 'images/stage6_ground_threshold_strip.png?v=20260714_zone1';
 
@@ -298,8 +284,6 @@ export class Stage {
             this.stage6PanoramaKaidoFarImage.src = 'images/stage6_panorama_kaido_far.png?v=20260721_loop1';
             this.stage6PanoramaMountainsFarImage = new Image();
             this.stage6PanoramaMountainsFarImage.src = 'images/stage6_panorama_mountains_far.png?v=20260721_loop1';
-            this.stage6PanoramaCloudSeaImage = new Image();
-            this.stage6PanoramaCloudSeaImage.src = 'images/stage6_panorama_cloudsea.png?v=20260721_loop1';
 
             // 角の全高壁(視界遮断+通用門)。境界ごとに別アセット。
             this.stage6CornerWallImages = [
@@ -313,23 +297,20 @@ export class Stage {
             });
 
             // --- 大棟化: 四巡目=天守大屋根の上(柵なし・棟瓦・眼下に朝靄)。
-            //     未配置の間は従来のテラス床/東屋/柵付き背景へフォールバックする。
-            this.stage6RidgeTilesGroundImage = new Image();
-            this.stage6RidgeTilesGroundImage.src = 'images/stage6_ground_ridge_tiles.png?v=20260723_final1';
             // 金鯱: 棟端に直接載る(土台なし)。右向き1体を読み込み、左端はコードで左右反転して使う
             this.stage6RidgeShachiImage = new Image();
             this.stage6RidgeShachiImage.src = 'images/stage6_ridge_shachi.png?v=20260724_shachi2';
             // 三巡目の床置き換え(鉄板リベット→黒漆の板張り)
             this.stage6GalleryWoodGroundImage = new Image();
             this.stage6GalleryWoodGroundImage.src = 'images/stage6_ground_gallery_wood.png?v=20260722_ridge1';
-            // 角3(最上階へ): 頭上に張り出す最上重の大屋根の軒。未配置時は従来の最終門壁のまま。
+            // 角3(最上階へ): 頭上に張り出す最上重の軒(見上げ構図)。飛びつく導線の絵。
             this.stage6UpperEaveImage = new Image();
-            this.stage6UpperEaveImage.src = 'images/stage6_upper_eave.png?v=20260725_eave1';
+            this.stage6UpperEaveImage.src = 'images/stage6_upper_eave.png?v=20260726_overhead1';
             // 背景屋根(ridge_flanks)と出口破風(roof_exit_gable)は最上階アリーナ化で廃止。
             // 大屋根の上には地面の屋根(eaves)だけがあり、奥は山並みと空だけになる。
-            // 大棟の床v3: 軒先で終わり下端透過(軒下にコードが「遥か下の世界」を描く)。未配置時はridge_tiles
+            // 大棟の床v3: 水平な軒先まで瓦を敷き、画面下端まで不透明に描く。
             this.stage6RidgeEavesGroundImage = new Image();
-            this.stage6RidgeEavesGroundImage.src = 'images/stage6_ground_ridge_eaves.png?v=20260724_eaves2';
+            this.stage6RidgeEavesGroundImage.src = 'images/stage6_ground_ridge_eaves.png?v=20260726_flat2';
         }
 
         // キャッシュ用オフスクリーンCanvasの初期化
@@ -1084,7 +1065,9 @@ export class Stage {
         if (this.isStage6Arena()) {
             this.stage6ArenaMoodTimer = 0;
             this.bossEntranceFlash = Math.max(this.bossEntranceFlash || 0, 0.6);
-            audio.playBgm('boss', this.stageNumber, 1200, 0);
+            if (!this.isBossBgmPlaying()) {
+                audio.playBgm('boss', this.stageNumber, 1200, 0);
+            }
         }
 
         // progress/maxProgressは触らない（stage5と違い世界座標は連続。xスナップはgame.js側）
@@ -2211,8 +2194,20 @@ export class Stage {
             return true;
         });
 
-        // BGM切り替え
-        audio.playBgm('boss', this.stageNumber, 1000, 0);
+        // BGM切り替え。
+        // ただし既に同じボス曲が鳴っている場合は呼ばない(playBgmは同じ曲でも
+        // 先頭から鳴らし直す設計のため、stage6は大屋根到達時に鳴らしたラスボス曲が
+        // 将軍登場でリセットされてしまう)。
+        if (!this.isBossBgmPlaying()) {
+            audio.playBgm('boss', this.stageNumber, 1000, 0);
+        }
+    }
+
+    /** このステージのボス曲が既に再生中か(先頭からの鳴らし直しを防ぐ判定) */
+    isBossBgmPlaying() {
+        const expected = this.stageNumber === 6 ? 'lastboss' : 'boss';
+        return audio.currentBgmType === expected
+            && !!audio.bgmAudio && !audio.bgmAudio.paused;
     }
     
     // P3 空補償: 空バンド [0, groundY] を [skyVisTop, groundY] へアフィン圧縮する。
@@ -3455,14 +3450,21 @@ export class Stage {
         alpha = 1,
         filter = 'none',
         widthScale = 1,
-        mirrorRepeat = false
+        mirrorRepeat = false,
+        // srcTopFrac: 画像の上からこの比率を捨てて残りだけを描く。
+        // パノラマ類は上部が透過フェードで絵の実体が下端しかないため、
+        // そのまま描くと柵の隙間には透過部しか来ず「遠景が見えない」になる。
+        // 可視部分だけを切り出せば、指定した帯にちゃんと絵が入る。
+        srcTopFrac = 0
     } = {}) {
         if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) {
             return false;
         }
 
+        const srcY = Math.max(0, Math.min(image.naturalHeight - 1, Math.round(image.naturalHeight * srcTopFrac)));
+        const srcH = image.naturalHeight - srcY;
         const drawH = Math.max(1, Math.ceil(drawHeight));
-        const drawW = Math.ceil(drawH * (image.naturalWidth / image.naturalHeight) * widthScale);
+        const drawW = Math.ceil(drawH * (image.naturalWidth / srcH) * widthScale);
         const scroll = progress * parallax;
         const offset = ((scroll % drawW) + drawW) % drawW;
         const startX = -offset - drawW;
@@ -3478,10 +3480,10 @@ export class Stage {
                 ctx.save();
                 ctx.translate(Math.round(x + drawW + 2), y);
                 ctx.scale(-1, 1);
-                ctx.drawImage(image, 0, 0, drawW + 2, drawH);
+                ctx.drawImage(image, 0, srcY, image.naturalWidth, srcH, 0, 0, drawW + 2, drawH);
                 ctx.restore();
             } else {
-                ctx.drawImage(image, Math.round(x), y, drawW + 2, drawH);
+                ctx.drawImage(image, 0, srcY, image.naturalWidth, srcH, Math.round(x), y, drawW + 2, drawH);
             }
         }
         ctx.filter = 'none';
@@ -3590,28 +3592,35 @@ export class Stage {
         if (zone === 0) {
             // 一巡目: まだ低い。城下の大屋根がすぐ目の高さに大きく迫る。
             // 遠景の連山はごく低く霞む程度(高度が上がるほど遠くが見える進行の起点)。
+            // 遠景の上端は柵の隙間の上端(画面y≈300)より上に届かせる。
+            // 低いと隙間から見えず「登っても視界が変わらない」ことになる。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
-                parallax: 0.05, drawHeight: 150, bottomY: this.groundY + 24, alpha: 0.5,
-                filter: 'brightness(0.7) saturate(0.6)', mirrorRepeat: false
+                parallax: 0.05, drawHeight: 230, bottomY: this.groundY + 24, alpha: 0.5,
+                filter: 'brightness(0.7) saturate(0.6)', srcTopFrac: 0.66, mirrorRepeat: false
             });
+            // 【空気遠近の原則】遠景も近景も下端は必ず床側(groundY+24)に揃える。
+            // 中途半端な高さで帯を切ると、その帯が後ろの帯の中腹に浮いて
+            // 「山の上に街がある」等の破綻になる。手前/奥の差は「高さ(薄さ)」で作る。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaBambooFarImage, progress, {
-                parallax: 0.08, drawHeight: 240, bottomY: fence + 30, filter: farFilter, mirrorRepeat: false
+                parallax: 0.08, drawHeight: 310, bottomY: this.groundY + 24, filter: farFilter, srcTopFrac: 0.60, mirrorRepeat: false
             });
             this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
-                parallax: 0.2, drawHeight: 300, bottomY: fence + 30, alpha: 0.97, filter: nearFilter, mirrorRepeat: false
+                parallax: 0.2, drawHeight: 370, bottomY: this.groundY + 24, alpha: 0.97, filter: nearFilter, srcTopFrac: 0.50, mirrorRepeat: false
             });
         } else if (zone === 1) {
             // 二巡目: 一段登った。屋根が小さくなり、柵の裏へ沈み始める。方角が変わり街道筋が見える。
             // 連山は一巡目より高く・濃くなる(見通しが利いてきた)。
+            // 二巡目の柵は隙間が狭い(画面y300〜350のみ)。遠景をそこへ確実に届かせる。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
-                parallax: 0.055, drawHeight: 200, bottomY: this.groundY + 24, alpha: 0.72,
-                filter: 'brightness(0.76) saturate(0.66)', mirrorRepeat: false
+                parallax: 0.055, drawHeight: 260, bottomY: this.groundY + 24, alpha: 0.72,
+                filter: 'brightness(0.76) saturate(0.66)', srcTopFrac: 0.66, mirrorRepeat: false
             });
+            // 下端は床側に揃える(空気遠近の原則。zone0のコメント参照)
             this.renderStageBackdropTile(ctx, this.stage6PanoramaKaidoFarImage, progress, {
-                parallax: 0.08, drawHeight: 220, bottomY: fence + 30, filter: farFilter, mirrorRepeat: false
+                parallax: 0.08, drawHeight: 235, bottomY: this.groundY + 24, filter: farFilter, srcTopFrac: 0.65, mirrorRepeat: false
             });
             this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
-                parallax: 0.16, drawHeight: 165, bottomY: fence + 42, alpha: 0.9, filter: nearFilter, mirrorRepeat: false
+                parallax: 0.16, drawHeight: 205, bottomY: this.groundY + 24, alpha: 0.9, filter: nearFilter, srcTopFrac: 0.50, mirrorRepeat: false
             });
         } else if (zone === 2) {
             // 三巡目: 屋根は棟先が柵際に覗くだけ。視界は遠くの連山まで開ける。
@@ -3619,12 +3628,13 @@ export class Stage {
             // 十分高く出す——低いと柵と城下に埋没し「三巡目は山が見えないのに最上階で出る」
             // という逆の進行になる。高度が上がるほど遠くが大きく見えるのが正。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
-                parallax: 0.06, drawHeight: 265, bottomY: this.groundY + 24, filter: farFilter, mirrorRepeat: false
+                parallax: 0.06, drawHeight: 265, bottomY: this.groundY + 24, filter: farFilter, srcTopFrac: 0.66, mirrorRepeat: false
             });
-            // 城下は棟先が覗くだけの細い帯。裾は連山バンド(床まで差し込み済み)が受けるので
-            // ここを床まで伸ばす必要はない(伸ばすと遠景が埋まり「見渡せる」感が消える)。
+            // 城下は連山より「手前=下」に置く。下端を連山と同じ床側(groundY+24)まで下ろすこと。
+            // 中途半端な高さ(旧: fence+48=413)で切ると帯が連山の中腹に浮き、
+            // 「山の上に街がある」空気遠近の破綻になる。棟先だけ覗く見た目は高さ(=薄さ)で作る。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
-                parallax: 0.14, drawHeight: 95, bottomY: fence + 48, alpha: 0.78, filter: nearFilter, mirrorRepeat: false
+                parallax: 0.14, drawHeight: 175, bottomY: this.groundY + 24, alpha: 0.78, filter: nearFilter, srcTopFrac: 0.50, mirrorRepeat: false
             });
         } else {
             // 四巡目(最上層): 遠くの連山と夜明けのみ。
@@ -3635,7 +3645,7 @@ export class Stage {
             // 連山の裾は必ず屋根の棟(=床上端 groundY)より下まで差し込む。
             // 浅いと連山の裾と屋根の間に素の空(朝焼け)が横一線に露出し「謎の帯」になる。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
-                parallax: 0.06, drawHeight: 190, bottomY: this.groundY + 24, filter: farFilter, mirrorRepeat: false
+                parallax: 0.06, drawHeight: 190, bottomY: this.groundY + 24, filter: farFilter, srcTopFrac: 0.66, mirrorRepeat: false
             });
         }
     }
@@ -3670,14 +3680,6 @@ export class Stage {
             // 「屋根に飛び乗った」設定のため入口(門/破風)は存在しない。
             if (i === 2 && this.cornersClimbed >= 3) continue;
 
-            // 角3(最上階へ)は門ではなく「最上重の大屋根の軒が頭上に張り出す」構図にする。
-            // 門をくぐる導線だと「門の先が最上階の屋根の上」という関係が絵にならず辻褄が破れるため、
-            // 軒下でジャンプして飛び乗る導線に合わせて見た目も軒に差し替える。
-            if (i === 2 && this.isStage6ImageReady(this.stage6UpperEaveImage)) {
-                this.renderStage6UpperEave(ctx, cornerX, scrollX);
-                continue;
-            }
-
             const img = this.getStage6CornerWallImage(i);
             if (!img) continue;
             const x = Math.round(cornerX - STAGE6_CORNER.WALL_LEFT_PX - scrollX);
@@ -3698,7 +3700,45 @@ export class Stage {
             ctx.fillStyle = grad;
             ctx.fillRect(x, laneY, frameW, shadowH);
             ctx.restore();
+
+            // 角3(最上階へ): 廻縁の突き当たり。頭上に最上重の軒が張り出しているのを見せ、
+            // 「ここでジャンプして軒に飛びつく=屋根の上へ」という導線を絵で示す。
+            if (i === 2) this.renderStage6OverheadEave(ctx, cornerX, scrollX);
         }
+    }
+
+    /**
+     * Stage6 角3: 頭上に張り出す最上重の軒。
+     * 廻縁は最上重の「下の重」を回っているので、突き当たりで見上げれば必ず軒がある。
+     * 画面上部から軒を垂らし、その先端が飛びつける高さに来るように置く。
+     * アセット未配置時はコードで軒の帯を描く(導線が消えないように)。
+     */
+    renderStage6OverheadEave(ctx, cornerX, scrollX) {
+        // 受付帯(飛びつける範囲)をちょうど覆う幅で、突き当たりの壁の手前に張り出させる。
+        const zoneLeft = cornerX - STAGE6_CORNER.EAVE_JUMP_ZONE_PX - 200;
+        const zoneRight = cornerX - STAGE6_CORNER.WALL_LEFT_PX + 60;
+        const x0 = Math.round(zoneLeft - scrollX);
+        const x1 = Math.round(zoneRight - scrollX);
+        if (x1 <= 0 || x0 >= CANVAS_WIDTH) return;
+        const w = x1 - x0;
+        // 軒先の高さ: 足元ラインから EAVE_REACH_HEIGHT + 人の背丈ぶん上
+        const eaveBottomY = this.groundY + LANE_OFFSET - STAGE6_CORNER.EAVE_REACH_HEIGHT - 150;
+
+        const img = this.stage6UpperEaveImage;
+        ctx.save();
+        if (this.isStage6ImageReady(img)) {
+            const h = Math.round(w * (img.naturalHeight / img.naturalWidth));
+            ctx.filter = 'brightness(0.8) saturate(0.72)';
+            ctx.drawImage(img, x0, eaveBottomY - h, w, h);
+            ctx.filter = 'none';
+        } else {
+            // フォールバック: 軒の帯(瓦の列)を簡易に描く
+            ctx.fillStyle = 'rgba(14, 18, 26, 0.96)';
+            ctx.fillRect(x0, 0, w, eaveBottomY);
+            ctx.fillStyle = 'rgba(30, 38, 52, 0.9)';
+            for (let tx = x0; tx < x1; tx += 26) ctx.fillRect(tx, eaveBottomY - 22, 22, 22);
+        }
+        ctx.restore();
     }
 
     renderStage6BackdropZones(ctx, progress) {
@@ -3743,34 +3783,6 @@ export class Stage {
             });
         }
 
-        // 透かし絵の境界ランドマーク(フォールバック)は、
-        // ・全高壁アセットが使える角では描かない(壁が主役になる)
-        // ・通過済みの角でも描かない(暗転明けに切れ端が画面左に露出して継ぎ目に見えるため。
-        //   消える瞬間は完全暗転中で見えず、後退クランプで戻ることもできない)
-        const climbed = this.cornersClimbed || 0;
-        if (!this.getStage6CornerWallImage(0) && climbed <= 0) {
-            this.renderStage6FixedBackdrop(ctx, this.stage6CornerTurretImage, cornerX, progress, {
-                drawHeight,
-                bottomY,
-                filter
-            });
-        }
-        if (!this.getStage6CornerWallImage(1) && climbed <= 1) {
-            this.renderStage6FixedBackdrop(ctx, this.stage6RoofGateImage, roofGateX, progress, {
-                drawHeight,
-                bottomY,
-                filter
-            });
-        }
-        if (!this.getStage6CornerWallImage(2) && climbed <= 2) {
-            this.renderStage6FixedBackdrop(ctx, this.stage6FinalThresholdImage, finalThresholdX, progress, {
-                drawHeight,
-                bottomY,
-                filter,
-                bottomOffset: Math.round(drawHeight * 0.16)
-            });
-        }
-
         // 大屋根アリーナの左右両端の棟端に金鯱を1体ずつ据える。
         // アリーナ中央に着地した時点ではどちらも画面外(アリーナ幅3200 > 画面1280)。
         // 右へ進むと右の金鯱が見えてきて、その手前で将軍が現れる。
@@ -3787,40 +3799,7 @@ export class Stage {
             this.renderStage6FixedBackdrop(ctx, shachi, this.maxProgress - shachiW * 0.5, progress, {
                 drawHeight: shachiH, bottomY, filter, flipX: true
             });
-        } else if (this.isStage6ImageReady(this.stage6BossPavilionImage)) {
-            // 金鯱未配置時のフォールバック(従来の東屋を右端に)
-            const pav = this.stage6BossPavilionImage;
-            const pavW = Math.ceil(drawHeight * (pav.naturalWidth / pav.naturalHeight));
-            this.renderStage6FixedBackdrop(ctx, pav, this.maxProgress - pavW * 0.5, progress, {
-                drawHeight, bottomY, filter
-            });
         }
-    }
-
-    /**
-     * Stage6 角3: 最上重の大屋根の軒が頭上へ張り出す構図。
-     * 画面上部から軒が垂れ下がり、その下をくぐって進む→ジャンプで屋根へ飛び乗る導線。
-     * 軒は画面上端に接して描き、下端(軒先)は足元ラインより十分上に置く(通行を妨げない)。
-     */
-    renderStage6UpperEave(ctx, cornerX, scrollX) {
-        const img = this.stage6UpperEaveImage;
-        const eaveW = 1100;
-        const eaveH = Math.round(eaveW * (img.naturalHeight / img.naturalWidth));
-        // 軒の中心を角に合わせ、上端は画面外へ抜ける(=天守本体は画面の上に続く)
-        const x = Math.round(cornerX - eaveW * 0.5 - scrollX);
-        if (x + eaveW <= 0 || x >= CANVAS_WIDTH) return;
-        const bottomY = this.groundY - 40; // 軒先は床上端より上=頭上に張り出す
-        ctx.save();
-        ctx.filter = 'brightness(0.86) saturate(0.76)';
-        ctx.drawImage(img, x, bottomY - eaveH, eaveW, eaveH);
-        ctx.filter = 'none';
-        // 軒下の陰(潜り込む感じを出す)
-        const shade = ctx.createLinearGradient(0, bottomY - 60, 0, bottomY + 90);
-        shade.addColorStop(0, 'rgba(0, 0, 0, 0.38)');
-        shade.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        ctx.fillStyle = shade;
-        ctx.fillRect(x, bottomY - 60, eaveW, 150);
-        ctx.restore();
     }
 
     /** stage6アセットが読込済みで使えるか(404はcomplete=trueでもnaturalWidth=0) */
@@ -4373,9 +4352,7 @@ export class Stage {
             { image: this.stage6UpperGalleryGroundImage, start: b1, end: b2 },
             {
                 // 大棟化: 三巡目の床は黒漆の板張りへ置き換え(旧: 鉄板リベット床は壁面に見えるため廃止)
-                image: this.isStage6ImageReady(this.stage6GalleryWoodGroundImage)
-                    ? this.stage6GalleryWoodGroundImage
-                    : this.stage6RoofRidgeGroundImage,
+                image: this.stage6GalleryWoodGroundImage,
                 start: b2,
                 end: b3
             },
@@ -4383,26 +4360,17 @@ export class Stage {
                 // 大棟化: 四巡目の床は大棟の棟瓦+手前側屋根斜面。
                 // 画像上端17%が棟の冠(鳥衾+のし瓦)なので上端を床上端に整列させ、
                 // 冠帯(480..521)が足元ライン512をまたいで奥側斜面との継ぎ目を覆うようにする。
-                // v3(eaves)は軒先で終わり下端が透過——軒下には別レイヤーで遥か下の世界が覗く。
-                image: this.isStage6ImageReady(this.stage6RidgeEavesGroundImage)
-                    ? this.stage6RidgeEavesGroundImage
-                    : (this.isStage6ImageReady(this.stage6RidgeTilesGroundImage)
-                        ? this.stage6RidgeTilesGroundImage
-                        : this.stage6FinalTerraceGroundImage),
+                // 軒下に下界を覗かせる演出は廃止済み(何が見えているか読めないため)。
+                // 屋根の上に立っているので、床は画面下端まで瓦が続くのが正しい。
+                image: this.stage6RidgeEavesGroundImage,
                 start: b3,
                 end: this.maxProgress,
-                topAlign: this.isStage6ImageReady(this.stage6RidgeEavesGroundImage) ||
-                    this.isStage6ImageReady(this.stage6RidgeTilesGroundImage),
-                underworld: this.isStage6ImageReady(this.stage6RidgeEavesGroundImage)
+                topAlign: true,
             }
         ];
 
         let rendered = false;
         for (const zone of zones) {
-            // 軒下の世界(遥か下の朝靄と城下): 軒先で終わる床(下端透過)の下に敷く
-            if (zone.underworld) {
-                this.renderStage6Underworld(ctx, renderProgress, zone.start, zone.end, horizonY, bottomY);
-            }
             rendered = this.renderStage6GroundRegion(ctx, zone.image, renderProgress, {
                 worldStart: zone.start,
                 worldEnd: zone.end,
@@ -4416,45 +4384,6 @@ export class Stage {
         // 未通過側(+520)は接近中の画面右端(+500)より先、通過側(+380)は暗転明けの画面左端ちょうどで、
         // どの局面でも継ぎ目が画面に映らなくなったため、受け手のマーキング自体が不要になった。
         return rendered;
-    }
-
-    /**
-     * Stage6 大棟: 軒下に覗く「遥か下の世界」。
-     * 床アセット(ridge_eaves)は軒先で終わり下端が透過なので、その下に
-     * 空気遠近の深い藍+かすかな城下の灯+朝靄を敷く。屋根の上にいる高度の決定的な証拠。
-     */
-    renderStage6Underworld(ctx, renderProgress, worldStart, worldEnd, horizonY, bottomY) {
-        const screenStart = worldStart - renderProgress;
-        const screenEnd = worldEnd - renderProgress;
-        if (screenEnd <= 0 || screenStart >= CANVAS_WIDTH) return;
-        const clipX = Math.max(0, screenStart);
-        const clipW = Math.max(0, Math.min(CANVAS_WIDTH, screenEnd) - clipX);
-        if (clipW <= 0) return;
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(clipX, horizonY, clipW, Math.max(0, bottomY - horizonY));
-        ctx.clip();
-
-        // 深い藍(下=遠い地上ほど夜が残る)
-        const grad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
-        grad.addColorStop(0, '#10151f');
-        grad.addColorStop(1, '#070a12');
-        ctx.fillStyle = grad;
-        ctx.fillRect(clipX, horizonY, clipW, Math.max(0, bottomY - horizonY));
-
-        // 眼下の町(かすか・低パララックス=遥か遠い)
-        this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, renderProgress, {
-            parallax: 0.3, drawHeight: 130, bottomY: bottomY + 30, alpha: 0.4,
-            filter: 'brightness(0.72) saturate(0.7)', mirrorRepeat: false
-        });
-        // 朝靄が屋根の際から下界へ薄くかかる
-        this.renderStageBackdropTile(ctx, this.stage6PanoramaCloudSeaImage, renderProgress, {
-            parallax: 0.24, drawHeight: 80, bottomY: bottomY + 6, alpha: 0.35,
-            filter: 'brightness(0.85) saturate(0.55)', mirrorRepeat: false
-        });
-
-        ctx.restore();
     }
 
     renderStage6GroundThresholds(ctx, renderProgress, horizonY, bottomY) {

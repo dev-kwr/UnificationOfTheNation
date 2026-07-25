@@ -40,10 +40,13 @@ export const SHOGUN_DASH_STANCE_DUTY = 0.30; // 共通: ダッシュ時の接地
                                              // 0.30+忍者大股18.0で約3.3サイクル/秒=脚が分身して見えない読める速さ
 // しゃがみ歩き(忍び足)。しゃがみ移動は速い(0.65×speed)ため、小刻みだと回転が上がって分身して見える。
 // 低duty+大股の「抜き足の低い滑走ステップ」でケイデンスを読める速さに保つ(忍者≈3.5/将軍≈2.0サイクル/秒)
-export const SHOGUN_CROUCH_STANCE_DUTY = 0.45; // 共通: しゃがみ歩きの接地割合
-export const NINJA_CROUCH_STRIDE_AMP = 16.5;   // 忍者: しゃがみ歩きの足の前後振幅
-export const SHOGUN_CROUCH_STRIDE_AMP = 14.5;  // 将軍: しゃがみ歩きの足の前後振幅
-export const NINJA_CROUCH_LIFT_AMP = 3.2;      // 忍者: しゃがみスイング中の足持ち上げ量(低く滑るように)
-export const SHOGUN_CROUCH_LIFT_AMP = 4.0;     // 将軍: しゃがみスイング中の足持ち上げ量
+export const SHOGUN_CROUCH_STANCE_DUTY = 0.40; // 共通: しゃがみ歩きの接地割合
+// すり足化(2026-07-25): 歩幅を詰めて足が体の近くに留まるようにする。
+// 単独で詰めるとケイデンスが上がる(走りより速く見える)ため、しゃがみ速度の減速
+// (player.js 0.65→0.45)と duty の微調整を同時に行い ≈3.4サイクル/秒に収める
+export const NINJA_CROUCH_STRIDE_AMP = 12.5;   // 忍者: しゃがみ歩きの足の前後振幅
+export const SHOGUN_CROUCH_STRIDE_AMP = 11.0;  // 将軍: しゃがみ歩きの足の前後振幅
+export const NINJA_CROUCH_LIFT_AMP = 2.4;      // 忍者: しゃがみスイング中の足持ち上げ量(低く滑るように)
+export const SHOGUN_CROUCH_LIFT_AMP = 3.0;     // 将軍: しゃがみスイング中の足持ち上げ量
 export const SHOGUN_RUN_STRIDE_CENTER_BIAS = 0.12; // 共通: ストライド中心の後方バイアス(着地を体に寄せ前傾の読みにする)
 
