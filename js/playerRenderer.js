@@ -29,8 +29,14 @@ import {
     NINJA_RUN_LIFT_AMP,
     NINJA_DASH_LIFT_AMP,
     SHOGUN_RUN_STANCE_DUTY,
+    SHOGUN_DASH_STANCE_DUTY,
+    SHOGUN_CROUCH_STANCE_DUTY,
+    NINJA_CROUCH_STRIDE_AMP,
+    SHOGUN_CROUCH_STRIDE_AMP,
+    NINJA_CROUCH_LIFT_AMP,
+    SHOGUN_CROUCH_LIFT_AMP,
     SHOGUN_RUN_STRIDE_CENTER_BIAS
-} from './shogunConstants.js?v=shogun-run-legs-20260724c';
+} from './shogunConstants.js?v=shogun-run-legs-20260725a';
 
 export function applyRendererMixin(PlayerClass) {
     applyShogunRendererMixin(PlayerClass);
@@ -883,19 +889,21 @@ export function applyRendererMixin(PlayerClass) {
         // 奥義MAX到達時の発光エフェクト
         this.renderSpecialReadyGlow(ctx, options);
 
+        // 無敵時間中は点滅（死亡中は点滅しない）。半透明(globalAlpha)はパーツの重なりが
+        // 乗算のように透けて目立つため使わず、不透明のまま invert でシルエットを
+        // 灰色へフラッシュさせる(体がほぼ黒なので brightness では光らない)
+        if (!this.isGhostVeilActive() && !this.isDefeated && !this.isUsingSpecial && this.invincibleTimer > 0 && Math.floor(this.invincibleTimer / 100) % 2 === 0) {
+            filterParts.push('invert(26%)');
+        }
+        // 被弾フラッシュも同様に不透明の invert 点滅にする(重なりの透け防止)
+        if (damageFlashActive && !ghostVeilActive && !this.isDefeated) {
+            const flashStep = Math.floor((this.motionTime + this.damageFlashTimer) / 48) % 2;
+            if (flashStep === 0) filterParts.push('invert(14%)');
+        }
+
         // 隠れ身の術中は本体のみ透明化（全体フィルタは重いので適用しない）
         if (filterParts.length > 0) {
             ctx.filter = filterParts.join(' ');
-        }
-
-        // 無敵時間中は点滅（死亡中は点滅しない）
-        if (!this.isGhostVeilActive() && !this.isDefeated && !this.isUsingSpecial && this.invincibleTimer > 0 && Math.floor(this.invincibleTimer / 100) % 2 === 0) {
-            ctx.globalAlpha *= 0.5;
-        }
-        // 被弾フラッシュは filter を使わず軽量な点滅アルファにする
-        if (damageFlashActive && !ghostVeilActive && !this.isDefeated) {
-            const flashStep = Math.floor((this.motionTime + this.damageFlashTimer) / 48) % 2;
-            ctx.globalAlpha *= flashStep === 0 ? 0.76 : 0.92;
         }
 
         // 大槍/大太刀中は武器側の動きだけを見せるため、本体残像は描画しない。
@@ -1261,16 +1269,19 @@ export function applyRendererMixin(PlayerClass) {
             : this.height;
         const headRadius = (baseHeightForHead * headRatio * 0.5) * headScale;
         
-        // しゃがみの圧縮強度（1.0=プレイヤー用フル圧縮, SHOGUN_CROUCH_INTENSITY=ボス用控えめ）
-        const crouchIntensity = isCrouchPose ? (options.crouchIntensity ?? 1.0) : 0;
+        // しゃがみの圧縮強度（忍者デフォルト0.74=浅め, SHOGUN_CROUCH_INTENSITY=0.35）。
+        // フル圧縮(1.0)は頭が腰まで落ちて胴が頭に埋まり「頭から脚」に見えるため、
+        // 将軍同様に浅くしてシルエットを保つ(ユーザー了承済み。当たり判定は不変)
+        const crouchIntensity = isCrouchPose ? (options.crouchIntensity ?? 0.74) : 0;
         const crouchPoseT = crouchIntensity;
         const crouchPick = (standValue, crouchValue) => isCrouchPose ? lerp(standValue, crouchValue, crouchPoseT) : standValue;
         
         // 立ちポーズの基本位置
         const standHeadY = y + headRadius * 1.1 + bob - (isSpearThrustPose ? spearDrive * 2.0 : 0);
         const standHipY = bottomY - headRadius * 1.43 - (isSpearThrustPose ? spearDrive * 1.7 : 0);
-        // しゃがみポーズの基本位置
-        const crouchHeadY = bottomY - headRadius * 2.2 + bob;
+        // しゃがみポーズの基本位置。頭の落とし込みを少し浅く(2.2→2.38)して、
+        // 頭の下端と腰の間に胴の見える垂直余白を作る(「頭から脚」対策の一部)
+        const crouchHeadY = bottomY - headRadius * 2.38 + bob;
         const crouchHipY = bottomY - headRadius * 0.95 + bob * 0.45;
         
         // ブレンド補間
@@ -1297,6 +1308,15 @@ export function applyRendererMixin(PlayerClass) {
             ? lerp(centerX + dir * 0.2, centerX + dir * 1.3 + dir * crouchLeanShift * 0.55, crouchPoseT)
             : (centerX + dir * 0.2);
         let headCenterX = centerX;
+        // しゃがみ: 頭が大きく腰が頭の真下に来るため、そのままだと胴が頭に隠れて
+        // 「頭から脚が生えている」ように見える。頭を大きく前へ・腰を後ろへずらし、
+        // 尻を引いて頭で覗き込む忍びの前傾シルエットにして胴の対角線を見せる。
+        // 頭(半径≈16.8)の影から腰が水平にも抜ける量が必要(+6では不足だった)
+        if (isCrouchPose) {
+            headCenterX += dir * 10.0 * crouchPoseT;
+            torsoShoulderX += dir * 3.5 * crouchPoseT;
+            torsoHipX -= dir * 6.0 * crouchPoseT;
+        }
         let headSpinAngle = 0;
         const baseTorsoShoulderXForHeadTrack = torsoShoulderX;
         let dualZShoulderDepth = 0;
@@ -1478,11 +1498,26 @@ export function applyRendererMixin(PlayerClass) {
             torsoHipX -= dir * dualZHipDepth * 0.12;
         }
         const idleArmWave = Math.sin(this.motionTime * 0.01);
-        const singleKatanaLeftHandXShared = centerX + dir * (isCrouchPose ? lerp(14.0, 11.5, crouchPoseT) : 14.0);
-        const singleKatanaLeftHandYShared = leftShoulderYShared + (isCrouchPose ? lerp(7.8, 6.2, crouchPoseT) : 7.8) + idleArmWave * (isCrouchPose ? lerp(1.7, 0.8, crouchPoseT) : 1.7);
-        // 真のアイドル基準は片刀構え。二刀流の右手だけ別基準にする
-        const dualWieldRightHandXShared = centerX - dir * (isCrouchPose ? lerp(7.2, 4.6, crouchPoseT) : 7.2);
-        const dualWieldRightHandYShared = rightShoulderYShared + (isCrouchPose ? lerp(8.5, 6.8, crouchPoseT) : 8.5) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? lerp(1.7, 0.8, crouchPoseT) : 1.7);
+        // 走行中は脚(legPhase)に同期して手を前後に振る。上下は body bob が肩経由で
+        // 既に腕へ伝播しているため前後のみ。肘IK・添え手・刀本体は手座標に自動追従する。
+        // isRunLike は攻撃/忍具構え中に false になるため攻撃ポーズへは漏れない。
+        const runArmSwing = isRunLike ? locomotionPhase * (isDashLike ? 2.2 : 1.6) : 0;
+        // 空中では跳躍の勢いに合わせて構え全体を動かす: 上昇=構えを引き込み、
+        // 落下=前方高めに構え直して着地に備える。攻撃/忍具アクション中は専用腕が
+        // 別経路で描かれるため適用しない(構え崩れ防止)
+        let airArmX = 0, airArmY = 0;
+        if (!isGrounded && !comboAttackingPose && !isNinNinPose && !(subWeaponTimer > 0)) {
+            const airRise = this.vy < 0 ? Math.min(1, -this.vy / 14) : 0;
+            const airFall = this.vy > 0 ? Math.min(1, this.vy / 13) : 0;
+            airArmX = -airRise * 1.8 + airFall * 2.2;
+            airArmY = -airRise * 1.2 - airFall * 1.6;
+        }
+        // アイドルの構え手はモーション時より短く見えるとの指摘で少し前方へ伸長(14.0→15.6等)
+        const singleKatanaLeftHandXShared = centerX + dir * (isCrouchPose ? lerp(15.6, 12.8, crouchPoseT) : 15.6) + dir * (runArmSwing + airArmX);
+        const singleKatanaLeftHandYShared = leftShoulderYShared + (isCrouchPose ? lerp(8.3, 6.6, crouchPoseT) : 8.3) + idleArmWave * (isCrouchPose ? lerp(1.7, 0.8, crouchPoseT) : 1.7) + airArmY;
+        // 真のアイドル基準は片刀構え。二刀流の右手だけ別基準にする(走行振りは逆相で腕を交互に、空中は同相)
+        const dualWieldRightHandXShared = centerX - dir * (isCrouchPose ? lerp(8.0, 5.2, crouchPoseT) : 8.0) - dir * runArmSwing * 0.8 + dir * airArmX * 0.8;
+        const dualWieldRightHandYShared = rightShoulderYShared + (isCrouchPose ? lerp(8.5, 6.8, crouchPoseT) : 8.5) + Math.sin(this.motionTime * 0.01 + 0.5) * (isCrouchPose ? lerp(1.7, 0.8, crouchPoseT) : 1.7) + airArmY * 0.8;
         const armReachScale = Number.isFinite(options.armReachScale) ? options.armReachScale : 1.0;
         const stretchFromShoulder = (shoulderX, shoulderY, targetX, targetY) => {
             if (Math.abs(armReachScale - 1.0) < 0.001) return { x: targetX, y: targetY };
@@ -2014,16 +2049,27 @@ export function applyRendererMixin(PlayerClass) {
             else if (comboStep === 4) {
                 const smooth = (t) => t * t * (3 - 2 * t);
                 if (comboProgress < 0.42) {
+                    // 上昇: 脚長を腰基準の固定比で保つ(旧式は足が bottomY 係数で残り、
+                    // 体幹の上昇リフトと食い違って短足/間延びに見えた)。
+                    // 汎用空中脚と同じ「前脚タック+後脚トレイル」で跳び上がりの勢いを見せる
                     const rise = comboProgress / 0.42;
                     const riseEase = smooth(rise);
-                    leftKneeX = leftHipX - dir * (2.1 - riseEase * 0.8);
-                    leftKneeY = hipLocalY + 8.4 - riseEase * 1.4;
-                    leftFootX = centerX - dir * (6.4 - riseEase * 1.2);
-                    leftFootY = bottomY - 1.2 - airborneLift * (0.52 + riseEase * 0.12);
-                    rightKneeX = rightHipX + dir * (2.6 - riseEase * 0.6);
-                    rightKneeY = hipLocalY + 8.1 - riseEase * 1.3;
-                    rightFootX = centerX + dir * (6.9 - riseEase * 1.0);
-                    rightFootY = bottomY - 1.3 - airborneLift * (0.54 + riseEase * 0.12);
+                    leftKneeX = leftHipX + dir * (2.6 + riseEase * 0.8);
+                    leftKneeY = hipLocalY + 7.6 - riseEase * 1.0;
+                    leftFootX = leftKneeX - dir * 1.4;
+                    leftFootY = leftKneeY + 5.6 - riseEase * 0.4;
+                    rightFootX = rightHipX - dir * (3.4 + riseEase * 2.2);
+                    rightFootY = hipLocalY + 12.0 - riseEase * 1.2;
+                    {
+                        const dXr = rightFootX - rightHipX;
+                        const dYr = rightFootY - hipLocalY;
+                        const lenR = Math.max(0.001, Math.hypot(dXr, dYr));
+                        let nXr = -dYr / lenR, nYr = dXr / lenR;
+                        if (nXr * dir < 0) { nXr = -nXr; nYr = -nYr; }
+                        const bendR = 1.6 + riseEase * 0.6;
+                        rightKneeX = rightHipX + dXr * 0.52 + nXr * bendR;
+                        rightKneeY = hipLocalY + dYr * 0.52 + nYr * bendR;
+                    }
                 } else {
                     // 体幹・剣ポーズと同じタイムライン(raw 0.42〜0.86で1回転)で脚も回す
                     const flipT = Math.max(0, Math.min(1, (comboProgress - 0.42) / 0.44));
@@ -2235,9 +2281,6 @@ export function applyRendererMixin(PlayerClass) {
             drawJointedLeg(leftHipX, hipLocalY + 0.35, leftKneeX, leftKneeY, leftFootX, leftFootY, false, 1.12);
             drawJointedLeg(rightHipX, hipLocalY + 0.12, rightKneeX, rightKneeY, rightFootX, rightFootY, true, 1.06);
         } else if (isCrouchPose) {
-            // strideとliftはcrouchPoseTに関係なく常にフルで効かせる（crouchIntensity=0.35の将軍でも歩行が見えるように）
-            const crouchStrideRaw = crouchWalkPhase * 2.0;
-            const crouchStride = crouchStrideRaw; // foot position lerp用（両端に加算するので crouchPoseT 乗算不要）
             const idlePhase = Math.sin(this.motionTime * 0.0042);
             const idleSpread = 2.5 + Math.abs(idlePhase) * 0.3;
             const leftHipX = lerp(torsoHipX + dir * 1.35, torsoHipX + dir * 1.15, crouchPoseT);
@@ -2246,21 +2289,65 @@ export function applyRendererMixin(PlayerClass) {
             const rightHipYL = hipY + lerp(0.14, 0.2, crouchPoseT);
             // 膝はhipYからbottomYの範囲に収まるよう clamp する
             const kneeYMax = bottomY - 4;
-            // 交互に足を持ち上げる: crouchPoseTに依存せずフルの振れ幅で持ち上げる
-            const leftLift = Math.max(0, -crouchWalkPhase) * 3.0;
-            const rightLift = Math.max(0, crouchWalkPhase) * 3.0;
-            const leftKneeX = lerp(leftHipX + dir * (0.55 + crouchStride * 0.25), leftHipX + dir * (3.0 + crouchStride * 0.5), crouchPoseT);
-            const leftKneeY = Math.min(kneeYMax, lerp(hipY + 9.9, hipY + 6.0 + Math.max(0, -crouchWalkPhase) * 1.8, crouchPoseT));
-            const leftFootXBase = lerp(centerX + dir * idleSpread, centerX + dir * 6.5, crouchPoseT);
-            const leftFootX = leftFootXBase + dir * crouchStride;
-            const leftFootY = lerp(bottomY + 0.1, bottomY - 0.6, crouchPoseT) - leftLift;
-            const rightKneeX = lerp(rightHipX + dir * (0.6 - crouchStride * 0.25), rightHipX - dir * (3.6 - crouchStride * 0.5), crouchPoseT);
-            const rightKneeY = Math.min(kneeYMax, lerp(hipY + 9.6, hipY + 6.4 + Math.max(0, crouchWalkPhase) * 1.8, crouchPoseT));
-            const rightFootXBase = lerp(centerX - dir * idleSpread, centerX - dir * 7.2, crouchPoseT);
-            const rightFootX = rightFootXBase + dir * crouchStride;
-            const rightFootY = lerp(bottomY - 0.1, bottomY - 0.2, crouchPoseT) - rightLift;
-            drawJointedLeg(leftHipX, leftHipYL, leftKneeX, leftKneeY, leftFootX, leftFootY, false, lerp(0.0, 1.0, crouchPoseT));
-            drawJointedLeg(rightHipX, rightHipYL, rightKneeX, rightKneeY, rightFootX, rightFootY, true, lerp(0.18, 1.02, crouchPoseT));
+            if (isRunLike) {
+                // しゃがみ歩き(忍び足): 走行と同じ接地ロック波形をしゃがみ振幅で回す。
+                // 低い姿勢のまま長く滑らかなステップ(抜き足)を刻み、小刻みシャッフルの
+                // 足滑り・分身感をなくす。duty/振幅は位相速度側(player.js)と同じ定数を読む
+                const runBlend = Math.min(1, speedAbs / Math.max(1, this.speed * 1.25));
+                const strideAmp = isShogunMode ? SHOGUN_CROUCH_STRIDE_AMP : NINJA_CROUCH_STRIDE_AMP;
+                const liftAmp = isShogunMode ? SHOGUN_CROUCH_LIFT_AMP : NINJA_CROUCH_LIFT_AMP;
+                const baseStepScale = 0.45 + runBlend * 0.88;
+                const TWO_PI = Math.PI * 2;
+                const stanceSpan = SHOGUN_CROUCH_STANCE_DUTY * TWO_PI;
+                const swingSpan = TWO_PI - stanceSpan;
+                const runAngleC = this.legPhase || this.motionTime * 0.012;
+                const poseLeg = (legSign) => {
+                    let m = (runAngleC + (legSign > 0 ? 0 : Math.PI) - Math.PI * 0.5) % TWO_PI;
+                    if (m < 0) m += TWO_PI;
+                    let pos, bell;
+                    if (m < stanceSpan) {
+                        const s = m / stanceSpan;
+                        pos = 1 - 2 * s; bell = 0;
+                    } else {
+                        const s = (m - stanceSpan) / swingSpan;
+                        pos = -Math.cos(Math.PI * Math.pow(s, 1.25));
+                        bell = Math.sin(Math.PI * Math.pow(s, 0.85));
+                    }
+                    const forward = (pos - SHOGUN_RUN_STRIDE_CENTER_BIAS) * strideAmp * baseStepScale;
+                    const lift = bell * liftAmp * (0.3 + runBlend * 0.95);
+                    return { forward, lift, bell };
+                };
+                const legL = poseLeg(1), legR = poseLeg(-1);
+                const leftFootX = centerX + dir * (legL.forward + 0.8);
+                const leftFootY = bottomY - 0.4 - legL.lift;
+                const rightFootX = centerX + dir * (legR.forward - 0.8);
+                const rightFootY = bottomY - 0.2 - legR.lift;
+                // 膝: しゃがみの深曲げを保ちつつ必ず進行方向側へ張り出す(逆反り防止)
+                const kneeFor = (hipX0, hipY0, footX, footY, bell) => {
+                    const dX = footX - hipX0, dY = footY - hipY0;
+                    const len = Math.max(0.001, Math.hypot(dX, dY));
+                    let nX = -dY / len, nY = dX / len;
+                    if (nX * dir < 0) { nX = -nX; nY = -nY; }
+                    const bend = 3.0 + 1.8 * bell;
+                    return { x: hipX0 + dX * 0.52 + nX * bend, y: Math.min(kneeYMax, hipY0 + dY * 0.52 + nY * bend) };
+                };
+                const lk = kneeFor(leftHipX, leftHipYL, leftFootX, leftFootY, legL.bell);
+                const rk = kneeFor(rightHipX, rightHipYL, rightFootX, rightFootY, legR.bell);
+                drawJointedLeg(leftHipX, leftHipYL, lk.x, lk.y, leftFootX, leftFootY, false, lerp(0.0, 1.0, crouchPoseT));
+                drawJointedLeg(rightHipX, rightHipYL, rk.x, rk.y, rightFootX, rightFootY, true, lerp(0.18, 1.02, crouchPoseT));
+            } else {
+                // しゃがみ静止: 従来の構え
+                const leftKneeX = lerp(leftHipX + dir * 0.55, leftHipX + dir * 3.0, crouchPoseT);
+                const leftKneeY = Math.min(kneeYMax, lerp(hipY + 9.9, hipY + 6.0, crouchPoseT));
+                const leftFootX = lerp(centerX + dir * idleSpread, centerX + dir * 6.5, crouchPoseT);
+                const leftFootY = lerp(bottomY + 0.1, bottomY - 0.6, crouchPoseT);
+                const rightKneeX = lerp(rightHipX + dir * 0.6, rightHipX - dir * 3.6, crouchPoseT);
+                const rightKneeY = Math.min(kneeYMax, lerp(hipY + 9.6, hipY + 6.4, crouchPoseT));
+                const rightFootX = lerp(centerX - dir * idleSpread, centerX - dir * 7.2, crouchPoseT);
+                const rightFootY = lerp(bottomY - 0.1, bottomY - 0.2, crouchPoseT);
+                drawJointedLeg(leftHipX, leftHipYL, leftKneeX, leftKneeY, leftFootX, leftFootY, false, lerp(0.0, 1.0, crouchPoseT));
+                drawJointedLeg(rightHipX, rightHipYL, rightKneeX, rightKneeY, rightFootX, rightFootY, true, lerp(0.18, 1.02, crouchPoseT));
+            }
         } else if (isSpearThrustPose) {
             // 横っ飛び: 後ろ足で蹴り、前足を畳む（脚長が伸びすぎない長さ）
             const rearDrive = Math.max(0, Math.sin(Math.max(0, Math.min(1, (spearPoseProgress - 0.16) / 0.62)) * Math.PI * 0.5));
@@ -2360,6 +2447,15 @@ export function applyRendererMixin(PlayerClass) {
                         rightKneeX = rightHipX3 + dir * 0.5 + sway * 0.3; rightKneeY = hipY + 8.0 * s;
                         rightFootX = rightKneeX - dir * 1.0 + sway * 0.8; rightFootY = rightKneeY + 6.2 * s;
                     }
+                    // 汎用空中脚と同じ足先下方延長(忍者/将軍共通)。タック主体のポーズでも
+                    // 草摺に膝下が埋もれて短足に見えないよう脚長を確保する
+                    {
+                        const extendOd = 6.5;
+                        leftKneeY += extendOd * 0.5;
+                        leftFootY += extendOd;
+                        rightKneeY += extendOd * 0.5;
+                        rightFootY += extendOd;
+                    }
                     drawJointedLeg(leftHipX, hipY + 0.2, leftKneeX, leftKneeY, leftFootX, leftFootY, false, 0.9);
                     drawJointedLeg(rightHipX3, hipY + 0.1, rightKneeX, rightKneeY, rightFootX, rightFootY, true, 1.02);
                 } else {
@@ -2398,6 +2494,17 @@ export function applyRendererMixin(PlayerClass) {
                 const poseR = leadIsLeft ? poseTrail(rightHipX3) : poseLead(rightHipX3);
                 let leftKneeX = poseL.kneeX, leftKneeY = poseL.kneeY, leftFootX = poseL.footX, leftFootY = poseL.footY;
                 let rightKneeX = poseR.kneeX, rightKneeY = poseR.kneeY, rightFootX = poseR.footX, rightFootY = poseR.footY;
+
+                // 空中では足先を下方へ延ばして脚長を見せる(接地直前は解除)。
+                // 特に将軍は草摺で腿が隠れるため、畳んだままだと短足に見える。
+                // 忍者も同係数で統一(ユーザー確認済み)
+                {
+                    const extend = 6.5 * (1 - settle);
+                    leftKneeY += extend * 0.5;
+                    leftFootY += extend;
+                    rightKneeY += extend * 0.5;
+                    rightFootY += extend;
+                }
 
                 // 接地直前は地上待機姿勢へ自然に戻す
                 leftKneeX += (leftHipX + dir * 0.62 - leftKneeX) * (settle * 0.64);
@@ -2438,7 +2545,8 @@ export function applyRendererMixin(PlayerClass) {
                         : (isShogunMode ? SHOGUN_RUN_LIFT_AMP : NINJA_RUN_LIFT_AMP);
                     const legSpread = 0.8; const baseStepScale = 0.45 + runBlend * 0.88;
                     const TWO_PI = Math.PI * 2;
-                    const stanceSpan = SHOGUN_RUN_STANCE_DUTY * TWO_PI;
+                    // duty は位相速度側(player.js updateLegLocomotion)と同じ定数を読む(接地ロックの前提)
+                    const stanceSpan = (isDashLike ? SHOGUN_DASH_STANCE_DUTY : SHOGUN_RUN_STANCE_DUTY) * TWO_PI;
                     const swingSpan = TWO_PI - stanceSpan;
                     const drawRunGroundLeg = (legSign, isFrontLeg) => {
                         // この脚の周回位相(両脚は半周期ずれ、m=0がstance開始)を[0,2π)へ正規化
@@ -3300,14 +3408,18 @@ export function applyRendererMixin(PlayerClass) {
             ctx.fill();
         };
 
-        const drawHand = (xPos, yPos, radius = 4.8, connectFrom = null) => {
+        // isBackHand: 奥手(掌が見える側)は true → 手の甲の飾り(将軍の金菱)を描かない。
+        // 手前手(甲が見える側)は false。従来この関数が isBackHand を受け取らず、
+        // 忍具系の全ての手に菱が出ていた(掌側にも模様が付く誤り)
+        const drawHand = (xPos, yPos, radius = 4.8, connectFrom = null, isBackHand = false) => {
             if (alpha <= 0) return;
             if (options.hideBodyParts) return;
             const handR = radius * handRadiusScale;
             if (typeof options.drawHandOverride === 'function') {
-                if (options.drawHandOverride(ctx, { 
-                    xPos, yPos, radius: handR, connectFrom, alpha, dir, 
-                    silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand, isAttackArm: false
+                if (options.drawHandOverride(ctx, {
+                    xPos, yPos, radius: handR, connectFrom, alpha, dir,
+                    silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand, isAttackArm: false,
+                    isBackHand
                 })) {
                     lastHandConnectFrom = null;
                     return;
@@ -3516,7 +3628,7 @@ export function applyRendererMixin(PlayerClass) {
                     -dir,
                     5.3
                 );
-                drawHand(rearHand.x, rearHand.y, standardLeftHandRadius);
+                drawHand(rearHand.x, rearHand.y, standardLeftHandRadius, null, true);
             }
 
             // 槍本体は奥手と手前手の間に描画する
@@ -4106,7 +4218,7 @@ export function applyRendererMixin(PlayerClass) {
 
             if (drawBackLayer) {
                 drawBentArmSegment(leftShoulderX, leftShoulderY, leftHandX, leftHandY, standardUpperLen, standardForeLen, -dir, 5.3);
-                drawHand(leftHandX, leftHandY, standardLeftHandRadius);
+                drawHand(leftHandX, leftHandY, standardLeftHandRadius, null, true);
                 if (renderWeaponVisuals) {
                     drawSubWeaponKatana(leftHandX, leftHandY, leftAngle, dir);
                 }
@@ -4276,7 +4388,7 @@ export function applyRendererMixin(PlayerClass) {
             if (drawBackLayer) {
                 // eTが1.0に近づくにつれて、drawBentArmSegmentでの曲がりを自然に調整(必要であれば)
                 drawBentArmSegment(bsx, bsy, bx, by, standardUpperLen, standardForeLen, -dir, 5.3);
-                drawHand(bx, by, standardLeftHandRadius);
+                drawHand(bx, by, standardLeftHandRadius, null, true);
             }
             // 奥の刀 (背面レイヤーへ変更)
             if (drawBackLayer && renderWeaponVisuals) {
@@ -4430,7 +4542,7 @@ export function applyRendererMixin(PlayerClass) {
             const rearHand = clampArmReach(rearShoulderX, rearShoulderY, rearTarget.x, rearTarget.y, standardLeftReach);
             if (drawBackLayer) {
                 drawBentArmSegment(rearShoulderX, rearShoulderY, rearHand.x, rearHand.y, standardUpperLen, standardForeLen, -dir, 5.3);
-                drawHand(rearHand.x, rearHand.y, standardLeftHandRadius);
+                drawHand(rearHand.x, rearHand.y, standardLeftHandRadius, null, true);
             }
 
             // 本体の手前に持つ見た目を作るため、奥手の後に大太刀を描く
@@ -4576,16 +4688,17 @@ export function applyRendererMixin(PlayerClass) {
 
             if (drawBackLayer) {
                 drawBentArmSegment(leftShoulderX, leftShoulderY, bx, by, standardUpperLen, standardForeLen, dir, 5.3);
-                drawHand(bx, by, standardLeftHandRadius);
-                if (renderWeaponVisuals) drawSubWeaponKatana(bx, by, ba, dir);
+                // 握り込みなので柄は掌の中=手の後ろに隠す(柄→手→刀身の順)。奥手は掌側なので菱なし
+                if (renderWeaponVisuals) drawSubWeaponKatana(bx, by, ba, dir, 0.28, 'handle');
+                drawHand(bx, by, standardLeftHandRadius, null, true);
+                if (renderWeaponVisuals) drawSubWeaponKatana(bx, by, ba, dir, 0.28, 'blade');
             }
             if (drawFrontLayer) {
                 drawBentArmSegment(rightShoulderX, rightShoulderY, fx, fy, standardUpperLen, standardForeLen, -dir, 5.2);
+                // 前手も柄を握り込む: 柄→手(甲側=菱あり)→刀身
+                if (renderWeaponVisuals) drawSubWeaponKatana(fx, fy, fa, dir, 0.28, 'handle');
                 drawHand(fx, fy, standardRightHandRadius);
-                if (renderWeaponVisuals) {
-                    drawSubWeaponKatana(fx, fy, fa, dir, 0.28, 'handle');
-                    drawSubWeaponKatana(fx, fy, fa, dir, 0.28, 'blade');
-                }
+                if (renderWeaponVisuals) drawSubWeaponKatana(fx, fy, fa, dir, 0.28, 'blade');
             }
         } else if (this.currentSubWeapon && this.currentSubWeapon.name === '鎖鎌' && !renderSubWeaponAction) {
             // 鎖鎌アイドル時: 通常アイドル姿勢がすでに描画済みなので追加の腕は不要
@@ -4595,7 +4708,7 @@ export function applyRendererMixin(PlayerClass) {
             const armEndY = pivotY + 5;
             if (drawBackLayer) {
                 drawBentArmSegment(leftShoulderX, leftShoulderY, armEndX, armEndY, standardUpperLen, standardForeLen, -dir, 5.3);
-                drawHand(armEndX, armEndY, standardLeftHandRadius);
+                drawHand(armEndX, armEndY, standardLeftHandRadius, null, true);
             }
             if (drawFrontLayer) {
                 drawSupportPose(centerX - dir * 8, pivotY + 12);
@@ -4879,13 +4992,14 @@ export function applyRendererMixin(PlayerClass) {
             }
             ctx.stroke();
         };
-        const drawAttackHand = (xPos, yPos, radius = 4.8 * attackHandRadiusScale, connectFrom = null) => {
+        const drawAttackHand = (xPos, yPos, radius = 4.8 * attackHandRadiusScale, connectFrom = null, isBackHand = false) => {
             if (alpha <= 0) return;
             if (options.hideBodyParts) return;
             if (typeof options.drawHandOverride === 'function') {
-                if (options.drawHandOverride(ctx, { 
-                    xPos, yPos, radius, connectFrom, alpha, dir, 
-                    silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand, isAttackArm: true
+                if (options.drawHandOverride(ctx, {
+                    xPos, yPos, radius, connectFrom, alpha, dir,
+                    silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand, isAttackArm: true,
+                    isBackHand
                 })) {
                     lastAttackHandConnectFrom = null;
                     return;
@@ -5007,8 +5121,10 @@ export function applyRendererMixin(PlayerClass) {
         };
 
         const rot = swordAngle;
-        // step2の切り上げ終盤でsin(rot)が閾値を超えて肘方向が反転するのを防ぐ
-        const mainBendDir = (attack.comboStep === 5 || attack.comboStep === 2)
+        // step2の切り上げ終盤でsin(rot)が閾値を超えて肘方向が反転するのを防ぐ。
+        // step3(水平突き)は腕が肩の高さで前方へ伸びるため、肘は下側へ垂れるのが自然
+        // (旧来は sin(rot) 判定で上側へ折れ、逆関節に見えていた)
+        const mainBendDir = (attack.comboStep === 5 || attack.comboStep === 2 || attack.comboStep === 3)
             ? -dir
             : (Math.sin(rot) < -0.22 ? -dir : dir);
         const mainReachCap = (standardUpperLen + standardForeLen) * armReachScale;
@@ -5046,7 +5162,9 @@ export function applyRendererMixin(PlayerClass) {
                 attackArmStrokeWidth
             );
 
-            drawAttackHand(armEndX, armEndY, 4.8 * attackHandRadiusScale);
+            // 奥手(主手)は掌側が見えるため、手の甲の飾り(将軍の金菱)は描かない
+            // (アイドル構えの奥手 isBackHand:true と同じ規則)
+            drawAttackHand(armEndX, armEndY, 4.8 * attackHandRadiusScale, null, true);
         }
 
         const swordLen = this.getKatanaBladeLength(); // 見た目の刀身長は常に統一（当たり判定rangeとは分離）
@@ -5144,6 +5262,7 @@ export function applyRendererMixin(PlayerClass) {
                 attackArmStrokeWidth
             );
 
+            // 手前の添え手は甲が見える側なので飾りを描く(isBackHand=false)
             drawAttackHand(supportHand.x, supportHand.y, 4.5 * attackHandRadiusScale);
         }
 

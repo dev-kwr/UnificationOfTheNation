@@ -2,7 +2,7 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, getDeviceProfile, setUiScaleFromFitScale, setSafeInsets } from './constants.js';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, getDeviceProfile, setUiScaleFromFitScale, setSafeInsets, setVirtualPadVisible } from './constants.js';
 import { input } from './input.js';
 import { Player } from './player.js';
 import { createSubWeapon } from './weapon.js';
@@ -988,7 +988,7 @@ class Game {
             // これを怠ると角1の門トリガーが「足が門より右」で即発火し、
             // ボス部屋からプレイヤーが角1の先へスナップで引き戻される。
             if (this.currentStageNumber === 6 && this.stage.stageNumber === 6) {
-                this.stage.cornersClimbed = STAGE6_CORNER.CORNER_XS.length;
+                this.stage.cornersClimbed = this.stage.stage6CornerXs.length;
             }
 
             this.stage.spawnBoss();           // ボス即スポーン
@@ -1665,9 +1665,16 @@ class Game {
         // くぐってきた壁が画面左に残る構図にする(後退クランプで壁は一方通行)。
         // stage5と違い世界座標は連続なので progress はスナップ先に合わせるだけ。
         if (prevPhase === 1 && currentPhase === 2) {
-            this.player.x = this.stage.lastClimbedCornerX + STAGE6_CORNER.SNAP_AFTER_PX;
+            if (this.stage.isStage6Arena()) {
+                // 角3の先=大屋根アリーナ。「屋根に飛び乗った」設定なので入口の先ではなく
+                // アリーナ中央へ着地させ、カメラも中央に置く(左右の金鯱はまだ画面外)。
+                this.player.x = this.stage.getStage6ArenaCenterX() - this.player.getWorldWidth() * 0.5;
+                this.scrollX = this.player.x + this.player.getWorldWidth() * 0.5 - CANVAS_WIDTH * 0.5;
+            } else {
+                this.player.x = this.stage.lastClimbedCornerX + STAGE6_CORNER.SNAP_AFTER_PX;
+                this.scrollX = this.player.x - STAGE6_CORNER.POST_FADE_CAMERA_LAG;
+            }
             this.player.facingRight = true;
-            this.scrollX = this.player.x - STAGE6_CORNER.POST_FADE_CAMERA_LAG;
             this.stage.progress = this.scrollX;
             this.stage.lastProgress = this.scrollX; // progressDeltaスパイク防止
             // 鉢巻・髪の物理ノードは世界座標の追従連鎖なので、瞬間移動すると伸び切る。転移先で張り直す。
@@ -1769,16 +1776,23 @@ class Game {
                     this.scrollX = stopScrollX;
                 }
             }
+        } else if (this.stage.isStage6Arena && this.stage.isStage6Arena()) {
+            // Stage6 最上階の大屋根アリーナ: 左右自由移動。カメラは常に中央追従(戻れる)。
+            this.scrollX = this.player.x + this.player.getWorldWidth() * 0.5 - screenCenter;
         } else {
             // 通常（固定方向）
             if (this.player.x > this.scrollX + screenCenter) this.scrollX = this.player.x - screenCenter;
         }
-        
+
         // スクロール制限
         // maxProgress は世界の全幅。カメラが映せる右端は maxProgress - CANVAS_WIDTH
         const maxScroll = Math.max(0, this.stage.maxProgress - CANVAS_WIDTH);
         if (this.scrollX > maxScroll) this.scrollX = maxScroll;
-        if (this.scrollX < 0) this.scrollX = 0;
+        // 大屋根アリーナはアリーナ左端より左を映さない(手前の巡回路は見せない)
+        const minScroll = (this.stage.isStage6Arena && this.stage.isStage6Arena())
+            ? this.stage.getStage6ArenaLeft()
+            : 0;
+        if (this.scrollX < minScroll) this.scrollX = minScroll;
         
         // 背景パララックス用にStage側のprogressも更新
         this.stage.progress = this.scrollX;
@@ -1828,14 +1842,25 @@ class Game {
             }
         }
 
-        // --- Stage 6: 角の全高壁の通用門に達したら暗転遷移（壁の向こうは見えていない） ---
+        // --- Stage 6: 角の関所に達したら暗転遷移 ---
+        // 角1・2は通用門をくぐる。角3(最上階へ)は門をくぐらず「大屋根へ飛び乗る」ため、
+        // 軒下でジャンプして頭上の軒の高さに達したら発火する(門と最上階が繋がらない
+        // 辻褄の破れを解消。屋根に飛び乗った設定と導線を一致させる)。
         if (this.currentStageNumber === 6 && this.stage &&
             !this.stage.isFloorTransitioning && this.stage.hasPendingStage6Corner()) {
-            const doorX = this.stage.getStage6ActiveCornerX() - STAGE6_CORNER.DOOR_TRIGGER_INSET;
+            const cornerX = this.stage.getStage6ActiveCornerX();
+            const isFinalCorner = this.stage.cornersClimbed === 2;
+            const doorX = cornerX - STAGE6_CORNER.DOOR_TRIGGER_INSET;
             const probe = this.player.x + this.player.getWorldWidth();
-            // 上限も見る: 「門に歩き入った」ときだけ発火。
-            // 下限だけだと、デバッグワープ等で門より先にいるだけで誤発火する。
-            if (probe >= doorX && probe <= doorX + 200) {
+            const inTriggerBand = isFinalCorner
+                // 飛び乗り: 軒の手前の帯に居て、ジャンプで一定高さまで上がった時
+                ? (probe >= cornerX - STAGE6_CORNER.JUMP_ZONE_PX && probe <= cornerX + 120
+                    && !this.player.isGrounded
+                    && this.player.y + this.player.getWorldHeight()
+                        <= this.stage.baseGroundY + LANE_OFFSET - STAGE6_CORNER.JUMP_TRIGGER_HEIGHT)
+                // 通用門: 門の正面に立った時
+                : (probe >= doorX && probe <= doorX + 200);
+            if (inTriggerBand) {
                 this.player.vx = 0;
                 this.stage.startCornerTransition();
             }
@@ -1843,13 +1868,31 @@ class Game {
 
         // ステージ更新
         this.stage.update(this.deltaTime, this.player);
-        if (this.stage.bossSpawned && !this.stage.bossDefeated && audio.bgmAudio && audio.bgmAudio.paused && !audio.isMuted) {
+        // ボス戦中(stage6は大屋根アリーナに降り立った時点から)はボス曲を維持する
+        const bossMusicPhase = (this.stage.bossSpawned || (this.stage.isStage6Arena && this.stage.isStage6Arena()))
+            && !this.stage.bossDefeated;
+        if (bossMusicPhase && audio.bgmAudio && audio.bgmAudio.paused && !audio.isMuted) {
             audio.playBgm('boss', this.currentStageNumber);
         }
         
         // プレイヤーの移動制限
-        // 戻りなしスクロール制限（Stage 5以外）
-        if (this.currentStageNumber !== 5) {
+        const inStage6Arena = !!(this.stage.isStage6Arena && this.stage.isStage6Arena());
+        if (inStage6Arena) {
+            // 大屋根アリーナ: 左右自由に歩き回れる。屋根の両端(棟端の金鯱の手前)でクランプ。
+            const arenaLeft = this.stage.getStage6ArenaLeft();
+            const arenaRight = this.stage.maxProgress;
+            const minX = arenaLeft + 40;
+            const maxArenaX = arenaRight - 40 - this.player.getWorldWidth();
+            if (this.player.x < minX) {
+                this.player.x = minX;
+                if (this.player.vx < 0) this.player.vx = 0;
+            }
+            if (this.player.x > maxArenaX) {
+                this.player.x = maxArenaX;
+                if (this.player.vx > 0) this.player.vx = 0;
+            }
+        } else if (this.currentStageNumber !== 5) {
+            // 戻りなしスクロール制限（Stage 5・stage6アリーナ以外）
             if (this.player.x < this.scrollX) {
                 this.player.x = this.scrollX;
                 if (this.player.vx < 0) this.player.vx = 0;
@@ -1860,6 +1903,15 @@ class Game {
         if (this.player.x > maxX) {
             this.player.x = maxX;
             if (this.player.vx > 0) this.player.vx = 0;
+        }
+        // 大屋根アリーナは屋根の実体で止める。画面端クランプの後に適用して、
+        // ボス出現でカメラが止まった後も棟端(金鯱の手前)を越えないようにする。
+        if (inStage6Arena) {
+            const arenaMaxX = this.stage.maxProgress - 40 - this.player.getWorldWidth();
+            if (this.player.x > arenaMaxX) {
+                this.player.x = arenaMaxX;
+                if (this.player.vx > 0) this.player.vx = 0;
+            }
         }
 
         // 当たり判定対象の再構築
@@ -4777,6 +4829,11 @@ class Game {
 
     
     render() {
+        // 仮想パッドの当たり判定は「描いたフレームだけ」有効にする。
+        // ここで毎フレーム落とし、renderVirtualPad が描いたときだけ true が立つ
+        // （タイトル等パッド非表示の画面で見えない判定が残るのを防ぐ）。
+        setVirtualPadVisible(false);
+
         // 変換行列が失われても毎フレーム復元して描画崩れを防ぐ
         if (this.canvas && this.ctx) {
             this.ctx.setTransform(
@@ -5380,6 +5437,27 @@ class Game {
             for (const sw of this.shockwaves) {
                 sw.render(ctx);
             }
+        }
+
+        // Stage6: 黒漆の床・壁でプレイヤー(黒シルエット)が同化するため、
+        // 足元に淡い視認性ハローを敷いてキャラを浮かせる(描画専用・判定不変)。
+        if (this.currentStageNumber === 6 && this.player && this.player.hp > 0) {
+            const ph = this.player.getWorldHeight();
+            const cx = this.player.x + this.player.getWorldWidth() * 0.5;
+            const cy = this.player.y + ph * 0.5; // 体の中心
+            const rx = this.player.getWorldWidth() * 2.2;
+            const ry = ph * 1.15; // 全身を包む
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighten';
+            const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, ry);
+            halo.addColorStop(0, 'rgba(150, 178, 210, 0.42)');
+            halo.addColorStop(0.55, 'rgba(115, 145, 185, 0.20)');
+            halo.addColorStop(1, 'rgba(85, 115, 155, 0)');
+            ctx.fillStyle = halo;
+            ctx.beginPath();
+            ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
         }
 
         this.renderPlayerCombatLayer(ctx, { playerAlpha, forceStanding });

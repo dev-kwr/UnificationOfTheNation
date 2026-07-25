@@ -253,6 +253,16 @@ export function setSafeInsets(leftPx, rightPx) {
 }
 export function getSafeInsets() { return { left: _safeInsetL, right: _safeInsetR }; }
 
+// 仮想パッドが「実際に画面に描かれているか」の単一ソース。
+// 描画(ui.js renderVirtualPad)が毎フレーム申告し、判定(input.js getTouchActions)が読む。
+// タイトル/よろず屋/幕間などパッド非表示の画面では、見えないスティックやボタンの
+// 当たり判定が生きたままになり、ボタン以外をクリック/タップすると難易度が変わる・
+// カーソルが動く・そのまま出陣してしまう（＝押したはずの操作が無反応に見える）ため。
+// game.js render() が毎フレーム false へ戻し、パッドを描いたフレームだけ true になる。
+let _virtualPadVisible = false;
+export function setVirtualPadVisible(visible) { _virtualPadVisible = !!visible; }
+export function isVirtualPadVisible() { return _virtualPadVisible; }
+
 // 仮想パッド幾何の単一導出。描画(ui.js)と判定(input.js)は必ずこれを読むこと
 // （clamp式や座標式を両ファイルへ複製するとヒットと見た目が必ずズレる）。
 // s=1 のとき全値が従来定数と数値同一＝ピクセル不変。
@@ -305,15 +315,20 @@ export const STAGE5_FLOOR = {
 // 天守外周を1周ごとに巡り、角=ゾーン境界(maxProgress/4 の倍数)の全高壁の通用門をくぐって次の面へ。
 // 壁が境界の先を視界から隠すことで「向こう側は一段上」という省略が成立する。
 export const STAGE6_CORNER = {
-    CORNER_XS: [6000, 12000, 18000],
+    ZONE_WIDTH: 9000,               // 一〜三巡目(周回登城)の各ゾーン幅。角=[9000,18000,27000]
+    ARENA_WIDTH: 3200,              // 四巡目=大屋根アリーナの幅(左右に歩き回れる。広げすぎない)
+    ARENA_MOOD_RAMP_MS: 900,        // 大屋根に降り立った瞬間から最終決戦の空気が立ち上がる時間
+    JUMP_ZONE_PX: 420,              // 角3(最上階へ): 軒下の飛び乗り受付帯の幅
+    JUMP_TRIGGER_HEIGHT: 90,        // 足元が床からこの高さを超えたら大屋根へ飛び乗る
     WALL_LEFT_PX: 200,              // 壁の左端（境界からの距離）
     WALL_RIGHT_PX: 610,             // 壁の右端。門中心(-79)で発火した時の画面右端(+561)を確実に覆う幅
                                     // (壁アセットv5は2304×1456=枠810×512。v4(2048)は暫定で横に伸びる)
     DOOR_TRIGGER_INSET: 55,         // 通用門のトリガーx（境界からの手前距離）。
                                     // 門洞中心=cornerX-79に対し、プレイヤー中心(=probe-24)が門中心に
                                     // 達した瞬間(probe=cornerX-55)に発火=門の正面に立ってから暗転する。
-    SNAP_AFTER_PX: 850,             // 暗転中に壁の先へ置くプレイヤーx（境界基準、壁右端+240）
-    POST_FADE_CAMERA_LAG: 380,      // 暗転明けのカメラ位置（プレイヤーの手前距離。壁が画面左に140px残る）
+    SNAP_AFTER_PX: 700,             // 暗転中に壁の先へ置くプレイヤーx（境界基準、壁右端+90）
+    POST_FADE_CAMERA_LAG: 150,      // 暗転明けのカメラ位置（プレイヤーの手前距離）。
+                                    // 小さいほどプレイヤーが画面左端寄りから始まる=進む余地が広い。
     SPAWN_BUFFER: 250,              // 角帯の敵/障害物スポーン禁止バッファ
     TRANSITION_FADE_MS: 400,
     TRANSITION_WAIT_MS: 650,

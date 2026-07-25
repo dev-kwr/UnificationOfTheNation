@@ -54,8 +54,10 @@ export class Stage {
             this.floorNameDisplayTimer = 0;
             this.floorNameDisplayDuration = 1800; // ms
         } else {
-            // 最終ステージは天守外周を4区間に分けて巡るため、通常ステージの2倍。
-            this.maxProgress = this.stageNumber === 6 ? 24000 : 12000;
+            // 最終ステージ: 一〜三巡目の周回登城(各ZONE_WIDTH)+四巡目の大屋根アリーナ(ARENA_WIDTH)。
+            this.maxProgress = this.stageNumber === 6
+                ? (STAGE6_CORNER.ZONE_WIDTH * 3 + STAGE6_CORNER.ARENA_WIDTH)
+                : 12000;
             this.currentFloor = 0;
             this.floorScrollDirection = 1;
         }
@@ -65,6 +67,9 @@ export class Stage {
         if (this.stageNumber === 6) {
             this.baseGroundY = Math.round(CANVAS_HEIGHT * (2 / 3));
             this.cornersClimbed = 0;        // 登り済みの角の数 = 現在ゾーンindex(0〜3)
+            // 角(ゾーン境界)は一〜三巡目の等間隔。四巡目(角3の先)はアリーナ。
+            // 背景/床/壁のゾーン分割はこの配列基準(maxProgress/4ではない)。
+            this.stage6CornerXs = [1, 2, 3].map((i) => STAGE6_CORNER.ZONE_WIDTH * i);
             this.lastClimbedCornerX = 0;
             this.isFloorTransitioning = false;
             this.floorTransitionTimer = 0;
@@ -298,9 +303,9 @@ export class Stage {
 
             // 角の全高壁(視界遮断+通用門)。境界ごとに別アセット。
             this.stage6CornerWallImages = [
-                'images/stage6_wall_corner_turret.png?v=20260724_dechecker1',
-                'images/stage6_wall_gatehouse.png?v=20260724_dechecker1',
-                'images/stage6_wall_final_gate.png?v=20260724_dechecker1'
+                'images/stage6_wall_corner_turret.png?v=20260724_checker2',
+                'images/stage6_wall_gatehouse.png?v=20260724_checker2',
+                'images/stage6_wall_final_gate.png?v=20260724_checker2'
             ].map((src) => {
                 const img = new Image();
                 img.src = src;
@@ -311,19 +316,20 @@ export class Stage {
             //     未配置の間は従来のテラス床/東屋/柵付き背景へフォールバックする。
             this.stage6RidgeTilesGroundImage = new Image();
             this.stage6RidgeTilesGroundImage.src = 'images/stage6_ground_ridge_tiles.png?v=20260723_final1';
-            this.stage6RidgeFlanksImage = new Image();
-            this.stage6RidgeFlanksImage.src = 'images/stage6_ridge_flanks_backdrop.png?v=20260723_final1';
+            // 金鯱: 棟端に直接載る(土台なし)。右向き1体を読み込み、左端はコードで左右反転して使う
             this.stage6RidgeShachiImage = new Image();
-            this.stage6RidgeShachiImage.src = 'images/stage6_ridge_shachi.png?v=20260722_ridge1';
+            this.stage6RidgeShachiImage.src = 'images/stage6_ridge_shachi.png?v=20260724_shachi2';
             // 三巡目の床置き換え(鉄板リベット→黒漆の板張り)
             this.stage6GalleryWoodGroundImage = new Image();
             this.stage6GalleryWoodGroundImage.src = 'images/stage6_ground_gallery_wood.png?v=20260722_ridge1';
-            // 角3をくぐった後の「屋根に突き出た出口の破風」(未配置時は妻壁のまま)
-            this.stage6RoofExitGableImage = new Image();
-            this.stage6RoofExitGableImage.src = 'images/stage6_roof_exit_gable.png?v=20260723_final1';
+            // 角3(最上階へ): 頭上に張り出す最上重の大屋根の軒。未配置時は従来の最終門壁のまま。
+            this.stage6UpperEaveImage = new Image();
+            this.stage6UpperEaveImage.src = 'images/stage6_upper_eave.png?v=20260725_eave1';
+            // 背景屋根(ridge_flanks)と出口破風(roof_exit_gable)は最上階アリーナ化で廃止。
+            // 大屋根の上には地面の屋根(eaves)だけがあり、奥は山並みと空だけになる。
             // 大棟の床v3: 軒先で終わり下端透過(軒下にコードが「遥か下の世界」を描く)。未配置時はridge_tiles
             this.stage6RidgeEavesGroundImage = new Image();
-            this.stage6RidgeEavesGroundImage.src = 'images/stage6_ground_ridge_eaves.png?v=20260724_eaves1';
+            this.stage6RidgeEavesGroundImage.src = 'images/stage6_ground_ridge_eaves.png?v=20260724_eaves2';
         }
 
         // キャッシュ用オフスクリーンCanvasの初期化
@@ -472,20 +478,35 @@ export class Stage {
     /** Stage6: 次に登る角(隅櫓)のワールドX。全て登り済みなら Infinity */
     getStage6ActiveCornerX() {
         if (this.stageNumber !== 6) return Infinity;
-        return this.cornersClimbed < STAGE6_CORNER.CORNER_XS.length
-            ? STAGE6_CORNER.CORNER_XS[this.cornersClimbed]
+        return this.cornersClimbed < this.stage6CornerXs.length
+            ? this.stage6CornerXs[this.cornersClimbed]
             : Infinity;
+    }
+
+    /** Stage6: 大屋根アリーナ(四巡目=最上階)にいるか。左右自由移動の特殊仕様が有効な区間 */
+    isStage6Arena() {
+        return this.stageNumber === 6 && this.cornersClimbed >= this.stage6CornerXs.length;
+    }
+
+    /** Stage6: 大屋根アリーナの左端ワールドX */
+    getStage6ArenaLeft() {
+        return this.stage6CornerXs[this.stage6CornerXs.length - 1];
+    }
+
+    /** Stage6: 大屋根アリーナの中央ワールドX(飛び乗りの着地点) */
+    getStage6ArenaCenterX() {
+        return this.getStage6ArenaLeft() + STAGE6_CORNER.ARENA_WIDTH * 0.5;
     }
 
     /** Stage6: まだ登っていない角が残っているか */
     hasPendingStage6Corner() {
-        return this.stageNumber === 6 && this.cornersClimbed < STAGE6_CORNER.CORNER_XS.length;
+        return this.stageNumber === 6 && this.cornersClimbed < this.stage6CornerXs.length;
     }
 
     /** Stage6: xがいずれかの角帯(壁+バッファ)内か。敵/障害物のスポーン除外に使う */
     isInStage6CornerBand(x, buffer = STAGE6_CORNER.SPAWN_BUFFER) {
         if (this.stageNumber !== 6) return false;
-        for (const cornerX of STAGE6_CORNER.CORNER_XS) {
+        for (const cornerX of this.stage6CornerXs) {
             if (x >= cornerX - STAGE6_CORNER.WALL_LEFT_PX - buffer &&
                 x <= cornerX + STAGE6_CORNER.WALL_RIGHT_PX + buffer) {
                 return true;
@@ -1058,6 +1079,14 @@ export class Stage {
         // stage6のgroundYは動かさない設計だが明示的に戻しておく
         this.groundY = this.baseGroundY;
 
+        // 大屋根アリーナへ降り立った瞬間から最終決戦の空気にする。
+        // BGMをボス曲へ、演出ブレンドは update() の moodBlend が立ち上げる。
+        if (this.isStage6Arena()) {
+            this.stage6ArenaMoodTimer = 0;
+            this.bossEntranceFlash = Math.max(this.bossEntranceFlash || 0, 0.6);
+            audio.playBgm('boss', this.stageNumber, 1200, 0);
+        }
+
         // progress/maxProgressは触らない（stage5と違い世界座標は連続。xスナップはgame.js側）
     }
 
@@ -1449,6 +1478,16 @@ export class Stage {
                 ? this.smoothstep(0, 1, 1 - bossIntroRatio)
                 : 1.0)
             : 0;
+        // Stage6 大屋根アリーナ: ボス出現前でも「最終決戦の空気」を出す。
+        // 着地した瞬間から演出(朝焼けの染め・ヴィネット・闘気粒子)を立ち上げる。
+        if (this.isStage6Arena() && !this.bossDefeated) {
+            this.stage6ArenaMoodTimer = Math.min(
+                STAGE6_CORNER.ARENA_MOOD_RAMP_MS,
+                (this.stage6ArenaMoodTimer || 0) + deltaTime * 1000
+            );
+            const moodBlend = this.smoothstep(0, 1, this.stage6ArenaMoodTimer / STAGE6_CORNER.ARENA_MOOD_RAMP_MS);
+            this.bossEncounterBlend = Math.max(this.bossEncounterBlend, moodBlend);
+        }
 
         // ボス戦中〜撃破余韻中は専用更新
         if (this.bossSpawned && (!this.bossDefeated || this.bossDefeatLingerTimer > 0)) {
@@ -3504,7 +3543,8 @@ export class Stage {
         drawHeight,
         bottomY,
         filter = 'none',
-        bottomOffset = 0
+        bottomOffset = 0,
+        flipX = false
     }) {
         if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
 
@@ -3512,10 +3552,18 @@ export class Stage {
         const drawW = Math.ceil(drawH * (image.naturalWidth / image.naturalHeight));
         const x = Math.round(worldCenterX - progress - drawW * 0.5);
         if (x + drawW <= 0 || x >= CANVAS_WIDTH) return false;
+        const y = Math.round(bottomY - drawH + bottomOffset);
 
         ctx.save();
         ctx.filter = filter;
-        ctx.drawImage(image, x, Math.round(bottomY - drawH + bottomOffset), drawW, drawH);
+        if (flipX) {
+            // 左右反転(金鯱の左端用: 同じアセットを外向きに使う)
+            ctx.translate(x + drawW, y);
+            ctx.scale(-1, 1);
+            ctx.drawImage(image, 0, 0, drawW, drawH);
+        } else {
+            ctx.drawImage(image, x, y, drawW, drawH);
+        }
         ctx.filter = 'none';
         ctx.restore();
         return true;
@@ -3541,6 +3589,11 @@ export class Stage {
 
         if (zone === 0) {
             // 一巡目: まだ低い。城下の大屋根がすぐ目の高さに大きく迫る。
+            // 遠景の連山はごく低く霞む程度(高度が上がるほど遠くが見える進行の起点)。
+            this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
+                parallax: 0.05, drawHeight: 150, bottomY: this.groundY + 24, alpha: 0.5,
+                filter: 'brightness(0.7) saturate(0.6)', mirrorRepeat: false
+            });
             this.renderStageBackdropTile(ctx, this.stage6PanoramaBambooFarImage, progress, {
                 parallax: 0.08, drawHeight: 240, bottomY: fence + 30, filter: farFilter, mirrorRepeat: false
             });
@@ -3549,6 +3602,11 @@ export class Stage {
             });
         } else if (zone === 1) {
             // 二巡目: 一段登った。屋根が小さくなり、柵の裏へ沈み始める。方角が変わり街道筋が見える。
+            // 連山は一巡目より高く・濃くなる(見通しが利いてきた)。
+            this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
+                parallax: 0.055, drawHeight: 200, bottomY: this.groundY + 24, alpha: 0.72,
+                filter: 'brightness(0.76) saturate(0.66)', mirrorRepeat: false
+            });
             this.renderStageBackdropTile(ctx, this.stage6PanoramaKaidoFarImage, progress, {
                 parallax: 0.08, drawHeight: 220, bottomY: fence + 30, filter: farFilter, mirrorRepeat: false
             });
@@ -3557,9 +3615,14 @@ export class Stage {
             });
         } else if (zone === 2) {
             // 三巡目: 屋根は棟先が柵際に覗くだけ。視界は遠くの連山まで開ける。
+            // 連山の裾は床上端(groundY)より下まで差し込む(隙間防止)。かつ城下の帯より
+            // 十分高く出す——低いと柵と城下に埋没し「三巡目は山が見えないのに最上階で出る」
+            // という逆の進行になる。高度が上がるほど遠くが大きく見えるのが正。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
-                parallax: 0.06, drawHeight: 200, bottomY: fence + 30, filter: farFilter, mirrorRepeat: false
+                parallax: 0.06, drawHeight: 265, bottomY: this.groundY + 24, filter: farFilter, mirrorRepeat: false
             });
+            // 城下は棟先が覗くだけの細い帯。裾は連山バンド(床まで差し込み済み)が受けるので
+            // ここを床まで伸ばす必要はない(伸ばすと遠景が埋まり「見渡せる」感が消える)。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
                 parallax: 0.14, drawHeight: 95, bottomY: fence + 48, alpha: 0.78, filter: nearFilter, mirrorRepeat: false
             });
@@ -3568,10 +3631,11 @@ export class Stage {
             // 半透明の「霞に沈む町」バンドと屋根レベルの靄バンドは廃止した——
             // 明るい空を背景にした半透明要素は浮遊物に見え、屋根に乗る靄は
             // 「歩いている屋根が透けている」ように読めるため(靄の焼き込み禁止と同じ理由)。
-            // bottomYは向こう側斜面(flanks)の不透明上端(≈427)より深く差し込む。
-            // 浅いと連山の裾と斜面の間に素の空が横一線に露出し「謎の空白ライン」になる。
+            // 最上階の大屋根アリーナ: 背景は連山と夜明けだけ。
+            // 連山の裾は必ず屋根の棟(=床上端 groundY)より下まで差し込む。
+            // 浅いと連山の裾と屋根の間に素の空(朝焼け)が横一線に露出し「謎の帯」になる。
             this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
-                parallax: 0.06, drawHeight: 190, bottomY: fence + 60, filter: farFilter, mirrorRepeat: false
+                parallax: 0.06, drawHeight: 190, bottomY: this.groundY + 24, filter: farFilter, mirrorRepeat: false
             });
         }
     }
@@ -3599,29 +3663,18 @@ export class Stage {
         if (this.stageNumber !== 6) return;
         const frameW = STAGE6_CORNER.WALL_LEFT_PX + STAGE6_CORNER.WALL_RIGHT_PX;
         const laneY = this.groundY + LANE_OFFSET; // 512 = 通用門の開口下端の着地先(足元ライン)
-        for (let i = 0; i < STAGE6_CORNER.CORNER_XS.length; i++) {
-            const cornerX = STAGE6_CORNER.CORNER_XS[i];
+        for (let i = 0; i < this.stage6CornerXs.length; i++) {
+            const cornerX = this.stage6CornerXs[i];
 
-            // 角3(大屋根への出口)だけは、くぐった後は回廊の妻壁ではなく
-            // 「屋根に突き出た出口の破風」に差し替える(廊下の建物が屋根の上に立つ矛盾を避ける)。
-            // アセット未配置時は従来どおり妻壁を描き続ける。
-            if (i === 2 && this.cornersClimbed >= 3 && this.isStage6ImageReady(this.stage6RoofExitGableImage)) {
-                const gable = this.stage6RoofExitGableImage;
-                const gW = 380;
-                const gH = Math.round(gW * (gable.naturalHeight / gable.naturalWidth));
-                const gx = Math.round(cornerX + STAGE6_CORNER.WALL_RIGHT_PX - gW - scrollX);
-                if (gx + gW > 0 && gx < CANVAS_WIDTH) {
-                    ctx.save();
-                    ctx.filter = 'brightness(0.86) saturate(0.76)';
-                    ctx.drawImage(gable, gx, laneY - gH, gW, gH);
-                    ctx.filter = 'none';
-                    const gGrad = ctx.createLinearGradient(0, laneY, 0, laneY + 22);
-                    gGrad.addColorStop(0, 'rgba(0, 0, 0, 0.4)');
-                    gGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-                    ctx.fillStyle = gGrad;
-                    ctx.fillRect(gx, laneY, gW, 22);
-                    ctx.restore();
-                }
+            // 角3を越えた後(=大屋根アリーナ)は背後に構造物を一切描かない。
+            // 「屋根に飛び乗った」設定のため入口(門/破風)は存在しない。
+            if (i === 2 && this.cornersClimbed >= 3) continue;
+
+            // 角3(最上階へ)は門ではなく「最上重の大屋根の軒が頭上に張り出す」構図にする。
+            // 門をくぐる導線だと「門の先が最上階の屋根の上」という関係が絵にならず辻褄が破れるため、
+            // 軒下でジャンプして飛び乗る導線に合わせて見た目も軒に差し替える。
+            if (i === 2 && this.isStage6ImageReady(this.stage6UpperEaveImage)) {
+                this.renderStage6UpperEave(ctx, cornerX, scrollX);
                 continue;
             }
 
@@ -3649,19 +3702,15 @@ export class Stage {
     }
 
     renderStage6BackdropZones(ctx, progress) {
-        const zoneWidth = this.maxProgress / 4;
         const drawHeight = Math.max(420, this.groundY * 0.8);
         const bottomY = this.groundY + 30;
         const filter = 'brightness(0.84) saturate(0.8) contrast(0.98)';
 
-        const cornerX = zoneWidth;
-        const roofGateX = zoneWidth * 2;
-        const finalThresholdX = zoneWidth * 3;
+        const [cornerX, roofGateX, finalThresholdX] = this.stage6CornerXs;
 
         // ゾーン背景は境界で正確に突き合わせ、その上に関所(全高壁/透かし櫓)を重ねる。
-        // 以前は透かし櫓の半幅ぶん背景側に隙間を空けていたが、暗転明けのカメラ位置によって
-        // 隙間や櫓の切れ端が露出し「ループの継ぎ目」に見えるため廃止した。
-        // 境界の絵柄ジョイントは関所オーバーレイの不透明部が覆う。
+        // 四巡目(finalThresholdX以降=大屋根アリーナ)は背景の建物を描かない。
+        // 大屋根の上に飛び乗った設定で、奥は山並み・空・朝焼けだけ(renderStage6Panoramaが担当)。
         const zones = [
             {
                 image: this.stage6TenshuBackdropImage,
@@ -3680,19 +3729,6 @@ export class Stage {
                 start: roofGateX,
                 end: finalThresholdX,
                 mirrorRepeat: true
-            },
-            {
-                // 大棟化: 四巡目は柵なしの「奥側屋根斜面+破風」帯(シームレス素直ループ)。
-                // 向こう側斜面は強い前縮みで「棟際の薄い帯」にしか見えないはずなので、
-                // 描画高さを圧縮する(フルサイズだと瓦の壁が立ち上がって見え、別の屋根と誤読される)。
-                // 未配置の間は従来の柵付きテラス背景(ミラータイル・フルサイズ)。
-                image: this.isStage6ImageReady(this.stage6RidgeFlanksImage)
-                    ? this.stage6RidgeFlanksImage
-                    : this.stage6FinalTerraceImage,
-                start: finalThresholdX,
-                end: this.maxProgress,
-                mirrorRepeat: !this.isStage6ImageReady(this.stage6RidgeFlanksImage),
-                drawHeight: this.isStage6ImageReady(this.stage6RidgeFlanksImage) ? 250 : undefined
             }
         ];
 
@@ -3735,20 +3771,56 @@ export class Stage {
             });
         }
 
-        // ボス背後のランドマーク: 大棟化後は棟端の巨大金鯱、未配置の間は従来の東屋。
-        const useShachi = this.isStage6ImageReady(this.stage6RidgeShachiImage);
-        const landmark = useShachi ? this.stage6RidgeShachiImage : this.stage6BossPavilionImage;
-        if (landmark?.complete && landmark.naturalWidth > 0 && landmark.naturalHeight > 0) {
-            const landmarkHeight = useShachi ? Math.round(drawHeight * 1.06) : drawHeight;
-            const landmarkWidth = Math.ceil(landmarkHeight * (landmark.naturalWidth / landmark.naturalHeight));
-            this.renderStage6FixedBackdrop(
-                ctx,
-                landmark,
-                this.maxProgress - landmarkWidth * 0.5 - (useShachi ? 40 : 0),
-                progress,
-                { drawHeight: landmarkHeight, bottomY, filter }
-            );
+        // 大屋根アリーナの左右両端の棟端に金鯱を1体ずつ据える。
+        // アリーナ中央に着地した時点ではどちらも画面外(アリーナ幅3200 > 画面1280)。
+        // 右へ進むと右の金鯱が見えてきて、その手前で将軍が現れる。
+        const shachi = this.stage6RidgeShachiImage;
+        if (this.isStage6ImageReady(shachi)) {
+            const shachiH = Math.round(drawHeight * 1.06);
+            const shachiW = Math.ceil(shachiH * (shachi.naturalWidth / shachi.naturalHeight));
+            const arenaLeft = this.stage6CornerXs[2];
+            // アセットは頭が右向き。実際の天守と同じく左右の鯱は互いに向き合わせる:
+            // 左端はそのまま(頭が右=内向き)、右端を左右反転して頭を左=内向きにする。
+            this.renderStage6FixedBackdrop(ctx, shachi, arenaLeft + shachiW * 0.5, progress, {
+                drawHeight: shachiH, bottomY, filter
+            });
+            this.renderStage6FixedBackdrop(ctx, shachi, this.maxProgress - shachiW * 0.5, progress, {
+                drawHeight: shachiH, bottomY, filter, flipX: true
+            });
+        } else if (this.isStage6ImageReady(this.stage6BossPavilionImage)) {
+            // 金鯱未配置時のフォールバック(従来の東屋を右端に)
+            const pav = this.stage6BossPavilionImage;
+            const pavW = Math.ceil(drawHeight * (pav.naturalWidth / pav.naturalHeight));
+            this.renderStage6FixedBackdrop(ctx, pav, this.maxProgress - pavW * 0.5, progress, {
+                drawHeight, bottomY, filter
+            });
         }
+    }
+
+    /**
+     * Stage6 角3: 最上重の大屋根の軒が頭上へ張り出す構図。
+     * 画面上部から軒が垂れ下がり、その下をくぐって進む→ジャンプで屋根へ飛び乗る導線。
+     * 軒は画面上端に接して描き、下端(軒先)は足元ラインより十分上に置く(通行を妨げない)。
+     */
+    renderStage6UpperEave(ctx, cornerX, scrollX) {
+        const img = this.stage6UpperEaveImage;
+        const eaveW = 1100;
+        const eaveH = Math.round(eaveW * (img.naturalHeight / img.naturalWidth));
+        // 軒の中心を角に合わせ、上端は画面外へ抜ける(=天守本体は画面の上に続く)
+        const x = Math.round(cornerX - eaveW * 0.5 - scrollX);
+        if (x + eaveW <= 0 || x >= CANVAS_WIDTH) return;
+        const bottomY = this.groundY - 40; // 軒先は床上端より上=頭上に張り出す
+        ctx.save();
+        ctx.filter = 'brightness(0.86) saturate(0.76)';
+        ctx.drawImage(img, x, bottomY - eaveH, eaveW, eaveH);
+        ctx.filter = 'none';
+        // 軒下の陰(潜り込む感じを出す)
+        const shade = ctx.createLinearGradient(0, bottomY - 60, 0, bottomY + 90);
+        shade.addColorStop(0, 'rgba(0, 0, 0, 0.38)');
+        shade.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = shade;
+        ctx.fillRect(x, bottomY - 60, eaveW, 150);
+        ctx.restore();
     }
 
     /** stage6アセットが読込済みで使えるか(404はcomplete=trueでもnaturalWidth=0) */
@@ -4279,7 +4351,7 @@ export class Stage {
     }
 
     renderStage6GroundZones(ctx, renderProgress, horizonY, bottomY) {
-        const zoneWidth = this.maxProgress / 4;
+        const [cx1, cx2, cx3] = this.stage6CornerXs;
         const filter = 'brightness(0.88) saturate(0.72) contrast(0.98)';
         // 床テクスチャの切り替え位置は動的。壁は立面として y<512 しか覆えないため、
         // 境界ちょうどで切ると接近中に俯瞰床帯へ「次の面の床」が素通しで見えてしまう。
@@ -4291,9 +4363,11 @@ export class Stage {
                 ? STAGE6_CORNER.POST_FADE_CAMERA_LAG
                 : STAGE6_CORNER.WALL_RIGHT_PX
         );
-        const b1 = zoneWidth + seamFor(0);
-        const b2 = zoneWidth * 2 + seamFor(1);
-        const b3 = zoneWidth * 3 + seamFor(2);
+        const b1 = cx1 + seamFor(0);
+        const b2 = cx2 + seamFor(1);
+        // 大屋根アリーナはカメラが左端(cx3)ちょうどまで来るので、屋根の床は境界から始める。
+        // (他の角と違い「暗転明けのカメラ位置ぶん先」にすると旧ゾーンの床が左に露出する)
+        const b3 = this.isStage6Arena() ? cx3 : cx3 + seamFor(2);
         const zones = [
             { image: this.stage6GroundImage, start: 0, end: b1 },
             { image: this.stage6UpperGalleryGroundImage, start: b1, end: b2 },
@@ -5238,7 +5312,9 @@ export class Stage {
                 const sy = getY(theta);
                 drawBody(sx, sy, sunRadius, 1, '#ffd9b4', '#ff7a33', `rgba(255, 160, 80, ALPHA)`, false);
             } else {
-                // 進行度を3分割する (0-0.4:月, 0.4以降:朝、終盤スクロールで太陽)
+                // 進行度を分割する (0-0.4:月, 0.4以降:仄暗い朝、終盤スクロールで太陽)。
+                // 配分は据え置き。maxProgressを伸ばしたぶん各フェーズの絶対時間が等しく伸びる
+                // ため、月も朝も太陽もそれぞれゆっくり移ろう(月だけ伸びて他が縮む問題を回避)。
                 if (progress < 0.4) {
                     const localP = progress / 0.4;
                     const theta = Math.PI / 2 + (localP * (Math.PI / 2 + 0.2)); // 中央から沈む

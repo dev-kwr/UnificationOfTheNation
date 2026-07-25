@@ -21,8 +21,8 @@ import {
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
 } from './normalComboMotion.js?v=oonagi-step3-dash-20260702n';
-import { applyRendererMixin }    from './playerRenderer.js?v=motion-legs-20260724d';
-import { applySlashTrailMixin }  from './playerSlashTrail.js?v=oonagi-tip-finetune-20260702v';
+import { applyRendererMixin }    from './playerRenderer.js?v=motion-legs-20260725h';
+import { applySlashTrailMixin }  from './playerSlashTrail.js?v=combo-hands-20260725e';
 import { applySpecialMixin }     from './playerSpecial.js?v=clone-ground-fix2-20260623';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
 import {
@@ -33,8 +33,12 @@ import {
     SHOGUN_DASH_STRIDE_AMP,
     NINJA_RUN_STRIDE_AMP,
     NINJA_DASH_STRIDE_AMP,
-    SHOGUN_RUN_STANCE_DUTY
-} from './shogunConstants.js?v=shogun-run-legs-20260724c';
+    SHOGUN_RUN_STANCE_DUTY,
+    SHOGUN_DASH_STANCE_DUTY,
+    SHOGUN_CROUCH_STANCE_DUTY,
+    NINJA_CROUCH_STRIDE_AMP,
+    SHOGUN_CROUCH_STRIDE_AMP
+} from './shogunConstants.js?v=shogun-run-legs-20260725a';
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
@@ -366,17 +370,22 @@ export class Player {
                 const ampModel = Math.max(1, strideAmp * (0.45 + runBlend * 0.88));
                 const scale = this.scaleMultiplier || 1;
                 const vModelPerMs = (speedAbs / scale) * 60 / 1000; // px/frame(60fps)→素体px/ms
-                nextLegPhase += deltaMs * SHOGUN_RUN_STANCE_DUTY * Math.PI * vModelPerMs / ampModel;
+                const stanceDuty = isDashing ? SHOGUN_DASH_STANCE_DUTY : SHOGUN_RUN_STANCE_DUTY;
+                nextLegPhase += deltaMs * stanceDuty * Math.PI * vModelPerMs / ampModel;
                 const amplitude = Number.isFinite(runAmplitude)
                     ? runAmplitude
                     : (isDashing ? 1.08 : 0.86);
                 const targetAngle = Math.sin(nextLegPhase) * amplitude;
                 nextLegAngle += (targetAngle - nextLegAngle) * 0.52;
             } else {
-                // しゃがみ歩きは旧式(固定周波数)のまま
-                const baseFreq = Number.isFinite(runBaseFreq) ? runBaseFreq : 0.017;
-                const speedScale = Math.min(1.25, speedAbs / Math.max(1, this.speed));
-                nextLegPhase += deltaMs * baseFreq * (0.72 + speedScale * 0.68);
+                // しゃがみ歩き(忍び足): 走行と同じ接地ロック式(duty/振幅はしゃがみ専用定数)
+                const isShogun = this.characterType === 'shogun';
+                const runBlend = Math.min(1, speedAbs / Math.max(1, this.speed * 1.25));
+                const strideAmp = isShogun ? SHOGUN_CROUCH_STRIDE_AMP : NINJA_CROUCH_STRIDE_AMP;
+                const ampModel = Math.max(1, strideAmp * (0.45 + runBlend * 0.88));
+                const scale = this.scaleMultiplier || 1;
+                const vModelPerMs = (speedAbs / scale) * 60 / 1000;
+                nextLegPhase += deltaMs * SHOGUN_CROUCH_STANCE_DUTY * Math.PI * vModelPerMs / ampModel;
 
                 const amplitude = Number.isFinite(runAmplitude) ? runAmplitude : 0.62;
                 const targetAngle = Math.sin(nextLegPhase) * amplitude;

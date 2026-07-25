@@ -1557,7 +1557,27 @@ function createShogunBossPlayer(x, _y, _type, groundY) {
     boss.expReward = 300;
     boss.moneyReward = 200;
     boss.specialGaugeReward = 100;
-    boss.progression = { normalCombo: 3, subWeapon: 3, specialClone: 0 };
+    // 連撃/忍具Lvは固定ではなく、他ボス(Boss.getSubWeaponEnhanceTier)と同じHP段階式で上げる。
+    // HPが25%減るごとにLv+1(75/50/25%閾値)、hardは最初からLv2下限。生成時はLv0相当で開始。
+    boss.progression = { normalCombo: 0, subWeapon: 0, specialClone: 0 };
+    boss.getHpPhaseTier = function() {
+        const hpRatio = this.maxHp > 0 ? this.hp / this.maxHp : 0;
+        let tierFromHp = 0;
+        if (hpRatio < 0.25) tierFromHp = 3;
+        else if (hpRatio < 0.5) tierFromHp = 2;
+        else if (hpRatio < 0.75) tierFromHp = 1;
+        const difficultyId = window.game && window.game.difficulty ? window.game.difficulty.id : 'normal';
+        return Math.max(tierFromHp, difficultyId === 'hard' ? 2 : 0);
+    };
+    boss.syncHpPhaseProgression = function() {
+        const tier = this.getHpPhaseTier();
+        this.progression.normalCombo = tier; // 連撃段数は都度参照のため代入だけで即反映
+        if (this.progression.subWeapon !== tier) {
+            this.progression.subWeapon = tier;
+            // 忍具tierは武器インスタンスへ焼き込まれるため、変更時は再スケール必須
+            if (typeof this.refreshSubWeaponScaling === 'function') this.refreshSubWeaponScaling();
+        }
+    };
     boss.subWeapons = SHOGUN_BOSS_WEAPON_NAMES.map(name => createSubWeapon(name)).filter(Boolean);
     boss.unlockedWeapons = SHOGUN_BOSS_WEAPON_NAMES.slice();
     boss.currentSubWeapon = getWeaponByName(boss, '手裏剣');
@@ -1574,6 +1594,8 @@ function createShogunBossPlayer(x, _y, _type, groundY) {
     boss.damage = Math.max(1, Math.round(boss.damage * damageMult * bossDamageScale));
     boss.maxHp = Math.max(1, Math.floor(boss.maxHp * hpMult));
     boss.hp = boss.maxHp;
+    // 難易度確定後に初期段階を反映(hardはここでLv2に上がり忍具も再スケールされる)
+    boss.syncHpPhaseProgression();
 
     boss.applyDesiredVx = function(targetVx, blend = 1) {
         const t = Math.max(0, Math.min(1, Number.isFinite(blend) ? blend : 1));
@@ -1697,6 +1719,9 @@ function createShogunBossPlayer(x, _y, _type, groundY) {
             this.feintDir *= -1;
             this.feintTimerMs = 180 + Math.random() * 260;
         }
+
+        // HP段階(連撃/忍具Lv)を毎フレーム同期(閾値クロス時のみ忍具再スケールが走る)
+        this.syncHpPhaseProgression();
 
         this._aiDeltaTime = deltaTime;
         playerUpdate(deltaTime, [], targetPlayer ? [targetPlayer] : []);

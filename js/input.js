@@ -2,7 +2,7 @@
 // Unification of the Nation - 入力管理
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, KEYS, VIRTUAL_PAD, getDeviceProfile, getPadLayout } from './constants.js';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, KEYS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, isVirtualPadVisible } from './constants.js';
 import { audio } from './audio.js';
 
 class InputManager {
@@ -112,11 +112,29 @@ class InputManager {
     }
     
     onMouseDown(e) {
-        // UI要素（SELECT, BUTTON, INPUT等）をクリックした場合は、キャンバスへのフォーカス移動をスキップする
-        const interactiveTags = ['SELECT', 'BUTTON', 'INPUT', 'A', 'SUMMARY', 'LABEL', 'OPTION'];
-        if (interactiveTags.includes(e.target.tagName) || e.target.closest('button, select, input, a, summary, label')) {
+        // 主ボタン(左)以外は無視する。右クリックはコンテキストメニューに、中クリックは
+        // オートスクロールに mouseup を奪われて「押しっぱなし」が残り、以降のクリックが
+        // スティック操作に化けて誤動作するため（押下として扱わない）。
+        if ((e.button ?? 0) !== 0) {
+            this.notePointerLog('button', e, `button=${e.button}`);
             return;
         }
+
+        // UI要素（SELECT, BUTTON, INPUT等）をクリックした場合は、キャンバスへのフォーカス移動をスキップする
+        const interactiveTags = ['SELECT', 'BUTTON', 'INPUT', 'A', 'SUMMARY', 'LABEL', 'OPTION'];
+        const target = e.target;
+        if (!target || typeof target.closest !== 'function') {
+            this.notePointerLog('target-invalid', e);
+            return;
+        }
+        if (interactiveTags.includes(target.tagName) || target.closest('button, select, input, a, summary, label')) {
+            this.notePointerLog('dom-element', e, target.tagName);
+            return;
+        }
+
+        // 前回の押下で mouseup を取り逃していた場合の保険（ウィンドウ外で離した等）。
+        // 'mouse' は固定IDなので、残留すると以降のクリック全部が巻き込まれる。
+        this.releaseTouchBinding('mouse');
 
         // Forced Reflow 回避: フォーカスが必要な場合のみ非同期で実行
         if (this.canvas) {
@@ -138,16 +156,51 @@ class InputManager {
             clientX: e.clientX,
             clientY: e.clientY
         };
-        
-        this.updateTouchPosition(fakeTouch);
-        this.touchJustPressed = true;
+
+        // 座標が解決できない時（ピンチ拡大中・キャンバス寸法0）や描画領域外(黒帯)は
+        // 押下として扱わない。ここで touchJustPressed だけ立てると lastTouchX/Y が
+        // 前回の座標のまま残り、各画面が「前に押した位置」で判定して誤爆する
+        // （タッチ側は isTouchInCanvas で既に弾いている。マウスも同じ扱いに揃える）。
         const pos = this.getCanvasPosition(fakeTouch.clientX, fakeTouch.clientY);
-        if (pos && this.checkCircleHit(pos.x, pos.y, ...this.getBgmButtonHitArea())) {
+        if (!pos) {
+            this.notePointerLog('no-rect', e, this._lastSuppressReason || '');
+            return;
+        }
+        if (!this.isTouchInCanvas(fakeTouch)) {
+            this.notePointerLog('outside-canvas', e, `canvas(${Math.round(pos.x)},${Math.round(pos.y)})`);
+            return;
+        }
+
+        this.lastTouchX = pos.x;
+        this.lastTouchY = pos.y;
+        this.touchJustPressed = true;
+        if (this.checkCircleHit(pos.x, pos.y, ...this.getBgmButtonHitArea())) {
+            this.notePointerLog('bgm', e, `canvas(${Math.round(pos.x)},${Math.round(pos.y)})`);
             audio.toggleMute();
             return;
         }
+        this.notePointerLog('accepted', e, `canvas(${Math.round(pos.x)},${Math.round(pos.y)})`);
         this.handleTouch(fakeTouch);
     }
+
+    // 直近のクリック/タップの処理結果をリングバッファに残す（稀な「無反応」の事後解析用）。
+    // 再発したらコンソールで `gameInput.pointerLog` を見れば、イベント自体が来ていたか・
+    // どの論理座標に落ちたか・どの理由で無視されたかが分かる。描画・判定には一切影響しない。
+    notePointerLog(result, e, detail = '') {
+        if (!this._pointerLog) this._pointerLog = [];
+        this._pointerLog.push({
+            t: Math.round(performance.now()),
+            result,
+            detail,
+            client: [Math.round(e.clientX), Math.round(e.clientY)],
+            state: (typeof window !== 'undefined' && window.game) ? window.game.state : null,
+            stick: this.virtualStick.active ? this.virtualStick.touchId : null,
+            heldKeys: Object.keys(this.keys).filter(k => this.keys[k]).join('+')
+        });
+        if (this._pointerLog.length > 40) this._pointerLog.shift();
+    }
+
+    get pointerLog() { return this._pointerLog || []; }
     
     onMouseUp() {
         // タッチ終了扱い
@@ -176,15 +229,20 @@ class InputManager {
         audio.init();
         let hasCanvasTouch = false;
         for (const touch of e.changedTouches) {
-            if (!this.isTouchInCanvas(touch)) continue;
+            if (!this.isTouchInCanvas(touch)) {
+                this.notePointerLog('outside-canvas(touch)', touch, this._lastSuppressReason || '');
+                continue;
+            }
             hasCanvasTouch = true;
             this.updateTouchPosition(touch);
             this.touchJustPressed = true;
             const pos = this.getCanvasPosition(touch.clientX, touch.clientY);
             if (pos && this.checkCircleHit(pos.x, pos.y, ...this.getBgmButtonHitArea())) {
+                this.notePointerLog('bgm(touch)', touch);
                 audio.toggleMute();
                 continue;
             }
+            this.notePointerLog('accepted(touch)', touch, `canvas(${Math.round(this.lastTouchX)},${Math.round(this.lastTouchY)})`);
             this.handleTouch(touch);
         }
         if (hasCanvasTouch) {
@@ -257,6 +315,18 @@ class InputManager {
     }
     
     getTouchActions(x, y, touchId = null) {
+        // 仮想パッドを描いていない画面（タイトル・よろず屋・幕間など）では判定も無効。
+        // 見えないスティック/ボタンが生きていると、画面下部をクリック/タップしただけで
+        // LEFT/RIGHT/DOWN/JUMP が押され、タイトルでは難易度変更・カーソル移動・
+        // 決定(JUMP=Space=CONFIRM)が暴発し、その操作が無反応に見える。
+        if (!isVirtualPadVisible()) {
+            if (this.virtualStick.active && this.virtualStick.touchId === touchId) {
+                this.resetVirtualStick();
+                this.stickDash.strongLatched = false;
+            }
+            return [];
+        }
+
         // 描画(ui.js renderVirtualPad)と同一の幾何導出を共有する(constants.getPadLayout)
         const L = getPadLayout();
         const touchScale = L.touchScale;
@@ -288,6 +358,14 @@ class InputManager {
         return [];
     }
 
+    // クリック/タップを無視した理由をコンソールへ1度だけ残す(同一理由は連投しない)。
+    // 「稀に操作を受け付けない」系の障害は画面に痕跡が残らないため、原因の当たりを付ける手掛かり。
+    noteInputSuppressed(reason) {
+        if (this._lastSuppressReason === reason) return;
+        this._lastSuppressReason = reason;
+        console.warn('[input] 画面座標を解決できないため入力を無視:', reason);
+    }
+
     canTriggerSpecialFromTouch() {
         if (typeof window === 'undefined' || !window.game || !window.game.player) return true;
         const player = window.game.player;
@@ -301,14 +379,26 @@ class InputManager {
     // 16:9 から崩れても、タップ座標が描画内容とズレないようにするためのもの。
     // ボックスが厳密に 16:9 のときは補正ゼロ（従来挙動と同一）。
     getRenderRect() {
-        if (!this.canvas) return null;
+        if (!this.canvas) {
+            this.noteInputSuppressed('canvas未設定');
+            return null;
+        }
         // ピンチズーム中は client座標系と layout座標系の対応が崩れ、全タッチが系統的に
         // ずれる(iOSはアクセシビリティ目的で maximum-scale=1 を無視できる)。誤動作するより
         // 入力を無視する方が安全(ピンチアウトで戻せば即復帰)。
         const vvScale = window.visualViewport ? window.visualViewport.scale : 1;
-        if (vvScale > 1.02) return null;
+        if (vvScale > 1.02) {
+            // この状態はクリック/タップが「一切効かない」ように見えるうえ画面上の手掛かりが
+            // 皆無なので、原因をコンソールへ残す(復帰はピンチで等倍に戻すだけ)。
+            this.noteInputSuppressed(`画面が拡大中 visualViewport.scale=${vvScale.toFixed(3)}（ピンチで等倍に戻すと復帰）`);
+            return null;
+        }
         const rect = this.canvas.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return null;
+        if (rect.width <= 0 || rect.height <= 0) {
+            this.noteInputSuppressed(`canvasの表示サイズが0 (${rect.width}x${rect.height})`);
+            return null;
+        }
+        this._lastSuppressReason = null; // 復帰したので次回の抑止は再度記録する
 
         // iOS standalone PWA では TouchEvent.clientX/Y は visual viewport 基準だが、
         // getBoundingClientRect() は layout viewport 基準。canvas の実視覚位置は

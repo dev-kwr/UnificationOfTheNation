@@ -2543,7 +2543,9 @@ export function applySlashTrailMixin(PlayerClass) {
         let activeLeftShoulderY = leftShoulderYBase;
         let activeRightShoulderX = rightShoulderXBase;
         let activeRightShoulderY = rightShoulderYBase;
-        let supportGripBackDist = 6.2 * scale;
+        // 添え手の主手からの距離。旧値6.2×scaleは柄頭の底まで下がって両手が離れて見えた
+        // (ユーザー指摘: step1/step2、3.6でもまだ離れすぎ→2.4)。両手が触れる密着グリップにする
+        let supportGripBackDist = 2.4 * scale;
         let supportGripSideOffset = 1.0 * scale;
         let supportGripMaxReach = 22 * scale;
         let allowSupportFrontHand = options.supportRightHand !== false;
@@ -2658,10 +2660,14 @@ export function applySlashTrailMixin(PlayerClass) {
                 armEndX = prevHandX + (armEndX - prevHandX) * prepEase;
                 armEndY = prevHandY + (armEndY - prevHandY) * prepEase;
                 if (this.characterType === 'shogun') {
+                    // 将軍は旧来15.0×scaleの押し下げで手が腰まで落ち、突き出し感が消えて
+                    // 肘IKも不自然に折れていた。押し下げは軽微に留め、前方へ伸ばして
+                    // 忍者と同等の水平突き出しにする(剣筋は本ポーズ追従なので自動整合)
                     const thrustT = Math.max(0, Math.min(1, (progress - 0.28) / 0.5));
                     const flattenT = thrustT * thrustT * (3 - 2 * thrustT);
-                    swordAngle += 0.13 * flattenT;
-                    armEndY += 15.0 * scale * flattenT;
+                    swordAngle += 0.06 * flattenT;
+                    armEndY += 4.0 * scale * flattenT;
+                    armEndX += dir * 2.5 * scale * flattenT;
                 }
                 break;
             }
@@ -2678,11 +2684,14 @@ export function applySlashTrailMixin(PlayerClass) {
 
                 if (p4 < 0.42) {
                     // 上昇中は頭上への振りかぶりを行わず、モーション序盤の構え
-                    // （手は前方・腰の高さ、刀はほぼ水平のやや上向き）を維持したまま体ごと上昇する
+                    // （手は前方・腰の高さ、刀はほぼ水平のやや上向き）を維持したまま体ごと上昇する。
+                    // 手のリフトは体幹側(playerRenderer、無scale 8.9×0.78)と同量にする——
+                    // scale付きだと手だけ体の2倍浮いて肩を追い越し「腕が頭から生える」見た目になる
                     const rise = riseEase;
+                    const riseLiftArm = Math.sin(riseEase * Math.PI * 0.5) * 8.9 * 0.78;
                     swordAngle = -0.22 + (-0.38 + 0.22) * rise;
                     armEndX = centerX + dir * (26 + (21.0 - 26) * rise) * scale;
-                    armEndY = pivotY + (5 + (-1.0 - 5) * rise) * scale - riseLift;
+                    armEndY = pivotY + (5 + (-1.0 - 5) * rise) * scale - riseLiftArm;
                 } else {
                     // 後方宙返り(raw 0.42〜0.86で1回転): 上昇時の構え（手前方・刀やや斜め上）を
                     // 体に固定したまま、体幹(playerRenderer側)と同位相のflipAngleで
@@ -5358,6 +5367,20 @@ export function applySlashTrailMixin(PlayerClass) {
                     innerEndY: drawEndY,
                     innerWidth: _innerWidth
                 };
+            }
+            // 【芯の突き抜け防止】本体は両端テーパーのリボン(=先端が点に収束するダイヤ)なので、
+            // 旧チューブ時代の poke のままだと芯の丸キャップがダイヤ先端から白く飛び出す
+            // (ユーザー指摘・忍者/将軍共通)。芯はダイヤ内に収まるよう先端手前で必ず止める。
+            // ライブ/凍結の両経路がここを通るため到達統一は維持される。
+            {
+                const _iwCap = manualTipAlignedLayers.innerWidth || Math.max(1.4, baseWidth * 0.18);
+                const _edCap = (drawEndX >= drawStartX ? 1 : -1);
+                const _cappedX = drawEndX - _edCap * _iwCap * 1.3;
+                if ((_edCap > 0 && manualTipAlignedLayers.innerEndX > _cappedX) ||
+                    (_edCap < 0 && manualTipAlignedLayers.innerEndX < _cappedX)) {
+                    manualTipAlignedLayers.innerEndX = _cappedX;
+                    manualTipAlignedLayers.innerEndY = drawEndY;
+                }
             }
             const linePts = [
                 {

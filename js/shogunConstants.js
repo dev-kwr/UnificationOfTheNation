@@ -29,10 +29,21 @@ export const SHOGUN_RUN_STRIDE_AMP = 13.5;  // 将軍: 走行時の足の前後�
 export const SHOGUN_DASH_STRIDE_AMP = 16.5; // 将軍: ダッシュ時の足の前後振幅
 export const SHOGUN_RUN_LIFT_AMP = 7.2;     // 将軍: 走行スイング中の足持ち上げ量
 export const SHOGUN_DASH_LIFT_AMP = 9.0;    // 将軍: ダッシュスイング中の足持ち上げ量
-export const NINJA_RUN_STRIDE_AMP = 12.5;   // 忍者: 走行時の足の前後振幅(脚が短いぶん将軍より控えめ)
-export const NINJA_DASH_STRIDE_AMP = 15.5;  // 忍者: ダッシュ時の足の前後振幅
-export const NINJA_RUN_LIFT_AMP = 5.2;      // 忍者: 走行スイング中の足持ち上げ量
-export const NINJA_DASH_LIFT_AMP = 6.6;     // 忍者: ダッシュスイング中の足持ち上げ量
-export const SHOGUN_RUN_STANCE_DUTY = 0.42; // 共通: 1周期中の接地割合(<0.5で滞空が生まれ歩行→走りになる)
+export const NINJA_RUN_STRIDE_AMP = 15.0;   // 忍者: 走行時の足の前後振幅(大股=ケイデンス低下で脚が分身して見えるのを防ぐ)
+export const NINJA_DASH_STRIDE_AMP = 18.0;  // 忍者: ダッシュ時の足の前後振幅(跳ぶような大股=ケイデンス低下で脚が分身して見えるのを防ぐ)
+export const NINJA_RUN_LIFT_AMP = 5.8;      // 忍者: 走行スイング中の足持ち上げ量(大股に合わせて高め)
+export const NINJA_DASH_LIFT_AMP = 7.4;     // 忍者: ダッシュスイング中の足持ち上げ量(大股に合わせて高め)
+export const SHOGUN_RUN_STANCE_DUTY = 0.36; // 共通: 1周期中の接地割合(<0.5で滞空が生まれ歩行→走りになる)。
+                                            // 0.36+忍者大股15.0で走り≈3.7サイクル/秒=脚が分身して見えない読める速さ
+export const SHOGUN_DASH_STANCE_DUTY = 0.30; // 共通: ダッシュ時の接地割合。全力疾走は滞空が長い=dutyが低く、
+                                             // 接地ロック(ω=duty·πv/A)の帰結としてケイデンスも下がる。
+                                             // 0.30+忍者大股18.0で約3.3サイクル/秒=脚が分身して見えない読める速さ
+// しゃがみ歩き(忍び足)。しゃがみ移動は速い(0.65×speed)ため、小刻みだと回転が上がって分身して見える。
+// 低duty+大股の「抜き足の低い滑走ステップ」でケイデンスを読める速さに保つ(忍者≈3.5/将軍≈2.0サイクル/秒)
+export const SHOGUN_CROUCH_STANCE_DUTY = 0.45; // 共通: しゃがみ歩きの接地割合
+export const NINJA_CROUCH_STRIDE_AMP = 16.5;   // 忍者: しゃがみ歩きの足の前後振幅
+export const SHOGUN_CROUCH_STRIDE_AMP = 14.5;  // 将軍: しゃがみ歩きの足の前後振幅
+export const NINJA_CROUCH_LIFT_AMP = 3.2;      // 忍者: しゃがみスイング中の足持ち上げ量(低く滑るように)
+export const SHOGUN_CROUCH_LIFT_AMP = 4.0;     // 将軍: しゃがみスイング中の足持ち上げ量
 export const SHOGUN_RUN_STRIDE_CENTER_BIAS = 0.12; // 共通: ストライド中心の後方バイアス(着地を体に寄せ前傾の読みにする)
 

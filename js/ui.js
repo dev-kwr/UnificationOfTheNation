@@ -2,7 +2,7 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, getUiScale, getSafeInsets } from './constants.js';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, getUiScale, getSafeInsets, setVirtualPadVisible } from './constants.js';
 import { input } from './input.js';
 import { audio } from './audio.js';
 import { saveManager } from './save.js';
@@ -1032,6 +1032,9 @@ export class UI {
     renderVirtualPad(ctx, player) {
         // PC（タッチ非対応かつ幅広）は非表示
         if (!this.isTouchOverlayEnabled()) return;
+
+        // 「今このフレームでパッドを描いた」＝当たり判定を有効にしてよい、を入力側へ申告
+        setVirtualPadVisible(true);
 
         ctx.save();
         ctx.setLineDash([]);
