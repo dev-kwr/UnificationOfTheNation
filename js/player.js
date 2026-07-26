@@ -21,8 +21,8 @@ import {
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
 } from './normalComboMotion.js?v=oonagi-step3-dash-20260702n';
-import { applyRendererMixin }    from './playerRenderer.js?v=boss-stagger-20260726e';
-import { applySlashTrailMixin }  from './playerSlashTrail.js?v=combo-hands-20260725e';
+import { applyRendererMixin }    from './playerRenderer.js?v=boss-hitfeel-20260726i';
+import { applySlashTrailMixin }  from './playerSlashTrail.js?v=boss-hitfeel-20260726i';
 import { applySpecialMixin }     from './playerSpecial.js?v=clone-ground-fix2-20260623';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
 import {
@@ -93,6 +93,11 @@ export class Player {
         this.attackCombo = 0;
         this.attackTimer = 0;
         this.attackCooldown = 0;
+        // 演出用の攻撃入力ロック(ms)。ボスの名乗り中など「間」を作りたい場面で
+        // 攻撃系(Z/X/必殺)だけを封じる。移動・ジャンプ・しゃがみは通す＝操作が
+        // 固まった印象を与えない。attackCooldown を流用すると通常戦闘の
+        // バッファ入力(fromBuffer / 二刀チェイン)がすり抜けるので別枠にする。
+        this.attackInputLockTimer = 0;
         this.currentAttack = null;  // 現在の攻撃タイプ
         this.attackBuffered = false;
         this.attackBufferTimer = 0;
@@ -827,6 +832,9 @@ export class Player {
         if (this.attackCooldown > 0) {
             this.attackCooldown -= deltaMs;
         }
+        if (this.attackInputLockTimer > 0) {
+            this.attackInputLockTimer = Math.max(0, this.attackInputLockTimer - deltaMs);
+        }
         if (this.attackBufferTimer > 0) {
             this.attackBufferTimer -= deltaMs;
             if (this.attackBufferTimer <= 0) {
@@ -1052,8 +1060,11 @@ export class Player {
             this.isCrouching = false;
         }
         
+        // 演出中(ボスの名乗りなど)は攻撃系だけ封じる。移動・ジャンプは上で処理済み。
+        const actionLocked = this.attackInputLockTimer > 0;
+
         // 忍具（Xキー）
-        if (input.isActionJustPressed('SUB_WEAPON')) {
+        if (!actionLocked && input.isActionJustPressed('SUB_WEAPON')) {
             // クールダウン中は発動不可
             if (this.subWeaponTimer > 0) return;
             if (!this.currentSubWeapon) return;
@@ -1080,11 +1091,11 @@ export class Player {
         }
         
         // 必殺技（攻撃中でも可能）
-        if (input.isActionJustPressed('SPECIAL')) {
+        if (!actionLocked && input.isActionJustPressed('SPECIAL')) {
             this.useSpecial();
         }
 
-        if (input.isActionJustPressed('ATTACK')) {
+        if (!actionLocked && input.isActionJustPressed('ATTACK')) {
             const lockZDuringSub =
                 this.subWeaponTimer > 0 &&
                 this.subWeaponAction &&
@@ -1752,8 +1763,8 @@ export class Player {
             ? (options.knockbackDir > 0 ? 1 : -1)
             : 0;
         const cooldownMs = (typeof options.cooldownMs === 'number') ? options.cooldownMs : 780;
-        // 白フラッシュは短く(目に付きすぎないよう 280→90ms)
-        const flashMs = (typeof options.flashMs === 'number') ? options.flashMs : 90;
+        // 白フラッシュは短く(目に付きすぎないよう 280→55ms)
+        const flashMs = (typeof options.flashMs === 'number') ? options.flashMs : 55;
         const invincibleMs = (typeof options.invincibleMs === 'number') ? options.invincibleMs : 780;
 
         this.hp -= amount;
@@ -2185,8 +2196,8 @@ export class Player {
         const knockbackX = (typeof options.knockbackX === 'number') ? options.knockbackX : 3.2;
         const knockbackY = (typeof options.knockbackY === 'number') ? options.knockbackY : -1.9;
         const invincibleMs = (typeof options.invincibleMs === 'number') ? options.invincibleMs : 1200;
-        // 白フラッシュは短く(目に付きすぎないよう 220→80ms)
-        const flashMs = (typeof options.flashMs === 'number') ? options.flashMs : 80;
+        // 白フラッシュは短く(目に付きすぎないよう 220→50ms)
+        const flashMs = (typeof options.flashMs === 'number') ? options.flashMs : 50;
         const disableHitFeedback = options.disableHitFeedback === true;
 
         // しゃがみ中はダメージ半減

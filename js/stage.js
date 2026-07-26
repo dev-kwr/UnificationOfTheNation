@@ -2,9 +2,10 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js';
-import { createEnemy } from './enemy.js?v=boss-stagger-20260726e';
-import { createBoss } from './boss.js?v=boss-stagger-20260726e';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js';
+import { BOSS_STAGING } from './bossStaging.js?v=boss-sakura-vignette-20260726f';
+import { createEnemy } from './enemy.js?v=boss-sakura-vignette-20260726f';
+import { createBoss } from './boss.js?v=boss-sakura-vignette-20260726f';
 import { createObstacle } from './obstacle.js';
 import { audio } from './audio.js';
 import { generateStairsCanvas } from './stairRenderer.js';
@@ -98,12 +99,22 @@ export class Stage {
         this.boss = null;
         this.bossSpawned = false;
         this.bossDefeated = false;
+        this._bossDeathMobsCleared = false;
         this.midBossSpawned = true; // 中ボスは出現させない
-        this.bossDefeatLingerDuration = 700;
+        // 撃破の余韻。ボスの死亡演出(deathDuration=1250ms)が終わった【後】から数える。
+        // ここを長くすると「ボスが消えて雑魚もいない画面で自機が棒立ち」の空白になる。
+        // 死亡演出の1.25秒がすでに十分な間なので、余韻は場が晴れる時間ぶんだけ取る
+        // (bossStaging.DEFEAT_BLEND_FADE_MS と同値にして、晴れ切った瞬間に突破へ入る)。
+        this.bossDefeatLingerDuration = 480;
         this.bossDefeatLingerTimer = 0;
-        this.bossDefeatColorFade = 0; // ボス撃破後の赤い空のフェードアウト用（1→0）
+        this._bossBlendFadeMs = 0;
+        this._bossBlendFadeFrom = 1;
         this.bossEncounterBlend = 0;
-        this.bossEntranceFlash = 0; // ボス登場フラッシュ
+        this.bossEntranceFlash = 0;  // 着地の衝撃フラッシュ（黒。白は色を飛ばすので使わない）
+        // 登場演出の4段構成: approach(接近) → impact(着地) → name(名乗り) → ready(開戦)
+        this.bossIntroPhase = null;
+        this.bossIntroPhaseTimer = 0;
+        this.bossUiRevealT = 0;      // HPバーのスライドイン(0→1)
         
         // 地面
         this.groundY = Math.round(CANVAS_HEIGHT * (2 / 3));
@@ -304,8 +315,6 @@ export class Stage {
             this.stage6GalleryWoodGroundImage = new Image();
             this.stage6GalleryWoodGroundImage.src = 'images/stage6_ground_gallery_wood.png?v=20260722_ridge1';
             // 角3(最上階へ): 頭上に張り出す最上重の軒(見上げ構図)。飛びつく導線の絵。
-            this.stage6UpperEaveImage = new Image();
-            this.stage6UpperEaveImage.src = 'images/stage6_upper_eave.png?v=20260726_overhead1';
             // 背景屋根(ridge_flanks)と出口破風(roof_exit_gable)は最上階アリーナ化で廃止。
             // 大屋根の上には地面の屋根(eaves)だけがあり、奥は山並みと空だけになる。
             // 大棟の床v3: 水平な軒先まで瓦を敷き、画面下端まで不透明に描く。
@@ -376,6 +385,69 @@ export class Stage {
             slCtx.stroke();
         }
         this.cachedAssets.speedLines = speedLineCanvas;
+
+        // 天守閣ボス戦の桜（プリレンダリング）。
+        // 旧実装は不透明なピンクの楕円を等倍で撒くだけで「安っぽい紙吹雪」だった。
+        // 花びらの形（先端の切り込み・根元の絞り）と根元→先端の淡いグラデ、
+        // 淡い縁取りと中心の筋を焼き込んでおき、描画側は回転と裏返りだけを与える。
+        if (this.stageNumber === 6) {
+            const petalPalettes = [
+                { base: '#eeb2c2', tip: '#fdf1f4', edge: 'rgba(190, 132, 150, 0.34)' },
+                { base: '#e5a2b5', tip: '#f9e2e9', edge: 'rgba(178, 120, 139, 0.32)' },
+                { base: '#f5d3dc', tip: '#fffbfc', edge: 'rgba(205, 158, 172, 0.26)' }
+            ];
+            // スプライトは 48px で焼き、描画時は 32*scale で使う（実寸より高解像度＝拡大に強い）。
+            this.cachedAssets.sakuraPetals = petalPalettes.map((p) => {
+                const cv = document.createElement('canvas');
+                cv.width = 48; cv.height = 48;
+                const o = cv.getContext('2d');
+                o.translate(24, 24);
+                // 桜の花びらの要件: 根元は細く絞り、中腹で最も張り、先端は幅広で
+                // 深めのV字に切れ込む。丸い塊になると「花びら」に見えない。
+                // 切り込みは【浅く広く】。深く狭いとハート型に見えてしまう。
+                const w = 10.6, h = 12.2;
+                o.beginPath();
+                o.moveTo(0, h * 0.90);                                                 // 根元(細く絞る)
+                o.bezierCurveTo(-w * 0.46, h * 0.72, -w * 0.96, h * 0.04, -w * 0.86, -h * 0.52);
+                o.bezierCurveTo(-w * 0.80, -h * 0.86, -w * 0.66, -h * 0.96, -w * 0.50, -h * 0.94);
+                o.quadraticCurveTo(0, -h * 0.70, w * 0.50, -h * 0.94);                 // 先端の切り込み(浅いV)
+                o.bezierCurveTo(w * 0.66, -h * 0.96, w * 0.80, -h * 0.86, w * 0.86, -h * 0.52);
+                o.bezierCurveTo(w * 0.96, h * 0.04, w * 0.46, h * 0.72, 0, h * 0.90);
+                o.closePath();
+
+                const fill = o.createLinearGradient(0, h * 0.90, 0, -h * 0.94);
+                fill.addColorStop(0, p.base);
+                fill.addColorStop(0.58, p.tip);
+                fill.addColorStop(1, p.tip);
+                o.fillStyle = fill;
+                o.fill();
+                o.strokeStyle = p.edge;
+                o.lineWidth = 0.8;
+                o.stroke();
+                // 中心の筋（薄く１本だけ。入れすぎると玩具っぽくなる）
+                o.strokeStyle = 'rgba(196, 140, 158, 0.20)';
+                o.lineWidth = 0.7;
+                o.beginPath();
+                o.moveTo(0, h * 0.74);
+                o.quadraticCurveTo(0, 0, 0, -h * 0.56);
+                o.stroke();
+                return cv;
+            });
+
+            // 金粉（朝日に舞う微塵）。旧実装は fillRect の金色の棒だった＝安っぽさの主因。
+            // 芯が白に寄った柔らかい丸に置き換え、lighten で空に溶かす。
+            const mote = document.createElement('canvas');
+            mote.width = 24; mote.height = 24;
+            const mo = mote.getContext('2d');
+            const mg = mo.createRadialGradient(12, 12, 0, 12, 12, 12);
+            mg.addColorStop(0, 'rgba(255, 250, 232, 0.95)');
+            mg.addColorStop(0.24, 'rgba(255, 228, 158, 0.5)');
+            mg.addColorStop(0.62, 'rgba(226, 178, 96, 0.16)');
+            mg.addColorStop(1, 'rgba(200, 150, 70, 0)');
+            mo.fillStyle = mg;
+            mo.fillRect(0, 0, 24, 24);
+            this.cachedAssets.goldMote = mote;
+        }
 
         // 星のグロー（プリレンダリング）
         const starGlow = document.createElement('canvas');
@@ -970,6 +1042,86 @@ export class Stage {
         this.floorTransitionTimer = this.transitionFadeMs;
     }
 
+    /**
+     * Stage6 角3: 鉤縄で頭上の軒へ登る演出を開始する。
+     * 廻縁の突き当たりから屋根の上へ上がる唯一の自然な手段(忍者の身体能力)。
+     * 縄が伸びて軒に掛かる → 引き上げられて画面上へ消える → 暗転 → 大屋根に着地。
+     */
+    startStage6GrappleClimb() {
+        if (this.stageNumber !== 6 || this.stage6GrapplePhase || this.isFloorTransitioning) return;
+        this.stage6GrapplePhase = 1;              // 1=縄が伸びる, 2=引き上げ
+        this.stage6GrappleTimer = 0;
+        this.stage6GrappleAnchorX = this.getStage6ActiveCornerX() - 40; // 軒の掛かり位置
+        this.stage6GrappleFromX = null;           // game.js側で開始時のプレイヤー位置を入れる
+        this.stage6GrappleFromY = null;
+    }
+
+    /** 鉤縄登攀の進行(deltaTime秒)。完了したらtrueを返す */
+    updateStage6GrappleClimb(deltaTime) {
+        if (!this.stage6GrapplePhase) return false;
+        this.stage6GrappleTimer += deltaTime * 1000;
+        if (this.stage6GrapplePhase === 1 && this.stage6GrappleTimer >= STAGE6_CORNER.GRAPPLE_ROPE_MS) {
+            this.stage6GrapplePhase = 2;
+            this.stage6GrappleTimer = 0;
+            return false;
+        }
+        if (this.stage6GrapplePhase === 2 && this.stage6GrappleTimer >= STAGE6_CORNER.GRAPPLE_PULL_MS) {
+            this.stage6GrapplePhase = 0;
+            this.stage6GrappleTimer = 0;
+            return true; // 登り切った → 暗転遷移へ
+        }
+        return false;
+    }
+
+    /** 鉤縄登攀中の進行度(0..1)。phase1は縄の伸び、phase2は引き上げ */
+    getStage6GrappleProgress() {
+        if (!this.stage6GrapplePhase) return 0;
+        const dur = this.stage6GrapplePhase === 1
+            ? STAGE6_CORNER.GRAPPLE_ROPE_MS
+            : STAGE6_CORNER.GRAPPLE_PULL_MS;
+        return Math.max(0, Math.min(1, this.stage6GrappleTimer / dur));
+    }
+
+    /**
+     * 鉤縄(縄と鎌)の描画。プレイヤーの手元から軒の掛かり位置へ伸びる。
+     * ワールド座標系(scrollX適用済みの外)で呼ぶ。
+     */
+    renderStage6GrappleRope(ctx, scrollX, playerCx, playerCy) {
+        if (!this.stage6GrapplePhase) return;
+        // scrollX=0 で呼ばれる場合(ワールド変換の内側)はアンカーもワールド座標のまま
+        const ax = this.stage6GrappleAnchorX - scrollX;
+        const ay = STAGE6_CORNER.EAVE_WORLD_Y;
+        const t = this.getStage6GrappleProgress();
+        // phase1: 縄が伸びる。phase2: 掛かったまま(全長)
+        const reach = this.stage6GrapplePhase === 1 ? t : 1;
+        const ex = playerCx + (ax - playerCx) * reach;
+        const ey = playerCy + (ay - playerCy) * reach;
+
+        ctx.save();
+        // 縄
+        ctx.strokeStyle = 'rgba(228, 220, 198, 0.92)';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.moveTo(playerCx, playerCy);
+        ctx.lineTo(ex, ey);
+        ctx.stroke();
+        // 先端の鎌(小さな鉤)
+        ctx.strokeStyle = 'rgba(226, 232, 238, 0.95)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(ex, ey, 7, Math.PI * 0.15, Math.PI * 1.15);
+        ctx.stroke();
+        // 掛かった瞬間の火花
+        if (this.stage6GrapplePhase === 2 && this.stage6GrappleTimer < 120) {
+            const a = 1 - this.stage6GrappleTimer / 120;
+            ctx.fillStyle = `rgba(255, 226, 150, ${(0.8 * a).toFixed(3)})`;
+            ctx.beginPath();
+            ctx.arc(ax, ay, 12 * a + 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+
     /** フロア遷移のアニメーション更新 (deltaTime in seconds) */
     updateFloorTransition(deltaTime) {
         if (!this.isFloorTransitioning) return false;
@@ -1456,11 +1608,29 @@ export class Stage {
             ? (this.bossIntroTimer / this.bossIntroDuration)
             : 0;
         const bossEncounterActive = this.bossSpawned && !this.bossDefeated;
-        this.bossEncounterBlend = bossEncounterActive
-            ? (this.bossIntroTimer > 0
+        if (bossEncounterActive) {
+            this.bossEncounterBlend = this.bossIntroTimer > 0
                 ? this.smoothstep(0, 1, 1 - bossIntroRatio)
-                : 1.0)
-            : 0;
+                : 1.0;
+            this._bossBlendFadeMs = 0;
+        } else if (this.bossDefeated && this.bossEncounterBlend > 0) {
+            // 撃破後は即0に落とさず 1.2 秒かけて引く（ビネットと空気が晴れていく）。
+            // 旧実装は bossDefeated の瞬間に 0 になり、演出が「パチッと切れて」いた。
+            if (!this._bossBlendFadeMs) {
+                this._bossBlendFadeMs = 0;
+                this._bossBlendFadeFrom = this.bossEncounterBlend;
+            }
+            this._bossBlendFadeMs += deltaTime * 1000;
+            const fade = this.clamp01(this._bossBlendFadeMs / BOSS_STAGING.DEFEAT_BLEND_FADE_MS);
+            const ease = this.smoothstep(0, 1, fade);
+            this.bossEncounterBlend = this._bossBlendFadeFrom * (1 - ease);
+            // ボス名とHPバーも同時に引く。討ち取った相手の空っぽのHPバーが余韻の間
+            // 画面上部に残り続けると締まらない(突破アナウンスにまで写り込む)。
+            this.bossUiRevealT = 1 - ease;
+        } else {
+            this.bossEncounterBlend = 0;
+            this._bossBlendFadeMs = 0;
+        }
         // Stage6 大屋根アリーナ: ボス出現前でも「最終決戦の空気」を出す。
         // 着地した瞬間から演出(朝焼けの染め・ヴィネット・闘気粒子)を立ち上げる。
         if (this.isStage6Arena() && !this.bossDefeated) {
@@ -1530,7 +1700,102 @@ export class Stage {
         this.updateObstacles(deltaTime);
     }
     
+    // 着地の衝撃（approach → impact）。黒フラッシュと土煙を同時に立てる。
+    beginBossIntroImpact() {
+        if (this.bossIntroPhase !== 'approach') return;
+        this.bossIntroPhase = 'impact';
+        this.bossIntroPhaseTimer = 0;
+        this.bossEntranceFlash = BOSS_STAGING.INTRO_IMPACT_FLASH;
+
+        const g = window.game;
+        if (g && typeof g.spawnGroundDust === 'function' && this.boss) {
+            const bw = typeof this.boss.getWorldWidth === 'function'
+                ? this.boss.getWorldWidth() : (this.boss.width || 120);
+            const bh = typeof this.boss.getWorldHeight === 'function'
+                ? this.boss.getWorldHeight() : (this.boss.height || 180);
+            const cx = this.boss.x + bw * 0.5;
+            const cy = this.boss.y + bh;
+            // 左右に大きく割れる着地煙。dir 未指定＝左右へ振り分けられる。
+            g.spawnGroundDust(cx, cy, { count: 14, intensity: 1, speed: 1.5, rise: 0.5, size: 13 });
+            g.spawnGroundDust(cx - bw * 0.45, cy, { count: 6, intensity: 0.8, speed: 1.2, size: 10 });
+            g.spawnGroundDust(cx + bw * 0.45, cy, { count: 6, intensity: 0.8, speed: 1.2, size: 10 });
+        }
+    }
+
+    // 登場演出の進行。approach は「ボスが目標Xへ到達したか」で抜けるので
+    // ここでは時間駆動するのは impact 以降のみ。
+    updateBossIntro(deltaTime, player) {
+        const ms = deltaTime * 1000;
+
+        // 着地フラッシュの減衰。旧実装は死んだ Stage.render() の中で減衰していたため
+        // 一度立つと 0 に戻らなかった。更新はここに置く（描画から独立させる）。
+        if (this.bossEntranceFlash > 0) {
+            this.bossEntranceFlash = Math.max(0, this.bossEntranceFlash - deltaTime * 2.6);
+        }
+
+        // 撃破後は bossUiRevealT を触らない。update() 側の blend フェードが
+        // 1→0 に引いている値をここで 1 に戻すと、HPバーが消えなくなる。
+        if (this.bossDefeated) {
+            this.bossIntroPhase = null;
+            return;
+        }
+        if (!this.bossIntroPhase) {
+            this.bossUiRevealT = 1;
+            return;
+        }
+
+        if (this.bossIntroPhase !== 'approach') {
+            this.bossIntroPhaseTimer += ms;
+        }
+
+        switch (this.bossIntroPhase) {
+            case 'approach':
+                // 到達判定は updateBossFight のダッシュ処理側（beginBossIntroImpact）。
+                break;
+            case 'impact':
+                if (this.bossIntroPhaseTimer >= BOSS_STAGING.INTRO_IMPACT_MS) {
+                    this.bossIntroPhase = 'name';
+                    this.bossIntroPhaseTimer = 0;
+                }
+                break;
+            case 'name':
+                if (this.bossIntroPhaseTimer >= BOSS_STAGING.INTRO_NAME_MS) {
+                    this.bossIntroPhase = 'ready';
+                    this.bossIntroPhaseTimer = 0;
+                }
+                break;
+            case 'ready':
+                if (this.bossIntroPhaseTimer >= BOSS_STAGING.INTRO_READY_MS) {
+                    this.bossIntroPhase = null;
+                    this.bossIntroPhaseTimer = 0;
+                    this.bossUiRevealT = 1;
+                }
+                break;
+        }
+
+        // HPバーのスライドイン: 'ready' で 0→1。それ以前は隠す。
+        if (this.bossIntroPhase === 'ready') {
+            this.bossUiRevealT = this.smoothstep(0, 1, this.clamp01(this.bossIntroPhaseTimer / BOSS_STAGING.INTRO_READY_MS));
+        } else if (this.bossIntroPhase) {
+            this.bossUiRevealT = 0;
+        }
+
+        // 名乗り中だけプレイヤーの攻撃を封じる（移動は通す）。
+        // 毎フレーム上書きするのでフェーズを抜けた瞬間に解除される。
+        if (player && this.bossIntroPhase === 'name') {
+            player.attackInputLockTimer = Math.max(player.attackInputLockTimer || 0, 90);
+        }
+
+        // 登場演出が終わるまでボスに初手を出させない。
+        if (this.boss && this.bossIntroPhase) {
+            this.boss.isAttacking = false;
+            this.boss.attackCooldown = Math.max(this.boss.attackCooldown || 0, 120);
+        }
+    }
+
     updateBossFight(deltaTime, player) {
+        this.updateBossIntro(deltaTime, player);
+
         // ボス登場演出中：画面右端から高速ダッシュで飛び込む
         if (this.boss && this.boss.isEntering) {
             const scrollX = (window.game && window.game.scrollX) || 0;
@@ -1553,16 +1818,21 @@ export class Stage {
                 this.boss.vx = 0;
                 // 到達直後の1拍だけ間を作る（フリーズではなく短い硬直）
                 this.boss.attackCooldown = Math.max(this.boss.attackCooldown || 0, 220);
-                // 到達時の闘気フラッシュ
-                this.bossEntranceFlash = Math.max(this.bossEntranceFlash, 0.8);
+                // 着地の衝撃：黒フラッシュ + 土煙。名乗りフェーズへ引き継ぐ。
+                this.beginBossIntroImpact();
             }
         }
 
-        // 歩き入り中はボス更新を行わず、停止位置に到達するまで攻撃させない
-        if (this.boss && this.boss.isEntering) {
+        // 歩き入り中／着地〜名乗り中はボス更新を行わない。
+        // ここで boss.update を止めるのが「名乗りで一旦止める」の実体。
+        // 攻撃だけ封じても AI の移動・ジャンプは走るので、名乗りの最中にボスが
+        // 跳ねて短冊と噛み合わなくなる。ready(開戦)から動き出す。
+        const introHold = this.bossIntroPhase === 'impact' || this.bossIntroPhase === 'name';
+        if (this.boss && (this.boss.isEntering || introHold)) {
             if (this.boss) {
                 this.boss.isAttacking = false;
                 this.boss.vx = 0;
+                this.boss.vy = 0;
                 this.boss.attackCooldown = Math.max(this.boss.attackCooldown || 0, 300);
             }
             const activeObstacles = this.obstacles.filter(o => !o.isDestroyed);
@@ -1573,6 +1843,24 @@ export class Stage {
         }
 
         // ボス更新
+        // ボスに致命傷が入った瞬間(死亡演出の開始)に、画面に残っている雑魚も
+        // まとめて撃破する。大将が討たれた後に手下が生きているのは締まらない。
+        // bossDefeated(=死亡演出完了)を待つと1.25秒遅れるのでここで判定する
+        if (this.boss && this.boss.isDying && !this._bossDeathMobsCleared) {
+            this._bossDeathMobsCleared = true;
+            for (const enemy of this.enemies || []) {
+                if (!enemy || !enemy.isAlive || enemy.isDying || enemy.bossName) continue;
+                enemy.invincibleTimer = 0;
+                if (typeof enemy.takeDamage === 'function') {
+                    enemy.takeDamage((enemy.hp || 1) + 9999, player, {});
+                } else {
+                    enemy.hp = 0;
+                    enemy.isDying = true;
+                    enemy.deathTimer = 0;
+                }
+            }
+        }
+
         if (this.boss) {
             const shouldRemove = this.boss.update(deltaTime, player);
             if (shouldRemove || !this.boss.isAlive) {
@@ -1587,15 +1875,10 @@ export class Stage {
             this.bossDefeatLingerTimer = Math.max(0, this.bossDefeatLingerTimer - deltaTime * 1000);
         }
         
-        // ボス撃破後の背景色フェードアウト（2秒かけてスムーズに戻す）
-        if (this.bossDefeated) {
-            if (this.bossDefeatColorFade === 0) {
-                this.bossDefeatColorFade = 1.0; // 撃破直後に1.0から開始
-            }
-            this.bossDefeatColorFade = Math.max(0, this.bossDefeatColorFade - deltaTime * 0.5); // 2秒かけて0へ
-        }
-        
-        // 残りの雑魚敵も更新
+        // 旧 bossDefeatColorFade(撃破後に赤い空を2秒かけて戻す)は廃止。
+        // 参照元だった「ステージ6のhard-light橙」と「白い稲妻」を撤去したため不要。
+
+// 残りの雑魚敵も更新
         const activeObstacles = this.obstacles.filter(o => !o.isDestroyed);
         const enemyObstacles = this.getStageEnemyObstacles(activeObstacles);
         this.updateEnemies(deltaTime, player, enemyObstacles);
@@ -2173,8 +2456,15 @@ export class Stage {
         this.bossIntroTimer = this.bossIntroDuration;
         this.bossDefeatLingerTimer = 0;
 
-        // 白フラッシュ演出
-        this.bossEntranceFlash = 1.0;
+        // 登場演出の開始（接近フェーズ）。
+        // 旧実装はここで bossEntranceFlash = 1.0 の【白】を立てていたが、
+        // (a) 描画していた Stage.render() が死んでいたので実際には出ておらず、
+        // (b) 白の全画面フラッシュは色を飛ばす＝方針(色は変えない)に反する。
+        // 衝撃フラッシュは「着地した瞬間の黒」に置き換え、impact フェーズで立てる。
+        this.bossIntroPhase = 'approach';
+        this.bossIntroPhaseTimer = 0;
+        this.bossUiRevealT = 0;
+        this.bossEntranceFlash = 0;
 
         // 障害物はボス部屋に出現させない設計（spawnObstacleで手前打ち切り済み）。
         // ここでは画面左外へ流れ去った分だけ掃除し、画面内の障害物を一括消去しない。
@@ -2221,35 +2511,13 @@ export class Stage {
     // 検証用の一括描画パス（ライブ描画は game.renderPlaying が層別に呼ぶ。ここは未使用）。
     // ボスUI/進捗バーはスクリーン空間のUIなのでここには含めない
     // （ボスUIは game.js の HUD 層 renderBossUI 呼び出しに一本化）。
-    render(ctx) {
-        this.renderBackground(ctx);
-        this.renderGround(ctx);
-        this.renderObstacles(ctx);
-        this.renderEnemies(ctx);
+    // 旧 Stage.render(ctx) は削除。game.js は renderBackground / renderGround /
+    // renderObstacles / renderEnemies を個別に呼ぶため、この関数はどこからも
+    // 呼ばれておらず「死んだコード」だった。中にあったボス演出(ビネット/パーティクル/
+    // 登場フラッシュ)は一切画面に出ておらず、bossEntranceFlash はここでしか減衰しな
+    // かったため一度立つと0に戻らなかった。演出は renderBossAtmosphere として
+    // 生きた描画パスへ移設する。
 
-        if (this.boss && this.bossSpawned) {
-            this.boss.render(ctx);
-        }
-
-        // ボス戦中の全ステージ共通演出 ─ 背景より手前（ボスより奥）に描画
-        if (this.bossEncounterBlend > 0) {
-            const time = this.stageTime;
-            // 全ステージのヴィネット（Stage 6はrenderGroundTenshu内でも呼ぶが多重でも影響軽微）
-            this.renderBossVignette(ctx, this.bossEncounterBlend);
-            // 全ステージの固有パーティクル
-            this.renderBossParticles(ctx, time, this.bossEncounterBlend);
-        }
-
-        // ボス登場フラッシュ演出
-        if (this.bossEntranceFlash > 0) {
-            ctx.save();
-            ctx.fillStyle = `rgba(255, 255, 255, ${this.bossEntranceFlash * 0.55})`;
-            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-            ctx.restore();
-            this.bossEntranceFlash = Math.max(0, this.bossEntranceFlash - 0.04);
-        }
-    }
-    
 
     interpolateColor(colorStr1, colorStr2, factor) {
         const parseColor = (str) => {
@@ -2704,21 +2972,10 @@ export class Stage {
             }
         }
 
-        const bossColorActive = this.bossSpawned && !this.bossDefeated;
-        const bossColorFading = this.bossSpawned && this.bossDefeated && this.bossDefeatColorFade > 0;
-        
-        if (bossColorActive || bossColorFading) {
-            const fadeIntensity = bossColorActive ? bossEncounterBlend : this.bossDefeatColorFade;
-            
-            // ステージ6（天守）のボス戦時は全体を神々しい朝焼け色で染める
-            if (this.stageNumber === 6) {
-                const pulse = 0.55 + Math.sin(this.stageTime * 0.004) * 0.15;
-                ctx.fillStyle = `rgba(255, 140, 50, ${(0.15 + pulse * 0.1) * fadeIntensity})`;
-                ctx.globalCompositeOperation = 'hard-light';
-                ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-                ctx.globalCompositeOperation = 'source-over';
-            }
-        }
+        // ボス戦中の色変化は全廃(ユーザー方針「ボス戦で色は一切変えない」)。
+        // 旧: ステージ6のみ rgb(255,140,50) の hard-light を全画面に持続 → 空が橙に
+        // 染まり「どのステージも夕方」の一因だった。特別感はビネット・空気・照明で出す
+        // (renderBossAtmosphere)。
 
         if (!isCastleInterior) {
             const isSunnyStage = this.stageNumber === 2;
@@ -2837,14 +3094,8 @@ export class Stage {
             }
         }
         
-        // ボス戦中は稲妻効果（撃破後はフェードアウト）
-        const lightningActive = this.bossSpawned && !this.bossDefeated;
-        const lightningFading = this.bossSpawned && this.bossDefeated && this.bossDefeatColorFade > 0.5;
-        if ((lightningActive || lightningFading) && Math.sin(this.stageTime * 0.012) > 0.992) {
-            const lIntensity = lightningActive ? 0.3 : (this.bossDefeatColorFade - 0.5) * 0.6;
-            ctx.fillStyle = `rgba(255, 255, 255, ${lIntensity})`;
-            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-        }
+        // 旧「ボス戦中の稲妻」(約0.5秒ごとに全画面 rgba(255,255,255,0.3) を1フレーム)は廃止。
+        // 空の色が飛んで時間帯が壊れ、常時パチつくのが目障りだった。
 
         if (!isCastleInterior && !isBambooForest && !isTenshuStageBg) {
             // 遠方の山並み・稜線は画像置換対象外として残す。
@@ -2871,10 +3122,9 @@ export class Stage {
             this.renderNextStagePeek(ctx);
         }
 
-        // ボス登場の瞬間演出は前面寄りに描いて、どのステージでも視認できるようにする
-        if (bossEncounterActive && this.bossIntroTimer > 0) {
-            this.renderBossStageShift(ctx, bossEncounterBlend);
-        }
+        // 旧 renderBossStageShift(全ステージに暗赤〜橙のオーバーレイ3層)は廃止。
+        // これが「どのステージもボス戦は夕方」の主犯だった。色は変えず、
+        // 空間の演出(renderBossAtmosphere)で特別感を出す方針に変更。
 
         // 周辺減光で中央へ視線誘導
         const vignette = ctx.createRadialGradient(
@@ -3003,53 +3253,6 @@ export class Stage {
         ctx.restore();
     }
 
-    renderBossStageShift(ctx, encounterBlend) {
-        const t = this.smoothstep(0, 1, this.clamp01(encounterBlend));
-        const ease = 1 - Math.pow(1 - t, 2.2);
-        const paletteByStage = {
-            1: { top: '24, 35, 31', bottom: '74, 42, 30', flash: '255, 202, 152' },
-            2: { top: '30, 18, 18', bottom: '92, 20, 14', flash: '255, 164, 126' },
-            3: { top: '20, 22, 40', bottom: '72, 30, 48', flash: '218, 186, 255' },
-            4: { top: '14, 16, 24', bottom: '58, 34, 22', flash: '255, 192, 138' },
-            5: { top: '44, 8, 30', bottom: '108, 14, 24', flash: '255, 176, 130' },
-            6: { top: '20, 16, 28', bottom: '76, 30, 24', flash: '255, 190, 144' }
-        };
-        const palette = paletteByStage[this.stageNumber] || paletteByStage[6];
-
-        // 1) 全体色を先に薄く重ねる
-        const baseGrad = ctx.createLinearGradient(0, 0, 0, this.groundY);
-        baseGrad.addColorStop(0, `rgba(${palette.top}, ${(0.1 + ease * 0.23).toFixed(3)})`);
-        baseGrad.addColorStop(1, `rgba(${palette.bottom}, ${(0.12 + ease * 0.28).toFixed(3)})`);
-        ctx.fillStyle = baseGrad;
-        ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY);
-
-        // 2) 左→右へ一度だけ流れるワイプ。中央の明部を残してスピーディに通過させる
-        const sweepHalf = CANVAS_WIDTH * 0.32;
-        const sweepCenterX = -sweepHalf + ease * (CANVAS_WIDTH + sweepHalf * 2);
-        const sweepGrad = ctx.createLinearGradient(
-            sweepCenterX - sweepHalf,
-            0,
-            sweepCenterX + sweepHalf,
-            0
-        );
-        sweepGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
-        sweepGrad.addColorStop(0.32, `rgba(${palette.top}, ${(0.18 + ease * 0.14).toFixed(3)})`);
-        sweepGrad.addColorStop(0.5, `rgba(${palette.flash}, ${(0.24 + ease * 0.28).toFixed(3)})`);
-        sweepGrad.addColorStop(0.68, `rgba(${palette.bottom}, ${(0.2 + ease * 0.16).toFixed(3)})`);
-        sweepGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        ctx.fillStyle = sweepGrad;
-        ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY);
-
-        // 3) ワイプ通過後に目標色へ収束
-        const settle = this.clamp01((t - 0.58) / 0.42);
-        if (settle > 0) {
-            const settleGrad = ctx.createLinearGradient(0, 0, 0, this.groundY);
-            settleGrad.addColorStop(0, `rgba(${palette.top}, ${(settle * 0.18).toFixed(3)})`);
-            settleGrad.addColorStop(1, `rgba(${palette.bottom}, ${(settle * 0.22).toFixed(3)})`);
-            ctx.fillStyle = settleGrad;
-            ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY);
-        }
-    }
 
     renderStage1FixedRoadMountains(ctx) {
         const cameraX = Math.floor(this.progress);
@@ -3578,74 +3781,67 @@ export class Stage {
      * 切替はゾーンindexで行い、実際の切替は角遷移の完全暗転中に起こる。
      * 距離の層: 遠景=その方角の土地(地平線際)、近景=下層屋根と城下(共通)、上層ゾーンは雲。
      */
+    /**
+     * Stage6 螺旋回廊: 柵越しに見える眼下のパノラマ。
+     *
+     * 【階層構造と一致させる単一ルール】
+     * 高度が上がるほど「近景は小さく沈み、遠景は大きく広がる」。これを数列で表す:
+     *   街(近景)   の高さ: 370 → 260 → 170  (単調減少 = 見下ろす角度が増して縮む)
+     *   連山(遠景) の高さ: 180 → 240 → 300  (単調増加 = 見通しが利いて広がる)
+     * 中間距離(竹林/街道)は方角の変化として題材だけ差し替え、街と山の中間の高さに置く。
+     *
+     * 【共通の約束】
+     * - 下端は全レイヤー床側(groundY+24)に統一。中途半端な高さで切ると帯が後ろの帯の
+     *   中腹に浮き「山の上に街がある」破綻になる。手前/奥の差は高さ(=薄さ)だけで作る。
+     * - 描画順は必ず 奥(山) → 中間 → 手前(街)。
+     * - srcTopFrac: パノラマ画像は上部が透過フェードで絵の実体が下端しかないため、
+     *   可視部分だけを切り出す。これが無いと柵の隙間に透過部しか来ず遠景が見えない。
+     */
     renderStage6Panorama(ctx, progress) {
         const zone = Math.max(0, Math.min(3, this.cornersClimbed || 0));
+        const bottom = this.groundY + 24;
         const farFilter = 'brightness(0.82) saturate(0.7)';
         const nearFilter = 'brightness(0.85) saturate(0.72)';
 
-        // 各ゾーン背景の柵(不透明バンド)上端の世界y実測値。パノラマ帯はこの上に覗かせる。
-        // 高度進行の主役は城下の屋根(town_near): 巡回ごとに縮小しながら柵の裏へ沈み、最後は霞に消える。
-        // 遠景(竹林/街道/連山)は「遠いものは高さで見え方がほぼ変わらない」ためサイズを保ち、題材だけ方角で変える。
-        const FENCE_TOP_Y = [380, 348, 365, 372];
-        const fence = FENCE_TOP_Y[zone];
+        // 階層ごとの高さ数列(上記ルール)。index=zone
+        // 【階層を貫く3つの原則】場当たりに数値をいじると全体が崩れるので必ずこの順で守る:
+        //  1) 空の面積は登るほど広がる → 一番高い帯を階層ごとに下げる
+        //  2) 街(近景)は登るほど沈む   → TOWN_H は単調減少。最上階では見えない
+        //  3) 山(遠景)は最初から見えていて、登るほど稜線が上がる → MTN_H は単調増加
+        //     (三階層で急に現れるのは違和感。一階層目から必ず見せる)
+        //  4) 最上階は「街が完全に消える + 柵が無い」で三階層と画として別物にする
+        // ※重要: 遠くの山の稜線は手前の街並みより「高い位置」に見える。
+        //   よって帯の高さは 山 > 中間 > 街 でなければ山が街に完全に隠れる(1Fで山が消えていた原因)。
+        const MTN_H = [215, 225, 235, 250];   // 山: 1Fから見えて稜線が段々上がる(単調増加)
+        const MID_H = [185, 175, 0, 0];       // 中間距離(竹林/街道): 山と街の間。三階層以降は無し
+        const TOWN_H = [150, 115, 85, 0];     // 街: 登るほど沈む(単調減少)。空を広く残す
+        // 山の濃さも高度で上げる(遠くまで見通せるようになる)
+        const MTN_A = [0.55, 0.72, 0.88, 1.0];
 
-        if (zone === 0) {
-            // 一巡目: まだ低い。城下の大屋根がすぐ目の高さに大きく迫る。
-            // 遠景の連山はごく低く霞む程度(高度が上がるほど遠くが見える進行の起点)。
-            // 遠景の上端は柵の隙間の上端(画面y≈300)より上に届かせる。
-            // 低いと隙間から見えず「登っても視界が変わらない」ことになる。
-            this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
-                parallax: 0.05, drawHeight: 230, bottomY: this.groundY + 24, alpha: 0.5,
-                filter: 'brightness(0.7) saturate(0.6)', srcTopFrac: 0.66, mirrorRepeat: false
+        // 1) 最奥: 連山
+        this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
+            parallax: 0.05, drawHeight: MTN_H[zone], bottomY: bottom, alpha: MTN_A[zone],
+            filter: farFilter, srcTopFrac: 0.66, mirrorRepeat: false
+        });
+
+        // 2) 中間距離: 方角によって題材が変わる(一巡目=竹林 / 二巡目=街道)
+        if (MID_H[zone] > 0) {
+            const midImage = zone === 0
+                ? this.stage6PanoramaBambooFarImage
+                : this.stage6PanoramaKaidoFarImage;
+            this.renderStageBackdropTile(ctx, midImage, progress, {
+                parallax: 0.08, drawHeight: MID_H[zone], bottomY: bottom,
+                filter: farFilter, srcTopFrac: 0.62, mirrorRepeat: false
             });
-            // 【空気遠近の原則】遠景も近景も下端は必ず床側(groundY+24)に揃える。
-            // 中途半端な高さで帯を切ると、その帯が後ろの帯の中腹に浮いて
-            // 「山の上に街がある」等の破綻になる。手前/奥の差は「高さ(薄さ)」で作る。
-            this.renderStageBackdropTile(ctx, this.stage6PanoramaBambooFarImage, progress, {
-                parallax: 0.08, drawHeight: 310, bottomY: this.groundY + 24, filter: farFilter, srcTopFrac: 0.60, mirrorRepeat: false
-            });
+        }
+
+        // 3) 手前: 城下の甍。登るほど低く薄くなり、最上階では見えなくなる
+        if (TOWN_H[zone] > 0) {
+            const townAlpha = [0.97, 0.9, 0.78, 0][zone];
+            const townPara = [0.2, 0.16, 0.14, 0.14][zone];
             this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
-                parallax: 0.2, drawHeight: 370, bottomY: this.groundY + 24, alpha: 0.97, filter: nearFilter, srcTopFrac: 0.50, mirrorRepeat: false
-            });
-        } else if (zone === 1) {
-            // 二巡目: 一段登った。屋根が小さくなり、柵の裏へ沈み始める。方角が変わり街道筋が見える。
-            // 連山は一巡目より高く・濃くなる(見通しが利いてきた)。
-            // 二巡目の柵は隙間が狭い(画面y300〜350のみ)。遠景をそこへ確実に届かせる。
-            this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
-                parallax: 0.055, drawHeight: 260, bottomY: this.groundY + 24, alpha: 0.72,
-                filter: 'brightness(0.76) saturate(0.66)', srcTopFrac: 0.66, mirrorRepeat: false
-            });
-            // 下端は床側に揃える(空気遠近の原則。zone0のコメント参照)
-            this.renderStageBackdropTile(ctx, this.stage6PanoramaKaidoFarImage, progress, {
-                parallax: 0.08, drawHeight: 235, bottomY: this.groundY + 24, filter: farFilter, srcTopFrac: 0.65, mirrorRepeat: false
-            });
-            this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
-                parallax: 0.16, drawHeight: 205, bottomY: this.groundY + 24, alpha: 0.9, filter: nearFilter, srcTopFrac: 0.50, mirrorRepeat: false
-            });
-        } else if (zone === 2) {
-            // 三巡目: 屋根は棟先が柵際に覗くだけ。視界は遠くの連山まで開ける。
-            // 連山の裾は床上端(groundY)より下まで差し込む(隙間防止)。かつ城下の帯より
-            // 十分高く出す——低いと柵と城下に埋没し「三巡目は山が見えないのに最上階で出る」
-            // という逆の進行になる。高度が上がるほど遠くが大きく見えるのが正。
-            this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
-                parallax: 0.06, drawHeight: 265, bottomY: this.groundY + 24, filter: farFilter, srcTopFrac: 0.66, mirrorRepeat: false
-            });
-            // 城下は連山より「手前=下」に置く。下端を連山と同じ床側(groundY+24)まで下ろすこと。
-            // 中途半端な高さ(旧: fence+48=413)で切ると帯が連山の中腹に浮き、
-            // 「山の上に街がある」空気遠近の破綻になる。棟先だけ覗く見た目は高さ(=薄さ)で作る。
-            this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
-                parallax: 0.14, drawHeight: 175, bottomY: this.groundY + 24, alpha: 0.78, filter: nearFilter, srcTopFrac: 0.50, mirrorRepeat: false
-            });
-        } else {
-            // 四巡目(最上層): 遠くの連山と夜明けのみ。
-            // 半透明の「霞に沈む町」バンドと屋根レベルの靄バンドは廃止した——
-            // 明るい空を背景にした半透明要素は浮遊物に見え、屋根に乗る靄は
-            // 「歩いている屋根が透けている」ように読めるため(靄の焼き込み禁止と同じ理由)。
-            // 最上階の大屋根アリーナ: 背景は連山と夜明けだけ。
-            // 連山の裾は必ず屋根の棟(=床上端 groundY)より下まで差し込む。
-            // 浅いと連山の裾と屋根の間に素の空(朝焼け)が横一線に露出し「謎の帯」になる。
-            this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
-                parallax: 0.06, drawHeight: 190, bottomY: this.groundY + 24, filter: farFilter, srcTopFrac: 0.66, mirrorRepeat: false
+                parallax: townPara, drawHeight: TOWN_H[zone], bottomY: bottom, alpha: townAlpha,
+                filter: nearFilter, srcTopFrac: 0.50, mirrorRepeat: false
             });
         }
     }
@@ -3701,44 +3897,7 @@ export class Stage {
             ctx.fillRect(x, laneY, frameW, shadowH);
             ctx.restore();
 
-            // 角3(最上階へ): 廻縁の突き当たり。頭上に最上重の軒が張り出しているのを見せ、
-            // 「ここでジャンプして軒に飛びつく=屋根の上へ」という導線を絵で示す。
-            if (i === 2) this.renderStage6OverheadEave(ctx, cornerX, scrollX);
         }
-    }
-
-    /**
-     * Stage6 角3: 頭上に張り出す最上重の軒。
-     * 廻縁は最上重の「下の重」を回っているので、突き当たりで見上げれば必ず軒がある。
-     * 画面上部から軒を垂らし、その先端が飛びつける高さに来るように置く。
-     * アセット未配置時はコードで軒の帯を描く(導線が消えないように)。
-     */
-    renderStage6OverheadEave(ctx, cornerX, scrollX) {
-        // 受付帯(飛びつける範囲)をちょうど覆う幅で、突き当たりの壁の手前に張り出させる。
-        const zoneLeft = cornerX - STAGE6_CORNER.EAVE_JUMP_ZONE_PX - 200;
-        const zoneRight = cornerX - STAGE6_CORNER.WALL_LEFT_PX + 60;
-        const x0 = Math.round(zoneLeft - scrollX);
-        const x1 = Math.round(zoneRight - scrollX);
-        if (x1 <= 0 || x0 >= CANVAS_WIDTH) return;
-        const w = x1 - x0;
-        // 軒先の高さ: 足元ラインから EAVE_REACH_HEIGHT + 人の背丈ぶん上
-        const eaveBottomY = this.groundY + LANE_OFFSET - STAGE6_CORNER.EAVE_REACH_HEIGHT - 150;
-
-        const img = this.stage6UpperEaveImage;
-        ctx.save();
-        if (this.isStage6ImageReady(img)) {
-            const h = Math.round(w * (img.naturalHeight / img.naturalWidth));
-            ctx.filter = 'brightness(0.8) saturate(0.72)';
-            ctx.drawImage(img, x0, eaveBottomY - h, w, h);
-            ctx.filter = 'none';
-        } else {
-            // フォールバック: 軒の帯(瓦の列)を簡易に描く
-            ctx.fillStyle = 'rgba(14, 18, 26, 0.96)';
-            ctx.fillRect(x0, 0, w, eaveBottomY);
-            ctx.fillStyle = 'rgba(30, 38, 52, 0.9)';
-            for (let tx = x0; tx < x1; tx += 26) ctx.fillRect(tx, eaveBottomY - 22, 22, 22);
-        }
-        ctx.restore();
     }
 
     renderStage6BackdropZones(ctx, progress) {
@@ -4153,8 +4312,11 @@ export class Stage {
                 this.renderStage6Panorama(ctx, p);
                 this.renderStage6BackdropZones(ctx, p);
 
-                // ボス戦中：最終ステージなので次のステージはないが、夜明け（クリア後の朝焼け）を予感させる光を遠くに表示
-                if (this.bossSpawned) {
+                // 天守の夜明け(朝焼け)。旧実装は bossSpawned 条件付きでボス演出の一部
+                // だったが、これは背景の時間帯設計なのでボスから切り離して常時表示にする。
+                // 強度は進行度で立ち上げる(終盤=最終日の出)。
+                {
+                    const dawnRise = this.smoothstep(0.55, 1.0, this.clamp01(this.progress / this.maxProgress));
                     ctx.save();
                     // 朝焼けの大グローのみ。「地平線の細い光の帯」は廃止——
                     // 帯はパノラマの上に直接描かれるため、連山と屋根の間に
@@ -4165,8 +4327,8 @@ export class Stage {
                         CANVAS_WIDTH * 0.5, dawnHorizonY, 0,
                         CANVAS_WIDTH * 0.5, dawnHorizonY, CANVAS_WIDTH * 0.7
                     );
-                    dawnGlow.addColorStop(0,   `rgba(255, 180, 60, ${0.22 * this.bossEncounterBlend})`);
-                    dawnGlow.addColorStop(0.35, `rgba(255, 120, 30, ${0.14 * this.bossEncounterBlend})`);
+                    dawnGlow.addColorStop(0,   `rgba(255, 180, 60, ${0.22 * dawnRise})`);
+                    dawnGlow.addColorStop(0.35, `rgba(255, 120, 30, ${0.14 * dawnRise})`);
                     dawnGlow.addColorStop(1,   'rgba(255, 60, 10, 0)');
                     ctx.fillStyle = dawnGlow;
                     ctx.fillRect(0, 0, CANVAS_WIDTH, dawnHorizonY);
@@ -4765,45 +4927,122 @@ export class Stage {
         ctx.restore();
     }
 
-    renderBossVignette(ctx, blend) {
-        if (blend <= 0) return;
-        
-        ctx.save();
-        const gradient = ctx.createRadialGradient(
-            CANVAS_WIDTH / 2, this.groundY / 2, CANVAS_WIDTH * 0.3,
-            CANVAS_WIDTH / 2, this.groundY / 2, CANVAS_WIDTH * 0.7
-        );
-        
-        let color;
-        switch(this.stageNumber) {
-            case 1: color = '14, 46, 22'; break;  // 竹林: 深緑
-            case 2: color = '56, 42, 28'; break;  // 街道: 土埃の茶色
-            case 3: color = '100, 60, 160'; break; // 山道: 霊的な紫
-            case 4: color = '74, 18, 12'; break;  // 城下町: 火の赤
-            case 5: color = '48, 12, 12'; break;  // 城内: 漆黒の赤
-            case 6: color = '96, 64, 24'; break;  // 天守: 黄金色
-            default: color = '0, 0, 0';
-        }
-        
-        const alpha = 0.35 * blend;
-        gradient.addColorStop(0, `rgba(${color}, 0)`);
-        gradient.addColorStop(1, `rgba(${color}, ${alpha})`);
-        
-        ctx.fillStyle = gradient;
-        ctx.globalCompositeOperation = 'multiply';
-        ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY);
+    // ============================================
+    // ボス部屋の空間演出（色は一切変えない）
+    // ============================================
+    // 旧 renderBossVignette はステージ別の【有彩色】(深緑/茶/紫/赤/金)を multiply で
+    // 全画面に乗せていた。これが「どのステージのボス戦も夕方に見える」主因のひとつ。
+    // 現行は黒(と無彩色の白スポット)だけを使い、色相を動かさずに緊張感を作る。
+    //
+    // layer:
+    //   'far'   … renderBackground 直後（世界ズーム内・スクロール非適用）。遠景を沈める。
+    //   'floor' … renderGround 直後・キャラ描画前（同上）。足元スポットと空気の粒子。
+    //   'near'  … 世界ズームを抜けた等倍スクリーン空間。ビネットと左右の柱。
+    //
+    // options:
+    //   spots   … [{x, y}] 足元スポットの位置（カメラ空間 = worldX - scrollX, worldY）
+    //   focusX / focusY … ビネットの中心（スクリーン空間）
+    //   screenW / screenH … スクリーン空間のサイズ
+    renderBossAtmosphere(ctx, blend, layer, options = {}) {
+        if (!(blend > 0)) return;
+        const b = this.clamp01(blend);
 
-        // 集中線の演出（さらに緊張感を出す）
-        if (this.cachedAssets.speedLines) {
+        if (layer === 'far') {
+            // 遠景の沈み込み。空〜遠景の上に黒を敷き、地平線側を薄くして
+            // 「光が下から抜ける」構図にする。地面はこの後に描かれるので影響しない。
+            const top = (this.skyVisTop || 0) - 240;
+            const bottom = this.groundY + 2;
+            const g = ctx.createLinearGradient(0, top, 0, bottom);
+            g.addColorStop(0, `rgba(0, 0, 0, ${(BOSS_STAGING.FAR_SINK_TOP * b).toFixed(3)})`);
+            g.addColorStop(1, `rgba(0, 0, 0, ${(BOSS_STAGING.FAR_SINK_HORIZON * b).toFixed(3)})`);
             ctx.save();
-            ctx.globalCompositeOperation = 'screen';
-            ctx.globalAlpha = 0.1 * blend;
-            // キャッシュされた集中線を描画
-            ctx.drawImage(this.cachedAssets.speedLines, 0, 0);
+            ctx.fillStyle = g;
+            ctx.fillRect(0, top, CANVAS_WIDTH, bottom - top);
+            ctx.restore();
+            return;
+        }
+
+        if (layer === 'floor') {
+            // 足元の明かり（舞台のスポット）。白のみなので時間帯を汚さない。
+            const spots = options.spots || [];
+            if (spots.length) {
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighten';
+                for (const s of spots) {
+                    if (!s) continue;
+                    const rx = s.rx || 96;
+                    const ry = s.ry || 26;
+                    const a = (s.alpha != null ? s.alpha : BOSS_STAGING.SPOT_ALPHA) * b;
+                    if (!(a > 0.002)) continue;
+                    const sg = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, rx);
+                    sg.addColorStop(0, `rgba(255, 255, 255, ${a.toFixed(3)})`);
+                    sg.addColorStop(0.6, `rgba(255, 255, 255, ${(a * 0.45).toFixed(3)})`);
+                    sg.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                    ctx.save();
+                    ctx.translate(s.x, s.y);
+                    ctx.scale(1, ry / rx);
+                    ctx.translate(-s.x, -s.y);
+                    ctx.fillStyle = sg;
+                    ctx.beginPath();
+                    ctx.arc(s.x, s.y, rx, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                }
+                ctx.restore();
+            }
+
+            // 空気の密度（ステージ固有の粒子）。旧 Stage.render() の中で死んでいたものを
+            // 生きた描画パスへ移設した。粒子そのものは「空中の物体」なので色を持ってよいが、
+            // 全画面の色被せ（照り返し/差し込む光）は撤去済み。
+            this.renderBossParticles(ctx, this.stageTime, b * BOSS_STAGING.PARTICLE_DENSITY);
+            return;
+        }
+
+        if (layer === 'near') {
+            const W = options.screenW || CANVAS_WIDTH;
+            const H = options.screenH || CANVAS_HEIGHT;
+            const fx = options.focusX != null ? options.focusX : W * 0.5;
+            const fy = options.focusY != null ? options.focusY : H * 0.5;
+
+            ctx.save();
+            // ビネット加算（中心はプレイヤーとボスの中点＝構図が締まる）
+            const va = BOSS_STAGING.VIGNETTE_ALPHA * b;
+            if (va > 0.002) {
+                const vg = ctx.createRadialGradient(
+                    fx, fy, H * BOSS_STAGING.VIGNETTE_INNER,
+                    fx, fy, H * BOSS_STAGING.VIGNETTE_OUTER
+                );
+                vg.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                vg.addColorStop(1, `rgba(0, 0, 0, ${va.toFixed(3)})`);
+                ctx.fillStyle = vg;
+                ctx.fillRect(0, 0, W, H);
+            }
+
+            // 左右の暗い柱（囲われた決闘場）
+            const pw = W * BOSS_STAGING.PILLAR_WIDTH_RATIO;
+            const pa = BOSS_STAGING.PILLAR_ALPHA * b;
+            if (pa > 0.002 && pw > 1) {
+                const lg = ctx.createLinearGradient(0, 0, pw, 0);
+                lg.addColorStop(0, `rgba(0, 0, 0, ${pa.toFixed(3)})`);
+                lg.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                ctx.fillStyle = lg;
+                ctx.fillRect(0, 0, pw, H);
+
+                const rg = ctx.createLinearGradient(W - pw, 0, W, 0);
+                rg.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                rg.addColorStop(1, `rgba(0, 0, 0, ${pa.toFixed(3)})`);
+                ctx.fillStyle = rg;
+                ctx.fillRect(W - pw, 0, pw, H);
+            }
+
+            // 着地の衝撃フラッシュ。【黒】である点が重要 ─ 白の全画面フラッシュは
+            // 一瞬でも色を飛ばし、その残像が「明るい暖色の空」に見えてしまう。
+            if (this.bossEntranceFlash > 0.004) {
+                ctx.fillStyle = `rgba(0, 0, 0, ${Math.min(0.5, this.bossEntranceFlash).toFixed(3)})`;
+                ctx.fillRect(0, 0, W, H);
+            }
             ctx.restore();
         }
-
-        ctx.restore();
     }
 
     renderHeatHaze(ctx, time, blend) {
@@ -4881,9 +5120,10 @@ export class Stage {
                     const bx = CANVAS_WIDTH * (0.15 + i * 0.18 + Math.sin(pMod * 0.4 + bSeed) * 0.04);
                     const bw = 80 + Math.sin(pMod * 1.2 + bSeed) * 30;
                     const alpha = 0.15 * blend * (0.7 + Math.sin(pMod * 1.8 + bSeed) * 0.3);
+                    // 無彩色の白のみ（旧 230,240,255 は僅かに青を足していた）
                     const grad = ctx.createLinearGradient(bx, 0, bx + 120, this.groundY);
-                    grad.addColorStop(0, `rgba(230, 240, 255, ${alpha})`);
-                    grad.addColorStop(1, `rgba(230, 240, 255, 0)`);
+                    grad.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
+                    grad.addColorStop(1, `rgba(255, 255, 255, 0)`);
                     ctx.fillStyle = grad;
                     ctx.beginPath();
                     ctx.moveTo(bx, -80);
@@ -4906,15 +5146,11 @@ export class Stage {
                 }
                 break;
             }
-            case 4: { // 城下町: 降り注ぐ火の粉と背景の火の照り返し
-                // 背景の微かな赤火の照り返し
-                const fireGlow = ctx.createRadialGradient(CANVAS_WIDTH * 0.5, this.groundY, 100, CANVAS_WIDTH * 0.5, this.groundY, 600);
-                fireGlow.addColorStop(0, `rgba(255, 50, 0, ${0.15 * blend})`);
-                fireGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            case 4: { // 城下町: 降り注ぐ火の粉
+                // 旧「背景の赤火の照り返し」(rgba(255,50,0) の全画面 radial を screen)は撤去。
+                // 全画面の有彩色オーバーレイは色相を動かすため方針(色は変えない)に反する。
+                // 火の粉そのものは空中の物体なので色を持ってよい。
                 ctx.globalCompositeOperation = 'screen';
-                ctx.fillStyle = fireGlow;
-                ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
                 for (let i = 0; i < 50; i++) {
                     const seed = i * 17.3;
                     // 上昇しつつ横に流れる動き
@@ -4932,15 +5168,10 @@ export class Stage {
                 }
                 break;
             }
-            case 5: { // 城内: 浮遊する塵と差し込む光
+            case 5: { // 城内: 浮遊する塵
+                // 旧「差し込む光」(rgba(255,230,180) の全画面グラデを screen)は撤去。
+                // 暖色の全画面被せは夕方化の一因だった。塵の輝きだけを残す。
                 ctx.globalCompositeOperation = 'screen';
-                // 差し込む光
-                const lightGrad = ctx.createLinearGradient(0, 0, CANVAS_WIDTH, this.groundY);
-                lightGrad.addColorStop(0, `rgba(255, 230, 180, ${0.08 * blend})`);
-                lightGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-                ctx.fillStyle = lightGrad;
-                ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY);
-
                 for (let i = 0; i < 50; i++) {
                     const seed = i * 23.3;
                     const x = (seed * 131 + Math.sin(pMod * 0.4 + seed) * 50 + CANVAS_WIDTH) % CANVAS_WIDTH;
@@ -4951,40 +5182,65 @@ export class Stage {
                 }
                 break;
             }
-            case 6: { // 天守閣: 舞い散る桜吹雪と黄金の上昇光
-                // 1. 舞い散る桜吹雪 (Sakura)
-                ctx.globalCompositeOperation = 'source-over';
-                for (let i = 0; i < 40; i++) {
-                    const seed = i * 31.7;
-                    const x = (seed * 87 - pMod * 120 + Math.sin(pMod * 1.2 + seed) * 100 + CANVAS_WIDTH * 1.5) % (CANVAS_WIDTH * 1.5) - CANVAS_WIDTH * 0.25;
-                    const y = (seed * 143 + pMod * 60 + Math.cos(pMod * 0.8 + seed) * 40) % CANVAS_HEIGHT;
-                    const rotation = pMod * 2 + seed;
-                    const size = 6 + (seed % 6);
-                    
-                    ctx.save();
-                    ctx.translate(x, y);
-                    ctx.rotate(rotation);
-                    ctx.fillStyle = `rgba(255, ${180 + seed % 40}, ${200 + seed % 55}, ${0.8 * blend})`;
-                    ctx.beginPath();
-                    ctx.ellipse(0, 0, size, size * 0.6, 0, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.restore();
+            case 6: { // 天守閣: 舞い散る桜と、朝日に舞う金粉
+                // 1. 桜。3層のパララックスで奥行きを作り、1枚ごとに裏返り(edge-on)を入れる。
+                //    形・グラデ・縁取りは initCache のスプライトに焼き込み済み。
+                //    旧実装(不透明なピンクの楕円を等倍で40枚)は「紙吹雪」に見えていた。
+                const petals = this.cachedAssets.sakuraPetals;
+                if (petals && petals.length) {
+                    ctx.globalCompositeOperation = 'source-over';
+                    const LAYERS = [
+                        { n: 15, scale: 0.52, alpha: 0.30, fall: 34, drift: 62,  sway: 44, spin: 1.15 }, // 奥
+                        { n: 12, scale: 0.84, alpha: 0.46, fall: 52, drift: 96,  sway: 66, spin: 1.55 }, // 中
+                        { n: 8,  scale: 1.22, alpha: 0.62, fall: 74, drift: 138, sway: 92, spin: 2.05 }  // 手前
+                    ];
+                    const span = CANVAS_WIDTH * 1.4;
+                    const fallSpan = CANVAS_HEIGHT + 120;
+                    for (let L = 0; L < LAYERS.length; L++) {
+                        const cfg = LAYERS[L];
+                        for (let i = 0; i < cfg.n; i++) {
+                            const seed = (i * 37.13 + L * 11.7);
+                            const img = petals[(i + L) % petals.length];
+                            const x = ((seed * 131 - pMod * cfg.drift) % span + span) % span - CANVAS_WIDTH * 0.2
+                                + Math.sin(pMod * 0.9 + seed) * cfg.sway;
+                            const y = ((seed * 97 + pMod * cfg.fall) % fallSpan + fallSpan) % fallSpan - 60;
+                            // 裏返り: |cos| で薄くなる瞬間を作ると空気中で回っているように見える
+                            const tumble = pMod * cfg.spin + seed;
+                            const flip = 0.14 + Math.abs(Math.cos(tumble)) * 0.86;
+                            const rot = Math.sin(pMod * 0.55 + seed) * 0.9 + seed;
+                            const s = cfg.scale;
+                            ctx.save();
+                            ctx.globalAlpha = cfg.alpha * blend;
+                            ctx.translate(x, y);
+                            ctx.rotate(rot);
+                            ctx.scale(flip, 1);
+                            ctx.drawImage(img, -16 * s, -16 * s, 32 * s, 32 * s);
+                            ctx.restore();
+                        }
+                    }
+                    ctx.globalAlpha = 1;
                 }
 
-                // 2. 黄金の上昇光 (Divine Particles)
-                ctx.globalCompositeOperation = 'screen';
-                for (let i = 0; i < 35; i++) {
-                    const seed = i * 19.3;
-                    const x = (seed * 111 + Math.sin(pMod * 2 + seed) * 30 + CANVAS_WIDTH) % CANVAS_WIDTH;
-                    const y = this.groundY + 20 - (pMod * 180 + seed * 50) % (this.groundY + 100);
-                    const r = 1 + (seed % 2.5);
-                    const alpha = blend * (0.3 + Math.sin(pMod * 4 + seed) * 0.7);
-                    
-                    ctx.fillStyle = `rgba(255, 230, 100, ${alpha})`;
-                    ctx.fillRect(x, y, r, r * 8);
-                    // 重いshadowBlurを避け、半透明の矩形で発光を表現
-                    ctx.fillStyle = `rgba(255, 215, 0, ${alpha * 0.4})`;
-                    ctx.fillRect(x - r, y - r * 2, r * 3, r * 12);
+                // 2. 金粉。旧実装は fillRect の金色の棒(縦長の矩形)で、これが安っぽさの主因。
+                //    芯が白に寄った柔らかい丸へ置き換え、lighten で空に溶かす。
+                const mote = this.cachedAssets.goldMote;
+                if (mote) {
+                    ctx.globalCompositeOperation = 'lighten';
+                    for (let i = 0; i < 20; i++) {
+                        const seed = i * 23.9;
+                        const x = ((seed * 167 + Math.sin(pMod * 0.8 + seed) * 44) % CANVAS_WIDTH + CANVAS_WIDTH) % CANVAS_WIDTH;
+                        const rise = this.groundY + 140;
+                        const y = this.groundY + 30 - ((pMod * 46 + seed * 61) % rise);
+                        // 上へ行くほど消えていく(舞い上がって朝日に溶ける)
+                        const height = this.clamp01((this.groundY + 30 - y) / rise);
+                        const twinkle = 0.42 + Math.sin(pMod * 2.3 + seed) * 0.34;
+                        const a = blend * twinkle * (1 - this.smoothstep(0.55, 1, height)) * 0.5;
+                        if (a <= 0.01) continue;
+                        const d = 7 + (seed % 7);
+                        ctx.globalAlpha = a;
+                        ctx.drawImage(mote, x - d * 0.5, y - d * 0.5, d, d);
+                    }
+                    ctx.globalAlpha = 1;
                 }
                 break;
             }
@@ -5176,10 +5432,9 @@ export class Stage {
             // Stage1の太陽はボス出現フラグでは動かさず、スクロール終端へ連続的につなぐ。
             if (sn === 1) {
                 currentHour = this.getStage1SunHour();
-            } else if (this.bossSpawned && sn === 3) {
-                currentHour = 17.8; // 日が地平線スレスレに固定
-            } else if (this.bossSpawned && sn === 4) {
-                currentHour = 24.0; // 月が真上（天頂）に固定
+            // 旧: ボス出現で sn3 を 17.8時(夕方)・sn4 を 24時に固定していた。
+            // ボス戦だけ時刻が飛ぶと「時間の止まった夕方」になり時間帯設計が壊れるため廃止。
+            // 進行度連動のままにする(sn3 はボスでオートスクロールが止まるので太陽も自然に止まる)。
             } else {
                 currentHour = startHour + (endHour - startHour) * progress;
             }
@@ -5234,13 +5489,10 @@ export class Stage {
             const moonRadius = 140; // 3倍
             const sunRadius = 135;  // 3倍 (140だと少し大きすぎるかもしれないので微調整)
 
-            if (this.bossSpawned) {
-                // ボス戦中: 太陽を 2/3 程度表示される最終位置に固定
-                const theta = this.getStage6SunTheta();
-                const sx = getX(theta);
-                const sy = getY(theta);
-                drawBody(sx, sy, sunRadius, 1, '#ffd9b4', '#ff7a33', `rgba(255, 160, 80, ALPHA)`, false);
-            } else {
+            // 旧: ボス出現で太陽を最終位置に固定していた(ボス戦=巨大な橙の太陽)。
+            // ボスで時刻が飛ぶのをやめ、進行度連動に一本化する。終端では
+            // getStage6SunTheta() と同じ位置に自然に到達する。
+            {
                 // 進行度を分割する (0-0.4:月, 0.4以降:仄暗い朝、終盤スクロールで太陽)。
                 // 配分は据え置き。maxProgressを伸ばしたぶん各フェーズの絶対時間が等しく伸びる
                 // ため、月も朝も太陽もそれぞれゆっくり移ろう(月だけ伸びて他が縮む問題を回避)。
@@ -5304,22 +5556,38 @@ export class Stage {
     
     renderBossUI(ctx) {
         if (!this.boss) return;
-        
+
+        // 登場演出中は隠し、開戦(ready)で上からスライドインする。
+        // bossUiRevealT は updateBossIntro が 0→1 に動かす。
+        const reveal = this.bossIntroPhase ? this.clamp01(this.bossUiRevealT || 0) : 1;
+        if (reveal <= 0.001) return;
+
+        // HPバー (モダンデザイン)
+        const barWidth = 450;
+        const barHeight = 16;
+        // HUD はスクリーン空間なので中心は SCREEN_WIDTH 基準。
+        // (旧実装は CANVAS_WIDTH/2 だったため、ワールド幅と実画面幅が異なる端末で
+        //  ボス名とHPバーが左に寄っていた)
+        const x = (SCREEN_WIDTH - barWidth) / 2;
+        const y = 64;
+        const radius = barHeight / 2;
+
+        const bossHpRatio = Math.max(0, this.boss.hp / this.boss.maxHp);
+
+        ctx.save();
+        // スライドイン（上から降りて定位置へ）。easeOutCubic。
+        if (reveal < 1) {
+            const e = 1 - Math.pow(1 - reveal, 3);
+            ctx.globalAlpha = reveal;
+            ctx.translate(0, -(1 - e) * 46);
+        }
+
         // ボス名
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 24px "Zen Old Mincho", serif';
         ctx.textAlign = 'center';
-        ctx.fillText(this.boss.bossName, CANVAS_WIDTH / 2, 50);
-        
-        // HPバー (モダンデザイン)
-        const barWidth = 450;
-        const barHeight = 16;
-        const x = (CANVAS_WIDTH - barWidth) / 2;
-        const y = 64;
-        const radius = barHeight / 2;
-        
-        const bossHpRatio = Math.max(0, this.boss.hp / this.boss.maxHp);
-        
+        ctx.fillText(this.boss.bossName, SCREEN_WIDTH / 2, 50);
+
         // 背景（トラック）
         ctx.save();
         const drawRoundedRectPath = (px, py, w, h, r) => {
@@ -5368,6 +5636,8 @@ export class Stage {
         ctx.lineWidth = 1.4;
         ctx.stroke();
         ctx.restore();
+
+        ctx.restore(); // スライドインの復元
     }
     
     // 全敵を取得

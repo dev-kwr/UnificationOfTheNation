@@ -97,6 +97,30 @@ const getComboStep5CappedProgress = ({
 
 export function applySlashTrailMixin(PlayerClass) {
 
+    // 大薙(X攻撃ブースト)中の刀身の実効延長倍率。1.0=通常刀身、1.8=巨刀。
+    // playerRenderer.js の drawKatana 内 大薙ブロック(lengthScale/OONAGI_IGNITE_MS/
+    // OONAGI_RETRACT_MS/oonagiExt)と同じ式。**片方だけ変えると剣筋が切っ先からズレる**ので
+    // 定数を変えるときは両方そろえる。
+    PlayerClass.prototype.getOonagiBladeLengthScale = function() {
+        const LENGTH_SCALE = 1.8, IGNITE_MS = 150, RETRACT_MS = 220;
+        const EXT_MIN = 1 / LENGTH_SCALE;
+        const boost = typeof this.isXAttackBoostActive === 'function' && this.isXAttackBoostActive();
+        const igniteMs = Number.isFinite(this._oonagiIgniteMs) ? this._oonagiIgniteMs : 99999;
+        const retractMs = Number.isFinite(this._oonagiRetractMs) ? this._oonagiRetractMs : 99999;
+        const retracting = !boost && retractMs < RETRACT_MS;
+        if (!boost && !retracting) return 1;
+        let ext = 1;
+        if (retracting) {
+            const r = Math.min(1, retractMs / RETRACT_MS);
+            ext = 1 - (1 - EXT_MIN) * (r * r);
+        } else if (igniteMs < IGNITE_MS) {
+            const r = Math.min(1, igniteMs / IGNITE_MS);
+            ext = EXT_MIN + (1 - EXT_MIN) * (1 - Math.pow(1 - r, 2.4));
+        }
+        ext = Math.max(EXT_MIN, Math.min(1, ext));
+        return LENGTH_SCALE * ext;
+    };
+
     PlayerClass.prototype.getKatanaVisualTipOffset = function(
         angle,
         dir = 1,

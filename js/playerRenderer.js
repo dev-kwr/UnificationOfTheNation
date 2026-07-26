@@ -915,12 +915,9 @@ export function applyRendererMixin(PlayerClass) {
             this.renderSpecialReadyGlow(ctx, options);
             // 無敵点滅の消灯フレームは本体を描かない(古典的な明滅)
             if (this.isInvincibleBlinkHidden(ghostVeilActive)) return;
-            const shogunHitFilter = this.getHitFlashFilter(ghostVeilActive);
-            if (shogunHitFilter) ctx.filter = shogunHitFilter;
-            const shogunRecoiled = this.applyHurtRecoilTransform(ctx);
+            // 白フラッシュ/よろけ傾きは _renderShogunBodyNative の中で
+            // 「本体の renderModel だけ」に適用する(ここで掛けると分身も白くなる)
             this._renderShogunBody(ctx, ghostVeilActive, ghostVeilActive ? 0.0 : 1.0);
-            if (shogunRecoiled) ctx.restore();
-            if (shogunHitFilter) ctx.filter = 'none';
             return;
         }
 
@@ -940,9 +937,10 @@ export function applyRendererMixin(PlayerClass) {
         this.renderSpecialReadyGlow(ctx, options);
 
         // 被弾/無敵の白フラッシュ(2Dアクション定番のヒットフラッシュ)。
-        // 半透明(globalAlpha)はパーツの重なりが乗算のように透けるため使わない
+        // 半透明(globalAlpha)はパーツの重なりが乗算のように透けるため使わない。
+        // **filterParts には入れない**: ここで ctx.filter に載せると直後の
+        // renderSpecial(奥義分身)まで白くなる。本体描画の直前で個別に適用する
         const hitFlashFilter = this.getHitFlashFilter(ghostVeilActive);
-        if (hitFlashFilter) filterParts.push(hitFlashFilter);
 
         // 隠れ身の術中は本体のみ透明化（全体フィルタは重いので適用しない）
         if (filterParts.length > 0) {
@@ -956,8 +954,12 @@ export function applyRendererMixin(PlayerClass) {
             this.renderSpecial(ctx, options.specialRenderOptions || {});
         }
 
-        // 本体描画（無敵点滅の消灯フレームは丸ごと省く＝古典的な明滅）
+        // 本体描画（無敵点滅の消灯フレームは丸ごと省く＝古典的な明滅）。
+        // 白フラッシュ/よろけ傾きは**本体だけ**に適用する(分身は別実体なので
+        // 本体の被弾で一緒に白くなったり傾いてはいけない=ユーザー指摘)
         const invincibleBlinkHidden = this.isInvincibleBlinkHidden(ghostVeilActive);
+        const filterBeforeBody = ctx.filter;
+        if (hitFlashFilter) ctx.filter = hitFlashFilter;
         const hurtRecoiled = invincibleBlinkHidden ? false : this.applyHurtRecoilTransform(ctx);
         if (invincibleBlinkHidden) {
             // 本体は描かない（剣筋など他レイヤーは呼び出し側で描かれる）
@@ -979,6 +981,7 @@ export function applyRendererMixin(PlayerClass) {
             });
         }
         if (hurtRecoiled) ctx.restore();
+        if (hitFlashFilter) ctx.filter = filterBeforeBody;
 
         ctx.restore();
         ctx.filter = 'none';
@@ -1036,7 +1039,16 @@ export function applyRendererMixin(PlayerClass) {
         this.width = actorRenderW;
         this.height = actorRenderH;  // 60（分身と統一: ピボットYを揃えて胴長を一致させる）
         try {
+            // 被弾の白フラッシュ/よろけ傾きは**本体だけ**に適用する。この関数は
+            // 後半で奥義分身も描くため、外側で ctx に掛けると分身まで白くなって
+            // 本体中心に一緒に傾いてしまう(ユーザー指摘)
+            const bodyHitFilter = this.getHitFlashFilter(this.isGhostVeilActive && this.isGhostVeilActive());
+            const filterBefore = ctx.filter;
+            if (bodyHitFilter) ctx.filter = bodyHitFilter;
+            const bodyRecoiled = this.applyHurtRecoilTransform(ctx);
             this.renderModel(ctx, actorRenderX, actorRenderY, this.facingRight, ghostAlpha, true, {});
+            if (bodyRecoiled) ctx.restore();
+            if (bodyHitFilter) ctx.filter = filterBefore;
         } finally {
             this.currentSubWeapon = savedWeapon;
             this.x = savedX; this.y = savedY; this.width = savedW; this.height = savedH;
@@ -4176,13 +4188,19 @@ export function applyRendererMixin(PlayerClass) {
                 leftArmBendScale = 1 + bendBlend * 1.95;
                 rightArmBendScale = 1 + bendBlend * 2.08;
             }
-            // 切っ先座標は刀の反りや実際の描画サイズを考慮したオフセット関数を使用する
+            // 切っ先座標は刀の反りや実際の描画サイズを考慮したオフセット関数を使用する。
+            // 大薙(X攻撃ブースト)中は刀身が最大1.8倍に伸びるため、剣筋のアンカーも
+            // 同じ倍率を掛けないと巨刀の切っ先から剣筋が外れる(ユーザー指摘)
+            const oonagiTrailScale = typeof this.getOonagiBladeLengthScale === 'function'
+                ? this.getOonagiBladeLengthScale()
+                : 1;
+            const trailKatanaLength = katanaLength * oonagiTrailScale;
             const leftVisualOffset = typeof this.getKatanaVisualTipOffset === 'function'
-                ? this.getKatanaVisualTipOffset(leftTrailAngleRaw, dir, katanaLength, uprightBlend)
-                : { x: Math.cos(leftAdjustedAngle) * dir * katanaLength, y: Math.sin(leftAdjustedAngle) * katanaLength };
+                ? this.getKatanaVisualTipOffset(leftTrailAngleRaw, dir, trailKatanaLength, uprightBlend)
+                : { x: Math.cos(leftAdjustedAngle) * dir * trailKatanaLength, y: Math.sin(leftAdjustedAngle) * trailKatanaLength };
             const rightVisualOffset = typeof this.getKatanaVisualTipOffset === 'function'
-                ? this.getKatanaVisualTipOffset(rightTrailAngleRaw, dir, katanaLength, uprightBlend)
-                : { x: Math.cos(rightAdjustedAngle) * dir * katanaLength, y: Math.sin(rightAdjustedAngle) * katanaLength };
+                ? this.getKatanaVisualTipOffset(rightTrailAngleRaw, dir, trailKatanaLength, uprightBlend)
+                : { x: Math.cos(rightAdjustedAngle) * dir * trailKatanaLength, y: Math.sin(rightAdjustedAngle) * trailKatanaLength };
 
             const leftTipX = leftHand.x + leftVisualOffset.x;
             const leftTipY = leftHand.y + leftVisualOffset.y;

@@ -2,8 +2,8 @@
 // Unification of the Nation - メインエントリーポイント
 // ============================================
 
-import { game } from './game.js?v=boss-stagger-20260726e';
-import { preloadCinematicBgImages } from './ui.js';
+import { game } from './game.js?v=boss-sakura-vignette-20260726f';
+import { preloadCinematicBgImages } from './ui.js?v=boss-sakura-vignette-20260726f';
 import { getDeviceProfile } from './constants.js';
 
 // ============================================

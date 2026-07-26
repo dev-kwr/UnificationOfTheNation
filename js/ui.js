@@ -2034,6 +2034,74 @@ export function drawWafuHeading(ctx, cx, baselineY, text, opts = {}) {
     ctx.restore();
 }
 
+// ボスの名乗り短冊（縦書き）。登場演出の「間」を作るための一枚。
+// 天井から下がってきて 0.8 秒ほど留まり、開戦で上へ抜ける。
+// 背景の色には一切触れない UI レイヤーの表現なので、ボス部屋の
+// 「色は変えない」方針と衝突しない。
+//   enterT … 0→1 で降りてくる
+//   exitT  … 0→1 で上へ抜ける（1で完全に消える）
+export function renderBossNameBanner(ctx, name, opts = {}) {
+    const text = String(name || '').trim();
+    if (!text) return;
+    const enterT = Math.max(0, Math.min(1, opts.enterT != null ? opts.enterT : 1));
+    const exitT = Math.max(0, Math.min(1, opts.exitT || 0));
+    if (exitT >= 1) return;
+
+    const chars = [...text];
+    const s = getUiScale();
+    const fontSize = Math.round(30 * s);
+    const lineH = fontSize * 1.16;
+    // 縦に収まるよう字送りを詰める（長い名前でも画面内に収める）
+    const maxBodyH = CANVAS_HEIGHT * 0.52;
+    const bodyH = lineH * chars.length;
+    const squeeze = bodyH > maxBodyH ? maxBodyH / bodyH : 1;
+    const lh = lineH * squeeze;
+    const padY = fontSize * 0.72;
+    const w = Math.round(fontSize * 2.15);
+    const h = Math.round(lh * chars.length + padY * 2);
+
+    const cx = SCREEN_WIDTH * 0.5;
+    const restY = Math.round(CANVAS_HEIGHT * 0.10);
+    const hiddenY = -h - 24;
+
+    // 降下は easeOutCubic（重い布が落ちて止まる）、退場は easeInCubic（すっと抜ける）
+    const easeOut = 1 - Math.pow(1 - enterT, 3);
+    const easeIn = exitT * exitT * exitT;
+    const y = exitT > 0
+        ? restY + (hiddenY - restY) * easeIn
+        : hiddenY + (restY - hiddenY) * easeOut;
+    const alpha = Math.min(enterT / 0.35, 1) * (1 - easeIn);
+    if (alpha <= 0.01) return;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    const x = Math.round(cx - w / 2);
+
+    // 台紙（昇段画面と同じ紺カード。トンマナ共有）
+    drawWafuCard(ctx, x, y, w, h, { radius: 5, shadow: true, bgAlpha: 0.94 });
+
+    // 上下の細い罫（短冊の天地）
+    drawWafuDivider(ctx, cx, y + padY * 0.46, w * 0.32);
+    drawWafuDivider(ctx, cx, y + h - padY * 0.46, w * 0.32);
+
+    // 縦書き本文。文字ごとに描いて字送りを自分で決める（明朝の縦組み）
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
+    ctx.shadowBlur = Math.max(2, fontSize * 0.16);
+    ctx.shadowOffsetY = 1;
+    ctx.font = `900 ${fontSize}px "Zen Old Mincho", serif`;
+    ctx.fillStyle = '#f4f9ff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i < chars.length; i++) {
+        ctx.fillText(chars[i], cx, y + padY + lh * (i + 0.5));
+    }
+    // 影のリセット（以降の描画に漏らさない）
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.restore();
+}
+
 // 青ピップ列（昇段画面の段位表示と同テイスト）。filled=点灯, next=次段リング
 export function drawWafuPips(ctx, x, y, pipW, pipH, gap, level, maxLevel) {
     for (let p = 0; p < maxLevel; p++) {
@@ -3104,10 +3172,13 @@ export function renderStageClearAnnouncement(ctx, stageNumber, weaponUnlocked, s
     const stageStr = Number.isFinite(stageNumber) ? toKanjiNumber(stageNumber) : stageNumber;
 
     // 各要素の表示タイミング（ms）
-    const stageNameDelay = 300;
-    const clearDelay = 800;
-    const weaponDelay = 1400;
-    const pressDelay = 2400;
+    // 各要素の表示タイミング(ms)。撃破からここへ来るまでに死亡演出1.25秒＋余韻0.48秒を
+    // 使っているので、ここで更に待たせると「間」ではなく「空白」になる。前詰めにする。
+    // game.js 側の効果音トリガー(clearDelay)とスキップ解禁(pressDelay)も同じ値に合わせる。
+    const stageNameDelay = 120;
+    const clearDelay = 380;
+    const weaponDelay = 920;
+    const pressDelay = 1650;
 
     ctx.save();
 

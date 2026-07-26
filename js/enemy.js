@@ -2617,13 +2617,17 @@ export class Enemy {
             const dir = player.x < this.x ? 1 : -1;
             const knockbackX = (attackData && typeof attackData.knockbackX === 'number') ? attackData.knockbackX : 5;
             const knockbackY = (attackData && typeof attackData.knockbackY === 'number') ? attackData.knockbackY : -3;
-            this.vx = dir * knockbackX;
+            // ボスは横にも押されない。押されると当て続けるだけで画面端まで
+            // ずっと後退していく(ユーザー指摘)。雑魚は従来どおり弾き飛ばす
+            this.vx = this.bossName ? 0 : dir * knockbackX;
             
             // 打ち上げ（ダッシュ斬りなど）
             if (attackData && attackData.isLaunch) {
                 this.vy = Math.min(knockbackY, -12); // 空高く打ち上げる
                 this.isGrounded = false;
-            } else if (this.isGrounded) {
+            } else if (this.isGrounded && !this.bossName) {
+                // 通常打で軽く浮くのは雑魚だけ。ボスは重量級なので浮かせない
+                // (被弾ごとに少し浮き上がって見えるとユーザー指摘)
                 this.vy = knockbackY;
                 this.isGrounded = false;
             }
@@ -2698,13 +2702,14 @@ export class Enemy {
             // 「グレーに点滅する」ように見えるため(ユーザー指摘)。通常打は振動で伝える。
             // 白は最初の100msだけ(よろけ420ms全部白いと長すぎる=ユーザー指摘)。
             // 以降は色を戻し、後傾だけを残して「よろけている」を見せる
-            if (this.staggerTimer > 320) ctx.filter = 'brightness(0) invert(1)';
+            if (this.staggerTimer > 360) ctx.filter = 'brightness(0) invert(1)';
         } else if (this.hitTimer > 0) {
             if (isBossActor) {
                 // ボスの通常打は色を変えない(微振動＋ヒットストップのみ)
-            } else {
+            } else if (this.hitTimer > 40) {
                 // 雑魚は全身白フラッシュ(brightness(0)で真っ黒にしてから反転するので
-                // 黒いシルエットでも確実に白くなる。旧 brightness(150〜280%) は効かなかった)
+                // 黒いシルエットでも確実に白くなる)。hitTimer(90ms)は被弾硬直にも
+                // 使うため縮めず、光るのは最初の50msだけにする(長いと目に付きすぎる)
                 ctx.filter = 'brightness(0) invert(1)';
             }
         }
@@ -2735,7 +2740,12 @@ export class Enemy {
             } else if (this.hitTimer > 0) {
                 const hurt = Math.max(0, Math.min(1, this.hitTimer / 90));
                 if (isBossActor) {
-                    ctx.translate(Math.sin(this.hitTimer * 0.85) * 2.0 * hurt, 0);
+                    // 実座標は動かさず「描画だけ」衝撃で押し込んですぐ戻す。
+                    // 実際のノックバックと違い累積しないので当て続けても後退しないが、
+                    // 打撃の手応えは出る(押し込み無しだと当たった感が消える=ユーザー指摘)
+                    const push = -dir * 6.0 * hurt;
+                    const shake = Math.sin(this.hitTimer * 1.15) * 3.0 * hurt;
+                    ctx.translate(push + shake, 0);
                 } else {
                     const footY = this.y + this.height;
                     ctx.translate(0, footY - pivotY);

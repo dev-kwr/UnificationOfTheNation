@@ -3,10 +3,10 @@
 // ============================================
 
 import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js';
-import { Enemy } from './enemy.js?v=boss-stagger-20260726e';
+import { Enemy } from './enemy.js?v=boss-sakura-vignette-20260726f';
 import { createSubWeapon } from './weapon.js';
 import { audio } from './audio.js';
-import { Player } from './player.js';
+import { Player } from './player.js?v=boss-sakura-vignette-20260726f';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
@@ -1661,8 +1661,11 @@ function createShogunBossPlayer(x, _y, _type, groundY) {
             : (player ? player.x + getWorldWidth(player) * 0.5 : null);
         const killed = playerTakeDamage(scaledDamage, {
             sourceX,
-            knockbackX: attackData && Number.isFinite(attackData.knockbackX) ? attackData.knockbackX : 5,
-            knockbackY: attackData && Number.isFinite(attackData.knockbackY) ? attackData.knockbackY : -3,
+            // ボスは横にも押されない(当て続けると後退し続けるため)。既定0
+            knockbackX: attackData && Number.isFinite(attackData.knockbackX) ? attackData.knockbackX : 0,
+            // ボスは重量級なので通常打では浮かせない(縦ノックバック0)。
+            // 打ち上げ技(isLaunch)など明示指定がある場合のみ従う
+            knockbackY: attackData && Number.isFinite(attackData.knockbackY) ? attackData.knockbackY : 0,
             invincibleMs: attackData && attackData.isLaunch ? 120 : 80,
             flashMs: 140,
             disableHitFeedback: true
@@ -1684,6 +1687,22 @@ function createShogunBossPlayer(x, _y, _type, groundY) {
             this.isDying = true;
             this.deathTimer = 0;
             this.isAlive = true;
+            // 撃破時は忍具の居残りを消す。刺さった大太刀・振り中の刀・鎖などが
+            // 本体消滅後も画面に残ると「武器だけ浮いている」不自然な絵になる
+            this.subWeaponTimer = 0;
+            this.subWeaponAction = null;
+            this.isAttacking = false;
+            this.currentAttack = null;
+            for (const w of this.subWeapons || []) {
+                if (!w) continue;
+                w.isAttacking = false;
+                w.plantedTimer = 0;
+                w.fadeOutTimer = 0;
+                w.hasImpacted = false;
+                if (Array.isArray(w.groundWaves)) w.groundWaves.length = 0;
+                if (Array.isArray(w.impactDebris)) w.impactDebris.length = 0;
+                if (typeof w.attackTimer === 'number') w.attackTimer = 0;
+            }
             return true;
         }
         return false;
@@ -1703,13 +1722,16 @@ function createShogunBossPlayer(x, _y, _type, groundY) {
             // よろけだけ全身白フラッシュ＋大きく後傾(色変化はこの1種類のみ)。
             // 白は最初の100msだけにして長引かせない(残りは後傾のみ)
             const st = Math.max(0, Math.min(1, this.staggerTimer / 420));
-            if (this.staggerTimer > 320) ctx.filter = 'brightness(0) invert(1)';
+            if (this.staggerTimer > 360) ctx.filter = 'brightness(0) invert(1)';
             shogunStaggerLean = -(this.facingRight ? 1 : -1) * 0.22 * st;
         } else if (this.hitTimer > 0) {
             // 通常打は色を変えず微振動のみ(薄いティントは装飾の色を奪い
             // 「グレーに点滅」して見えるため入れない)
+            // 実座標は動かさず「描画だけ」押し込んですぐ戻す(累積しないので後退しない)。
+            // 巨躯なので押し込み量は雑魚ボスより大きめ
             const hitRatio = Math.max(0, Math.min(1, this.hitTimer / 90));
-            shogunHitShake = Math.sin(this.hitTimer * 0.85) * 2.4 * hitRatio;
+            const dirS = this.facingRight ? 1 : -1;
+            shogunHitShake = -dirS * 8.0 * hitRatio + Math.sin(this.hitTimer * 1.15) * 3.2 * hitRatio;
         }
         if (shogunStaggerLean !== 0) {
             const pivotX = this.x + this.getWorldWidth() * 0.5;

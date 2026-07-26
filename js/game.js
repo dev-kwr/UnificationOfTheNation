@@ -3,11 +3,12 @@
 // ============================================
 
 import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, getDeviceProfile, setUiScaleFromFitScale, setSafeInsets, setVirtualPadVisible } from './constants.js';
+import { BOSS_STAGING } from './bossStaging.js?v=boss-sakura-vignette-20260726f';
 import { input } from './input.js';
-import { Player } from './player.js';
+import { Player } from './player.js?v=boss-sakura-vignette-20260726f';
 import { createSubWeapon } from './weapon.js';
-import { Stage } from './stage.js?v=boss-stagger-20260726e';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout } from './ui.js';
+import { Stage } from './stage.js?v=boss-sakura-vignette-20260726f';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, renderBossNameBanner } from './ui.js?v=boss-sakura-vignette-20260726f';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js';
 import { saveManager } from './save.js';
 import { shop } from './shop.js';
@@ -153,6 +154,11 @@ class Game {
         this.stageClearAutoSubWeaponPauseMs = 0;
         this.levelUpChoices = [];
         this.flashAlpha = 0;
+        // ボス撃破演出のタイムライン(ms)。spawnStageBossDefeatEffect で立ち上げ、
+        // gameLoop 側で hitStop → slow の順に消費する。クロージングは描画のみ。
+        this.bossDefeatHitStopMs = 0;
+        this.bossDefeatSlowMs = 0;
+        this.bossDefeatClosingMs = 0;
         this.levelUpAlpha = 0;
         this.levelUpTransitionDir = 0;
         this.stageTransitionTimer = 0;
@@ -395,6 +401,80 @@ class Game {
         const z = SCREEN_WIDTH / CANVAS_WIDTH;
         const crop = CANVAS_HEIGHT - CANVAS_HEIGHT / z;
         return Math.max(0, Math.min(crop, crop - (this.cameraLift || 0)));
+    }
+
+    // ボス演出の足元スポット位置。カメラ空間(worldX - scrollX, worldY)で返す。
+    // 'floor' レイヤは世界ズーム内・水平スクロール translate の【外】で描かれるため、
+    // ここで scrollX を差し引いておく。
+    getBossStagingSpots() {
+        const spots = [];
+        const scrollX = Math.floor(this.scrollX || 0);
+        const push = (actor, alpha) => {
+            if (!actor) return;
+            const w = typeof actor.getWorldWidth === 'function' ? actor.getWorldWidth() : (actor.width || 0);
+            const h = typeof actor.getWorldHeight === 'function' ? actor.getWorldHeight() : (actor.height || 0);
+            spots.push({
+                x: actor.x + w * 0.5 - scrollX,
+                y: actor.y + h, // 足元（ワールド下端）
+                rx: Math.max(70, w * 2.6),
+                ry: Math.max(18, w * 0.62),
+                alpha
+            });
+        };
+        const boss = this.stage && this.stage.boss;
+        if (boss && boss.isAlive !== false) push(boss, BOSS_STAGING.SPOT_ALPHA);
+        if (this.player && this.player.hp > 0) push(this.player, BOSS_STAGING.SPOT_ALPHA_PLAYER);
+        return spots;
+    }
+
+    // ビネットの中心＝プレイヤーとボスの中点（構図が締まる）。スクリーン空間で返す。
+    getBossStagingFocus(worldZoom, visTop) {
+        const scrollX = this.scrollX || 0;
+        const pts = [];
+        const boss = this.stage && this.stage.boss;
+        if (boss && boss.isAlive !== false) {
+            const bw = typeof boss.getWorldWidth === 'function' ? boss.getWorldWidth() : (boss.width || 0);
+            const bh = typeof boss.getWorldHeight === 'function' ? boss.getWorldHeight() : (boss.height || 0);
+            pts.push({ x: boss.x + bw * 0.5, y: boss.y + bh * 0.5 });
+        }
+        if (this.player && this.player.hp > 0) {
+            pts.push({
+                x: this.player.x + this.player.getWorldWidth() * 0.5,
+                y: this.player.y + this.player.getWorldHeight() * 0.5
+            });
+        }
+        if (!pts.length) return { x: SCREEN_WIDTH * 0.5, y: CANVAS_HEIGHT * 0.5 };
+        let wx = 0, wy = 0;
+        for (const p of pts) { wx += p.x; wy += p.y; }
+        wx /= pts.length;
+        wy /= pts.length;
+        const sx = (wx - scrollX) * worldZoom;
+        const sy = (wy - visTop) * worldZoom;
+        // 画面外へ飛ばない範囲へクランプ（ビネットの穴が端に寄りすぎると不自然）
+        return {
+            x: Math.max(SCREEN_WIDTH * 0.28, Math.min(SCREEN_WIDTH * 0.72, sx)),
+            y: Math.max(CANVAS_HEIGHT * 0.30, Math.min(CANVAS_HEIGHT * 0.66, sy))
+        };
+    }
+
+    // 名乗り短冊。'name' で降下して留まり、'ready' で上へ抜ける。
+    renderBossNameBannerIfNeeded(ctx) {
+        const st = this.stage;
+        if (!st || !st.boss || !st.bossIntroPhase) return;
+        const phase = st.bossIntroPhase;
+        if (phase !== 'name' && phase !== 'ready') return;
+        const t = st.bossIntroPhaseTimer || 0;
+        if (phase === 'name') {
+            renderBossNameBanner(ctx, st.boss.bossName, {
+                enterT: Math.min(1, t / (BOSS_STAGING.INTRO_NAME_MS * 0.34)),
+                exitT: 0
+            });
+        } else {
+            renderBossNameBanner(ctx, st.boss.bossName, {
+                enterT: 1,
+                exitT: Math.min(1, t / BOSS_STAGING.INTRO_READY_MS)
+            });
+        }
     }
 
     // 可視ワールド境界の単一ソース (screen_adaptation_plan.md §2)。
@@ -1031,7 +1111,16 @@ class Game {
         
         // ヒットストップ処理
         let updateDeltaTime = rawDeltaTime;
-        if (this.hitStopEnabled && this.hitStopTimer > 0) {
+        if (this.bossDefeatHitStopMs > 0) {
+            // ボス撃破専用のヒットストップ。グローバル無効設定(hitStopEnabled=false)とは
+            // 独立した枠なので、通常戦闘のヒットストップ方針を変えずに一撃の重みを出せる。
+            this.bossDefeatHitStopMs = Math.max(0, this.bossDefeatHitStopMs - rawDeltaTime * 1000);
+            updateDeltaTime = 0;
+        } else if (this.bossDefeatSlowMs > 0) {
+            // 続いてスローモーション。破片と昇天が見える速度まで落とす。
+            this.bossDefeatSlowMs = Math.max(0, this.bossDefeatSlowMs - rawDeltaTime * 1000);
+            updateDeltaTime = rawDeltaTime * BOSS_STAGING.DEFEAT_SLOW_SCALE;
+        } else if (this.hitStopEnabled && this.hitStopTimer > 0) {
             this.hitStopTimer -= rawDeltaTime * 1000;
             updateDeltaTime = 0; // 時間を止める
         } else if (this.state === GAME_STATE.DEFEAT) {
@@ -1703,6 +1792,50 @@ class Game {
         return true;
     }
 
+    /**
+     * Stage6 角3: 鉤縄で頭上の軒へ登る演出の更新。
+     * 演出中は入力を止め、プレイヤーを縄に引かれて上へ移動させる。
+     * 登り切ったら暗転遷移(=大屋根への着地)へ引き継ぐ。
+     */
+    updateStage6GrappleClimb() {
+        const st = this.stage;
+        if (this.currentStageNumber !== 6 || !st?.stage6GrapplePhase) return false;
+
+        const done = st.updateStage6GrappleClimb(this.deltaTime);
+        this.player.vx = 0;
+        this.player.legPhase = 0;
+        this.player.isDashing = false;
+        this.player.isCrouching = false;
+
+        if (st.stage6GrapplePhase === 2) {
+            // 引き上げ: 縄に引かれて軒の高さへ。画面上へ抜けたところで暗転へ
+            const t = st.getStage6GrappleProgress();
+            const ease = t * t; // 徐々に加速して引き上げられる
+            const fromY = st.stage6GrappleFromY ?? (st.baseGroundY + LANE_OFFSET);
+            const toY = STAGE6_CORNER.EAVE_WORLD_Y - 220; // 画面上へ抜ける
+            this.player.y = fromY + (toY - fromY) * ease;
+            this.player.vy = 0;
+            this.player.isGrounded = false;
+            // 軒へ向かって少し寄っていく
+            const fromX = st.stage6GrappleFromX ?? this.player.x;
+            const toX = st.stage6GrappleAnchorX - this.player.getWorldWidth() * 0.5;
+            this.player.x = fromX + (toX - fromX) * ease;
+        } else {
+            // 縄を投げている間は足元に固定
+            this.player.groundY = st.baseGroundY;
+            this.player.y = st.baseGroundY + LANE_OFFSET - this.player.getWorldHeight();
+            this.player.isGrounded = true;
+        }
+
+        st.update(this.deltaTime, this.player);
+
+        if (done) {
+            // 登り切った → 暗転して大屋根へ
+            st.startCornerTransition();
+        }
+        return true;
+    }
+
     updatePlaying() {
         // ポーズ
         if (input.isActionJustPressed('PAUSE')) {
@@ -1715,6 +1848,7 @@ class Game {
         // フロア/角遷移中は移動入力を受け付けず、暗転処理だけを進める。
         if (this.updateStage5FloorTransition()) return;
         if (this.updateStage6CornerTransition()) return;
+        if (this.updateStage6GrappleClimb()) return;
         
         // プレイヤー更新
         // NOTE:
@@ -1863,13 +1997,17 @@ class Game {
             const isFinalCorner = this.stage.cornersClimbed === 2;
             let fire = false;
             if (isFinalCorner) {
-                // 行き止まりの手前(受付帯)にいて、ジャンプで軒に手が届く高さまで上がったら発火
-                const footY = this.player.y + this.player.getWorldHeight();
-                const reachY = this.stage.baseGroundY + LANE_OFFSET - STAGE6_CORNER.EAVE_REACH_HEIGHT;
-                fire = probe >= cornerX - STAGE6_CORNER.EAVE_JUMP_ZONE_PX
-                    && probe <= cornerX + 80
-                    && !this.player.isGrounded
-                    && footY <= reachY;
+                // 角3は「鉤縄で頭上の軒へ登る」。行き止まりの手前まで歩いて来たら
+                // 自動で登攀演出が始まる(ジャンプ入力に頼ると到達判定がシビアで詰む)。
+                const atDeadEnd = probe >= cornerX - STAGE6_CORNER.DOOR_TRIGGER_INSET
+                    && probe <= cornerX + 200;
+                if (atDeadEnd && !this.stage.stage6GrapplePhase) {
+                    this.player.vx = 0;
+                    this.stage.startStage6GrappleClimb();
+                    this.stage.stage6GrappleFromX = this.player.x + this.player.getWorldWidth() * 0.5;
+                    this.stage.stage6GrappleFromY = this.player.y + this.player.getWorldHeight() * 0.35;
+                }
+                fire = false; // 遷移は登攀完了時に発火する
             } else {
                 const doorX = cornerX - STAGE6_CORNER.DOOR_TRIGGER_INSET;
                 // 上限も見る: 「門に歩き入った」ときだけ発火。
@@ -2028,8 +2166,10 @@ class Game {
                 // 完全に暗転したら遷移
                 this.onStageClear();
                 this.pendingStageClear = false;
-                // 次のシーンのフェードインを開始
-                this.startTransition(); 
+                // 次のシーンのフェードインを開始。ボス撃破からここへ来る経路では
+                // 既に黒クロージングと余韻を通しているので暗転は短く(0.45→約0.22秒)。
+                // 「突破」の文字(clearDelay=380ms)が明るい画面に載る。
+                this.startTransition(0.45);
             }
         }
         
@@ -3547,9 +3687,17 @@ class Game {
         // ボス撃破専用SE
         audio.playBossDeath();
         
-        // 画面フラッシュ演出（ホワイトアウト）
-        this.flashAlpha = 1.0; 
-        
+        // 画面フラッシュ。旧 1.0 の完全ホワイトアウトは色を飛ばし、
+        // 明けた直後の残像が「明るい暖色の空」に見えてしまうため 0.55 に抑える。
+        // 代わりに画面端から黒が寄るクロージングで「幕が引かれる」感を出す。
+        this.flashAlpha = BOSS_STAGING.DEFEAT_FLASH_ALPHA;
+
+        // ヒットストップ → スローモーション → クロージングのタイムライン。
+        // グローバルの hitStopEnabled(=false) は触らず、撃破専用の枠で時間を止める。
+        this.bossDefeatHitStopMs = BOSS_STAGING.DEFEAT_HITSTOP_MS;
+        this.bossDefeatSlowMs = BOSS_STAGING.DEFEAT_SLOW_MS;
+        this.bossDefeatClosingMs = BOSS_STAGING.DEFEAT_CLOSING_MS;
+
         const shards = [];
         // 破片の数を大幅に増量 (30 -> 80)
         for (let i = 0; i < 80; i++) {
@@ -4560,15 +4708,15 @@ class Game {
         if (this.stageClearPhase === 0) {
             const prevTimer = this.stageClearAnnounceTimer || 0;
             this.stageClearAnnounceTimer = prevTimer + this.deltaTime * 1000;
-            // 「突破」表示タイミングで効果音
-            if (prevTimer < 800 && this.stageClearAnnounceTimer >= 800) {
+            // 「突破」表示タイミングで効果音（ui.js renderStageClearAnnouncement の clearDelay と同値）
+            if (prevTimer < 380 && this.stageClearAnnounceTimer >= 380) {
                 audio.playStageClear();
             }
         }
 
         // 演出フェーズ (Phase 0)
         if (this.stageClearPhase === 0) {
-            if (this.stageClearAnnounceTimer < 2400) return; // 演出完了前はスキップ不可
+            if (this.stageClearAnnounceTimer < 1650) return; // 演出完了前はスキップ不可（ui.js pressDelay と同値）
             if (input.isActionJustPressed('CONFIRM') || input.wasScreenTapped()) {
                 audio.playSelect();
                 this.stageClearPhase = 1;
@@ -5014,14 +5162,40 @@ class Game {
             this.transitionTimer -= this.deltaTime * 2; // フェードアウト速度
         }
 
-        // ボス撃破ホワイトフラッシュ
+        // ボス撃破フラッシュ（0.55 上限。完全なホワイトアウトはしない）
         if (this.flashAlpha > 0) {
             this.ctx.save();
             this.ctx.globalAlpha = Math.min(1.0, this.flashAlpha);
             this.ctx.fillStyle = '#fff';
             this.ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
             this.ctx.restore();
-            this.flashAlpha -= this.deltaTime * 3.0; // フェードアウト速度
+            this.flashAlpha = Math.max(0, this.flashAlpha - this.deltaTime * 3.0); // フェードアウト速度
+        }
+
+        // ボス撃破のクロージング：画面の上下端から黒が寄って一拍おいて引く。
+        // 「幕が引かれる」感を色を飛ばさずに作る（白フラッシュの代替）。
+        if (this.bossDefeatClosingMs > 0) {
+            const total = BOSS_STAGING.DEFEAT_CLOSING_MS;
+            const t = 1 - this.bossDefeatClosingMs / total; // 0→1
+            // 前半で寄り、後半で引く（山なり）
+            const amt = t < 0.5 ? (t / 0.5) : (1 - (t - 0.5) / 0.5);
+            const band = CANVAS_HEIGHT * 0.30 * amt;
+            if (band > 0.5) {
+                this.ctx.save();
+                const top = this.ctx.createLinearGradient(0, 0, 0, band);
+                top.addColorStop(0, 'rgba(0, 0, 0, 0.92)');
+                top.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                this.ctx.fillStyle = top;
+                this.ctx.fillRect(0, 0, SCREEN_WIDTH, band);
+
+                const bot = this.ctx.createLinearGradient(0, CANVAS_HEIGHT - band, 0, CANVAS_HEIGHT);
+                bot.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                bot.addColorStop(1, 'rgba(0, 0, 0, 0.92)');
+                this.ctx.fillStyle = bot;
+                this.ctx.fillRect(0, CANVAS_HEIGHT - band, SCREEN_WIDTH, band);
+                this.ctx.restore();
+            }
+            this.bossDefeatClosingMs = Math.max(0, this.bossDefeatClosingMs - this.deltaTime * 1000);
         }
 
         // プレイヤー被弾の赤ビネット（画面端ほど濃く・中央は薄く視界を妨げない）。
@@ -5043,9 +5217,11 @@ class Game {
         }
     }
     
-    // シーン遷移開始（フェードイン用）
-    startTransition() {
-        this.transitionTimer = 1.0;
+    // シーン遷移開始（フェードイン用）。render 側で deltaTime*2 で引くので
+    // from=1.0 は 0.5 秒の暗転。ボス撃破→突破のように直前に別の演出(黒クロージング)を
+    // 通してきた経路では暗転が二重になって「待たされる」ため短めを渡す。
+    startTransition(from = 1.0) {
+        this.transitionTimer = from;
     }
 
     getShakePerformanceScale() {
@@ -5401,7 +5577,13 @@ class Game {
 
         // 1. 背景
         this.stage.renderBackground(ctx);
-        
+
+        // 1b. ボス空間演出（遠景の沈み込み）。地面はこの後に描かれるので影響しない。
+        //     色は一切足さず黒のみ ─ 詳細は Stage.renderBossAtmosphere のコメント参照。
+        if (this.stage.bossEncounterBlend > 0) {
+            this.stage.renderBossAtmosphere(ctx, this.stage.bossEncounterBlend, 'far');
+        }
+
         // --- レイヤー描画 ---
         
         // 2. 地面
@@ -5415,6 +5597,13 @@ class Game {
             this.stage.renderStage6CornerWalls(ctx, this.scrollX);
         }
         
+        // 3b. ボス空間演出（足元スポットと空気の粒子）。影より奥＝床の明かりとして敷く。
+        if (this.stage.bossEncounterBlend > 0) {
+            this.stage.renderBossAtmosphere(ctx, this.stage.bossEncounterBlend, 'floor', {
+                spots: this.getBossStagingSpots()
+            });
+        }
+
         // 4. 影
         if (this.shadowRenderer) {
             this.shadowRenderer.render(
@@ -5425,7 +5614,7 @@ class Game {
                 this.scrollX
             );
         }
-        
+
         // 5. ワールドオブジェクト（水平スクロール適用）
         ctx.save();
         ctx.translate(-Math.floor(this.scrollX), 0);
@@ -5478,6 +5667,14 @@ class Game {
 
         this.renderPlayerCombatLayer(ctx, { playerAlpha, forceStanding });
 
+        // Stage6 角3: 鉤縄(縄と鎌)。プレイヤーの手元から頭上の軒へ伸びる。
+        // ここはワールド変換(translate(-scrollX))の内側なので、scrollX=0として渡す。
+        if (this.currentStageNumber === 6 && this.stage.stage6GrapplePhase) {
+            const pcx = this.player.x + this.player.getWorldWidth() * 0.5;
+            const pcy = this.player.y + this.player.getWorldHeight() * 0.35;
+            this.stage.renderStage6GrappleRope(ctx, 0, pcx, pcy);
+        }
+
         // ヒット演出（世界座標）
         this.renderHitEffects(ctx);
         
@@ -5496,14 +5693,28 @@ class Game {
         ctx.restore(); // 水平スクロール保存の復元
 
         ctx.restore(); // 世界ズームwrapの復元（以降のHUD/フロアUIは等倍スクリーン空間）
-        
+
+        // 6. ボス空間演出（ビネットと左右の柱）。等倍スクリーン空間なので実画面を正しく縁取る。
+        if (this.stage.bossEncounterBlend > 0) {
+            const focus = this.getBossStagingFocus(worldZoom, visTop);
+            this.stage.renderBossAtmosphere(ctx, this.stage.bossEncounterBlend, 'near', {
+                screenW: SCREEN_WIDTH,
+                screenH: CANVAS_HEIGHT,
+                focusX: focus.x,
+                focusY: focus.y
+            });
+        }
+
         // 3. HUD（カメラ固定）
-        
-        // ボスUI（HPバーなど）
+
+        // ボスUI（HPバーなど）。登場演出中は bossUiRevealT で上からスライドインする。
         if (this.stage.boss) {
             this.stage.renderBossUI(ctx);
         }
-        
+
+        // ボスの名乗り短冊（登場演出の name / ready フェーズ）
+        this.renderBossNameBannerIfNeeded(ctx);
+
         // メインHUD
         this.ui.renderHUD(ctx, this.player, this.stage);
         
