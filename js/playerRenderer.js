@@ -4755,6 +4755,86 @@ export function applyRendererMixin(PlayerClass) {
                 drawHand(mainHand.x, mainHand.y, standardRightHandRadius);
                 renderKusaLayer('front');
             }
+        } else if (renderSubWeaponAction === '鉤縄') {
+            // Stage6 角3: 鉤縄で頭上の軒へ登る。
+            // 縄の起点(手元)はここで実測して grappleHandAnchor に公開する。
+            // 鎖と鉤の描画は stage6Grapple.js が別レイヤーで受け持つ(腕はポーズだけ)。
+            // 忍者はモデル座標==ワールド座標なので、そのまま縄の起点に使える。
+            const g = this.grappleState;
+            const phase = g ? g.phase : 4;      // 状態が無ければ引き上げ姿勢
+            const isWindup = phase === 1;
+            const isFly = phase === 2;
+            const overhead = phase === 3 || phase === 4;  // 噛んだ後は両手を頭上へ
+
+            // 手前肩(投げ手)
+            const throwShoulderX = rightShoulderX + dir * 0.12;
+            const throwShoulderY = rightShoulderY + 0.18;
+
+            let handX, handY, backHandX, backHandY;
+            if (isWindup) {
+                // 振りかぶり: 手を後ろ下へ引いて鉤を溜める
+                const t = g ? Math.min(1, g.timer / 180) : 1;
+                const ease = t * t * (3 - 2 * t);
+                handX = throwShoulderX - dir * (4 + ease * 12);
+                handY = throwShoulderY + 4 + ease * 7;
+                backHandX = leftShoulderX - dir * (2 + ease * 5);
+                backHandY = leftShoulderY + 7;
+            } else if (isFly) {
+                // 投げ切り: 鉤の方向へ腕を伸ばす
+                const aimX = g ? g.hookX : centerX + dir * 30;
+                const aimY = g ? g.hookY : pivotY - 30;
+                const len = Math.hypot(aimX - throwShoulderX, aimY - throwShoulderY) || 1;
+                handX = throwShoulderX + (aimX - throwShoulderX) / len * 21;
+                handY = throwShoulderY + (aimY - throwShoulderY) / len * 21;
+                backHandX = leftShoulderX + dir * 5;
+                backHandY = leftShoulderY + 5;
+            } else {
+                // 噛んだ / 引き上げ: 両手で縄を握って頭上へ。体は縄にぶら下がる
+                // up は腕の可動限界(armMax)より大きく取り、clampArmReach で
+                // 「腕を伸ばし切った」姿勢に張り付かせる(中途半端に曲がると吊られて見えない)
+                const t = overhead && g ? Math.min(1, g.timer / (phase === 3 ? 140 : 520)) : 1;
+                const ease = t * t * (3 - 2 * t);
+                const up = 25 + ease * 4;
+                handX = throwShoulderX + dir * (3.4 + ease * 1.2);
+                handY = throwShoulderY - up;
+                backHandX = leftShoulderX + dir * 1.0;
+                backHandY = leftShoulderY - (up - 4.5);
+            }
+
+            const armMax = overhead ? 23.6 : 21.0;
+            const backHand = clampArmReach(leftShoulderX, leftShoulderY, backHandX, backHandY, armMax);
+            const frontHand = clampArmReach(throwShoulderX, throwShoulderY, handX, handY, armMax);
+
+            // 奥手。頭上へ伸ばすときは肘が上へ抜けるよう bendDir を反転する
+            if (drawBackLayer) {
+                drawBentArmSegment(
+                    leftShoulderX, leftShoulderY, backHand.x, backHand.y,
+                    standardUpperLen, standardForeLen, overhead ? -dir : dir, 5.3
+                );
+                drawHand(backHand.x, backHand.y, standardLeftHandRadius, null, true);
+            }
+            if (drawFrontLayer) {
+                if (isFly) {
+                    const t = g ? Math.min(1, g.timer / 260) : 1;
+                    drawProgressiveThrowArm(
+                        throwShoulderX, throwShoulderY, frontHand.x, frontHand.y, t, -dir
+                    );
+                } else {
+                    drawBentArmSegment(
+                        throwShoulderX, throwShoulderY, frontHand.x, frontHand.y,
+                        standardUpperLen, standardForeLen, overhead ? dir : -dir, 5.2
+                    );
+                }
+                drawHand(frontHand.x, frontHand.y, standardRightHandRadius);
+            }
+
+            // 縄の起点を公開(次フレームの stage6Grapple 側が使う)。
+            // 引き上げ中は両手で握っているので2手の中点を起点にする。
+            // 絶対座標ではなく「プレイヤー左上からの相対」で持つ。引き上げ中は毎フレーム
+            // 大きく上へ動くので、絶対座標だと縄の起点が1フレーム遅れて手から離れる。
+            const anchorX = overhead ? (frontHand.x + backHand.x) * 0.5 : frontHand.x;
+            const anchorY = overhead ? (frontHand.y + backHand.y) * 0.5 : frontHand.y;
+            this.grappleHandAnchor = { dx: anchorX - this.x, dy: anchorY - this.y };
         } else if (!renderSubWeaponAction && this.currentSubWeapon && this.currentSubWeapon.name === '二刀流') {
             // === 二刀流の非攻撃時（アイドル姿勢） ===
             const holdProgress = (Date.now() % 3000) / 3000;

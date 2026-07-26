@@ -5,7 +5,7 @@
 import { SCREEN_WIDTH, CANVAS_HEIGHT, getUiScale } from './constants.js';
 import { input } from './input.js';
 import { audio } from './audio.js';
-import { drawScreenManualLine, drawWafuCard, drawWafuHeading, drawWafuDivider, drawNumMixedText, drawBgCover } from './ui.js?v=boss-sakura-vignette-20260726f';
+import { drawScreenManualLine, drawWafuCard, drawWafuHeading, drawWafuDivider, drawNumMixedText, drawBgCover } from './ui.js?v=stage6-grapple-20260726a';
 
 // 背景画像キャッシュ
 let _shopBgImg = null;

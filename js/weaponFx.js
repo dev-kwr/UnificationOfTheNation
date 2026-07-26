@@ -93,6 +93,121 @@ export function drawCometRibbon(ctx, points, opts) {
     ctx.restore();
 }
 
+// ============================================
+// 鎖(チェーン)の描画
+// 鎖鎌(js/weapon.js Kusarigama)で確立した式をそのまま切り出したもの。
+// たるみ量・制御点・グラデ3色・lineDash・鎖コマの寸法は鎖鎌と完全一致させてある。
+// ※鎖鎌本体は既存実装を使い続ける(出荷済み武器の見た目回帰を避けるため)。
+//   ここは鉤縄など「鎖鎌以外」から使うための共通版。
+// ============================================
+
+/**
+ * 手元→先端の鎖のたるみ(二次ベジェ制御点)を求める。
+ * tension 0=だらんとたるむ / 1=ぴんと張る。
+ * throwPhase=true(投擲中)はたるみを 0.42 倍に抑えて「投げた勢い」を出す。
+ */
+export function chainCurve(handX, handY, tipX, tipY, tension, dirX, dirY, throwPhase) {
+    const dx = tipX - handX;
+    const dy = tipY - handY;
+    const chainLen = Math.max(0.001, Math.hypot(dx, dy));
+    const nx = -dy / chainLen;
+    const ny = dx / chainLen;
+    const t = Number.isFinite(tension) ? Math.max(0, Math.min(1, tension)) : 1;
+    // 進行方向。渡されなければ手元→先端の向きを使う。
+    const cdx = Number.isFinite(dirX) ? dirX : dx / chainLen;
+    const cdy = Number.isFinite(dirY) ? dirY : dy / chainLen;
+    const slackScale = throwPhase ? 0.42 : 1.0;
+    const slackBase = (1 - t) * (10 + Math.min(8, chainLen * 0.05)) * slackScale;
+    const midX = (handX + tipX) * 0.5;
+    const midY = (handY + tipY) * 0.5;
+    return {
+        chainLen,
+        chainNx: nx,
+        chainNy: ny,
+        chainTension: t,
+        dirX: cdx,
+        dirY: cdy,
+        ctrlX: midX - cdx * (chainLen * 0.1) + nx * (slackBase * (throwPhase ? 0.18 : 0.48)),
+        ctrlY: midY
+            - cdy * (chainLen * 0.1)
+            + ny * (slackBase * (throwPhase ? 0.08 : 0.24))
+            + slackBase * (throwPhase ? 0.24 : 0.62)
+    };
+}
+
+/** 二次ベジェ上の点(t=0..1)。chainCurve の curve と始点/終点から求める。 */
+export function sampleQuad(x0, y0, curve, x1, y1, t) {
+    const tt = Math.max(0, Math.min(1, t));
+    const inv = 1 - tt;
+    return {
+        x: inv * inv * x0 + 2 * inv * tt * curve.ctrlX + tt * tt * x1,
+        y: inv * inv * y0 + 2 * inv * tt * curve.ctrlY + tt * tt * y1
+    };
+}
+
+/**
+ * 鎖を描く。3色グラデ + 流れる lineDash + 上側ハイライト + 等間隔の鎖コマ楕円。
+ * dashPhase は 0..1 で与えると鎖が動いて見える(鎖鎌では st.progress を使用)。
+ */
+export function drawChain(ctx, handX, handY, tipX, tipY, curve, opts) {
+    const o = opts || {};
+    const dashPhase = o.dashPhase || 0;
+    const width = o.width != null ? o.width : 2.4;
+    const grad = ctx.createLinearGradient(handX, handY, tipX, tipY);
+    grad.addColorStop(0, o.colorNear || 'rgba(170, 176, 188, 0.95)');
+    grad.addColorStop(0.55, o.colorMid || 'rgba(128, 136, 150, 0.98)');
+    grad.addColorStop(1, o.colorFar || 'rgba(92, 102, 118, 0.95)');
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineDashOffset = -dashPhase * 150;
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = width;
+    ctx.setLineDash([5, 3]);
+    ctx.beginPath();
+    ctx.moveTo(handX, handY);
+    ctx.quadraticCurveTo(curve.ctrlX, curve.ctrlY, tipX, tipY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 上側の細いハイライト(金属の反射)。法線方向へ1.4pxずらした平行線。
+    ctx.strokeStyle = o.highlight || 'rgba(230, 245, 255, 0.45)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(handX + curve.dirY * 1.4, handY - curve.dirX * 1.4);
+    ctx.quadraticCurveTo(
+        curve.ctrlX + curve.dirY * 1.4,
+        curve.ctrlY - curve.dirX * 1.4,
+        tipX + curve.dirY * 1.4,
+        tipY - curve.dirX * 1.4
+    );
+    ctx.stroke();
+
+    // 鎖コマを等間隔で描いて、金属鎖らしい実体感を出す
+    const links = Math.max(8, Math.min(24, Math.round(curve.chainLen / 13)));
+    ctx.fillStyle = o.linkFill || 'rgba(106, 114, 128, 0.95)';
+    ctx.strokeStyle = o.linkEdge || 'rgba(220, 230, 244, 0.46)';
+    ctx.lineWidth = 0.7;
+    for (let i = 1; i < links; i++) {
+        const t = i / links;
+        const inv = 1 - t;
+        const px = inv * inv * handX + 2 * inv * t * curve.ctrlX + t * t * tipX;
+        const py = inv * inv * handY + 2 * inv * t * curve.ctrlY + t * t * tipY;
+        const tx = 2 * inv * (curve.ctrlX - handX) + 2 * t * (tipX - curve.ctrlX);
+        const ty = 2 * inv * (curve.ctrlY - handY) + 2 * t * (tipY - curve.ctrlY);
+        const linkR = (1.25 + (1 - curve.chainTension) * 0.35) * (o.linkScale || 1);
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(Math.atan2(ty, tx));
+        ctx.beginPath();
+        ctx.ellipse(0, 0, linkR * 1.25, linkR * 0.78, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+    }
+    ctx.restore();
+}
+
 // シード式パーティクル配列を一度だけ作る(per-frame Math.random の瞬間移動を排除)。
 export function makeParticles(count, opts) {
     const o = opts || {};

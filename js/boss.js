@@ -3,10 +3,10 @@
 // ============================================
 
 import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js';
-import { Enemy } from './enemy.js?v=boss-sakura-vignette-20260726f';
+import { Enemy } from './enemy.js?v=stage6-grapple-20260726a';
 import { createSubWeapon } from './weapon.js';
 import { audio } from './audio.js';
-import { Player } from './player.js?v=boss-sakura-vignette-20260726f';
+import { Player } from './player.js?v=stage6-grapple-20260726a';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,

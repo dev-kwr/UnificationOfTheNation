@@ -3,12 +3,13 @@
 // ============================================
 
 import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, getDeviceProfile, setUiScaleFromFitScale, setSafeInsets, setVirtualPadVisible } from './constants.js';
-import { BOSS_STAGING } from './bossStaging.js?v=boss-sakura-vignette-20260726f';
+import { BOSS_STAGING } from './bossStaging.js?v=stage6-grapple-20260726a';
 import { input } from './input.js';
-import { Player } from './player.js?v=boss-sakura-vignette-20260726f';
+import { Player } from './player.js?v=stage6-grapple-20260726a';
 import { createSubWeapon } from './weapon.js';
-import { Stage } from './stage.js?v=boss-sakura-vignette-20260726f';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, renderBossNameBanner } from './ui.js?v=boss-sakura-vignette-20260726f';
+import { Stage } from './stage.js?v=stage6-grapple-20260726a';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=stage6-grapple-20260726a';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, renderBossNameBanner } from './ui.js?v=stage6-grapple-20260726a';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js';
 import { saveManager } from './save.js';
 import { shop } from './shop.js';
@@ -1799,37 +1800,63 @@ class Game {
      */
     updateStage6GrappleClimb() {
         const st = this.stage;
-        if (this.currentStageNumber !== 6 || !st?.stage6GrapplePhase) return false;
+        if (this.currentStageNumber !== 6 || !st?.isStage6Grappling()) return false;
 
         const done = st.updateStage6GrappleClimb(this.deltaTime);
         this.player.vx = 0;
         this.player.legPhase = 0;
         this.player.isDashing = false;
         this.player.isCrouching = false;
+        // 演出中は player.update() が走らないので subWeaponTimer が自動減衰しない。
+        // 毎フレーム書き直して playerRenderer の '鉤縄' ポーズを維持する。
+        this.player.subWeaponAction = '鉤縄';
+        this.player.subWeaponTimer = 1;
+        this.player.grappleState = st.stage6Grapple;
 
-        if (st.stage6GrapplePhase === 2) {
+        const prevY = this.player.y;
+        if (st.getStage6GrapplePhase() === GRAPPLE_PHASE.PULL) {
             // 引き上げ: 縄に引かれて軒の高さへ。画面上へ抜けたところで暗転へ
-            const t = st.getStage6GrappleProgress();
-            const ease = t * t; // 徐々に加速して引き上げられる
-            const fromY = st.stage6GrappleFromY ?? (st.baseGroundY + LANE_OFFSET);
+            const ease = st.getStage6GrapplePullEase();
+            const from = st.getStage6GrappleFrom();
+            const anchor = st.getStage6GrappleAnchor();
+            const fromY = from ? from.y : (st.baseGroundY + LANE_OFFSET - this.player.getWorldHeight());
             const toY = STAGE6_CORNER.EAVE_WORLD_Y - 220; // 画面上へ抜ける
             this.player.y = fromY + (toY - fromY) * ease;
-            this.player.vy = 0;
             this.player.isGrounded = false;
             // 軒へ向かって少し寄っていく
-            const fromX = st.stage6GrappleFromX ?? this.player.x;
-            const toX = st.stage6GrappleAnchorX - this.player.getWorldWidth() * 0.5;
+            const fromX = from ? from.x : this.player.x;
+            const toX = (anchor ? anchor.x : this.player.x) - this.player.getWorldWidth() * 0.5;
             this.player.x = fromX + (toX - fromX) * ease;
+            // 空中ポーズ(playerRenderer:2537の汎用処理)が上昇速度に反応するよう実速度を入れる
+            this.player.vy = this.deltaTime > 0 ? (this.player.y - prevY) / this.deltaTime * 0.016 : -6;
         } else {
             // 縄を投げている間は足元に固定
             this.player.groundY = st.baseGroundY;
             this.player.y = st.baseGroundY + LANE_OFFSET - this.player.getWorldHeight();
+            this.player.vy = 0;
             this.player.isGrounded = true;
         }
+
+        // 手元(縄の起点)は playerRenderer が前フレームに実測した「左上からの相対」を使う。
+        // 相対で受け取るので、引き上げで大きく動いても縄が手から離れない。
+        // 初回フレームだけは未実測なので startGrapple の胸元推定値が使われる。
+        const pcx = this.player.x + this.player.getWorldWidth() * 0.5;
+        const pcy = this.player.y + this.player.getWorldHeight() * 0.35;
+        const hand = this.player.grappleHandAnchor;
+        st.updateStage6GrappleVisual(
+            this.deltaTime,
+            hand ? this.player.x + hand.dx : undefined,
+            hand ? this.player.y + hand.dy : undefined,
+            pcx, pcy
+        );
 
         st.update(this.deltaTime, this.player);
 
         if (done) {
+            this.player.subWeaponAction = null;
+            this.player.subWeaponTimer = 0;
+            this.player.grappleState = null;
+            this.player.grappleHandAnchor = null;
             // 登り切った → 暗転して大屋根へ
             st.startCornerTransition();
         }
@@ -2001,11 +2028,11 @@ class Game {
                 // 自動で登攀演出が始まる(ジャンプ入力に頼ると到達判定がシビアで詰む)。
                 const atDeadEnd = probe >= cornerX - STAGE6_CORNER.DOOR_TRIGGER_INSET
                     && probe <= cornerX + 200;
-                if (atDeadEnd && !this.stage.stage6GrapplePhase) {
+                if (atDeadEnd && !this.stage.isStage6Grappling()) {
                     this.player.vx = 0;
-                    this.stage.startStage6GrappleClimb();
-                    this.stage.stage6GrappleFromX = this.player.x + this.player.getWorldWidth() * 0.5;
-                    this.stage.stage6GrappleFromY = this.player.y + this.player.getWorldHeight() * 0.35;
+                    // 補間元は startGrapple 内で player.x / player.y を素で保存する。
+                    // (手元座標を左上として使い回して1フレーム跳ぶバグを避ける)
+                    this.stage.startStage6GrappleClimb(this.player);
                 }
                 fire = false; // 遷移は登攀完了時に発火する
             } else {
@@ -5665,15 +5692,15 @@ class Game {
             ctx.restore();
         }
 
+        // Stage6 角3: 鉤縄の背面パス(軌跡と鎖)。体の後ろを通す。
+        // ここはワールド変換(translate(-scrollX))の内側なのでワールド座標で描ける。
+        const grappling = this.currentStageNumber === 6 && this.stage.isStage6Grappling();
+        if (grappling) this.stage.renderStage6GrappleBehind(ctx);
+
         this.renderPlayerCombatLayer(ctx, { playerAlpha, forceStanding });
 
-        // Stage6 角3: 鉤縄(縄と鎌)。プレイヤーの手元から頭上の軒へ伸びる。
-        // ここはワールド変換(translate(-scrollX))の内側なので、scrollX=0として渡す。
-        if (this.currentStageNumber === 6 && this.stage.stage6GrapplePhase) {
-            const pcx = this.player.x + this.player.getWorldWidth() * 0.5;
-            const pcy = this.player.y + this.player.getWorldHeight() * 0.35;
-            this.stage.renderStage6GrappleRope(ctx, 0, pcx, pcy);
-        }
+        // 前面パス(鉤頭と噛んだ瞬間の火花)。鉤が頭の後ろへ回り込んで隠れるのを防ぐ。
+        if (grappling) this.stage.renderStage6GrappleFront(ctx);
 
         // ヒット演出（世界座標）
         this.renderHitEffects(ctx);

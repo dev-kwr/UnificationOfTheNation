@@ -3,12 +3,17 @@
 // ============================================
 
 import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js';
-import { BOSS_STAGING } from './bossStaging.js?v=boss-sakura-vignette-20260726f';
-import { createEnemy } from './enemy.js?v=boss-sakura-vignette-20260726f';
-import { createBoss } from './boss.js?v=boss-sakura-vignette-20260726f';
+import { BOSS_STAGING } from './bossStaging.js?v=stage6-grapple-20260726a';
+import { createEnemy } from './enemy.js?v=stage6-grapple-20260726a';
+import { createBoss } from './boss.js?v=stage6-grapple-20260726a';
 import { createObstacle } from './obstacle.js';
 import { audio } from './audio.js';
 import { generateStairsCanvas } from './stairRenderer.js';
+import {
+    GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
+    startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase,
+    renderGrappleBehind, renderGrappleFront
+} from './stage6Grapple.js?v=stage6-grapple-20260726a';
 
 const OBSTACLE_CHANCE_BOOST = 0.8;
 // Stage1地面タイルの描画幅1206pxに合わせ、worldX=9648で位相0から接続する。
@@ -16,6 +21,29 @@ const STAGE1_GROUND_TRANSITION_LENGTH = 2352;
 const STAGE1_BAMBOO_TREE_LINE_OFFSET = 1020;
 const STAGE1_FENCE_END_OFFSET = 12;
 const STAGE1_BOSS_SUN_HOUR = 8.25;
+
+// --- Stage6 パノラマの帯高さ(index = cornersClimbed = 階層) ---
+// 【階層を貫く原則】場当たりに数値をいじると全体が崩れるので必ずこの順で守る:
+//  1) 空の面積は登るほど広がる → 一番高い帯を階層ごとに下げる
+//  2) 街(近景)は登るほど沈む   → STAGE6_TOWN_H は単調減少。最上階では見えない
+//  3) 山(遠景)は最初から見えていて、登るほど稜線が上がる → STAGE6_MTN_H は単調増加
+//     (三階層で急に現れるのは違和感。一階層目から必ず見せる)
+//  4) 最上階は「街が完全に消える + 柵が無い」で三階層と画として別物にする
+// ※重要: 遠くの山の稜線は手前の街並みより「高い位置」に見える。
+//   よって帯の高さは 山 > 中間 > 街 でなければ山が街に完全に隠れる。
+// ※最上階(zone3)の山は「空を埋めすぎて敵が隠れる」ため意図的に低く抑えている。
+//   ここを上げると天体クリップ(getStage6MountainOcclusionY)の余地も同時に失う。
+const STAGE6_MTN_H = [168, 178, 188, 196];  // 山: 1Fから見えて稜線が段々上がる(単調増加)
+const STAGE6_MID_H = [146, 138, 0, 0];      // 中間距離(竹林/街道): 山と街の間。三階層以降は無し
+const STAGE6_TOWN_H = [120, 92, 66, 0];     // 街: 登るほど沈む(単調減少)。空を広く残す
+// 山アセットの「全列が完全不透明になる」上端位置(srcの高さ比)。
+// 天体クリップの切断線をここに合わせると、切り口が山の不透明部と一致して線が見えない。
+// 【重要】stage6_panorama_mountains_far.png を差し替えたら必ず再実測すること:
+//   `node scratch/probe_mtn_solid.js` (各列でα=255が下端まで続く最小yの最大値 / naturalHeight)
+//   現アセット 2048x640 の実測値: y=467 / 640 = 0.7297
+const STAGE6_MTN_SRC_SOLID = 0.73;
+// 山を描くときに捨てる上端(透過フェード部)の比率。差し替え時は上と一緒に見直す。
+const STAGE6_MTN_SRC_TOP = 0.66;
 
 // ステージクラス
 export class Stage {
@@ -1047,79 +1075,64 @@ export class Stage {
      * 廻縁の突き当たりから屋根の上へ上がる唯一の自然な手段(忍者の身体能力)。
      * 縄が伸びて軒に掛かる → 引き上げられて画面上へ消える → 暗転 → 大屋根に着地。
      */
-    startStage6GrappleClimb() {
-        if (this.stageNumber !== 6 || this.stage6GrapplePhase || this.isFloorTransitioning) return;
-        this.stage6GrapplePhase = 1;              // 1=縄が伸びる, 2=引き上げ
-        this.stage6GrappleTimer = 0;
-        this.stage6GrappleAnchorX = this.getStage6ActiveCornerX() - 40; // 軒の掛かり位置
-        this.stage6GrappleFromX = null;           // game.js側で開始時のプレイヤー位置を入れる
-        this.stage6GrappleFromY = null;
+    startStage6GrappleClimb(player) {
+        if (this.stageNumber !== 6 || this.isStage6Grappling() || this.isFloorTransitioning) return;
+        if (!this.stage6Grapple) this.stage6Grapple = createGrappleState();
+        startGrapple(this.stage6Grapple, this.getStage6ActiveCornerX(), player);
+    }
+
+    /** 鉤縄登攀中か */
+    isStage6Grappling() {
+        return isGrappleActive(this.stage6Grapple);
     }
 
     /** 鉤縄登攀の進行(deltaTime秒)。完了したらtrueを返す */
     updateStage6GrappleClimb(deltaTime) {
-        if (!this.stage6GrapplePhase) return false;
-        this.stage6GrappleTimer += deltaTime * 1000;
-        if (this.stage6GrapplePhase === 1 && this.stage6GrappleTimer >= STAGE6_CORNER.GRAPPLE_ROPE_MS) {
-            this.stage6GrapplePhase = 2;
-            this.stage6GrappleTimer = 0;
-            return false;
-        }
-        if (this.stage6GrapplePhase === 2 && this.stage6GrappleTimer >= STAGE6_CORNER.GRAPPLE_PULL_MS) {
-            this.stage6GrapplePhase = 0;
-            this.stage6GrappleTimer = 0;
-            return true; // 登り切った → 暗転遷移へ
-        }
-        return false;
+        if (!this.isStage6Grappling()) return false;
+        return updateGrapple(this.stage6Grapple, deltaTime, audio);
     }
 
-    /** 鉤縄登攀中の進行度(0..1)。phase1は縄の伸び、phase2は引き上げ */
+    /** 鉤縄の見た目(鉤の位置・軌跡・火花)を進める。game.js の更新ループから呼ぶ */
+    updateStage6GrappleVisual(deltaTime, handX, handY, playerCx, playerCy) {
+        if (!this.isStage6Grappling()) return;
+        updateGrappleVisual(this.stage6Grapple, deltaTime, handX, handY, playerCx, playerCy);
+    }
+
+    /** 現在フェーズの進行度(0..1) */
     getStage6GrappleProgress() {
-        if (!this.stage6GrapplePhase) return 0;
-        const dur = this.stage6GrapplePhase === 1
-            ? STAGE6_CORNER.GRAPPLE_ROPE_MS
-            : STAGE6_CORNER.GRAPPLE_PULL_MS;
-        return Math.max(0, Math.min(1, this.stage6GrappleTimer / dur));
+        return grappleProgress(this.stage6Grapple);
     }
 
-    /**
-     * 鉤縄(縄と鎌)の描画。プレイヤーの手元から軒の掛かり位置へ伸びる。
-     * ワールド座標系(scrollX適用済みの外)で呼ぶ。
-     */
-    renderStage6GrappleRope(ctx, scrollX, playerCx, playerCy) {
-        if (!this.stage6GrapplePhase) return;
-        // scrollX=0 で呼ばれる場合(ワールド変換の内側)はアンカーもワールド座標のまま
-        const ax = this.stage6GrappleAnchorX - scrollX;
-        const ay = STAGE6_CORNER.EAVE_WORLD_Y;
-        const t = this.getStage6GrappleProgress();
-        // phase1: 縄が伸びる。phase2: 掛かったまま(全長)
-        const reach = this.stage6GrapplePhase === 1 ? t : 1;
-        const ex = playerCx + (ax - playerCx) * reach;
-        const ey = playerCy + (ay - playerCy) * reach;
+    /** 引き上げの補間量(0..1)。頂点で減速する */
+    getStage6GrapplePullEase() {
+        return grapplePullEase(this.stage6Grapple);
+    }
 
-        ctx.save();
-        // 縄
-        ctx.strokeStyle = 'rgba(228, 220, 198, 0.92)';
-        ctx.lineWidth = 2.4;
-        ctx.beginPath();
-        ctx.moveTo(playerCx, playerCy);
-        ctx.lineTo(ex, ey);
-        ctx.stroke();
-        // 先端の鎌(小さな鉤)
-        ctx.strokeStyle = 'rgba(226, 232, 238, 0.95)';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(ex, ey, 7, Math.PI * 0.15, Math.PI * 1.15);
-        ctx.stroke();
-        // 掛かった瞬間の火花
-        if (this.stage6GrapplePhase === 2 && this.stage6GrappleTimer < 120) {
-            const a = 1 - this.stage6GrappleTimer / 120;
-            ctx.fillStyle = `rgba(255, 226, 150, ${(0.8 * a).toFixed(3)})`;
-            ctx.beginPath();
-            ctx.arc(ax, ay, 12 * a + 4, 0, Math.PI * 2);
-            ctx.fill();
-        }
-        ctx.restore();
+    /** 鉤縄の現在フェーズ(GRAPPLE_PHASE) */
+    getStage6GrapplePhase() {
+        return this.stage6Grapple?.phase || GRAPPLE_PHASE.NONE;
+    }
+
+    /** 引き上げの補間元(プレイヤー左上のワールド座標) */
+    getStage6GrappleFrom() {
+        const g = this.stage6Grapple;
+        return g ? { x: g.fromX, y: g.fromY } : null;
+    }
+
+    /** 鉤が噛んでいる位置(ワールド) */
+    getStage6GrappleAnchor() {
+        const g = this.stage6Grapple;
+        return g ? { x: g.anchorX, y: g.anchorY } : null;
+    }
+
+    /** 背面パス(軌跡・鎖)。ワールド変換の内側で、プレイヤーより前に呼ぶ */
+    renderStage6GrappleBehind(ctx) {
+        renderGrappleBehind(ctx, this.stage6Grapple);
+    }
+
+    /** 前面パス(鉤頭・火花)。ワールド変換の内側で、プレイヤーより後に呼ぶ */
+    renderStage6GrappleFront(ctx) {
+        renderGrappleFront(ctx, this.stage6Grapple);
     }
 
     /** フロア遷移のアニメーション更新 (deltaTime in seconds) */
@@ -3803,25 +3816,28 @@ export class Stage {
         const farFilter = 'brightness(0.82) saturate(0.7)';
         const nearFilter = 'brightness(0.85) saturate(0.72)';
 
-        // 階層ごとの高さ数列(上記ルール)。index=zone
-        // 【階層を貫く3つの原則】場当たりに数値をいじると全体が崩れるので必ずこの順で守る:
-        //  1) 空の面積は登るほど広がる → 一番高い帯を階層ごとに下げる
-        //  2) 街(近景)は登るほど沈む   → TOWN_H は単調減少。最上階では見えない
-        //  3) 山(遠景)は最初から見えていて、登るほど稜線が上がる → MTN_H は単調増加
-        //     (三階層で急に現れるのは違和感。一階層目から必ず見せる)
-        //  4) 最上階は「街が完全に消える + 柵が無い」で三階層と画として別物にする
-        // ※重要: 遠くの山の稜線は手前の街並みより「高い位置」に見える。
-        //   よって帯の高さは 山 > 中間 > 街 でなければ山が街に完全に隠れる(1Fで山が消えていた原因)。
-        const MTN_H = [215, 225, 235, 250];   // 山: 1Fから見えて稜線が段々上がる(単調増加)
-        const MID_H = [185, 175, 0, 0];       // 中間距離(竹林/街道): 山と街の間。三階層以降は無し
-        const TOWN_H = [150, 115, 85, 0];     // 街: 登るほど沈む(単調減少)。空を広く残す
-        // 山の濃さも高度で上げる(遠くまで見通せるようになる)
-        const MTN_A = [0.55, 0.72, 0.88, 1.0];
+        // 階層ごとの高さ数列は module-level(STAGE6_MTN_H など)に集約。
+        // 天体クリップ(getStage6MountainOcclusionY)が同じ数列を読むので二重管理を作らない。
+        const MTN_H = STAGE6_MTN_H;
+        const MID_H = STAGE6_MID_H;
+        const TOWN_H = STAGE6_TOWN_H;
+        // 山の遠近は「濃さ(alpha)」ではなく「フィルタ」で作る。
+        // 半透明にすると月や太陽が山を透けて見えてしまうため alpha は使わない(=1.0固定)。
+        const MTN_F = [
+            'brightness(0.62) saturate(0.44) contrast(0.88)',  // 1F: 一番霞んで見える
+            'brightness(0.70) saturate(0.54) contrast(0.92)',
+            'brightness(0.78) saturate(0.63) contrast(0.96)',
+            'brightness(0.86) saturate(0.72) contrast(1.0)'    // 最上階: 遠くまで見通せる
+        ];
 
         // 1) 最奥: 連山
+        // widthScale: アセットが1024px周期で完全反復するため、等倍だと1画面(1280px)に
+        //   同じ稜線が2回出る。周期を1335px>1280に広げて二重露出を避ける。
+        //   ※新アセット(非反復・1536px)に差し替えたら 2.2 へ上げる。
         this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
-            parallax: 0.05, drawHeight: MTN_H[zone], bottomY: bottom, alpha: MTN_A[zone],
-            filter: farFilter, srcTopFrac: 0.66, mirrorRepeat: false
+            parallax: 0.05, drawHeight: MTN_H[zone], bottomY: bottom,
+            filter: MTN_F[zone], srcTopFrac: STAGE6_MTN_SRC_TOP, widthScale: 1.45,
+            mirrorRepeat: false
         });
 
         // 2) 中間距離: 方角によって題材が変わる(一巡目=竹林 / 二巡目=街道)
@@ -3865,10 +3881,35 @@ export class Stage {
      * 「門の下を床が通り抜ける」という他ステージの門・出入口と同じ語彙になる。
      * 画像未読込時は描かない(従来の透かし櫓背景がフォールバックとして残る)。
      */
+    /**
+     * 角の枠(境界からの左右幅)。角3だけは「統合屋根壁」で幅が違う。
+     * 角1・2: 通用門のある全高壁(枠810×512)
+     * 角3:    最上重の大屋根の左手前隅 + 開口のない盲壁(枠1152×512)。
+     *         軒が枠の左寄りに張り出すので左側を広く取る。
+     */
+    getStage6CornerFrame(cornerIndex) {
+        if (cornerIndex === 2) {
+            return {
+                left: STAGE6_CORNER.FINAL_FRAME_LEFT_PX,
+                right: STAGE6_CORNER.FINAL_FRAME_RIGHT_PX
+            };
+        }
+        return { left: STAGE6_CORNER.WALL_LEFT_PX, right: STAGE6_CORNER.WALL_RIGHT_PX };
+    }
+
+    /**
+     * 角3の軒先の先端(鉤縄が掛かる軒)のワールド座標。
+     * アセット未配置時は null(縄のアンカーが空中に浮かないようにフォールバックさせる)。
+     */
+    getStage6EaveTip() {
+        const cornerX = this.stage6CornerXs?.[2];
+        if (!Number.isFinite(cornerX)) return null;
+        return { x: cornerX + STAGE6_CORNER.EAVE_TIP_DX, y: STAGE6_CORNER.EAVE_WORLD_Y };
+    }
+
     renderStage6CornerWalls(ctx, scrollX) {
         if (this.stageNumber !== 6) return;
-        const frameW = STAGE6_CORNER.WALL_LEFT_PX + STAGE6_CORNER.WALL_RIGHT_PX;
-        const laneY = this.groundY + LANE_OFFSET; // 512 = 通用門の開口下端の着地先(足元ライン)
+        const laneY = this.groundY + LANE_OFFSET; // 512 = 立面を描いてよい下限(足元ライン)
         for (let i = 0; i < this.stage6CornerXs.length; i++) {
             const cornerX = this.stage6CornerXs[i];
 
@@ -3878,23 +3919,28 @@ export class Stage {
 
             const img = this.getStage6CornerWallImage(i);
             if (!img) continue;
-            const x = Math.round(cornerX - STAGE6_CORNER.WALL_LEFT_PX - scrollX);
+            const frame = this.getStage6CornerFrame(i);
+            const frameW = frame.left + frame.right;
+            const x = Math.round(cornerX - frame.left - scrollX);
             if (x + frameW <= 0 || x >= CANVAS_WIDTH) continue;
             ctx.save();
             ctx.filter = 'brightness(0.86) saturate(0.76)';
-            // 画像全面を枠(WALL_LEFT+WALL_RIGHT)×512に描く。
-            // v5(2304×1456)は枠810×512と同比率でぴったり。v4(2048×1456)は暫定で横+12%伸びるが
-            // 門下端=画像最下端の関係と壁右端までの遮蔽が保たれることを優先する。
+            // 画像全面を枠×512に描く。角3の統合アセットは2304×1024=枠1152×512と同比率。
             ctx.drawImage(img, x, 0, frameW, laneY);
             ctx.filter = 'none';
 
-            // 接地影: 基部と俯瞰床の継ぎ目を沈める(エンティティの落ち影と同じ考え方)
+            // 接地影: 基部と俯瞰床の継ぎ目を沈める(エンティティの落ち影と同じ考え方)。
+            // 角3は枠の左寄りが「軒だけで基部が無い」透過領域なので、
+            // 壁面が立ち上がる位置(=WALL_LEFT_PX)から右だけに敷く。
+            // 枠左端から敷くと廻縁の床に理由のない黒帯が乗る。
+            const shadowLeft = i === 2 ? Math.round(cornerX - STAGE6_CORNER.WALL_LEFT_PX - scrollX) : x;
+            const shadowW = x + frameW - shadowLeft;
             const shadowH = 26;
             const grad = ctx.createLinearGradient(0, laneY, 0, laneY + shadowH);
             grad.addColorStop(0, 'rgba(0, 0, 0, 0.42)');
             grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
             ctx.fillStyle = grad;
-            ctx.fillRect(x, laneY, frameW, shadowH);
+            ctx.fillRect(shadowLeft, laneY, shadowW, shadowH);
             ctx.restore();
 
         }
@@ -3959,6 +4005,25 @@ export class Stage {
                 drawHeight: shachiH, bottomY, filter, flipX: true
             });
         }
+    }
+
+    /**
+     * Stage6: 山の帯が「全列とも完全不透明」になる画面y。
+     * 月・太陽をこのyで切ると、切り口が山の不透明部と重なるので切断線は見えない。
+     * (稜線そのもので切ると稜線より上の空も切れてしまい、逆に帯の下端で切ると
+     *  αランプの半透明部を天体が透けて見えてしまう。その中間がこの線)
+     */
+    getStage6MountainOcclusionY() {
+        const zone = Math.max(0, Math.min(3, this.cornersClimbed || 0));
+        const bottom = this.groundY + 24;
+        const drawH = STAGE6_MTN_H[zone];
+        const top = bottom - drawH;
+        // srcTopFrac で上端を捨てているので、不透明開始位置を「残った範囲での比率」に直す
+        const visible = Math.max(0.0001, 1 - STAGE6_MTN_SRC_TOP);
+        const solidFrac = Math.max(0, Math.min(1, (STAGE6_MTN_SRC_SOLID - STAGE6_MTN_SRC_TOP) / visible));
+        // +2px は丸め誤差に対する安全側の寄せ。深い(=大きいy)方へずれる分は不透明部に埋まるが、
+        // 浅い方へずれるとαランプの半透明部で切断線が露出するため、必ず下へ寄せる。
+        return Math.round(top + drawH * solidFrac) + 2;
     }
 
     /** stage6アセットが読込済みで使えるか(404はcomplete=trueでもnaturalWidth=0) */
@@ -5489,6 +5554,16 @@ export class Stage {
             const moonRadius = 140; // 3倍
             const sunRadius = 135;  // 3倍 (140だと少し大きすぎるかもしれないので微調整)
 
+            // 天体は山の稜線より下へ描かない。パノラマは天体より後に描かれるが、
+            // 山アセットの上端がαランプなので半透明部を通して月/太陽が透けてしまう。
+            // 山が完全不透明になるyで切っておけば、どんなαでも原理的に透けない。
+            // (-800 はグロー半径 r*4.8=672px を上側で切らないための余白)
+            ctx.save();
+            ctx.beginPath();
+            const occY = this.getStage6MountainOcclusionY();
+            ctx.rect(0, -800, CANVAS_WIDTH, occY + 800);
+            ctx.clip();
+
             // 旧: ボス出現で太陽を最終位置に固定していた(ボス戦=巨大な橙の太陽)。
             // ボスで時刻が飛ぶのをやめ、進行度連動に一本化する。終端では
             // getStage6SunTheta() と同じ位置に自然に到達する。
@@ -5515,6 +5590,7 @@ export class Stage {
                 }
                 // 月が消えた後、太陽が出るまでは何もない「仄暗い朝」
             }
+            ctx.restore(); // 稜線クリップを解除
         }
     }
     
