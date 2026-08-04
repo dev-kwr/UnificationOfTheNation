@@ -2,8 +2,9 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, getDeviceProfile, setUiScaleFromFitScale, setSafeInsets, setVirtualPadVisible } from './constants.js?v=stage6-arena-flow-20260803k';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, getDeviceProfile, setUiScaleFromFitScale, setSafeInsets, setVirtualPadVisible } from './constants.js?v=aspect-drift-fix-20260804e';
 import { BOSS_STAGING } from './bossStaging.js?v=stage6-boss-shachi-20260803i';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=aspect-drift-fix-20260804e';
 import { input } from './input.js';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
@@ -42,9 +43,9 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=stage6-kusarigama-grapple-20260728a';
+import { Player } from './player.js?v=boss-intro-clone-standdown-20260804a';
 import { createSubWeapon } from './weapon.js?v=stage6-entry-ballistic-20260804c';
-import { Stage } from './stage.js?v=fx-parity-pass-20260804c';
+import { Stage } from './stage.js?v=stage3-props-on-ground-20260804k';
 import { GRAPPLE_PHASE } from './stage6Grapple.js?v=stage6-roof-entry-20260802g';
 import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, renderBossNameBanner } from './ui.js?v=outcome-balance-20260727b';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js';
@@ -278,9 +279,11 @@ class Game {
         if (this._viewportPollTimer) clearInterval(this._viewportPollTimer);
         this._viewportPollTimer = setInterval(() => this.ensureViewportSync(), 250);
 
-        // 折りたたみ展開・Split View 等で「起動時に固定したスクリーン幅」と実画面が
-        // 乖離した場合の再読み込み案内 (P4)。screen基準(URLバーの伸縮に非反応)・
-        // ゲーム中は出さない・強制リロードしない・1セッション1回だけ。
+        // 折りたたみ展開等で「起動時に固定したスクリーン幅」と実画面が乖離した場合の
+        // 再読み込み案内 (P4)。screen基準(URLバーの伸縮に非反応)・ゲーム中は出さない・
+        // 強制リロードしない・1セッション1回だけ。
+        // 起動時の物理スクリーン寸法を控える。checkAspectDrift はこれと現在値の差だけを見る。
+        this._bootScreen = readPhysicalScreen();
         this._aspectMismatchSince = 0;
         this._aspectToastShown = false;
         if (this._aspectWatchTimer) clearInterval(this._aspectWatchTimer);
@@ -401,24 +404,37 @@ class Game {
         this.configureCanvasResolution();
     }
 
+    // 案内を出す条件は「再読み込みすれば実際に表示が変わる」ことに限る。
+    // 旧実装は実アスペクト比と SCREEN_WIDTH/CANVAS_HEIGHT を比べていたため、
+    // computeScreenWidth の下限クランプ(=CANVAS_WIDTH)に張り付く端末では捨てられた差が
+    // そのまま乖離として計上され、何も操作していなくても常時発火した(4:3〜1.44 の iPad は
+    // 素の計算値が 960〜1036 で全機種が下限に張り付き、乖離 19〜25%)。しかも再読み込みしても
+    // 同じクランプがかかって値は変わらないので、案内自体が無効だった。
     checkAspectDrift() {
         if (this._aspectToastShown) return;
         const p = getDeviceProfile();
         if (!p.isTouchDevice && !p.isMobileUA) return;
-        const sw = (window.screen && window.screen.width) || 0;
-        const sh = (window.screen && window.screen.height) || 0;
-        if (!(sw > 0 && sh > 0)) return;
-        const cur = Math.max(sw, sh) / Math.min(sw, sh);
-        const configured = SCREEN_WIDTH / CANVAS_HEIGHT;
-        if (Math.abs(cur / configured - 1) > 0.15) {
-            if (!this._aspectMismatchSince) this._aspectMismatchSince = Date.now();
-            const stable = Date.now() - this._aspectMismatchSince > 3000;
-            if (stable && this.state !== GAME_STATE.PLAYING) {
-                this._aspectToastShown = true;
-                this.showReloadToast();
-            }
-        } else {
+        const boot = this._bootScreen;
+        const now = readPhysicalScreen();
+        if (!boot || !now) return;
+        // 物理スクリーンが起動時から変化していないなら、案内する理由がない。
+        if (now.long === boot.long && now.short === boot.short) {
             this._aspectMismatchSince = 0;
+            return;
+        }
+        // 変化していても、新しい寸法で引き直したスクリーン幅が現在値と実質同じなら
+        // 再読み込みしても表示は変わらない(両者ともクランプ端に居る場合など)。
+        // 16px = 世界ズーム z の差 1.25% 未満。偶数丸めの最小刻み(2px)との区別も付く。
+        const next = computeScreenWidth(now, CANVAS_WIDTH, CANVAS_HEIGHT);
+        if (Math.abs(next - SCREEN_WIDTH) < 16) {
+            this._aspectMismatchSince = 0;
+            return;
+        }
+        if (!this._aspectMismatchSince) this._aspectMismatchSince = Date.now();
+        const stable = Date.now() - this._aspectMismatchSince > 3000;
+        if (stable && this.state !== GAME_STATE.PLAYING) {
+            this._aspectToastShown = true;
+            this.showReloadToast();
         }
     }
 
@@ -454,8 +470,27 @@ class Game {
     // ボス演出の足元スポット位置。カメラ空間(worldX - scrollX, worldY)で返す。
     // 'floor' レイヤは世界ズーム内・水平スクロール translate の【外】で描かれるため、
     // ここで scrollX を差し引いておく。
+    /**
+     * 足元のスポットは【登場演出の間だけ】。これは舞台照明の見立てなので、
+     * 戦闘中も出しっぱなしにすると 208x50px の半透明の楕円が足元に貼り付いたまま
+     * 動き回ることになる(α0.09・lighten)。bossEncounterBlend はボス戦の間ずっと1で
+     * 演出の終わりを教えてくれないため、bossIntroPhase を見て ready で引く。
+     */
+    getBossStagingSpotT() {
+        const s = this.stage;
+        const phase = s && s.bossIntroPhase;
+        if (!phase) return 0;
+        if (phase === 'ready') {
+            const t = (s.bossIntroPhaseTimer || 0) / Math.max(1, BOSS_STAGING.INTRO_READY_MS);
+            return Math.max(0, 1 - Math.min(1, t));
+        }
+        return 1;
+    }
+
     getBossStagingSpots() {
         const spots = [];
+        const stagingT = this.getBossStagingSpotT();
+        if (stagingT <= 0.001) return spots;
         const scrollX = Math.floor(this.scrollX || 0);
         const push = (actor, alpha) => {
             if (!actor) return;
@@ -470,8 +505,8 @@ class Game {
             });
         };
         const boss = this.stage && this.stage.boss;
-        if (boss && boss.isAlive !== false) push(boss, BOSS_STAGING.SPOT_ALPHA);
-        if (this.player && this.player.hp > 0) push(this.player, BOSS_STAGING.SPOT_ALPHA_PLAYER);
+        if (boss && boss.isAlive !== false) push(boss, BOSS_STAGING.SPOT_ALPHA * stagingT);
+        if (this.player && this.player.hp > 0) push(this.player, BOSS_STAGING.SPOT_ALPHA_PLAYER * stagingT);
         return spots;
     }
 
@@ -2357,6 +2392,11 @@ class Game {
             this.player.x - prevX,
             this.player.y - prevY
         );
+        // 鉤を投げた瞬間に解いた分身の煙も、ここで老化させて登攀中に消え切らせる。
+        // (player.update が走らないため、放置すると煙が凍ったまま引き上げられる)
+        if (typeof this.player.updateSpecialSmoke === 'function') {
+            this.player.updateSpecialSmoke(this.deltaTime);
+        }
 
         // 手元(鎖の起点)は playerRenderer が前フレームに実測した「左上からの相対」を使う。
         // 相対で受け取るので、引き上げで大きく動いても縄が手から離れない。
@@ -2591,6 +2631,18 @@ class Game {
                     // 補間元は startGrapple 内で player.x / player.y を素で保存する。
                     // (手元座標を左上として使い回して1フレーム跳ぶバグを避ける)
                     this.stage.startStage6GrappleClimb(this.player);
+                    // 【最上層へ分身は連れて行かない】。鉤を投げる=ここから独りで登ると
+                    // 決めた瞬間に影を解く。暗転で黙って消すのではなく画面内で解くので、
+                    // 煙は残す(clearSmoke=false)。立っていた各分身の位置から立ち上がる。
+                    // 以降は会敵歩行〜名乗りまで奥義入力も封じられている
+                    // (attackInputLockTimer)ため、開戦までは呼び直せない。
+                    if (this.stage.isStage6Grappling() && this.player.isUsingSpecial) {
+                        const smokeAnchors = typeof this.player.getSpecialSmokeAnchors === 'function'
+                            ? this.player.getSpecialSmokeAnchors(true)
+                            : null;
+                        this.player.spawnSpecialSmoke('vanish', smokeAnchors);
+                        this.player.clearSpecialState(false);
+                    }
                 }
                 fire = false; // 遷移は登攀完了時に発火する
             } else {
@@ -4078,6 +4130,11 @@ class Game {
     updateSpecialCloneAutoCombat(activeEnemies = []) {
         if (!this.player || !this.player.isSpecialCloneCombatActive || !this.player.isSpecialCloneCombatActive()) return;
         if (!this.player.specialCloneAutoAiEnabled) return;
+        // 【会戦前は分身の刃も通さない】。分身AI側で的を持たせない(playerSpecial.js)のと
+        // 対称に、判定側でも本体の抜刀が封じられている間(会敵歩行〜登場演出)は評価しない。
+        // ここは分身のモーション有無と独立に範囲内の敵を殴るため、
+        // ボスの無敵が解ける ready(HPバーが開くまで)の間に削れてしまう。
+        if ((this.player.attackInputLockTimer || 0) > 0) return;
         if (!Array.isArray(activeEnemies)) activeEnemies = [];
         const rockTargets = (this.stage && Array.isArray(this.stage.obstacles))
             ? this.stage.obstacles.filter((obs) => obs && !obs.isDestroyed && obs.type === OBSTACLE_TYPES.ROCK)
@@ -6240,7 +6297,15 @@ class Game {
         } else if (this.currentStageNumber === 6 && this.stage.stageNumber === 6) {
             this.stage.renderStage6CornerWalls(ctx, this.scrollX);
         }
-        
+
+        // 3a. Stage 3: 道沿いの添景。【地面の後】に描いて足元線(512)に立たせる。
+        //     背景側(地面より前)に置いていた頃は足元を下げると地面に覆われるため
+        //     地平線に貼り付けるしかなく、床帯の上で浮いて見えていた。
+        if (this.currentStageNumber === 3 && this.stage.stageNumber === 3
+            && typeof this.stage.renderStage3RoadsideOnGround === 'function') {
+            this.stage.renderStage3RoadsideOnGround(ctx);
+        }
+
         // 3b. ボス空間演出（足元スポットと空気の粒子）。影より奥＝床の明かりとして敷く。
         if (this.stage.bossEncounterBlend > 0) {
             this.stage.renderBossAtmosphere(ctx, this.stage.bossEncounterBlend, 'floor', {

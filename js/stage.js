@@ -2,7 +2,7 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=stage6-arena-flow-20260803k';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=aspect-drift-fix-20260804e';
 import { BOSS_STAGING } from './bossStaging.js?v=stage6-boss-shachi-20260803i';
 import { createEnemy } from './enemy.js?v=stage6-arena-polish-20260803g';
 import { createBoss } from './boss.js?v=shogun-jump-reach-20260804a';
@@ -74,6 +74,9 @@ const STAGE6_BOSS_DROP_COMBO_STEPS = 5; // 降りながら出す連撃の段数(
 // 連撃が終わってから名乗りに入るまでの間。振り切りのポーズが抜けて立ち姿に
 // 戻ってから短冊を出す(会敵の絵が5撃目の途中になるのを防ぐ)。
 const STAGE6_BOSS_INTRO_IDLE_SETTLE_MS = 220;
+// 名乗り帯の中心からボスの中心までの最低距離。対称位置がこれより内側になる場合
+// (プレイヤーが中央付近で足を止めた場合)はここで止めて、間合いを潰さない。
+const BOSS_ENTRANCE_MIN_HALF_GAP_PX = 200;
 const STAGE6_BOSS_DROP_HOLD_MS = 540; // 飛び降りる前に鯱の上で見下ろす間
 // 桜/金粉が名乗りと同時に舞い出すまでの尺。名乗り(INTRO_NAME_MS)の前半で開き切る。
 const STAGE6_PETAL_FADE_IN_MS = 700;
@@ -802,6 +805,28 @@ export class Stage {
         const right = this.getStage6ArenaPhysicalRight() - worldWidth - shachiClearance;
         const normalTarget = scrollX + CANVAS_WIDTH * this.bossEntranceTargetRatio;
         return Math.max(left, Math.min(normalTarget, right));
+    }
+
+    /**
+     * 【名乗り帯に対してプレイヤーと左右対称な登場位置】。
+     * 短冊は常に画面中心(SCREEN_WIDTH*0.5=ワールド換算 scrollX+CANVAS_WIDTH/2)に出るので、
+     * ボスの中心を「中心 +(中心 - プレイヤー中心)」に置けば左右対称になる。
+     * 既定の 0.8 固定だと、プレイヤーがどこで足を止めたかで非対称になる
+     * (実測: 帯の中心からプレイヤー271px / ボス515px)。
+     * 近すぎ・画面外は MIN_HALF_GAP と右端で抑える。
+     */
+    getBossSymmetricEntranceTargetX(boss, scrollX, player) {
+        const bw = typeof boss?.getWorldWidth === 'function' ? boss.getWorldWidth() : (boss?.width || 140);
+        const fallback = scrollX + CANVAS_WIDTH * this.bossEntranceTargetRatio;
+        if (!player) return fallback;
+        const pw = typeof player.getWorldWidth === 'function' ? player.getWorldWidth() : (player.width || 48);
+        const bannerCenter = scrollX + CANVAS_WIDTH * 0.5;
+        const playerCenter = player.x + pw * 0.5;
+        const mirrored = bannerCenter + (bannerCenter - playerCenter);
+        const minCenter = bannerCenter + BOSS_ENTRANCE_MIN_HALF_GAP_PX;
+        const maxCenter = scrollX + CANVAS_WIDTH - bw * 0.5 - 24;
+        if (maxCenter <= minCenter) return fallback;
+        return Math.max(minCenter, Math.min(mirrored, maxCenter)) - bw * 0.5;
     }
 
     /**
@@ -2415,7 +2440,7 @@ export class Stage {
             const scrollX = (window.game && window.game.scrollX) || 0;
             const targetX = this.isStage6Arena()
                 ? this.getStage6BossEntranceTargetX(this.boss, scrollX)
-                : scrollX + CANVAS_WIDTH * this.bossEntranceTargetRatio;
+                : this.getBossSymmetricEntranceTargetX(this.boss, scrollX, player);
             this.boss.entranceTargetX = targetX;
             this.constrainStage6ArenaActor(this.boss, true);
 
@@ -3132,7 +3157,11 @@ export class Stage {
         this.boss.isEntering = true;
         this.boss.entranceTargetX = this.isStage6Arena()
             ? this.getStage6BossEntranceTargetX(this.boss, scrollX)
-            : scrollX + CANVAS_WIDTH * this.bossEntranceTargetRatio; // 着地目標X
+            // 着地目標X。名乗り帯に対してプレイヤーと左右対称な位置(毎フレーム
+            // updateBossFight 側でも追従させるので、ここは初期値)。
+            : this.getBossSymmetricEntranceTargetX(
+                this.boss, scrollX, (window.game && window.game.player) || null
+            );
         this.boss.entranceSpeed = 900; // 高速ダッシュ登場
         if (standby && Number.isFinite(perchY)) {
             this.boss.x = perchX;
@@ -3336,30 +3365,29 @@ export class Stage {
 
         const dtMs = deltaTime * 1000;
         const dtScale = deltaTime * 60;
-        
-        // ボス戦中は木の葉の舞いを激しくする（殺気の演出）
+
+        // 【ボス部屋では葉を降らせない】。ボス部屋は竹林を抜けた場面で、竹は画面左端に
+        // わずかしか残っていない(実測: 樹列は画面x=260まで)。地面に落葉が積もっていない
+        // 場所で葉が降り続けるのは絵として噛み合わないため、湧きを止める。
+        // 既に落ちている葉は自然に着地・消滅させる(一斉に消すとパチッと切れる)。
         const bossActive = this.bossSpawned && !this.bossDefeated;
-        const spawnMultiplier = bossActive ? 4.5 : 1.0;
-        
-        this.updateBambooFallingLeaves(dtMs, dtScale, spawnMultiplier, progressDelta);
+
+        this.updateBambooFallingLeaves(dtMs, dtScale, progressDelta, !bossActive);
     }
 
-    updateBambooFallingLeaves(dtMs, dtScale, spawnMultiplier = 1.0, progressDelta = 0) {
+    updateBambooFallingLeaves(dtMs, dtScale, progressDelta = 0, allowSpawn = true) {
         const bambooEdgeScreenX = this.getStage1BambooTreeLineX() - this.progress;
         const spawnXMax = Math.min(CANVAS_WIDTH + 60, bambooEdgeScreenX + 40);
         const visibleForestWidth = Math.max(0, Math.min(CANVAS_WIDTH + 120, spawnXMax + 60));
         const forestCoverage = visibleForestWidth / (CANVAS_WIDTH + 120);
-        // 【ボス戦の激化が効く占有率まで下げる】。ボス部屋は竹林の切れ目に置いてあり、
-        // 実測の森の占有率は0.26しかない。旧値 smoothstep(0.45, 1, ...) では0を返すので
-        // 「ボス戦中は木の葉の舞いを激しくする(殺気の演出)」の4.5倍が全く効いていなかった。
-        const bossDensityBlend = this.smoothstep(0.12, 0.5, forestCoverage);
-        const effectiveMultiplier = 1 + (spawnMultiplier - 1) * bossDensityBlend;
-        const maxLeaves = Math.floor(14 * effectiveMultiplier * forestCoverage);
-        const spawnInterval = 460 / (effectiveMultiplier * Math.max(0.12, forestCoverage));
+        const maxLeaves = Math.floor(14 * forestCoverage);
+        const spawnInterval = 460 / Math.max(0.12, forestCoverage);
         this.bambooLeafSpawnTimer += dtMs;
 
         let fallingCount = this.bambooFallingLeaves.filter(l => l.state === 'falling').length;
-        let excessFallingLeaves = Math.max(0, fallingCount - maxLeaves);
+        // 上限超過の間引きは湧きが動いている時だけ。ボス部屋(allowSpawn=false)でここを
+        // 通すと maxLeaves=0 相当で落下中の葉が一斉に消える。
+        let excessFallingLeaves = allowSpawn ? Math.max(0, fallingCount - maxLeaves) : 0;
         for (let i = this.bambooFallingLeaves.length - 1; i >= 0 && excessFallingLeaves > 0; i--) {
             if (this.bambooFallingLeaves[i].state !== 'falling') continue;
             this.bambooFallingLeaves.splice(i, 1);
@@ -3367,7 +3395,7 @@ export class Stage {
             excessFallingLeaves--;
         }
 
-        while (this.bambooLeafSpawnTimer >= spawnInterval) {
+        while (allowSpawn && this.bambooLeafSpawnTimer >= spawnInterval) {
             this.bambooLeafSpawnTimer -= spawnInterval;
             if (spawnXMax <= -40 || maxLeaves <= 0) {
                 this.bambooLeafSpawnTimer = 0;
@@ -4146,6 +4174,45 @@ export class Stage {
         return fallbackAspect[type] || 1;
     }
 
+    /**
+     * 地面の後に描く道沿いの添景。game.js のレイヤー2(地面)の直後から呼ぶ。
+     * 影より奥＝床に置いた物として、役者より後ろに立つ。
+     */
+    renderStage3RoadsideOnGround(ctx) {
+        if (this.stageNumber !== 3) return;
+        this.renderStage3RoadsideProps(ctx);
+        this.renderStage3RoadsideClusters(ctx);
+    }
+
+    /**
+     * 添景の接地影。床帯(480..720)は俯瞰なので、足元に潰した楕円を敷くと
+     * 「床に植わっている」ように読める。影が無いと、足元が地平線に接していても
+     * 手前に広がる床帯のせいで貼り付いた絵に見える(浮きの正体)。
+     */
+    drawStage3PropContactShadow(ctx, centerX, footY, width) {
+        const rx = Math.max(14, width * 0.52);
+        const ry = Math.max(4, rx * 0.22);
+        const shade = ctx.createRadialGradient(centerX, footY, 0, centerX, footY, rx);
+        shade.addColorStop(0, 'rgba(18, 12, 10, 0.42)');
+        shade.addColorStop(0.62, 'rgba(18, 12, 10, 0.17)');
+        shade.addColorStop(1, 'rgba(18, 12, 10, 0)');
+        ctx.save();
+        ctx.translate(centerX, footY);
+        ctx.scale(1, ry / rx);
+        ctx.translate(-centerX, -footY);
+        ctx.fillStyle = shade;
+        ctx.beginPath();
+        ctx.arc(centerX, footY, rx, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    /**
+     * 道沿いの添景。【地面レイヤーより後に描く】。
+     * 背景の switch の中(地面より前)に置いていた頃は、足元を床線(512)へ下げると
+     * 下35pxが地面に覆われて足を切られるため、地平線(480)に貼り付けるしかなかった。
+     * 床の上に出したので足元線に立たせ、接地影を敷いて植わって見せる。
+     */
     renderStage3RoadsideProps(ctx) {
         const images = this.stage3PropImages;
         if (!images) return;
@@ -4160,9 +4227,11 @@ export class Stage {
             const x = prop.worldX - this.progress;
             if (x + width < -80 || x > CANVAS_WIDTH + 80) continue;
 
-            const y = this.groundY - prop.height + prop.y;
+            const footY = this.groundY + LANE_OFFSET + prop.y;
+            const y = footY - prop.height;
             ctx.save();
             ctx.globalAlpha *= prop.alpha;
+            this.drawStage3PropContactShadow(ctx, x + width * 0.5, footY - 2, width);
             ctx.filter = 'brightness(0.66) sepia(0.22) saturate(0.68) contrast(0.86) hue-rotate(-6deg)';
             ctx.drawImage(image, x, y, width, prop.height);
             ctx.filter = 'none';
@@ -4218,10 +4287,12 @@ export class Stage {
             if (overlapsOccupied(occupiedLeft, occupiedRight)) continue;
             occupiedRanges.push({ left: occupiedLeft, right: occupiedRight });
 
+            const footY = this.groundY + LANE_OFFSET + 4;
             ctx.save();
             ctx.globalAlpha *= item.alpha;
+            this.drawStage3PropContactShadow(ctx, drawX + width * 0.5, footY - 2, width);
             ctx.filter = 'brightness(0.62) sepia(0.22) saturate(0.68) contrast(0.88) hue-rotate(-6deg)';
-            ctx.drawImage(image, drawX, this.groundY - height + 4, width, height);
+            ctx.drawImage(image, drawX, footY - height, width, height);
             ctx.filter = 'none';
             ctx.restore();
         }
@@ -5103,9 +5174,9 @@ export class Stage {
 
             case 'mountain': {
                 // 遠方の山並みは背景として残し、道沿いの旧Canvas小物は生成画像へ寄せる。
+                // 【添景はここでは描かない】。地面より前に描くと足元が地面に覆われるため、
+                // renderStage3RoadsideOnGround として地面の後(game.js)へ移した。
                 this.renderStage3DistantMountainBands(ctx, currentPalette, p);
-                this.renderStage3RoadsideProps(ctx);
-                this.renderStage3RoadsideClusters(ctx);
                 break;
             }
                 
@@ -6160,9 +6231,10 @@ export class Stage {
                     const span = CANVAS_WIDTH + 720;
                     const x = ((seed * 171 + pMod * 330) % span) - 360;
                     const y = 92 + i * 86 + Math.sin(pMod * 0.7 + seed) * 28;
-                    // 竹葉を落葉システムへ寄せたぶん、風の帯だけで「殺気の空気」を持たせる。
-                    // 旧値(0.045+i*0.008)は画素差分の実測でΔ5.3=知覚しきい値の下だった。
-                    const alpha = (0.10 + i * 0.016) * blend;
+                    // 【濃くしない】。これは空に引いた5本の曲線で、濃くすると
+                    // stage2の陽炎3本と同じ「線が数本あるだけ」の見え方になる。
+                    // 空気の締めは遠景の沈み込みと足元スポットに任せる。
+                    const alpha = (0.045 + i * 0.008) * blend;
                     const ribbon = ctx.createLinearGradient(x, y, x + 390, y + 65);
                     ribbon.addColorStop(0, 'rgba(190, 224, 202, 0)');
                     ribbon.addColorStop(0.48, `rgba(190, 224, 202, ${alpha})`);
@@ -6181,22 +6253,45 @@ export class Stage {
                 // ボス戦の「殺気で激しくなる」もそちら側で効かせる。
                 break;
             }
-            case 2: { // 街道: 地を這う薄い砂煙と熱の揺らぎ
+            case 2: { // 街道: 足元を流れる土煙
+                // 【作り直し】旧実装は2点で読めなかった。
+                //  (a) 陽炎を1px幅のベジェ曲線3本で描いていたため「線が3本あるだけ」に見えた
+                //  (b) 砂煙の基準が地平線(groundY=480)で、役者の足元線(groundY+LANE_OFFSET=512)
+                //      より上に浮いていたので「足元の土」に見えず、宙の霞になっていた
+                // 曲線は撤去し、足元線に寄せた土の帯＋その上を流れる塊に置き換える。
                 ctx.globalCompositeOperation = 'source-over';
-                for (let i = 0; i < 9; i++) {
+                const laneY2 = this.groundY + LANE_OFFSET;
+                // 【色は砂ではなく“光を受けた土埃”】。砂色(198,176,138)を砂の地面に
+                // 重ねても明度差が出ず、実測Δ5.4=見えないままだった(stage1の緑の葉と同じ失敗)。
+                // 舞い上がった埃は日を受けて白く光るので、淡い白で明度を上げる。
+                // 【さらに“動き”で読ませる】。淡い色は輪郭と速度でしか目に留まらない。
+                // 旧実装の横流れは46〜85px/秒しかなく、面が静止画のように貼り付いて
+                // 背景の一部に見えていた(桜は60〜138px/秒＋Δ41で読める)。
+                // 塊を小さく締めて芯を作り、210〜390px/秒で流す。
+                // 静止した帯は薄く敷くだけにして、地面のコントラストを潰さない。
+                const band = ctx.createLinearGradient(0, laneY2 + 10, 0, laneY2 - 60);
+                band.addColorStop(0, `rgba(252, 244, 226, ${(0.070 * blend).toFixed(3)})`);
+                band.addColorStop(0.45, `rgba(248, 238, 218, ${(0.038 * blend).toFixed(3)})`);
+                band.addColorStop(1, 'rgba(245, 234, 212, 0)');
+                ctx.fillStyle = band;
+                ctx.fillRect(0, laneY2 - 60, CANVAS_WIDTH, 70);
+                for (let i = 0; i < 18; i++) {
                     const seed = i * 31.19;
-                    const x = ((seed * 83 - pMod * (42 + i * 2)) % (CANVAS_WIDTH + 260) + CANVAS_WIDTH + 260) % (CANVAS_WIDTH + 260) - 130;
-                    const lift = (pMod * 18 + seed * 7) % 88;
-                    const y = this.groundY + 12 - lift;
-                    const rx = 34 + (i % 4) * 14;
-                    // 旧値(0.065+)はΔ4.5で実質見えていなかった(画素差分の実測)
-                    const a = (0.115 + (i % 3) * 0.030) * blend * (1 - lift / 100);
+                    const span = CANVAS_WIDTH + 360;
+                    const speed = 210 + (i % 6) * 36;
+                    const x = ((seed * 83 - pMod * speed) % span + span) % span - 180;
+                    const lift = (pMod * 26 + seed * 11) % 56;
+                    const y = laneY2 + 4 - lift + Math.sin(pMod * 2.2 + seed) * 3;
+                    const rx = 26 + (i % 4) * 13;
+                    const a = (0.30 + (i % 3) * 0.06) * blend * (1 - lift / 72);
+                    if (a <= 0.004) continue;
                     const dust = ctx.createRadialGradient(x, y, 0, x, y, rx);
-                    dust.addColorStop(0, `rgba(196, 178, 145, ${a})`);
-                    dust.addColorStop(1, 'rgba(170, 150, 118, 0)');
+                    dust.addColorStop(0, `rgba(255, 250, 236, ${a.toFixed(3)})`);
+                    dust.addColorStop(0.42, `rgba(252, 244, 226, ${(a * 0.62).toFixed(3)})`);
+                    dust.addColorStop(1, 'rgba(240, 228, 205, 0)');
                     ctx.save();
                     ctx.translate(x, y);
-                    ctx.scale(1, 0.28);
+                    ctx.scale(1, 0.42);
                     ctx.translate(-x, -y);
                     ctx.fillStyle = dust;
                     ctx.beginPath();
@@ -6204,47 +6299,50 @@ export class Stage {
                     ctx.fill();
                     ctx.restore();
                 }
-                ctx.strokeStyle = `rgba(235, 224, 199, ${(0.13 * blend).toFixed(3)})`;
-                ctx.lineWidth = 1;
-                for (let i = 0; i < 3; i++) {
-                    const y = this.groundY - 28 - i * 22;
-                    const wave = Math.sin(pMod * 1.15 + i) * 11;
+                // 【明るい砂の上では白も同値になる】。上の白い埃は暗い背景(岩・石垣・草)に
+                // 重なった部分でしか読めていなかった(砂の上では実測でほぼΔ0)。
+                // 明度がどちらに転んでも立つのは暗→明のコントラストなので、
+                // 街道に舞う枯れ草(暗褐色の細片)を主役として足す。
+                // 形は短い弧、速度は270〜438px/秒、転がりの回転つき。
+                for (let i = 0; i < 16; i++) {
+                    const seed = i * 12.37;
+                    const span = CANVAS_WIDTH + 240;
+                    const speed = 270 + (i % 5) * 42;
+                    const x = ((seed * 137 - pMod * speed) % span + span) % span - 120;
+                    const y = laneY2 - 6 - ((seed * 29) % 58) + Math.sin(pMod * 3.1 + seed) * 9;
+                    const len = 7 + (i % 4) * 3;
+                    const a = (0.42 + (i % 3) * 0.10) * blend;
+                    ctx.save();
+                    ctx.translate(x, y);
+                    ctx.rotate(Math.sin(pMod * 2.4 + seed) * 0.9 - 0.25);
+                    ctx.strokeStyle = `rgba(74, 56, 34, ${a.toFixed(3)})`;
+                    ctx.lineWidth = 1.6;
                     ctx.beginPath();
-                    ctx.moveTo(120, y);
-                    ctx.bezierCurveTo(360, y + wave, 780, y - wave, CANVAS_WIDTH - 100, y + wave * 0.4);
+                    ctx.moveTo(-len * 0.5, 0);
+                    ctx.quadraticCurveTo(0, -len * 0.28, len * 0.5, 0);
                     ctx.stroke();
+                    ctx.restore();
                 }
                 break;
             }
-            case 3: { // 山道: 谷からほどける霊霧と細い薄明光
+            case 3: { // 山道: 谷からほどける霊霧
+                // 【薄明光(光の筋2枚)は撤去】。夕暮れの山道で光源が画面内に無く、
+                // 幅54pxの四角形が右下へ傾いているため「半透明の板が2枚降ってくる」
+                // ようにしか読めなかった。霧だけに絞り、足元線から立ち上げる。
                 ctx.globalCompositeOperation = 'screen';
-                const beamCount = 2;
-                for (let i = 0; i < beamCount; i++) {
-                    const bSeed = i * 2.3;
-                    const bx = CANVAS_WIDTH * (0.28 + i * 0.36 + Math.sin(pMod * 0.22 + bSeed) * 0.025);
-                    const bw = 54 + Math.sin(pMod * 0.6 + bSeed) * 12;
-                    const alpha = 0.07 * blend * (0.82 + Math.sin(pMod * 0.9 + bSeed) * 0.18);
-                    const grad = ctx.createLinearGradient(bx, 0, bx + 120, this.groundY);
-                    grad.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
-                    grad.addColorStop(1, `rgba(255, 255, 255, 0)`);
-                    ctx.fillStyle = grad;
-                    ctx.beginPath();
-                    ctx.moveTo(bx, -80);
-                    ctx.lineTo(bx + bw, -80);
-                    ctx.lineTo(bx + bw + 200, this.groundY + 50);
-                    ctx.lineTo(bx + 200, this.groundY + 50);
-                    ctx.fill();
-                }
-                for (let i = 0; i < 7; i++) {
+                const laneY3 = this.groundY + LANE_OFFSET;
+                for (let i = 0; i < 8; i++) {
                     const seed = i * 15.7;
-                    const y = this.groundY + 20 - i * 23 + Math.sin(pMod * 0.38 + seed) * 12;
+                    const y = laneY3 - 6 - i * 26 + Math.sin(pMod * 0.38 + seed) * 12;
                     const fog = ctx.createLinearGradient(0, y, CANVAS_WIDTH, y);
+                    const near = (0.075 - i * 0.005) * blend;
+                    const far = (0.105 - i * 0.007) * blend;
                     fog.addColorStop(0, 'rgba(238, 244, 249, 0)');
-                    fog.addColorStop(0.3, `rgba(238, 244, 249, ${(0.045 * blend).toFixed(3)})`);
-                    fog.addColorStop(0.7, `rgba(238, 244, 249, ${(0.065 * blend).toFixed(3)})`);
+                    fog.addColorStop(0.3, `rgba(238, 244, 249, ${Math.max(0, near).toFixed(3)})`);
+                    fog.addColorStop(0.7, `rgba(238, 244, 249, ${Math.max(0, far).toFixed(3)})`);
                     fog.addColorStop(1, 'rgba(238, 244, 249, 0)');
                     ctx.strokeStyle = fog;
-                    ctx.lineWidth = 8 + i * 1.8;
+                    ctx.lineWidth = 10 + i * 2.2;
                     ctx.beginPath();
                     ctx.moveTo(-80, y);
                     ctx.bezierCurveTo(250, y - 22, 590, y + 28, CANVAS_WIDTH + 80, y - 6);
@@ -6252,29 +6350,42 @@ export class Stage {
                 }
                 break;
             }
-            case 4: { // 城下町: 芯と残光を持つ火の粉
+            case 4: { // 城下町: 足元から立ち上る火の粉
                 ctx.globalCompositeOperation = 'screen';
-                const glow = this.cachedAssets.starGlow;
-                for (let i = 0; i < 28; i++) {
+                // 【作り直し】旧実装は白いグロー(starGlow)＋淡黄の芯が画面全体を
+                // 右下→左上へ等速で流れるだけで、寿命も上昇の感じも無かったため
+                // 「綿毛が飛んでいく」ように見えていた。
+                // 火の粉として読ませる3点: 橙の芯、ほぼ真上への上昇、寿命で消える。
+                const laneY4 = this.groundY + LANE_OFFSET;
+                const EMBER_RISE = 340;
+                for (let i = 0; i < 24; i++) {
                     const seed = i * 17.3;
-                    const x = ((seed * 87 - pMod * 92 + Math.sin(pMod * 1.5 + seed) * 24) % (CANVAS_WIDTH + 160) + CANVAS_WIDTH + 160) % (CANVAS_WIDTH + 160) - 80;
-                    const y = ((seed * 143 - pMod * (52 + i % 4 * 8)) % (CANVAS_HEIGHT + 90) + CANVAS_HEIGHT + 90) % (CANVAS_HEIGHT + 90) - 40;
-                    const twinkle = 0.45 + Math.sin(pMod * 6 + seed) * 0.28;
-                    const d = 9 + (i % 4) * 2;
-                    ctx.strokeStyle = `rgba(255, 166, 73, ${(0.28 * blend * twinkle).toFixed(3)})`;
-                    ctx.lineWidth = 1;
+                    // 0=足元で生まれた瞬間 / 1=上空で消える
+                    const lifeT = ((pMod * (0.15 + (i % 5) * 0.022) + seed * 0.137) % 1 + 1) % 1;
+                    const x = ((seed * 87) % (CANVAS_WIDTH + 120)) - 60
+                        + Math.sin(pMod * 1.15 + seed) * 15
+                        - lifeT * 24; // 上るほど僅かに流される
+                    const y = laneY4 + 8 - lifeT * EMBER_RISE;
+                    // 立ち上がりは速く、上空でゆっくり燃え尽きる
+                    const fade = Math.min(1, lifeT * 9) * Math.pow(1 - lifeT, 1.5);
+                    const twinkle = 0.72 + Math.sin(pMod * 7.5 + seed) * 0.28;
+                    const a = fade * twinkle * blend;
+                    if (a <= 0.012) continue;
+                    const d = 9 + (i % 4) * 3;
+                    const halo = ctx.createRadialGradient(x, y, 0, x, y, d);
+                    halo.addColorStop(0, `rgba(255, 158, 68, ${(a * 0.55).toFixed(3)})`);
+                    halo.addColorStop(1, 'rgba(255, 116, 38, 0)');
+                    ctx.fillStyle = halo;
                     ctx.beginPath();
-                    ctx.moveTo(x, y + 2);
-                    ctx.quadraticCurveTo(x + 4, y + 11, x + 1, y + 20);
-                    ctx.stroke();
-                    if (glow) {
-                        ctx.globalAlpha = 0.46 * blend * twinkle;
-                        ctx.drawImage(glow, x - d * 0.5, y - d * 0.5, d, d);
-                    }
-                    ctx.globalAlpha = 1;
-                    ctx.fillStyle = `rgba(255, 214, 149, ${(0.84 * blend * twinkle).toFixed(3)})`;
+                    ctx.arc(x, y, d, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = `rgba(255, 152, 58, ${(a * 0.95).toFixed(3)})`;
                     ctx.beginPath();
-                    ctx.arc(x, y, 0.8 + (i % 3) * 0.35, 0, Math.PI * 2);
+                    ctx.arc(x, y, 1.2 + (i % 3) * 0.45, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = `rgba(255, 228, 182, ${(a * 0.75).toFixed(3)})`;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 0.6, 0, Math.PI * 2);
                     ctx.fill();
                 }
                 break;

@@ -2,9 +2,9 @@
 // Unification of the Nation - メインエントリーポイント
 // ============================================
 
-import { game } from './game.js?v=fx-parity-pass-20260804c';
+import { game } from './game.js?v=boss-intro-clone-standdown-20260804a';
 import { preloadCinematicBgImages } from './ui.js?v=outcome-harmony-20260727a';
-import { getDeviceProfile } from './constants.js?v=stage6-arena-flow-20260803k';
+import { getDeviceProfile } from './constants.js?v=aspect-drift-fix-20260804e';
 
 // ============================================
 // 音の設定ゲート

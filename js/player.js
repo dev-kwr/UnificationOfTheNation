@@ -21,9 +21,9 @@ import {
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
 } from './normalComboMotion.js?v=oonagi-step3-dash-20260702n';
-import { applyRendererMixin }    from './playerRenderer.js?v=stage6-kusarigama-grapple-20260728a';
-import { applySlashTrailMixin }  from './playerSlashTrail.js?v=boss-hitfeel-20260726i';
-import { applySpecialMixin }     from './playerSpecial.js?v=stage6-arena-polish-20260803g';
+import { applyRendererMixin }    from './playerRenderer.js?v=boss-intro-clone-standdown-20260804a';
+import { applySlashTrailMixin }  from './playerSlashTrail.js?v=boss-intro-clone-standdown-20260804a';
+import { applySpecialMixin }     from './playerSpecial.js?v=boss-intro-clone-standdown-20260804a';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,

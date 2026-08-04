@@ -2,6 +2,8 @@
 // Unification of the Nation - 定数定義
 // ============================================
 
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=aspect-drift-fix-20260804e';
+
 // キャンバスサイズ
 // CANVAS_WIDTH = 可視ワールド幅（ゲームプレイ窓）。世界ロジック(カメラ/クランプ/
 // アリーナ/カリング/スポーン)は必ずこちらを参照する。恒久に1280固定。
@@ -28,13 +30,11 @@ export let SCREEN_WIDTH = CANVAS_WIDTH;
         if (wideFlag === '0') return; // キルスイッチ: 従来の1280固定へ退避
         const p = getDeviceProfile();
         if (!p.isTouchDevice && !p.isMobileUA) return; // 非タッチPCは1280固定
-        // screen 基準（物理・回転不変）。visualViewport/innerサイズは Safari のURLバー等で
-        // 縦が痩せてアスペクトを誤認するためフォールバック限定。
-        const sw = (window.screen && window.screen.width) || window.innerWidth || 0;
-        const sh = (window.screen && window.screen.height) || window.innerHeight || 0;
-        if (!(sw > 0 && sh > 0)) return;
-        const aspect = Math.max(sw, sh) / Math.min(sw, sh); // 横長比（縦持ち起動でも同値）
-        SCREEN_WIDTH = Math.max(CANVAS_WIDTH, Math.min(1600, Math.round((CANVAS_HEIGHT * aspect) / 2) * 2));
+        // 算出式は screenGeometry.js に集約（game.js の再読み込み案内が同じ式で
+        // 「再計算しても値が変わるか」を判定するため）。
+        const s = readPhysicalScreen();
+        if (!s) return;
+        SCREEN_WIDTH = computeScreenWidth(s, CANVAS_WIDTH, CANVAS_HEIGHT);
     } catch { /* 失敗時は1280のまま（安全側） */ }
 })();
 

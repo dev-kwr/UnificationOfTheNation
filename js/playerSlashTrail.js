@@ -2304,7 +2304,14 @@ export function applySlashTrailMixin(PlayerClass) {
             const minRiseVy = (-16.2 + riseLockT * 13.5) * z4HeightScale;
             simVy = Math.min(simVy, minRiseVy);
             simX += simVx * bodyMotionScale;
-            simY += simVy * bodyMotionScale;
+            // 【縦の上昇には速度正規化を掛けない】。bodyMotionScale = PLAYER.SPEED/speed は
+            // 「速度に比例する踏み込み(impulse)」をベース系へ戻すための係数。天穿の上昇は
+            // 速度に依存しない固定初速(-18.6×z4HeightScale)なので掛けると足の速い持ち主ほど
+            // 縦が縮む。ラスボス将軍(speed=10 → 0.6倍)は上昇量が実測 -164px と本来の -274px の
+            // 6割まで潰れ、剣筋が切先の半分の高さで止まっていた。
+            // 投影(_projectShogunTrailPoseToWorldScale)は endDeltaY を【等倍で足し戻す】契約
+            // なので、ここはワールドの実上昇量をそのまま入れるのが正しい。
+            simY += simVy;
             timerMs = Math.max(0, timerMs - frameMs);
         }
         while (sampleIndex < sampleTargets.length) {

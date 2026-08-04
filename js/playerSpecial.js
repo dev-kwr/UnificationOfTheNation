@@ -293,6 +293,17 @@ export function applySpecialMixin(PlayerClass) {
             }
         }
 
+        this.updateSpecialSmoke(deltaTime);
+    };
+
+    /**
+     * 分身の出現/消失煙の老化。updateSpecial から切り出してあるのは、
+     * 【player.update が走らない演出中にも進めたい】ため(鎖鎌登攀など)。
+     * 呼ばれないと煙がその場で凍り、演出が明けてから動き出す。
+     */
+    PlayerClass.prototype.updateSpecialSmoke = function(deltaTime) {
+        if (!Array.isArray(this.specialSmoke) || this.specialSmoke.length === 0) return;
+        const deltaMs = deltaTime * 1000;
         for (const puff of this.specialSmoke) {
             puff.life -= deltaMs;
             const lifeRatio = Math.max(0, Math.min(1, puff.life / Math.max(1, puff.maxLife)));
@@ -960,12 +971,18 @@ export function applySpecialMixin(PlayerClass) {
         const scrollVxPerFrame = (deltaTime > 0) ? scrollDeltaPx / (deltaTime * 60) : 0;
         this._prevScrollX = scrollX;
         
-        const enemies = stage
+        // 【会戦前は分身も手出し無用】。ボスの登場演出(降下〜名乗り〜開戦)と
+        // stage6の会敵歩行の間は本体の抜刀を封じている(attackInputLockTimer)が、
+        // Lv3の自立分身はその封じを通らないため、名乗りの最中に将軍へ走って
+        // 斬りかかっていた。本体が抜けない間は分身も的を持たない。
+        const stagingLocked = (this.attackInputLockTimer || 0) > 0;
+
+        const enemies = (stage && !stagingLocked)
             ? stage.getAllEnemies().filter(e => {
                 if (!e.isAlive || e.isDying) return false;
                 const ex = e.x + e.width / 2;
                 return ex >= scrollX - 50 && ex <= scrollX + screenWidth + 50;
-            }) 
+            })
             : [];
             
         const anchors = this.calculateSpecialCloneAnchors(this.getWorldCenterX(), this.getSpecialCloneAnchorY());
@@ -987,7 +1004,11 @@ export function applySpecialMixin(PlayerClass) {
 
             let target = this.specialCloneTargets[i];
 
-            if (!target || !target.isAlive || target.isDying) {
+            if (stagingLocked) {
+                // 既に追っていた的も即座に手放して持ち場へ戻す
+                target = null;
+                this.specialCloneTargets[i] = null;
+            } else if (!target || !target.isAlive || target.isDying) {
                 target = this.findNearestEnemy(pos.x, pos.y, enemies, 500);
                 this.specialCloneTargets[i] = target;
             }
@@ -1601,8 +1622,11 @@ export function applySpecialMixin(PlayerClass) {
                 const angle = (Math.PI * 2 * index) / puffCount + Math.random() * 0.48;
                 const speed = isAppear ? (0.58 + Math.random() * 0.86) : (0.62 + Math.random() * 1.2);
                 const maxLife = lifeBase + Math.random() * 180;
-                const spreadX = isAppear ? (10 + Math.random() * 18) : (6 + Math.random() * 12);
-                const spreadY = isAppear ? (10 + Math.random() * 20) : (4 + Math.random() * 10);
+                // 【煙の寸法は出入りで揃える】。消失側だけ半径・湧き広がりを小さくしていたため、
+                // 将軍(巨躯)の分身が解けるときに煙が体に負けて「消えたことが見えない」。
+                // 寸法(半径/広がり)だけ登場と共通化し、寿命・数・色味・漂い速度はモード差を残す。
+                const spreadX = 10 + Math.random() * 18;
+                const spreadY = 10 + Math.random() * 20;
                 this.specialSmoke.push({
                     x: anchor.x + Math.cos(angle) * spreadX,
                     y: anchor.y + Math.sin(angle) * spreadY,
@@ -1610,7 +1634,7 @@ export function applySpecialMixin(PlayerClass) {
                     vy: Math.sin(angle) * speed - 0.3,
                     life: maxLife,
                     maxLife,
-                    radius: isAppear ? (12 + Math.random() * 14) : (7 + Math.random() * 10),
+                    radius: 12 + Math.random() * 14,
                     mode,
                     rot: Math.random() * Math.PI * 2,
                     spin: (Math.random() - 0.5) * 0.085,

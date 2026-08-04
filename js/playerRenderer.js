@@ -1062,7 +1062,14 @@ export function applyRendererMixin(PlayerClass) {
 
         // ── 分身 ── 素体フレーム(40x60, keepActorHeight)で描く。
         // height=60のまま renderSpecial に渡し、分身の renderModel ピボットも同じ基準にする。
-        if (typeof this.isSpecialCloneCombatActive === 'function' && this.isSpecialCloneCombatActive()) {
+        // 【分身が消えた後もドロン煙が残っている間は通す】。分身の生存だけを条件に
+        // していた頃は、最後の1体が消えた瞬間や忍術を解いた瞬間の煙が将軍だけ
+        // 出ていなかった(忍者側は game.js の combat layer が煙単独でも描いている)。
+        // renderSpecial は分身が居なければ煙のループだけを回すので、渡して問題ない。
+        const cloneLayerActive = typeof this.isSpecialCloneCombatActive === 'function'
+            && this.isSpecialCloneCombatActive();
+        const specialSmokeLingering = Array.isArray(this.specialSmoke) && this.specialSmoke.length > 0;
+        if (cloneLayerActive || specialSmokeLingering) {
             this.width = SHOGUN_ACTOR_BASE_WIDTH;
             this.height = SHOGUN_ACTOR_BASE_HEIGHT;  // 60
             try {
@@ -6423,7 +6430,9 @@ export function applyRendererMixin(PlayerClass) {
             renderScaled(puff.x, puff.y, () => {
                 const life = Math.max(0, Math.min(1, puff.life / puff.maxLife));
                 const bloom = 1 - life;
-                const radius = puff.radius * (puff.mode === 'appear' ? (0.78 + bloom * 1.05) : (0.66 + bloom * 0.88));
+                // 膨らみ方も出入りで共通(spawnSpecialSmoke の半径共通化と対)。
+                // 消失側だけ 0.66+bloom*0.88 に絞っていた分も含めて登場と同寸にする。
+                const radius = puff.radius * (0.78 + bloom * 1.05);
                 const alpha = (puff.mode === 'appear' ? 0.62 : 0.36) * life;
                 const warm = puff.mode === 'appear';
                 
