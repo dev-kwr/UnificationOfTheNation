@@ -5,7 +5,7 @@
 import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=stage6-arena-flow-20260803k';
 import { BOSS_STAGING } from './bossStaging.js?v=stage6-boss-shachi-20260803i';
 import { createEnemy } from './enemy.js?v=stage6-arena-polish-20260803g';
-import { createBoss } from './boss.js?v=stage6-shared-platform-20260804w';
+import { createBoss } from './boss.js?v=shogun-jump-reach-20260804a';
 import { createObstacle } from './obstacle.js';
 import { audio } from './audio.js';
 import { generateStairsCanvas } from './stairRenderer.js';
@@ -75,6 +75,8 @@ const STAGE6_BOSS_DROP_COMBO_STEPS = 5; // 降りながら出す連撃の段数(
 // 戻ってから短冊を出す(会敵の絵が5撃目の途中になるのを防ぐ)。
 const STAGE6_BOSS_INTRO_IDLE_SETTLE_MS = 220;
 const STAGE6_BOSS_DROP_HOLD_MS = 540; // 飛び降りる前に鯱の上で見下ろす間
+// 桜/金粉が名乗りと同時に舞い出すまでの尺。名乗り(INTRO_NAME_MS)の前半で開き切る。
+const STAGE6_PETAL_FADE_IN_MS = 700;
 // 【登場の5連は寸止め】プレイヤーの右端からこの距離までしか踏み込ませない。
 // 大太刀の判定は boss.x の左235pxまで伸びる(4段目の天穿が最長・実測)。
 // 突進の最深部で実測50px食い込んでいたので、刃先が25px手前で止まる 260 にする。
@@ -206,6 +208,8 @@ export class Stage {
         this._bossBlendFadeMs = 0;
         this._bossBlendFadeFrom = 1;
         this.bossEncounterBlend = 0;
+        // 桜/金粉(天守閣)の立ち上がり。名乗りの瞬間から STAGE6_PETAL_FADE_IN_MS で開く。
+        this.bossPetalT = 0;
         this.bossEntranceFlash = 0;  // 着地の衝撃フラッシュ（黒。白は色を飛ばすので使わない）
         // 登場演出の4段構成: approach(接近) → impact(着地) → name(名乗り) → ready(開戦)
         // Stage6の将軍だけは最初から大屋根の右端に立っているため approach/impact を
@@ -1639,6 +1643,7 @@ export class Stage {
         // 曲の入りが画面の切り替わりと一致する。
         if (this.isStage6Arena()) {
             this.bossEncounterBlend = 0;
+            this.bossPetalT = 0;
             this.bossEntranceFlash = 0;
             if (!this.isBossBgmPlaying()) {
                 audio.playBgm('boss', this.stageNumber, 1000, 0);
@@ -2054,6 +2059,23 @@ export class Stage {
             this.bossEncounterBlend = 0;
             this._bossBlendFadeMs = 0;
         }
+
+        // 桜/金粉の立ち上がり。【名乗りの短冊が出る瞬間から】開く。
+        // 接近(approach)と着地(impact)の間は0のままで、name/ready/開戦後は1。
+        // 撃破後は bossIntroPhase が null=1 のままにして、退場は
+        // bossEncounterBlend 側の DEFEAT_BLEND_FADE_MS に任せる(二重フェード防止)。
+        const stagingBeforeName = this.bossIntroPhase === 'approach'
+            || this.bossIntroPhase === 'impact';
+        const petalTarget = (this.bossSpawned && !stagingBeforeName) ? 1 : 0;
+        const petalStep = (deltaTime * 1000) / STAGE6_PETAL_FADE_IN_MS;
+        // 目標に達したら止める。三項演算子で等値を減算側に落とすと
+        // 1.0と0.97を毎フレーム往復してα2%のちらつきになる(実測)。
+        if (this.bossPetalT < petalTarget) {
+            this.bossPetalT = Math.min(petalTarget, this.bossPetalT + petalStep);
+        } else if (this.bossPetalT > petalTarget) {
+            this.bossPetalT = Math.max(petalTarget, this.bossPetalT - petalStep);
+        }
+
         // ボス戦中〜撃破余韻中は専用更新
         if (this.bossSpawned && (!this.bossDefeated || this.bossDefeatLingerTimer > 0)) {
             this.updateBossFight(deltaTime, player);
@@ -6287,6 +6309,13 @@ export class Stage {
                 break;
             }
             case 6: { // 天守閣: 舞い散る桜と、朝日に舞う金粉
+                // 【桜と金粉は名乗りと同時に舞い出す】。bossEncounterBlend は
+                // bossIntroDuration(stage6は既定の1500ms・ボスが湧いた瞬間から)で開くため、
+                // 旧演出(右外からダッシュ約1秒)の尺のまま「会敵歩行中に満開」になっていた
+                // (実測: 湧いて750msで50%、1500msで100%、名乗りは2750ms)。
+                // 短冊が出る瞬間から立ち上がる専用のランプを掛ける。
+                blend *= this.smoothstep(0, 1, this.bossPetalT);
+                if (!(blend > 0)) break;
                 // 1. 桜。3層のパララックスで奥行きを作り、1枚ごとに裏返り(edge-on)を入れる。
                 //    形・グラデ・縁取りは initCache のスプライトに焼き込み済み。
                 //    旧実装(不透明なピンクの楕円を等倍で40枚)は「紙吹雪」に見えていた。

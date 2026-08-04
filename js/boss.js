@@ -1543,7 +1543,13 @@ function updateShogunBossPlayerAI(deltaTime, target) {
         return;
     }
     if (targetAboveBy > SHOGUN_VERTICAL_REACH_PX && this.isGrounded) {
-        if (targetAboveBy <= SHOGUN_JUMP_REACH_PX) {
+        // 【必要な上昇量は高さ差そのものではない】。跳んだ先で斬撃の縦リーチ
+        // (SHOGUN_VERTICAL_REACH_PX)まで詰めれば当たるので、差し引いた残りが
+        // 踏み切りで届くかを見る。旧条件(高さ差 <= 190)だと鯱の背びれ(尾)=大棟から
+        // 239px上に乗られた時に「届かない段」と誤判定し、投げに逃げていた
+        // (実測: 15秒で跳躍0・被弾0＝完全な安全地帯。実際は239-72=167pxの上昇で足りる)。
+        const riseNeeded = targetAboveBy - SHOGUN_VERTICAL_REACH_PX;
+        if (riseNeeded <= SHOGUN_JUMP_REACH_PX) {
             // 真下へ寄ってから踏み切る。横に離れたまま跳んでも届かない。
             if (absX > 190) {
                 this.applyDesiredVx(dirToTarget * this.speed * 1.26, 0.52);
