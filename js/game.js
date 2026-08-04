@@ -44,7 +44,7 @@ const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
 import { Player } from './player.js?v=stage6-kusarigama-grapple-20260728a';
 import { createSubWeapon } from './weapon.js?v=stage6-entry-ballistic-20260804c';
-import { Stage } from './stage.js?v=sakura-on-name-20260804b';
+import { Stage } from './stage.js?v=fx-parity-pass-20260804c';
 import { GRAPPLE_PHASE } from './stage6Grapple.js?v=stage6-roof-entry-20260802g';
 import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, renderBossNameBanner } from './ui.js?v=outcome-balance-20260727b';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js';
@@ -177,7 +177,6 @@ class Game {
         this.stageClearWeaponIndex = 0;
         this.returnToStageClearAfterShop = false;
         this.playerDefeatTimer = 0;
-        this.defeatRedFlashAlpha = 0;
         this.playerHurtFlashAlpha = 0; // 被弾時の赤ビネット（実ダメージ時のみ点灯・renderで減衰）
         this.playerDefeatDuration = 1800;
         this.titleDebugOpen = false;
@@ -6057,8 +6056,8 @@ class Game {
             // 破裂消滅フラグ
             this.player.burstVanished = true;
 
-            // 赤フラッシュ（敵撃破のホワイトフラッシュの代わり）
-            this.defeatRedFlashAlpha = 0.8;
+            // 旧 defeatRedFlashAlpha は削除。代入するだけで読み出しも減衰も無い残骸で、
+            // 死亡時の赤い染まりは render 側の defeatProgress(0→1で赤オーバーレイ)が担当している。
 
             const px = this.player.x + this.player.getWorldWidth() / 2;
             const py = this.player.y + this.player.getWorldHeight() / 2;

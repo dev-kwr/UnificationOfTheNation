@@ -245,12 +245,19 @@ export class Stage {
         };
         this.bambooFallingLeaves = [];
         this.bambooLeafSpawnTimer = 0;
+        // 場(遠景の沈み込み・足元スポット・星の退場)が開くまでの尺。ボスが湧いた瞬間から。
+        // stage6を明示しているのは、既定値へのフォールバックだと桜の時のように
+        // 「テーブルに無いせいで演出とズレる」事故に気付けないため。
+        // stage6は1500ms=金鯱から降りて着地(実測1283ms)する頃に場が完成する尺で、
+        // 降下の見せ場に足元スポットを当てるためにこの値を選んでいる(名乗り基準に伸ばすと
+        // 降下中のスポットが4割になり逆に弱くなる)。
         this.bossIntroDurationByStage = {
             1: 960,
             2: 1020,
             3: 1080,
             4: 1160,
-            5: 1240
+            5: 1240,
+            6: 1500
         };
         this.bossIntroDuration = this.bossIntroDurationByStage[this.stageNumber] || 1500;
         this.bossIntroTimer = 0;
@@ -3342,7 +3349,10 @@ export class Stage {
         const spawnXMax = Math.min(CANVAS_WIDTH + 60, bambooEdgeScreenX + 40);
         const visibleForestWidth = Math.max(0, Math.min(CANVAS_WIDTH + 120, spawnXMax + 60));
         const forestCoverage = visibleForestWidth / (CANVAS_WIDTH + 120);
-        const bossDensityBlend = this.smoothstep(0.45, 1, forestCoverage);
+        // 【ボス戦の激化が効く占有率まで下げる】。ボス部屋は竹林の切れ目に置いてあり、
+        // 実測の森の占有率は0.26しかない。旧値 smoothstep(0.45, 1, ...) では0を返すので
+        // 「ボス戦中は木の葉の舞いを激しくする(殺気の演出)」の4.5倍が全く効いていなかった。
+        const bossDensityBlend = this.smoothstep(0.12, 0.5, forestCoverage);
         const effectiveMultiplier = 1 + (spawnMultiplier - 1) * bossDensityBlend;
         const maxLeaves = Math.floor(14 * effectiveMultiplier * forestCoverage);
         const spawnInterval = 460 / (effectiveMultiplier * Math.max(0.12, forestCoverage));
@@ -6150,7 +6160,9 @@ export class Stage {
                     const span = CANVAS_WIDTH + 720;
                     const x = ((seed * 171 + pMod * 330) % span) - 360;
                     const y = 92 + i * 86 + Math.sin(pMod * 0.7 + seed) * 28;
-                    const alpha = (0.045 + i * 0.008) * blend;
+                    // 竹葉を落葉システムへ寄せたぶん、風の帯だけで「殺気の空気」を持たせる。
+                    // 旧値(0.045+i*0.008)は画素差分の実測でΔ5.3=知覚しきい値の下だった。
+                    const alpha = (0.10 + i * 0.016) * blend;
                     const ribbon = ctx.createLinearGradient(x, y, x + 390, y + 65);
                     ribbon.addColorStop(0, 'rgba(190, 224, 202, 0)');
                     ribbon.addColorStop(0.48, `rgba(190, 224, 202, ${alpha})`);
@@ -6162,25 +6174,11 @@ export class Stage {
                     ctx.bezierCurveTo(x + 105, y - 28, x + 254, y + 82, x + 390, y + 48);
                     ctx.stroke();
                 }
-                const leaves = this.cachedAssets.bambooLeaves;
-                if (leaves?.length) {
-                    for (let i = 0; i < 18; i++) {
-                        const seed = i * 23.73;
-                        const depth = 0.54 + (i % 3) * 0.24;
-                        const span = CANVAS_WIDTH + 180;
-                        const px = ((seed * 109 + pMod * (150 + depth * 120)) % span) - 90;
-                        const py = 45 + ((seed * 73 + pMod * 24) % Math.max(80, this.groundY - 70));
-                        const flip = 0.18 + Math.abs(Math.cos(pMod * 1.8 + seed)) * 0.82;
-                        const size = 13 + depth * 10;
-                        ctx.save();
-                        ctx.globalAlpha = (0.28 + depth * 0.22) * blend;
-                        ctx.translate(px, py);
-                        ctx.rotate(-0.24 + Math.sin(pMod + seed) * 0.42);
-                        ctx.scale(flip, 1);
-                        ctx.drawImage(leaves[i % leaves.length], -size * 0.5, -size * 0.5, size, size);
-                        ctx.restore();
-                    }
-                }
+                // 【竹葉はここでは描かない】。ボス部屋は竹林を抜けた場面で、竹は
+                // 画面左端(実測: 樹列は画面x=260まで)にしか残っていない。ここで画面座標に
+                // 18枚ばらまくと、竹が1本も無い右側の空から葉が降ってくる。
+                // 落葉は世界座標で竹の位置を知っている updateBambooFallingLeaves が担当し、
+                // ボス戦の「殺気で激しくなる」もそちら側で効かせる。
                 break;
             }
             case 2: { // 街道: 地を這う薄い砂煙と熱の揺らぎ
@@ -6191,7 +6189,8 @@ export class Stage {
                     const lift = (pMod * 18 + seed * 7) % 88;
                     const y = this.groundY + 12 - lift;
                     const rx = 34 + (i % 4) * 14;
-                    const a = (0.065 + (i % 3) * 0.018) * blend * (1 - lift / 100);
+                    // 旧値(0.065+)はΔ4.5で実質見えていなかった(画素差分の実測)
+                    const a = (0.115 + (i % 3) * 0.030) * blend * (1 - lift / 100);
                     const dust = ctx.createRadialGradient(x, y, 0, x, y, rx);
                     dust.addColorStop(0, `rgba(196, 178, 145, ${a})`);
                     dust.addColorStop(1, 'rgba(170, 150, 118, 0)');
@@ -6205,7 +6204,7 @@ export class Stage {
                     ctx.fill();
                     ctx.restore();
                 }
-                ctx.strokeStyle = `rgba(235, 224, 199, ${(0.08 * blend).toFixed(3)})`;
+                ctx.strokeStyle = `rgba(235, 224, 199, ${(0.13 * blend).toFixed(3)})`;
                 ctx.lineWidth = 1;
                 for (let i = 0; i < 3; i++) {
                     const y = this.groundY - 28 - i * 22;
@@ -6262,18 +6261,18 @@ export class Stage {
                     const y = ((seed * 143 - pMod * (52 + i % 4 * 8)) % (CANVAS_HEIGHT + 90) + CANVAS_HEIGHT + 90) % (CANVAS_HEIGHT + 90) - 40;
                     const twinkle = 0.45 + Math.sin(pMod * 6 + seed) * 0.28;
                     const d = 9 + (i % 4) * 2;
-                    ctx.strokeStyle = `rgba(255, 166, 73, ${(0.20 * blend * twinkle).toFixed(3)})`;
+                    ctx.strokeStyle = `rgba(255, 166, 73, ${(0.28 * blend * twinkle).toFixed(3)})`;
                     ctx.lineWidth = 1;
                     ctx.beginPath();
                     ctx.moveTo(x, y + 2);
                     ctx.quadraticCurveTo(x + 4, y + 11, x + 1, y + 20);
                     ctx.stroke();
                     if (glow) {
-                        ctx.globalAlpha = 0.34 * blend * twinkle;
+                        ctx.globalAlpha = 0.46 * blend * twinkle;
                         ctx.drawImage(glow, x - d * 0.5, y - d * 0.5, d, d);
                     }
                     ctx.globalAlpha = 1;
-                    ctx.fillStyle = `rgba(255, 214, 149, ${(0.62 * blend * twinkle).toFixed(3)})`;
+                    ctx.fillStyle = `rgba(255, 214, 149, ${(0.84 * blend * twinkle).toFixed(3)})`;
                     ctx.beginPath();
                     ctx.arc(x, y, 0.8 + (i % 3) * 0.35, 0, Math.PI * 2);
                     ctx.fill();
