@@ -2,9 +2,9 @@
 // Unification of the Nation - メインエントリーポイント
 // ============================================
 
-import { game } from './game.js?v=stage6-grapple-20260726a';
-import { preloadCinematicBgImages } from './ui.js?v=stage6-grapple-20260726a';
-import { getDeviceProfile } from './constants.js';
+import { game } from './game.js?v=stage6-duel-symmetry-20260804z';
+import { preloadCinematicBgImages } from './ui.js?v=outcome-harmony-20260727a';
+import { getDeviceProfile } from './constants.js?v=stage6-arena-flow-20260803k';
 
 // ============================================
 // 音の設定ゲート

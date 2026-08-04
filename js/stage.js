@@ -2,18 +2,18 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js';
-import { BOSS_STAGING } from './bossStaging.js?v=stage6-grapple-20260726a';
-import { createEnemy } from './enemy.js?v=stage6-grapple-20260726a';
-import { createBoss } from './boss.js?v=stage6-grapple-20260726a';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=stage6-arena-flow-20260803k';
+import { BOSS_STAGING } from './bossStaging.js?v=stage6-boss-shachi-20260803i';
+import { createEnemy } from './enemy.js?v=stage6-arena-polish-20260803g';
+import { createBoss } from './boss.js?v=stage6-shared-platform-20260804w';
 import { createObstacle } from './obstacle.js';
 import { audio } from './audio.js';
 import { generateStairsCanvas } from './stairRenderer.js';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
-    startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase,
+    startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=stage6-grapple-20260726a';
+} from './stage6Grapple.js?v=stage6-entry-ballistic-20260804c';
 
 const OBSTACLE_CHANCE_BOOST = 0.8;
 // Stage1地面タイルの描画幅1206pxに合わせ、worldX=9648で位相0から接続する。
@@ -22,28 +22,90 @@ const STAGE1_BAMBOO_TREE_LINE_OFFSET = 1020;
 const STAGE1_FENCE_END_OFFSET = 12;
 const STAGE1_BOSS_SUN_HOUR = 8.25;
 
+// Stage6最上階: 足元ラインを大棟の上へ持ち上げる量(px)。
+// 【現在は0】= 通常ステージと同じ足元ライン(地平線+LANE_OFFSET=512)を使う。
+// 「棟の上に立つ」はアクターを持ち上げるのではなく【屋根の描画を96px下げて】達成する。
+//   - アクター側を持ち上げる方式は、通常レーン(512)を直接読む箇所が残ると
+//     そこだけ96pxズレる事故を延々と生む(ジェム/着地/湧き位置で実際に起きた)
+//   - 屋根に立つ人の目線=地平線は足元より上にあるので、棟が地平線の下にあるのが幾何的にも正しい
+// 将来また持ち上げたくなった場合はこの定数だけを変える(全アクター・影・ジェムが追従する)。
+const STAGE6_ARENA_RIDGE_LIFT = 0;
+// 最上階の屋根の描画高さ(棟冠64 + 手前斜面240)。上端を足元ライン(512)へ置くので
+// 下端は画面下端(720)を越える。越えた分は捨てる(瓦寸法と棟の厚みを縮めないため)。
+const STAGE6_ROOF_DRAW_H = 304;
+// 金鯱の描画寸法(コライダーと共有)。
+// INSET: 大棟の実体端ちょうどに置くと取付足(world幅92px・画像中心より13px外寄り)の
+//        半分以上が隅棟の斜面へはみ出すため、足全体が水平な大棟に載る位置まで内側へ寄せる。
+// VISIBLE_BOTTOM: sourceの取付足の下端(y=940/1024)。ここを大棟上面へ接地させる。
+// SOLID_SRC: 実体(頭の冠〜取付足)のsrc範囲。実測 x380..770 / y600..940。
+//            背びれの細い先端(y<600)は装飾なのでコライダーに含めない。
+const SHACHI_DRAW_H = 350;
+const SHACHI_INSET_PX = 73;
+const SHACHI_VISIBLE_BOTTOM = 940 / 1024;
+const SHACHI_SOLID_SRC = { x0: 380, x1: 770, top: 600, bottom: 940 };
+// 胴〜背びれの根元。頭の箱だけだと胴の高さでキャラが金鯱にめり込むので、
+// 縦に高い箱を重ねる(実測: y240以下でx500..790が実体)。背びれの細い先端は装飾なので含めない。
+const SHACHI_BODY_SRC = { x0: 500, x1: 790, top: 240, bottom: 940 };
+// 金鯱の上で見下ろす間(ms)。この後は1撃目→鯱から足を離す→落下 と続く。
+// 角3で見上げる屋根は【最上層の妻端(stage6_ridge_end_cap.png)そのもの】を使う。
+// 別に描いた屋根(upper_roof_overhang)では、寸法をいくら合わせても
+// 「同じ屋根を見上げている」ことにはならない。アリーナと同じ 640/1024 倍で
+// 描くので瓦の目も完全に一致する。overhang アセットは【盲壁としてだけ】使う。
+// 妻端の実測(1024²): 平坦部の棟上端 y=23 / 軒ライン(下端) y=519 /
+//                    隅棟は右へ下り、軒先の先端は x=998, y=455。
+const STAGE6_FINAL_CAP_SCALE = 640 / 1024;            // アリーナの妻端と同じ描画倍率
+const STAGE6_FINAL_CAP_EAVE_SRC_Y = 519;              // 軒ライン(この線を盲壁の天端に合わせる)
+const STAGE6_FINAL_CAP_TIP_SRC = { x: 998, y: 455 };  // 軒先の先端(ミラー後は左端)
+// 鉤を掛ける隅棟上の点(先端より上)。ピクセル走査で「屋根の上端がこのyに来る」ことを
+// 確認済み(境界-587で上端120 → 噛み位置124=屋根の内側)。上げすぎると空中に噛む。
+const STAGE6_FINAL_CAP_HOOK_SRC = { x: 880, y: 428 };
+const STAGE6_FINAL_CAP_FLAT_SRC_W = 200;              // 右へ反復する平坦部(棟〜軒)の幅
+const STAGE6_FINAL_ROOF_EAVE_SCREEN_Y = 180;          // 軒ライン(平坦部の下端)の画面y
+const STAGE6_FINAL_CAP_TIP_DX = -661;                 // 境界から軒先の先端までのワールドx
+// 発火時に「軒先が右足先の何px先にあるか」。旧実装(境界-430で発火/軒先=境界-330)と
+// 同じ100pxを踏襲する。これで鉤は真上ではなく前方斜め上へ飛ぶ。
+const STAGE6_FINAL_GRAPPLE_LEAD_PX = 100;
+
+// 【降下は補間も初速も足さない】。鯱から足を離したら物理と連撃モーションに任せる。
+// 座標を毎フレーム補間で上書きすると、連撃が持っている前進の踏み込みが消えて
+// 「レールに乗って振っているだけ」の動きになる。速度を足すのも同様に噛み合わない
+// (連撃モーションが段ごとに縦横の速度を持っており、こちらの初速は即上書きされる)。
+const STAGE6_BOSS_DROP_COMBO_STEPS = 5; // 降りながら出す連撃の段数(プレイヤーと同じ5連)
+// 連撃が終わってから名乗りに入るまでの間。振り切りのポーズが抜けて立ち姿に
+// 戻ってから短冊を出す(会敵の絵が5撃目の途中になるのを防ぐ)。
+const STAGE6_BOSS_INTRO_IDLE_SETTLE_MS = 220;
+const STAGE6_BOSS_DROP_HOLD_MS = 540; // 飛び降りる前に鯱の上で見下ろす間
+// 【登場の5連は寸止め】プレイヤーの右端からこの距離までしか踏み込ませない。
+// 大太刀の判定は boss.x の左235pxまで伸びる(4段目の天穿が最長・実測)。
+// 突進の最深部で実測50px食い込んでいたので、刃先が25px手前で止まる 260 にする。
+// これより詰めると当たり、離すと突進が見た目に届かなくなる。
+const STAGE6_BOSS_INTRO_NEAR_MISS_PX = 260;
+
+// Stage6最上階の雑魚の登場: 屋根の裏(棟の向こう側)から垂直に跳び上がって大棟へ乗る。
+// 平場に湧かせると「屋根の上に湧いた」ことになり、大棟の上という場所の説得力が消える。
+const STAGE6_ROOF_ENTRY_DEPTH = 150;   // 棟の下へ隠す深さ(全身が隠れる)
+const STAGE6_ROOF_ENTRY_VY = -21.5;    // 跳び上がりの初速(GRAVITY=0.8で約289px上がる)
+                                       // = 棟の線を139px越え、頂点で0.9秒ほど滞空する。
+                                       // 低いと「せり上がり」に見えるので、大きく浮かせる
+
 // --- Stage6 パノラマの帯高さ(index = cornersClimbed = 階層) ---
-// 【階層を貫く原則】場当たりに数値をいじると全体が崩れるので必ずこの順で守る:
-//  1) 空の面積は登るほど広がる → 一番高い帯を階層ごとに下げる
-//  2) 街(近景)は登るほど沈む   → STAGE6_TOWN_H は単調減少。最上階では見えない
-//  3) 山(遠景)は最初から見えていて、登るほど稜線が上がる → STAGE6_MTN_H は単調増加
-//     (三階層で急に現れるのは違和感。一階層目から必ず見せる)
-//  4) 最上階は「街が完全に消える + 柵が無い」で三階層と画として別物にする
-// ※重要: 遠くの山の稜線は手前の街並みより「高い位置」に見える。
-//   よって帯の高さは 山 > 中間 > 街 でなければ山が街に完全に隠れる。
-// ※最上階(zone3)の山は「空を埋めすぎて敵が隠れる」ため意図的に低く抑えている。
-//   ここを上げると天体クリップ(getStage6MountainOcclusionY)の余地も同時に失う。
-const STAGE6_MTN_H = [168, 178, 188, 196];  // 山: 1Fから見えて稜線が段々上がる(単調増加)
-const STAGE6_MID_H = [146, 138, 0, 0];      // 中間距離(竹林/街道): 山と街の間。三階層以降は無し
-const STAGE6_TOWN_H = [120, 92, 66, 0];     // 街: 登るほど沈む(単調減少)。空を広く残す
+// 遠い連山は城の高さが数階変わっても視角がほぼ変わらない。同じ山を全区画で
+// 同じ高さ・同じ下端に固定し、近景の増減で山を出現させたり拡大して見せたりしない。
+// 高度差は空の色、天体、風、足場の意匠で表現する。
+const STAGE6_MTN_H = 142;
+// 回廊区画の前景は山裾より十分低い共通帯に固定する。最上階だけは大屋根の外へ
+// 城下帯を延ばさないため0だが、山の稜線位置と見かけの大きさは変えない。
+const STAGE6_MID_H = [62, 62, 62, 0];
+const STAGE6_TOWN_H = [44, 44, 44, 0];
 // 山アセットの「全列が完全不透明になる」上端位置(srcの高さ比)。
 // 天体クリップの切断線をここに合わせると、切り口が山の不透明部と一致して線が見えない。
 // 【重要】stage6_panorama_mountains_far.png を差し替えたら必ず再実測すること:
 //   `node scratch/probe_mtn_solid.js` (各列でα=255が下端まで続く最小yの最大値 / naturalHeight)
-//   現アセット 2048x640 の実測値: y=467 / 640 = 0.7297
-const STAGE6_MTN_SRC_SOLID = 0.73;
+//   現アセット 1536x1024 の実測値: y=740 / 1024 = 0.7227
+const STAGE6_MTN_SRC_SOLID = 0.7227;
 // 山を描くときに捨てる上端(透過フェード部)の比率。差し替え時は上と一緒に見直す。
-const STAGE6_MTN_SRC_TOP = 0.66;
+// 現アセットの最高峰はy=592。0.56(=y573)から切り出し、峰の上に透明余白を残す。
+const STAGE6_MTN_SRC_TOP = 0.56;
 
 // ステージクラス
 export class Stage {
@@ -125,6 +187,12 @@ export class Stage {
         
         // ボス
         this.boss = null;
+        // Stage6最上階のみ: 開戦前から大屋根の右端に立っている将軍の実体。
+        // 「カメラが右端に着いた瞬間に湧く」不自然さを消すため先に置き、スクロールで
+        // フレームインさせる。this.boss とは別に持ち、戦闘・ボスUI・場の演出には
+        // 一切参加させない(getAllEnemies にも入れない = 開戦前に殴られない/狙われない)。
+        this.stage6StandbyBoss = null;
+        this.bossEntranceDrop = null; // 金鯱から屋根へ飛び降りる登場の補間
         this.bossSpawned = false;
         this.bossDefeated = false;
         this._bossDeathMobsCleared = false;
@@ -133,13 +201,15 @@ export class Stage {
         // ここを長くすると「ボスが消えて雑魚もいない画面で自機が棒立ち」の空白になる。
         // 死亡演出の1.25秒がすでに十分な間なので、余韻は場が晴れる時間ぶんだけ取る
         // (bossStaging.DEFEAT_BLEND_FADE_MS と同値にして、晴れ切った瞬間に突破へ入る)。
-        this.bossDefeatLingerDuration = 480;
+        this.bossDefeatLingerDuration = BOSS_STAGING.DEFEAT_BLEND_FADE_MS;
         this.bossDefeatLingerTimer = 0;
         this._bossBlendFadeMs = 0;
         this._bossBlendFadeFrom = 1;
         this.bossEncounterBlend = 0;
         this.bossEntranceFlash = 0;  // 着地の衝撃フラッシュ（黒。白は色を飛ばすので使わない）
         // 登場演出の4段構成: approach(接近) → impact(着地) → name(名乗り) → ready(開戦)
+        // Stage6の将軍だけは最初から大屋根の右端に立っているため approach/impact を
+        // 通らず、turn(振り向き) → name → ready で始まる。
         this.bossIntroPhase = null;
         this.bossIntroPhaseTimer = 0;
         this.bossUiRevealT = 0;      // HPバーのスライドイン(0→1)
@@ -302,9 +372,9 @@ export class Stage {
         // --- Stage 6 天守床画像 ---
         if (this.stageNumber === 6) {
             this.stage6TenshuBackdropImage = new Image();
-            this.stage6TenshuBackdropImage.src = 'images/stage6_tenshu_rooftop_backdrop.png?v=20260706_bg2';
+            this.stage6TenshuBackdropImage.src = 'images/stage6_tenshu_rooftop_backdrop.png?v=20260728_open1';
             this.stage6UpperGalleryImage = new Image();
-            this.stage6UpperGalleryImage.src = 'images/stage6_upper_gallery_backdrop.png?v=20260714_zone1';
+            this.stage6UpperGalleryImage.src = 'images/stage6_upper_gallery_backdrop.png?v=20260726_open2';
             this.stage6RoofRidgeImage = new Image();
             this.stage6RoofRidgeImage.src = 'images/stage6_roof_ridge_backdrop.png?v=20260714_zone1';
             this.stage6GroundImage = new Image();
@@ -322,13 +392,13 @@ export class Stage {
             this.stage6PanoramaKaidoFarImage = new Image();
             this.stage6PanoramaKaidoFarImage.src = 'images/stage6_panorama_kaido_far.png?v=20260721_loop1';
             this.stage6PanoramaMountainsFarImage = new Image();
-            this.stage6PanoramaMountainsFarImage.src = 'images/stage6_panorama_mountains_far.png?v=20260721_loop1';
+            this.stage6PanoramaMountainsFarImage.src = 'images/stage6_panorama_mountains_far.png?v=20260727_mountains3';
 
             // 角の全高壁(視界遮断+通用門)。境界ごとに別アセット。
+            // 角3は壁を持たない(見上げる屋根だけを描くので、専用アセットは不要)。
             this.stage6CornerWallImages = [
                 'images/stage6_wall_corner_turret.png?v=20260724_checker2',
-                'images/stage6_wall_gatehouse.png?v=20260724_checker2',
-                'images/stage6_wall_final_gate.png?v=20260724_checker2'
+                'images/stage6_wall_gatehouse.png?v=20260724_checker2'
             ].map((src) => {
                 const img = new Image();
                 img.src = src;
@@ -336,9 +406,11 @@ export class Stage {
             });
 
             // --- 大棟化: 四巡目=天守大屋根の上(柵なし・棟瓦・眼下に朝靄)。
-            // 金鯱: 棟端に直接載る(土台なし)。右向き1体を読み込み、左端はコードで左右反転して使う
+            // 金鯱は妻端と別レイヤー。妻端は主屋根を重複させない端部専用アセット。
             this.stage6RidgeShachiImage = new Image();
-            this.stage6RidgeShachiImage.src = 'images/stage6_ridge_shachi.png?v=20260724_shachi2';
+            this.stage6RidgeShachiImage.src = 'images/stage6_ridge_shachi.png?v=20260802_shachi4c';
+            this.stage6RidgeEndCapImage = new Image();
+            this.stage6RidgeEndCapImage.src = 'images/stage6_ridge_end_cap.png?v=20260802_endcap7c';
             // 三巡目の床置き換え(鉄板リベット→黒漆の板張り)
             this.stage6GalleryWoodGroundImage = new Image();
             this.stage6GalleryWoodGroundImage.src = 'images/stage6_ground_gallery_wood.png?v=20260722_ridge1';
@@ -347,7 +419,7 @@ export class Stage {
             // 大屋根の上には地面の屋根(eaves)だけがあり、奥は山並みと空だけになる。
             // 大棟の床v3: 水平な軒先まで瓦を敷き、画面下端まで不透明に描く。
             this.stage6RidgeEavesGroundImage = new Image();
-            this.stage6RidgeEavesGroundImage.src = 'images/stage6_ground_ridge_eaves.png?v=20260726_flat2';
+            this.stage6RidgeEavesGroundImage.src = 'images/stage6_ground_ridge_eaves.png?v=20260802_eaves4c';
         }
 
         // キャッシュ用オフスクリーンCanvasの初期化
@@ -572,6 +644,332 @@ export class Stage {
     /** Stage6: 大屋根アリーナの左端ワールドX */
     getStage6ArenaLeft() {
         return this.stage6CornerXs[this.stage6CornerXs.length - 1];
+    }
+
+    /** Stage6最上階: 描画・プレイヤー・敵が共有する屋根の実体端 */
+    getStage6ArenaPhysicalLeft() {
+        return this.getStage6ArenaLeft() + STAGE6_CORNER.ARENA_EDGE_INSET_PX;
+    }
+
+    getStage6ArenaPhysicalRight() {
+        return this.maxProgress - STAGE6_CORNER.ARENA_EDGE_INSET_PX;
+    }
+
+    /** Stage6最上階で、敵を屋根の無い空間へ出さない。 */
+    constrainStage6ArenaActor(actor, settleGround = false) {
+        if (!this.isStage6Arena() || !actor) return;
+        const worldWidth = typeof actor.getWorldWidth === 'function'
+            ? actor.getWorldWidth()
+            : (actor.width || 0);
+        const worldHeight = typeof actor.getWorldHeight === 'function'
+            ? actor.getWorldHeight()
+            : (actor.height || 0);
+        const left = this.getStage6ArenaPhysicalLeft() + 10;
+        const right = this.getStage6ArenaPhysicalRight() - 10;
+        const maxX = Math.max(left, right - worldWidth);
+        const clampedX = Math.max(left, Math.min(actor.x, maxX));
+        if (clampedX !== actor.x) {
+            actor.x = clampedX;
+            actor.vx = 0;
+        }
+        // 屋根の裏から跳び上がっている最中は床を下げたままにする(棟へ吸着させない)。
+        // 足元が大棟の線より上へ抜けた時点で通常の接地へ戻し、落下で棟へ着地させる。
+        if (actor.stage6RoofEntry) {
+            const laneY = this.getStage6ArenaGroundY() + LANE_OFFSET;
+            // 跳び込みの横速度はAIに上書きさせない(真上に上がるだけだと「せり上がり」に見える)
+            if (Number.isFinite(actor.stage6RoofEntryVx)) actor.vx = actor.stage6RoofEntryVx;
+            if (actor.y + worldHeight > laneY) return;
+            actor.stage6RoofEntry = false;
+            actor.stage6RoofEntryLand = true; // 着地の土煙は接地した瞬間に出す
+        }
+        // 登場演出で金鯱の上に立っている間は触らない(座標は演出側が持つ)。
+        if (actor.stage6PerchHold) return;
+        actor.groundY = this.getStage6ArenaGroundY();
+        // 【足場(金鯱)の上に立っている間は棟へ引き戻さない】。金鯱は敵味方共通の
+        // コライダーなので、その天端に接地している時にここで棟へ吸着させると
+        // 誰も乗れなくなる(横方向に押し返すだけの壁になってしまう)。
+        if (this.isStandingOnStage6Platform(actor, worldWidth, worldHeight)) return;
+        if (settleGround || actor.isGrounded) {
+            actor.y = actor.groundY + LANE_OFFSET - worldHeight;
+            actor.vy = 0;
+            actor.isGrounded = true;
+            if (actor.stage6RoofEntryLand) {
+                actor.stage6RoofEntryLand = false;
+                actor.stage6RoofEntryVx = undefined;
+                const g = window.game;
+                if (g && typeof g.spawnGroundDust === 'function') {
+                    g.spawnGroundDust(actor.x + worldWidth * 0.5, actor.y + worldHeight, {
+                        count: 6, intensity: 0.6, spread: 0.7, speed: 1.0, rise: 0.4, size: 8
+                    });
+                }
+            }
+        }
+    }
+
+    /**
+     * Stage6最上階: 足場(金鯱)の天端に足が乗っているか。
+     * 乗っている間は大棟への吸着(constrainStage6ArenaActor)を止める。
+     * プレイヤー・雑魚・ボスで共通の判定。
+     */
+    isStandingOnStage6Platform(actor, worldWidth, worldHeight) {
+        if (!actor || actor.isGrounded === false) return false;
+        const boxes = this.getStage6ArenaColliders();
+        if (!boxes || boxes.length === 0) return false;
+        const footY = actor.y + worldHeight;
+        const left = actor.x;
+        const right = actor.x + worldWidth;
+        for (const b of boxes) {
+            if (right <= b.x || left >= b.x + b.width) continue;
+            // 天端の±8px以内に足が来ていれば「乗っている」
+            if (Math.abs(footY - b.y) <= 8) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Stage6最上階: 雑魚を屋根の裏から大棟へ跳び上がらせる登場。
+     * 一時的に床を棟の150px下へ置いて全身を屋根で隠し、上向きの初速を与える。
+     * 棟より上へ抜けたら constrainStage6ArenaActor が通常の接地へ戻す。
+     */
+    beginStage6RoofEntry(enemy) {
+        if (!enemy || !this.isStage6Arena()) return;
+        const worldWidth = typeof enemy.getWorldWidth === 'function'
+            ? enemy.getWorldWidth()
+            : (enemy.width || 0);
+        const worldHeight = typeof enemy.getWorldHeight === 'function'
+            ? enemy.getWorldHeight()
+            : (enemy.height || 0);
+        const groundY = this.getStage6ArenaGroundY();
+        // 真上へ上がるだけだと「せり上がり」に見えるので、屋根の内側へ向かって
+        // 斜めに跳ばせる。棟を越えて着地するまでが一続きの跳躍に見える。
+        const centerX = (this.getStage6ArenaPhysicalLeft() + this.getStage6ArenaPhysicalRight()) * 0.5;
+        const dir = (enemy.x + worldWidth * 0.5) < centerX ? 1 : -1;
+        enemy.stage6RoofEntry = true;
+        enemy.stage6RoofEntryLand = false;
+        enemy.stage6RoofEntryVx = dir * (2.6 + Math.random() * 1.4);
+        // 棟の外側へ踏み出した位置から跳ぶ(軒の側から屋根へ上がる導線)
+        enemy.x += dir * -46;
+        enemy.groundY = groundY + STAGE6_ROOF_ENTRY_DEPTH;
+        enemy.y = enemy.groundY + LANE_OFFSET - worldHeight;
+        enemy.vx = enemy.stage6RoofEntryVx;
+        enemy.vy = STAGE6_ROOF_ENTRY_VY;
+        enemy.isGrounded = false;
+        enemy.facingRight = dir > 0;
+    }
+
+    /**
+     * Stage6最上階の接地基準。STAGE6_ARENA_RIDGE_LIFT=0 の現行仕様では通常と同じ。
+     * 「棟の上に立つ」は屋根の描画を下げる側で成立させている(getStage6RoofRidgeTopY)。
+     * 呼び出し側は全てこれ経由なので、持ち上げ方式へ戻す場合も定数1つで追従する。
+     */
+    getStage6ArenaGroundY() {
+        return this.isStage6Arena()
+            ? this.groundY - STAGE6_ARENA_RIDGE_LIFT
+            : this.groundY;
+    }
+
+    /**
+     * 最上階の大棟の上端y(=屋根アセット・端材・金鯱の描画原点)。
+     * 足元ラインと一致させることで、キャラは棟の上に立ち、屋根面は手前へ下がる。
+     * 屋根に立つ人の目線(=地平線)は足元より上にあるので、棟は地平線の下に来る。
+     */
+    getStage6RoofRidgeTopY() {
+        return this.getStage6ArenaGroundY() + LANE_OFFSET;
+    }
+
+    /** Stage6最上階の将軍登場目標。全身と着地煙が屋根面に収まる位置にする。 */
+    getStage6BossEntranceTargetX(boss, scrollX) {
+        const worldWidth = typeof boss?.getWorldWidth === 'function'
+            ? boss.getWorldWidth()
+            : (boss?.width || 140);
+        // 金鯱に重ならない位置に立たせる。鯱の体は大棟端から内側164pxまで張り出すので
+        // (幅208px・取付足の中心が端から60px内側)、そこから更に36px空ける。
+        // ここを詰めるほど将軍の立ち位置が右へ寄り、開戦時の間合いが広がる
+        // (100px空けていた頃はプレイヤーとの間合いが実測281pxしか取れなかった)。
+        const shachiClearance = 200;
+        const left = this.getStage6ArenaPhysicalLeft() + shachiClearance;
+        const right = this.getStage6ArenaPhysicalRight() - worldWidth - shachiClearance;
+        const normalTarget = scrollX + CANVAS_WIDTH * this.bossEntranceTargetRatio;
+        return Math.max(left, Math.min(normalTarget, right));
+    }
+
+    /**
+     * Stage6最上階: 開戦前の将軍の待機位置。【右の金鯱の頭の上に立って待つ】。
+     * スクロールでフレームインした時点で「あんな所にいる」と読め、開戦の合図が
+     * 「屋根へ飛び降りる」一動作で済む(背を向けて振り返る案の代替)。
+     * 鯱が未読込のときは大棟の上(登場目標X)へフォールバックする。
+     */
+    getStage6BossStandbyPose(boss) {
+        const worldWidth = typeof boss?.getWorldWidth === 'function' ? boss.getWorldWidth() : (boss?.width || 80);
+        const worldHeight = typeof boss?.getWorldHeight === 'function' ? boss.getWorldHeight() : (boss?.height || 120);
+        const perch = this.getStage6ShachiSolidBox(1);
+        if (perch) {
+            return {
+                x: perch.x + (perch.width - worldWidth) * 0.5,
+                y: perch.y - worldHeight,
+                onShachi: true
+            };
+        }
+        return {
+            x: this.getStage6BossEntranceTargetX(boss, this.getStage6ArenaCameraMaxX()),
+            y: this.getStage6ArenaGroundY() + LANE_OFFSET - worldHeight,
+            onShachi: false
+        };
+    }
+
+    /**
+     * 最上階のカメラ可動域。屋根の実体が画面の角を満たす範囲で止める。
+     * 反り軒は画面下端より下へ出るので、屋根の外側をそのまま画面端まで映すと
+     * 隅棟の下に「谷底だけの三角の余白」が出る。屋根が画面下端に届く所までに制限する。
+     */
+    getStage6RoofVisibleOuterPx() {
+        // 【重要】一度決めたら変えない。この値はカメラのクランプ幅そのものなので、
+        // プロファイル未構築(=最上階の初回描画前)とその後で違う値を返すと、
+        // 屋根へ飛び乗った直後にカメラのクランプが動いて画面がガクッと飛ぶ。
+        if (this._stage6RoofVisibleOuter != null) return this._stage6RoofVisibleOuter;
+        const p = this.getStage6EndCapProfile();
+        // フォールバックは端材v7の実測値。未構築の間も同じ幅になるようにしておく。
+        const fallback = 235;
+        if (!p) return fallback;
+        const capScale = 640 / p.W;
+        const ridgeTopY = this.getStage6RoofRidgeTopY();
+        for (const sample of p.samples) {
+            if (sample.top === null || sample.x < 256) continue;
+            if (ridgeTopY + sample.top * capScale >= CANVAS_HEIGHT) {
+                this._stage6RoofVisibleOuter = Math.max(60, (sample.x - 256) * capScale);
+                return this._stage6RoofVisibleOuter;
+            }
+        }
+        this._stage6RoofVisibleOuter = Math.max(60, (p.W - 256) * capScale);
+        return this._stage6RoofVisibleOuter;
+    }
+
+    /**
+     * 金鯱の実体箱(ワールド)。side: -1=左端 / +1=右端。
+     * 描画(renderStage6ArenaRidgeEnds)と同じ式から導出するので、寸法や内寄せを
+     * 変えてもコライダーと絵がズレない。背びれの細い先端は含めない(装飾)。
+     */
+    getStage6ShachiBox(side, src) {
+        if (!this.isStage6Arena()) return null;
+        const img = this.stage6RidgeShachiImage;
+        if (!this.isStage6ImageReady(img)) return null;
+        const srcW = img.naturalWidth;
+        const srcH = img.naturalHeight;
+        const drawH = SHACHI_DRAW_H;
+        const drawW = drawH * (srcW / srcH);
+        const centerX = side < 0
+            ? this.getStage6ArenaPhysicalLeft() + SHACHI_INSET_PX
+            : this.getStage6ArenaPhysicalRight() - SHACHI_INSET_PX;
+        const bottomY = Math.round(this.getStage6RoofRidgeTopY() + drawH * (1 - SHACHI_VISIBLE_BOTTOM));
+        const imageLeft = centerX - drawW * 0.5;
+        const imageTop = bottomY - drawH;
+        const sx = drawW / srcW;
+        const sy = drawH / srcH;
+        // 左端は左右反転して描くので、srcのx範囲も反転させる
+        const x0 = side < 0 ? (srcW - src.x1) : src.x0;
+        const x1 = side < 0 ? (srcW - src.x0) : src.x1;
+        const top = imageTop + src.top * sy;
+        return {
+            x: imageLeft + x0 * sx,
+            y: top,
+            width: (x1 - x0) * sx,
+            height: (imageTop + src.bottom * sy) - top
+        };
+    }
+
+    /** 金鯱の頭の冠(=足場になる面)。将軍の待機位置もここ。 */
+    getStage6ShachiSolidBox(side) {
+        return this.getStage6ShachiBox(side, SHACHI_SOLID_SRC);
+    }
+
+    /**
+     * 最上階だけの追加コライダー(左右の金鯱)。プレイヤーと敵の物理に足す。
+     * 通り抜けを止め、頭の上を足場として使えるようにする(将軍の登場位置でもある)。
+     */
+    getStage6ArenaColliders() {
+        if (!this.isStage6Arena()) return [];
+        const out = [];
+        for (const side of [-1, 1]) {
+            // 頭(足場) + 胴/背びれ(縦に高い壁)の2箱。1箱だと胴の高さでめり込む。
+            for (const src of [SHACHI_SOLID_SRC, SHACHI_BODY_SRC]) {
+                const box = this.getStage6ShachiBox(side, src);
+                if (box) out.push({ ...box, isDestroyed: false, isStage6Shachi: true });
+            }
+        }
+        return out;
+    }
+
+    getStage6ArenaCameraMinX() {
+        return this.getStage6ArenaPhysicalLeft() - this.getStage6RoofVisibleOuterPx();
+    }
+
+    getStage6ArenaCameraMaxX() {
+        return this.getStage6ArenaPhysicalRight() + this.getStage6RoofVisibleOuterPx() - CANVAS_WIDTH;
+    }
+
+    /**
+     * Stage6最上階に上がった時点で将軍を【右の金鯱の頭の上】に立たせる。
+     * ここでは実体を置くだけ。戦闘・ボスUI・場の締め(ビネット)は開戦(spawnBoss)まで始めない。
+     * 呼ばれるのは最上階の1フレーム目=将軍は画面右外なので、湧く瞬間は見えない。
+     */
+    prepareStage6StandbyBoss() {
+        if (!this.isStage6Arena() || this.bossSpawned || this.boss || this.stage6StandbyBoss) return;
+        const boss = createBoss(this.stageNumber, 0, this.groundY, this.groundY);
+        if (!boss) return;
+        boss.isStandby = true;
+        const pose = this.getStage6BossStandbyPose(boss);
+        boss.x = pose.x;
+        boss.groundY = this.getStage6ArenaGroundY();
+        boss.y = pose.y;
+        boss.vx = 0;
+        boss.vy = 0;
+        boss.isGrounded = true;
+        boss.isEntering = false;
+        boss.isAttacking = false;
+        // 登ってくる忍者を見下ろしている。開戦で屋根へ飛び降りる。
+        boss.facingRight = false;
+        boss.attackFacingRight = false;
+        this.stage6StandbyBoss = boss;
+    }
+
+    /**
+     * Stage6最上階: 待っている将軍が全身+余白ぶん画面に入ったか(=開戦トリガー)。
+     * カメラ停止位置まで歩かせると実測で鼻先200pxまで詰めてから開戦になり遅すぎた。
+     * 「将軍を画面に収めた時点」で場を締める(このとき忍者は画面中央・将軍は右寄り)。
+     */
+    isStage6StandbyBossFramedIn() {
+        const boss = this.stage6StandbyBoss;
+        if (!boss) return false;
+        const worldWidth = typeof boss.getWorldWidth === 'function'
+            ? boss.getWorldWidth()
+            : (boss.width || 80);
+        // 【全身+余白が画面に入った時点】で開戦する。飛び降りる前に鯱の上で一拍
+        // 置くので、中心だけを条件にすると「見下ろしている将軍が画面右端で切れている」
+        // 絵になる。以前ここを全身条件にすると助走が4.6秒に伸びたが、
+        // 会敵中はカメラを先行させる(STAGE6_DUEL_CAMERA_LEAD_PX)ようになったため、
+        // プレイヤーは手前で足を止めたまま将軍を画面に収められる。
+        return boss.x + worldWidth + 40 <= this.progress + CANVAS_WIDTH;
+    }
+
+    /**
+     * 待機中の将軍。AIも物理も動かさず、立ち姿の微揺れ(motionTime駆動)だけ進める。
+     * boss.update を呼ぶと AI が動き出すだけでなく、boss.js の画面内クランプで
+     * xが可視範囲へ引き寄せられ、カメラに張り付いて近づいてくる。
+     */
+    updateStage6BossStandby(deltaTime) {
+        const boss = this.stage6StandbyBoss;
+        if (!boss) return;
+        // 金鯱の画像は最上階の1フレーム目にはまだ読めていないことがある。
+        // 読めた時点で「鯱の頭の上」へ座を移す(それまでは大棟の上で待つ)。
+        if (!boss.stage6PerchSet) {
+            const pose = this.getStage6BossStandbyPose(boss);
+            if (pose.onShachi) {
+                boss.x = pose.x;
+                boss.y = pose.y;
+                boss.stage6PerchSet = true;
+            }
+        }
+        boss.motionTime = (boss.motionTime || 0) + deltaTime * 1000;
     }
 
     /** Stage6: 大屋根アリーナの中央ワールドX(飛び乗りの着地点) */
@@ -1071,28 +1469,33 @@ export class Stage {
     }
 
     /**
-     * Stage6 角3: 鉤縄で頭上の軒へ登る演出を開始する。
+     * Stage6 角3: 鎖鎌を頭上の軒へ掛けて登る演出を開始する。
      * 廻縁の突き当たりから屋根の上へ上がる唯一の自然な手段(忍者の身体能力)。
-     * 縄が伸びて軒に掛かる → 引き上げられて画面上へ消える → 暗転 → 大屋根に着地。
+     * 鎖鎌が軒に掛かる → 鎖で引き上げられて画面上へ消える → 暗転 → 大屋根に着地。
      */
     startStage6GrappleClimb(player) {
         if (this.stageNumber !== 6 || this.isStage6Grappling() || this.isFloorTransitioning) return;
         if (!this.stage6Grapple) this.stage6Grapple = createGrappleState();
-        startGrapple(this.stage6Grapple, this.getStage6ActiveCornerX(), player);
+        startGrapple(
+            this.stage6Grapple,
+            this.getStage6ActiveCornerX(),
+            player,
+            this.getStage6EaveTip()
+        );
     }
 
-    /** 鉤縄登攀中か */
+    /** 鎖鎌登攀中か */
     isStage6Grappling() {
         return isGrappleActive(this.stage6Grapple);
     }
 
-    /** 鉤縄登攀の進行(deltaTime秒)。完了したらtrueを返す */
+    /** 鎖鎌登攀の進行(deltaTime秒)。完了したらtrueを返す */
     updateStage6GrappleClimb(deltaTime) {
         if (!this.isStage6Grappling()) return false;
         return updateGrapple(this.stage6Grapple, deltaTime, audio);
     }
 
-    /** 鉤縄の見た目(鉤の位置・軌跡・火花)を進める。game.js の更新ループから呼ぶ */
+    /** 鎖鎌の見た目(鎌の位置・軌跡・火花)を進める。game.js の更新ループから呼ぶ */
     updateStage6GrappleVisual(deltaTime, handX, handY, playerCx, playerCy) {
         if (!this.isStage6Grappling()) return;
         updateGrappleVisual(this.stage6Grapple, deltaTime, handX, handY, playerCx, playerCy);
@@ -1108,7 +1511,12 @@ export class Stage {
         return grapplePullEase(this.stage6Grapple);
     }
 
-    /** 鉤縄の現在フェーズ(GRAPPLE_PHASE) */
+    /** 引き上げの二次ベジェ上にあるプレイヤー左上座標 */
+    getStage6GrapplePullPosition(playerWidth) {
+        return grapplePullPosition(this.stage6Grapple, playerWidth);
+    }
+
+    /** 鎖鎌登攀の現在フェーズ(GRAPPLE_PHASE) */
     getStage6GrapplePhase() {
         return this.stage6Grapple?.phase || GRAPPLE_PHASE.NONE;
     }
@@ -1119,7 +1527,7 @@ export class Stage {
         return g ? { x: g.fromX, y: g.fromY } : null;
     }
 
-    /** 鉤が噛んでいる位置(ワールド) */
+    /** 鎌が噛んでいる位置(ワールド) */
     getStage6GrappleAnchor() {
         const g = this.stage6Grapple;
         return g ? { x: g.anchorX, y: g.anchorY } : null;
@@ -1130,7 +1538,7 @@ export class Stage {
         renderGrappleBehind(ctx, this.stage6Grapple);
     }
 
-    /** 前面パス(鉤頭・火花)。ワールド変換の内側で、プレイヤーより後に呼ぶ */
+    /** 前面パス(鎌ヘッド・火花)。ワールド変換の内側で、プレイヤーより後に呼ぶ */
     renderStage6GrappleFront(ctx) {
         renderGrappleFront(ctx, this.stage6Grapple);
     }
@@ -1225,13 +1633,15 @@ export class Stage {
         // stage6のgroundYは動かさない設計だが明示的に戻しておく
         this.groundY = this.baseGroundY;
 
-        // 大屋根アリーナへ降り立った瞬間から最終決戦の空気にする。
-        // BGMをボス曲へ、演出ブレンドは update() の moodBlend が立ち上げる。
+        // 大屋根へ降り立っただけではボス演出(場の締め)を始めない。
+        // 左棟端から決戦地点へ歩く間は背景本来の明度を保ち、ボス接近時にだけ場を締める。
+        // ただし【ラスボス曲は最上層へ遷移した時点で鳴らす】。暗転中に切り替わるので
+        // 曲の入りが画面の切り替わりと一致する。
         if (this.isStage6Arena()) {
-            this.stage6ArenaMoodTimer = 0;
-            this.bossEntranceFlash = Math.max(this.bossEntranceFlash || 0, 0.6);
+            this.bossEncounterBlend = 0;
+            this.bossEntranceFlash = 0;
             if (!this.isBossBgmPlaying()) {
-                audio.playBgm('boss', this.stageNumber, 1200, 0);
+                audio.playBgm('boss', this.stageNumber, 1000, 0);
             }
         }
 
@@ -1627,7 +2037,7 @@ export class Stage {
                 : 1.0;
             this._bossBlendFadeMs = 0;
         } else if (this.bossDefeated && this.bossEncounterBlend > 0) {
-            // 撃破後は即0に落とさず 1.2 秒かけて引く（ビネットと空気が晴れていく）。
+            // 撃破後は即0に落とさず、撃破余韻と同じ時間をかけて場を晴らす。
             // 旧実装は bossDefeated の瞬間に 0 になり、演出が「パチッと切れて」いた。
             if (!this._bossBlendFadeMs) {
                 this._bossBlendFadeMs = 0;
@@ -1644,17 +2054,6 @@ export class Stage {
             this.bossEncounterBlend = 0;
             this._bossBlendFadeMs = 0;
         }
-        // Stage6 大屋根アリーナ: ボス出現前でも「最終決戦の空気」を出す。
-        // 着地した瞬間から演出(朝焼けの染め・ヴィネット・闘気粒子)を立ち上げる。
-        if (this.isStage6Arena() && !this.bossDefeated) {
-            this.stage6ArenaMoodTimer = Math.min(
-                STAGE6_CORNER.ARENA_MOOD_RAMP_MS,
-                (this.stage6ArenaMoodTimer || 0) + deltaTime * 1000
-            );
-            const moodBlend = this.smoothstep(0, 1, this.stage6ArenaMoodTimer / STAGE6_CORNER.ARENA_MOOD_RAMP_MS);
-            this.bossEncounterBlend = Math.max(this.bossEncounterBlend, moodBlend);
-        }
-
         // ボス戦中〜撃破余韻中は専用更新
         if (this.bossSpawned && (!this.bossDefeated || this.bossDefeatLingerTimer > 0)) {
             this.updateBossFight(deltaTime, player);
@@ -1662,8 +2061,12 @@ export class Stage {
         }
         
         // 敵出現（スクロール位置に関係なく判定）
+        // Stage6最上階だけは開戦まで雑魚を出さない。大屋根の上は将軍と対峙するための
+        // 静かな助走区間で、ここに雑魚が湧くと「待っている将軍」に視線が向かない。
+        // (開戦後の少量スポーンは updateBossFight 側で従来どおり行う)
+        const arenaPreFight = this.isStage6Arena() && !this.bossSpawned;
         this.spawnTimer += deltaTime * 1000;
-        if (this.spawnTimer >= this.spawnInterval && this.progress < this.maxProgress * 0.98) {
+        if (!arenaPreFight && this.spawnTimer >= this.spawnInterval && this.progress < this.maxProgress * 0.98) {
             this.spawnEnemy();
             this.spawnTimer = 0;
             
@@ -1675,11 +2078,23 @@ export class Stage {
             this.spawnInterval = baseInterval + Math.random() * this.balanceProfile.spawnJitter;
         }
         
+        // Stage6最上階: 将軍は開戦前から大屋根の右端に立っている(スクロールでフレームイン)。
+        // 生成は最上階に入った最初のフレーム=まだ画面右外なので、湧く瞬間は映らない。
+        if (this.isStage6Arena() && !this.bossSpawned) {
+            this.prepareStage6StandbyBoss();
+            this.updateStage6BossStandby(deltaTime);
+        }
+
         // ボス出現
         // 描画スケールではなく、カメラが右端で停止したかどうかで判定する。
         const bossScrollStopX = Math.max(0, this.maxProgress - CANVAS_WIDTH);
         let canSpawnBoss = this.progress >= bossScrollStopX - 0.5;
-        
+
+        // Stage6最上階は「将軍を画面に収めた時点」で開戦する(カメラ停止待ちだと遅すぎる)
+        if (this.stageNumber === 6 && this.isStage6StandbyBossFramedIn()) {
+            canSpawnBoss = true;
+        }
+
         if (this.stageNumber === 5) {
             // Stage 5 の場合は最終フロアのみ
             canSpawnBoss = canSpawnBoss && (this.currentFloor >= this.maxFloor);
@@ -1735,6 +2150,30 @@ export class Stage {
         }
     }
 
+    // 【登場の5連は寸止めで止める】。連撃の踏み込みは1段で最大24px/フレーム進み、
+    // 4段目(天穿)の判定は boss.x の左235pxまで伸びるので、そのまま振らせると
+    // 名乗る前にプレイヤーへ届く。前進だけを刃の届かない距離で止める。
+    // 押し戻しはしない(プレイヤーが自分から踏み込んだときにボスが後ずさりして見える)。
+    // 触れても削れないのは game.js 側の被弾除外が担保する。
+    clampBossIntroNearMiss(player) {
+        if (!this.boss || !player || !this.isBossIntroBeforeCall()) return;
+        if (!(this.boss.vx < 0)) return; // 左＝プレイヤー側へ進んでいる時だけ
+        const limitX = player.x + player.getWorldWidth() + STAGE6_BOSS_INTRO_NEAR_MISS_PX;
+        if (this.boss.x < limitX) {
+            this.boss.x = limitX;
+            this.boss.vx = 0;
+        }
+    }
+
+    // 【名乗りを終えるまでは互いに手出し無用】の区間判定。
+    // ボス側の無敵(invincibleTimer)とプレイヤー側の被弾除外(game.js)、
+    // 登場の5連の寸止めクランプが同じ窓を見るようにここへ集約する。
+    isBossIntroBeforeCall() {
+        return this.bossIntroPhase === 'approach'
+            || this.bossIntroPhase === 'impact'
+            || this.bossIntroPhase === 'name';
+    }
+
     // 登場演出の進行。approach は「ボスが目標Xへ到達したか」で抜けるので
     // ここでは時間駆動するのは impact 以降のみ。
     updateBossIntro(deltaTime, player) {
@@ -1750,6 +2189,7 @@ export class Stage {
         // 1→0 に引いている値をここで 1 に戻すと、HPバーが消えなくなる。
         if (this.bossDefeated) {
             this.bossIntroPhase = null;
+            if (this.boss) this.boss.aiDisabled = false;
             return;
         }
         if (!this.bossIntroPhase) {
@@ -1765,12 +2205,33 @@ export class Stage {
             case 'approach':
                 // 到達判定は updateBossFight のダッシュ処理側（beginBossIntroImpact）。
                 break;
-            case 'impact':
-                if (this.bossIntroPhaseTimer >= BOSS_STAGING.INTRO_IMPACT_MS) {
+            case 'impact': {
+                // 【登場の連撃が振り切れて立ち姿に戻るまで名乗りに進まない】。
+                // 4段目(天穿)は跳ね上がるので時間だけで進めると空中で斬っている
+                // 最中に短冊が出る。さらに isAttacking が落ちた直後は振り切りの
+                // ポーズが残るため、attackTimer/忍具も抜けて接地したうえで
+                // INTRO_IDLE_SETTLE_MS の間を置いてから名乗る。
+                // comboStep5IdleTransitionTimer(5撃目の余韻280ms)も待つ:
+                // isAttacking/attackTimer が 0 でも余韻の間は刀を突き出した
+                // ポーズのままで、そこに短冊が出ていた。
+                const b = this.boss;
+                const comboDone = !(b && b.entranceComboMax > 0)
+                    && !(b && (b.isAttacking || (b.attackTimer || 0) > 0 || (b.subWeaponTimer || 0) > 0))
+                    && !(b && (b.comboStep5IdleTransitionTimer || 0) > 0)
+                    && !(b && b.isGrounded === false);
+                if (comboDone) {
+                    this.bossIntroIdleSettleMs = (this.bossIntroIdleSettleMs || 0) + ms;
+                } else {
+                    this.bossIntroIdleSettleMs = 0;
+                }
+                if (this.bossIntroPhaseTimer >= BOSS_STAGING.INTRO_IMPACT_MS
+                    && this.bossIntroIdleSettleMs >= STAGE6_BOSS_INTRO_IDLE_SETTLE_MS) {
                     this.bossIntroPhase = 'name';
                     this.bossIntroPhaseTimer = 0;
+                    this.bossIntroIdleSettleMs = 0;
                 }
                 break;
+            }
             case 'name':
                 if (this.bossIntroPhaseTimer >= BOSS_STAGING.INTRO_NAME_MS) {
                     this.bossIntroPhase = 'ready';
@@ -1782,38 +2243,152 @@ export class Stage {
                     this.bossIntroPhase = null;
                     this.bossIntroPhaseTimer = 0;
                     this.bossUiRevealT = 1;
+                    if (this.boss) this.boss.aiDisabled = false;
                 }
                 break;
         }
 
-        // HPバーのスライドイン: 'ready' で 0→1。それ以前は隠す。
+        // HPバーは名乗りが画面から消え切った後に開く。
+        // ready前半を余白にし、中央の名乗りと上部ゲージを同時に見せない。
         if (this.bossIntroPhase === 'ready') {
-            this.bossUiRevealT = this.smoothstep(0, 1, this.clamp01(this.bossIntroPhaseTimer / BOSS_STAGING.INTRO_READY_MS));
+            const revealT = this.clamp01(
+                (this.bossIntroPhaseTimer - BOSS_STAGING.INTRO_READY_MS * 0.34)
+                / (BOSS_STAGING.INTRO_READY_MS * 0.66)
+            );
+            this.bossUiRevealT = this.smoothstep(0, 1, revealT);
         } else if (this.bossIntroPhase) {
             this.bossUiRevealT = 0;
         }
 
-        // 名乗り中だけプレイヤーの攻撃を封じる（移動は通す）。
+        // 【名乗りまでは手出し無用】振り向き〜名乗りの間はプレイヤーの攻撃を封じる(移動は通す)。
         // 毎フレーム上書きするのでフェーズを抜けた瞬間に解除される。
-        if (player && this.bossIntroPhase === 'name') {
+        const beforeCall = this.isBossIntroBeforeCall();
+        if (player && beforeCall) {
             player.attackInputLockTimer = Math.max(player.attackInputLockTimer || 0, 90);
         }
 
         // 登場演出が終わるまでボスに初手を出させない。
+        // ただし【金鯱から5連コンボで降りてくる間】は演出そのものなので止めない。
+        // 登場の5連コンボは「段数固定が入っている間」= 演出中とみなす。
+        // 着地(=bossEntranceDropがnull)後も締めの一撃が残るので、
+        // drop の有無ではなく entranceComboMax で判定する。
+        const entranceCombo = !!(this.boss && this.boss.entranceComboMax > 0);
         if (this.boss && this.bossIntroPhase) {
-            this.boss.isAttacking = false;
-            this.boss.attackCooldown = Math.max(this.boss.attackCooldown || 0, 120);
+            if (!entranceCombo) {
+                this.boss.isAttacking = false;
+                this.boss.attackCooldown = Math.max(this.boss.attackCooldown || 0, 120);
+            }
+            // 【名乗りの間は足も止める】。AIを回したままだと名乗り〜HP開示の1.4秒で
+            // 190px詰めてしまい、せっかく端と端に開けた間合いが崩れる(実測639→448)。
+            // ただし登場の5連コンボ中は止めない。vxを毎フレーム0にすると連撃自身の
+            // 踏み込み(前進)が消えて「その場で振っているだけ」の動きになる。
+            this.boss.aiDisabled = true;
+            if (!entranceCombo) this.boss.vx = 0;
+            // 名乗り前は無敵。入力を止めても、開戦前に投げた手裏剣や振り切り中の刃が
+            // 届いて「名乗る前に削れている」絵になるため、判定側でも受け付けない。
+            // (damageEnemy は takeDamage が null を返すとエフェクトごと出さない)
+            if (beforeCall) {
+                this.boss.invincibleTimer = Math.max(this.boss.invincibleTimer || 0, 120);
+            }
         }
     }
 
     updateBossFight(deltaTime, player) {
         this.updateBossIntro(deltaTime, player);
 
-        // ボス登場演出中：画面右端から高速ダッシュで飛び込む
-        if (this.boss && this.boss.isEntering) {
+        // 登場の5連コンボが振り切れたら段数固定を解除する(以降はHP段階Lvに従う)。
+        if (this.boss && this.boss.entranceComboMax > 0
+            && !this.bossEntranceDrop && !this.boss.isAttacking) {
+            this.boss.entranceComboMax = 0;
+            this.boss.attackCombo = 0;
+        }
+
+        // 【次段のバッファは着地後も積む】。降下ブロックの中だけで積んでいた頃は
+        // 着地(=bossEntranceDropがnull)と同時にバッファが止まり、3段で終わっていた。
+        // AIは演出中止めてあるので、ここが唯一のコンボ継続経路。
+        if (this.boss && this.boss.entranceComboMax > 0 && this.boss.isAttacking
+            && this.boss.currentAttack
+            && (this.boss.currentAttack.comboStep || 0) < this.boss.getNormalComboMax()
+            && typeof this.boss.bufferNextAttack === 'function') {
+            this.boss.bufferNextAttack();
+        }
+
+        // ボス登場演出: 金鯱の上で待っていた将軍は【大屋根へ飛び降りながら5連】。
+        // 鯱から足を離した後は座標も速度も足さない。上書きすると連撃が持っている
+        // 前進の踏み込みが消えて「レールに乗って振っているだけ」の動きになる。
+        if (this.boss && this.boss.isEntering && this.bossEntranceDrop) {
+            const drop = this.bossEntranceDrop;
+            drop.elapsed += deltaTime * 1000;
+            const bossH = this.boss.getWorldHeight();
+            const laneY = this.getStage6ArenaGroundY() + LANE_OFFSET;
+            // 金鯱の上に立っている間は「鯱の甲=地面」として扱う。
+            // (ボスの物理には足場のコライダーを渡していないため。渡すと連撃の
+            //  上向きモーションで鯱の背へ登ってしまい降りてこない=実測)
+            const standOnPerch = () => {
+                this.boss.stage6PerchHold = true;
+                this.boss.groundY = drop.fromY + bossH - LANE_OFFSET;
+                this.boss.x = drop.fromX;
+                this.boss.y = drop.fromY;
+                this.boss.vy = 0;
+                this.boss.isGrounded = true;
+                this.boss.facingRight = false;
+            };
+            if (!drop.swinging) {
+                // 【タメ】金鯱の上で一拍置く。位置は待機時の座標のまま立っているだけ。
+                standOnPerch();
+                this.boss.vx = 0;
+                if (drop.elapsed >= (drop.hold || 0)) {
+                    // 5連コンボ開始。1段目は踏み込まない技なので、足場の上で
+                    // その場で振る(足場の当たりは物理が見るのでこちらは何もしない)。
+                    drop.swinging = true;
+                    this.boss.entranceComboMax = STAGE6_BOSS_DROP_COMBO_STEPS;
+                    this.boss.attackCooldown = 0;
+                    this.boss.attackCombo = 0;
+                    this.boss.currentSubWeapon = null;
+                    this.boss.attackFacingRight = false;
+                    // 【初速は入れない】。連撃モーション(applyNormalComboStartMotion)が
+                    // 段ごとに縦横の速度を持っており、こちらで vy を入れても即上書きされ、
+                    // 噛み合わない1〜2フレームが「脚が一瞬ピクッと変わる」正体になる。
+                    if (typeof this.boss.attack === 'function') this.boss.attack();
+                }
+            } else if (!drop.perchReleased) {
+                // 【1撃目はその場】。1段目は踏み込まない技なので鯱の上で振る。
+                // 2段目に入ったら足場から手を離す(=以降は重力と連撃モーションだけ)。
+                const step = (this.boss.currentAttack && this.boss.isAttacking)
+                    ? (this.boss.currentAttack.comboStep || 0)
+                    : 0;
+                if (step >= 2) {
+                    drop.perchReleased = true;
+                    this.boss.stage6PerchHold = false;
+                    this.boss.groundY = this.getStage6ArenaGroundY();
+                    this.boss.isGrounded = false;
+                } else {
+                    standOnPerch();
+                }
+            } else {
+                // 以降は座標・速度に一切触らない。重力と連撃モーションだけで落ちて前へ出る。
+                this.boss.facingRight = false;
+                // 【大屋根に足が着いたら】着地の衝撃へ。
+                if (this.boss.y + bossH >= laneY - 1) {
+                    this.boss.y = laneY - bossH;
+                    this.boss.vy = 0;
+                    this.boss.isGrounded = true;
+                    this.boss.isEntering = false;
+                    // 【締めの一撃は切らない】。isAttacking も entranceComboMax も
+                    // ここでは触らず、コンボが自然に終わってから解除する(下の後始末)。
+                    this.bossEntranceDrop = null;
+                    this.boss.attackCooldown = Math.max(this.boss.attackCooldown || 0, 220);
+                    // 着地の衝撃：黒フラッシュ + 土煙。名乗りフェーズへ引き継ぐ。
+                    this.beginBossIntroImpact();
+                }
+            }
+        } else if (this.boss && this.boss.isEntering) {
             const scrollX = (window.game && window.game.scrollX) || 0;
-            const targetX = scrollX + CANVAS_WIDTH * this.bossEntranceTargetRatio;
+            const targetX = this.isStage6Arena()
+                ? this.getStage6BossEntranceTargetX(this.boss, scrollX)
+                : scrollX + CANVAS_WIDTH * this.bossEntranceTargetRatio;
             this.boss.entranceTargetX = targetX;
+            this.constrainStage6ArenaActor(this.boss, true);
 
             const dx = this.boss.x - targetX; // 左向きなので boss.x が大きい
             const speed = this.boss.entranceSpeed || 900; // 高速
@@ -1840,8 +2415,16 @@ export class Stage {
         // ここで boss.update を止めるのが「名乗りで一旦止める」の実体。
         // 攻撃だけ封じても AI の移動・ジャンプは走るので、名乗りの最中にボスが
         // 跳ねて短冊と噛み合わなくなる。ready(開戦)から動き出す。
-        const introHold = this.bossIntroPhase === 'impact' || this.bossIntroPhase === 'name';
-        if (this.boss && (this.boss.isEntering || introHold)) {
+        // 【impact は update を通す】。着地〜立ち姿に戻るまでの区間で止めると
+        // 5撃目の余韻タイマー(comboStep5IdleTransitionTimer)と剣筋の老化が進まず、
+        // 刀を突き出した最後のフレームで凍ったまま名乗りに入る。
+        // 足を止める役目は aiDisabled + vx=0(updateBossIntro)が担っている。
+        const introHold = this.bossIntroPhase === 'name';
+        // 【登場の5連コンボ中は boss.update を通す】。ここで止めると攻撃モーションが
+        // 進まず1段目で固まる(位置は上の降下補間が毎フレーム上書きするので破綻しない)。
+        // AIは updateBossIntro で aiDisabled にしてあるので動き出しはしない。
+        const entranceComboActive = !!(this.boss && this.boss.entranceComboMax > 0);
+        if (this.boss && (this.boss.isEntering || introHold) && !entranceComboActive) {
             if (this.boss) {
                 this.boss.isAttacking = false;
                 this.boss.vx = 0;
@@ -1875,7 +2458,18 @@ export class Stage {
         }
 
         if (this.boss) {
+            // 金鯱は【敵味方共通の足場】。雑魚は getStageEnemyObstacles 経由で、
+            // プレイヤーは game.js 側で、ボスはここで同じコライダーを受け取る
+            // (stage4の屋根コライダーと同じ考え方)。
+            // 登場演出中(飛び降りながらの5連)だけは渡さない: 連撃の上向きモーションで
+            // 鯱の背(上段のコライダー)に乗って降りてこなくなる(実測: 足元273で停止)。
+            const bossOnEntrance = this.boss.isEntering || !!this.bossEntranceDrop;
+            this.boss._stageObstacles = (this.isStage6Arena() && !bossOnEntrance)
+                ? this.getStage6ArenaColliders()
+                : null;
             const shouldRemove = this.boss.update(deltaTime, player);
+            this.constrainStage6ArenaActor(this.boss);
+            this.clampBossIntroNearMiss(player);
             if (shouldRemove || !this.boss.isAlive) {
                 if (!this.boss.isAlive && !this.bossDefeated) {
                     this.bossDefeated = true;
@@ -1897,14 +2491,18 @@ export class Stage {
         this.updateEnemies(deltaTime, player, enemyObstacles);
         this.updateObstacles(deltaTime);
 
-        // ボス戦中も少量の雑魚敵を出現させる（BUSHOは除外）
-        if (!this.bossDefeated && this.bossIntroTimer <= 0) {
+        // ボス戦中も雑魚敵を出現させる（BUSHOは除外）
+        // 【登場演出(降下〜名乗り〜開戦)の間は湧かせない】。bossIntroTimer だけでは
+        // 演出(実測3.3秒)より短く切れてしまい、名乗りの最中に雑魚が上がってくる。
+        if (!this.bossDefeated && this.bossIntroTimer <= 0 && !this.bossIntroPhase) {
             this.spawnTimer += deltaTime * 1000;
-            // ボス戦時は通常の2.5倍の間隔でスポーン判定
-            const bossSpawnInterval = this.spawnInterval * 2.5;
+            // 最上階の大屋根は屋根の裏から跳び上がる登場が見せ場なので、
+            // 他ステージのボス戦より短い間隔・多い同時数で回す。
+            const isRoofArena = this.isStage6Arena();
+            const bossSpawnInterval = this.spawnInterval * (isRoofArena ? 1.5 : 2.5);
+            const bossSpawnCap = isRoofArena ? 4 : 2;
             if (this.spawnTimer >= bossSpawnInterval) {
-                // 最大数は2体程度に抑える
-                if (this.getActiveEnemyCount() < 2) {
+                if (this.getActiveEnemyCount() < bossSpawnCap) {
                     this.spawnEnemy();
                 }
                 this.spawnTimer = 0;
@@ -1931,6 +2529,7 @@ export class Stage {
             this.updateStage4EnemyRoofMovement(enemy, player, obstacles, deltaTime);
             const shouldRemove = enemy.update(deltaTime, player, obstacles);
             if (shouldRemove) continue;
+            this.constrainStage6ArenaActor(enemy);
 
             if (this.shouldRecycleBehindEnemy(enemy)) {
                 const recycled = this.spawnRecycledEnemyAhead(enemy.type);
@@ -2189,6 +2788,11 @@ export class Stage {
     }
 
     getStageEnemyObstacles(baseObstacles = []) {
+        // 最上階は金鯱を通り抜けさせない(ノックバックで押し込まれた時も含む)
+        if (this.isStage6Arena()) {
+            const shachi = this.getStage6ArenaColliders();
+            return shachi.length > 0 ? baseObstacles.concat(shachi) : baseObstacles;
+        }
         if (this.stageNumber !== 4 || typeof this.getStage4RoofColliders !== 'function') {
             return baseObstacles;
         }
@@ -2310,7 +2914,16 @@ export class Stage {
             }
             
             // 複数体湧くときは少し位置をずらす
-            const x = this.progress + spawnBaseX + (comeFromLeft ? -variance : variance);
+            let x = this.progress + spawnBaseX + (comeFromLeft ? -variance : variance);
+            if (this.isStage6Arena()) {
+                // 大棟端から280px内側。金鯱(取付足中心が端から60px内側・体幅208px)に
+                // 跳び上がりが被らない位置。beginStage6RoofEntry が更に46px外へ寄せるので
+                // 実際の踏切は端から234px内側になる。
+                const shachiClear = 280;
+                x = comeFromLeft
+                    ? this.getStage6ArenaPhysicalLeft() + shachiClear + variance
+                    : this.getStage6ArenaPhysicalRight() - shachiClear - variance;
+            }
 
             // Stage 5: 階段区間でのスポーンを制限（重力計算が平面前提のため不自然な浮きを防ぐ）
             if (this.stageNumber === 5 && (this.isInStairZone(x) || x > this.maxProgress - 100)) {
@@ -2329,6 +2942,11 @@ export class Stage {
             
             const enemy = this.createGroundedEnemy(type, x);
             if (!enemy) continue;
+            this.constrainStage6ArenaActor(enemy, true);
+            if (this.isStage6Arena()) {
+                // 大棟の上は「湧く」場所がないので、屋根の裏から跳び上がって乗る
+                this.beginStage6RoofEntry(enemy);
+            }
             if (type === ENEMY_TYPES.NINJA && Math.random() < 0.72) {
                 this.placeEnemyOnStage4Roof(enemy, x);
             }
@@ -2447,24 +3065,70 @@ export class Stage {
     spawnBoss() {
         this.bossSpawned = true;
 
-        // ボスを画面右端ギリギリ外に配置（すぐ見える＆登場感あり）
         const scrollX = (window.game && window.game.scrollX) || 0;
-        const bossWidth = 140; // ボスのおおよその幅（登場位置計算用）
-        const spawnX = scrollX + CANVAS_WIDTH + bossWidth * 0.5;
 
-        this.boss = createBoss(this.stageNumber, spawnX, this.groundY, this.groundY);
+        // Stage6最上階: 開戦前から大屋根の右端に立って待っている将軍をそのまま引き継ぐ。
+        // ここで作り直すと「カメラが止まった瞬間に湧く」不自然さに戻る。
+        const standby = this.stage6StandbyBoss;
+        this.stage6StandbyBoss = null;
+        if (standby) {
+            standby.isStandby = false;
+            this.boss = standby;
+        } else {
+            // ボスを画面右端ギリギリ外に配置（すぐ見える＆登場感あり）
+            const bossWidth = 140; // ボスのおおよその幅（登場位置計算用）
+            const spawnX = this.isStage6Arena()
+                ? this.getStage6ArenaPhysicalRight() - bossWidth - 12
+                : scrollX + CANVAS_WIDTH + bossWidth * 0.5;
+            this.boss = createBoss(this.stageNumber, spawnX, this.groundY, this.groundY);
+        }
         // 足元を地面に合わせる（Player系ボスは素体heightではなくワールド身長を使う）
         const bossWorldHeight = typeof this.boss.getWorldHeight === 'function'
             ? this.boss.getWorldHeight()
             : (this.boss.height || 180);
-        this.boss.y = this.groundY + LANE_OFFSET - bossWorldHeight;
-        // ボスを左向き（プレイヤー方向）に設定
+        // 待機体は金鯱の上に立っているので、その座標を退避してから接地処理を通す
+        const perchX = standby ? this.boss.x : null;
+        const perchY = standby ? this.boss.y : null;
+        // 最上階は大棟の上が足元ライン。constrainStage6ArenaActor が上書きするが、
+        // アリーナ外のボスと式を分けないためここでも接地基準から引く。
+        this.boss.groundY = this.getStage6ArenaGroundY();
+        this.boss.y = this.boss.groundY + LANE_OFFSET - bossWorldHeight;
+        this.constrainStage6ArenaActor(this.boss, true);
+        // どちらの経路でも左向き(プレイヤー方向)で登場する
         this.boss.facingRight = false;
+        this.boss.attackFacingRight = false;
 
-        // 登場演出フラグ: 画面右端から歩き入る
+        // 登場演出フラグ。
+        // 待機体は【金鯱から大屋根へ飛び降りる】。通常ボスは従来どおり右外からダッシュ。
         this.boss.isEntering = true;
-        this.boss.entranceTargetX = scrollX + CANVAS_WIDTH * this.bossEntranceTargetRatio; // 着地目標X
+        this.boss.entranceTargetX = this.isStage6Arena()
+            ? this.getStage6BossEntranceTargetX(this.boss, scrollX)
+            : scrollX + CANVAS_WIDTH * this.bossEntranceTargetRatio; // 着地目標X
         this.boss.entranceSpeed = 900; // 高速ダッシュ登場
+        if (standby && Number.isFinite(perchY)) {
+            this.boss.x = perchX;
+            this.boss.y = perchY;
+            // 湧いた最初のフレームから【金鯱の上に接地して立っている】状態にする。
+            // isGrounded=false で1フレーム挟むと、その1コマだけ空中脚に切り替わって
+            // 「登場直後に脚が一瞬ピクッと変わる」ように見える。
+            this.boss.stage6PerchHold = true;
+            this.boss.groundY = perchY + bossWorldHeight - LANE_OFFSET;
+            this.boss.isGrounded = true;
+            this.boss.vx = 0;
+            this.boss.vy = 0;
+            this.bossEntranceDrop = {
+                // タメ中の立ち位置(金鯱の上)だけを持つ。振り始めた後は
+                // 足場の当たり判定と重力・連撃モーションに任せる。
+                fromX: perchX,
+                fromY: perchY,
+                elapsed: 0,
+                hold: STAGE6_BOSS_DROP_HOLD_MS,
+                swinging: false,      // タメ明け(1撃目を振り始めた)
+                perchReleased: false  // 2段目で足場から離れた
+            };
+        } else {
+            this.bossEntranceDrop = null;
+        }
 
         this.bossIntroTimer = this.bossIntroDuration;
         this.bossDefeatLingerTimer = 0;
@@ -2474,6 +3138,8 @@ export class Stage {
         // (a) 描画していた Stage.render() が死んでいたので実際には出ておらず、
         // (b) 白の全画面フラッシュは色を飛ばす＝方針(色は変えない)に反する。
         // 衝撃フラッシュは「着地した瞬間の黒」に置き換え、impact フェーズで立てる。
+        // Stage6の将軍は既に屋根の上に立っている＝着地しないので、
+        // 接近も衝撃も踏まず turn(振り向き)から名乗りへ入る。
         this.bossIntroPhase = 'approach';
         this.bossIntroPhaseTimer = 0;
         this.bossUiRevealT = 0;
@@ -2509,8 +3175,11 @@ export class Stage {
     /** このステージのボス曲が既に再生中か(先頭からの鳴らし直しを防ぐ判定) */
     isBossBgmPlaying() {
         const expected = this.stageNumber === 6 ? 'lastboss' : 'boss';
-        return audio.currentBgmType === expected
-            && !!audio.bgmAudio && !audio.bgmAudio.paused;
+        const el = audio.bgmAudio;
+        if (!el || el.paused) return false;
+        // currentBgmType はクロスフェードの後始末(_stopBgmElement)で null に落ちることがある。
+        // 実際に鳴っている要素の src も見て、ラスボス曲の鳴らし直し(先頭へ戻る)を防ぐ。
+        return audio.currentBgmType === expected || (el.src || '').includes(`${expected}.mp3`);
     }
     
     // P3 空補償: 空バンド [0, groundY] を [skyVisTop, groundY] へアフィン圧縮する。
@@ -2982,6 +3651,26 @@ export class Stage {
                     ctx.fillStyle = deepNight;
                     ctx.fillRect(0, 0, CANVAS_WIDTH, this.groundY);
                 }
+            }
+        }
+
+        // Stage6の朝焼けは空そのものの色なので、天体・パノラマより先に空全面へ重ねる。
+        // 旧処理はパノラマ描画後に dawnHorizonY までの矩形を塗っていたため、
+        // 矩形下端が空を横切る一本線として露出していた。
+        if (this.stageNumber === 6) {
+            const dawnRise = this.smoothstep(0.55, 1.0, this.clamp01(this.progress / this.maxProgress));
+            if (dawnRise > 0.001) {
+                const dawnHorizonY = this.groundY - 125;
+                const dawnGlow = ctx.createRadialGradient(
+                    CANVAS_WIDTH * 0.5, dawnHorizonY, 0,
+                    CANVAS_WIDTH * 0.5, dawnHorizonY, CANVAS_WIDTH * 0.7
+                );
+                dawnGlow.addColorStop(0, `rgba(255, 180, 60, ${0.22 * dawnRise})`);
+                dawnGlow.addColorStop(0.35, `rgba(255, 120, 30, ${0.14 * dawnRise})`);
+                dawnGlow.addColorStop(1, 'rgba(255, 60, 10, 0)');
+                ctx.fillStyle = dawnGlow;
+                // 最終stopが透明なので塗り範囲を矩形で切らず、自然な円形減衰に任せる。
+                ctx.fillRect(0, -400, CANVAS_WIDTH, this.groundY + 800);
             }
         }
 
@@ -3775,7 +4464,7 @@ export class Stage {
         ctx.save();
         ctx.filter = filter;
         if (flipX) {
-            // 左右反転(金鯱の左端用: 同じアセットを外向きに使う)
+            // 左右端で同じアセットを使う場合の反転
             ctx.translate(x + drawW, y);
             ctx.scale(-1, 1);
             ctx.drawImage(image, 0, 0, drawW, drawH);
@@ -3798,10 +4487,9 @@ export class Stage {
      * Stage6 螺旋回廊: 柵越しに見える眼下のパノラマ。
      *
      * 【階層構造と一致させる単一ルール】
-     * 高度が上がるほど「近景は小さく沈み、遠景は大きく広がる」。これを数列で表す:
-     *   街(近景)   の高さ: 370 → 260 → 170  (単調減少 = 見下ろす角度が増して縮む)
-     *   連山(遠景) の高さ: 180 → 240 → 300  (単調増加 = 見通しが利いて広がる)
-     * 中間距離(竹林/街道)は方角の変化として題材だけ差し替え、街と山の中間の高さに置く。
+     * 遠い連山は全階層で同じ視角・同じ濃さ。高度は、手前の城下が沈んで消えることと
+     * 空の占有率が増すことで表す。手前が消えた際に山の裾まで露出すると拡大に見えるため、
+     * 山の下部は階層に関係なく同じ大気遠近マスクへ溶かす。
      *
      * 【共通の約束】
      * - 下端は全レイヤー床側(groundY+24)に統一。中途半端な高さで切ると帯が後ろの帯の
@@ -3816,28 +4504,38 @@ export class Stage {
         const farFilter = 'brightness(0.82) saturate(0.7)';
         const nearFilter = 'brightness(0.85) saturate(0.72)';
 
-        // 階層ごとの高さ数列は module-level(STAGE6_MTN_H など)に集約。
+        // 山の寸法・濃さ・下端は全階層で共通。高度で遠景を拡大しない。
         // 天体クリップ(getStage6MountainOcclusionY)が同じ数列を読むので二重管理を作らない。
-        const MTN_H = STAGE6_MTN_H;
         const MID_H = STAGE6_MID_H;
         const TOWN_H = STAGE6_TOWN_H;
-        // 山の遠近は「濃さ(alpha)」ではなく「フィルタ」で作る。
-        // 半透明にすると月や太陽が山を透けて見えてしまうため alpha は使わない(=1.0固定)。
-        const MTN_F = [
-            'brightness(0.62) saturate(0.44) contrast(0.88)',  // 1F: 一番霞んで見える
-            'brightness(0.70) saturate(0.54) contrast(0.92)',
-            'brightness(0.78) saturate(0.63) contrast(0.96)',
-            'brightness(0.86) saturate(0.72) contrast(1.0)'    // 最上階: 遠くまで見通せる
-        ];
+
+        // 最上階は屋根の左右端より外側で、山帯の下まで画面に露出する。
+        // 山画像の下端より下を朝焼け空のままにすると「山の下に空がある」帯になり、
+        // 連山全体が宙に浮いて見える。山の背後に不透明な谷底の深度色を先に敷き、
+        // 山麓から遥か下の地表へ続く一枚の遠景として閉じる。
+        // 白い靄や半透明バンドではなく暗い低彩度色なので、屋根が透けた印象も作らない。
+        if (zone === 3) {
+            const valleyTop = bottom - 18;
+            const valleyDepth = ctx.createLinearGradient(0, valleyTop, 0, CANVAS_HEIGHT);
+            valleyDepth.addColorStop(0, 'rgba(22, 26, 48, 1)');
+            valleyDepth.addColorStop(0.34, 'rgba(27, 27, 43, 1)');
+            valleyDepth.addColorStop(0.72, 'rgba(24, 20, 32, 1)');
+            valleyDepth.addColorStop(1, 'rgba(10, 11, 18, 1)');
+            ctx.fillStyle = valleyDepth;
+            ctx.fillRect(0, valleyTop, CANVAS_WIDTH, CANVAS_HEIGHT - valleyTop);
+        }
 
         // 1) 最奥: 連山
-        // widthScale: アセットが1024px周期で完全反復するため、等倍だと1画面(1280px)に
-        //   同じ稜線が2回出る。周期を1335px>1280に広げて二重露出を避ける。
-        //   ※新アセット(非反復・1536px)に差し替えたら 2.2 へ上げる。
+        // 山体は不透明のまま描く。旧処理は下部をdestination-outで透明化していたため、
+        // 背後の太陽の円周が山中に縦線として透け、稜線の矩形欠けに見えていた。
+        // 大気遠近は透明化ではなくfilterの低コントラスト・低彩度だけで表現する。
         this.renderStageBackdropTile(ctx, this.stage6PanoramaMountainsFarImage, progress, {
-            parallax: 0.05, drawHeight: MTN_H[zone], bottomY: bottom,
-            filter: MTN_F[zone], srcTopFrac: STAGE6_MTN_SRC_TOP, widthScale: 1.45,
-            mirrorRepeat: false
+            parallax: 0.038, drawHeight: STAGE6_MTN_H, bottomY: bottom,
+            filter: 'brightness(0.70) saturate(0.50) contrast(0.91)',
+            srcTopFrac: STAGE6_MTN_SRC_TOP, widthScale: 2.8,
+            // 左右端の異なる山画像を正順で突き合わせると縦継ぎになる。
+            // 交互反転なら同じ端同士が接続するため、稜線も色も連続する。
+            mirrorRepeat: true
         });
 
         // 2) 中間距離: 方角によって題材が変わる(一巡目=竹林 / 二巡目=街道)
@@ -3851,9 +4549,9 @@ export class Stage {
             });
         }
 
-        // 3) 手前: 城下の甍。登るほど低く薄くなり、最上階では見えなくなる
+        // 3) 手前: 城下の甍。回廊三面では同じ低い帯に固定し、山を隠さない。
         if (TOWN_H[zone] > 0) {
-            const townAlpha = [0.97, 0.9, 0.78, 0][zone];
+            const townAlpha = [0.82, 0.82, 0.82, 0][zone];
             const townPara = [0.2, 0.16, 0.14, 0.14][zone];
             this.renderStageBackdropTile(ctx, this.stage6PanoramaTownNearImage, progress, {
                 parallax: townPara, drawHeight: TOWN_H[zone], bottomY: bottom, alpha: townAlpha,
@@ -3882,29 +4580,63 @@ export class Stage {
      * 画像未読込時は描かない(従来の透かし櫓背景がフォールバックとして残る)。
      */
     /**
-     * 角の枠(境界からの左右幅)。角3だけは「統合屋根壁」で幅が違う。
-     * 角1・2: 通用門のある全高壁(枠810×512)
-     * 角3:    最上重の大屋根の左手前隅 + 開口のない盲壁(枠1152×512)。
-     *         軒が枠の左寄りに張り出すので左側を広く取る。
+     * 角の枠(境界からの左右幅)。角1・2の全高壁だけが使う。
+     * 角3は屋根だけを描くので枠を持たない(妻端の位置から直接導出する)。
      */
     getStage6CornerFrame(cornerIndex) {
-        if (cornerIndex === 2) {
-            return {
-                left: STAGE6_CORNER.FINAL_FRAME_LEFT_PX,
-                right: STAGE6_CORNER.FINAL_FRAME_RIGHT_PX
-            };
-        }
         return { left: STAGE6_CORNER.WALL_LEFT_PX, right: STAGE6_CORNER.WALL_RIGHT_PX };
     }
 
     /**
-     * 角3の軒先の先端(鉤縄が掛かる軒)のワールド座標。
-     * アセット未配置時は null(縄のアンカーが空中に浮かないようにフォールバックさせる)。
+     * 角3で見上げる大屋根の幾何。屋根は最上層の妻端(stage6_ridge_end_cap)を
+     * ミラーで、アリーナと同倍率で描く。壁や基部は描かない(見えるのは屋根だけ)。
+     * constants.js ではなくここで導出するのは、無バージョンimportで古い
+     * constants.js が混ざったときに「描画と鉤の噛み位置が食い違う」のを避けるため。
+     */
+    getStage6FinalRoofGeometry() {
+        const cap = this.stage6RidgeEndCapImage;
+        const capW = (cap && cap.naturalWidth > 0) ? cap.naturalWidth : 1024;
+        const capH = (cap && cap.naturalHeight > 0) ? cap.naturalHeight : 1024;
+        const S = STAGE6_FINAL_CAP_SCALE;
+        // 軒ラインを盲壁の天端に合わせると、妻端画像の原点(左上)の画面yが決まる
+        const originY = STAGE6_FINAL_ROOF_EAVE_SCREEN_Y - STAGE6_FINAL_CAP_EAVE_SRC_Y * S;
+        // ミラーして描くので、srcのxは「描画左端からの距離」に読み替える
+        const tipDx = (capW - STAGE6_FINAL_CAP_TIP_SRC.x) * S;
+        const hookDx = (capW - STAGE6_FINAL_CAP_HOOK_SRC.x) * S;
+        return {
+            eaveY: STAGE6_FINAL_ROOF_EAVE_SCREEN_Y,
+            cap: {
+                scale: S, w: capW * S, h: capH * S, srcW: capW, srcH: capH, originY,
+                tipDx, hookDx,
+                tipY: originY + STAGE6_FINAL_CAP_TIP_SRC.y * S,
+                hookY: originY + STAGE6_FINAL_CAP_HOOK_SRC.y * S
+            }
+        };
+    }
+
+    /** 角3で鎖鎌の演出を始める発火x(プレイヤーの右足先の閾値)。軒先を見上げる位置。 */
+    getStage6GrappleTriggerProbeX() {
+        const tip = this.getStage6EaveTip();
+        if (!tip) return null;
+        // 軒先の【手前】で足を止める。+にすると軒先を通り過ぎてから後ろへ投げる。
+        return tip.x - STAGE6_FINAL_GRAPPLE_LEAD_PX;
+    }
+
+    /**
+     * 角3の軒先の先端(鎖鎌が掛かる軒)のワールド座標。
+     * アセット未読込時も同じ座標に簡易軒を描くため、縄のアンカーは空中に浮かない。
      */
     getStage6EaveTip() {
         const cornerX = this.stage6CornerXs?.[2];
         if (!Number.isFinite(cornerX)) return null;
-        return { x: cornerX + STAGE6_CORNER.EAVE_TIP_DX, y: STAGE6_CORNER.EAVE_WORLD_Y };
+        const geo = this.getStage6FinalRoofGeometry();
+        // 鉤は【軒先の先端より少し上の隅棟】に掛ける。先端ちょうどだと
+        // 「軒の下端に引っかけている」中途半端な絵になる(ユーザー指摘)。
+        // 先端の世界x(STAGE6_FINAL_CAP_TIP_DX)を基準に、噛み位置までの差分を足す。
+        return {
+            x: cornerX + STAGE6_FINAL_CAP_TIP_DX + (geo.cap.hookDx - geo.cap.tipDx),
+            y: geo.cap.hookY
+        };
     }
 
     renderStage6CornerWalls(ctx, scrollX) {
@@ -3913,9 +4645,12 @@ export class Stage {
         for (let i = 0; i < this.stage6CornerXs.length; i++) {
             const cornerX = this.stage6CornerXs[i];
 
-            // 角3を越えた後(=大屋根アリーナ)は背後に構造物を一切描かない。
-            // 「屋根に飛び乗った」設定のため入口(門/破風)は存在しない。
-            if (i === 2 && this.cornersClimbed >= 3) continue;
+            // 角3は【見上げる屋根だけ】。屋根を支える壁や基部は描かない。
+            // 越えた後(=大屋根アリーナ)は何も描かない(飛び乗った設定なので入口は無い)。
+            if (i === 2) {
+                if (this.cornersClimbed < 3) this.renderStage6FinalRoof(ctx, cornerX, scrollX);
+                continue;
+            }
 
             const img = this.getStage6CornerWallImage(i);
             if (!img) continue;
@@ -3925,25 +4660,89 @@ export class Stage {
             if (x + frameW <= 0 || x >= CANVAS_WIDTH) continue;
             ctx.save();
             ctx.filter = 'brightness(0.86) saturate(0.76)';
-            // 画像全面を枠×512に描く。角3の統合アセットは2304×1024=枠1152×512と同比率。
+            // 画像全面を枠×512に描く(角1・2の全高壁は2304×1456=枠810×512と同比率)。
             ctx.drawImage(img, x, 0, frameW, laneY);
             ctx.filter = 'none';
 
             // 接地影: 基部と俯瞰床の継ぎ目を沈める(エンティティの落ち影と同じ考え方)。
-            // 角3は枠の左寄りが「軒だけで基部が無い」透過領域なので、
-            // 壁面が立ち上がる位置(=WALL_LEFT_PX)から右だけに敷く。
-            // 枠左端から敷くと廻縁の床に理由のない黒帯が乗る。
-            const shadowLeft = i === 2 ? Math.round(cornerX - STAGE6_CORNER.WALL_LEFT_PX - scrollX) : x;
-            const shadowW = x + frameW - shadowLeft;
             const shadowH = 26;
             const grad = ctx.createLinearGradient(0, laneY, 0, laneY + shadowH);
             grad.addColorStop(0, 'rgba(0, 0, 0, 0.42)');
             grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
             ctx.fillStyle = grad;
-            ctx.fillRect(shadowLeft, laneY, shadowW, shadowH);
+            ctx.fillRect(x, laneY, frameW, shadowH);
             ctx.restore();
 
         }
+    }
+
+    /**
+     * 角3で見上げる【最上層の大屋根だけ】を描く。
+     * 屋根は最上層の妻端(stage6_ridge_end_cap)をミラーで、アリーナと同倍率で描くので
+     * 瓦の目まで一致する。棟側(右)は平坦部を反復して画面の右端まで伸ばす。
+     * 屋根を支える壁・基部・接地影は描かない(見えるのは屋根だけにする)。
+     */
+    renderStage6FinalRoof(ctx, cornerX, scrollX) {
+        const cap = this.stage6RidgeEndCapImage;
+        if (!this.isStage6ImageReady(cap)) {
+            this.renderStage6FinalEaveFallback(ctx, cornerX, scrollX);
+            return;
+        }
+        const geo = this.getStage6FinalRoofGeometry();
+        const capLeft = cornerX + STAGE6_FINAL_CAP_TIP_DX - geo.cap.tipDx - scrollX;
+        if (capLeft >= CANVAS_WIDTH) return;
+        ctx.save();
+        ctx.filter = 'brightness(0.86) saturate(0.76)';
+        // 妻端本体(ミラー)。左端が軒先、右へ上がって棟。
+        ctx.save();
+        ctx.translate(capLeft + geo.cap.w, geo.cap.originY);
+        ctx.scale(-1, 1);
+        ctx.drawImage(cap, 0, 0, geo.cap.w, geo.cap.h);
+        ctx.restore();
+        // 棟側は平坦部(棟〜軒)を反復して画面右端まで覆う。妻端は640px幅しかないため。
+        const flatSrcW = STAGE6_FINAL_CAP_FLAT_SRC_W;
+        const flatW = flatSrcW * geo.cap.scale;
+        for (let fx = capLeft + geo.cap.w; fx < CANVAS_WIDTH; fx += flatW) {
+            const drawW = Math.min(flatW, CANVAS_WIDTH - fx);
+            ctx.drawImage(
+                cap,
+                0, 0, flatSrcW * (drawW / flatW), geo.cap.srcH,
+                fx, geo.cap.originY, drawW, geo.cap.h
+            );
+        }
+        ctx.filter = 'none';
+        ctx.restore();
+    }
+
+    /**
+     * 角3統合アセットが未読込の数フレームだけ使う簡易軒。
+     * 旧門アセットへ戻さず、鉤の噛み位置に必ず建築物の実体を置く。
+     */
+    renderStage6FinalEaveFallback(ctx, cornerX, scrollX) {
+        const tip = this.getStage6EaveTip();
+        const tipWorldX = tip ? tip.x : cornerX + STAGE6_CORNER.EAVE_TIP_DX;
+        const tipX = Math.round(tipWorldX - scrollX);
+        if (tipX > CANVAS_WIDTH || tipX + 520 < 0) return;
+        ctx.save();
+        const beam = ctx.createLinearGradient(0, 128, 0, 214);
+        beam.addColorStop(0, '#263041');
+        beam.addColorStop(0.55, '#111824');
+        beam.addColorStop(1, '#070b12');
+        ctx.fillStyle = beam;
+        ctx.beginPath();
+        ctx.moveTo(tipX, STAGE6_CORNER.EAVE_WORLD_Y - 12);
+        ctx.lineTo(tipX + 520, 40);
+        ctx.lineTo(tipX + 520, 214);
+        ctx.lineTo(tipX + 22, STAGE6_CORNER.EAVE_WORLD_Y + 34);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(182, 142, 82, 0.52)';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(tipX, STAGE6_CORNER.EAVE_WORLD_Y);
+        ctx.lineTo(tipX + 520, 58);
+        ctx.stroke();
+        ctx.restore();
     }
 
     renderStage6BackdropZones(ctx, progress) {
@@ -3988,23 +4787,6 @@ export class Stage {
             });
         }
 
-        // 大屋根アリーナの左右両端の棟端に金鯱を1体ずつ据える。
-        // アリーナ中央に着地した時点ではどちらも画面外(アリーナ幅3200 > 画面1280)。
-        // 右へ進むと右の金鯱が見えてきて、その手前で将軍が現れる。
-        const shachi = this.stage6RidgeShachiImage;
-        if (this.isStage6ImageReady(shachi)) {
-            const shachiH = Math.round(drawHeight * 1.06);
-            const shachiW = Math.ceil(shachiH * (shachi.naturalWidth / shachi.naturalHeight));
-            const arenaLeft = this.stage6CornerXs[2];
-            // アセットは頭が右向き。実際の天守と同じく左右の鯱は互いに向き合わせる:
-            // 左端はそのまま(頭が右=内向き)、右端を左右反転して頭を左=内向きにする。
-            this.renderStage6FixedBackdrop(ctx, shachi, arenaLeft + shachiW * 0.5, progress, {
-                drawHeight: shachiH, bottomY, filter
-            });
-            this.renderStage6FixedBackdrop(ctx, shachi, this.maxProgress - shachiW * 0.5, progress, {
-                drawHeight: shachiH, bottomY, filter, flipX: true
-            });
-        }
     }
 
     /**
@@ -4014,9 +4796,8 @@ export class Stage {
      *  αランプの半透明部を天体が透けて見えてしまう。その中間がこの線)
      */
     getStage6MountainOcclusionY() {
-        const zone = Math.max(0, Math.min(3, this.cornersClimbed || 0));
         const bottom = this.groundY + 24;
-        const drawH = STAGE6_MTN_H[zone];
+        const drawH = STAGE6_MTN_H;
         const top = bottom - drawH;
         // srcTopFrac で上端を捨てているので、不透明開始位置を「残った範囲での比率」に直す
         const visible = Math.max(0.0001, 1 - STAGE6_MTN_SRC_TOP);
@@ -4376,29 +5157,6 @@ export class Stage {
                 // 眼下パノラマ(高度の証拠)は欄干バンド(ゾーン背景の不透明下部)の奥に描く
                 this.renderStage6Panorama(ctx, p);
                 this.renderStage6BackdropZones(ctx, p);
-
-                // 天守の夜明け(朝焼け)。旧実装は bossSpawned 条件付きでボス演出の一部
-                // だったが、これは背景の時間帯設計なのでボスから切り離して常時表示にする。
-                // 強度は進行度で立ち上げる(終盤=最終日の出)。
-                {
-                    const dawnRise = this.smoothstep(0.55, 1.0, this.clamp01(this.progress / this.maxProgress));
-                    ctx.save();
-                    // 朝焼けの大グローのみ。「地平線の細い光の帯」は廃止——
-                    // 帯はパノラマの上に直接描かれるため、連山と屋根の間に
-                    // 「謎の明るい線」として乗ってしまう(湖・空白ラインに誤読される)。
-                    // 基準は空と連山の境(真の地平線 ≈ groundY-125)。
-                    const dawnHorizonY = this.groundY - 125;
-                    const dawnGlow = ctx.createRadialGradient(
-                        CANVAS_WIDTH * 0.5, dawnHorizonY, 0,
-                        CANVAS_WIDTH * 0.5, dawnHorizonY, CANVAS_WIDTH * 0.7
-                    );
-                    dawnGlow.addColorStop(0,   `rgba(255, 180, 60, ${0.22 * dawnRise})`);
-                    dawnGlow.addColorStop(0.35, `rgba(255, 120, 30, ${0.14 * dawnRise})`);
-                    dawnGlow.addColorStop(1,   'rgba(255, 60, 10, 0)');
-                    ctx.fillStyle = dawnGlow;
-                    ctx.fillRect(0, 0, CANVAS_WIDTH, dawnHorizonY);
-                    ctx.restore();
-                }
                 break;
             }
         }
@@ -4524,14 +5282,16 @@ export class Stage {
         const screenEnd = worldEnd - renderProgress;
         if (screenEnd <= 0 || screenStart >= CANVAS_WIDTH) return false;
 
-        // topAlign: 画像上端を床上端(horizonY)にぴったり合わせる。
-        // 大棟の床は上端17%が「棟の冠(鳥衾+のし瓦)」で、通常のオーバースキャン(-20px)だと
-        // 冠が刈り取られて奥側斜面との継ぎ目が裸になるため、大棟ゾーンだけ整列させる。
+        // topAlign(=最上階の大屋根): 画像上端(=棟冠の上端)を【足元ライン】に合わせる。
+        // 屋根に立つ人の目線=地平線は足元より上なので、棟は地平線の下に来るのが正しい。
+        // 高さは STAGE6_ROOF_DRAW_H で固定し、画面下端を越える分は捨てる
+        // (bottomYに合わせて縮めると瓦寸法と棟の厚みが小さくなる)。
+        const clipTop = topAlign ? this.getStage6RoofRidgeTopY() : horizonY;
         const drawH = topAlign
-            ? Math.ceil(bottomY - horizonY)
+            ? STAGE6_ROOF_DRAW_H
             : Math.ceil(bottomY - horizonY + 40);
         const drawW = Math.ceil(drawH * (image.naturalWidth / image.naturalHeight));
-        const y = topAlign ? horizonY : Math.floor(horizonY - 20);
+        const y = topAlign ? clipTop : Math.floor(horizonY - 20);
         const firstTile = Math.floor((renderProgress - worldStart) / drawW) - 1;
         const lastTile = Math.ceil((renderProgress + CANVAS_WIDTH - worldStart) / drawW) + 1;
 
@@ -4539,9 +5299,9 @@ export class Stage {
         ctx.beginPath();
         ctx.rect(
             Math.max(0, screenStart),
-            horizonY,
+            clipTop,
             Math.max(0, Math.min(CANVAS_WIDTH, screenEnd) - Math.max(0, screenStart)),
-            Math.max(0, bottomY - horizonY)
+            Math.max(0, bottomY - clipTop)
         );
         ctx.clip();
         ctx.filter = filter;
@@ -4585,12 +5345,19 @@ export class Stage {
             },
             {
                 // 大棟化: 四巡目の床は大棟の棟瓦+手前側屋根斜面。
-                // 画像上端17%が棟の冠(鳥衾+のし瓦)なので上端を床上端に整列させ、
-                // 冠帯(480..521)が足元ライン512をまたいで奥側斜面との継ぎ目を覆うようにする。
-                // 軒下に下界を覗かせる演出は廃止済み(何が見えているか読めないため)。
-                // 屋根の上に立っているので、床は画面下端まで瓦が続くのが正しい。
+                // 【左右の反り屋根の面も同じタイルで埋める】。端材の面を重ねると
+                // 横段ピッチが床の1.55倍細かく、左右と中央で質感が割れて見えるため、
+                // 面は床が一貫して描き、端材は稜線と軒先だけを上に重ねる。
+                // はみ出しは renderGroundTenshu の屋根シルエットクリップが切る。
+                // 開始xは実体端から1タイル(608px)戻すだけにして、瓦の位相を動かさない。
+                // 画像上端21%の棟冠を足元ライン(512)から描く=キャラは棟の上に立つ。
                 image: this.stage6RidgeEavesGroundImage,
-                start: b3,
+                // 【最上層へ上がるまでは描かない】。開始xが境界より128px手前(実体端-608)
+                // なので、三層目を歩いている間に大屋根の瓦が床帯へ露出していた
+                // (右下に謎の建造物が見える、の正体)。切り替えは暗転中に起きる。
+                start: this.isStage6Arena()
+                    ? this.getStage6ArenaPhysicalLeft() - 608
+                    : Number.POSITIVE_INFINITY,
                 end: this.maxProgress,
                 topAlign: true,
             }
@@ -4611,6 +5378,184 @@ export class Stage {
         // 未通過側(+520)は接近中の画面右端(+500)より先、通過側(+380)は暗転明けの画面左端ちょうどで、
         // どの局面でも継ぎ目が画面に映らなくなったため、受け手のマーキング自体が不要になった。
         return rendered;
+    }
+
+    /**
+     * 端材(妻端)の上縁プロファイルを実測して返す(初回のみ)。
+     * これが屋根の実体シルエット。床のクリップと、端材から「面」を削って
+     * 稜線・軒先だけ残す加工の両方で使う。
+     */
+    getStage6EndCapProfile() {
+        if (this._stage6CapProfile !== undefined) return this._stage6CapProfile;
+        const cap = this.stage6RidgeEndCapImage;
+        if (!this.isStage6ImageReady(cap)) return null; // 未読込。次フレーム以降に再挑戦
+        const W = cap.naturalWidth, H = cap.naturalHeight;
+        const c = document.createElement('canvas');
+        c.width = W; c.height = H;
+        const cx = c.getContext('2d', { willReadFrequently: true });
+        cx.drawImage(cap, 0, 0);
+        const data = cx.getImageData(0, 0, W, H).data;
+        const step = 8;
+        const samples = [];
+        for (let x = 0; x < W; x += step) {
+            let top = null;
+            for (let y = 0; y < H; y += 2) {
+                if (data[(y * W + x) * 4 + 3] > 12) { top = y; break; }
+            }
+            samples.push({ x, top });
+        }
+        this._stage6CapProfile = { W, H, samples };
+        return this._stage6CapProfile;
+    }
+
+    /**
+     * 端材から屋根「面」を削り、稜線(隅棟)と軒先の巻きだけを残したキャンバス(初回のみ生成)。
+     * 面は床(eaves)のタイルに任せる。端材アセットの横段ピッチが床の1.55倍細かく、
+     * そのまま重ねると左右と中央で質感が割れて見えるため。
+     * 重なり部(src x<256=大棟の実体端より内側)は床が同じ絵を描くので丸ごと削る。
+     */
+    getStage6EndCapBand() {
+        if (this._stage6CapBand) return this._stage6CapBand;
+        const p = this.getStage6EndCapProfile();
+        const cap = this.stage6RidgeEndCapImage;
+        if (!p || !this.isStage6ImageReady(cap)) return null;
+        const c = document.createElement('canvas');
+        c.width = p.W; c.height = p.H;
+        const cx = c.getContext('2d');
+        cx.drawImage(cap, 0, 0);
+        cx.globalCompositeOperation = 'destination-out';
+        cx.beginPath();
+        let started = false;
+        for (const s of p.samples) {
+            if (s.top === null) continue;
+            // 軒先の巻きは厚みがあるので、先端へ向かって残す帯を広げる
+            const tipT = Math.max(0, Math.min(1, (s.x / p.W - 0.70) / 0.30));
+            const band = 34 + 52 * tipT;
+            const y = s.top + band;
+            if (!started) { cx.moveTo(s.x, y); started = true; } else { cx.lineTo(s.x, y); }
+        }
+        if (started) {
+            cx.lineTo(p.W, p.H);
+            cx.lineTo(0, p.H);
+            cx.closePath();
+            cx.fill();
+        }
+        cx.fillRect(0, 0, Math.round(p.W * 0.25), p.H); // 重なり部は床に任せる
+        cx.globalCompositeOperation = 'source-over';
+        this._stage6CapBand = c;
+        return c;
+    }
+
+    /**
+     * 屋根の実体シルエット(大棟+左右の隅棟の内側)をクリップパスとして積む。
+     * これで床のタイルが端材の面まで途切れず届き、左右と中央の質感が原理的に一致する。
+     * 端材が未読込のときは false を返す(呼び出し側が矩形クリップへフォールバック)。
+     */
+    clipStage6RoofSilhouette(ctx, renderProgress) {
+        const p = this.getStage6EndCapProfile();
+        if (!p) return false;
+        const capScale = 640 / p.W;
+        const capTopY = this.getStage6RoofRidgeTopY();
+        const physLeft = this.getStage6ArenaPhysicalLeft();
+        const physRight = this.getStage6ArenaPhysicalRight();
+        const leftOriginX = physLeft + 160 - renderProgress;   // 左端材(左右反転)のsrc x=0
+        const rightOriginX = physRight - 160 - renderProgress; // 右端材のsrc x=0
+        // 大棟の実体端より内側(src<256)は端材と中央材の重なり部で、アセットの上縁が
+        // 6〜14px下がっている。そこまでポリゴンに含めると水平であるべき大棟の上端が
+        // 斜めに削れ、左端だけ鯱の足元に隙間が出る(右端は削れ方が0に収束するので出ない)。
+        // 実体端から外側だけをなぞり、実体端の間は必ず y=416 の水平線で繋ぐ。
+        const outer = p.samples.filter(s => s.top !== null && s.x >= 256);
+        if (outer.length < 3) return false;
+        const leftTerminalX = leftOriginX - 256 * capScale;   // = 左の実体端
+        const rightTerminalX = rightOriginX + 256 * capScale; // = 右の実体端
+        const outerTipX = outer[outer.length - 1].x * capScale;
+
+        ctx.beginPath();
+        // 左端: 外側の軒先 → 実体端へ、上縁をなぞる
+        ctx.moveTo(leftOriginX - outerTipX, CANVAS_HEIGHT);
+        for (let i = outer.length - 1; i >= 0; i--) {
+            const s = outer[i];
+            ctx.lineTo(leftOriginX - s.x * capScale, capTopY + s.top * capScale);
+        }
+        // 大棟の上端(完全水平)
+        ctx.lineTo(leftTerminalX, capTopY);
+        ctx.lineTo(rightTerminalX, capTopY);
+        // 右端: 実体端 → 外側の軒先へ
+        for (const s of outer) {
+            ctx.lineTo(rightOriginX + s.x * capScale, capTopY + s.top * capScale);
+        }
+        ctx.lineTo(rightOriginX + outerTipX, CANVAS_HEIGHT);
+        ctx.closePath();
+        ctx.clip();
+        return true;
+    }
+
+    /** 最上階アリーナの左右端。端部専用の妻面へ金鯱を載せる。 */
+    renderStage6ArenaRidgeEnds(ctx, renderProgress) {
+        if (!this.isStage6Arena()) return;
+        const cap = this.stage6RidgeEndCapImage;
+        const arenaLeft = this.getStage6ArenaLeft();
+        const arenaRight = this.maxProgress;
+        const edgeInset = STAGE6_CORNER.ARENA_EDGE_INSET_PX;
+        const physicalLeft = arenaLeft + edgeInset;
+        const physicalRight = arenaRight - edgeInset;
+        const capW = 640;
+        const capH = 640;
+        // v7 source: x=0..256が中央材との160px重なり、x=256が水平大棟の実体端。
+        // 原点yは大棟の上端(=足元ライン512)。端材を全幅描画して中央材から反り軒まで繋ぐ。
+        // 反り軒の先端は画面下端より下へ出るが、隅棟の斜面は208px分見えるので端は読める。
+        const capOverlapW = capW * (256 / 1024);
+        const capY = this.getStage6RoofRidgeTopY();
+        const filter = 'brightness(0.88) saturate(0.72) contrast(0.98)';
+
+        // 端材は「稜線(隅棟)と軒先の巻き」だけを重ねる。屋根の面は床のタイルが
+        // シルエットの内側まで届いているので、ここで面を描くと質感が二重になり、
+        // 左右と中央で瓦の段が食い違って見える(端材の横段は床の1.55倍細かい)。
+        const capBand = this.getStage6EndCapBand();
+        const capSource = capBand || (this.isStage6ImageReady(cap) ? cap : null);
+        if (capSource) {
+            const drawCap = (terminalWorldX, flipX) => {
+                const terminalX = Math.round(terminalWorldX - renderProgress);
+                const x = Math.round(flipX
+                    ? terminalX - (capW - capOverlapW)
+                    : terminalX - capOverlapW);
+                if (x + capW <= 0 || x >= CANVAS_WIDTH) return;
+                ctx.save();
+                ctx.filter = filter;
+                if (flipX) {
+                    ctx.translate(x + capW, capY);
+                    ctx.scale(-1, 1);
+                    ctx.drawImage(capSource, 0, 0, capW, capH);
+                } else {
+                    ctx.drawImage(capSource, x, capY, capW, capH);
+                }
+                ctx.restore();
+            };
+            drawCap(physicalLeft, true);
+            drawCap(physicalRight, false);
+        }
+
+        const shachi = this.stage6RidgeShachiImage;
+        if (!this.isStage6ImageReady(shachi)) return;
+        // 鯱は水平大棟の端そのものへ載せる。sourceの低い取付足下端(SHACHI_VISIBLE_BOTTOM)を
+        // 大棟上面へ接地し、広い台座や接続フェードを作らない。
+        // 寸法・内寄せはコライダー(getStage6ShachiSolidBox)と共有する定数を使う。
+        const shachiH = SHACHI_DRAW_H;
+        const shachiInset = SHACHI_INSET_PX;
+        const shachiBottomY = Math.round(capY + shachiH * (1 - SHACHI_VISIBLE_BOTTOM));
+        const shachiFilter = 'brightness(0.92) saturate(0.82) contrast(1)';
+        // sourceは左向き。実城の対になる鯱と同じく、左右とも頭を大棟中央へ向ける。
+        this.renderStage6FixedBackdrop(ctx, shachi, physicalLeft + shachiInset, renderProgress, {
+            drawHeight: shachiH,
+            bottomY: shachiBottomY,
+            filter: shachiFilter,
+            flipX: true
+        });
+        this.renderStage6FixedBackdrop(ctx, shachi, physicalRight - shachiInset, renderProgress, {
+            drawHeight: shachiH,
+            bottomY: shachiBottomY,
+            filter: shachiFilter
+        });
     }
 
     renderStage6GroundThresholds(ctx, renderProgress, horizonY, bottomY) {
@@ -4963,6 +5908,21 @@ export class Stage {
         const horizonY = this.groundY;
         const bottomY = CANVAS_HEIGHT;
 
+        // 最上階アリーナだけは、床の実体を【屋根のシルエット】で切る。
+        // 大棟から左右の隅棟の内側までを1枚のタイルで埋めるので、端と中央で
+        // 瓦の寸法・位相が原理的に一致する(端材は稜線と軒先だけを上に重ねる)。
+        // 端材が未読込の間は従来どおり実体端の矩形で止め、空へタイルを溢れさせない。
+        if (this.isStage6Arena() && !this.clipStage6RoofSilhouette(ctx, renderProgress)) {
+            const edgeInset = STAGE6_CORNER.ARENA_EDGE_INSET_PX;
+            const roofLeft = this.getStage6ArenaLeft() + edgeInset - renderProgress;
+            const roofRight = this.maxProgress - edgeInset - renderProgress;
+            const clipLeft = Math.max(0, roofLeft);
+            const clipRight = Math.min(CANVAS_WIDTH, roofRight);
+            ctx.beginPath();
+            ctx.rect(clipLeft, 0, Math.max(0, clipRight - clipLeft), CANVAS_HEIGHT);
+            ctx.clip();
+        }
+
         // 区画画像の読込中にも床が抜けないよう、暗い中立色だけを敷いて待つ。
         const roadGrad = ctx.createLinearGradient(0, horizonY, 0, bottomY);
         roadGrad.addColorStop(0, this.interpolateColor('#32343a', '#111216', darken));
@@ -4971,7 +5931,8 @@ export class Stage {
         ctx.fillStyle = roadGrad;
         ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
 
-        if (this.renderStage6GroundZones(ctx, renderProgress, horizonY, bottomY)) {
+        const renderedGround = this.renderStage6GroundZones(ctx, renderProgress, horizonY, bottomY);
+        if (renderedGround) {
             const moonSheen = ctx.createLinearGradient(0, horizonY, 0, bottomY);
             moonSheen.addColorStop(0, 'rgba(210, 224, 232, 0)');
             moonSheen.addColorStop(0.34, `rgba(210, 224, 232, ${(0.07 - darken * 0.02).toFixed(3)})`);
@@ -4984,12 +5945,13 @@ export class Stage {
             bottomShade.addColorStop(1, `rgba(0,0,0,${(0.22 + darken * 0.16).toFixed(3)})`);
             ctx.fillStyle = bottomShade;
             ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
-            ctx.restore();
-            return;
         }
 
-        // 画像未読込時はベースグラデーションだけで待ち、旧Canvas金目地へは戻さない。
+        // 地面だけに適用した実体端クリップを先に解除する。妻端と金鯱は屋根の外側へ
+        // 張り出す部品なので、同じクリップ内で描くと消えて赤い空だけが矩形に露出する。
         ctx.restore();
+        this.renderStage6ArenaRidgeEnds(ctx, renderProgress);
+        // 画像未読込時はベースグラデーションだけで待ち、旧Canvas金目地へは戻さない。
     }
 
     // ============================================
@@ -5100,10 +6062,33 @@ export class Stage {
                 ctx.fillRect(W - pw, 0, pw, H);
             }
 
-            // 着地の衝撃フラッシュ。【黒】である点が重要 ─ 白の全画面フラッシュは
-            // 一瞬でも色を飛ばし、その残像が「明るい暖色の空」に見えてしまう。
+            // 決戦の舞台枠。画面端の小さな隅飾りだけで場を締める。
+            // 旧中央水平線はボスHPバー上部の菱形と一体に見える一方で役割がなく、
+            // HUDを散らかしていたため描画しない。
+            const accents = [
+                [135, 194, 151], [205, 167, 111], [177, 196, 222],
+                [218, 139, 91], [205, 178, 128], [229, 176, 194]
+            ];
+            const ac = accents[Math.max(0, Math.min(5, this.stageNumber - 1))];
+            const frameA = 0.30 * b;
+            const marginX = Math.max(28, W * 0.055);
+            const topY = Math.max(26, H * 0.052);
+
+            ctx.strokeStyle = `rgba(${ac[0]}, ${ac[1]}, ${ac[2]}, ${(frameA * 0.76).toFixed(3)})`;
+            ctx.lineWidth = 1.2;
+            const cornerLen = Math.min(38, W * 0.035);
+            for (const side of [-1, 1]) {
+                const xx = side < 0 ? marginX : W - marginX;
+                ctx.beginPath();
+                ctx.moveTo(xx, topY + 18);
+                ctx.lineTo(xx, topY);
+                ctx.lineTo(xx + side * cornerLen, topY);
+                ctx.stroke();
+            }
+
+            // 着地の瞬間だけ視野を締める。常時暗くしない。
             if (this.bossEntranceFlash > 0.004) {
-                ctx.fillStyle = `rgba(0, 0, 0, ${Math.min(0.5, this.bossEntranceFlash).toFixed(3)})`;
+                ctx.fillStyle = `rgba(0, 0, 0, ${Math.min(0.24, this.bossEntranceFlash).toFixed(3)})`;
                 ctx.fillRect(0, 0, W, H);
             }
             ctx.restore();
@@ -5136,56 +6121,88 @@ export class Stage {
         const pMod = time * 0.001;
         
         switch (this.stageNumber) {
-            case 1: { // 竹林: 風に舞う竹の葉と斜めの「風の筋」
+            case 1: { // 竹林: 墨のような風の帯と、奥行きを持って返る竹葉
                 ctx.globalCompositeOperation = 'source-over';
-                // 太い風の筋
-                for (let i = 0; i < 12; i++) {
-                    const seed = i * 13.7;
-                    const x = (seed * 100 + pMod * 1200) % (CANVAS_WIDTH + 600) - 300;
-                    const y = (seed * 50 + pMod * 300) % CANVAS_HEIGHT;
-                    const alpha = (0.06 + (seed % 7) * 0.012) * blend;
-                    ctx.strokeStyle = `rgba(200, 240, 220, ${alpha})`;
-                    ctx.lineWidth = 1.5 + (seed % 3) * 0.8;
+                for (let i = 0; i < 5; i++) {
+                    const seed = i * 19.7;
+                    const span = CANVAS_WIDTH + 720;
+                    const x = ((seed * 171 + pMod * 330) % span) - 360;
+                    const y = 92 + i * 86 + Math.sin(pMod * 0.7 + seed) * 28;
+                    const alpha = (0.045 + i * 0.008) * blend;
+                    const ribbon = ctx.createLinearGradient(x, y, x + 390, y + 65);
+                    ribbon.addColorStop(0, 'rgba(190, 224, 202, 0)');
+                    ribbon.addColorStop(0.48, `rgba(190, 224, 202, ${alpha})`);
+                    ribbon.addColorStop(1, 'rgba(190, 224, 202, 0)');
+                    ctx.strokeStyle = ribbon;
+                    ctx.lineWidth = 1.2 + i * 0.22;
                     ctx.beginPath();
                     ctx.moveTo(x, y);
-                    ctx.lineTo(x + 280, y + 60);
+                    ctx.bezierCurveTo(x + 105, y - 28, x + 254, y + 82, x + 390, y + 48);
                     ctx.stroke();
                 }
-                // 細かい風の粒子
-                ctx.fillStyle = `rgba(230, 255, 240, ${0.45 * blend})`;
-                for (let i = 0; i < 25; i++) {
-                    const seed = i * 17.3;
-                    const px = (seed * 200 + pMod * 1400) % (CANVAS_WIDTH + 200) - 100;
-                    const py = (seed * 57 + pMod * 380) % CANVAS_HEIGHT;
-                    ctx.fillRect(px, py, 2.5, 1);
+                const leaves = this.cachedAssets.bambooLeaves;
+                if (leaves?.length) {
+                    for (let i = 0; i < 18; i++) {
+                        const seed = i * 23.73;
+                        const depth = 0.54 + (i % 3) * 0.24;
+                        const span = CANVAS_WIDTH + 180;
+                        const px = ((seed * 109 + pMod * (150 + depth * 120)) % span) - 90;
+                        const py = 45 + ((seed * 73 + pMod * 24) % Math.max(80, this.groundY - 70));
+                        const flip = 0.18 + Math.abs(Math.cos(pMod * 1.8 + seed)) * 0.82;
+                        const size = 13 + depth * 10;
+                        ctx.save();
+                        ctx.globalAlpha = (0.28 + depth * 0.22) * blend;
+                        ctx.translate(px, py);
+                        ctx.rotate(-0.24 + Math.sin(pMod + seed) * 0.42);
+                        ctx.scale(flip, 1);
+                        ctx.drawImage(leaves[i % leaves.length], -size * 0.5, -size * 0.5, size, size);
+                        ctx.restore();
+                    }
                 }
                 break;
             }
-            case 2: { // 街道: 陽炎(ヒートヘイズ)と舞い上がる土埃
+            case 2: { // 街道: 地を這う薄い砂煙と熱の揺らぎ
                 ctx.globalCompositeOperation = 'source-over';
-                for (let i = 0; i < 30; i++) {
-                    const seed = i * 9.1;
-                    const x = (seed * 123 - pMod * 250 + CANVAS_WIDTH) % CANVAS_WIDTH;
-                    const y = this.groundY - 2 - (seed * 15 + pMod * 40) % 80;
-                    const alpha = 0.2 * blend * (0.6 + Math.sin(pMod * 3 + seed) * 0.4);
-                    const r = 3 + (seed % 6);
-                    ctx.fillStyle = `rgba(160, 140, 110, ${alpha})`;
+                for (let i = 0; i < 9; i++) {
+                    const seed = i * 31.19;
+                    const x = ((seed * 83 - pMod * (42 + i * 2)) % (CANVAS_WIDTH + 260) + CANVAS_WIDTH + 260) % (CANVAS_WIDTH + 260) - 130;
+                    const lift = (pMod * 18 + seed * 7) % 88;
+                    const y = this.groundY + 12 - lift;
+                    const rx = 34 + (i % 4) * 14;
+                    const a = (0.065 + (i % 3) * 0.018) * blend * (1 - lift / 100);
+                    const dust = ctx.createRadialGradient(x, y, 0, x, y, rx);
+                    dust.addColorStop(0, `rgba(196, 178, 145, ${a})`);
+                    dust.addColorStop(1, 'rgba(170, 150, 118, 0)');
+                    ctx.save();
+                    ctx.translate(x, y);
+                    ctx.scale(1, 0.28);
+                    ctx.translate(-x, -y);
+                    ctx.fillStyle = dust;
                     ctx.beginPath();
-                    ctx.arc(x, y, r, 0, Math.PI * 2);
+                    ctx.arc(x, y, rx, 0, Math.PI * 2);
                     ctx.fill();
+                    ctx.restore();
+                }
+                ctx.strokeStyle = `rgba(235, 224, 199, ${(0.08 * blend).toFixed(3)})`;
+                ctx.lineWidth = 1;
+                for (let i = 0; i < 3; i++) {
+                    const y = this.groundY - 28 - i * 22;
+                    const wave = Math.sin(pMod * 1.15 + i) * 11;
+                    ctx.beginPath();
+                    ctx.moveTo(120, y);
+                    ctx.bezierCurveTo(360, y + wave, 780, y - wave, CANVAS_WIDTH - 100, y + wave * 0.4);
+                    ctx.stroke();
                 }
                 break;
             }
-            case 3: { // 山道: 沸き立つ霊霧と天使の梯子
+            case 3: { // 山道: 谷からほどける霊霧と細い薄明光
                 ctx.globalCompositeOperation = 'screen';
-                // 天使の梯子（光の筋）
-                const beamCount = 5;
+                const beamCount = 2;
                 for (let i = 0; i < beamCount; i++) {
                     const bSeed = i * 2.3;
-                    const bx = CANVAS_WIDTH * (0.15 + i * 0.18 + Math.sin(pMod * 0.4 + bSeed) * 0.04);
-                    const bw = 80 + Math.sin(pMod * 1.2 + bSeed) * 30;
-                    const alpha = 0.15 * blend * (0.7 + Math.sin(pMod * 1.8 + bSeed) * 0.3);
-                    // 無彩色の白のみ（旧 230,240,255 は僅かに青を足していた）
+                    const bx = CANVAS_WIDTH * (0.28 + i * 0.36 + Math.sin(pMod * 0.22 + bSeed) * 0.025);
+                    const bw = 54 + Math.sin(pMod * 0.6 + bSeed) * 12;
+                    const alpha = 0.07 * blend * (0.82 + Math.sin(pMod * 0.9 + bSeed) * 0.18);
                     const grad = ctx.createLinearGradient(bx, 0, bx + 120, this.groundY);
                     grad.addColorStop(0, `rgba(255, 255, 255, ${alpha})`);
                     grad.addColorStop(1, `rgba(255, 255, 255, 0)`);
@@ -5197,54 +6214,76 @@ export class Stage {
                     ctx.lineTo(bx + 200, this.groundY + 50);
                     ctx.fill();
                 }
-                // 下から湧き上がる霊霧（より濃密に）
-                for (let i = 0; i < 20; i++) {
-                    const seed = i * 11.3;
-                    const x = (seed * 145 + Math.sin(pMod * 0.7 + seed) * 60) % CANVAS_WIDTH;
-                    const y = this.groundY + 20 - (pMod * 60 + seed * 30) % 200;
-                    const r = 25 + seed % 40;
-                    const alpha = 0.25 * blend * this.clamp01(1 - (this.groundY - y) / 200);
-                    ctx.fillStyle = `rgba(240, 245, 255, ${alpha})`;
+                for (let i = 0; i < 7; i++) {
+                    const seed = i * 15.7;
+                    const y = this.groundY + 20 - i * 23 + Math.sin(pMod * 0.38 + seed) * 12;
+                    const fog = ctx.createLinearGradient(0, y, CANVAS_WIDTH, y);
+                    fog.addColorStop(0, 'rgba(238, 244, 249, 0)');
+                    fog.addColorStop(0.3, `rgba(238, 244, 249, ${(0.045 * blend).toFixed(3)})`);
+                    fog.addColorStop(0.7, `rgba(238, 244, 249, ${(0.065 * blend).toFixed(3)})`);
+                    fog.addColorStop(1, 'rgba(238, 244, 249, 0)');
+                    ctx.strokeStyle = fog;
+                    ctx.lineWidth = 8 + i * 1.8;
                     ctx.beginPath();
-                    ctx.arc(x, y, r, 0, Math.PI * 2);
+                    ctx.moveTo(-80, y);
+                    ctx.bezierCurveTo(250, y - 22, 590, y + 28, CANVAS_WIDTH + 80, y - 6);
+                    ctx.stroke();
+                }
+                break;
+            }
+            case 4: { // 城下町: 芯と残光を持つ火の粉
+                ctx.globalCompositeOperation = 'screen';
+                const glow = this.cachedAssets.starGlow;
+                for (let i = 0; i < 28; i++) {
+                    const seed = i * 17.3;
+                    const x = ((seed * 87 - pMod * 92 + Math.sin(pMod * 1.5 + seed) * 24) % (CANVAS_WIDTH + 160) + CANVAS_WIDTH + 160) % (CANVAS_WIDTH + 160) - 80;
+                    const y = ((seed * 143 - pMod * (52 + i % 4 * 8)) % (CANVAS_HEIGHT + 90) + CANVAS_HEIGHT + 90) % (CANVAS_HEIGHT + 90) - 40;
+                    const twinkle = 0.45 + Math.sin(pMod * 6 + seed) * 0.28;
+                    const d = 9 + (i % 4) * 2;
+                    ctx.strokeStyle = `rgba(255, 166, 73, ${(0.20 * blend * twinkle).toFixed(3)})`;
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(x, y + 2);
+                    ctx.quadraticCurveTo(x + 4, y + 11, x + 1, y + 20);
+                    ctx.stroke();
+                    if (glow) {
+                        ctx.globalAlpha = 0.34 * blend * twinkle;
+                        ctx.drawImage(glow, x - d * 0.5, y - d * 0.5, d, d);
+                    }
+                    ctx.globalAlpha = 1;
+                    ctx.fillStyle = `rgba(255, 214, 149, ${(0.62 * blend * twinkle).toFixed(3)})`;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 0.8 + (i % 3) * 0.35, 0, Math.PI * 2);
                     ctx.fill();
                 }
                 break;
             }
-            case 4: { // 城下町: 降り注ぐ火の粉
-                // 旧「背景の赤火の照り返し」(rgba(255,50,0) の全画面 radial を screen)は撤去。
-                // 全画面の有彩色オーバーレイは色相を動かすため方針(色は変えない)に反する。
-                // 火の粉そのものは空中の物体なので色を持ってよい。
+            case 5: { // 城内: 障子光に浮かぶ細かな塵
                 ctx.globalCompositeOperation = 'screen';
-                for (let i = 0; i < 50; i++) {
-                    const seed = i * 17.3;
-                    // 上昇しつつ横に流れる動き
-                    const x = (seed * 87 - pMod * 180 + Math.sin(pMod * 2 + seed) * 30 + CANVAS_WIDTH * 1.5) % (CANVAS_WIDTH * 1.5) - CANVAS_WIDTH * 0.25;
-                    const y = (seed * 143 - pMod * 80 + CANVAS_HEIGHT) % CANVAS_HEIGHT;
-                    const r = 1.4 + (seed % 2.5);
-                    const twinkle = 0.4 + Math.sin(pMod * 14 + seed) * 0.6;
-                    ctx.fillStyle = `rgba(255, ${140 + seed % 100}, 40, ${blend * twinkle})`;
-                    ctx.fillRect(x, y, r, r);
-                    if (twinkle > 0.8) {
-                        // 重いshadowBlurを避け、半透明の大きな矩形で発光を表現
-                        ctx.fillStyle = `rgba(255, 68, 0, ${0.4 * blend * twinkle})`;
-                        ctx.fillRect(x - r, y - r, r * 3, r * 3);
-                    }
-                }
-                break;
-            }
-            case 5: { // 城内: 浮遊する塵
-                // 旧「差し込む光」(rgba(255,230,180) の全画面グラデを screen)は撤去。
-                // 暖色の全画面被せは夕方化の一因だった。塵の輝きだけを残す。
-                ctx.globalCompositeOperation = 'screen';
-                for (let i = 0; i < 50; i++) {
+                const shaft = ctx.createLinearGradient(CANVAS_WIDTH * 0.18, 0, CANVAS_WIDTH * 0.72, this.groundY);
+                shaft.addColorStop(0, `rgba(255, 248, 225, ${(0.055 * blend).toFixed(3)})`);
+                shaft.addColorStop(1, 'rgba(255, 248, 225, 0)');
+                ctx.fillStyle = shaft;
+                ctx.beginPath();
+                ctx.moveTo(CANVAS_WIDTH * 0.22, -40);
+                ctx.lineTo(CANVAS_WIDTH * 0.36, -40);
+                ctx.lineTo(CANVAS_WIDTH * 0.68, this.groundY);
+                ctx.lineTo(CANVAS_WIDTH * 0.51, this.groundY);
+                ctx.closePath();
+                ctx.fill();
+                const glow = this.cachedAssets.starGlow;
+                for (let i = 0; i < 32; i++) {
                     const seed = i * 23.3;
                     const x = (seed * 131 + Math.sin(pMod * 0.4 + seed) * 50 + CANVAS_WIDTH) % CANVAS_WIDTH;
                     const y = (seed * 97 - pMod * 30 + CANVAS_HEIGHT) % CANVAS_HEIGHT;
                     const twinkle = 0.2 + Math.abs(Math.sin(pMod * 1.8 + seed)) * 0.8;
-                    ctx.fillStyle = `rgba(240, 225, 190, ${twinkle * 0.55 * blend})`;
-                    ctx.fillRect(x, y, 1.5, 1.5);
+                    const d = 5 + (i % 4) * 1.7;
+                    if (glow) {
+                        ctx.globalAlpha = twinkle * 0.24 * blend;
+                        ctx.drawImage(glow, x - d * 0.5, y - d * 0.5, d, d);
+                    }
                 }
+                ctx.globalAlpha = 1;
                 break;
             }
             case 6: { // 天守閣: 舞い散る桜と、朝日に舞う金粉
@@ -5595,9 +6634,27 @@ export class Stage {
     }
     
     renderEnemies(ctx) {
+        // 屋根の裏から跳び上がってくる雑魚は、大棟の線より下を屋根で隠す。
+        // (クリップしないと屋根の手前を「下から生えてくる」ように見える)
+        const roofLineY = this.isStage6Arena()
+            ? this.getStage6ArenaGroundY() + LANE_OFFSET
+            : null;
         for (const enemy of this.enemies) {
+            if (roofLineY !== null && enemy.stage6RoofEntry) {
+                const w = (typeof enemy.getWorldWidth === 'function' ? enemy.getWorldWidth() : enemy.width) || 60;
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(enemy.x - 200, -400, w + 400, roofLineY + 400);
+                ctx.clip();
+                enemy.render(ctx);
+                ctx.restore();
+                continue;
+            }
             enemy.render(ctx);
         }
+        // Stage6最上階: 開戦前から右端に立って待つ将軍。game.js のボス描画は
+        // bossSpawned 前提なので、待機体はワールド空間のこの層で一緒に描く。
+        if (this.stage6StandbyBoss) this.stage6StandbyBoss.render(ctx);
     }
 
     renderObstacles(ctx) {
@@ -5635,17 +6692,20 @@ export class Stage {
 
         // 登場演出中は隠し、開戦(ready)で上からスライドインする。
         // bossUiRevealT は updateBossIntro が 0→1 に動かす。
-        const reveal = this.bossIntroPhase ? this.clamp01(this.bossUiRevealT || 0) : 1;
+        const reveal = (this.bossIntroPhase || this.bossDefeated)
+            ? this.clamp01(this.bossUiRevealT || 0)
+            : 1;
         if (reveal <= 0.001) return;
 
-        // HPバー (モダンデザイン)
-        const barWidth = 450;
-        const barHeight = 16;
+        // 名前は登場札で一度だけ見せ、戦闘中は紋とゲージだけにする。
+        // 同じ名前を中央演出とHUDで二重に読ませないための役割分担。
+        const barWidth = Math.min(520, SCREEN_WIDTH - 110);
+        const barHeight = 13;
         // HUD はスクリーン空間なので中心は SCREEN_WIDTH 基準。
         // (旧実装は CANVAS_WIDTH/2 だったため、ワールド幅と実画面幅が異なる端末で
         //  ボス名とHPバーが左に寄っていた)
         const x = (SCREEN_WIDTH - barWidth) / 2;
-        const y = 64;
+        const y = 49;
         const radius = barHeight / 2;
 
         const bossHpRatio = Math.max(0, this.boss.hp / this.boss.maxHp);
@@ -5657,12 +6717,6 @@ export class Stage {
             ctx.globalAlpha = reveal;
             ctx.translate(0, -(1 - e) * 46);
         }
-
-        // ボス名
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 24px "Zen Old Mincho", serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(this.boss.bossName, SCREEN_WIDTH / 2, 50);
 
         // 背景（トラック）
         ctx.save();
@@ -5711,6 +6765,17 @@ export class Stage {
         ctx.strokeStyle = 'rgba(255, 120, 120, 0.42)';
         ctx.lineWidth = 1.4;
         ctx.stroke();
+
+        // 漆器の継ぎ目のような五分割。HP量を邪魔しない極細線だけを置く。
+        ctx.strokeStyle = 'rgba(8, 10, 17, 0.68)';
+        ctx.lineWidth = 1;
+        for (let i = 1; i < 5; i++) {
+            const sx = x + barWidth * i / 5;
+            ctx.beginPath();
+            ctx.moveTo(sx, y + 2);
+            ctx.lineTo(sx, y + barHeight - 2);
+            ctx.stroke();
+        }
         ctx.restore();
 
         ctx.restore(); // スライドインの復元
@@ -5722,6 +6787,18 @@ export class Stage {
         if (this.boss && this.boss.isAlive) {
             all.push(this.boss);
         }
+        return all;
+    }
+
+    /**
+     * 影を落とす対象。戦闘対象ではない待機中の将軍も影だけは落とす
+     * (開戦の瞬間に足元の影がポンと現れるのを防ぐ)。
+     */
+    getShadowCasters() {
+        // 屋根の裏から跳び上がっている最中は影を落とさない
+        // (実体が棟の向こう側にいるので、手前の屋根面に影が出ると位置が破綻する)
+        const all = this.getAllEnemies().filter(e => !e || !e.stage6RoofEntry);
+        if (this.stage6StandbyBoss) all.push(this.stage6StandbyBoss);
         return all;
     }
     

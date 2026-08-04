@@ -3821,6 +3821,7 @@ export class Odachi extends SubWeapon {
         this.impactDebris = [];
         this.impactFrozen = null; // 前回の着地位置をリセット（2回目以降で古い位置が使い回されるのを防ぐ）
         this.impactX = null;
+        this._prevDrawnTipY = null; // 接地の1フレーム先読み用
         this.lastPlantedWorldX = null;
         this.lastPlantedWorldY = null;
         this.lastPlantedWorldDirection = 1;
@@ -3926,12 +3927,13 @@ export class Odachi extends SubWeapon {
                 // 身長比率に基づいて手の高さを計算 (プレイヤー 60px に対し 7.5px = 0.125)
                 const handY = player.y + ownerWorldHeight(player) * 0.125;
                 
-                // 地面固定：剣の先端（bladeEnd）を地面（maxTipY）に揃える
+                // 地面固定：剣の先端（bladeEnd）を地面（maxTipY）に【常に】揃える。
+                // 以前は tipY > maxTipY の時だけ引き上げる片側補正だったため、
+                // ぶら下がり高度(getPlantedOwnerY)が少しでも高いと切先が地面に届かず、
+                // 「屋根の上に浮いた大太刀」になった(巨躯オーナー/忍具tierが低い時に顕著)。
+                // 両側補正にすれば、ぶら下がり高度の誤差に関係なく切先は必ず地面に乗る。
                 const tipY = handY + Math.sin(rotation) * bladeEnd;
-                let adjustedHandY = handY;
-                if (tipY > maxTipY) {
-                    adjustedHandY -= (tipY - maxTipY);
-                }
+                const adjustedHandY = handY - (tipY - maxTipY);
                 const plantedPose = { progress, phase, direction, rotation, handX, handY: adjustedHandY, bladeEnd };
                 // 常に 1.0倍基準で計算しているため、再帰呼び出しなしで単純コピー保存
                 this.lastPlantedPose = { ...plantedPose };
@@ -3971,6 +3973,15 @@ export class Odachi extends SubWeapon {
             handX += direction * lift * 2.2;
             handY -= lift * 1.6;
         }
+
+            // 【落下中も切先は地面で頭打ち】。接地判定は物理ステップ前のposeで行うため、
+            // これが無いと「刀身が屋根に沈んだ1コマ」が描画されてから刺さる
+            // (実測: 将軍で最大35px。落下末期の切先は約77px/frame動く)。
+            // 刃が下を向いている間だけ効かせる(振り上げ・反転の前半は上向き)。
+            if (Math.sin(rotation) > 0.5) {
+                const fallTipY = handY + Math.sin(rotation) * bladeEnd;
+                if (fallTipY > maxTipY) handY -= (fallTipY - maxTipY);
+            }
 
             return { progress, phase, direction, rotation, handX, handY, bladeEnd };
         } finally {
@@ -4108,6 +4119,26 @@ export class Odachi extends SubWeapon {
         return actorCenterX + pose.direction * (poseWidth * 0.35);
     }
 
+    /**
+     * 描画されるときの切先のワールドy。
+     * pose(スケール前) → モデル変換(ピボット中心 scale 倍) の順で写像する。
+     * ピボット高さは renderModel が渡す _scalePivotH を優先し、無ければ 0.62 比率。
+     */
+    getDrawnTipY(player, pose, bladeEndOverride = null) {
+        if (!player || !pose) return null;
+        const bladeEnd = Number.isFinite(bladeEndOverride)
+            ? bladeEndOverride
+            : (Number.isFinite(pose.bladeEnd) ? pose.bladeEnd : this.getBladeMetrics().bladeEnd);
+        const rawTipY = pose.handY + Math.sin(pose.rotation) * bladeEnd;
+        const scale = this.getOwnerVisualScale(player);
+        if (Math.abs(scale - 1) <= 0.001) return rawTipY;
+        const pivotH = Number.isFinite(player._scalePivotH)
+            ? player._scalePivotH
+            : ownerWorldHeight(player) * 0.62;
+        const pivotY = player.y + pivotH;
+        return pivotY + (rawTipY - pivotY) * scale;
+    }
+
     getPlantedOwnerY(player) {
         if (!player) return null;
         const bladeEnd = this.getBladeMetrics().bladeEnd;
@@ -4115,7 +4146,14 @@ export class Odachi extends SubWeapon {
         const handHeightRatio = 0.125;
         const scale = this.getOwnerVisualScale(player);
         const scaledBladeEnd = bladeEnd * scale;
-        let result = maxTipY - scaledBladeEnd - (ownerWorldHeight(player) * handHeightRatio);
+        // 手の高さぶんの引き下げは【等倍のオーナーだけ】正しい。
+        // 巨躯(将軍/ラスボス=scale2)の大太刀は playerRenderer のモデル変換の中で
+        // 描かれるので、この項を残すとその分だけ切先が地面に届かない。
+        // ピクセル実測(getImageData で刀身の最下端を測る):
+        //   scale2 でこの項あり → 切先y=497(足元ライン512に対し15px浮き)
+        //   項を外す           → 切先y=512(接地)
+        const handDrop = scale > 1.001 ? 0 : ownerWorldHeight(player) * handHeightRatio;
+        let result = maxTipY - scaledBladeEnd - handDrop;
         result -= this.getOwnerRenderFootOffset(player);
         return result;
     }
@@ -4288,15 +4326,31 @@ export class Odachi extends SubWeapon {
                     }
                     this.owner.vx *= 0.86;
 
-                    // 接地判定の精密計算
+                    // 接地判定の精密計算。
+                    // 【描画される切先で判定する】。pose はスケール前の座標系なので、
+                    // 巨躯オーナー(将軍/ラスボス=scale2)では playerRenderer のモデル変換
+                    // (ピボット中心の scale 倍)を通した位置で比べないと判定が遅れる。
+                    // 実測(将軍・忍具初級): 未スケールで比べると刀身が屋根を最大95px
+                    // 突き抜けた3フレームを見せてから刺さっていた。
                     const pose = this.getPose(this.owner);
                     const bladeEnd = Number.isFinite(pose.bladeEnd)
                         ? pose.bladeEnd
                         : this.getBladeMetrics().bladeEnd;
                     const maxTipY = this.owner.groundY + LANE_OFFSET;
-                    const tipY = pose.handY + Math.sin(pose.rotation) * bladeEnd;
+                    const tipY = this.getDrawnTipY(this.owner, pose, bladeEnd);
+                    // 【1フレーム先読み】次フレームで地面を越えるなら今フレームで刺す。
+                    // pose は物理ステップ前の値なので、判定だけを見て刺すと
+                    // 「刀身が屋根に沈んだ1コマ」が必ず描画される(実測で最大35px、
+                    //  落下末期の切先は約77px/frame動く)。
+                    // 先読み量は90pxで頭打ちにして、反転(flip)中の大きな飛びで
+                    // 空中から刺さってしまうのを防ぐ。
+                    const prevTipY = this._prevDrawnTipY;
+                    const tipLookahead = (Number.isFinite(prevTipY) && tipY > prevTipY)
+                        ? Math.min(90, tipY - prevTipY)
+                        : 0;
+                    this._prevDrawnTipY = tipY;
 
-                    if (tipY >= maxTipY - 2) {
+                    if (tipY + tipLookahead >= maxTipY - 2) {
                         // 接地した瞬間に「ぶら下がり高度」で停止
                         const targetY = this.getPlantedOwnerY(this.owner);
                         if (Number.isFinite(targetY) && this.owner.y > targetY) {
@@ -4328,6 +4382,16 @@ export class Odachi extends SubWeapon {
                     this.hasImpacted = true;
                     this.plantedTimer = this.plantedDuration;
                     if (this.owner) {
+                        // 【順序が要点】刺さり高度(getPlantedOwnerY)へ先に落としてから
+                        // 凍結ポーズを保存する。逆にすると刀身は補正前の高さで固定され、
+                        // 実体だけが動くので「深く刺さった直後に浮く」二段挙動になる。
+                        // (巨躯=スケール持ちのオーナーで補正量が大きく、露骨に出る)
+                        const targetY = this.getPlantedOwnerY(this.owner);
+                        if (Number.isFinite(targetY)) {
+                            this.owner.y = targetY;
+                            this.owner.vy = 0;
+                            this.owner.isGrounded = false;
+                        }
                         if (!this.impactFrozen) {
                             this.owner.vx = 0; // impactFrozen保存前に vx をゼロにして applyPhysics() によるズレを防ぐ
                             this.captureImpactFrozen(this.owner);
@@ -4336,12 +4400,6 @@ export class Odachi extends SubWeapon {
                         const pose = this.getPose(this.owner);
                         this.impactX = this.getImpactXForPose(this.owner, pose);
                         this.impactY = this.owner.groundY + LANE_OFFSET;
-                        const targetY = this.getPlantedOwnerY(this.owner);
-                        if (Number.isFinite(targetY)) {
-                            this.owner.y = targetY;
-                            this.owner.vy = 0;
-                            this.owner.isGrounded = false;
-                        }
                     }
                     this.impactFlashTimer = 170;
                     this.spawnImpactWaves();
@@ -4357,6 +4415,13 @@ export class Odachi extends SubWeapon {
                     this.hasImpacted = true;
                     this.plantedTimer = this.plantedDuration;
                     if (this.owner) {
+                        // 上と同じ順序: 刺さり高度へ落としてから凍結ポーズを保存する
+                        const targetY = this.getPlantedOwnerY(this.owner);
+                        if (Number.isFinite(targetY)) {
+                            this.owner.y = targetY;
+                            this.owner.vy = 0;
+                            this.owner.isGrounded = false;
+                        }
                         if (!this.impactFrozen) {
                             this.owner.vx = 0; // impactFrozen保存前に vx をゼロにして applyPhysics() によるズレを防ぐ
                             this.captureImpactFrozen(this.owner);
@@ -4365,12 +4430,6 @@ export class Odachi extends SubWeapon {
                         const pose2 = this.getPose(this.owner);
                         this.impactX = this.getImpactXForPose(this.owner, pose2);
                         this.impactY = this.owner.groundY + LANE_OFFSET;
-                        const targetY = this.getPlantedOwnerY(this.owner);
-                        if (Number.isFinite(targetY)) {
-                            this.owner.y = targetY;
-                            this.owner.vy = 0;
-                            this.owner.isGrounded = false;
-                        }
                     }
                     this.impactFlashTimer = 170;
                     this.spawnImpactWaves();

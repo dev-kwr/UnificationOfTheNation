@@ -4,7 +4,7 @@
 
 import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js';
 import { Enemy } from './enemy.js?v=stage6-grapple-20260726a';
-import { createSubWeapon } from './weapon.js';
+import { createSubWeapon } from './weapon.js?v=stage6-entry-ballistic-20260804c';
 import { audio } from './audio.js';
 import { Player } from './player.js?v=stage6-grapple-20260726a';
 import {
@@ -1368,6 +1368,15 @@ function startBossSubWeapon(owner, weaponName, mode = null) {
     return true;
 }
 
+/** 高い段に居る相手へは斬撃が届かないので投げで削る。 */
+function startShogunBossThrow(owner) {
+    const pool = ['手裏剣', '鎖鎌'];
+    const action = pool[Math.floor(Math.random() * pool.length)];
+    owner.attackFacingRight = owner.facingRight;
+    owner._lastAttackType = action;
+    return startBossSubWeapon(owner, action);
+}
+
 function startShogunBossPlayerAttack(owner, target) {
     const selfCX = owner.getWorldCenterX();
     const targetCX = target ? target.x + getWorldWidth(target) * 0.5 : selfCX;
@@ -1381,9 +1390,15 @@ function startShogunBossPlayerAttack(owner, target) {
     // 将軍は身長が2倍あり手裏剣の発射高度も高いため、追尾になる Lv3 未満では
     // 接地している忍者の背丈に当たらない。当たらない攻撃で手数を浪費しないよう、
     // 「忍具Lv3」または「相手が空中(ジャンプ中)」のときだけ手裏剣を選ぶ。
+    // 相手が高い段(金鯱の上など)に居る場合も、高い発射高度が活きるので有効。
+    const targetAboveBy = target
+        ? (owner.y + getWorldHeight(owner)) - (target.y + getWorldHeight(target))
+        : 0;
     const shurikenUseful = (owner.getSubWeaponEnhanceTier
         ? owner.getSubWeaponEnhanceTier() >= 3
-        : false) || !!(target && target.isGrounded === false);
+        : false)
+        || !!(target && target.isGrounded === false)
+        || targetAboveBy > 60;
 
     let action;
     if (dist >= 900) {
@@ -1424,6 +1439,17 @@ function startShogunBossPlayerAttack(owner, target) {
     }
     startBossSubWeapon(owner, action);
 }
+
+// これより離れたら牽制をやめて全速で間合いを詰める(画面の約半分)。
+// 大屋根アリーナが広くなり、300px帯の牽制歩き(0.28倍)では追いつけなくなったため。
+const SHOGUN_CLOSE_IN_RANGE = 620;
+// 地上の斬撃が届く高さ差。金鯱のコライダー(頭の上=大棟から116px)に乗られると
+// これを超えるため、真下で当たらないコンボを繰り返してしまう(実測)。
+const SHOGUN_VERTICAL_REACH_PX = 72;
+// 踏み切り(-17.6 / GRAVITY 0.8)で届く高さ。これを超える段(鯱の背など)は跳んでも無駄。
+const SHOGUN_JUMP_REACH_PX = 190;
+// これより遠いと投擲を控えて前へ出る(攻撃モーション中は足が止まるため)。
+const SHOGUN_PRESS_RANGE = 340;
 
 function updateShogunBossPlayerAI(deltaTime, target) {
     if (!target || this.aiDisabled) return;
@@ -1495,17 +1521,70 @@ function updateShogunBossPlayerAI(deltaTime, target) {
         return;
     }
 
-    if (this.attackCooldown <= 0) {
-        startShogunBossPlayerAttack(this, target);
+    // 【上に居る相手には跳んで当てに行く】。金鯱の上に乗られたとき、真下で
+    // 届かない斬撃を繰り返すのが一番みっともないので、高さ差で行動を分ける。
+    //   届く高さ  → 真下へ寄って踏み切り、高さが合ったところで斬る
+    //   届かない段 → 少し離れて投げで削る(真下で棒立ちにしない)
+    const targetAboveBy = (this.y + getWorldHeight(this))
+        - (target.y + getWorldHeight(target));
+    // 踏み切った後は、跳び上がりながら寄せて【高さが合った瞬間に斬る】。
+    // 高さ差の条件を「相手が上」の分岐の内側に置くと、跳んで並んだ時点で
+    // 分岐から外れてしまい永久に発火しない(実測: 空中斬り0回)。
+    if (!this.isGrounded && this._shogunAerialHunt
+        && !this.isAttacking && this.subWeaponTimer <= 0) {
+        this.applyDesiredVx(dirToTarget * this.speed * 0.9, 0.4);
+        if (absX <= this.attackRange * 1.2 && targetAboveBy <= SHOGUN_VERTICAL_REACH_PX) {
+            this._shogunAerialHunt = false;
+            this.attackFacingRight = this.facingRight;
+            this.currentSubWeapon = null;
+            this.attack();
+            this._lastAttackType = '空中斬り';
+        }
         return;
+    }
+    if (targetAboveBy > SHOGUN_VERTICAL_REACH_PX && this.isGrounded) {
+        if (targetAboveBy <= SHOGUN_JUMP_REACH_PX) {
+            // 真下へ寄ってから踏み切る。横に離れたまま跳んでも届かない。
+            if (absX > 190) {
+                this.applyDesiredVx(dirToTarget * this.speed * 1.26, 0.52);
+            } else {
+                this.applyDesiredVx(dirToTarget * this.speed * 0.72, 0.5);
+                if (this.tryJump(0.5, -17.6, 560)) this._shogunAerialHunt = true;
+            }
+            return;
+        }
+        // 跳んでも届かない段(鯱の背など)。真下で棒立ちにせず投げで削る。
+        if (this.attackCooldown <= 0 && startShogunBossThrow(this)) return;
+        this.applyDesiredVx(
+            (absX < 260 ? -dirToTarget : dirToTarget) * this.speed * 0.62,
+            0.42
+        );
+        return;
+    }
+    if (this.isGrounded) this._shogunAerialHunt = false;
+
+    if (this.attackCooldown <= 0) {
+        // 遠距離では一手見送って間合いを詰める。クールダウンが空くたびに投擲すると
+        // 攻撃モーション中は足が止まるため、離れたまま棒立ちで撒くだけになる(実測)。
+        const skipForPressing = absX > SHOGUN_PRESS_RANGE
+            && Math.random() < (absX > SHOGUN_CLOSE_IN_RANGE ? 0.72 : 0.5);
+        if (skipForPressing) {
+            this.attackCooldown = 220 + Math.random() * 200;
+        } else {
+            startShogunBossPlayerAttack(this, target);
+            return;
+        }
     }
 
     let desiredVX = 0;
-    if (absX > 300) {
-        const feintContrib = this.feintDir * dirToTarget > 0
-            ? this.feintDir * this.speed * 0.35
-            : this.feintDir * this.speed * 0.10;
-        desiredVX = feintContrib + dirToTarget * this.speed * 0.28;
+    if (absX > SHOGUN_CLOSE_IN_RANGE) {
+        // 遠距離は牽制ではなく【詰め寄る】。0.28倍の牽制歩きだと、広い大屋根で
+        // 後退するプレイヤーに置いていかれて「全然近づいてこない」状態になる(実測)。
+        desiredVX = dirToTarget * this.speed * 1.30;
+    } else if (absX > 300) {
+        // 中距離。牽制の揺さぶりは残すが、正味は必ず前へ出る量にする
+        // (0.28倍+牽制±0.35だと相殺して間合いが縮まらない)
+        desiredVX = this.feintDir * this.speed * 0.16 + dirToTarget * this.speed * 0.85;
     } else if (absX > this.attackRange * 1.05) {
         desiredVX = this.speed * 1.14 * dirToTarget;
     } else if (absX > this.attackRange * 0.55) {
@@ -1567,16 +1646,28 @@ function createShogunBossPlayer(x, _y, _type, groundY) {
     boss.moneyReward = 200;
     boss.specialGaugeReward = 100;
     // 連撃/忍具Lvは固定ではなく、他ボス(Boss.getSubWeaponEnhanceTier)と同じHP段階式で上げる。
-    // HPが25%減るごとにLv+1(75/50/25%閾値)、hardは最初からLv2下限。生成時はLv0相当で開始。
+    // 【ラスボスはLv1スタート】。上限が3なので、開始1のまま25%刻み(75/50/25%)にすると
+    // 75%の昇格が素通りになる。1/3ずつの等間隔にして 1 → 2(残り2/3) → 3(残り1/3) と
+    // 2回昇格させる。hardは従来どおり下限2(=開始からLv2)。
+    // progression の初期値は 0 のままにしておくこと: 1 で初期化すると
+    // syncHpPhaseProgression の「変化したら再スケール」条件を満たさず、
+    // 忍具がtier0のスケールのまま Lv1 として振る舞ってしまう。
     boss.progression = { normalCombo: 0, subWeapon: 0, specialClone: 0 };
     boss.getHpPhaseTier = function() {
         const hpRatio = this.maxHp > 0 ? this.hp / this.maxHp : 0;
-        let tierFromHp = 0;
-        if (hpRatio < 0.25) tierFromHp = 3;
-        else if (hpRatio < 0.5) tierFromHp = 2;
-        else if (hpRatio < 0.75) tierFromHp = 1;
+        let tierFromHp = 1;
+        if (hpRatio < 1 / 3) tierFromHp = 3;
+        else if (hpRatio < 2 / 3) tierFromHp = 2;
         const difficultyId = window.game && window.game.difficulty ? window.game.difficulty.id : 'normal';
         return Math.max(tierFromHp, difficultyId === 'hard' ? 2 : 0);
+    };
+    // 登場演出(金鯱から5連コンボで降りてくる)の間だけ段数を固定するための上書き。
+    // 通常は syncHpPhaseProgression が毎フレーム progression.normalCombo を
+    // HP段階Lvへ書き戻すので、progression を直接触っても効かない。
+    const baseGetNormalComboMax = boss.getNormalComboMax.bind(boss);
+    boss.entranceComboMax = 0;
+    boss.getNormalComboMax = function() {
+        return this.entranceComboMax > 0 ? this.entranceComboMax : baseGetNormalComboMax();
     };
     boss.syncHpPhaseProgression = function() {
         const tier = this.getHpPhaseTier();
@@ -1784,7 +1875,9 @@ function createShogunBossPlayer(x, _y, _type, groundY) {
         this.syncHpPhaseProgression();
 
         this._aiDeltaTime = deltaTime;
-        playerUpdate(deltaTime, [], targetPlayer ? [targetPlayer] : []);
+        // 足場(Stage6最上階の金鯱など)はプレイヤー・雑魚と同じコライダーで踏ませる。
+        // stage 側が毎フレーム _stageObstacles に入れる(登場演出中だけは渡さない)。
+        playerUpdate(deltaTime, this._stageObstacles || [], targetPlayer ? [targetPlayer] : []);
         this._aiDeltaTime = 0;
 
         for (const weapon of this.subWeapons || []) {

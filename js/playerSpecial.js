@@ -2,7 +2,7 @@
 
 import { PLAYER, LANE_OFFSET } from './constants.js';
 import { audio } from './audio.js';
-import { createSubWeapon } from './weapon.js';
+import { createSubWeapon } from './weapon.js?v=stage6-entry-ballistic-20260804c';
 import { ANIM_STATE, COMBO_ATTACKS } from './playerData.js';
 import {
     SHOGUN_ACTOR_BASE_WIDTH,

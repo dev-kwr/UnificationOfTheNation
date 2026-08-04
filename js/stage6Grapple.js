@@ -1,23 +1,42 @@
 // ============================================
-// Stage6 角3: 鉤縄で頭上の軒へ登る演出
+// Stage6 角3: 鎖鎌を頭上の軒へ掛けて登る演出
 // 廻縁の突き当たりから屋根の上へ上がる唯一の自然な手段(忍者の身体能力)。
 // 建築的な嘘(廻縁から屋根への階段など)を作らずに高さを稼ぐための導線。
 //
-// 4ビート: windup(振りかぶり) → fly(鉤が飛ぶ) → bite(噛む) → pull(引き上げ)
+// 4ビート: windup(振りかぶり) → fly(鎌が飛ぶ) → bite(噛む) → pull(引き上げ)
 // 「噛んだ瞬間にたるみが消える」1フレームが説得力の核。
 //
 // 状態は Stage インスタンスに持たず、この構造体に閉じる。
-// 描画は behind(縄・軌跡) / front(鉤頭・火花) の2パスでプレイヤーを挟む。
+// 描画は behind(鎖・軌跡) / front(鎌頭・火花) の2パスでプレイヤーを挟む。
 // すべて描画と見た目の演出のみ — 当たり判定には一切関与しない。
 // ============================================
 
 import { STAGE6_CORNER } from './constants.js';
+import { Kusarigama } from './weapon.js?v=stage6-entry-ballistic-20260804c';
 import {
     chainCurve, sampleQuad, drawChain,
     pushTrailPoint, drawCometRibbon,
     makeParticles, drawSparks, drawBlastFlash,
     smoothstep01
 } from './weaponFx.js?v=stage6-grapple-20260726a';
+
+// 通常武器と同じ描画実装を使う。専用の鉤頭を別造形すると鎖鎌に見えなくなるため、
+// 鎌ヘッドの正本(Kusarigama.drawSickleHead)をこの演出からも直接呼ぶ。
+const GRAPPLE_KUSARIGAMA_VISUAL = new Kusarigama();
+
+// 軒に噛んだ後の鎌の向き(rad)。鎌のローカル形状は「柄=-X / 刃=-Yへ直角に立ち上がり
+// 切先が柄側へ反る」(weapon.js drawSickleHead)。この角度だと:
+//   柄  → (-cos, -sin) = 左下 ≒ 軒の勾配に沿ってプレイヤー側へ下る(鎖もここから垂れる)
+//   刃  → ( sin, -cos) = ほぼ真上に立ち上がり、切先が柄側へ反って軒のリップを抱える
+// = 「軒の縁に爪を掛けた」形。角3の軒は右上がり約24°なのでそれに合わせる。
+const EAVE_BITE_ANGLE = -0.42;
+
+function getGrappleSickleRing(g) {
+    return {
+        x: g.hookX - Math.cos(g.hookAngle) * 18,
+        y: g.hookY - Math.sin(g.hookAngle) * 18
+    };
+}
 
 export const GRAPPLE_PHASE = {
     NONE: 0,
@@ -49,11 +68,11 @@ export function createGrappleState() {
         handX: 0,
         handY: 0,
         handValid: false,
-        // 鉤の現在位置(ワールド)
+        // 鎌の刃付け根の現在位置(ワールド)
         hookX: 0,
         hookY: 0,
         hookAngle: 0,
-        // 軌跡(鉤先 / プレイヤー)
+        // 軌跡(鎌先 / プレイヤー)
         hookTrail: [],
         bodyTrail: [],
         // 噛んだ瞬間の火花(1回だけ生成)
@@ -61,6 +80,8 @@ export function createGrappleState() {
         sparkT: 0,
         // 鎖の流れ位相(0..1を回す)
         dashPhase: 0,
+        // PULL完了フレームでも最終ベジェ位置を取得するための印
+        pullComplete: false,
     };
 }
 
@@ -81,11 +102,17 @@ export function grappleProgress(g) {
  * @param cornerX 角(ゾーン境界)のワールドx
  * @param player  開始時のプレイヤー(x,y は左上)
  */
-export function startGrapple(g, cornerX, player) {
+export function startGrapple(g, cornerX, player, eaveTip = null) {
     g.phase = GRAPPLE_PHASE.WINDUP;
     g.timer = 0;
-    g.anchorX = cornerX + STAGE6_CORNER.EAVE_HOOK_DX;
-    g.anchorY = STAGE6_CORNER.EAVE_WORLD_Y;
+    const tipX = Number.isFinite(eaveTip?.x)
+        ? eaveTip.x
+        : cornerX + STAGE6_CORNER.EAVE_TIP_DX;
+    const tipY = Number.isFinite(eaveTip?.y)
+        ? eaveTip.y
+        : STAGE6_CORNER.EAVE_WORLD_Y;
+    g.anchorX = tipX + STAGE6_CORNER.EAVE_HOOK_INSET;
+    g.anchorY = tipY;
     // 補間元は「プレイヤーの左上」を素で持つ。
     // (以前は手元座標を保存してプレイヤー左上として使っていたため、
     //  引き上げ開始の1フレームで25px跳んでいた)
@@ -102,6 +129,7 @@ export function startGrapple(g, cornerX, player) {
     g.sparks = null;
     g.sparkT = 0;
     g.dashPhase = 0;
+    g.pullComplete = false;
 }
 
 /**
@@ -139,6 +167,7 @@ export function updateGrapple(g, deltaTime, audio) {
             try { audio?.playDash?.(); } catch { /* 同上 */ }
             return false;
         case GRAPPLE_PHASE.PULL:
+            g.pullComplete = true;
             g.phase = GRAPPLE_PHASE.NONE;
             return true;
         default:
@@ -154,8 +183,8 @@ export function grappleTension(g) {
         case GRAPPLE_PHASE.WINDUP: return 0.15;
         // 飛んでいる間は少しずつ張ってくる(0.35→0.55)
         case GRAPPLE_PHASE.FLY: return 0.35 + t * 0.2;
-        // 噛んだ瞬間から一気に張り詰める
-        case GRAPPLE_PHASE.BITE: return 0.55 + smoothstep01(t / 0.35) * 0.45;
+        // 噛んだ最初の1フレームから一気に張り詰める
+        case GRAPPLE_PHASE.BITE: return 1;
         case GRAPPLE_PHASE.PULL: return 1;
         default: return 1;
     }
@@ -166,14 +195,30 @@ export function grappleTension(g) {
  * 線形補間だと「等速で吸い込まれる」だけで手応えが出ない。
  */
 export function grapplePullEase(g) {
+    if (g?.pullComplete) return 1;
     if (g.phase !== GRAPPLE_PHASE.PULL) return 0;
-    const t = grappleProgress(g);
-    // 前半は縄に引かれて加速、後半は軒に近づいて減速
-    return smoothstep01(t) * 0.55 + t * t * 0.45;
+    return smoothstep01(grappleProgress(g));
 }
 
 /**
- * 毎フレーム、鉤とプレイヤーの位置から見た目の状態を更新する。
+ * 引き上げ中のプレイヤー左上座標。
+ * 直線補間ではなく二次ベジェを使い、最初は鎌へ引かれ、最後は軒の上で減速する。
+ */
+export function grapplePullPosition(g, playerWidth) {
+    if (!g) return null;
+    const toX = g.anchorX - Math.max(0, playerWidth || 0) * 0.5;
+    const toY = g.anchorY - 220;
+    const dx = toX - g.fromX;
+    const rise = Math.max(120, g.fromY - toY);
+    const curve = {
+        ctrlX: g.fromX + dx * 0.64,
+        ctrlY: g.fromY - rise * 0.82
+    };
+    return sampleQuad(g.fromX, g.fromY, curve, toX, toY, grapplePullEase(g));
+}
+
+/**
+ * 毎フレーム、鎌とプレイヤーの位置から見た目の状態を更新する。
  * game.js の更新ループから呼ぶ(描画側で状態を作らない)。
  * @param handX/handY 手元のワールド座標(playerRenderer が実測した値。無ければ推定値)
  */
@@ -188,7 +233,7 @@ export function updateGrappleVisual(g, deltaTime, handX, handY, playerCx, player
 
     const t = grappleProgress(g);
     if (g.phase === GRAPPLE_PHASE.WINDUP) {
-        // 振りかぶり: 鉤を手元の後ろ下へ溜める
+        // 振りかぶり: 鎌を手元の後ろ下へ溜める
         const back = 14 + smoothstep01(t) * 10;
         g.hookX = g.handX - back;
         g.hookY = g.handY + 6 + smoothstep01(t) * 8;
@@ -201,15 +246,30 @@ export function updateGrappleVisual(g, deltaTime, handX, handY, playerCx, player
         g.hookAngle = Math.atan2(g.anchorY - g.handY, g.anchorX - g.handX);
         pushTrailPoint(g.hookTrail, g.hookX, g.hookY, dtMs, { maxAge: 180, minDist: 3, cap: 40 });
     } else {
-        // 噛んだ後は軒に固定
+        // 噛んだ後は鎌の刃付け根を軒に固定。
+        // 【向き】鎖の方向に合わせてはいけない。鎖は左下のプレイヤーへ向かうので、
+        // その向きだと刃が軒と反対側(左上)を向き、「軒の横に浮いた鎌」に見える。
+        // 爪を引っ掛けた形にするには、柄=軒の勾配に沿って左下へ、刃=軒の縁をまたいで
+        // 上へ立ち上げ、切先が柄側へ反って軒のリップを抱え込む向きに固定する。
         g.hookX = g.anchorX;
         g.hookY = g.anchorY;
-        g.hookAngle = Math.atan2(g.anchorY - g.handY, g.anchorX - g.handX);
+        const bitten = EAVE_BITE_ANGLE;
+        if (g.phase === GRAPPLE_PHASE.BITE) {
+            // 噛んだ瞬間は飛来角から爪の向きへ素早く回り込む(1フレームで入れ替えない)
+            if (!Number.isFinite(g.biteFromAngle)) g.biteFromAngle = g.hookAngle;
+            const k = smoothstep01(t);
+            let d = bitten - g.biteFromAngle;
+            while (d > Math.PI) d -= Math.PI * 2;
+            while (d < -Math.PI) d += Math.PI * 2;
+            g.hookAngle = g.biteFromAngle + d * k;
+        } else {
+            g.hookAngle = bitten;
+        }
         // 軌跡は老化させるだけ(同じ点を積まない)
         pushTrailPoint(g.hookTrail, g.hookX, g.hookY, dtMs, { maxAge: 180, minDist: 9999, cap: 40 });
     }
 
-    if (g.phase === GRAPPLE_PHASE.BITE) {
+    if (g.sparks && g.sparkT < 1) {
         g.sparkT = Math.min(1, g.sparkT + deltaTime / 0.24);
     }
     if (g.phase === GRAPPLE_PHASE.PULL) {
@@ -232,7 +292,7 @@ export function renderGrappleBehind(ctx, g) {
             headAlpha: 0.22, coreAlpha: 0.3
         });
     }
-    // 鉤が飛んだ経路。鎖より控えめにする(明るくすると鎖のコマが白飛びに埋もれる)
+    // 鎌が飛んだ経路。鎖より控えめにする(明るくすると鎖のコマが白飛びに埋もれる)
     if (g.hookTrail.length >= 3) {
         drawCometRibbon(ctx, g.hookTrail, {
             maxAge: 180, headHalf: 5,
@@ -244,50 +304,32 @@ export function renderGrappleBehind(ctx, g) {
     // 鎖(たるみ→張り)
     const tension = grappleTension(g);
     const throwing = g.phase === GRAPPLE_PHASE.FLY || g.phase === GRAPPLE_PHASE.WINDUP;
-    const dx = g.hookX - g.handX, dy = g.hookY - g.handY;
+    // 通常の鎖鎌と同じく、鎖は刃付け根ではなく柄尻の鎖環へ繋ぐ。
+    const ring = getGrappleSickleRing(g);
+    const ringX = ring.x;
+    const ringY = ring.y;
+    const dx = ringX - g.handX, dy = ringY - g.handY;
     const len = Math.hypot(dx, dy) || 1;
     const curve = chainCurve(
-        g.handX, g.handY, g.hookX, g.hookY, tension,
+        g.handX, g.handY, ringX, ringY, tension,
         dx / len, dy / len, throwing
     );
-    drawChain(ctx, g.handX, g.handY, g.hookX, g.hookY, curve, {
+    drawChain(ctx, g.handX, g.handY, ringX, ringY, curve, {
         dashPhase: g.dashPhase, width: 2.4
     });
 }
 
 /**
- * 前面パス: 鉤頭と噛んだ瞬間の火花。プレイヤーの後に描く。
+ * 前面パス: 鎖鎌の鎌ヘッドと噛んだ瞬間の火花。プレイヤーの後に描く。
  */
 export function renderGrappleFront(ctx, g) {
     if (!isGrappleActive(g)) return;
 
-    // 鉤(三つ爪)
+    // 通常攻撃で使う鎖鎌と同じL字の柄・鎖環・湾曲刃。
     ctx.save();
     ctx.translate(g.hookX, g.hookY);
     ctx.rotate(g.hookAngle);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    // 軸
-    ctx.strokeStyle = 'rgba(196, 204, 216, 0.96)';
-    ctx.lineWidth = 2.6;
-    ctx.beginPath();
-    ctx.moveTo(-7, 0);
-    ctx.lineTo(2, 0);
-    ctx.stroke();
-    // 三本の爪。噛んでいる間は食い込んで開き角が狭まる
-    const bitten = g.phase === GRAPPLE_PHASE.BITE || g.phase === GRAPPLE_PHASE.PULL;
-    const spread = bitten ? 0.42 : 0.62;
-    for (const s of [-1, 0, 1]) {
-        ctx.strokeStyle = s === 0 ? 'rgba(226, 234, 244, 0.98)' : 'rgba(178, 188, 202, 0.94)';
-        ctx.lineWidth = s === 0 ? 2.2 : 1.9;
-        ctx.beginPath();
-        ctx.moveTo(2, 0);
-        ctx.quadraticCurveTo(
-            8, s * spread * 5,
-            11.5, s * spread * 11
-        );
-        ctx.stroke();
-    }
+    GRAPPLE_KUSARIGAMA_VISUAL.drawSickleHead(ctx);
     ctx.restore();
 
     // 噛んだ瞬間: 火花 + 控えめな閃光
@@ -302,13 +344,14 @@ export function renderGrappleFront(ctx, g) {
     }
 }
 
-/** 鉤縄の描画で使う二次ベジェのサンプル(手元→鉤の中間位置がほしい時) */
+/** 鎖鎌の描画で使う二次ベジェのサンプル(手元→鎌の中間位置がほしい時) */
 export function grappleChainPoint(g, t) {
-    const dx = g.hookX - g.handX, dy = g.hookY - g.handY;
+    const ring = getGrappleSickleRing(g);
+    const dx = ring.x - g.handX, dy = ring.y - g.handY;
     const len = Math.hypot(dx, dy) || 1;
     const curve = chainCurve(
-        g.handX, g.handY, g.hookX, g.hookY, grappleTension(g),
+        g.handX, g.handY, ring.x, ring.y, grappleTension(g),
         dx / len, dy / len, g.phase === GRAPPLE_PHASE.FLY
     );
-    return sampleQuad(g.handX, g.handY, curve, g.hookX, g.hookY, t);
+    return sampleQuad(g.handX, g.handY, curve, ring.x, ring.y, t);
 }

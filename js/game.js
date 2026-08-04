@@ -2,14 +2,51 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, getDeviceProfile, setUiScaleFromFitScale, setSafeInsets, setVirtualPadVisible } from './constants.js';
-import { BOSS_STAGING } from './bossStaging.js?v=stage6-grapple-20260726a';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, getDeviceProfile, setUiScaleFromFitScale, setSafeInsets, setVirtualPadVisible } from './constants.js?v=stage6-arena-flow-20260803k';
+import { BOSS_STAGING } from './bossStaging.js?v=stage6-boss-shachi-20260803i';
 import { input } from './input.js';
-import { Player } from './player.js?v=stage6-grapple-20260726a';
-import { createSubWeapon } from './weapon.js';
-import { Stage } from './stage.js?v=stage6-grapple-20260726a';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=stage6-grapple-20260726a';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, renderBossNameBanner } from './ui.js?v=stage6-grapple-20260726a';
+
+// 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
+const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
+// 会敵〜開戦の間だけカメラを先へ出す量。追従のままだとプレイヤーは常に画面48%に
+// 居るため、将軍との間合いを画面いっぱいに開けない(実測281px)。カメラを先行させると
+// プレイヤーが左寄りに立ち、金鯱と将軍を右に置いた「端と端」の構図になる。
+// 最上層へ飛び乗る放物線の頂点の高さ。鎖鎌で引き上げられた勢いのまま画面の上へ
+// 抜け、暗転が明けた時点ではまだ画面外に居て、そこから屋根へ落ちてくる形にする。
+// 最上層へ上がる時の跳び上がりの高さ。屋根の裏(向こう側の斜面)で待ってから
+// 大棟を越えて飛び乗る。頂点は棟より約114px上、着地は約11px/frameの柔らかい落ち。
+const STAGE6_ARENA_ENTRY_PEAK_PX = 222;
+// 待っている深さ(足元が大棟の線より何px下か)。ここに居る間は屋根でクリップされて
+// 見えないので、暗転が明けても「まだ屋根の向こう側」に見える。
+const STAGE6_ARENA_ENTRY_DEPTH_PX = 150;
+// 登りながら大棟へ寄る横距離。【三層目で登った側=屋根の左端】から上がって
+// 着地点まで詰める。起点は画面外(カメラ左端より外)に置くので、棟を越えるのは
+// ちょうど屋根の左端あたりになる(実測: 左端27480に対し27437で棟を越える)。
+const STAGE6_ARENA_ENTRY_RUN_PX = 900;
+// アーク全体のうち、画面外で待つ割合。暗転(待ち650+フェード450)が明けきるのが
+// t=(650+450)/1800=0.611 なので、そこから登り始める。
+const STAGE6_ARENA_ENTRY_HOLD_T = 0.61;
+// 暗転が明けきってから屋根へ落ちてくるまでの尺。遷移(暗転待ち+フェードイン)に
+// これを足した長さがアーク全体になる。実測: 明けた直後 t=0.72 の時点でまだ画面外、
+// t=0.75 で上端を越え、残り 0.25(約380ms)で屋根へ落ちて着地する。
+const STAGE6_ARENA_ENTRY_FLYIN_MS = 700;
+const STAGE6_DUEL_CAMERA_LEAD_PX = 300; // 会敵歩行中の既定の先行量
+const STAGE6_DUEL_LEAD_IN_MS = 1400;   // 先行の入り(歩き出しから)
+const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
+// 着地〜名乗りは【名乗り帯に対して左右対称】に構える。帯の中心は常に画面中心
+// (SCREEN_WIDTH*0.5 = ワールド換算 CANVAS_WIDTH/2)なので、両者の中心の中点を
+// 画面中心へ置く = 先行量を「中心間距離の半分」にすればよい。
+// 対称位置への寄せは【臨界減衰】で行う(オーバーシュートなし・開始速度0)。
+// 一次遅れ(指数)だと目標が切り替わった最初のフレームで 8.9px/frame の速度段差が
+// 出て「ガクっ」に戻る。ω=12rad/s なら最大でも 5.4px/frame、両端の速度は0で、
+// ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
+const STAGE6_DUEL_LEAD_OMEGA = 12;
+const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
+import { Player } from './player.js?v=stage6-kusarigama-grapple-20260728a';
+import { createSubWeapon } from './weapon.js?v=stage6-entry-ballistic-20260804c';
+import { Stage } from './stage.js?v=stage6-duel-symmetry-20260804z';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=stage6-roof-entry-20260802g';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, renderBossNameBanner } from './ui.js?v=outcome-balance-20260727b';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js';
 import { saveManager } from './save.js';
 import { shop } from './shop.js';
@@ -147,7 +184,17 @@ class Game {
         this.titleDebugCursor = 0;
         this.titleDebugApplyOnStart = false;
         this.titleDebugConfig = this.createTitleDebugConfig();
+        this.stage6CornerTransitionHold = null;
+        // 最上層へ上がる放物線着地(鎖鎌の引き上げの続き)。遷移中だけ立つ
+        this.stage6ArenaEntryArc = null;
+        // 着地から開戦までの自動操作(会敵歩行)
+        this.stage6ArenaApproach = null;
+        this.stage6CameraLeadT = 0;   // 決戦構図のカメラ先行(0..1)
+        this.stage6DuelLeadPx = STAGE6_DUEL_CAMERA_LEAD_PX;       // 先行量の現在値(px)
+        this.stage6DuelLeadTargetPx = STAGE6_DUEL_CAMERA_LEAD_PX; // 同 目標値
+        this.stage6DuelLeadVel = 0;                               // 同 速度(臨界減衰)
         this.debugBossRoomStart = false; // デバッグ用：ボス部屋から開始するフラグ
+        this.debugStage6Corner3Start = false; // デバッグ用：三層目ラスト(鎖鎌の手前)から開始
         this.debugKeyRepeatTimer = 0;
         this.stageClearPhase = 0; // 0: 演出(Announce), 1: 詳細ステータス
         this.stageClearAutoSubWeaponIntervalMs = 3000;
@@ -244,6 +291,7 @@ class Game {
         window.game = this;
 
         this.debugStartStage = this.getDebugStartStageFromUrl();
+        this.debugStartPoint = this.getDebugStartPointFromUrl();
         
         // タイトルBGM再生
         audio.playBgm('title');
@@ -467,13 +515,15 @@ class Game {
         const t = st.bossIntroPhaseTimer || 0;
         if (phase === 'name') {
             renderBossNameBanner(ctx, st.boss.bossName, {
+                stageNumber: this.currentStageNumber,
                 enterT: Math.min(1, t / (BOSS_STAGING.INTRO_NAME_MS * 0.34)),
                 exitT: 0
             });
         } else {
             renderBossNameBanner(ctx, st.boss.bossName, {
+                stageNumber: this.currentStageNumber,
                 enterT: 1,
-                exitT: Math.min(1, t / BOSS_STAGING.INTRO_READY_MS)
+                exitT: Math.min(1, t / (BOSS_STAGING.INTRO_READY_MS * 0.30))
             });
         }
     }
@@ -564,11 +614,32 @@ class Game {
         }
     }
 
+    /**
+     * デバッグ開始地点のURL指定。
+     *   ?stage=6&at=corner3  … 三層目ラスト(鎖鎌の手前)から
+     *   ?stage=6&at=boss     … ボス部屋(=最上層へ遷移した直後)から
+     * タイトルのデバッグメニューと同じ効果。URLの方が速いとき用。
+     */
+    getDebugStartPointFromUrl() {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const raw = (params.get('at') || '').toLowerCase();
+            if (raw === 'corner3' || raw === 'grapple' || params.get('corner3') === '1') return 'corner3';
+            if (raw === 'boss' || params.get('boss') === '1') return 'boss';
+            return null;
+        } catch {
+            return null;
+        }
+    }
+
     createTitleDebugConfig() {
         return {
             preset: 'default',
             stage: 1,
             bossRoom: false, // デバッグ用：ボス部屋からスタート
+            // デバッグ用：Stage6の三層目ラスト(角3の鎖鎌の手前)からスタート。
+            // 大屋根への登攀→遷移→着地→会敵を毎回頭から遊ばずに検証するため。
+            stage6Corner3: false,
             moneyMax: false,
             normalCombo: 0,
             subWeapon: 0,
@@ -675,7 +746,22 @@ class Game {
             {
                 label: 'ボスから開始',
                 getValue: () => (cfg.bossRoom ? 'ON' : 'OFF'),
-                change: () => { cfg.bossRoom = !cfg.bossRoom; }
+                change: () => {
+                    cfg.bossRoom = !cfg.bossRoom;
+                    if (cfg.bossRoom) cfg.stage6Corner3 = false; // 開始地点は排他
+                }
+            },
+            {
+                // Stage6専用。三層目(廻縁)の突き当たり=鎖鎌で軒へ登る直前から始める。
+                label: '三層目ラストから開始(6)',
+                getValue: () => (cfg.stage6Corner3 ? 'ON' : 'OFF'),
+                change: () => {
+                    cfg.stage6Corner3 = !cfg.stage6Corner3;
+                    if (cfg.stage6Corner3) {
+                        cfg.bossRoom = false; // 開始地点は排他
+                        cfg.stage = 6;        // 6以外では意味がないので合わせる
+                    }
+                }
             },
             {
                 label: '小判MAX',
@@ -912,7 +998,7 @@ class Game {
         if (!saveData) return;
         
         // 武器作成関数をインポート
-        import('./weapon.js').then(module => {
+        import('./weapon.js?v=stage6-entry-ballistic-20260804c').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
@@ -1045,6 +1131,39 @@ class Game {
         this.cameraLift = 0;
         this.cameraLiftTarget = 0;
         
+        // ─── デバッグ：Stage6 三層目ラスト(鎖鎌の手前)からスタート ─────────
+        // 角1・2は通過済み・三層目(廻縁)の突き当たり手前に立つ。右へ歩くだけで
+        // 「鎖鎌で軒へ登る → 暗転 → 大屋根へ飛び乗る → 会敵」を検証できる。
+        if (this.debugStage6Corner3Start) {
+            this.debugStage6Corner3Start = false;
+            if (this.currentStageNumber === 6 && this.stage.stageNumber === 6) {
+                this.stage.midBossSpawned = true; // 中ボスはスキップ
+                // 角1→角2を「登った」状態にする(advanceCorner が敵/障害物もリセットする)。
+                this.stage.cornersClimbed = 1;
+                this.stage.advanceCorner();
+                // 鎖鎌の発火位置(=軒先の手前)から更に手前に置き、歩き出しの間を残す。
+                const probe = this.stage.getStage6GrappleTriggerProbeX();
+                const walkIn = 420;
+                const landX = Number.isFinite(probe)
+                    ? probe - this.player.getWorldWidth() - walkIn
+                    : this.stage.getStage6ActiveCornerX() - 1200;
+                this.player.x = landX;
+                this.player.groundY = this.stage.groundY;
+                this.player.y = this.stage.groundY + LANE_OFFSET - this.player.getWorldHeight();
+                this.player.vx = 0;
+                this.player.vy = 0;
+                this.player.isGrounded = true;
+                this.player.facingRight = true;
+                if (typeof this.player.resetVisualTrails === 'function') {
+                    this.player.resetVisualTrails();
+                }
+                // カメラは通常の追従位置(=前進しても飛ばない)に合わせる。
+                this.scrollX = Math.max(0, this.player.x - CANVAS_WIDTH / 2);
+                this.stage.progress = this.scrollX;
+                this.stage.lastProgress = this.scrollX;
+            }
+        }
+
         // ─── デバッグ：ボス部屋からスタート ───────────────────────────
         if (this.debugBossRoomStart) {
             this.debugBossRoomStart = false;
@@ -1065,26 +1184,80 @@ class Game {
                 this.stage.previousStairDirection = -1;
             }
 
-            // Stage 6 の場合は全角通過済み(=四巡目・大棟)の状態にする。
-            // これを怠ると角1の門トリガーが「足が門より右」で即発火し、
-            // ボス部屋からプレイヤーが角1の先へスナップで引き戻される。
-            if (this.currentStageNumber === 6 && this.stage.stageNumber === 6) {
-                this.stage.cornersClimbed = this.stage.stage6CornerXs.length;
+            // Stage 6 だけは「ボスの前」ではなく【最上層に上がった直後】から始める。
+            // 大屋根アリーナは (a)将軍が右端に立って待っている (b)右へ歩くとフレームイン
+            // (c)カメラが右端で止まると開戦 という一連の流れが本番の見せ場なので、
+            // ここで spawnBoss すると待機立ちも助走も検証できなくなる。
+            // 角3を登った直後の状態を作るため advanceCorner を通す(=全角通過済み。
+            // これを怠ると角1の門トリガーが「足が門より右」で即発火して引き戻される)。
+            const debugStage6Arena = this.currentStageNumber === 6 && this.stage.stageNumber === 6;
+            if (debugStage6Arena) {
+                this.stage.cornersClimbed = this.stage.stage6CornerXs.length - 1;
+                this.stage.advanceCorner();
+                // 将軍を大屋根の右端へ立たせる(本番と同じ経路: 振り向き→名乗り)
+                this.stage.prepareStage6StandbyBoss();
+
+                // 【遷移直後から】始める: 鎖鎌で登り切って屋根へ飛び乗る放物線を再生する。
+                // 立った状態から始めると、本番で最初に見えるはずの着地が確認できない。
+                const landingX = this.stage.getStage6ArenaLeft() + STAGE6_CORNER.ARENA_LANDING_INSET_PX;
+                this.ensurePlayerDimsReady(); // 将軍の寸法を先に確定(半分サイズで飛ぶのを防ぐ)
+                this.player.groundY = this.stage.getStage6ArenaGroundY();
+                const landingY = this.player.groundY + LANE_OFFSET - this.player.getWorldHeight();
+                // 本番と同じ「画面外(上)から落ちてくる」見え方にする。
+                // デバッグ開始は暗転の待ちが無く尺が短いので、頂点は付けず
+                // 画面上端の外から素直に落とす(本番の可視区間と同じ絵になる)。
+                this.stage6ArenaEntryArc = {
+                    fromX: landingX - 560,
+                    fromY: -120,
+                    toX: landingX,
+                    toY: landingY,
+                    elapsed: 0,
+                    peak: 0,
+                    dur: Math.max(140, this.stage.transitionFadeInMs - 16)
+                };
+                this.player.x = this.stage6ArenaEntryArc.fromX;
+                this.player.y = this.stage6ArenaEntryArc.fromY;
+                this.player.vx = 0;
+                this.player.vy = 0;
+                this.player.isGrounded = false;
+                this.player.facingRight = true;
+                // 髪・鉢巻の物理ノードは初期位置(ステージ開始地点)に置かれたままなので、
+                // ここで張り直さないと最上階まで伸び切った紐になる。
+                if (typeof this.player.resetVisualTrails === 'function') {
+                    this.player.resetVisualTrails();
+                }
+                // 暗転明け(フェードイン)の途中から開始する。updateStage6CornerTransition が
+                // アークを進め、着地と同時に通常の操作へ戻る。
+                this.stage.isFloorTransitioning = true;
+                this.stage.floorTransitionPhase = 3;
+                this.stage.floorTransitionTimer = this.stage.transitionFadeInMs;
+
+                // カメラは本番遷移と同じイージングで着地位置へ寄せる。
+                // 屋根の左端に固定すると、着地して操作が戻った瞬間に通常追従との差
+                // (実測387px)を一気に詰めてスクロールが飛ぶ。
+                this.setupStage6ArenaEntryArcCamera(this.stage6ArenaEntryArc);
+            } else {
+                this.stage.spawnBoss();           // ボス即スポーン
+
+                // プレイヤーをボス部屋の本来のカメラ到達時の立ち位置（画面左から30%）へ配置
+                this.player.x = this.scrollX + CANVAS_WIDTH * 0.3;
             }
-
-            this.stage.spawnBoss();           // ボス即スポーン
-
-            // プレイヤーをボス部屋の本来のカメラ到達時の立ち位置（画面左から30%）へ配置
-            this.player.x = this.scrollX + CANVAS_WIDTH * 0.3;
         }
         // ─────────────────────────────────────────────────────────────
-        
+
         this.state = GAME_STATE.PLAYING;
         // ステージ開始BGM：フェードインなしで即再生（fadeDuration = 0）
-        audio.playBgm(this.stage.boss ? 'boss' : 'stage', this.currentStageNumber, 0);
+        // stage6の最上階はボス未出現でもラスボス曲(=boss)。屋根に上がった時点で鳴る曲なので、
+        // デバッグの「ボス部屋から開始」でも同じ曲で始める。
+        const startWithBossBgm = !!this.stage.boss
+            || !!(this.stage.isStage6Arena && this.stage.isStage6Arena());
+        audio.playBgm(startWithBossBgm ? 'boss' : 'stage', this.currentStageNumber, 0);
         
         // ステージ開始時の暗転フェードイン
         this.startTransition();
+        // 最上層へ飛び乗るアークを再生する場合は、遷移側のフェードインだけで暗転を明ける。
+        // ステージ開始の暗幕を重ねると二重に暗くなり、肝心の着地が見えない。
+        if (this.stage6ArenaEntryArc) this.transitionTimer = 0;
     }
     
     // メインループ
@@ -1592,8 +1765,15 @@ class Game {
         shop.reset();
         const debugStage = this.titleDebugApplyOnStart ? this.titleDebugConfig.stage : null;
         this.currentStageNumber = debugStage || this.debugStartStage || 1;
-        // デバッグ用：ボス部屋スタートフラグを保持（applyTitleDebugSetupToNewGame より前に確定）
-        this.debugBossRoomStart = !!(this.titleDebugApplyOnStart && this.titleDebugConfig.bossRoom);
+        // デバッグ用：開始地点フラグを保持（applyTitleDebugSetupToNewGame より前に確定）
+        // URL(?at=corner3 / ?at=boss)はタイトルのデバッグメニューと同じ扱いにする。
+        this.debugBossRoomStart = !!(this.titleDebugApplyOnStart && this.titleDebugConfig.bossRoom)
+            || this.debugStartPoint === 'boss';
+        this.debugStage6Corner3Start = !!(this.titleDebugApplyOnStart && this.titleDebugConfig.stage6Corner3)
+            || this.debugStartPoint === 'corner3';
+        // 三層目ラストはStage6専用なので、URL指定だけの場合もステージを6に寄せる
+        if (this.debugStage6Corner3Start && this.currentStageNumber !== 6) this.currentStageNumber = 6;
+        if (this.debugStage6Corner3Start) this.debugBossRoomStart = false; // 開始地点は排他
         this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
         // クリア済みの場合、選択キャラタイプを反映（titleDebugApplyOnStartに関わらず）
         if (saveManager.loadGlobal().isGameCleared && this.titleDebugConfig.characterType === 'shogun') {
@@ -1647,6 +1827,19 @@ class Game {
     }
     
     initStage(stageNum) {
+        this.stage6CornerTransitionHold = null;
+        this.stage6ArenaEntryArc = null;
+        if (this.stage6ArenaApproach) {
+            input.releaseAction('RIGHT', 'stage6Approach');
+            if (this.player && Number.isFinite(this.stage6ArenaApproach.baseSpeed)) {
+                this.player.speed = this.stage6ArenaApproach.baseSpeed;
+            }
+        }
+        this.stage6ArenaApproach = null;
+        this.stage6CameraLeadT = 0;
+        this.stage6DuelLeadPx = STAGE6_DUEL_CAMERA_LEAD_PX;
+        this.stage6DuelLeadTargetPx = STAGE6_DUEL_CAMERA_LEAD_PX;
+        this.stage6DuelLeadVel = 0;
         this.stage = new Stage(stageNum);
         
         if (this.player) {
@@ -1747,6 +1940,265 @@ class Game {
         return true;
     }
 
+    /**
+     * プレイヤーのワールド寸法を確定させる。
+     * 将軍プレイヤーは素体40x60×2.0への切り替えを【初回 player.update()】で行うため、
+     * update を通さない演出(遷移中の放物線着地など)の前に呼んでおかないと、
+     * 忍者寸法(48x72)のまま=半分の大きさで描かれてしまう。
+     * combatController.update は初期化しかしないので、dt=0 で呼んで問題ない。
+     */
+    ensurePlayerDimsReady() {
+        const p = this.player;
+        // combatController は Player のコンストラクタで【全キャラに】張られており、
+        // 実際に使うかは characterType で分岐している(hasCombatControllerMethod)。
+        // ここで無条件に呼ぶと忍者にも将軍の寸法(素体40x60×2.0)が入って巨大化する。
+        if (!p || p.characterType !== 'shogun') return;
+        if (!p.combatController || typeof p.combatController.update !== 'function') return;
+        p.combatController.update.call(p, 0, [], []);
+    }
+
+    /**
+     * 最上層に降り立ってから開戦までを【自動操作の会敵】にする。
+     * プレイヤーはゆっくり右へ歩き、攻撃は封じられ、将軍が飛び降りて名乗るまで操作は返らない。
+     * 最終決戦の入りを「操作を止めて見せる一続きの流れ」にするための演出。
+     */
+    beginStage6ArenaApproach() {
+        if (!this.player) return;
+        this.stage6ArenaApproach = {
+            baseSpeed: this.player.speed,
+            walking: true
+        };
+    }
+
+    /**
+     * 決戦構図のカメラ先行量。会敵〜登場演出の間だけ右へ寄せる。
+     * 変化はスムーズステップ(両端で速度0)にする。等速で足し引きすると、
+     * 着地の瞬間や開戦の瞬間にカメラ速度の段差が出て「ガクっ」と見える。
+     */
+    getStage6CameraLead() {
+        const t = this.stage6CameraLeadT;
+        return this.stage6DuelLeadPx * (t * t * (3 - 2 * t));
+    }
+
+    /**
+     * 名乗り帯(画面中心)に対してプレイヤーとボスを左右対称に置くための先行量。
+     * カメラは scrollX = プレイヤー中心 - 画面中心 + 先行量 なので、
+     * 先行量 = 中心間距離 / 2 にすると両者の中点が画面中心＝帯の中心に乗る。
+     * 【ボスが足を止めている間だけ採る】: 連撃の踏み込み中に追従すると
+     * 段ごとの前進でカメラが揺れて「ガクっ」に戻る。
+     */
+    getStage6DuelSymmetricLead() {
+        const s = this.stage;
+        const b = s && s.boss;
+        if (!b || !b.isAlive || b.isDying || !this.player) return null;
+        if (!b.isGrounded || Math.abs(b.vx || 0) > 0.05) return null;
+        const bw = typeof b.getWorldWidth === 'function' ? b.getWorldWidth() : (b.width || 0);
+        const bossCenter = b.x + bw * 0.5;
+        const playerCenter = this.player.x + this.player.getWorldWidth() * 0.5;
+        const half = (bossCenter - playerCenter) * 0.5;
+        return Math.max(0, Math.min(STAGE6_DUEL_LEAD_MAX_PX, half));
+    }
+
+    updateStage6CameraLead() {
+        const s = this.stage;
+        const inArena = !!(s && s.isStage6Arena && s.isStage6Arena());
+        const duel = inArena && (!!this.stage6ArenaApproach || !!s.bossIntroPhase);
+        const step = Math.max(0, this.deltaTime) * 1000
+            / (duel ? STAGE6_DUEL_LEAD_IN_MS : STAGE6_DUEL_LEAD_OUT_MS);
+        this.stage6CameraLeadT = duel
+            ? Math.min(1, this.stage6CameraLeadT + step)
+            : Math.max(0, this.stage6CameraLeadT - step);
+
+        // 着地(impact)以降は対称構図へ。会敵歩行中は既定量のまま
+        // (歩いてくる間はボスが鯱の上＝遠いので、対称にすると引きすぎる)。
+        // 【開戦後(duel=false)は目標を戻さない】。戻すと t のフェードアウトと
+        // 逆向きに先行量が伸びて、開戦直後にカメラが右へ32px膨らんでから戻る。
+        const symmetricPhase = inArena && (s.bossIntroPhase === 'impact'
+            || s.bossIntroPhase === 'name' || s.bossIntroPhase === 'ready');
+        if (symmetricPhase) {
+            const target = this.getStage6DuelSymmetricLead();
+            if (Number.isFinite(target)) this.stage6DuelLeadTargetPx = target;
+        } else if (duel) {
+            this.stage6DuelLeadTargetPx = STAGE6_DUEL_CAMERA_LEAD_PX;
+        }
+        // 臨界減衰: x'' = -2ω x' - ω²(x - target)
+        const dt = Math.max(0, Math.min(1 / 30, this.deltaTime));
+        const w = STAGE6_DUEL_LEAD_OMEGA;
+        const dx = this.stage6DuelLeadPx - this.stage6DuelLeadTargetPx;
+        this.stage6DuelLeadVel += (-2 * w * this.stage6DuelLeadVel - w * w * dx) * dt;
+        this.stage6DuelLeadPx += this.stage6DuelLeadVel * dt;
+    }
+
+    /** 会敵歩行の更新。player.update より前に呼び、入力を代行する。 */
+    updateStage6ArenaApproach() {
+        const ap = this.stage6ArenaApproach;
+        if (!ap) return;
+        const s = this.stage;
+        const inArena = !!(s && s.isStage6Arena && s.isStage6Arena());
+        // 開戦して登場演出まで終わったら操作を返す
+        const introDone = !!(s && s.bossSpawned) && !s.bossIntroPhase;
+        if (!inArena || introDone || !this.player || this.player.hp <= 0) {
+            input.releaseAction('RIGHT', 'stage6Approach');
+            if (this.player && Number.isFinite(ap.baseSpeed)) this.player.speed = ap.baseSpeed;
+            this.stage6ArenaApproach = null;
+            return;
+        }
+        // 開戦したら足を止めて相対する(将軍の飛び降り〜名乗りを見せる)
+        const shouldWalk = !s.bossSpawned;
+        if (shouldWalk) {
+            this.player.speed = ap.baseSpeed * STAGE6_APPROACH_SPEED_SCALE;
+            input.pressAction('RIGHT', 'stage6Approach');
+        } else {
+            input.releaseAction('RIGHT', 'stage6Approach');
+            this.player.speed = ap.baseSpeed;
+        }
+        this.player.facingRight = true;
+        // 会敵中は抜刀させない(歩いて対峙するまでが一続きの演出)
+        this.player.attackInputLockTimer = Math.max(this.player.attackInputLockTimer || 0, 90);
+    }
+
+    /**
+     * 最上層へ飛び乗る放物線を1フレーム進める。
+     * 暗転中と【暗転が明けた後】の両方から呼ぶ。明けた瞬間に打ち切ると
+     * 「画面外から屋根へ飛び込む」一番の見せ場が暗幕の中で終わってしまうため、
+     * アークは遷移より長く取り、明けてからの数百msも同じ式で飛ばす。
+     * @param {boolean} advance 経過時間を進めるか(暗転の待ちに入る前は進めない)
+     * @returns {boolean} アークが継続中なら true
+     */
+    stepStage6ArenaEntryArc(advance) {
+        const entryArc = this.stage6ArenaEntryArc;
+        if (!entryArc) return false;
+        if (advance) {
+            entryArc.elapsed = (entryArc.elapsed || 0) + this.deltaTime * 1000;
+        }
+        // 浮動小数の誤差で elapsed が dur にごく僅かに届かず(0.99999…)、
+        // 最後に「何も進まない1コマ」が挟まって着地の瞬間だけ背景が止まる。
+        // 0.999 以上は着地扱いにして、最終フレームに残りの移動を必ず載せる。
+        const rawT = (entryArc.elapsed || 0) / Math.max(1, entryArc.dur);
+        const t = rawT >= 0.999 ? 1 : Math.max(0, rawT);
+        // 【屋根の裏で待つ区間】。holdT までは動かない(クリップで見えない)。
+        // 暗転が明けてから登り始めるための待ちで、以降を 0..1 に伸ばして使う。
+        const holdT = Math.max(0, Math.min(0.95, entryArc.holdT || 0));
+        const u = holdT > 0
+            ? (t <= holdT ? 0 : (t - holdT) / (1 - holdT))
+            : t;
+        const prevX = this.player.x;
+        const prevY = this.player.y;
+        this.player.groundY = this.stage.getStage6ArenaGroundY();
+        // 横は「速く入って着地際で歩行速度まで落ちる」二次曲線。
+        //   ex(u) = 1.818u - 0.818u^2  → ex(1)=1 / ex'(1)≈0.18(平均の18%)
+        // 着地の瞬間の横速度を歩行と揃えるのが要点。等速で入って着地で0になると、
+        // 追従カメラの速度も同時に落ちて背景の流れが「ガクっ」と切り替わる。
+        const ex = 1.818 * u - 0.818 * u * u;
+        this.player.x = entryArc.fromX + (entryArc.toX - entryArc.fromX) * ex;
+        // 縦は弾道。sin項は u=1 で0になるので着地点は不変。
+        // 下から登る場合(fromBelow)は棟を越える跳び上がり、上から来る場合は落下弧。
+        this.player.y = entryArc.fromY + (entryArc.toY - entryArc.fromY) * (u * u)
+            - (entryArc.peak || 0) * Math.sin(Math.PI * u);
+        // カメラは専用イージング(セットアップ参照)。固定にすると背景が止まったまま
+        // プレイヤーだけ画面を横切り、着地後に急に背景が動き出す。追従にすると
+        // クランプを離れる瞬間に速度の段差が出る。
+        if (entryArc.camTo != null) {
+            this.scrollX = this.getStage6ArenaEntryArcCamX(entryArc, u);
+            this.stage.progress = this.scrollX;
+        }
+        this.player.facingRight = true;
+        // 本体を直接動かす演出なので、髪・鉢巻の物理ノードも同じ差分で運ぶ。
+        // これをやらないと根元だけが移動し、鉢巻とポニーテールが伸び切る。
+        if (typeof this.player.translateVisualTrails === 'function') {
+            this.player.translateVisualTrails(this.player.x - prevX, this.player.y - prevY);
+        }
+        if (t >= 1) {
+            this.finishStage6ArenaEntryArc();
+            return false;
+        }
+        this.player.isGrounded = false;
+        // 落下ポーズを出すため実測の落下速度を入れる(playerRendererはvyを見る)
+        this.player.vy = this.deltaTime > 0
+            ? (this.player.y - prevY) / this.deltaTime * 0.016
+            : 4;
+        return true;
+    }
+
+    /**
+     * 最上層への放物線着地を完了させる。棟の上へ着地させ、足元に土煙と着地音を出す。
+     * 遷移が終わってもアークが残っていたら、ここで必ず閉じる(空中で固まらせない)。
+     */
+    /**
+     * 最上層へ飛び乗るアークのカメラを仕込む(本番遷移/デバッグ開始で共用)。
+     * カメラは【プレイヤー追従ではなく専用イージング】で動かす。
+     *   ・追従 → クランプに張り付いて静止した後、途中で急に十数px/frameで動き出す
+     *   ・固定 → 背景が止まったまま着地し、直後に急に流れ出す
+     * どちらも遷移時の「スクロールがガクっとなる」原因なので、
+     *   t=0 の速度 = 0        (静止から滑らかに動き出す)
+     *   t=1 の速度 = 自動歩行 (背景の流れる速さが着地の前後で一致する)
+     * を満たす三次エルミートで開始位置→着地後位置を結ぶ。
+     */
+    setupStage6ArenaEntryArcCamera(arc) {
+        if (!arc) return;
+        // 尺はフレーム数の整数倍に丸める。端数が残ると最終フレームだけ
+        // 「ほぼ0しか進まない1コマ」ができ、着地の瞬間だけ背景が止まって見える。
+        const frameMs = 1000 / 60;
+        arc.dur = Math.max(frameMs, Math.round(arc.dur / frameMs) * frameMs);
+        const clampCam = (x) => Math.min(
+            this.stage.getStage6ArenaCameraMaxX(),
+            Math.max(
+                this.stage.getStage6ArenaCameraMinX(),
+                x + this.player.getWorldWidth() * 0.5 - CANVAS_WIDTH / 2
+            )
+        );
+        arc.camFrom = clampCam(arc.fromX);
+        arc.camTo = clampCam(arc.toX);
+        const span = arc.camTo - arc.camFrom;
+        // カメラも「屋根の裏で待つ区間(holdT)」を除いた実働フレーム数で傾きを出す。
+        // 全尺で計算すると、待ちのぶん傾きが小さくなって着地時の背景速度が歩行と合わない。
+        const activeRatio = Math.max(0.05, 1 - Math.max(0, Math.min(0.95, arc.holdT || 0)));
+        const frames = Math.max(1, arc.dur * activeRatio / (1000 / 60));
+        const walkStep = (this.player.speed || PLAYER.SPEED) * STAGE6_APPROACH_SPEED_SCALE;
+        // 着地時の傾き(平均速度に対する比)。0〜3 の範囲なら単調増加が保証される。
+        arc.camEndSlope = span > 1
+            ? Math.max(0.2, Math.min(3, walkStep * frames / span))
+            : 1;
+        this.scrollX = arc.camFrom;
+        this.stage.progress = this.scrollX;
+        this.stage.lastProgress = this.scrollX;
+    }
+
+    /** アークのカメラ位置。h(0)=0 h(1)=1 h'(0)=0 h'(1)=camEndSlope の三次エルミート。 */
+    getStage6ArenaEntryArcCamX(arc, t) {
+        const s = arc.camEndSlope != null ? arc.camEndSlope : 1;
+        const h = (s - 2) * t * t * t + (3 - s) * t * t;
+        return arc.camFrom + (arc.camTo - arc.camFrom) * h;
+    }
+
+    finishStage6ArenaEntryArc() {
+        const arc = this.stage6ArenaEntryArc;
+        if (!arc) return;
+        this.stage6ArenaEntryArc = null;
+        this.player.x = arc.toX;
+        this.player.y = arc.toY;
+        this.player.vx = 0;
+        this.player.vy = 0;
+        this.player.isGrounded = true;
+        this.player.groundY = this.stage.getStage6ArenaGroundY();
+        this.spawnGroundDust(
+            this.player.x + this.player.getWorldWidth() * 0.5,
+            this.player.y + this.player.getWorldHeight(),
+            { intensity: 0.85, count: 9, spread: 0.6, speed: 1.25, rise: 0.5, size: 9 }
+        );
+        if (typeof audio.playLanding === 'function') audio.playLanding();
+        // 【着地したらフェードインの残りは切り上げる】。遷移中は player.update が回らず
+        // 自動歩行も止まるため、残り数フレームぶん「背景が完全停止」してから動き出す=
+        // 明けた瞬間のガクつきになる。残り暗転は数%なので即終了して問題ない。
+        if (this.stage?.isFloorTransitioning && this.stage.floorTransitionPhase === 3) {
+            this.stage.isFloorTransitioning = false;
+            this.stage.floorTransitionPhase = 0;
+            this.stage.floorTransitionTimer = 0;
+        }
+        // 着地からそのまま自動操作の会敵へ繋ぐ
+        this.beginStage6ArenaApproach();
+    }
+
     /** Stage6 角(隅櫓)遷移の更新。updateStage5FloorTransition のミラー。 */
     updateStage6CornerTransition() {
         if (this.currentStageNumber !== 6 || !this.stage?.isFloorTransitioning) return false;
@@ -1754,16 +2206,56 @@ class Game {
         const prevPhase = this.stage.floorTransitionPhase;
         this.stage.updateFloorTransition(this.deltaTime);
         const currentPhase = this.stage.floorTransitionPhase;
+        let didSnapToNextFloor = false;
 
         // 完全暗転の瞬間: 壁の先へスナップ。カメラはプレイヤーの手前に置き、
         // くぐってきた壁が画面左に残る構図にする(後退クランプで壁は一方通行)。
         // stage5と違い世界座標は連続なので progress はスナップ先に合わせるだけ。
         if (prevPhase === 1 && currentPhase === 2) {
             if (this.stage.isStage6Arena()) {
-                // 角3の先=大屋根アリーナ。「屋根に飛び乗った」設定なので入口の先ではなく
-                // アリーナ中央へ着地させ、カメラも中央に置く(左右の金鯱はまだ画面外)。
-                this.player.x = this.stage.getStage6ArenaCenterX() - this.player.getWorldWidth() * 0.5;
-                this.scrollX = this.player.x + this.player.getWorldWidth() * 0.5 - CANVAS_WIDTH * 0.5;
+                // 左棟端の軒へ鎖鎌を掛けて登っているため、暗転明けも同じ左棟端へ着地する。
+                // 中央へ飛ばすと登攀の入口と到着地点が繋がらず、右から来たように見えてしまう。
+                const landingX = this.stage.getStage6ArenaLeft() + STAGE6_CORNER.ARENA_LANDING_INSET_PX;
+                // 放物線の間は player.update を通さないので、ここで将軍の寸法を確定させる
+                // (未確定だと忍者寸法のまま=半分の大きさで飛んでくる)
+                this.ensurePlayerDimsReady();
+                // 着地は大棟の上。ここで合わせないと暗転明けの1フレームだけ
+                // 斜面に立ってから棟へ跳ね上がる。
+                this.player.groundY = this.stage.getStage6ArenaGroundY();
+                const landingY = this.player.groundY + LANE_OFFSET - this.player.getWorldHeight();
+                // 【三層目からの続き】鎖鎌で画面上へ抜けた実際の位置を放物線の始点にする。
+                // 起点を着地点の近くに置くと「どこからともなく降ってくる」に見えるので、
+                // 軒に鎌を掛けて引き上げられた座標(=hold)からそのまま繋ぐ。
+                // 暗転(待機)の間に大半を移動し、フェードインでは着地際だけを見せる。
+                const exit = this.stage6CornerTransitionHold;
+                this.stage6ArenaEntryArc = {
+                    // 【下から登ってくる】。鎖鎌で軒へ登ってきた続きなので、
+                    // 屋根の裏(向こう側の斜面)から大棟へ上がる絵にする。
+                    // 空から降ってくる弧にすると「登ってきたはずが降ってくる」になる。
+                    fromX: exit ? landingX - STAGE6_ARENA_ENTRY_RUN_PX : landingX - 300,
+                    fromY: exit ? landingY + STAGE6_ARENA_ENTRY_DEPTH_PX : landingY - 300,
+                    toX: landingX,
+                    toY: landingY,
+                    elapsed: 0,
+                    fromExit: !!exit,
+                    fromBelow: !!exit,
+                    // 上がり切るまでは屋根の裏で待つ(クリップで見えない)。
+                    // 暗転が明けてから登り始めるための待ち。
+                    holdT: exit ? STAGE6_ARENA_ENTRY_HOLD_T : 0,
+                    // 大棟を越える跳び上がりの高さ(頂点は棟より約114px上)。
+                    peak: exit ? STAGE6_ARENA_ENTRY_PEAK_PX : 0,
+                    // 【暗転が明けきってからの飛び込みを見せる】ため、遷移より
+                    // STAGE6_ARENA_ENTRY_FLYIN_MS だけ長く取る。アークは遷移終了後も
+                    // stepStage6ArenaEntryArc で継続する(updatePlaying 側から呼ぶ)。
+                    dur: exit
+                        ? Math.max(240, (this.stage.transitionWaitMs || 0)
+                            + this.stage.transitionFadeInMs + STAGE6_ARENA_ENTRY_FLYIN_MS)
+                        : Math.max(140, this.stage.transitionFadeInMs - 16)
+                };
+                this.setupStage6ArenaEntryArcCamera(this.stage6ArenaEntryArc);
+                this.player.x = this.stage6ArenaEntryArc.fromX;
+                this.player.y = this.stage6ArenaEntryArc.fromY;
+                this.player.isGrounded = false;
             } else {
                 this.player.x = this.stage.lastClimbedCornerX + STAGE6_CORNER.SNAP_AFTER_PX;
                 this.scrollX = this.player.x - STAGE6_CORNER.POST_FADE_CAMERA_LAG;
@@ -1771,22 +2263,50 @@ class Game {
             this.player.facingRight = true;
             this.stage.progress = this.scrollX;
             this.stage.lastProgress = this.scrollX; // progressDeltaスパイク防止
-            // 鉢巻・髪の物理ノードは世界座標の追従連鎖なので、瞬間移動すると伸び切る。転移先で張り直す。
-            this.player.resetVisualTrails();
+            this.stage6CornerTransitionHold = null;
+            didSnapToNextFloor = true;
         }
 
-        // 暗転中は入力更新を行わず、接地点に固定する。
-        // 走行位相(legPhase)も畳む: vxを0にしても位相が走りのまま残ると、
-        // 暗転明けに「バラバラっと走りながら登場」して見える(直立で現れるのが正)。
+        // 鎖鎌で画面上へ抜けた場合、フェードアウトが完了するまでは抜けた座標を保持する。
+        // 共通の地面固定を即適用すると「登った直後に元の床へ戻る」1フレームが見える。
         this.player.vx = 0;
         this.player.vy = 0;
         this.player.legPhase = 0;
         this.player.isDashing = false;
         this.player.isCrouching = false;
-        const groundProbeX = this.getStage5PlayerGroundProbeX();
-        this.player.groundY = this.stage.getStairGroundY(groundProbeX);
-        this.player.y = this.player.groundY + LANE_OFFSET - this.player.getWorldHeight();
-        this.player.isGrounded = true;
+        const hold = currentPhase === 1 ? this.stage6CornerTransitionHold : null;
+        const entryArc = this.stage6ArenaEntryArc;
+        if (hold) {
+            this.player.x = hold.x;
+            this.player.y = hold.y;
+            this.player.isGrounded = false;
+        } else if (entryArc) {
+            // 最上層へ上がる瞬間だけ: 引き上げられた勢いの続きで放物線を描いて棟へ降りる。
+            // 軒からの続き(fromExit)は暗転中(phase2)から動かし、遠い距離を暗転で稼ぐ。
+            // 起点が着地点の近くにある場合(デバッグ開始)はフェードイン中だけ動かす。
+            this.stepStage6ArenaEntryArc(
+                currentPhase >= 3 || (entryArc.fromExit && currentPhase >= 2)
+            );
+        } else {
+            const groundProbeX = this.getStage5PlayerGroundProbeX();
+            // 最上階へ上がった後は大棟の上が足元ライン。階段用のgroundYで上書きしない。
+            this.player.groundY = (this.stage.isStage6Arena && this.stage.isStage6Arena())
+                ? this.stage.getStage6ArenaGroundY()
+                : this.stage.getStairGroundY(groundProbeX);
+            this.player.y = this.player.groundY + LANE_OFFSET - this.player.getWorldHeight();
+            this.player.isGrounded = true;
+        }
+        // 物理ノードの張り直しは、転移先のxだけでなく着地後のyも確定してから行う。
+        // 先にリセットすると、鎖鎌で画面上へ抜けた座標に髪・鉢巻だけが残り、
+        // 暗転明けの1フレーム目から伸び切った状態になる。
+        if (didSnapToNextFloor && typeof this.player.resetVisualTrails === 'function') {
+            this.player.resetVisualTrails();
+        }
+
+        // かつてはここで「遷移が終わったらアークを強制着地」させていたが、
+        // 暗転が明けてからの飛び込みを見せるためにアークを遷移より長く取ったので、
+        // 強制着地させると t<1 で切れて着地位置とカメラがずれる(実測: 画面x 616→676)。
+        // 遷移後は updatePlaying 側の stepStage6ArenaEntryArc が続きを回す。
 
         this.stage.update(this.deltaTime, this.player);
 
@@ -1794,8 +2314,8 @@ class Game {
     }
 
     /**
-     * Stage6 角3: 鉤縄で頭上の軒へ登る演出の更新。
-     * 演出中は入力を止め、プレイヤーを縄に引かれて上へ移動させる。
+     * Stage6 角3: 鎖鎌を頭上の軒へ掛けて登る演出の更新。
+     * 演出中は入力を止め、プレイヤーを鎖に引かれて上へ移動させる。
      * 登り切ったら暗転遷移(=大屋根への着地)へ引き継ぐ。
      */
     updateStage6GrappleClimb() {
@@ -1808,25 +2328,21 @@ class Game {
         this.player.isDashing = false;
         this.player.isCrouching = false;
         // 演出中は player.update() が走らないので subWeaponTimer が自動減衰しない。
-        // 毎フレーム書き直して playerRenderer の '鉤縄' ポーズを維持する。
-        this.player.subWeaponAction = '鉤縄';
+        // 毎フレーム書き直して playerRenderer の鎖鎌登攀ポーズを維持する。
+        this.player.subWeaponAction = '鎖鎌登攀';
         this.player.subWeaponTimer = 1;
         this.player.grappleState = st.stage6Grapple;
 
+        const prevX = this.player.x;
         const prevY = this.player.y;
-        if (st.getStage6GrapplePhase() === GRAPPLE_PHASE.PULL) {
-            // 引き上げ: 縄に引かれて軒の高さへ。画面上へ抜けたところで暗転へ
-            const ease = st.getStage6GrapplePullEase();
-            const from = st.getStage6GrappleFrom();
-            const anchor = st.getStage6GrappleAnchor();
-            const fromY = from ? from.y : (st.baseGroundY + LANE_OFFSET - this.player.getWorldHeight());
-            const toY = STAGE6_CORNER.EAVE_WORLD_Y - 220; // 画面上へ抜ける
-            this.player.y = fromY + (toY - fromY) * ease;
+        if (done || st.getStage6GrapplePhase() === GRAPPLE_PHASE.PULL) {
+            // 引き上げ: 二次ベジェで鎌へ寄りながら上昇し、軒の頂点で減速する。
+            const pullPos = st.getStage6GrapplePullPosition(this.player.getWorldWidth());
+            if (pullPos) {
+                this.player.x = pullPos.x;
+                this.player.y = pullPos.y;
+            }
             this.player.isGrounded = false;
-            // 軒へ向かって少し寄っていく
-            const fromX = from ? from.x : this.player.x;
-            const toX = (anchor ? anchor.x : this.player.x) - this.player.getWorldWidth() * 0.5;
-            this.player.x = fromX + (toX - fromX) * ease;
             // 空中ポーズ(playerRenderer:2537の汎用処理)が上昇速度に反応するよう実速度を入れる
             this.player.vy = this.deltaTime > 0 ? (this.player.y - prevY) / this.deltaTime * 0.016 : -6;
         } else {
@@ -1836,8 +2352,14 @@ class Game {
             this.player.vy = 0;
             this.player.isGrounded = true;
         }
+        // 通常のplayer.update()を止めている演出なので、本体の座標差分を髪・鉢巻の
+        // 全物理ノードへ同時適用する。根元だけ追従させると旧位置から伸び切ってしまう。
+        this.player.translateVisualTrails(
+            this.player.x - prevX,
+            this.player.y - prevY
+        );
 
-        // 手元(縄の起点)は playerRenderer が前フレームに実測した「左上からの相対」を使う。
+        // 手元(鎖の起点)は playerRenderer が前フレームに実測した「左上からの相対」を使う。
         // 相対で受け取るので、引き上げで大きく動いても縄が手から離れない。
         // 初回フレームだけは未実測なので startGrapple の胸元推定値が使われる。
         const pcx = this.player.x + this.player.getWorldWidth() * 0.5;
@@ -1853,6 +2375,11 @@ class Game {
         st.update(this.deltaTime, this.player);
 
         if (done) {
+            // 暗転が黒になるまで、この「屋根の上へ抜けた位置」を保持する。
+            this.stage6CornerTransitionHold = {
+                x: this.player.x,
+                y: this.player.y
+            };
             this.player.subWeaponAction = null;
             this.player.subWeaponTimer = 0;
             this.player.grappleState = null;
@@ -1875,6 +2402,18 @@ class Game {
         // フロア/角遷移中は移動入力を受け付けず、暗転処理だけを進める。
         if (this.updateStage5FloorTransition()) return;
         if (this.updateStage6CornerTransition()) return;
+        // 暗転が明けてもアークが残っている間は、同じ式で飛行を続ける。
+        // (屋根へ飛び込む瞬間を暗幕の中で終わらせないため。着地でアークは閉じる)
+        if (this.stage6ArenaEntryArc) {
+            this.player.vx = 0;
+            this.player.vy = 0;
+            this.player.legPhase = 0;
+            this.player.isDashing = false;
+            this.player.isCrouching = false;
+            this.stepStage6ArenaEntryArc(true);
+            this.stage.update(this.deltaTime, this.player);
+            return;
+        }
         if (this.updateStage6GrappleClimb()) return;
         
         // プレイヤー更新
@@ -1887,9 +2426,17 @@ class Game {
         const stage4RoofColliders = (this.currentStageNumber === 4 && this.stage && typeof this.stage.getStage4RoofColliders === 'function')
             ? this.stage.getStage4RoofColliders(this.scrollX - 200, this.scrollX + CANVAS_WIDTH + 200)
             : [];
-        const playerPhysicsObstacles = stage4RoofColliders.length > 0
-            ? activeObstacles.concat(stage4RoofColliders)
+        // 最上階の金鯱は実体。頭の上は足場になり、横からは通り抜けられない。
+        const stage6ArenaColliders = (this.currentStageNumber === 6 && this.stage && typeof this.stage.getStage6ArenaColliders === 'function')
+            ? this.stage.getStage6ArenaColliders()
+            : [];
+        const extraColliders = stage4RoofColliders.concat(stage6ArenaColliders);
+        const playerPhysicsObstacles = extraColliders.length > 0
+            ? activeObstacles.concat(extraColliders)
             : activeObstacles;
+        // 最上層の会敵歩行(自動操作)。入力を読む前に代行キーを押す。
+        this.updateStage6ArenaApproach();
+        this.updateStage6CameraLead();
         this.player.update(this.deltaTime, playerPhysicsObstacles, preActiveFrameEnemies);
 
         // ジャンプ着地の土煙（落下速度が一定以上のときだけ・足元から低く広がる）
@@ -1948,7 +2495,9 @@ class Game {
             }
         } else if (this.stage.isStage6Arena && this.stage.isStage6Arena()) {
             // Stage6 最上階の大屋根アリーナ: 左右自由移動。カメラは常に中央追従(戻れる)。
-            this.scrollX = this.player.x + this.player.getWorldWidth() * 0.5 - screenCenter;
+            // 会敵〜登場演出の間だけ先行量を足し、プレイヤーを左寄りに置いて間合いを見せる。
+            this.scrollX = this.player.x + this.player.getWorldWidth() * 0.5 - screenCenter
+                + this.getStage6CameraLead();
         } else {
             // 通常（固定方向）
             if (this.player.x > this.scrollX + screenCenter) this.scrollX = this.player.x - screenCenter;
@@ -1956,12 +2505,15 @@ class Game {
 
         // スクロール制限
         // maxProgress は世界の全幅。カメラが映せる右端は maxProgress - CANVAS_WIDTH
-        const maxScroll = Math.max(0, this.stage.maxProgress - CANVAS_WIDTH);
+        // 大屋根アリーナだけは屋根の実体が画面の角を満たす範囲で止める。
+        // 屋根を下げて反り軒が画面下端の外へ出たぶん、外側をそのまま映すと
+        // 隅棟の下に谷底だけの三角の余白ができるため。
+        const inArena = !!(this.stage.isStage6Arena && this.stage.isStage6Arena());
+        const maxScroll = inArena
+            ? this.stage.getStage6ArenaCameraMaxX()
+            : Math.max(0, this.stage.maxProgress - CANVAS_WIDTH);
         if (this.scrollX > maxScroll) this.scrollX = maxScroll;
-        // 大屋根アリーナはアリーナ左端より左を映さない(手前の巡回路は見せない)
-        const minScroll = (this.stage.isStage6Arena && this.stage.isStage6Arena())
-            ? this.stage.getStage6ArenaLeft()
-            : 0;
+        const minScroll = inArena ? this.stage.getStage6ArenaCameraMinX() : 0;
         if (this.scrollX < minScroll) this.scrollX = minScroll;
         
         // 背景パララックス用にStage側のprogressも更新
@@ -2024,9 +2576,16 @@ class Game {
             const isFinalCorner = this.stage.cornersClimbed === 2;
             let fire = false;
             if (isFinalCorner) {
-                // 角3は「鉤縄で頭上の軒へ登る」。行き止まりの手前まで歩いて来たら
+                // 角3は「鎖鎌を頭上の軒へ掛けて登る」。行き止まりの手前まで歩いて来たら
                 // 自動で登攀演出が始まる(ジャンプ入力に頼ると到達判定がシビアで詰む)。
-                const atDeadEnd = probe >= cornerX - STAGE6_CORNER.DOOR_TRIGGER_INSET
+                // 発火位置は【軒先そのもの】から導く(stage側で一元管理)。
+                // 屋根を1:1描画にして軒の張り出しが2倍になったため、境界からの
+                // 固定距離(EAVE_TRIGGER_INSET)だと軒先の真下を通り過ぎてから
+                // 後ろへ鉤を投げる形になっていた。
+                const triggerProbe = this.stage.getStage6GrappleTriggerProbeX();
+                const atDeadEnd = probe >= (Number.isFinite(triggerProbe)
+                        ? triggerProbe
+                        : cornerX - STAGE6_CORNER.EAVE_TRIGGER_INSET)
                     && probe <= cornerX + 200;
                 if (atDeadEnd && !this.stage.isStage6Grappling()) {
                     this.player.vx = 0;
@@ -2049,9 +2608,11 @@ class Game {
 
         // ステージ更新
         this.stage.update(this.deltaTime, this.player);
-        // ボス戦中(stage6は大屋根アリーナに降り立った時点から)はボス曲を維持する
-        const bossMusicPhase = (this.stage.bossSpawned || (this.stage.isStage6Arena && this.stage.isStage6Arena()))
-            && !this.stage.bossDefeated;
+        // ボス曲が(ブラウザの自動停止などで)止まっていたら鳴らし直す。
+        // stage6の最上階はボス出現前からラスボス曲が鳴っている(遷移時に開始)ので、
+        // アリーナにいる間も対象に含める。
+        const bossMusicPhase = (this.stage.bossSpawned && !this.stage.bossDefeated)
+            || !!(this.stage.isStage6Arena && this.stage.isStage6Arena() && !this.stage.bossDefeated);
         if (bossMusicPhase && audio.bgmAudio && audio.bgmAudio.paused && !audio.isMuted) {
             audio.playBgm('boss', this.currentStageNumber);
         }
@@ -2059,11 +2620,15 @@ class Game {
         // プレイヤーの移動制限
         const inStage6Arena = !!(this.stage.isStage6Arena && this.stage.isStage6Arena());
         if (inStage6Arena) {
-            // 大屋根アリーナ: 左右自由に歩き回れる。屋根の両端(棟端の金鯱の手前)でクランプ。
+            // 大屋根アリーナ: 足元ラインは水平な大棟の上(=金鯱と同じ高さ)。
+            // 床帯そのままだと手前斜面の途中に立つ絵になるため接地基準を持ち上げる。
+            this.player.groundY = this.stage.getStage6ArenaGroundY();
+            // 大屋根アリーナ: 左右自由に歩き回れる。屋根の実体端でクランプ。
             const arenaLeft = this.stage.getStage6ArenaLeft();
             const arenaRight = this.stage.maxProgress;
-            const minX = arenaLeft + 40;
-            const maxArenaX = arenaRight - 40 - this.player.getWorldWidth();
+            const edgeInset = STAGE6_CORNER.ARENA_EDGE_INSET_PX;
+            const minX = arenaLeft + edgeInset;
+            const maxArenaX = arenaRight - edgeInset - this.player.getWorldWidth();
             if (this.player.x < minX) {
                 this.player.x = minX;
                 if (this.player.vx < 0) this.player.vx = 0;
@@ -2086,7 +2651,7 @@ class Game {
             if (this.player.vx > 0) this.player.vx = 0;
         }
         // 大屋根アリーナは屋根の実体で止める。画面端クランプの後に適用して、
-        // ボス出現でカメラが止まった後も棟端(金鯱の手前)を越えないようにする。
+        // ボス出現でカメラが止まった後も棟端を越えないようにする。
         if (inStage6Arena) {
             const arenaMaxX = this.stage.maxProgress - 40 - this.player.getWorldWidth();
             if (this.player.x > arenaMaxX) {
@@ -2193,10 +2758,8 @@ class Game {
                 // 完全に暗転したら遷移
                 this.onStageClear();
                 this.pendingStageClear = false;
-                // 次のシーンのフェードインを開始。ボス撃破からここへ来る経路では
-                // 既に黒クロージングと余韻を通しているので暗転は短く(0.45→約0.22秒)。
-                // 「突破」の文字(clearDelay=380ms)が明るい画面に載る。
-                this.startTransition(0.45);
+                // 背景は同じ戦場を引き継ぐため、ほぼ切らずに突破印へ繋ぐ。
+                this.startTransition(0.16);
             }
         }
         
@@ -2814,8 +3377,17 @@ class Game {
             }
         }
 
+        // 【名乗りまではボスの刃も体も通らない】。登場の5連コンボは演出であって
+        // 攻撃ではないので、被弾判定からボスだけを外す(ボス側の無敵と対称)。
+        // 寸止めクランプ(stage.js)で刃は届かない位置に止めてあるが、
+        // プレイヤーは登場中も歩けるので自分から踏み込める。その保険。
+        const bossIntroNoContact = !!(this.stage
+            && typeof this.stage.isBossIntroBeforeCall === 'function'
+            && this.stage.isBossIntroBeforeCall());
+
         // 敵攻撃 vs プレイヤー
         for (const enemy of activeEnemies) {
+            if (bossIntroNoContact && this.isBossEnemy(enemy)) continue;
             if (checkEnemyAttackHit(enemy, this.player)) {
                 if (this.handlePlayerDamage(enemy.damage, enemy.x + enemy.width / 2, {
                     knockbackX: 4.2,
@@ -2848,6 +3420,7 @@ class Game {
         
         // 敵との接触ダメージ
         for (const enemy of activeEnemies) {
+            if (bossIntroNoContact && this.isBossEnemy(enemy)) continue;
             if (checkPlayerEnemyCollision(this.player, enemy)) {
                 const contactDamage = this.isBossEnemy(enemy)
                     ? Math.max(1, Math.round((enemy.damage || 2) * 0.35))
@@ -3220,8 +3793,12 @@ class Game {
             ? Math.hypot(CANVAS_WIDTH, CANVAS_HEIGHT) * 1.2
             : normalMagnetRadius;
         
-        // プレイヤーのジャンプに関わらず、ジェムは固定のレーンを地面として扱う
-        const groundLimit = this.stage.groundY + LANE_OFFSET;
+        // プレイヤーのジャンプに関わらず、ジェムは固定のレーンを地面として扱う。
+        // stage6最上階は足元ラインが大棟の上(=通常の床帯より96px上)なので、
+        // 通常のレーンを使うとジェムだけ屋根の中に沈む。
+        const groundLimit = (this.stage.isStage6Arena && this.stage.isStage6Arena())
+            ? this.stage.getStage6ArenaGroundY() + LANE_OFFSET
+            : this.stage.groundY + LANE_OFFSET;
 
         this.expGems = this.expGems.filter((gem) => {
             gem.lifeMs -= this.deltaTime * 1000;
@@ -3726,9 +4303,9 @@ class Game {
         this.bossDefeatClosingMs = BOSS_STAGING.DEFEAT_CLOSING_MS;
 
         const shards = [];
-        // 破片の数を大幅に増量 (30 -> 80)
-        for (let i = 0; i < 80; i++) {
-            const angle = (Math.PI * 2 * i) / 80 + (Math.random() - 0.5) * 0.4;
+        // 数ではなく、速度差と細い残光で密度を作る。
+        for (let i = 0; i < 48; i++) {
+            const angle = (Math.PI * 2 * i) / 48 + (Math.random() - 0.5) * 0.34;
             const speed = 3 + Math.random() * 8;
             shards.push({
                 x: centerX,
@@ -3737,8 +4314,9 @@ class Game {
                 vy: Math.sin(angle) * speed - 2.0,
                 life: 800 + Math.random() * 800,
                 maxLife: 1600,
-                size: 3 + Math.random() * 5,
-                color: i % 2 === 0 ? '#ffeb3b' : '#ff5722' // 火花のようなグラデーション
+                size: 2 + Math.random() * 3.5,
+                rotation: angle,
+                spin: (Math.random() - 0.5) * 0.22
             });
         }
         
@@ -3762,6 +4340,7 @@ class Game {
             y: centerY,
             timer: 0,
             duration: 2000,
+            stageNumber: this.currentStageNumber,
             shards
         });
     }
@@ -3774,6 +4353,7 @@ class Game {
                 shard.vy += 0.2;
                 shard.x += shard.vx;
                 shard.y += shard.vy;
+                shard.rotation += shard.spin || 0;
                 shard.life -= this.deltaTime * 1000;
             }
             effect.shards = effect.shards.filter((shard) => shard.life > 0);
@@ -3866,37 +4446,54 @@ class Game {
         for (const effect of this.stageBossDefeatEffects) {
             const t = Math.max(0, Math.min(1, effect.timer / effect.duration));
             const fade = 1 - t;
+            const palette = [
+                [133, 190, 146], [207, 168, 105], [174, 196, 222],
+                [219, 137, 83], [205, 177, 125], [229, 176, 194]
+            ][Math.max(0, Math.min(5, (effect.stageNumber || 1) - 1))];
             ctx.save();
-            ctx.globalAlpha = fade;
-            ctx.strokeStyle = `rgba(255, 228, 166, ${0.86 * fade})`;
-            ctx.lineWidth = 6;
-            ctx.beginPath();
-            ctx.arc(effect.x, effect.y, 18 + t * 120, 0, Math.PI * 2);
-            ctx.stroke();
-
-            ctx.strokeStyle = `rgba(255, 160, 102, ${0.62 * fade})`;
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.arc(effect.x, effect.y, 10 + t * 74, 0, Math.PI * 2);
-            ctx.stroke();
-
-            const flare = ctx.createRadialGradient(effect.x, effect.y, 0, effect.x, effect.y, 120);
-            flare.addColorStop(0, `rgba(255, 245, 215, ${0.36 * fade})`);
-            flare.addColorStop(0.5, `rgba(255, 188, 120, ${0.18 * fade})`);
-            flare.addColorStop(1, 'rgba(255, 120, 80, 0)');
+            ctx.globalCompositeOperation = 'screen';
+            const flareRadius = 90 + t * 92;
+            const flare = ctx.createRadialGradient(effect.x, effect.y, 0, effect.x, effect.y, flareRadius);
+            flare.addColorStop(0, `rgba(255, 250, 231, ${0.30 * fade})`);
+            flare.addColorStop(0.36, `rgba(${palette[0]}, ${palette[1]}, ${palette[2]}, ${0.17 * fade})`);
+            flare.addColorStop(1, `rgba(${palette[0]}, ${palette[1]}, ${palette[2]}, 0)`);
             ctx.fillStyle = flare;
             ctx.beginPath();
-            ctx.arc(effect.x, effect.y, 120, 0, Math.PI * 2);
+            ctx.arc(effect.x, effect.y, flareRadius, 0, Math.PI * 2);
             ctx.fill();
+
+            // 三重の細い波紋は時間差で開く。太い丸を重ねる旧爆発表現を避ける。
+            for (let i = 0; i < 3; i++) {
+                const rt = Math.max(0, Math.min(1, t * 1.45 - i * 0.16));
+                if (rt <= 0) continue;
+                ctx.strokeStyle = `rgba(${i === 0 ? '245, 226, 181' : palette.join(', ')}, ${(0.48 * (1 - rt) * fade).toFixed(3)})`;
+                ctx.lineWidth = i === 0 ? 2 : 1;
+                ctx.beginPath();
+                ctx.arc(effect.x, effect.y, 22 + rt * (106 + i * 24), -0.15, Math.PI * 1.86);
+                ctx.stroke();
+            }
+
+            const column = ctx.createLinearGradient(0, effect.y - 210, 0, effect.y + 110);
+            column.addColorStop(0, 'rgba(255, 248, 226, 0)');
+            column.addColorStop(0.58, `rgba(255, 248, 226, ${(0.12 * fade).toFixed(3)})`);
+            column.addColorStop(1, 'rgba(255, 248, 226, 0)');
+            ctx.fillStyle = column;
+            ctx.fillRect(effect.x - 3 - 7 * fade, effect.y - 210, 6 + 14 * fade, 320);
             ctx.restore();
 
             for (const shard of effect.shards) {
                 const life = Math.max(0, shard.life / shard.maxLife);
                 ctx.save();
-                ctx.globalAlpha = life;
-                ctx.fillStyle = 'rgba(255, 220, 170, 0.92)';
+                ctx.translate(shard.x, shard.y);
+                ctx.rotate(shard.rotation || 0);
+                ctx.globalAlpha = life * 0.82;
+                ctx.fillStyle = `rgba(${palette[0]}, ${palette[1]}, ${palette[2]}, 0.92)`;
                 ctx.beginPath();
-                ctx.arc(shard.x, shard.y, shard.size * (0.6 + life * 0.5), 0, Math.PI * 2);
+                ctx.moveTo(-shard.size * 1.9, 0);
+                ctx.lineTo(0, -shard.size * 0.42);
+                ctx.lineTo(shard.size * 1.9, 0);
+                ctx.lineTo(0, shard.size * 0.42);
+                ctx.closePath();
                 ctx.fill();
                 ctx.restore();
             }
@@ -4550,6 +5147,14 @@ class Game {
             this.player.invincibleTimer = 0;
             this.player.damageFlashTimer = 0;
         }
+        // 突破印へ敵影や戦闘中の数値を持ち越さない。
+        // 撃破時に死亡処理へ入った雑魚も、状態遷移で更新が止まると姿だけ残るためここで整理する。
+        if (this.stage) {
+            this.stage.enemies = [];
+            this.stage.bossUiRevealT = 0;
+        }
+        this.damageNumbers = [];
+        this.hitEffects = [];
         this.pendingLevelUpChoices = 0;
         // this.levelUpChoiceIndex = 0; // フェードアウト完了まで位置を維持
 
@@ -5199,14 +5804,14 @@ class Game {
             this.flashAlpha = Math.max(0, this.flashAlpha - this.deltaTime * 3.0); // フェードアウト速度
         }
 
-        // ボス撃破のクロージング：画面の上下端から黒が寄って一拍おいて引く。
-        // 「幕が引かれる」感を色を飛ばさずに作る（白フラッシュの代替）。
+        // ボス撃破のクロージング。画面を塞ぐ幕ではなく細い映画枠に留め、
+        // 撃破地点と次の「突破」が同じ場で連続して見えるようにする。
         if (this.bossDefeatClosingMs > 0) {
             const total = BOSS_STAGING.DEFEAT_CLOSING_MS;
             const t = 1 - this.bossDefeatClosingMs / total; // 0→1
             // 前半で寄り、後半で引く（山なり）
             const amt = t < 0.5 ? (t / 0.5) : (1 - (t - 0.5) / 0.5);
-            const band = CANVAS_HEIGHT * 0.30 * amt;
+            const band = CANVAS_HEIGHT * 0.16 * amt;
             if (band > 0.5) {
                 this.ctx.save();
                 const top = this.ctx.createLinearGradient(0, 0, 0, band);
@@ -5220,6 +5825,15 @@ class Game {
                 bot.addColorStop(1, 'rgba(0, 0, 0, 0.92)');
                 this.ctx.fillStyle = bot;
                 this.ctx.fillRect(0, CANVAS_HEIGHT - band, SCREEN_WIDTH, band);
+
+                this.ctx.strokeStyle = `rgba(224, 190, 119, ${(0.34 * amt).toFixed(3)})`;
+                this.ctx.lineWidth = 1;
+                this.ctx.beginPath();
+                this.ctx.moveTo(SCREEN_WIDTH * 0.18, band);
+                this.ctx.lineTo(SCREEN_WIDTH * 0.82, band);
+                this.ctx.moveTo(SCREEN_WIDTH * 0.18, CANVAS_HEIGHT - band);
+                this.ctx.lineTo(SCREEN_WIDTH * 0.82, CANVAS_HEIGHT - band);
+                this.ctx.stroke();
                 this.ctx.restore();
             }
             this.bossDefeatClosingMs = Math.max(0, this.bossDefeatClosingMs - this.deltaTime * 1000);
@@ -5510,6 +6124,9 @@ class Game {
             ctx.save();
             if (playerAlpha < 1.0) ctx.globalAlpha *= playerAlpha;
 
+            // 最上層へ上がってくる最中も【プレイヤーは屋根の手前】に描く。
+            // (雑魚は棟の線でクリップして屋根の裏から出るが、プレイヤーは
+            //  軒に鎖鎌を掛けて手前の斜面を登ってくるので隠さない)
             player.render(ctx, {
                 forceStanding: forceStanding,
                 skipSpecialRender: true,
@@ -5579,6 +6196,7 @@ class Game {
 
     renderPlaying(playerAlpha = 1.0, forceStanding = false) {
         const ctx = this.ctx;
+        const suppressBattleHud = this.state === GAME_STATE.STAGE_CLEAR && this.stageClearPhase === 0;
         
         // 描画バグ（半身バグ等）を防ぐため、スケーリング適用前に全画面を黒でクリア
         ctx.save();
@@ -5637,7 +6255,7 @@ class Game {
                 ctx,
                 this.stage,
                 this.player,
-                this.stage.getAllEnemies(),
+                this.stage.getShadowCasters(),
                 this.scrollX
             );
         }
@@ -5660,8 +6278,7 @@ class Game {
         
         // ボス（本体）
         if (this.stage.boss && this.stage.bossSpawned) {
-            const boss = this.stage.boss;
-            boss.render(ctx);
+            this.stage.boss.render(ctx);
         }
         
         // 衝撃波
@@ -5679,7 +6296,13 @@ class Game {
             const cy = this.player.y + ph * 0.5; // 体の中心
             const rx = this.player.getWorldWidth() * 2.2;
             const ry = ph * 1.15; // 全身を包む
+            const footY = this.player.y + ph;
             ctx.save();
+            // 足元より下へハローを溢れさせない。黒い屋根の上では足の下の光だまりが
+            // 影の逆になり、プレイヤーだけ屋根から浮いて見える(敵は同じ位置でも接地して見える)。
+            ctx.beginPath();
+            ctx.rect(cx - rx, cy - ry, rx * 2, (footY + 1) - (cy - ry));
+            ctx.clip();
             ctx.globalCompositeOperation = 'lighten';
             const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, ry);
             halo.addColorStop(0, 'rgba(150, 178, 210, 0.42)');
@@ -5692,14 +6315,14 @@ class Game {
             ctx.restore();
         }
 
-        // Stage6 角3: 鉤縄の背面パス(軌跡と鎖)。体の後ろを通す。
+        // Stage6 角3: 鎖鎌の背面パス(軌跡と鎖)。体の後ろを通す。
         // ここはワールド変換(translate(-scrollX))の内側なのでワールド座標で描ける。
         const grappling = this.currentStageNumber === 6 && this.stage.isStage6Grappling();
         if (grappling) this.stage.renderStage6GrappleBehind(ctx);
 
         this.renderPlayerCombatLayer(ctx, { playerAlpha, forceStanding });
 
-        // 前面パス(鉤頭と噛んだ瞬間の火花)。鉤が頭の後ろへ回り込んで隠れるのを防ぐ。
+        // 前面パス(鎌ヘッドと噛んだ瞬間の火花)。鎌が頭の後ろへ回り込んで隠れるのを防ぐ。
         if (grappling) this.stage.renderStage6GrappleFront(ctx);
 
         // ヒット演出（世界座標）
@@ -5734,23 +6357,19 @@ class Game {
 
         // 3. HUD（カメラ固定）
 
-        // ボスUI（HPバーなど）。登場演出中は bossUiRevealT で上からスライドインする。
-        if (this.stage.boss) {
-            this.stage.renderBossUI(ctx);
-        }
+        if (!suppressBattleHud) {
+            // ボスUI（HPバーなど）。登場演出中は bossUiRevealT で上からスライドインする。
+            if (this.stage.boss) {
+                this.stage.renderBossUI(ctx);
+            }
 
-        // ボスの名乗り短冊（登場演出の name / ready フェーズ）
-        this.renderBossNameBannerIfNeeded(ctx);
+            this.renderBossNameBannerIfNeeded(ctx);
+            this.ui.renderHUD(ctx, this.player, this.stage);
+            this.ui.renderControls(ctx);
 
-        // メインHUD
-        this.ui.renderHUD(ctx, this.player, this.stage);
-        
-        // 操作説明
-        this.ui.renderControls(ctx);
-
-        // Stage 5: フロア名表示
-        if (this.currentStageNumber === 5 && this.stage.stageNumber === 5) {
-            this.stage.renderFloorName(ctx);
+            if (this.currentStageNumber === 5 && this.stage.stageNumber === 5) {
+                this.stage.renderFloorName(ctx);
+            }
         }
 
         // Stage 5/6: フロア/角遷移の暗転オーバーレイ（最前面）

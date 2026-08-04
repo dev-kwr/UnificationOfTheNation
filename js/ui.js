@@ -1797,67 +1797,160 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
     ctx.restore();
 }
 
-// ゲームオーバー画面（リッチ化）
+// 戦闘結果画面の共通骨格。
+// 階層突破・GAME CLEAR・GAME OVERで「中央の印章枠＋下端の英語操作ガイド」を共有し、
+// 色と輪の状態だけで勝利／敗北を描き分ける。
+const OUTCOME_MAIN_FONT_PX = 78;
+const OUTCOME_MAIN_FONT = `900 ${OUTCOME_MAIN_FONT_PX}px "Zen Old Mincho", serif`;
+const OUTCOME_GAME_CLEAR_FONT = '900 64px "Zen Old Mincho", serif';
+
+function drawOutcomeSealFrame(ctx, cx, cy, reveal, accentRgb, options = {}) {
+    const broken = !!options.broken;
+    const time = Number.isFinite(options.time) ? options.time : 0;
+    const rOuter = options.radius || 154;
+    const rInner = rOuter - 14;
+    const eased = 1 - Math.pow(1 - Math.max(0, Math.min(1, reveal)), 3);
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate((broken ? -0.055 : 0.025) + Math.sin(time * 0.0007) * 0.004);
+    ctx.scale(0.88 + eased * 0.12, 0.88 + eased * 0.12);
+    ctx.globalAlpha *= eased;
+
+    const strokeRing = (radius, width, alpha, offset = 0) => {
+        ctx.strokeStyle = `rgba(${accentRgb}, ${alpha})`;
+        ctx.lineWidth = width;
+        if (!broken) {
+            ctx.beginPath();
+            ctx.arc(0, 0, radius, 0, Math.PI * 2);
+            ctx.stroke();
+            return;
+        }
+
+        // 敗北時は同じ印章が砕けた状態として、輪を三つの弧へ分断する。
+        const arcs = [
+            [-2.84 + offset, -1.44 + offset],
+            [-1.18 + offset, 0.58 + offset],
+            [0.92 + offset, 2.52 + offset]
+        ];
+        for (const [start, end] of arcs) {
+            ctx.beginPath();
+            ctx.arc(0, 0, radius, start, end);
+            ctx.stroke();
+        }
+    };
+
+    strokeRing(rOuter, 2, broken ? 0.50 : 0.72);
+    strokeRing(rInner, 1, broken ? 0.34 : 0.55, 0.08);
+
+    // 節点は突破画面と共通。敗北時は一部を落として「未完」を表す。
+    for (let i = 0; i < 4; i++) {
+        if (broken && i === 1) continue;
+        const a = Math.PI * 0.25 + i * Math.PI * 0.5;
+        ctx.save();
+        ctx.translate(Math.cos(a) * rOuter, Math.sin(a) * rOuter);
+        ctx.rotate(a);
+        ctx.fillStyle = `rgba(${accentRgb}, ${broken ? 0.54 : 0.76})`;
+        ctx.fillRect(-3, -3, 6, 6);
+        ctx.restore();
+    }
+
+    // 勝利側だけ、ごく細い放射線で印章が確定した余韻を加える。
+    if (!broken) {
+        ctx.strokeStyle = `rgba(${accentRgb}, 0.12)`;
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 16; i++) {
+            const a = i / 16 * Math.PI * 2;
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(a) * (rOuter + 18), Math.sin(a) * (rOuter + 18));
+            ctx.lineTo(Math.cos(a) * (rOuter + 52), Math.sin(a) * (rOuter + 52));
+            ctx.stroke();
+        }
+    }
+    ctx.restore();
+}
+
+function drawOutcomePrompt(ctx, text, time, y = CANVAS_HEIGHT - 48, reveal = 1) {
+    const a = Math.max(0, Math.min(1, reveal)) * (0.70 + Math.sin(time * 0.006) * 0.12);
+    if (a <= 0.002) return;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '600 18px "Helvetica Neue", Arial, sans-serif';
+    ctx.fillStyle = `rgba(255, 255, 255, ${a.toFixed(3)})`;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.72)';
+    ctx.shadowBlur = 5;
+    ctx.fillText(text, SCREEN_WIDTH * 0.5, y);
+    ctx.restore();
+}
+
+// ゲームオーバー画面
 export function renderGameOverScreen(ctx, player, stageNumber, fadeTimer = 0) {
-    // 表示開始からの経過時間を使用（ループさせない）
-    const time = fadeTimer;
-    
-    // 背景はgame.js側で制御
-    
-    // GAME OVER テキスト（一度きりのフェードイン）
-    const fadeDuration = 1500;
-    const fadeProgress = Math.min(1, time / fadeDuration);
-    
-    // パーティクルエフェクト（散りゆく灰 - 滑らかにループ）
+    const time = Math.max(0, Number(fadeTimer) || 0);
+    const fadeProgress = Math.max(0, Math.min(1, time / 780));
+    const eased = 1 - Math.pow(1 - fadeProgress, 3);
+    const centerX = SCREEN_WIDTH * 0.5;
+    const centerY = CANVAS_HEIGHT * 0.46;
+
+    ctx.save();
+
+    // 舞台の色を完全には消さず、中央だけ黒赤の沈みへ落とす。
+    const sink = ctx.createRadialGradient(
+        centerX, centerY, 20,
+        centerX, centerY, SCREEN_WIDTH * 0.58
+    );
+    sink.addColorStop(0, `rgba(42, 4, 8, ${(0.24 * eased).toFixed(3)})`);
+    sink.addColorStop(0.52, `rgba(15, 3, 6, ${(0.30 * eased).toFixed(3)})`);
+    sink.addColorStop(1, `rgba(0, 0, 0, ${(0.52 * eased).toFixed(3)})`);
+    ctx.fillStyle = sink;
+    ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
+
+    // 散りゆく灰。突破画面の放射線に対し、敗北側は下へ落ちる動きにする。
     const loopTime = Date.now();
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 18; i++) {
         const cycleDuration = 4000;
-        const offset = i * (cycleDuration / 15);
+        const offset = i * (cycleDuration / 18);
         const cycleProgress = ((loopTime + offset) % cycleDuration) / cycleDuration;
-        
-        const px = SCREEN_WIDTH/2 + Math.sin(loopTime * 0.001 + i * 0.7) * 200;
-        const py = CANVAS_HEIGHT/2 - 100 + Math.cos(loopTime * 0.0008 + i * 0.9) * 100 + cycleProgress * 120;
+        const px = centerX + Math.sin(loopTime * 0.001 + i * 0.7) * 220;
+        const py = centerY - 150 + Math.cos(loopTime * 0.0008 + i * 0.9) * 70 + cycleProgress * 230;
         const size = 2 + Math.sin(i * 0.5) * 1.5;
-        
-        // sin波で滑らかにフェードイン・アウト
-        const particleAlpha = Math.sin(cycleProgress * Math.PI) * 0.4;
-        
-        ctx.fillStyle = 'rgba(150, 50, 50, ' + (particleAlpha * fadeProgress) + ')';
+        const particleAlpha = Math.sin(cycleProgress * Math.PI) * 0.34 * eased;
+        ctx.fillStyle = `rgba(146, 62, 62, ${particleAlpha.toFixed(3)})`;
         ctx.beginPath();
         ctx.arc(px, py, size, 0, Math.PI * 2);
         ctx.fill();
     }
-    
-    ctx.globalAlpha = fadeProgress;
-    ctx.fillStyle = 'rgba(255, 51, 51, 1)';
-    ctx.font = 'bold 80px serif';
+
+    drawOutcomeSealFrame(ctx, centerX, centerY, fadeProgress, '174, 72, 72', {
+        broken: true,
+        time,
+        radius: 150
+    });
+
+    ctx.globalAlpha = eased;
     ctx.textAlign = 'center';
-    ctx.shadowColor = '#500';
-    ctx.shadowBlur = 20;
-    ctx.fillText('無 念', SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2 - 80);
-    
-    ctx.font = 'bold 40px serif';
-    ctx.fillStyle = 'rgba(204, 0, 0, 1)';
-    ctx.shadowBlur = 0;
-    ctx.fillText('GAME OVER', SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
-    
-    // 続行メッセージ（画面中央寄りに配置）
-    if (fadeProgress >= 1.0) {
-        const blink = Math.floor(Date.now() / 500) % 2 === 0;
-        if (blink) {
-            ctx.font = 'bold 20px "Zen Old Mincho", serif';
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-            ctx.textAlign = 'center';
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-            ctx.shadowBlur = 4;
-            ctx.fillText('Press SPACE or Tap Screen to Return to Title', SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2 + 80);
-            ctx.shadowBlur = 0;
-        }
-    }
-    ctx.globalAlpha = 1.0;
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.82)';
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = 'rgba(232, 205, 197, 0.96)';
+    ctx.font = OUTCOME_MAIN_FONT;
+    ctx.fillText('無念', centerX, centerY - 22);
+
+    ctx.shadowBlur = 6;
+    ctx.font = '700 27px "Helvetica Neue", Arial, sans-serif';
+    ctx.fillStyle = 'rgba(196, 77, 77, 0.96)';
+    ctx.fillText('GAME OVER', centerX, centerY + 57);
+    ctx.restore();
 
     // タップ用ボタン
-    drawFlatButton(ctx, SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2 + 80, 400, 60, '', 'rgba(0, 0, 0, 0)');
+    drawOutcomePrompt(
+        ctx,
+        'Press SPACE or Tap Screen to Return to Title',
+        time,
+        CANVAS_HEIGHT - 48,
+        Math.max(0, Math.min(1, (time - 420) / 280))
+    );
+    drawFlatButton(ctx, centerX, CANVAS_HEIGHT - 48, 430, 54, '', 'rgba(0, 0, 0, 0)');
 }
 
 // ステージクリア画面（ステータス画面）
@@ -2037,68 +2130,93 @@ export function drawWafuHeading(ctx, cx, baselineY, text, opts = {}) {
 // ボスの名乗り短冊（縦書き）。登場演出の「間」を作るための一枚。
 // 天井から下がってきて 0.8 秒ほど留まり、開戦で上へ抜ける。
 // 背景の色には一切触れない UI レイヤーの表現なので、ボス部屋の
-// 「色は変えない」方針と衝突しない。
-//   enterT … 0→1 で降りてくる
-//   exitT  … 0→1 で上へ抜ける（1で完全に消える）
+// ボス名はここで一度だけ見せる。戦闘中のHPゲージには名前を再掲しない。
+// 横組みに統一し、中央の縦短冊と上部の横ゲージが競合していた旧構成を解消する。
 export function renderBossNameBanner(ctx, name, opts = {}) {
     const text = String(name || '').trim();
     if (!text) return;
     const enterT = Math.max(0, Math.min(1, opts.enterT != null ? opts.enterT : 1));
     const exitT = Math.max(0, Math.min(1, opts.exitT || 0));
     if (exitT >= 1) return;
-
-    const chars = [...text];
     const s = getUiScale();
-    const fontSize = Math.round(30 * s);
-    const lineH = fontSize * 1.16;
-    // 縦に収まるよう字送りを詰める（長い名前でも画面内に収める）
-    const maxBodyH = CANVAS_HEIGHT * 0.52;
-    const bodyH = lineH * chars.length;
-    const squeeze = bodyH > maxBodyH ? maxBodyH / bodyH : 1;
-    const lh = lineH * squeeze;
-    const padY = fontSize * 0.72;
-    const w = Math.round(fontSize * 2.15);
-    const h = Math.round(lh * chars.length + padY * 2);
-
+    const stageNumber = Math.max(1, Math.min(6, Number(opts.stageNumber) || 1));
+    const accents = ['#91c3a0', '#d9b37a', '#b9c8df', '#e2a06e', '#d4b986', '#e8bac9'];
+    const accent = accents[stageNumber - 1];
+    const w = Math.min(Math.round(590 * s), SCREEN_WIDTH - Math.round(48 * s));
+    const h = Math.round(126 * s);
     const cx = SCREEN_WIDTH * 0.5;
-    const restY = Math.round(CANVAS_HEIGHT * 0.10);
-    const hiddenY = -h - 24;
-
-    // 降下は easeOutCubic（重い布が落ちて止まる）、退場は easeInCubic（すっと抜ける）
+    const cy = CANVAS_HEIGHT * 0.39;
+    const x = Math.round(cx - w * 0.5);
+    const y = Math.round(cy - h * 0.5);
     const easeOut = 1 - Math.pow(1 - enterT, 3);
-    const easeIn = exitT * exitT * exitT;
-    const y = exitT > 0
-        ? restY + (hiddenY - restY) * easeIn
-        : hiddenY + (restY - hiddenY) * easeOut;
-    const alpha = Math.min(enterT / 0.35, 1) * (1 - easeIn);
+    const easeIn = exitT * exitT;
+    const alpha = Math.min(1, enterT * 2.6) * (1 - easeIn);
+    const open = Math.max(0.02, easeOut * (1 - easeIn));
     if (alpha <= 0.01) return;
 
     ctx.save();
     ctx.globalAlpha = alpha;
-    const x = Math.round(cx - w / 2);
+    ctx.translate(cx, cy);
+    ctx.scale(0.92 + open * 0.08, 0.96 + open * 0.04);
+    ctx.translate(-cx, -cy);
 
-    // 台紙（昇段画面と同じ紺カード。トンマナ共有）
-    drawWafuCard(ctx, x, y, w, h, { radius: 5, shadow: true, bgAlpha: 0.94 });
+    // 中央から開くマスク。名前、罫線、台紙を同じ動きに揃える。
+    ctx.beginPath();
+    ctx.rect(cx - w * open * 0.5, y - 18 * s, w * open, h + 36 * s);
+    ctx.clip();
 
-    // 上下の細い罫（短冊の天地）
-    drawWafuDivider(ctx, cx, y + padY * 0.46, w * 0.32);
-    drawWafuDivider(ctx, cx, y + h - padY * 0.46, w * 0.32);
+    const shadow = ctx.createLinearGradient(0, y, 0, y + h);
+    shadow.addColorStop(0, 'rgba(7, 11, 20, 0.72)');
+    shadow.addColorStop(0.5, 'rgba(15, 19, 29, 0.94)');
+    shadow.addColorStop(1, 'rgba(5, 8, 15, 0.72)');
+    wafuRoundRectPath(ctx, x, y, w, h, 6 * s);
+    ctx.fillStyle = shadow;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.62)';
+    ctx.shadowBlur = 22 * s;
+    ctx.fill();
+    ctx.shadowBlur = 0;
 
-    // 縦書き本文。文字ごとに描いて字送りを自分で決める（明朝の縦組み）
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
-    ctx.shadowBlur = Math.max(2, fontSize * 0.16);
-    ctx.shadowOffsetY = 1;
-    ctx.font = `900 ${fontSize}px "Zen Old Mincho", serif`;
-    ctx.fillStyle = '#f4f9ff';
+    // 金属の細罫とステージ固有色の芯。全画面を染めず、舞台札だけに色を置く。
+    for (const yy of [y + 9 * s, y + h - 9 * s]) {
+        const line = ctx.createLinearGradient(x, 0, x + w, 0);
+        line.addColorStop(0, 'rgba(214, 180, 112, 0)');
+        line.addColorStop(0.18, 'rgba(214, 180, 112, 0.55)');
+        line.addColorStop(0.5, accent);
+        line.addColorStop(0.82, 'rgba(214, 180, 112, 0.55)');
+        line.addColorStop(1, 'rgba(214, 180, 112, 0)');
+        ctx.strokeStyle = line;
+        ctx.lineWidth = Math.max(1, 1.2 * s);
+        ctx.beginPath();
+        ctx.moveTo(x, yy);
+        ctx.lineTo(x + w, yy);
+        ctx.stroke();
+    }
+
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    for (let i = 0; i < chars.length; i++) {
-        ctx.fillText(chars[i], cx, y + padY + lh * (i + 0.5));
-    }
-    // 影のリセット（以降の描画に漏らさない）
-    ctx.shadowColor = 'transparent';
+    ctx.font = `700 ${Math.round(15 * s)}px "Zen Old Mincho", serif`;
+    ctx.fillStyle = 'rgba(225, 205, 159, 0.88)';
+    ctx.fillText('決　戦', cx, y + 32 * s);
+
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+    ctx.shadowBlur = 7 * s;
+    ctx.font = `900 ${Math.round(38 * s)}px "Zen Old Mincho", serif`;
+    ctx.fillStyle = '#f7f3e9';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, cx, y + 79 * s, w - 70 * s);
+
+    // 両端の小さな紋。大きな装飾を足さず、横長の構図を明確にする。
     ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
+    ctx.strokeStyle = accent;
+    ctx.globalAlpha *= 0.72;
+    for (const dx of [x + 31 * s, x + w - 31 * s]) {
+        ctx.save();
+        ctx.translate(dx, cy);
+        ctx.rotate(Math.PI / 4);
+        ctx.strokeRect(-5 * s, -5 * s, 10 * s, 10 * s);
+        ctx.restore();
+    }
     ctx.restore();
 }
 
@@ -3106,136 +3224,219 @@ export function renderPauseScreen(ctx, armed = false) {
     ctx.restore();
 }
 
-// 全クリア画面（通常ステージクリアと同等の透け感で重ねる）
+// 全クリア画面。階層突破の「印章が確定する」構図を最終完成形へ拡張する。
 export function renderGameClearScreen(ctx, timerMs = 0) {
-    const time = Number.isFinite(timerMs) ? timerMs : 0;
+    const time = Math.max(0, Number.isFinite(timerMs) ? timerMs : 0);
     const pulse = 0.5 + Math.sin(time * 0.003) * 0.5;
+    const reveal = Math.max(0, Math.min(1, time / 760));
+    const eased = 1 - Math.pow(1 - reveal, 3);
+    const centerX = SCREEN_WIDTH * 0.5;
+    const centerY = CANVAS_HEIGHT * 0.46;
 
-    // 通常ステージクリア寄りの半透明オーバーレイ
-    ctx.fillStyle = `rgba(180, 132, 54, ${0.2 + pulse * 0.06})`;
+    ctx.save();
+
+    // 戦闘画面を残しつつ、最終勝利だけは中央から金色の朝光を広げる。
+    ctx.fillStyle = `rgba(154, 104, 31, ${(0.15 + eased * 0.08 + pulse * 0.025).toFixed(3)})`;
     ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
 
     const grad = ctx.createRadialGradient(
-        SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2, 0,
-        SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2, SCREEN_WIDTH * 0.72
+        centerX, centerY, 0,
+        centerX, centerY, SCREEN_WIDTH * 0.62
     );
-    grad.addColorStop(0, `rgba(255, 226, 146, ${0.24 + pulse * 0.08})`);
-    grad.addColorStop(1, 'rgba(0, 0, 0, 0.16)');
-    ctx.save();
+    grad.addColorStop(0, `rgba(255, 226, 146, ${(0.22 * eased + pulse * 0.05).toFixed(3)})`);
+    grad.addColorStop(0.46, `rgba(233, 181, 78, ${(0.08 * eased).toFixed(3)})`);
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0.12)');
     ctx.globalCompositeOperation = 'screen';
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
-    ctx.restore();
+    ctx.globalCompositeOperation = 'source-over';
 
-    // 金粉パーティクル（透け感を維持）
-    for (let i = 0; i < 15; i++) {
+    // 金粉は上昇させ、敗北画面の落ちる灰と動きでも対比させる。
+    for (let i = 0; i < 18; i++) {
         const cycleDuration = 4000;
-        const offset = i * (cycleDuration / 15);
+        const offset = i * (cycleDuration / 18);
         const cycleProgress = ((time + offset) % cycleDuration) / cycleDuration;
-        const px = SCREEN_WIDTH / 2 + Math.sin(time * 0.001 + i * 0.72) * 200;
-        const py = CANVAS_HEIGHT / 2 - 100 + Math.cos(time * 0.0008 + i * 0.9) * 100 + cycleProgress * 120;
+        const px = centerX + Math.sin(time * 0.001 + i * 0.72) * 230;
+        const py = centerY + 170 + Math.cos(time * 0.0008 + i * 0.9) * 54 - cycleProgress * 300;
         const size = 2 + Math.sin(i * 0.5) * 1.5;
-        const particleAlpha = Math.sin(cycleProgress * Math.PI) * 0.28;
+        const particleAlpha = Math.sin(cycleProgress * Math.PI) * 0.30 * eased;
         ctx.fillStyle = `rgba(238, 190, 78, ${particleAlpha})`;
         ctx.beginPath();
         ctx.arc(px, py, size, 0, Math.PI * 2);
         ctx.fill();
     }
 
+    drawOutcomeSealFrame(ctx, centerX, centerY, reveal, '231, 198, 123', {
+        broken: false,
+        time,
+        radius: 164
+    });
+
+    ctx.globalAlpha = eased;
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     ctx.shadowColor = 'rgba(0, 0, 0, 0.58)';
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = 14;
 
+    // 四文字は一段で読ませる。字格だけを64pxへ落とし、主見出しの中心位置と
+    // 英語副題の位置は「無念」「突破」と共通にする。
     ctx.fillStyle = 'rgba(255, 247, 224, 0.98)';
-    ctx.font = 'bold 80px serif';
-    ctx.fillText('天下統一', SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2 - 80);
+    ctx.font = OUTCOME_GAME_CLEAR_FONT;
+    ctx.fillText('天下統一', centerX, centerY - 22);
 
-    ctx.font = 'bold 40px serif';
+    ctx.font = '700 28px "Helvetica Neue", Arial, sans-serif';
     ctx.fillStyle = 'rgba(255, 218, 108, 0.98)';
-    ctx.fillText('GAME CLEAR', SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2 + 20);
+    ctx.shadowBlur = 6;
+    ctx.fillText('GAME CLEAR', centerX, centerY + 94);
+    ctx.restore();
 
-    if (Math.floor(time / 500) % 2 === 0) {
-        ctx.font = 'bold 20px "Zen Old Mincho", serif';
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.84)';
-        ctx.fillText('Press SPACE or Tap Screen to Continue', SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2 + 80);
-    }
-    ctx.shadowBlur = 0;
+    drawOutcomePrompt(
+        ctx,
+        'Press SPACE or Tap Screen to Continue',
+        time,
+        CANVAS_HEIGHT - 48,
+        Math.max(0, Math.min(1, (time - 620) / 260))
+    );
 }
 
 /**
- * 階層クリア時の演出画面（緑色の明るいオーバーレイと大きな文字）
+ * 階層突破。戦闘画面の色を残したまま、金属の輪と印章で勝利を刻む。
  */
 export function renderStageClearAnnouncement(ctx, stageNumber, weaponUnlocked, stage) {
     const time = Date.now();
     const g = (typeof window !== 'undefined' && window.game) ? window.game : null;
     const timer = (g && Number.isFinite(g.stageClearAnnounceTimer)) ? g.stageClearAnnounceTimer : 9999;
-    const stageStr = Number.isFinite(stageNumber) ? toKanjiNumber(stageNumber) : stageNumber;
 
     // 各要素の表示タイミング（ms）
-    // 各要素の表示タイミング(ms)。撃破からここへ来るまでに死亡演出1.25秒＋余韻0.48秒を
+    // 各要素の表示タイミング(ms)。撃破からここへ来るまでに死亡演出1.25秒＋余韻0.62秒を
     // 使っているので、ここで更に待たせると「間」ではなく「空白」になる。前詰めにする。
     // game.js 側の効果音トリガー(clearDelay)とスキップ解禁(pressDelay)も同じ値に合わせる。
-    const stageNameDelay = 120;
     const clearDelay = 380;
     const weaponDelay = 920;
     const pressDelay = 1650;
 
     ctx.save();
+    const palette = [
+        [133, 190, 146], [207, 168, 105], [174, 196, 222],
+        [219, 137, 83], [205, 177, 125], [229, 176, 194]
+    ][Math.max(0, Math.min(5, (Number(stageNumber) || 1) - 1))];
+    const reveal = Math.max(0, Math.min(1, (timer - 80) / 520));
+    const ease = 1 - Math.pow(1 - reveal, 3);
+    const clearReveal = Math.max(0, Math.min(1, (timer - clearDelay) / 260));
+    const centerX = SCREEN_WIDTH * 0.5;
+    const centerY = CANVAS_HEIGHT * 0.46;
 
-    // 緑っぽく明るい背景
-    ctx.fillStyle = 'rgba(60, 180, 100, 0.25)';
+    // 背景を消さず、端だけ静かに落として撃破地点との連続性を残す。
+    ctx.fillStyle = `rgba(4, 7, 12, ${(0.18 + ease * 0.16).toFixed(3)})`;
     ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
 
     const grad = ctx.createRadialGradient(
-        SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2, 0,
-        SCREEN_WIDTH / 2, CANVAS_HEIGHT / 2, SCREEN_WIDTH * 0.7
+        centerX, centerY, 0,
+        centerX, centerY, SCREEN_WIDTH * 0.48
     );
-    grad.addColorStop(0, 'rgba(120, 255, 180, 0.4)');
-    grad.addColorStop(1, 'rgba(0, 0, 0, 0.2)');
+    grad.addColorStop(0, `rgba(${palette[0]}, ${palette[1]}, ${palette[2]}, ${(0.18 * ease).toFixed(3)})`);
+    grad.addColorStop(0.48, `rgba(${palette[0]}, ${palette[1]}, ${palette[2]}, ${(0.055 * ease).toFixed(3)})`);
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = grad;
-    ctx.globalCompositeOperation = 'screen';
+    ctx.globalCompositeOperation = 'lighter';
     ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
 
     ctx.globalCompositeOperation = 'source-over';
+    // 三種の結果画面で同じ印章骨格を使う。通常突破は銀青、
+    // 最終勝利だけを金にすることで「天下統一」の格を残す。
+    drawOutcomeSealFrame(ctx, centerX, centerY, reveal, '157, 197, 218', {
+        broken: false,
+        time,
+        radius: 150
+    });
+
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-    ctx.shadowBlur = 10;
 
-    const centerY = CANVAS_HEIGHT / 2 - 40;
-
-    // ステージ名（バン！）
-    if (timer >= stageNameDelay) {
-        const stageName = (stage && stage.name) ? stage.name : `第${stageStr}階層`;
-        ctx.fillStyle = '#ffffff';
-        ctx.font = '700 42px serif';
-        ctx.fillText(stageName, SCREEN_WIDTH / 2, centerY - 100);
-    }
-
-    // 「突破」（バン！）
     if (timer >= clearDelay) {
-        ctx.font = '700 110px serif';
-        ctx.fillStyle = '#ffd700';
-        ctx.fillText('突 破', SCREEN_WIDTH / 2, centerY);
+        const stamp = 0.88 + (1 - Math.pow(1 - clearReveal, 3)) * 0.12;
+        ctx.save();
+        ctx.translate(centerX, centerY - 22);
+        ctx.scale(stamp, stamp);
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.72)';
+        ctx.shadowBlur = 12;
+        ctx.font = OUTCOME_MAIN_FONT;
+        ctx.fillStyle = 'rgba(232, 243, 249, 0.98)';
+        ctx.fillText('突破', 0, 0);
+        ctx.restore();
+
+        ctx.save();
+        ctx.globalAlpha = clearReveal;
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.62)';
+        ctx.shadowBlur = 6;
+        ctx.font = '700 27px "Helvetica Neue", Arial, sans-serif';
+        ctx.fillStyle = 'rgba(157, 210, 235, 0.96)';
+        ctx.fillText('STAGE CLEAR', centerX, centerY + 57);
+        ctx.restore();
     }
 
-    // 新忍具獲得テキスト（バン！）
     if (weaponUnlocked && timer >= weaponDelay) {
-        ctx.font = '700 30px "Zen Old Mincho", serif';
-        ctx.fillStyle = '#ffeb3b';
-        ctx.fillText(`新忍具「${weaponUnlocked}」を獲得！`, SCREEN_WIDTH / 2, centerY + 120);
+        const itemT = Math.max(0, Math.min(1, (timer - weaponDelay) / 260));
+        const itemEase = 1 - Math.pow(1 - itemT, 3);
+        const itemW = Math.min(420, SCREEN_WIDTH - 64);
+        const itemH = 92;
+        const itemX = centerX - itemW * 0.5;
+        const sealBottom = centerY + 150;
+        const restingTop = Math.min(sealBottom + 22, CANVAS_HEIGHT - 84 - itemH);
+        const itemTop = restingTop + (1 - itemEase) * 16;
+
+        // 円とは別の情報カードとして、印章下端から必ず22px以上離す。
+        // 1行に情報を詰めず「獲得種別 → 忍具名」の二段へ分ける。
+        wafuRoundRectPath(ctx, itemX, itemTop, itemW, itemH, 18);
+        ctx.fillStyle = `rgba(8, 13, 23, ${(0.86 * itemT).toFixed(3)})`;
+        ctx.fill();
+        ctx.strokeStyle = `rgba(157, 197, 218, ${(0.66 * itemT).toFixed(3)})`;
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+
+        const headerY = itemTop + 24;
+        const dividerY = itemTop + 43;
+        ctx.font = '700 14px "Zen Old Mincho", serif';
+        ctx.fillStyle = `rgba(157, 210, 235, ${(0.96 * itemT).toFixed(3)})`;
+        ctx.fillText('新忍具獲得', centerX, headerY);
+
+        const divider = ctx.createLinearGradient(itemX + 34, 0, itemX + itemW - 34, 0);
+        divider.addColorStop(0, 'rgba(157, 197, 218, 0)');
+        divider.addColorStop(0.5, `rgba(157, 197, 218, ${(0.42 * itemT).toFixed(3)})`);
+        divider.addColorStop(1, 'rgba(157, 197, 218, 0)');
+        ctx.strokeStyle = divider;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(itemX + 34, dividerY);
+        ctx.lineTo(itemX + itemW - 34, dividerY);
+        ctx.stroke();
+
+        ctx.font = '900 30px "Zen Old Mincho", serif';
+        ctx.fillStyle = `rgba(252, 240, 205, ${itemT.toFixed(3)})`;
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.68)';
+        ctx.shadowBlur = 7;
+        ctx.fillText(String(weaponUnlocked), centerX, itemTop + 67);
+        ctx.shadowBlur = 0;
+
+        // 両端の小さな印でカード全体を突破印の意匠へ接続する。
+        ctx.fillStyle = `rgba(157, 197, 218, ${(0.72 * itemT).toFixed(3)})`;
+        for (const dx of [-1, 1]) {
+            ctx.save();
+            ctx.translate(centerX + dx * (itemW * 0.5 - 24), itemTop + itemH * 0.5);
+            ctx.rotate(Math.PI * 0.25);
+            ctx.fillRect(-3, -3, 6, 6);
+            ctx.restore();
+        }
     }
 
-    ctx.shadowBlur = 0;
-
-    // 続行メッセージ（演出完了後に表示）
     if (timer >= pressDelay) {
-        const blink = Math.floor(time / 500) % 2 === 0;
-        if (blink) {
-            ctx.font = '600 20px "Zen Old Mincho", serif';
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-            ctx.fillText('Press SPACE or Tap to View Status', SCREEN_WIDTH / 2, centerY + 200);
-        }
+        drawOutcomePrompt(
+            ctx,
+            'Press SPACE or Tap Screen to Continue',
+            time,
+            CANVAS_HEIGHT - 42,
+            Math.max(0, Math.min(1, (timer - pressDelay) / 220))
+        );
     }
 
     ctx.restore();

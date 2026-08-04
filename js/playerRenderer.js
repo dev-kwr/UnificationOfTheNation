@@ -4755,11 +4755,11 @@ export function applyRendererMixin(PlayerClass) {
                 drawHand(mainHand.x, mainHand.y, standardRightHandRadius);
                 renderKusaLayer('front');
             }
-        } else if (renderSubWeaponAction === '鉤縄') {
-            // Stage6 角3: 鉤縄で頭上の軒へ登る。
-            // 縄の起点(手元)はここで実測して grappleHandAnchor に公開する。
-            // 鎖と鉤の描画は stage6Grapple.js が別レイヤーで受け持つ(腕はポーズだけ)。
-            // 忍者はモデル座標==ワールド座標なので、そのまま縄の起点に使える。
+        } else if (renderSubWeaponAction === '鎖鎌登攀') {
+            // Stage6 角3: 鎖鎌を頭上の軒へ掛けて登る。
+            // 鎖の起点(手元)はここで実測して grappleHandAnchor に公開する。
+            // 鎖と鎌ヘッドの描画は stage6Grapple.js が別レイヤーで受け持つ(腕はポーズだけ)。
+            // 忍者はモデル座標==ワールド座標なので、そのまま鎖の起点に使える。
             const g = this.grappleState;
             const phase = g ? g.phase : 4;      // 状態が無ければ引き上げ姿勢
             const isWindup = phase === 1;
@@ -4772,7 +4772,7 @@ export function applyRendererMixin(PlayerClass) {
 
             let handX, handY, backHandX, backHandY;
             if (isWindup) {
-                // 振りかぶり: 手を後ろ下へ引いて鉤を溜める
+                // 振りかぶり: 手を後ろ下へ引いて鎌を溜める
                 const t = g ? Math.min(1, g.timer / 180) : 1;
                 const ease = t * t * (3 - 2 * t);
                 handX = throwShoulderX - dir * (4 + ease * 12);
@@ -4780,7 +4780,7 @@ export function applyRendererMixin(PlayerClass) {
                 backHandX = leftShoulderX - dir * (2 + ease * 5);
                 backHandY = leftShoulderY + 7;
             } else if (isFly) {
-                // 投げ切り: 鉤の方向へ腕を伸ばす
+                // 投げ切り: 鎌の方向へ腕を伸ばす
                 const aimX = g ? g.hookX : centerX + dir * 30;
                 const aimY = g ? g.hookY : pivotY - 30;
                 const len = Math.hypot(aimX - throwShoulderX, aimY - throwShoulderY) || 1;
@@ -4789,7 +4789,7 @@ export function applyRendererMixin(PlayerClass) {
                 backHandX = leftShoulderX + dir * 5;
                 backHandY = leftShoulderY + 5;
             } else {
-                // 噛んだ / 引き上げ: 両手で縄を握って頭上へ。体は縄にぶら下がる
+                // 噛んだ / 引き上げ: 両手で鎖を握って頭上へ。体は鎖にぶら下がる
                 // up は腕の可動限界(armMax)より大きく取り、clampArmReach で
                 // 「腕を伸ばし切った」姿勢に張り付かせる(中途半端に曲がると吊られて見えない)
                 const t = overhead && g ? Math.min(1, g.timer / (phase === 3 ? 140 : 520)) : 1;
@@ -4828,7 +4828,7 @@ export function applyRendererMixin(PlayerClass) {
                 drawHand(frontHand.x, frontHand.y, standardRightHandRadius);
             }
 
-            // 縄の起点を公開(次フレームの stage6Grapple 側が使う)。
+            // 鎖の起点を公開(次フレームの stage6Grapple 側が使う)。
             // 引き上げ中は両手で握っているので2手の中点を起点にする。
             // 絶対座標ではなく「プレイヤー左上からの相対」で持つ。引き上げ中は毎フレーム
             // 大きく上へ動くので、絶対座標だと縄の起点が1フレーム遅れて手から離れる。

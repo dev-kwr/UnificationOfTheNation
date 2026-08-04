@@ -21,9 +21,9 @@ import {
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
 } from './normalComboMotion.js?v=oonagi-step3-dash-20260702n';
-import { applyRendererMixin }    from './playerRenderer.js?v=stage6-grapple-20260726a';
+import { applyRendererMixin }    from './playerRenderer.js?v=stage6-kusarigama-grapple-20260728a';
 import { applySlashTrailMixin }  from './playerSlashTrail.js?v=boss-hitfeel-20260726i';
-import { applySpecialMixin }     from './playerSpecial.js?v=clone-ground-fix2-20260623';
+import { applySpecialMixin }     from './playerSpecial.js?v=stage6-arena-polish-20260803g';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
@@ -514,6 +514,25 @@ export class Player {
                     x: anchorRoots.hairRootX - dir * i * 2.5,
                     y: anchorRoots.hairRootY + i * 3.0
                 });
+            }
+        }
+    }
+
+    /**
+     * 鉤縄など、通常のupdateAnimationを止めたまま本体座標だけを動かす演出用。
+     * 根元だけを新座標へ置くと残りの物理ノードが旧位置に残って伸び切るため、
+     * 現在の形を保ったまま全ノードを本体と同じ移動量だけ平行移動する。
+     */
+    translateVisualTrails(dx, dy) {
+        if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+        if (Math.abs(dx) < 0.0001 && Math.abs(dy) < 0.0001) return;
+
+        for (const nodes of [this.scarfNodes, this.hairNodes]) {
+            if (!Array.isArray(nodes)) continue;
+            for (const node of nodes) {
+                if (!Number.isFinite(node?.x) || !Number.isFinite(node?.y)) continue;
+                node.x += dx;
+                node.y += dy;
             }
         }
     }
