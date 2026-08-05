@@ -98,6 +98,11 @@ export class Player {
         // 固まった印象を与えない。attackCooldown を流用すると通常戦闘の
         // バッファ入力(fromBuffer / 二刀チェイン)がすり抜けるので別枠にする。
         this.attackInputLockTimer = 0;
+        // 演出用の全入力ロック(ms)。ボスの名乗り(短冊)の間はプレイヤーも足を止める。
+        // attackInputLockTimer(攻撃だけ封じる)と違い移動・ジャンプ・忍具も止める。
+        // 名乗りに対して左右対称に組んだ会敵の構図が、プレイヤーだけ歩き回れると崩れるため。
+        // 物理(重力・着地・既存の慣性の減衰)は update 側で回り続ける。
+        this.introControlLockTimer = 0;
         this.currentAttack = null;  // 現在の攻撃タイプ
         this.attackBuffered = false;
         this.attackBufferTimer = 0;
@@ -854,6 +859,9 @@ export class Player {
         if (this.attackInputLockTimer > 0) {
             this.attackInputLockTimer = Math.max(0, this.attackInputLockTimer - deltaMs);
         }
+        if (this.introControlLockTimer > 0) {
+            this.introControlLockTimer = Math.max(0, this.introControlLockTimer - deltaMs);
+        }
         if (this.attackBufferTimer > 0) {
             this.attackBufferTimer -= deltaMs;
             if (this.attackBufferTimer <= 0) {
@@ -1010,6 +1018,14 @@ export class Player {
         }
     }
     handleInput(enemies = []) {
+        // 【名乗りの間は全操作を封じる】。combatController(将軍プレイヤー)への委譲より
+        // 前に置き、忍者/将軍どちらの操作系でも同じに効かせる。
+        // ボス(Playerを流用)は handleInput を丸ごと上書きしているので影響しない。
+        if (this.introControlLockTimer > 0) {
+            if (this.isGrounded) this.vx = 0; // 空中なら慣性で着地させ、接地したら止める
+            this.isDashing = false;
+            return;
+        }
         if (this.hasCombatControllerMethod('handleInput')) {
             return this.combatController.handleInput.call(this, enemies);
         }

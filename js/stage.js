@@ -5,7 +5,7 @@
 import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=aspect-drift-fix-20260804e';
 import { BOSS_STAGING } from './bossStaging.js?v=stage6-boss-shachi-20260803i';
 import { createEnemy } from './enemy.js?v=stage6-arena-polish-20260803g';
-import { createBoss } from './boss.js?v=shogun-jump-reach-20260804a';
+import { createBoss } from './boss.js?v=boss-intro-player-hold-20260804q';
 import { createObstacle } from './obstacle.js';
 import { audio } from './audio.js';
 import { generateStairsCanvas } from './stairRenderer.js';
@@ -77,6 +77,15 @@ const STAGE6_BOSS_INTRO_IDLE_SETTLE_MS = 220;
 // 名乗り帯の中心からボスの中心までの最低距離。対称位置がこれより内側になる場合
 // (プレイヤーが中央付近で足を止めた場合)はここで止めて、間合いを潰さない。
 const BOSS_ENTRANCE_MIN_HALF_GAP_PX = 200;
+// Stage5の最終階: 天守閣へ続く階段をボスが降りてくる速さ。通常の登場ダッシュ(900)だと
+// 320pxの段差を0.4秒で滑り落ちるので、踏みしめて降りる速度にする。
+const STAGE5_BOSS_STAIR_DESCENT_SPEED = 300;
+// Stage4の城門脇のかがり火。背景アートに焼き込まれているため、城郭下部の描画基準
+// (getStage4CastleWorldX)からのワールドオフセットで位置を持つ(実測で合わせた値)。
+// (炎の暖色画素の重心を実測: 画面x=718 と 1136、progress=10720 / castleWorldX=10620)
+const STAGE4_BRAZIER_OFFSETS_X = [818, 1236];
+// 炎の位置(groundY からの上方向オフセット)。実測の重心y=390〜392、groundY=480。
+const STAGE4_BRAZIER_FLAME_DY = -90;
 const STAGE6_BOSS_DROP_HOLD_MS = 540; // 飛び降りる前に鯱の上で見下ろす間
 // 桜/金粉が名乗りと同時に舞い出すまでの尺。名乗り(INTRO_NAME_MS)の前半で開き切る。
 const STAGE6_PETAL_FADE_IN_MS = 700;
@@ -635,6 +644,45 @@ export class Stage {
     getStairEndX() {
         if (this.stageNumber !== 5) return Infinity;
         return this._getStairPhysicalEnd(this.floorScrollDirection);
+    }
+
+    /**
+     * 最終階(ボス部屋)の右端にある天守閣へ続く階段の、あるワールドxでの持ち上げ量(0..stairHeightPx)。
+     * この階段は通常【背景専用】で、getStairGroundY は最終階では平地を返す(プレイヤーは
+     * getFinalFloorExitBarrierX で進入を止めている)。ボスの登場だけはこの段を降りてくるので、
+     * ここで斜面を与える。
+     */
+    getStage5ExitStairLift(worldX) {
+        if (!this.isFinalFloorExitStair()) return 0;
+        const dir = this.floorScrollDirection;
+        const physStart = this._getStairPhysicalStart(dir);
+        const w = Math.max(1, this.stairZoneWidth);
+        const t = dir === 1 ? (worldX - physStart) / w : (physStart - worldX) / w;
+        return this.clamp01(t) * this.stairHeightPx;
+    }
+
+    /** 最終階の階段の頂上に立たせるための座標。ボスの登場開始位置。 */
+    getStage5ExitStairTopPose(boss) {
+        if (!this.isFinalFloorExitStair()) return null;
+        const bw = typeof boss?.getWorldWidth === 'function' ? boss.getWorldWidth() : (boss?.width || 140);
+        const bh = typeof boss?.getWorldHeight === 'function' ? boss.getWorldHeight() : (boss?.height || 180);
+        const dir = this.floorScrollDirection;
+        const topWorldX = dir === 1 ? (this.maxProgress - bw - 8) : 8;
+        const lift = this.getStage5ExitStairLift(topWorldX + bw * 0.5);
+        const groundY = this.baseGroundY - lift;
+        return { x: topWorldX, y: groundY + LANE_OFFSET - bh, groundY };
+    }
+
+    /** 最終階の階段を降りている最中のボスの足元を、斜面に合わせる。 */
+    applyStage5ExitStairDescent(boss) {
+        if (!boss || !this.isFinalFloorExitStair()) return;
+        const bw = typeof boss.getWorldWidth === 'function' ? boss.getWorldWidth() : (boss.width || 140);
+        const bh = typeof boss.getWorldHeight === 'function' ? boss.getWorldHeight() : (boss.height || 180);
+        const lift = this.getStage5ExitStairLift(boss.x + bw * 0.5);
+        boss.groundY = this.baseGroundY - lift;
+        boss.y = boss.groundY + LANE_OFFSET - bh;
+        boss.vy = 0;
+        boss.isGrounded = true;
     }
 
     /** 最終階の右端にある、天守閣へ続く背景専用の階段か */
@@ -1303,6 +1351,25 @@ export class Stage {
 
     getStage4CastleWorldX() {
         return (this.maxProgress - CANVAS_WIDTH) - 100;
+    }
+
+    /**
+     * Stage4の城門脇のかがり火(火の粉の出どころ)。スクリーン座標で返す。
+     * 篝火は城郭下部の背景アートに焼き込まれているので、その描画基準
+     * (getStage4CastleWorldX)からのワールドオフセットで位置を持つ。
+     * 画面外のものは呼び出し側で使われても害はないが、ここで間引いておく。
+     */
+    getStage4BrazierSources() {
+        if (this.stageNumber !== 4) return [];
+        const castleWorldX = this.getStage4CastleWorldX();
+        const y = this.groundY + STAGE4_BRAZIER_FLAME_DY;
+        const out = [];
+        for (const dx of STAGE4_BRAZIER_OFFSETS_X) {
+            const x = castleWorldX + dx - this.progress;
+            if (x < -120 || x > CANVAS_WIDTH + 120) continue;
+            out.push({ x, y });
+        }
+        return out;
     }
 
     getStage4CastleApproachLayout() {
@@ -2452,6 +2519,9 @@ export class Stage {
                 // まだ目標に届いていない: 高速で左に進む
                 this.boss.x -= moveAmount;
                 this.boss.facingRight = false;
+                // Stage5の最終階は天守閣へ続く階段を【踏みしめて降りてくる】。
+                // 平地に出たら lift=0 になり、そのまま通常の歩き入りに繋がる。
+                this.applyStage5ExitStairDescent(this.boss);
             } else {
                 // 目標到達！ 登場完了
                 this.boss.x = targetX;
@@ -3163,6 +3233,20 @@ export class Stage {
                 this.boss, scrollX, (window.game && window.game.player) || null
             );
         this.boss.entranceSpeed = 900; // 高速ダッシュ登場
+
+        // Stage5の最終階は【天守閣へ続く階段の上に現れて、踏みしめて降りてくる】。
+        // 画面外の右からダッシュで滑り込むより、この階段があることを活かす。
+        const stairTop = this.getStage5ExitStairTopPose(this.boss);
+        if (stairTop) {
+            this.boss.x = stairTop.x;
+            this.boss.y = stairTop.y;
+            this.boss.groundY = stairTop.groundY;
+            this.boss.vx = 0;
+            this.boss.vy = 0;
+            this.boss.isGrounded = true;
+            this.boss.entranceSpeed = STAGE5_BOSS_STAIR_DESCENT_SPEED;
+        }
+
         if (standby && Number.isFinite(perchY)) {
             this.boss.x = perchX;
             this.boss.y = perchY;
@@ -6036,6 +6120,21 @@ export class Stage {
 
         const renderedGround = this.renderStage6GroundZones(ctx, renderProgress, horizonY, bottomY);
         if (renderedGround) {
+            // 【床の黒を持ち上げる】。stage6の床素材は平均輝度が29〜42しかなく、
+            // 描画後は実測24〜40。黒シルエットのプレイヤー(輝度26)とのコントラストが
+            // -1〜+3=ほぼ同化で、どこに立っているのか見えなかった。
+            // 以前はプレイヤー側に青白いハローを敷いて浮かせていたが、光を足す対処は
+            // 明るい空を背にすると常時オーラに見えるため撤去し、床の色合いで解決する。
+            // 加算(lighter)の一様リフト = 黒だけが持ち上がり、瓦や板目の陰影の絶対差は
+            // そのまま残る(brightnessの乗算だと暗部がほとんど動かず明部だけ飛ぶ)。
+            // 実測: 床輝度 56〜70 / コントラスト 30〜44。黒漆の暗さ(白の22〜27%)は保つ。
+            // 【床帯だけに掛ける】(horizonY..bottomY)。立面(y<480)は投影文法の別世界。
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.fillStyle = 'rgb(32, 35, 41)';
+            ctx.fillRect(0, horizonY, CANVAS_WIDTH, bottomY - horizonY);
+            ctx.restore();
+
             const moonSheen = ctx.createLinearGradient(0, horizonY, 0, bottomY);
             moonSheen.addColorStop(0, 'rgba(210, 224, 232, 0)');
             moonSheen.addColorStop(0.34, `rgba(210, 224, 232, ${(0.07 - darken * 0.02).toFixed(3)})`);
@@ -6224,33 +6323,39 @@ export class Stage {
         const pMod = time * 0.001;
         
         switch (this.stageNumber) {
-            case 1: { // 竹林: 墨のような風の帯と、奥行きを持って返る竹葉
-                ctx.globalCompositeOperation = 'source-over';
-                for (let i = 0; i < 5; i++) {
-                    const seed = i * 19.7;
-                    const span = CANVAS_WIDTH + 720;
-                    const x = ((seed * 171 + pMod * 330) % span) - 360;
-                    const y = 92 + i * 86 + Math.sin(pMod * 0.7 + seed) * 28;
-                    // 【濃くしない】。これは空に引いた5本の曲線で、濃くすると
-                    // stage2の陽炎3本と同じ「線が数本あるだけ」の見え方になる。
-                    // 空気の締めは遠景の沈み込みと足元スポットに任せる。
-                    const alpha = (0.045 + i * 0.008) * blend;
-                    const ribbon = ctx.createLinearGradient(x, y, x + 390, y + 65);
-                    ribbon.addColorStop(0, 'rgba(190, 224, 202, 0)');
-                    ribbon.addColorStop(0.48, `rgba(190, 224, 202, ${alpha})`);
-                    ribbon.addColorStop(1, 'rgba(190, 224, 202, 0)');
-                    ctx.strokeStyle = ribbon;
-                    ctx.lineWidth = 1.2 + i * 0.22;
-                    ctx.beginPath();
-                    ctx.moveTo(x, y);
-                    ctx.bezierCurveTo(x + 105, y - 28, x + 254, y + 82, x + 390, y + 48);
-                    ctx.stroke();
+            case 1: { // 竹林: 竹林から風に運ばれて横切る葉
+                // 【作り直し】旧実装は空に引いた5本の曲線(墨の風の帯)で、実測Δ5.3=不可視。
+                // 濃くしても stage2 の陽炎3本と同じ「線が数本あるだけ」になるので撤去した。
+                // 代わりに、画面左に残っている竹林から【風で運ばれて横切る葉】を置く。
+                //  ・上から降らせない → 地面に落葉が積もっていない場所でも矛盾しない
+                //  ・左(=竹林側)から入って右へ抜ける → 出どころが画面内にあり因果が読める
+                //  ・濃い緑は明るい砂地に対して明度差が立つ(白い埃で失敗した反省)
+                //  ・横速度 230〜370px/秒。淡い色は速度と輪郭でしか目に留まらない
+                const leaves = this.cachedAssets.bambooLeaves;
+                if (leaves?.length) {
+                    ctx.globalCompositeOperation = 'source-over';
+                    const laneY1 = this.groundY + LANE_OFFSET;
+                    for (let i = 0; i < 11; i++) {
+                        const seed = i * 23.73;
+                        const depth = 0.5 + (i % 3) * 0.25;
+                        const span = CANVAS_WIDTH + 260;
+                        const speed = 230 + (i % 4) * 47;
+                        const x = ((seed * 109 + pMod * speed) % span + span) % span - 130;
+                        // 横切りながら僅かに落ちる。基準は足元線より上の空気の層。
+                        const drift = ((seed * 31 + pMod * 26) % 150);
+                        const y = laneY1 - 170 + drift + Math.sin(pMod * 1.9 + seed) * 11;
+                        const flip = 0.2 + Math.abs(Math.cos(pMod * 2.6 + seed)) * 0.8;
+                        const size = 13 + depth * 9;
+                        ctx.save();
+                        ctx.globalAlpha = (0.62 + depth * 0.3) * blend;
+                        ctx.translate(x, y);
+                        ctx.rotate(-0.3 + Math.sin(pMod * 1.5 + seed) * 0.5);
+                        ctx.scale(flip, 1);
+                        ctx.drawImage(leaves[i % leaves.length], -size * 0.5, -size * 0.5, size, size);
+                        ctx.restore();
+                    }
+                    ctx.globalAlpha = 1;
                 }
-                // 【竹葉はここでは描かない】。ボス部屋は竹林を抜けた場面で、竹は
-                // 画面左端(実測: 樹列は画面x=260まで)にしか残っていない。ここで画面座標に
-                // 18枚ばらまくと、竹が1本も無い右側の空から葉が降ってくる。
-                // 落葉は世界座標で竹の位置を知っている updateBambooFallingLeaves が担当し、
-                // ボス戦の「殺気で激しくなる」もそちら側で効かせる。
                 break;
             }
             case 2: { // 街道: 足元を流れる土煙
@@ -6356,16 +6461,23 @@ export class Stage {
                 // 右下→左上へ等速で流れるだけで、寿命も上昇の感じも無かったため
                 // 「綿毛が飛んでいく」ように見えていた。
                 // 火の粉として読ませる3点: 橙の芯、ほぼ真上への上昇、寿命で消える。
-                const laneY4 = this.groundY + LANE_OFFSET;
-                const EMBER_RISE = 340;
-                for (let i = 0; i < 24; i++) {
+                // 【出どころは地面全体ではなく城門脇のかがり火】。画面いっぱいの地面から
+                // 湧くと「なぜ燃えているのか」が読めない。炎が描かれている2点から出す。
+                const emberSources = this.getStage4BrazierSources();
+                const EMBER_RISE = 300;
+                const emberCount = emberSources.length ? 11 : 0;
+                for (let s = 0; s < emberSources.length; s++) {
+                const src = emberSources[s];
+                for (let k = 0; k < emberCount; k++) {
+                    const i = s * 17 + k;
                     const seed = i * 17.3;
-                    // 0=足元で生まれた瞬間 / 1=上空で消える
-                    const lifeT = ((pMod * (0.15 + (i % 5) * 0.022) + seed * 0.137) % 1 + 1) % 1;
-                    const x = ((seed * 87) % (CANVAS_WIDTH + 120)) - 60
-                        + Math.sin(pMod * 1.15 + seed) * 15
-                        - lifeT * 24; // 上るほど僅かに流される
-                    const y = laneY4 + 8 - lifeT * EMBER_RISE;
+                    // 0=かがり火で生まれた瞬間 / 1=上空で消える
+                    const lifeT = ((pMod * (0.15 + (k % 5) * 0.022) + seed * 0.137) % 1 + 1) % 1;
+                    const spread = ((seed * 13) % 24) - 12;
+                    const x = src.x + spread
+                        + Math.sin(pMod * 1.15 + seed) * (6 + lifeT * 16)
+                        - lifeT * 18; // 上るほど僅かに流される
+                    const y = src.y - lifeT * EMBER_RISE;
                     // 立ち上がりは速く、上空でゆっくり燃え尽きる
                     const fade = Math.min(1, lifeT * 9) * Math.pow(1 - lifeT, 1.5);
                     const twinkle = 0.72 + Math.sin(pMod * 7.5 + seed) * 0.28;
@@ -6387,6 +6499,7 @@ export class Stage {
                     ctx.beginPath();
                     ctx.arc(x, y, 0.6, 0, Math.PI * 2);
                     ctx.fill();
+                }
                 }
                 break;
             }

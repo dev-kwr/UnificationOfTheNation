@@ -43,9 +43,9 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=boss-intro-clone-standdown-20260804a';
+import { Player } from './player.js?v=boss-intro-player-hold-20260804q';
 import { createSubWeapon } from './weapon.js?v=stage6-entry-ballistic-20260804c';
-import { Stage } from './stage.js?v=stage3-props-on-ground-20260804k';
+import { Stage } from './stage.js?v=stage6-floor-lift-20260805a';
 import { GRAPPLE_PHASE } from './stage6Grapple.js?v=stage6-roof-entry-20260802g';
 import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, renderBossNameBanner } from './ui.js?v=outcome-balance-20260727b';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js';
@@ -2476,6 +2476,20 @@ class Game {
         // 最上層の会敵歩行(自動操作)。入力を読む前に代行キーを押す。
         this.updateStage6ArenaApproach();
         this.updateStage6CameraLead();
+        // 【ボスの登場〜名乗りの間はプレイヤーも足を止める】。攻撃は attackInputLockTimer が
+        // 封じているが移動は素通しで、対称に組んだ会敵の構図が名乗りの間に崩れていた。
+        // 窓はボスの無敵と同じ isBossIntroBeforeCall(approach/impact/name)。
+        // Stage6の会敵歩行(自動操作)は bossSpawned と同時に歩きを止める設計
+        // (updateStage6ArenaApproach の shouldWalk=!bossSpawned)なので、この窓と重ならない。
+        // 毎フレーム上書き式なのでフェーズを抜けた瞬間に自然解除される(入力の押し直しも不要)。
+        {
+            const introPlayerLock = !!(this.stage
+                && typeof this.stage.isBossIntroBeforeCall === 'function'
+                && this.stage.isBossIntroBeforeCall());
+            if (introPlayerLock && this.player) {
+                this.player.introControlLockTimer = Math.max(this.player.introControlLockTimer || 0, 90);
+            }
+        }
         this.player.update(this.deltaTime, playerPhysicsObstacles, preActiveFrameEnemies);
 
         // ジャンプ着地の土煙（落下速度が一定以上のときだけ・足元から低く広がる）
@@ -2587,7 +2601,15 @@ class Game {
                     ? this.stage.boss.getWorldWidth()
                     : this.stage.boss.width;
                 const bossCenterX = this.stage.boss.x + bossWorldWidth / 2;
-                this.stage.boss.groundY = this.stage.getStairGroundY(bossCenterX);
+                // 【登場中の階段降りは stage 側が足元を持つ】。最終階の出口階段は
+                // getStairGroundY が平地を返すので、ここで上書きすると階段の上で
+                // 足元が抜けて滑り落ちる。
+                const descendingExitStair = this.stage.boss.isEntering
+                    && typeof this.stage.isFinalFloorExitStair === 'function'
+                    && this.stage.isFinalFloorExitStair();
+                if (!descendingExitStair) {
+                    this.stage.boss.groundY = this.stage.getStairGroundY(bossCenterX);
+                }
             }
             
             // 登りきったら次のフロアへ（最終階を除く）
@@ -6055,6 +6077,11 @@ class Game {
     }
 
     handlePlayerDamage(amount, sourceX = null, options = {}) {
+        // 【名乗りの操作ロック中は無敵】。足を止めさせている間に残存の雑魚や
+        // 飛翔中の矢・爆弾が当たると、避けようのないダメージになる。
+        // invincibleTimer を立てる方式だと被弾フラッシュ(点滅)が名乗りの絵に写るため、
+        // ダメージの入口で丸ごと弾く。
+        if (this.player && (this.player.introControlLockTimer || 0) > 0) return false;
         const died = this.player.takeDamage(amount, { sourceX, ...options });
         if (died) {
             this.beginPlayerDefeat();
@@ -6352,32 +6379,8 @@ class Game {
             }
         }
 
-        // Stage6: 黒漆の床・壁でプレイヤー(黒シルエット)が同化するため、
-        // 足元に淡い視認性ハローを敷いてキャラを浮かせる(描画専用・判定不変)。
-        if (this.currentStageNumber === 6 && this.player && this.player.hp > 0) {
-            const ph = this.player.getWorldHeight();
-            const cx = this.player.x + this.player.getWorldWidth() * 0.5;
-            const cy = this.player.y + ph * 0.5; // 体の中心
-            const rx = this.player.getWorldWidth() * 2.2;
-            const ry = ph * 1.15; // 全身を包む
-            const footY = this.player.y + ph;
-            ctx.save();
-            // 足元より下へハローを溢れさせない。黒い屋根の上では足の下の光だまりが
-            // 影の逆になり、プレイヤーだけ屋根から浮いて見える(敵は同じ位置でも接地して見える)。
-            ctx.beginPath();
-            ctx.rect(cx - rx, cy - ry, rx * 2, (footY + 1) - (cy - ry));
-            ctx.clip();
-            ctx.globalCompositeOperation = 'lighten';
-            const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, ry);
-            halo.addColorStop(0, 'rgba(150, 178, 210, 0.42)');
-            halo.addColorStop(0.55, 'rgba(115, 145, 185, 0.20)');
-            halo.addColorStop(1, 'rgba(85, 115, 155, 0)');
-            ctx.fillStyle = halo;
-            ctx.beginPath();
-            ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-        }
+        // 旧「Stage6視認性ハロー」(黒装束が黒漆に同化する対策の青白い楕円光)は撤去。
+        // 明るい空を背にすると保護目的を離れて常時オーラに見えるため(2026-08-05ユーザー判断)。
 
         // Stage6 角3: 鎖鎌の背面パス(軌跡と鎖)。体の後ろを通す。
         // ここはワールド変換(translate(-scrollX))の内側なのでワールド座標で描ける。

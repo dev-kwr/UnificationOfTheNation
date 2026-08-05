@@ -6,7 +6,7 @@ import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './consta
 import { Enemy } from './enemy.js?v=stage6-grapple-20260726a';
 import { createSubWeapon } from './weapon.js?v=stage6-entry-ballistic-20260804c';
 import { audio } from './audio.js';
-import { Player } from './player.js?v=boss-intro-clone-standdown-20260804a-b';
+import { Player } from './player.js?v=boss-intro-player-hold-20260804q';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
