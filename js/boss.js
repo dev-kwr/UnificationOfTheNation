@@ -3,7 +3,7 @@
 // ============================================
 
 import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js';
-import { Enemy } from './enemy.js?v=stage6-grapple-20260726a';
+import { Enemy } from './enemy.js?v=boss-rig-20260806b';
 import { createSubWeapon } from './weapon.js?v=stage6-entry-ballistic-20260804c';
 import { audio } from './audio.js';
 import { Player } from './player.js?v=boss-intro-player-hold-20260804q';
@@ -22,6 +22,29 @@ import {
     SHOGUN_HIP_LIFT_PX,
     SHOGUN_SCALE
 } from './shogunConstants.js';
+import {
+    BOSS_DESIGNS,
+    renderBossActor,
+    dualBladeStance,
+    drawCarriedKatana,
+    bombStance,
+    drawCarriedBomb,
+    spearStance,
+    spearCarryStance,
+    drawCarriedSpear,
+    kusarigamaStance,
+    drawCarriedKusarigama,
+    odachiStance,
+    drawCarriedOdachi
+} from './bossRenderer.js?v=boss-rig-20260806b';
+
+// weaponReplica の攻撃進行度(0..1)。体の所作を実体のタイムラインへ同期させる。
+function replicaProgress(replica) {
+    if (!replica || !replica.isAttacking) return undefined;
+    const dur = replica.attackDuration || replica.totalDuration;
+    if (!Number.isFinite(dur) || dur <= 0) return undefined;
+    return Math.max(0, Math.min(1, 1 - ((replica.attackTimer || 0) / dur)));
+}
 
 
 // ボスベースクラス
@@ -60,6 +83,11 @@ class Boss extends Enemy {
         this.evasionJumped = false;
         this.feintTimerMs = 220 + Math.random() * 240;
         this.feintDir = Math.random() < 0.5 ? -1 : 1;
+        // --- 立ち回り(連打をやめて「読み合い」に見せるための状態) ---
+        this.attackStreak = 0;        // 仕切り直しを挟まずに続けた攻撃回数
+        this.poiseTimerMs = 0;        // 様子見(攻撃を控えて間合いを計る)
+        this.poiseKind = 'watch';     // 'watch'(その場で見る) / 'space'(下がる)
+        this.spacingCooldownMs = 0;   // 仕切り直しの再発火待ち
 
         // ボスは右側から現れるため、初期方向をプレイヤー側（左）にする
         this.facingRight = false;
@@ -94,6 +122,8 @@ class Boss extends Enemy {
             this.feintDir *= -1;
             this.feintTimerMs = 180 + Math.random() * 260;
         }
+        if (this.poiseTimerMs > 0) this.poiseTimerMs = Math.max(0, this.poiseTimerMs - deltaMs);
+        if (this.spacingCooldownMs > 0) this.spacingCooldownMs = Math.max(0, this.spacingCooldownMs - deltaMs);
 
         const shouldRemove = super.update(deltaTime, player, obstacles);
         if (!shouldRemove && !this.isEntering && this.isAlive && !this.isDying && !this.previewMode && !this._previewFreeMovement) {
@@ -183,7 +213,38 @@ class Boss extends Enemy {
         desiredVX = Math.max(-this.speed * 1.42, Math.min(this.speed * 1.42, desiredVX));
         this.applyDesiredVx(desiredVX, 0.46);
 
+        // --- 様子見/仕切り直し中は攻撃せず、間合いだけ動かす ---
+        if (this.poiseTimerMs > 0) {
+            const wantX = this.poiseKind === 'space'
+                ? -dirToPlayer * this.speed * 0.95            // 一度離れて仕切り直す
+                : this.feintDir * this.speed * 0.30;          // その場で揺さぶりながら見る
+            this.applyDesiredVx(wantX, 0.5);
+            return;
+        }
+
         if (this.attackCooldown <= 0 && absX <= this.attackRange + 104) {
+            // プレイヤーの隙(攻撃硬直・忍具モーション中)は迷わず差し込む
+            const punish = !!(player.isAttacking || (player.subWeaponTimer || 0) > 0);
+            // 近すぎ/遠すぎは一度間合いを直す
+            const badRange = absX < this.attackRange * 0.42 || absX > this.attackRange * 0.96;
+
+            if (!punish && this.spacingCooldownMs <= 0 &&
+                (this.attackStreak >= 2 || (badRange && Math.random() < 0.6))) {
+                // 連打をやめて仕切り直し
+                this.poiseKind = 'space';
+                this.poiseTimerMs = 260 + Math.random() * 260;
+                this.spacingCooldownMs = 900 + Math.random() * 600;
+                this.attackStreak = 0;
+                this.attackCooldown = Math.max(this.attackCooldown, 120);
+                return;
+            }
+            if (!punish && Math.random() < 0.38) {
+                // 一手見送って様子を見る(即座に撃ち返さない)
+                this.poiseKind = 'watch';
+                this.poiseTimerMs = 170 + Math.random() * 260;
+                return;
+            }
+            this.attackStreak = punish ? this.attackStreak : this.attackStreak + 1;
             this.attackFacingRight = this.facingRight;
             this.startAttack();
             return;
@@ -478,7 +539,7 @@ class Boss extends Enemy {
 export class KayakudamaTaisho extends Boss {
     init() {
         super.init();
-        this.bossName = '火薬玉の武将';
+        this.bossName = '火薬玉の足軽頭';
         this.weaponDrop = '火薬玉';
         this.hp = 270;
         this.maxHp = 270;
@@ -705,30 +766,26 @@ export class KayakudamaTaisho extends Boss {
     }
 
     renderBody(ctx) {
-        this.renderUnifiedEnemyModel(ctx, {
-            weaponMode: 'bomb',
-            headStyle: 'kabuto',
-            armorRows: 4,
-            headRatio: 0.19,
-            armScale: 1.14,
-            torsoLeanScale: 1.12,
-            attackDurationMs: 720,
-            weaponScale: 1.08,
-            palette: {
-                legBack: '#111810',
-                legFront: '#1a2418',
-                robe: '#25351b',
-                robeShade: '#1b2714',
-                torsoCore: '#15200f',
-                armorA: '#3f562c',
-                armorB: '#2a3c1e',
-                armorEdge: '#b98b4b',
-                shoulder: '#56743f',
-                helmTop: '#54331f',
-                helmBottom: '#2a1810',
-                crest: '#d4782a'
+        // 素体・具足は bossRenderer。
+        // 1回の攻撃で throwCount 個を throwInterval ごとに投げるので、
+        // 腕は【1投ぶんの周期 u】で一往復させる(u=1 の瞬間に手を離す)。
+        const interval = this.throwInterval || 280;
+        const remaining = this.throwCount || 0;
+        const attacking = !!this.isAttacking;
+        // throwTimer は interval → 0 へ減り、0 で投擲。u = 1 - timer/interval。
+        const u = (attacking && remaining > 0)
+            ? Math.max(0, Math.min(1, 1 - ((this.throwTimer || 0) / interval)))
+            : 1;   // 投げ終わり(余韻)は振り抜いた姿勢で保持
+        // 手の中の玉は「次に投げる分を掴んでから離すまで」だけ見せる。
+        // 投げ切った後(remaining=0)や振り抜き直後は手ぶら。
+        const holding = attacking && remaining > 0 && u >= 0.15;
+        renderBossActor(ctx, this, BOSS_DESIGNS.kayaku, {
+            hands: (rig) => bombStance(rig),
+            front: (rig, h) => {
+                if (!attacking) { drawCarriedBomb(rig, h.front, rig.mt); return; }
+                if (holding) drawCarriedBomb(rig, h.front, rig.mt);
             }
-        });
+        }, { attackProgress: u });
     }
 }
 
@@ -736,7 +793,7 @@ export class KayakudamaTaisho extends Boss {
 export class YariTaisho extends Boss {
     init() {
         super.init();
-        this.bossName = '槍持ちの侍大将';
+        this.bossName = '大槍の武者';
         this.weaponDrop = '大槍';
         this.hp = 360;
         this.maxHp = 360;
@@ -772,106 +829,22 @@ export class YariTaisho extends Boss {
     }
     
     renderBody(ctx) {
-        this.renderUnifiedEnemyModel(ctx, {
-            weaponMode: 'none',
-            headStyle: 'kabuto',
-            armorRows: 4,
-            headRatio: 0.19,
-            armScale: 1.16,
-            torsoLeanScale: 1.14,
-            attackDurationMs: 280,
-            weaponScale: 1.28,
-            palette: {
-                legBack: '#101010',
-                legFront: '#1a1a1a',
-                robe: '#2d161a',
-                robeShade: '#221115',
-                torsoCore: '#171717',
-                armorA: '#4a5262',
-                armorB: '#333a48',
-                armorEdge: '#d1b366',
-                shoulder: '#606b7f',
-                helmTop: '#2a2e36',
-                helmBottom: '#171a20',
-                crest: '#d8bd74'
-            }
-        });
-
+        // 素体・具足は bossRenderer。槍そのものは本編の Spear 実体が world 座標で描き、
+        // 両手は実体の握り(getGripAnchors)へ追従させる。
         const spear = this.weaponReplica;
-        if (!spear) return;
-
-        const dir = this.facingRight ? 1 : -1;
-        const centerX = this.x + this.width * 0.5;
-        const shoulderY = this.y + this.height * 0.38 + Math.abs(this.bob) * 0.14;
-        const attackPoseActive = !!(spear && spear.isAttacking);
-        const spearProgress = (attackPoseActive && Number.isFinite(spear.attackDuration) && spear.attackDuration > 0)
-            ? Math.max(0, Math.min(1, 1 - ((spear.attackTimer || 0) / spear.attackDuration)))
-            : 0;
-        const windup = attackPoseActive ? Math.max(0, 1 - (spearProgress / 0.34)) : 0;
-        const thrustDrive = attackPoseActive
-            ? Math.max(0, Math.sin(Math.max(0, Math.min(1, (spearProgress - 0.22) / 0.56)) * (Math.PI * 0.5)))
-            : 0;
-        const shoulderSlide = -windup * 2.6 + thrustDrive * 4.4;
-        const handSlide = -windup * 6.4 + thrustDrive * 2.8;
-        const leanBase = (1.2 + this.torsoLean * 0.55 + (this.isAttacking ? 0.9 : 0)) * 1.14;
-        const facingLead = dir * this.width * 0.035;
-        const shoulderCenterX = centerX + dir * (leanBase + shoulderSlide * 0.42) + facingLead;
-        const bodyScreenTilt = dir * this.width * 0.038;
-        const shoulderFrontX = shoulderCenterX + dir * (this.width * 0.14 + bodyScreenTilt * 0.26 + shoulderSlide * 0.52);
-        const shoulderBackX = shoulderCenterX - dir * (this.width * 0.095 + bodyScreenTilt * 0.16 - shoulderSlide * 0.38);
-        const shoulderFrontY = shoulderY + this.height * 0.018 + windup * 0.72 - thrustDrive * 0.45;
-        const shoulderBackY = shoulderY + this.height * 0.032 + windup * 0.82 - thrustDrive * 0.36;
-
-        const grips = (typeof spear.getGripAnchors === 'function')
-            ? spear.getGripAnchors(this)
-            : null;
-        const tipTarget = grips
-            ? { x: grips.rear.x + dir * handSlide * 0.72 + dir * 1.2, y: grips.rear.y + windup * 0.58 - thrustDrive * 0.44 }
-            : { x: shoulderFrontX + dir * (this.width * 0.34), y: shoulderFrontY + this.height * 0.12 };
-        const rootTarget = grips
-            ? { x: grips.front.x + dir * handSlide * 0.44 - dir * 1.1, y: grips.front.y + windup * 0.5 - thrustDrive * 0.36 }
-            : { x: shoulderBackX + dir * (this.width * 0.2), y: shoulderBackY + this.height * 0.14 };
-        const backReach = Math.hypot(rootTarget.x - shoulderBackX, rootTarget.y - shoulderBackY);
-        const frontReach = Math.hypot(tipTarget.x - shoulderFrontX, tipTarget.y - shoulderFrontY);
-        const backUpperLen = Math.max(this.height * 0.19, backReach * 0.64);
-        const backForeLen = Math.max(this.height * 0.17, backReach * 0.56);
-        const frontUpperLen = Math.max(this.height * 0.2, frontReach * 0.66);
-        const frontForeLen = Math.max(this.height * 0.18, frontReach * 0.58);
-
-        // 奥腕 -> 槍 -> 手前腕 の順で描画し、プレイヤーと同じ持ち方に寄せる
-        this.drawJointedArm(ctx, {
-            shoulderX: shoulderBackX,
-            shoulderY: shoulderBackY,
-            handX: rootTarget.x,
-            handY: rootTarget.y,
-            upperLen: backUpperLen,
-            foreLen: backForeLen,
-            bendSign: dir * 0.88,
-            upperWidth: 7.8,
-            foreWidth: 7.0,
-            jointRadius: 4.2,
-            baseColor: '#171717',
-            handColor: '#1a1a1a'
-        });
-
-        if (typeof spear.render === 'function') {
-            spear.render(ctx, this);
-        }
-
-        this.drawJointedArm(ctx, {
-            shoulderX: shoulderFrontX,
-            shoulderY: shoulderFrontY,
-            handX: tipTarget.x,
-            handY: tipTarget.y,
-            upperLen: frontUpperLen,
-            foreLen: frontForeLen,
-            bendSign: -dir * 0.82,
-            upperWidth: 8.2,
-            foreWidth: 7.4,
-            jointRadius: 4.5,
-            baseColor: '#171717',
-            handColor: '#1a1a1a'
-        });
+        const grips = (spear && typeof spear.getGripAnchors === 'function')
+            ? spear.getGripAnchors(this) : null;
+        const attacking = !!(spear && spear.isAttacking);
+        renderBossActor(ctx, this, BOSS_DESIGNS.yari, {
+            hands: (rig) => (attacking ? spearStance(rig, grips) : spearCarryStance(rig)),
+            front: (rig, h) => {
+                // 待機・走りは実体のグリップが膝の高さで「持てていない」ため素体側で構える
+                if (!attacking) { drawCarriedSpear(rig, h); return; }
+                rig.world(() => {
+                    if (spear && typeof spear.render === 'function') spear.render(ctx, this);
+                });
+            }
+        }, { attackProgress: replicaProgress(spear) });
     }
 }
 
@@ -923,34 +896,25 @@ export class NitoryuKengo extends Boss {
     }
     
     renderBody(ctx) {
-        this.renderUnifiedEnemyModel(ctx, {
-            weaponMode: 'dual',
-            headStyle: 'kabuto',
-            armorRows: 3,
-            headRatio: 0.188,
-            armScale: 1.13,
-            torsoLeanScale: 1.1,
-            suppressSlashEffect: true,
-            palette: {
-                legBack: '#121212',
-                legFront: '#191919',
-                robe: '#1f2731',
-                robeShade: '#171d25',
-                torsoCore: '#131418',
-                armorA: '#425164',
-                armorB: '#2f3a49',
-                armorEdge: '#8a7bc0',
-                shoulder: '#55677d',
-                helmTop: '#2a2e39',
-                helmBottom: '#171922',
-                crest: '#8f7ac5',
-                accent: '#8c78c4'
+        // 素体・具足は bossRenderer(提案書で合意したリグ)。攻撃中の刀身と剣筋は
+        // 従来どおり weaponReplica が world 座標で描く。判定・AI には一切触れない。
+        const replica = this.weaponReplica;
+        const attacking = !!(replica && replica.isAttacking);
+        const progress = (attacking && Number.isFinite(replica.attackDuration) && replica.attackDuration > 0)
+            ? Math.max(0, Math.min(1, 1 - ((replica.attackTimer || 0) / replica.attackDuration)))
+            : undefined;
+        renderBossActor(ctx, this, BOSS_DESIGNS.nito, {
+            backIsFarHand: true,
+            hands: (rig) => dualBladeStance(rig),
+            back: (rig, h) => { if (!attacking) drawCarriedKatana(rig, h.back, h.a2, 74); },
+            front: (rig, h) => {
+                if (!attacking) { drawCarriedKatana(rig, h.front, h.a1, 80); return; }
+                // 攻撃中は本編の二刀実体をそのまま描く(world 座標)
+                rig.world(() => {
+                    if (replica && typeof replica.render === 'function') replica.render(ctx, this);
+                });
             }
-        });
-
-        if (this.weaponReplica && typeof this.weaponReplica.render === 'function') {
-            this.weaponReplica.render(ctx, this);
-        }
+        }, { attackProgress: progress });
     }
 }
 
@@ -958,7 +922,8 @@ export class NitoryuKengo extends Boss {
 export class KusarigamaAssassin extends Boss {
     init() {
         super.init();
-        this.bossName = '鎖鎌使いの暗殺者';
+        this.forceSubWeaponRender = true;   // 待機中も鎌を携行して見せる(描画のみ)
+        this.bossName = '鎖鎌の暗殺者';
         this.weaponDrop = '鎖鎌';
         this.hp = 620;
         this.maxHp = 620;
@@ -991,77 +956,22 @@ export class KusarigamaAssassin extends Boss {
     }
     
     renderBody(ctx) {
-        this.renderUnifiedEnemyModel(ctx, {
-            weaponMode: 'none', 
-            headStyle: 'ninja',
-            armorRows: 3,
-            headRatio: 0.19,
-            armScale: 1.12,
-            torsoLeanScale: 1.12,
-            palette: {
-                legBack: '#131313',
-                legFront: '#1a1a1a',
-                robe: '#232531',
-                robeShade: '#1a1c25',
-                torsoCore: '#131318',
-                armorA: '#39414f',
-                armorB: '#272d38',
-                armorEdge: '#7d87a8',
-                shoulder: '#4c5567',
-                helmTop: '#262a34',
-                helmBottom: '#151820',
-                crest: '#7a86a8',
-                accent: '#ef4d4d'
-            }
-        });
-
+        // 素体・装束は bossRenderer。鎌と鎖は本編の Kusarigama 実体が描き、
+        // 鎌を握る奥手は実体のアンカーへ追従させる(鎖は手前手)。
         const kusa = this.weaponReplica;
-        if (!kusa) return;
-
-        if (typeof kusa.render === 'function') {
-            kusa.render(ctx, this);
-        }
-
-        const dir = this.facingRight ? 1 : -1;
-        const centerX = this.x + this.width * 0.5;
-        const shoulderY = this.y + this.height * 0.38 + Math.abs(this.bob) * 0.14;
-        const leanBase = (1.2 + this.torsoLean * 0.55 + (this.isAttacking ? 0.9 : 0)) * 1.12;
-        const facingLead = dir * this.width * 0.035;
-        const shoulderCenterX = centerX + dir * leanBase + facingLead;
-        const bodyScreenTilt = dir * this.width * 0.038;
-        const shoulderFrontX = shoulderCenterX + dir * (this.width * 0.12 + bodyScreenTilt * 0.3);
-        
-        let handX, handY;
-        if (kusa.isAttacking && typeof kusa.getHandAnchor === 'function') {
-            const anchor = kusa.getHandAnchor(this);
-            handX = anchor.x;
-            handY = anchor.y;
-        } else {
-            const idleAngleRaw = -0.58 + Math.sin(this.motionTime * 0.01) * 0.08;
-            const idleAngle = dir === 1 ? idleAngleRaw : Math.PI - idleAngleRaw;
-            handX = shoulderFrontX + Math.cos(idleAngle) * 23.2;
-            handY = shoulderY + Math.sin(idleAngle) * 23.2;
-        }
-
-        this.drawJointedArm(ctx, {
-            shoulderX: shoulderFrontX,
-            shoulderY: shoulderY,
-            handX: handX,
-            handY: handY,
-            upperLen: this.height * 0.18 * 1.12,
-            foreLen: this.height * 0.18 * 1.12,
-            bendSign: -dir * 0.82,
-            upperWidth: this.width * 0.12,
-            foreWidth: this.width * 0.108,
-            jointRadius: this.width * 0.078,
-            baseColor: '#131318',
-            handColor: '#1a1a1a'
-        });
-
-        ctx.fillStyle = '#1a1a1a';
-        ctx.beginPath();
-        ctx.arc(handX, handY, 4.8, 0, Math.PI * 2);
-        ctx.fill();
+        const attacking = !!(kusa && kusa.isAttacking);
+        const anchor = (kusa && typeof kusa.getHandAnchor === 'function')
+            ? kusa.getHandAnchor(this) : null;
+        renderBossActor(ctx, this, BOSS_DESIGNS.kusa, {
+            hands: (rig) => kusarigamaStance(rig, attacking ? anchor : null),
+            front: (rig, h) => {
+                // 実体は待機中フェードして見えないため、携行時は素体側で鎌と鎖を持たせる
+                if (!attacking) { drawCarriedKusarigama(rig, h, rig.t); return; }
+                rig.world(() => {
+                    if (kusa && typeof kusa.render === 'function') kusa.render(ctx, this);
+                });
+            }
+        }, { attackProgress: replicaProgress(kusa) });
     }
 }
 
@@ -1126,123 +1036,26 @@ export class OdachiBusho extends Boss {
     }
     
     renderBody(ctx) {
-        const isSpecial = this.currentPattern === 'odachi_special';
-        const currentAttackDuration = isSpecial && this.weaponReplica
-            ? (this.weaponReplica.totalDuration || 680)
-            : 680;
-        
-        const handPose = this.weaponReplica ? this.weaponReplica.getPose(this) : null;
-
-        this.renderUnifiedEnemyModel(ctx, {
-            weaponMode: 'none',
-            headStyle: 'kabuto',
-            crestVariant: 'mikazuki_major', 
-            handPose: handPose, 
-            crestLengthScale: 0.95, 
-            crestArcHeightScale: 0.9,
-            armorRows: 5,
-            headRatio: 0.175,
-            armScale: 1.2,
-            torsoLeanScale: 1.15,
-            attackDurationMs: currentAttackDuration,
-            weaponScale: 1.2, 
-            backCape: true, 
-            palette: {
-                legBack: '#111',
-                legFront: '#1a1a1a',
-                robe: '#2b1f1f',
-                robeShade: '#1f1616',
-                torsoCore: '#151515',
-                armorA: '#222',
-                armorB: '#111',
-                armorEdge: '#d4af37',
-                shoulder: '#333',
-                helmTop: '#1a1a1a',
-                helmBottom: '#0a0a0a',
-                crest: '#ffcc00',
-                accent: '#ef4c4c',
-                capeTop: '#4e0b0b',
-                capeMid: '#3a0808',
-                capeBottom: '#1a0404'
-            }
-        });
-
-        if (this.weaponReplica) {
-            // enemy.render()で適用されたyawSkew変換を逆算してキャンセルし、剣が垂直に描画されるようにする
-            const dir = this.facingRight ? 1 : -1;
-            const moveBias = Math.min(0.024, Math.abs(this.vx || 0) * 0.0038);
-            const attackBias = this.isAttacking ? 0.013 : 0;
-            const yawSkew = dir * (0.046 + moveBias + attackBias);
-            const pivotX = this.x + this.width * 0.5;
-            const pivotY = this.y + this.height * 0.62;
-            ctx.save();
-            ctx.translate(pivotX, pivotY);
-            ctx.scale(1 / 0.982, 1);
-            ctx.transform(1, 0, -yawSkew, 1, 0, 0);
-            ctx.translate(-pivotX, -pivotY);
-            this.weaponReplica.render(ctx, this);
-            ctx.restore();
-        }
-
-        const dir = this.facingRight ? 1 : -1;
-        const centerX = this.x + this.width * 0.5;
-        const shoulderY = this.y + this.height * 0.38 + Math.abs(this.bob) * 0.14;
-        const leanBase = (1.2 + this.torsoLean * 0.55 + (this.isAttacking ? 0.9 : 0)) * 1.15;
-        const facingLead = dir * this.width * 0.035;
-        const shoulderCenterX = centerX + dir * leanBase + facingLead;
-        const bodyScreenTilt = dir * this.width * 0.038;
-        const shoulderX = shoulderCenterX + dir * (this.width * 0.12 + bodyScreenTilt * 0.3);
-        
+        // 素体・黒具足・陣羽織は bossRenderer。大太刀そのものは本編の Odachi 実体が
+        // world 座標で描き、両手は実体のアンカー(getHandAnchor)へ追従させる。
         const odachi = this.weaponReplica;
-        let handX, handY, gripRotation;
-        if (odachi && typeof odachi.getHandAnchor === 'function') {
-            const anchor = odachi.getHandAnchor(this);
-            handX = anchor.x;
-            handY = anchor.y;
-            gripRotation = anchor.rotation;
-        } else {
-            gripRotation = (-0.9 + Math.sin(this.motionTime * 0.007) * 0.05) * dir;
-            handX = shoulderX + Math.cos((-0.85 + Math.sin(this.motionTime * 0.007) * 0.06) * dir) * 26.8;
-            handY = shoulderY + Math.sin((-0.85 + Math.sin(this.motionTime * 0.007) * 0.06) * dir) * 26.8;
-        }
-
-        this.drawJointedArm(ctx, {
-            shoulderX,
-            shoulderY,
-            handX,
-            handY,
-            upperLen: 14.0 * 1.2,
-            foreLen: 15.6 * 1.2,
-            bendSign: -dir * 0.82,
-            upperWidth: 6.2,
-            foreWidth: 5.4,
-            jointRadius: 3.8,
-            baseColor: '#151515',
-            handColor: '#1a1a1a'
-        });
-
-        const supportShoulderX = shoulderX - dir * 4.8;
-        const supportShoulderY = shoulderY + 2.8;
-        const weaponDirX = Math.cos(gripRotation);
-        const weaponDirY = Math.sin(gripRotation);
-        // 副手は主手より柄尻側（約22px後方）をしっかり握る
-        const supportGripBack = odachi && !odachi.isAttacking ? 22 : 12.5;
-        const supportTargetX = handX - weaponDirX * supportGripBack - weaponDirY * 1.4;
-        const supportTargetY = handY - weaponDirY * supportGripBack + weaponDirX * 1.4;
-        
-        this.drawJointedArm(ctx, {
-            shoulderX: supportShoulderX,
-            shoulderY: supportShoulderY,
-            handX: supportTargetX,
-            handY: supportTargetY,
-            upperLen: 12.7 * 1.2,
-            foreLen: 13.2 * 1.2,
-            bendSign: dir * 0.86,
-            upperWidth: 5.9,
-            foreWidth: 5.0,
-            jointRadius: 3.3,
-            baseColor: '#171617',
-            handColor: '#231f24'
+        const anchor = (odachi && typeof odachi.getHandAnchor === 'function')
+            ? odachi.getHandAnchor(this) : null;
+        const attackingOd = !!(odachi && odachi.isAttacking);
+        renderBossActor(ctx, this, BOSS_DESIGNS.odachi, {
+            hands: (rig) => odachiStance(rig, attackingOd ? anchor : null),
+            front: (rig, h) => {
+                // 待機・走りは提案書の立て太刀。攻撃中だけ実体に任せる
+                if (!attackingOd) { drawCarriedOdachi(rig, h.front, h.ang); return; }
+                rig.world(() => {
+                    if (odachi && typeof odachi.render === 'function') odachi.render(ctx, this);
+                });
+            }
+        }, {
+            attackProgress: replicaProgress(odachi),
+            // 体の所作は実体のフェーズ(rise/stall/flip/plunge/planted)に追従させる
+            phase: (odachi && typeof odachi.getPose === 'function' && odachi.isAttacking)
+                ? (odachi.getPose(this) || {}).phase : null
         });
     }
 }

@@ -4,8 +4,8 @@
 
 import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=aspect-drift-fix-20260804e';
 import { BOSS_STAGING } from './bossStaging.js?v=stage6-boss-shachi-20260803i';
-import { createEnemy } from './enemy.js?v=stage6-arena-polish-20260803g';
-import { createBoss } from './boss.js?v=boss-intro-player-hold-20260804q';
+import { createEnemy } from './enemy.js?v=boss-rig-20260806b';
+import { createBoss } from './boss.js?v=boss-rig-20260806b';
 import { createObstacle } from './obstacle.js';
 import { audio } from './audio.js';
 import { generateStairsCanvas } from './stairRenderer.js';
@@ -3960,13 +3960,14 @@ export class Stage {
             this.renderStage2MountainPassEntrance(ctx);
         }
 
-        // ボス部屋の右側に次ステージへの「出入口」を描画。
+        // ボス部屋の右側に次ステージへの「出入口」を描く件:
         // ※ Stage1（竹林）は管理林縁から街道へ接続する専用終端を使うため、汎用peekは使わない。
         // ※ Stage2（街道）は山道入口をステージ内の通常背景として描画する。
+        // ※ Stage3（山道）のラストオブジェクトは renderStage3ExitOnGround へ移設。
+        //    背景(地面より前)で描くと基部を足元線(512)まで下げられず(下が地面に覆われる)、
+        //    地平線(480)に貼り付いて床帯から浮いて見えていた。
+        // ※ Stage4（城下町）は城郭(renderStage4CastleLower)が出口を兼ねる。
         // ※ Stage5（城内）は画像ベースの階段（stairImage）が出口を兼ねるため peek は描かない。
-        if (this.stageNumber >= 3 && this.stageNumber <= 4) {
-            this.renderNextStagePeek(ctx);
-        }
 
         // 旧 renderBossStageShift(全ステージに暗赤〜橙のオーバーレイ3層)は廃止。
         // これが「どのステージもボス戦は夕方」の主犯だった。色は変えず、
@@ -4040,62 +4041,36 @@ export class Stage {
         return true;
     }
 
-    // ボス部屋の右3/4から画面右端にかけて次ステージへの「出入口」を描画
-    // 空はそのままに、地形・建造物だけを右端に固定配置する
-    renderNextStagePeek(ctx) {
-        const gY   = this.groundY;
-        const p    = this.progress;
-        // ラストオブジェクトは地面と同じパララックス(1.0)でワールド配置にする。
-        // stage4の城(renderStageElementsで worldX - p)に仕様を統一し、近景がわずかに
-        // ずれて流れる(0.98)違和感をなくす。peekWX(xFixed)/peekAnchorX/toSx は
-        // peekPara=1.0 のとき「ボス部屋左端を基準にしたスクリーン固定座標」を返すため、
-        // カメラ停止時の見た目は従来どおりで、接近中の流入だけが地面と同速になる。
-        const peekPara = 1.0;
-        // ラストオブジェクトは peekWX(画面右寄りの固定スクリーンx) で配置する。
-        // peekPara=1.0 では peekWX(xFixed) はカメラ停止時に xFixed を返し、接近中は
-        // ボス部屋左端基準で右から流入する（＝地面と同じワールド配置・パララックス1.0）。
+    // Stage3のラストオブジェクト(石塚の門+眺望 stage3_mountain_exit.png)。
+    // 【地面レイヤーの後に描く】(renderStage3RoadsideOnGround 経由)。
+    // 旧 renderNextStagePeek は背景パス(地面より前)にあり、基部を足元線まで
+    // 下げると下が地面に覆われるため地平線(480)接地しか選べず、床帯(480..512)の
+    // 上で浮いて見えていた。投影文法: 構造物基部は478..512(床帯へ食い込ませて植える)。
+    renderStage3ExitOnGround(ctx) {
+        const exitImg = this.stage3ExitImage;
+        if (!(exitImg && exitImg.complete && exitImg.naturalWidth > 0)) return;
+        const p = this.progress;
+        // ラストオブジェクトは地面と同じパララックス(1.0)でワールド配置にする(stage4の城と同じ作法)。
+        // peekWX(xFixed) はカメラ停止時(p=maxProgress-CANVAS_WIDTH)に xFixed を返し、
+        // 接近中はボス部屋左端基準で右から流入する。
         const peekBase = this.maxProgress - 150; // ボス部屋右端寄りに（手前の添景と分離・見切れ防止）
-        const peekAnchorX = (peekBase - p) * peekPara; // 基準点のスクリーンx
-
-        // 固定スクリーン座標→ワールド追従への変換。カメラ停止時(p=maxProgress-CANVAS_WIDTH)に
-        // peekAnchorX===ANCHOR_STOP となり peekWX(xFixed)===xFixed。停止時の見た目を保持しつつ接近中は右から流入。
-        const ANCHOR_STOP = (peekBase - (this.maxProgress - CANVAS_WIDTH)) * peekPara;
-        const peekWX = (xFixed) => peekAnchorX + (xFixed - ANCHOR_STOP);
-
-        // 完全に画面外右ならスキップ
+        const peekAnchorX = peekBase - p;
         if (peekAnchorX > CANVAS_WIDTH + 600) return;
-
+        const ANCHOR_STOP = peekBase - (this.maxProgress - CANVAS_WIDTH);
+        const exitW = 680;
+        const exitH = exitW * (exitImg.naturalHeight / exitImg.naturalWidth);
+        const exitX = peekAnchorX + (CANVAS_WIDTH - exitW + 18 - ANCHOR_STOP);
+        if (exitX + exitW < -80 || exitX > CANVAS_WIDTH + 120) return;
+        // 画像下部に透明余白が約10.8%あるため、不透明部分の下端で接地させる。
+        // 足元線+2 = 基部が床帯へわずかに食い込み、「置いてある」ではなく「植わっている」。
+        const visibleBottomRatio = 829 / 929;
+        const footY = this.groundY + LANE_OFFSET + 2;
+        const exitY = Math.round(footY - exitH * visibleBottomRatio);
         ctx.save();
-
-        switch (this.stageNumber) {
-
-            // Stage2は専用の固定ワールドオブジェクトとして描くため、ここではStage3/4だけを扱う。
-
-            // ─── Stage3（山道） → Stage4（城下町）───────────────────────────
-            // 山道を抜けた先に城下町の屋根が見える。瓦屋根のシルエットと石畳の始まり
-            case 3: {
-                const exitImg = this.stage3ExitImage;
-                if (exitImg && exitImg.complete && exitImg.naturalWidth > 0) {
-                    const exitW = 680;
-                    const exitH = exitW * (exitImg.naturalHeight / exitImg.naturalWidth);
-                    const exitX = peekWX(CANVAS_WIDTH - exitW + 18);
-                    // 画像下部に透明余白が約10.8%あるため、不透明部分の下端で接地させる。
-                    const visibleBottomRatio = 829 / 929;
-                    const exitY = Math.round(gY + 8 - exitH * visibleBottomRatio);
-                    if (exitX + exitW < -80 || exitX > CANVAS_WIDTH + 120) break;
-
-	                    ctx.save();
-	                    ctx.globalAlpha *= 0.96;
-	                    ctx.filter = 'brightness(0.84) saturate(0.72) contrast(0.94)';
-	                    ctx.drawImage(exitImg, exitX, exitY, exitW, exitH);
-	                    ctx.filter = 'none';
-	                    ctx.restore();
-	                }
-	                break;
-	            }
-
-        }
-
+        ctx.globalAlpha *= 0.96;
+        ctx.filter = 'brightness(0.84) saturate(0.72) contrast(0.94)';
+        ctx.drawImage(exitImg, exitX, exitY, exitW, exitH);
+        ctx.filter = 'none';
         ctx.restore();
     }
 
@@ -4264,6 +4239,8 @@ export class Stage {
      */
     renderStage3RoadsideOnGround(ctx) {
         if (this.stageNumber !== 3) return;
+        // ラストオブジェクト(石塚の門)が一番奥、道沿いの添景はその手前。
+        this.renderStage3ExitOnGround(ctx);
         this.renderStage3RoadsideProps(ctx);
         this.renderStage3RoadsideClusters(ctx);
     }

@@ -2715,18 +2715,15 @@ export class Enemy {
         }
         // 無敵中の半透明はパーツの重なりが透けて汚いため廃止(プレイヤーと同方針)
         
-        // 2.5Dの奥行き感を共通付与（真横シルエットを避ける）
+        // 被弾リアクション用の基準。2.5D はここでは掛けない——
+        // 斜行(yawSkew)は「腰から下が前・頭が後ろ」の後傾を全敵に生むため撤去した。
+        // 奥行きは各モデル側(renderUnifiedEnemyModel / bossRenderer)が自前で作る。
         {
             const dir = this.facingRight ? 1 : -1;
             const pivotX = this.x + this.width * 0.5;
             const pivotY = this.y + this.height * 0.62;
-            const moveBias = Math.min(0.024, Math.abs(this.vx || 0) * 0.0038);
-            const attackBias = this.isAttacking ? 0.013 : 0;
-            const yawSkew = dir * (0.046 + moveBias + attackBias);
             ctx.save();
             ctx.translate(pivotX, pivotY);
-            ctx.transform(1, 0, yawSkew, 1, 0, 0);
-            ctx.scale(0.982, 1);
             // 被弾リアクション。雑魚は上体を後方へ反らし(足元を軸に回転)、
             // ボスは仰け反らせず微振動だけにする＝スーパーアーマーの重量感を出す
             // (ボスは被弾回数が多く、毎回のけぞると軽く見えてしまう)
