@@ -1514,9 +1514,13 @@ export class Spear extends SubWeapon {
         // 初動はしっかり引き、そこから押し出す
         const spearPush = -windup * 11.2 + thrustDrive * 12.6;
         const centerX = player.x + ownerWorldWidth(player) / 2 + direction * (8 + spearPush);
-        // しゃがみ時も同じ高さ感を維持するため、足元基準で決める
+        // しゃがみ時も同じ高さ感を維持するため、足元基準で決める。
+        // 27 は素体(忍者60px)の腰高さ。巨躯オーナー(ボス108px)がこの固定値のままだと
+        // 柄が膝下に来て腕が届かず「槍を掴めていない」絵になるため、
+        // オーナー側が spearGripLift を宣言していればそれを使う。
         const footY = player.y + ownerWorldHeight(player);
-        const y = footY - 27;
+        const gripLift = Number.isFinite(player.spearGripLift) ? player.spearGripLift : 27;
+        const y = footY - gripLift;
         // 槍本体は常に最大到達長で維持し、突きは腕/体のモーションで表現する
         const thrust = ownerModelRange(this.range, player) * 0.84;
         const spearEnd = centerX + direction * thrust;

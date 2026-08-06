@@ -12,7 +12,7 @@
 // ============================================
 
 import { STAGE6_CORNER } from './constants.js';
-import { Kusarigama } from './weapon.js?v=stage6-entry-ballistic-20260804c';
+import { Kusarigama } from './weapon.js?v=boss-rig-20260807a';
 import {
     chainCurve, sampleQuad, drawChain,
     pushTrailPoint, drawCometRibbon,

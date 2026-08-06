@@ -3,10 +3,10 @@
 // ============================================
 
 import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js';
-import { Enemy } from './enemy.js?v=boss-rig-20260806b';
-import { createSubWeapon } from './weapon.js?v=stage6-entry-ballistic-20260804c';
+import { Enemy } from './enemy.js?v=boss-rig-20260807a';
+import { createSubWeapon } from './weapon.js?v=boss-rig-20260807a';
 import { audio } from './audio.js';
-import { Player } from './player.js?v=boss-intro-player-hold-20260804q';
+import { Player } from './player.js?v=boss-rig-20260807a';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
@@ -36,7 +36,7 @@ import {
     drawCarriedKusarigama,
     odachiStance,
     drawCarriedOdachi
-} from './bossRenderer.js?v=boss-rig-20260806b';
+} from './bossRenderer.js?v=boss-rig-20260807a';
 
 // weaponReplica の攻撃進行度(0..1)。体の所作を実体のタイムラインへ同期させる。
 function replicaProgress(replica) {
@@ -201,23 +201,28 @@ class Boss extends Enemy {
             return;
         }
 
+        // 攻めっ気(0=待ち / 1=詰め)。得物の性格ごとにボス側で宣言する
+        const agg = Number.isFinite(this.aggression) ? this.aggression : 0.5;
+
         let desiredVX = 0;
         if (absX > this.attackRange * 1.05) {
-            desiredVX = this.speed * 1.14 * dirToPlayer;
+            desiredVX = this.speed * (1.06 + agg * 0.22) * dirToPlayer;
         } else if (absX > this.attackRange * 0.55) {
-            desiredVX = this.speed * 0.92 * dirToPlayer;
+            desiredVX = this.speed * (0.80 + agg * 0.26) * dirToPlayer;
         }
+        // 揺さぶりの横歩き。攻めっ気の強いボスほど小さくする
+        //(そうしないと「間合いの外を意味なく歩き回っている」ようにしか見えない)
         if (absX <= this.attackRange * 2.0) {
-            desiredVX += this.feintDir * this.speed * 0.44;
+            desiredVX += this.feintDir * this.speed * 0.44 * (1 - agg);
         }
         desiredVX = Math.max(-this.speed * 1.42, Math.min(this.speed * 1.42, desiredVX));
         this.applyDesiredVx(desiredVX, 0.46);
 
         // --- 様子見/仕切り直し中は攻撃せず、間合いだけ動かす ---
         if (this.poiseTimerMs > 0) {
-            const wantX = this.poiseKind === 'space'
-                ? -dirToPlayer * this.speed * 0.95            // 一度離れて仕切り直す
-                : this.feintDir * this.speed * 0.30;          // その場で揺さぶりながら見る
+            const wantX = this.poiseKind === 'space' ? -dirToPlayer * this.speed * 0.95  // 離れて仕切り直す
+                        : this.poiseKind === 'close' ?  dirToPlayer * this.speed * 1.30  // 一気に踏み込む
+                        :                               this.feintDir * this.speed * 0.30; // 揺さぶりながら見る
             this.applyDesiredVx(wantX, 0.5);
             return;
         }
@@ -226,19 +231,22 @@ class Boss extends Enemy {
             // プレイヤーの隙(攻撃硬直・忍具モーション中)は迷わず差し込む
             const punish = !!(player.isAttacking || (player.subWeaponTimer || 0) > 0);
             // 近すぎ/遠すぎは一度間合いを直す
-            const badRange = absX < this.attackRange * 0.42 || absX > this.attackRange * 0.96;
+            const tooClose = absX < this.attackRange * 0.42;
+            const tooFar   = absX > this.attackRange * 0.96;
+            const maxStreak = 2 + Math.round(agg * 2);   // 攻めっ気ぶん連撃を許す
 
             if (!punish && this.spacingCooldownMs <= 0 &&
-                (this.attackStreak >= 2 || (badRange && Math.random() < 0.6))) {
-                // 連打をやめて仕切り直し
-                this.poiseKind = 'space';
-                this.poiseTimerMs = 260 + Math.random() * 260;
-                this.spacingCooldownMs = 900 + Math.random() * 600;
+                (this.attackStreak >= maxStreak || ((tooClose || tooFar) && Math.random() < 0.6))) {
+                // 連打をやめて仕切り直す。近すぎたら引き、【遠すぎたら踏み込む】。
+                // 以前は遠すぎでも後退していたため、間合いの外をうろつくだけになっていた。
+                this.poiseKind = tooFar && !tooClose ? 'close' : 'space';
+                this.poiseTimerMs = (this.poiseKind === 'close' ? 150 : 260) + Math.random() * 260;
+                this.spacingCooldownMs = this.poiseKind === 'close' ? 240 : 900 + Math.random() * 600;
                 this.attackStreak = 0;
-                this.attackCooldown = Math.max(this.attackCooldown, 120);
+                this.attackCooldown = Math.max(this.attackCooldown, this.poiseKind === 'close' ? 0 : 120);
                 return;
             }
-            if (!punish && Math.random() < 0.38) {
+            if (!punish && Math.random() < 0.42 * (1 - agg)) {
                 // 一手見送って様子を見る(即座に撃ち返さない)
                 this.poiseKind = 'watch';
                 this.poiseTimerMs = 170 + Math.random() * 260;
@@ -540,6 +548,7 @@ export class KayakudamaTaisho extends Boss {
     init() {
         super.init();
         this.bossName = '火薬玉の足軽頭';
+        this.aggression = 0.30;   // 投擲役。間合いを取りたがる
         this.weaponDrop = '火薬玉';
         this.hp = 270;
         this.maxHp = 270;
@@ -778,7 +787,7 @@ export class KayakudamaTaisho extends Boss {
             : 1;   // 投げ終わり(余韻)は振り抜いた姿勢で保持
         // 手の中の玉は「次に投げる分を掴んでから離すまで」だけ見せる。
         // 投げ切った後(remaining=0)や振り抜き直後は手ぶら。
-        const holding = attacking && remaining > 0 && u >= 0.15;
+        const holding = attacking && remaining > 0 && u >= 0.25;   // 溜めに入ってから離すまで
         renderBossActor(ctx, this, BOSS_DESIGNS.kayaku, {
             hands: (rig) => bombStance(rig),
             front: (rig, h) => {
@@ -801,6 +810,10 @@ export class YariTaisho extends Boss {
         this.speed = 3.35;
         this.attackRange = 135;
         this.attackPatterns = ['thrust'];
+        // 柄の高さ。Spear 既定の 27 は素体60px向けで、108pxのボスでは膝下になる
+        this.spearGripLift = Math.round(this.height * 0.45);   // 49
+        // 長柄は「差し込んで突く」のが持ち味。様子見を減らして間合いを詰めさせる
+        this.aggression = 0.82;
         this.setupWeaponReplica('大槍');
         this.forceSubWeaponRender = true;
     }
@@ -853,6 +866,7 @@ export class NitoryuKengo extends Boss {
     init() {
         super.init();
         this.bossName = '二刀流の剣豪';
+        this.aggression = 0.72;   // 手数の近接。踏み込んで切り込む
         this.weaponDrop = '二刀流';
         this.hp = 520;
         this.maxHp = 520;
@@ -924,6 +938,7 @@ export class KusarigamaAssassin extends Boss {
         super.init();
         this.forceSubWeaponRender = true;   // 待機中も鎌を携行して見せる(描画のみ)
         this.bossName = '鎖鎌の暗殺者';
+        this.aggression = 0.42;   // 一撃離脱。揺さぶりを残す
         this.weaponDrop = '鎖鎌';
         this.hp = 620;
         this.maxHp = 620;
@@ -980,6 +995,7 @@ export class OdachiBusho extends Boss {
     init() {
         super.init();
         this.bossName = '大太刀の武将';
+        this.aggression = 0.55;   // 重い一撃。詰めるが撃つ前に溜める
         this.weaponDrop = '大太刀';
         this.hp = 860;
         this.maxHp = 860;

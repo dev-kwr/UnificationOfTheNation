@@ -91,18 +91,20 @@ function limbN(c,ax,ay,hx,hy,frac,bend,mode,w1,w2,col,hi,pass='fill'){
 /* 素体スケール: プレイヤー素体フレーム(60px) → ボス素体(108px) = ×1.8
    以下の数値はすべて playerRenderer の実装値 × SC(目測ではない) */
 const SC=108/60;
-/* 四肢は【腕も脚も前後も全て同一の太さ】(ユーザー指定)。胴だけ太い。 */
-const LIMB_W=0.052*108;               // 5.6 — 全四肢共通
+/* 四肢は【腕も脚も前後も全て同一の太さ】。
+   playerRenderer の armStrokeWidth=4.8(コメント「脚(前脛)と同じ太さ」)を ×SC。 */
+const LIMB_W=4.8*(108/60);            // 8.64 — 全四肢共通
 const LIMB_F=LIMB_W, LIMB_B=LIMB_W;
 const TORSO_W=0.125*108;              // 13.5
 /* 腕(playerRenderer drawArm 実装): 肘=行程54%+最大2.5の微屈曲・
    手首1.35手前で止め・手=半径4.5の円・リーチ上限16.5 —— すべて ×SC */
 /* 腕は【上腕・前腕とも長さ固定】の2骨IK。手が近いときは肘が曲がるだけで、
    腕全体が縮まない(中点+オフセット方式だとポーズごとに腕の長さが変わる)。 */
-const ARM_L1=8.25*SC, ARM_L2=8.25*SC;   // 合計 = リーチ上限 16.5×SC
+const ARM_L1=13.6*SC, ARM_L2=13.2*SC;   // playerRenderer standardUpper/ForeLen × SC
+const ARM_REACH=21.6*SC;                // standardRightReach × SC(手が届く上限)
 function armP(c,sx,sy,hx,hy,front,pass='fill'){
   let dx=hx-sx, dy=hy-sy, d=Math.hypot(dx,dy)||0.001;
-  const LIM=(ARM_L1+ARM_L2)*0.995;
+  const LIM=ARM_REACH;
   if(d>LIM){ dx*=LIM/d; dy*=LIM/d; d=LIM; hx=sx+dx; hy=sy+dy; }
   const dmin=Math.abs(ARM_L1-ARM_L2)+2.0;
   if(d<dmin){ const k=dmin/d; dx*=k; dy*=k; d=dmin; }   // 潰れ防止(手位置は動かさない)
@@ -175,7 +177,7 @@ function discWithOutline(c,x,y,r,fill){
   c.beginPath(); c.arc(x,y,r,0,TAU); c.fill();
 }
 /* 掌 = 将軍参照でさらに小さく(頭半径の0.28)。腕との接続側は輪郭を描かない */
-const palmR=(front)=>(front?0.28:0.25)*(108*0.187);
+const palmR=(front)=>(front?4.5:4.2)*0.94*(108/60);   // 実装値 4.5/4.8 × 0.94 × SC
 function drawPalm(c,x,y,front,wristX,wristY){
   const r=palmR(front);
   // 手首方向を避けて輪郭リングを描く(接続部に線を出さない)
@@ -417,14 +419,15 @@ function drawCrest(c,B,P,hx,hy,r,t){
 const CHOREO={
   /* 火薬玉 = 1投ぶんの周期。引き戻しで後足荷重→振り抜きで前足へ乗る。
      p は 1投の進行度(0=投げ直後 → 1=次の投げ)。 */
+  /* 火薬玉 = 1投ぶんの周期。溜め(0.20-0.72)で後足荷重、振り抜き(0.72-1.0)で前へ乗る。 */
   kayaku(p){
-    const draw = ezIO(seg(p, 0.15, 0.60));                 // 引き戻し(後ろへ溜める)
-    const whip = ezIn(seg(p, 0.86, 1.0));                  // 振り抜き(前へ出る)
-    const after = 1 - ezOut(cl01(p / 0.15));               // 投げ切りの余韻
+    const draw = ezIO(seg(p, 0.20, 0.72));
+    const whip = Math.pow(seg(p, 0.72, 1.0), 0.55);
+    const after = 1 - ezOut(cl01(p / 0.20));
     return {
-      lean: -draw * 0.16 + whip * 0.34 + after * 0.10,
+      lean: -draw * 0.18 + whip * 0.36 + after * 0.12,
       crouch: draw * 5 - whip * 2,
-      shift: -draw * 5 + whip * 11 + after * 3,
+      shift: -draw * 5 + whip * 12 + after * 4,
       headDip: draw * 1.6 - whip * 1.0,
       feet: [[-15 - draw * 4 + whip * 5, 0], [12 + whip * 7, 0]],
       capeBell: 0
@@ -606,7 +609,7 @@ export function renderBossModel(c,B,motion,t,st){
   /* 腕のリーチ上限で手位置を先にクランプし、腕と得物を同一点に揃える
      (クランプ前の座標で武器を描くと手と柄が離れる) */
   const reachClamp=(sh,h)=>{ const dx=h.x-sh.x, dy=h.y-sh.y, d=Math.hypot(dx,dy)||0.001;
-    const L=(ARM_L1+ARM_L2)*0.995; if(d<=L) return h;
+    const L=ARM_REACH; if(d<=L) return h;
     return {x:sh.x+dx*L/d, y:sh.y+dy*L/d}; };
   const cF=reachClamp(shAF,hands.front), cB=reachClamp(shAB,hands.back);
   hands.front.x=cF.x; hands.front.y=cF.y;
@@ -623,7 +626,7 @@ export function renderBossModel(c,B,motion,t,st){
   const legJoints=[];
   const drawLegs=(pass)=>feet.forEach(f=>{
     const w=LIMB_W;                    // 四肢すべて同太さ
-    const fr=f.front?2.2:2.0;          // 実測: 足の半幅0.0105(≒1.2px)+輪郭ぶん
+    const fr=(f.front?1.9:1.65)*SC;    // playerRenderer の footRadius × SC
     /* 膝の位置は playerRenderer の待機脚の実数値に一致させる:
        前脚 knee=(hipX+0.8, hipY+10.1) / 奥脚 (hipX+0.9, hipY+9.5)、脚長 23.8。
        → 腰から 42%(前)/40%(奥)下、前方オフセットは 0.8〜0.9 だけ。
@@ -1200,21 +1203,25 @@ export function drawCarriedKatana(rig, hand, ang, len){
 export function bombStance(rig){
   const { atk, motion, runPh, sway, shF } = rig;
   if (motion === 'attack') {
-    /* atk は【1投ぶんの進行度 u】(0=投げ直後 → 1=次の投げ)。
-       0.00-0.15 投げ切りの余韻 / 0.15-0.55 引き戻し / 0.55-0.86 頭上で構え /
-       0.86-1.00 振り抜き(1.0 で離す)。投げるたびに腕が一往復する。 */
+    /* 投擲は playerRenderer の 'throw' をそのまま使う:
+         armAngle = -0.8π + pow(progress,0.55) * 0.8π   (上後方 -144° → 前方 0°)
+         armLength = 19  → 素体では ×SC
+       ボスは1回の攻撃で複数投げるので、これを【1投ぶんの周期 u】の末尾に置き、
+       手前に「引き戻して溜める」区間を足して往復させる。u=1 で手を離す。 */
     const u = cl01(atk);
-    const REL = 1.05, COCK = -1.98;      // 溜めは頭に被らない高さへ
+    const LEN = 19 * SC;
+    const BACK = -Math.PI * 0.8;
     let ang;
-    if (u < 0.15)      ang = lerp(REL, 0.75, ezOut(u / 0.15));                 // 余韻
-    else if (u < 0.55) ang = lerp(0.75, COCK, ezIO(seg(u, 0.15, 0.55)));       // 引き戻し
-    else if (u < 0.86) ang = COCK - Math.sin(seg(u, 0.55, 0.86) * Math.PI) * 0.16; // 構え(溜め)
-    else               ang = lerp(COCK, REL, ezIn(seg(u, 0.86, 1.0)));          // 振り抜き
-    const rad = 19 + (u < 0.55 ? 3 : 11) - (u > 0.86 ? 6 : 0);   // 溜めで腕を伸ばして頭上へ
-    // 奥手は反動を取る(振りかぶりで前、振り抜きで引く)
-    const cock = (u >= 0.15 && u < 0.86) ? ezIO(seg(u, 0.15, 0.7)) : (u >= 0.86 ? 1 - ezIn(seg(u, 0.86, 1)) : 0);
+    if (u < 0.20)      ang = 0;                                        // 振り切った余韻(前方水平)
+    else if (u < 0.72) ang = lerp(0, BACK, ezIO(seg(u, 0.20, 0.72)));  // 引き戻して溜める
+    else {
+      const t = seg(u, 0.72, 1.0);                                     // 振り抜き(初速速め)
+      ang = BACK + Math.pow(t, 0.55) * Math.PI * 0.8;
+    }
+    // 奥手は反動を取る(溜めで前・振り抜きで引く)
+    const cock = (u < 0.72) ? ezIO(seg(u, 0.20, 0.72)) : 1 - Math.pow(seg(u, 0.72, 1.0), 0.55);
     return {
-      front: { x: shF.x + 4 + Math.cos(ang) * rad, y: shF.y + 4 + Math.sin(ang) * rad },
+      front: { x: shF.x - 0.2 + Math.cos(ang) * LEN, y: shF.y - 0.15 + Math.sin(ang) * LEN },
       back:  { x: shF.x + 16 - cock * 6, y: shF.y + 8 + cock * 3 },
       relAng: ang, u, cock
     };
@@ -1235,15 +1242,24 @@ export function drawCarriedBomb(rig, hand, timeMs){
 
 /** 大槍: 実体の握り(getGripAnchors)に両手を合わせる。奥手は体の前面より後ろへ回さない */
 export function spearStance(rig, grips){
-  const { shF, chestX, motion } = rig;
+  const { shF, motion } = rig;
   if (grips) {
-    const f = rig.toLocal(grips.front.x, grips.front.y);
-    const b = rig.toLocal(grips.rear.x, grips.rear.y);
-    return { front: f, back: { x: Math.max(chestX + 4, b.x), y: b.y },
-             gripY: f.y, gripX: f.x };
+    /* 実体の握り2点は素体60px向けで12pxしか離れておらず、掌半径7.6のボスでは
+       2つの丸が重なって「掴んでいない」ように見える。柄の向きを保ったまま
+       中点から前後へ開き、巨躯でも両手持ちが読める間隔にする。 */
+    const f0 = rig.toLocal(grips.front.x, grips.front.y);
+    const b0 = rig.toLocal(grips.rear.x,  grips.rear.y);
+    let ux = b0.x - f0.x, uy = b0.y - f0.y;
+    const d = Math.hypot(ux, uy);
+    if (d < 0.001) { ux = 1; uy = 0; } else { ux /= d; uy /= d; }
+    const mx = (f0.x + b0.x) * 0.5, my = (f0.y + b0.y) * 0.5;
+    const SP = 13;                                  // 前後±13 = 手の間隔26
+    return { front: { x: mx - ux * SP, y: my - uy * SP },
+             back:  { x: mx + ux * SP, y: my + uy * SP },
+             gripX: mx, gripY: my };
   }
   const fx = shF.x + 15, fy = shF.y + 7;
-  return { front: { x: fx, y: fy }, back: { x: Math.max(chestX + 4, fx - 19), y: fy + 2 } };
+  return { front: { x: fx, y: fy }, back: { x: fx + 19, y: fy + 2 } };
 }
 
 /** 鎖鎌: 鎌は奥手(実体アンカー)、鎖は手前手。両手持ちにしない */
@@ -1304,9 +1320,11 @@ export function drawCarriedKusarigama(rig, hands, t){
 /** 携行中の大槍(待機・走り)。実体の待機グリップは膝の高さで持てて見えないため素体側で構える */
 export function drawCarriedSpear(rig, hands){
   const c = rig.c;
+  /* 手前手が柄尻寄り・奥手が穂先寄り(2.5D: 奥手が進行方向側)。
+     柄は「手前手→奥手」の向きに通す。 */
   const f = hands.front, b = hands.back;
-  const ang = Math.atan2(f.y - b.y, f.x - b.x);
-  c.save(); c.translate(b.x, b.y); c.rotate(ang);
+  const ang = Math.atan2(b.y - f.y, b.x - f.x);
+  c.save(); c.translate(f.x, f.y); c.rotate(ang);
   realSpear(c, 84, 24);          // 石突24 / 穂先まで84(実寸の全長≈195相当)
   c.restore();
 }
@@ -1322,6 +1340,9 @@ export function drawCarriedOdachi(rig, hand, ang){
 export function spearCarryStance(rig){
   const { shF, motion, runPh, sway } = rig;
   const s = motion === 'run' ? Math.sin(runPh * TAU) * 2.2 : sway * 0.4;
-  const fy = shF.y + 13 + s;
-  return { front: { x: shF.x + 14, y: fy }, back: { x: shF.x - 6, y: fy + 3 } };
+  /* 攻撃時の握り高さ(腰=足元から約45%)に合わせて携行する。ここがズレると
+     攻撃開始の瞬間に槍が跳ねる。手前手=柄尻寄り / 奥手=穂先寄り。 */
+  const fy = shF.y + 17 + s;
+  return { front: { x: shF.x + 1,  y: fy + 2 },
+           back:  { x: shF.x + 26, y: fy - 1 } };
 }
