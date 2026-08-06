@@ -88,6 +88,34 @@ function limbN(c,ax,ay,hx,hy,frac,bend,mode,w1,w2,col,hi,pass='fill'){
   return {jx,jy};
 }
 
+/* 二刀の刀身はプレイヤーと同一形状。katanaShape.js は依存ゼロなので循環しない
+   (playerRenderer.js を直接 import すると game.js の TDZ でクラッシュする)。 */
+import { drawKatanaShape } from './katanaShape.js?v=boss-weapon-trace-20260807b';
+/* 刀身長はプレイヤー実数値のまま渡し、拡大は描画側の ctx.scale だけで行う(二重拡大防止)。
+   倍率は素体リグの SC(=1.8) ではなく【描画上の身長比】を使う:
+     プレイヤーの描画身長 = height(72) - headRadius*0.1(=1.68) = 70.32
+     ボスの描画身長       = BOSS_H = 108
+   SC は四肢の太さを実機に合わせ込んだ値で身長比ではないため、これで刀を拡大すると
+   17% 長い刀になる。 */
+const DUAL_BLADE_LEN = 80;                          // player getKatanaBladeLength()
+const KATANA_SC = 108 / (72 - 72 * (28 / 60) * 0.5 * 0.1);   // ≒1.536
+
+/* 関節位置を実座標で与える版(playerRenderer の bendKneeToward 済みの膝を移植するため) */
+function limbAt(c,ax,ay,jx,jy,hx,hy,w1,w2,col,pass='fill'){
+  c.lineCap='round'; c.lineJoin='round';
+  if(pass==='ol'){
+    c.strokeStyle=BODY.OUT; c.lineWidth=w1+BODY.OUTW;
+    c.beginPath(); c.moveTo(ax,ay); c.lineTo(jx,jy); c.lineTo(hx,hy); c.stroke();
+    return {jx,jy};
+  }
+  c.strokeStyle=col; c.lineWidth=w1;
+  c.beginPath(); c.moveTo(ax,ay); c.lineTo(jx,jy); c.stroke();
+  c.lineWidth=w2;
+  c.beginPath(); c.moveTo(jx,jy); c.lineTo(hx,hy); c.stroke();
+  c.fillStyle=col; c.beginPath(); c.arc(jx,jy,Math.min(w1,w2)*0.5,0,TAU); c.fill();
+  return {jx,jy};
+}
+
 /* 素体スケール: プレイヤー素体フレーム(60px) → ボス素体(108px) = ×1.8
    以下の数値はすべて playerRenderer の実装値 × SC(目測ではない) */
 const SC=108/60;
@@ -472,31 +500,68 @@ const CHOREO={
   },
   /* 大太刀 = playerRenderer の odachiPhase 移植(跳躍して突き上げ→宙返り→急降下→着刀)。
      phase は weaponReplica.getPose().phase をそのまま受け取る。素体は ×1.8。 */
-  odachi(p, phase){
-    const A=1.8, HIP=45;
-    const F=(kneeK, footK, kneeX, footX)=>[footX*A, -(HIP-footK*A)];
+  odachi(p, phase, mt){
+    /* 脚は playerRenderer:2499-2541(odachiPhase 別の専用脚)を数値ごと移植する。
+       ・縦の落差はプレイヤーが airLegSpanScale = 脚長/23.8 を掛けている。
+         ボスの腰高は 45 なので LS = 45/23.8 = 1.8908。
+       ・プレイヤーは全フェーズで extendOd=6.5 を足して「草摺に膝下が埋もれて
+         短足に見えない」ようにしている。ボスも比率を合わせるため 6.5×LS を足す。
+       ・以前ここは A*0.62(=1.116)という player 側に対応物のない係数で、
+         extendOd も欠落していた。脚長が待機 43.6px に対し 13〜20px まで縮み、
+         「胴から直接足が生えている」絵になっていた(ユーザー指摘)。
+       ・index0 = 奥脚(player left) / index1 = 手前脚(player right)。 */
+    const A=1.8, HIP=45, LS=45/23.8, EXT=6.5*LS, KEXT=EXT*0.5;
+    // 脚の付け根(renderBossModel の hipX ± 1.05*SC と一致させる。pose.feet の x は
+    // cx+f[0]-shift で shift が打ち消されるので、ここで shift を足し戻す)
+    const mk=(shift, crouch, L, R)=>{
+      const hipY=-HIP+crouch, hx0=shift+0.2;
+      const rootB=hx0-1.05*A, rootF=hx0+1.05*A;   // 奥脚 / 手前脚
+      const bend=(hx,hy,fx,fy,t,b)=>{ const dX=fx-hx, dY=fy-hy, len=Math.max(0.001,Math.hypot(dX,dY));
+        let nX=-dY/len, nY=dX/len; if(nX<0){nX=-nX;nY=-nY;}      // towardSign=dir=+1
+        return [hx+dX*t+nX*b, hy+dY*t+nY*b]; };
+      const one=(root,q)=>{
+        let fx, fy, kx, ky;
+        if(q.kneeFirst){
+          kx=root+q.kdx*A;        ky=hipY+q.kdy*LS;
+          fx=kx+q.fdx*A;          fy=ky+q.fdy*LS;
+        } else {
+          fx=root+q.fdx*A;        fy=hipY+q.fdy*LS;
+          const kb=bend(root,hipY,fx,fy,q.t,q.b*LS); kx=kb[0]; ky=kb[1];
+        }
+        return { foot:[fx, fy+EXT], knee:[kx, ky+KEXT] };
+      };
+      const b=one(rootB,L), f=one(rootF,R);
+      return { feet:[b.foot, f.foot], knees:[b.knee, f.knee] };
+    };
     if(phase==='rise'){
-      return { lean:-0.10, crouch:-2*A, shift:1.5*A, headDip:-1.5*A,
-               feet:[[-4.2*A, -(HIP-11.0*A*0.62)], [ 1.6*A, -(HIP-11.3*A*0.62)]],
-               capeBell:0.9 };
+      // 突き上げ跳躍。プレイヤーの kick=clamp(-vy/18) はボスに vy が無いので 0.6 固定
+      const kick=0.6, crouch=-2*A, shift=1.5*A;
+      const lg=mk(shift, crouch,
+        { kneeFirst:true, kdx: 3.0, kdy:6.5, fdx:-1.4, fdy:4.8 },
+        { kneeFirst:false, fdx:-(4.2+kick*3.6), fdy:11.0+kick*2.6, t:0.52, b:1.6+kick*0.8 });
+      return { lean:-0.10, crouch, shift, headDip:-1.5*A, capeBell:0.9, ...lg };
     }
     if(phase==='stall'||phase==='flip'){
-      // 両脚を胸側へタック
-      return { lean:-0.04, crouch:-3*A, shift:0.5*A, headDip:-1.0*A,
-               feet:[[ 0.6*A, -(HIP-9.6*A*0.62)], [-0.6*A, -(HIP-10.6*A*0.62)]],
-               capeBell:1.0 };
+      const crouch=-3*A, shift=0.5*A;                    // 頂点〜宙返り: 両脚を胸側へタック
+      const lg=mk(shift, crouch,
+        { kneeFirst:true, kdx: 3.4, kdy:5.6, fdx:-2.4, fdy:4.0 },
+        { kneeFirst:true, kdx: 2.2, kdy:6.2, fdx:-2.8, fdy:4.4 });
+      return { lean:-0.04, crouch, shift, headDip:-1.0*A, capeBell:1.0, ...lg };
     }
     if(phase==='plunge'){
-      // 刀に体重を乗せ、両脚は後方上へ流す
-      return { lean:0.16, crouch:1*A, shift:-1.0*A, headDip:1.2*A,
-               feet:[[-4.6*A, -(HIP-13.7*A*0.62)], [-6.6*A, -(HIP-15.5*A*0.62)]],
-               capeBell:0.4 };
+      const crouch=1*A, shift=-1.0*A;                    // 急降下: 両脚を後方上へ流す
+      const lg=mk(shift, crouch,
+        { kneeFirst:false, fdx:-4.6, fdy:7.2, t:0.5, b:2.0 },
+        { kneeFirst:false, fdx:-6.6, fdy:9.0, t:0.5, b:1.5 });
+      return { lean:0.16, crouch, shift, headDip:1.2*A, capeBell:0.4, ...lg };
     }
     if(phase==='planted'){
-      // 柄にぶら下がり、脚はだらんと垂らす
-      return { lean:0.06, crouch:2*A, shift:-0.5*A, headDip:0.6*A,
-               feet:[[-1.8*A, -(HIP-15.4*A*0.62)], [-1.5*A, -(HIP-14.2*A*0.62)]],
-               capeBell:0.15 };
+      // 柄にぶら下がり、脚はだらんと垂らして微揺れ(プレイヤーは sin(motionTime*0.004)*1.2)
+      const sw=Math.sin((mt||0)*0.004)*1.2, crouch=2*A, shift=-0.5*A;
+      const lg=mk(shift, crouch,
+        { kneeFirst:true, kdx:0.9+sw*0.4, kdy:8.6, fdx:-0.8+sw,     fdy:6.8 },
+        { kneeFirst:true, kdx:0.5+sw*0.3, kdy:8.0, fdx:-1.0+sw*0.8, fdy:6.2 });
+      return { lean:0.06, crouch, shift, headDip:0.6*A, capeBell:0.15, ...lg };
     }
     // 実体が地上振りの場合(phase 未提供)は従来の唐竹割りで代替
     const rai=seg(p,0.04,0.34), cut=seg(p,0.38,0.50), rc=seg(p,0.68,1);
@@ -528,7 +593,7 @@ export function renderBossModel(c,B,motion,t,st){
 
   /* ---- 体幹の姿勢 ---- */
   let pose=null;
-  if(inAtk){ pose=(CHOREO[B.id]||CHOREO.busho)(atk, (st&&st.phase)||null); }
+  if(inAtk){ pose=(CHOREO[B.id]||CHOREO.busho)(atk, (st&&st.phase)||null, mt); }
 
   const bobRun=motion==='run'?-Math.abs(Math.sin(runPh*TAU))*3.0+1.4:0;
   const bobIdle=motion==='idle'?breath*1.0:0;
@@ -573,7 +638,14 @@ export function renderBossModel(c,B,motion,t,st){
     feet=[{x:cx+f2.x,y:f2.y,front:false,sw:!f2.planted,u:f2.u},
           {x:cx+f1.x,y:f1.y,front:true, sw:!f1.planted,u:f1.u}];
   } else if(inAtk){
-    feet=pose.feet.map((f,i)=>({x:cx+f[0]-(pose?pose.shift:0),y:f[1],front:i===1,sw:false,u:0}));
+    /* pose.feet[i] = [x, y] / 任意で pose.knees[i] = [x, y](どちらも接地=0 の局所系)。
+       index0 = 奥脚(far) / index1 = 手前脚(near) —— playerRenderer の left/right と同じ並び。 */
+    const shiftX=(pose?pose.shift:0)||0;
+    const kn=(pose&&pose.knees)||null;
+    feet=pose.feet.map((f,i)=>({
+      x:cx+f[0]-shiftX, y:f[1], front:i===1, sw:false, u:0,
+      kx:kn&&kn[i]?cx+kn[i][0]-shiftX:undefined, ky:kn&&kn[i]?kn[i][1]:undefined
+    }));
   } else {
     /* 待機の接地 = playerRenderer の実数値: 前足 centerX+2.6 / 奥足 centerX-3.0 */
     const K=(B.idleSpread||1.0)*SC;
@@ -602,7 +674,7 @@ export function renderBossModel(c,B,motion,t,st){
 
   /* ---- 奥腕(プレイヤー実装×1.5の腕。武器モジュールが手位置を決める) ---- */
   const wf=(st&&st.weapon)||EMPTY_WEAPON;
-  const rig={c,B,P,cx,hipX,hipY,chestX,chestY,shF,shB,headX,headY,t,mt,motion,runPh,atk,pose,breath,sway,feet,
+  const rig={c,B,P,cx,hipX,hipY,chestX,chestY,shF,shB,shAF,shAB,headX,headY,t,mt,motion,runPh,atk,pose,breath,sway,feet,
              world:(st&&st.world)||((fn)=>fn()),
              toLocal:(st&&st.toLocal)||((x,y)=>({x,y})), dir:(st&&st.dir)||1};
   const hands=wf.hands(rig);
@@ -632,9 +704,17 @@ export function renderBossModel(c,B,motion,t,st){
        → 腰から 42%(前)/40%(奥)下、前方オフセットは 0.8〜0.9 だけ。
        以前は最小曲げ量(minBend 2.35/2.05)を実際の曲げとして使っており、
        膝が前へ 4px も張り出して立ち姿のバランスが崩れていた。 */
-    const kneeFrac=f.front?0.424:0.399;
-    const kneeBend=(f.front?0.85:0.95)*SC+(f.sw?Math.sin(f.u*Math.PI)*2.0*SC:0)+crouch*0.10;
-    const kj=limbN(c,hipX+(f.front?1.05:-1.05)*SC,hipY,f.x,f.y,kneeFrac,kneeBend,'fwd',w,w,BODY.core,null,pass);
+    const hx0=hipX+(f.front?1.05:-1.05)*SC;
+    /* 振り付け側が膝を明示した場合(playerRenderer の空中脚は膝を実座標で持つ)は
+       それをそのまま使う。fraction+bend では player の bendKneeToward を再現できない。 */
+    let kj;
+    if(Number.isFinite(f.kx)&&Number.isFinite(f.ky)){
+      kj=limbAt(c,hx0,hipY,f.kx,f.ky,f.x,f.y,w,w,BODY.core,pass);
+    } else {
+      const kneeFrac=f.front?0.424:0.399;
+      const kneeBend=(f.front?0.85:0.95)*SC+(f.sw?Math.sin(f.u*Math.PI)*2.0*SC:0)+crouch*0.10;
+      kj=limbN(c,hx0,hipY,f.x,f.y,kneeFrac,kneeBend,'fwd',w,w,BODY.core,null,pass);
+    }
     if(pass==='fill') legJoints.push({kx:kj.jx,ky:kj.jy,fx:f.x,fy:f.y,front:f.front});
     if(pass==='ol'){
       c.strokeStyle=BODY.OUT; c.lineWidth=BODY.OUTW*0.5;
@@ -796,6 +876,9 @@ export function renderBossModel(c,B,motion,t,st){
     drawSode(c,P,shAF.x+0.5,shAF.y-2,0.18+(hands.front.y<chestY-10?-0.4:0),1.06*SODE_S[build]);
   /* 掌の丸は腕の先端に重ねて最前面(柄を握って見える) */
   drawPalm(c,hF.x,hF.y,true,afr.wx,afr.wy);
+  /* 掌より【前】に出す得物(playerRenderer の 'behind'→手→'front' の最後の1段)。
+     鎖鎌の鎌ヘッドや二刀の刃がここに来る。 */
+  if(!CAST && wf.frontTop) wf.frontTop(rig,hands);
 }
 
 
@@ -1162,38 +1245,200 @@ export function renderBossActor(ctx, boss, design, weapon, opts){
    (ボスクラスは「構え」と「携行時の得物」だけをここから使う)
    ============================================================ */
 
-/** 二刀の構え。参照キャプチャ実測: 手前刀=ほぼ垂直80° / 奥刀=61°、手は左右に開く */
-export function dualBladeStance(rig){
-  const { atk, motion, runPh, sway, shF } = rig;
-  if (motion === 'attack') {
-    const w = seg(atk, 0.04, 0.24), s1 = seg(atk, 0.26, 0.44),
-          s2 = seg(atk, 0.52, 0.70), rc = seg(atk, 0.78, 1);
-    const a1 = atk < 0.24 ? lerp(-1.42, -2.05, ezIO(w))
-             : s1 > 0     ? lerp(-2.05, -0.10, ezOut(s1)) - rc * 1.32
-             :              -1.42;
-    const a2 = atk < 0.42 ? lerp(-1.05, 0.18, ezIO(seg(atk, 0.24, 0.42)))
-             : s2 > 0     ? lerp(0.18, -1.62, ezOut(s2)) + rc * 0.57
-             :              0.18;
-    return {
-      front: { x: shF.x - 6 + Math.cos(a1) * 17, y: shF.y + 5 + Math.sin(a1) * 15 },
-      back:  { x: shF.x + 8 + Math.cos(a2) * 16, y: shF.y + 3 + Math.sin(a2) * 13 },
-      a1, a2, s1, s2, w, rc
-    };
+/* ============================================================
+   二刀流 — playerRenderer の二刀ポーズをそのまま移植する。
+   ボス独自の振り付けは持たない(ユーザー要求「オリジナルモーション不要」)。
+   角度は必ず実体 DualBlades.getMainSwingPose() / 合体の位相計算から取り、
+   手の位置はプレイヤーと同じ「肩 + (cosθ, sinθ) × リーチ」で作る。
+   プレイヤー実数値 → ボスは全て ×SC(=1.8)。
+   ============================================================ */
+const DUAL = {
+  IDLE_BACK_A:  -0.65,   // 奥刀(player left)のアイドル角
+  IDLE_FRONT_A: -1.10,   // 手前刀(player right)のアイドル角
+  IDLE_BACK:  { x:  15.6, y: 8.3 },   // centerX + / leftShoulderY  +
+  IDLE_FRONT: { x:  -8.0, y: 8.5 },   // centerX - / rightShoulderY +
+  L_REACH: 19.2, R_REACH: 18.8,       // playerRenderer:3826-3827
+  BACK_CAP: 20.8, FRONT_CAP: 20.4     // dualBackReachCap / dualFrontReachCap
+};
+const ss01 = (t) => { const v = cl01(t); return v * v * (3 - 2 * v); };
+
+/**
+ * @param st  null(待機/走り) |
+ *            { mode:'main', pose }        pose = DualBlades.getMainSwingPose()
+ *            { mode:'combined', progress } progress = getCombinedSwingProgress()
+ */
+export function dualBladeStance(rig, st){
+  const { cx, shF, shB, sway, motion, runPh } = rig;
+  const wave = Math.sin(rig.mt * 0.01);
+  const idleB = { x: cx + DUAL.IDLE_BACK.x * SC,  y: shB.y + (DUAL.IDLE_BACK.y + wave * 1.7) * SC };
+  const idleF = { x: cx + DUAL.IDLE_FRONT.x * SC, y: shF.y + (DUAL.IDLE_FRONT.y + Math.sin(rig.mt * 0.01 + 0.5) * 1.7) * SC };
+
+  /* ---- 飛翔斬撃(X合体技) — playerRenderer:4326-4460 の移植 ---- */
+  if (st && st.mode === 'combined') {
+    const p = cl01(st.progress);
+    const GATHER = 0.15, HOLD = 0.53, REL = Math.max(0.01, 1 - GATHER - HOLD);
+    const gather = cl01(p / GATHER);
+    const hold   = p <= GATHER ? 0 : cl01((p - GATHER) / HOLD);
+    const rel    = p <= GATHER + HOLD ? 0 : cl01((p - GATHER - HOLD) / REL);
+    const eG = Math.pow(gather, 0.38);
+    const pulse = Math.sin(hold * Math.PI) * 0.15;
+
+    const crossX = cx + 7 * SC;
+    const crossY = shB.y - 3 * SC;
+    const open = 0.48;
+    const fHalf = 22 * SC, bHalf = fHalf * 0.82;
+    const xBA = -(Math.PI / 2 + open);
+    const xFA = -(Math.PI / 2 - open - 0.14);
+    const xBX = crossX - Math.cos(xBA) * bHalf, xBY = crossY - Math.sin(xBA) * bHalf;
+    const xFX = crossX - Math.cos(xFA) * fHalf, xFY = crossY - Math.sin(xFA) * fHalf + 2 * SC;
+    const sBX = cx + 18 * SC, sBY = shB.y + 14 * SC, sBA = 0.65;
+    const sFX = cx - 10 * SC, sFY = shF.y + 15 * SC, sFA = 2.5;
+
+    let bx, by, fx, fy, ba, fa, blend = 0.02;
+    if (p < GATHER) {
+      bx = lerp(idleB.x, xBX, eG); by = lerp(idleB.y, xBY, eG);
+      fx = lerp(idleF.x, xFX, eG); fy = lerp(idleF.y, xFY, eG);
+      ba = lerp(DUAL.IDLE_BACK_A,  xBA, eG);
+      fa = lerp(DUAL.IDLE_FRONT_A, xFA, eG);
+      blend = lerp(0.28, 0.02, eG);
+    } else if (p < GATHER + HOLD) {
+      bx = xBX + pulse * 0.2 * SC; by = xBY - pulse * 0.1 * SC;
+      fx = xFX - pulse * 0.15 * SC; fy = xFY + pulse * 0.08 * SC;
+      ba = xBA + pulse * 0.015; fa = xFA - pulse * 0.015;
+    } else if (rel < 0.22) {
+      const eT = Math.pow(rel / 0.22, 0.4);           // 振り抜き
+      bx = lerp(xBX, sBX, eT); by = lerp(xBY, sBY, eT);
+      fx = lerp(xFX, sFX, eT); fy = lerp(xFY, sFY, eT);
+      ba = lerp(xBA, sBA, eT); fa = lerp(xFA, sFA, eT);
+    } else {
+      let t = (rel - 0.22) / 0.78; if (t > 0.95) t = 1;
+      const eT = ss01(t);                              // 余韻→アイドル復帰
+      bx = lerp(sBX, idleB.x, eT); by = lerp(sBY, idleB.y, eT);
+      fx = lerp(sFX, idleF.x, eT); fy = lerp(sFY, idleF.y, eT);
+      ba = lerp(sBA, DUAL.IDLE_BACK_A,  eT);
+      fa = lerp(sFA, DUAL.IDLE_FRONT_A, eT);
+      blend = lerp(0.02, 0.28, eT);
+    }
+    return { front: { x: fx, y: fy }, back: { x: bx, y: by }, a1: fa, a2: ba, blend };
   }
-  if (motion === 'run') {
-    const s = Math.sin(runPh * TAU);
-    return { front: { x: shF.x - 21 + s * 4, y: shF.y + 11 - s * 2 },
-             back:  { x: shF.x + 12 - s * 3, y: shF.y + 11 + s * 1.5 },
-             a1: -1.46 + s * 0.05, a2: -1.02 };
+
+  /* ---- 二刀コンボ(Z連撃) — playerRenderer:3808-4104 の移植 ---- */
+  if (st && st.mode === 'main' && st.pose) {
+    const pz = st.pose;
+    const step = pz.comboIndex || 0;        // 1..4 / 0 = 五段目
+    const cp = cl01(pz.progress || 0);
+    const bA = pz.leftAngle, fA = pz.rightAngle;
+
+    // 肩の踏み込み(px は素体フレーム。最後に ×SC)
+    let bsx = 0.18, bsy = 0.05, fsx = -0.18, fsy = 0.12;
+    const bsx0 = bsx, bsy0 = bsy, fsx0 = fsx, fsy0 = fsy;
+    let lReach = DUAL.L_REACH, rReach = DUAL.R_REACH;
+    let skipReachAdj = false, rise = 0;
+
+    if (step === 1) {
+      const sl = ss01(cp / 0.50), se = ss01(cl01((cp - 0.50) / 0.20));
+      const rc = Math.pow(Math.max(0, (cp - 0.70) / 0.30), 1.5);
+      bsx += (sl * 2.6 - se * 1.2) * (1 - rc);
+      bsy += (sl * 1.8 - se * 0.4) * (1 - rc);
+      fsx += (-sl * 0.3 + se * 0.2) * (1 - rc);
+    } else if (step === 2) {
+      const dp = ss01(cp / 0.10), sl = ss01((cp - 0.10) / 0.38), se = ss01(cl01((cp - 0.48) / 0.22));
+      const rc = Math.pow(Math.max(0, (cp - 0.70) / 0.30), 1.5);
+      fsx += (dp * 0.3 + sl * 2.0 - se * 0.8) * (1 - rc);
+      fsy += (dp * 0.6 - sl * 3.4 + se * 1.0) * (1 - rc);
+      bsx += (-sl * 0.3 + se * 0.2) * (1 - rc);
+    } else if (step === 3) {
+      const g = ss01(cp / 0.15), sl = ss01((cp - 0.15) / 0.40), se = ss01(cl01((cp - 0.55) / 0.20));
+      const rc = Math.pow(Math.max(0, (cp - 0.75) / 0.25), 1.5);
+      bsx += (g * 2.0 - sl * 3.6 + se * 0.8) * (1 - rc);
+      bsy += (-g * 0.4 - sl * 1.2 + se * 1.0) * (1 - rc);
+      fsx -= (g * 1.6 - sl * 3.8 + se * 1.0) * (1 - rc);
+      fsy += (g * 0.2 + sl * 1.4 - se * 1.0) * (1 - rc);
+    } else if (step === 4) {
+      const ph = ss01(cp);
+      const calc = cp < 0.42 ? 0 : ph;
+      const endBend = ss01((cp - 0.8) / 0.2);
+      const riseE = ss01(Math.min(1, cp / 0.42));
+      rise = Math.sin(riseE * Math.PI * 0.5) * 8.9 * 0.78;
+      bsx += 0.44 + (calc - 0.48) * 1.18;
+      fsx -= 0.04 + calc * 0.42;
+      bsy -= 0.3 + calc * 1.62;
+      fsy -= 0.28 + calc * 1.52;
+      lReach = 20.8 * (1 - 0.18 * endBend);
+      rReach = (20.8 - 0.4) * (1 - 0.18 * endBend);
+      skipReachAdj = true;
+    } else {
+      const ph = ss01(cp);                              // 五段目
+      const startBend = 1 - ss01(cp / 0.24);
+      const rs = 1 - 0.12 * startBend;
+      lReach = 20.8 * rs; rReach = (20.8 - 0.4) * rs;
+      bsx += 0.28 + ph * 1.18; fsx -= 0.1 + ph * 1.28;
+      bsy += 0.15 + ph * 1.55; fsy += 0.2 + ph * 1.7;
+      skipReachAdj = true;
+    }
+    // 肩ドリフトのクランプ(playerRenderer:4002-4009)
+    const dMax = (step === 4 || step === 0) ? 3.9 : 2.9;
+    const dMaxY = (step === 4 || step === 0) ? 3.9 : 3.1;
+    bsx = Math.max(bsx0 - dMax, Math.min(bsx0 + dMax, bsx));
+    fsx = Math.max(fsx0 - dMax, Math.min(fsx0 + dMax, fsx));
+    bsy = Math.max(bsy0 - dMaxY, Math.min(bsy0 + dMaxY, bsy));
+    fsy = Math.max(fsy0 - dMaxY, Math.min(fsy0 + dMaxY, fsy));
+
+    const lockF = step === 1;      // 1段目は手前手アイドル固定
+    const lockB = step === 2;      // 2段目は奥手アイドル固定
+    const BSX = shB.x + bsx * SC, BSY = shB.y + bsy * SC;
+    const FSX = shF.x + fsx * SC, FSY = shF.y + fsy * SC;
+
+    let bx, by, fx, fy;
+    if (step === 1) {
+      bx = idleB.x + (bsx - bsx0) * SC; by = idleB.y + (bsy - bsy0) * SC;
+      fx = idleF.x;                     fy = idleF.y;
+    } else if (step === 2) {
+      bx = idleB.x; by = idleB.y;
+      fx = FSX + Math.cos(fA) * rReach * SC; fy = FSY + Math.sin(fA) * rReach * SC;
+    } else {
+      bx = BSX + Math.cos(bA) * lReach * SC; by = BSY + Math.sin(bA) * lReach * SC;
+      fx = FSX + Math.cos(fA) * rReach * SC; fy = FSY + Math.sin(fA) * rReach * SC;
+    }
+    if (!skipReachAdj) {
+      if (!lockB) { bx += Math.cos(bA) * (lReach - 21.8) * SC; by += Math.sin(bA) * (lReach - 21.8) * SC; }
+      if (!lockF) { fx += Math.cos(fA) * (rReach - 21.2) * SC; fy += Math.sin(fA) * (rReach - 21.2) * SC; }
+    }
+    if (step === 4) {
+      by -= rise * SC; fy -= rise * SC;
+      fy += 1.82 * SC; by -= 1.24 * SC;
+      fx -= 1.22 * SC; bx += 0.46 * SC;
+    } else if (step === 0) {
+      const spread = ss01((cp - 0.46) / 0.54);
+      fy += (1.55 + cp * 0.52) * SC; by -= (0.9 - cl01((cp - 0.46) / 0.54) * 0.2) * SC;
+      fx -= (0.95 + spread * 2.35) * SC; bx += (0.42 + spread * 0.95) * SC;
+    }
+    // リーチ上限(dualBackReachCap / dualFrontReachCap)
+    const capB = (step === 0 ? 24.6 : step === 4 ? 23.8 : DUAL.BACK_CAP) * SC;
+    const capF = (step === 0 ? 24.2 : step === 4 ? 23.3 : step === 1 ? DUAL.FRONT_CAP + 2.8 : DUAL.FRONT_CAP) * SC;
+    const cap = (sx, sy, hx, hy, L) => { const dx = hx - sx, dy = hy - sy, d = Math.hypot(dx, dy) || 0.001;
+      return d <= L ? { x: hx, y: hy } : { x: sx + dx * L / d, y: sy + dy * L / d }; };
+    const cB = cap(BSX, BSY, bx, by, capB), cF = cap(FSX, FSY, fx, fy, capF);
+    return { front: cF, back: cB, a1: fA, a2: bA, blend: 0.28 };
   }
-  return { front: { x: shF.x - 23, y: shF.y + 11 + sway * 0.5 },
-           back:  { x: shF.x + 12, y: shF.y + 11 - sway * 0.5 },
-           a1: -1.42 + sway * 0.02, a2: -1.05 + sway * 0.02 };
+
+  /* ---- 待機・走り ---- */
+  const s = motion === 'run' ? Math.sin(runPh * TAU) * 2.4 : 0;
+  return { front: { x: idleF.x - s, y: idleF.y + s * 0.5 },
+           back:  { x: idleB.x + s, y: idleB.y - s * 0.5 },
+           a1: DUAL.IDLE_FRONT_A - sway * 0.015,
+           a2: DUAL.IDLE_BACK_A  + sway * 0.015, blend: 0.28 };
 }
 
-/** 携行中(待機・走り)の刀。攻撃中は weaponReplica が描くのでこれは呼ばない */
-export function drawCarriedKatana(rig, hand, ang, len){
-  katana(rig.c, hand.x, hand.y, (ang === undefined ? -1.2 : ang), len || 40, 2.8, null);
+/** 二刀の刀。プレイヤーと【同じ形状関数】を SC 倍で呼ぶ(旧 drawCarriedKatana の独自刀は廃止)。
+ *  DualBlades.render は待機中も攻撃中も刀身を描かないので、二刀だけは素体側が常に描く。
+ *  @param angRaw uprightBlend 補正【前】の生角度(プレイヤーと同じ座標系) */
+export function drawDualKatana(rig, hand, angRaw, mode, blend){
+  const c = rig.c;
+  c.save(); c.translate(hand.x, hand.y); c.scale(KATANA_SC, KATANA_SC);
+  drawKatanaShape(c, 0, 0, (angRaw === undefined ? -1.1 : angRaw), 1,
+                  DUAL_BLADE_LEN, Number.isFinite(blend) ? blend : 0.28, mode || 'all');
+  c.restore();
 }
 
 
@@ -1262,58 +1507,80 @@ export function spearStance(rig, grips){
   return { front: { x: fx, y: fy }, back: { x: fx + 19, y: fy + 2 } };
 }
 
-/** 鎖鎌: 鎌は奥手(実体アンカー)、鎖は手前手。両手持ちにしない */
+/* 鎖鎌 — playerRenderer:4703-4763 の役割分担をそのまま移植する。
+     手前手(front) = 実体アンカーに追従して鎖を回す・投げる・巻き取る
+     奥手(back)    = 何もしない。片刀アイドルの手位置で固定
+                     (playerRenderer:1675 kusaKeepIdleBackArm と同じ)
+   以前はこれが左右逆で、鎖が奥手から生え、手前手は何も握らずに空中で
+   円を描いていた(ボス独自モーション)。両方とも撤去。 */
 export function kusarigamaStance(rig, anchor){
-  const { shF, sway, motion, runPh, atk } = rig;
+  const { cx, shF, shB, sway, motion, runPh } = rig;
   const s = motion === 'run' ? Math.sin(runPh * TAU) * 3 : 0;
-  /* 役割を固定して読ませる:
-       手前手 = 鎖を握って【回す】手。旋回中は肩の前で小さく円を描く。
-       奥手   = 鎌を持つ手(実体アンカーがあればそれに追従)。
-     どちらが回しているか分からない、という指摘への対応。 */
+
   let front;
-  if (motion === 'attack' && Number.isFinite(atk) && atk < 0.42) {
-    const spin = cl01(atk / 0.42);
-    const a = -1.1 + spin * spin * 16;              // 加速しながら回す
-    front = { x: shF.x + 6 + Math.cos(a) * 7, y: shF.y + 8 + Math.sin(a) * 5 };
+  if (anchor) {
+    const a = rig.toLocal(anchor.x, anchor.y);
+    let fx = a.x, fy = a.y;
+    // 投げ切り直後の反動(playerRenderer:4708-4712)。× SC
+    if (anchor.phase === 'orbit' && anchor.phaseT < 0.26) {
+      const recoil = 1 - (anchor.phaseT / 0.26);
+      fx -= (2.6 + recoil * 5.2) * SC;
+      fy += recoil * 1.25 * SC;
+    }
+    // 腕リーチ上限もプレイヤーと同じフェーズ別値(20.6 / 21.0 / 21.2)× SC
+    const LIM = (anchor.phase === 'windup' ? 20.6 : anchor.phase === 'throw' ? 21.0 : 21.2) * SC;
+    const dx = fx - shF.x, dy = fy - shF.y, d = Math.hypot(dx, dy) || 0.001;
+    front = d > LIM ? { x: shF.x + dx * LIM / d, y: shF.y + dy * LIM / d } : { x: fx, y: fy };
   } else {
-    front = { x: shF.x + 2 + s, y: shF.y + (motion === 'idle' ? 15 + sway * 0.5 : 14) };
+    // 携行(待機・走り)。プレイヤーの手前手アイドル centerX - dir*8.0 / rightShoulderY + 8.5
+    front = { x: cx - 8.0 * SC - s * 0.6, y: shF.y + (8.5 + (motion === 'idle' ? sway * 0.6 : 0)) * SC };
   }
-  const back = anchor ? rig.toLocal(anchor.x, anchor.y)
-                      : { x: shF.x + 15 - s * 2, y: shF.y + 10 };
+  // 奥手 = 片刀アイドル(centerX + dir*15.6, leftShoulderY + 8.3)を ×SC
+  const back = { x: cx + 15.6 * SC + s * 0.6,
+                 y: shB.y + (8.3 + (motion === 'idle' ? sway * 0.5 : 0)) * SC };
   return { front, back };
 }
 
-/** 大太刀: 主手は実体アンカー、副手は柄尻側へ寄せて両手持ちにする */
+/* 大太刀 — 待機も攻撃も【実体 Odachi のアンカー】に両手を追従させる。
+   以前は待機だけ素体側で独自の立て太刀(ang=-1.12)を組み、刀身も drawCarriedOdachi
+   という別描画(刃の半幅 4.4 = 実体 10.5 の 42%)で描いていたため、
+   「待機の忍具が関係ないグラフィック」になっていた(ユーザー指摘)。
+   実体は forceSubWeaponRender=true なので待機中も 'ready' ポーズで描ける。 */
 export function odachiStance(rig, anchor){
   const { shF, sway, motion } = rig;
-  /* 待機・走りは実体のアイドルアンカー(柄が寝て低く出る)に合わせず、
-     提案書の立て太刀(切先を前上へ・両手持ち)を使う。攻撃中だけ実体に追従。 */
-  if (motion !== 'attack') {
-    const bob = motion === 'run' ? Math.sin(rig.runPh * TAU) * 1.6 : sway * 0.5;
-    const ang = -1.12 + sway * 0.015;
-    const f = { x: shF.x + 17, y: shF.y + 6 + bob };
-    return { front: f, back: { x: f.x - Math.cos(ang) * 13, y: f.y - Math.sin(ang) * 13 }, ang };
-  }
-  if (anchor) {
+  if (anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)) {
     const f = rig.toLocal(anchor.x, anchor.y);
     const rot = (anchor.rotation || 0) * rig.dir;   // 反転時は回転も鏡像
-    const back = { x: f.x - Math.cos(rot) * 13, y: f.y - Math.sin(rot) * 13 };
-    return { front: f, back, ang: rot };
+    /* 腕が届かない位相(急降下・着刀)では、腕をクランプして柄から手を離すのではなく
+       【柄の上を後ろへ握り直す】。実体の柄は back=-14 / front=+16、巨躯は ×2 なので
+       柄尻方向へ最大 28 までスライドできる。 */
+    const sh = rig.shAF || { x: 0, y: -66 };
+    let gx = f.x, gy = f.y;
+    const over = Math.hypot(gx - sh.x, gy - sh.y) - ARM_REACH;
+    if (over > 0) {
+      const slide = Math.min(over, 28);
+      gx -= Math.cos(rot) * slide; gy -= Math.sin(rot) * slide;
+    }
+    return { front: { x: gx, y: gy },
+             back:  { x: gx - Math.cos(rot) * 13, y: gy - Math.sin(rot) * 13 }, ang: rot };
   }
-  return { front: { x: shF.x + 17, y: shF.y + 6 + sway * 0.5 },
-           back:  { x: shF.x + 9,  y: shF.y + 11 + sway * 0.5 }, ang: -1.05 };
+  const bob = motion === 'run' ? Math.sin(rig.runPh * TAU) * 1.6 : sway * 0.5;
+  const ang = -0.32;                                 // 実体 ready の baseAngle(-π*0.10)相当
+  const f = { x: shF.x + 22, y: shF.y + 4 + bob };
+  return { front: f, back: { x: f.x - Math.cos(ang) * 13, y: f.y - Math.sin(ang) * 13 }, ang };
 }
 
 /** 携行中の鎌と鎖(実体 Kusarigama は待機中フェードして描かれないため素体側で持たせる) */
 export function drawCarriedKusarigama(rig, hands, t){
   const c = rig.c;
   const kro = 0.28;
-  const kx = hands.back.x, ky = hands.back.y;
-  // 鎖: 鎌の柄尻(ローカル-18)から手前手へたるませる
+  /* 鎌は【手前手】。攻撃中に鎖が伸びるのも手前手なので、待機→攻撃で持ち替えが起きない。
+     鎖は鎌の柄尻(ローカル-18)から奥手側へたるませる。 */
+  const kx = hands.front.x, ky = hands.front.y;
   const bx = kx - Math.cos(kro) * 18, by = ky - Math.sin(kro) * 18;
   const wag = Math.sin(t * TAU / 2.4) * (rig.motion === 'run' ? 6 : 3);
-  realChain(c, bx, by, hands.front.x, hands.front.y + wag * 0.2,
-            (bx + hands.front.x) / 2, Math.max(by, hands.front.y) + 9 + wag * 0.3);
+  realChain(c, bx, by, hands.back.x, hands.back.y + wag * 0.2,
+            (bx + hands.back.x) / 2, Math.max(by, hands.back.y) + 9 + wag * 0.3);
   realSickle(c, kx, ky, kro);
 }
 
@@ -1324,18 +1591,19 @@ export function drawCarriedSpear(rig, hands){
      柄は「手前手→奥手」の向きに通す。 */
   const f = hands.front, b = hands.back;
   const ang = Math.atan2(b.y - f.y, b.x - f.x);
-  c.save(); c.translate(f.x, f.y); c.rotate(ang);
-  realSpear(c, 84, 24);          // 石突24 / 穂先まで84(実寸の全長≈195相当)
+  /* 実体(Spear.render)を実測した寸法に合わせる:
+       手前手から切先まで 161 / 石突は手前手の 29 後ろ / 穂先の長さ 52。
+     realSpear の穂先は28なので 52/28=1.857 倍に拡大し、shaftEnd=59・buttLen=15.6 で
+     (59+28)*1.857≒161、15.6*1.857≒29 を作る。ここがズレると待機→攻撃の瞬間に槍が伸び縮みする。
+     縦は等倍だと穂先が太る(実体の穂先は細身)ので 1.3 に留める。 */
+  const K = 52 / 28;
+  c.save(); c.translate(f.x, f.y); c.rotate(ang); c.scale(K, 1.3);
+  realSpear(c, 59, 15.6);
   c.restore();
 }
-/** 携行中の大太刀(立て太刀)。攻撃中は weaponReplica が描く */
-export function drawCarriedOdachi(rig, hand, ang){
-  const c = rig.c;
-  c.save(); c.translate(hand.x, hand.y); c.rotate(ang === undefined ? -1.12 : ang);
-  realTsukaTsuba(c, 15, 8, 4.4);
-  realBladeBody(c, 8, 100, 4.4);
-  c.restore();
-}
+/* 旧 drawCarriedOdachi は廃止。待機中も実体 Odachi.render が 'ready' ポーズで描く
+   (forceSubWeaponRender=true)。独自寸法(半幅4.4 = 実体10.5の42%)が
+   「関係ないグラフィック」の正体だった。 */
 /** 大槍の携行構え(腰の高さで両手に持たせる) */
 export function spearCarryStance(rig){
   const { shF, motion, runPh, sway } = rig;

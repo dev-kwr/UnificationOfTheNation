@@ -3,10 +3,10 @@
 // ============================================
 
 import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js';
-import { Enemy } from './enemy.js?v=boss-rig-20260807a';
-import { createSubWeapon } from './weapon.js?v=boss-rig-20260807a';
+import { Enemy } from './enemy.js?v=boss-weapon-trace-20260807b';
+import { createSubWeapon } from './weapon.js?v=boss-weapon-trace-20260807b';
 import { audio } from './audio.js';
-import { Player } from './player.js?v=boss-rig-20260807a';
+import { Player } from './player.js?v=boss-weapon-trace-20260807b';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
@@ -26,7 +26,7 @@ import {
     BOSS_DESIGNS,
     renderBossActor,
     dualBladeStance,
-    drawCarriedKatana,
+    drawDualKatana,
     bombStance,
     drawCarriedBomb,
     spearStance,
@@ -34,9 +34,8 @@ import {
     drawCarriedSpear,
     kusarigamaStance,
     drawCarriedKusarigama,
-    odachiStance,
-    drawCarriedOdachi
-} from './bossRenderer.js?v=boss-rig-20260807a';
+    odachiStance
+} from './bossRenderer.js?v=boss-weapon-trace-20260807b';
 
 // weaponReplica の攻撃進行度(0..1)。体の所作を実体のタイムラインへ同期させる。
 function replicaProgress(replica) {
@@ -124,6 +123,13 @@ class Boss extends Enemy {
         }
         if (this.poiseTimerMs > 0) this.poiseTimerMs = Math.max(0, this.poiseTimerMs - deltaMs);
         if (this.spacingCooldownMs > 0) this.spacingCooldownMs = Math.max(0, this.spacingCooldownMs - deltaMs);
+        // 忍具モーションの残時間。Player.update と違いボスは誰も減らしていなかったため、
+        // 大槍の getThrustState が playerPoseActive のまま progress=0 に張り付き、
+        // 突きが一切伸び縮みしていなかった(=「槍を掴めていない」幽霊のような絵)。
+        if (this.subWeaponTimer > 0) {
+            this.subWeaponTimer = Math.max(0, this.subWeaponTimer - deltaMs);
+            if (this.subWeaponTimer === 0) this.subWeaponAction = null;
+        }
 
         const shouldRemove = super.update(deltaTime, player, obstacles);
         if (!shouldRemove && !this.isEntering && this.isAlive && !this.isDying && !this.previewMode && !this._previewFreeMovement) {
@@ -880,16 +886,32 @@ export class NitoryuKengo extends Boss {
     
     startAttack() {
         const toolTier = this.getSubWeaponEnhanceTier();
-        this.dualAttackCycle++;
-
-        const type = (this.dualAttackCycle % 4 === 0) ? 'combined' : 'main';
+        const w = this.weaponReplica;
+        /* プレイヤーと同じ出し方にする:
+             Z連撃(main) は mainComboLinkTimer が生きている間チェーンして段が進み、
+             最終段まで出し切ったら X(飛翔斬撃 = combined)を1回挟んでリンクを切る。
+           旧: dualAttackCycle % 4 の固定4拍で、段は tier に縛られて 2段で頭打ちだった。 */
+        const maxSteps = w && Array.isArray(w.comboDamages) ? Math.max(1, w.comboDamages.length) : 2;
+        const linked = !!(w && (w.mainComboLinkTimer || 0) > 0);
+        const step = w ? (w.comboIndex === 0 ? maxSteps : w.comboIndex) : 0;
+        const finished = linked && step >= maxSteps;
+        // 飛翔斬撃の直後は必ず連撃へ戻す(combined が2連発すると溜めだけの間が続く)
+        const justX = this._lastDualType === 'combined';
+        const type = (!justX && (finished || (!linked && this.dualAttackCycle % 2 === 1)))
+            ? 'combined' : 'main';
+        this._lastDualType = type;
+        if (type === 'combined') this.dualAttackCycle++;
         this.currentPattern = type;
 
         if (this.startWeaponReplicaAttack(type)) {
             if (type === 'combined') {
-                this.attackCooldown = Math.max(130, 260 - toolTier * 30);
+                // モーション長(activeCombinedDuration)より短いと二重発動する
+                const dur = (w && w.activeCombinedDuration) || 470;
+                this.attackCooldown = Math.max(dur, 260 - toolTier * 30);
             } else {
+                // 次の段へリンクさせるため、猶予(mainDuration + 170ms)内に収める
                 this.attackCooldown = Math.max(65, 110 - toolTier * 15);
+                this.attackStreak = 0;      // 連撃は「1手」として数える(AIの仕切り直しで途切れさせない)
             }
             return;
         }
@@ -910,24 +932,44 @@ export class NitoryuKengo extends Boss {
     }
     
     renderBody(ctx) {
-        // 素体・具足は bossRenderer(提案書で合意したリグ)。攻撃中の刀身と剣筋は
-        // 従来どおり weaponReplica が world 座標で描く。判定・AI には一切触れない。
+        /* 素体・具足は bossRenderer。刀身は playerRenderer と同じ形状関数
+           (katanaShape.drawKatanaShape)で素体側が描く。
+           DualBlades.render は待機中も main 中も combined 中も刀身を一切描かず、
+           飛翔斬撃の弾(renderProjectiles)しか描かないため、ここで描かないと
+           攻撃に入った瞬間に両刀が消える。 */
         const replica = this.weaponReplica;
         const attacking = !!(replica && replica.isAttacking);
-        const progress = (attacking && Number.isFinite(replica.attackDuration) && replica.attackDuration > 0)
-            ? Math.max(0, Math.min(1, 1 - ((replica.attackTimer || 0) / replica.attackDuration)))
-            : undefined;
+        const isCombined = attacking && replica.attackType === 'combined';
+
+        // 実体のタイムラインから構えを決める。ボス独自の振り付けは持たない。
+        // (旧コードは存在しない replica.attackDuration を見ていて常に undefined だった)
+        let st = null, progress;
+        if (attacking && isCombined && typeof replica.getCombinedSwingProgress === 'function') {
+            progress = Math.max(0, Math.min(1, replica.getCombinedSwingProgress()));
+            st = { mode: 'combined', progress };
+        } else if (attacking && typeof replica.getMainSwingPose === 'function') {
+            const pose = replica.getMainSwingPose({});
+            progress = Math.max(0, Math.min(1, pose.progress || 0));
+            st = { mode: 'main', pose };
+        }
+
         renderBossActor(ctx, this, BOSS_DESIGNS.nito, {
             backIsFarHand: true,
-            hands: (rig) => dualBladeStance(rig),
-            back: (rig, h) => { if (!attacking) drawCarriedKatana(rig, h.back, h.a2, 74); },
+            hands: (rig) => dualBladeStance(rig, st),
+            // 奥刀は奥腕と同じ最背面
+            back: (rig, h) => drawDualKatana(rig, h.back, h.a2, 'all', h.blend),
+            // 手前刀の柄は手前腕の後(=手首が柄の背後に隠れる)。プレイヤーと同じ分割。
             front: (rig, h) => {
-                if (!attacking) { drawCarriedKatana(rig, h.front, h.a1, 80); return; }
-                // 攻撃中は本編の二刀実体をそのまま描く(world 座標)
+                drawDualKatana(rig, h.front, h.a1, 'handle', h.blend);
+                // 飛翔斬撃の弾は world 座標。攻撃終了後も life が残るので常に描く
                 rig.world(() => {
-                    if (replica && typeof replica.render === 'function') replica.render(ctx, this);
+                    if (!replica) return;
+                    if (attacking && typeof replica.render === 'function') replica.render(ctx, this);
+                    else if (typeof replica.renderWorldEffects === 'function') replica.renderWorldEffects(ctx);
                 });
-            }
+            },
+            // 刃は掌より前(プレイヤーの 'handle'→手→'blade' と同じ順)
+            frontTop: (rig, h) => drawDualKatana(rig, h.front, h.a1, 'blade', h.blend)
         }, { attackProgress: progress });
     }
 }
@@ -971,19 +1013,31 @@ export class KusarigamaAssassin extends Boss {
     }
     
     renderBody(ctx) {
-        // 素体・装束は bossRenderer。鎌と鎖は本編の Kusarigama 実体が描き、
-        // 鎌を握る奥手は実体のアンカーへ追従させる(鎖は手前手)。
+        /* 素体・装束は bossRenderer。鎌と鎖は本編の Kusarigama 実体が描く。
+           役割分担は playerRenderer と同じ:
+             手前手 = 実体アンカー追従で鎖を【回す】(playerRenderer:4703 swingShoulder=右肩)
+             奥手   = 片刀アイドルのまま固定(playerRenderer:1675 kusaKeepIdleBackArm)
+           以前はアンカーを奥手に入れていたため鎖が奥腕から生え、手前手は何も握らずに
+           空中で円を描いていた(ボス独自モーション)。 */
         const kusa = this.weaponReplica;
         const attacking = !!(kusa && kusa.isAttacking);
         const anchor = (kusa && typeof kusa.getHandAnchor === 'function')
             ? kusa.getHandAnchor(this) : null;
         renderBossActor(ctx, this, BOSS_DESIGNS.kusa, {
             hands: (rig) => kusarigamaStance(rig, attacking ? anchor : null),
+            // 鎖と軌跡は手前腕より奥
             front: (rig, h) => {
+                if (!attacking) return;
+                rig.world(() => {
+                    if (kusa && typeof kusa.render === 'function') kusa.render(ctx, this, 'behind');
+                });
+            },
+            // 鎌ヘッドは掌より前(プレイヤーの 'behind'→手→'front' と同じ)
+            frontTop: (rig, h) => {
                 // 実体は待機中フェードして見えないため、携行時は素体側で鎌と鎖を持たせる
                 if (!attacking) { drawCarriedKusarigama(rig, h, rig.t); return; }
                 rig.world(() => {
-                    if (kusa && typeof kusa.render === 'function') kusa.render(ctx, this);
+                    if (kusa && typeof kusa.render === 'function') kusa.render(ctx, this, 'front');
                 });
             }
         }, { attackProgress: replicaProgress(kusa) });
@@ -1007,9 +1061,17 @@ export class OdachiBusho extends Boss {
         this.attackRange = 180;
         this.attackPatterns = ['odachi'];
         this.setupWeaponReplica('大太刀');
-        if (this.weaponReplica) {
-            this.weaponReplica.range = 100;
-        }
+        /* 旧: this.weaponReplica.range = 100 —— applyWeaponReplicaEnhancement が
+           baseRange(74) から毎回再計算するため初回攻撃で消える死にコードだった。
+           待機描画にも実体を使うようになったので、消えると初回攻撃で刃渡りがポップする。
+           実際に遊ばれてきたのは再計算後の 74〜101(刃渡り 122〜149)なのでそれに揃え、
+           代入自体を削除する。 */
+        if (this.weaponReplica) this.applyWeaponReplicaEnhancement();
+        /* 待機の構えは提案書で合意した立て太刀(切先を前上へ)。
+           実体既定の ready(-π*0.10 ≒ ほぼ水平)だと突き出したように見える。描画専用。 */
+        this.odachiReadyAngle = -1.02;
+        this.odachiReadyHandXRatio = 0.30;
+        this.odachiReadyHandYRatio = 0.34;
         this.forceSubWeaponRender = true;
     }
     
@@ -1052,17 +1114,18 @@ export class OdachiBusho extends Boss {
     }
     
     renderBody(ctx) {
-        // 素体・黒具足・陣羽織は bossRenderer。大太刀そのものは本編の Odachi 実体が
-        // world 座標で描き、両手は実体のアンカー(getHandAnchor)へ追従させる。
+        /* 素体・黒具足・陣羽織は bossRenderer。大太刀そのものは【待機中も攻撃中も】
+           本編の Odachi 実体が world 座標で描き、両手は実体のアンカーへ追従させる。
+           forceSubWeaponRender=true なので待機中は 'ready' ポーズが描かれる。
+           以前は待機だけ素体側の drawCarriedOdachi(刃の半幅 4.4 = 実体 10.5 の 42%)を
+           使っていたため、待機の忍具が細身の打刀に見えていた(ユーザー指摘)。
+           これで刺さり刀のフェードアウト(350ms)も途切れずに描かれる。 */
         const odachi = this.weaponReplica;
         const anchor = (odachi && typeof odachi.getHandAnchor === 'function')
             ? odachi.getHandAnchor(this) : null;
-        const attackingOd = !!(odachi && odachi.isAttacking);
         renderBossActor(ctx, this, BOSS_DESIGNS.odachi, {
-            hands: (rig) => odachiStance(rig, attackingOd ? anchor : null),
+            hands: (rig) => odachiStance(rig, anchor),
             front: (rig, h) => {
-                // 待機・走りは提案書の立て太刀。攻撃中だけ実体に任せる
-                if (!attackingOd) { drawCarriedOdachi(rig, h.front, h.ang); return; }
                 rig.world(() => {
                     if (odachi && typeof odachi.render === 'function') odachi.render(ctx, this);
                 });

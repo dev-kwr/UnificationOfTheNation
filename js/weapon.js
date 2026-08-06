@@ -3911,11 +3911,17 @@ export class Odachi extends SubWeapon {
                 // 刃を下・峰を上にして前方斜め上に構える（約-60度＝右斜め上方向）
                 // ctx.scale(direction, 1) が水平反転を担うため、左右ともに同じ angle を使う
                 // ほぼ水平のやや上向き＋前方に構える
-                const baseAngle = -Math.PI * 0.10 + Math.sin(player.motionTime * 0.0078) * 0.03;
+                // オーナーが構えを宣言していればそれを使う(描画専用。ready は判定を持たない)。
+                // フロアボスの武将は提案書で合意した「立て太刀」で構える。
+                const readyA = Number.isFinite(player.odachiReadyAngle)
+                    ? player.odachiReadyAngle : -Math.PI * 0.10;
+                const baseAngle = readyA + Math.sin(player.motionTime * 0.0078) * 0.03;
                 rotation = baseAngle;
-                
-                const handX = centerX + direction * (ownerWorldWidth(player) * 0.48);
-                const handY = player.y + ownerWorldHeight(player) * 0.40 + (player.bob || 0) * 0.8;
+
+                const hx = Number.isFinite(player.odachiReadyHandXRatio) ? player.odachiReadyHandXRatio : 0.48;
+                const hy = Number.isFinite(player.odachiReadyHandYRatio) ? player.odachiReadyHandYRatio : 0.40;
+                const handX = centerX + direction * (ownerWorldWidth(player) * hx);
+                const handY = player.y + ownerWorldHeight(player) * hy + (player.bob || 0) * 0.8;
                 
                 return { progress, phase, direction, rotation, handX, handY, bladeEnd };
             }
