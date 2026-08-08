@@ -3,10 +3,10 @@
 // ============================================
 
 import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js';
-import { Enemy } from './enemy.js?v=boss-weapon-trace-20260807b';
-import { createSubWeapon } from './weapon.js?v=boss-weapon-trace-20260807b';
+import { Enemy } from './enemy.js?v=boss-crest-tip-20260807g';
+import { createSubWeapon } from './weapon.js?v=boss-crest-tip-20260807g';
 import { audio } from './audio.js';
-import { Player } from './player.js?v=boss-weapon-trace-20260807b';
+import { Player } from './player.js?v=boss-crest-tip-20260807g';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
@@ -35,7 +35,7 @@ import {
     kusarigamaStance,
     drawCarriedKusarigama,
     odachiStance
-} from './bossRenderer.js?v=boss-weapon-trace-20260807b';
+} from './bossRenderer.js?v=boss-crest-tip-20260807g';
 
 // weaponReplica の攻撃進行度(0..1)。体の所作を実体のタイムラインへ同期させる。
 function replicaProgress(replica) {

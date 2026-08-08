@@ -23,7 +23,7 @@ import {
 } from './normalComboMotion.js?v=oonagi-step3-dash-20260702n';
 import { applyRendererMixin }    from './playerRenderer.js?v=boss-intro-clone-standdown-20260804a';
 import { applySlashTrailMixin }  from './playerSlashTrail.js?v=boss-intro-clone-standdown-20260804a';
-import { applySpecialMixin }     from './playerSpecial.js?v=boss-weapon-trace-20260807b';
+import { applySpecialMixin }     from './playerSpecial.js?v=boss-crest-tip-20260807g';
 import { applyShogunCombat }    from './shogunCombatHelper.js';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,

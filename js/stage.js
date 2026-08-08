@@ -4,8 +4,8 @@
 
 import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=aspect-drift-fix-20260804e';
 import { BOSS_STAGING } from './bossStaging.js?v=stage6-boss-shachi-20260803i';
-import { createEnemy } from './enemy.js?v=boss-weapon-trace-20260807b';
-import { createBoss } from './boss.js?v=boss-weapon-trace-20260807b';
+import { createEnemy } from './enemy.js?v=boss-crest-tip-20260807g';
+import { createBoss } from './boss.js?v=boss-crest-tip-20260807g';
 import { createObstacle } from './obstacle.js';
 import { audio } from './audio.js';
 import { generateStairsCanvas } from './stairRenderer.js';
@@ -13,7 +13,7 @@ import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=boss-weapon-trace-20260807b';
+} from './stage6Grapple.js?v=boss-crest-tip-20260807g';
 
 const OBSTACLE_CHANCE_BOOST = 0.8;
 // Stage1地面タイルの描画幅1206pxに合わせ、worldX=9648で位相0から接続する。

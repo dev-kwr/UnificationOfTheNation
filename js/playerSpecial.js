@@ -2,7 +2,7 @@
 
 import { PLAYER, LANE_OFFSET } from './constants.js';
 import { audio } from './audio.js';
-import { createSubWeapon } from './weapon.js?v=boss-weapon-trace-20260807b';
+import { createSubWeapon } from './weapon.js?v=boss-crest-tip-20260807g';
 import { ANIM_STATE, COMBO_ATTACKS } from './playerData.js';
 import {
     SHOGUN_ACTOR_BASE_WIDTH,

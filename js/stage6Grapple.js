@@ -12,7 +12,7 @@
 // ============================================
 
 import { STAGE6_CORNER } from './constants.js';
-import { Kusarigama } from './weapon.js?v=boss-weapon-trace-20260807b';
+import { Kusarigama } from './weapon.js?v=boss-crest-tip-20260807g';
 import {
     chainCurve, sampleQuad, drawChain,
     pushTrailPoint, drawCometRibbon,

@@ -43,10 +43,10 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=boss-weapon-trace-20260807b';
-import { createSubWeapon } from './weapon.js?v=boss-weapon-trace-20260807b';
-import { Stage } from './stage.js?v=boss-weapon-trace-20260807b';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=boss-weapon-trace-20260807b';
+import { Player } from './player.js?v=boss-crest-tip-20260807g';
+import { createSubWeapon } from './weapon.js?v=boss-crest-tip-20260807g';
+import { Stage } from './stage.js?v=boss-crest-tip-20260807g';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=boss-crest-tip-20260807g';
 import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, renderBossNameBanner } from './ui.js?v=outcome-balance-20260727b';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js';
 import { saveManager } from './save.js';
@@ -1032,7 +1032,7 @@ class Game {
         if (!saveData) return;
         
         // 武器作成関数をインポート
-        import('./weapon.js?v=boss-weapon-trace-20260807b').then(module => {
+        import('./weapon.js?v=boss-crest-tip-20260807g').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);

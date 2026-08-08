@@ -90,7 +90,7 @@ function limbN(c,ax,ay,hx,hy,frac,bend,mode,w1,w2,col,hi,pass='fill'){
 
 /* 二刀の刀身はプレイヤーと同一形状。katanaShape.js は依存ゼロなので循環しない
    (playerRenderer.js を直接 import すると game.js の TDZ でクラッシュする)。 */
-import { drawKatanaShape } from './katanaShape.js?v=boss-weapon-trace-20260807b';
+import { drawKatanaShape } from './katanaShape.js?v=boss-crest-tip-20260807g';
 /* 刀身長はプレイヤー実数値のまま渡し、拡大は描画側の ctx.scale だけで行う(二重拡大防止)。
    倍率は素体リグの SC(=1.8) ではなく【描画上の身長比】を使う:
      プレイヤーの描画身長 = height(72) - headRadius*0.1(=1.68) = 70.32
@@ -333,12 +333,24 @@ function drawCrest(c,B,P,hx,hy,r,t){
     const S2=r*1.05;
     c.save(); c.translate(hx+r*0.30,hy-r*0.92); c.rotate(-0.20+sw2);
 
-    /* 三日月の輪郭(基部=左で厚く、右へ長く反り上がって切先になる) */
+    /* 三日月の輪郭(基部=左で厚く、右へ長く反り上がって切先になる)。
+       切先は【外縁と内縁が同じ接線で1点に集まる】ように制御点を置く。
+       以前は外縁の制御点が接線から外れていて、先端が閉じずに小さく割れて見えた。 */
+    const TX=S2*1.24, TY=-S2*0.94;                       // 切先
+    const UX=0.6507, UY=-0.7591;                         // 切先へ入る接線(単位ベクトル)
+    const NX=-UY,   NY=UX;                               // その法線(凹側=右下)
+    const oCX=TX-UX*S2*0.56,               oCY=TY-UY*S2*0.56;               // 外縁の制御点
+    /* 内縁の制御点。法線方向のオフセットが小さすぎると最後の1割が髪の毛のように
+       細くなり、逆に大きいと先が丸くなる。0.10 が「すっと閉じる」値。 */
+    const iCX=TX-UX*S2*0.80+NX*S2*0.10,    iCY=TY-UY*S2*0.80+NY*S2*0.10;
+    /* 影板もこの同じ関数で描くが、【切先だけはオフセットを掛けない】。
+       全点を一律にずらすと影が金地の先を追い越し、点の外へ濃い棘が伸びて
+       「先端が閉じていない」ように見える(ユーザー指摘)。 */
     const moon=(o)=>{ c.beginPath();
       c.moveTo(-S2*0.86+o, S2*0.30+o);                                  // 左端(短い方の角)
       c.quadraticCurveTo(-S2*0.62+o,-S2*0.30+o, S2*0.10+o,-S2*0.40+o);  // 外縁(上)
-      c.quadraticCurveTo(S2*0.86+o,-S2*0.46+o, S2*1.34+o,-S2*1.02+o);   // 右へ跳ね上がる切先
-      c.quadraticCurveTo(S2*0.84+o,-S2*0.22+o, S2*0.06+o,-S2*0.02+o);   // 内縁(下・凹)
+      c.quadraticCurveTo(oCX+o*0.5, oCY+o*0.5, TX, TY);                 // 外縁 → 切先(切先は共有)
+      c.quadraticCurveTo(iCX+o*0.5, iCY+o*0.5, S2*0.06+o,-S2*0.02+o);   // 切先 → 内縁(下・凹)
       c.quadraticCurveTo(-S2*0.44+o, S2*0.10+o,-S2*0.86+o, S2*0.30+o);
       c.closePath(); };
 
@@ -348,18 +360,50 @@ function drawCrest(c,B,P,hx,hy,r,t){
     const mg=c.createLinearGradient(-S2*0.8,S2*0.3,S2*1.2,-S2*0.9);
     mg.addColorStop(0,'#8a6412'); mg.addColorStop(0.45,P.crest); mg.addColorStop(1,'#fff0b0');
     c.fillStyle=mg; moon(0); c.fill();
-    // 輪郭
-    c.strokeStyle='#5b3f0a'; c.lineWidth=1.0; c.lineJoin='round'; moon(0); c.stroke();
-    // ③内縁の照り(凹側に沿う細い光)
-    c.strokeStyle=hexA('#fff6cf',0.62); c.lineWidth=Math.max(0.9,S2*0.045);
+    /* 輪郭は【閉じたパスで囲まない】。切先で線の継ぎ目(join)が丸まって尖りが潰れる。
+       かといって途中で切ると、そこに線幅ぶんの段差(肩)ができて「先が欠けた」ように見える
+       ——1回目の修正がまさにそれだった。線幅を切先へ向けて 0 まで絞って消す。 */
+    const qz=(a,cc,b,t)=>a+(cc-a)*2*t+(b-2*cc+a)*t*t;
+    /* 二次ベジェを t0→t1 の区間で、線幅 w0→w1・不透明度 a0→a1 に変化させながら描く */
+    const taperQ=(ax,ay,cxp,cyp,bx,by,t0,t1,w0,w1,col,a0,a1)=>{
+      const N=18, prevCap=c.lineCap;
+      c.lineCap='round';           // 分割の継ぎ目に髪の毛のような隙間を作らない
+      for(let i=0;i<N;i++){
+        const u0=t0+(t1-t0)*i/N, u1=t0+(t1-t0)*(i+1)/N, k=i/Math.max(1,N-1);
+        c.strokeStyle=hexA(col, a0+(a1-a0)*k);
+        c.lineWidth=Math.max(0.04, w0+(w1-w0)*k);
+        c.beginPath();
+        c.moveTo(qz(ax,cxp,bx,u0), qz(ay,cyp,by,u0));
+        c.lineTo(qz(ax,cxp,bx,u1), qz(ay,cyp,by,u1));
+        c.stroke();
+      }
+      c.lineCap=prevCap;
+    };
+    const OL='#5b3f0a', OW=1.0;
+    c.lineCap='butt'; c.lineJoin='round';
+    c.strokeStyle=OL; c.lineWidth=OW;
+    c.beginPath();                                        // 基部〜外縁の途中まで(等幅)
+    c.moveTo(-S2*0.86, S2*0.30);
+    c.quadraticCurveTo(-S2*0.62,-S2*0.30, S2*0.10,-S2*0.40);
+    c.stroke();
+    // 外縁 → 切先: 線幅を 1.0 → 0 へ絞る(段差なしで消える)
+    taperQ(S2*0.10,-S2*0.40, oCX,oCY, TX,TY, 0,1, OW,0, OL,1,0.15);
+    // 切先 → 内縁: 0 から立ち上げて等幅へ
+    taperQ(TX,TY, iCX,iCY, S2*0.06,-S2*0.02, 0,1, 0,OW, OL,0.15,1);
+    c.strokeStyle=OL; c.lineWidth=OW;
+    c.beginPath();
+    c.moveTo(S2*0.06,-S2*0.02);
+    c.quadraticCurveTo(-S2*0.44, S2*0.10,-S2*0.86, S2*0.30);
+    c.stroke();
+    /* ③内縁の照り(凹側に沿う細い光)。こちらも切先手前で幅0へ絞って消す */
+    const HL='#fff6cf', HW=Math.max(0.9,S2*0.045);
+    c.strokeStyle=hexA(HL,0.62); c.lineWidth=HW;
     c.beginPath();
     c.moveTo(-S2*0.66, S2*0.16);
     c.quadraticCurveTo(-S2*0.30,-S2*0.02, S2*0.14,-S2*0.10);
-    c.quadraticCurveTo(S2*0.80,-S2*0.26, S2*1.18,-S2*0.86);
     c.stroke();
-    // 切先の煌めき
-    c.fillStyle=hexA('#fffbe6',0.85);
-    c.beginPath(); c.arc(S2*1.24,-S2*0.92,S2*0.055,0,TAU); c.fill();
+    taperQ(S2*0.14,-S2*0.10, S2*0.70,-S2*0.28, S2*0.98,-S2*0.62, 0,1, HW,0, HL,0.62,0);
+    // 切先の煌めき(丸)は付けない —— 三日月の先に別部品が刺さって見える(ユーザー指摘)
 
     /* 台座と座金(鉢との接続) */
     const zg=c.createLinearGradient(0,S2*0.52,0,S2*0.16);
