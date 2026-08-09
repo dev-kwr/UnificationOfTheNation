@@ -467,7 +467,14 @@ class AudioManager {
             this.currentBgmType = targetType;
             filePath = this.bgmFiles[targetType];
         } else {
-            // if (this.currentBgmType === targetType) return;
+            // ステージ以外（shop/title/ending/gameover）は、同じ曲が既に鳴っていれば
+            // 何もしない。作り直すと再生位置が 0 に戻るため、同じ曲を使う画面を
+            // 行き来するたびに頭出しされていた（ステータス画面⇄よろず屋は共に 'shop'）。
+            // ステージ曲だけは上の分岐で意図的に作り直す（ループの繋ぎを隠すため）。
+            if (this.currentBgmType === targetType && this.bgmAudio && !this.bgmAudio.paused) {
+                this.currentBgmType = targetType;
+                return;
+            }
             this.currentBgmType = targetType;
             filePath = this.bgmFiles[targetType];
         }

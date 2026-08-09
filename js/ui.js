@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809i';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809j';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260809i';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260809j';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -17,9 +17,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260809i';
-import { audio } from './audio.js?v=screen-safe-20260809i';
-import { saveManager } from './save.js?v=screen-safe-20260809i';
+import { input } from './input.js?v=screen-safe-20260809j';
+import { audio } from './audio.js?v=screen-safe-20260809j';
+import { saveManager } from './save.js?v=screen-safe-20260809j';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -2500,14 +2500,26 @@ export function getStatusScreenLayout() {
     // 退避は左右のみ。上96px/下60px は既に画面端から十分内側で角丸に掛からないうえ、
     // s=1.12 はカード下端とメニュー上端が接する上限なので、上下を詰めると必ず重なる。
     const safe = getScreenSafeArea();
-    const anchorRight = SCREEN_WIDTH - safe.right - 54;   // s=1 の infoPanel 右端（固定）
-    const anchorTop = 96;                                 // s=1 の infoPanel 上端（固定）
+    const defaultRight = SCREEN_WIDTH - safe.right - 54;  // s=1 の infoPanel 右端
+    const defaultTop = 96;                                // s=1 の infoPanel 上端
+    const panelBottom = defaultTop + 404 * s;             // 下端は据え置き（s=1 で 500）
+
+    // 右上のBGMボタンと重なるときだけ、パネルを左へ寄せて上端をボタンと揃える
+    // （スマホでは BGM ボタンが操作ボタンの右端ラインまで内側に来るため重なる）。
+    // PC は BGM ボタンがパネル上端(96)より上にあるので、この分岐に入らず従来のまま。
+    const bgm = getPadLayout().bgm;
+    const overlapsBgm = (bgm.y + bgm.r > defaultTop) && (bgm.x - bgm.r < defaultRight);
+    const anchorRight = overlapsBgm ? (bgm.x - bgm.r - 16) : defaultRight;
+    const anchorTop = overlapsBgm ? (bgm.y - bgm.r) : defaultTop;
+
     const infoPanelW = 364 * s;              // 左へ拡大
-    const infoPanelH = 404 * s;              // 下へ拡大
+    const infoPanelH = panelBottom - anchorTop;   // 上へ伸びたぶんだけ背が高くなる
     const infoPanelX = anchorRight - infoPanelW;
     const infoPanelY = anchorTop;
     const rowInset = 18 * s;
-    const rowH = 38 * s;
+    // 伸びた高さは6行へ均等に配る（＝行間に余裕ができる）。従来配分は
+    // 上余白30s + 6行×38s + 間18s + カード110s + 下余白18s = 404s。
+    const rowH = 38 * s + Math.max(0, infoPanelH - 404 * s) / 6;
     const rowStartY = infoPanelY + 30 * s;
     const cardY = rowStartY + 6 * rowH + 18 * s;
     const cardH = 110 * s;
@@ -2517,11 +2529,10 @@ export function getStatusScreenLayout() {
     const menuStartX = safe.left + 40;
     const menuGap = 20 * s;
     const menuW = (anchorRight - menuStartX - menuGap * 2) / 3;
-    // 幾何(s)はレイアウトが崩れるため 1.12 で頭打ち。その結果スマホでは文字が
-    // 実寸 8.8css-px まで縮んで読めなかった（実機フィードバック 2026-08-09）。
-    // 文字だけ実寸アンカー(fontScale)で持ち上げる。上限は行高に紐付けて、
-    // 文字が行や区切り線を追い越さないようにする。PC(s=1,fontScale=1)は 1.0。
-    const textScale = Math.max(s, Math.min(getFontScale(), rowH / 26));
+    // 文字は「行に生まれた余裕のぶんだけ」拡大する。実寸アンカー(fontScale)を
+    // 直接掛けると枠に対して大きくなりすぎた（実機で差し戻し 2026-08-09）。
+    // 行高比なのでレイアウトとの釣り合いが崩れない。PC(rowH=38)は 1.0＝従来と同一。
+    const textScale = rowH / 38;
     return {
         s,
         textScale,
@@ -2625,9 +2636,10 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
             const centerY = rowStartY + i * rowH + rowH / 2;
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'left';
-            // ラベルは 0.7 だと小さい明朝の細い画がアンチエイリアスに食われて読めない。
-            ctx.fillStyle = 'rgba(232, 241, 255, 0.96)';
-            ctx.font = `600 ${16 * tf}px "Zen Old Mincho", serif`;
+            // 0.7 だと小さい明朝の細い画がアンチエイリアスに食われて沈む。
+            // 白まで振らずに一段だけ持ち上げる（全デバイス共通）。
+            ctx.fillStyle = 'rgba(212, 226, 255, 0.86)';
+            ctx.font = `500 ${16 * tf}px "Zen Old Mincho", serif`;
             ctx.fillText(row.label, rowX + 4 * s, centerY);
 
             ctx.fillStyle = row.color;
@@ -2651,11 +2663,11 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
             drawWafuCard(ctx, x, cardY, cardW, cardH, { radius: 8 * s, accent: false, shadow: false, flat: true });
 
             ctx.textAlign = 'center';
-            ctx.fillStyle = 'rgba(228, 238, 255, 0.96)';
+            ctx.fillStyle = 'rgba(216, 230, 255, 0.9)';
             ctx.font = `700 ${14 * tf}px "Zen Old Mincho", serif`;
             ctx.fillText(card.title, x + cardW / 2, cardY + 28 * s);
 
-            ctx.fillStyle = '#e2edff';
+            ctx.fillStyle = '#cfe2ff';
             ctx.font = `700 ${18 * tf}px "Zen Old Mincho", serif`;
             ctx.fillText(card.detail, x + cardW / 2, cardY + 58 * s);
 
@@ -2687,7 +2699,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
 
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillStyle = selected ? '#ffffff' : 'rgba(230, 239, 255, 0.92)';
+            ctx.fillStyle = selected ? '#ffffff' : 'rgba(224, 234, 255, 0.82)';
             ctx.font = `700 ${22 * tf}px "Zen Old Mincho", serif`;
             fillTextInkCentered(ctx, item.title, r.x + r.w / 2, y + r.h / 2);
         });
