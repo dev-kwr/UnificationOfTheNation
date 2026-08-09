@@ -2,10 +2,10 @@
 // Unification of the Nation - ショップ機能
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, getUiScale } from './constants.js';
-import { input } from './input.js';
-import { audio } from './audio.js';
-import { drawScreenManualLine, drawWafuCard, drawWafuHeading, drawWafuDivider, drawNumMixedText, drawBgCover } from './ui.js?v=stage6-grapple-20260726a';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, getUiScale, getFontScale } from './constants.js?v=screen-safe-20260809a';
+import { input } from './input.js?v=screen-safe-20260809a';
+import { audio } from './audio.js?v=screen-safe-20260809a';
+import { drawScreenManualLine, drawWafuCard, drawWafuHeading, drawWafuDivider, drawNumMixedText, drawBgCover } from './ui.js?v=screen-safe-20260809a';
 
 // 背景画像キャッシュ
 let _shopBgImg = null;
@@ -61,9 +61,11 @@ export class Shop {
         // shopH=596 は行高 62 化に伴い拡張（旧 556）。
         const s = Math.max(1, Math.min(getUiScale(), (CANVAS_HEIGHT - 40) / 596));
         // fs: フォント専用スケール。s はパネル縦収まりで ~1.14 に頭打ちになるため、
-        // 文字だけは uiScale (SP実機 1.3-1.45) をフルに使って視認性を確保する。
-        // 行高 62*s に対し文字は余裕があるので行内配置は崩れない。PC は fs=1。
-        const fs = Math.max(s, getUiScale());
+        // 文字だけは実寸アンカー getFontScale() を使って視認性を確保する。PC は fs=1。
+        // 上限 1.30*s は行内の縦収まり: 品名(18*fs)と説明(13*fs)の中心間隔が 22*s
+        // しかないので、(18+13)/2*fs <= 22*s ⇔ fs <= 1.41*s を割らないと2行が重なる。
+        // 余白を見て 1.30*s で止める。
+        const fs = Math.max(s, Math.min(getFontScale(), s * 1.30));
         const shopW = 760 * s;
         const shopH = 596 * s;
         const shopX = SCREEN_WIDTH / 2 - shopW / 2;

@@ -1,17 +1,17 @@
 // Unification of the Nation - 斬撃トレイル mixin
 
-import { PLAYER, GRAVITY, FRICTION, LANE_OFFSET } from './constants.js';
-import { COMBO_ATTACKS, NORMAL_COMBO_STEP3_LAUNCH_VY, NORMAL_COMBO_STEP3_LUNGE_HSCALE_COEF, SHOGUN_STEP3_MOTION_SCALE } from './playerData.js';
+import { PLAYER, GRAVITY, FRICTION, LANE_OFFSET } from './constants.js?v=screen-safe-20260809a';
+import { COMBO_ATTACKS, NORMAL_COMBO_STEP3_LAUNCH_VY, NORMAL_COMBO_STEP3_LUNGE_HSCALE_COEF, SHOGUN_STEP3_MOTION_SCALE } from './playerData.js?v=screen-safe-20260809a';
 import {
     SHOGUN_ACTOR_BASE_WIDTH,
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ARM_REACH_SCALE
-} from './shogunConstants.js';
+} from './shogunConstants.js?v=screen-safe-20260809a';
 import {
     freezeNormalComboFinisherTrailCurve,
     getNormalComboStep4RiseScale,
     getNormalComboStep5DownwardControl
-} from './normalComboMotion.js';
+} from './normalComboMotion.js?v=screen-safe-20260809a';
 
 const COMBO_STEP5_END_TRIM_FACTOR = 0.9;
 const getComboStep5EndTrimFactor = (physicalScale = 1) => {

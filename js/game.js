@@ -2,10 +2,10 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, getDeviceProfile, setUiScaleFromFitScale, setSafeInsets, setVirtualPadVisible } from './constants.js?v=aspect-drift-fix-20260804e';
-import { BOSS_STAGING } from './bossStaging.js?v=stage6-boss-shachi-20260803i';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=aspect-drift-fix-20260804e';
-import { input } from './input.js';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setSafeInsets, setCornerInsets, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809a';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260809a';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260809a';
+import { input } from './input.js?v=screen-safe-20260809a';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -43,18 +43,28 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=boss-crest-tip-20260807g';
-import { createSubWeapon } from './weapon.js?v=boss-crest-tip-20260807g';
-import { Stage } from './stage.js?v=boss-crest-tip-20260807g';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=boss-crest-tip-20260807g';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, renderBossNameBanner } from './ui.js?v=outcome-balance-20260727b';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js';
-import { saveManager } from './save.js';
-import { shop } from './shop.js';
-import { audio } from './audio.js';
-import { ShadowRenderer } from './shadow.js';
-import { applyShogunCombat } from './shogunCombatHelper.js';
-import { getRockVisualPalette } from './obstacle.js';
+import { Player } from './player.js?v=screen-safe-20260809a';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260809a';
+import { Stage, preloadStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260809a';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260809a';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260809a';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260809a';
+import { saveManager } from './save.js?v=screen-safe-20260809a';
+import { shop } from './shop.js?v=screen-safe-20260809a';
+import { audio } from './audio.js?v=screen-safe-20260809a';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260809a';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260809a';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260809a';
+
+// 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
+// R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
+// 余裕を上乗せした 0.38R。ここだけを触れば角の詰まり具合を調整できる。
+const CORNER_RADIUS_RATIO = 0.11;
+const CORNER_CLEARANCE_RATIO = 0.38;
+
+// 背景アセットのロード待ちの上限(ms)。これを超えたら揃っていなくても開始する
+// （回線不良や404で永久に暗転したままにならないための打ち切り）。
+const STAGE_ASSET_WAIT_MAX_MS = 4000;
 
 const DAMAGE_NUMBER_DESCENT_FADE_MIN_SPAN = 24;
 const DAMAGE_NUMBER_GROUND_Y_OFFSET = 2;
@@ -211,6 +221,8 @@ class Game {
         this.levelUpTransitionDir = 0;
         this.stageTransitionTimer = 0;
         this.stageTransitionPhase = 0; // 0: None, 1: FadeOut, 2: Wait, 3: FadeIn
+        // 背景アセットのロード待ち（{ stageNumber, waitMs } / 待ちなしは null）
+        this.pendingStageStart = null;
         
         // 影レンダー
         this.shadowRenderer = new ShadowRenderer();
@@ -341,7 +353,7 @@ class Game {
         // HUD/仮想パッドの物理サイズアンカーを更新（タッチ端末のみ>1になる）
         setUiScaleFromFitScale(fitScale);
 
-        // セーフエリア(ノッチ/Dynamic Island)を論理pxへ換算して共有 (P3)。
+        // セーフエリア(ノッチ/Dynamic Island/ホームインジケータ)を論理pxへ換算して共有 (P3)。
         // #game-container の --sai-* (env(safe-area-inset-*)) を読む。
         // viewport-fit=cover でない環境や非ノッチ端末では 0。
         if (container && typeof getComputedStyle === 'function') {
@@ -351,12 +363,18 @@ class Game {
                     const v = parseFloat(cs.getPropertyValue(name));
                     return Number.isFinite(v) ? v : 0;
                 };
-                setSafeInsets(readPx('--sai-l') / fitScale, readPx('--sai-r') / fitScale);
+                setSafeInsets(
+                    readPx('--sai-l') / fitScale,
+                    readPx('--sai-r') / fitScale,
+                    readPx('--sai-t') / fitScale,
+                    readPx('--sai-b') / fitScale
+                );
             } catch { /* 非致命 */ }
         }
 
         const cssWidth = Math.max(1, Math.floor(SCREEN_WIDTH * fitScale));
         const cssHeight = Math.max(1, Math.floor(CANVAS_HEIGHT * fitScale));
+        this.updateCornerInsets(fitScale, availableWidth - cssWidth, availableHeight - cssHeight);
         this.canvas.style.width = `${cssWidth}px`;
         this.canvas.style.height = `${cssHeight}px`;
 
@@ -380,6 +398,38 @@ class Game {
         );
         this.ctx.imageSmoothingEnabled = true;
         this.ctx.imageSmoothingQuality = isTouchDevice ? 'medium' : 'high';
+    }
+
+    // 端末のディスプレイ角丸に UI が食われないための退避量を決める。
+    //
+    // env(safe-area-inset-*) は Android の多くで 0 を返す（ノッチ相当が無い＝
+    // 角丸は申告されない）ため、セーフエリアだけに頼ると角の UI が欠ける。
+    // コーナー R も JS からは読めないので、画面短辺の比率から推定する
+    // （実測レンジ: スマホ 40〜55css-px ≒ 短辺の 11〜13%）。
+    //
+    // 角丸を避けるのに必要な二辺同時の退避量 d は、コーナー円の内側条件
+    // (R-d)² + (R-d)² ≦ R² を解いて d ≧ R(1-1/√2) ≒ 0.293R。円形ボタンの
+    // 曲面ぶんの余裕を見て 0.38R を採る（下の CORNER_CLEARANCE_RATIO）。
+    // レターボックスの黒帯があるぶんはすでに逃げているので差し引く。
+    updateCornerInsets(fitScale, letterboxW, letterboxH) {
+        const p = getDeviceProfile();
+        // 角丸を持つのはタッチ端末のみ。かつ fitScale が UI_SIZE_ANCHOR 以上＝
+        // 画面が十分大きい端末(iPad等)は UI 拡大もしない＝従来ピクセル不変を守る。
+        if ((!p.isTouchDevice && !p.isMobileUA) || !(fitScale > 0) || fitScale >= UI_SIZE_ANCHOR) {
+            setCornerInsets(0, 0);
+            return;
+        }
+        const screen = readPhysicalScreen();
+        const shortEdgeCss = screen ? screen.short : (CANVAS_HEIGHT * fitScale);
+        const cornerR = Math.max(24, Math.min(56, shortEdgeCss * CORNER_RADIUS_RATIO));
+        const clearance = cornerR * CORNER_CLEARANCE_RATIO;
+        // letterbox は左右/上下の合計。片側ぶんへ直して差し引く。
+        const gapX = Math.max(0, letterboxW) / 2;
+        const gapY = Math.max(0, letterboxH) / 2;
+        setCornerInsets(
+            Math.max(0, clearance - gapX) / fitScale,
+            Math.max(0, clearance - gapY) / fitScale
+        );
     }
 
     // ゲームループから毎フレーム呼ぶ軽量チェック。表示サイズ/DPRの変化を
@@ -1111,6 +1161,7 @@ class Game {
     }
     
     startStage() {
+        this.pendingStageStart = null; // 待ちは解消済み（直接呼ばれた場合の保険）
         // 地面の高さを本来のゲーム位置にリセット
         this.groundY = Math.round(CANVAS_HEIGHT * (2 / 3));
 
@@ -1440,6 +1491,12 @@ class Game {
     }
     
     update() {
+        // 背景アセット待ちの間は暗転のまま止める（この間に入力で状態が動くと、
+        // 待ちが明けた瞬間に別画面へ飛ぶ）。
+        if (this.pendingStageStart) {
+            this.updatePendingStageStart();
+            return;
+        }
         switch (this.state) {
             case GAME_STATE.TITLE:
                 this.updateTitle();
@@ -1856,7 +1913,7 @@ class Game {
         // 操作入力でのみプレイ開始（自動遷移しない）
         if (this.introTimer > 500 && (input.isActionJustPressed('CONFIRM') || input.wasScreenTapped())) {
             // ゲーム開始（フェードイン含む）
-            this.startStage();
+            this.requestStageStart();
         }
     }
     
@@ -5374,11 +5431,11 @@ class Game {
             if (this.currentStageNumber > STAGES.length) {
                 this.enterGameClearState();
             } else {
-                this.startStage();
+                this.requestStageStart();
             }
         }
     }
-    
+
     updateGameOver() {
         // ウェイトタイマーがなければ初期化
         if (this.gameOverWaitTimer === undefined) {
@@ -5399,7 +5456,19 @@ class Game {
         }
     }
     
+    // 幕間(ステータス画面/よろず屋)に居る間に次ステージの背景を読み始める。
+    // 遷移の暗転1.6秒だけでは大きな背景(ステージによっては十数MB)が間に合わず、
+    // 開始待ちの暗転が伸びてしまう。装備を選んでいる時間を先読みに充てる。
+    prefetchNextStageAssets() {
+        const next = this.currentStageNumber + 1;
+        if (next > STAGES.length || this._prefetchedStageNumber === next) return;
+        this._prefetchedStageNumber = next;
+        preloadStageImages(next);
+    }
+
     updateStageClear() {
+        this.prefetchNextStageAssets();
+
         // ステータス画面中は Q キーでもポーズ可能にする
         if (input.isActionJustPressed('PAUSE') || input.isActionJustPressed('DEBUG_TOGGLE')) {
             this.pauseReturnState = GAME_STATE.STAGE_CLEAR;
@@ -5560,6 +5629,8 @@ class Game {
         this.stageTransitionPhase = 1; // FadeOut
         this.stageTransitionTimer = 0.8; // フェードアウト時間(秒)
         audio.fadeOutBgm(0.8); // 0.8秒かけてBGMフェードアウト
+        // 暗転の1.6秒(フェードアウト+待機)を次ステージ背景の読み込みに使う。
+        preloadStageImages(this.currentStageNumber);
     }
 
     updateStageTransition() {
@@ -5575,8 +5646,33 @@ class Game {
             this.stageTransitionTimer -= this.deltaTime;
             if (this.stageTransitionTimer <= 0) {
                 this.stageTransitionPhase = 0;
-                this.startStage(); // ステージ開始（ここでBGM再生 & シーン遷移）
+                this.requestStageStart(); // ステージ開始（ここでBGM再生 & シーン遷移）
             }
+        }
+    }
+
+    // ステージ開始要求。背景アセットが揃っていなければ暗転のまま待ってから開始する。
+    // 未ロードのまま開始すると naturalWidth=0 の画像は描画がスキップされ、
+    // 下地だけの絵が数フレーム見えてから差し替わる＝フラッシングになる。
+    requestStageStart() {
+        const stageNumber = this.currentStageNumber;
+        preloadStageImages(stageNumber);
+        if (areStageImagesSettled(stageNumber)) {
+            this.startStage();
+            return;
+        }
+        this.pendingStageStart = { stageNumber, waitMs: 0 };
+    }
+
+    // 保留中のステージ開始を進める。回線が遅い/画像が壊れている場合に永久に
+    // 暗転したままにならないよう上限で打ち切る（従来どおり開始する＝最悪でも現状維持）。
+    updatePendingStageStart() {
+        const pending = this.pendingStageStart;
+        if (!pending) return;
+        pending.waitMs += this.deltaTime * 1000;
+        if (areStageImagesSettled(pending.stageNumber) || pending.waitMs >= STAGE_ASSET_WAIT_MAX_MS) {
+            this.pendingStageStart = null;
+            this.startStage();
         }
     }
 
@@ -5861,6 +5957,16 @@ class Game {
         // タッチ向けBGMトグルは全画面共通で表示
         this.ui.renderGlobalTouchButtons(this.ctx);
         
+        // 背景アセット待ちの暗幕。どの画面から開始しても（幕間/よろず屋/イントロ）
+        // 待っている間は真っ黒で繋ぐ ＝ 待ちが伸びても「暗転が少し長い」だけで、
+        // 未ロードの絵が一瞬見えることはない。
+        if (this.pendingStageStart) {
+            this.ctx.save();
+            this.ctx.fillStyle = '#000000';
+            this.ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
+            this.ctx.restore();
+        }
+
         // 画面遷移フェード（簡易実装）
         if (this.transitionTimer > 0) {
             this.ctx.save();

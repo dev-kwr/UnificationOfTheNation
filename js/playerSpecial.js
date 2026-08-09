@@ -1,16 +1,16 @@
 // Unification of the Nation - 分身クローン mixin
 
-import { PLAYER, LANE_OFFSET } from './constants.js';
-import { audio } from './audio.js';
-import { createSubWeapon } from './weapon.js?v=boss-crest-tip-20260807g';
-import { ANIM_STATE, COMBO_ATTACKS } from './playerData.js';
+import { PLAYER, LANE_OFFSET } from './constants.js?v=screen-safe-20260809a';
+import { audio } from './audio.js?v=screen-safe-20260809a';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260809a';
+import { ANIM_STATE, COMBO_ATTACKS } from './playerData.js?v=screen-safe-20260809a';
 import {
     SHOGUN_ACTOR_BASE_WIDTH,
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_SCALE,
     SHOGUN_SPECIAL_CLONE_SPACING_SCALE
-} from './shogunConstants.js';
-import { getNormalComboStep4RiseScale } from './normalComboMotion.js';
+} from './shogunConstants.js?v=screen-safe-20260809a';
+import { getNormalComboStep4RiseScale } from './normalComboMotion.js?v=screen-safe-20260809a';
 
 export function applySpecialMixin(PlayerClass) {
 

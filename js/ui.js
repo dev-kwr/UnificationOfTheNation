@@ -2,10 +2,10 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, getUiScale, getSafeInsets, setVirtualPadVisible } from './constants.js';
-import { input } from './input.js';
-import { audio } from './audio.js';
-import { saveManager } from './save.js';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getScreenSafeArea, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809a';
+import { input } from './input.js?v=screen-safe-20260809a';
+import { audio } from './audio.js?v=screen-safe-20260809a';
+import { saveManager } from './save.js?v=screen-safe-20260809a';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -333,24 +333,18 @@ function shouldHideKeyboardManual() {
 }
 
 function drawControlManualLine(ctx, y = CANVAS_HEIGHT - 20) {
-    if (shouldHideKeyboardManual()) return;
-    ctx.save();
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-    ctx.font = '12px "Zen Old Mincho", serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillText(CONTROL_MANUAL_TEXT, SCREEN_WIDTH / 2, y);
-    ctx.restore();
+    drawScreenManualLine(ctx, CONTROL_MANUAL_TEXT, y);
 }
 
 export function drawScreenManualLine(ctx, text, y = CANVAS_HEIGHT - 20) {
     if (shouldHideKeyboardManual()) return;
     ctx.save();
     ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-    ctx.font = '12px "Zen Old Mincho", serif';
+    ctx.font = `${12 * getFontScale()}px "Zen Old Mincho", serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillText(text, SCREEN_WIDTH / 2, y);
+    // 画面最下端はホームインジケータ/角丸に食われるので退避分だけ持ち上げる
+    ctx.fillText(text, SCREEN_WIDTH / 2, y - getScreenSafeArea().bottom);
     ctx.restore();
 }
 
@@ -654,15 +648,18 @@ export class UI {
         };
 
         // --- 左上HUD（刷新） ---
-        // uiScale>1(スマホ)のとき原点アンカーで一様拡大。加えてノッチ/Dynamic Island
-        // 分だけ右へ寄せる(safeL は scale の外＝等倍論理pxで平行移動)。
-        // s=1 かつ safeL=0 の端末では save 自体を行わず既存描画と完全同一のパスを通す。
+        // uiScale>1(スマホ)のとき原点アンカーで一様拡大。加えてノッチ/角丸に
+        // 食われる分だけ内側へ寄せる(退避量は scale の外＝等倍論理pxで平行移動)。
+        // s=1 かつ退避0の端末では save 自体を行わず既存描画と完全同一のパスを通す。
+        // 文字だけは fx 倍して実寸を確保する（uiS は幾何、fontScale は文字のアンカー。
+        // fx は wrap の内側で使うので uiS で割って二重掛けを打ち消す）。
         const uiS = getUiScale();
-        const hudSafeL = getSafeInsets().left;
-        const hudWrap = (uiS !== 1) || hudSafeL > 0;
+        const fx = getFontScale() / uiS;
+        const hudSafe = getScreenSafeArea();
+        const hudWrap = (uiS !== 1) || hudSafe.left > 0 || hudSafe.top > 0;
         if (hudWrap) {
             ctx.save();
-            if (hudSafeL > 0) ctx.translate(hudSafeL, 0);
+            if (hudSafe.left > 0 || hudSafe.top > 0) ctx.translate(hudSafe.left, hudSafe.top);
             if (uiS !== 1) ctx.scale(uiS, uiS);
         }
         const hpBarWidth = 300;
@@ -707,13 +704,14 @@ export class UI {
         const lvStr = `${levelKanji}段`;
 
         // 影（軽量化）：体力ラベル=明朝／数字=サンセリフ、段位の漢数字=明朝
+        const hudTextPx = 16 * fx;
         ctx.fillStyle = 'rgba(0,0,0,0.65)';
-        drawNumMixedText(ctx, hpStr, x + 1, y - 7, 700, 16, 'left');
-        drawNumMixedText(ctx, lvStr, x + hpBarWidth + 1, y - 7, 700, 16, 'right');
+        drawNumMixedText(ctx, hpStr, x + 1, y - 7, 700, hudTextPx, 'left');
+        drawNumMixedText(ctx, lvStr, x + hpBarWidth + 1, y - 7, 700, hudTextPx, 'right');
         // 本体
         ctx.fillStyle = '#fff';
-        drawNumMixedText(ctx, hpStr, x, y - 8, 700, 16, 'left');
-        drawNumMixedText(ctx, lvStr, x + hpBarWidth, y - 8, 700, 16, 'right');
+        drawNumMixedText(ctx, hpStr, x, y - 8, 700, hudTextPx, 'left');
+        drawNumMixedText(ctx, lvStr, x + hpBarWidth, y - 8, 700, hudTextPx, 'right');
         ctx.textAlign = 'left';
 
         const spBarWidth = 250;
@@ -733,10 +731,11 @@ export class UI {
                 : [[0, '#dec06c'], [1, '#9d8644']]
         );
 
-        ctx.font = '700 15px "Zen Old Mincho", serif';
+        const hudLabelFont = `700 ${15 * fx}px "Zen Old Mincho", serif`;
+        ctx.font = hudLabelFont;
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'left';
-        
+
         if (isSpReady) {
             const timeSinceReady = typeof window !== 'undefined' && window.game && window.game.specialReadyFlashTime 
                 ? Date.now() - window.game.specialReadyFlashTime 
@@ -780,7 +779,7 @@ export class UI {
 
         drawModernGauge(barX, expY, expBarWidth, expBarHeight, expRatio, expColors);
 
-        ctx.font = '700 15px "Zen Old Mincho", serif';
+        ctx.font = hudLabelFont;
         ctx.textBaseline = 'middle';
         ctx.textAlign = 'left';
         ctx.fillStyle = 'rgba(0,0,0,0.65)';
@@ -793,8 +792,8 @@ export class UI {
         // 宣言のみここで行う(moneyText/coinSize はサブ武器行が使用)。
         const stageFloorKanji = toKanjiNumber(stage?.stageNumber || 1);
         const stageLabel = (stage && stage.name) ? stage.name : `第${stageFloorKanji}階層`;
-        const stageFontPx = 16;
-        const moneyFontPx = 16;
+        const stageFontPx = 16 * getFontScale();
+        const moneyFontPx = 16 * fx;
         const moneyText = formatMoney(player.money);
         const coinSize = 9;
 
@@ -831,7 +830,7 @@ export class UI {
             
             // 武器名 (大きく)
             ctx.fillStyle = '#fff';
-            ctx.font = '700 15px "Zen Old Mincho", serif';
+            ctx.font = hudLabelFont;
             ctx.textAlign = 'left';
             ctx.textBaseline = 'middle';
             ctx.fillText(player.currentSubWeapon.name, slotX + slotSize + 15, slotY + slotSize / 2);
@@ -892,10 +891,10 @@ export class UI {
             ctx.textBaseline = 'middle';
             activeNinjutsu.forEach((row, i) => {
                 const yy = boxY + 6 + i * rowH + rowH * 0.5;
-                ctx.font = '700 12px "Zen Old Mincho", serif';
+                ctx.font = `700 ${12 * fx}px "Zen Old Mincho", serif`;
                 ctx.fillStyle = row.color;
                 ctx.fillText(row.label, boxX + insetX, yy);
-                ctx.font = '800 12px "Helvetica Neue", Arial, sans-serif';
+                ctx.font = `800 ${12 * fx}px "Helvetica Neue", Arial, sans-serif`;
                 ctx.fillStyle = 'rgba(235, 245, 255, 0.95)';
                 ctx.textAlign = 'right';
                 ctx.fillText(`${row.sec}s`, boxX + boxW - insetX, yy);
@@ -915,7 +914,7 @@ export class UI {
             ctx.save();
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'right';
-            ctx.font = `900 ${Math.round(stageFontPx * uiS)}px "Zen Old Mincho", serif`;
+            ctx.font = `900 ${Math.round(stageFontPx)}px "Zen Old Mincho", serif`;
             // ステージ名（BGMボタン左側）影を軽量化
             ctx.fillStyle = 'rgba(0,0,0,0.62)';
             ctx.fillText(stageLabel, stageRightX + 1, B.y + 1);
@@ -1701,15 +1700,18 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     
 
     
-    // 右下デバッグモードヒント（⚙アイコン）
-    ctx.save();
-    ctx.globalAlpha = 0.25 + Math.sin(time * 0.002) * 0.08;
-    ctx.font = '24px "Zen Old Mincho", serif';
-    ctx.fillStyle = '#aabbcc';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText('⚙', SCREEN_WIDTH - 18, CANVAS_HEIGHT - 14);
-    ctx.restore();
+    // 右下デバッグモードヒント（⚙アイコン）。画面の角は端末の角丸に食われるため退避する。
+    {
+        const safe = getScreenSafeArea();
+        ctx.save();
+        ctx.globalAlpha = 0.25 + Math.sin(time * 0.002) * 0.08;
+        ctx.font = `${24 * getFontScale()}px "Zen Old Mincho", serif`;
+        ctx.fillStyle = '#aabbcc';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('⚙', SCREEN_WIDTH - safe.right - 18, CANVAS_HEIGHT - safe.bottom - 14);
+        ctx.restore();
+    }
 
     // タイトル画面用の操作説明
     drawScreenManualLine(ctx, TITLE_MANUAL_TEXT);
@@ -1719,7 +1721,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
 // タップ判定(game.handleTitleDebugTouch)は必ずこれを読むこと（panelYは項目数依存の縦センタリング）。
 export function getTitleDebugLayout(entriesCount) {
     const panelW = 540;
-    const panelX = SCREEN_WIDTH - panelW - 40;
+    const panelX = SCREEN_WIDTH - getScreenSafeArea().right - panelW - 40;
     const rowH = 26;
     const headerH = 40;
     const spacingH = 10;
@@ -2257,8 +2259,11 @@ const _statusMenuAnim = { amt: [], last: 0 };
 //   メニューは下端を固定して上へ s 倍。上限 1.12 はカード下端とメニュー上端が衝突しない範囲。
 export function getStatusScreenLayout() {
     const s = Math.max(1, Math.min(getUiScale(), 1.12));
-    const anchorRight = SCREEN_WIDTH - 54;   // s=1 の infoPanel 右端（固定）
-    const anchorTop = 96;                    // s=1 の infoPanel 上端（固定）
+    // 退避は左右のみ。上96px/下60px は既に画面端から十分内側で角丸に掛からないうえ、
+    // s=1.12 はカード下端とメニュー上端が接する上限なので、上下を詰めると必ず重なる。
+    const safe = getScreenSafeArea();
+    const anchorRight = SCREEN_WIDTH - safe.right - 54;   // s=1 の infoPanel 右端（固定）
+    const anchorTop = 96;                                 // s=1 の infoPanel 上端（固定）
     const infoPanelW = 364 * s;              // 左へ拡大
     const infoPanelH = 404 * s;              // 下へ拡大
     const infoPanelX = anchorRight - infoPanelW;
@@ -2271,7 +2276,7 @@ export function getStatusScreenLayout() {
     const cardGap = 12 * s;
     const menuH = 80 * s;
     const menuY = (CANVAS_HEIGHT - 60) - menuH;   // 下端 660 を固定して上へ拡大（s=1 で 580）
-    const menuStartX = 40;
+    const menuStartX = safe.left + 40;
     const menuGap = 20 * s;
     const menuW = (anchorRight - menuStartX - menuGap * 2) / 3;
     return {
@@ -3196,7 +3201,9 @@ export function getPauseReturnButton() {
     // 中心Yに合わせて押せる帯に置く。x は中央（操作ボタンは左右端なので中央は空き）。
     // uiScale 追従のため攻撃ボタンと同じ getPadLayout を参照する。
     const L = getPadLayout();
-    return { x: SCREEN_WIDTH / 2, y: L.attack.y, w: 200 * L.s, h: 40 * L.s };
+    // 幅はラベルの実寸(fontScale)にも追従させる。幾何スケールだけだと
+    // スマホで文字が枠からはみ出す。
+    return { x: SCREEN_WIDTH / 2, y: L.attack.y, w: 200 * Math.max(L.s, getFontScale()), h: 40 * L.s };
 }
 
 export function renderPauseScreen(ctx, armed = false) {
@@ -3219,7 +3226,7 @@ export function renderPauseScreen(ctx, armed = false) {
     // ラベル（PCはクリック表記。確認は「もう一度〜」で通常と長さを揃える）
     const actionWord = isTouchOverlayMode() ? 'タップ' : 'クリック';
     ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    ctx.font = `${Math.round(16 * getUiScale())}px "Zen Old Mincho", serif`;
+    ctx.font = `${Math.round(16 * getFontScale())}px "Zen Old Mincho", serif`;
     ctx.fillText(armed ? `もう一度${actionWord}` : 'タイトルに戻る', btn.x, btn.y);
     ctx.restore();
 }

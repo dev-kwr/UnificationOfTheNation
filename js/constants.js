@@ -2,7 +2,7 @@
 // Unification of the Nation - 定数定義
 // ============================================
 
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=aspect-drift-fix-20260804e';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260809a';
 
 // キャンバスサイズ
 // CANVAS_WIDTH = 可視ワールド幅（ゲームプレイ窓）。世界ロジック(カメラ/クランプ/
@@ -227,31 +227,72 @@ export const VIRTUAL_PAD = {
 };
 
 // ============================================
-// uiScale: HUD/仮想パッドの物理サイズアンカー (screen_adaptation_plan.md §2.6)
-// スマホは fitScale≈0.52-0.60 でボタン41.5css-px/文字13css-pxまで縮み
-// 44pt/18px基準を割るため、タッチ端末のみ 0.72/fitScale (1.0〜1.45) で拡大する。
+// uiScale / fontScale: HUD・仮想パッド・文字の物理サイズアンカー
+// (screen_adaptation_plan.md §2.6)
+//
+// 実寸(css-px) = 論理px × スケール × fitScale なので、スケールを K/fitScale と
+// 置くと「1論理px が常に K css-px に見える」。K がそのまま実寸の設計値になる。
+//   - UI_SIZE_ANCHOR = 0.72: 幾何(パネル/ゲージ/ボタン)。従来値を踏襲。
+//   - TEXT_SIZE_ANCHOR = 1.0: 文字。HUD 本文16論理px が 16css-px で見える。
+// 幾何と文字を分けるのは、幾何を文字に合わせて上げると仮想パッドが画面を
+// 覆い尽くすため（よろず屋が先に fs で採っていた手法の一般化）。
+// 上限は幾何1.45／文字1.9。fitScale が UI_SIZE_ANCHOR 以上＝画面が十分大きい
+// (iPad/PC)端末は両方 1.0 で従来とピクセル不変。
 // game.js configureCanvasResolution が fitScale 確定のたびに更新する。
 // ============================================
+export const UI_SIZE_ANCHOR = 0.72;
+export const TEXT_SIZE_ANCHOR = 1.0;
 let _uiScale = 1;
+let _fontScale = 1;
 export function setUiScaleFromFitScale(fitScale) {
     const p = getDeviceProfile();
-    _uiScale = ((p.isTouchDevice || p.isMobileUA) && fitScale > 0)
-        ? Math.min(1.45, Math.max(1.0, 0.72 / fitScale))
-        : 1.0;
+    const enlarge = (p.isTouchDevice || p.isMobileUA) && fitScale > 0 && fitScale < UI_SIZE_ANCHOR;
+    _uiScale = enlarge ? Math.min(1.45, UI_SIZE_ANCHOR / fitScale) : 1.0;
+    // 文字が幾何より小さくなることはない（1行の中でラベルだけ縮む事故を防ぐ）。
+    _fontScale = enlarge ? Math.max(_uiScale, Math.min(1.9, TEXT_SIZE_ANCHOR / fitScale)) : 1.0;
 }
 export function getUiScale() { return _uiScale; }
+export function getFontScale() { return _fontScale; }
 
-// セーフエリア(ノッチ/Dynamic Island)の論理pxインセット (P3)。
-// game.js configureCanvasResolution が env(safe-area-inset-*) を getComputedStyle で読み、
-// fitScale で除して論理pxへ換算してから設定する。描画(ui.js)と判定(input.js)は
-// getPadLayout 経由で同じ値を共有する。
+// ============================================
+// 画面端の退避量 (P3 + 角丸対応)
+// ============================================
+// 2系統ある。どちらも game.js configureCanvasResolution が論理pxへ換算して設定する。
+//   1. セーフエリア: env(safe-area-inset-*) の実値。ノッチ/Dynamic Island/
+//      ホームインジケータ。非対応環境・非ノッチ端末では 0。
+//   2. 角丸クリアランス: 端末のコーナーRに食われる分。R は JS から読めないため
+//      game.js 側で画面短辺から推定する。env() が 0 を返す端末(Androidの多く)でも
+//      角丸で UI が欠けるため、セーフエリアとは独立に必要。
+// UI の配置は必ず getScreenSafeArea() を経由すること（描画と当たり判定の単一導出）。
 let _safeInsetL = 0;
 let _safeInsetR = 0;
-export function setSafeInsets(leftPx, rightPx) {
-    _safeInsetL = Number.isFinite(leftPx) ? Math.max(0, leftPx) : 0;
-    _safeInsetR = Number.isFinite(rightPx) ? Math.max(0, rightPx) : 0;
+let _safeInsetT = 0;
+let _safeInsetB = 0;
+let _cornerInsetX = 0;
+let _cornerInsetY = 0;
+export function setSafeInsets(leftPx, rightPx, topPx = 0, bottomPx = 0) {
+    const px = (v) => (Number.isFinite(v) ? Math.max(0, v) : 0);
+    _safeInsetL = px(leftPx);
+    _safeInsetR = px(rightPx);
+    _safeInsetT = px(topPx);
+    _safeInsetB = px(bottomPx);
 }
-export function getSafeInsets() { return { left: _safeInsetL, right: _safeInsetR }; }
+export function setCornerInsets(xPx, yPx) {
+    const px = (v) => (Number.isFinite(v) ? Math.max(0, v) : 0);
+    _cornerInsetX = px(xPx);
+    _cornerInsetY = px(yPx);
+}
+// UI を置いてよい内側矩形の各辺マージン（スクリーン論理px）。
+// セーフエリアと角丸クリアランスの大きい方を採る（両者は同じ「端の食われ」を
+// 別経路で見積もった値なので、足すと過剰に内側へ寄る）。
+export function getScreenSafeArea() {
+    return {
+        left: Math.max(_safeInsetL, _cornerInsetX),
+        right: Math.max(_safeInsetR, _cornerInsetX),
+        top: Math.max(_safeInsetT, _cornerInsetY),
+        bottom: Math.max(_safeInsetB, _cornerInsetY),
+    };
+}
 
 // 仮想パッドが「実際に画面に描かれているか」の単一ソース。
 // 描画(ui.js renderVirtualPad)が毎フレーム申告し、判定(input.js getTouchActions)が読む。
@@ -269,10 +310,11 @@ export function isVirtualPadVisible() { return _virtualPadVisible; }
 export function getPadLayout() {
     const s = _uiScale;
     const pad = VIRTUAL_PAD;
-    const bottomY = CANVAS_HEIGHT - pad.BOTTOM_MARGIN * s;
-    // 左右アンカーはセーフエリア(ノッチ)内へ退避。スクリーン右端は SCREEN_WIDTH 基準。
-    const rightX = SCREEN_WIDTH - _safeInsetR - pad.SAFE_MARGIN_X * s;
-    const stickX = _safeInsetL + (pad.SAFE_MARGIN_X + pad.STICK.x) * s;
+    // 四辺ともセーフエリア/角丸の内側へ退避する。スクリーン右端は SCREEN_WIDTH 基準。
+    const safe = getScreenSafeArea();
+    const bottomY = CANVAS_HEIGHT - safe.bottom - pad.BOTTOM_MARGIN * s;
+    const rightX = SCREEN_WIDTH - safe.right - pad.SAFE_MARGIN_X * s;
+    const stickX = safe.left + (pad.SAFE_MARGIN_X + pad.STICK.x) * s;
     const stickY = bottomY + pad.STICK.y * s;
     return {
         s,
@@ -290,8 +332,8 @@ export function getPadLayout() {
         special: { x: rightX + pad.SPECIAL.x * s,    y: bottomY + pad.SPECIAL.y * s,    r: pad.AUX_BUTTON_RADIUS * s },
         switch:  { x: rightX + pad.SWITCH.x * s,     y: bottomY + pad.SWITCH.y * s,     r: pad.AUX_BUTTON_RADIUS * s },
         bgm: {
-            x: SCREEN_WIDTH - _safeInsetR - pad.BGM_BUTTON_MARGIN_RIGHT * s,
-            y: pad.BGM_BUTTON_MARGIN_TOP * s,
+            x: SCREEN_WIDTH - safe.right - pad.BGM_BUTTON_MARGIN_RIGHT * s,
+            y: safe.top + pad.BGM_BUTTON_MARGIN_TOP * s,
             r: pad.BGM_BUTTON_RADIUS * s
         }
     };

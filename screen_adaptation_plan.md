@@ -16,6 +16,13 @@
 - **P0 ゲート結果**: scratch/p0_golden.js の決定性ハーネス（Math.random を mulberry32 注入・rAF 停止・時間凍結・単発 render）で、PC 1920×1080 / iPad 1024×768(touch) × タイトル+全6ステージ+ポーズ の16シーンが編集前後で**バイト単位一致**。6観点のアドバーサリアル検証（削除API残参照 / save-restore 均衡 / 端末判定同値性 / stage 編集安全性 / 入力ラッチ / キャッシュ整合）も全 PASS。
 - **設計修正（RNGフック）**: §3 P0 の「?rngseed= フックまたは検証緩和の決定」は、**出荷コードにフックを追加せず、検証ハーネス側で evaluateOnNewDocument により Math.random を注入する方式に決定**。編集前の状態も同一手法で採取できるため優位。P2a/P2b のリプレイ一致ゲートも同方式で行う。
 - 既知の残メモ: game.js は main.js から ?v= 付き、save.js / player.js / playerRenderer.js から無印で import されており**モジュール二重インスタンス化が既存**（P0 では構造不変。P2a 前に別途調査・是正を検討）。キャッシュ異常時のフェイルモードは「旧ビルド表示」から「constants.js 旧版時の起動不能（export not found）」に変化（ハードリロードで解消、運用は従来どおり）。
+- **P5 実機不具合対応: 完了 (2026-08-09)**。実機で「スマホのUIが拡大されていない／画面端が角丸で欠ける／ステージ開始時に背景がフラッシングする」の3件。
+    - **根本原因＝モジュール二重インスタンス化**（上の「既知の残メモ」が P1〜P4 の効果を丸ごと殺していた）。`constants.js` が `?v=` 有り(game/stage/main)と無し(ui/input/shop ほか15ファイル)の**2インスタンス**に分裂し、game.js が `setUiScaleFromFitScale` / `setSafeInsets` で書いた値を ui.js・input.js・shop.js が読めていなかった。実測: 同一セッションで `getUiScale()` が **1.319(versioned) / 1.0(bare)**、`getPadLayout().stick.x` が **240 / 182**。つまり P1 の uiScale も P3 のセーフエリアも**実機では一度も効いていなかった**。`ui.js` は3インスタンス（main.js の `preloadCinematicBgImages` が描画側と別インスタンスを暖めていた＝intro/ending の先読みも無効）、`game.js` は2インスタンス（`export const game` が二重化し、player.js の Stage5 左登り制限解除と装備記憶が死んでいた）。
+    - 対策: 全内部 import を `?v=screen-safe-20260809a` の**単一指定子へ統一**。AGENTS.md に不変条件と grep 確認手順を明文化。
+    - **角丸退避**: `--sai-t/--sai-b` を追加して env() を四辺読む。加えて env() が 0 を返す端末向けに**角丸クリアランス**（R≒短辺×11%、退避量＝幾何最小 0.293R に余裕を見た 0.38R、レターボックス分は減算）を game.js `updateCornerInsets` で算出。`getScreenSafeArea()` が両者の max を返す単一導出。HUD・仮想パッド・BGMボタン・ステージ名・タイトル⚙・操作説明行・ステータス画面左右へ適用。ステータス画面は上下に適用しない（上96/下60は既に十分内側で、s=1.12 の縦収まり上限を割ると幕間メニューとカードが重なる）。
+    - **フォント専用スケール**: 実寸(css-px) = 論理px × スケール × fitScale の関係から、幾何 `UI_SIZE_ANCHOR=0.72`（従来値）と文字 `TEXT_SIZE_ANCHOR=1.0` を分離（`getFontScale()`、上限1.9）。HUD 本文 16論理px の実寸が **8.7css-px（二重化バグ下の実効値）→ 16.0css-px**。よろず屋の fs は行内の縦収まりから `1.30*s` で頭打ち。
+    - **背景フラッシング**: `imageCache.js`（src キーのセッション共有 Image）を新設し、`stage.js` の `STAGE_IMAGE_SOURCES` を「Stage への割り当て」と「先読み・完了判定」の単一ソース化。幕間で次ステージを prefetch、遷移の暗転中に先読み、揃うまで暗転で待つ（上限4秒で打ち切り）。
+    - **ゲート結果**: 決定性ゴールデン（Math.random 固定シード注入・時刻凍結・rAF停止・単発 render）で **PC 1920×1080 / iPad 1024×768 のタイトル＋全6ステージ 計14シーンがピクセル diff=0**。スマホ(852×393)は意図した変化のみ。実測値: iPhone15横 uiScale 1.319 / fontScale 1.832 / 四辺退避 15.9css-px、Android(915×412) 1.259 / 1.749 / 17.2css-px、iPad・PC は 1.0 / 1.0 / 0。
 
 ## 0. 結論
 

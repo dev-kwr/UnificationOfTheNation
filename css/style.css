@@ -38,9 +38,12 @@ body.game-ready #game-container {
 }
 
 #game-container {
-    /* セーフエリア(env)をJSへ引き渡すためのプローブ変数 (game.js configureCanvasResolution が読む) */
+    /* セーフエリア(env)をJSへ引き渡すためのプローブ変数 (game.js configureCanvasResolution が読む)。
+       横持ちでもホームインジケータ(下)とノッチ(上)が効くため四辺すべて渡す。 */
     --sai-l: env(safe-area-inset-left, 0px);
     --sai-r: env(safe-area-inset-right, 0px);
+    --sai-t: env(safe-area-inset-top, 0px);
+    --sai-b: env(safe-area-inset-bottom, 0px);
     position: fixed;
     top: 0;
     left: 0;
