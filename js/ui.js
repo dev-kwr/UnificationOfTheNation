@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809k';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809l';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260809k';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260809l';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -17,9 +17,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260809k';
-import { audio } from './audio.js?v=screen-safe-20260809k';
-import { saveManager } from './save.js?v=screen-safe-20260809k';
+import { input } from './input.js?v=screen-safe-20260809l';
+import { audio } from './audio.js?v=screen-safe-20260809l';
+import { saveManager } from './save.js?v=screen-safe-20260809l';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -2526,7 +2526,11 @@ export function getStatusScreenLayout() {
     const cardGap = 12 * s;
     const menuH = 80 * s;
     const menuY = (CANVAS_HEIGHT - 60) - menuH;   // 下端 660 を固定して上へ拡大（s=1 で 580）
-    const menuStartX = safe.left + 40;
+    // 下部メニューは右端(anchorRight)の内側量をそのまま左にも取り、左右の余白を揃える。
+    // 固定の左マージンだと、パネルをBGMボタンから逃がして右端だけ内側へ動いたとき
+    // 画面全体が左に寄って見える（実機で指摘 2026-08-09）。幅は3等分なので、
+    // 左を合わせるぶんボタンが少し細くなる。
+    const menuStartX = SCREEN_WIDTH - anchorRight;
     const menuGap = 20 * s;
     const menuW = (anchorRight - menuStartX - menuGap * 2) / 3;
     // 文字は「行に生まれた余裕のぶんだけ」拡大する。実寸アンカー(fontScale)を
