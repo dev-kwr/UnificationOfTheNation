@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getScreenSafeArea, getNotchInsetX, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809c';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getScreenSafeArea, getNotchInsetX, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809d';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260809c';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260809d';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -13,9 +13,9 @@ const HUD_TEXT_SCALE = 0.88;
 
 // タイトル左下の更新通知。文言長がカード幅の元になるので定数で持つ。
 const UPDATE_NOTICE_TEXT = '新しい版があります（タップで更新）';
-import { input } from './input.js?v=screen-safe-20260809c';
-import { audio } from './audio.js?v=screen-safe-20260809c';
-import { saveManager } from './save.js?v=screen-safe-20260809c';
+import { input } from './input.js?v=screen-safe-20260809d';
+import { audio } from './audio.js?v=screen-safe-20260809d';
+import { saveManager } from './save.js?v=screen-safe-20260809d';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
