@@ -1,0 +1,67 @@
+name: 公開 (GitHub Pages)
+
+# main への push で公開する。手動実行(Actions タブの Run workflow)も可能。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Pages への配信に必要な権限
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同時実行は最新の1つだけ。走行中のものは走り切らせる(配信の取りこぼし防止)。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # 画像・音のURLに内容ハッシュを刻む。
+      # これをやらないと、差し替えた画像が配信側のキャッシュで古いまま出続ける。
+      # 中身が変われば URL も変わるので、反映漏れが原理的に起きない。
+      - name: アセットURLに内容ハッシュを刻む
+        run: node tools/stamp-assets.mjs
+
+      # 配信物を組み立てる。開発用のスクリプト・設計メモは公開しない。
+      - name: 配信物を組み立てる
+        run: |
+          mkdir -p _site
+          rsync -a \
+            --exclude '.git' \
+            --exclude '.github' \
+            --exclude '_site' \
+            --exclude 'tools' \
+            --exclude 'scratch' \
+            --exclude '*.command' \
+            --exclude '*.py' \
+            --exclude '*.md' \
+            --exclude 'character_preview.html' \
+            --exclude 'stair_preview.html' \
+            ./ _site/
+          # SPA ではないので 404 は index へ寄せず、素の静的配信のままにする
+          ls -la _site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
