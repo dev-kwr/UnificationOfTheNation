@@ -38,12 +38,9 @@ body.game-ready #game-container {
 }
 
 #game-container {
-    /* セーフエリア(env)をJSへ引き渡すためのプローブ変数 (game.js configureCanvasResolution が読む)。
-       横持ちでもホームインジケータ(下)とノッチ(上)が効くため四辺すべて渡す。 */
-    --sai-l: env(safe-area-inset-left, 0px);
-    --sai-r: env(safe-area-inset-right, 0px);
-    --sai-t: env(safe-area-inset-top, 0px);
-    --sai-b: env(safe-area-inset-bottom, 0px);
+    /* canvas 内 UI の端退避に env() は使わない（横向き iOS が左右へ対称に返す
+       59css-px が角丸回避に必要な量を大きく超えるため。constants.js の
+       getScreenSafeArea 参照）。JSへ渡すプローブ変数は撤去した。 */
     position: fixed;
     top: 0;
     left: 0;

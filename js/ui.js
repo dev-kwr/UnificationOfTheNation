@@ -2,10 +2,10 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getScreenSafeArea, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809b';
-import { input } from './input.js?v=screen-safe-20260809b';
-import { audio } from './audio.js?v=screen-safe-20260809b';
-import { saveManager } from './save.js?v=screen-safe-20260809b';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getScreenSafeArea, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809c';
+import { input } from './input.js?v=screen-safe-20260809c';
+import { audio } from './audio.js?v=screen-safe-20260809c';
+import { saveManager } from './save.js?v=screen-safe-20260809c';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';

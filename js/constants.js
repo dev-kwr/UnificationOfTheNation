@@ -2,7 +2,7 @@
 // Unification of the Nation - 定数定義
 // ============================================
 
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260809b';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260809c';
 
 // キャンバスサイズ
 // CANVAS_WIDTH = 可視ワールド幅（ゲームプレイ窓）。世界ロジック(カメラ/クランプ/
@@ -255,42 +255,34 @@ export function getUiScale() { return _uiScale; }
 export function getFontScale() { return _fontScale; }
 
 // ============================================
-// 画面端の退避量 (P3 + 角丸対応)
+// 画面端の退避量 ＝ 端末ディスプレイの角丸クリアランスのみ
 // ============================================
-// 2系統ある。どちらも game.js configureCanvasResolution が論理pxへ換算して設定する。
-//   1. セーフエリア: env(safe-area-inset-*) の実値。ノッチ/Dynamic Island/
-//      ホームインジケータ。非対応環境・非ノッチ端末では 0。
-//   2. 角丸クリアランス: 端末のコーナーRに食われる分。R は JS から読めないため
-//      game.js 側で画面短辺から推定する。env() が 0 を返す端末(Androidの多く)でも
-//      角丸で UI が欠けるため、セーフエリアとは独立に必要。
+// 退避の判断基準は「端末の角丸に食われないこと」だけ（ユーザー確定方針 2026-08-09）。
+// 必要最小限だけ動かし、被らない位置にある要素は動かさない。
+//
+// env(safe-area-inset-*) は配置に使わない。横向きの iOS は左右へ対称に大きな値
+// （実測 iPhone 16 Pro で左右とも 59css-px）を返すが、Dynamic Island は片側の
+// 縦中央にしか無く、角丸回避に要る量（下記 16.8css-px）を遥かに超えて全UIを
+// 内側へ押し込む。実際「画面下の操作ボタン・HUD が余分に内側へ寄った」と実機で
+// 差し戻された。DOM側(#sound-gate 等)の env() 退避は別系統なのでそのまま。
+//
+// 角丸 R は JS から読めないため game.js 側で画面短辺から推定する（env() が 0 の
+// Android でも角丸で欠けるため、推定は必須）。
 // UI の配置は必ず getScreenSafeArea() を経由すること（描画と当たり判定の単一導出）。
-let _safeInsetL = 0;
-let _safeInsetR = 0;
-let _safeInsetT = 0;
-let _safeInsetB = 0;
 let _cornerInsetX = 0;
 let _cornerInsetY = 0;
-export function setSafeInsets(leftPx, rightPx, topPx = 0, bottomPx = 0) {
-    const px = (v) => (Number.isFinite(v) ? Math.max(0, v) : 0);
-    _safeInsetL = px(leftPx);
-    _safeInsetR = px(rightPx);
-    _safeInsetT = px(topPx);
-    _safeInsetB = px(bottomPx);
-}
 export function setCornerInsets(xPx, yPx) {
     const px = (v) => (Number.isFinite(v) ? Math.max(0, v) : 0);
     _cornerInsetX = px(xPx);
     _cornerInsetY = px(yPx);
 }
 // UI を置いてよい内側矩形の各辺マージン（スクリーン論理px）。
-// セーフエリアと角丸クリアランスの大きい方を採る（両者は同じ「端の食われ」を
-// 別経路で見積もった値なので、足すと過剰に内側へ寄る）。
 export function getScreenSafeArea() {
     return {
-        left: Math.max(_safeInsetL, _cornerInsetX),
-        right: Math.max(_safeInsetR, _cornerInsetX),
-        top: Math.max(_safeInsetT, _cornerInsetY),
-        bottom: Math.max(_safeInsetB, _cornerInsetY),
+        left: _cornerInsetX,
+        right: _cornerInsetX,
+        top: _cornerInsetY,
+        bottom: _cornerInsetY,
     };
 }
 
@@ -310,15 +302,15 @@ export function isVirtualPadVisible() { return _virtualPadVisible; }
 export function getPadLayout() {
     const s = _uiScale;
     const pad = VIRTUAL_PAD;
-    // 下部パッド(スティック/ポーズ/攻撃/忍具/奥義/転身)は従来位置を維持する。
-    // 角丸クリアランス込み(getScreenSafeArea)で四辺退避させたところ、実機で
-    // 「元の位置で問題なかった」とのフィードバックがあり旧挙動へ戻した(2026-08-09)。
-    // 左右はノッチ実値(env)のみ退避・下は固定マージン。
-    // 上端の BGM ボタンだけは角丸・ノッチに実際に欠けるため退避を維持する。
+    // 下部パッド(スティック/ポーズ/攻撃/忍具/奥義/転身)は端の退避を一切かけない。
+    // 自前のマージン(横 SAFE_MARGIN_X=150・下 BOTTOM_MARGIN=140 論理px、s倍)だけで
+    // 既に角丸の外側にあるため（拡大時の実クリアランスは 0.72×76≒55css-px 一定、
+    // 角丸R≒短辺11%≒44css-px より大きい）。実機でも「元の位置で問題なかった」。
+    // 上端の BGM ボタンだけは画面端に貼り付くので角丸退避をかける。
     const safe = getScreenSafeArea();
     const bottomY = CANVAS_HEIGHT - pad.BOTTOM_MARGIN * s;
-    const rightX = SCREEN_WIDTH - _safeInsetR - pad.SAFE_MARGIN_X * s;
-    const stickX = _safeInsetL + (pad.SAFE_MARGIN_X + pad.STICK.x) * s;
+    const rightX = SCREEN_WIDTH - pad.SAFE_MARGIN_X * s;
+    const stickX = (pad.SAFE_MARGIN_X + pad.STICK.x) * s;
     const stickY = bottomY + pad.STICK.y * s;
     return {
         s,
