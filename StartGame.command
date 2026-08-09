@@ -17,6 +17,10 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 PORT = 8080
 
+# 保存を一切許さない（＝毎回まるごと取り直す）拡張子。コードだけを対象にする。
+# これ以外（画像・音）は再検証つきキャッシュにして再ダウンロードを避ける。
+NO_STORE_EXTENSIONS = ('.html', '.htm', '.js', '.mjs', '.css', '.json', '.map')
+
 def kill_port_owner(port):
     """指定されたポートを使用しているプロセスがあれば終了させる（macOS用）"""
     try:
@@ -33,7 +37,7 @@ def kill_port_owner(port):
         pass
 
 class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
-    """キャッシュを完全に無効化し、index.htmlに動的バージョンを付与する開発用ハンドラ"""
+    """コードのキャッシュを無効化し、index.htmlに動的バージョンを付与する開発用ハンドラ"""
     def do_GET(self):
         # index.html の場合は内容を読み込んで JS のバージョンを動的に書き換える
         if self.path == '/' or self.path == '/index.html':
@@ -61,13 +65,18 @@ class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def end_headers(self):
-        # 全てのファイル（JS/CSS等）に対してキャッシュ無効化ヘッダーを付与
-        self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0')
-        self.send_header('Pragma', 'no-cache')
-        self.send_header('Expires', '0')
-        # ブラウザのキャッシュ判断指標を無効化
-        if 'Last-Modified' in self.headers: del self.headers['Last-Modified']
-        if 'ETag' in self.headers: del self.headers['ETag']
+        # キャッシュ方針をファイル種別で分ける。
+        # - コード(HTML/JS/CSS): no-store。ES module は推移的 import が古いまま残ると
+        #   新旧が混ざって事故るので、一切保存させない（従来どおり）。
+        # - アセット(画像/音): no-cache。毎回サーバへ問い合わせるが、更新が無ければ
+        #   304 が返りボディは流れない＝差し替えは即反映されるのに再ダウンロードは無い。
+        #   背景画像だけで全ステージ77MBあり、no-store だとリロードのたびに再取得になる。
+        if self.path.split('?')[0].lower().endswith(NO_STORE_EXTENSIONS):
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
+        else:
+            self.send_header('Cache-Control', 'no-cache')
         super().end_headers()
     
     def log_message(self, format, *args):

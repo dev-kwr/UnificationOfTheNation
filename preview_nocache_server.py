@@ -34,11 +34,21 @@ def resolve_port():
     return port
 
 
+# 保存を一切許さない（＝毎回まるごと取り直す）拡張子。コードだけを対象にする。
+NO_STORE_EXTENSIONS = (".html", ".htm", ".js", ".mjs", ".css", ".json", ".map")
+
+
 class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
-        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0")
-        self.send_header("Pragma", "no-cache")
-        self.send_header("Expires", "0")
+        # コード(HTML/JS/CSS)は no-store。アセット(画像/音)は no-cache＝毎回再検証するが
+        # 更新が無ければ 304 でボディは流れない。背景画像は全ステージで77MBあり、
+        # no-store だとリロードのたびに再取得になる。
+        if self.path.split("?")[0].lower().endswith(NO_STORE_EXTENSIONS):
+            self.send_header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+        else:
+            self.send_header("Cache-Control", "no-cache")
         super().end_headers()
 
     def log_message(self, fmt, *args):
