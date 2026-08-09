@@ -45,7 +45,7 @@ const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
 import { Player } from './player.js?v=screen-safe-20260809a';
 import { createSubWeapon } from './weapon.js?v=screen-safe-20260809a';
-import { Stage, preloadStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260809a';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260809a';
 import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260809a';
 import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260809a';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260809a';
@@ -65,6 +65,8 @@ const CORNER_CLEARANCE_RATIO = 0.38;
 // 背景アセットのロード待ちの上限(ms)。これを超えたら揃っていなくても開始する
 // （回線不良や404で永久に暗転したままにならないための打ち切り）。
 const STAGE_ASSET_WAIT_MAX_MS = 4000;
+// ステージ開始から次ステージの先読みを始めるまでの猶予(ms)。
+const NEXT_STAGE_PREFETCH_DELAY_MS = 5000;
 
 const DAMAGE_NUMBER_DESCENT_FADE_MIN_SPAN = 24;
 const DAMAGE_NUMBER_GROUND_Y_OFFSET = 2;
@@ -223,7 +225,16 @@ class Game {
         this.stageTransitionPhase = 0; // 0: None, 1: FadeOut, 2: Wait, 3: FadeIn
         // 背景アセットのロード待ち（{ stageNumber, waitMs } / 待ちなしは null）
         this.pendingStageStart = null;
+        // 次ステージ先読みの開始までの残り時間(ms)。0 以下で発火済み/未予約。
+        this._nextStagePrefetchMs = 0;
+        this._prefetchedStageNumber = 0;
+        this._prefetchedTitleStage = false;
         
+        // よろず屋（購入スキル/強化段階の正本）。save.js が `game.shop` 経由で
+        // 参照するため、シングルトンをここで保持する。未設定だと購入内容が
+        // セーブされず、「続きから」で二段跳び・韋駄天・剛力が消える。
+        this.shop = shop;
+
         // 影レンダー
         this.shadowRenderer = new ShadowRenderer();
         
@@ -1080,9 +1091,13 @@ class Game {
     
     continueGame(saveData) {
         if (!saveData) return;
-        
+
+        // セーブ内容で上書きする前に購入状態を空へ戻す。applyToPlayer は
+        // スキルを add() で足すので、直前のプレイの購入が混ざるのを防ぐ。
+        shop.reset();
+
         // 武器作成関数をインポート
-        import('./weapon.js?v=boss-crest-tip-20260807g').then(module => {
+        import('./weapon.js?v=screen-safe-20260809a').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
@@ -1162,6 +1177,9 @@ class Game {
     
     startStage() {
         this.pendingStageStart = null; // 待ちは解消済み（直接呼ばれた場合の保険）
+        // 次ステージの先読み開始までの猶予。開始直後は現ステージのデコードと
+        // 競合するので少し置いてから流す。
+        this._nextStagePrefetchMs = NEXT_STAGE_PREFETCH_DELAY_MS;
         // 地面の高さを本来のゲーム位置にリセット
         this.groundY = Math.round(CANVAS_HEIGHT * (2 / 3));
 
@@ -1540,6 +1558,7 @@ class Game {
             this.hasSave = saveManager.hasSave();
             this.titleSaveCheckTimerMs = 700;
         }
+        this.prefetchFirstStageAssets();
         const globalData = saveManager.loadGlobal();
         const isCleared = globalData.isGameCleared;
         const titleOptionCount = (this.hasSave || isCleared) ? 2 : 1;
@@ -2487,6 +2506,13 @@ class Game {
     }
 
     updatePlaying() {
+        // 現ステージの読み込み/デコードが落ち着いた頃に、次ステージの先読みを始める。
+        // クリアまで数分あるので、幕間に着く頃には揃っている。
+        if (this._nextStagePrefetchMs > 0) {
+            this._nextStagePrefetchMs -= this.deltaTime * 1000;
+            if (this._nextStagePrefetchMs <= 0) this.prefetchNextStageAssets();
+        }
+
         // ポーズ
         if (input.isActionJustPressed('PAUSE')) {
             this.pauseReturnState = GAME_STATE.PLAYING;
@@ -5456,14 +5482,31 @@ class Game {
         }
     }
     
-    // 幕間(ステータス画面/よろず屋)に居る間に次ステージの背景を読み始める。
-    // 遷移の暗転1.6秒だけでは大きな背景(ステージによっては十数MB)が間に合わず、
-    // 開始待ちの暗転が伸びてしまう。装備を選んでいる時間を先読みに充てる。
+    // タイトルで待っている間に「最初に始まるステージ」の背景を先読みしておく。
+    // 続きからがあればその再開ステージ、無ければ第一ステージ。ここで読めていれば
+    // 出陣直後の暗転待ちがゼロになる（1ステージ分だけ・低優先）。
+    prefetchFirstStageAssets() {
+        if (this._prefetchedTitleStage) return;
+        this._prefetchedTitleStage = true;
+        let stageNumber = 1;
+        try {
+            const saved = saveManager.load();
+            const n = saved?.progress?.currentStage;
+            if (Number.isFinite(n) && n >= 1 && n <= STAGES.length) stageNumber = n;
+        } catch { /* セーブが壊れていても第一ステージを先読みすればよい */ }
+        prefetchStageImages(stageNumber);
+    }
+
+    // 次ステージの背景を先読みする。プレイ中(数分)と幕間から呼ばれるので、
+    // 遷移の暗転1.6秒では間に合わない大きな背景(ステージによっては十数MB)も
+    // クリアする頃には揃っている。低優先の逐次ダウンロードなのでプレイ中の
+    // 帯域は奪わない。1ステージ先までに留めるのはメモリと通信量のため
+    // （全6ステージ分は 77MB / デコード後 248MB ある）。
     prefetchNextStageAssets() {
         const next = this.currentStageNumber + 1;
         if (next > STAGES.length || this._prefetchedStageNumber === next) return;
         this._prefetchedStageNumber = next;
-        preloadStageImages(next);
+        prefetchStageImages(next);
     }
 
     updateStageClear() {

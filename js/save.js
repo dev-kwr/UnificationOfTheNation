@@ -147,11 +147,15 @@ export class SaveManager {
             if (typeof player.rebuildSpecialCloneSlots === 'function') player.rebuildSpecialCloneSlots();
             if (typeof player.refreshSubWeaponScaling === 'function') player.refreshSubWeaponScaling();
         }
-        if (saveData.player.unlockedSkills) {
-            saveData.player.unlockedSkills.forEach(skillId => game.shop.purchasedSkills.add(skillId));
-        }
-        if (saveData.player.purchasedUpgrades && game.shop) {
-            game.shop.purchasedUpgrades = { ...saveData.player.purchasedUpgrades };
+        // よろず屋の購入状態（習得スキル・強化段階）を復元する。
+        // 呼び出し側(continueGame)が直前に shop.reset() 済みである前提。
+        if (game.shop) {
+            if (Array.isArray(saveData.player.unlockedSkills)) {
+                saveData.player.unlockedSkills.forEach(skillId => game.shop.purchasedSkills.add(skillId));
+            }
+            if (saveData.player.purchasedUpgrades) {
+                game.shop.purchasedUpgrades = { ...saveData.player.purchasedUpgrades };
+            }
         }
 
         // サブ武器の復元

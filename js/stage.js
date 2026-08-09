@@ -14,7 +14,7 @@ import {
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
 } from './stage6Grapple.js?v=screen-safe-20260809a';
-import { getImage, preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260809a';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260809a';
 
 // ============================================
 // ステージ背景アセットの単一ソース
@@ -140,9 +140,16 @@ export function getStageImageSources(stageNumber) {
     ];
 }
 
-// 暗転中に呼んでロードを先行させる（冪等）。
+// 「もう要る」ぶんの読み込み（暗転中〜開始直前）。即時・並列・デコードまで（冪等）。
 export function preloadStageImages(stageNumber) {
     preloadImages(getStageImageSources(stageNumber));
+}
+
+// 「そのうち要る」ぶんの先読み（タイトル・プレイ中の次ステージ）。
+// 低優先で1枚ずつ流し、データセーバー/低速回線では丸ごと見送る（冪等）。
+export function prefetchStageImages(stageNumber) {
+    if (shouldSkipPrefetch()) return;
+    prefetchImages(getStageImageSources(stageNumber));
 }
 
 // 先読みが決着したか（成功・失敗を問わない）。開始待ちの終了条件。
