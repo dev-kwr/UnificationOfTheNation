@@ -2,10 +2,10 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getScreenSafeArea, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809a';
-import { input } from './input.js?v=screen-safe-20260809a';
-import { audio } from './audio.js?v=screen-safe-20260809a';
-import { saveManager } from './save.js?v=screen-safe-20260809a';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getScreenSafeArea, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809b';
+import { input } from './input.js?v=screen-safe-20260809b';
+import { audio } from './audio.js?v=screen-safe-20260809b';
+import { saveManager } from './save.js?v=screen-safe-20260809b';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -564,7 +564,17 @@ export function getTitleScreenLayout() {
     const startY = diffY + 108;
     const buttonGap = 64;
     const isGameCleared = typeof saveManager !== 'undefined' && saveManager.loadGlobal().isGameCleared;
-    
+
+    // 右下⚙（デバッグ入口）。セーフエリア/角丸で内側へ退避するため位置が動的。
+    // 描画(renderTitleScreen)とタップ判定(game.updateTitle)は必ずここを読むこと
+    // （判定側を画面の角の固定矩形にすると、退避した見た目とヒットが必ずズレる）。
+    // anchorX/anchorY は fillText(right/bottom 揃え)へ渡す座標。
+    const safe = getScreenSafeArea();
+    const gearFont = 24 * getFontScale();
+    const gearAnchorX = SCREEN_WIDTH - safe.right - 18;
+    const gearAnchorY = CANVAS_HEIGHT - safe.bottom - 14;
+    const gearHitHalf = Math.max(52, gearFont); // 小さな⚙でも指で押せる寛容半径
+
     return {
         centerX,
         diffY,
@@ -573,7 +583,18 @@ export function getTitleScreenLayout() {
         newGameY: startY + buttonGap * 0.5 + buttonGap,
         singleStartY: startY + buttonGap * 0.5,
         diffButton: { width: 230, height: 44 },
-        actionButton: { width: 280, height: 48 }
+        actionButton: { width: 280, height: 48 },
+        gear: {
+            anchorX: gearAnchorX,
+            anchorY: gearAnchorY,
+            font: gearFont,
+            hit: {
+                x: gearAnchorX - gearFont * 0.5 - gearHitHalf,
+                y: gearAnchorY - gearFont * 0.5 - gearHitHalf,
+                w: gearHitHalf * 2,
+                h: gearHitHalf * 2
+            }
+        }
     };
 }
 
@@ -1701,15 +1722,16 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
 
     
     // 右下デバッグモードヒント（⚙アイコン）。画面の角は端末の角丸に食われるため退避する。
+    // 位置・タップ判定は getTitleScreenLayout().gear が単一導出。
     {
-        const safe = getScreenSafeArea();
+        const gear = layout.gear;
         ctx.save();
         ctx.globalAlpha = 0.25 + Math.sin(time * 0.002) * 0.08;
-        ctx.font = `${24 * getFontScale()}px "Zen Old Mincho", serif`;
+        ctx.font = `${gear.font}px "Zen Old Mincho", serif`;
         ctx.fillStyle = '#aabbcc';
         ctx.textAlign = 'right';
         ctx.textBaseline = 'bottom';
-        ctx.fillText('⚙', SCREEN_WIDTH - safe.right - 18, CANVAS_HEIGHT - safe.bottom - 14);
+        ctx.fillText('⚙', gear.anchorX, gear.anchorY);
         ctx.restore();
     }
 

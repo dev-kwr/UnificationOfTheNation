@@ -2,7 +2,7 @@
 // Unification of the Nation - 定数定義
 // ============================================
 
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260809a';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260809b';
 
 // キャンバスサイズ
 // CANVAS_WIDTH = 可視ワールド幅（ゲームプレイ窓）。世界ロジック(カメラ/クランプ/
@@ -310,11 +310,15 @@ export function isVirtualPadVisible() { return _virtualPadVisible; }
 export function getPadLayout() {
     const s = _uiScale;
     const pad = VIRTUAL_PAD;
-    // 四辺ともセーフエリア/角丸の内側へ退避する。スクリーン右端は SCREEN_WIDTH 基準。
+    // 下部パッド(スティック/ポーズ/攻撃/忍具/奥義/転身)は従来位置を維持する。
+    // 角丸クリアランス込み(getScreenSafeArea)で四辺退避させたところ、実機で
+    // 「元の位置で問題なかった」とのフィードバックがあり旧挙動へ戻した(2026-08-09)。
+    // 左右はノッチ実値(env)のみ退避・下は固定マージン。
+    // 上端の BGM ボタンだけは角丸・ノッチに実際に欠けるため退避を維持する。
     const safe = getScreenSafeArea();
-    const bottomY = CANVAS_HEIGHT - safe.bottom - pad.BOTTOM_MARGIN * s;
-    const rightX = SCREEN_WIDTH - safe.right - pad.SAFE_MARGIN_X * s;
-    const stickX = safe.left + (pad.SAFE_MARGIN_X + pad.STICK.x) * s;
+    const bottomY = CANVAS_HEIGHT - pad.BOTTOM_MARGIN * s;
+    const rightX = SCREEN_WIDTH - _safeInsetR - pad.SAFE_MARGIN_X * s;
+    const stickX = _safeInsetL + (pad.SAFE_MARGIN_X + pad.STICK.x) * s;
     const stickY = bottomY + pad.STICK.y * s;
     return {
         s,

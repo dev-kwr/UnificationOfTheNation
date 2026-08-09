@@ -2,10 +2,10 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setSafeInsets, setCornerInsets, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809a';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260809a';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260809a';
-import { input } from './input.js?v=screen-safe-20260809a';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setSafeInsets, setCornerInsets, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809b';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260809b';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260809b';
+import { input } from './input.js?v=screen-safe-20260809b';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -43,18 +43,18 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=screen-safe-20260809a';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260809a';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260809a';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260809a';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260809a';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260809a';
-import { saveManager } from './save.js?v=screen-safe-20260809a';
-import { shop } from './shop.js?v=screen-safe-20260809a';
-import { audio } from './audio.js?v=screen-safe-20260809a';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260809a';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260809a';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260809a';
+import { Player } from './player.js?v=screen-safe-20260809b';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260809b';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260809b';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260809b';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260809b';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260809b';
+import { saveManager } from './save.js?v=screen-safe-20260809b';
+import { shop } from './shop.js?v=screen-safe-20260809b';
+import { audio } from './audio.js?v=screen-safe-20260809b';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260809b';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260809b';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260809b';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -1097,7 +1097,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260809a').then(module => {
+        import('./weapon.js?v=screen-safe-20260809b').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
@@ -1643,8 +1643,11 @@ class Game {
             const layout = getTitleScreenLayout(this.hasSave);
             const centerX = layout.centerX;
 
-            // 右下コーナータッチでデバッグウィンドウ開閉
-            if (tX > SCREEN_WIDTH - 120 && tY > CANVAS_HEIGHT - 100) {
+            // 右下⚙タッチでデバッグウィンドウ開閉（描画と同じ layout.gear を読む。
+            // ⚙はセーフエリア退避で内側へ動くため、画面の角の固定矩形では見た目とズレる）
+            const gearHit = layout.gear.hit;
+            if (tX >= gearHit.x && tX <= gearHit.x + gearHit.w &&
+                tY >= gearHit.y && tY <= gearHit.y + gearHit.h) {
                 this.titleDebugOpen = !this.titleDebugOpen;
                 const count = this.getTitleDebugEntries().length;
                 this.titleDebugCursor = Math.max(0, Math.min(count - 1, this.titleDebugCursor));
