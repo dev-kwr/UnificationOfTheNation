@@ -2,7 +2,7 @@
 // Unification of the Nation - 定数定義
 // ============================================
 
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260809f';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260809g';
 
 // キャンバスサイズ
 // CANVAS_WIDTH = 可視ワールド幅（ゲームプレイ窓）。世界ロジック(カメラ/クランプ/
@@ -207,10 +207,10 @@ export const VIRTUAL_PAD = {
     STICK_DASH_RELEASE_THRESHOLD: 0.82,
     STICK_UP_THRESHOLD: -0.44,
     STICK_DOWN_THRESHOLD: 0.38,
-    // ポーズは左端ライン(getUiLeftEdge)へ左揃えするので x は使わない。
-    // y はスティック中心からの下方向オフセット。左端へ寄せたぶんスティックへ
-    // 近づくので、円が重ならない値まで下げてある（実測で重なり0を確認）。
-    PAUSE_BUTTON: { x: -104, y: 62 },
+    // スティック中心からの相対配置（左下）。この相対関係は崩さない
+    // ＝左端を揃えるときはポーズだけでなくスティックごと動かす
+    // （ポーズだけ寄せるとスティックの円に食い込む）。
+    PAUSE_BUTTON: { x: -104, y: 50 },
 
     // 上部UIボタン（全画面共通・右上固定）
     BGM_BUTTON_MARGIN_TOP: 40,
@@ -316,6 +316,13 @@ export function getUiLeftEdge() {
     return Math.max(_cornerInsetX + HUD_PANEL_X * _uiScale, _notchInsetX);
 }
 
+// 画面の縦いっぱいに広がるパネル（タイトルのデバッグウィンドウ等）の左右退避。
+// 縦中央のノッチ帯に必ず掛かるうえ、横持ちの向きで帯が左右どちらにも来るため
+// 両側とも避ける。下部パッドのような「帯に掛からないUI」には使わないこと。
+export function getFullHeightSideInset() {
+    return Math.max(_cornerInsetX, _notchInsetX);
+}
+
 // 右上BGMボタンを描いているか（デバッグウィンドウ表示中は隠す）の単一ソース。
 // 描画(game.render)が毎フレーム申告し、判定(input.getBgmButtonHitArea)が読む。
 // 隠しているのに判定だけ生きていると、メニュー項目を押したつもりが消音になる。
@@ -354,7 +361,13 @@ export function getPadLayout() {
     const safe = getScreenSafeArea();
     const bottomY = CANVAS_HEIGHT - pad.BOTTOM_MARGIN * s;
     const rightX = SCREEN_WIDTH - pad.SAFE_MARGIN_X * s;
-    const stickX = (pad.SAFE_MARGIN_X + pad.STICK.x) * s;
+    // 左側は「ポーズボタンの左端が画面左の共通ライン(getUiLeftEdge)に乗る」位置へ
+    // クラスタごと寄せる。ポーズだけ寄せるとスティックの円に食い込むため
+    // （実機で重なりを指摘された 2026-08-09）、相対配置は崩さない。
+    // パッドを描かないPCは従来式のまま＝ピクセル不変。
+    const stickX = isTouchOverlayMode()
+        ? getUiLeftEdge() + (pad.PAUSE_BUTTON_RADIUS - pad.PAUSE_BUTTON.x) * s
+        : (pad.SAFE_MARGIN_X + pad.STICK.x) * s;
     const stickY = bottomY + pad.STICK.y * s;
     // 操作ボタン群の右端ライン（＝画面端から 76*s）。BGMボタンの右揃え先。
     const padRightEdge = rightX + (pad.ATTACK.x + pad.ATTACK_BUTTON_RADIUS) * s;
@@ -368,8 +381,8 @@ export function getPadLayout() {
             maxDistance: pad.STICK_MAX_DISTANCE * s,
             touchRadius: pad.STICK_TOUCH_RADIUS * s
         },
-        // ポーズは左端を左上HUDパネルの左端(getUiLeftEdge)へ揃える。
-        pause:   { x: getUiLeftEdge() + pad.PAUSE_BUTTON_RADIUS * s, y: stickY + pad.PAUSE_BUTTON.y * s, r: pad.PAUSE_BUTTON_RADIUS * s },
+        // ポーズはスティック相対（上の stickX が左端ラインを担保している）。
+        pause:   { x: stickX + pad.PAUSE_BUTTON.x * s, y: stickY + pad.PAUSE_BUTTON.y * s, r: pad.PAUSE_BUTTON_RADIUS * s },
         attack:  { x: rightX + pad.ATTACK.x * s,     y: bottomY + pad.ATTACK.y * s,     r: pad.ATTACK_BUTTON_RADIUS * s },
         sub:     { x: rightX + pad.SUB_WEAPON.x * s, y: bottomY + pad.SUB_WEAPON.y * s, r: pad.AUX_BUTTON_RADIUS * s },
         special: { x: rightX + pad.SPECIAL.x * s,    y: bottomY + pad.SPECIAL.y * s,    r: pad.AUX_BUTTON_RADIUS * s },

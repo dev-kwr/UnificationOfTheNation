@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809f';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809g';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260809f';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260809g';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -13,9 +13,9 @@ const HUD_TEXT_SCALE = 0.88;
 
 // タイトル左下の更新通知。文言長がカード幅の元になるので定数で持つ。
 const UPDATE_NOTICE_TEXT = '新しい版があります（タップで更新）';
-import { input } from './input.js?v=screen-safe-20260809f';
-import { audio } from './audio.js?v=screen-safe-20260809f';
-import { saveManager } from './save.js?v=screen-safe-20260809f';
+import { input } from './input.js?v=screen-safe-20260809g';
+import { audio } from './audio.js?v=screen-safe-20260809g';
+import { saveManager } from './save.js?v=screen-safe-20260809g';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -638,9 +638,12 @@ export function getTitleScreenLayout() {
         singleStartY: startY,
         diffButton,
         actionButton,
-        // 文字は実寸アンカー(fontScale)で。幾何と別倍率なのは他のUIと同じ方針。
-        actionFontPx: 22 * getFontScale(),
-        diffFontPx: 21 * getFontScale(),
+        // 文字は「幾何より少しだけ大きく、ただし fontScale ほどは上げない」。
+        // 実寸アンカー(fontScale=最大1.9)をそのまま掛けると枠に対して大きすぎた
+        // （実機フィードバック 2026-08-09）。上限を uiScale に紐付けておけば
+        // 文字がボタンの高さを追い越さない。PC(s=1)は従来値と同一。
+        actionFontPx: 22 * Math.min(getFontScale(), s * 1.05),
+        diffFontPx: 21 * Math.min(getFontScale(), s * 1.05),
         gear: {
             anchorX: gearAnchorX,
             anchorY: gearAnchorY,
@@ -1844,9 +1847,11 @@ export function getTitleDebugLayout(entriesCount) {
     const fit = getFitScale() || 1;
     const px = (css) => css / fit;   // 実寸css → スクリーン論理px
 
-    // 使ってよい矩形（角丸の内側）
-    const availX = safe.left + px(10);
-    const availW = SCREEN_WIDTH - safe.left - safe.right - px(20);
+    // 使ってよい矩形。縦いっぱいのパネルなので左右はノッチ帯も避ける
+    // （横持ちの向きで帯が左右どちらにも来るため両側）。
+    const side = getFullHeightSideInset();
+    const availX = side + px(10);
+    const availW = SCREEN_WIDTH - side * 2 - px(20);
     const availY = safe.top + px(8);
     const availH = CANVAS_HEIGHT - safe.top - safe.bottom - px(16);
 
@@ -1876,7 +1881,7 @@ export function getTitleDebugLayout(entriesCount) {
 
     // 1列のときは従来どおり右寄せパネル（PCの見た目を変えない）。
     const panelX = cols === 1
-        ? SCREEN_WIDTH - safe.right - panelW - 40
+        ? SCREEN_WIDTH - side - panelW - 40
         : availX;
 
     const panelH = Math.min(availH, headerH + rowsPerCol * rowH + padBottom);

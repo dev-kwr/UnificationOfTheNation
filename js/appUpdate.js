@@ -27,29 +27,44 @@ const RUNNING_TOKEN = readRunningToken();
 let _updateAvailable = false;
 let _checking = false;
 let _lastCheckedAt = 0;
+// 最後の確認結果。デバッグメニューに出して「なぜ通知が出ないのか」を見えるようにする
+// （出ない理由が「最新だから」なのか「確認に失敗しているから」なのか区別できないと詰む）。
+let _status = RUNNING_TOKEN ? '未確認' : 'トークン不明';
+let _deployedToken = null;
 
 export function isUpdateAvailable() { return _updateAvailable; }
 export function getRunningToken() { return RUNNING_TOKEN; }
+export function getUpdateStatus() { return _status; }
+export function getDeployedToken() { return _deployedToken; }
 
 // 配信中の index.html を取り直してトークンを比較する。
 // no-store でブラウザキャッシュを、?cb= で CDN（GitHub Pages）のキャッシュを外す。
-export async function checkForUpdate() {
+export async function checkForUpdate(force = false) {
     if (_checking || !RUNNING_TOKEN || typeof fetch !== 'function') return _updateAvailable;
-    // 復帰のたびに叩かないよう最短間隔を設ける（30秒）。
+    // 復帰のたびに叩かないよう最短間隔を設ける（30秒）。手動確認は素通し。
     const now = Date.now();
-    if (now - _lastCheckedAt < 30000) return _updateAvailable;
+    if (!force && now - _lastCheckedAt < 30000) return _updateAvailable;
     _checking = true;
     _lastCheckedAt = now;
+    _status = '確認中';
     try {
         const url = new URL('index.html', window.location.href);
         url.searchParams.set('cb', now.toString(36));
         const res = await fetch(url.toString(), { cache: 'no-store' });
-        if (!res.ok) return _updateAvailable;
+        if (!res.ok) { _status = `失敗(${res.status})`; return _updateAvailable; }
         const html = await res.text();
         const m = html.match(TOKEN_RE);
-        if (m && m[1] && m[1] !== RUNNING_TOKEN) _updateAvailable = true;
-    } catch {
+        if (!m || !m[1]) { _status = '版が読めず'; return _updateAvailable; }
+        _deployedToken = m[1];
+        if (m[1] !== RUNNING_TOKEN) {
+            _updateAvailable = true;
+            _status = '新版あり';
+        } else {
+            _status = '最新';
+        }
+    } catch (e) {
         // オフライン等。次の機会に再試行するだけで、ゲーム進行には影響させない。
+        _status = '通信不可';
     } finally {
         _checking = false;
     }
