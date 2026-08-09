@@ -5636,7 +5636,7 @@ class Game {
             if (input.isActionJustPressed('CONFIRM') || input.wasScreenTapped()) {
                 audio.playSelect();
                 input.consumeAction('CONFIRM');
-                // ステータス画面へは直行せず、全体マップで進軍先を選んでから入る
+                // ステータス画面へは直行せず、全体マップで行き先を選んでから入る
                 this.enterStageSelect();
             }
             return;
@@ -5829,7 +5829,7 @@ class Game {
         }
     }
 
-    // セレクトで進軍先を決めた後のステータス画面（STAGE_CLEAR Phase1 を流用）。
+    // セレクトで行き先を決めた後のステータス画面（STAGE_CLEAR Phase1 を流用）。
     // pendingStageSelection は「準備完了」が読む。よろず屋を経由しても保持される。
     enterStatusScreenForStage(stageNumber) {
         this.pendingStageSelection = stageNumber;

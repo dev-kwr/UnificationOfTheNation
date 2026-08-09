@@ -1,7 +1,7 @@
 // ============================================
 // Unification of the Nation - ステージセレクト（全体マップ）
 // ============================================
-// クリア演出のあと、全体マップから進軍先を選ぶ画面。
+// クリア演出のあと、全体マップから行き先を選ぶ画面。
 // 描画(renderStageSelect)とタップ判定(game.updateStageSelect)は必ず
 // getStageSelectLayout() を共有すること（座標式の複製はヒットずれの元）。
 //
@@ -14,16 +14,18 @@ import { drawWafuCard, fillTextInkCentered, drawScreenManualLine } from './ui.js
 
 // ノード定義。kind: main=本編 / bonus=小判蔵 / training=道場。
 // bonus/training はフェーズ2で解放（データだけ先に持ち、表示は main のみ）。
+// 座標は images/world_map.png(Codex/gpt-image 生成)の実ランドマーク位置に合わせて調整済み。
+// 画像を再生成したらここを目視で微調整する。
 export const WORLD_MAP_NODES = [
-    { id: 1, kind: 'main', u: 0.10, v: 0.72 },
-    { id: 2, kind: 'main', u: 0.26, v: 0.55 },
-    { id: 3, kind: 'main', u: 0.42, v: 0.38 },
-    { id: 4, kind: 'main', u: 0.60, v: 0.52 },
-    { id: 5, kind: 'main', u: 0.76, v: 0.40 },
-    // 6 はスマホ(wide)の縦クロップで上へ寄るため、右上のBGMボタンと重ならない高さにする
-    { id: 6, kind: 'main', u: 0.88, v: 0.30 },
-    { id: 'bonus1', kind: 'bonus', u: 0.34, v: 0.68 },
-    { id: 'training1', kind: 'training', u: 0.52, v: 0.25 },
+    { id: 1, kind: 'main', u: 0.13, v: 0.63 },   // 竹林（左下・光る竹やぶ）
+    { id: 2, kind: 'main', u: 0.30, v: 0.67 },   // 街道（茅葺きの宿場）
+    { id: 3, kind: 'main', u: 0.50, v: 0.45 },   // 山道（杉の峠道）
+    { id: 4, kind: 'main', u: 0.68, v: 0.60 },   // 城下町（瓦屋根の町並み）
+    { id: 5, kind: 'main', u: 0.86, v: 0.49 },   // 城内（石垣と城門）
+    // 6 はスマホ(wide)の縦クロップで上へ寄るため、右上のBGMボタンとの重なりに注意
+    { id: 6, kind: 'main', u: 0.85, v: 0.27 },   // 天守閣（月を背負う）
+    { id: 'bonus1', kind: 'bonus', u: 0.42, v: 0.78 },      // 小判蔵（鳥居の脇道）
+    { id: 'training1', kind: 'training', u: 0.385, v: 0.41 } // 道場（滝のそば）
 ];
 
 // フォールバック座標系（画像未配置のとき）。生成指示と同じ 1536x1024 を仮想画像として
@@ -214,7 +216,7 @@ export function renderStageSelect(ctx, opts = {}) {
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(240, 246, 255, 0.92)';
     ctx.font = `700 ${Math.round(L.headerFont)}px "Zen Old Mincho", serif`;
-    fillTextInkCentered(ctx, '進軍先を選べ', SCREEN_WIDTH / 2, L.headerY);
+    fillTextInkCentered(ctx, '行き先を選べ', SCREEN_WIDTH / 2, L.headerY);
     ctx.restore();
 
     const sel = L.nodes.find(n => n.id === cursor);
@@ -228,7 +230,7 @@ export function renderStageSelect(ctx, opts = {}) {
         fillTextInkCentered(ctx, `第${sel.id}階層　${sel.name}`, c.x + c.w / 2, c.y + c.h * 0.38);
         ctx.fillStyle = 'rgba(214, 228, 255, 0.85)';
         ctx.font = `500 ${Math.round(c.subFont)}px "Zen Old Mincho", serif`;
-        const stateText = sel.id <= maxCleared ? '制圧済み（再戦できる）' : '未踏の地';
+        const stateText = sel.id <= maxCleared ? '踏破済み（再び挑める）' : '未踏の地';
         fillTextInkCentered(ctx, stateText, c.x + c.w / 2, c.y + c.h * 0.74);
         ctx.restore();
     }

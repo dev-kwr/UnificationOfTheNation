@@ -68,9 +68,21 @@ Subdued contrast so game UI can be layered on top.
 2. ゲームを起動してセレクト画面を確認。ノード位置が絵とずれていたら
    `js/stageSelect.js` の `WORLD_MAP_NODES` の u,v を微調整(画像内比率なので画像サイズ変更にも耐える)。
 
-## API で自動生成する場合(任意)
+## 自動生成(推奨: Codex CLI ＝ ChatGPT サブスク内・APIキー不要)
 
-OpenAI の課金アカウントと API キーが必要。
+Codex CLI の組み込み画像生成(imagegen / gpt-image 系)を使う。従量課金は発生しない。
+
+```bash
+sh tools/generate-worldmap-codex.sh
+```
+
+- 必要: Codex CLI 0.147 以降(`npm i -g @openai/codex`)+ `codex login`(ChatGPT アカウント)
+- `images/world_map.png` へ直接上書き保存される
+- 2026-08-10 の現行マップはこの経路で生成したもの
+
+## API で自動生成する場合(代替)
+
+OpenAI の課金アカウントと API キーが必要(従量課金)。
 
 ```bash
 OPENAI_API_KEY=sk-... node tools/generate-worldmap.mjs

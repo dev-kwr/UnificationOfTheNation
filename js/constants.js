@@ -105,7 +105,7 @@ export const GAME_STATE = {
     SHOP: 'shop',
     LEVEL_UP: 'levelUp',
     STAGE_CLEAR: 'stageClear',
-    STAGE_SELECT: 'stageSelect',   // 全体マップからの進軍先選択（クリア演出→ここ→ステータス画面）
+    STAGE_SELECT: 'stageSelect',   // 全体マップからの行き先選択（クリア演出→ここ→ステータス画面）
     GAME_CLEAR: 'gameClear',
     ENDING: 'ending',
     GAME_OVER: 'gameOver',
