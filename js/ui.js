@@ -2,20 +2,24 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809h';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809i';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260809h';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260809i';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
 // 幾何(uiScale)は変えないので枠・ゲージの寸法は不変。
 const HUD_TEXT_SCALE = 0.88;
 
-// タイトル左下の更新通知。文言長がカード幅の元になるので定数で持つ。
-const UPDATE_NOTICE_TEXT = '新しい版があります（タップで更新）';
-import { input } from './input.js?v=screen-safe-20260809h';
-import { audio } from './audio.js?v=screen-safe-20260809h';
-import { saveManager } from './save.js?v=screen-safe-20260809h';
+// 更新モーダルの文言。世界観より分かりやすさ優先（「版」は硬いので通じる言い方に）。
+// 文字数がカード幅の元になるので定数で持つ。
+const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
+const UPDATE_MODAL_BODY = '最新の状態に更新してください';
+const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
+const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
+import { input } from './input.js?v=screen-safe-20260809i';
+import { audio } from './audio.js?v=screen-safe-20260809i';
+import { saveManager } from './save.js?v=screen-safe-20260809i';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -618,27 +622,6 @@ export function getTitleScreenLayout() {
     const gearAnchorY = bottomLine;
     const gearHitHalf = Math.max(52, gearFont); // 小さな⚙でも指で押せる寛容半径
 
-    // 新版の通知（左下）。PWA はリロード手段が無いのでタップで更新できるようにする。
-    // 描画(renderTitleScreen)とタップ判定(game.updateTitle)の単一導出。
-    // 左端は画面左の共通ライン(getUiLeftEdge)、下端は上の bottomLine に乗せる。
-    // 幅は文字数から出す（全角なので 1文字≒1em。固定値だと fontScale 拡大時にはみ出す）。
-    // ただし中央の出陣ボタンへ食い込まない範囲までフォントを落とす（画面が
-    // 横に狭い端末でぶつかるのを構成的に防ぐ）。
-    const noticeX = getUiLeftEdge();
-    const noticeRoom = (centerX - actionButton.width * 0.5 - 12) - noticeX;
-    const noticeFont = Math.min(
-        13 * getFontScale(),
-        Math.max(9, noticeRoom / (UPDATE_NOTICE_TEXT.length + 1.6))
-    );
-    const noticeH = noticeFont * 2.4;
-    const notice = {
-        x: noticeX,
-        y: bottomLine - noticeFont * 2.4,
-        w: (UPDATE_NOTICE_TEXT.length + 1.6) * noticeFont,
-        h: noticeH,
-        font: noticeFont
-    };
-
     return {
         centerX,
         diffY,
@@ -664,9 +647,86 @@ export function getTitleScreenLayout() {
                 w: gearHitHalf * 2,
                 h: gearHitHalf * 2
             }
-        },
-        updateNotice: notice
+        }
     };
+}
+
+// 更新モーダル（画面中央）。新しいバージョンを検知したらこれで更新を促す。
+// PC/スマホ問わず全デバイスで出す。描画(renderUpdateModal)とタップ判定
+// (game.updateTitle)は必ずこの導出を共有すること。
+export function getUpdateModalLayout() {
+    // 文字は幾何より少し大きく、ただし fontScale ほどは上げない（タイトルボタンと同方針）。
+    const tf = Math.min(getFontScale(), getUiScale() * 1.15);
+    const titleFont = 22 * tf;
+    const bodyFont = 15 * tf;
+    const btnFont = 18 * tf;
+    const btnLabel = isTouchOverlayMode() ? UPDATE_MODAL_BUTTON_TOUCH : UPDATE_MODAL_BUTTON_KEY;
+
+    const pad = titleFont * 1.2;
+    const em = (text, font) => text.length * font;   // 全角1文字≒1em
+    const innerW = Math.max(
+        em(UPDATE_MODAL_TITLE, titleFont),
+        em(UPDATE_MODAL_BODY, bodyFont),
+        em(btnLabel, btnFont)
+    );
+    const cardW = Math.min(SCREEN_WIDTH - getFullHeightSideInset() * 2 - pad, innerW + pad * 2);
+
+    const padY = titleFont * 0.9;
+    const titleH = titleFont * 1.4;
+    const bodyH = bodyFont * 1.5;
+    const gapA = titleFont * 0.5;
+    const gapB = titleFont * 0.7;
+    const btnH = btnFont * 2.3;
+    const cardH = padY * 2 + titleH + gapA + bodyH + gapB + btnH;
+
+    const cardX = SCREEN_WIDTH / 2 - cardW / 2;
+    const cardY = Math.max(getScreenSafeArea().top + 8, (CANVAS_HEIGHT - cardH) / 2);
+    const titleY = cardY + padY + titleH / 2;
+    const bodyY = titleY + titleH / 2 + gapA + bodyH / 2;
+    const btnY = bodyY + bodyH / 2 + gapB;
+
+    return {
+        card: { x: cardX, y: cardY, w: cardW, h: cardH },
+        titleY, bodyY,
+        titleFont, bodyFont, btnFont, btnLabel,
+        button: { x: cardX + pad, y: btnY, w: cardW - pad * 2, h: btnH }
+    };
+}
+
+export function renderUpdateModal(ctx, timeMs = 0) {
+    const L = getUpdateModalLayout();
+    const c = L.card, b = L.button;
+    const pulse = 0.5 + Math.sin(timeMs * 0.004) * 0.5;
+
+    ctx.save();
+    // 背面を落として「これを片付けないと進めない」ことを見せる
+    ctx.fillStyle = 'rgba(2, 6, 18, 0.78)';
+    ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
+
+    drawWafuCard(ctx, c.x, c.y, c.w, c.h, { radius: 14, selected: false, pulse: 0, bgAlpha: 0.96 });
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#f2f7ff';
+    ctx.font = `700 ${Math.round(L.titleFont)}px "Zen Old Mincho", serif`;
+    fillTextInkCentered(ctx, UPDATE_MODAL_TITLE, c.x + c.w / 2, L.titleY);
+
+    ctx.fillStyle = 'rgba(214, 228, 255, 0.92)';
+    ctx.font = `500 ${Math.round(L.bodyFont)}px "Zen Old Mincho", serif`;
+    fillTextInkCentered(ctx, UPDATE_MODAL_BODY, c.x + c.w / 2, L.bodyY);
+
+    // 更新ボタン（この1つだけが押せる＝迷わせない）
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') ctx.roundRect(b.x, b.y, b.w, b.h, 10);
+    else ctx.rect(b.x, b.y, b.w, b.h);
+    ctx.fillStyle = 'rgba(46, 68, 122, 0.92)';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = `rgba(231, 196, 90, ${(0.6 + pulse * 0.4).toFixed(3)})`;
+    ctx.stroke();
+    ctx.fillStyle = '#ffe9b0';
+    ctx.font = `700 ${Math.round(L.btnFont)}px "Zen Old Mincho", serif`;
+    fillTextInkCentered(ctx, L.btnLabel, b.x + b.w / 2, b.y + b.h / 2);
+    ctx.restore();
 }
 
 export class UI {
@@ -1816,28 +1876,12 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
         ctx.restore();
     }
 
-    // 新版が配信されていれば左下に更新導線を出す（PWA はリロード手段が無いため）。
-    if (isUpdateAvailable()) {
-        const n = layout.updateNotice;
-        const glow = 0.5 + Math.sin(time * 0.004) * 0.5;
-        ctx.save();
-        ctx.beginPath();
-        if (typeof ctx.roundRect === 'function') ctx.roundRect(n.x, n.y, n.w, n.h, 8);
-        else ctx.rect(n.x, n.y, n.w, n.h);
-        ctx.fillStyle = 'rgba(16, 22, 40, 0.72)';
-        ctx.fill();
-        ctx.lineWidth = 1.5;
-        ctx.strokeStyle = `rgba(231, 196, 90, ${(0.55 + glow * 0.35).toFixed(3)})`;
-        ctx.stroke();
-        ctx.fillStyle = '#e7c45a';
-        ctx.textAlign = 'center';
-        ctx.font = `${Math.round(n.font)}px "Zen Old Mincho", serif`;
-        fillTextInkCentered(ctx, UPDATE_NOTICE_TEXT, n.x + n.w / 2, n.y + n.h / 2);
-        ctx.restore();
-    }
-
     // タイトル画面用の操作説明
     drawScreenManualLine(ctx, TITLE_MANUAL_TEXT);
+
+    // 新しいバージョンが配信されていれば中央モーダルで更新を促す（最後に描いて最前面）。
+    // PWA はリロード手段が無く、PCでも古いまま遊ばれるのを避けたいので全デバイスで出す。
+    if (isUpdateAvailable()) renderUpdateModal(ctx, time);
 }
 
 // デバッグウィンドウの幾何の単一導出。描画(renderTitleDebugWindow)と
@@ -2473,8 +2517,14 @@ export function getStatusScreenLayout() {
     const menuStartX = safe.left + 40;
     const menuGap = 20 * s;
     const menuW = (anchorRight - menuStartX - menuGap * 2) / 3;
+    // 幾何(s)はレイアウトが崩れるため 1.12 で頭打ち。その結果スマホでは文字が
+    // 実寸 8.8css-px まで縮んで読めなかった（実機フィードバック 2026-08-09）。
+    // 文字だけ実寸アンカー(fontScale)で持ち上げる。上限は行高に紐付けて、
+    // 文字が行や区切り線を追い越さないようにする。PC(s=1,fontScale=1)は 1.0。
+    const textScale = Math.max(s, Math.min(getFontScale(), rowH / 26));
     return {
         s,
+        textScale,
         infoPanel: { x: infoPanelX, y: infoPanelY, w: infoPanelW, h: infoPanelH },
         rowX: infoPanelX + rowInset,
         rowW: infoPanelW - rowInset * 2,
@@ -2503,6 +2553,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
     // レイアウトとスケールの単一導出（タップ判定 game.updateStageClear と共有）
     const L = getStatusScreenLayout();
     const s = L.s;
+    const tf = L.textScale;   // 文字だけの倍率（幾何は s。上限は行高に紐付け済み）
 
     const menuItems = [
         { title: `忍具：${selectedWeaponName}` },
@@ -2574,12 +2625,13 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
             const centerY = rowStartY + i * rowH + rowH / 2;
             ctx.textBaseline = 'middle';
             ctx.textAlign = 'left';
-            ctx.fillStyle = 'rgba(206, 222, 255, 0.7)';
-            ctx.font = `500 ${16 * s}px "Zen Old Mincho", serif`;
+            // ラベルは 0.7 だと小さい明朝の細い画がアンチエイリアスに食われて読めない。
+            ctx.fillStyle = 'rgba(232, 241, 255, 0.96)';
+            ctx.font = `600 ${16 * tf}px "Zen Old Mincho", serif`;
             ctx.fillText(row.label, rowX + 4 * s, centerY);
 
             ctx.fillStyle = row.color;
-            drawNumMixedText(ctx, row.value, rowX + rowW - 4 * s, centerY, 700, 19 * s, 'right');
+            drawNumMixedText(ctx, row.value, rowX + rowW - 4 * s, centerY, 700, 19 * tf, 'right');
 
             if (i < statRows.length - 1) {
                 ctx.strokeStyle = 'rgba(150, 178, 232, 0.14)';
@@ -2599,12 +2651,12 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
             drawWafuCard(ctx, x, cardY, cardW, cardH, { radius: 8 * s, accent: false, shadow: false, flat: true });
 
             ctx.textAlign = 'center';
-            ctx.fillStyle = 'rgba(216, 230, 255, 0.9)';
-            ctx.font = `700 ${14 * s}px "Zen Old Mincho", serif`;
+            ctx.fillStyle = 'rgba(228, 238, 255, 0.96)';
+            ctx.font = `700 ${14 * tf}px "Zen Old Mincho", serif`;
             ctx.fillText(card.title, x + cardW / 2, cardY + 28 * s);
 
-            ctx.fillStyle = '#cfe2ff';
-            ctx.font = `700 ${18 * s}px "Zen Old Mincho", serif`;
+            ctx.fillStyle = '#e2edff';
+            ctx.font = `700 ${18 * tf}px "Zen Old Mincho", serif`;
             ctx.fillText(card.detail, x + cardW / 2, cardY + 58 * s);
 
             const pipW = 20 * s, pipH = 6 * s, pipGap = 7 * s;
@@ -2635,9 +2687,9 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
 
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillStyle = selected ? '#ffffff' : 'rgba(224, 234, 255, 0.82)';
-            ctx.font = `700 ${22 * s}px "Zen Old Mincho", serif`;
-            ctx.fillText(item.title, r.x + r.w / 2, y + r.h / 2);
+            ctx.fillStyle = selected ? '#ffffff' : 'rgba(230, 239, 255, 0.92)';
+            ctx.font = `700 ${22 * tf}px "Zen Old Mincho", serif`;
+            fillTextInkCentered(ctx, item.title, r.x + r.w / 2, y + r.h / 2);
         });
         ctx.textBaseline = 'alphabetic';
 
