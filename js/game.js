@@ -2,11 +2,11 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible } from './constants.js?v=screen-safe-20260809l';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260809l';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260809l';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260809l';
-import { input } from './input.js?v=screen-safe-20260809l';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible } from './constants.js?v=screen-safe-20260810a';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260810a';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260810a';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260810a';
+import { input } from './input.js?v=screen-safe-20260810a';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -44,18 +44,18 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=screen-safe-20260809l';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260809l';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260809l';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260809l';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260809l';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260809l';
-import { saveManager } from './save.js?v=screen-safe-20260809l';
-import { shop } from './shop.js?v=screen-safe-20260809l';
-import { audio } from './audio.js?v=screen-safe-20260809l';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260809l';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260809l';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260809l';
+import { Player } from './player.js?v=screen-safe-20260810a';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260810a';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260810a';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260810a';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260810a';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260810a';
+import { saveManager } from './save.js?v=screen-safe-20260810a';
+import { shop } from './shop.js?v=screen-safe-20260810a';
+import { audio } from './audio.js?v=screen-safe-20260810a';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260810a';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260810a';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260810a';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -251,6 +251,9 @@ class Game {
         canvas.style.objectFit = 'contain';
         canvas.style.touchAction = 'none';
         canvas.tabIndex = 0;
+        // 起動時も container を実表示領域へ合わせてから canvas を組む
+        // （CSS の 100dvh は iOS の起動直後だと回転前の値のことがある）。
+        this.syncContainerToViewport();
         this.configureCanvasResolution();
 
         // 入力管理にキャンバスを渡す（タッチ座標用）
@@ -258,6 +261,10 @@ class Game {
 
         // リサイズイベント
         this.handleViewportResize = () => {
+            // container(CSS由来の 100vw/100dvh)を先に実表示領域へ合わせてから canvas を組む。
+            // 以前はここで container を同期しておらず、回転直後の古い container を基準に
+            // canvas を作ってしまう経路が残っていた。
+            this.syncContainerToViewport();
             this.configureCanvasResolution();
         };
         // iOS等では orientationchange/resize 直後に画面寸法が確定せず、
@@ -334,6 +341,16 @@ class Game {
         window.addEventListener('touchstart', resumeAudio);
     }
 
+    // 表示領域から fitScale を出す単一導出。configureCanvasResolution が実際に使う式と、
+    // ensureViewportSync の「今の canvas は正しい大きさか」の照合が必ず一致するように、
+    // ここだけに置く（式を複製すると自己修復の判定がすり抜ける）。
+    computeFitScale(availableWidth, availableHeight) {
+        return Math.max(0.1, Math.min(
+            availableWidth / SCREEN_WIDTH,
+            availableHeight / CANVAS_HEIGHT
+        ));
+    }
+
     configureCanvasResolution() {
         if (!this.canvas || !this.ctx) return;
 
@@ -352,16 +369,18 @@ class Game {
             document.documentElement.clientHeight ||
             CANVAS_HEIGHT
         );
-        const availableWidth = Math.max(containerWidth, viewportWidth, 1);
-        const availableHeight = Math.max(containerHeight, viewportHeight, 1);
-        
+        // 実表示領域は visualViewport(＝実際に見えている矩形)を最優先する。
+        // container は CSS の 100vw/100dvh 由来で、iOS の起動直後や回転直後は
+        // 回転前の値が残ることがある。ここで max を取ると「大きい方」＝古い値に
+        // 引っ張られ、canvas が画面より大きく作られて端が切れる
+        // （スマホ起動時にごく稀にクロップして見える原因）。
+        const availableWidth = Math.max(1, viewportWidth || containerWidth);
+        const availableHeight = Math.max(1, viewportHeight || containerHeight);
+
         // 極端に小さい（あるいはバグった）値を無視するための安全策
         if (availableWidth < 100 || availableHeight < 100) return;
 
-        const fitScale = Math.max(0.1, Math.min(
-            availableWidth / SCREEN_WIDTH,
-            availableHeight / CANVAS_HEIGHT
-        ));
+        const fitScale = this.computeFitScale(availableWidth, availableHeight);
         // HUD/仮想パッドの物理サイズアンカーを更新（タッチ端末のみ>1になる）
         setUiScaleFromFitScale(fitScale);
 
@@ -451,8 +470,12 @@ class Game {
         const ot = vv ? Math.round(vv.offsetTop) : 0;
         const ol = vv ? Math.round(vv.offsetLeft) : 0;
         const dpr = window.devicePixelRatio || 1;
-        if (vw === this._syncW && vh === this._syncH && dpr === this._syncDpr
-            && ot === this._syncOT && ol === this._syncOL) return;
+        const unchanged = (vw === this._syncW && vh === this._syncH && dpr === this._syncDpr
+            && ot === this._syncOT && ol === this._syncOL);
+        // 寸法が動いていなくても、canvas の実サイズが今の表示領域と食い違っていれば直す。
+        // 起動直後に一度ズレると以後どのイベントも発火せず、そのまま固まってしまうため
+        // （実機で「たまに変なクロップで起動し、回転し直すと直る」の再発防止）。
+        if (unchanged && !this.isCanvasSizeStale(vw, vh)) return;
         this._syncW = vw;
         this._syncH = vh;
         this._syncDpr = dpr;
@@ -460,6 +483,17 @@ class Game {
         this._syncOL = ol;
         this.syncContainerToViewport();
         this.configureCanvasResolution();
+    }
+
+    // 今の表示領域に対して canvas の CSS サイズが正しいか。
+    // configureCanvasResolution と同じ式(computeFitScale)・同じ丸めで突き合わせる。
+    isCanvasSizeStale(viewportWidth, viewportHeight) {
+        if (!this.canvas) return false;
+        if (!(viewportWidth >= 100 && viewportHeight >= 100)) return false;
+        const fitScale = this.computeFitScale(viewportWidth, viewportHeight);
+        const w = Math.max(1, Math.floor(SCREEN_WIDTH * fitScale));
+        const h = Math.max(1, Math.floor(CANVAS_HEIGHT * fitScale));
+        return this.canvas.style.width !== `${w}px` || this.canvas.style.height !== `${h}px`;
     }
 
     // 案内を出す条件は「再読み込みすれば実際に表示が変わる」ことに限る。
@@ -1094,7 +1128,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260809l').then(module => {
+        import('./weapon.js?v=screen-safe-20260810a').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
@@ -6043,6 +6077,18 @@ class Game {
         setBgmButtonVisible(showBgmButton);
         if (showBgmButton) this.ui.renderGlobalTouchButtons(this.ctx);
         
+        // ステージ遷移フェード（ステータス画面の「準備完了」からの暗転）。
+        // 他の幕と同じくBGMボタンより後ろで描く＝ボタンも一緒に暗転する。
+        if (this.stageTransitionPhase === 1 || this.stageTransitionPhase === 2) {
+            this.ctx.save();
+            const alpha = this.stageTransitionPhase === 2
+                ? 1
+                : Math.min(1.0, 1.0 - (this.stageTransitionTimer / 0.8));
+            this.ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+            this.ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
+            this.ctx.restore();
+        }
+
         // 背景アセット待ちの暗幕。どの画面から開始しても（幕間/よろず屋/イントロ）
         // 待っている間は真っ黒で繋ぐ ＝ 待ちが伸びても「暗転が少し長い」だけで、
         // 未ロードの絵が一瞬見えることはない。
@@ -6712,20 +6758,8 @@ class Game {
                 layer: 'ui'
             }, this.stage, this.ui);
         }
-
-        // ステージ遷移フェード
-        if (this.stageTransitionPhase === 1) {
-            this.ctx.save();
-            const alpha = Math.min(1.0, 1.0 - (this.stageTransitionTimer / 0.8));
-            this.ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
-            this.ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
-            this.ctx.restore();
-        } else if (this.stageTransitionPhase === 2) {
-            this.ctx.save();
-            this.ctx.fillStyle = '#000000';
-            this.ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
-            this.ctx.restore();
-        }
+        // ステージ遷移フェードはここでは描かない。BGMボタンより後ろになり
+        // ボタンだけ暗転から取り残されるため、render() の共通の幕と同じ場所で描く。
     }
 }
 

@@ -74,6 +74,14 @@
    - **画面端のUIは縦のラインを合わせる**（別々の基準で置くと実機で必ず気付かれる）。左端＝`getUiLeftEdge()`（左上HUDパネルの左端と仮想パッドのポーズボタンの左端）。右端＝`getPadLayout().bgm` の右端（BGMボタン・操作ボタン群・タイトル⚙）。新しく端に置くUIはこのどちらかに乗せる。
    - 左端を合わせるときは**ポーズボタン単体ではなく左側パッド（スティック込み）を動かす**（`getPadLayout` の `stickX`）。ポーズだけ寄せるとスティックの円に食い込む＝実機で指摘された。パッド内の相対配置（`PAUSE_BUTTON` 等）は崩さないこと。
 
+5f. **全画面を覆う幕は `render()` の共通位置で描く**:
+   - BGMボタン（`renderGlobalTouchButtons`）は各画面の描画より後に描かれる。幕を各画面側（例: `renderStageClearView`）で描くとボタンだけ暗転から取り残される（実機で指摘）。ステージ遷移フェード・アセット待ちの暗幕・遷移フェードはすべて `render()` のボタン描画より後にまとめてある。
+
+5g. **表示領域は `visualViewport` を最優先。canvas サイズは自己修復させる**:
+   - `configureCanvasResolution` は `max(container, viewport)` を取っていたため、iOS 起動直後/回転直後に残る「回転前の大きい container」に引っ張られ、canvas が画面より大きく作られて端が切れた（実機で「たまに変なクロップで起動、回転し直すと直る」）。実表示領域は visualViewport を優先する。
+   - `ensureViewportSync` は寸法の変化が無くても `isCanvasSizeStale()` で canvas の CSS サイズを照合し、食い違えば作り直す。一度ズレると以後どのイベントも発火せず固まるため。fitScale の式は `computeFitScale()` に集約し、生成と照合で必ず同じ式を通す。
+   - container(CSS の 100vw/100dvh 由来)は canvas を組む前に必ず `syncContainerToViewport()` で実表示領域へ合わせる。起動時・リサイズ経路の両方で。
+
 5b. **和文をボタン内で上下中央に置くときは `fillTextInkCentered`(ui.js)**:
    - `textBaseline='middle'` は em ボックス基準なので、和文は**文字列ごとにインクの中心がずれる**（実測: 同じボタンで「タイトルに戻る」は3px下、「もう一度タップ」はほぼ中央）。
    - `measureText().actualBoundingBox*` は**現在の `textBaseline` からの距離**を返す。計測と描画で同じ `alphabetic` を使うこと（middle のまま測って alphabetic で描くと em ボックスぶん大きくずれる。実測 -9.5px）。
