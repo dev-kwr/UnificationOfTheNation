@@ -2,14 +2,19 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260810a';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260810b';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260810a';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260810b';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
 // 幾何(uiScale)は変えないので枠・ゲージの寸法は不変。
 const HUD_TEXT_SCALE = 0.88;
+
+// タイトル背景(title_bg.png 1672x941)の月中心の縦位置比率。実測 bbox y80..349 → 中心 214.5/941。
+// スマホ(wide)の縦クロップでも月がPCと同じ画面比率に来るよう drawBgCover のアンカーに使う。
+// PC/iPad はアスペクトが画像とほぼ同じでクロップが発生しないため、この値に関係なく従来と同一。
+const TITLE_BG_MOON_FOCUS_Y = 214.5 / 941;
 
 // 更新モーダルの文言。世界観より分かりやすさ優先（「版」は硬いので通じる言い方に）。
 // 文字数がカード幅の元になるので定数で持つ。
@@ -17,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260810a';
-import { audio } from './audio.js?v=screen-safe-20260810a';
-import { saveManager } from './save.js?v=screen-safe-20260810a';
+import { input } from './input.js?v=screen-safe-20260810b';
+import { audio } from './audio.js?v=screen-safe-20260810b';
+import { saveManager } from './save.js?v=screen-safe-20260810b';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -61,12 +66,18 @@ let _titleBgImage = null;     // タイトル画面背景画像
 // 全画面背景画像の cover-crop 描画（短辺フィット+中央クロップ、ソース矩形指定）。
 // 可変スクリーン幅でも非一様ストレッチ（月の楕円化など）を起こさない。
 // dest がソースと同アスペクトのときはソース全面≒従来描画。
-export function drawBgCover(ctx, img, dx, dy, dw, dh) {
+// cover 描画。focusY は「画像内の縦位置(0..1)の点を、描画先でも同じ比率の位置に置く」
+// ためのアンカー（CSS の object-position 相当。0.5=従来の上下中央クロップ）。
+// 横長スクリーン(スマホの wide)では縦がクロップされるため、中央クロップだと
+// 構図の主役(タイトルの月など)が画面ごとに上下へ動いてしまう。クロップが
+// 発生しない環境(PC/iPad)ではアンカーに関係なく全体が写る＝従来と同一。
+export function drawBgCover(ctx, img, dx, dy, dw, dh, focusY = 0.5) {
     const iw = img.naturalWidth, ih = img.naturalHeight;
     if (!(iw > 0 && ih > 0 && dw > 0 && dh > 0)) return;
     const s = Math.max(dw / iw, dh / ih);
     const sw = dw / s, sh = dh / s;
-    ctx.drawImage(img, (iw - sw) / 2, (ih - sh) / 2, sw, sh, dx, dy, dw, dh);
+    const sy = Math.max(0, Math.min(ih - sh, focusY * (ih - sh)));
+    ctx.drawImage(img, (iw - sw) / 2, sy, sw, sh, dx, dy, dw, dh);
 }
 
 function drawCinematicBgImage(ctx, phase, timer) {
@@ -1720,7 +1731,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
     if (_titleBgImage.complete && _titleBgImage.naturalWidth) {
         ctx.imageSmoothingEnabled = true;
-        drawBgCover(ctx, _titleBgImage, 0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
+        drawBgCover(ctx, _titleBgImage, 0, 0, SCREEN_WIDTH, CANVAS_HEIGHT, TITLE_BG_MOON_FOCUS_Y);
     }
 
     // フィルムグレイン（空のバンディングを抑え質感を出す・軽量）
@@ -1909,9 +1920,12 @@ export function getTitleDebugLayout(entriesCount) {
     const availY = safe.top + px(8);
     const availH = CANVAS_HEIGHT - safe.top - safe.bottom - px(16);
 
-    const headerH = px(26);          // 操作説明＋区切り線
-    const padBottom = px(8);
-    const listH = Math.max(px(40), availH - headerH - padBottom);
+    const padTop = px(10);
+    // 操作説明はパネル最下部に中央揃えで置く（タイトルの操作説明と同じサイズ感
+    // = 12*fontScale。ヘッダに大きめ・左寄せで出していたのを実機で差し戻された）。
+    const manualFont = 12 * getFontScale();
+    const footerH = manualFont * 2.0;
+    const listH = Math.max(px(40), availH - padTop - footerH);
     const colGap = px(10);
     const fontMax = px(DEBUG_FONT_MAX_CSS);
 
@@ -1938,28 +1952,30 @@ export function getTitleDebugLayout(entriesCount) {
         ? SCREEN_WIDTH - side - panelW - 40
         : availX;
 
-    const panelH = Math.min(availH, headerH + rowsPerCol * rowH + padBottom);
+    const panelH = Math.min(availH, padTop + rowsPerCol * rowH + footerH);
     const panelY = Math.max(availY, Math.round((CANVAS_HEIGHT - panelH) / 2));
 
     return {
         panelX, panelY, panelW, panelH,
         rowH, fontPx, cols, rowsPerCol, colW, colGap,
-        listStartY: panelY + headerH + rowH * 0.5,
-        headerH,
+        listStartY: panelY + padTop + rowH * 0.5,
+        manualFont,
+        footerTopY: panelY + panelH - footerH,           // 区切り線
+        manualCenterY: panelY + panelH - footerH * 0.5,  // 説明文の中心
         // 行インデックス ⇄ 座標の相互変換（描画とタップ判定で必ず共有する）
         cellOf(index) {
             const col = Math.floor(index / rowsPerCol);
             const row = index - col * rowsPerCol;
             return {
                 x: panelX + col * (colW + colGap),
-                y: panelY + headerH + rowH * 0.5 + row * rowH,
+                y: panelY + padTop + rowH * 0.5 + row * rowH,
                 w: colW
             };
         },
         indexAt(tx, ty) {
             const col = Math.floor((tx - panelX) / (colW + colGap));
             if (col < 0 || col >= cols) return -1;
-            const row = Math.round((ty - (panelY + headerH + rowH * 0.5)) / rowH);
+            const row = Math.round((ty - (panelY + padTop + rowH * 0.5)) / rowH);
             if (row < 0 || row >= rowsPerCol) return -1;
             const index = col * rowsPerCol + row;
             return index < count ? index : -1;
@@ -1970,7 +1986,7 @@ export function getTitleDebugLayout(entriesCount) {
 export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
     if (!Array.isArray(entries) || entries.length === 0) return;
     const L = getTitleDebugLayout(entries.length);
-    const { panelX, panelY, panelW, panelH, rowH, fontPx, headerH } = L;
+    const { panelX, panelY, panelW, panelH, rowH, fontPx } = L;
     const clampedCursor = Math.max(0, Math.min(entries.length - 1, cursor));
 
     ctx.save();
@@ -1984,24 +2000,6 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
     ctx.fillRect(panelX, panelY, panelW, panelH);
     ctx.strokeStyle = 'rgba(178, 205, 255, 0.6)';
     ctx.lineWidth = 1.8;
-
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-
-    // 操作説明（ヘッダ）。タップ端末はキー表記が意味を持たないので出し分ける。
-    const headText = isTouchOverlayMode()
-        ? 'タップ：左半分で戻す／右半分で進める　枠外タップ：閉じる'
-        : '↑↓：項目 | ←→：変更 | SPACE：決定 | ESC：閉じる';
-    ctx.font = `500 ${Math.round(fontPx * 0.92)}px "Zen Old Mincho", serif`;
-    ctx.fillStyle = 'rgba(212, 228, 255, 0.85)';
-    ctx.fillText(headText, panelX + rowH * 0.9, panelY + headerH * 0.66);
-
-    // 操作説明と最初の項目の間の境界線
-    ctx.strokeStyle = 'rgba(212, 228, 255, 0.15)';
-    ctx.beginPath();
-    ctx.moveTo(panelX + rowH * 0.75, panelY + headerH);
-    ctx.lineTo(panelX + panelW - rowH * 0.75, panelY + headerH);
-    ctx.stroke();
 
     const boxH = rowH - Math.max(2, rowH * 0.14);
     const inset = rowH * 0.6;
@@ -2033,6 +2031,22 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
         ctx.font = labelFont(selected);
         ctx.fillText(valText, cell.x + cell.w - inset, y);
     }
+
+    // 操作説明（パネル最下部・中央揃え）。タイトルの操作説明と同じサイズ感(12*fontScale)。
+    // タップ端末はキー表記が意味を持たないので出し分ける。
+    const manualText = isTouchOverlayMode()
+        ? 'タップ：左半分で戻す／右半分で進める | 枠外タップ：閉じる'
+        : '↑↓：項目 | ←→：変更 | SPACE：決定 | ESC：閉じる';
+    ctx.strokeStyle = 'rgba(212, 228, 255, 0.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(panelX + rowH * 0.75, L.footerTopY);
+    ctx.lineTo(panelX + panelW - rowH * 0.75, L.footerTopY);
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.font = `${Math.round(L.manualFont)}px "Zen Old Mincho", serif`;
+    fillTextInkCentered(ctx, manualText, panelX + panelW / 2, L.manualCenterY);
 
     ctx.restore();
 }
