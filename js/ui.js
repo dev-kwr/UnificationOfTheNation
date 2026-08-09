@@ -2,7 +2,17 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getScreenSafeArea, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809c';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getScreenSafeArea, getNotchInsetX, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809c';
+
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260809c';
+
+// 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
+// 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
+// 幾何(uiScale)は変えないので枠・ゲージの寸法は不変。
+const HUD_TEXT_SCALE = 0.88;
+
+// タイトル左下の更新通知。文言長がカード幅の元になるので定数で持つ。
+const UPDATE_NOTICE_TEXT = '新しい版があります（タップで更新）';
 import { input } from './input.js?v=screen-safe-20260809c';
 import { audio } from './audio.js?v=screen-safe-20260809c';
 import { saveManager } from './save.js?v=screen-safe-20260809c';
@@ -321,9 +331,26 @@ function drawRoundedFlatTitleButton(ctx, x, y, width, height, label, options = {
 }
 
 // タッチUI（仮想パッド）が有効なモードか（端末判定）
-function isTouchOverlayMode() {
-    const profile = getDeviceProfile();
-    return profile.isTouchDevice || profile.isMobileUA || SCREEN_WIDTH <= 800;
+// 矩形の上下中央へ文字を置く。textBaseline='middle' は em ボックス基準のため、
+// 和文は文字列ごとにインク（実際に塗られる範囲）の中心がずれる
+// （実測: 同じボタンで「タイトルに戻る」は3px下、「もう一度タップ」はほぼ中央）。
+// measureText の実インクで測って合わせると、どのラベルでも見た目が中央になる。
+// actualBoundingBox 非対応環境では従来の middle にフォールバック。
+function fillTextInkCentered(ctx, text, cx, cy) {
+    const prev = ctx.textBaseline;
+    // actualBoundingBox* は「現在の textBaseline からの距離」なので、
+    // 計測と描画で同じ alphabetic を使う（middle のまま測ると em ボックスぶんずれる）。
+    ctx.textBaseline = 'alphabetic';
+    const m = ctx.measureText(text);
+    const asc = m.actualBoundingBoxAscent;
+    const desc = m.actualBoundingBoxDescent;
+    if (Number.isFinite(asc) && Number.isFinite(desc)) {
+        ctx.fillText(text, cx, cy + (asc - desc) / 2);
+    } else {
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, cx, cy);
+    }
+    ctx.textBaseline = prev;
 }
 
 // キーボード操作マニュアルを隠すべきか（タップモード かつ 物理キーボード未検知）。
@@ -575,6 +602,20 @@ export function getTitleScreenLayout() {
     const gearAnchorY = CANVAS_HEIGHT - safe.bottom - 14;
     const gearHitHalf = Math.max(52, gearFont); // 小さな⚙でも指で押せる寛容半径
 
+    // 新版の通知（左下）。PWA はリロード手段が無いのでタップで更新できるようにする。
+    // 描画(renderTitleScreen)とタップ判定(game.updateTitle)の単一導出。
+    // 幅は文字数から出す（全角なので 1文字≒1em。固定値だと fontScale 拡大時にはみ出す）。
+    const noticeFont = 13 * getFontScale();
+    const noticeH = noticeFont * 2.4;
+    const noticeW = (UPDATE_NOTICE_TEXT.length + 1.6) * noticeFont;
+    const notice = {
+        x: safe.left + 24,
+        y: CANVAS_HEIGHT - safe.bottom - 24 - noticeH,
+        w: noticeW,
+        h: noticeH,
+        font: noticeFont
+    };
+
     return {
         centerX,
         diffY,
@@ -594,7 +635,8 @@ export function getTitleScreenLayout() {
                 w: gearHitHalf * 2,
                 h: gearHitHalf * 2
             }
-        }
+        },
+        updateNotice: notice
     };
 }
 
@@ -675,8 +717,17 @@ export class UI {
         // 文字だけは fx 倍して実寸を確保する（uiS は幾何、fontScale は文字のアンカー。
         // fx は wrap の内側で使うので uiS で割って二重掛けを打ち消す）。
         const uiS = getUiScale();
-        const fx = getFontScale() / uiS;
-        const hudSafe = getScreenSafeArea();
+        const fx = getFontScale() * HUD_TEXT_SCALE / uiS;
+        const panelX = 26;
+        // 左端は「角丸クリアランス」と「ノッチ帯を抜ける最小量」の大きい方。
+        // HUDは縦に大きく、横向きの Dynamic Island（画面の縦中央）に下辺が掛かるため
+        // ここだけノッチを避ける。パネル左端がちょうど帯の外側に乗る量だけ寄せる
+        // （帯幅そのものを足すと panelX のぶん余分に内側へ寄る）。
+        const hudCorner = getScreenSafeArea();
+        const hudSafe = {
+            left: Math.max(hudCorner.left, getNotchInsetX() - panelX * uiS),
+            top: hudCorner.top
+        };
         const hudWrap = (uiS !== 1) || hudSafe.left > 0 || hudSafe.top > 0;
         if (hudWrap) {
             ctx.save();
@@ -686,7 +737,6 @@ export class UI {
         const hpBarWidth = 300;
         const hpBarHeight = 18;
         const panelPadding = 18;
-        const panelX = 26;
         const panelY = 24;
         const panelW = hpBarWidth + panelPadding * 2;
         const panelH = 182;
@@ -1732,6 +1782,26 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
         ctx.textAlign = 'right';
         ctx.textBaseline = 'bottom';
         ctx.fillText('⚙', gear.anchorX, gear.anchorY);
+        ctx.restore();
+    }
+
+    // 新版が配信されていれば左下に更新導線を出す（PWA はリロード手段が無いため）。
+    if (isUpdateAvailable()) {
+        const n = layout.updateNotice;
+        const glow = 0.5 + Math.sin(time * 0.004) * 0.5;
+        ctx.save();
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') ctx.roundRect(n.x, n.y, n.w, n.h, 8);
+        else ctx.rect(n.x, n.y, n.w, n.h);
+        ctx.fillStyle = 'rgba(16, 22, 40, 0.72)';
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = `rgba(231, 196, 90, ${(0.55 + glow * 0.35).toFixed(3)})`;
+        ctx.stroke();
+        ctx.fillStyle = '#e7c45a';
+        ctx.textAlign = 'center';
+        ctx.font = `${Math.round(n.font)}px "Zen Old Mincho", serif`;
+        fillTextInkCentered(ctx, UPDATE_NOTICE_TEXT, n.x + n.w / 2, n.y + n.h / 2);
         ctx.restore();
     }
 
@@ -3249,7 +3319,7 @@ export function renderPauseScreen(ctx, armed = false) {
     const actionWord = isTouchOverlayMode() ? 'タップ' : 'クリック';
     ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
     ctx.font = `${Math.round(16 * getFontScale())}px "Zen Old Mincho", serif`;
-    ctx.fillText(armed ? `もう一度${actionWord}` : 'タイトルに戻る', btn.x, btn.y);
+    fillTextInkCentered(ctx, armed ? `もう一度${actionWord}` : 'タイトルに戻る', btn.x, btn.y);
     ctx.restore();
 }
 

@@ -2,8 +2,9 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809c';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809c';
 import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260809c';
+import { isUpdateAvailable, applyUpdate } from './appUpdate.js?v=screen-safe-20260809c';
 import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260809c';
 import { input } from './input.js?v=screen-safe-20260809c';
 
@@ -364,10 +365,20 @@ class Game {
         // HUD/仮想パッドの物理サイズアンカーを更新（タッチ端末のみ>1になる）
         setUiScaleFromFitScale(fitScale);
 
-        // env(safe-area-inset-*) は canvas 内 UI の配置には使わない。横向き iOS は
-        // 左右へ対称に 59css-px を返し、角丸回避に要る量(≒17css-px)を大きく超えて
-        // 全UIを内側へ押すため（constants.js の getScreenSafeArea 参照）。
-        // 端の退避は下の updateCornerInsets（角丸クリアランス）だけで決める。
+        // 一律の端退避は下の updateCornerInsets（角丸クリアランス）だけで決める。
+        // env(safe-area-inset-left/right) は「ノッチ/Dynamic Island の帯幅」としてのみ
+        // 使う（横向きでは画面の縦中央にしか無いので、縦に大きい左上HUDだけが避ける）。
+        // 左右は横持ちの向きで入れ替わるうえ iOS は対称に返すため、大きい方を採る。
+        if (container && typeof getComputedStyle === 'function') {
+            try {
+                const cs = getComputedStyle(container);
+                const readPx = (name) => {
+                    const v = parseFloat(cs.getPropertyValue(name));
+                    return Number.isFinite(v) ? v : 0;
+                };
+                setNotchInsetX(Math.max(readPx('--sai-l'), readPx('--sai-r')) / fitScale);
+            } catch { /* 非致命 */ }
+        }
 
         const cssWidth = Math.max(1, Math.floor(SCREEN_WIDTH * fitScale));
         const cssHeight = Math.max(1, Math.floor(CANVAS_HEIGHT * fitScale));
@@ -1000,6 +1011,13 @@ class Game {
                     this.titleDebugOpen = false;
                     this.startNewGame();
                 }
+            },
+            {
+                // PWA(standalone)はURLバーが無くリロードできないため、ここを最後の手段にする。
+                // 自動検知(タイトル左下の通知)が出ない時でも手で読み直せる。
+                label: '再読み込み(更新)',
+                getValue: () => (isUpdateAvailable() ? '新版あり' : '実行'),
+                action: () => { applyUpdate(); }
             }
         );
 
@@ -1628,6 +1646,15 @@ class Game {
             const tY = input.lastTouchY;
             const layout = getTitleScreenLayout(this.hasSave);
             const centerX = layout.centerX;
+
+            // 左下「新しい版があります」タッチで更新（描画と同じ layout.updateNotice）
+            if (isUpdateAvailable()) {
+                const n = layout.updateNotice;
+                if (tX >= n.x && tX <= n.x + n.w && tY >= n.y && tY <= n.y + n.h) {
+                    applyUpdate();
+                    return;
+                }
+            }
 
             // 右下⚙タッチでデバッグウィンドウ開閉（描画と同じ layout.gear を読む。
             // ⚙はセーフエリア退避で内側へ動くため、画面の角の固定矩形では見た目とズレる）

@@ -57,8 +57,18 @@
    - 判断基準はこれだけ。**被らない位置にある要素を予防的に内側へ寄せないこと**。
    - **`env(safe-area-inset-*)` を canvas 内 UI の配置に使わない**。横向きの iOS は左右へ**対称に**大きな値（実測 iPhone 16 Pro で左右とも 59css-px）を返すが、Dynamic Island は片側の縦中央にしか無い。角丸回避に要る量（同端末で 16.8css-px）を遥かに超えて全UIを内側へ押し、「下部の操作ボタンも HUD も余分に内側へ寄った」と実機で2度差し戻された。CSS側（`#sound-gate` の padding 等 DOM 要素）の env() 退避は別系統なのでそのまま。
    - 退避量は**角丸クリアランスのみ**＝ `getScreenSafeArea()`（`_cornerInsetX/Y` の単一導出）。角丸Rの推定は `game.js` の `CORNER_RADIUS_RATIO`(短辺11%) / `CORNER_CLEARANCE_RATIO`(0.38R＝幾何最小0.293Rに曲面余裕を足した最小限)。調整はここだけ。
+   - **例外は左上HUDパネルだけ**。縦に大きく、横向きの Dynamic Island（画面の縦中央にある帯）に下辺が掛かるため、`getNotchInsetX()`(env実値) を使って**パネル左端がちょうど帯の外側に乗る量**だけ寄せる（`max(角丸, ノッチ帯 - panelX*uiScale)`。帯幅をそのまま足すと panelX のぶん余分に内側へ寄る）。他のUIにこの帯を適用しないこと。
    - **下部の仮想パッドは退避ゼロ**（`getPadLayout`）。自前のマージン（横 `SAFE_MARGIN_X`=150・下 `BOTTOM_MARGIN`=140 論理px、s倍）だけで既に角丸の外側にある（拡大時の実クリアランスは 0.72×76≒55css-px 一定 > 角丸R≒44css-px）。ここに退避を足さないこと。
-   - 退避で**位置が動的になったUIのタップ判定を、画面の角からの固定矩形で書かないこと**。描画と判定は同じレイアウト導出（例: `getTitleScreenLayout().gear`）を読む。
+   - 退避で**位置が動的になったUIのタップ判定を、画面の角からの固定矩形で書かないこと**。描画と判定は同じレイアウト導出（例: `getTitleScreenLayout().gear` / `.updateNotice`）を読む。
+
+5b. **和文をボタン内で上下中央に置くときは `fillTextInkCentered`(ui.js)**:
+   - `textBaseline='middle'` は em ボックス基準なので、和文は**文字列ごとにインクの中心がずれる**（実測: 同じボタンで「タイトルに戻る」は3px下、「もう一度タップ」はほぼ中央）。
+   - `measureText().actualBoundingBox*` は**現在の `textBaseline` からの距離**を返す。計測と描画で同じ `alphabetic` を使うこと（middle のまま測って alphabetic で描くと em ボックスぶん大きくずれる。実測 -9.5px）。
+
+5c. **PWA(standalone)には手動リロード手段が無い**:
+   - URLバーが無いので、デプロイした修正をユーザーが取り込む導線をこちらで用意する必要がある。`js/appUpdate.js` が起動時とアプリ復帰時に配信中の `index.html` を `no-store`＋`?cb=` で取り直し、`main.js?v=` のトークンを実行中の値と比較する。
+   - 新版を検知したらタイトル左下に「新しい版があります（タップで更新）」を出す。タップで現在URLに `?cb=` を付けて `location.replace`＝HTMLキャッシュごと読み直す（JS/CSSは `?v=` 参照なので index.html さえ新しくなれば下流も必ず新しくなる）。
+   - 自動検知が出ないときの最後の手段として、タイトル⚙のデバッグメニューに「再読み込み(更新)」がある。
 6. **スケールは2系統（幾何と文字）**:
    - `getUiScale()`＝パネル・ボタンなど**幾何**、`getFontScale()`＝**文字**の実寸アンカー。文字を幾何に合わせると小さすぎ、幾何を文字に合わせると仮想パッドが画面を覆う。
    - どちらも `fitScale >= UI_SIZE_ANCHOR(0.72)` の端末（iPad/PC）では 1.0 ＝ ピクセル不変。

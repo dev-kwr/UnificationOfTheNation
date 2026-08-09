@@ -260,9 +260,9 @@ export function getFontScale() { return _fontScale; }
 // 退避の判断基準は「端末の角丸に食われないこと」だけ（ユーザー確定方針 2026-08-09）。
 // 必要最小限だけ動かし、被らない位置にある要素は動かさない。
 //
-// env(safe-area-inset-*) は配置に使わない。横向きの iOS は左右へ対称に大きな値
-// （実測 iPhone 16 Pro で左右とも 59css-px）を返すが、Dynamic Island は片側の
-// 縦中央にしか無く、角丸回避に要る量（下記 16.8css-px）を遥かに超えて全UIを
+// env(safe-area-inset-*) は一律の配置退避には使わない。横向きの iOS は左右へ対称に
+// 大きな値（実測 iPhone 16 Pro で左右とも 59css-px）を返すが、Dynamic Island は
+// 片側の縦中央にしか無く、角丸回避に要る量（下記 16.8css-px）を遥かに超えて全UIを
 // 内側へ押し込む。実際「画面下の操作ボタン・HUD が余分に内側へ寄った」と実機で
 // 差し戻された。DOM側(#sound-gate 等)の env() 退避は別系統なのでそのまま。
 //
@@ -284,6 +284,23 @@ export function getScreenSafeArea() {
         top: _cornerInsetY,
         bottom: _cornerInsetY,
     };
+}
+
+// ノッチ/Dynamic Island の帯幅（左右方向・スクリーン論理px）。env の実値。
+// 横向きでは画面の縦中央にしか無いので、上下いっぱいに伸びる大きな要素
+// （＝左上HUDパネル）だけが避ける必要がある。上の一律退避には混ぜないこと。
+// game.js configureCanvasResolution が env を論理pxへ換算して設定する。
+let _notchInsetX = 0;
+export function setNotchInsetX(px) {
+    _notchInsetX = Number.isFinite(px) ? Math.max(0, px) : 0;
+}
+export function getNotchInsetX() { return _notchInsetX; }
+
+// 仮想パッド／タップUIを描く端末か（従来 ui.js にあった判定の単一ソース）。
+// getPadLayout の BGM ボタン位置がこれで変わるため constants 側へ移した。
+export function isTouchOverlayMode() {
+    const p = getDeviceProfile();
+    return p.isTouchDevice || p.isMobileUA || SCREEN_WIDTH <= 800;
 }
 
 // 仮想パッドが「実際に画面に描かれているか」の単一ソース。
@@ -312,6 +329,8 @@ export function getPadLayout() {
     const rightX = SCREEN_WIDTH - pad.SAFE_MARGIN_X * s;
     const stickX = (pad.SAFE_MARGIN_X + pad.STICK.x) * s;
     const stickY = bottomY + pad.STICK.y * s;
+    // 操作ボタン群の右端ライン（＝画面端から 76*s）。BGMボタンの右揃え先。
+    const padRightEdge = rightX + (pad.ATTACK.x + pad.ATTACK_BUTTON_RADIUS) * s;
     return {
         s,
         touchScale: pad.BUTTON_TOUCH_SCALE || 1.14,
@@ -327,8 +346,13 @@ export function getPadLayout() {
         sub:     { x: rightX + pad.SUB_WEAPON.x * s, y: bottomY + pad.SUB_WEAPON.y * s, r: pad.AUX_BUTTON_RADIUS * s },
         special: { x: rightX + pad.SPECIAL.x * s,    y: bottomY + pad.SPECIAL.y * s,    r: pad.AUX_BUTTON_RADIUS * s },
         switch:  { x: rightX + pad.SWITCH.x * s,     y: bottomY + pad.SWITCH.y * s,     r: pad.AUX_BUTTON_RADIUS * s },
+        // 右上のBGMボタンは操作ボタンの右端ライン(padRightEdge)へ揃える。
+        // 攻撃(Z)と転身(C)は元から右揃え(26+48 = 36+38 = 74)なのでその線が右端。
+        // パッドを描かない端末(PC)は揃える相手が居ないので従来の端マージン。
         bgm: {
-            x: SCREEN_WIDTH - safe.right - pad.BGM_BUTTON_MARGIN_RIGHT * s,
+            x: isTouchOverlayMode()
+                ? padRightEdge - pad.BGM_BUTTON_RADIUS * s
+                : SCREEN_WIDTH - safe.right - pad.BGM_BUTTON_MARGIN_RIGHT * s,
             y: safe.top + pad.BGM_BUTTON_MARGIN_TOP * s,
             r: pad.BGM_BUTTON_RADIUS * s
         }

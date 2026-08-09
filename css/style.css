@@ -38,9 +38,12 @@ body.game-ready #game-container {
 }
 
 #game-container {
-    /* canvas 内 UI の端退避に env() は使わない（横向き iOS が左右へ対称に返す
-       59css-px が角丸回避に必要な量を大きく超えるため。constants.js の
-       getScreenSafeArea 参照）。JSへ渡すプローブ変数は撤去した。 */
+    /* ノッチ/Dynamic Island の帯幅をJSへ引き渡すプローブ変数
+       (game.js configureCanvasResolution が読み setNotchInsetX する)。
+       一律の端退避には使わない＝canvas内UIの退避は角丸クリアランスのみ。
+       縦に大きい左上HUDだけがこの帯を避ける（constants.js getScreenSafeArea 参照）。 */
+    --sai-l: env(safe-area-inset-left, 0px);
+    --sai-r: env(safe-area-inset-right, 0px);
     position: fixed;
     top: 0;
     left: 0;

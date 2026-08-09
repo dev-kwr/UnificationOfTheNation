@@ -5,6 +5,7 @@
 import { game } from './game.js?v=screen-safe-20260809c';
 import { preloadCinematicBgImages } from './ui.js?v=screen-safe-20260809c';
 import { getDeviceProfile } from './constants.js?v=screen-safe-20260809c';
+import { startUpdateWatch } from './appUpdate.js?v=screen-safe-20260809c';
 
 // ============================================
 // 音の設定ゲート
@@ -167,6 +168,9 @@ window.addEventListener('DOMContentLoaded', () => {
                         if (startupFailed) return;
                         document.body.classList.add('game-ready');
                         setupSoundGate();
+                        // PWA(standalone)はURLバーが無く手動リロードできないため、
+                        // 新版の配信を検知してタイトル画面に更新導線を出す。
+                        startUpdateWatch();
                         cleanupStartupGuards();
                         console.log('Unification of the Nation - Game Loaded!');
                     });
