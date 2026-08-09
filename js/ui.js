@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getScreenSafeArea, getNotchInsetX, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809d';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809f';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260809d';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260809f';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -13,9 +13,9 @@ const HUD_TEXT_SCALE = 0.88;
 
 // タイトル左下の更新通知。文言長がカード幅の元になるので定数で持つ。
 const UPDATE_NOTICE_TEXT = '新しい版があります（タップで更新）';
-import { input } from './input.js?v=screen-safe-20260809d';
-import { audio } from './audio.js?v=screen-safe-20260809d';
-import { saveManager } from './save.js?v=screen-safe-20260809d';
+import { input } from './input.js?v=screen-safe-20260809f';
+import { audio } from './audio.js?v=screen-safe-20260809f';
+import { saveManager } from './save.js?v=screen-safe-20260809f';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -588,9 +588,19 @@ function drawTitleBackdropSilhouettes(ctx, timeMs) {
 export function getTitleScreenLayout() {
     const centerX = SCREEN_WIDTH / 2;
     const diffY = CANVAS_HEIGHT / 2 + 64;
-    const startY = diffY + 108;
-    const buttonGap = 64;
     const isGameCleared = typeof saveManager !== 'undefined' && saveManager.loadGlobal().isGameCleared;
+
+    // ボタンは幾何(uiScale)で拡大する。s=1 のPCでは従来値と数値同一。
+    // 縦位置も同じ倍率で開かないと、背が伸びたぶんボタン同士が重なる。
+    const s = getUiScale();
+    const diffButton = { width: 230 * s, height: 44 * s };
+    const actionButton = { width: 280 * s, height: 48 * s };
+    let startY = diffY + 140 * s;          // s=1 で従来の 564
+    let newGameY = startY + 64 * s;        // s=1 で従来の 628
+    // 拡大で下端からはみ出す場合は、2つまとめて上へ寄せる（間隔は保つ）。
+    const bottomLimit = CANVAS_HEIGHT - getScreenSafeArea().bottom - 20 - actionButton.height * 0.5;
+    const overflow = newGameY - bottomLimit;
+    if (overflow > 0) { startY -= overflow; newGameY -= overflow; }
 
     // 右下⚙（デバッグ入口）。セーフエリア/角丸で内側へ退避するため位置が動的。
     // 描画(renderTitleScreen)とタップ判定(game.updateTitle)は必ずここを読むこと
@@ -598,7 +608,10 @@ export function getTitleScreenLayout() {
     // anchorX/anchorY は fillText(right/bottom 揃え)へ渡す座標。
     const safe = getScreenSafeArea();
     const gearFont = 24 * getFontScale();
-    const gearAnchorX = SCREEN_WIDTH - safe.right - 18;
+    // ⚙は右上のBGMボタンと右端を揃える（別々の基準で置くと実機で縦のラインが
+    // 揃わず目立つ）。fillText は右揃えなので anchorX がそのまま右端。
+    const bgmBtn = getPadLayout().bgm;
+    const gearAnchorX = bgmBtn.x + bgmBtn.r;
     const gearAnchorY = CANVAS_HEIGHT - safe.bottom - 14;
     const gearHitHalf = Math.max(52, gearFont); // 小さな⚙でも指で押せる寛容半径
 
@@ -620,11 +633,14 @@ export function getTitleScreenLayout() {
         centerX,
         diffY,
         characterY: isGameCleared ? diffY + 54 : null,
-        startY: startY + buttonGap * 0.5,
-        newGameY: startY + buttonGap * 0.5 + buttonGap,
-        singleStartY: startY + buttonGap * 0.5,
-        diffButton: { width: 230, height: 44 },
-        actionButton: { width: 280, height: 48 },
+        startY,
+        newGameY,
+        singleStartY: startY,
+        diffButton,
+        actionButton,
+        // 文字は実寸アンカー(fontScale)で。幾何と別倍率なのは他のUIと同じ方針。
+        actionFontPx: 22 * getFontScale(),
+        diffFontPx: 21 * getFontScale(),
         gear: {
             anchorX: gearAnchorX,
             anchorY: gearAnchorY,
@@ -718,15 +734,13 @@ export class UI {
         // fx は wrap の内側で使うので uiS で割って二重掛けを打ち消す）。
         const uiS = getUiScale();
         const fx = getFontScale() * HUD_TEXT_SCALE / uiS;
-        const panelX = 26;
-        // 左端は「角丸クリアランス」と「ノッチ帯を抜ける最小量」の大きい方。
-        // HUDは縦に大きく、横向きの Dynamic Island（画面の縦中央）に下辺が掛かるため
-        // ここだけノッチを避ける。パネル左端がちょうど帯の外側に乗る量だけ寄せる
-        // （帯幅そのものを足すと panelX のぶん余分に内側へ寄る）。
-        const hudCorner = getScreenSafeArea();
+        const panelX = HUD_PANEL_X;
+        // パネル左端を画面左の共通ライン(getUiLeftEdge)へ。仮想パッドのポーズボタンも
+        // 同じラインに左揃えする。ラインは「角丸クリアランス＋この余白」と
+        // 「ノッチ帯」の大きい方＝HUDは縦に大きく Dynamic Island に掛かるため。
         const hudSafe = {
-            left: Math.max(hudCorner.left, getNotchInsetX() - panelX * uiS),
-            top: hudCorner.top
+            left: getUiLeftEdge() - panelX * uiS,
+            top: getScreenSafeArea().top
         };
         const hudWrap = (uiS !== 1) || hudSafe.left > 0 || hudSafe.top > 0;
         if (hudWrap) {
@@ -1748,7 +1762,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
         layout.diffButton.width,
         layout.diffButton.height,
         currentDifficulty ? currentDifficulty.name : '普 (NORMAL)',
-        { accentColor: diffColor, textColor: diffColor, font: '700 21px "Zen Old Mincho", serif', pulse }
+        { accentColor: diffColor, textColor: diffColor, font: `700 ${Math.round(layout.diffFontPx)}px "Zen Old Mincho", serif`, pulse, radius: 12 * getUiScale() }
     );
 
     // 開始ボタン
@@ -1756,15 +1770,19 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     const actionW = layout.actionButton.width;
     const actionH = layout.actionButton.height;
     const isCleared = globalData.isGameCleared;
+    const actionOpts = {
+        font: `700 ${Math.round(layout.actionFontPx)}px "Zen Old Mincho", serif`,
+        radius: 12 * getUiScale()
+    };
 
     if (hasSave) {
-        drawRoundedFlatTitleButton(ctx, layout.centerX, startY,          actionW, actionH, '続きから', { focused: titleMenuIndex === 0, pulse });
-        drawRoundedFlatTitleButton(ctx, layout.centerX, layout.newGameY, actionW, actionH, '最初から', { focused: titleMenuIndex === 1, pulse });
+        drawRoundedFlatTitleButton(ctx, layout.centerX, startY,          actionW, actionH, '続きから', { ...actionOpts, focused: titleMenuIndex === 0, pulse });
+        drawRoundedFlatTitleButton(ctx, layout.centerX, layout.newGameY, actionW, actionH, '最初から', { ...actionOpts, focused: titleMenuIndex === 1, pulse });
     } else if (isCleared) {
-        drawRoundedFlatTitleButton(ctx, layout.centerX, startY,          actionW, actionH, '出陣', { focused: titleMenuIndex === 0, pulse, royal: true });
-        drawRoundedFlatTitleButton(ctx, layout.centerX, layout.newGameY, actionW, actionH, '出陣', { focused: titleMenuIndex === 1, pulse });
+        drawRoundedFlatTitleButton(ctx, layout.centerX, startY,          actionW, actionH, '出陣', { ...actionOpts, focused: titleMenuIndex === 0, pulse, royal: true });
+        drawRoundedFlatTitleButton(ctx, layout.centerX, layout.newGameY, actionW, actionH, '出陣', { ...actionOpts, focused: titleMenuIndex === 1, pulse });
     } else {
-        drawRoundedFlatTitleButton(ctx, layout.centerX, layout.singleStartY, actionW, actionH, '出陣', { focused: true, pulse });
+        drawRoundedFlatTitleButton(ctx, layout.centerX, layout.singleStartY, actionW, actionH, '出陣', { ...actionOpts, focused: true, pulse });
     }
     
     // 不要な描画コード削除
@@ -1811,25 +1829,90 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
 
 // デバッグウィンドウの幾何の単一導出。描画(renderTitleDebugWindow)と
 // タップ判定(game.handleTitleDebugTouch)は必ずこれを読むこと（panelYは項目数依存の縦センタリング）。
+// 見やすさの上限は「実寸css-px」で決める（論理pxで決めると端末ごとに見え方が変わる）。
+const DEBUG_ROW_MAX_CSS = 30;    // 行を無駄に間延びさせない上限
+const DEBUG_FONT_MAX_CSS = 15;   // 文字の上限（PC 1列時の従来値 13 を少し上回る程度）
+const DEBUG_COL_MAX = 3;
+const DEBUG_FONT_PER_ROW = 0.6;  // 行高に対する文字サイズ比
+// 列幅の必要量を見積もるための最長行（全角1文字=1em換算）。
+// ラベル「三層目ラストから開始(6)」＋値「デフォルト」＋間隔。
+const DEBUG_ROW_EM = 12.5 + 5 + 1.5;
+
 export function getTitleDebugLayout(entriesCount) {
-    const panelW = 540;
-    const panelX = SCREEN_WIDTH - getScreenSafeArea().right - panelW - 40;
-    const rowH = 26;
-    const headerH = 40;
-    const spacingH = 10;
-    const panelH = headerH + spacingH + entriesCount * rowH + 10;
-    const panelY = Math.max(10, Math.round((CANVAS_HEIGHT - panelH) / 2));
-    return { panelX, panelY, panelW, panelH, rowH, listStartY: panelY + 65 };
+    const count = Math.max(1, entriesCount || 1);
+    const safe = getScreenSafeArea();
+    const fit = getFitScale() || 1;
+    const px = (css) => css / fit;   // 実寸css → スクリーン論理px
+
+    // 使ってよい矩形（角丸の内側）
+    const availX = safe.left + px(10);
+    const availW = SCREEN_WIDTH - safe.left - safe.right - px(20);
+    const availY = safe.top + px(8);
+    const availH = CANVAS_HEIGHT - safe.top - safe.bottom - px(16);
+
+    const headerH = px(26);          // 操作説明＋区切り線
+    const padBottom = px(8);
+    const listH = Math.max(px(40), availH - headerH - padBottom);
+    const colGap = px(10);
+    const fontMax = px(DEBUG_FONT_MAX_CSS);
+
+    // 列数は「文字が一番大きくなる数」を選ぶ。列を増やすと行が背高くなって縦は
+    // 得をするが、1列が細くなって横で損をする。両方の制約から出た小さい方が
+    // その列数での文字サイズなので、それが最大になる列数が最良。
+    // （スマホは縦が足りず2列、PCは1列に落ち着く）
+    let best = null;
+    for (let cols = 1; cols <= DEBUG_COL_MAX; cols++) {
+        const rowsPerCol = Math.ceil(count / cols);
+        const rowH = Math.min(px(DEBUG_ROW_MAX_CSS), listH / rowsPerCol);
+        const singleColW = Math.min(540, availW);
+        const panelW = cols === 1 ? singleColW : availW;
+        const colW = (panelW - colGap * (cols - 1)) / cols;
+        const fontByHeight = rowH * DEBUG_FONT_PER_ROW;
+        const fontByWidth = Math.max(1, (colW - rowH * 1.2) / DEBUG_ROW_EM); // 左右インセット分を引く
+        const fontPx = Math.min(fontMax, fontByHeight, fontByWidth);
+        if (!best || fontPx > best.fontPx + 1e-6) best = { cols, rowsPerCol, rowH, panelW, colW, fontPx };
+    }
+    const { cols, rowsPerCol, rowH, panelW, colW, fontPx } = best;
+
+    // 1列のときは従来どおり右寄せパネル（PCの見た目を変えない）。
+    const panelX = cols === 1
+        ? SCREEN_WIDTH - safe.right - panelW - 40
+        : availX;
+
+    const panelH = Math.min(availH, headerH + rowsPerCol * rowH + padBottom);
+    const panelY = Math.max(availY, Math.round((CANVAS_HEIGHT - panelH) / 2));
+
+    return {
+        panelX, panelY, panelW, panelH,
+        rowH, fontPx, cols, rowsPerCol, colW, colGap,
+        listStartY: panelY + headerH + rowH * 0.5,
+        headerH,
+        // 行インデックス ⇄ 座標の相互変換（描画とタップ判定で必ず共有する）
+        cellOf(index) {
+            const col = Math.floor(index / rowsPerCol);
+            const row = index - col * rowsPerCol;
+            return {
+                x: panelX + col * (colW + colGap),
+                y: panelY + headerH + rowH * 0.5 + row * rowH,
+                w: colW
+            };
+        },
+        indexAt(tx, ty) {
+            const col = Math.floor((tx - panelX) / (colW + colGap));
+            if (col < 0 || col >= cols) return -1;
+            const row = Math.round((ty - (panelY + headerH + rowH * 0.5)) / rowH);
+            if (row < 0 || row >= rowsPerCol) return -1;
+            const index = col * rowsPerCol + row;
+            return index < count ? index : -1;
+        }
+    };
 }
 
 export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
     if (!Array.isArray(entries) || entries.length === 0) return;
-    const entriesCount = entries.length;
-    const { panelX, panelY, panelW, panelH, rowH, listStartY } = getTitleDebugLayout(entriesCount);
-    const maxRows = entriesCount;
+    const L = getTitleDebugLayout(entries.length);
+    const { panelX, panelY, panelW, panelH, rowH, fontPx, headerH } = L;
     const clampedCursor = Math.max(0, Math.min(entries.length - 1, cursor));
-    const start = Math.max(0, Math.min(clampedCursor - Math.floor(maxRows / 2), Math.max(0, entries.length - maxRows)));
-    const end = Math.min(entries.length, start + maxRows);
 
     ctx.save();
     ctx.fillStyle = 'rgba(2, 6, 18, 0.88)';
@@ -1845,47 +1928,51 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
-    
-    // タイトルを削除し、操作説明のみを上部に小さく表示
-    ctx.font = '500 12px "Zen Old Mincho", serif';
-    ctx.fillStyle = 'rgba(212, 228, 255, 0.85)';
-    ctx.fillText('↑↓：項目 | ←→：変更 | SPACE：決定 | ESC：閉じる', panelX + 24, panelY + 28);
 
-    // 操作説明と最初の項目の間の境界線/余白
+    // 操作説明（ヘッダ）。タップ端末はキー表記が意味を持たないので出し分ける。
+    const headText = isTouchOverlayMode()
+        ? 'タップ：左半分で戻す／右半分で進める　枠外タップ：閉じる'
+        : '↑↓：項目 | ←→：変更 | SPACE：決定 | ESC：閉じる';
+    ctx.font = `500 ${Math.round(fontPx * 0.92)}px "Zen Old Mincho", serif`;
+    ctx.fillStyle = 'rgba(212, 228, 255, 0.85)';
+    ctx.fillText(headText, panelX + rowH * 0.9, panelY + headerH * 0.66);
+
+    // 操作説明と最初の項目の間の境界線
     ctx.strokeStyle = 'rgba(212, 228, 255, 0.15)';
     ctx.beginPath();
-    ctx.moveTo(panelX + 20, panelY + 40);
-    ctx.lineTo(panelX + panelW - 20, panelY + 40);
+    ctx.moveTo(panelX + rowH * 0.75, panelY + headerH);
+    ctx.lineTo(panelX + panelW - rowH * 0.75, panelY + headerH);
     ctx.stroke();
 
-    const boxH = rowH - 4;
+    const boxH = rowH - Math.max(2, rowH * 0.14);
+    const inset = rowH * 0.6;
+    const labelFont = (sel) => `${sel ? 700 : 500} ${Math.round(fontPx)}px "Zen Old Mincho", serif`;
 
     ctx.textBaseline = 'middle';
-    for (let i = start; i < end; i++) {
-        const row = i - start;
-        const y = listStartY + row * rowH;
+    for (let i = 0; i < entries.length; i++) {
+        const cell = L.cellOf(i);
+        const y = cell.y;
         const selected = i === clampedCursor;
         if (selected) {
-            // アクティブ枠
             ctx.fillStyle = 'rgba(98, 142, 235, 0.42)';
-            ctx.fillRect(panelX + 16, y - boxH / 2, panelW - 32, boxH);
+            ctx.fillRect(cell.x + inset * 0.5, y - boxH / 2, cell.w - inset, boxH);
             ctx.strokeStyle = 'rgba(211, 228, 255, 0.92)';
             ctx.lineWidth = 1.2;
-            ctx.strokeRect(panelX + 16, y - boxH / 2, panelW - 32, boxH);
+            ctx.strokeRect(cell.x + inset * 0.5, y - boxH / 2, cell.w - inset, boxH);
         }
         const entry = entries[i];
-        
+
         ctx.textAlign = 'left';
         ctx.fillStyle = selected ? '#ffffff' : 'rgba(225, 236, 255, 0.92)';
-        ctx.font = selected ? '700 13px "Zen Old Mincho", serif' : '500 13px "Zen Old Mincho", serif';
-        ctx.fillText(entry.label || '', panelX + 30, y);
+        ctx.font = labelFont(selected);
+        ctx.fillText(entry.label || '', cell.x + inset, y);
 
         ctx.textAlign = 'right';
         const valText = (typeof entry.getValue === 'function') ? entry.getValue() : (entry.value || '');
-        const isActionRow = entry.action || valText === '実行';
+        const isActionRow = entry.action || entry.isAction || valText === '実行';
         ctx.fillStyle = isActionRow ? '#ffe08d' : (selected ? '#dff0ff' : 'rgba(198, 216, 246, 0.92)');
-        ctx.font = selected ? '700 13px "Zen Old Mincho", serif' : '500 13px "Zen Old Mincho", serif';
-        ctx.fillText(valText, panelX + panelW - 30, y);
+        ctx.font = labelFont(selected);
+        ctx.fillText(valText, cell.x + cell.w - inset, y);
     }
 
     ctx.restore();

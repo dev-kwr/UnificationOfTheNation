@@ -2,8 +2,8 @@
 // Unification of the Nation - 入力管理
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, KEYS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, isVirtualPadVisible } from './constants.js?v=screen-safe-20260809d';
-import { audio } from './audio.js?v=screen-safe-20260809d';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, KEYS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, isVirtualPadVisible, isBgmButtonVisible } from './constants.js?v=screen-safe-20260809f';
+import { audio } from './audio.js?v=screen-safe-20260809f';
 
 class InputManager {
     constructor() {
@@ -333,19 +333,20 @@ class InputManager {
 
         // --- 左側：アナログスティック ---
         const hasTouchId = touchId !== null && touchId !== undefined;
-        if (hasTouchId) {
-            // 既にこの指で掴んでいるなら、操作半径や画面端に関係なく追従し続ける
-            if (this.virtualStick.active && this.virtualStick.touchId === touchId) {
-                return this.updateHeldStick(x, y);
-            }
-            // 新規タッチが始動エリア内なら掴み始める
-            if (this.isStickStartPoint(x, y)) {
-                return this.beginHeldStick(touchId, x, y);
-            }
+        // 既にこの指で掴んでいるなら、操作半径や画面端に関係なく追従し続ける
+        if (hasTouchId && this.virtualStick.active && this.virtualStick.touchId === touchId) {
+            return this.updateHeldStick(x, y);
         }
 
-        // 左スティック左下の一時停止ボタン
+        // 一時停止ボタンはスティックの始動判定より先に見る。スティックの始動エリアは
+        // 見た目の円より広く（STICK_TOUCH_RADIUS）、ポーズはその中に入るため、
+        // 後回しにすると押しても毎回スティックを掴んでしまい反応しない。
         if (this.checkCircleHit(x, y, L.pause.x, L.pause.y, L.pause.r * touchScale)) return ['PAUSE'];
+
+        // 新規タッチが始動エリア内ならスティックを掴み始める
+        if (hasTouchId && this.isStickStartPoint(x, y)) {
+            return this.beginHeldStick(touchId, x, y);
+        }
 
         // --- 右側：アクション（円ボタン） ---
         if (this.checkCircleHit(x, y, L.attack.x, L.attack.y, L.attack.r * touchScale)) return ['ATTACK'];
@@ -454,6 +455,9 @@ class InputManager {
     }
 
     getBgmButtonHitArea() {
+        // 描かれていない間（デバッグウィンドウ表示中）は判定も殺す。
+        // 見えないボタンが生きていると、項目を押したつもりが消音になる。
+        if (!isBgmButtonVisible()) return [-9999, -9999, 0];
         const L = getPadLayout();
         // スマホでのタップしやすさを考慮し、描画サイズよりも意図的にヒットエリアを広げる
         const isTouch = getDeviceProfile().isTouchDevice;

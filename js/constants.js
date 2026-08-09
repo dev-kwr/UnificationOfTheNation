@@ -2,7 +2,7 @@
 // Unification of the Nation - 定数定義
 // ============================================
 
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260809d';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260809f';
 
 // キャンバスサイズ
 // CANVAS_WIDTH = 可視ワールド幅（ゲームプレイ窓）。世界ロジック(カメラ/クランプ/
@@ -207,7 +207,10 @@ export const VIRTUAL_PAD = {
     STICK_DASH_RELEASE_THRESHOLD: 0.82,
     STICK_UP_THRESHOLD: -0.44,
     STICK_DOWN_THRESHOLD: 0.38,
-    PAUSE_BUTTON: { x: -104, y: 50 }, // 左スティック左下（Dパッドと非重なり）
+    // ポーズは左端ライン(getUiLeftEdge)へ左揃えするので x は使わない。
+    // y はスティック中心からの下方向オフセット。左端へ寄せたぶんスティックへ
+    // 近づくので、円が重ならない値まで下げてある（実測で重なり0を確認）。
+    PAUSE_BUTTON: { x: -104, y: 62 },
 
     // 上部UIボタン（全画面共通・右上固定）
     BGM_BUTTON_MARGIN_TOP: 40,
@@ -244,7 +247,12 @@ export const UI_SIZE_ANCHOR = 0.72;
 export const TEXT_SIZE_ANCHOR = 1.0;
 let _uiScale = 1;
 let _fontScale = 1;
+// 論理px → 実寸css-px の倍率。「実寸で何css-px に見せたいか」から論理px を
+// 逆算する用途（デバッグメニューの行高など、収まりを実寸で設計したいとき）。
+let _fitScale = 1;
+export function getFitScale() { return _fitScale; }
 export function setUiScaleFromFitScale(fitScale) {
+    _fitScale = (Number.isFinite(fitScale) && fitScale > 0) ? fitScale : 1;
     const p = getDeviceProfile();
     const enlarge = (p.isTouchDevice || p.isMobileUA) && fitScale > 0 && fitScale < UI_SIZE_ANCHOR;
     _uiScale = enlarge ? Math.min(1.45, UI_SIZE_ANCHOR / fitScale) : 1.0;
@@ -296,6 +304,25 @@ export function setNotchInsetX(px) {
 }
 export function getNotchInsetX() { return _notchInsetX; }
 
+// 左上HUDパネルの自前左余白（論理px・uiScale 前）。ui.js の panelX と同値。
+// 下の getUiLeftEdge が「角丸＋この余白」と「ノッチ帯」を比べるためここに置く。
+export const HUD_PANEL_X = 26;
+
+// 画面左に貼り付くUIの共通左端ライン（スクリーン論理px）。
+// 左上HUDパネルの左端と、仮想パッドのポーズボタンの左端がここで揃う
+// （揃っていないと実機で目立つ、という実機フィードバック 2026-08-09）。
+// HUD は縦に大きく横向きの Dynamic Island 帯に掛かるため、その帯の外側が下限。
+export function getUiLeftEdge() {
+    return Math.max(_cornerInsetX + HUD_PANEL_X * _uiScale, _notchInsetX);
+}
+
+// 右上BGMボタンを描いているか（デバッグウィンドウ表示中は隠す）の単一ソース。
+// 描画(game.render)が毎フレーム申告し、判定(input.getBgmButtonHitArea)が読む。
+// 隠しているのに判定だけ生きていると、メニュー項目を押したつもりが消音になる。
+let _bgmButtonVisible = true;
+export function setBgmButtonVisible(visible) { _bgmButtonVisible = !!visible; }
+export function isBgmButtonVisible() { return _bgmButtonVisible; }
+
 // 仮想パッド／タップUIを描く端末か（従来 ui.js にあった判定の単一ソース）。
 // getPadLayout の BGM ボタン位置がこれで変わるため constants 側へ移した。
 export function isTouchOverlayMode() {
@@ -341,7 +368,8 @@ export function getPadLayout() {
             maxDistance: pad.STICK_MAX_DISTANCE * s,
             touchRadius: pad.STICK_TOUCH_RADIUS * s
         },
-        pause:   { x: stickX + pad.PAUSE_BUTTON.x * s, y: stickY + pad.PAUSE_BUTTON.y * s, r: pad.PAUSE_BUTTON_RADIUS * s },
+        // ポーズは左端を左上HUDパネルの左端(getUiLeftEdge)へ揃える。
+        pause:   { x: getUiLeftEdge() + pad.PAUSE_BUTTON_RADIUS * s, y: stickY + pad.PAUSE_BUTTON.y * s, r: pad.PAUSE_BUTTON_RADIUS * s },
         attack:  { x: rightX + pad.ATTACK.x * s,     y: bottomY + pad.ATTACK.y * s,     r: pad.ATTACK_BUTTON_RADIUS * s },
         sub:     { x: rightX + pad.SUB_WEAPON.x * s, y: bottomY + pad.SUB_WEAPON.y * s, r: pad.AUX_BUTTON_RADIUS * s },
         special: { x: rightX + pad.SPECIAL.x * s,    y: bottomY + pad.SPECIAL.y * s,    r: pad.AUX_BUTTON_RADIUS * s },
