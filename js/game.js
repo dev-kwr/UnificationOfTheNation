@@ -2,11 +2,12 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible } from './constants.js?v=screen-safe-20260810b';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260810b';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260810b';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260810b';
-import { input } from './input.js?v=screen-safe-20260810b';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible } from './constants.js?v=screen-safe-20260810d';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260810d';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260810d';
+import { getStageSelectLayout, renderStageSelect } from './stageSelect.js?v=screen-safe-20260810d';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260810d';
+import { input } from './input.js?v=screen-safe-20260810d';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -44,18 +45,18 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=screen-safe-20260810b';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260810b';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260810b';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260810b';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260810b';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260810b';
-import { saveManager } from './save.js?v=screen-safe-20260810b';
-import { shop } from './shop.js?v=screen-safe-20260810b';
-import { audio } from './audio.js?v=screen-safe-20260810b';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260810b';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260810b';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260810b';
+import { Player } from './player.js?v=screen-safe-20260810d';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260810d';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260810d';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260810d';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260810d';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260810d';
+import { saveManager } from './save.js?v=screen-safe-20260810d';
+import { shop } from './shop.js?v=screen-safe-20260810d';
+import { audio } from './audio.js?v=screen-safe-20260810d';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260810d';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260810d';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260810d';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -190,6 +191,12 @@ class Game {
         this.stageClearMenuIndex = 0;
         this.stageClearWeaponIndex = 0;
         this.returnToStageClearAfterShop = false;
+        // ステージセレクト（全体マップ）。カーソル＝選択中ノードid、
+        // pendingStageSelection＝ステータス画面が保持する「次に始めるステージ」、
+        // maxClearedStage＝クリア済みの最深階層（解放判定とセーブの正本）。
+        this.stageSelectCursor = 1;
+        this.pendingStageSelection = null;
+        this.maxClearedStage = 0;
         this.playerDefeatTimer = 0;
         this.playerHurtFlashAlpha = 0; // 被弾時の赤ビネット（実ダメージ時のみ点灯・renderで減衰）
         this.playerDefeatDuration = 1800;
@@ -763,9 +770,6 @@ class Game {
             preset: 'default',
             stage: 1,
             bossRoom: false, // デバッグ用：ボス部屋からスタート
-            // デバッグ用：Stage6の三層目ラスト(角3の鎖鎌の手前)からスタート。
-            // 大屋根への登攀→遷移→着地→会敵を毎回頭から遊ばずに検証するため。
-            stage6Corner3: false,
             moneyMax: false,
             normalCombo: 0,
             subWeapon: 0,
@@ -872,22 +876,7 @@ class Game {
             {
                 label: 'ボスから開始',
                 getValue: () => (cfg.bossRoom ? 'ON' : 'OFF'),
-                change: () => {
-                    cfg.bossRoom = !cfg.bossRoom;
-                    if (cfg.bossRoom) cfg.stage6Corner3 = false; // 開始地点は排他
-                }
-            },
-            {
-                // Stage6専用。三層目(廻縁)の突き当たり=鎖鎌で軒へ登る直前から始める。
-                label: '三層目ラストから開始(6)',
-                getValue: () => (cfg.stage6Corner3 ? 'ON' : 'OFF'),
-                change: () => {
-                    cfg.stage6Corner3 = !cfg.stage6Corner3;
-                    if (cfg.stage6Corner3) {
-                        cfg.bossRoom = false; // 開始地点は排他
-                        cfg.stage = 6;        // 6以外では意味がないので合わせる
-                    }
-                }
+                change: () => { cfg.bossRoom = !cfg.bossRoom; }
             },
             {
                 label: '小判MAX',
@@ -1128,9 +1117,14 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260810b').then(module => {
+        import('./weapon.js?v=screen-safe-20260810d').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
+            // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
+            // の1つ手前まではクリア済み」とみなす。
+            this.maxClearedStage = Number.isFinite(saveData.progress.maxClearedStage)
+                ? Math.max(0, Math.floor(saveData.progress.maxClearedStage))
+                : Math.max(0, this.currentStageNumber - 1);
             this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
             saveManager.applyToPlayer(this.player, saveData);
             const savedCharType = saveManager.loadGlobal().characterType || 'ninja';
@@ -1587,6 +1581,9 @@ class Game {
             case GAME_STATE.STAGE_CLEAR:
                 this.updateStageClear();
                 break;
+            case GAME_STATE.STAGE_SELECT:
+                this.updateStageSelect();
+                break;
             case GAME_STATE.GAME_CLEAR:
                 this.updateGameClear();
                 break;
@@ -1965,12 +1962,14 @@ class Game {
         shop.reset();
         const debugStage = this.titleDebugApplyOnStart ? this.titleDebugConfig.stage : null;
         this.currentStageNumber = debugStage || this.debugStartStage || 1;
+        // 新規開始で進行度をリセット（デバッグの途中開始では、その手前までを解放扱い）
+        this.maxClearedStage = Math.max(0, this.currentStageNumber - 1);
+        this.pendingStageSelection = null;
         // デバッグ用：開始地点フラグを保持（applyTitleDebugSetupToNewGame より前に確定）
         // URL(?at=corner3 / ?at=boss)はタイトルのデバッグメニューと同じ扱いにする。
         this.debugBossRoomStart = !!(this.titleDebugApplyOnStart && this.titleDebugConfig.bossRoom)
             || this.debugStartPoint === 'boss';
-        this.debugStage6Corner3Start = !!(this.titleDebugApplyOnStart && this.titleDebugConfig.stage6Corner3)
-            || this.debugStartPoint === 'corner3';
+        this.debugStage6Corner3Start = this.debugStartPoint === 'corner3';
         // 三層目ラストはStage6専用なので、URL指定だけの場合もステージを6に寄せる
         if (this.debugStage6Corner3Start && this.currentStageNumber !== 6) this.currentStageNumber = 6;
         if (this.debugStage6Corner3Start) this.debugBossRoomStart = false; // 開始地点は排他
@@ -5441,11 +5440,16 @@ class Game {
         
         const isFinalStage = this.currentStageNumber >= STAGES.length;
 
-        // セーブ（最終ステージクリア時は無効なステージ番号を保存しない）
+        // 進行度（セレクト画面の解放判定の正本）。再戦クリアでは下がらない。
+        this.maxClearedStage = Math.max(this.maxClearedStage || 0, this.currentStageNumber);
+
+        // セーブ（最終ステージクリア時は無効なステージ番号を保存しない）。
+        // 保存する「次のステージ」は最前線基準。過去ステージの再戦クリアで
+        // currentStageNumber+1 を使うと続きからが巻き戻るため。
         if (isFinalStage) {
             saveManager.deleteSave();
         } else {
-            saveManager.save(this.player, this.currentStageNumber + 1, this.unlockedWeapons);
+            saveManager.save(this.player, Math.min(STAGES.length, this.maxClearedStage + 1), this.unlockedWeapons);
         }
         
         if (isFinalStage) {
@@ -5631,44 +5635,9 @@ class Game {
             if (this.stageClearAnnounceTimer < 1650) return; // 演出完了前はスキップ不可（ui.js pressDelay と同値）
             if (input.isActionJustPressed('CONFIRM') || input.wasScreenTapped()) {
                 audio.playSelect();
-                this.stageClearPhase = 1;
-                this.resetStageClearAutoSubWeaponTimer(true);
-                audio.playBgm('shop');
                 input.consumeAction('CONFIRM');
-
-                // プレイヤーをプレビューモードに初期化
-                if (this.player) {
-                    this.groundY = Math.round(CANVAS_HEIGHT * 0.08); // ステータス画面用の高い地面（画面最上部付近）
-                    if (this.stage) this.stage.groundY = this.groundY;
-                    this.player.previewMode = true;
-                    this.player.groundY = this.groundY;
-                    this.player.x = 100;
-                    this.player.y = this.groundY + LANE_OFFSET - this.player.getWorldHeight();
-                    this.player.vx = 0;
-                    this.player.vy = 0;
-                    this.player.isGrounded = true; 
-                    this.player.yVelocity = 0;
-                    this.player.jumpCount = 0;
-                    this.player.facingRight = true;
-                    this.player.isAttacking = false;
-                    this.player.currentAttack = null;
-                    this.player.attackTimer = 0;
-                    this.player.attackCombo = 0;
-                    this.player.subWeaponTimer = 0;
-                    this.player.subWeaponAction = null;
-                    this.player.invincibleTimer = 0;
-                    this.player.damageFlashTimer = 0;
-                    this.player.isDashing = false;
-                    this.player.isCrouching = false;
-                    this.bombs = [];
-                    this.shockwaves = [];
-                    // 飛翔体リセット
-                    for (const weapon of (this.player.subWeapons || [])) {
-                        if (weapon && weapon.projectiles) weapon.projectiles = [];
-                        if (weapon && weapon.pendingShots) weapon.pendingShots = [];
-                    }
-                    this.player.resetVisualTrails();
-                }
+                // ステータス画面へは直行せず、全体マップで進軍先を選んでから入る
+                this.enterStageSelect();
             }
             return;
         }
@@ -5809,13 +5778,111 @@ class Game {
         }
     }
 
+    // ---- ステージセレクト（全体マップ）----
+
+    // 選べる最深階層。全クリア済みプレイヤーは常に全解放（周回で任意のステージへ）。
+    getMaxSelectableStage() {
+        if (saveManager.loadGlobal().isGameCleared) return STAGES.length;
+        return Math.min(STAGES.length, (this.maxClearedStage || 0) + 1);
+    }
+
+    enterStageSelect() {
+        this.state = GAME_STATE.STAGE_SELECT;
+        // 初期カーソルは「次に進む階層」（=解放の最前線）
+        this.stageSelectCursor = this.getMaxSelectableStage();
+        this.pendingStageSelection = null;
+        audio.playBgm('shop');
+    }
+
+    updateStageSelect() {
+        const maxSelectable = this.getMaxSelectableStage();
+        const move = (delta) => {
+            const next = Math.max(1, Math.min(maxSelectable, this.stageSelectCursor + delta));
+            if (next !== this.stageSelectCursor) {
+                this.stageSelectCursor = next;
+                audio.playSelect();
+            }
+        };
+        if (input.isActionJustPressed('LEFT') || input.isActionJustPressed('DOWN')) move(-1);
+        if (input.isActionJustPressed('RIGHT') || input.isActionJustPressed('UP')) move(1);
+
+        if (input.isActionJustPressed('CONFIRM')) {
+            input.consumeAction('CONFIRM');
+            audio.playSelect();
+            this.enterStatusScreenForStage(this.stageSelectCursor);
+            return;
+        }
+
+        if (input.touchJustPressed) {
+            // 描画と同じ導出でノード判定（座標式を複製しない）
+            const node = getStageSelectLayout().nodeAt(input.lastTouchX, input.lastTouchY);
+            if (node && node.id <= maxSelectable) {
+                if (node.id === this.stageSelectCursor) {
+                    // 選択中ノードの再タップで決定（誤タップで即出撃しないための2段階）
+                    audio.playSelect();
+                    this.enterStatusScreenForStage(node.id);
+                } else {
+                    this.stageSelectCursor = node.id;
+                    audio.playSelect();
+                }
+            }
+        }
+    }
+
+    // セレクトで進軍先を決めた後のステータス画面（STAGE_CLEAR Phase1 を流用）。
+    // pendingStageSelection は「準備完了」が読む。よろず屋を経由しても保持される。
+    enterStatusScreenForStage(stageNumber) {
+        this.pendingStageSelection = stageNumber;
+        this.state = GAME_STATE.STAGE_CLEAR;
+        this.stageClearPhase = 1;
+        this.stageClearMenuIndex = 0;
+        this.resetStageClearAutoSubWeaponTimer(true);
+        audio.playBgm('shop');
+        this.enterStatusPreview();
+    }
+
+    // ステータス画面のキャラプレビュー初期化（高い地面・武器デモ用の状態リセット）
+    enterStatusPreview() {
+        if (!this.player) return;
+        this.groundY = Math.round(CANVAS_HEIGHT * 0.08); // ステータス画面用の高い地面（画面最上部付近）
+        if (this.stage) this.stage.groundY = this.groundY;
+        this.player.previewMode = true;
+        this.player.groundY = this.groundY;
+        this.player.x = 100;
+        this.player.y = this.groundY + LANE_OFFSET - this.player.getWorldHeight();
+        this.player.vx = 0;
+        this.player.vy = 0;
+        this.player.isGrounded = true;
+        this.player.yVelocity = 0;
+        this.player.jumpCount = 0;
+        this.player.facingRight = true;
+        this.player.isAttacking = false;
+        this.player.currentAttack = null;
+        this.player.attackTimer = 0;
+        this.player.attackCombo = 0;
+        this.player.subWeaponTimer = 0;
+        this.player.subWeaponAction = null;
+        this.player.invincibleTimer = 0;
+        this.player.damageFlashTimer = 0;
+        this.player.isDashing = false;
+        this.player.isCrouching = false;
+        this.bombs = [];
+        this.shockwaves = [];
+        for (const weapon of (this.player.subWeapons || [])) {
+            if (weapon && weapon.projectiles) weapon.projectiles = [];
+            if (weapon && weapon.pendingShots) weapon.pendingShots = [];
+        }
+        this.player.resetVisualTrails();
+    }
+
     handleStageClearConfirm() {
         if (this.stageClearMenuIndex === 2) {
-            // 準備完了
+            // 準備完了 — セレクトで選んだステージへ（未選択時は従来どおり次の階層）
             audio.playGameStart();
             if (this.player) this.player.previewMode = false;
             this.applyStageDefaultWeaponChoice();
-            this.currentStageNumber++;
+            this.currentStageNumber = this.pendingStageSelection || (this.currentStageNumber + 1);
+            this.pendingStageSelection = null;
             if (this.currentStageNumber > STAGES.length) {
                 this.enterGameClearState();
             } else {
@@ -6068,6 +6135,15 @@ class Game {
 
             case GAME_STATE.STAGE_CLEAR:
                 this.renderStageClearView();
+                break;
+
+            case GAME_STATE.STAGE_SELECT:
+                renderStageSelect(this.ctx, {
+                    cursor: this.stageSelectCursor,
+                    maxSelectable: this.getMaxSelectableStage(),
+                    maxCleared: this.maxClearedStage,
+                    timeMs: Date.now()
+                });
                 break;
 
             case GAME_STATE.GAME_CLEAR:

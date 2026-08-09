@@ -104,6 +104,12 @@
 6. **スケールは2系統（幾何と文字）**:
    - `getUiScale()`＝パネル・ボタンなど**幾何**、`getFontScale()`＝**文字**の実寸アンカー。文字を幾何に合わせると小さすぎ、幾何を文字に合わせると仮想パッドが画面を覆う。
    - どちらも `fitScale >= UI_SIZE_ANCHOR(0.72)` の端末（iPad/PC）では 1.0 ＝ ピクセル不変。
+6b. **ステージ間の遷移は「クリア演出 → セレクト → ステータス → 開始」**:
+   - クリア演出(STAGE_CLEAR Phase0)のタップは `enterStageSelect()`（全体マップ `js/stageSelect.js`）へ。ステータス画面(STAGE_CLEAR Phase1)へは**セレクトで進軍先を決めてから** `enterStatusScreenForStage(n)` で入る。「準備完了」は `pendingStageSelection` のステージを開始する（よろず屋を経由しても保持）。
+   - 解放は `maxClearedStage`（クリア済みの最深階層）が正本。`選べる範囲 = min(6, maxClearedStage+1)`、全クリア済み(isGameCleared)は常に全解放。セーブは `progress.maxClearedStage`（旧セーブは currentStage-1 で補完）。**再戦クリアで保存する「次のステージ」は maxClearedStage+1**（currentStage+1 だと続きからが巻き戻る）。
+   - マップのノード座標は `WORLD_MAP_NODES` に**画像内比率(u,v)**で持ち、描画とタップ判定は `getStageSelectLayout()` を共有する。マップ画像は `images/world_map.png`（無ければフォールバック描画）。生成指示は `map_generation_prompt.md`、自動生成は `tools/generate-worldmap.mjs`。
+   - ノード6(天守)はスマホ(wide)の縦クロップで上へ寄るため、右上のBGMボタンと重ならない v にしてある。ノードを動かすときは重なりを再確認すること。
+
 7. **ステージ背景アセットの追加は `stage.js` の `STAGE_IMAGE_SOURCES` へ**:
    - この表が「Stage への割り当て」と「先読み・ロード完了判定」の単一ソース。ここを通さずに `new Image()` すると、ステージ開始直後だけ絵が抜けてフラッシングする。
    - 読み込み経路は2系統（`imageCache.js`）。**もう要る**＝`preloadStageImages()`（即時・並列・デコードまで）、**そのうち要る**＝`prefetchStageImages()`（低優先・1枚ずつ・デコードは描画時任せ・データセーバー時は見送り）。

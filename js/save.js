@@ -2,7 +2,7 @@
 // Unification of the Nation - セーブ/ロード機能
 // ============================================
 
-import { game } from './game.js?v=screen-safe-20260810b';
+import { game } from './game.js?v=screen-safe-20260810d';
 
 const SAVE_KEY = 'ninjaActionSave';
 const MAX_MONEY = 9999;
@@ -42,6 +42,9 @@ export class SaveManager {
             },
             progress: {
                 currentStage: currentStage,
+                // セレクト画面の解放判定（クリア済みの最深階層）。旧セーブには無い
+                // フィールドで、読む側(continueGame)が currentStage-1 で補完する。
+                maxClearedStage: Math.max(0, Math.floor(game.maxClearedStage || 0)),
                 unlockedWeapons: unlockedWeapons || [],
                 stageEquip: Object.fromEntries(
                     Object.entries(player.stageEquip || {})

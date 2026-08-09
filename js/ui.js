@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260810b';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260810d';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260810b';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260810d';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260810b';
-import { audio } from './audio.js?v=screen-safe-20260810b';
-import { saveManager } from './save.js?v=screen-safe-20260810b';
+import { input } from './input.js?v=screen-safe-20260810d';
+import { audio } from './audio.js?v=screen-safe-20260810d';
+import { saveManager } from './save.js?v=screen-safe-20260810d';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -351,7 +351,7 @@ function drawRoundedFlatTitleButton(ctx, x, y, width, height, label, options = {
 // （実測: 同じボタンで「タイトルに戻る」は3px下、「もう一度タップ」はほぼ中央）。
 // measureText の実インクで測って合わせると、どのラベルでも見た目が中央になる。
 // actualBoundingBox 非対応環境では従来の middle にフォールバック。
-function fillTextInkCentered(ctx, text, cx, cy) {
+export function fillTextInkCentered(ctx, text, cx, cy) {
     const prev = ctx.textBaseline;
     // actualBoundingBox* は「現在の textBaseline からの距離」なので、
     // 計測と描画で同じ alphabetic を使う（middle のまま測ると em ボックスぶんずれる）。
@@ -1903,8 +1903,8 @@ const DEBUG_FONT_MAX_CSS = 15;   // 文字の上限（PC 1列時の従来値 13 
 const DEBUG_COL_MAX = 3;
 const DEBUG_FONT_PER_ROW = 0.6;  // 行高に対する文字サイズ比
 // 列幅の必要量を見積もるための最長行（全角1文字=1em換算）。
-// ラベル「三層目ラストから開始(6)」＋値「デフォルト」＋間隔。
-const DEBUG_ROW_EM = 12.5 + 5 + 1.5;
+// ラベル「アイテム:韋駄天の秘術」＋値「デフォルト」＋間隔。
+const DEBUG_ROW_EM = 11 + 5 + 1.5;
 
 export function getTitleDebugLayout(entriesCount) {
     const count = Math.max(1, entriesCount || 1);

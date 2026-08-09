@@ -2,10 +2,10 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260810b';
-import { audio } from './audio.js?v=screen-safe-20260810b';
-import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260810b';
-import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260810b';
+import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260810d';
+import { audio } from './audio.js?v=screen-safe-20260810d';
+import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260810d';
+import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260810d';
 
 // 武器ジオメトリは「武器を振る主体(owner/player)のワールド寸法」を基準に組み立てる。
 // 将軍は width/height が素体(40x60)なので getWorldWidth/Height(=素体×SHOGUN_SCALE) を読む。

@@ -2,7 +2,7 @@
 // Unification of the Nation - 定数定義
 // ============================================
 
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260810b';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260810d';
 
 // キャンバスサイズ
 // CANVAS_WIDTH = 可視ワールド幅（ゲームプレイ窓）。世界ロジック(カメラ/クランプ/
@@ -105,6 +105,7 @@ export const GAME_STATE = {
     SHOP: 'shop',
     LEVEL_UP: 'levelUp',
     STAGE_CLEAR: 'stageClear',
+    STAGE_SELECT: 'stageSelect',   // 全体マップからの進軍先選択（クリア演出→ここ→ステータス画面）
     GAME_CLEAR: 'gameClear',
     ENDING: 'ending',
     GAME_OVER: 'gameOver',
