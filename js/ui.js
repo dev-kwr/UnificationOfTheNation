@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809g';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260809h';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260809g';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260809h';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -13,9 +13,9 @@ const HUD_TEXT_SCALE = 0.88;
 
 // タイトル左下の更新通知。文言長がカード幅の元になるので定数で持つ。
 const UPDATE_NOTICE_TEXT = '新しい版があります（タップで更新）';
-import { input } from './input.js?v=screen-safe-20260809g';
-import { audio } from './audio.js?v=screen-safe-20260809g';
-import { saveManager } from './save.js?v=screen-safe-20260809g';
+import { input } from './input.js?v=screen-safe-20260809h';
+import { audio } from './audio.js?v=screen-safe-20260809h';
+import { saveManager } from './save.js?v=screen-safe-20260809h';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -612,19 +612,29 @@ export function getTitleScreenLayout() {
     // 揃わず目立つ）。fillText は右揃えなので anchorX がそのまま右端。
     const bgmBtn = getPadLayout().bgm;
     const gearAnchorX = bgmBtn.x + bgmBtn.r;
-    const gearAnchorY = CANVAS_HEIGHT - safe.bottom - 14;
+    // 画面下端の共通ライン。左下の更新通知と右下の⚙はこの線で下揃えする
+    // （別々の余白で置くと左右の隅で高さが食い違って見える）。
+    const bottomLine = CANVAS_HEIGHT - safe.bottom - 14;
+    const gearAnchorY = bottomLine;
     const gearHitHalf = Math.max(52, gearFont); // 小さな⚙でも指で押せる寛容半径
 
     // 新版の通知（左下）。PWA はリロード手段が無いのでタップで更新できるようにする。
     // 描画(renderTitleScreen)とタップ判定(game.updateTitle)の単一導出。
+    // 左端は画面左の共通ライン(getUiLeftEdge)、下端は上の bottomLine に乗せる。
     // 幅は文字数から出す（全角なので 1文字≒1em。固定値だと fontScale 拡大時にはみ出す）。
-    const noticeFont = 13 * getFontScale();
+    // ただし中央の出陣ボタンへ食い込まない範囲までフォントを落とす（画面が
+    // 横に狭い端末でぶつかるのを構成的に防ぐ）。
+    const noticeX = getUiLeftEdge();
+    const noticeRoom = (centerX - actionButton.width * 0.5 - 12) - noticeX;
+    const noticeFont = Math.min(
+        13 * getFontScale(),
+        Math.max(9, noticeRoom / (UPDATE_NOTICE_TEXT.length + 1.6))
+    );
     const noticeH = noticeFont * 2.4;
-    const noticeW = (UPDATE_NOTICE_TEXT.length + 1.6) * noticeFont;
     const notice = {
-        x: safe.left + 24,
-        y: CANVAS_HEIGHT - safe.bottom - 24 - noticeH,
-        w: noticeW,
+        x: noticeX,
+        y: bottomLine - noticeFont * 2.4,
+        w: (UPDATE_NOTICE_TEXT.length + 1.6) * noticeFont,
         h: noticeH,
         font: noticeFont
     };
