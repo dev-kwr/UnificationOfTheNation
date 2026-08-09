@@ -9,8 +9,8 @@
 // ノード座標は「画像内の比率(u,v)」で持ち、cover 変換で画面座標へ写す。
 // 画像を差し替えても u,v を微調整するだけで済む（map_generation_prompt.md 参照）。
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, STAGES, getUiScale, getFontScale, getScreenSafeArea, isTouchOverlayMode } from './constants.js?v=screen-safe-20260810e';
-import { drawWafuCard, fillTextInkCentered, drawScreenManualLine } from './ui.js?v=screen-safe-20260810e';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, STAGES, getUiScale, getFontScale, getScreenSafeArea, isTouchOverlayMode } from './constants.js?v=screen-safe-20260810f';
+import { drawWafuCard, fillTextInkCentered, drawScreenManualLine } from './ui.js?v=screen-safe-20260810f';
 
 // ノード定義。kind: main=本編 / bonus=小判蔵 / training=道場。
 // bonus/training はフェーズ2で解放（データだけ先に持ち、表示は main のみ）。
@@ -19,27 +19,27 @@ import { drawWafuCard, fillTextInkCentered, drawScreenManualLine } from './ui.js
 // （円がランドマークを隠すと絵が見えない、と実機フィードバック）。
 // 画像を再生成したらここを目視で微調整する。
 export const WORLD_MAP_NODES = [
-    { id: 1, kind: 'main', u: 0.165, v: 0.815 },  // 竹林の入口（竹やぶ右下の道）
-    { id: 2, kind: 'main', u: 0.300, v: 0.775 },  // 宿場の前の街道
-    { id: 3, kind: 'main', u: 0.500, v: 0.475 },  // 峠の頂の道
-    { id: 4, kind: 'main', u: 0.655, v: 0.700 },  // 城下町の南の街道
-    { id: 5, kind: 'main', u: 0.850, v: 0.565 },  // 城門の前
+    { id: 1, kind: 'main', u: 0.115, v: 0.765 },  // 竹林の入口（道の起点近く）
+    { id: 2, kind: 'main', u: 0.305, v: 0.655 },  // 宿場の前の街道
+    { id: 3, kind: 'main', u: 0.545, v: 0.520 },  // 峠（滝の右の高み）
+    { id: 4, kind: 'main', u: 0.700, v: 0.615 },  // 城下町の入口（町並みの手前）
+    { id: 5, kind: 'main', u: 0.865, v: 0.425 },  // 城門（町の奥・石垣）
     // 6 はスマホ(wide)の縦クロップで上へ寄るため、右上のBGMボタンとの重なりに注意
-    { id: 6, kind: 'main', u: 0.845, v: 0.345 },  // 天守へ登る坂（天守と月は隠さない）
-    { id: 'bonus1', kind: 'bonus', u: 0.410, v: 0.800 },     // 小判蔵（鳥居の脇道）
-    { id: 'training1', kind: 'training', u: 0.400, v: 0.435 } // 道場（滝のそば）
+    { id: 6, kind: 'main', u: 0.868, v: 0.300 },  // 天守閣（月の下）
+    { id: 'bonus1', kind: 'bonus', u: 0.405, v: 0.740 },      // 小判蔵（鳥居の脇道・行き止まり）
+    { id: 'training1', kind: 'training', u: 0.605, v: 0.415 } // 道場（滝の上の建物）
 ];
 
 // 街道のウェイポイント（ノードiからi+1への中間点列・画像内比率）。
 // 経路線はノード同士を直線で結ばず、この点列で**絵に描かれた一本道**をなぞる
 // （直結だと谷や町を突っ切る線になり「道」に見えない、と実機フィードバック）。
 const WORLD_MAP_ROUTE = [
-    [{ u: 0.215, v: 0.805 }, { u: 0.255, v: 0.795 }],                                     // 1→2 宿場へ
-    [{ u: 0.370, v: 0.755 }, { u: 0.415, v: 0.705 }, { u: 0.437, v: 0.630 },
-     { u: 0.455, v: 0.550 }, { u: 0.476, v: 0.500 }],                                     // 2→3 峠越え
-    [{ u: 0.522, v: 0.520 }, { u: 0.556, v: 0.585 }, { u: 0.600, v: 0.648 }],             // 3→4 川沿いに下る
-    [{ u: 0.712, v: 0.716 }, { u: 0.770, v: 0.705 }, { u: 0.815, v: 0.655 }],             // 4→5 城門へ登る
-    [{ u: 0.863, v: 0.510 }, { u: 0.870, v: 0.452 }, { u: 0.860, v: 0.398 }]              // 5→6 天守への坂
+    [{ u: 0.170, v: 0.745 }, { u: 0.225, v: 0.710 }, { u: 0.265, v: 0.680 }],             // 1→2 宿場へ
+    [{ u: 0.365, v: 0.630 }, { u: 0.415, v: 0.612 }, { u: 0.470, v: 0.580 },
+     { u: 0.510, v: 0.550 }],                                                             // 2→3 峠へ登る
+    [{ u: 0.585, v: 0.470 }, { u: 0.622, v: 0.478 }, { u: 0.655, v: 0.545 }],             // 3→4 町へ下る
+    [{ u: 0.755, v: 0.575 }, { u: 0.808, v: 0.520 }, { u: 0.843, v: 0.468 }],             // 4→5 町を抜け城門へ
+    [{ u: 0.873, v: 0.375 }, { u: 0.872, v: 0.335 }]                                      // 5→6 天守への坂
 ];
 
 // フォールバック座標系（画像未配置のとき）。生成指示と同じ 1536x1024 を仮想画像として

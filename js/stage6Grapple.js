@@ -11,14 +11,14 @@
 // すべて描画と見た目の演出のみ — 当たり判定には一切関与しない。
 // ============================================
 
-import { STAGE6_CORNER } from './constants.js?v=screen-safe-20260810e';
-import { Kusarigama } from './weapon.js?v=screen-safe-20260810e';
+import { STAGE6_CORNER } from './constants.js?v=screen-safe-20260810f';
+import { Kusarigama } from './weapon.js?v=screen-safe-20260810f';
 import {
     chainCurve, sampleQuad, drawChain,
     pushTrailPoint, drawCometRibbon,
     makeParticles, drawSparks, drawBlastFlash,
     smoothstep01
-} from './weaponFx.js?v=screen-safe-20260810e';
+} from './weaponFx.js?v=screen-safe-20260810f';
 
 // 通常武器と同じ描画実装を使う。専用の鉤頭を別造形すると鎖鎌に見えなくなるため、
 // 鎌ヘッドの正本(Kusarigama.drawSickleHead)をこの演出からも直接呼ぶ。
