@@ -2,7 +2,7 @@
 // Unification of the Nation - 定数定義
 // ============================================
 
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260809j';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260809k';
 
 // キャンバスサイズ
 // CANVAS_WIDTH = 可視ワールド幅（ゲームプレイ窓）。世界ロジック(カメラ/クランプ/

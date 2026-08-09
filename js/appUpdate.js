@@ -27,15 +27,13 @@ const RUNNING_TOKEN = readRunningToken();
 let _updateAvailable = false;
 let _checking = false;
 let _lastCheckedAt = 0;
-// 最後の確認結果。デバッグメニューに出して「なぜ通知が出ないのか」を見えるようにする
-// （出ない理由が「最新だから」なのか「確認に失敗しているから」なのか区別できないと詰む）。
+// 最後の確認結果。画面には出さないが、確認に失敗したときだけコンソールへ残す
+// （モーダルが出ない理由が「最新だから」なのか「確認に失敗しているから」なのか、
+//  何も痕跡が無いと切り分けられないため）。
 let _status = RUNNING_TOKEN ? '未確認' : 'トークン不明';
-let _deployedToken = null;
 
 export function isUpdateAvailable() { return _updateAvailable; }
 export function getRunningToken() { return RUNNING_TOKEN; }
-export function getUpdateStatus() { return _status; }
-export function getDeployedToken() { return _deployedToken; }
 
 // 配信中の index.html を取り直してトークンを比較する。
 // no-store でブラウザキャッシュを、?cb= で CDN（GitHub Pages）のキャッシュを外す。
@@ -55,10 +53,10 @@ export async function checkForUpdate(force = false) {
         const html = await res.text();
         const m = html.match(TOKEN_RE);
         if (!m || !m[1]) { _status = '版が読めず'; return _updateAvailable; }
-        _deployedToken = m[1];
         if (m[1] !== RUNNING_TOKEN) {
             _updateAvailable = true;
             _status = '新版あり';
+            console.log(`[update] 新しいバージョン ${m[1]}（実行中 ${RUNNING_TOKEN}）`);
         } else {
             _status = '最新';
         }
@@ -67,6 +65,8 @@ export async function checkForUpdate(force = false) {
         _status = '通信不可';
     } finally {
         _checking = false;
+        // 確認できなかった時だけ痕跡を残す（正常時は無言）。
+        if (_status !== '最新' && _status !== '新版あり') console.warn(`[update] 確認できず: ${_status}`);
     }
     return _updateAvailable;
 }
