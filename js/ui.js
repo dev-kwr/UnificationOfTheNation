@@ -1092,36 +1092,52 @@ export class UI {
             ctx.restore();
         }
 
-        // 寄り道(小判蔵/道場)の刻限と現在のスコア（画面上端中央）
+        // 寄り道(小判蔵/道場)の刻限（画面上端中央・時間だけ）と、
+        // 獲得のたびに画面中央へ出る合計数
         if (stage && typeof stage.getHudTimerSec === 'function') {
             this.renderSideStageTimer(ctx, stage);
+            this.renderSideScoreBurst(ctx, stage);
         }
 
         // 仮想パッド（getPadLayout で自己スケールするためラップ外に置く）
         this.renderVirtualPad(ctx, player);
     }
 
-    // 寄り道の刻限バナー。残り10秒を切ると朱に転じて明滅する。
-    // スコアは主役なので大きく出し、加算のたびに弾ませてカウントアップする
-    // （小さいと獲得の手応えが無い、と実機フィードバック 2026-08-11）。
+    // 寄り道の刻限バナー（画面上端中央）。残り時間だけを置く。
+    // スコアは同居させない ― 数字が2つ並ぶと的が絞れず、獲得の手応えも出ない
+    // （実機フィードバック 2026-08-11）。合計は renderSideScoreBurst が中央に出す。
     renderSideStageTimer(ctx, stage) {
         const sec = Math.max(0, stage.getHudTimerSec());
-        const score = (typeof stage.getScore === 'function') ? Math.floor(stage.getScore()) : 0;
-        const isBonus = stage.sideKind === 'bonus';
         const fs = getFontScale();
         const uiS = getUiScale();
         const cx = SCREEN_WIDTH / 2;
         const top = getScreenSafeArea().top + 8 * uiS;
-        const w = 208 * uiS;
-        const h = 76 * uiS;
+        const w = 116 * uiS;
+        const h = 44 * uiS;
         const urgent = sec <= 10;
         const blink = urgent ? (0.72 + Math.sin(Date.now() * 0.012) * 0.28) : 1;
 
-        // 加算からの経過で弾ませる（stage.lastGain は grantScore/討伐で更新）
-        const gain = stage.lastGain;
-        const sinceGain = gain ? Math.max(0, (stage.time || 0) - gain.at) : 999;
-        const punch = Math.max(0, 1 - sinceGain / 0.42);          // 0..1
-        const pop = 1 + punch * punch * 0.5;                       // 直後ほど大きい
+        ctx.save();
+        drawWafuCard(ctx, cx - w / 2, top, w, h, { radius: 11 * uiS, bgAlpha: 0.86, accent: false });
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'alphabetic';
+        ctx.font = `900 ${Math.round(24 * fs)}px "Helvetica Neue", Arial, sans-serif`;
+        ctx.fillStyle = urgent
+            ? `rgba(255, 138, 110, ${blink.toFixed(3)})`
+            : 'rgba(238, 246, 255, 0.95)';
+        if (urgent) {
+            ctx.shadowColor = 'rgba(255, 110, 80, 0.7)';
+            ctx.shadowBlur = 16 * uiS;
+        }
+        ctx.fillText(sec.toFixed(1), cx, top + 31 * uiS);
+        ctx.restore();
+    }
+
+    // 獲得のたびに画面中央へ「今の合計」を大きく出す。
+    // 数字は実値へ回りながら（カウントアップ）弾み、少し置いて静かに消える。
+    // 連続で取り続けている間は出っぱなしになり、それが手応えになる。
+    renderSideScoreBurst(ctx, stage) {
+        const score = (typeof stage.getScore === 'function') ? Math.floor(stage.getScore()) : 0;
         // 表示値は実値へ追いつくカウントアップ（一気に飛ばず数字が回る）
         if (this._sideScoreShown === undefined || stage !== this._sideScoreStage) {
             this._sideScoreShown = score;
@@ -1129,56 +1145,74 @@ export class UI {
         }
         const diff = score - this._sideScoreShown;
         if (diff !== 0) {
-            const step = Math.max(1, Math.ceil(Math.abs(diff) * 0.28));
+            const step = Math.max(1, Math.ceil(Math.abs(diff) * 0.3));
             this._sideScoreShown += Math.sign(diff) * Math.min(step, Math.abs(diff));
         }
         const shown = Math.round(this._sideScoreShown);
 
+        const gain = stage.lastGain;
+        if (!gain) return;
+        const since = Math.max(0, (stage.time || 0) - gain.at);
+        const HOLD = 0.75;    // はっきり出ている時間
+        const FADE = 0.55;    // 消えるまで
+        if (since > HOLD + FADE) return;
+
+        const isBonus = stage.sideKind === 'bonus';
+        const fs = getFontScale();
+        const uiS = getUiScale();
+        const cx = SCREEN_WIDTH / 2;
+        const cy = CANVAS_HEIGHT * 0.42;   // 中央やや上（足元の攻防に被せない）
+        const punch = Math.max(0, 1 - since / 0.32);
+        const fade = since <= HOLD ? 1 : Math.max(0, 1 - (since - HOLD) / FADE);
+        const pop = 1 + punch * punch * 0.35;
+
         ctx.save();
-        drawWafuCard(ctx, cx - w / 2, top, w, h, { radius: 12 * uiS, bgAlpha: 0.88, accent: false });
-        ctx.textAlign = 'center';
+        ctx.globalAlpha = fade * 0.94;
+        ctx.translate(cx, cy);
+        ctx.scale(pop, pop);
         ctx.textBaseline = 'alphabetic';
 
-        // 残り時間（上段・控えめ）
-        ctx.font = `800 ${Math.round(17 * fs)}px "Helvetica Neue", Arial, sans-serif`;
-        ctx.fillStyle = urgent
-            ? `rgba(255, 138, 110, ${blink.toFixed(3)})`
-            : 'rgba(214, 230, 255, 0.8)';
-        ctx.fillText(sec.toFixed(1), cx, top + 22 * uiS);
-
-        // スコア（下段・主役。加算直後は弾んで光る）
-        ctx.save();
-        ctx.translate(cx, top + 56 * uiS);
-        ctx.scale(pop, pop);
         const unit = isBonus ? '両' : '人';
-        const numFont = `900 ${Math.round(30 * fs)}px "Helvetica Neue", Arial, sans-serif`;
-        const unitFont = `700 ${Math.round(15 * fs)}px "Zen Old Mincho", serif`;
+        const numFont = `900 ${Math.round(76 * fs)}px "Helvetica Neue", Arial, sans-serif`;
+        const unitFont = `700 ${Math.round(28 * fs)}px "Zen Old Mincho", serif`;
         ctx.font = numFont;
         const numW = ctx.measureText(String(shown)).width;
         ctx.font = unitFont;
-        const unitW = ctx.measureText(unit).width + 5 * uiS;
+        const unitW = ctx.measureText(unit).width + 10 * uiS;
         const startX = -(numW + unitW) / 2;
+
+        // 数字（縁取り＋発光。背景がどんな明度でも読める）
         ctx.textAlign = 'left';
         ctx.font = numFont;
-        const baseColor = isBonus ? '#f0cf74' : '#dfeaff';
-        ctx.fillStyle = punch > 0 ? '#ffffff' : baseColor;
-        ctx.shadowColor = isBonus ? 'rgba(255, 206, 120, 0.85)' : 'rgba(150, 195, 255, 0.8)';
-        ctx.shadowBlur = (10 + punch * 26) * uiS;
+        ctx.lineWidth = 9 * uiS;
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = 'rgba(6, 10, 22, 0.85)';
+        ctx.strokeText(String(shown), startX, 0);
+        ctx.shadowColor = isBonus ? 'rgba(255, 206, 120, 0.9)' : 'rgba(150, 195, 255, 0.85)';
+        ctx.shadowBlur = (18 + punch * 34) * uiS;
+        ctx.fillStyle = punch > 0.55 ? '#ffffff' : (isBonus ? '#f4d484' : '#e6efff');
         ctx.fillText(String(shown), startX, 0);
         ctx.shadowBlur = 0;
-        ctx.font = unitFont;
-        ctx.fillStyle = 'rgba(226, 236, 255, 0.9)';
-        ctx.fillText(unit, startX + numW + 5 * uiS, 0);
-        ctx.restore();
 
-        // 加算値のフラッシュ（カードの右肩に「+n」）
-        if (punch > 0 && gain) {
-            ctx.globalAlpha = punch;
-            ctx.textAlign = 'left';
-            ctx.font = `900 ${Math.round(16 * fs)}px "Helvetica Neue", Arial, sans-serif`;
+        // 単位
+        ctx.font = unitFont;
+        ctx.lineWidth = 6 * uiS;
+        ctx.strokeStyle = 'rgba(6, 10, 22, 0.85)';
+        ctx.strokeText(unit, startX + numW + 10 * uiS, 0);
+        ctx.fillStyle = 'rgba(230, 240, 255, 0.95)';
+        ctx.fillText(unit, startX + numW + 10 * uiS, 0);
+
+        // 直近の加算（数字の下に小さく「+n」）
+        if (since < 0.6) {
+            ctx.globalAlpha = fade * Math.max(0, 1 - since / 0.6);
+            ctx.textAlign = 'center';
+            ctx.font = `900 ${Math.round(22 * fs)}px "Helvetica Neue", Arial, sans-serif`;
+            ctx.lineWidth = 5 * uiS;
+            ctx.strokeStyle = 'rgba(6, 10, 22, 0.8)';
+            const gy = 34 * uiS + (1 - punch) * 6 * uiS;
+            ctx.strokeText(`+${gain.value}`, 0, gy);
             ctx.fillStyle = isBonus ? '#ffd970' : '#cfe2ff';
-            ctx.fillText(`+${gain.value}`, cx + w * 0.5 - 44 * uiS, top + 34 * uiS - punch * 8 * uiS);
-            ctx.globalAlpha = 1;
+            ctx.fillText(`+${gain.value}`, 0, gy);
         }
         ctx.restore();
     }
