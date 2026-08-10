@@ -2,12 +2,14 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible } from './constants.js?v=screen-safe-20260810f';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260810f';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260810f';
-import { getStageSelectLayout, renderStageSelect } from './stageSelect.js?v=screen-safe-20260810f';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260810f';
-import { input } from './input.js?v=screen-safe-20260810f';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible } from './constants.js?v=screen-safe-20260810g';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260810g';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260810g';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260810g';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260810g';
+import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260810g';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260810g';
+import { input } from './input.js?v=screen-safe-20260810g';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -45,18 +47,18 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=screen-safe-20260810f';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260810f';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260810f';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260810f';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260810f';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260810f';
-import { saveManager } from './save.js?v=screen-safe-20260810f';
-import { shop } from './shop.js?v=screen-safe-20260810f';
-import { audio } from './audio.js?v=screen-safe-20260810f';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260810f';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260810f';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260810f';
+import { Player } from './player.js?v=screen-safe-20260810g';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260810g';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260810g';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260810g';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260810g';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260810g';
+import { saveManager } from './save.js?v=screen-safe-20260810g';
+import { shop } from './shop.js?v=screen-safe-20260810g';
+import { audio } from './audio.js?v=screen-safe-20260810g';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260810g';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260810g';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260810g';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -1117,7 +1119,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260810f').then(module => {
+        import('./weapon.js?v=screen-safe-20260810g').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -2989,6 +2991,12 @@ class Game {
         // ダメージ数値更新
         this.updateDamageNumbers();
         
+        // ボーナス(小判蔵)の出口に到達したらセレクトへ戻る（本編クリアの経路には乗せない）
+        if (this.stage && typeof this.stage.isBonusFinished === 'function' && this.stage.isBonusFinished()) {
+            this.finishBonusStage();
+            return;
+        }
+
         // ステージクリアチェック
         if (this.stage.isCleared()) {
             if (!this.pendingStageClear) {
@@ -5757,6 +5765,17 @@ class Game {
     // 未ロードのまま開始すると naturalWidth=0 の画像は描画がスキップされ、
     // 下地だけの絵が数フレーム見えてから差し替わる＝フラッシングになる。
     requestStageStart() {
+        // ボーナス(小判蔵)。本編と同じく、背景が読めるまで暗幕のまま待つ
+        if (this.pendingBonusStart) {
+            this.pendingBonusStart = false;
+            preloadImages(BONUS_STAGE_IMAGES);
+            if (areImagesSettled(BONUS_STAGE_IMAGES)) {
+                this.startBonusStage();
+                return;
+            }
+            this.pendingStageStart = { bonus: true, waitMs: 0 };
+            return;
+        }
         const stageNumber = this.currentStageNumber;
         preloadStageImages(stageNumber);
         if (areStageImagesSettled(stageNumber)) {
@@ -5772,6 +5791,13 @@ class Game {
         const pending = this.pendingStageStart;
         if (!pending) return;
         pending.waitMs += this.deltaTime * 1000;
+        if (pending.bonus) {
+            if (areImagesSettled(BONUS_STAGE_IMAGES) || pending.waitMs >= STAGE_ASSET_WAIT_MAX_MS) {
+                this.pendingStageStart = null;
+                this.startBonusStage();
+            }
+            return;
+        }
         if (areStageImagesSettled(pending.stageNumber) || pending.waitMs >= STAGE_ASSET_WAIT_MAX_MS) {
             this.pendingStageStart = null;
             this.startStage();
@@ -5786,6 +5812,20 @@ class Game {
         return Math.min(STAGES.length, (this.maxClearedStage || 0) + 1);
     }
 
+    // ボーナス(小判蔵)の解放。第2階層を踏破した後の寄り道として開く。
+    isBonusUnlocked() {
+        return saveManager.loadGlobal().isGameCleared || (this.maxClearedStage || 0) >= 2;
+    }
+
+    // カーソルが辿る順序（地図の道なり順）。解放済みのものだけ。
+    getStageSelectOrder() {
+        const maxSelectable = this.getMaxSelectableStage();
+        const bonusOk = this.isBonusUnlocked();
+        return STAGE_SELECT_ORDER.filter((id) =>
+            (typeof id === 'number') ? id <= maxSelectable : bonusOk
+        );
+    }
+
     enterStageSelect() {
         this.state = GAME_STATE.STAGE_SELECT;
         // 初期カーソルは「次に進む階層」（=解放の最前線）
@@ -5795,9 +5835,10 @@ class Game {
     }
 
     updateStageSelect() {
-        const maxSelectable = this.getMaxSelectableStage();
+        const order = this.getStageSelectOrder();
         const move = (delta) => {
-            const next = Math.max(1, Math.min(maxSelectable, this.stageSelectCursor + delta));
+            const idx = Math.max(0, order.indexOf(this.stageSelectCursor));
+            const next = order[Math.max(0, Math.min(order.length - 1, idx + delta))];
             if (next !== this.stageSelectCursor) {
                 this.stageSelectCursor = next;
                 audio.playSelect();
@@ -5815,8 +5856,9 @@ class Game {
 
         if (input.touchJustPressed) {
             // 描画と同じ導出でノード判定（座標式を複製しない）
-            const node = getStageSelectLayout().nodeAt(input.lastTouchX, input.lastTouchY);
-            if (node && node.id <= maxSelectable) {
+            const node = getStageSelectLayout({ bonusUnlocked: this.isBonusUnlocked() })
+                .nodeAt(input.lastTouchX, input.lastTouchY);
+            if (node && order.includes(node.id)) {
                 if (node.id === this.stageSelectCursor) {
                     // 選択中ノードの再タップで決定（誤タップで即出撃しないための2段階）
                     audio.playSelect();
@@ -5827,6 +5869,57 @@ class Game {
                 }
             }
         }
+    }
+
+    // ボーナスステージ(小判蔵)を開始する。本編の進行状態(currentStageNumber /
+    // maxClearedStage)には一切触れない＝終わったらセレクトへ戻るだけの寄り道。
+    startBonusStage() {
+        this.pendingStageStart = null;
+        this.groundY = Math.round(CANVAS_HEIGHT * (2 / 3));
+        if (this.player) {
+            this.player.previewMode = false;
+            this.player.groundY = this.groundY;
+            this.player.x = 100;
+            this.player.y = this.groundY + LANE_OFFSET - this.player.getWorldHeight();
+            this.player.vx = 0;
+            this.player.vy = 0;
+            this.player.isGrounded = true;
+            this.player.isAttacking = false;
+            this.player.isDashing = false;
+            this.player.isCrouching = false;
+            this.player.attackCombo = 0;
+            this.player.attackTimer = 0;
+            this.player.comboResetTimer = 0;
+            this.player.subWeaponTimer = 0;
+            this.player.subWeaponAction = null;
+            if (typeof this.player.clearSpecialState === 'function') this.player.clearSpecialState(true);
+            for (const weapon of (this.player.subWeapons || [])) {
+                if (weapon && weapon.projectiles) weapon.projectiles = [];
+                if (weapon && weapon.pendingShots) weapon.pendingShots = [];
+            }
+            if (typeof this.player.resetVisualTrails === 'function') this.player.resetVisualTrails();
+        }
+        this.stage = new BonusStage();
+        this.bombs = [];
+        this.shockwaves = [];
+        this.effects = [];
+        this.hitEffects = [];
+        this.damageNumbers = [];
+        this.expGems = [];
+        this.stageBossDefeatEffects = [];
+        this.scrollX = 0;
+        this.cameraLift = 0;
+        this.cameraLiftTarget = 0;
+        this.state = GAME_STATE.PLAYING;
+        audio.playBgm('shop');
+        this.startTransition();
+    }
+
+    // 蔵の出口に到達。拾った小判を保存してセレクトへ戻る。
+    finishBonusStage() {
+        saveManager.save(this.player, Math.min(STAGES.length, (this.maxClearedStage || 0) + 1), this.unlockedWeapons || []);
+        this.transitionTimer = 1.0;   // 軽い暗転で場面を切る
+        this.enterStageSelect();
     }
 
     // セレクトで行き先を決めた後のステータス画面（STAGE_CLEAR Phase1 を流用）。
@@ -5881,6 +5974,13 @@ class Game {
             audio.playGameStart();
             if (this.player) this.player.previewMode = false;
             this.applyStageDefaultWeaponChoice();
+            // ボーナス(小判蔵)へ。本編の進行(currentStageNumber)は変えない
+            if (this.pendingStageSelection === 'bonus1') {
+                this.pendingStageSelection = null;
+                this.pendingBonusStart = true;
+                this.startStageTransition();
+                return;
+            }
             this.currentStageNumber = this.pendingStageSelection || (this.currentStageNumber + 1);
             this.pendingStageSelection = null;
             if (this.currentStageNumber > STAGES.length) {
@@ -6142,6 +6242,7 @@ class Game {
                     cursor: this.stageSelectCursor,
                     maxSelectable: this.getMaxSelectableStage(),
                     maxCleared: this.maxClearedStage,
+                    bonusUnlocked: this.isBonusUnlocked(),
                     timeMs: Date.now()
                 });
                 break;

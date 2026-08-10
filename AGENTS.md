@@ -109,6 +109,8 @@
    - 解放は `maxClearedStage`（クリア済みの最深階層）が正本。`選べる範囲 = min(6, maxClearedStage+1)`、全クリア済み(isGameCleared)は常に全解放。セーブは `progress.maxClearedStage`（旧セーブは currentStage-1 で補完）。**再戦クリアで保存する「次のステージ」は maxClearedStage+1**（currentStage+1 だと続きからが巻き戻る）。
    - マップのノード座標は `WORLD_MAP_NODES` に**画像内比率(u,v)**で持ち、描画とタップ判定は `getStageSelectLayout()` を共有する。マップ画像は `images/world_map.png`（無ければフォールバック描画）。生成指示は `map_generation_prompt.md`、自動生成は `tools/generate-worldmap.mjs`。
    - ノード6(天守)はスマホ(wide)の縦クロップで上へ寄るため、右上のBGMボタンと重ならない v にしてある。ノードを動かすときは重なりを再確認すること。
+   - **経路線は描かない**(絵に描かれた一本道に任せる。UI線の重ねはややこしい、と実機で差し戻し)。カーソルの順序は `STAGE_SELECT_ORDER`(道なり順・ボーナスは2と3の間)。
+   - **ボーナス(小判蔵)は `js/bonusStage.js`**。Stage互換の軽量クラスを `game.stage` に差して PLAYING をそのまま使う(敵ゼロ・`isCleared()` 常false=本編クリア経路に乗せない)。終了は `isBonusFinished()` を updatePlaying が見て `finishBonusStage()`→セレクトへ。本編進行には触れない。開始は本編と同じ暗幕待ち(`pendingStageStart.bonus`)。サイドステージを増やすときはこの方式を踏襲する。
 
 7. **ステージ背景アセットの追加は `stage.js` の `STAGE_IMAGE_SOURCES` へ**:
    - この表が「Stage への割り当て」と「先読み・ロード完了判定」の単一ソース。ここを通さずに `new Image()` すると、ステージ開始直後だけ絵が抜けてフラッシングする。
