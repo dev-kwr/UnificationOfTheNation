@@ -1260,7 +1260,7 @@ export class UI {
             ctx.font = `900 ${Math.round(22 * fs)}px "Helvetica Neue", Arial, sans-serif`;
             ctx.lineWidth = 5 * uiS;
             ctx.strokeStyle = 'rgba(6, 10, 22, 0.8)';
-            const gy = 34 * uiS + (1 - punch) * 6 * uiS;
+            const gy = 50 * uiS + (1 - punch) * 6 * uiS;
             ctx.strokeText(`+${formatCount(gain.value)}`, 0, gy);
             ctx.fillStyle = isBonus ? '#ffd970' : '#cfe2ff';
             ctx.fillText(`+${formatCount(gain.value)}`, 0, gy);
@@ -2974,7 +2974,7 @@ export function renderSideResultScreen(ctx, result) {
     ctx.textBaseline = 'alphabetic';
     ctx.font = `500 ${Math.round(13 * fs)}px "Zen Old Mincho", serif`;
     ctx.fillStyle = 'rgba(206, 226, 255, 0.82)';
-    ctx.fillText(isBonus ? '蔵で得た小判' : '道場での討伐', cx, y + subBase);
+    ctx.fillText(isBonus ? '蔵で得た小判' : '打ち倒した数', cx, y + subBase);
 
     // 今回のスコア（数字だけ大きく）
     const scoreT = easeOut((t - 0.28) / 0.4);
@@ -3034,7 +3034,7 @@ export function renderSideResultScreen(ctx, result) {
     // 続行の案内（読ませる間を置いてから）
     if (t > 0.9) {
         const manual = isTouchOverlayMode() ? '画面に触れて戻る' : 'SPACE：戻る';
-        drawScreenManualLine(ctx, manual, y + h + 30 * uiS);
+        drawScreenManualLine(ctx, manual, y + h + 52 * uiS);
     }
     ctx.restore();
 }

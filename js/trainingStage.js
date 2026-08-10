@@ -93,21 +93,24 @@ export class TrainingStage {
 
         // 敵の更新。討伐(hp<=0)は死亡アニメを待たずその場で数える。
         // 除去(update が true)は死亡アニメ完了後 — 報酬は game 側の撃破処理が持つ。
+        // 同じフレームで複数倒したぶんは1つにまとめる(「+1」が重なって読めなくなる)
         const next = [];
+        let killedThisFrame = 0;
+        let killX = 0, killY = 0;
         for (const enemy of this.enemies) {
             if (enemy.hp <= 0 && !enemy._dojoCounted) {
                 enemy._dojoCounted = true;
                 this.killCount++;
-                this.lastGain = { value: 1, at: this.time };
-                this.gainPops.push({
-                    x: enemy.x + (enemy.width || 36) * 0.5,
-                    y: enemy.y + (enemy.height || 72) * 0.4,
-                    life: 0.9
-                });
+                killedThisFrame++;
+                killX += enemy.x + (enemy.width || 36) * 0.5;
+                killY += enemy.y + (enemy.height || 72) * 0.4;
             }
             if (!enemy.update(deltaTime, player, [])) next.push(enemy);
         }
         this.enemies = next;
+        if (killedThisFrame > 0) {
+            this.pushGain(killedThisFrame, killX / killedThisFrame, killY / killedThisFrame);
+        }
 
         if (this._timeUp) return;
         this.timeLeft = Math.max(0, this.timeLeft - deltaTime);
@@ -124,6 +127,26 @@ export class TrainingStage {
                 this.spawnOne(player);
                 this.spawnTimer = RESPAWN_INTERVAL_SEC;
             }
+        }
+    }
+
+    // 獲得の集約。連続で倒している間(GAIN_MERGE_SEC以内)は同じ表示へ足し込み、
+    // 「+1 +1 +1」が重なる代わりに「+3」と育てる(無双の手応え)。
+    pushGain(value, x, y) {
+        const MERGE = 0.35;
+        if (this.lastGain && this.time - this.lastGain.at < MERGE) {
+            this.lastGain.value += value;
+            this.lastGain.at = this.time;
+        } else {
+            this.lastGain = { value, at: this.time };
+        }
+        // 浮き文字も直近のものが近ければ合流させる(同じ場所に重ならない)
+        const near = this.gainPops.find((p) => p.life > 0.55 && Math.hypot(p.x - x, p.y - y) < 90);
+        if (near) {
+            near.value += value;
+            near.life = 0.9;
+        } else {
+            this.gainPops.push({ x, y, value, life: 0.9 });
         }
     }
 
@@ -215,9 +238,10 @@ export class TrainingStage {
             ctx.font = '900 22px "Helvetica Neue", Arial, sans-serif';
             ctx.lineWidth = 4;
             ctx.strokeStyle = 'rgba(6, 12, 26, 0.85)';
-            ctx.strokeText('+1', 0, 0);
+            const label = `+${p.value || 1}`;
+            ctx.strokeText(label, 0, 0);
             ctx.fillStyle = '#dfeaff';
-            ctx.fillText('+1', 0, 0);
+            ctx.fillText(label, 0, 0);
             ctx.restore();
         }
     }

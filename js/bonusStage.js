@@ -278,8 +278,22 @@ export class BonusStage {
         if (typeof player.setMoney === 'function') player.setMoney(player.money + value);
         else player.money = (player.money || 0) + value;
         audio.playMoney();
-        this.lastGain = { value, at: this.time };
-        this.gainPops.push({ x, y, value, life: 0.9 });
+        // 連続で拾っている間(0.35秒以内)は同じ表示へ足し込む。
+        // 1枚ずつ「+20」を重ねると数字が被って読めない。
+        const MERGE = 0.35;
+        if (this.lastGain && this.time - this.lastGain.at < MERGE) {
+            this.lastGain.value += value;
+            this.lastGain.at = this.time;
+        } else {
+            this.lastGain = { value, at: this.time };
+        }
+        const near = this.gainPops.find((p) => p.life > 0.55 && Math.hypot(p.x - x, p.y - y) < 90);
+        if (near) {
+            near.value += value;
+            near.life = 0.9;
+        } else {
+            this.gainPops.push({ x, y, value, life: 0.9 });
+        }
     }
 
     // --- 描画（renderPlaying から呼ばれる。ctx はワールド変換済み） ---
