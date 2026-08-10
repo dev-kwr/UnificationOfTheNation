@@ -9,8 +9,8 @@
 // ノード座標は「画像内の比率(u,v)」で持ち、cover 変換で画面座標へ写す。
 // 画像を差し替えても u,v を微調整するだけで済む（map_generation_prompt.md 参照）。
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, STAGES, getUiScale, getFontScale, getScreenSafeArea, isTouchOverlayMode } from './constants.js?v=screen-safe-20260810j';
-import { drawWafuCard, fillTextInkCentered, drawScreenManualLine } from './ui.js?v=screen-safe-20260810j';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, STAGES, getUiScale, getFontScale, getScreenSafeArea, isTouchOverlayMode } from './constants.js?v=screen-safe-20260811a';
+import { drawWafuCard, fillTextInkCentered, drawScreenManualLine } from './ui.js?v=screen-safe-20260811a';
 
 // ノード定義。kind: main=本編 / bonus=小判蔵(第2階層踏破で解放・実装済み) /
 // training=道場(未実装。データだけ先に持つ)。
@@ -181,9 +181,8 @@ export function renderStageSelect(ctx, opts = {}) {
         const isBonus = n.kind === 'bonus';
         const isTraining = n.kind === 'training';
         const isSide = isBonus || isTraining;
-        const depleted = isBonus && !!opts.bonusDepleted;   // 空の蔵（補充待ち）
         const cleared = !isSide && n.id <= maxCleared;
-        const selectable = (isSide && !depleted) || (!isSide && n.id <= maxSelectable);
+        const selectable = isSide || n.id <= maxSelectable;   // 寄り道は何度でも挑める
         const isCursor = n.id === cursor;
         ctx.save();
         // 台座円は薄塗り（ランドマークと街道を塗り潰さない。地図が主役、と実機
@@ -191,8 +190,7 @@ export function renderStageSelect(ctx, opts = {}) {
         // 影(fillTextInkCentered の後に敷く暗いハロー)で担保する。
         ctx.beginPath();
         ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-        ctx.fillStyle = depleted ? 'rgba(38, 34, 26, 0.42)'
-            : isBonus ? 'rgba(88, 66, 18, 0.5)'
+        ctx.fillStyle = isBonus ? 'rgba(88, 66, 18, 0.5)'
             : isTraining ? 'rgba(46, 30, 66, 0.5)'
             : cleared ? 'rgba(96, 46, 40, 0.5)'
             : selectable ? 'rgba(22, 34, 66, 0.46)'
@@ -201,7 +199,6 @@ export function renderStageSelect(ctx, opts = {}) {
         ctx.lineWidth = isCursor ? 3 : 1.5;
         ctx.strokeStyle = isCursor
             ? `rgba(255, 232, 160, ${(0.75 + pulse * 0.25).toFixed(3)})`
-            : depleted ? 'rgba(150, 140, 120, 0.4)'
             : isBonus ? 'rgba(231, 196, 90, 0.8)'
             : isTraining ? 'rgba(196, 160, 240, 0.8)'
             : cleared ? 'rgba(224, 160, 130, 0.75)'
@@ -228,8 +225,7 @@ export function renderStageSelect(ctx, opts = {}) {
         ctx.fillStyle = 'rgba(6, 10, 20, 0.85)';
         fillTextInkCentered(ctx, label, n.x, n.y);
         ctx.restore();
-        ctx.fillStyle = depleted ? 'rgba(190, 180, 160, 0.5)'
-            : isBonus ? '#ffe8a8'
+        ctx.fillStyle = isBonus ? '#ffe8a8'
             : isTraining ? '#e6d2ff'
             : selectable ? '#f2f7ff' : 'rgba(180, 190, 210, 0.55)';
         fillTextInkCentered(ctx, label, n.x, n.y);
@@ -264,8 +260,7 @@ export function renderStageSelect(ctx, opts = {}) {
         const bonusBest = Math.max(0, Math.floor(best.bonus || 0));
         const trainingBest = Math.max(0, Math.floor(best.training || 0));
         const title = sel.kind === 'bonus'
-            ? (opts.bonusDepleted ? '小判蔵　空（踏破で補充）'
-                : bonusBest > 0 ? `小判蔵　最高 ${bonusBest}両` : '小判蔵')
+            ? (bonusBest > 0 ? `小判蔵　最高 ${bonusBest}両` : '小判蔵')
             : sel.kind === 'training'
             ? (trainingBest > 0 ? `修行道場　最高 ${trainingBest}人` : '修行道場')
             : `第${sel.id}階層　${sel.name}`;

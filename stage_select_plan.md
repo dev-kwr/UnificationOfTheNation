@@ -39,8 +39,9 @@ Stage6クリア → 従来どおりゲームクリア演出/エンディング(�
 どちらも**刻限60秒**。時間切れ→結果発表(`GAME_STATE.SIDE_RESULT` / `renderSideResultScreen`)で
 今回のスコアと最高記録、更新時は「最高記録更新」の報せを出し、タップ/SPACEでセレクトへ戻る。
 最高記録は `saveGlobal().sideBest = { bonus, training }`(プレイヤーのセーブとは独立)。
-- **小判蔵**: 出口到達での終了を廃し、木箱の棚12段を登る**縦アスレチック**へ。カメラは
-  `useFeetCameraLift` で足の高さに追従(頂上は `getCameraMinVisTop()` で頭打ち)。
+- **小判蔵**: 出口到達での終了を廃し、木箱の棚20段を登る**縦アスレチック**へ。カメラは
+  `useFeetCameraLift` でプレイヤーを画面中央に置いて追う(頂上と床で止まる)。
+  4か所の吊り棚が左右に往復し、乗ると一緒に運ばれる。小判は高さ帯で 20/40/60両。
   頂上の千両箱は +300両(生成画像 bonus_kura_chest.png)。棚の脇に行灯を灯し、
   上層の壁は bonus_kura_wall_upper.png を縦横タイル+梁で継ぐ。スコア=獲得両。
 - **修行道場**: ウェーブ制を廃し、場に常時7体を維持する**無双方式**へ(0.22秒間隔で補充)。
@@ -56,9 +57,6 @@ Stage6クリア → 従来どおりゲームクリア演出/エンディング(�
   - **アスレチック**: 木箱スタック(1〜3段)の一方通行足場を `getPlatformColliders()`
     (game.updatePlaying の extraColliders 汎用フック)で提供。上ルートに高所小判と
     千両箱(+CHEST_VALUE両)。地上を走り抜けるだけでも最低限は拾える二層構造。
-  - **補充制**: 踏破すると `game.bonusAvailable=false`(セーブ progress.bonusAvailable)。
-    本編ステージをどこかクリアすると true に戻る(handleStageClear)。空の間はセレクトの
-    「両」ノードが灰色・選択不可、カードは「小判蔵　空（踏破で補充）」。
   - 画像: bg/床/扉/木箱 = images/bonus_kura_{bg,floor,door,crate}.png(Codex imagegen)。
     床はミラータイル(偶奇反転)で継ぎ目を消す。開始時は本編と同じ暗幕待ち機構
     (pendingStageStart={side:'bonus'})。読めない環境はコード描画へフォールバック。
@@ -66,7 +64,6 @@ Stage6クリア → 従来どおりゲームクリア演出/エンディング(�
   (maxProgress=CANVAS_WIDTH, scrollX=0)。敵(createEnemy 製)が波状に湧き、
   全滅→一拍→次ウェーブ。回を重ねると数と質が上がり、5の倍数ウェーブは武将入り。
   撃破報酬(expGem/小判/ゲージ)は本編と同じ game 側処理(getAllEnemies 経由)。
-  離脱: 左端の戸の前に立ち続ける(EXIT_HOLD_SEC=0.6s、円弧ゲージ表示)→セレクトへ。
   解放: Stage3 クリア後。背景: images/training_dojo_bg.png(床焼き込み一枚絵、
   FLOOR_LINE_V で床境界をワールド地平線に合わせる)。BGM は山道(stage3)流用。
 - セレクトから入る際もステータス画面(装備確認)を挟む(実装済みの共通フロー)。

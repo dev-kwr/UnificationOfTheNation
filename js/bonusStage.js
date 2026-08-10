@@ -4,12 +4,12 @@
 // 刻限60秒のスコアアタック。蔵の中の吹き抜けを、木箱の棚(一方通行足場)を
 // 伝って上へ上へと登り、小判と最上部の千両箱を集める縦アスレチック。
 // 時間切れで結果発表(game.beginSideResult)→獲得両がスコア。最高記録は
-// saveGlobal(sideBest.bonus) に残る。蔵は一度入ると空になり、本編ステージを
-// どこか踏破するまで補充されない(game.bonusAvailable)。
+// saveGlobal(sideBest.bonus) に残る。何度でも挑める(記録更新が目的)。
 //
 // カメラ: 横は固定(maxProgress=CANVAS_WIDTH で scrollX は常に0)。縦は
 // game.updateCameraLift の stage フック(useFeetCameraLift +
-// getCameraMinVisTop)で「接地した足の高さ」に追従して塔を登る。
+// getCameraMinVisTop)で【プレイヤーが画面の上下中央】に来るよう追い、
+// 頂き(getCameraMinVisTop)と床でだけ止まる。
 //
 // Stage 互換の軽量クラス(isCleared()常false)。終了は isTimeUp() を
 // game.updatePlaying が見る。
@@ -17,9 +17,9 @@
 // 画像: images/bonus_kura_*.png（Codex/gpt-image 生成。読めない環境では
 // コード描画にフォールバック）。
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260810j';
-import { audio } from './audio.js?v=screen-safe-20260810j';
-import { getImage } from './imageCache.js?v=screen-safe-20260810j';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260811a';
+import { audio } from './audio.js?v=screen-safe-20260811a';
+import { getImage } from './imageCache.js?v=screen-safe-20260811a';
 
 // 小判1枚の価値（両）。よろず屋の相場に合わせてここだけで調整する。
 const KOBAN_VALUE = 20;
@@ -46,19 +46,37 @@ function getAsset(index) {
 
 // 棚(足場)の配置: x=左端 / dy=laneY(512)からの上面の相対高さ / crates=箱の数。
 // 縦間隔110〜135(単〜2段ジャンプ圏)、横の跳びは240px以内でジグザグに。
+// move を持つ棚は左右に往復する吊り棚(amp=振幅px, period=往復秒, phase=位相)。
+// 上段ほど動く棚と細い足場を増やし、登るほど手強くする。
 const SHELF_LAYOUT = [
     { x: 150, dy: -120, crates: 2 },
     { x: 610, dy: -230, crates: 2 },
     { x: 1000, dy: -340, crates: 2 },
     { x: 540, dy: -455, crates: 3 },
     { x: 120, dy: -575, crates: 2 },
-    { x: 610, dy: -690, crates: 2 },
+    { x: 560, dy: -690, crates: 1, move: { amp: 150, period: 4.2, phase: 0 } },
     { x: 1010, dy: -800, crates: 2 },
-    { x: 520, dy: -915, crates: 3 },
+    { x: 520, dy: -915, crates: 2 },
     { x: 110, dy: -1030, crates: 2 },
-    { x: 600, dy: -1145, crates: 2 },
+    { x: 560, dy: -1145, crates: 1, move: { amp: 190, period: 3.6, phase: 1.6 } },
     { x: 1000, dy: -1255, crates: 2 },
-    { x: 450, dy: -1380, crates: 4 }    // 頂上の大棚（千両箱と月明かり）
+    { x: 480, dy: -1370, crates: 2 },
+    { x: 120, dy: -1485, crates: 2 },
+    { x: 560, dy: -1600, crates: 1, move: { amp: 210, period: 3.2, phase: 0.8 } },
+    { x: 1010, dy: -1715, crates: 2 },
+    { x: 540, dy: -1830, crates: 2 },
+    { x: 140, dy: -1945, crates: 2 },
+    { x: 560, dy: -2060, crates: 1, move: { amp: 230, period: 2.9, phase: 2.4 } },
+    { x: 1000, dy: -2175, crates: 2 },
+    { x: 450, dy: -2300, crates: 4 }    // 頂上の大棚（千両箱と月明かり）
+];
+
+// 高さ帯ごとの小判の価値。登るほど実入りが増え、上を目指す動機になる。
+// dy(laneY からの高さ)がこの閾値より上なら、その倍率を掛ける。
+const HEIGHT_TIERS = [
+    { above: 1500, mult: 3 },
+    { above: 800, mult: 2 },
+    { above: 0, mult: 1 }
 ];
 
 export class BonusStage {
@@ -77,7 +95,7 @@ export class BonusStage {
         this.bossEncounterBlend = 0;
         this.skyVisTop = 0;
         this.isFloorTransitioning = false;
-        this.useFeetCameraLift = true;   // カメラは接地した足の高さに追従（塔を登る）
+        this.useFeetCameraLift = true;   // カメラはプレイヤーを画面中央に置いて追う
 
         this.timeLeft = TIME_LIMIT_SEC;
         this.scoreValue = 0;           // 獲得両の合計（結果発表のスコア）
@@ -86,12 +104,16 @@ export class BonusStage {
 
         const laneY = this.groundY + LANE_OFFSET;
 
-        // 棚（描画用）と一方通行コライダー（上面のみ）
+        // 棚（描画用）と一方通行コライダー（上面のみ）。
+        // 動く棚は毎フレーム x を書き換え、同じ値をコライダーにも書き戻す
+        // (描画と判定を一つの値から出す。別々に計算するとすり抜ける)。
         this.shelves = SHELF_LAYOUT.map((s) => ({
+            baseX: s.x,
             x: s.x,
             y: laneY + s.dy,
             crates: s.crates,
-            width: s.crates * CRATE_SIZE
+            width: s.crates * CRATE_SIZE,
+            move: s.move || null
         }));
         this.platformColliders = this.shelves.map((s) => ({
             x: s.x,
@@ -112,23 +134,37 @@ export class BonusStage {
             phase: 0
         };
 
-        // 小判: 地上の列 + 各棚の上 + 棚間の空中（ジャンプの弧）
+        // 小判: 地上の列 + 各棚の上 + 棚間の空中（ジャンプの弧）。
+        // value は高さ帯で決まる(上ほど高い)。動く棚の上の小判は棚と一緒に動く。
         this.kobans = [];
-        const addKoban = (x, y) => {
-            this.kobans.push({ x, y, taken: false, phase: (this.kobans.length * 0.7) % (Math.PI * 2) });
+        const valueAt = (y) => {
+            const height = laneY - y;
+            const tier = HEIGHT_TIERS.find((t) => height > t.above) || HEIGHT_TIERS[HEIGHT_TIERS.length - 1];
+            return KOBAN_VALUE * tier.mult;
+        };
+        const addKoban = (x, y, shelfIndex = -1) => {
+            this.kobans.push({
+                x, y,
+                offsetX: shelfIndex >= 0 ? x - this.shelves[shelfIndex].baseX : 0,
+                shelfIndex,
+                value: valueAt(y),
+                taken: false,
+                phase: (this.kobans.length * 0.7) % (Math.PI * 2)
+            });
         };
         for (let i = 0; i < 7; i++) addKoban(200 + i * 150, laneY - 40);
         for (let si = 0; si < this.shelves.length; si++) {
             const s = this.shelves[si];
-            const n = Math.min(3, s.crates + (si >= 8 ? 1 : 0));
+            const n = Math.min(3, s.crates + 1);
             for (let k = 0; k < n; k++) {
-                addKoban(s.x + s.width * ((k + 1) / (n + 1)), s.y - 38);
+                addKoban(s.baseX + s.width * ((k + 1) / (n + 1)), s.y - 38, s.move ? si : -1);
             }
         }
-        // 棚間の空中（隣の棚へ跳ぶ弧の頂点あたり）
+        // 棚間の空中（隣の棚へ跳ぶ弧の頂点あたり）。動く棚が絡む区間は置かない
         for (let si = 0; si + 1 < this.shelves.length; si++) {
             const a = this.shelves[si], b = this.shelves[si + 1];
-            addKoban((a.x + a.width * 0.5 + b.x + b.width * 0.5) * 0.5, Math.min(a.y, b.y) - 66);
+            if (a.move || b.move) continue;
+            addKoban((a.baseX + a.width * 0.5 + b.baseX + b.width * 0.5) * 0.5, Math.min(a.y, b.y) - 66);
         }
         // 行灯: 棚の脇の壁に掛かる灯り。登る道筋が縦に連なって見えるようにし、
         // 真っ暗な吹き抜けに手掛かりを与える(2段おきに左右へ振り分ける)。
@@ -137,7 +173,7 @@ export class BonusStage {
             const s = this.shelves[si];
             const onLeft = (si % 4 === 1);
             this.lanterns.push({
-                x: onLeft ? Math.max(52, s.x - 74) : Math.min(CANVAS_WIDTH - 52, s.x + s.width + 74),
+                x: onLeft ? Math.max(52, s.baseX - 74) : Math.min(CANVAS_WIDTH - 52, s.baseX + s.width + 74),
                 y: s.y - 46,
                 phase: si * 1.7
             });
@@ -145,6 +181,9 @@ export class BonusStage {
 
         this.collected = 0;
         this.totalKobans = this.kobans.length;
+        // 獲得演出: HUD のカウントアップ用(直近の加算)と、拾った位置から浮く「+n両」
+        this.lastGain = null;
+        this.gainPops = [];
     }
 
     // --- Stage 互換の界面（PLAYING ループが呼ぶ） ---
@@ -162,6 +201,11 @@ export class BonusStage {
     update(deltaTime, player) {
         if (!player) return;
         this.time += deltaTime;
+        for (let i = this.gainPops.length - 1; i >= 0; i--) {
+            this.gainPops[i].life -= deltaTime;
+            this.gainPops[i].y -= deltaTime * 46;
+            if (this.gainPops[i].life <= 0) this.gainPops.splice(i, 1);
+        }
 
         // 固定画面の左端。game 側の左クランプは currentStageNumber 依存
         // (Stage5帰りだと素通り)のため自前で閉じる。右端は共通処理で閉じる。
@@ -177,6 +221,32 @@ export class BonusStage {
             return;
         }
 
+        // 動く棚(吊り棚)を進める。描画・当たり判定・棚上の小判は同じ x から出す。
+        for (let i = 0; i < this.shelves.length; i++) {
+            const s = this.shelves[i];
+            if (!s.move) continue;
+            s.x = s.baseX + Math.sin(this.time * (Math.PI * 2 / s.move.period) + s.move.phase) * s.move.amp;
+            this.platformColliders[i].x = s.x;
+        }
+        for (const k of this.kobans) {
+            if (k.shelfIndex >= 0) k.x = this.shelves[k.shelfIndex].x + k.offsetX;
+        }
+        // 動く棚に乗っている間は一緒に運ぶ(足元だけ滑って置いていかれるのを防ぐ)
+        if (player.isGrounded) {
+            const feetY = player.y + player.getWorldHeight();
+            const pxMid = player.x + player.getWorldWidth() * 0.5;
+            for (let i = 0; i < this.shelves.length; i++) {
+                const s = this.shelves[i];
+                if (!s.move) continue;
+                if (Math.abs(feetY - s.y) > 6) continue;
+                if (pxMid < s.x - 8 || pxMid > s.x + s.width + 8) continue;
+                const prev = s._prevX !== undefined ? s._prevX : s.x;
+                player.x += s.x - prev;
+                break;
+            }
+        }
+        for (const s of this.shelves) { if (s.move) s._prevX = s.x; }
+
         const px = player.x + player.getWorldWidth() * 0.5;
         const py = player.y + player.getWorldHeight() * 0.5;
         for (const k of this.kobans) {
@@ -185,22 +255,27 @@ export class BonusStage {
             if (Math.hypot(px - k.x, py - k.y) < 48) {
                 k.taken = true;
                 this.collected++;
-                this.scoreValue += KOBAN_VALUE;
-                if (typeof player.setMoney === 'function') player.setMoney(player.money + KOBAN_VALUE);
-                else player.money = (player.money || 0) + KOBAN_VALUE;
-                audio.playMoney();
+                this.grantScore(player, k.value, k.x, k.y);
             }
         }
         if (this.chest && !this.chest.taken) {
             this.chest.phase += deltaTime * 3;
             if (Math.hypot(px - this.chest.x, py - this.chest.y) < 64) {
                 this.chest.taken = true;
-                this.scoreValue += CHEST_VALUE;
-                if (typeof player.setMoney === 'function') player.setMoney(player.money + CHEST_VALUE);
-                else player.money = (player.money || 0) + CHEST_VALUE;
-                audio.playMoney();
+                this.grantScore(player, CHEST_VALUE, this.chest.x, this.chest.y);
             }
         }
+    }
+
+    // 加算を1か所に集約。HUD のカウントアップ演出(lastGain)と、拾った場所から
+    // 湧く「+n両」の浮き文字(gainPops)もここで積む。
+    grantScore(player, value, x, y) {
+        this.scoreValue += value;
+        if (typeof player.setMoney === 'function') player.setMoney(player.money + value);
+        else player.money = (player.money || 0) + value;
+        audio.playMoney();
+        this.lastGain = { value, at: this.time };
+        this.gainPops.push({ x, y, value, life: 0.9 });
     }
 
     // --- 描画（renderPlaying から呼ばれる。ctx はワールド変換済み） ---
@@ -292,7 +367,29 @@ export class BonusStage {
         this.renderShelves(ctx);
         this.renderChest(ctx);
         this.renderKobans(ctx);
+        this.renderGainPops(ctx);
         ctx.restore();
+    }
+
+    // 拾った場所から浮き上がる「+n両」。獲得の手応えを画面の中でも返す。
+    renderGainPops(ctx) {
+        for (const p of this.gainPops) {
+            const t = Math.max(0, Math.min(1, p.life / 0.9));
+            const scale = 1 + (1 - t) * 0.25;
+            ctx.save();
+            ctx.globalAlpha = Math.min(1, t * 1.6);
+            ctx.translate(p.x, p.y);
+            ctx.scale(scale, scale);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = '900 22px "Helvetica Neue", Arial, sans-serif';
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = 'rgba(24, 14, 2, 0.85)';
+            ctx.strokeText('+' + p.value, 0, 0);
+            ctx.fillStyle = p.value >= 100 ? '#ffd970' : '#f0d78a';
+            ctx.fillText('+' + p.value, 0, 0);
+            ctx.restore();
+        }
     }
 
     // 行灯の灯体（壁掛けの木枠と障子。光溜まりは renderBackground 側）

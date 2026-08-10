@@ -13,9 +13,9 @@
 // 背景: images/training_dojo_bg.png（床まで焼き込んだ一枚絵。固定画面なので
 // パララックス不要。読めない環境では板の間のコード描画にフォールバック）。
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET, ENEMY_TYPES } from './constants.js?v=screen-safe-20260810j';
-import { createEnemy } from './enemy.js?v=screen-safe-20260810j';
-import { getImage } from './imageCache.js?v=screen-safe-20260810j';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET, ENEMY_TYPES } from './constants.js?v=screen-safe-20260811a';
+import { createEnemy } from './enemy.js?v=screen-safe-20260811a';
+import { getImage } from './imageCache.js?v=screen-safe-20260811a';
 
 // 開始前に読み込む画像（game.requestStageStart が本編と同じ暗幕待ちに使う）
 export const TRAINING_STAGE_IMAGES = ['images/training_dojo_bg.png'];
@@ -59,6 +59,10 @@ export class TrainingStage {
         this._timeUp = false;
         this.spawnTimer = 0.6;         // 入場直後の一拍（すぐ囲まれない）
         this._spawnSide = false;       // 左右交互の湧き分け
+        this.time = 0;
+        // 獲得演出: HUD のカウントアップ用(直近の加算)と、倒した位置から浮く「+1」
+        this.lastGain = null;
+        this.gainPops = [];
     }
 
     // --- Stage 互換の界面（PLAYING ループが呼ぶ） ---
@@ -72,6 +76,12 @@ export class TrainingStage {
 
     update(deltaTime, player) {
         if (!player) return;
+        this.time += deltaTime;
+        for (let i = this.gainPops.length - 1; i >= 0; i--) {
+            this.gainPops[i].life -= deltaTime;
+            this.gainPops[i].y -= deltaTime * 46;
+            if (this.gainPops[i].life <= 0) this.gainPops.splice(i, 1);
+        }
 
         // 固定画面の左端。game 側の「戻りなし」左クランプは currentStageNumber
         // に依存する(=Stage5帰りだと素通りする)ため、道場では自前で閉じる。
@@ -87,6 +97,12 @@ export class TrainingStage {
             if (enemy.hp <= 0 && !enemy._dojoCounted) {
                 enemy._dojoCounted = true;
                 this.killCount++;
+                this.lastGain = { value: 1, at: this.time };
+                this.gainPops.push({
+                    x: enemy.x + (enemy.width || 36) * 0.5,
+                    y: enemy.y + (enemy.height || 72) * 0.4,
+                    life: 0.9
+                });
             }
             if (!enemy.update(deltaTime, player, [])) next.push(enemy);
         }
@@ -185,7 +201,25 @@ export class TrainingStage {
     }
 
     // 床は背景の一枚絵に焼き込み済み。出口の戸は撤去（刻限制になったため）。
-    renderGround() {}
+    // 討伐の手応えを返す浮き文字だけをここで描く。
+    renderGround(ctx) {
+        for (const p of this.gainPops) {
+            const t = Math.max(0, Math.min(1, p.life / 0.9));
+            ctx.save();
+            ctx.globalAlpha = Math.min(1, t * 1.6);
+            ctx.translate(p.x, p.y);
+            ctx.scale(1 + (1 - t) * 0.25, 1 + (1 - t) * 0.25);
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = '900 22px "Helvetica Neue", Arial, sans-serif';
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = 'rgba(6, 12, 26, 0.85)';
+            ctx.strokeText('+1', 0, 0);
+            ctx.fillStyle = '#dfeaff';
+            ctx.fillText('+1', 0, 0);
+            ctx.restore();
+        }
+    }
 
     renderObstacles() {}
 

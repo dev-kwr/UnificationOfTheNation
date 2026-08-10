@@ -2,15 +2,15 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260810j';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260810j';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260810j';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260810j';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260810j';
-import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260810j';
-import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260810j';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260810j';
-import { input } from './input.js?v=screen-safe-20260810j';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260811a';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811a';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260811a';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260811a';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260811a';
+import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260811a';
+import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260811a';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260811a';
+import { input } from './input.js?v=screen-safe-20260811a';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -48,18 +48,18 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=screen-safe-20260810j';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260810j';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260810j';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260810j';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260810j';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260810j';
-import { saveManager } from './save.js?v=screen-safe-20260810j';
-import { shop } from './shop.js?v=screen-safe-20260810j';
-import { audio } from './audio.js?v=screen-safe-20260810j';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260810j';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260810j';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260810j';
+import { Player } from './player.js?v=screen-safe-20260811a';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260811a';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260811a';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260811a';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260811a';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260811a';
+import { saveManager } from './save.js?v=screen-safe-20260811a';
+import { shop } from './shop.js?v=screen-safe-20260811a';
+import { audio } from './audio.js?v=screen-safe-20260811a';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260811a';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260811a';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260811a';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -202,7 +202,6 @@ class Game {
         this.maxClearedStage = 0;
         // 小判蔵の補充状態。入ると空になり、本編ステージをどこか踏破すると補充される
         // （無限に小判を稼げるとゲームバランスが壊れる、と実機フィードバック）。
-        this.bonusAvailable = true;
         this.playerDefeatTimer = 0;
         this.playerHurtFlashAlpha = 0; // 被弾時の赤ビネット（実ダメージ時のみ点灯・renderで減衰）
         this.playerDefeatDuration = 1800;
@@ -550,19 +549,12 @@ class Game {
         const stable = Date.now() - this._aspectMismatchSince > 3000;
         if (stable && this.state !== GAME_STATE.PLAYING) {
             this._aspectToastShown = true;
-            this.showReloadToast();
+            // 画面へのトーストは出さない。ズレても fitScale が追従するので表示は
+            // 破綻せず(可視ワールド幅が最適でないだけ)、回転などの日常操作で
+            // 意味の伝わらない案内が割り込むほうが害だった(実機フィードバック)。
+            console.info('[screen] 可視ワールド幅が起動時の値と乖離しています。再読み込みで最適化されます',
+                { boot: SCREEN_WIDTH, next });
         }
-    }
-
-    showReloadToast() {
-        try {
-            const el = document.createElement('div');
-            el.id = 'aspect-toast';
-            el.textContent = '画面構成が変わりました。再読み込みで表示を最適化できます';
-            document.body.appendChild(el);
-            setTimeout(() => el.classList.add('show'), 30);
-            setTimeout(() => el.remove(), 8000);
-        } catch { /* 非致命 */ }
     }
 
     // 回転・バックグラウンド遷移・縦持ち検知の自動ポーズ (P3)。
@@ -714,30 +706,31 @@ class Game {
         }
         const HEADROOM = 90;  // 高所接地時に頭上へ確保する余白(world px)
         const DEADBAND = 24;  // 微小な段差でターゲットを揺らさない不感帯
-        // 縦アスレチックの寄り道(小判蔵)は「実際に立っている足の高さ」に追従する。
-        // 本編は groundY(ステージの地面線)基準で、足場に乗ってもリフトしない。
-        if (this.player && this.player.isGrounded) {
-            const feetY = useFeet
-                ? (this.player.y + this.player.getWorldHeight())
-                : (this.player.groundY + LANE_OFFSET);
+        // 縦アスレチックの寄り道(小判蔵)は【プレイヤーが画面の上下中央に来る】ように
+        // 追い、上端(塔の頂き)と下端(床)でだけ止まる。接地条件は付けない ―
+        // 跳んでいる間こそ上が見たいので、空中でも追い続ける。
+        if (useFeet && this.player) {
+            const viewH = CANVAS_HEIGHT / z;
+            const centerY = this.player.y + this.player.getWorldHeight() * 0.5;
+            const wantVisTop = centerY - viewH * 0.5;
+            const minVisTop = (typeof this.stage.getCameraMinVisTop === 'function')
+                ? this.stage.getCameraMinVisTop()
+                : -Infinity;
+            // 下限は「床が画面下端に収まる位置」= 通常の crop。これ以上は下げない。
+            // 不感帯は使わない(中央追従は滑らかさが要)。
+            this.cameraLiftTarget = crop - Math.max(minVisTop, Math.min(crop, wantVisTop));
+        } else if (this.player && this.player.isGrounded) {
+            // 本編は groundY(ステージの地面線)基準で、足場に乗ってもリフトしない。
+            const feetY = this.player.groundY + LANE_OFFSET;
             const topY = feetY - this.player.getWorldHeight();
-            let raw = Math.max(0, crop + HEADROOM - topY);
-            if (useFeet) {
-                // 塔の上限: stage が示す最高到達点より上を映さない
-                const minVisTop = (typeof this.stage.getCameraMinVisTop === 'function')
-                    ? this.stage.getCameraMinVisTop()
-                    : -Infinity;
-                const maxLift = Math.max(0, crop - minVisTop);
-                raw = Math.min(raw, maxLift);
-            } else {
-                raw = Math.min(crop, raw);
-            }
+            const raw = Math.max(0, Math.min(crop, crop + HEADROOM - topY));
             if (Math.abs(raw - this.cameraLiftTarget) > DEADBAND) this.cameraLiftTarget = raw;
         }
         // 非対称平滑: 上昇(リフト増)ゆっくり k=3/s・復帰すばやく k=6/s（フレームレート非依存）。
-        // prefers-reduced-motion 時はさらに緩やかに(カメラ酔い対策)
+        // prefers-reduced-motion 時はさらに緩やかに(カメラ酔い対策)。
+        // 中央追従(縦アスレチック)は上下とも同じ速さで追う(片方だけ遅いと置いていかれる)。
         const reduce = this._prefersReducedMotion ? 0.5 : 1;
-        const k = ((this.cameraLiftTarget > this.cameraLift) ? 3 : 6) * reduce;
+        const k = (useFeet ? 7 : ((this.cameraLiftTarget > this.cameraLift) ? 3 : 6)) * reduce;
         this.cameraLift += (this.cameraLiftTarget - this.cameraLift) * (1 - Math.exp(-k * dt));
         if (Math.abs(this.cameraLiftTarget - this.cameraLift) < 0.1) this.cameraLift = this.cameraLiftTarget;
     }
@@ -1171,7 +1164,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260810j').then(module => {
+        import('./weapon.js?v=screen-safe-20260811a').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -1179,8 +1172,6 @@ class Game {
             this.maxClearedStage = Number.isFinite(saveData.progress.maxClearedStage)
                 ? Math.max(0, Math.floor(saveData.progress.maxClearedStage))
                 : Math.max(0, this.currentStageNumber - 1);
-            // 旧セーブ(フィールド無し)は補充済みとして扱う
-            this.bonusAvailable = saveData.progress.bonusAvailable !== false;
             this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
             saveManager.applyToPlayer(this.player, saveData);
             const savedCharType = saveManager.loadGlobal().characterType || 'ninja';
@@ -2024,7 +2015,6 @@ class Game {
         // 新規開始で進行度をリセット（デバッグの途中開始では、その手前までを解放扱い）
         this.maxClearedStage = Math.max(0, this.currentStageNumber - 1);
         this.pendingStageSelection = null;
-        this.bonusAvailable = true;
         // デバッグ用：開始地点フラグを保持（applyTitleDebugSetupToNewGame より前に確定）
         // URL(?at=corner3 / ?at=boss)はタイトルのデバッグメニューと同じ扱いにする。
         this.debugBossRoomStart = !!(this.titleDebugApplyOnStart && this.titleDebugConfig.bossRoom)
@@ -5459,19 +5449,8 @@ class Game {
     }
     
     onStageClear() {
-        // クリア時は奥義状態を解除（分身を残さない）
-        if (this.player && typeof this.player.clearSpecialState === 'function') {
-            this.player.clearSpecialState(true);
-        }
-        // 追加スキルの一時効果はクリア時点で全解除
-        if (this.player && typeof this.player.resetTemporaryNinjutsuTimers === 'function') {
-            this.player.resetTemporaryNinjutsuTimers();
-        }
-        if (this.player) {
-            // クリア画面では点滅させない（直前被弾や隠れ身解除の残タイマーを無効化）
-            this.player.invincibleTimer = 0;
-            this.player.damageFlashTimer = 0;
-        }
+        // 奥義の分身・忍術の一時強化はクリア時点で全解除（クリア画面で点滅も残さない）
+        this.clearRunTimeBuffs();
         // 突破印へ敵影や戦闘中の数値を持ち越さない。
         // 撃破時に死亡処理へ入った雑魚も、状態遷移で更新が止まると姿だけ残るためここで整理する。
         if (this.stage) {
@@ -5517,8 +5496,6 @@ class Game {
 
         // 進行度（セレクト画面の解放判定の正本）。再戦クリアでは下がらない。
         this.maxClearedStage = Math.max(this.maxClearedStage || 0, this.currentStageNumber);
-        // 本編ステージを踏破するたびに小判蔵が補充される
-        this.bonusAvailable = true;
 
         // セーブ（最終ステージクリア時は無効なステージ番号を保存しない）。
         // 保存する「次のステージ」は最前線基準。過去ステージの再戦クリアで
@@ -5906,7 +5883,7 @@ class Game {
     // カーソルが辿る順序（地図の道なり順）。解放済みで、いま入れるものだけ。
     getStageSelectOrder() {
         const maxSelectable = this.getMaxSelectableStage();
-        const bonusOk = this.isBonusUnlocked() && this.bonusAvailable !== false;
+        const bonusOk = this.isBonusUnlocked();
         const trainingOk = this.isTrainingUnlocked();
         return STAGE_SELECT_ORDER.filter((id) => {
             if (typeof id === 'number') return id <= maxSelectable;
@@ -6043,8 +6020,8 @@ class Game {
             isNewRecord,
             timer: 0
         };
-        // 蔵は一度入ると空になる（本編ステージ踏破で補充）
-        if (kind === 'bonus') this.bonusAvailable = false;
+        // 奥義の分身・忍術の一時強化はここで落とす（次のステータス画面へ持ち越さない）
+        this.clearRunTimeBuffs();
         // 拾った小判・稼いだ経験値を残す
         saveManager.save(this.player, Math.min(STAGES.length, (this.maxClearedStage || 0) + 1), this.unlockedWeapons || []);
 
@@ -6083,9 +6060,23 @@ class Game {
         this.enterStatusPreview();
     }
 
+    // 場が終わったら一時強化(奥義の分身・大薙・隠れ身など)を必ず落とす。
+    // 本編クリア(onStageClear)と寄り道の刻限切れ(beginSideResult)の両方から呼ぶ。
+    clearRunTimeBuffs() {
+        const p = this.player;
+        if (!p) return;
+        if (typeof p.clearSpecialState === 'function') p.clearSpecialState(true);
+        if (typeof p.resetTemporaryNinjutsuTimers === 'function') p.resetTemporaryNinjutsuTimers();
+        p.invincibleTimer = 0;
+        p.damageFlashTimer = 0;
+    }
+
     // ステータス画面のキャラプレビュー初期化（高い地面・武器デモ用の状態リセット）
     enterStatusPreview() {
         if (!this.player) return;
+        // 前の場の一時強化をステータス画面へ持ち越さない（分身がプレビューに並ぶ、
+        // 大薙や隠れ身が効いたまま次のステージが始まる、といった事故を断つ）
+        this.clearRunTimeBuffs();
         this.groundY = Math.round(CANVAS_HEIGHT * 0.08); // ステータス画面用の高い地面（画面最上部付近）
         if (this.stage) this.stage.groundY = this.groundY;
         this.player.previewMode = true;
@@ -6404,7 +6395,6 @@ class Game {
                     maxSelectable: this.getMaxSelectableStage(),
                     maxCleared: this.maxClearedStage,
                     bonusUnlocked: this.isBonusUnlocked(),
-                    bonusDepleted: this.isBonusUnlocked() && this.bonusAvailable === false,
                     trainingUnlocked: this.isTrainingUnlocked(),
                     sideBest: (saveManager.loadGlobal() || {}).sideBest || {},
                     timeMs: Date.now()

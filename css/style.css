@@ -239,29 +239,6 @@ canvas {
 }
 
 /* 画面構成変化(折りたたみ/Split View)の再読み込み案内トースト */
-#aspect-toast {
-    position: fixed;
-    left: 50%;
-    bottom: max(24px, env(safe-area-inset-bottom, 0px));
-    transform: translateX(-50%) translateY(12px);
-    z-index: 25;
-    font-family: 'Zen Old Mincho', serif;
-    font-size: 13px;
-    letter-spacing: 0.06em;
-    color: #e9eefb;
-    background: rgba(23, 30, 52, 0.94);
-    border: 1px solid rgba(146, 172, 226, 0.4);
-    border-radius: 8px;
-    padding: 10px 18px;
-    opacity: 0;
-    transition: opacity 300ms ease, transform 300ms ease;
-    pointer-events: none;
-}
-#aspect-toast.show {
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
-}
-
 /* ============================================
    縦持ちゲート（横持ち専用ゲームの回転促し）
    タッチ端末(body.touch-device)が縦向きのときだけ表示。

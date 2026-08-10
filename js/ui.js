@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260810j';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260811a';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260810j';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260811a';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260810j';
-import { audio } from './audio.js?v=screen-safe-20260810j';
-import { saveManager } from './save.js?v=screen-safe-20260810j';
+import { input } from './input.js?v=screen-safe-20260811a';
+import { audio } from './audio.js?v=screen-safe-20260811a';
+import { saveManager } from './save.js?v=screen-safe-20260811a';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -1102,7 +1102,8 @@ export class UI {
     }
 
     // 寄り道の刻限バナー。残り10秒を切ると朱に転じて明滅する。
-    // スコアは種別で言い換える（蔵=両 / 道場=討伐）。
+    // スコアは主役なので大きく出し、加算のたびに弾ませてカウントアップする
+    // （小さいと獲得の手応えが無い、と実機フィードバック 2026-08-11）。
     renderSideStageTimer(ctx, stage) {
         const sec = Math.max(0, stage.getHudTimerSec());
         const score = (typeof stage.getScore === 'function') ? Math.floor(stage.getScore()) : 0;
@@ -1110,26 +1111,75 @@ export class UI {
         const fs = getFontScale();
         const uiS = getUiScale();
         const cx = SCREEN_WIDTH / 2;
-        const top = getScreenSafeArea().top + 10 * uiS;
-        const w = 168 * uiS;
-        const h = 54 * uiS;
+        const top = getScreenSafeArea().top + 8 * uiS;
+        const w = 208 * uiS;
+        const h = 76 * uiS;
         const urgent = sec <= 10;
         const blink = urgent ? (0.72 + Math.sin(Date.now() * 0.012) * 0.28) : 1;
 
+        // 加算からの経過で弾ませる（stage.lastGain は grantScore/討伐で更新）
+        const gain = stage.lastGain;
+        const sinceGain = gain ? Math.max(0, (stage.time || 0) - gain.at) : 999;
+        const punch = Math.max(0, 1 - sinceGain / 0.42);          // 0..1
+        const pop = 1 + punch * punch * 0.5;                       // 直後ほど大きい
+        // 表示値は実値へ追いつくカウントアップ（一気に飛ばず数字が回る）
+        if (this._sideScoreShown === undefined || stage !== this._sideScoreStage) {
+            this._sideScoreShown = score;
+            this._sideScoreStage = stage;
+        }
+        const diff = score - this._sideScoreShown;
+        if (diff !== 0) {
+            const step = Math.max(1, Math.ceil(Math.abs(diff) * 0.28));
+            this._sideScoreShown += Math.sign(diff) * Math.min(step, Math.abs(diff));
+        }
+        const shown = Math.round(this._sideScoreShown);
+
         ctx.save();
-        drawWafuCard(ctx, cx - w / 2, top, w, h, { radius: 10 * uiS, bgAlpha: 0.9, accent: false });
+        drawWafuCard(ctx, cx - w / 2, top, w, h, { radius: 12 * uiS, bgAlpha: 0.88, accent: false });
         ctx.textAlign = 'center';
         ctx.textBaseline = 'alphabetic';
-        // 残り時間（大きく）
-        ctx.font = `900 ${Math.round(27 * fs)}px "Helvetica Neue", Arial, sans-serif`;
+
+        // 残り時間（上段・控えめ）
+        ctx.font = `800 ${Math.round(17 * fs)}px "Helvetica Neue", Arial, sans-serif`;
         ctx.fillStyle = urgent
             ? `rgba(255, 138, 110, ${blink.toFixed(3)})`
-            : 'rgba(238, 246, 255, 0.96)';
-        ctx.fillText(sec.toFixed(1), cx, top + 30 * uiS);
-        // スコア（小さく）
-        ctx.font = `700 ${Math.round(12 * fs)}px "Zen Old Mincho", serif`;
-        ctx.fillStyle = isBonus ? 'rgba(232, 200, 106, 0.95)' : 'rgba(198, 220, 255, 0.92)';
-        ctx.fillText(isBonus ? `${score} 両` : `${score} 人`, cx, top + 46 * uiS);
+            : 'rgba(214, 230, 255, 0.8)';
+        ctx.fillText(sec.toFixed(1), cx, top + 22 * uiS);
+
+        // スコア（下段・主役。加算直後は弾んで光る）
+        ctx.save();
+        ctx.translate(cx, top + 56 * uiS);
+        ctx.scale(pop, pop);
+        const unit = isBonus ? '両' : '人';
+        const numFont = `900 ${Math.round(30 * fs)}px "Helvetica Neue", Arial, sans-serif`;
+        const unitFont = `700 ${Math.round(15 * fs)}px "Zen Old Mincho", serif`;
+        ctx.font = numFont;
+        const numW = ctx.measureText(String(shown)).width;
+        ctx.font = unitFont;
+        const unitW = ctx.measureText(unit).width + 5 * uiS;
+        const startX = -(numW + unitW) / 2;
+        ctx.textAlign = 'left';
+        ctx.font = numFont;
+        const baseColor = isBonus ? '#f0cf74' : '#dfeaff';
+        ctx.fillStyle = punch > 0 ? '#ffffff' : baseColor;
+        ctx.shadowColor = isBonus ? 'rgba(255, 206, 120, 0.85)' : 'rgba(150, 195, 255, 0.8)';
+        ctx.shadowBlur = (10 + punch * 26) * uiS;
+        ctx.fillText(String(shown), startX, 0);
+        ctx.shadowBlur = 0;
+        ctx.font = unitFont;
+        ctx.fillStyle = 'rgba(226, 236, 255, 0.9)';
+        ctx.fillText(unit, startX + numW + 5 * uiS, 0);
+        ctx.restore();
+
+        // 加算値のフラッシュ（カードの右肩に「+n」）
+        if (punch > 0 && gain) {
+            ctx.globalAlpha = punch;
+            ctx.textAlign = 'left';
+            ctx.font = `900 ${Math.round(16 * fs)}px "Helvetica Neue", Arial, sans-serif`;
+            ctx.fillStyle = isBonus ? '#ffd970' : '#cfe2ff';
+            ctx.fillText(`+${gain.value}`, cx + w * 0.5 - 44 * uiS, top + 34 * uiS - punch * 8 * uiS);
+            ctx.globalAlpha = 1;
+        }
         ctx.restore();
     }
     
@@ -2816,11 +2866,11 @@ export function renderSideResultScreen(ctx, result) {
     ctx.globalAlpha = 1;
     if (cardT < 0.35) { ctx.restore(); return; }
 
-    // 見出し
-    drawWafuHeading(ctx, cx, y + 46 * uiS, isBonus ? '刻 限' : '刻 限', {
-        size: Math.round(30 * fs),
-        ls: 0.16,
-        ruleLen: 52 * uiS,
+    // 見出し（場の名。「刻限」の語は出さない ― 時間切れは自明、と実機フィードバック）
+    drawWafuHeading(ctx, cx, y + 46 * uiS, isBonus ? '小 判 蔵' : '修 行 道 場', {
+        size: Math.round(28 * fs),
+        ls: 0.14,
+        ruleLen: 46 * uiS,
         ruleGap: 16 * uiS
     });
     ctx.textAlign = 'center';
