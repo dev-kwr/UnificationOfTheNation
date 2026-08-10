@@ -222,10 +222,12 @@ export function preloadCinematicBgImages() {
 
 const KANJI_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
-function formatMoney(value) {
+// 位取りのカンマ付き整数。小判・討伐数など画面に出る計数はすべてこれを通す。
+export function formatCount(value) {
     const safe = Math.max(0, Math.floor(Number(value) || 0));
     return safe.toLocaleString('ja-JP');
 }
+const formatMoney = formatCount;
 
 function toKanjiSection(value) {
     if (value <= 0) return '';
@@ -1175,8 +1177,9 @@ export class UI {
         const unit = isBonus ? '両' : '人';
         const numFont = `900 ${Math.round(76 * fs)}px "Helvetica Neue", Arial, sans-serif`;
         const unitFont = `700 ${Math.round(28 * fs)}px "Zen Old Mincho", serif`;
+        const shownText = formatCount(shown);
         ctx.font = numFont;
-        const numW = ctx.measureText(String(shown)).width;
+        const numW = ctx.measureText(shownText).width;
         ctx.font = unitFont;
         const unitW = ctx.measureText(unit).width + 10 * uiS;
         const startX = -(numW + unitW) / 2;
@@ -1187,11 +1190,11 @@ export class UI {
         ctx.lineWidth = 9 * uiS;
         ctx.lineJoin = 'round';
         ctx.strokeStyle = 'rgba(6, 10, 22, 0.85)';
-        ctx.strokeText(String(shown), startX, 0);
+        ctx.strokeText(shownText, startX, 0);
         ctx.shadowColor = isBonus ? 'rgba(255, 206, 120, 0.9)' : 'rgba(150, 195, 255, 0.85)';
         ctx.shadowBlur = (18 + punch * 34) * uiS;
         ctx.fillStyle = punch > 0.55 ? '#ffffff' : (isBonus ? '#f4d484' : '#e6efff');
-        ctx.fillText(String(shown), startX, 0);
+        ctx.fillText(shownText, startX, 0);
         ctx.shadowBlur = 0;
 
         // 単位
@@ -1210,9 +1213,9 @@ export class UI {
             ctx.lineWidth = 5 * uiS;
             ctx.strokeStyle = 'rgba(6, 10, 22, 0.8)';
             const gy = 34 * uiS + (1 - punch) * 6 * uiS;
-            ctx.strokeText(`+${gain.value}`, 0, gy);
+            ctx.strokeText(`+${formatCount(gain.value)}`, 0, gy);
             ctx.fillStyle = isBonus ? '#ffd970' : '#cfe2ff';
-            ctx.fillText(`+${gain.value}`, 0, gy);
+            ctx.fillText(`+${formatCount(gain.value)}`, 0, gy);
         }
         ctx.restore();
     }
@@ -2935,7 +2938,7 @@ export function renderSideResultScreen(ctx, result) {
         ctx.fillStyle = isBonus ? '#f0cf74' : '#dfeaff';
         ctx.shadowColor = isBonus ? 'rgba(232, 200, 106, 0.45)' : 'rgba(120, 170, 255, 0.4)';
         ctx.shadowBlur = 22 * uiS;
-        const numText = String(shown);
+        const numText = formatCount(shown);
         const numW = ctx.measureText(numText).width;
         const unit = isBonus ? '両' : '人';
         ctx.font = `700 ${Math.round(20 * fs)}px "Zen Old Mincho", serif`;
@@ -2971,11 +2974,11 @@ export function renderSideResultScreen(ctx, result) {
             ctx.shadowBlur = 0;
             ctx.font = `500 ${Math.round(13 * fs)}px "Zen Old Mincho", serif`;
             ctx.fillStyle = 'rgba(206, 226, 255, 0.7)';
-            ctx.fillText(`これまで ${result.prevBest}${isBonus ? '両' : '人'}`, cx, y + prevBase);
+            ctx.fillText(`これまで ${formatCount(result.prevBest)}${isBonus ? '両' : '人'}`, cx, y + prevBase);
         } else {
             ctx.font = `700 ${Math.round(16 * fs)}px "Zen Old Mincho", serif`;
             ctx.fillStyle = 'rgba(206, 226, 255, 0.9)';
-            ctx.fillText(`最高記録 ${result.best}${isBonus ? '両' : '人'}`, cx, y + bestBase);
+            ctx.fillText(`最高記録 ${formatCount(result.best)}${isBonus ? '両' : '人'}`, cx, y + bestBase);
         }
         ctx.restore();
     }

@@ -6025,8 +6025,10 @@ class Game {
         // 拾った小判・稼いだ経験値を残す
         saveManager.save(this.player, Math.min(STAGES.length, (this.maxClearedStage || 0) + 1), this.unlockedWeapons || []);
 
+        // BGM は切り替えない。寄り道の曲(substage)をそのまま鳴らし続け、
+        // 結果を見る間も同じ場の余韻を保つ。セレクトへ戻る enterStageSelect が
+        // メニュー曲へ引き継ぐ。
         this.state = GAME_STATE.SIDE_RESULT;
-        audio.playBgm('menu');
     }
 
     updateSideResult() {
