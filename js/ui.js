@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260810i';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260810j';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260810i';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260810j';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260810i';
-import { audio } from './audio.js?v=screen-safe-20260810i';
-import { saveManager } from './save.js?v=screen-safe-20260810i';
+import { input } from './input.js?v=screen-safe-20260810j';
+import { audio } from './audio.js?v=screen-safe-20260810j';
+import { saveManager } from './save.js?v=screen-safe-20260810j';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -2747,6 +2747,34 @@ const _levelUpCardAnim = { amt: [], last: 0 };
  * - Canvas には letter-spacing が無いため、字間は文字ごと描画(fillLS)で再現。
  * - SCREEN_WIDTH / CANVAS_HEIGHT は constants.js からの import を利用。
  */
+// 昇段画面のレイアウト単一導出。描画(renderLevelUpChoiceScreen)とタップ判定
+// (game.updateLevelUpChoice)が同じ矩形を読む（座標式の複製はヒットずれの元）。
+// パネルは常に画面上下中央（スマホでも持ち上げない。操作ボタンと重なってよい
+// ＝昇段中はタップ選択のみでパッド操作を受けない、と実機フィードバック 2026-08-10）。
+// design-px(1920×1080基準)の値と、タップ判定用の canvas-px 矩形の両方を返す。
+export function getLevelUpChoiceLayout(count) {
+    const S = Math.min(SCREEN_WIDTH / 1920, CANVAS_HEIGHT / 1080);
+    const OX = (SCREEN_WIDTH - 1920 * S) / 2;
+    const CARD_K = 1.5;
+    const GAP = 40, HEAD_H = 116, GAP_HEAD_CARD = 50;
+    const CARD_W = 300 * CARD_K, CARD_H = 284 * CARD_K;   // design-px（拡大後）
+    const totalWD = count * CARD_W + Math.max(0, count - 1) * GAP;
+    const startXD = 960 - totalWD / 2;                     // 960 = デザイン中心X
+    const BLOCK_H = HEAD_H + GAP_HEAD_CARD + CARD_H;
+    const blockTopD = (1080 - BLOCK_H) / 2;
+    const cardTopD = blockTopD + HEAD_H + GAP_HEAD_CARD;
+    const cards = [];
+    for (let i = 0; i < count; i++) {
+        cards.push({
+            x: OX + (startXD + i * (CARD_W + GAP)) * S,
+            y: cardTopD * S,
+            w: CARD_W * S,
+            h: CARD_H * S
+        });
+    }
+    return { S, OX, GAP, CARD_W, CARD_H, startXD, blockTopD, cardTopD, cards };
+}
+
 export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 0) {
     const time = Date.now();
     const pulse = (Math.sin(time * 0.0026) + 1) * 0.5; // 選択枠のゆっくりした明滅
@@ -2823,17 +2851,8 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
         return lines.slice(0, maxLines);
     };
 
-    // --- レイアウト寸法（design-px / 1920基準。カードは CARD_K 倍。GAP/見出しは据え置き） ---
-    const GAP = 40, HEAD_H = 116, GAP_HEAD_CARD = 50;
-    const CARD_W = 300 * CARD_K, CARD_H = 284 * CARD_K; // design-px（拡大後）
-    const totalWD = list.length * CARD_W + Math.max(0, list.length - 1) * GAP;
-    const startXD = CXD - totalWD / 2;
-    const BLOCK_H = HEAD_H + GAP_HEAD_CARD + CARD_H;
-    // スマホ(uiScale>1)は下端の仮想パッドにカードが被らないようブロックを上へ寄せる。
-    // PC/iPad(uiScale=1)は LIFT_D=0 で従来どおり画面上下中央。
-    const LIFT_D = (getUiScale() - 1) * 400;
-    const blockTopD = (1080 - BLOCK_H) / 2 - LIFT_D;
-    const cardTopD = blockTopD + HEAD_H + GAP_HEAD_CARD;
+    // --- レイアウト（getLevelUpChoiceLayout と単一導出。タップ判定も同じ矩形を読む） ---
+    const { GAP, CARD_W, CARD_H, startXD, blockTopD, cardTopD } = getLevelUpChoiceLayout(list.length);
 
     // --- 選択 transition（amt[i]:0..1）を実時間でイージング（≈0.25sで収束） ---
     let dt = (time - _levelUpCardAnim.last) / 1000;
@@ -3070,7 +3089,9 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
     });
 
     // ===== 操作説明（通常マニュアルと同サイズ・カード直下に配置） =====
-    drawScreenManualLine(ctx, '←→：選択 | SPACE：決定', d(cardTopD + CARD_H + GAP_HEAD_CARD + 24));
+    // タッチ端末は昇段中のパッド操作を受けない(タップ選択のみ)ため文言も分ける
+    const manualText = isTouchOverlayMode() ? '札に触れて決定' : '←→：選択 | SPACE：決定';
+    drawScreenManualLine(ctx, manualText, d(cardTopD + CARD_H + 50 + 24));
 
     ctx.restore();
 }

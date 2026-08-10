@@ -15,9 +15,9 @@
 // 背景/床/扉/木箱: images/bonus_kura_*.png（Codex/gpt-image 生成。読めない
 // 環境では従来のコード描画にフォールバック）。
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260810i';
-import { audio } from './audio.js?v=screen-safe-20260810i';
-import { getImage } from './imageCache.js?v=screen-safe-20260810i';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260810j';
+import { audio } from './audio.js?v=screen-safe-20260810j';
+import { getImage } from './imageCache.js?v=screen-safe-20260810j';
 
 // 小判1枚の価値（両）。よろず屋の相場に合わせてここだけで調整する。
 const KOBAN_VALUE = 20;
