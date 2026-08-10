@@ -98,6 +98,7 @@ export class BonusStage {
         this.useFeetCameraLift = true;   // カメラはプレイヤーを画面中央に置いて追う
 
         this.timeLeft = TIME_LIMIT_SEC;
+        this.timeLimit = TIME_LIMIT_SEC;   // HUD の残量バーが総量として読む
         this.scoreValue = 0;           // 獲得両の合計（結果発表のスコア）
         this._timeUp = false;
         this.time = 0;                 // 演出用の経過時間
@@ -129,7 +130,7 @@ export class BonusStage {
         // 千両箱: 頂上の棚の中央
         this.chest = {
             x: topShelf.x + topShelf.width * 0.5,
-            y: topShelf.y - 74,      // 棚の上に据わる高さ(下端が棚の天面に接する)
+            y: topShelf.y - 52,      // 棚の上に据わる高さ(下端が棚の天面に接する)
             taken: false,
             phase: 0
         };
@@ -263,7 +264,7 @@ export class BonusStage {
         }
         if (this.chest && !this.chest.taken) {
             this.chest.phase += deltaTime * 3;
-            if (Math.hypot(px - this.chest.x, py - this.chest.y) < 86) {
+            if (Math.hypot(px - this.chest.x, py - this.chest.y) < 74) {
                 this.chest.taken = true;
                 this.grantScore(player, CHEST_VALUE, this.chest.x, this.chest.y);
             }
@@ -509,8 +510,8 @@ export class BonusStage {
         if (!c || c.taken) return;
         const img = getAsset(3);
         const tw = (Math.sin(c.phase * 1.7) + 1) * 0.5;
-        const w = 148;
-        const h = 148;
+        const w = 104;
+        const h = 104;
         const x = c.x - w * 0.5;
         const y = c.y - h * 0.5;
         const baseY = c.y + h * 0.5;   // 箱の下端＝棚の天面
@@ -558,16 +559,6 @@ export class BonusStage {
             ctx.fillRect(x + 30, y + 32, 13, h - 46);
             ctx.fillRect(x + w - 43, y + 32, 13, h - 46);
         }
-
-        // 目印の輪（ゆっくり広がって消える。的が一目で分かる）
-        const ringT = (this.time * 0.55) % 1;
-        ctx.save();
-        ctx.strokeStyle = `rgba(255, 224, 150, ${(0.5 * (1 - ringT)).toFixed(3)})`;
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.ellipse(c.x, baseY - 4, 60 + ringT * 78, 18 + ringT * 22, 0, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
     }
 
     // 小判（自前描画: 楕円の小判 + 揺れる輝き）

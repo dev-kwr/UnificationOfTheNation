@@ -1110,28 +1110,76 @@ export class UI {
     // （実機フィードバック 2026-08-11）。合計は renderSideScoreBurst が中央に出す。
     renderSideStageTimer(ctx, stage) {
         const sec = Math.max(0, stage.getHudTimerSec());
+        const limit = Math.max(1, stage.timeLimit || 60);
         const fs = getFontScale();
         const uiS = getUiScale();
         const cx = SCREEN_WIDTH / 2;
-        const top = getScreenSafeArea().top + 8 * uiS;
-        const w = 116 * uiS;
-        const h = 44 * uiS;
+        // 縦中心を右上のBGMボタン＝ステージ名と同じ高さに置く。上端の3要素
+        // (左のHUD・中央の刻限・右のステージ名)が一本の視線に乗る。
+        // 独自に safe.top から積むと中央だけ浮いて見えた(実機フィードバック)。
+        const B = getPadLayout().bgm;
+        const w = 152 * uiS;
+        const h = 54 * uiS;
+        const top = B.y - h / 2;
         const urgent = sec <= 10;
         const blink = urgent ? (0.72 + Math.sin(Date.now() * 0.012) * 0.28) : 1;
+        const mainColor = urgent
+            ? `rgba(255, 138, 110, ${blink.toFixed(3)})`
+            : 'rgba(238, 246, 255, 0.95)';
 
         ctx.save();
         drawWafuCard(ctx, cx - w / 2, top, w, h, { radius: 11 * uiS, bgAlpha: 0.86, accent: false });
-        ctx.textAlign = 'center';
+
+        // 数字＋単位（残量バーのぶん上へ寄せる）
         ctx.textBaseline = 'alphabetic';
-        ctx.font = `900 ${Math.round(24 * fs)}px "Helvetica Neue", Arial, sans-serif`;
-        ctx.fillStyle = urgent
-            ? `rgba(255, 138, 110, ${blink.toFixed(3)})`
-            : 'rgba(238, 246, 255, 0.95)';
+        const numFont = `900 ${Math.round(23 * fs)}px "Helvetica Neue", Arial, sans-serif`;
+        const unitFont = `700 ${Math.round(11 * fs)}px "Zen Old Mincho", serif`;
+        const numText = sec.toFixed(1);
+        ctx.font = numFont;
+        const numW = ctx.measureText(numText).width;
+        ctx.font = unitFont;
+        const unitW = ctx.measureText('秒').width + 4 * uiS;
+        const startX = cx - (numW + unitW) / 2;
+        const baseY = top + 28 * uiS;
+        ctx.textAlign = 'left';
+        ctx.font = numFont;
+        ctx.fillStyle = mainColor;
         if (urgent) {
             ctx.shadowColor = 'rgba(255, 110, 80, 0.7)';
             ctx.shadowBlur = 16 * uiS;
         }
-        ctx.fillText(sec.toFixed(1), cx, top + 31 * uiS);
+        ctx.fillText(numText, startX, baseY);
+        ctx.shadowBlur = 0;
+        ctx.font = unitFont;
+        ctx.fillStyle = 'rgba(212, 228, 255, 0.72)';
+        ctx.fillText('秒', startX + numW + 4 * uiS, baseY - 2 * uiS);
+
+        // 残量バー（数字だけだと残りの実感が薄い。減っていく様が見える）
+        const barX = cx - w / 2 + 14 * uiS;
+        const barW = w - 28 * uiS;
+        const barY = top + h - 15 * uiS;
+        const barH = 5 * uiS;
+        const r = barH / 2;
+        const roundBar = (bx, bw) => {
+            ctx.beginPath();
+            ctx.moveTo(bx + r, barY);
+            ctx.arcTo(bx + bw, barY, bx + bw, barY + barH, r);
+            ctx.arcTo(bx + bw, barY + barH, bx, barY + barH, r);
+            ctx.arcTo(bx, barY + barH, bx, barY, r);
+            ctx.arcTo(bx, barY, bx + bw, barY, r);
+            ctx.closePath();
+        };
+        roundBar(barX, barW);
+        ctx.fillStyle = 'rgba(8, 14, 30, 0.7)';
+        ctx.fill();
+        const ratio = Math.max(0, Math.min(1, sec / limit));
+        if (ratio > 0.001) {
+            roundBar(barX, Math.max(barH, barW * ratio));
+            ctx.fillStyle = urgent
+                ? `rgba(255, 132, 104, ${(0.85 * blink).toFixed(3)})`
+                : 'rgba(158, 200, 255, 0.9)';
+            ctx.fill();
+        }
         ctx.restore();
     }
 

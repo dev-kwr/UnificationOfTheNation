@@ -55,6 +55,7 @@ export class TrainingStage {
         this.isFloorTransitioning = false;
 
         this.timeLeft = TIME_LIMIT_SEC;
+        this.timeLimit = TIME_LIMIT_SEC;   // HUD の残量バーが総量として読む
         this.killCount = 0;            // 討伐数（結果発表のスコア）
         this._timeUp = false;
         this.spawnTimer = 0.6;         // 入場直後の一拍（すぐ囲まれない）

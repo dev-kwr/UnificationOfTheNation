@@ -115,6 +115,7 @@
    - **寄り道は何度でも挑める**(記録更新が目的なので在庫制にはしない)。**startNewGame は開始時に即セーブする**既存仕様なので、`?map=` デバッグ起動はセーブを上書きする(検証時は注意)。
    - **縦アスレチックのカメラは `stage.useFeetCameraLift`**。これが真だと updateCameraLift が【プレイヤーを画面の上下中央に置く】ように追い、`getCameraMinVisTop()`(頂き)と crop(床)でだけ止まる。接地条件は付けない(跳んでいる間こそ上が見たい)。z=1 の PC は crop=0 のため、このフラグが無いと早期 return して一切追従しない。本編は従来どおり groundY 基準・接地時のみ。
    - **場が終わったら `clearRunTimeBuffs()`**(奥義の分身・大薙・隠れ身の一時強化を全解除)。本編クリア・寄り道の刻限切れ・ステータス画面入場の3か所から呼ぶ。呼ばないとステータス画面に分身が並び、次のステージへ効果が持ち越される。
+   - **上端の3要素は同じ視線に乗せる**。左のHUDパネル・中央の刻限・右のステージ名。刻限カードは縦中心を `getPadLayout().bgm.y`(＝ステージ名の高さ)に合わせる。safe.top から独自に積むと中央だけ浮いて見えた(実機フィードバック)。
    - **上部の枠は刻限だけ・合計は画面中央に出す**(`renderSideStageTimer` / `renderSideScoreBurst`)。数字を同じ枠に2つ並べると的が絞れず手応えも出ない。合計は獲得のたびに中央(y=42%)へ大きく出し、`stage.lastGain`(値と時刻)でカウントアップ・発光・0.75秒保持→フェード。拾った/倒した場所からは `stage.gainPops` の「+n」が浮く。
    - **足場が要る寄り道は `stage.getPlatformColliders()`**(one-way形式 `{x,y,width,height,isDestroyed:false,isOneWayPlatform:true}`)を実装すれば updatePlaying の extraColliders に汎用で乗る。スタックの**最上面だけ**足場にする(中段に乗れると上の箱にめり込む)。
    - **道場の敵は本編と同じ createEnemy 製**。stage 側は「湧かせる・`enemy.update()` が true を返したら除去・`renderEnemies` で描く」だけ。被弾判定・撃破報酬(expGem/小判/ゲージ)は game 側が `getAllEnemies()` 経由で処理するので二重実装しない。固定画面(maxProgress=CANVAS_WIDTH)なら scrollX は自動で0に張り付く。左端クランプは currentStageNumber 依存(Stage5帰りは素通り)のため寄り道側で自前クランプする。
