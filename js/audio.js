@@ -33,7 +33,8 @@ class AudioManager {
         this.bgmFiles = {
             title: 'bgm/opening.mp3',
             ending: 'bgm/ending.mp3',
-            shop: 'bgm/shop.mp3',
+            // メニュー系の共通曲(よろず屋/ステータス/セレクト/結果発表)
+            menu: 'bgm/menu.mp3',
             boss: 'bgm/boss.mp3',
             lastboss: 'bgm/lastboss.mp3',
             gameover: 'bgm/gameover.mp3',
@@ -54,6 +55,7 @@ class AudioManager {
             cursor: new Audio('se/cursor.mp3'),
             gamestart: new Audio('se/gamestart.mp3'),
             death: new Audio('se/death.mp3'),
+            coin: new Audio('se/coin.mp3'),
             // 他は遅延ロード
             deflect: null, landing: null, ooyari: null, shuriken: null, katana: null,
             combined: null, exp: null, change: null, levelup: null, skillup: null,
@@ -61,7 +63,7 @@ class AudioManager {
         };
 
         // 必須 SE の初期ロード
-        ['cursor', 'gamestart', 'death'].forEach(key => {
+        ['cursor', 'gamestart', 'death', 'coin'].forEach(key => {
             if (this.sfxPool[key]) {
                 this.sfxPool[key].preload = 'auto';
                 this.sfxPool[key].load();
@@ -438,11 +440,22 @@ class AudioManager {
             setTimeout(() => this.playSfx(freq, 'sine', 0.12, 0.18, 1.0), i * 100);
         });
     }
-    playMoney() { this.init(); this.playSfx(900, 'sine', 0.15, 0.08, 1.3); }
+    // 小判の獲得音。手応えに直結するので取りこぼしと遅延を避ける:
+    //  - 共通クールダウン(40ms)は使わず専用の 32ms。連取しても鳴り続ける
+    //  - startTime=0 で先頭から（既定の 0.02 スキップは立ち上がりを削る）
+    //  - preferPoolDirect=true でプール本体を直接鳴らす（cloneNode の間を省く）
+    playMoney() {
+        const now = Date.now();
+        if (now - (this._lastCoinAt || 0) < 32) return;
+        this._lastCoinAt = now;
+        this.playFileSfx('se/coin.mp3', 0.85, 1.0, 0, true, false);
+    }
 
     // === BGM制御（ファイル再生のみ） ===
     playBgm(type = 'stage', stageNum = 1, fadeDuration = 800, fadeInDuration) {
         this.bgmPausedByGame = false;
+        // 旧称の互換（'shop' はよろず屋専用に見えるが、実体はメニュー系の共通曲）
+        if (type === 'shop') type = 'menu';
         // fadeInDurationが未指定の場合はfadeDurationを使う
         if (fadeInDuration === undefined) fadeInDuration = fadeDuration;
         
@@ -478,7 +491,7 @@ class AudioManager {
         } else {
             // ステージ以外（shop/title/ending/gameover）は、同じ曲が既に鳴っていれば
             // 何もしない。作り直すと再生位置が 0 に戻るため、同じ曲を使う画面を
-            // 行き来するたびに頭出しされていた（ステータス画面⇄よろず屋は共に 'shop'）。
+            // 行き来するたびに頭出しされていた（ステータス画面⇄よろず屋は共に 'menu'）。
             // ステージ曲だけは上の分岐で意図的に作り直す（ループの繋ぎを隠すため）。
             if (this.currentBgmType === targetType && this.bgmAudio && !this.bgmAudio.paused) {
                 this.currentBgmType = targetType;
