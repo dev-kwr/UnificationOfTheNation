@@ -47,12 +47,12 @@ const BGM_ICON_PATHS = {
     muted: './icon/volume_off.svg'
 };
 const WEAPON_ICON_PATHS = {
-    '手裏剣': './images/hud_weapons/shuriken.png',
-    '火薬玉': './images/hud_weapons/bomb.svg',
-    '大槍': './images/hud_weapons/spear.png',
-    '二刀流': './images/hud_weapons/dual.png',
-    '鎖鎌': './images/hud_weapons/kusarigama.png',
-    '大太刀': './images/hud_weapons/odachi.png'
+    '手裏剣': './images/hud_weapons/shuriken.png?v=20260718-6',
+    '火薬玉': './images/hud_weapons/bomb.svg?v=20260719-2',
+    '大槍': './images/hud_weapons/spear.png?v=20260718-6',
+    '二刀流': './images/hud_weapons/dual.png?v=20260718-3',
+    '鎖鎌': './images/hud_weapons/kusarigama.png?v=20260719-1',
+    '大太刀': './images/hud_weapons/odachi.png?v=20260718-6'
 };
 const TITLE_STAR_COUNT = 100;
 let _titleLogoImage = null;   // プロ制作の金紺ロゴ画像（英字＋天下統一＋筆＋装飾を内包）
