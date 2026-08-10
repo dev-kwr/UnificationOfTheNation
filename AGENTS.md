@@ -111,7 +111,9 @@
    - ノード6(天守)はスマホ(wide)の縦クロップで上へ寄るため、右上のBGMボタンと重ならない v にしてある。ノードを動かすときは重なりを再確認すること。
    - **経路線は描かない**(絵に描かれた一本道に任せる。UI線の重ねはややこしい、と実機で差し戻し)。カーソルの順序は `STAGE_SELECT_ORDER`(道なり順・ボーナスは2と3の間)。
    - **寄り道は Stage互換の軽量クラス**（小判蔵=`js/bonusStage.js`・修行道場=`js/trainingStage.js`）を `game.stage` に差して PLAYING をそのまま使う(`isCleared()` 常false=本編クリア経路に乗せない)。終了は `isBonusFinished()`/`isTrainingFinished()` を updatePlaying が見て `finishBonusStage()`/`finishTrainingStage()`→セレクトへ。本編進行には触れない。開始は共通の `startSideStage()`＋本編と同じ暗幕待ち(`pendingStageStart={side:'bonus'|'training'}`)。サイドステージを増やすときはこの方式を踏襲する。
+   - **寄り道は刻限60秒のスコアアタック**。stage が `getHudTimerSec()/getScore()/isTimeUp()/sideKind` を持ち、時間切れで `game.beginSideResult()` → `SIDE_RESULT`(結果発表)→セレクト。最高記録は **saveGlobal の `sideBest{bonus,training}`**(プレイヤーのセーブとは独立。難易度や周回に影響されない記録)。
    - **蔵は補充制**: 踏破で `game.bonusAvailable=false`(セーブ `progress.bonusAvailable`・旧セーブは true 補完)、本編クリア(handleStageClear)で true。空の間は order から外れ、ノードは灰色表示。**startNewGame は開始時に即セーブする**既存仕様なので、`?map=` デバッグ起動はセーブを上書きする(検証時は注意)。
+   - **縦アスレチックのカメラは `stage.useFeetCameraLift`**。これが真だと updateCameraLift が「接地した足の高さ」に追従し、`getCameraMinVisTop()` を上限に **crop を超えて上へ抜ける**(=塔を登る)。z=1 の PC は crop=0 のため、このフラグが無いと早期 return して一切追従しない。本編は従来どおり groundY 基準。
    - **足場が要る寄り道は `stage.getPlatformColliders()`**(one-way形式 `{x,y,width,height,isDestroyed:false,isOneWayPlatform:true}`)を実装すれば updatePlaying の extraColliders に汎用で乗る。スタックの**最上面だけ**足場にする(中段に乗れると上の箱にめり込む)。
    - **道場の敵は本編と同じ createEnemy 製**。stage 側は「湧かせる・`enemy.update()` が true を返したら除去・`renderEnemies` で描く」だけ。被弾判定・撃破報酬(expGem/小判/ゲージ)は game 側が `getAllEnemies()` 経由で処理するので二重実装しない。固定画面(maxProgress=CANVAS_WIDTH)なら scrollX は自動で0に張り付く。左端クランプは currentStageNumber 依存(Stage5帰りは素通り)のため寄り道側で自前クランプする。
 

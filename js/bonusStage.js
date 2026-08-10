@@ -1,19 +1,21 @@
 // ============================================
 // Unification of the Nation - ボーナスステージ（小判蔵）
 // ============================================
-// 敵の出ない短い蔵の中を駆け抜け、小判を拾って出口へ。終わるとセレクトへ戻る。
-// game.js の PLAYING ループをそのまま使うため、Stage クラスと同じ描画/更新の
-// 界面（renderBackground / renderGround / getAllEnemies / isCleared ...）を持つ
-// 軽量クラスとして実装する。isCleared() は常に false（本編のクリア遷移＝
-// セーブや武器解放へ乗せない）。終了は isBonusFinished() を game 側が見る。
+// 刻限60秒のスコアアタック。蔵の中の吹き抜けを、木箱の棚(一方通行足場)を
+// 伝って上へ上へと登り、小判と最上部の千両箱を集める縦アスレチック。
+// 時間切れで結果発表(game.beginSideResult)→獲得両がスコア。最高記録は
+// saveGlobal(sideBest.bonus) に残る。蔵は一度入ると空になり、本編ステージを
+// どこか踏破するまで補充されない(game.bonusAvailable)。
 //
-// 蔵は一度踏破すると空になり、本編ステージをどこか踏破するまで補充されない
-// (game.bonusAvailable)。地上を走り抜けるだけでも小判は拾えるが、木箱の
-// 一方通行足場（getPlatformColliders）を登る上ルートに高所の小判と千両箱を
-// 置き、アスレチックの寄り道で実入りが増える構成にする。
+// カメラ: 横は固定(maxProgress=CANVAS_WIDTH で scrollX は常に0)。縦は
+// game.updateCameraLift の stage フック(useFeetCameraLift +
+// getCameraMinVisTop)で「接地した足の高さ」に追従して塔を登る。
 //
-// 背景/床/扉/木箱: images/bonus_kura_*.png（Codex/gpt-image 生成。読めない
-// 環境では従来のコード描画にフォールバック）。
+// Stage 互換の軽量クラス(isCleared()常false)。終了は isTimeUp() を
+// game.updatePlaying が見る。
+//
+// 画像: images/bonus_kura_*.png（Codex/gpt-image 生成。読めない環境では
+// コード描画にフォールバック）。
 
 import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260810j';
 import { audio } from './audio.js?v=screen-safe-20260810j';
@@ -21,33 +23,51 @@ import { getImage } from './imageCache.js?v=screen-safe-20260810j';
 
 // 小判1枚の価値（両）。よろず屋の相場に合わせてここだけで調整する。
 const KOBAN_VALUE = 20;
-// 千両箱（最上段の木箱の上）。上ルートを登り切ったご褒美。
-const CHEST_VALUE = 100;
-// 木箱1個の見た目サイズ＝スタックの段差。ジャンプ(単発~160px/2段~280px)に対し
-// 1段=直接乗れる / 2段=2段ジャンプ / 3段=隣のスタックから階段状に登る高さ。
+// 千両箱（塔の頂上）。登り切ったご褒美。
+const CHEST_VALUE = 300;
+// 刻限（秒）
+const TIME_LIMIT_SEC = 60;
+// 木箱1個の見た目サイズ。棚は箱を横に並べて描く。
 const CRATE_SIZE = 96;
 
 // 開始前に読み込む画像（game.requestStageStart が本編と同じ暗幕待ちに使う）
 export const BONUS_STAGE_IMAGES = [
-    'images/bonus_kura_bg.png',
-    'images/bonus_kura_floor.png',
-    'images/bonus_kura_door.png',
-    'images/bonus_kura_crate.png'
+    'images/bonus_kura_bg.png',          // 0: 1階の壁（床の絵と暗がり）
+    'images/bonus_kura_floor.png',       // 1: 床の板張り
+    'images/bonus_kura_crate.png',       // 2: 木箱（棚）
+    'images/bonus_kura_chest.png',       // 3: 千両箱
+    'images/bonus_kura_wall_upper.png'   // 4: 上層の壁（縦横タイル）
 ];
 
-// imageCache 経由で取得（game.requestStageStart の preload と同じ Image を共有し、
-// settled 判定と実描画が食い違わないようにする）
 function getAsset(index) {
     const img = getImage(BONUS_STAGE_IMAGES[index]);
     return (img && img.complete && img.naturalWidth) ? img : null;
 }
 
+// 棚(足場)の配置: x=左端 / dy=laneY(512)からの上面の相対高さ / crates=箱の数。
+// 縦間隔110〜135(単〜2段ジャンプ圏)、横の跳びは240px以内でジグザグに。
+const SHELF_LAYOUT = [
+    { x: 150, dy: -120, crates: 2 },
+    { x: 610, dy: -230, crates: 2 },
+    { x: 1000, dy: -340, crates: 2 },
+    { x: 540, dy: -455, crates: 3 },
+    { x: 120, dy: -575, crates: 2 },
+    { x: 610, dy: -690, crates: 2 },
+    { x: 1010, dy: -800, crates: 2 },
+    { x: 520, dy: -915, crates: 3 },
+    { x: 110, dy: -1030, crates: 2 },
+    { x: 600, dy: -1145, crates: 2 },
+    { x: 1000, dy: -1255, crates: 2 },
+    { x: 450, dy: -1380, crates: 4 }    // 頂上の大棚（千両箱と月明かり）
+];
+
 export class BonusStage {
     constructor() {
         this.stageNumber = 0;          // 本編の stage 番号分岐(===3/5/6 等)をすべて回避する値
         this.name = '小判蔵';          // HUD右上のステージ名がこれを読む
+        this.sideKind = 'bonus';       // 結果発表(beginSideResult)のスコア種別
         this.groundY = Math.round(CANVAS_HEIGHT * (2 / 3));
-        this.maxProgress = Math.round(CANVAS_WIDTH * 2.4);   // 短い一本の蔵廊下
+        this.maxProgress = CANVAS_WIDTH;   // 横は固定画面（カメラは縦だけ動く）
         this.progress = 0;
         this.lastProgress = 0;
         this.obstacles = [];
@@ -57,61 +77,72 @@ export class BonusStage {
         this.bossEncounterBlend = 0;
         this.skyVisTop = 0;
         this.isFloorTransitioning = false;
-        this._finished = false;
+        this.useFeetCameraLift = true;   // カメラは接地した足の高さに追従（塔を登る）
+
+        this.timeLeft = TIME_LIMIT_SEC;
+        this.scoreValue = 0;           // 獲得両の合計（結果発表のスコア）
+        this._timeUp = false;
+        this.time = 0;                 // 演出用の経過時間
 
         const laneY = this.groundY + LANE_OFFSET;
 
-        // 木箱スタック（x=左端, stack=段数）。1560〜1752 は千両箱へ続く階段。
-        this.crates = [
-            { x: 700, stack: 1 },
-            { x: 1120, stack: 2 },
-            { x: 1560, stack: 1 },
-            { x: 1656, stack: 2 },
-            { x: 1752, stack: 3 },
-            { x: 2300, stack: 2 }
-        ];
-        // 各スタックの最上面だけ足場にする（中段に乗れると上の箱にめり込むため）
-        this.platformColliders = this.crates.map((c) => ({
-            x: c.x,
-            y: laneY - CRATE_SIZE * c.stack,
-            width: CRATE_SIZE,
+        // 棚（描画用）と一方通行コライダー（上面のみ）
+        this.shelves = SHELF_LAYOUT.map((s) => ({
+            x: s.x,
+            y: laneY + s.dy,
+            crates: s.crates,
+            width: s.crates * CRATE_SIZE
+        }));
+        this.platformColliders = this.shelves.map((s) => ({
+            x: s.x,
+            y: s.y,
+            width: s.width,
             height: 12,
             isDestroyed: false,
             isOneWayPlatform: true
         }));
+        const topShelf = this.shelves[this.shelves.length - 1];
+        this._topY = topShelf.y;
 
-        // 千両箱: 3段スタックの真上。取ると +100両。
-        const chestStack = this.crates[4];
+        // 千両箱: 頂上の棚の中央
         this.chest = {
-            x: chestStack.x + CRATE_SIZE * 0.5,
-            y: laneY - CRATE_SIZE * chestStack.stack - 26,   // 箱の中心あたり
+            x: topShelf.x + topShelf.width * 0.5,
+            y: topShelf.y - 54,
             taken: false,
             phase: 0
         };
 
-        // 小判の配置: 地上の列（走り抜けでも拾える）+ 上ルートの高所配置。
+        // 小判: 地上の列 + 各棚の上 + 棚間の空中（ジャンプの弧）
         this.kobans = [];
         const addKoban = (x, y) => {
             this.kobans.push({ x, y, taken: false, phase: (this.kobans.length * 0.7) % (Math.PI * 2) });
         };
-        // 地上列: 木箱スタックの帯は避けて敷く
-        let x = 460;
-        while (x < this.maxProgress - 380) {
-            const onCrate = this.crates.some((c) => x > c.x - 40 && x < c.x + CRATE_SIZE + 40);
-            if (!onCrate) addKoban(x, laneY - 40);
-            x += 92 + (this.kobans.length % 3) * 14;
+        for (let i = 0; i < 7; i++) addKoban(200 + i * 150, laneY - 40);
+        for (let si = 0; si < this.shelves.length; si++) {
+            const s = this.shelves[si];
+            const n = Math.min(3, s.crates + (si >= 8 ? 1 : 0));
+            for (let k = 0; k < n; k++) {
+                addKoban(s.x + s.width * ((k + 1) / (n + 1)), s.y - 38);
+            }
         }
-        // 高所: 各スタックの上
-        addKoban(726, laneY - CRATE_SIZE - 36);
-        addKoban(770, laneY - CRATE_SIZE - 36);
-        addKoban(1146, laneY - CRATE_SIZE * 2 - 36);
-        addKoban(1190, laneY - CRATE_SIZE * 2 - 36);
-        addKoban(2326, laneY - CRATE_SIZE * 2 - 36);
-        addKoban(2370, laneY - CRATE_SIZE * 2 - 36);
-        // 空中アーチ（2段スタック→階段の間。2段ジャンプの滞空で拾う）
-        addKoban(1300, laneY - 182);
-        addKoban(1380, laneY - 204);
-        addKoban(1460, laneY - 182);
+        // 棚間の空中（隣の棚へ跳ぶ弧の頂点あたり）
+        for (let si = 0; si + 1 < this.shelves.length; si++) {
+            const a = this.shelves[si], b = this.shelves[si + 1];
+            addKoban((a.x + a.width * 0.5 + b.x + b.width * 0.5) * 0.5, Math.min(a.y, b.y) - 66);
+        }
+        // 行灯: 棚の脇の壁に掛かる灯り。登る道筋が縦に連なって見えるようにし、
+        // 真っ暗な吹き抜けに手掛かりを与える(2段おきに左右へ振り分ける)。
+        this.lanterns = [];
+        for (let si = 1; si < this.shelves.length; si += 2) {
+            const s = this.shelves[si];
+            const onLeft = (si % 4 === 1);
+            this.lanterns.push({
+                x: onLeft ? Math.max(52, s.x - 74) : Math.min(CANVAS_WIDTH - 52, s.x + s.width + 74),
+                y: s.y - 46,
+                phase: si * 1.7
+            });
+        }
+
         this.collected = 0;
         this.totalKobans = this.kobans.length;
     }
@@ -121,99 +152,188 @@ export class BonusStage {
     getShadowCasters() { return []; }
     isCleared() { return false; }
     isStage6Grappling() { return false; }
-    isBonusFinished() { return this._finished; }
     getPlatformColliders() { return this.platformColliders; }
+    isTimeUp() { return this._timeUp; }
+    getScore() { return this.scoreValue; }
+    getHudTimerSec() { return this.timeLeft; }
+    // 縦カメラの上限: 頂上の棚に立った時に頭上へ余白が残る高さまで
+    getCameraMinVisTop() { return this._topY - 260; }
 
     update(deltaTime, player) {
         if (!player) return;
+        this.time += deltaTime;
+
+        // 固定画面の左端。game 側の左クランプは currentStageNumber 依存
+        // (Stage5帰りだと素通り)のため自前で閉じる。右端は共通処理で閉じる。
+        if (player.x < 0) {
+            player.x = 0;
+            if (player.vx < 0) player.vx = 0;
+        }
+
+        if (this._timeUp) return;
+        this.timeLeft = Math.max(0, this.timeLeft - deltaTime);
+        if (this.timeLeft <= 0) {
+            this._timeUp = true;
+            return;
+        }
+
         const px = player.x + player.getWorldWidth() * 0.5;
         const py = player.y + player.getWorldHeight() * 0.5;
         for (const k of this.kobans) {
             if (k.taken) continue;
             k.phase += deltaTime * 4;
-            if (Math.hypot(px - k.x, py - k.y) < 46) {
+            if (Math.hypot(px - k.x, py - k.y) < 48) {
                 k.taken = true;
                 this.collected++;
+                this.scoreValue += KOBAN_VALUE;
                 if (typeof player.setMoney === 'function') player.setMoney(player.money + KOBAN_VALUE);
                 else player.money = (player.money || 0) + KOBAN_VALUE;
                 audio.playMoney();
             }
         }
-        // 千両箱（少し大きめの取得半径）
         if (this.chest && !this.chest.taken) {
             this.chest.phase += deltaTime * 3;
-            if (Math.hypot(px - this.chest.x, py - this.chest.y) < 56) {
+            if (Math.hypot(px - this.chest.x, py - this.chest.y) < 64) {
                 this.chest.taken = true;
+                this.scoreValue += CHEST_VALUE;
                 if (typeof player.setMoney === 'function') player.setMoney(player.money + CHEST_VALUE);
                 else player.money = (player.money || 0) + CHEST_VALUE;
                 audio.playMoney();
             }
         }
-        // 出口（右端の蔵の扉）に届いたら終了。game.updatePlaying が isBonusFinished を見る。
-        if (!this._finished && px >= this.maxProgress - 110) {
-            this._finished = true;
-        }
     }
 
     // --- 描画（renderPlaying から呼ばれる。ctx はワールド変換済み） ---
     renderBackground(ctx) {
-        const scrollX = (window.game && window.game.scrollX) || 0;
-        const img = getAsset(0);
+        const visTop = this.skyVisTop;
         ctx.save();
-        // 蔵の中は閉所なので、背景は淡いパララックス(0.35)で流す
-        const par = scrollX * 0.35;
-        if (img) {
-            // cover で縦を合わせ、横はパララックス位置から切り出す
-            const s = CANVAS_HEIGHT / img.naturalHeight;
-            const drawW = img.naturalWidth * s;
-            const off = -(par % drawW);
+
+        // 1階の壁(bg画像)。横幅に合わせて1枚だけ、絵の下端を画面下端(床帯)に揃える。
+        const bg = getAsset(0);
+        const bgH = bg ? CANVAS_WIDTH * (bg.naturalHeight / bg.naturalWidth) : Math.round(CANVAS_HEIGHT * (2 / 3));
+        const bgTop = CANVAS_HEIGHT - bgH;
+        if (bg) {
             ctx.imageSmoothingEnabled = true;
-            for (let x = off - drawW; x < CANVAS_WIDTH + drawW; x += drawW) {
-                ctx.drawImage(img, x, this.skyVisTop, drawW, CANVAS_HEIGHT);
-            }
+            ctx.drawImage(bg, 0, bgTop, CANVAS_WIDTH, bgH);
         } else {
-            // フォールバック: 土蔵の壁（漆喰と梁）
             ctx.fillStyle = '#241e15';
-            ctx.fillRect(0, this.skyVisTop, CANVAS_WIDTH, CANVAS_HEIGHT);
-            ctx.fillStyle = '#382c1b';
-            for (let i = 0; i < 6; i++) {
-                const bx = ((i * 260 - par) % (CANVAS_WIDTH + 260) + CANVAS_WIDTH + 260) % (CANVAS_WIDTH + 260) - 130;
-                ctx.fillRect(bx, this.skyVisTop, 30, CANVAS_HEIGHT);
+            ctx.fillRect(0, bgTop, CANVAS_WIDTH, bgH);
+        }
+
+        // 上層の壁: bg の上端から可視上端まで、壁テクスチャを縦横タイル。
+        // タイルの縦境界に梁(横木)を重ねて継ぎ目を隠す。
+        if (visTop < bgTop) {
+            const wall = getAsset(4);
+            const tile = 640;               // 表示タイルサイズ(1024→0.625倍)。横2枚=1280
+            const firstBand = Math.floor((visTop - bgTop) / tile);
+            for (let band = firstBand; band < 0; band++) {
+                const y = bgTop + band * tile;
+                for (let cx = 0; cx < CANVAS_WIDTH; cx += tile) {
+                    if (wall) {
+                        ctx.imageSmoothingEnabled = true;
+                        const mirror = (((cx / tile + band) % 2) + 2) % 2 === 1;
+                        if (mirror) {
+                            ctx.save();
+                            ctx.translate(cx + tile, y);
+                            ctx.scale(-1, 1);
+                            ctx.drawImage(wall, 0, 0, tile, tile);
+                            ctx.restore();
+                        } else {
+                            ctx.drawImage(wall, cx, y, tile, tile);
+                        }
+                    } else {
+                        ctx.fillStyle = '#1c1710';
+                        ctx.fillRect(cx, y, tile, tile);
+                        ctx.fillStyle = '#2c2318';
+                        ctx.fillRect(cx + 200, y, 26, tile);
+                        ctx.fillRect(cx + 520, y, 26, tile);
+                    }
+                }
+                // 梁（タイル境界の継ぎ目隠し + 蔵の構造の見立て）
+                ctx.fillStyle = '#181008';
+                ctx.fillRect(0, y - 8, CANVAS_WIDTH, 16);
+                ctx.fillStyle = 'rgba(214, 186, 120, 0.08)';
+                ctx.fillRect(0, y - 8, CANVAS_WIDTH, 2);
             }
         }
+
+        // 行灯の光溜まり（壁側に描くので背景層。灯体そのものは renderGround で描く）
+        for (const l of this.lanterns) {
+            const flick = 0.9 + Math.sin(this.time * 6 + l.phase) * 0.1;
+            const glow = ctx.createRadialGradient(l.x, l.y, 8, l.x, l.y, 230);
+            glow.addColorStop(0, `rgba(255, 206, 130, ${(0.28 * flick).toFixed(3)})`);
+            glow.addColorStop(0.45, `rgba(255, 186, 104, ${(0.09 * flick).toFixed(3)})`);
+            glow.addColorStop(1, 'rgba(255, 186, 104, 0)');
+            ctx.fillStyle = glow;
+            ctx.fillRect(l.x - 240, l.y - 240, 480, 480);
+        }
+
+        // 頂上の月明かり: 千両箱の上から降る淡い光溜まり（登る先を示す灯）
+        if (this.chest) {
+            const cx = this.chest.x;
+            const flick = 0.16 + Math.sin(this.time * 1.3) * 0.02;
+            const topGlow = ctx.createRadialGradient(cx, this._topY - 120, 20, cx, this._topY - 120, 460);
+            topGlow.addColorStop(0, `rgba(214, 226, 255, ${flick.toFixed(3)})`);
+            topGlow.addColorStop(1, 'rgba(214, 226, 255, 0)');
+            ctx.fillStyle = topGlow;
+            ctx.fillRect(cx - 470, this._topY - 590, 940, 940);
+        }
+
         // 全体をわずかに沈めて手前の小判を立てる
         ctx.fillStyle = 'rgba(6, 5, 3, 0.14)';
-        ctx.fillRect(0, this.skyVisTop, CANVAS_WIDTH, CANVAS_HEIGHT);
+        ctx.fillRect(0, visTop - 8, CANVAS_WIDTH, CANVAS_HEIGHT * 4);
         ctx.restore();
     }
 
     renderGround(ctx) {
-        const scrollX = (window.game && window.game.scrollX) || 0;
-        const laneY = this.groundY + LANE_OFFSET;
         ctx.save();
-        ctx.translate(-scrollX, 0);
-
-        this.renderFloor(ctx, scrollX);
-        this.renderExitWallAndDoor(ctx);
-        this.renderCrates(ctx);
+        this.renderFloor(ctx);
+        this.renderLanterns(ctx);
+        this.renderShelves(ctx);
         this.renderChest(ctx);
         this.renderKobans(ctx);
-
         ctx.restore();
     }
 
-    // 床（板張り）。画像をミラータイルで敷く（偶奇で水平反転すると継ぎ目が必ず合う）
-    renderFloor(ctx, scrollX) {
+    // 行灯の灯体（壁掛けの木枠と障子。光溜まりは renderBackground 側）
+    renderLanterns(ctx) {
+        for (const l of this.lanterns) {
+            const flick = 0.9 + Math.sin(this.time * 6 + l.phase) * 0.1;
+            const w = 26, h = 34;
+            const x = l.x - w / 2, y = l.y - h / 2;
+            // 壁の掛け金
+            ctx.fillStyle = '#2a1f12';
+            ctx.fillRect(l.x - 2, y - 12, 4, 12);
+            // 障子（灯る面）
+            ctx.fillStyle = `rgba(255, 226, 158, ${(0.86 * flick).toFixed(3)})`;
+            ctx.fillRect(x, y, w, h);
+            // 木枠
+            ctx.strokeStyle = '#3a2a17';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(x, y, w, h);
+            ctx.strokeStyle = 'rgba(58, 42, 23, 0.75)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x, y + h / 2); ctx.lineTo(x + w, y + h / 2);
+            ctx.moveTo(l.x, y); ctx.lineTo(l.x, y + h);
+            ctx.stroke();
+            // 屋根と台
+            ctx.fillStyle = '#241a0f';
+            ctx.fillRect(x - 5, y - 5, w + 10, 6);
+            ctx.fillRect(x - 4, y + h - 1, w + 8, 5);
+        }
+    }
+
+    // 床（板張り）。固定画面なのでスクロール補正なしで敷く（ミラータイル）。
+    renderFloor(ctx) {
         const floorTop = this.groundY - 2;
         const img = getAsset(1);
         if (img) {
-            const drawH = CANVAS_HEIGHT - floorTop + 24;   // 可視の床帯(478..720)+余白
+            const drawH = CANVAS_HEIGHT - floorTop + 24;
             const drawW = Math.max(120, img.naturalWidth * (drawH / img.naturalHeight));
-            const first = Math.floor((scrollX - 40) / drawW);
-            ctx.imageSmoothingEnabled = true;
-            for (let i = first; i * drawW < scrollX + CANVAS_WIDTH + 40; i++) {
+            for (let i = 0; i * drawW < CANVAS_WIDTH + 40; i++) {
                 const dx = i * drawW;
-                if (((i % 2) + 2) % 2 === 1) {
+                if (i % 2 === 1) {
                     ctx.save();
                     ctx.translate(dx + drawW, 0);
                     ctx.scale(-1, 1);
@@ -223,160 +343,95 @@ export class BonusStage {
                     ctx.drawImage(img, dx, floorTop, drawW, drawH);
                 }
             }
-            // 奥端(地平線)の締めと、手前へ沈む陰影で床帯に奥行きを付ける
             ctx.strokeStyle = 'rgba(0, 0, 0, 0.5)';
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.moveTo(scrollX - 40, floorTop + 1);
-            ctx.lineTo(scrollX + CANVAS_WIDTH + 40, floorTop + 1);
+            ctx.moveTo(-40, floorTop + 1);
+            ctx.lineTo(CANVAS_WIDTH + 40, floorTop + 1);
             ctx.stroke();
             const shade = ctx.createLinearGradient(0, floorTop, 0, floorTop + drawH);
             shade.addColorStop(0, 'rgba(0, 0, 0, 0)');
             shade.addColorStop(1, 'rgba(0, 0, 0, 0.36)');
             ctx.fillStyle = shade;
-            ctx.fillRect(scrollX - 40, floorTop, CANVAS_WIDTH + 80, drawH);
+            ctx.fillRect(-40, floorTop, CANVAS_WIDTH + 80, drawH);
             return;
         }
-        // フォールバック: 従来のコード描画（板張り）
+        // フォールバック
         const grad = ctx.createLinearGradient(0, floorTop, 0, CANVAS_HEIGHT + 220);
         grad.addColorStop(0, '#3a2d1c');
-        grad.addColorStop(0.25, '#2c2115');
         grad.addColorStop(1, '#17110a');
         ctx.fillStyle = grad;
-        ctx.fillRect(scrollX - 40, floorTop, CANVAS_WIDTH + 80, CANVAS_HEIGHT);
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
-        ctx.lineWidth = 2;
-        const firstPlank = Math.floor((scrollX - 40) / 96) * 96;
-        for (let x = firstPlank; x < scrollX + CANVAS_WIDTH + 80; x += 96) {
-            ctx.beginPath();
-            ctx.moveTo(x, floorTop);
-            ctx.lineTo(x - 26, CANVAS_HEIGHT + 200);
-            ctx.stroke();
-        }
-        ctx.strokeStyle = 'rgba(214, 186, 120, 0.14)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(scrollX - 40, floorTop + 1);
-        ctx.lineTo(scrollX + CANVAS_WIDTH + 80, floorTop + 1);
-        ctx.stroke();
+        ctx.fillRect(-40, floorTop, CANVAS_WIDTH + 80, CANVAS_HEIGHT);
     }
 
-    // 出口: 廊下の突き当たりの暗がり + 蔵の重い扉（画像）。扉の底は歩行線に接地。
-    renderExitWallAndDoor(ctx) {
-        const laneY = this.groundY + LANE_OFFSET;
-        // 突き当たり感: 右端に近づくほど沈む暗がり（パララックス背景との継ぎ目を隠す）
-        const wallX = this.maxProgress - 430;
-        const dark = ctx.createLinearGradient(wallX, 0, this.maxProgress - 40, 0);
-        dark.addColorStop(0, 'rgba(4, 3, 2, 0)');
-        dark.addColorStop(1, 'rgba(4, 3, 2, 0.66)');
-        ctx.fillStyle = dark;
-        ctx.fillRect(wallX, this.skyVisTop, 430, CANVAS_HEIGHT);
-
-        const img = getAsset(2);
-        const doorH = 300;
-        const doorW = img ? doorH * (img.naturalWidth / img.naturalHeight) : 200;
-        const doorX = this.maxProgress - 110 - doorW * 0.5;   // 終了判定(maxProgress-110)と中心を揃える
-        const doorY = laneY - doorH;
-        if (img) {
-            ctx.imageSmoothingEnabled = true;
-            ctx.drawImage(img, doorX, doorY, doorW, doorH);
-            // 扉の縁から漏れる月明かり（絵と床を繋ぐ）
-            const glow = ctx.createRadialGradient(doorX + doorW * 0.5, laneY - 8, 10, doorX + doorW * 0.5, laneY - 8, doorW * 0.9);
-            glow.addColorStop(0, 'rgba(255, 234, 170, 0.18)');
-            glow.addColorStop(1, 'rgba(255, 234, 170, 0)');
-            ctx.fillStyle = glow;
-            ctx.fillRect(doorX - doorW * 0.5, doorY, doorW * 2, doorH + 30);
-        } else {
-            // フォールバック: 従来のコード描画
-            ctx.fillStyle = '#0c0a07';
-            ctx.fillRect(doorX, doorY, doorW, doorH);
-            ctx.strokeStyle = 'rgba(214, 186, 120, 0.5)';
-            ctx.lineWidth = 3;
-            ctx.strokeRect(doorX + 6, doorY + 6, doorW - 12, doorH - 12);
-        }
-    }
-
-    // 木箱スタック（一方通行足場の見た目）。x+段数で時々反転させ単調さを消す。
+    // 棚 = 木箱を横に並べた足場。位置で時々反転させ単調さを消す。
     // 生成画像は箱の周囲に黒マージンがあるため、ソース矩形で箱本体だけを切り出す。
-    renderCrates(ctx) {
-        const laneY = this.groundY + LANE_OFFSET;
-        const img = getAsset(3);
+    renderShelves(ctx) {
+        const img = getAsset(2);
         const srcInsetX = img ? img.naturalWidth * 0.035 : 0;
         const srcInsetTop = img ? img.naturalHeight * 0.055 : 0;
         const srcW = img ? img.naturalWidth - srcInsetX * 2 : 0;
         const srcH = img ? img.naturalHeight - srcInsetTop - img.naturalHeight * 0.02 : 0;
-        for (const c of this.crates) {
-            for (let s = 0; s < c.stack; s++) {
-                const top = laneY - CRATE_SIZE * (s + 1);
+        for (const s of this.shelves) {
+            for (let c = 0; c < s.crates; c++) {
+                const bx = s.x + c * CRATE_SIZE;
                 if (img) {
                     ctx.imageSmoothingEnabled = true;
-                    if ((s + Math.round(c.x / CRATE_SIZE)) % 2 === 1) {
+                    if ((c + Math.round(s.y / CRATE_SIZE)) % 2 === 1) {
                         ctx.save();
-                        ctx.translate(c.x + CRATE_SIZE, top);
+                        ctx.translate(bx + CRATE_SIZE, s.y);
                         ctx.scale(-1, 1);
                         ctx.drawImage(img, srcInsetX, srcInsetTop, srcW, srcH, 0, 0, CRATE_SIZE, CRATE_SIZE);
                         ctx.restore();
                     } else {
-                        ctx.drawImage(img, srcInsetX, srcInsetTop, srcW, srcH, c.x, top, CRATE_SIZE, CRATE_SIZE);
+                        ctx.drawImage(img, srcInsetX, srcInsetTop, srcW, srcH, bx, s.y, CRATE_SIZE, CRATE_SIZE);
                     }
                 } else {
-                    // フォールバック: 板箱
                     ctx.fillStyle = '#4a3820';
-                    ctx.fillRect(c.x, top, CRATE_SIZE, CRATE_SIZE);
+                    ctx.fillRect(bx, s.y, CRATE_SIZE, CRATE_SIZE);
                     ctx.strokeStyle = 'rgba(20, 14, 6, 0.85)';
                     ctx.lineWidth = 3;
-                    ctx.strokeRect(c.x + 2, top + 2, CRATE_SIZE - 4, CRATE_SIZE - 4);
-                    ctx.strokeStyle = 'rgba(214, 186, 120, 0.18)';
-                    ctx.lineWidth = 1.5;
-                    ctx.strokeRect(c.x + 10, top + 10, CRATE_SIZE - 20, CRATE_SIZE - 20);
+                    ctx.strokeRect(bx + 2, s.y + 2, CRATE_SIZE - 4, CRATE_SIZE - 4);
                 }
             }
-            // 接地と段の重なりを締める影
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
-            ctx.fillRect(c.x - 4, laneY - 3, CRATE_SIZE + 8, 5);
+            // 上面の月明かりの照りと、棚下の影で立体感を出す
+            ctx.fillStyle = 'rgba(214, 226, 255, 0.06)';
+            ctx.fillRect(s.x, s.y, s.width, 3);
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(s.x - 3, s.y + CRATE_SIZE, s.width + 6, 6);
         }
     }
 
-    // 千両箱（コード描画: 木の胴 + 金の帯。取ると消える）
+    // 千両箱（生成画像。取ると消える）
     renderChest(ctx) {
         const c = this.chest;
         if (!c || c.taken) return;
-        const bob = Math.sin(c.phase) * 2;
-        const w = 64;
-        const h = 44;
+        const img = getAsset(3);
+        const bob = Math.sin(c.phase) * 2.5;
+        const w = 108;
+        const h = 108;
         const x = c.x - w * 0.5;
         const y = c.y - h * 0.5 + bob;
-        ctx.save();
-        // 胴
-        ctx.fillStyle = '#5c4222';
-        ctx.fillRect(x, y + 8, w, h - 8);
-        // 蓋（上面のアーチ）
-        ctx.fillStyle = '#6b4e29';
-        ctx.beginPath();
-        ctx.moveTo(x, y + 10);
-        ctx.quadraticCurveTo(c.x, y - 6 + bob * 0.2, x + w, y + 10);
-        ctx.lineTo(x + w, y + 16);
-        ctx.lineTo(x, y + 16);
-        ctx.closePath();
-        ctx.fill();
-        // 金の帯と鋲
-        ctx.fillStyle = '#d9b24a';
-        ctx.fillRect(x + 10, y + 2, 7, h - 2);
-        ctx.fillRect(x + w - 17, y + 2, 7, h - 2);
-        ctx.fillStyle = '#e8c86a';
-        ctx.beginPath();
-        ctx.arc(c.x, y + h * 0.55, 6, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(30, 20, 8, 0.8)';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x, y + 8, w, h - 8);
-        // 輝き
+        // 足元の金の輝き
         const tw = (Math.sin(c.phase * 1.7) + 1) * 0.5;
-        ctx.fillStyle = `rgba(255, 244, 200, ${(0.3 + tw * 0.45).toFixed(3)})`;
-        ctx.beginPath();
-        ctx.arc(x + 14, y + 4, 2 + tw * 1.5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
+        const glow = ctx.createRadialGradient(c.x, c.y + 30, 6, c.x, c.y + 30, 120);
+        glow.addColorStop(0, `rgba(255, 214, 120, ${(0.22 + tw * 0.12).toFixed(3)})`);
+        glow.addColorStop(1, 'rgba(255, 214, 120, 0)');
+        ctx.fillStyle = glow;
+        ctx.fillRect(c.x - 130, c.y - 100, 260, 240);
+        if (img) {
+            ctx.imageSmoothingEnabled = true;
+            // 生成画像の黒マージンを軽く切り詰める
+            const inX = img.naturalWidth * 0.02;
+            const inY = img.naturalHeight * 0.02;
+            ctx.drawImage(img, inX, inY, img.naturalWidth - inX * 2, img.naturalHeight - inY * 2, x, y, w, h);
+        } else {
+            ctx.fillStyle = '#5c4222';
+            ctx.fillRect(x + 10, y + 30, w - 20, h - 40);
+            ctx.fillStyle = '#d9b24a';
+            ctx.fillRect(x + 22, y + 24, 10, h - 34);
+            ctx.fillRect(x + w - 32, y + 24, 10, h - 34);
+        }
     }
 
     // 小判（自前描画: 楕円の小判 + 揺れる輝き）
@@ -401,13 +456,11 @@ export class BonusStage {
             ctx.beginPath();
             ctx.ellipse(0, 0, 6.5, 10, 0, 0, Math.PI * 2);
             ctx.stroke();
-            // 中央の刻み
             ctx.strokeStyle = 'rgba(120, 88, 24, 0.6)';
             ctx.beginPath();
             ctx.moveTo(0, -5);
             ctx.lineTo(0, 5);
             ctx.stroke();
-            // 輝き
             const tw = (Math.sin(k.phase * 1.7) + 1) * 0.5;
             ctx.fillStyle = `rgba(255, 244, 200, ${(0.35 + tw * 0.45).toFixed(3)})`;
             ctx.beginPath();

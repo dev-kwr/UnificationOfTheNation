@@ -1092,8 +1092,45 @@ export class UI {
             ctx.restore();
         }
 
+        // 寄り道(小判蔵/道場)の刻限と現在のスコア（画面上端中央）
+        if (stage && typeof stage.getHudTimerSec === 'function') {
+            this.renderSideStageTimer(ctx, stage);
+        }
+
         // 仮想パッド（getPadLayout で自己スケールするためラップ外に置く）
         this.renderVirtualPad(ctx, player);
+    }
+
+    // 寄り道の刻限バナー。残り10秒を切ると朱に転じて明滅する。
+    // スコアは種別で言い換える（蔵=両 / 道場=討伐）。
+    renderSideStageTimer(ctx, stage) {
+        const sec = Math.max(0, stage.getHudTimerSec());
+        const score = (typeof stage.getScore === 'function') ? Math.floor(stage.getScore()) : 0;
+        const isBonus = stage.sideKind === 'bonus';
+        const fs = getFontScale();
+        const uiS = getUiScale();
+        const cx = SCREEN_WIDTH / 2;
+        const top = getScreenSafeArea().top + 10 * uiS;
+        const w = 168 * uiS;
+        const h = 54 * uiS;
+        const urgent = sec <= 10;
+        const blink = urgent ? (0.72 + Math.sin(Date.now() * 0.012) * 0.28) : 1;
+
+        ctx.save();
+        drawWafuCard(ctx, cx - w / 2, top, w, h, { radius: 10 * uiS, bgAlpha: 0.9, accent: false });
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'alphabetic';
+        // 残り時間（大きく）
+        ctx.font = `900 ${Math.round(27 * fs)}px "Helvetica Neue", Arial, sans-serif`;
+        ctx.fillStyle = urgent
+            ? `rgba(255, 138, 110, ${blink.toFixed(3)})`
+            : 'rgba(238, 246, 255, 0.96)';
+        ctx.fillText(sec.toFixed(1), cx, top + 30 * uiS);
+        // スコア（小さく）
+        ctx.font = `700 ${Math.round(12 * fs)}px "Zen Old Mincho", serif`;
+        ctx.fillStyle = isBonus ? 'rgba(232, 200, 106, 0.95)' : 'rgba(198, 220, 255, 0.92)';
+        ctx.fillText(isBonus ? `${score} 両` : `${score} 人`, cx, top + 46 * uiS);
+        ctx.restore();
     }
     
     // 小判アイコンの描画
@@ -2747,6 +2784,113 @@ const _levelUpCardAnim = { amt: [], last: 0 };
  * - Canvas には letter-spacing が無いため、字間は文字ごと描画(fillLS)で再現。
  * - SCREEN_WIDTH / CANVAS_HEIGHT は constants.js からの import を利用。
  */
+/**
+ * 寄り道(小判蔵/道場)の結果発表。刻限切れの直後に出る和風カード。
+ * result = { kind:'bonus'|'training', score, prevBest, best, isNewRecord, timer }
+ * timer(秒)で段階的に出す: カード → スコア → 最高記録/更新の朱印。
+ * 決定はどこをタップしても可（game.updateSideResult が処理する）。
+ */
+export function renderSideResultScreen(ctx, result) {
+    if (!result) return;
+    const t = result.timer || 0;
+    const isBonus = result.kind === 'bonus';
+    const uiS = getUiScale();
+    const fs = Math.min(getFontScale(), uiS * 1.15);
+    const cx = SCREEN_WIDTH / 2;
+    const cy = CANVAS_HEIGHT / 2;
+
+    // 背後のプレイ画面を沈める暗幕
+    ctx.save();
+    ctx.fillStyle = 'rgba(2, 6, 20, 0.72)';
+    ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
+
+    const easeOut = (x) => 1 - Math.pow(1 - Math.max(0, Math.min(1, x)), 3);
+    const cardT = easeOut(t / 0.34);
+    const w = 420 * uiS;
+    const h = 268 * uiS;
+    const x = cx - w / 2;
+    const y = cy - h / 2 + (1 - cardT) * 18 * uiS;
+
+    ctx.globalAlpha = cardT;
+    drawWafuCard(ctx, x, y, w, h, { radius: 14 * uiS, bgAlpha: 0.97 });
+    ctx.globalAlpha = 1;
+    if (cardT < 0.35) { ctx.restore(); return; }
+
+    // 見出し
+    drawWafuHeading(ctx, cx, y + 46 * uiS, isBonus ? '刻 限' : '刻 限', {
+        size: Math.round(30 * fs),
+        ls: 0.16,
+        ruleLen: 52 * uiS,
+        ruleGap: 16 * uiS
+    });
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = `500 ${Math.round(13 * fs)}px "Zen Old Mincho", serif`;
+    ctx.fillStyle = 'rgba(206, 226, 255, 0.82)';
+    ctx.fillText(isBonus ? '蔵で得た小判' : '道場での討伐', cx, y + 72 * uiS);
+
+    // 今回のスコア（数字だけ大きく）
+    const scoreT = easeOut((t - 0.28) / 0.4);
+    if (scoreT > 0) {
+        const shown = Math.round(result.score * scoreT);
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, scoreT * 1.4);
+        ctx.font = `900 ${Math.round(56 * fs)}px "Helvetica Neue", Arial, sans-serif`;
+        ctx.fillStyle = isBonus ? '#f0cf74' : '#dfeaff';
+        ctx.shadowColor = isBonus ? 'rgba(232, 200, 106, 0.45)' : 'rgba(120, 170, 255, 0.4)';
+        ctx.shadowBlur = 22 * uiS;
+        const numText = String(shown);
+        const numW = ctx.measureText(numText).width;
+        const unit = isBonus ? '両' : '人';
+        ctx.font = `700 ${Math.round(20 * fs)}px "Zen Old Mincho", serif`;
+        const unitW = ctx.measureText(unit).width + 8 * uiS;
+        const baseY = y + 136 * uiS;
+        ctx.font = `900 ${Math.round(56 * fs)}px "Helvetica Neue", Arial, sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.fillText(numText, cx - (numW + unitW) / 2, baseY);
+        ctx.shadowBlur = 0;
+        ctx.font = `700 ${Math.round(20 * fs)}px "Zen Old Mincho", serif`;
+        ctx.fillStyle = 'rgba(226, 236, 255, 0.9)';
+        ctx.fillText(unit, cx - (numW + unitW) / 2 + numW + 8 * uiS, baseY);
+        ctx.restore();
+    }
+
+    // 区切り
+    drawWafuDivider(ctx, cx, y + 158 * uiS, 190 * uiS);
+
+    // 最高記録と更新の報せ
+    const bestT = easeOut((t - 0.62) / 0.36);
+    if (bestT > 0) {
+        ctx.save();
+        ctx.globalAlpha = bestT;
+        ctx.textAlign = 'center';
+        if (result.isNewRecord) {
+            const pulse = 0.72 + Math.sin(Date.now() * 0.006) * 0.28;
+            ctx.font = `900 ${Math.round(22 * fs)}px "Zen Old Mincho", serif`;
+            ctx.fillStyle = `rgba(255, 206, 120, ${pulse.toFixed(3)})`;
+            ctx.shadowColor = 'rgba(255, 190, 90, 0.5)';
+            ctx.shadowBlur = 18 * uiS;
+            ctx.fillText('最 高 記 録 更 新', cx, y + 190 * uiS);
+            ctx.shadowBlur = 0;
+            ctx.font = `500 ${Math.round(13 * fs)}px "Zen Old Mincho", serif`;
+            ctx.fillStyle = 'rgba(206, 226, 255, 0.7)';
+            ctx.fillText(`これまで ${result.prevBest}${isBonus ? '両' : '人'}`, cx, y + 212 * uiS);
+        } else {
+            ctx.font = `700 ${Math.round(16 * fs)}px "Zen Old Mincho", serif`;
+            ctx.fillStyle = 'rgba(206, 226, 255, 0.9)';
+            ctx.fillText(`最高記録 ${result.best}${isBonus ? '両' : '人'}`, cx, y + 196 * uiS);
+        }
+        ctx.restore();
+    }
+
+    // 続行の案内（読ませる間を置いてから）
+    if (t > 0.9) {
+        const manual = isTouchOverlayMode() ? '画面に触れて戻る' : 'SPACE：戻る';
+        drawScreenManualLine(ctx, manual, y + h + 30 * uiS);
+    }
+    ctx.restore();
+}
+
 // 昇段画面のレイアウト単一導出。描画(renderLevelUpChoiceScreen)とタップ判定
 // (game.updateLevelUpChoice)が同じ矩形を読む（座標式の複製はヒットずれの元）。
 // パネルは常に画面上下中央（スマホでも持ち上げない。操作ボタンと重なってよい

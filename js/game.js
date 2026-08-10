@@ -52,7 +52,7 @@ import { Player } from './player.js?v=screen-safe-20260810j';
 import { createSubWeapon } from './weapon.js?v=screen-safe-20260810j';
 import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260810j';
 import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260810j';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260810j';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260810j';
 import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260810j';
 import { saveManager } from './save.js?v=screen-safe-20260810j';
 import { shop } from './shop.js?v=screen-safe-20260810j';
@@ -580,6 +580,10 @@ class Game {
     getCameraVisTop() {
         const z = SCREEN_WIDTH / CANVAS_WIDTH;
         const crop = CANVAS_HEIGHT - CANVAS_HEIGHT / z;
+        // 縦アスレチックの寄り道は crop を超えて上へ抜ける（塔を登る）ので下限を外す
+        if (this.stage && this.stage.useFeetCameraLift) {
+            return Math.min(crop, crop - (this.cameraLift || 0));
+        }
         return Math.max(0, Math.min(crop, crop - (this.cameraLift || 0)));
     }
 
@@ -701,18 +705,33 @@ class Game {
     updateCameraLift(dt) {
         const z = SCREEN_WIDTH / CANVAS_WIDTH;
         const crop = CANVAS_HEIGHT - CANVAS_HEIGHT / z; // リフト可動域。z=1 端末は 0
-        if (crop <= 0.5) {
+        // 縦アスレチックの寄り道は crop に依らず必ず追従する(z=1のPCでも塔を登る)。
+        const useFeet = !!(this.stage && this.stage.useFeetCameraLift);
+        if (crop <= 0.5 && !useFeet) {
             this.cameraLift = 0;
             this.cameraLiftTarget = 0;
             return;
         }
         const HEADROOM = 90;  // 高所接地時に頭上へ確保する余白(world px)
         const DEADBAND = 24;  // 微小な段差でターゲットを揺らさない不感帯
+        // 縦アスレチックの寄り道(小判蔵)は「実際に立っている足の高さ」に追従する。
+        // 本編は groundY(ステージの地面線)基準で、足場に乗ってもリフトしない。
         if (this.player && this.player.isGrounded) {
-            // stage5 は updatePlaying で getStairGroundY 同期済みの groundY をそのまま使う
-            const feetY = this.player.groundY + LANE_OFFSET;
+            const feetY = useFeet
+                ? (this.player.y + this.player.getWorldHeight())
+                : (this.player.groundY + LANE_OFFSET);
             const topY = feetY - this.player.getWorldHeight();
-            const raw = Math.max(0, Math.min(crop, crop + HEADROOM - topY));
+            let raw = Math.max(0, crop + HEADROOM - topY);
+            if (useFeet) {
+                // 塔の上限: stage が示す最高到達点より上を映さない
+                const minVisTop = (typeof this.stage.getCameraMinVisTop === 'function')
+                    ? this.stage.getCameraMinVisTop()
+                    : -Infinity;
+                const maxLift = Math.max(0, crop - minVisTop);
+                raw = Math.min(raw, maxLift);
+            } else {
+                raw = Math.min(crop, raw);
+            }
             if (Math.abs(raw - this.cameraLiftTarget) > DEADBAND) this.cameraLiftTarget = raw;
         }
         // 非対称平滑: 上昇(リフト増)ゆっくり k=3/s・復帰すばやく k=6/s（フレームレート非依存）。
@@ -1620,6 +1639,9 @@ class Game {
                 break;
             case GAME_STATE.STAGE_SELECT:
                 this.updateStageSelect();
+                break;
+            case GAME_STATE.SIDE_RESULT:
+                this.updateSideResult();
                 break;
             case GAME_STATE.GAME_CLEAR:
                 this.updateGameClear();
@@ -3032,13 +3054,9 @@ class Game {
         // ダメージ数値更新
         this.updateDamageNumbers();
         
-        // 寄り道ステージの終了（本編クリアの経路には乗せない）
-        if (this.stage && typeof this.stage.isBonusFinished === 'function' && this.stage.isBonusFinished()) {
-            this.finishBonusStage();
-            return;
-        }
-        if (this.stage && typeof this.stage.isTrainingFinished === 'function' && this.stage.isTrainingFinished()) {
-            this.finishTrainingStage();
+        // 寄り道ステージの刻限切れ → 結果発表（本編クリアの経路には乗せない）
+        if (this.stage && typeof this.stage.isTimeUp === 'function' && this.stage.isTimeUp()) {
+            this.beginSideResult();
             return;
         }
 
@@ -5989,31 +6007,68 @@ class Game {
     }
 
     startBonusStage() {
-        this.startSideStage(new BonusStage(), 100);
-        audio.playBgm('shop');
+        // 塔の登り口(左寄り)から。60秒の刻限は stage 側が持つ。
+        this.startSideStage(new BonusStage(), 120);
+        audio.playBgm('stage', 2, 0);   // 蔵の疾走: 宿場の曲を流用
     }
 
     startTrainingStage() {
         const stage = new TrainingStage();
-        // 開始位置は道場の中央。左端の戸に触れると切り上げる(=開始直後の誤爆を防ぐ)
         this.startSideStage(stage, Math.round(stage.maxProgress * 0.5));
         audio.playBgm('stage', 3, 0);   // 山中の道場: 山道の曲を流用
     }
 
-    // 蔵の出口に到達。拾った小判を保存してセレクトへ戻る。
-    // 蔵は空になり、本編ステージをどこか踏破するまで補充されない。
-    finishBonusStage() {
-        this.bonusAvailable = false;
+    // 寄り道の刻限切れ → 結果発表。スコア(蔵=獲得両 / 道場=討伐数)と
+    // 最高記録の更新判定をここで確定させ、SIDE_RESULT へ移る。
+    // 最高記録は saveGlobal(sideBest) に持つ（プレイヤーのセーブとは独立）。
+    beginSideResult() {
+        const stage = this.stage;
+        const kind = (stage && stage.sideKind) || 'bonus';
+        const score = (stage && typeof stage.getScore === 'function') ? Math.max(0, Math.floor(stage.getScore())) : 0;
+
+        const globalData = saveManager.loadGlobal() || {};
+        const bests = { ...(globalData.sideBest || {}) };
+        const prevBest = Math.max(0, Math.floor(bests[kind] || 0));
+        const isNewRecord = score > prevBest;
+        if (isNewRecord) {
+            bests[kind] = score;
+            saveManager.saveGlobal({ sideBest: bests });
+        }
+
+        this.sideResult = {
+            kind,
+            score,
+            prevBest,
+            best: Math.max(prevBest, score),
+            isNewRecord,
+            timer: 0
+        };
+        // 蔵は一度入ると空になる（本編ステージ踏破で補充）
+        if (kind === 'bonus') this.bonusAvailable = false;
+        // 拾った小判・稼いだ経験値を残す
         saveManager.save(this.player, Math.min(STAGES.length, (this.maxClearedStage || 0) + 1), this.unlockedWeapons || []);
-        this.transitionTimer = 1.0;   // 軽い暗転で場面を切る
-        this.enterStageSelect();
+
+        this.state = GAME_STATE.SIDE_RESULT;
+        audio.playBgm('shop');
     }
 
-    // 道場の戸から離脱。稼いだ経験値を保存してセレクトへ戻る。
-    finishTrainingStage() {
-        saveManager.save(this.player, Math.min(STAGES.length, (this.maxClearedStage || 0) + 1), this.unlockedWeapons || []);
-        this.transitionTimer = 1.0;
-        this.enterStageSelect();
+    updateSideResult() {
+        if (!this.sideResult) { this.enterStageSelect(); return; }
+        this.sideResult.timer += this.deltaTime;
+        // 演出が出揃うまでは入力を受けない（結果を読ませる間）
+        if (this.sideResult.timer < 0.9) {
+            input.consumeAction('CONFIRM');
+            input.touchJustPressed = false;
+            return;
+        }
+        if (input.isActionJustPressed('CONFIRM') || input.touchJustPressed) {
+            input.consumeAction('CONFIRM');
+            input.touchJustPressed = false;
+            audio.playSelect();
+            this.sideResult = null;
+            this.transitionTimer = 1.0;   // 軽い暗転で場面を切る
+            this.enterStageSelect();
+        }
     }
 
     // セレクトで行き先を決めた後のステータス画面（STAGE_CLEAR Phase1 を流用）。
@@ -6337,6 +6392,12 @@ class Game {
                 this.renderStageClearView();
                 break;
 
+            case GAME_STATE.SIDE_RESULT:
+                // 背後は刻限切れ時のプレイ画面をそのまま残す（場の余韻）
+                this.renderPlaying();
+                renderSideResultScreen(this.ctx, this.sideResult);
+                break;
+
             case GAME_STATE.STAGE_SELECT:
                 renderStageSelect(this.ctx, {
                     cursor: this.stageSelectCursor,
@@ -6345,6 +6406,7 @@ class Game {
                     bonusUnlocked: this.isBonusUnlocked(),
                     bonusDepleted: this.isBonusUnlocked() && this.bonusAvailable === false,
                     trainingUnlocked: this.isTrainingUnlocked(),
+                    sideBest: (saveManager.loadGlobal() || {}).sideBest || {},
                     timeMs: Date.now()
                 });
                 break;

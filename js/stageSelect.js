@@ -242,9 +242,15 @@ export function renderStageSelect(ctx, opts = {}) {
         ctx.textAlign = 'center';
         ctx.fillStyle = '#ffffff';
         ctx.font = `700 ${Math.round(c.titleFont)}px "Zen Old Mincho", serif`;
+        const best = opts.sideBest || {};
+        // 寄り道は刻限60秒のスコアアタック。最高記録があれば併記して挑戦を促す。
+        const bonusBest = Math.max(0, Math.floor(best.bonus || 0));
+        const trainingBest = Math.max(0, Math.floor(best.training || 0));
         const title = sel.kind === 'bonus'
-            ? (opts.bonusDepleted ? '小判蔵　空（踏破で補充）' : `寄り道　${sel.name}`)
-            : sel.kind === 'training' ? `寄り道　${sel.name}`
+            ? (opts.bonusDepleted ? '小判蔵　空（踏破で補充）'
+                : bonusBest > 0 ? `小判蔵　最高 ${bonusBest}両` : '小判蔵　刻限六十秒')
+            : sel.kind === 'training'
+            ? (trainingBest > 0 ? `修行道場　最高 ${trainingBest}人` : '修行道場　刻限六十秒')
             : `第${sel.id}階層　${sel.name}`;
         fillTextInkCentered(ctx, title, c.x + c.w / 2, c.y + c.h / 2);
         ctx.restore();

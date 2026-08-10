@@ -106,6 +106,7 @@ export const GAME_STATE = {
     LEVEL_UP: 'levelUp',
     STAGE_CLEAR: 'stageClear',
     STAGE_SELECT: 'stageSelect',   // 全体マップからの行き先選択（クリア演出→ここ→ステータス画面）
+    SIDE_RESULT: 'sideResult',     // 寄り道(小判蔵/道場)の刻限切れ→結果発表
     GAME_CLEAR: 'gameClear',
     ENDING: 'ending',
     GAME_OVER: 'gameOver',
