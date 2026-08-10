@@ -10,9 +10,9 @@
 // 背景: images/bonus_kura_bg.png（Codex/gpt-image 生成。無ければ土蔵風の
 // フォールバック描画）。床はコード描画（タイル画像はループの継ぎ目が出るため）。
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260810g';
-import { audio } from './audio.js?v=screen-safe-20260810g';
-import { getImage } from './imageCache.js?v=screen-safe-20260810g';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260810h';
+import { audio } from './audio.js?v=screen-safe-20260810h';
+import { getImage } from './imageCache.js?v=screen-safe-20260810h';
 
 // 小判1枚の価値（両）。よろず屋の相場に合わせてここだけで調整する。
 const KOBAN_VALUE = 20;

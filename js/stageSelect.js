@@ -9,8 +9,8 @@
 // ノード座標は「画像内の比率(u,v)」で持ち、cover 変換で画面座標へ写す。
 // 画像を差し替えても u,v を微調整するだけで済む（map_generation_prompt.md 参照）。
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, STAGES, getUiScale, getFontScale, getScreenSafeArea, isTouchOverlayMode } from './constants.js?v=screen-safe-20260810g';
-import { drawWafuCard, fillTextInkCentered, drawScreenManualLine } from './ui.js?v=screen-safe-20260810g';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, STAGES, getUiScale, getFontScale, getScreenSafeArea, isTouchOverlayMode } from './constants.js?v=screen-safe-20260810h';
+import { drawWafuCard, fillTextInkCentered, drawScreenManualLine } from './ui.js?v=screen-safe-20260810h';
 
 // ノード定義。kind: main=本編 / bonus=小判蔵(第2階層踏破で解放・実装済み) /
 // training=道場(未実装。データだけ先に持つ)。
@@ -23,10 +23,15 @@ export const WORLD_MAP_NODES = [
     { id: 2, kind: 'main', u: 0.305, v: 0.655 },  // 宿場の前の街道
     { id: 3, kind: 'main', u: 0.555, v: 0.595 },  // 山道（滝の右下・道の登りの上）
     { id: 4, kind: 'main', u: 0.700, v: 0.615 },  // 城下町の入口（町並みの手前）
-    { id: 5, kind: 'main', u: 0.865, v: 0.425 },  // 城門（町の奥・石垣）
+    // 5=城内は「城の下層」。門の位置だと語弊がある(実機フィードバック)ので
+    // 門をくぐった内側・下層の曲輪あたりに置く。
+    { id: 5, kind: 'main', u: 0.870, v: 0.390 },  // 城内（門の内側・下層の曲輪）
     // 6 はスマホ(wide)の縦クロップで上へ寄るため、右上のBGMボタンとの重なりに注意
-    { id: 6, kind: 'main', u: 0.868, v: 0.300 },  // 天守閣（月の下）
-    { id: 'bonus1', kind: 'bonus', u: 0.405, v: 0.740 },      // 小判蔵（鳥居の脇道・行き止まり）
+    // (u を左へ寄せて距離を確保している。動かすときは要再計測)
+    { id: 6, kind: 'main', u: 0.860, v: 0.250 },  // 天守閣（本体の胴）
+    // 小判蔵は鳥居の真上(v0.74)だとスマホの縦クロップで下部カードに隠れるため、
+    // 脇道の入口(本道からの分岐点)に置く。
+    { id: 'bonus1', kind: 'bonus', u: 0.415, v: 0.655 },
     { id: 'training1', kind: 'training', u: 0.605, v: 0.415 } // 道場（滝の上の建物）
 ];
 // 経路線は描かない（絵に描かれた街道に任せる。UIの線を重ねると却ってややこしい、

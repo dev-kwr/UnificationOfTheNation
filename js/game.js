@@ -2,14 +2,14 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible } from './constants.js?v=screen-safe-20260810g';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260810g';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260810g';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260810g';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260810g';
-import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260810g';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260810g';
-import { input } from './input.js?v=screen-safe-20260810g';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible } from './constants.js?v=screen-safe-20260810h';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260810h';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260810h';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260810h';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260810h';
+import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260810h';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260810h';
+import { input } from './input.js?v=screen-safe-20260810h';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -47,18 +47,18 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=screen-safe-20260810g';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260810g';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260810g';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260810g';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260810g';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260810g';
-import { saveManager } from './save.js?v=screen-safe-20260810g';
-import { shop } from './shop.js?v=screen-safe-20260810g';
-import { audio } from './audio.js?v=screen-safe-20260810g';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260810g';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260810g';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260810g';
+import { Player } from './player.js?v=screen-safe-20260810h';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260810h';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260810h';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260810h';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260810h';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260810h';
+import { saveManager } from './save.js?v=screen-safe-20260810h';
+import { shop } from './shop.js?v=screen-safe-20260810h';
+import { audio } from './audio.js?v=screen-safe-20260810h';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260810h';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260810h';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260810h';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -334,10 +334,11 @@ class Game {
 
         this.debugStartStage = this.getDebugStartStageFromUrl();
         this.debugStartPoint = this.getDebugStartPointFromUrl();
-        
+        this.debugStartAtMap = this.getDebugStartAtMapFromUrl();
+
         // タイトルBGM再生
         audio.playBgm('title');
-        
+
         // Chrome対策: 初回のユーザー操作でオーディオコンテキストを再開
         const resumeAudio = () => {
             audio.resume();
@@ -348,6 +349,16 @@ class Game {
         window.addEventListener('click', resumeAudio);
         window.addEventListener('keydown', resumeAudio);
         window.addEventListener('touchstart', resumeAudio);
+
+        // デバッグ用: ?map=1 / ?map=all でタイトルとイントロを飛ばし、
+        // セレクト画面から起動する（getDebugStartAtMapFromUrl 参照）。
+        if (this.debugStartAtMap) {
+            this.startNewGame();   // ?stage=N も効く（その手前まで踏破済み扱いになる）
+            if (this.debugStartAtMap === 'all') {
+                this.maxClearedStage = STAGES.length;
+            }
+            this.enterStageSelect();
+        }
     }
 
     // 表示領域から fitScale を出す単一導出。configureCanvasResolution が実際に使う式と、
@@ -750,6 +761,24 @@ class Game {
     }
 
     /**
+     * デバッグ用: マップ(ステージセレクト)画面から起動するURL指定。
+     *   ?map=1           … 新規開始と同じ進行でセレクト画面から(第1階層のみ選択可)
+     *   ?map=1&stage=4   … 第3階層まで踏破済み扱いでセレクトから(4まで選択可)
+     *   ?map=all         … 全階層踏破済み扱い(全選択可・済印・ボーナスも解放)
+     * タイトルとイントロを飛ばす。startNewGame を通るため ?stage= 等の既存指定も効く。
+     */
+    getDebugStartAtMapFromUrl() {
+        try {
+            const raw = (new URLSearchParams(window.location.search).get('map') || '').toLowerCase();
+            if (raw === 'all') return 'all';
+            if (raw === '1' || raw === 'true') return 'unlocked';
+            return null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
      * デバッグ開始地点のURL指定。
      *   ?stage=6&at=corner3  … 三層目ラスト(鎖鎌の手前)から
      *   ?stage=6&at=boss     … ボス部屋(=最上層へ遷移した直後)から
@@ -1119,7 +1148,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260810g').then(module => {
+        import('./weapon.js?v=screen-safe-20260810h').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
