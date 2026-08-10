@@ -9,8 +9,8 @@
 // ノード座標は「画像内の比率(u,v)」で持ち、cover 変換で画面座標へ写す。
 // 画像を差し替えても u,v を微調整するだけで済む（map_generation_prompt.md 参照）。
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, STAGES, getUiScale, getFontScale, getScreenSafeArea, isTouchOverlayMode } from './constants.js?v=screen-safe-20260810h';
-import { drawWafuCard, fillTextInkCentered, drawScreenManualLine } from './ui.js?v=screen-safe-20260810h';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, STAGES, getUiScale, getFontScale, getScreenSafeArea, isTouchOverlayMode } from './constants.js?v=screen-safe-20260810i';
+import { drawWafuCard, fillTextInkCentered, drawScreenManualLine } from './ui.js?v=screen-safe-20260810i';
 
 // ノード定義。kind: main=本編 / bonus=小判蔵(第2階層踏破で解放・実装済み) /
 // training=道場(未実装。データだけ先に持つ)。
@@ -18,10 +18,12 @@ import { drawWafuCard, fillTextInkCentered, drawScreenManualLine } from './ui.js
 // ノードは**ランドマークの真上ではなく、その脇の街道の上**に置く
 // （円がランドマークを隠すと絵が見えない、と実機フィードバック）。
 // 画像を再生成したらここを目視で微調整する。
+// ノードは**そのエリアの入り口付近の街道の上**に置く(ランドマークの真上に置くと
+// 絵が隠れる+場所の意味がずれる、と実機フィードバック)。
 export const WORLD_MAP_NODES = [
     { id: 1, kind: 'main', u: 0.115, v: 0.765 },  // 竹林の入口（道の起点近く）
     { id: 2, kind: 'main', u: 0.305, v: 0.655 },  // 宿場の前の街道
-    { id: 3, kind: 'main', u: 0.555, v: 0.595 },  // 山道（滝の右下・道の登りの上）
+    { id: 3, kind: 'main', u: 0.470, v: 0.605 },  // 山道の登り口（山裾）
     { id: 4, kind: 'main', u: 0.700, v: 0.615 },  // 城下町の入口（町並みの手前）
     // 5=城内は「城の下層」。門の位置だと語弊がある(実機フィードバック)ので
     // 門をくぐった内側・下層の曲輪あたりに置く。
@@ -32,14 +34,15 @@ export const WORLD_MAP_NODES = [
     // 小判蔵は鳥居の真上(v0.74)だとスマホの縦クロップで下部カードに隠れるため、
     // 脇道の入口(本道からの分岐点)に置く。
     { id: 'bonus1', kind: 'bonus', u: 0.415, v: 0.655 },
-    { id: 'training1', kind: 'training', u: 0.605, v: 0.415 } // 道場（滝の上の建物）
+    // 修行道場は「3の上に伸びる道」の入口付近
+    { id: 'training1', kind: 'training', u: 0.550, v: 0.500 }
 ];
 // 経路線は描かない（絵に描かれた街道に任せる。UIの線を重ねると却ってややこしい、
 // と実機フィードバック 2026-08-10）。順路はノードの番号で示す。
 
-// カーソルが辿る順序（地図の道なり順）。ボーナスは宿場と峠の間の寄り道。
+// カーソルが辿る順序（地図の道なり順）。寄り道は本道の該当区間の間に挟む。
 // game.getStageSelectOrder が解放状況でフィルタして使う。
-export const STAGE_SELECT_ORDER = [1, 2, 'bonus1', 3, 4, 5, 6];
+export const STAGE_SELECT_ORDER = [1, 2, 'bonus1', 3, 'training1', 4, 5, 6];
 
 // フォールバック座標系（画像未配置のとき）。生成指示と同じ 1536x1024 を仮想画像として
 // 使うことで、画像を置いた後もノードの相対配置が変わらない。
@@ -71,12 +74,16 @@ export function getStageSelectLayout(opts = {}) {
     // ランドマークを隠さないよう控えめな径（道の上に置く前提）
     const nodeR = 19 * uiS;
     const nodes = WORLD_MAP_NODES
-        .filter(n => n.kind === 'main' || (n.kind === 'bonus' && opts.bonusUnlocked))
+        .filter(n => n.kind === 'main'
+            || (n.kind === 'bonus' && opts.bonusUnlocked)
+            || (n.kind === 'training' && opts.trainingUnlocked))
         .map(n => ({
             ...n,
             ...uv(n.u, n.v),
-            r: n.kind === 'bonus' ? nodeR * 0.88 : nodeR,
-            name: n.kind === 'bonus' ? '小判蔵' : (STAGES[n.id - 1]?.name || '')
+            r: n.kind === 'main' ? nodeR : nodeR * 0.88,
+            name: n.kind === 'bonus' ? '小判蔵'
+                : n.kind === 'training' ? '修行道場'
+                : (STAGES[n.id - 1]?.name || '')
         }));
 
     // 下部中央: 選択中ステージの情報カード（ステージ名のみ・状態はノードの見た目で表現）
@@ -141,7 +148,10 @@ export function renderStageSelect(ctx, opts = {}) {
     const maxSelectable = Number.isFinite(opts.maxSelectable) ? opts.maxSelectable : 1;
     const maxCleared = Number.isFinite(opts.maxCleared) ? opts.maxCleared : 0;
     const time = Number.isFinite(opts.timeMs) ? opts.timeMs : 0;
-    const L = getStageSelectLayout({ bonusUnlocked: !!opts.bonusUnlocked });
+    const L = getStageSelectLayout({
+        bonusUnlocked: !!opts.bonusUnlocked,
+        trainingUnlocked: !!opts.trainingUnlocked
+    });
     const pulse = 0.5 + Math.sin(time * 0.004) * 0.5;
 
     // ---- 背景 ----
@@ -161,14 +171,19 @@ export function renderStageSelect(ctx, opts = {}) {
     // ---- ノード ----（経路線は描かない: 順路は絵の街道とノード番号に任せる）
     for (const n of L.nodes) {
         const isBonus = n.kind === 'bonus';
-        const cleared = !isBonus && n.id <= maxCleared;
-        const selectable = isBonus || n.id <= maxSelectable;   // bonus は表示時点で解放済み
+        const isTraining = n.kind === 'training';
+        const isSide = isBonus || isTraining;
+        const depleted = isBonus && !!opts.bonusDepleted;   // 空の蔵（補充待ち）
+        const cleared = !isSide && n.id <= maxCleared;
+        const selectable = (isSide && !depleted) || (!isSide && n.id <= maxSelectable);
         const isCursor = n.id === cursor;
         ctx.save();
         // 台座円（背後の絵が透けるよう控えめな塗り）
         ctx.beginPath();
         ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-        ctx.fillStyle = isBonus ? 'rgba(88, 66, 18, 0.82)'
+        ctx.fillStyle = depleted ? 'rgba(38, 34, 26, 0.7)'
+            : isBonus ? 'rgba(88, 66, 18, 0.82)'
+            : isTraining ? 'rgba(46, 30, 66, 0.82)'
             : cleared ? 'rgba(96, 46, 40, 0.82)'
             : selectable ? 'rgba(22, 34, 66, 0.78)'
             : 'rgba(20, 24, 36, 0.58)';
@@ -176,7 +191,9 @@ export function renderStageSelect(ctx, opts = {}) {
         ctx.lineWidth = isCursor ? 3 : 1.5;
         ctx.strokeStyle = isCursor
             ? `rgba(255, 232, 160, ${(0.75 + pulse * 0.25).toFixed(3)})`
+            : depleted ? 'rgba(150, 140, 120, 0.45)'
             : isBonus ? 'rgba(231, 196, 90, 0.85)'
+            : isTraining ? 'rgba(196, 160, 240, 0.85)'
             : cleared ? 'rgba(224, 160, 130, 0.8)'
             : selectable ? 'rgba(150, 178, 232, 0.8)'
             : 'rgba(120, 132, 160, 0.4)';
@@ -189,16 +206,15 @@ export function renderStageSelect(ctx, opts = {}) {
             ctx.lineWidth = 1.5;
             ctx.stroke();
         }
-        // 中身: 階層番号（ボーナスは小判の「両」。クリア済みは朱印風に「済」を重ねる）
+        // 中身: 階層番号。寄り道は「両」(小判蔵)/「修」(道場)。
+        // 踏破済みかどうかは円の色で分かるため「済」印は付けない(実機フィードバック)。
         ctx.textAlign = 'center';
-        ctx.fillStyle = isBonus ? '#ffe8a8' : selectable ? '#f2f7ff' : 'rgba(180, 190, 210, 0.55)';
-        ctx.font = `700 ${Math.round(n.r * (isBonus ? 0.8 : 0.95))}px "Zen Old Mincho", serif`;
-        fillTextInkCentered(ctx, isBonus ? '両' : `${n.id}`, n.x, n.y);
-        if (cleared) {
-            ctx.fillStyle = 'rgba(255, 214, 170, 0.95)';
-            ctx.font = `700 ${Math.round(n.r * 0.52)}px "Zen Old Mincho", serif`;
-            fillTextInkCentered(ctx, '済', n.x + n.r * 0.78, n.y - n.r * 0.78);
-        }
+        ctx.fillStyle = depleted ? 'rgba(190, 180, 160, 0.5)'
+            : isBonus ? '#ffe8a8'
+            : isTraining ? '#e6d2ff'
+            : selectable ? '#f2f7ff' : 'rgba(180, 190, 210, 0.55)';
+        ctx.font = `700 ${Math.round(n.r * (isSide ? 0.8 : 0.95))}px "Zen Old Mincho", serif`;
+        fillTextInkCentered(ctx, isBonus ? '両' : isTraining ? '修' : `${n.id}`, n.x, n.y);
         // 未解放の錠
         if (!selectable) {
             ctx.fillStyle = 'rgba(190, 200, 220, 0.66)';
@@ -225,7 +241,10 @@ export function renderStageSelect(ctx, opts = {}) {
         ctx.textAlign = 'center';
         ctx.fillStyle = '#ffffff';
         ctx.font = `700 ${Math.round(c.titleFont)}px "Zen Old Mincho", serif`;
-        const title = sel.kind === 'bonus' ? `寄り道　${sel.name}` : `第${sel.id}階層　${sel.name}`;
+        const title = sel.kind === 'bonus'
+            ? (opts.bonusDepleted ? '小判蔵　空（踏破で補充）' : `寄り道　${sel.name}`)
+            : sel.kind === 'training' ? `寄り道　${sel.name}`
+            : `第${sel.id}階層　${sel.name}`;
         fillTextInkCentered(ctx, title, c.x + c.w / 2, c.y + c.h / 2);
         ctx.restore();
     }

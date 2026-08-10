@@ -2,19 +2,19 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260810h';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260810h';
-import { createEnemy } from './enemy.js?v=screen-safe-20260810h';
-import { createBoss } from './boss.js?v=screen-safe-20260810h';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260810h';
-import { audio } from './audio.js?v=screen-safe-20260810h';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260810h';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260810i';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260810i';
+import { createEnemy } from './enemy.js?v=screen-safe-20260810i';
+import { createBoss } from './boss.js?v=screen-safe-20260810i';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260810i';
+import { audio } from './audio.js?v=screen-safe-20260810i';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260810i';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260810h';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260810h';
+} from './stage6Grapple.js?v=screen-safe-20260810i';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260810i';
 
 // ============================================
 // ステージ背景アセットの単一ソース
@@ -29,12 +29,12 @@ import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPr
 const STAGE_IMAGE_SOURCES = {
     1: {
         fields: {
-            stage1GroundImage: 'images/stage1_ground_bamboo_tile.png?v=20260707_ground2',
-            stage1BambooBackLayerImage: 'images/stage1_bamboo_back_layer.png?v=20260712_opaque1',
-            stage1BambooMidLayerImage: 'images/stage1_bamboo_mid_layer_v2.png?v=20260712_opaque1',
-            stage1BambooFrontLayerImage: 'images/stage1_bamboo_front_layer.png?v=20260712_opaque1',
-            stage1BambooRootScreenImage: 'images/stage1_bamboo_root_screen.png?v=20260707_root1',
-            stage1GroundToKaidoImage: 'images/stage1_ground_to_kaido.png?v=20260710_edge4',
+            stage1GroundImage: 'images/stage1_ground_bamboo_tile.png',
+            stage1BambooBackLayerImage: 'images/stage1_bamboo_back_layer.png',
+            stage1BambooMidLayerImage: 'images/stage1_bamboo_mid_layer_v2.png',
+            stage1BambooFrontLayerImage: 'images/stage1_bamboo_front_layer.png',
+            stage1BambooRootScreenImage: 'images/stage1_bamboo_root_screen.png',
+            stage1GroundToKaidoImage: 'images/stage1_ground_to_kaido.png',
         },
     },
     2: {
@@ -49,13 +49,13 @@ const STAGE_IMAGE_SOURCES = {
                 ruralTeahouse: 'images/stage2_rural_teahouse_clean.png',
                 ruralShed: 'images/stage2_rural_shed_clean.png',
                 ruralShrine: 'images/stage2_rural_shrine.png',
-                cleanLowFence: 'images/stage2_prop_clean_low_fence.png?v=20260706_front1',
-                cleanStrawBundles: 'images/stage2_prop_clean_straw_bundles.png?v=20260706_front1',
-                cleanJars: 'images/stage2_prop_clean_jars.png?v=20260706_front1',
-                cleanStoneWell: 'images/stage2_prop_clean_stone_well.png?v=20260706_front1',
-                cleanWoodSignpost: 'images/stage2_prop_clean_wood_signpost.png?v=20260706_front1',
-                cleanGrassClump: 'images/stage2_prop_clean_grass_clump.png?v=20260706_front1',
-                cleanJizo: 'images/stage2_prop_clean_jizo.png?v=20260706_front1',
+                cleanLowFence: 'images/stage2_prop_clean_low_fence.png',
+                cleanStrawBundles: 'images/stage2_prop_clean_straw_bundles.png',
+                cleanJars: 'images/stage2_prop_clean_jars.png',
+                cleanStoneWell: 'images/stage2_prop_clean_stone_well.png',
+                cleanWoodSignpost: 'images/stage2_prop_clean_wood_signpost.png',
+                cleanGrassClump: 'images/stage2_prop_clean_grass_clump.png',
+                cleanJizo: 'images/stage2_prop_clean_jizo.png',
             },
         },
     },
@@ -66,12 +66,12 @@ const STAGE_IMAGE_SOURCES = {
         },
         groups: {
             stage3PropImages: {
-                dosojin: 'images/stage3_prop_dosojin.png?v=20260706_front1',
-                signpost: 'images/stage3_prop_signpost.png?v=20260706_front1',
-                woodFence: 'images/stage3_prop_weathered_wood_fence.png?v=20260706_front1',
-                stoneLantern: 'images/stage3_prop_stone_lantern.png?v=20260706_front1',
-                jizoLarge: 'images/stage3_prop_jizo_large.png?v=20260706_front1',
-                mountainSign: 'images/stage3_prop_mountain_sign.png?v=20260706_front1',
+                dosojin: 'images/stage3_prop_dosojin.png',
+                signpost: 'images/stage3_prop_signpost.png',
+                woodFence: 'images/stage3_prop_weathered_wood_fence.png',
+                stoneLantern: 'images/stage3_prop_stone_lantern.png',
+                jizoLarge: 'images/stage3_prop_jizo_large.png',
+                mountainSign: 'images/stage3_prop_mountain_sign.png',
             },
         },
     },
@@ -84,8 +84,8 @@ const STAGE_IMAGE_SOURCES = {
                 groundTile: 'images/stage4_ground_stone_tile.png',
                 castleEntrance: 'images/stage4_castle_lower_wide.png',
                 castleApproachDistrict: 'images/stage4_castle_approach_district.png',
-                climbPropCrates: 'images/stage4_climb_prop_crates.png?v=20260706_front1',
-                climbPropHandcart: 'images/stage4_climb_prop_handcart.png?v=20260706_side2',
+                climbPropCrates: 'images/stage4_climb_prop_crates.png',
+                climbPropHandcart: 'images/stage4_climb_prop_handcart.png',
                 climbPropBench: 'images/stage4_climb_prop_bench.png',
                 climbPropSakeBarrels: 'images/stage4_climb_prop_sake_barrels.png',
             },
@@ -93,37 +93,37 @@ const STAGE_IMAGE_SOURCES = {
     },
     5: {
         fields: {
-            stage5InteriorWallImage: 'images/stage5_castle_interior_wall.png?v=20260706_bg1',
+            stage5InteriorWallImage: 'images/stage5_castle_interior_wall.png',
             stage5GroundImage: 'images/stage5_ground_wood_tile.png',
         },
     },
     6: {
         fields: {
-            stage6TenshuBackdropImage: 'images/stage6_tenshu_rooftop_backdrop.png?v=20260728_open1',
-            stage6UpperGalleryImage: 'images/stage6_upper_gallery_backdrop.png?v=20260726_open2',
-            stage6RoofRidgeImage: 'images/stage6_roof_ridge_backdrop.png?v=20260714_zone1',
-            stage6GroundImage: 'images/stage6_ground_lacquer_neutral.png?v=20260714_neutral1',
-            stage6UpperGalleryGroundImage: 'images/stage6_ground_upper_gallery.png?v=20260715_parallel1',
-            stage6GroundThresholdImage: 'images/stage6_ground_threshold_strip.png?v=20260714_zone1',
+            stage6TenshuBackdropImage: 'images/stage6_tenshu_rooftop_backdrop.png',
+            stage6UpperGalleryImage: 'images/stage6_upper_gallery_backdrop.png',
+            stage6RoofRidgeImage: 'images/stage6_roof_ridge_backdrop.png',
+            stage6GroundImage: 'images/stage6_ground_lacquer_neutral.png',
+            stage6UpperGalleryGroundImage: 'images/stage6_ground_upper_gallery.png',
+            stage6GroundThresholdImage: 'images/stage6_ground_threshold_strip.png',
             // 螺旋回廊: 柵越しの眼下パノラマ
-            stage6PanoramaTownNearImage: 'images/stage6_panorama_town_near.png?v=20260722_town3',
-            stage6PanoramaBambooFarImage: 'images/stage6_panorama_bamboo_far.png?v=20260721_loop1',
-            stage6PanoramaKaidoFarImage: 'images/stage6_panorama_kaido_far.png?v=20260721_loop1',
-            stage6PanoramaMountainsFarImage: 'images/stage6_panorama_mountains_far.png?v=20260727_mountains3',
+            stage6PanoramaTownNearImage: 'images/stage6_panorama_town_near.png',
+            stage6PanoramaBambooFarImage: 'images/stage6_panorama_bamboo_far.png',
+            stage6PanoramaKaidoFarImage: 'images/stage6_panorama_kaido_far.png',
+            stage6PanoramaMountainsFarImage: 'images/stage6_panorama_mountains_far.png',
             // 大棟化: 四巡目=天守大屋根の上。金鯱は妻端と別レイヤー。
-            stage6RidgeShachiImage: 'images/stage6_ridge_shachi.png?v=20260802_shachi4c',
-            stage6RidgeEndCapImage: 'images/stage6_ridge_end_cap.png?v=20260802_endcap7c',
+            stage6RidgeShachiImage: 'images/stage6_ridge_shachi.png',
+            stage6RidgeEndCapImage: 'images/stage6_ridge_end_cap.png',
             // 三巡目の床置き換え(鉄板リベット→黒漆の板張り)
-            stage6GalleryWoodGroundImage: 'images/stage6_ground_gallery_wood.png?v=20260722_ridge1',
+            stage6GalleryWoodGroundImage: 'images/stage6_ground_gallery_wood.png',
             // 大棟の床v3: 水平な軒先まで瓦を敷き、画面下端まで不透明に描く。
-            stage6RidgeEavesGroundImage: 'images/stage6_ground_ridge_eaves.png?v=20260802_eaves4c',
+            stage6RidgeEavesGroundImage: 'images/stage6_ground_ridge_eaves.png',
         },
         lists: {
             // 角の全高壁(視界遮断+通用門)。境界ごとに別アセット（順序＝角の順）。
             // 角3は壁を持たない(見上げる屋根だけを描くので、専用アセットは不要)。
             stage6CornerWallImages: [
-                'images/stage6_wall_corner_turret.png?v=20260724_checker2',
-                'images/stage6_wall_gatehouse.png?v=20260724_checker2',
+                'images/stage6_wall_corner_turret.png',
+                'images/stage6_wall_gatehouse.png',
             ],
         },
     },

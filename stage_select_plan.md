@@ -35,16 +35,28 @@ Stage6クリア → 従来どおりゲームクリア演出/エンディング(�
   Phase0→セレクト遷移、`pendingStageSelection`、準備完了で選択ステージ開始、続きから→セレクト
 - ボーナス/修行ノードは**データだけ定義して非表示**(kind で出し分け)
 
-### フェーズ2: ボーナス/修行ステージ
-- **ボーナス(小判蔵): 実装済み(2026-08-10)。** `js/bonusStage.js` — Stage 互換の軽量クラスを
+### フェーズ2: ボーナス/修行ステージ — 実装済み(2026-08-10)
+- **ボーナス(小判蔵)** `js/bonusStage.js` — Stage 互換の軽量クラスを
   `game.stage` に差して PLAYING ループをそのまま使う(敵ゼロ・isCleared()常false)。
-  小判26枚(1枚=KOBAN_VALUE両)を拾い、右端の蔵の扉で終了→セレクトへ戻る。
+  小判(1枚=KOBAN_VALUE両)を拾い、右端の蔵の扉で終了→セレクトへ戻る。
   本編の進行(currentStageNumber/maxClearedStage)には一切触れない。
-  解放: Stage2 クリア後(isGameCleared でも解放)。再入場可。
-  背景: images/bonus_kura_bg.png(Codex imagegen 生成)。開始時は本編と同じ暗幕待ち機構
-  (pendingStageStart.bonus)に乗せてフラッシングを防ぐ。
-- 修行(道場): 未実装。敵が波状に湧く固定アリーナ。任意離脱(ポーズから「切り上げる」)。
-  経験値・熟練稼ぎ。解放: Stage3 クリア後。BonusStage と同じ「Stage互換の軽量クラス」方式で作る。
+  解放: Stage2 クリア後(isGameCleared でも解放)。
+  - **アスレチック**: 木箱スタック(1〜3段)の一方通行足場を `getPlatformColliders()`
+    (game.updatePlaying の extraColliders 汎用フック)で提供。上ルートに高所小判と
+    千両箱(+CHEST_VALUE両)。地上を走り抜けるだけでも最低限は拾える二層構造。
+  - **補充制**: 踏破すると `game.bonusAvailable=false`(セーブ progress.bonusAvailable)。
+    本編ステージをどこかクリアすると true に戻る(handleStageClear)。空の間はセレクトの
+    「両」ノードが灰色・選択不可、カードは「小判蔵　空（踏破で補充）」。
+  - 画像: bg/床/扉/木箱 = images/bonus_kura_{bg,floor,door,crate}.png(Codex imagegen)。
+    床はミラータイル(偶奇反転)で継ぎ目を消す。開始時は本編と同じ暗幕待ち機構
+    (pendingStageStart={side:'bonus'})。読めない環境はコード描画へフォールバック。
+- **修行(道場)** `js/trainingStage.js` — 同じ Stage 互換方式の固定画面アリーナ
+  (maxProgress=CANVAS_WIDTH, scrollX=0)。敵(createEnemy 製)が波状に湧き、
+  全滅→一拍→次ウェーブ。回を重ねると数と質が上がり、5の倍数ウェーブは武将入り。
+  撃破報酬(expGem/小判/ゲージ)は本編と同じ game 側処理(getAllEnemies 経由)。
+  離脱: 左端の戸の前に立ち続ける(EXIT_HOLD_SEC=0.6s、円弧ゲージ表示)→セレクトへ。
+  解放: Stage3 クリア後。背景: images/training_dojo_bg.png(床焼き込み一枚絵、
+  FLOOR_LINE_V で床境界をワールド地平線に合わせる)。BGM は山道(stage3)流用。
 - セレクトから入る際もステータス画面(装備確認)を挟む(実装済みの共通フロー)。
 
 ### フェーズ3: 磨き

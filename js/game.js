@@ -2,14 +2,15 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible } from './constants.js?v=screen-safe-20260810h';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260810h';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260810h';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260810h';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260810h';
-import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260810h';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260810h';
-import { input } from './input.js?v=screen-safe-20260810h';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible } from './constants.js?v=screen-safe-20260810i';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260810i';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260810i';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260810i';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260810i';
+import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260810i';
+import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260810i';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260810i';
+import { input } from './input.js?v=screen-safe-20260810i';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -47,18 +48,18 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=screen-safe-20260810h';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260810h';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260810h';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260810h';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260810h';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260810h';
-import { saveManager } from './save.js?v=screen-safe-20260810h';
-import { shop } from './shop.js?v=screen-safe-20260810h';
-import { audio } from './audio.js?v=screen-safe-20260810h';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260810h';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260810h';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260810h';
+import { Player } from './player.js?v=screen-safe-20260810i';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260810i';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260810i';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260810i';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260810i';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260810i';
+import { saveManager } from './save.js?v=screen-safe-20260810i';
+import { shop } from './shop.js?v=screen-safe-20260810i';
+import { audio } from './audio.js?v=screen-safe-20260810i';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260810i';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260810i';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260810i';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -199,6 +200,9 @@ class Game {
         this.stageSelectCursor = 1;
         this.pendingStageSelection = null;
         this.maxClearedStage = 0;
+        // 小判蔵の補充状態。入ると空になり、本編ステージをどこか踏破すると補充される
+        // （無限に小判を稼げるとゲームバランスが壊れる、と実機フィードバック）。
+        this.bonusAvailable = true;
         this.playerDefeatTimer = 0;
         this.playerHurtFlashAlpha = 0; // 被弾時の赤ビネット（実ダメージ時のみ点灯・renderで減衰）
         this.playerDefeatDuration = 1800;
@@ -1148,7 +1152,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260810h').then(module => {
+        import('./weapon.js?v=screen-safe-20260810i').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -1156,6 +1160,8 @@ class Game {
             this.maxClearedStage = Number.isFinite(saveData.progress.maxClearedStage)
                 ? Math.max(0, Math.floor(saveData.progress.maxClearedStage))
                 : Math.max(0, this.currentStageNumber - 1);
+            // 旧セーブ(フィールド無し)は補充済みとして扱う
+            this.bonusAvailable = saveData.progress.bonusAvailable !== false;
             this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
             saveManager.applyToPlayer(this.player, saveData);
             const savedCharType = saveManager.loadGlobal().characterType || 'ninja';
@@ -1996,6 +2002,7 @@ class Game {
         // 新規開始で進行度をリセット（デバッグの途中開始では、その手前までを解放扱い）
         this.maxClearedStage = Math.max(0, this.currentStageNumber - 1);
         this.pendingStageSelection = null;
+        this.bonusAvailable = true;
         // デバッグ用：開始地点フラグを保持（applyTitleDebugSetupToNewGame より前に確定）
         // URL(?at=corner3 / ?at=boss)はタイトルのデバッグメニューと同じ扱いにする。
         this.debugBossRoomStart = !!(this.titleDebugApplyOnStart && this.titleDebugConfig.bossRoom)
@@ -2672,7 +2679,12 @@ class Game {
         const stage6ArenaColliders = (this.currentStageNumber === 6 && this.stage && typeof this.stage.getStage6ArenaColliders === 'function')
             ? this.stage.getStage6ArenaColliders()
             : [];
-        const extraColliders = stage4RoofColliders.concat(stage6ArenaColliders);
+        // サイドステージ(小判蔵の木箱足場など)用の汎用フック。stage4/6 の専用取得と
+        // 同じ「上から乗れる足場」を currentStageNumber に依存せず提供できる。
+        const sideStageColliders = (this.stage && typeof this.stage.getPlatformColliders === 'function')
+            ? this.stage.getPlatformColliders()
+            : [];
+        const extraColliders = stage4RoofColliders.concat(stage6ArenaColliders, sideStageColliders);
         const playerPhysicsObstacles = extraColliders.length > 0
             ? activeObstacles.concat(extraColliders)
             : activeObstacles;
@@ -3020,9 +3032,13 @@ class Game {
         // ダメージ数値更新
         this.updateDamageNumbers();
         
-        // ボーナス(小判蔵)の出口に到達したらセレクトへ戻る（本編クリアの経路には乗せない）
+        // 寄り道ステージの終了（本編クリアの経路には乗せない）
         if (this.stage && typeof this.stage.isBonusFinished === 'function' && this.stage.isBonusFinished()) {
             this.finishBonusStage();
+            return;
+        }
+        if (this.stage && typeof this.stage.isTrainingFinished === 'function' && this.stage.isTrainingFinished()) {
+            this.finishTrainingStage();
             return;
         }
 
@@ -5479,6 +5495,8 @@ class Game {
 
         // 進行度（セレクト画面の解放判定の正本）。再戦クリアでは下がらない。
         this.maxClearedStage = Math.max(this.maxClearedStage || 0, this.currentStageNumber);
+        // 本編ステージを踏破するたびに小判蔵が補充される
+        this.bonusAvailable = true;
 
         // セーブ（最終ステージクリア時は無効なステージ番号を保存しない）。
         // 保存する「次のステージ」は最前線基準。過去ステージの再戦クリアで
@@ -5794,7 +5812,7 @@ class Game {
     // 未ロードのまま開始すると naturalWidth=0 の画像は描画がスキップされ、
     // 下地だけの絵が数フレーム見えてから差し替わる＝フラッシングになる。
     requestStageStart() {
-        // ボーナス(小判蔵)。本編と同じく、背景が読めるまで暗幕のまま待つ
+        // 寄り道(小判蔵/修行道場)。本編と同じく、背景が読めるまで暗幕のまま待つ
         if (this.pendingBonusStart) {
             this.pendingBonusStart = false;
             preloadImages(BONUS_STAGE_IMAGES);
@@ -5802,7 +5820,17 @@ class Game {
                 this.startBonusStage();
                 return;
             }
-            this.pendingStageStart = { bonus: true, waitMs: 0 };
+            this.pendingStageStart = { side: 'bonus', waitMs: 0 };
+            return;
+        }
+        if (this.pendingTrainingStart) {
+            this.pendingTrainingStart = false;
+            preloadImages(TRAINING_STAGE_IMAGES);
+            if (areImagesSettled(TRAINING_STAGE_IMAGES)) {
+                this.startTrainingStage();
+                return;
+            }
+            this.pendingStageStart = { side: 'training', waitMs: 0 };
             return;
         }
         const stageNumber = this.currentStageNumber;
@@ -5820,10 +5848,12 @@ class Game {
         const pending = this.pendingStageStart;
         if (!pending) return;
         pending.waitMs += this.deltaTime * 1000;
-        if (pending.bonus) {
-            if (areImagesSettled(BONUS_STAGE_IMAGES) || pending.waitMs >= STAGE_ASSET_WAIT_MAX_MS) {
+        if (pending.side) {
+            const images = pending.side === 'training' ? TRAINING_STAGE_IMAGES : BONUS_STAGE_IMAGES;
+            if (areImagesSettled(images) || pending.waitMs >= STAGE_ASSET_WAIT_MAX_MS) {
                 this.pendingStageStart = null;
-                this.startBonusStage();
+                if (pending.side === 'training') this.startTrainingStage();
+                else this.startBonusStage();
             }
             return;
         }
@@ -5846,13 +5876,22 @@ class Game {
         return saveManager.loadGlobal().isGameCleared || (this.maxClearedStage || 0) >= 2;
     }
 
-    // カーソルが辿る順序（地図の道なり順）。解放済みのものだけ。
+    // 修行(道場)の解放。第3階層(山道)を踏破した後の寄り道として開く。
+    isTrainingUnlocked() {
+        return saveManager.loadGlobal().isGameCleared || (this.maxClearedStage || 0) >= 3;
+    }
+
+    // カーソルが辿る順序（地図の道なり順）。解放済みで、いま入れるものだけ。
     getStageSelectOrder() {
         const maxSelectable = this.getMaxSelectableStage();
-        const bonusOk = this.isBonusUnlocked();
-        return STAGE_SELECT_ORDER.filter((id) =>
-            (typeof id === 'number') ? id <= maxSelectable : bonusOk
-        );
+        const bonusOk = this.isBonusUnlocked() && this.bonusAvailable !== false;
+        const trainingOk = this.isTrainingUnlocked();
+        return STAGE_SELECT_ORDER.filter((id) => {
+            if (typeof id === 'number') return id <= maxSelectable;
+            if (id === 'bonus1') return bonusOk;
+            if (id === 'training1') return trainingOk;
+            return false;
+        });
     }
 
     enterStageSelect() {
@@ -5885,8 +5924,10 @@ class Game {
 
         if (input.touchJustPressed) {
             // 描画と同じ導出でノード判定（座標式を複製しない）
-            const node = getStageSelectLayout({ bonusUnlocked: this.isBonusUnlocked() })
-                .nodeAt(input.lastTouchX, input.lastTouchY);
+            const node = getStageSelectLayout({
+                bonusUnlocked: this.isBonusUnlocked(),
+                trainingUnlocked: this.isTrainingUnlocked()
+            }).nodeAt(input.lastTouchX, input.lastTouchY);
             if (node && order.includes(node.id)) {
                 if (node.id === this.stageSelectCursor) {
                     // 選択中ノードの再タップで決定（誤タップで即出撃しないための2段階）
@@ -5900,15 +5941,15 @@ class Game {
         }
     }
 
-    // ボーナスステージ(小判蔵)を開始する。本編の進行状態(currentStageNumber /
-    // maxClearedStage)には一切触れない＝終わったらセレクトへ戻るだけの寄り道。
-    startBonusStage() {
+    // 寄り道ステージ(小判蔵/修行道場)の共通開始処理。本編の進行状態
+    // (currentStageNumber / maxClearedStage)には一切触れない。
+    startSideStage(stage, playerStartX) {
         this.pendingStageStart = null;
         this.groundY = Math.round(CANVAS_HEIGHT * (2 / 3));
         if (this.player) {
             this.player.previewMode = false;
             this.player.groundY = this.groundY;
-            this.player.x = 100;
+            this.player.x = playerStartX;
             this.player.y = this.groundY + LANE_OFFSET - this.player.getWorldHeight();
             this.player.vx = 0;
             this.player.vy = 0;
@@ -5928,7 +5969,7 @@ class Game {
             }
             if (typeof this.player.resetVisualTrails === 'function') this.player.resetVisualTrails();
         }
-        this.stage = new BonusStage();
+        this.stage = stage;
         this.bombs = [];
         this.shockwaves = [];
         this.effects = [];
@@ -5940,14 +5981,34 @@ class Game {
         this.cameraLift = 0;
         this.cameraLiftTarget = 0;
         this.state = GAME_STATE.PLAYING;
-        audio.playBgm('shop');
         this.startTransition();
     }
 
+    startBonusStage() {
+        this.startSideStage(new BonusStage(), 100);
+        audio.playBgm('shop');
+    }
+
+    startTrainingStage() {
+        const stage = new TrainingStage();
+        // 開始位置は道場の中央。左端の戸に触れると切り上げる(=開始直後の誤爆を防ぐ)
+        this.startSideStage(stage, Math.round(stage.maxProgress * 0.5));
+        audio.playBgm('stage', 3, 0);   // 山中の道場: 山道の曲を流用
+    }
+
     // 蔵の出口に到達。拾った小判を保存してセレクトへ戻る。
+    // 蔵は空になり、本編ステージをどこか踏破するまで補充されない。
     finishBonusStage() {
+        this.bonusAvailable = false;
         saveManager.save(this.player, Math.min(STAGES.length, (this.maxClearedStage || 0) + 1), this.unlockedWeapons || []);
         this.transitionTimer = 1.0;   // 軽い暗転で場面を切る
+        this.enterStageSelect();
+    }
+
+    // 道場の戸から離脱。稼いだ経験値を保存してセレクトへ戻る。
+    finishTrainingStage() {
+        saveManager.save(this.player, Math.min(STAGES.length, (this.maxClearedStage || 0) + 1), this.unlockedWeapons || []);
+        this.transitionTimer = 1.0;
         this.enterStageSelect();
     }
 
@@ -6003,10 +6064,16 @@ class Game {
             audio.playGameStart();
             if (this.player) this.player.previewMode = false;
             this.applyStageDefaultWeaponChoice();
-            // ボーナス(小判蔵)へ。本編の進行(currentStageNumber)は変えない
+            // 寄り道(小判蔵/修行道場)へ。本編の進行(currentStageNumber)は変えない
             if (this.pendingStageSelection === 'bonus1') {
                 this.pendingStageSelection = null;
                 this.pendingBonusStart = true;
+                this.startStageTransition();
+                return;
+            }
+            if (this.pendingStageSelection === 'training1') {
+                this.pendingStageSelection = null;
+                this.pendingTrainingStart = true;
                 this.startStageTransition();
                 return;
             }
@@ -6272,6 +6339,8 @@ class Game {
                     maxSelectable: this.getMaxSelectableStage(),
                     maxCleared: this.maxClearedStage,
                     bonusUnlocked: this.isBonusUnlocked(),
+                    bonusDepleted: this.isBonusUnlocked() && this.bonusAvailable === false,
+                    trainingUnlocked: this.isTrainingUnlocked(),
                     timeMs: Date.now()
                 });
                 break;
