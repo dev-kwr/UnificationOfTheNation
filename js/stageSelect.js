@@ -20,10 +20,13 @@ import { drawWafuCard, fillTextInkCentered, drawScreenManualLine } from './ui.js
 // 画像を再生成したらここを目視で微調整する。
 // ノードは**そのエリアの入り口付近の街道の上**に置く(ランドマークの真上に置くと
 // 絵が隠れる+場所の意味がずれる、と実機フィードバック)。
+// ★ v は「道の上」に乗せること。絵から実測した本道の縦位置は
+//    u=0.10→0.775 / u=0.26→0.722 / u=0.45→0.660 / u=0.55→0.624 / u=0.70→0.615。
+//    目分量で置くと家や斜面の上に乗って浮くので、必ず絵を切り出して確かめる。
 export const WORLD_MAP_NODES = [
     { id: 1, kind: 'main', u: 0.100, v: 0.775 },  // 竹林の入口（道の起点）
-    { id: 2, kind: 'main', u: 0.253, v: 0.672 },  // 宿場の西の入口（街道上）
-    { id: 3, kind: 'main', u: 0.452, v: 0.618 },  // 山道の登り口（分岐のすぐ先の街道上）
+    { id: 2, kind: 'main', u: 0.262, v: 0.722 },  // 宿場の西の入口（街道上）
+    { id: 3, kind: 'main', u: 0.550, v: 0.624 },  // 山道（杉林を登り始める坂の上）
     { id: 4, kind: 'main', u: 0.700, v: 0.615 },  // 城下町の入口（町並みの手前）
     // 5=城内の最下層からの開始。門の真上(v0.39)だと丸の下半分が門扉に被って
     // 「門の手前」に見える(実機フィードバック)ので、門をくぐった先の坂の中腹
@@ -33,10 +36,10 @@ export const WORLD_MAP_NODES = [
     // (u を左へ寄せて距離を確保している。動かすときは要再計測)
     { id: 6, kind: 'main', u: 0.860, v: 0.250 },  // 天守閣（本体の胴）
     // 寄り道は実際の建物付近に置く(実機フィードバック 2026-08-10)。
-    // 小判蔵の v はスマホ(wide)の縦クロップで下部カード(上端y≈579)に掛からない
-    // 下限が 0.685(ノード下端576)。鳥居の少し上の脇道に乗る。
-    { id: 'bonus1', kind: 'bonus', u: 0.408, v: 0.685 },   // 蔵へ降りる脇道（鳥居の上）
-    { id: 'training1', kind: 'training', u: 0.598, v: 0.436 }  // 道場の建物の前庭
+    // 蔵は鳥居(u≈0.355-0.385)と建物(u≈0.393-0.44)の【間】へ。情報カードを
+    // 画面上部へ移したので(getStageSelectLayout)、下側へ寄せてもスマホで隠れない。
+    { id: 'bonus1', kind: 'bonus', u: 0.390, v: 0.778 },   // 鳥居と蔵の建物の間（足元寄り）
+    { id: 'training1', kind: 'training', u: 0.598, v: 0.452 }  // 道場の建物の前庭
 ];
 // 経路線は描かない（絵に描かれた街道に任せる。UIの線を重ねると却ってややこしい、
 // と実機フィードバック 2026-08-10）。順路はノードの番号で示す。
@@ -87,14 +90,18 @@ export function getStageSelectLayout(opts = {}) {
                 : (STAGES[n.id - 1]?.name || '')
         }));
 
-    // 下部中央: 選択中ステージの情報カード（ステージ名のみ・状態はノードの見た目で表現）
+    // 選択中ステージの情報カードは【画面上部・見出しの直下】に置く。
+    // 下部中央に置いていた頃は、スマホ(wide)の縦クロップで下側へ寄る小判蔵の
+    // ノードとカードが重なって蔵が隠れた(実機フィードバック 2026-08-11)。
+    // 地図の下半分には道とランドマークが詰まっているので、UI は上の空へ逃がす。
     const safe = getScreenSafeArea();
     const fs = Math.min(getFontScale(), uiS * 1.15);
     const cardW = 300 * uiS;
     const cardH = 46 * uiS;
+    const headerY = safe.top + 40;
     const card = {
         x: SCREEN_WIDTH / 2 - cardW / 2,
-        y: CANVAS_HEIGHT - safe.bottom - 44 - cardH,
+        y: headerY + 30 * uiS,
         w: cardW,
         h: cardH,
         titleFont: 21 * fs
@@ -103,7 +110,7 @@ export function getStageSelectLayout(opts = {}) {
     return {
         hasImage, img, iw, ih, cover: { s, sx, sy }, uv,
         nodes, nodeR, card,
-        headerY: safe.top + 46,
+        headerY,
         headerFont: 26 * fs,
         nodeAt(tx, ty) {
             // 指で押しやすいよう見た目より広めに取る（パッドの touchScale と同じ思想）
@@ -179,25 +186,27 @@ export function renderStageSelect(ctx, opts = {}) {
         const selectable = (isSide && !depleted) || (!isSide && n.id <= maxSelectable);
         const isCursor = n.id === cursor;
         ctx.save();
-        // 台座円（背後の絵が透けるよう控えめな塗り）
+        // 台座円は薄塗り（ランドマークと街道を塗り潰さない。地図が主役、と実機
+        // フィードバック 2026-08-11）。数字の可読性は円の色ではなく、文字側の
+        // 影(fillTextInkCentered の後に敷く暗いハロー)で担保する。
         ctx.beginPath();
         ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-        ctx.fillStyle = depleted ? 'rgba(38, 34, 26, 0.7)'
-            : isBonus ? 'rgba(88, 66, 18, 0.82)'
-            : isTraining ? 'rgba(46, 30, 66, 0.82)'
-            : cleared ? 'rgba(96, 46, 40, 0.82)'
-            : selectable ? 'rgba(22, 34, 66, 0.78)'
-            : 'rgba(20, 24, 36, 0.58)';
+        ctx.fillStyle = depleted ? 'rgba(38, 34, 26, 0.42)'
+            : isBonus ? 'rgba(88, 66, 18, 0.5)'
+            : isTraining ? 'rgba(46, 30, 66, 0.5)'
+            : cleared ? 'rgba(96, 46, 40, 0.5)'
+            : selectable ? 'rgba(22, 34, 66, 0.46)'
+            : 'rgba(20, 24, 36, 0.34)';
         ctx.fill();
         ctx.lineWidth = isCursor ? 3 : 1.5;
         ctx.strokeStyle = isCursor
             ? `rgba(255, 232, 160, ${(0.75 + pulse * 0.25).toFixed(3)})`
-            : depleted ? 'rgba(150, 140, 120, 0.45)'
-            : isBonus ? 'rgba(231, 196, 90, 0.85)'
-            : isTraining ? 'rgba(196, 160, 240, 0.85)'
-            : cleared ? 'rgba(224, 160, 130, 0.8)'
-            : selectable ? 'rgba(150, 178, 232, 0.8)'
-            : 'rgba(120, 132, 160, 0.4)';
+            : depleted ? 'rgba(150, 140, 120, 0.4)'
+            : isBonus ? 'rgba(231, 196, 90, 0.8)'
+            : isTraining ? 'rgba(196, 160, 240, 0.8)'
+            : cleared ? 'rgba(224, 160, 130, 0.75)'
+            : selectable ? 'rgba(150, 178, 232, 0.75)'
+            : 'rgba(120, 132, 160, 0.38)';
         ctx.stroke();
         // カーソルの外環
         if (isCursor) {
@@ -210,12 +219,20 @@ export function renderStageSelect(ctx, opts = {}) {
         // 中身: 階層番号。寄り道は「両」(小判蔵)/「修」(道場)。
         // 踏破済みかどうかは円の色で分かるため「済」印は付けない(実機フィードバック)。
         ctx.textAlign = 'center';
+        ctx.font = `700 ${Math.round(n.r * (isSide ? 0.8 : 0.95))}px "Zen Old Mincho", serif`;
+        const label = isBonus ? '両' : isTraining ? '修' : `${n.id}`;
+        // 薄い台座でも文字が沈まないよう、先に暗い縁取りを敷く
+        ctx.save();
+        ctx.shadowColor = 'rgba(4, 8, 18, 0.9)';
+        ctx.shadowBlur = Math.max(3, n.r * 0.28);
+        ctx.fillStyle = 'rgba(6, 10, 20, 0.85)';
+        fillTextInkCentered(ctx, label, n.x, n.y);
+        ctx.restore();
         ctx.fillStyle = depleted ? 'rgba(190, 180, 160, 0.5)'
             : isBonus ? '#ffe8a8'
             : isTraining ? '#e6d2ff'
             : selectable ? '#f2f7ff' : 'rgba(180, 190, 210, 0.55)';
-        ctx.font = `700 ${Math.round(n.r * (isSide ? 0.8 : 0.95))}px "Zen Old Mincho", serif`;
-        fillTextInkCentered(ctx, isBonus ? '両' : isTraining ? '修' : `${n.id}`, n.x, n.y);
+        fillTextInkCentered(ctx, label, n.x, n.y);
         // 未解放の錠
         if (!selectable) {
             ctx.fillStyle = 'rgba(190, 200, 220, 0.66)';
@@ -248,9 +265,9 @@ export function renderStageSelect(ctx, opts = {}) {
         const trainingBest = Math.max(0, Math.floor(best.training || 0));
         const title = sel.kind === 'bonus'
             ? (opts.bonusDepleted ? '小判蔵　空（踏破で補充）'
-                : bonusBest > 0 ? `小判蔵　最高 ${bonusBest}両` : '小判蔵　刻限六十秒')
+                : bonusBest > 0 ? `小判蔵　最高 ${bonusBest}両` : '小判蔵')
             : sel.kind === 'training'
-            ? (trainingBest > 0 ? `修行道場　最高 ${trainingBest}人` : '修行道場　刻限六十秒')
+            ? (trainingBest > 0 ? `修行道場　最高 ${trainingBest}人` : '修行道場')
             : `第${sel.id}階層　${sel.name}`;
         fillTextInkCentered(ctx, title, c.x + c.w / 2, c.y + c.h / 2);
         ctx.restore();
