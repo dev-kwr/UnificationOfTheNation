@@ -222,6 +222,25 @@ export function preloadCinematicBgImages() {
 
 const KANJI_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
+// 小判の絵（HUDのアイコンと蔵の落ちている小判で同じものを使う）。
+// 生成画像は黒背景なので、透過へ抜いた koban.png を読む。まだ無い/読めない
+// 場合は false を返し、呼び出し側のコード描画へ落ちる。
+const KOBAN_IMAGE_SRC = 'images/koban.png';
+let _kobanImg = null;
+export function drawKobanImage(ctx, cx, cy, w, h) {
+    if (typeof Image === 'undefined') return false;
+    if (!_kobanImg) {
+        _kobanImg = new Image();
+        _kobanImg.src = KOBAN_IMAGE_SRC;
+    }
+    if (!(_kobanImg.complete && _kobanImg.naturalWidth)) return false;
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(_kobanImg, cx - w / 2, cy - h / 2, w, h);
+    ctx.restore();
+    return true;
+}
+
 // 位取りのカンマ付き整数。小判・討伐数など画面に出る計数はすべてこれを通す。
 export function formatCount(value) {
     const safe = Math.max(0, Math.floor(Number(value) || 0));
@@ -1270,6 +1289,8 @@ export class UI {
     
     // 小判アイコンの描画
     drawKoban(ctx, x, y, size) {
+        // 生成画像があればそれを使う（HUDと蔵で同じ絵にする。共通入口は drawKobanImage）
+        if (drawKobanImage(ctx, x, y, size * 1.5, size * 2.1)) return;
         ctx.save();
         ctx.beginPath();
         // 縦長の楕円（小判型）
@@ -2974,7 +2995,7 @@ export function renderSideResultScreen(ctx, result) {
     ctx.textBaseline = 'alphabetic';
     ctx.font = `500 ${Math.round(13 * fs)}px "Zen Old Mincho", serif`;
     ctx.fillStyle = 'rgba(206, 226, 255, 0.82)';
-    ctx.fillText(isBonus ? '蔵で得た小判' : '打ち倒した数', cx, y + subBase);
+    ctx.fillText(isBonus ? '獲得数' : '撃破数', cx, y + subBase);
 
     // 今回のスコア（数字だけ大きく）
     const scoreT = easeOut((t - 0.28) / 0.4);

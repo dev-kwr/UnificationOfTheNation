@@ -27,9 +27,11 @@ const FLOOR_LINE_V = 0.615;
 // 刻限（秒）
 const TIME_LIMIT_SEC = 60;
 // 場に維持する敵の数（無双の密度。倒すそばから補充される）
-const TARGET_ACTIVE = 7;
+const TARGET_ACTIVE = 12;
 // 補充の間合い（秒）。小さいほど途切れない
-const RESPAWN_INTERVAL_SEC = 0.22;
+const RESPAWN_INTERVAL_SEC = 0.14;
+// 師範代(武将)が出る経過秒。場に1体だけ、節目で腕試しに現れる
+const MASTER_AT_SEC = [14, 32, 48];
 
 function getBgImage() {
     const img = getImage(TRAINING_STAGE_IMAGES[0]);
@@ -60,6 +62,7 @@ export class TrainingStage {
         this._timeUp = false;
         this.spawnTimer = 0.6;         // 入場直後の一拍（すぐ囲まれない）
         this._spawnSide = false;       // 左右交互の湧き分け
+        this._masterIndex = 0;         // 次に出す師範代（MASTER_AT_SEC の添字）
         this.time = 0;
         // 獲得演出: HUD のカウントアップ用(直近の加算)と、倒した位置から浮く「+1」
         this.lastGain = null;
@@ -119,6 +122,15 @@ export class TrainingStage {
             return;
         }
 
+        // 師範代(武将)の投入。場に1体まで＝雑魚の波と混ざって的が絞れる
+        const elapsed = TIME_LIMIT_SEC - this.timeLeft;
+        if (this._masterIndex < MASTER_AT_SEC.length && elapsed >= MASTER_AT_SEC[this._masterIndex]) {
+            this._masterIndex++;
+            if (!this.enemies.some((e) => e.type === ENEMY_TYPES.BUSHO && e.hp > 0)) {
+                this.spawnMaster(player);
+            }
+        }
+
         // 無双の補充: 生きている敵が減ったそばから間断なく足す
         const alive = this.enemies.reduce((n, e) => n + (e.hp > 0 ? 1 : 0), 0);
         if (alive < TARGET_ACTIVE) {
@@ -128,6 +140,18 @@ export class TrainingStage {
                 this.spawnTimer = RESPAWN_INTERVAL_SEC;
             }
         }
+    }
+
+    // 師範代(武将)。プレイヤーから遠い側の袖から、地に足を着けて現れる。
+    spawnMaster(player) {
+        const px = player ? player.x + player.getWorldWidth() * 0.5 : CANVAS_WIDTH * 0.5;
+        const fromLeft = px > CANVAS_WIDTH * 0.5;
+        const x = fromLeft ? -80 : CANVAS_WIDTH + 80;
+        const enemy = createEnemy(ENEMY_TYPES.BUSHO, x, this.groundY, this.groundY);
+        if (!enemy) return;
+        enemy.y = this.groundY + LANE_OFFSET - enemy.height;
+        enemy.facingRight = fromLeft;
+        this.enemies.push(enemy);
     }
 
     // 獲得の集約。連続で倒している間(GAIN_MERGE_SEC以内)は同じ表示へ足し込み、

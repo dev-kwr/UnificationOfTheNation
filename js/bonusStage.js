@@ -20,6 +20,7 @@
 import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260811b';
 import { audio } from './audio.js?v=screen-safe-20260811b';
 import { getImage } from './imageCache.js?v=screen-safe-20260811b';
+import { drawKobanImage } from './ui.js?v=screen-safe-20260811b';
 
 // 小判1枚の価値（両）。よろず屋の相場に合わせてここだけで調整する。
 const KOBAN_VALUE = 20;
@@ -584,6 +585,16 @@ export class BonusStage {
             ctx.save();
             ctx.translate(k.x, y);
             ctx.rotate(Math.sin(k.phase * 0.5) * 0.12);
+            // 生成画像（HUDのアイコンと同じ絵）。無い環境ではコード描画へ落ちる
+            if (drawKobanImage(ctx, 0, 0, 30, 39)) {
+                const tw0 = (Math.sin(k.phase * 1.7) + 1) * 0.5;
+                ctx.fillStyle = `rgba(255, 244, 200, ${(0.2 + tw0 * 0.3).toFixed(3)})`;
+                ctx.beginPath();
+                ctx.arc(-5, -9, 1.4 + tw0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+                continue;
+            }
             ctx.fillStyle = '#c9a23c';
             ctx.beginPath();
             ctx.ellipse(0, 0, 9, 13, 0, 0, Math.PI * 2);
