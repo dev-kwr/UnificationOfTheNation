@@ -2890,8 +2890,20 @@ export function renderSideResultScreen(ctx, result) {
 
     const easeOut = (x) => 1 - Math.pow(1 - Math.max(0, Math.min(1, x)), 3);
     const cardT = easeOut(t / 0.34);
+
+    // 高さは中身から積み上げる（固定値だと記録更新の有無で下に大穴が空く）。
+    // 各値は「カード上端からのベースライン位置」。文字のアセンダぶんは
+    // 各段の間隔に織り込んである。
+    const PAD = 30 * uiS;                     // 上下の余白は同値にして重心を中央へ
+    const headBase = PAD + 24 * uiS;          // 見出し(28px)のベースライン
+    const subBase = headBase + 27 * uiS;      // 小見出し(13px)
+    const scoreBase = subBase + 66 * uiS;     // スコア(56px)
+    const dividerY = scoreBase + 26 * uiS;    // 区切り線
+    const bestBase = dividerY + 32 * uiS;     // 最高記録 / 更新の報せ
+    const prevBase = bestBase + 21 * uiS;     // 更新時のみ「これまで N」
+    const contentBottom = (result.isNewRecord ? prevBase : bestBase) + 6 * uiS;
     const w = 420 * uiS;
-    const h = 268 * uiS;
+    const h = contentBottom + PAD;
     const x = cx - w / 2;
     const y = cy - h / 2 + (1 - cardT) * 18 * uiS;
 
@@ -2901,7 +2913,7 @@ export function renderSideResultScreen(ctx, result) {
     if (cardT < 0.35) { ctx.restore(); return; }
 
     // 見出し（場の名。「刻限」の語は出さない ― 時間切れは自明、と実機フィードバック）
-    drawWafuHeading(ctx, cx, y + 46 * uiS, isBonus ? '小 判 蔵' : '修 行 道 場', {
+    drawWafuHeading(ctx, cx, y + headBase, isBonus ? '小 判 蔵' : '修 行 道 場', {
         size: Math.round(28 * fs),
         ls: 0.14,
         ruleLen: 46 * uiS,
@@ -2911,7 +2923,7 @@ export function renderSideResultScreen(ctx, result) {
     ctx.textBaseline = 'alphabetic';
     ctx.font = `500 ${Math.round(13 * fs)}px "Zen Old Mincho", serif`;
     ctx.fillStyle = 'rgba(206, 226, 255, 0.82)';
-    ctx.fillText(isBonus ? '蔵で得た小判' : '道場での討伐', cx, y + 72 * uiS);
+    ctx.fillText(isBonus ? '蔵で得た小判' : '道場での討伐', cx, y + subBase);
 
     // 今回のスコア（数字だけ大きく）
     const scoreT = easeOut((t - 0.28) / 0.4);
@@ -2928,19 +2940,20 @@ export function renderSideResultScreen(ctx, result) {
         const unit = isBonus ? '両' : '人';
         ctx.font = `700 ${Math.round(20 * fs)}px "Zen Old Mincho", serif`;
         const unitW = ctx.measureText(unit).width + 8 * uiS;
-        const baseY = y + 136 * uiS;
+        const baseY = y + scoreBase;
         ctx.font = `900 ${Math.round(56 * fs)}px "Helvetica Neue", Arial, sans-serif`;
         ctx.textAlign = 'left';
         ctx.fillText(numText, cx - (numW + unitW) / 2, baseY);
         ctx.shadowBlur = 0;
+        // 単位はベースライン揃えだと大きな数字に対して沈むので、少しだけ持ち上げる
         ctx.font = `700 ${Math.round(20 * fs)}px "Zen Old Mincho", serif`;
         ctx.fillStyle = 'rgba(226, 236, 255, 0.9)';
-        ctx.fillText(unit, cx - (numW + unitW) / 2 + numW + 8 * uiS, baseY);
+        ctx.fillText(unit, cx - (numW + unitW) / 2 + numW + 8 * uiS, baseY - 4 * uiS);
         ctx.restore();
     }
 
     // 区切り
-    drawWafuDivider(ctx, cx, y + 158 * uiS, 190 * uiS);
+    drawWafuDivider(ctx, cx, y + dividerY, 190 * uiS);
 
     // 最高記録と更新の報せ
     const bestT = easeOut((t - 0.62) / 0.36);
@@ -2954,15 +2967,15 @@ export function renderSideResultScreen(ctx, result) {
             ctx.fillStyle = `rgba(255, 206, 120, ${pulse.toFixed(3)})`;
             ctx.shadowColor = 'rgba(255, 190, 90, 0.5)';
             ctx.shadowBlur = 18 * uiS;
-            ctx.fillText('最 高 記 録 更 新', cx, y + 190 * uiS);
+            ctx.fillText('最 高 記 録 更 新', cx, y + bestBase);
             ctx.shadowBlur = 0;
             ctx.font = `500 ${Math.round(13 * fs)}px "Zen Old Mincho", serif`;
             ctx.fillStyle = 'rgba(206, 226, 255, 0.7)';
-            ctx.fillText(`これまで ${result.prevBest}${isBonus ? '両' : '人'}`, cx, y + 212 * uiS);
+            ctx.fillText(`これまで ${result.prevBest}${isBonus ? '両' : '人'}`, cx, y + prevBase);
         } else {
             ctx.font = `700 ${Math.round(16 * fs)}px "Zen Old Mincho", serif`;
             ctx.fillStyle = 'rgba(206, 226, 255, 0.9)';
-            ctx.fillText(`最高記録 ${result.best}${isBonus ? '両' : '人'}`, cx, y + 196 * uiS);
+            ctx.fillText(`最高記録 ${result.best}${isBonus ? '両' : '人'}`, cx, y + bestBase);
         }
         ctx.restore();
     }
