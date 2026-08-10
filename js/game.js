@@ -5986,13 +5986,13 @@ class Game {
     startBonusStage() {
         // 塔の登り口(左寄り)から。60秒の刻限は stage 側が持つ。
         this.startSideStage(new BonusStage(), 120);
-        audio.playBgm('stage', 2, 0);   // 蔵の疾走: 宿場の曲を流用
+        audio.playBgm('sideBonus', 0, 0);
     }
 
     startTrainingStage() {
         const stage = new TrainingStage();
         this.startSideStage(stage, Math.round(stage.maxProgress * 0.5));
-        audio.playBgm('stage', 3, 0);   // 山中の道場: 山道の曲を流用
+        audio.playBgm('sideTraining', 0, 0);
     }
 
     // 寄り道の刻限切れ → 結果発表。スコア(蔵=獲得両 / 道場=討伐数)と

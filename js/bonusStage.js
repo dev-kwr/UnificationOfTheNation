@@ -129,7 +129,7 @@ export class BonusStage {
         // 千両箱: 頂上の棚の中央
         this.chest = {
             x: topShelf.x + topShelf.width * 0.5,
-            y: topShelf.y - 54,
+            y: topShelf.y - 74,      // 棚の上に据わる高さ(下端が棚の天面に接する)
             taken: false,
             phase: 0
         };
@@ -154,6 +154,9 @@ export class BonusStage {
         };
         for (let i = 0; i < 7; i++) addKoban(200 + i * 150, laneY - 40);
         for (let si = 0; si < this.shelves.length; si++) {
+            // 頂上の棚は千両箱の座。小判を置くと箱と重なって何があるのか読めない
+            // (実機フィードバック 2026-08-11)
+            if (si === this.shelves.length - 1) continue;
             const s = this.shelves[si];
             const n = Math.min(3, s.crates + 1);
             for (let k = 0; k < n; k++) {
@@ -260,7 +263,7 @@ export class BonusStage {
         }
         if (this.chest && !this.chest.taken) {
             this.chest.phase += deltaTime * 3;
-            if (Math.hypot(px - this.chest.x, py - this.chest.y) < 64) {
+            if (Math.hypot(px - this.chest.x, py - this.chest.y) < 86) {
                 this.chest.taken = true;
                 this.grantScore(player, CHEST_VALUE, this.chest.x, this.chest.y);
             }
@@ -499,36 +502,72 @@ export class BonusStage {
         }
     }
 
-    // 千両箱（生成画像。取ると消える）
+    // 千両箱（生成画像）。塔の終着点なので、遠目にも「あそこが目的」と分かるよう
+    // 大きく据え、金の光柱と輪で囲う。小判は重ねない(重なると何か読めない)。
     renderChest(ctx) {
         const c = this.chest;
         if (!c || c.taken) return;
         const img = getAsset(3);
-        const bob = Math.sin(c.phase) * 2.5;
-        const w = 108;
-        const h = 108;
-        const x = c.x - w * 0.5;
-        const y = c.y - h * 0.5 + bob;
-        // 足元の金の輝き
         const tw = (Math.sin(c.phase * 1.7) + 1) * 0.5;
-        const glow = ctx.createRadialGradient(c.x, c.y + 30, 6, c.x, c.y + 30, 120);
-        glow.addColorStop(0, `rgba(255, 214, 120, ${(0.22 + tw * 0.12).toFixed(3)})`);
+        const w = 148;
+        const h = 148;
+        const x = c.x - w * 0.5;
+        const y = c.y - h * 0.5;
+        const baseY = c.y + h * 0.5;   // 箱の下端＝棚の天面
+
+        // 上から降る光柱（頂上の月明かりと呼応させる）
+        const shaft = ctx.createLinearGradient(0, baseY - 420, 0, baseY);
+        shaft.addColorStop(0, 'rgba(255, 226, 150, 0)');
+        shaft.addColorStop(1, `rgba(255, 214, 120, ${(0.1 + tw * 0.05).toFixed(3)})`);
+        ctx.fillStyle = shaft;
+        ctx.fillRect(c.x - 110, baseY - 420, 220, 420);
+
+        // 足元の光溜まり
+        const glow = ctx.createRadialGradient(c.x, baseY - 6, 8, c.x, baseY - 6, 190);
+        glow.addColorStop(0, `rgba(255, 214, 120, ${(0.3 + tw * 0.14).toFixed(3)})`);
         glow.addColorStop(1, 'rgba(255, 214, 120, 0)');
         ctx.fillStyle = glow;
-        ctx.fillRect(c.x - 130, c.y - 100, 260, 240);
+        ctx.fillRect(c.x - 200, baseY - 200, 400, 260);
+
         if (img) {
             ctx.imageSmoothingEnabled = true;
             // 生成画像の黒マージンを軽く切り詰める
             const inX = img.naturalWidth * 0.02;
             const inY = img.naturalHeight * 0.02;
-            ctx.drawImage(img, inX, inY, img.naturalWidth - inX * 2, img.naturalHeight - inY * 2, x, y, w, h);
+            const sw = img.naturalWidth - inX * 2;
+            const sh = img.naturalHeight - inY * 2;
+            // 背後の後光。箱の絵は暗い木と黒い金具なので、暗い壁の前だと輪郭が溶けて
+            // 「何か分からない」(実機フィードバック)。まず光の面を敷いて形を起こす。
+            const halo = ctx.createRadialGradient(c.x, c.y, 10, c.x, c.y, w * 0.78);
+            halo.addColorStop(0, `rgba(255, 226, 158, ${(0.34 + tw * 0.1).toFixed(3)})`);
+            halo.addColorStop(0.55, 'rgba(255, 206, 120, 0.16)');
+            halo.addColorStop(1, 'rgba(255, 206, 120, 0)');
+            ctx.fillStyle = halo;
+            ctx.fillRect(c.x - w, c.y - h, w * 2, h * 2);
+            ctx.drawImage(img, inX, inY, sw, sh, x, y, w, h);
+            // 同じ絵を加算で薄く重ね、暗部を持ち上げる（filter 非対応環境でも効く）
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.globalAlpha = 0.4;
+            ctx.drawImage(img, inX, inY, sw, sh, x, y, w, h);
+            ctx.restore();
         } else {
             ctx.fillStyle = '#5c4222';
-            ctx.fillRect(x + 10, y + 30, w - 20, h - 40);
+            ctx.fillRect(x + 14, y + 40, w - 28, h - 54);
             ctx.fillStyle = '#d9b24a';
-            ctx.fillRect(x + 22, y + 24, 10, h - 34);
-            ctx.fillRect(x + w - 32, y + 24, 10, h - 34);
+            ctx.fillRect(x + 30, y + 32, 13, h - 46);
+            ctx.fillRect(x + w - 43, y + 32, 13, h - 46);
         }
+
+        // 目印の輪（ゆっくり広がって消える。的が一目で分かる）
+        const ringT = (this.time * 0.55) % 1;
+        ctx.save();
+        ctx.strokeStyle = `rgba(255, 224, 150, ${(0.5 * (1 - ringT)).toFixed(3)})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.ellipse(c.x, baseY - 4, 60 + ringT * 78, 18 + ringT * 22, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
     }
 
     // 小判（自前描画: 楕円の小判 + 揺れる輝き）

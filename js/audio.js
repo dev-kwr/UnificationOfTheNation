@@ -42,7 +42,10 @@ class AudioManager {
             stage_3: 'bgm/stage3.mp3',
             stage_4: 'bgm/stage4.mp3',
             stage_5: 'bgm/stage5.mp3',
-            stage_6: 'bgm/stage6.mp3'
+            stage_6: 'bgm/stage6.mp3',
+            // 寄り道(小判蔵/修行道場)の専用曲
+            sideBonus: 'bgm/substage1.mp3',
+            sideTraining: 'bgm/substage2.mp3'
         };
 
         // 主要な SE のプリロード（タイミングの高速化）
@@ -459,6 +462,12 @@ class AudioManager {
             targetType = `stage_${normalizedStage}`;
             // 同じ曲の場合はあえて return せず、クロスフェード（ループの繋ぎを滑らかにする効果）を許容する
             // if (this.currentBgmType === targetType) return;
+            this.currentBgmType = targetType;
+            filePath = this.bgmFiles[targetType];
+        } else if (type === 'sideBonus' || type === 'sideTraining') {
+            // 寄り道はスコアアタックなので毎回【頭から】流す(再挑戦は仕切り直し)。
+            // 下の else と違い、同じ曲でも作り直す。
+            targetType = type;
             this.currentBgmType = targetType;
             filePath = this.bgmFiles[targetType];
         } else if (type === 'boss') {
