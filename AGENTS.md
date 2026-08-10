@@ -113,6 +113,7 @@
    - **寄り道は Stage互換の軽量クラス**（小判蔵=`js/bonusStage.js`・修行道場=`js/trainingStage.js`）を `game.stage` に差して PLAYING をそのまま使う(`isCleared()` 常false=本編クリア経路に乗せない)。終了は `isBonusFinished()`/`isTrainingFinished()` を updatePlaying が見て `finishBonusStage()`/`finishTrainingStage()`→セレクトへ。本編進行には触れない。開始は共通の `startSideStage()`＋本編と同じ暗幕待ち(`pendingStageStart={side:'bonus'|'training'}`)。サイドステージを増やすときはこの方式を踏襲する。
    - **寄り道は刻限60秒のスコアアタック**。stage が `getHudTimerSec()/getScore()/isTimeUp()/sideKind` を持ち、時間切れで `game.beginSideResult()` → `SIDE_RESULT`(結果発表)→セレクト。最高記録は **saveGlobal の `sideBest{bonus,training}`**(プレイヤーのセーブとは独立。難易度や周回に影響されない記録)。
    - **寄り道は何度でも挑める**(記録更新が目的なので在庫制にはしない)。**startNewGame は開始時に即セーブする**既存仕様なので、`?map=` デバッグ起動はセーブを上書きする(検証時は注意)。
+   - **小判蔵の塔は毎回 `buildTower()` で手続き生成**(固定配置は数回で覚えて飽きる)。散らすときは**到達可能性を数値で守る**: 単発ジャンプ=高さ160px/水平240px、2段=282px/384px(GRAVITY 0.8・JUMP_FORCE -16・DOUBLE_JUMP -14・SPEED 6 から算出)。縦は単発の範囲(≤140)、横の隙間は ≤210 に収め、動く棚の振幅は壁までの余地でクランプする(下限を `Math.max` で張ると画面外へ出る)。生成ロジックを変えたら `scratch/verify_tower.mjs` で3000塔まわし、「画面外0・到達不能0」を確認すること。
    - **縦アスレチックのカメラは `stage.useFeetCameraLift`**。これが真だと updateCameraLift が【プレイヤーを画面の上下中央に置く】ように追い、`getCameraMinVisTop()`(頂き)と crop(床)でだけ止まる。接地条件は付けない(跳んでいる間こそ上が見たい)。z=1 の PC は crop=0 のため、このフラグが無いと早期 return して一切追従しない。本編は従来どおり groundY 基準・接地時のみ。
    - **場が終わったら `clearRunTimeBuffs()`**(奥義の分身・大薙・隠れ身の一時強化を全解除)。本編クリア・寄り道の刻限切れ・ステータス画面入場の3か所から呼ぶ。呼ばないとステータス画面に分身が並び、次のステージへ効果が持ち越される。
    - **上端の3要素は同じ視線に乗せる**。左のHUDパネル・中央の刻限・右のステージ名。刻限カードは縦中心を `getPadLayout().bgm.y`(＝ステージ名の高さ)に合わせる。safe.top から独自に積むと中央だけ浮いて見えた(実機フィードバック)。

@@ -6,6 +6,9 @@
 // 時間切れで結果発表(game.beginSideResult)→獲得両がスコア。最高記録は
 // saveGlobal(sideBest.bonus) に残る。何度でも挑める(記録更新が目的)。
 //
+// 塔は入るたびに手続き生成(buildTower)。固定配置だと数回で覚えて飽きるため。
+// ジャンプ性能から到達可能性を保証したうえで、段数・高さ・幅・動く棚を散らす。
+//
 // カメラ: 横は固定(maxProgress=CANVAS_WIDTH で scrollX は常に0)。縦は
 // game.updateCameraLift の stage フック(useFeetCameraLift +
 // getCameraMinVisTop)で【プレイヤーが画面の上下中央】に来るよう追い、
@@ -45,38 +48,117 @@ function getAsset(index) {
     return (img && img.complete && img.naturalWidth) ? img : null;
 }
 
-// 棚(足場)の配置: x=左端 / dy=laneY(512)からの上面の相対高さ / crates=箱の数。
-// 縦間隔110〜135(単〜2段ジャンプ圏)、横の跳びは240px以内でジグザグに。
-// move を持つ棚は左右に往復する吊り棚(amp=振幅px, period=往復秒, phase=位相)。
-// 上段ほど動く棚と細い足場を増やし、登るほど手強くする。
-const SHELF_LAYOUT = [
-    { x: 150, dy: -120, crates: 2 },
-    { x: 610, dy: -230, crates: 2 },
-    { x: 1000, dy: -340, crates: 2 },
-    { x: 540, dy: -455, crates: 3 },
-    { x: 120, dy: -575, crates: 2 },
-    { x: 560, dy: -690, crates: 1, move: { amp: 150, period: 4.2, phase: 0 } },
-    { x: 1010, dy: -800, crates: 2 },
-    { x: 520, dy: -915, crates: 2 },
-    { x: 110, dy: -1030, crates: 2 },
-    { x: 560, dy: -1145, crates: 1, move: { amp: 190, period: 3.6, phase: 1.6 } },
-    { x: 1000, dy: -1255, crates: 2 },
-    { x: 480, dy: -1370, crates: 2 },
-    { x: 120, dy: -1485, crates: 2 },
-    { x: 560, dy: -1600, crates: 1, move: { amp: 210, period: 3.2, phase: 0.8 } },
-    { x: 1010, dy: -1715, crates: 2 },
-    { x: 540, dy: -1830, crates: 2 },
-    { x: 140, dy: -1945, crates: 2 },
-    { x: 560, dy: -2060, crates: 1, move: { amp: 230, period: 2.9, phase: 2.4 } },
-    { x: 1000, dy: -2175, crates: 2 },
-    { x: 450, dy: -2300, crates: 4 }    // 頂上の大棚（千両箱と月明かり）
-];
+// --- 塔の手続き生成 ---------------------------------------------------
+// 固定配置だと数回で覚えてしまい飽きる(実機フィードバック 2026-08-11)ので、
+// 入るたびに組み直す。ジャンプ性能から到達可能性を保証したうえで散らす:
+//   単発ジャンプ = 高さ160px / 水平240px、2段ジャンプ = 高さ282px / 水平384px
+// (GRAVITY=0.8, JUMP_FORCE=-16, DOUBLE_JUMP=-14, SPEED=6 から算出)
+// 縦は単発の範囲に収め(=詰まらない)、横は2段ジャンプの余裕を見て 210px 以内。
+const STEP_MIN = 100, STEP_MAX = 140;   // 段の縦間隔
+const MAX_HGAP = 210;                   // 段と段の水平の隙間(棚の端から端)
+const EDGE_MARGIN = 40;                 // 壁から離す余白
+const FLOORS_MIN = 18, FLOORS_MAX = 22;
+
+const randRange = (a, b) => a + Math.random() * (b - a);
+const randInt = (a, b) => Math.floor(randRange(a, b + 1));
+
+// 高さの進み具合 t(0..1) から棚の広さを選ぶ。上ほど細くなりやすい。
+function pickCrates(t) {
+    const r = Math.random();
+    if (t < 0.25) return r < 0.25 ? 3 : 2;          // 下層は広め(助走を覚える)
+    if (t < 0.6) return r < 0.15 ? 3 : (r < 0.85 ? 2 : 1);
+    return r < 0.45 ? 1 : 2;                         // 上層は細い足場が増える
+}
+
+function buildTower(laneY) {
+    const floors = randInt(FLOORS_MIN, FLOORS_MAX);
+    const shelves = [];
+    let y = laneY - randRange(100, 130);
+    let crates = randInt(2, 3);
+    let x = randRange(120, 320);
+    let dir = Math.random() < 0.5 ? 1 : -1;   // 横の流れ。時々反転させて蛇行させる
+    let sinceMove = 99;                        // 動く棚が続かないよう間隔を数える
+
+    for (let i = 0; i < floors; i++) {
+        const t = i / floors;
+        const width = crates * CRATE_SIZE;
+        // 動く吊り棚: 中盤以降、細い棚のときだけ。連続はさせない
+        const canMove = t > 0.28 && crates <= 2 && sinceMove >= 2;
+        const moving = canMove && Math.random() < 0.26;
+        let move = null;
+        if (moving) {
+            // 振幅は左右の壁までの余地に収める(Math.max で下限を張ると余地を
+            // 超えて画面外へ出るので、下限は「足りなければ動かさない」で扱う)
+            const room = Math.min(x - EDGE_MARGIN, (CANVAS_WIDTH - EDGE_MARGIN) - (x + width));
+            const amp = Math.min(120 + t * 130, room);
+            if (amp >= 90) {
+                move = { amp, period: randRange(4.4 - t * 1.6, 5.0 - t * 1.6), phase: Math.random() * Math.PI * 2 };
+            }
+        }
+        sinceMove = move ? 0 : sinceMove + 1;
+        shelves.push({ x, y, crates, width, move });
+
+        if (i === floors - 1) break;
+
+        // --- 次の段 ---
+        const prevX = x, prevW = width;
+        // 動く棚から跳ぶ段は、棚が寄ってくるぶん余裕がある＝少し遠くてよい
+        const reach = MAX_HGAP + (move ? move.amp * 0.5 : 0);
+        y -= randRange(STEP_MIN, STEP_MAX);
+        crates = pickCrates((i + 1) / floors);
+        const nextW = crates * CRATE_SIZE;
+        if (Math.random() < 0.34) dir *= -1;
+        let nx = prevX + dir * randRange(150, 280);
+
+        // 壁に当たるなら折り返す
+        if (nx < EDGE_MARGIN) { nx = EDGE_MARGIN + randRange(0, 90); dir = 1; }
+        if (nx + nextW > CANVAS_WIDTH - EDGE_MARGIN) { nx = CANVAS_WIDTH - EDGE_MARGIN - nextW - randRange(0, 90); dir = -1; }
+        // 到達可能性: 端から端の隙間が reach を超えたら引き寄せる
+        const gapRight = nx - (prevX + prevW);
+        const gapLeft = prevX - (nx + nextW);
+        if (gapRight > reach) nx = prevX + prevW + reach;
+        else if (gapLeft > reach) nx = prevX - nextW - reach;
+        x = Math.max(EDGE_MARGIN, Math.min(CANVAS_WIDTH - EDGE_MARGIN - nextW, nx));
+    }
+
+    // 頂上は千両箱の座。広い棚を画面中央寄りに据える(絵の収まり)。
+    // ただし直前の段から届く範囲でクランプして到達性を守る。
+    const top = shelves[shelves.length - 1];
+    top.crates = 4;
+    top.width = 4 * CRATE_SIZE;
+    top.move = null;
+    const prev = shelves[shelves.length - 2];
+    if (prev) {
+        let want = CANVAS_WIDTH / 2 - top.width / 2 + randRange(-70, 70);
+        const reach = MAX_HGAP + (prev.move ? prev.move.amp * 0.5 : 0);
+        want = Math.min(want, prev.x + prev.width + reach);          // 右へ離れすぎない
+        want = Math.max(want, prev.x - top.width - reach);           // 左へも同様
+        top.x = Math.max(EDGE_MARGIN, Math.min(CANVAS_WIDTH - EDGE_MARGIN - top.width, want));
+    }
+
+    // 動く吊り棚が1つも出ない塔だと手応えが平坦になる。抽選任せにせず、
+    // 中盤以降の細い棚から足りないぶんを昇格させて最低2つは入れる。
+    const MOVING_MIN = 2;
+    let movingCount = shelves.filter((s) => s.move).length;
+    for (let i = shelves.length - 2; i >= 2 && movingCount < MOVING_MIN; i--) {
+        const s = shelves[i];
+        if (s.move || s.crates > 2) continue;
+        if (shelves[i - 1]?.move || shelves[i + 1]?.move) continue;   // 連続させない
+        const room = Math.min(s.x - EDGE_MARGIN, (CANVAS_WIDTH - EDGE_MARGIN) - (s.x + s.width));
+        const amp = Math.min(150, room);
+        if (amp < 90) continue;
+        const t = i / shelves.length;
+        s.move = { amp, period: randRange(4.4 - t * 1.6, 5.0 - t * 1.6), phase: Math.random() * Math.PI * 2 };
+        movingCount++;
+    }
+    return shelves;
+}
 
 // 高さ帯ごとの小判の価値。登るほど実入りが増え、上を目指す動機になる。
-// dy(laneY からの高さ)がこの閾値より上なら、その倍率を掛ける。
+// 塔の高さは毎回変わるので、絶対値ではなく【塔全体に対する割合】で決める。
 const HEIGHT_TIERS = [
-    { above: 1500, mult: 3 },
-    { above: 800, mult: 2 },
+    { above: 0.62, mult: 3 },
+    { above: 0.3, mult: 2 },
     { above: 0, mult: 1 }
 ];
 
@@ -109,13 +191,13 @@ export class BonusStage {
         // 棚（描画用）と一方通行コライダー（上面のみ）。
         // 動く棚は毎フレーム x を書き換え、同じ値をコライダーにも書き戻す
         // (描画と判定を一つの値から出す。別々に計算するとすり抜ける)。
-        this.shelves = SHELF_LAYOUT.map((s) => ({
+        this.shelves = buildTower(laneY).map((s) => ({
             baseX: s.x,
             x: s.x,
-            y: laneY + s.dy,
+            y: s.y,
             crates: s.crates,
-            width: s.crates * CRATE_SIZE,
-            move: s.move || null
+            width: s.width,
+            move: s.move
         }));
         this.platformColliders = this.shelves.map((s) => ({
             x: s.x,
@@ -139,9 +221,10 @@ export class BonusStage {
         // 小判: 地上の列 + 各棚の上 + 棚間の空中（ジャンプの弧）。
         // value は高さ帯で決まる(上ほど高い)。動く棚の上の小判は棚と一緒に動く。
         this.kobans = [];
+        const towerH = Math.max(1, laneY - this._topY);
         const valueAt = (y) => {
-            const height = laneY - y;
-            const tier = HEIGHT_TIERS.find((t) => height > t.above) || HEIGHT_TIERS[HEIGHT_TIERS.length - 1];
+            const ratio = (laneY - y) / towerH;
+            const tier = HEIGHT_TIERS.find((t) => ratio > t.above) || HEIGHT_TIERS[HEIGHT_TIERS.length - 1];
             return KOBAN_VALUE * tier.mult;
         };
         const addKoban = (x, y, shelfIndex = -1) => {
