@@ -81,7 +81,8 @@ function drawFirebombFuse(ctx, cx, cy, radius, time, seeds, visualScale = 1) {
         Math.sin(swayPhase * 0.57 + 1.35) * 0.22
     ) * r * 0.060;
     const tipSwayY = Math.sin(swayPhase * 0.71 + 2.1) * r * 0.012;
-    const p0 = { x: cx + r * 0.02, y: collarY + r * 0.06 };
+    // 付け根は口金の中央(球の左右中央)。ここをずらすと「横から生えた」ように見える
+    const p0 = { x: cx, y: collarY + r * 0.06 };
     const p1 = {
         x: cx + r * 0.16 + tipSwayX * 0.10,
         y: collarY - r * 0.08 + tipSwayY * 0.08

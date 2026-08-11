@@ -12,15 +12,15 @@
   -->
   <defs>
     <radialGradient id="ballBase" cx="46%" cy="42%" r="74%" fx="35%" fy="27%">
-      <stop offset="0" stop-color="#7d7b72"/>
-      <stop offset=".14" stop-color="#565450"/>
-      <stop offset=".36" stop-color="#3b3a37"/>
-      <stop offset=".6" stop-color="#242423"/>
-      <stop offset=".84" stop-color="#111111"/>
-      <stop offset="1" stop-color="#060606"/>
+      <stop offset="0" stop-color="#6a6961"/>
+      <stop offset=".12" stop-color="#454440"/>
+      <stop offset=".3" stop-color="#302f2d"/>
+      <stop offset=".55" stop-color="#1e1e1d"/>
+      <stop offset=".8" stop-color="#0f0f0f"/>
+      <stop offset="1" stop-color="#050505"/>
     </radialGradient>
     <radialGradient id="ballGlow" cx="35%" cy="26%" r="40%">
-      <stop offset="0" stop-color="#98968c" stop-opacity=".4"/>
+      <stop offset="0" stop-color="#8e8c83" stop-opacity=".3"/>
       <stop offset=".5" stop-color="#8a8c84" stop-opacity=".15"/>
       <stop offset="1" stop-color="#6e7069" stop-opacity="0"/>
     </radialGradient>
@@ -57,18 +57,18 @@
       <stop offset="1" stop-color="#101010" stop-opacity=".8"/>
     </linearGradient>
     <clipPath id="ballClip"><circle cx="336" cy="372" r="300"/></clipPath>
-    <clipPath id="collarClip"><rect x="272" y="28" width="128" height="76" rx="10"/></clipPath>
+    <clipPath id="collarClip"><rect x="272" y="12" width="128" height="80" rx="10"/></clipPath>
   </defs>
 
   <!-- ===== 口金（球より奥。真横視点の短い円柱、左右中央） ===== -->
   <g>
-    <rect x="272" y="28" width="128" height="76" rx="10" fill="url(#collarV)"/>
+    <rect x="272" y="12" width="128" height="80" rx="10" fill="url(#collarV)"/>
     <g clip-path="url(#collarClip)">
-      <rect x="272" y="28" width="128" height="76" fill="url(#collarH)"/>
-      <rect x="272" y="30" width="128" height="5" fill="#7d7d74" opacity=".6"/>
-      <rect x="272" y="52" width="128" height="4" fill="#0c0c0b" opacity=".55"/>
+      <rect x="272" y="12" width="128" height="80" fill="url(#collarH)"/>
+      <rect x="272" y="14" width="128" height="5" fill="#7d7d74" opacity=".6"/>
+      <rect x="272" y="38" width="128" height="4" fill="#0c0c0b" opacity=".55"/>
     </g>
-    <rect x="272" y="28" width="128" height="76" rx="10" fill="none" stroke="#0a0a09" stroke-opacity=".85" stroke-width="6"/>
+    <rect x="272" y="12" width="128" height="80" rx="10" fill="none" stroke="#0a0a09" stroke-opacity=".85" stroke-width="6"/>
   </g>
 
   <!-- ===== 鋳鉄球（正円） ===== -->
