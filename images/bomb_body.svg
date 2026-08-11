@@ -13,7 +13,11 @@
       口金の見える高さ 0.115R → 35px。png は口金が【玉より手前】にあるので
                      全高が見える。玉の後ろに置くと玉の輪郭より上しか出ず、
                      0.06R しか見えなくて「薄い」と差し戻された(2026-08-11)。
-      口金の突き出し 玉の上端から 0.03R → 上端 y = 372 - 1.03*300 = 63
+      口金の位置     【玉の上に載せる】。玉へめり込ませない(差し戻し 2026-08-11)。
+                     下端は玉の球面と接する y=79 に置く
+                     (半幅61での球面 = 372 - √(300²-61²) = 78.3。
+                      これより上げると角の下に隙間が空いて浮いて見える)。
+                     → y = 79 - 35 = 44、上端は玉の上端(72)から 0.093R 上
       口金の色       明部 rgb(122,120,120) / 影 rgb(60,56,59)
       玉の明度       左上ハイライト(171,162,158) / 中央(55,52,54) /
                      右下(24,23,28) / 下端(7,6,6) / 左端(40,38,38)
@@ -71,7 +75,13 @@
       <stop offset="1" stop-color="#0d0c0c" stop-opacity=".85"/>
     </linearGradient>
     <clipPath id="ballClip"><circle cx="336" cy="372" r="300"/></clipPath>
-    <clipPath id="collarClip"><rect x="275" y="63" width="122" height="35" rx="7"/></clipPath>
+    <clipPath id="collarClip"><rect x="275" y="44" width="122" height="35" rx="7"/></clipPath>
+    <!-- 口金が玉に落とす影(据わりを出す) -->
+    <radialGradient id="collarSeat" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#000000" stop-opacity=".55"/>
+      <stop offset=".6" stop-color="#000000" stop-opacity=".26"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
   </defs>
 
   <!-- ===== 鋳鉄球（正円） ===== -->
@@ -90,20 +100,22 @@
   <!-- 縁は輪郭線ではなく、暗く落ちる面で締める(線を引くと平面に見える) -->
   <circle cx="336" cy="372" r="298.5" fill="none" stroke="#050506" stroke-opacity=".5" stroke-width="3"/>
 
-  <!-- ===== 口金（玉より【手前】。真横視点の短い輪。左右中央） =====
+  <!-- ===== 口金（玉の【上に載る】。真横視点の短い輪。左右中央） =====
        png は口金が玉の手前にあり、全高(0.115R)が見える。玉の後ろへ置くと
-       輪郭より上しか出ず「薄い」絵になる。導火線の根元はこの輪が隠す
-       (縄は本体SVGより先に描かれる)。 -->
+       輪郭より上しか出ず「薄い」絵になる。かといって玉へめり込ませると
+       埋まって見えるので、下端を球面(y=78.3)に接する y=79 に置いて【載せる】。
+       導火線の根元はこの輪と玉が隠す(縄は本体SVGより先に描かれる)。 -->
+  <ellipse cx="336" cy="80" rx="74" ry="13" fill="url(#collarSeat)"/>
   <g>
-    <rect x="275" y="63" width="122" height="35" rx="7" fill="url(#collarV)"/>
+    <rect x="275" y="44" width="122" height="35" rx="7" fill="url(#collarV)"/>
     <g clip-path="url(#collarClip)">
-      <rect x="275" y="63" width="122" height="35" fill="url(#collarH)"/>
+      <rect x="275" y="44" width="122" height="35" fill="url(#collarH)"/>
       <!-- 上端の縁(輪の口)と、中ほどの締め -->
-      <rect x="275" y="64" width="122" height="4" fill="#9b9795" opacity=".8"/>
-      <rect x="275" y="78" width="122" height="6" fill="#0b0a0a" opacity=".55"/>
-      <!-- 下端は玉へ落ちる影 -->
-      <rect x="275" y="92" width="122" height="6" fill="#000000" opacity=".45"/>
+      <rect x="275" y="45" width="122" height="4" fill="#9b9795" opacity=".8"/>
+      <rect x="275" y="59" width="122" height="6" fill="#0b0a0a" opacity=".55"/>
+      <!-- 下端の座(玉に当たる面は暗い) -->
+      <rect x="275" y="73" width="122" height="6" fill="#000000" opacity=".4"/>
     </g>
-    <rect x="275" y="63" width="122" height="35" rx="7" fill="none" stroke="#0a0a09" stroke-opacity=".85" stroke-width="4"/>
+    <rect x="275" y="44" width="122" height="35" rx="7" fill="none" stroke="#0a0a09" stroke-opacity=".85" stroke-width="4"/>
   </g>
 </svg>
