@@ -20,13 +20,13 @@
 // 画像: images/bonus_kura_*.png（Codex/gpt-image 生成。読めない環境では
 // コード描画にフォールバック）。
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260811f';
-import { audio } from './audio.js?v=screen-safe-20260811f';
-import { getImage } from './imageCache.js?v=screen-safe-20260811f';
-import { drawKobanImage } from './ui.js?v=screen-safe-20260811f';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260811g';
+import { audio } from './audio.js?v=screen-safe-20260811g';
+import { getImage } from './imageCache.js?v=screen-safe-20260811g';
+import { drawKobanImage } from './ui.js?v=screen-safe-20260811g';
 
 // 小判1枚の価値（両）。よろず屋の相場に合わせてここだけで調整する。
-const KOBAN_VALUE = 20;
+const KOBAN_VALUE = 10;
 // 千両箱（塔の頂上）。登り切ったご褒美。
 const CHEST_VALUE = 300;
 // 刻限（秒）
@@ -184,8 +184,8 @@ export class BonusStage {
                 phase: (this.kobans.length * 0.7) % (Math.PI * 2)
             });
         };
-        // 地上は5枚だけ(走り出しの合図)。敷き詰めると画面が金だらけになる
-        for (let i = 0; i < 5; i++) addKoban(240 + i * 190, laneY - 40);
+        // 地上は5枚だけ(走り出しの合図)。面に置く=浮かせない(実機フィードバック)
+        for (let i = 0; i < 5; i++) addKoban(240 + i * 190, laneY - 14);
         for (let si = 0; si < this.shelves.length; si++) {
             // 頂上の棚は千両箱の座。小判を置くと箱と重なって何があるのか読めない
             // (実機フィードバック 2026-08-11)
@@ -194,7 +194,7 @@ export class BonusStage {
             // 棚あたり1〜2枚。広い棚だけ2枚に増やす
             const n = s.crates >= 3 ? 2 : 1;
             for (let k = 0; k < n; k++) {
-                addKoban(s.baseX + s.width * ((k + 1) / (n + 1)), s.y - 38, s.move ? si : -1);
+                addKoban(s.baseX + s.width * ((k + 1) / (n + 1)), s.y - 14, s.move ? si : -1);
             }
         }
         // 棚間の空中（隣の棚へ跳ぶ弧の頂点あたり）。動く棚が絡む区間と、
@@ -222,6 +222,11 @@ export class BonusStage {
         // 獲得演出: HUD のカウントアップ用(直近の加算)と、拾った位置から浮く「+n両」
         this.lastGain = null;
         this.gainPops = [];
+        // 蔵浚え(すべて拾い切った)後の褒美: タイムアップまで小判が降り続ける。
+        // 塔が短く感じる回でも、残り時間が「降る小判を追う時間」になる。
+        this.rainKobans = [];
+        this._rainMode = false;
+        this._rainTimer = 0;
     }
 
     // --- Stage 互換の界面（PLAYING ループが呼ぶ） ---
@@ -289,7 +294,6 @@ export class BonusStage {
         const py = player.y + player.getWorldHeight() * 0.5;
         for (const k of this.kobans) {
             if (k.taken) continue;
-            k.phase += deltaTime * 4;
             if (Math.hypot(px - k.x, py - k.y) < 48) {
                 k.taken = true;
                 this.collected++;
@@ -302,6 +306,55 @@ export class BonusStage {
                 this.chest.taken = true;
                 this.grantScore(player, CHEST_VALUE, this.chest.x, this.chest.y);
             }
+        }
+
+        // 蔵浚え達成 → 降り注ぎモード開始
+        if (!this._rainMode && this.collected >= this.totalKobans && this.chest && this.chest.taken) {
+            this._rainMode = true;
+            this._rainTimer = 0.5;
+        }
+        if (this._rainMode) this.updateRain(deltaTime, player, px, py);
+    }
+
+    // 降り注ぐ小判。プレイヤーの周囲の上空から落ち、最初に当たる面(棚か床)に載る。
+    updateRain(deltaTime, player, px, py) {
+        const laneY = this.groundY + LANE_OFFSET;
+        this._rainTimer -= deltaTime;
+        if (this._rainTimer <= 0) {
+            this._rainTimer = 0.5;
+            const x = Math.max(60, Math.min(CANVAS_WIDTH - 60, px + (Math.random() * 2 - 1) * 420));
+            // 着地面は【プレイヤーと同じ高さ帯】から選ぶ。単純に一番高い棚へ載せると
+            // 塔の上へ行ってしまい、床で待つプレイヤーには取れない(検証で発覚)。
+            const feet = player.y + player.getWorldHeight();
+            let landY = laneY - 14;
+            let best = Infinity;
+            for (const s of this.shelves) {
+                if (x >= s.x - 4 && x <= s.x + s.width + 4 && s.y >= feet - 30 && s.y < best) best = s.y;
+            }
+            if (best < Infinity) landY = best - 14;
+            this.rainKobans.push({
+                x,
+                y: Math.min(py, landY) - 620 - Math.random() * 140,
+                vy: 0,
+                landY,
+                value: KOBAN_VALUE * (1 + Math.floor(Math.random() * 3)),   // 10/20/30
+                taken: false
+            });
+        }
+        for (const rk of this.rainKobans) {
+            if (rk.taken) continue;
+            if (rk.y < rk.landY) {
+                rk.vy = Math.min(rk.vy + 1500 * deltaTime, 720);
+                rk.y = Math.min(rk.landY, rk.y + rk.vy * deltaTime);
+            }
+            if (Math.hypot(px - rk.x, py - rk.y) < 48) {
+                rk.taken = true;
+                this.grantScore(player, rk.value, rk.x, rk.y);
+            }
+        }
+        // 拾い終えたものは間引く(配列を無限に伸ばさない)
+        if (this.rainKobans.length > 90) {
+            this.rainKobans = this.rainKobans.filter((rk) => !rk.taken);
         }
     }
 
@@ -609,49 +662,30 @@ export class BonusStage {
         }
     }
 
-    // 小判（自前描画: 楕円の小判 + 揺れる輝き）
+    // 小判。立てた姿(縦向き)で面に静かに置く ― 浮遊・回転・きらめきは付けない
+    // (安っぽく見える、と実機フィードバック 2026-08-11)。降り注ぎの小判も同じ絵。
     renderKobans(ctx) {
-        for (const k of this.kobans) {
-            if (k.taken) continue;
-            const bob = Math.sin(k.phase) * 4;
-            const y = k.y + bob;
+        const drawOne = (x, y) => {
             ctx.save();
-            ctx.translate(k.x, y);
-            // 生成画像（HUDのアイコンと同じ絵）。無い環境ではコード描画へ落ちる。
-            // 左右に揺らすと絵が歪んで見えるので回転はさせない(上下の浮遊だけ)。
-            if (drawKobanImage(ctx, 0, 0, 32, 24)) {
-                const tw0 = (Math.sin(k.phase * 1.7) + 1) * 0.5;
-                ctx.fillStyle = `rgba(255, 244, 200, ${(0.2 + tw0 * 0.3).toFixed(3)})`;
+            ctx.translate(x, y);
+            if (!drawKobanImage(ctx, 0, 0, 20, 27)) {
+                // フォールバック: シンプルな楕円の小判
+                ctx.fillStyle = '#c9a23c';
                 ctx.beginPath();
-                ctx.arc(-9, -5, 1.4 + tw0, 0, Math.PI * 2);
+                ctx.ellipse(0, 0, 8, 12, 0, 0, Math.PI * 2);
                 ctx.fill();
-                ctx.restore();
-                continue;
+                ctx.fillStyle = '#e0be5e';
+                ctx.beginPath();
+                ctx.ellipse(0, 0, 5.5, 9, 0, 0, Math.PI * 2);
+                ctx.fill();
             }
-            ctx.fillStyle = '#c9a23c';
-            ctx.beginPath();
-            ctx.ellipse(0, 0, 9, 13, 0, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#e8c86a';
-            ctx.beginPath();
-            ctx.ellipse(0, 0, 6.5, 10, 0, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = 'rgba(120, 88, 24, 0.8)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.ellipse(0, 0, 6.5, 10, 0, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.strokeStyle = 'rgba(120, 88, 24, 0.6)';
-            ctx.beginPath();
-            ctx.moveTo(0, -5);
-            ctx.lineTo(0, 5);
-            ctx.stroke();
-            const tw = (Math.sin(k.phase * 1.7) + 1) * 0.5;
-            ctx.fillStyle = `rgba(255, 244, 200, ${(0.35 + tw * 0.45).toFixed(3)})`;
-            ctx.beginPath();
-            ctx.arc(-3, -6, 1.6 + tw, 0, Math.PI * 2);
-            ctx.fill();
             ctx.restore();
+        };
+        for (const k of this.kobans) {
+            if (!k.taken) drawOne(k.x, k.y);
+        }
+        for (const rk of this.rainKobans) {
+            if (!rk.taken) drawOne(rk.x, rk.y);
         }
     }
 

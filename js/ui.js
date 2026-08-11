@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260811f';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260811g';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260811f';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260811g';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260811f';
-import { audio } from './audio.js?v=screen-safe-20260811f';
-import { saveManager } from './save.js?v=screen-safe-20260811f';
+import { input } from './input.js?v=screen-safe-20260811g';
+import { audio } from './audio.js?v=screen-safe-20260811g';
+import { saveManager } from './save.js?v=screen-safe-20260811g';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -227,8 +227,8 @@ const KANJI_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '�
 // 場合は false を返し、呼び出し側のコード描画へ落ちる。
 const KOBAN_IMAGE_SRC = 'images/koban.png';
 let _kobanImg = null;
-// w>h を渡すと横長に描く(絵は縦長なので90度倒す)。小判は横長に置いた姿の方が
-// 一目で小判と分かる ― 縦長のまま小さく描くと金の塊にしか見えない(実機フィードバック)。
+// 小判は立てた姿(縦向き)のまま描く。回転や横倒しは絵が歪んで見えるのでしない
+// (実機フィードバック 2026-08-11)。
 export function drawKobanImage(ctx, cx, cy, w, h) {
     if (typeof Image === 'undefined') return false;
     if (!_kobanImg) {
@@ -238,13 +238,7 @@ export function drawKobanImage(ctx, cx, cy, w, h) {
     if (!(_kobanImg.complete && _kobanImg.naturalWidth)) return false;
     ctx.save();
     ctx.imageSmoothingEnabled = true;
-    ctx.translate(cx, cy);
-    if (w > h) {
-        ctx.rotate(Math.PI / 2);
-        ctx.drawImage(_kobanImg, -h / 2, -w / 2, h, w);
-    } else {
-        ctx.drawImage(_kobanImg, -w / 2, -h / 2, w, h);
-    }
+    ctx.drawImage(_kobanImg, cx - w / 2, cy - h / 2, w, h);
     ctx.restore();
     return true;
 }
@@ -1141,71 +1135,55 @@ export class UI {
         const fs = getFontScale();
         const uiS = getUiScale();
         const cx = SCREEN_WIDTH / 2;
-        // 【上辺】を左上HUDパネルに揃える。パネルは safe.top + 24*uiS が上端
-        // (renderHUD の panelY=24 を uiScale ラップ内で描くため)。
-        // 中心合わせだと上辺がどれとも揃わず浮いて見えた(実機フィードバック 2026-08-11)。
-        const w = 152 * uiS;
-        const h = 54 * uiS;
+        // 円形プログレス。矩形カード+バーは残量が読み取りづらかった(実機フィードバック)。
+        // 【上辺】は左上HUDパネル(safe.top + 24*uiS)に揃える。
+        const R = 27 * uiS;
         const top = getScreenSafeArea().top + 24 * uiS;
+        const cy = top + R;
+        const ratio = Math.max(0, Math.min(1, sec / limit));
         const urgent = sec <= 10;
         const blink = urgent ? (0.72 + Math.sin(Date.now() * 0.012) * 0.28) : 1;
-        const mainColor = urgent
-            ? `rgba(255, 138, 110, ${blink.toFixed(3)})`
-            : 'rgba(238, 246, 255, 0.95)';
 
         ctx.save();
-        drawWafuCard(ctx, cx - w / 2, top, w, h, { radius: 11 * uiS, bgAlpha: 0.86, accent: false });
-
-        // 数字＋単位（残量バーのぶん上へ寄せる）
-        ctx.textBaseline = 'alphabetic';
-        const numFont = `900 ${Math.round(23 * fs)}px "Helvetica Neue", Arial, sans-serif`;
-        const unitFont = `700 ${Math.round(11 * fs)}px "Zen Old Mincho", serif`;
-        const numText = sec.toFixed(1);
-        ctx.font = numFont;
-        const numW = ctx.measureText(numText).width;
-        ctx.font = unitFont;
-        const unitW = ctx.measureText('秒').width + 4 * uiS;
-        const startX = cx - (numW + unitW) / 2;
-        const baseY = top + 28 * uiS;
-        ctx.textAlign = 'left';
-        ctx.font = numFont;
-        ctx.fillStyle = mainColor;
-        if (urgent) {
-            ctx.shadowColor = 'rgba(255, 110, 80, 0.7)';
-            ctx.shadowBlur = 16 * uiS;
-        }
-        ctx.fillText(numText, startX, baseY);
-        ctx.shadowBlur = 0;
-        ctx.font = unitFont;
-        ctx.fillStyle = 'rgba(212, 228, 255, 0.72)';
-        ctx.fillText('秒', startX + numW + 4 * uiS, baseY - 2 * uiS);
-
-        // 残量バー（数字だけだと残りの実感が薄い。減っていく様が見える）
-        const barX = cx - w / 2 + 14 * uiS;
-        const barW = w - 28 * uiS;
-        const barY = top + h - 15 * uiS;
-        const barH = 5 * uiS;
-        const r = barH / 2;
-        const roundBar = (bx, bw) => {
-            ctx.beginPath();
-            ctx.moveTo(bx + r, barY);
-            ctx.arcTo(bx + bw, barY, bx + bw, barY + barH, r);
-            ctx.arcTo(bx + bw, barY + barH, bx, barY + barH, r);
-            ctx.arcTo(bx, barY + barH, bx, barY, r);
-            ctx.arcTo(bx, barY, bx + bw, barY, r);
-            ctx.closePath();
-        };
-        roundBar(barX, barW);
-        ctx.fillStyle = 'rgba(8, 14, 30, 0.7)';
+        // 背景の円盤(他の上端UIと同じ紺の半透明)
+        ctx.beginPath();
+        ctx.arc(cx, cy, R, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(14, 20, 38, 0.82)';
         ctx.fill();
-        const ratio = Math.max(0, Math.min(1, sec / limit));
-        if (ratio > 0.001) {
-            roundBar(barX, Math.max(barH, barW * ratio));
-            ctx.fillStyle = urgent
-                ? `rgba(255, 132, 104, ${(0.85 * blink).toFixed(3)})`
-                : 'rgba(158, 200, 255, 0.9)';
-            ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(170, 196, 238, 0.35)';
+        ctx.stroke();
+
+        // 残量リング: 12時位置から時計回りに「残り」を描く(減っていくのが見える)
+        const ringR = R - 4 * uiS;
+        ctx.lineWidth = 4.5 * uiS;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(cx, cy, ringR, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(8, 14, 30, 0.8)';
+        ctx.stroke();
+        if (ratio > 0.002) {
+            ctx.beginPath();
+            ctx.arc(cx, cy, ringR, -Math.PI / 2, -Math.PI / 2 + ratio * Math.PI * 2);
+            ctx.strokeStyle = urgent
+                ? `rgba(255, 132, 104, ${(0.95 * blink).toFixed(3)})`
+                : 'rgba(158, 200, 255, 0.95)';
+            if (urgent) {
+                ctx.shadowColor = 'rgba(255, 110, 80, 0.7)';
+                ctx.shadowBlur = 12 * uiS;
+            }
+            ctx.stroke();
+            ctx.shadowBlur = 0;
         }
+
+        // 中央に残り秒(整数)。小数は円形だと騒がしい
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = `900 ${Math.round(19 * fs)}px "Helvetica Neue", Arial, sans-serif`;
+        ctx.fillStyle = urgent
+            ? `rgba(255, 150, 124, ${blink.toFixed(3)})`
+            : 'rgba(238, 246, 255, 0.96)';
+        ctx.fillText(String(Math.ceil(sec)), cx, cy + 1 * uiS);
         ctx.restore();
     }
 
@@ -1297,7 +1275,7 @@ export class UI {
     // 小判アイコンの描画
     drawKoban(ctx, x, y, size) {
         // 生成画像があればそれを使う（HUDと蔵で同じ絵にする。共通入口は drawKobanImage）
-        if (drawKobanImage(ctx, x, y, size * 2.1, size * 1.5)) return;
+        if (drawKobanImage(ctx, x, y, size * 1.5, size * 2.0)) return;
         ctx.save();
         ctx.beginPath();
         // 縦長の楕円（小判型）
