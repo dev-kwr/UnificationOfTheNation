@@ -2,17 +2,17 @@
 // Unification of the Nation - ボスクラス
 // ============================================
 
-import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260811p';
-import { Enemy } from './enemy.js?v=screen-safe-20260811p';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260811p';
-import { audio } from './audio.js?v=screen-safe-20260811p';
-import { Player } from './player.js?v=screen-safe-20260811p';
+import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260812a';
+import { Enemy } from './enemy.js?v=screen-safe-20260812a';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260812a';
+import { audio } from './audio.js?v=screen-safe-20260812a';
+import { Player } from './player.js?v=screen-safe-20260812a';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
-} from './normalComboMotion.js?v=screen-safe-20260811p';
+} from './normalComboMotion.js?v=screen-safe-20260812a';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
@@ -21,7 +21,7 @@ import {
     SHOGUN_HEAD_SCALE,
     SHOGUN_HIP_LIFT_PX,
     SHOGUN_SCALE
-} from './shogunConstants.js?v=screen-safe-20260811p';
+} from './shogunConstants.js?v=screen-safe-20260812a';
 import {
     BOSS_DESIGNS,
     renderBossActor,
@@ -35,7 +35,7 @@ import {
     kusarigamaStance,
     drawCarriedKusarigama,
     odachiStance
-} from './bossRenderer.js?v=screen-safe-20260811p';
+} from './bossRenderer.js?v=screen-safe-20260812a';
 
 // weaponReplica の攻撃進行度(0..1)。体の所作を実体のタイムラインへ同期させる。
 function replicaProgress(replica) {
@@ -1036,17 +1036,20 @@ export class KusarigamaAssassin extends Boss {
         const bridged = attacking && (!st || !(st.radius >= 4));
         renderBossActor(ctx, this, BOSS_DESIGNS.kusa, {
             hands: (rig) => kusarigamaStance(rig, attacking ? anchor : null),
-            // 鎖と軌跡は手前腕より奥
+            // 鎖・軌跡・柄は手前腕/掌より奥
             front: (rig, h) => {
-                if (!attacking || bridged) return;
+                if (!attacking || bridged) {
+                    drawCarriedKusarigama(rig, h, rig.t, st ? st.chainHeading : undefined, 'under');
+                    return;
+                }
                 rig.world(() => {
                     if (kusa && typeof kusa.render === 'function') kusa.render(ctx, this, 'behind');
                 });
             },
-            // 鎌ヘッドは掌より前(プレイヤーの 'behind'→手→'front' と同じ)
+            // 刃は掌より前(プレイヤーの 柄→手→刃 と同じ順)
             frontTop: (rig, h) => {
                 if (!attacking || bridged) {
-                    drawCarriedKusarigama(rig, h, rig.t, st ? st.chainHeading : undefined);
+                    drawCarriedKusarigama(rig, h, rig.t, st ? st.chainHeading : undefined, 'over');
                     return;
                 }
                 rig.world(() => {
@@ -1720,7 +1723,12 @@ function createShogunBossPlayer(x, _y, _type, groundY) {
         // ダメージ蓄積で発火する「よろけ」だけ全身白フラッシュ＋大きく後傾する
         let shogunHitShake = 0;
         let shogunStaggerLean = 0;
-        if (this.staggerTimer > 0) {
+        // 【技を出している間は傾けない】。よろけは体ごと回すので、攻撃モーションが
+        // その中で再生されると「斬撃が斜めに出る」絵になる(実機フィードバック 2026-08-12)。
+        // 押し込み(shogunHitShake)は方向を持たない平行移動なので手応えとして残す。
+        const shogunSwinging = !!(this.isAttacking || (this.attackTimer || 0) > 0
+            || (this.subWeaponTimer || 0) > 0);
+        if (this.staggerTimer > 0 && !shogunSwinging) {
             // よろけだけ全身白フラッシュ＋大きく後傾(色変化はこの1種類のみ)。
             // 白は最初の100msだけにして長引かせない(残りは後傾のみ)
             const st = Math.max(0, Math.min(1, this.staggerTimer / 420));

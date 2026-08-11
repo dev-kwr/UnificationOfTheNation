@@ -2,8 +2,8 @@
 // Unification of the Nation - 敵クラス
 // ============================================
 
-import { ENEMY_TYPES, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js?v=screen-safe-20260811s';
-import { audio } from './audio.js?v=screen-safe-20260811s';
+import { ENEMY_TYPES, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js?v=screen-safe-20260812a';
+import { audio } from './audio.js?v=screen-safe-20260812a';
 
 const ENEMY_HEADBAND_BASE = '#4f2f72';
 const ENEMY_HEADBAND_HIGHLIGHT = '#7e58a6';
@@ -2727,7 +2727,20 @@ export class Enemy {
             // 被弾リアクション。雑魚は上体を後方へ反らし(足元を軸に回転)、
             // ボスは仰け反らせず微振動だけにする＝スーパーアーマーの重量感を出す
             // (ボスは被弾回数が多く、毎回のけぞると軽く見えてしまう)
-            if (isBossActor && this.staggerTimer > 0) {
+            //
+            // 【技を出している間は傾けない】。のけぞり/よろけは体ごと回すので、
+            // 攻撃モーションがその中で再生されると「斬撃が斜めに出る」絵になる
+            // (実機フィードバック 2026-08-12)。技のほうは判定と噛み合っているので
+            // 触らず、演出の傾きだけを譲る。押し込み・振動は方向を持たないので残す。
+            const swinging = !!(this.isAttacking || (this.attackTimer || 0) > 0
+                || (this.subWeaponTimer || 0) > 0);
+            if (swinging) {
+                // 傾けないが、ボスの押し込み(方向のある平行移動)だけは手応えとして残す
+                if (isBossActor && this.hitTimer > 0 && !(this.staggerTimer > 0)) {
+                    const hurt = Math.max(0, Math.min(1, this.hitTimer / 90));
+                    ctx.translate(-dir * 6.0 * hurt + Math.sin(this.hitTimer * 1.15) * 3.0 * hurt, 0);
+                }
+            } else if (isBossActor && this.staggerTimer > 0) {
                 // よろけ: 足元を軸に大きく後傾し、ゆっくり戻る
                 const st = Math.max(0, Math.min(1, this.staggerTimer / 420));
                 const footY = this.y + this.height;

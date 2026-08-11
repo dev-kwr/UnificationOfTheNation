@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260811s';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260812a';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260811s';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260812a';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260811s';
-import { audio } from './audio.js?v=screen-safe-20260811s';
-import { saveManager } from './save.js?v=screen-safe-20260811s';
+import { input } from './input.js?v=screen-safe-20260812a';
+import { audio } from './audio.js?v=screen-safe-20260812a';
+import { saveManager } from './save.js?v=screen-safe-20260812a';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -3932,15 +3932,18 @@ export function getPauseReturnButton() {
     return { x: SCREEN_WIDTH / 2, y: L.attack.y, w: 200 * Math.max(L.s, getFontScale()), h: 40 * L.s };
 }
 
-export function renderPauseScreen(ctx, armed = false) {
-    if (!ctx) return;
-    const btn = getPauseReturnButton();
+// ポーズの「地図に戻る」。タイトルに戻るの【上】へ積む。
+// 中央の空きは縦にしか余裕が無い(左右は操作ボタン)ので横並びにはしない。
+// canGoMap が false のときは呼び出し側で描かない/判定しない。
+export function getPauseMapButton() {
+    const base = getPauseReturnButton();
+    const L = getPadLayout();
+    return { x: base.x, y: base.y - base.h - 14 * L.s, w: base.w, h: base.h };
+}
+
+function drawPauseButton(ctx, btn, label, armed) {
     const x = btn.x - btn.w / 2;
     const y = btn.y - btn.h / 2;
-    ctx.save();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    // 角丸の控えめなボタン（通常=紺地+金縁／確認待ち=赤系で警告）
     ctx.beginPath();
     if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, btn.w, btn.h, 8);
     else ctx.rect(x, y, btn.w, btn.h);
@@ -3949,11 +3952,28 @@ export function renderPauseScreen(ctx, armed = false) {
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = armed ? 'rgba(255, 196, 196, 0.9)' : 'rgba(220, 200, 150, 0.7)';
     ctx.stroke();
-    // ラベル（PCはクリック表記。確認は「もう一度〜」で通常と長さを揃える）
-    const actionWord = isTouchOverlayMode() ? 'タップ' : 'クリック';
     ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
     ctx.font = `${Math.round(16 * getFontScale())}px "Zen Old Mincho", serif`;
-    fillTextInkCentered(ctx, armed ? `もう一度${actionWord}` : 'タイトルに戻る', btn.x, btn.y);
+    fillTextInkCentered(ctx, label, btn.x, btn.y);
+}
+
+export function renderPauseScreen(ctx, armed = false, options = {}) {
+    if (!ctx) return;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // ラベル（PCはクリック表記。確認は「もう一度〜」で通常と長さを揃える）
+    const actionWord = isTouchOverlayMode() ? 'タップ' : 'クリック';
+    // 地図へ戻れるのは本編のステージだけ(寄り道やタイトル経由では出さない)
+    if (options.canGoMap) {
+        drawPauseButton(ctx, getPauseMapButton(), '地図に戻る', false);
+    }
+    drawPauseButton(
+        ctx,
+        getPauseReturnButton(),
+        armed ? `もう一度${actionWord}` : 'タイトルに戻る',
+        armed
+    );
     ctx.restore();
 }
 

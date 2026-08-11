@@ -1,17 +1,17 @@
 // Unification of the Nation - 描画系 mixin
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260811s';
-import { audio } from './audio.js?v=screen-safe-20260811s';
-import { game } from './game.js?v=screen-safe-20260811s';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260812a';
+import { audio } from './audio.js?v=screen-safe-20260812a';
+import { game } from './game.js?v=screen-safe-20260812a';
 import {
     ANIM_STATE, COMBO_ATTACKS, PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
-} from './playerData.js?v=screen-safe-20260811s';
-import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260811s';
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260811s';
+} from './playerData.js?v=screen-safe-20260812a';
+import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260812a';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812a';
 import {
     SHOGUN_SCALE,
     SHOGUN_ACTOR_BASE_HEIGHT,
@@ -37,7 +37,7 @@ import {
     NINJA_CROUCH_LIFT_AMP,
     SHOGUN_CROUCH_LIFT_AMP,
     SHOGUN_RUN_STRIDE_CENTER_BIAS
-} from './shogunConstants.js?v=screen-safe-20260811s';
+} from './shogunConstants.js?v=screen-safe-20260812a';
 
 export function applyRendererMixin(PlayerClass) {
     applyShogunRendererMixin(PlayerClass);
@@ -890,6 +890,10 @@ export function applyRendererMixin(PlayerClass) {
     PlayerClass.prototype.applyHurtRecoilTransform = function(ctx) {
         const timer = this.hurtRecoilTimer || 0;
         if (timer <= 0 || this.isDefeated) return false;
+        // 【技を出している間は傾けない】。のけぞりは体ごと回すので、攻撃モーションが
+        // その中で再生されると「斬撃が斜めに出る」絵になる(実機フィードバック 2026-08-12)。
+        // 技のほうは判定と噛み合っているので触らず、演出の傾きだけを譲る。
+        if (this.isAttacking || (this.subWeaponTimer || 0) > 0 || this.isUsingSpecial) return false;
         const t = Math.min(1, timer / 300);
         const dir = this.facingRight ? 1 : -1;
         const worldW = typeof this.getWorldWidth === 'function' ? this.getWorldWidth() : this.width;

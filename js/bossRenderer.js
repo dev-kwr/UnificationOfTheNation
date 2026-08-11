@@ -90,7 +90,7 @@ function limbN(c,ax,ay,hx,hy,frac,bend,mode,w1,w2,col,hi,pass='fill'){
 
 /* 二刀の刀身はプレイヤーと同一形状。katanaShape.js は依存ゼロなので循環しない
    (playerRenderer.js を直接 import すると game.js の TDZ でクラッシュする)。 */
-import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260811p';
+import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260812a';
 /* 刀身長はプレイヤー実数値のまま渡し、拡大は描画側の ctx.scale だけで行う(二重拡大防止)。
    倍率は素体リグの SC(=1.8) ではなく【描画上の身長比】を使う:
      プレイヤーの描画身長 = height(72) - headRadius*0.1(=1.68) = 70.32
@@ -1083,7 +1083,11 @@ function realSpear(c,shaftEnd,buttLen){
   ring(-buttLen+0.8,3.2,2.6);
 }
 /* 鎖鎌 — drawSickleHead(実装)の移植 */
-function realSickle(c,x,y,ang){
+/* mode: 'all'(既定) | 'handle'(鎖環+柄+口金) | 'blade'(刃だけ)
+   握って見せるには playerRenderer の刀と同じく 柄 → 掌 → 刃 の順で描く必要がある。
+   全部まとめて掌より前に描くと、手の甲に貼り付いたように見える。 */
+function realSickle(c,x,y,ang,mode){
+  const doHandle = mode!=='blade', doBlade = mode!=='handle';
   c.save(); c.translate(x,y); c.rotate(ang);
   const HL=18;
   const bladeOutline=()=>{ c.beginPath();
@@ -1093,6 +1097,7 @@ function realSickle(c,x,y,ang){
     c.quadraticCurveTo(-3.8,-9.0,-1.3,-0.9);
     c.quadraticCurveTo(0.4,0.0,2.6,0.4);
     c.closePath(); };
+  if(doHandle){
   // 柄尻の鎖環
   const gw=c.createRadialGradient(-HL-1,-1,0.3,-HL,0.6,4.4);
   gw.addColorStop(0,'#b8c0cc'); gw.addColorStop(0.5,'#5d6776'); gw.addColorStop(1,'#202530');
@@ -1120,6 +1125,8 @@ function realSickle(c,x,y,ang){
   c.beginPath(); c.moveTo(-2.4,-2.9); c.lineTo(2.9,-2.6); c.lineTo(2.9,2.8); c.lineTo(-2.4,2.7);
   c.closePath(); c.fill();
   c.strokeStyle='rgba(40,28,8,0.65)'; c.lineWidth=0.5; c.stroke();
+  }
+  if(doBlade){
   // 刃本体
   const bg=c.createLinearGradient(3,-1,-7,-19);
   bg.addColorStop(0,'#454f5e'); bg.addColorStop(0.22,'#6c7889'); bg.addColorStop(0.5,'#9fabba');
@@ -1136,6 +1143,7 @@ function realSickle(c,x,y,ang){
   c.beginPath(); c.moveTo(-1.3,-0.9); c.quadraticCurveTo(-3.8,-9.0,-5.7,-17.8); c.stroke();
   bladeOutline(); c.strokeStyle='rgba(28,34,44,0.92)'; c.lineWidth=0.6; c.stroke();
   c.fillStyle='rgba(255,255,255,0.9)'; c.beginPath(); c.arc(-5.4,-18.8,0.8,0,TAU); c.fill();
+  }
   c.restore();
 }
 /* 鎖(実装の鎖コマ: 楕円環を接線方向へ) */
@@ -1619,24 +1627,33 @@ export function odachiStance(rig, anchor){
   return { front: f, back: { x: f.x - Math.cos(ang) * 13, y: f.y - Math.sin(ang) * 13 }, ang };
 }
 
-/** 携行中の鎌と鎖(実体 Kusarigama は待機中フェードして描かれないため素体側で持たせる) */
-export function drawCarriedKusarigama(rig, hands, t, heading){
+/* 携行中の鎌と鎖(実体 Kusarigama は鎖が短い間フェードして描かれないため素体側で持たせる)。
+   layer='under' … 鎖 + 柄(掌より【奥】)  /  layer='over' … 刃だけ(掌より【手前】)
+   playerRenderer の刀と同じ「柄 → 掌 → 刃」の順で描かないと、
+   得物が手の甲に貼り付いたように見えて握って見えない(ユーザー指摘)。 */
+export function drawCarriedKusarigama(rig, hands, t, heading, layer){
   const c = rig.c;
-  /* 鎌も鎖も【手前手】が持つ。刃の向きは攻撃の振りかぶり開始(angle=-0.72)と同じ。
-     以前は鎖を奥手まで水平に張っていて、待機だけ得物が反対の腕にあるように見え、
-     鎖が体を横切る奇妙な絵になっていた(ユーザー指摘)。
-     携行中の鎖は同じ手の下へ短く垂らす。 */
+  const hx = hands.front.x, hy = hands.front.y;
   const kro = Number.isFinite(heading) ? heading : -0.72;
-  const kx = hands.front.x, ky = hands.front.y;
-  const bx = kx - Math.cos(kro) * 18, by = ky - Math.sin(kro) * 18;   // 柄尻の鎖環
-  const wag = Math.sin(t * TAU / 2.4) * (rig.motion === 'run' ? 4 : 1.8);
-  /* 実機の鎖鎌に分銅は無く、鎖は【一端が手・もう一端が鎌】。
-     携行中は柄尻の鎖環から垂れ下がり、同じ手へ戻ってくる輪になる。
-     以前は先端が宙で終わっていて「どこに繋がっているのか」分からなかった(ユーザー指摘)。 */
-  const lowX = kx - 3 + wag * 0.8, lowY = ky + 26 + wag * 0.5;        // 垂れの底
-  realChain(c, bx, by, lowX, lowY, bx - 6, (by + lowY) * 0.5 + 5);    // 柄尻 → 底
-  realChain(c, lowX, lowY, kx + 3, ky + 4, lowX + 9, (lowY + ky) * 0.5 + 6); // 底 → 手
-  realSickle(c, kx, ky, kro);
+  /* realSickle の原点は【口金(刃の根元)】。柄は原点から -18 まで後ろへ伸びる。
+     ボスの掌は半径 7.6 で柄(18)とほぼ同じ大きさなので、握りが読めるように
+     柄尻側を掌の外へ出す: GRIP=6 なら柄尻は手の 12 後ろ = 掌の外、
+     柄巻きの一部が拳の後ろから覗き、刃は掌より前に出る。 */
+  const GRIP = 6;
+  const kx = hx + Math.cos(kro) * GRIP, ky = hy + Math.sin(kro) * GRIP;
+  const bx = kx - Math.cos(kro) * 18,  by = ky - Math.sin(kro) * 18;   // 柄尻の鎖環
+
+  if (layer !== 'over') {
+    /* 実機の鎖鎌に分銅は無く、鎖は【一端が手・もう一端が鎌】。
+       携行中は柄尻の鎖環から垂れ、同じ【手】へ戻る輪になる。
+       戻り先を口金(刃の根元)にすると「鎖が刃に繋がっている」おかしな絵になる。 */
+    const wag = Math.sin(t * TAU / 2.4) * (rig.motion === 'run' ? 4 : 1.8);
+    const lowX = hx - 2 + wag * 0.8, lowY = hy + 27 + wag * 0.5;       // 垂れの底
+    realChain(c, bx, by, lowX, lowY, bx - 7, (by + lowY) * 0.5 + 6);   // 柄尻 → 底
+    realChain(c, lowX, lowY, hx, hy, lowX + 10, (lowY + hy) * 0.5 + 6); // 底 → 手
+    realSickle(c, kx, ky, kro, 'handle');
+  }
+  if (layer !== 'under') realSickle(c, kx, ky, kro, 'blade');
 }
 
 /** 携行中の大槍(待機・走り)。実体の待機グリップは膝の高さで持てて見えないため素体側で構える */
