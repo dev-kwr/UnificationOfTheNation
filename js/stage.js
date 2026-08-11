@@ -2,19 +2,19 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260811n';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811n';
-import { createEnemy } from './enemy.js?v=screen-safe-20260811n';
-import { createBoss } from './boss.js?v=screen-safe-20260811n';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260811n';
-import { audio } from './audio.js?v=screen-safe-20260811n';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260811n';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260811p';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811p';
+import { createEnemy } from './enemy.js?v=screen-safe-20260811p';
+import { createBoss } from './boss.js?v=screen-safe-20260811p';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260811p';
+import { audio } from './audio.js?v=screen-safe-20260811p';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260811p';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260811n';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260811n';
+} from './stage6Grapple.js?v=screen-safe-20260811p';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260811p';
 
 // ============================================
 // ステージ背景アセットの単一ソース
@@ -2658,10 +2658,26 @@ export class Stage {
             }
         }
 
+        // 【名乗りの間は雑魚も手出し無用】。ボスは boss.update を止め、プレイヤーは
+        // introControlLockTimer で足を止めているのに、雑魚だけが素通しで寄ってきて
+        // 斬りかかっていた(実機フィードバック 2026-08-11)。被弾自体は
+        // game.handlePlayerDamage が弾いているが、止まっている絵の中で雑魚だけが
+        // 動き回るのは演出として破綻している。
+        // 止め方はボスと同じ: 攻撃を落とし・足を止め・次の攻撃までの間を置く。
+        // update 自体は通す(落下や死亡演出まで止めると空中で固まる)。
+        const introHush = typeof this.isBossIntroBeforeCall === 'function'
+            && this.isBossIntroBeforeCall();
+
         // 敵を更新し、削除すべきものをフィルタ
         // 置き去りになった敵は前方に再登場させ、走り抜け時の敵枯渇を防ぐ
         const nextEnemies = [];
         for (const enemy of this.enemies) {
+            if (introHush && enemy && enemy.isAlive && !enemy.isDying && !enemy.bossName) {
+                enemy.isAttacking = false;
+                enemy.attackTimer = 0;
+                enemy.attackCooldown = Math.max(enemy.attackCooldown || 0, 400);
+                if (enemy.isGrounded) enemy.vx = 0;
+            }
             this.updateStage4EnemyRoofMovement(enemy, player, obstacles, deltaTime);
             const shouldRemove = enemy.update(deltaTime, player, obstacles);
             if (shouldRemove) continue;

@@ -2,16 +2,16 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260811n';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811n';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260811n';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260811n';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260811n';
-import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260811n';
-import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260811n';
-import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260811n';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260811n';
-import { input } from './input.js?v=screen-safe-20260811n';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260811p';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811p';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260811p';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260811p';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260811p';
+import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260811p';
+import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260811p';
+import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260811p';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260811p';
+import { input } from './input.js?v=screen-safe-20260811p';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -49,18 +49,18 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=screen-safe-20260811n';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260811n';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260811n';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260811n';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260811n';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260811n';
-import { saveManager } from './save.js?v=screen-safe-20260811n';
-import { shop } from './shop.js?v=screen-safe-20260811n';
-import { audio } from './audio.js?v=screen-safe-20260811n';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260811n';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260811n';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260811n';
+import { Player } from './player.js?v=screen-safe-20260811p';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260811p';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260811p';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260811p';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260811p';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260811p';
+import { saveManager } from './save.js?v=screen-safe-20260811p';
+import { shop } from './shop.js?v=screen-safe-20260811p';
+import { audio } from './audio.js?v=screen-safe-20260811p';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260811p';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260811p';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260811p';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -1165,7 +1165,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260811n').then(module => {
+        import('./weapon.js?v=screen-safe-20260811p').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -2249,6 +2249,30 @@ class Game {
         return Math.max(0, Math.min(STAGE6_DUEL_LEAD_MAX_PX, half));
     }
 
+    /**
+     * 【会敵の間、プレイヤーを名乗り帯より左に留める】。
+     * 入力は introControlLockTimer で封じているが、handleInput は接地時しか vx を
+     * 落とさない(空中は慣性で着地させる設計)ため、ジャンプや奥義の勢いが残っていると
+     * 帯の下まで滑り込んで、そこで開戦していた(実機フィードバック 2026-08-11)。
+     * ボスの登場目標Xは「帯の中心に対してプレイヤーの鏡像」(getBossSymmetricEntranceTargetX)
+     * なので、プレイヤーが帯を越えると鏡像が潰れて左右対称の構図そのものが壊れる。
+     *
+     * 瞬間移動に見えないよう、超過分は1フレームあたり上限を設けて戻す。
+     * 帯の矩形は ui.getBossNameBannerBox() から引く(座標式を複製しない)。
+     */
+    holdPlayerLeftOfBossNameBanner() {
+        const p = this.player;
+        if (!p) return;
+        const banner = getBossNameBannerBox();
+        const pw = p.getWorldWidth();
+        // 帯の左端から少し内側に余白を取り、切先や装具が帯に触れないようにする
+        const limitX = this.scrollX + banner.x - 24 - pw;
+        if (p.x <= limitX) return;
+        const PULL_BACK_PER_FRAME = 14;   // ≒840px/秒。踏みとどまる程度の速さ
+        p.x = Math.max(limitX, p.x - PULL_BACK_PER_FRAME);
+        if (p.vx > 0) p.vx = 0;
+    }
+
     updateStage6CameraLead() {
         const s = this.stage;
         const inArena = !!(s && s.isStage6Arena && s.isStage6Arena());
@@ -2710,15 +2734,14 @@ class Game {
         // Stage6の会敵歩行(自動操作)は bossSpawned と同時に歩きを止める設計
         // (updateStage6ArenaApproach の shouldWalk=!bossSpawned)なので、この窓と重ならない。
         // 毎フレーム上書き式なのでフェーズを抜けた瞬間に自然解除される(入力の押し直しも不要)。
-        {
-            const introPlayerLock = !!(this.stage
-                && typeof this.stage.isBossIntroBeforeCall === 'function'
-                && this.stage.isBossIntroBeforeCall());
-            if (introPlayerLock && this.player) {
-                this.player.introControlLockTimer = Math.max(this.player.introControlLockTimer || 0, 90);
-            }
+        const introPlayerLock = !!(this.stage
+            && typeof this.stage.isBossIntroBeforeCall === 'function'
+            && this.stage.isBossIntroBeforeCall());
+        if (introPlayerLock && this.player) {
+            this.player.introControlLockTimer = Math.max(this.player.introControlLockTimer || 0, 90);
         }
         this.player.update(this.deltaTime, playerPhysicsObstacles, preActiveFrameEnemies);
+        if (introPlayerLock) this.holdPlayerLeftOfBossNameBanner();
 
         // ジャンプ着地の土煙（落下速度が一定以上のときだけ・足元から低く広がる）
         if (this.player.justLanded && this.player.landingImpactSpeed > 2.2) {
@@ -5663,6 +5686,17 @@ class Game {
     updateStageClear() {
         this.prefetchNextStageAssets();
 
+        // 【行き先を選び直せるようにする】。全体マップで行き先を決めてから来た画面
+        // なので、ESC は「一つ前＝マップへ戻る」を意味する。決めたら引き返せない
+        // 画面になっていた(実機フィードバック 2026-08-11)。
+        // マップから来ていない(クリア演出の流れなど)ときは従来どおりポーズへ。
+        const canGoBackToMap = this.stageClearPhase === 1 && this.pendingStageSelection != null;
+        if (canGoBackToMap && input.isActionJustPressed('PAUSE')) {
+            input.consumeAction('PAUSE');
+            audio.playSelect();
+            this.enterStageSelect();
+            return;
+        }
         // ステータス画面中は Q キーでもポーズ可能にする
         if (input.isActionJustPressed('PAUSE') || input.isActionJustPressed('DEBUG_TOGGLE')) {
             this.pauseReturnState = GAME_STATE.STAGE_CLEAR;
@@ -5772,6 +5806,16 @@ class Game {
             // メニュー矩形は描画(renderStatusScreen)と同じ getStatusScreenLayout から単一導出
             const L = getStatusScreenLayout();
             const slop = 10 * L.s;
+
+            if (canGoBackToMap) {
+                const b = L.backButton;
+                if (tx >= b.x - slop && tx <= b.x + b.w + slop && ty >= b.y - slop && ty <= b.y + b.h + slop) {
+                    input.touchJustPressed = false;
+                    audio.playSelect();
+                    this.enterStageSelect();
+                    return;
+                }
+            }
 
             for (let i = 0; i < menuCount; i++) {
                 const r = L.menuRects[i];
@@ -7149,7 +7193,9 @@ class Game {
         } else {
             const statusOptions = {
                 menuIndex: this.stageClearMenuIndex,
-                selectedWeaponName: this.player?.currentSubWeapon?.name || '未装備'
+                selectedWeaponName: this.player?.currentSubWeapon?.name || '未装備',
+                // 全体マップで行き先を決めてから来たときだけ「◀ 行き先」を出す
+                canGoBack: this.pendingStageSelection != null
             };
             // 背景 → キャラ → UI の順で固定
             renderStatusScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {

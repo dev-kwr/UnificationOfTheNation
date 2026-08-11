@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260811n';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260811p';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260811n';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260811p';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260811n';
-import { audio } from './audio.js?v=screen-safe-20260811n';
-import { saveManager } from './save.js?v=screen-safe-20260811n';
+import { input } from './input.js?v=screen-safe-20260811p';
+import { audio } from './audio.js?v=screen-safe-20260811p';
+import { saveManager } from './save.js?v=screen-safe-20260811p';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -2574,6 +2574,18 @@ export function drawWafuHeading(ctx, cx, baselineY, text, opts = {}) {
 // 背景の色には一切触れない UI レイヤーの表現なので、ボス部屋の
 // ボス名はここで一度だけ見せる。戦闘中のHPゲージには名前を再掲しない。
 // 横組みに統一し、中央の縦短冊と上部の横ゲージが競合していた旧構成を解消する。
+// 名乗り帯の矩形。描画(renderBossNameBanner)と、会敵の立ち位置クランプ
+// (game.updatePlaying)が同じ値を読む。座標式を複製すると、帯の大きさを変えた
+// ときに「帯を飛び越した位置で開戦する」ずれが戻ってくる。
+export function getBossNameBannerBox() {
+    const s = getUiScale();
+    const w = Math.min(Math.round(590 * s), SCREEN_WIDTH - Math.round(48 * s));
+    const h = Math.round(126 * s);
+    const cx = SCREEN_WIDTH * 0.5;
+    const cy = CANVAS_HEIGHT * 0.39;
+    return { x: Math.round(cx - w * 0.5), y: Math.round(cy - h * 0.5), w, h, cx, cy };
+}
+
 export function renderBossNameBanner(ctx, name, opts = {}) {
     const text = String(name || '').trim();
     if (!text) return;
@@ -2584,12 +2596,7 @@ export function renderBossNameBanner(ctx, name, opts = {}) {
     const stageNumber = Math.max(1, Math.min(6, Number(opts.stageNumber) || 1));
     const accents = ['#91c3a0', '#d9b37a', '#b9c8df', '#e2a06e', '#d4b986', '#e8bac9'];
     const accent = accents[stageNumber - 1];
-    const w = Math.min(Math.round(590 * s), SCREEN_WIDTH - Math.round(48 * s));
-    const h = Math.round(126 * s);
-    const cx = SCREEN_WIDTH * 0.5;
-    const cy = CANVAS_HEIGHT * 0.39;
-    const x = Math.round(cx - w * 0.5);
-    const y = Math.round(cy - h * 0.5);
+    const { x, y, w, h, cx, cy } = getBossNameBannerBox();
     const easeOut = 1 - Math.pow(1 - enterT, 3);
     const easeIn = exitT * exitT;
     const alpha = Math.min(1, enterT * 2.6) * (1 - easeIn);
@@ -2750,7 +2757,16 @@ export function getStatusScreenLayout() {
         cardW: (infoPanelW - rowInset * 2 - cardGap * 2) / 3,
         cardH, cardGap,
         menuRects: [0, 1, 2].map((i) => ({ x: menuStartX + i * (menuW + menuGap), y: menuY, w: menuW, h: menuH })),
-        menuBottom: menuY + menuH
+        menuBottom: menuY + menuH,
+        // 「行き先へ戻る」。下の3択(忍具/よろず屋/準備完了)は等分割なので4つ目を
+        // 足すと全部が細くなる。行き先の選び直しは決定系ではなく取り消しなので、
+        // 左上へ独立して置く。画面端の退避は HUD と同じ getScreenSafeArea を使う。
+        backButton: {
+            x: safe.left + 20,
+            y: safe.top + 20,
+            w: 132 * s,
+            h: 40 * s
+        }
     };
 }
 
@@ -2911,8 +2927,27 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         });
         ctx.textBaseline = 'alphabetic';
 
+        // 行き先へ戻る（全体マップから来たときだけ）。選び直しの導線が無いと
+        // 「決めたら引き返せない」画面になる(実機フィードバック 2026-08-11)。
+        if (options.canGoBack) {
+            const b = L.backButton;
+            drawWafuCard(ctx, b.x, b.y, b.w, b.h, { radius: 9 * s, bgAlpha: 0.72 });
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = 'rgba(224, 234, 255, 0.9)';
+            ctx.font = `700 ${16 * tf}px "Zen Old Mincho", serif`;
+            fillTextInkCentered(ctx, '◀ 行き先', b.x + b.w / 2, b.y + b.h / 2);
+            ctx.textBaseline = 'alphabetic';
+        }
+
         // 操作説明はタイトル画面と同じ見た目・位置に統一（メニュー底辺と重ならない位置へ）
-        drawScreenManualLine(ctx, '←→：選択 | SPACE：決定 | ↑↓：装備切替', Math.max(CANVAS_HEIGHT - 20, L.menuBottom + 14));
+        drawScreenManualLine(
+            ctx,
+            options.canGoBack
+                ? '←→：選択 | SPACE：決定 | ↑↓：装備切替 | ESC：行き先へ戻る'
+                : '←→：選択 | SPACE：決定 | ↑↓：装備切替',
+            Math.max(CANVAS_HEIGHT - 20, L.menuBottom + 14)
+        );
 
     } finally {
         ctx.restore();

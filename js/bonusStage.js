@@ -20,11 +20,11 @@
 // 画像: images/bonus_kura_*.png（Codex/gpt-image 生成。読めない環境では
 // コード描画にフォールバック）。
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260811n';
-import { audio } from './audio.js?v=screen-safe-20260811n';
-import { getImage } from './imageCache.js?v=screen-safe-20260811n';
-import { drawKobanImage } from './ui.js?v=screen-safe-20260811n';
-import { pushGain, updateGainPops, renderGainPops, tickTimeLimit, clampToLeftEdge } from './sideStageCommon.js?v=screen-safe-20260811n';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260811p';
+import { audio } from './audio.js?v=screen-safe-20260811p';
+import { getImage } from './imageCache.js?v=screen-safe-20260811p';
+import { drawKobanImage } from './ui.js?v=screen-safe-20260811p';
+import { pushGain, updateGainPops, renderGainPops, tickTimeLimit, clampToLeftEdge } from './sideStageCommon.js?v=screen-safe-20260811p';
 
 // 小判1枚の価値（両）。よろず屋の相場に合わせてここだけで調整する。
 const KOBAN_VALUE = 10;
@@ -292,17 +292,20 @@ export class BonusStage {
 
         const px = player.x + player.getWorldWidth() * 0.5;
         const py = player.y + player.getWorldHeight() * 0.5;
+        // 拾い手は【本体＋生きている分身】。奥義を使うと分身が塔を散って登るので、
+        // 本体の座標だけで判定すると「分身が触れているのに取れない」ことになる
+        // (実機フィードバック 2026-08-11)。
+        const pickers = this.getKobanPickers(player, px, py);
         for (const k of this.kobans) {
             if (k.taken) continue;
-            if (Math.hypot(px - k.x, py - k.y) < 48) {
-                k.taken = true;
-                this.collected++;
-                this.grantScore(player, k.value, k.x, k.y);
-            }
+            if (!this.touchesAny(pickers, k.x, k.y, 48)) continue;
+            k.taken = true;
+            this.collected++;
+            this.grantScore(player, k.value, k.x, k.y);
         }
         if (this.chest && !this.chest.taken) {
             this.chest.phase += deltaTime * 3;
-            if (Math.hypot(px - this.chest.x, py - this.chest.y) < 74) {
+            if (this.touchesAny(pickers, this.chest.x, this.chest.y, 74)) {
                 this.chest.taken = true;
                 this.grantScore(player, CHEST_VALUE, this.chest.x, this.chest.y);
             }
@@ -313,14 +316,36 @@ export class BonusStage {
             this._rainMode = true;
             this._rainTimer = 0.5;
         }
-        if (this._rainMode) this.updateRain(deltaTime, player, px, py);
+        if (this._rainMode) this.updateRain(deltaTime, player, px, py, pickers);
+    }
+
+    // 小判を拾える点(ワールド座標の中心)を集める。本体は常に1つ目。
+    // 分身は奥義中だけ現れ、getSpecialCloneAnchors() が足元ではなく
+    // 【中心】のアンカーを返すので、本体と同じ基準で比べられる。
+    getKobanPickers(player, px, py) {
+        const pts = [{ x: px, y: py }];
+        if (!player.isUsingSpecial || typeof player.getSpecialCloneAnchors !== 'function') return pts;
+        const anchors = player.getSpecialCloneAnchors() || [];
+        for (const a of anchors) {
+            if (!a || a.alpha === 0) continue;
+            if (!Number.isFinite(a.x) || !Number.isFinite(a.y)) continue;
+            pts.push({ x: a.x, y: a.y });
+        }
+        return pts;
+    }
+
+    touchesAny(pickers, x, y, radius) {
+        for (const p of pickers) {
+            if (Math.hypot(p.x - x, p.y - y) < radius) return true;
+        }
+        return false;
     }
 
     // 降り注ぐ小判。ただ落とすと無機質なので「舞い落ちて弾む」までを演出する:
     //   ①上空に光の筋(予兆) → ②木の葉のように左右へ揺れながら回転して落ちる
     //   → ③着地で1回小さく弾む → ④埃が立つ → ⑤面の上で余韻の揺り戻し
     // 一度に1枚ずつではなく2〜3枚を少しずらして降らせ、「降り注ぐ」量感を出す。
-    updateRain(deltaTime, player, px, py) {
+    updateRain(deltaTime, player, px, py, pickers = [{ x: px, y: py }]) {
         const laneY = this.groundY + LANE_OFFSET;
         this._rainTimer -= deltaTime;
         if (this._rainTimer <= 0) {
@@ -362,7 +387,7 @@ export class BonusStage {
                 rk.spin += deltaTime * rk.spinSpeed * rk.settle * 0.5;
             }
 
-            if (Math.hypot(px - rk.x, py - rk.y) < 48) {
+            if (this.touchesAny(pickers, rk.x, rk.y, 48)) {
                 rk.taken = true;
                 this.grantScore(player, rk.value, rk.x, rk.y);
             }
