@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812f';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812f';
-import { createEnemy } from './enemy.js?v=screen-safe-20260812f';
-import { createBoss } from './boss.js?v=screen-safe-20260812f';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260812f';
-import { audio } from './audio.js?v=screen-safe-20260812f';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812f';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812g';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812g';
+import { createEnemy } from './enemy.js?v=screen-safe-20260812g';
+import { createBoss } from './boss.js?v=screen-safe-20260812g';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260812g';
+import { audio } from './audio.js?v=screen-safe-20260812g';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812g';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260812f';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812f';
+} from './stage6Grapple.js?v=screen-safe-20260812g';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812g';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812f';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812g';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -1922,11 +1922,8 @@ export class Stage {
         const clipScreenX = clipWorldLeft - scrollX;
         const topScreenX = worldTopX - scrollX;
 
-        // 穴の表現（黒塗り）
-        ctx.save();
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.95)';
-        ctx.fillRect(clipScreenX, this.baseGroundY, visibleWidth, CANVAS_HEIGHT - this.baseGroundY);
-        ctx.restore();
+        // 穴（階段室）。降り口の深さと下階の灯りで見せる
+        this.drawStairwellVoid(ctx, clipScreenX, visibleWidth, prevDir);
 
         ctx.save();
         ctx.beginPath();
@@ -1948,6 +1945,85 @@ export class Stage {
             ctx.scale(-s, s);
             drawImageGraded(ctx, this.stairImage, -(this.stairOriginX + TOTAL_L), -(this.stairOriginY - TOTAL_H));
         }
+        ctx.restore();
+
+        // 階段を描いた後にもう一度だけ灯りを重ねる（踏板の先が光を拾う）
+        this.drawStairwellLightOverlay(ctx, clipScreenX, visibleWidth, prevDir);
+    }
+
+    /**
+     * 登ってきた階段の口（床に空いた穴）。
+     * 【単色の黒で塗らない】。床に矩形を空けただけの絵になり、下階が
+     * 「真っ黒」に見えていた(実機フィードバック 2026-08-12)。
+     *   奥(上)＝塗り壁の陰 → 下るほど闇が濃くなる → 降り口の底に下階の灯り
+     * の三層で、深さのある階段室として描く。
+     * prevDir=1 なら階段は右下へ、-1 なら左下へ降りるので、灯りもその側へ寄せる。
+     */
+    getStairwellDeepX(x, width, prevDir) {
+        return prevDir === 1 ? x + width * 0.78 : x + width * 0.22;
+    }
+
+    drawStairwellVoid(ctx, x, width, prevDir) {
+        const top = this.baseGroundY;
+        const height = CANVAS_HEIGHT - top;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, top, width, height);
+        ctx.clip();
+
+        // 1) 深さ。奥の壁だけ土壁の色をわずかに残し、手前へ向かって沈める
+        const depth = ctx.createLinearGradient(0, top, 0, top + height);
+        depth.addColorStop(0, 'rgba(30, 23, 19, 0.97)');
+        depth.addColorStop(0.2, 'rgba(13, 10, 9, 0.98)');
+        depth.addColorStop(1, 'rgba(4, 3, 3, 0.99)');
+        ctx.fillStyle = depth;
+        ctx.fillRect(x, top, width, height);
+
+        // 2) 下階の灯り。降り口の底から淡く昇る
+        const deepX = this.getStairwellDeepX(x, width, prevDir);
+        const deepY = top + height * 0.94;
+        const spill = ctx.createRadialGradient(deepX, deepY, 6, deepX, deepY, height * 0.95);
+        spill.addColorStop(0, 'rgba(255, 172, 88, 0.16)');
+        spill.addColorStop(0.5, 'rgba(255, 150, 70, 0.05)');
+        spill.addColorStop(1, 'rgba(255, 140, 60, 0)');
+        ctx.fillStyle = spill;
+        ctx.fillRect(x, top, width, height);
+
+        // 3) 開口の内側の影。床に厚みがあることを示す（縁が硬い矩形に見えない）
+        const lip = Math.min(30, width * 0.16);
+        const topShade = ctx.createLinearGradient(0, top, 0, top + lip);
+        topShade.addColorStop(0, 'rgba(0, 0, 0, 0.62)');
+        topShade.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = topShade;
+        ctx.fillRect(x, top, width, lip);
+        // 床と接する側（prevDir=1 なら左、-1 なら右）に縦の影
+        const fromLeft = prevDir === 1;
+        const sideX = fromLeft ? x : x + width - lip;
+        const sideShade = ctx.createLinearGradient(fromLeft ? x : x + width, 0, fromLeft ? x + lip : x + width - lip, 0);
+        sideShade.addColorStop(0, 'rgba(0, 0, 0, 0.55)');
+        sideShade.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = sideShade;
+        ctx.fillRect(sideX, top, lip, height);
+        ctx.restore();
+    }
+
+    /** 階段を描いた後の灯り。踏板の先端が下階の光を拾う程度に薄く重ねる。 */
+    drawStairwellLightOverlay(ctx, x, width, prevDir) {
+        const top = this.baseGroundY;
+        const height = CANVAS_HEIGHT - top;
+        const deepX = this.getStairwellDeepX(x, width, prevDir);
+        const deepY = top + height * 0.94;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x, top, width, height);
+        ctx.clip();
+        ctx.globalCompositeOperation = 'lighter';
+        const glow = ctx.createRadialGradient(deepX, deepY, 4, deepX, deepY, height * 0.7);
+        glow.addColorStop(0, 'rgba(196, 130, 62, 0.22)');
+        glow.addColorStop(0.45, 'rgba(150, 96, 44, 0.07)');
+        glow.addColorStop(1, 'rgba(120, 76, 34, 0)');
+        ctx.fillStyle = glow;
+        ctx.fillRect(x, top, width, height);
         ctx.restore();
     }
 
