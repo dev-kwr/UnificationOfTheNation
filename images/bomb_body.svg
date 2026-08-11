@@ -9,9 +9,11 @@
 
     ▼ png からの実測値(2026-08-11。玉の直径D=330 / 半径R=165 が基準)
       ※ XMLコメント内に連続ハイフンは書けない(SVGが壊れて画像が読めなくなる)
-      口金の幅       0.44R  → 132/300R ≒ 128px(x=272〜400)
-      口金の突き出し 玉の上端から 0.05R  → 上端 y = 372 - 1.06*300 = 54
-                     以前は y=12(1.20R)まで伸ばしていて煙突に見えていた
+      口金の幅       0.41R  → 122px(x=275〜397)
+      口金の見える高さ 0.115R → 35px。png は口金が【玉より手前】にあるので
+                     全高が見える。玉の後ろに置くと玉の輪郭より上しか出ず、
+                     0.06R しか見えなくて「薄い」と差し戻された(2026-08-11)。
+      口金の突き出し 玉の上端から 0.03R → 上端 y = 372 - 1.03*300 = 63
       口金の色       明部 rgb(122,120,120) / 影 rgb(60,56,59)
       玉の明度       左上ハイライト(171,162,158) / 中央(55,52,54) /
                      右下(24,23,28) / 下端(7,6,6) / 左端(40,38,38)
@@ -69,21 +71,8 @@
       <stop offset="1" stop-color="#0d0c0c" stop-opacity=".85"/>
     </linearGradient>
     <clipPath id="ballClip"><circle cx="336" cy="372" r="300"/></clipPath>
-    <clipPath id="collarClip"><rect x="272" y="54" width="128" height="66" rx="9"/></clipPath>
+    <clipPath id="collarClip"><rect x="275" y="63" width="122" height="35" rx="7"/></clipPath>
   </defs>
-
-  <!-- ===== 口金（球より奥。真横視点の短い輪。左右中央） =====
-       突き出しは玉の上端から 0.05R だけ。長いと煙突に見える。 -->
-  <g>
-    <rect x="272" y="54" width="128" height="66" rx="9" fill="url(#collarV)"/>
-    <g clip-path="url(#collarClip)">
-      <rect x="272" y="54" width="128" height="66" fill="url(#collarH)"/>
-      <!-- 上端の縁(輪の口)と、中ほどの締め -->
-      <rect x="272" y="56" width="128" height="4" fill="#9b9795" opacity=".75"/>
-      <rect x="272" y="78" width="128" height="8" fill="#0b0a0a" opacity=".6"/>
-    </g>
-    <rect x="272" y="54" width="128" height="66" rx="9" fill="none" stroke="#0a0a09" stroke-opacity=".8" stroke-width="5"/>
-  </g>
 
   <!-- ===== 鋳鉄球（正円） ===== -->
   <circle cx="336" cy="372" r="300" fill="url(#ballBase)"/>
@@ -100,4 +89,21 @@
   </g>
   <!-- 縁は輪郭線ではなく、暗く落ちる面で締める(線を引くと平面に見える) -->
   <circle cx="336" cy="372" r="298.5" fill="none" stroke="#050506" stroke-opacity=".5" stroke-width="3"/>
+
+  <!-- ===== 口金（玉より【手前】。真横視点の短い輪。左右中央） =====
+       png は口金が玉の手前にあり、全高(0.115R)が見える。玉の後ろへ置くと
+       輪郭より上しか出ず「薄い」絵になる。導火線の根元はこの輪が隠す
+       (縄は本体SVGより先に描かれる)。 -->
+  <g>
+    <rect x="275" y="63" width="122" height="35" rx="7" fill="url(#collarV)"/>
+    <g clip-path="url(#collarClip)">
+      <rect x="275" y="63" width="122" height="35" fill="url(#collarH)"/>
+      <!-- 上端の縁(輪の口)と、中ほどの締め -->
+      <rect x="275" y="64" width="122" height="4" fill="#9b9795" opacity=".8"/>
+      <rect x="275" y="78" width="122" height="6" fill="#0b0a0a" opacity=".55"/>
+      <!-- 下端は玉へ落ちる影 -->
+      <rect x="275" y="92" width="122" height="6" fill="#000000" opacity=".45"/>
+    </g>
+    <rect x="275" y="63" width="122" height="35" rx="7" fill="none" stroke="#0a0a09" stroke-opacity=".85" stroke-width="4"/>
+  </g>
 </svg>

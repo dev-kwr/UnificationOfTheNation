@@ -2,10 +2,10 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260811m';
-import { audio } from './audio.js?v=screen-safe-20260811m';
-import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260811m';
-import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260811m';
+import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260811n';
+import { audio } from './audio.js?v=screen-safe-20260811n';
+import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260811n';
+import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260811n';
 
 // 武器ジオメトリは「武器を振る主体(owner/player)のワールド寸法」を基準に組み立てる。
 // 将軍は width/height が素体(40x60)なので getWorldWidth/Height(=素体×SHOGUN_SCALE) を読む。
@@ -76,15 +76,21 @@ function computeFusePath(cx, cy, r, time, seeds) {
         Math.sin(swayPhase * 0.57 + 1.35) * 0.22
     ) * r * 0.060;
     const tipSwayY = Math.sin(swayPhase * 0.71 + 2.1) * r * 0.012;
-    // 付け根は口金の中央(球の左右中央)。ここをずらすと「横から生えた」ように見える
+    // 付け根は口金の中央(球の左右中央)。ここをずらすと「横から生えた」ように見える。
+    //
+    // 曲がり方は png(images/hud_weapons/bomb.png)の中心線を実測して起こした式:
+    //   玉の上端から h(R単位)の高さでの横ずれ = 0.35h² + 0.15h
+    // 制御点はこの曲線を通るよう逆算してある(t=1/3,2/3 での値を連立)。
+    // 制御点をそのまま曲線上の値(+0.09R/+0.27R)にすると、根元から傾いた
+    // 【ほぼ直線】になってしまう ― 実機で「直線っぽい」と差し戻された。
     return {
         p0: { x: cx, y: cy - r * 0.95 },
         p1: {
-            x: cx + r * 0.09 + tipSwayX * 0.10,
+            x: cx + r * 0.028 + tipSwayX * 0.10,
             y: cy - r * 1.22 + tipSwayY * 0.08
         },
         p2: {
-            x: cx + r * 0.27 + tipSwayX * 0.46,
+            x: cx + r * 0.112 + tipSwayX * 0.46,
             y: cy - r * 1.50 + tipSwayY * 0.42
         },
         p3: {
@@ -124,9 +130,18 @@ function drawFirebombFuseCord(ctx, path, radius) {
     ctx.strokeStyle = '#c9a06a';
     ctx.lineWidth = Math.max(1.05, r * 0.042);
     ctx.stroke();
+    // 撚りの縄目。破線を薄く重ねて節を出す。濃くすると縄というより鎖に見えるので
+    // alpha は低いまま(png も遠目には一本の線に見える程度)。
+    const twist = Math.max(1.1, r * 0.05);
     traceFuse();
-    ctx.strokeStyle = 'rgba(247, 216, 166, 0.85)';
-    ctx.lineWidth = Math.max(0.4, r * 0.02);
+    ctx.setLineDash([twist, twist]);
+    ctx.strokeStyle = 'rgba(122, 76, 34, 0.42)';
+    ctx.lineWidth = Math.max(1.05, r * 0.042);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    traceFuse();
+    ctx.strokeStyle = 'rgba(247, 216, 166, 0.8)';
+    ctx.lineWidth = Math.max(0.4, r * 0.018);
     ctx.stroke();
     ctx.restore();
 }

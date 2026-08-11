@@ -2,19 +2,19 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260811m';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811m';
-import { createEnemy } from './enemy.js?v=screen-safe-20260811m';
-import { createBoss } from './boss.js?v=screen-safe-20260811m';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260811m';
-import { audio } from './audio.js?v=screen-safe-20260811m';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260811m';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260811n';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811n';
+import { createEnemy } from './enemy.js?v=screen-safe-20260811n';
+import { createBoss } from './boss.js?v=screen-safe-20260811n';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260811n';
+import { audio } from './audio.js?v=screen-safe-20260811n';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260811n';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260811m';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260811m';
+} from './stage6Grapple.js?v=screen-safe-20260811n';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260811n';
 
 // ============================================
 // ステージ背景アセットの単一ソース
