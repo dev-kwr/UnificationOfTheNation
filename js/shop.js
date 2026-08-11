@@ -2,10 +2,10 @@
 // Unification of the Nation - ショップ機能
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, getUiScale, getFontScale } from './constants.js?v=screen-safe-20260812a';
-import { input } from './input.js?v=screen-safe-20260812a';
-import { audio } from './audio.js?v=screen-safe-20260812a';
-import { drawScreenManualLine, drawWafuCard, drawWafuHeading, drawWafuDivider, drawNumMixedText, drawBgCover } from './ui.js?v=screen-safe-20260812a';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, getUiScale, getFontScale } from './constants.js?v=screen-safe-20260812b';
+import { input } from './input.js?v=screen-safe-20260812b';
+import { audio } from './audio.js?v=screen-safe-20260812b';
+import { drawScreenManualLine, drawWafuCard, drawWafuHeading, drawWafuDivider, drawNumMixedText, drawBgCover } from './ui.js?v=screen-safe-20260812b';
 
 // 背景画像キャッシュ
 let _shopBgImg = null;
@@ -23,6 +23,13 @@ function formatMoneyValue(amount) {
 }
 
 // ショップアイテム
+// 決定の長押しリピート(まとめ買い)。押した直後は1回だけで、
+// この時間だけ押し続けてからリピートに入る＝1回買うつもりの押下では暴発しない。
+const SHOP_REPEAT_DELAY_MS = 380;
+// リピートの初速と、押し続けたときの最短間隔
+const SHOP_REPEAT_START_MS = 150;
+const SHOP_REPEAT_MIN_MS = 70;
+
 const SHOP_ITEMS = [
     // ステータス強化
     { id: 'hp_up', name: '活力の秘薬', description: '最大HPを+5', price: 100, type: 'upgrade', stat: 'maxHp', value: 5 },
@@ -171,13 +178,44 @@ export class Shop {
             input.consumeAction('RIGHT');
         }
         
-        if (!movedSelectionThisFrame && input.isActionJustPressed('CONFIRM')) {
-            if (this.footerButtonIndex === 1) {
-                this.close();
-            } else {
-                this.purchase(player);
+        // 決定。【押しっぱなしで連続購入】できる ― 活力の秘薬をまとめ買いするのに
+        // 連打はしんどい(実機フィードバック 2026-08-12)。
+        // 誤爆しないよう、押した直後は1回だけ。長押しに入ってから間隔を詰めていく。
+        // 「閉じる」側は取り消しなので連続させない(押しっぱなしで閉じ続けない)。
+        if (!movedSelectionThisFrame) {
+            const confirmHeld = input.isAction('CONFIRM');
+            if (!confirmHeld) {
+                this.confirmHoldMs = 0;
+                this.confirmRepeatTimerMs = 0;
             }
-            input.consumeAction('CONFIRM');
+            let fire = false;
+            if (input.isActionJustPressed('CONFIRM')) {
+                fire = true;
+                this.confirmHoldMs = 0;
+                this.confirmRepeatTimerMs = 0;
+                input.consumeAction('CONFIRM');
+            } else if (confirmHeld && this.footerButtonIndex === 0) {
+                this.confirmHoldMs = (this.confirmHoldMs || 0) + deltaTime * 1000;
+                // 最初の1回から 380ms 置いてリピート開始。以後は 150ms→最短 70ms へ加速
+                if (this.confirmHoldMs >= SHOP_REPEAT_DELAY_MS) {
+                    this.confirmRepeatTimerMs = (this.confirmRepeatTimerMs || 0) - deltaTime * 1000;
+                    if (this.confirmRepeatTimerMs <= 0) {
+                        fire = true;
+                        const over = this.confirmHoldMs - SHOP_REPEAT_DELAY_MS;
+                        this.confirmRepeatTimerMs = Math.max(
+                            SHOP_REPEAT_MIN_MS,
+                            SHOP_REPEAT_START_MS - over * 0.06
+                        );
+                    }
+                }
+            }
+            if (fire) {
+                if (this.footerButtonIndex === 1) {
+                    this.close();
+                } else {
+                    this.purchase(player);
+                }
+            }
         }
         
         if (input.isActionJustPressed('SUB_WEAPON') || input.isActionJustPressed('PAUSE')) {

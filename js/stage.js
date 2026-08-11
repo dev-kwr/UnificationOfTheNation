@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812a';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812a';
-import { createEnemy } from './enemy.js?v=screen-safe-20260812a';
-import { createBoss } from './boss.js?v=screen-safe-20260812a';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260812a';
-import { audio } from './audio.js?v=screen-safe-20260812a';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812a';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812b';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812b';
+import { createEnemy } from './enemy.js?v=screen-safe-20260812b';
+import { createBoss } from './boss.js?v=screen-safe-20260812b';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260812b';
+import { audio } from './audio.js?v=screen-safe-20260812b';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812b';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260812a';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812a';
+} from './stage6Grapple.js?v=screen-safe-20260812b';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812b';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812a';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812b';
 
 // ============================================
 // ステージ背景アセットの単一ソース
@@ -4243,16 +4243,25 @@ export class Stage {
         ctx.fillRect(0, this.groundY - 190, CANVAS_WIDTH, 180);
     }
     
+    /**
+     * 道沿いの添景。
+     * 【透かして奥行きを出さない】。半透明にすると明るい空を背にしたとき
+     * 石仏や灯籠の向こうが透けて幽霊のように見える(実機フィードバック 2026-08-12)。
+     * 遠さは描画時の色調フィルタ(brightness/saturate を落とす)が担っているので、
+     * alpha は不透明のまま。
+     * 足元は本編共通の groundY + LANE_OFFSET(=512) から y だけ奥へ逃がす
+     * (レーンより数px奥＝プレイヤーと同じ面に立っていないことを示す最小限)。
+     */
     getStage3RoadsidePropPlan() {
         return [
-            { type: 'woodFence', worldX: 980,  height: 92,  y: 3, alpha: 0.88 },
-            { type: 'stoneLantern', worldX: 1480, height: 110, y: 2, alpha: 0.82 },
-            { type: 'signpost', worldX: 2660, height: 112, y: 4, alpha: 0.88 },
-            { type: 'dosojin', worldX: 4210, height: 70,  y: 4, alpha: 0.88 },
-            { type: 'mountainSign', worldX: 5700, height: 126, y: 4, alpha: 0.86 },
-            { type: 'jizoLarge', worldX: 6550, height: 94, y: 4, alpha: 0.86 },
-            { type: 'woodFence', worldX: 7350, height: 82, y: 4, alpha: 0.84 },
-            { type: 'stoneLantern', worldX: 9860, height: 96, y: 3, alpha: 0.78 }
+            { type: 'woodFence', worldX: 980,  height: 92,  y: 3, alpha: 1 },
+            { type: 'stoneLantern', worldX: 1480, height: 110, y: 2, alpha: 1 },
+            { type: 'signpost', worldX: 2660, height: 112, y: 4, alpha: 1 },
+            { type: 'dosojin', worldX: 4210, height: 70,  y: 4, alpha: 1 },
+            { type: 'mountainSign', worldX: 5700, height: 126, y: 4, alpha: 1 },
+            { type: 'jizoLarge', worldX: 6550, height: 94, y: 4, alpha: 1 },
+            { type: 'woodFence', worldX: 7350, height: 82, y: 4, alpha: 1 },
+            { type: 'stoneLantern', worldX: 9860, height: 96, y: 3, alpha: 1 }
         ];
     }
 
@@ -4343,13 +4352,14 @@ export class Stage {
         const images = this.stage3PropImages;
         if (!images) return;
 
+        // alpha は不透明。遠さは色調フィルタで出す(半透明にすると空が透けて幽霊になる)
         const plan = [
-            { type: 'woodFence', h: 68, alpha: 0.7, xBias: -34 },
+            { type: 'woodFence', h: 68, alpha: 1, xBias: -34 },
             null,
-            { type: 'woodFence', h: 72, alpha: 0.72, xBias: 28 },
-            { type: 'jizoLarge', h: 76, alpha: 0.7, xBias: -18 },
+            { type: 'woodFence', h: 72, alpha: 1, xBias: 28 },
+            { type: 'jizoLarge', h: 76, alpha: 1, xBias: -18 },
             null,
-            { type: 'stoneLantern', h: 88, alpha: 0.68, xBias: 18 },
+            { type: 'stoneLantern', h: 88, alpha: 1, xBias: 18 },
             null
         ];
         const span = 620;
