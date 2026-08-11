@@ -37,9 +37,16 @@ const scaleCount = new Map(); // 画像×フィルタ -> 見た倍率の数
 let totalBytes = 0;
 let tick = 0;
 
+// 【キャッシュしてよいのは src を持つ画像だけ】。
+// 生成したキャンバス(stage5の階段など)は src を持たず、中身も後から描き替わりうる。
+// 鍵を作れない＝取り違える／古い絵を貼り続ける事故になるので、素通しにする。
+// 焼く価値があるのは毎フレーム貼り直す大判の背景画像で、それらは全て src を持つ。
+function isBakeableSource(img) {
+    return typeof img.src === 'string' && img.src.length > 0;
+}
+
 function baseKeyOf(img, filter) {
-    const src = img.src || '';
-    return `${src}|${img.naturalWidth || img.width}x${img.naturalHeight || img.height}|${filter}`;
+    return `${img.src}|${img.naturalWidth || img.width}x${img.naturalHeight || img.height}|${filter}`;
 }
 
 function makeCanvas(w, h) {
@@ -111,6 +118,15 @@ export function drawImageGraded(ctx, img, ...args) {
         ctx.drawImage(img, ...args);
         return;
     }
+
+    // 生成キャンバスは焼かない(鍵が作れず取り違える)
+    if (!isBakeableSource(img)) { ctx.drawImage(img, ...args); return; }
+
+    // 【読み込みが終わるまで焼かない】。naturalWidth はヘッダを読んだ時点で立つので、
+    // まだデコードが済んでいない画像を焼くと真っ白なキャンバスが【永久に】残る。
+    // 焼く前は一瞬の抜けで済んでいたものが、キャッシュのせいで直らなくなる。
+    // (低スペック端末ほどデコードが長く、抜けている時間も長い)
+    if (img.complete === false) { ctx.drawImage(img, ...args); return; }
 
     const natW = img.naturalWidth || img.width;
     const natH = img.naturalHeight || img.height;

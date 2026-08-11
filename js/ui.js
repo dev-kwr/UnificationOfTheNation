@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260811p';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260811q';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260811p';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260811q';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260811p';
-import { audio } from './audio.js?v=screen-safe-20260811p';
-import { saveManager } from './save.js?v=screen-safe-20260811p';
+import { input } from './input.js?v=screen-safe-20260811q';
+import { audio } from './audio.js?v=screen-safe-20260811q';
+import { saveManager } from './save.js?v=screen-safe-20260811q';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -2758,13 +2758,15 @@ export function getStatusScreenLayout() {
         cardH, cardGap,
         menuRects: [0, 1, 2].map((i) => ({ x: menuStartX + i * (menuW + menuGap), y: menuY, w: menuW, h: menuH })),
         menuBottom: menuY + menuH,
-        // 「行き先へ戻る」。下の3択(忍具/よろず屋/準備完了)は等分割なので4つ目を
+        // 「地図に戻る」。下の3択(忍具/よろず屋/準備完了)は等分割なので4つ目を
         // 足すと全部が細くなる。行き先の選び直しは決定系ではなく取り消しなので、
-        // 左上へ独立して置く。画面端の退避は HUD と同じ getScreenSafeArea を使う。
+        // 左上へ独立して置く。
+        // 左端は【下のメニューの左端(menuStartX)と揃える】。独自マージンで置くと
+        // 画面端からの入り方が下のボタンとずれて見える(実機フィードバック 2026-08-11)。
         backButton: {
-            x: safe.left + 20,
+            x: menuStartX,
             y: safe.top + 20,
-            w: 132 * s,
+            w: 148 * s,
             h: 40 * s
         }
     };
@@ -2936,7 +2938,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
             ctx.textBaseline = 'middle';
             ctx.fillStyle = 'rgba(224, 234, 255, 0.9)';
             ctx.font = `700 ${16 * tf}px "Zen Old Mincho", serif`;
-            fillTextInkCentered(ctx, '◀ 行き先', b.x + b.w / 2, b.y + b.h / 2);
+            fillTextInkCentered(ctx, '◀ 地図に戻る', b.x + b.w / 2, b.y + b.h / 2);
             ctx.textBaseline = 'alphabetic';
         }
 
@@ -2944,7 +2946,7 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
         drawScreenManualLine(
             ctx,
             options.canGoBack
-                ? '←→：選択 | SPACE：決定 | ↑↓：装備切替 | ESC：行き先へ戻る'
+                ? '←→：選択 | SPACE：決定 | ↑↓：装備切替 | ESC：地図に戻る'
                 : '←→：選択 | SPACE：決定 | ↑↓：装備切替',
             Math.max(CANVAS_HEIGHT - 20, L.menuBottom + 14)
         );
@@ -3161,8 +3163,12 @@ export function renderSideResultScreen(ctx, result) {
             fillTextInkCentered(ctx, b.label, b.x + b.w / 2, b.y + b.h / 2 + (1 - btnT) * 10 * uiS);
         }
         ctx.restore();
-        const manual = isTouchOverlayMode() ? 'ボタンに触れて決定' : '←→：選択 | SPACE：決定';
-        drawScreenManualLine(ctx, manual, Math.min(CANVAS_HEIGHT - 14, L.buttonsBottom + 46 * uiS));
+        // タッチ端末には操作説明を出さない。ボタンが2つ並んでいる画面で
+        // 「ボタンに触れて決定」は見れば分かることを言っているだけだった
+        // (実機フィードバック 2026-08-11。昇段画面の「札に触れて決定」と同じ)。
+        if (!isTouchOverlayMode()) {
+            drawScreenManualLine(ctx, '←→：選択 | SPACE：決定', Math.min(CANVAS_HEIGHT - 14, L.buttonsBottom + 46 * uiS));
+        }
     }
     ctx.restore();
 }

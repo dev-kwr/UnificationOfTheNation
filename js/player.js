@@ -2,11 +2,11 @@
 // Unification of the Nation - プレイヤークラス
 // ============================================
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260811p';
-import { input } from './input.js?v=screen-safe-20260811p';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260811q';
+import { input } from './input.js?v=screen-safe-20260811q';
 console.log('[player.js] Imported input instance:', input ? input.instanceId : 'undefined');
-import { audio } from './audio.js?v=screen-safe-20260811p';
-import { game } from './game.js?v=screen-safe-20260811p';
+import { audio } from './audio.js?v=screen-safe-20260811q';
+import { game } from './game.js?v=screen-safe-20260811q';
 import {
     ANIM_STATE, COMBO_ATTACKS, calcExpToNextForLevel,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN, LEVEL_UP_ATK_GAIN,
@@ -14,17 +14,17 @@ import {
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y
-} from './playerData.js?v=screen-safe-20260811p';
+} from './playerData.js?v=screen-safe-20260811q';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
-} from './normalComboMotion.js?v=screen-safe-20260811p';
-import { applyRendererMixin }    from './playerRenderer.js?v=screen-safe-20260811p';
-import { applySlashTrailMixin }  from './playerSlashTrail.js?v=screen-safe-20260811p';
-import { applySpecialMixin }     from './playerSpecial.js?v=screen-safe-20260811p';
-import { applyShogunCombat }    from './shogunCombatHelper.js?v=screen-safe-20260811p';
+} from './normalComboMotion.js?v=screen-safe-20260811q';
+import { applyRendererMixin }    from './playerRenderer.js?v=screen-safe-20260811q';
+import { applySlashTrailMixin }  from './playerSlashTrail.js?v=screen-safe-20260811q';
+import { applySpecialMixin }     from './playerSpecial.js?v=screen-safe-20260811q';
+import { applyShogunCombat }    from './shogunCombatHelper.js?v=screen-safe-20260811q';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
@@ -38,7 +38,7 @@ import {
     SHOGUN_CROUCH_STANCE_DUTY,
     NINJA_CROUCH_STRIDE_AMP,
     SHOGUN_CROUCH_STRIDE_AMP
-} from './shogunConstants.js?v=screen-safe-20260811p';
+} from './shogunConstants.js?v=screen-safe-20260811q';
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
@@ -1099,7 +1099,15 @@ export class Player {
         const actionLocked = this.attackInputLockTimer > 0;
 
         // 忍具（Xキー）
-        if (!actionLocked && input.isActionJustPressed('SUB_WEAPON')) {
+        // 【一度離すまで次は撃たない】掛け金。タッチのボタンは指が少しずれると
+        // 割り当てが外れて付け直る(applyTouchBinding)ため、1回のタップの中で
+        // 押し直しが起きると justPressed が再び立ち、続けて飛んでしまう
+        // (実機フィードバック 2026-08-11: 1タップで3枚繋がって飛ぶ。
+        //  低フレームレートだと1フレームの間隔が広く、起きやすい)。
+        // 押しっぱなしで連射する仕様は元から無いので、意図的な連打は影響を受けない。
+        if (!input.isAction('SUB_WEAPON')) this.subWeaponInputReleased = true;
+        if (!actionLocked && input.isActionJustPressed('SUB_WEAPON') && this.subWeaponInputReleased !== false) {
+            this.subWeaponInputReleased = false;
             // クールダウン中は発動不可
             if (this.subWeaponTimer > 0) return;
             if (!this.currentSubWeapon) return;

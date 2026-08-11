@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260811p';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811p';
-import { createEnemy } from './enemy.js?v=screen-safe-20260811p';
-import { createBoss } from './boss.js?v=screen-safe-20260811p';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260811p';
-import { audio } from './audio.js?v=screen-safe-20260811p';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260811p';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260811q';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811q';
+import { createEnemy } from './enemy.js?v=screen-safe-20260811q';
+import { createBoss } from './boss.js?v=screen-safe-20260811q';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260811q';
+import { audio } from './audio.js?v=screen-safe-20260811q';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260811q';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260811p';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260811p';
+} from './stage6Grapple.js?v=screen-safe-20260811q';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260811q';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260811p';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260811q';
 
 // ============================================
 // ステージ背景アセットの単一ソース
@@ -4392,7 +4392,12 @@ export class Stage {
     }
 
 	renderStage4TownImageBlock(ctx, image, x, baseY, width, alpha = 1, filter = 'brightness(0.84) saturate(0.66) contrast(0.88)') {
-	    if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
+	    // 【complete は条件にしない】。屋根の足場(getStage4TownRowsInRange→
+	    // getStage4RoofColliders)は naturalWidth だけで作られるので、ここで complete を
+	    // 要求すると「コライダーはあるのに建物が描かれない＝宙を走る」時間ができる。
+	    // 低スペック端末ほどデコードが長く、その窓も長い(実機フィードバック 2026-08-11)。
+	    // 判定と描画で同じ条件にして、出るときは一緒に出るようにする。
+	    if (!image || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
 
 	    const height = width * (image.naturalHeight / image.naturalWidth);
         ctx.save();
