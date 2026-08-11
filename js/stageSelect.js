@@ -9,9 +9,9 @@
 // ノード座標は「画像内の比率(u,v)」で持ち、cover 変換で画面座標へ写す。
 // 画像を差し替えても u,v を微調整するだけで済む（map_generation_prompt.md 参照）。
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, STAGES, getUiScale, getFontScale, getScreenSafeArea, isTouchOverlayMode } from './constants.js?v=screen-safe-20260811j';
-import { drawWafuCard, fillTextInkCentered, drawScreenManualLine, formatCount } from './ui.js?v=screen-safe-20260811j';
-import { getSideBest } from './sideStageCommon.js?v=screen-safe-20260811j';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, STAGES, getUiScale, getFontScale, getScreenSafeArea, isTouchOverlayMode } from './constants.js?v=screen-safe-20260811k';
+import { drawWafuCard, fillTextInkCentered, drawScreenManualLine, formatCount } from './ui.js?v=screen-safe-20260811k';
+import { getSideBest } from './sideStageCommon.js?v=screen-safe-20260811k';
 
 // ノード定義。kind: main=本編 / bonus=小判蔵(第2階層踏破で解放) /
 // training=修行道場(第3階層踏破で解放)。どちらも実装済み。
@@ -100,12 +100,16 @@ export function getStageSelectLayout(opts = {}) {
     const cardW = 300 * uiS;
     const cardH = 46 * uiS;
     const headerY = safe.top + 40;
+    const cardY = headerY + 30 * uiS;
     const card = {
         x: SCREEN_WIDTH / 2 - cardW / 2,
-        y: headerY + 30 * uiS,
+        y: cardY,
         w: cardW,
         h: cardH,
-        titleFont: 21 * fs
+        titleFont: 21 * fs,
+        // 最高記録は枠の中に並べず、枠の【下】へ小さく添える
+        noteFont: 13 * fs,
+        noteY: cardY + cardH + 18 * uiS
     };
 
     return {
@@ -214,27 +218,19 @@ export function renderStageSelect(ctx, opts = {}) {
             ctx.lineWidth = 1.5;
             ctx.stroke();
         }
-        // 中身: 階層番号。寄り道は「両」(小判蔵)/「修」(道場)。
-        // 踏破済みかどうかは円の色で分かるため「済」印は付けない(実機フィードバック)。
-        ctx.textAlign = 'center';
-        ctx.font = `700 ${Math.round(n.r * (isSide ? 0.8 : 0.95))}px "Zen Old Mincho", serif`;
-        const label = isBonus ? '両' : isTraining ? '修' : `${n.id}`;
-        // 薄い台座でも文字が沈まないよう、先に暗い縁取りを敷く
-        ctx.save();
-        ctx.shadowColor = 'rgba(4, 8, 18, 0.9)';
-        ctx.shadowBlur = Math.max(3, n.r * 0.28);
-        ctx.fillStyle = 'rgba(6, 10, 20, 0.85)';
-        fillTextInkCentered(ctx, label, n.x, n.y);
-        ctx.restore();
-        ctx.fillStyle = isBonus ? '#ffe8a8'
-            : isTraining ? '#e6d2ff'
-            : selectable ? '#f2f7ff' : 'rgba(180, 190, 210, 0.55)';
-        fillTextInkCentered(ctx, label, n.x, n.y);
-        // 未解放の錠
-        if (!selectable) {
-            ctx.fillStyle = 'rgba(190, 200, 220, 0.66)';
-            ctx.font = `${Math.round(n.r * 0.6)}px "Zen Old Mincho", serif`;
-            fillTextInkCentered(ctx, '🔒', n.x + n.r * 0.78, n.y + n.r * 0.78);
+        // 中身は【印だけ】。番号や「両/修」の文字は置かない ― 場所は地図の絵と
+        // 選択カードの名前で分かる(実機フィードバック 2026-08-11)。
+        // 行けるところは芯を灯し、まだ行けないところは輪だけにして差を出す。
+        if (selectable) {
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, n.r * 0.4, 0, Math.PI * 2);
+            ctx.fillStyle = isBonus ? 'rgba(255, 232, 168, 0.92)'
+                : isTraining ? 'rgba(230, 210, 255, 0.92)'
+                : cleared ? 'rgba(240, 186, 164, 0.9)'
+                : 'rgba(242, 247, 255, 0.92)';
+            ctx.shadowColor = 'rgba(4, 8, 18, 0.9)';
+            ctx.shadowBlur = Math.max(3, n.r * 0.3);
+            ctx.fill();
         }
         ctx.restore();
     }
@@ -247,7 +243,9 @@ export function renderStageSelect(ctx, opts = {}) {
     fillTextInkCentered(ctx, '行き先を選択', SCREEN_WIDTH / 2, L.headerY);
     ctx.restore();
 
-    // 選択カードはステージ名のみ（踏破/未踏はノードの見た目で表現する）
+    // 選択カードは【行き先の名前だけ】。「第◯階層」は付けない ― 階層構造では
+    // ないので実態と食い違う(実機フィードバック 2026-08-11)。
+    // 最高記録は枠の中へ並べず、枠の下に小さく添える。
     const sel = L.nodes.find(n => n.id === cursor);
     if (sel) {
         const c = L.card;
@@ -256,19 +254,27 @@ export function renderStageSelect(ctx, opts = {}) {
         ctx.textAlign = 'center';
         ctx.fillStyle = '#ffffff';
         ctx.font = `700 ${Math.round(c.titleFont)}px "Zen Old Mincho", serif`;
+        fillTextInkCentered(ctx, sel.name, c.x + c.w / 2, c.y + c.h / 2);
+
+        // 寄り道は刻限60秒のスコアアタック。記録は難易度別なので、
+        // どの難易度のものかを添えて取り違えを防ぐ。
         const best = opts.sideBest || {};
-        // 寄り道は刻限60秒のスコアアタック。最高記録があれば併記して挑戦を促す。
-        // 記録は難易度別なので、どの難易度の記録かを添えて取り違えを防ぐ。
         const diffId = opts.difficultyId || 'normal';
         const diffTag = opts.difficultyName ? `（${opts.difficultyName}）` : '';
-        const bonusBest = getSideBest(best, 'bonus', diffId);
-        const trainingBest = getSideBest(best, 'training', diffId);
-        const title = sel.kind === 'bonus'
-            ? (bonusBest > 0 ? `小判蔵　最高 ${formatCount(bonusBest)}両${diffTag}` : '小判蔵')
-            : sel.kind === 'training'
-            ? (trainingBest > 0 ? `修行道場　最高 ${formatCount(trainingBest)}人${diffTag}` : '修行道場')
-            : `第${sel.id}階層　${sel.name}`;
-        fillTextInkCentered(ctx, title, c.x + c.w / 2, c.y + c.h / 2);
+        const score = sel.kind === 'bonus' ? getSideBest(best, 'bonus', diffId)
+            : sel.kind === 'training' ? getSideBest(best, 'training', diffId)
+            : 0;
+        if (score > 0) {
+            const unit = sel.kind === 'bonus' ? '両' : '人';
+            ctx.font = `500 ${Math.round(c.noteFont)}px "Zen Old Mincho", serif`;
+            ctx.fillStyle = 'rgba(214, 228, 250, 0.78)';
+            fillTextInkCentered(
+                ctx,
+                `最高 ${formatCount(score)}${unit}${diffTag}`,
+                c.x + c.w / 2,
+                c.noteY
+            );
+        }
         ctx.restore();
     }
 

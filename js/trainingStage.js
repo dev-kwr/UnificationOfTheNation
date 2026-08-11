@@ -10,30 +10,44 @@
 // game 側が getAllEnemies() 経由で処理するので、ここでは「湧かせる・
 // update で除去する・討伐を数える・描く」だけを持つ。
 //
-// 背景: images/training_dojo_bg.png（床まで焼き込んだ一枚絵。固定画面なので
-// パララックス不要。読めない環境では板の間のコード描画にフォールバック）。
+// 背景: images/training_dojo_bg.png は【壁(立面)だけ】を使う。地平線より下の
+// 板の間は本編と同じ「俯瞰の床帯」なので描画側(renderFloorBand)で敷く ―
+// 遠近の付いた床を焼き込んだ絵をそのまま敷くと他ステージと奥行きの文法が食い違う。
+// 固定画面なのでパララックス不要。読めない環境ではコード描画にフォールバック。
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET, ENEMY_TYPES } from './constants.js?v=screen-safe-20260811j';
-import { createEnemy } from './enemy.js?v=screen-safe-20260811j';
-import { getImage } from './imageCache.js?v=screen-safe-20260811j';
-import { pushGain, updateGainPops, renderGainPops, tickTimeLimit, clampToLeftEdge } from './sideStageCommon.js?v=screen-safe-20260811j';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET, ENEMY_TYPES } from './constants.js?v=screen-safe-20260811k';
+import { createEnemy } from './enemy.js?v=screen-safe-20260811k';
+import { getImage } from './imageCache.js?v=screen-safe-20260811k';
+import { pushGain, updateGainPops, renderGainPops, tickTimeLimit, clampToLeftEdge } from './sideStageCommon.js?v=screen-safe-20260811k';
 
 // 開始前に読み込む画像（game.requestStageStart が本編と同じ暗幕待ちに使う）
-export const TRAINING_STAGE_IMAGES = ['images/training_dojo_bg.png'];
+export const TRAINING_STAGE_IMAGES = [
+    'images/training_dojo_bg.png',   // 0: 道場の壁（立面。床は焼き込まず描画側で敷く）
+    'images/dojo_prop_low.png',      // 1: 低い稽古台（長持を並べた台。透過）
+    'images/dojo_prop_high.png'      // 2: 高い稽古台（大太鼓の櫓。透過）
+];
 
 // 一枚絵の中で床(板の間)が始まる縦位置の比率。ワールドの地平線(groundY-2)に
-// この線を合わせて cover 描画する。絵を差し替えたらここを合わせ直す。
-const FLOOR_LINE_V = 0.615;
+// この線を合わせる。絵は【ワールド幅1280へ1:1】で描くので、絵の中の柱や長押の
+// 位置はワールド座標へそのまま換算できる(x_world = x_image * 1280/1536)。
+// 絵を差し替えたら実測し直すこと。
+const FLOOR_LINE_V = 624 / 1024;
 
 // 刻限（秒）
 const TIME_LIMIT_SEC = 60;
-// 板の間に据えた稽古用の台(一方通行足場)。左右対称に低い台、中央にやや高い台。
-// 囲まれた時の逃げ場と、天井から降る忍者への迎撃点になる。
-// 縦の間隔はジャンプ(単発160px)の範囲。背景絵の壁位置(左右の柱)を避けて置く。
+// 稽古台(一方通行足場)＝【板の間に据えた道具】。壁付けの棚にすると板が手前へ
+// 張り出す＝奥行きが要る絵になり、本編の投影文法(壁は立面・床は俯瞰の帯)と
+// 食い違う(実機フィードバック 2026-08-11)。床に据わる物なら奥行きが要らない。
+//   低い台 = 長持を並べた台        images/dojo_prop_low.png
+//   高い台 = 大太鼓の櫓            images/dojo_prop_high.png
+// 足元は本編の添景と同じ groundY + LANE_OFFSET(=512)。天面が当たり判定の面。
+// 跳べる高さ: 床512→低い台412 が100px、低い台412→高い台312 が100px(単発160pxの内)。
+// 絵の縦横比は生成後に実測して asset の w を合わせてある(引き伸ばさない)。
+const PROP_FOOT_Y = 512;          // 道具の足元(板の間の面)
 const DOJO_PLATFORMS = [
-    { x: 150, y: 400, w: 210 },
-    { x: 920, y: 400, w: 210 },
-    { x: 520, y: 310, w: 240 }
+    { x: 250, y: 412, w: 200, asset: 1 },
+    { x: 830, y: 412, w: 200, asset: 1 },
+    { x: 545, y: 312, w: 190, asset: 2 }
 ];
 // 場に維持する敵の数（無双の密度。倒すそばから補充される）
 const TARGET_ACTIVE = 12;
@@ -42,10 +56,11 @@ const RESPAWN_INTERVAL_SEC = 0.14;
 // 師範代(武将)が出る経過秒。場に1体だけ、節目で腕試しに現れる
 const MASTER_AT_SEC = [14, 32, 48];
 
-function getBgImage() {
-    const img = getImage(TRAINING_STAGE_IMAGES[0]);
+function getAsset(index) {
+    const img = getImage(TRAINING_STAGE_IMAGES[index]);
     return (img && img.complete && img.naturalWidth) ? img : null;
 }
+function getBgImage() { return getAsset(0); }
 
 export class TrainingStage {
     constructor() {
@@ -68,6 +83,7 @@ export class TrainingStage {
         // 稽古台。game.updatePlaying の extraColliders が getPlatformColliders() で読む
         this.platformColliders = DOJO_PLATFORMS.map((p) => ({
             x: p.x, y: p.y, width: p.w, height: 12,
+            asset: p.asset,
             isDestroyed: false, isOneWayPlatform: true
         }));
 
@@ -245,35 +261,70 @@ export class TrainingStage {
     // --- 描画（renderPlaying から呼ばれる。ctx はワールド変換済み） ---
     renderBackground(ctx) {
         const img = getBgImage();
+        const floorTop = this.groundY - 2;
         ctx.save();
         if (img) {
-            // 幅基準の cover。絵の床境界(FLOOR_LINE_V)がワールドの地平線
-            // (groundY-2)に乗るよう縦位置を合わせる。固定画面なのでスクロール補正なし。
-            const drawW = CANVAS_WIDTH;
-            const drawH = img.naturalHeight * (CANVAS_WIDTH / img.naturalWidth);
-            const offY = (this.groundY - 2) - drawH * FLOOR_LINE_V;
+            // 【壁だけ】を絵から使う。地平線(groundY-2)より下は本編と同じ「俯瞰の床帯」
+            // なので、遠近の付いた床が焼き込まれた絵をそのまま敷くと、
+            // 他ステージと奥行きの文法が食い違う(実機フィードバック 2026-08-11)。
+            // 絵は床境界(FLOOR_LINE_V)の【上まで】を切り出し、その下端を地平線へ合わせる。
+            // 幅は1280へ1:1。絵の中の柱の x をワールド座標へそのまま読み替えられる
+            // (cover で切ると対応が崩れる)。
+            const scale = CANVAS_WIDTH / img.naturalWidth;
+            const cutH = Math.round(img.naturalHeight * FLOOR_LINE_V);   // 壁の高さ(絵の側)
+            const drawH = cutH * scale;
+            const offY = floorTop - drawH;
             ctx.imageSmoothingEnabled = true;
-            ctx.drawImage(img, 0, offY, drawW, drawH);
+            ctx.drawImage(img, 0, 0, img.naturalWidth, cutH, 0, offY, CANVAS_WIDTH, drawH);
             // カメラが上へ持ち上がった時に絵の上端より上が映る隙間を天井裏の闇で埋める
             if (this.skyVisTop < offY) {
                 ctx.fillStyle = '#14100c';
                 ctx.fillRect(0, this.skyVisTop - 8, CANVAS_WIDTH, (offY - this.skyVisTop) + 9);
             }
         } else {
-            // フォールバック: 板の間と障子のコード描画
+            // フォールバック: 壁のコード描画
             ctx.fillStyle = '#1b150e';
-            ctx.fillRect(0, this.skyVisTop, CANVAS_WIDTH, CANVAS_HEIGHT);
+            ctx.fillRect(0, this.skyVisTop, CANVAS_WIDTH, floorTop - this.skyVisTop);
             ctx.fillStyle = 'rgba(146, 168, 208, 0.16)';
             for (let i = 0; i < 4; i++) {
                 ctx.fillRect(140 + i * 300, 150, 200, 240);
             }
-            const floorTop = this.groundY - 2;
-            const grad = ctx.createLinearGradient(0, floorTop, 0, CANVAS_HEIGHT);
-            grad.addColorStop(0, '#3a2c1a');
-            grad.addColorStop(1, '#191209');
-            ctx.fillStyle = grad;
-            ctx.fillRect(0, floorTop, CANVAS_WIDTH, CANVAS_HEIGHT - floorTop);
         }
+        this.renderFloorBand(ctx, floorTop);
+        ctx.restore();
+    }
+
+    // 板の間(俯瞰の床帯)。地平線から画面下まで、水平な板目だけで敷く。
+    // 遠近線・消失点は引かない ― 本編の床帯と同じ文法に揃える。
+    renderFloorBand(ctx, floorTop) {
+        const bottom = CANVAS_HEIGHT + 200;
+        ctx.save();
+        const base = ctx.createLinearGradient(0, floorTop, 0, bottom);
+        base.addColorStop(0, '#2a1d12');
+        base.addColorStop(0.28, '#3a281a');
+        base.addColorStop(1, '#1a1109');
+        ctx.fillStyle = base;
+        ctx.fillRect(0, floorTop, CANVAS_WIDTH, bottom - floorTop);
+
+        // 板の継ぎ目。手前ほど間隔を広げるが、線は全て水平のまま(遠近は付けない)
+        ctx.strokeStyle = 'rgba(12, 8, 4, 0.55)';
+        ctx.lineWidth = 1.5;
+        let y = floorTop + 12;
+        let gap = 16;
+        while (y < bottom) {
+            ctx.beginPath();
+            ctx.moveTo(0, y + 0.5);
+            ctx.lineTo(CANVAS_WIDTH, y + 0.5);
+            ctx.stroke();
+            y += gap;
+            gap += 2.2;
+        }
+        // 壁際の暗がり(床と壁の取り合いを締める)
+        const foot = ctx.createLinearGradient(0, floorTop, 0, floorTop + 44);
+        foot.addColorStop(0, 'rgba(0, 0, 0, 0.55)');
+        foot.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = foot;
+        ctx.fillRect(0, floorTop, CANVAS_WIDTH, 44);
         ctx.restore();
     }
 
@@ -283,75 +334,38 @@ export class TrainingStage {
         renderGainPops(ctx, this, { stroke: 'rgba(6, 12, 26, 0.85)', fill: '#dfeaff' });
     }
 
-    // 稽古台＝壁に取り付けた板棚。床から脚を立てるのではなく、
-    // 【壁の柱へ方杖(斜めの支え)で留めた板】として描く。宙に浮いた棒に見えると
-    // 「背景に対して不自然でチープ」になる(実機フィードバック 2026-08-11)。
-    // 部材は上から順に: 壁の影 → 方杖 → 幕板 → 天板 → 天板の照り。
+    // 稽古台＝板の間に据えた道具。絵は上端が天面・下端が足元になるよう切り詰めて
+    // あるので、当たり判定の面(p.y)から足元(PROP_FOOT_Y)までにそのまま収める。
     renderShelf(ctx, p) {
-        const x = p.x;
-        const y = p.y;                 // 天板の上面＝当たり判定の面
+        const img = getAsset(p.asset);
         const w = p.width;
-        const TOP_H = 13;              // 天板の厚み
-        const APRON_H = 9;             // 幕板(天板の下に回す横板)
-        const BRACE_LEN = 34;          // 方杖の落ち幅
-        const BRACE_IN = 26;           // 方杖の付け根を端から内へ寄せる量
-
+        const h = PROP_FOOT_Y - p.y;
         ctx.save();
+        // 足元の落ち影。床帯の上に据わっていることを示す(これが無いと浮いて見える)
+        const shadow = ctx.createRadialGradient(
+            p.x + w * 0.5, PROP_FOOT_Y, 4,
+            p.x + w * 0.5, PROP_FOOT_Y, w * 0.62
+        );
+        shadow.addColorStop(0, 'rgba(0, 0, 0, 0.5)');
+        shadow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = shadow;
+        ctx.fillRect(p.x + w * 0.5 - w * 0.62, PROP_FOOT_Y - w * 0.62, w * 1.24, w * 1.24);
 
-        // --- 壁に落ちる影。板の裏側の暗がりを作って壁から浮かせる ---
-        const shade = ctx.createLinearGradient(0, y + TOP_H, 0, y + TOP_H + BRACE_LEN + 18);
-        shade.addColorStop(0, 'rgba(0, 0, 0, 0.42)');
-        shade.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        ctx.fillStyle = shade;
-        ctx.fillRect(x - 10, y + TOP_H, w + 20, BRACE_LEN + 18);
-
-        // --- 方杖(左右2本)。天板の下から壁側へ斜めに落ちる ---
-        ctx.strokeStyle = '#2f2213';
-        ctx.lineCap = 'butt';
-        ctx.lineWidth = 9;
-        for (const sign of [1, -1]) {
-            const bx = sign > 0 ? x + BRACE_IN : x + w - BRACE_IN;
-            ctx.beginPath();
-            ctx.moveTo(bx, y + TOP_H + APRON_H - 1);
-            ctx.lineTo(bx + sign * BRACE_LEN * 0.62, y + TOP_H + APRON_H + BRACE_LEN);
-            ctx.stroke();
+        if (img) {
+            ctx.imageSmoothingEnabled = true;
+            ctx.drawImage(img, p.x, p.y, w, h);
+        } else {
+            // フォールバック: 木箱を積んだだけの簡素なコード描画
+            ctx.fillStyle = '#2a1d10';
+            ctx.fillRect(p.x + 8, p.y + 12, w - 16, h - 12);
+            const top = ctx.createLinearGradient(0, p.y, 0, p.y + 14);
+            top.addColorStop(0, '#6b5130');
+            top.addColorStop(1, '#33240f');
+            ctx.fillStyle = top;
+            ctx.fillRect(p.x, p.y, w, 14);
+            ctx.fillStyle = 'rgba(232, 208, 158, 0.22)';
+            ctx.fillRect(p.x, p.y, w, 3);
         }
-        // 方杖の受け(壁側の小さな座)
-        ctx.fillStyle = '#241a0e';
-        for (const sign of [1, -1]) {
-            const bx = sign > 0 ? x + BRACE_IN : x + w - BRACE_IN;
-            ctx.fillRect(bx + sign * BRACE_LEN * 0.62 - 7, y + TOP_H + APRON_H + BRACE_LEN - 4, 14, 7);
-        }
-
-        // --- 幕板(天板の下に回した横板)。天板の厚みを二段にして重さを出す ---
-        const apron = ctx.createLinearGradient(0, y + TOP_H, 0, y + TOP_H + APRON_H);
-        apron.addColorStop(0, '#3a2a17');
-        apron.addColorStop(1, '#1d1409');
-        ctx.fillStyle = apron;
-        ctx.fillRect(x + 6, y + TOP_H, w - 12, APRON_H);
-
-        // --- 天板 ---
-        const top = ctx.createLinearGradient(0, y, 0, y + TOP_H);
-        top.addColorStop(0, '#6b5130');
-        top.addColorStop(0.4, '#4a3620');
-        top.addColorStop(1, '#241a0e');
-        ctx.fillStyle = top;
-        ctx.fillRect(x, y, w, TOP_H);
-        // 木口(左右の切り口は明るい)
-        ctx.fillStyle = 'rgba(150, 118, 74, 0.5)';
-        ctx.fillRect(x, y + 1, 4, TOP_H - 2);
-        ctx.fillRect(x + w - 4, y + 1, 4, TOP_H - 2);
-        // 上面の照り(天井の灯りを受ける面)
-        ctx.fillStyle = 'rgba(232, 208, 158, 0.24)';
-        ctx.fillRect(x, y, w, 3);
-        // 板の継ぎ目
-        ctx.fillStyle = 'rgba(16, 11, 5, 0.5)';
-        ctx.fillRect(x, y + 5, w, 1);
-        // 縁の締め
-        ctx.strokeStyle = 'rgba(10, 7, 3, 0.8)';
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(x + 0.75, y + 0.75, w - 1.5, TOP_H - 1.5);
-
         ctx.restore();
     }
 

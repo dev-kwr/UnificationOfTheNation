@@ -2,10 +2,10 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260811j';
-import { audio } from './audio.js?v=screen-safe-20260811j';
-import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260811j';
-import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260811j';
+import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260811k';
+import { audio } from './audio.js?v=screen-safe-20260811k';
+import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260811k';
+import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260811k';
 
 // 武器ジオメトリは「武器を振る主体(owner/player)のワールド寸法」を基準に組み立てる。
 // 将軍は width/height が素体(40x60)なので getWorldWidth/Height(=素体×SHOGUN_SCALE) を読む。
@@ -110,17 +110,19 @@ function drawFirebombFuseCord(ctx, path, radius) {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     // 焦げた縁と縄色を重ね、節のない一本の芯に見せる。
+    // 太さは【玉の直径の1/16 前後】＝ r*0.13。火縄は細い麻紐であって船の綱ではない。
+    // ゲーム内の玉は半径10px前後なので、下限を張って線が消えないようにする。
     traceFuse();
     ctx.strokeStyle = '#241207';
-    ctx.lineWidth = Math.max(2.0, r * 0.25);
+    ctx.lineWidth = Math.max(1.8, r * 0.145);
     ctx.stroke();
     traceFuse();
     ctx.strokeStyle = '#81502a';
-    ctx.lineWidth = Math.max(1.4, r * 0.17);
+    ctx.lineWidth = Math.max(1.1, r * 0.095);
     ctx.stroke();
     traceFuse();
     ctx.strokeStyle = 'rgba(224, 173, 103, 0.30)';
-    ctx.lineWidth = Math.max(0.45, r * 0.035);
+    ctx.lineWidth = Math.max(0.4, r * 0.03);
     ctx.stroke();
     ctx.restore();
 }
