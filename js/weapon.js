@@ -2,10 +2,10 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260811i';
-import { audio } from './audio.js?v=screen-safe-20260811i';
-import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260811i';
-import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260811i';
+import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260811j';
+import { audio } from './audio.js?v=screen-safe-20260811j';
+import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260811j';
+import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260811j';
 
 // 武器ジオメトリは「武器を振る主体(owner/player)のワールド寸法」を基準に組み立てる。
 // 将軍は width/height が素体(40x60)なので getWorldWidth/Height(=素体×SHOGUN_SCALE) を読む。
@@ -62,17 +62,12 @@ function resolveVisualEffectScale(value) {
         : 1;
 }
 
-// 真横から見た口金＋導火線。繰り返し模様は節に見えるため使わず、
-// 根元から先端まで一続きの短い繊維として描く。
-function drawFirebombFuse(ctx, cx, cy, radius, time, seeds, visualScale = 1) {
-    const r = Math.max(1, radius);
-    const fxScale = resolveVisualEffectScale(visualScale);
-    // 将軍では火の粉の飛散距離は2.2倍を保ちつつ、導火線先端の火だけを少し抑える。
-    // 忍者の通常・Lv3サイズアップ（1.5倍未満）は従来比率のまま。
-    const coreScale = fxScale > 1.5
-        ? 1 + (fxScale - 1) * 0.78
-        : fxScale;
-    const collarY = cy - r * 0.99;
+// 導火線の経路。本体SVGより【先】に縄を、【後】に火を描くため、
+// 前後で同じ曲線を使えるよう座標だけを先に求める。
+// 座標は球の中心(cx,cy)と半径 r の倍数で持つ ― SVG の口金は球の中心から
+// 0.93r〜1.20r の高さにあるので、根元(0.95r)は必ず口金に隠れ、
+// 見える分は口金の上端から先端(1.78r)までになる。
+function computeFusePath(cx, cy, r, time, seeds) {
     // 口金側は固定し、先端へ近づくほどごく小さくしなる。
     // 単一の大きな正弦波ではなく低速の2波を混ぜ、機械的な往復やミミズ状の動きを避ける。
     const swayPhase = time * 0.00580 + (seeds?.[0]?.ph || 0) * 0.12;
@@ -82,19 +77,29 @@ function drawFirebombFuse(ctx, cx, cy, radius, time, seeds, visualScale = 1) {
     ) * r * 0.060;
     const tipSwayY = Math.sin(swayPhase * 0.71 + 2.1) * r * 0.012;
     // 付け根は口金の中央(球の左右中央)。ここをずらすと「横から生えた」ように見える
-    const p0 = { x: cx, y: collarY + r * 0.06 };
-    const p1 = {
-        x: cx + r * 0.16 + tipSwayX * 0.10,
-        y: collarY - r * 0.08 + tipSwayY * 0.08
+    return {
+        p0: { x: cx, y: cy - r * 0.95 },
+        p1: {
+            x: cx + r * 0.09 + tipSwayX * 0.10,
+            y: cy - r * 1.22 + tipSwayY * 0.08
+        },
+        p2: {
+            x: cx + r * 0.27 + tipSwayX * 0.46,
+            y: cy - r * 1.50 + tipSwayY * 0.42
+        },
+        p3: {
+            x: cx + r * 0.36 + tipSwayX,
+            y: cy - r * 1.78 + tipSwayY
+        }
     };
-    const p2 = {
-        x: cx + r * 0.23 + tipSwayX * 0.46,
-        y: collarY - r * 0.29 + tipSwayY * 0.42
-    };
-    const p3 = {
-        x: cx + r * 0.29 + tipSwayX,
-        y: collarY - r * 0.47 + tipSwayY
-    };
+}
+
+// 導火線の縄。本体SVGより先に描く ― 後に描くと縄が口金の前面へ乗って
+// 「口に挿さっていない」絵になる(実機フィードバック 2026-08-11)。
+// 繰り返し模様は節に見えるため使わず、根元から先端まで一続きの繊維として描く。
+function drawFirebombFuseCord(ctx, path, radius) {
+    const r = Math.max(1, radius);
+    const { p0, p1, p2, p3 } = path;
     const traceFuse = () => {
         ctx.beginPath();
         ctx.moveTo(p0.x, p0.y);
@@ -104,7 +109,6 @@ function drawFirebombFuse(ctx, cx, cy, radius, time, seeds, visualScale = 1) {
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-
     // 焦げた縁と縄色を重ね、節のない一本の芯に見せる。
     traceFuse();
     ctx.strokeStyle = '#241207';
@@ -118,6 +122,22 @@ function drawFirebombFuse(ctx, cx, cy, radius, time, seeds, visualScale = 1) {
     ctx.strokeStyle = 'rgba(224, 173, 103, 0.30)';
     ctx.lineWidth = Math.max(0.45, r * 0.035);
     ctx.stroke();
+    ctx.restore();
+}
+
+// 導火線先端の火と火花。縄と違って本体より【後】に描く(球に隠れさせない)。
+function drawFirebombFuseFlame(ctx, path, time, seeds, visualScale = 1) {
+    const fxScale = resolveVisualEffectScale(visualScale);
+    // 将軍では火の粉の飛散距離は2.2倍を保ちつつ、導火線先端の火だけを少し抑える。
+    // 忍者の通常・Lv3サイズアップ（1.5倍未満）は従来比率のまま。
+    const coreScale = fxScale > 1.5
+        ? 1 + (fxScale - 1) * 0.78
+        : fxScale;
+    const { p2, p3 } = path;
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
 
     // 口金は本体SVG(images/bomb_body.svg)に含まれる。ここで重ねて描くと
     // 二重になって見えるため描かない(実機フィードバック 2026-08-11)。
@@ -508,6 +528,12 @@ export class Bomb {
                 });
             }
 
+            // 導火線の縄は本体より先。SVGの口金が根元を隠し、口から生えて見える。
+            const fusePath = computeFusePath(
+                this.x, this.y, Math.max(1, this.radius), performance.now(), this._fuseSeed
+            );
+            drawFirebombFuseCord(ctx, fusePath, this.radius);
+
             // 本体は SVG(bomb_body.svg)。口金までこの絵に含まれる。
             const bodyImg = getBombBodyImage();
             if (bodyImg) {
@@ -589,26 +615,20 @@ export class Bomb {
 
             ctx.restore();
 
-            drawFirebombFuse(
-                ctx,
-                this.x,
-                this.y,
-                this.radius,
-                performance.now(),
-                this._fuseSeed,
-                this.visualScale
-            );
-            
+            // 先端の火と火花は本体より後（球に隠さない）
+            drawFirebombFuseFlame(ctx, fusePath, performance.now(), this._fuseSeed, this.visualScale);
+
             ctx.restore();
         }
     }
 }
 
 // 火薬玉の本体(鋳鉄球＋口金)。生成画像の質感に寄せて手書きした SVG
-// (images/bomb_body.svg)。導火線と火花はコード側(drawFirebombFuse)が描く ―
-// 揺れと明滅があるため。定数は SVG の座標系(viewBox 672x620、球=中心336,385/半径329)。
+// (images/bomb_body.svg)。導火線と火花はコード側が描く ― 揺れと明滅があるため。
+// 描き順は【縄(drawFirebombFuseCord) → 本体SVG → 火(drawFirebombFuseFlame)】。
+// SVG の口金は球の中心から 0.933r〜1.20r の高さにあり、これが縄の根元を隠す。
 const BOMB_BODY_SRC = 'images/bomb_body.svg';
-// viewBox 672x672 / 球は正円で中心(336,372)・半径300
+// viewBox 672x672 / 球は正円で中心(336,372)・半径300 / 口金は rect y=12..92
 const BOMB_BALL_CX = 336 / 672, BOMB_BALL_CY = 372 / 672, BOMB_BALL_R = 300 / 672, BOMB_BODY_ASPECT = 1;
 let _bombBodyImg = null;
 function getBombBodyImage() {
@@ -3027,8 +3047,17 @@ export class Kusarigama extends SubWeapon {
         const ownerScale = (player && Number.isFinite(player.scaleMultiplier) && player.scaleMultiplier > 0)
             ? player.scaleMultiplier : 1;
         const centerX = player.x + ownerWorldWidth(player) / 2;
-        const shoulderX = centerX - direction * 3 * ownerScale;
-        const shoulderY = player.y + 17 * ownerScale; // player.js の pivotY (idle想定) に合わせる
+        /* 鎖の起点(=手元)は肩基準で組み立てる。既定値は 60px 素体のプレイヤー用で、
+           巨躯オーナー(ボス素体108px)ではこの肩が頭の高さに来てしまい、
+           腕のリーチ内に収まらず【鎖が手から離れて見える】。
+           オーナーが kusaShoulder = { dx, ratio } を宣言していればそれを肩位置とする。 */
+        const ks = player && player.kusaShoulder;
+        const shoulderX = ks && Number.isFinite(ks.dx)
+            ? centerX + direction * ks.dx
+            : centerX - direction * 3 * ownerScale;
+        const shoulderY = ks && Number.isFinite(ks.ratio)
+            ? player.y + ownerWorldHeight(player) * ks.ratio
+            : player.y + 17 * ownerScale; // player.js の pivotY (idle想定) に合わせる
 
         const effectiveRange = ownerModelRange(this.range, player);
         const ORBIT_HAND_REACH = 20.2;

@@ -2,17 +2,17 @@
 // Unification of the Nation - ボスクラス
 // ============================================
 
-import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260811i';
-import { Enemy } from './enemy.js?v=screen-safe-20260811i';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260811i';
-import { audio } from './audio.js?v=screen-safe-20260811i';
-import { Player } from './player.js?v=screen-safe-20260811i';
+import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260811j';
+import { Enemy } from './enemy.js?v=screen-safe-20260811j';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260811j';
+import { audio } from './audio.js?v=screen-safe-20260811j';
+import { Player } from './player.js?v=screen-safe-20260811j';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
-} from './normalComboMotion.js?v=screen-safe-20260811i';
+} from './normalComboMotion.js?v=screen-safe-20260811j';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
@@ -21,7 +21,7 @@ import {
     SHOGUN_HEAD_SCALE,
     SHOGUN_HIP_LIFT_PX,
     SHOGUN_SCALE
-} from './shogunConstants.js?v=screen-safe-20260811i';
+} from './shogunConstants.js?v=screen-safe-20260811j';
 import {
     BOSS_DESIGNS,
     renderBossActor,
@@ -35,7 +35,7 @@ import {
     kusarigamaStance,
     drawCarriedKusarigama,
     odachiStance
-} from './bossRenderer.js?v=screen-safe-20260811i';
+} from './bossRenderer.js?v=screen-safe-20260811j';
 
 // weaponReplica の攻撃進行度(0..1)。体の所作を実体のタイムラインへ同期させる。
 function replicaProgress(replica) {
@@ -990,6 +990,10 @@ export class KusarigamaAssassin extends Boss {
         this.attackPatterns = ['kusa'];
         this.chainX = 0;
         this.chainY = 0;
+        /* 鎖の起点を素体の【手前肩】に合わせる。既定値(y+17×ownerScale)は 60px 素体向けで、
+           108px のボスでは肩が頭の高さに来てしまい、腕のリーチ(38.9)を超えて
+           鎖が手から離れて見えていた。dx/ratio は bossRenderer の shF の実測値。 */
+        this.kusaShoulder = { dx: 8.7, ratio: 0.374 };
         this.setupWeaponReplica('鎖鎌');
     }
     
@@ -1023,19 +1027,28 @@ export class KusarigamaAssassin extends Boss {
         const attacking = !!(kusa && kusa.isAttacking);
         const anchor = (kusa && typeof kusa.getHandAnchor === 'function')
             ? kusa.getHandAnchor(this) : null;
+        const st = (attacking && kusa && typeof kusa.getRenderState === 'function')
+            ? kusa.getRenderState(this) : null;
+        /* Kusarigama.render は鎖が短い区間(radius<4 = 振りかぶり〜投げ出し直前)と
+           巻き取り終盤のフェードで【何も描かない】。そのままだと得物が一瞬消え、
+           次に別の位置から現れるので「持つ腕が入れ替わった」ように見える。
+           その区間は素体側の携行描画で橋渡しする。 */
+        const bridged = attacking && (!st || !(st.radius >= 4));
         renderBossActor(ctx, this, BOSS_DESIGNS.kusa, {
             hands: (rig) => kusarigamaStance(rig, attacking ? anchor : null),
             // 鎖と軌跡は手前腕より奥
             front: (rig, h) => {
-                if (!attacking) return;
+                if (!attacking || bridged) return;
                 rig.world(() => {
                     if (kusa && typeof kusa.render === 'function') kusa.render(ctx, this, 'behind');
                 });
             },
             // 鎌ヘッドは掌より前(プレイヤーの 'behind'→手→'front' と同じ)
             frontTop: (rig, h) => {
-                // 実体は待機中フェードして見えないため、携行時は素体側で鎌と鎖を持たせる
-                if (!attacking) { drawCarriedKusarigama(rig, h, rig.t); return; }
+                if (!attacking || bridged) {
+                    drawCarriedKusarigama(rig, h, rig.t, st ? st.chainHeading : undefined);
+                    return;
+                }
                 rig.world(() => {
                     if (kusa && typeof kusa.render === 'function') kusa.render(ctx, this, 'front');
                 });

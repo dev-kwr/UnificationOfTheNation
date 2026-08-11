@@ -90,7 +90,7 @@ function limbN(c,ax,ay,hx,hy,frac,bend,mode,w1,w2,col,hi,pass='fill'){
 
 /* 二刀の刀身はプレイヤーと同一形状。katanaShape.js は依存ゼロなので循環しない
    (playerRenderer.js を直接 import すると game.js の TDZ でクラッシュする)。 */
-import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260811i';
+import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260811j';
 /* 刀身長はプレイヤー実数値のまま渡し、拡大は描画側の ctx.scale だけで行う(二重拡大防止)。
    倍率は素体リグの SC(=1.8) ではなく【描画上の身長比】を使う:
      プレイヤーの描画身長 = height(72) - headRadius*0.1(=1.68) = 70.32
@@ -1565,19 +1565,24 @@ export function kusarigamaStance(rig, anchor){
   if (anchor) {
     const a = rig.toLocal(anchor.x, anchor.y);
     let fx = a.x, fy = a.y;
-    // 投げ切り直後の反動(playerRenderer:4708-4712)。× SC
+    /* 投げ切り直後の反動(playerRenderer:4708-4712)。
+       ここは【SC を掛けない】。掛けると最大14px 手がアンカーから離れ、
+       鎖の起点が手から浮いて見える(ユーザー指摘)。素の実数値なら最大 7.8px。 */
     if (anchor.phase === 'orbit' && anchor.phaseT < 0.26) {
       const recoil = 1 - (anchor.phaseT / 0.26);
-      fx -= (2.6 + recoil * 5.2) * SC;
-      fy += recoil * 1.25 * SC;
+      fx -= 2.6 + recoil * 5.2;
+      fy += recoil * 1.25;
     }
     // 腕リーチ上限もプレイヤーと同じフェーズ別値(20.6 / 21.0 / 21.2)× SC
     const LIM = (anchor.phase === 'windup' ? 20.6 : anchor.phase === 'throw' ? 21.0 : 21.2) * SC;
     const dx = fx - shF.x, dy = fy - shF.y, d = Math.hypot(dx, dy) || 0.001;
     front = d > LIM ? { x: shF.x + dx * LIM / d, y: shF.y + dy * LIM / d } : { x: fx, y: fy };
   } else {
-    // 携行(待機・走り)。プレイヤーの手前手アイドル centerX - dir*8.0 / rightShoulderY + 8.5
-    front = { x: cx - 8.0 * SC - s * 0.6, y: shF.y + (8.5 + (motion === 'idle' ? sway * 0.6 : 0)) * SC };
+    /* 携行(待機・走り)は【攻撃の振りかぶり開始と同じ手位置】に置く。
+       実体 getMotionState の windup 開始は 肩 + (5.8, 1.6)。
+       ここを別の場所にすると、攻撃に入った瞬間に得物が別の腕へ飛んだように見える。 */
+    front = { x: shF.x + 5.8 - s * 0.6,
+              y: shF.y + 1.6 + (motion === 'idle' ? sway * 0.8 : 0) };
   }
   // 奥手 = 片刀アイドル(centerX + dir*15.6, leftShoulderY + 8.3)を ×SC
   const back = { x: cx + 15.6 * SC + s * 0.6,
@@ -1615,16 +1620,22 @@ export function odachiStance(rig, anchor){
 }
 
 /** 携行中の鎌と鎖(実体 Kusarigama は待機中フェードして描かれないため素体側で持たせる) */
-export function drawCarriedKusarigama(rig, hands, t){
+export function drawCarriedKusarigama(rig, hands, t, heading){
   const c = rig.c;
-  const kro = 0.28;
-  /* 鎌は【手前手】。攻撃中に鎖が伸びるのも手前手なので、待機→攻撃で持ち替えが起きない。
-     鎖は鎌の柄尻(ローカル-18)から奥手側へたるませる。 */
+  /* 鎌も鎖も【手前手】が持つ。刃の向きは攻撃の振りかぶり開始(angle=-0.72)と同じ。
+     以前は鎖を奥手まで水平に張っていて、待機だけ得物が反対の腕にあるように見え、
+     鎖が体を横切る奇妙な絵になっていた(ユーザー指摘)。
+     携行中の鎖は同じ手の下へ短く垂らす。 */
+  const kro = Number.isFinite(heading) ? heading : -0.72;
   const kx = hands.front.x, ky = hands.front.y;
-  const bx = kx - Math.cos(kro) * 18, by = ky - Math.sin(kro) * 18;
-  const wag = Math.sin(t * TAU / 2.4) * (rig.motion === 'run' ? 6 : 3);
-  realChain(c, bx, by, hands.back.x, hands.back.y + wag * 0.2,
-            (bx + hands.back.x) / 2, Math.max(by, hands.back.y) + 9 + wag * 0.3);
+  const bx = kx - Math.cos(kro) * 18, by = ky - Math.sin(kro) * 18;   // 柄尻の鎖環
+  const wag = Math.sin(t * TAU / 2.4) * (rig.motion === 'run' ? 4 : 1.8);
+  /* 実機の鎖鎌に分銅は無く、鎖は【一端が手・もう一端が鎌】。
+     携行中は柄尻の鎖環から垂れ下がり、同じ手へ戻ってくる輪になる。
+     以前は先端が宙で終わっていて「どこに繋がっているのか」分からなかった(ユーザー指摘)。 */
+  const lowX = kx - 3 + wag * 0.8, lowY = ky + 26 + wag * 0.5;        // 垂れの底
+  realChain(c, bx, by, lowX, lowY, bx - 6, (by + lowY) * 0.5 + 5);    // 柄尻 → 底
+  realChain(c, lowX, lowY, kx + 3, ky + 4, lowX + 9, (lowY + ky) * 0.5 + 6); // 底 → 手
   realSickle(c, kx, ky, kro);
 }
 

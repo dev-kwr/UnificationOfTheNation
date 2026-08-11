@@ -20,11 +20,11 @@
 // 画像: images/bonus_kura_*.png（Codex/gpt-image 生成。読めない環境では
 // コード描画にフォールバック）。
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260811i';
-import { audio } from './audio.js?v=screen-safe-20260811i';
-import { getImage } from './imageCache.js?v=screen-safe-20260811i';
-import { drawKobanImage } from './ui.js?v=screen-safe-20260811i';
-import { pushGain, updateGainPops, renderGainPops, tickTimeLimit, clampToLeftEdge } from './sideStageCommon.js?v=screen-safe-20260811i';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260811j';
+import { audio } from './audio.js?v=screen-safe-20260811j';
+import { getImage } from './imageCache.js?v=screen-safe-20260811j';
+import { drawKobanImage } from './ui.js?v=screen-safe-20260811j';
+import { pushGain, updateGainPops, renderGainPops, tickTimeLimit, clampToLeftEdge } from './sideStageCommon.js?v=screen-safe-20260811j';
 
 // 小判1枚の価値（両）。よろず屋の相場に合わせてここだけで調整する。
 const KOBAN_VALUE = 10;
@@ -62,31 +62,36 @@ const TOWER_PATTERNS = [
     [
         [150, -115, 3], [620, -230, 2], [1000, -345, 2], [560, -460, 3], [240, -575, 2],
         [560, -690, 2, { amp: 140, period: 4.2 }], [940, -805, 2], [560, -920, 3], [230, -1035, 2],
-        [560, -1150, 2, { amp: 170, period: 3.6 }], [960, -1265, 2], [470, -1385, 4]
+        [560, -1150, 2, { amp: 170, period: 3.6 }], [960, -1265, 2], [560, -1385, 3], [230, -1500, 2],
+        [500, -1615, 4]
     ],
     // 螺旋: 左→右へ一方向に流れ、上で折り返す
     [
         [120, -120, 3], [430, -235, 2], [740, -350, 2], [1010, -465, 2], [760, -580, 2],
         [430, -695, 2, { amp: 150, period: 4.0 }], [130, -810, 3], [430, -925, 2], [760, -1040, 2],
-        [1000, -1155, 2], [700, -1275, 2], [440, -1395, 4]
+        [1000, -1155, 2], [700, -1275, 2], [400, -1390, 2], [700, -1505, 2, { amp: 150, period: 4.0 }],
+        [420, -1625, 4]
     ],
     // 中央軸: 足場が中央に集まり、細かい踏み替えが続く
     [
         [520, -115, 3], [300, -230, 2], [600, -345, 2], [380, -460, 2, { amp: 180, period: 3.8 }],
         [280, -575, 2], [560, -690, 2], [440, -805, 3], [300, -920, 2], [590, -1035, 2],
-        [400, -1150, 2, { amp: 200, period: 3.2 }], [300, -1265, 2], [440, -1385, 4]
+        [400, -1150, 2, { amp: 200, period: 3.2 }], [300, -1265, 2], [560, -1380, 2], [320, -1495, 2],
+        [430, -1615, 4]
     ],
     // 両翼: 左右の壁沿いを大きく渡る
     [
         [90, -115, 3], [560, -230, 3], [960, -345, 2], [600, -460, 2], [230, -575, 2],
         [530, -690, 2, { amp: 190, period: 3.6 }], [930, -805, 2], [600, -920, 2], [230, -1035, 2],
-        [560, -1150, 2], [930, -1265, 2], [560, -1385, 4]
+        [560, -1150, 2], [930, -1265, 2], [610, -1385, 2], [240, -1500, 2],
+        [540, -1620, 4]
     ],
     // 吊り棚づくし: 動く棚が多く、渡りの見極めが要る
     [
         [180, -115, 3], [600, -230, 2], [980, -345, 2], [560, -460, 2, { amp: 160, period: 4.4 }],
         [200, -575, 2], [560, -690, 2, { amp: 180, period: 3.8 }], [930, -805, 2], [600, -920, 2],
-        [230, -1035, 2], [560, -1150, 2, { amp: 200, period: 3.4 }], [950, -1265, 2], [520, -1385, 4]
+        [230, -1035, 2], [560, -1150, 2, { amp: 200, period: 3.4 }], [950, -1265, 2],
+        [600, -1385, 2, { amp: 170, period: 3.9 }], [210, -1500, 2], [500, -1620, 4]
     ]
 ];
 
@@ -158,10 +163,12 @@ export class BonusStage {
         const topShelf = this.shelves[this.shelves.length - 1];
         this._topY = topShelf.y;
 
-        // 千両箱: 頂上の棚の中央
+        // 千両箱: 頂上の棚の中央。baseY(棚の天面)を正本にして、描画は絵の縦横比から
+        // 高さを出して baseY へ座らせる。y は取得判定の中心にだけ使う。
         this.chest = {
             x: topShelf.x + topShelf.width * 0.5,
-            y: topShelf.y - 52,      // 棚の上に据わる高さ(下端が棚の天面に接する)
+            baseY: topShelf.y,
+            y: topShelf.y - 42,
             taken: false,
             phase: 0
         };
@@ -512,18 +519,9 @@ export class BonusStage {
             ctx.fillRect(cx - 470, this._topY - 590, 940, 940);
         }
 
-        // 蔵浚え後: 降ってくる小判の上空に淡い光の筋を差す(降り始めの予兆)
-        if (this._rainMode) {
-            for (const rk of this.rainKobans) {
-                if (rk.taken || rk.landed || rk.delay > 0) continue;
-                const fall = Math.max(0, Math.min(1, (rk.landY - rk.y) / 460));
-                const beam = ctx.createLinearGradient(0, rk.y - 300, 0, rk.y + 40);
-                beam.addColorStop(0, 'rgba(255, 226, 150, 0)');
-                beam.addColorStop(1, `rgba(255, 222, 148, ${(0.13 * fall).toFixed(3)})`);
-                ctx.fillStyle = beam;
-                ctx.fillRect(rk.x - 26, rk.y - 300, 52, 340);
-            }
-        }
+        // 降る小判に光の筋は敷かない。fillRect の左右と下が硬い縁として残り、
+        // 「小判に長方形がくっついている」ように見えた(実機フィードバック 2026-08-11)。
+        // 落下の手掛かりは小判自身の落ち影(renderKobans)で足りている。
 
         // 全体をわずかに沈めて手前の小判を立てる
         ctx.fillStyle = 'rgba(6, 5, 3, 0.14)';
@@ -660,25 +658,36 @@ export class BonusStage {
         if (!c || c.taken) return;
         const img = getAsset(3);
         const tw = (Math.sin(c.phase * 1.7) + 1) * 0.5;
-        const w = 104;
-        const h = 104;
+        // 縦横比は絵から取る(横長 384x242)。正方形で描くと箱が潰れて四角い塊になる。
+        const w = 132;
+        const h = img ? Math.round(w * (img.naturalHeight / img.naturalWidth)) : 84;
+        const baseY = c.baseY;         // 棚の天面＝箱の下端
         const x = c.x - w * 0.5;
-        const y = c.y - h * 0.5;
-        const baseY = c.y + h * 0.5;   // 箱の下端＝棚の天面
+        const y = baseY - h;
+        const cy = baseY - h * 0.5;    // 箱の中心（後光の中心）
 
-        // 上から降る光柱（頂上の月明かりと呼応させる）
-        const shaft = ctx.createLinearGradient(0, baseY - 420, 0, baseY);
-        shaft.addColorStop(0, 'rgba(255, 226, 150, 0)');
-        shaft.addColorStop(1, `rgba(255, 214, 120, ${(0.1 + tw * 0.05).toFixed(3)})`);
+        // 上から降る光柱（頂上の月明かりと呼応させる）。
+        // 光は必ず【放射グラデーション＋グラデーションが0になる大きさの矩形】で描く。
+        // 線形グラデーションを矩形へ流すと左右と下が硬い縁として残り、
+        // 「光ではなく長方形が乗っている」ように見える(実機フィードバック 2026-08-11)。
+        // 縦に伸ばしたいときは scale で潰す ― 矩形を細くして代用しない。
+        ctx.save();
+        ctx.translate(c.x, baseY - 150);
+        ctx.scale(1, 2.6);
+        const shaft = ctx.createRadialGradient(0, 0, 6, 0, 0, 130);
+        shaft.addColorStop(0, `rgba(255, 220, 140, ${(0.13 + tw * 0.05).toFixed(3)})`);
+        shaft.addColorStop(0.6, `rgba(255, 214, 120, ${(0.05 + tw * 0.02).toFixed(3)})`);
+        shaft.addColorStop(1, 'rgba(255, 214, 120, 0)');
         ctx.fillStyle = shaft;
-        ctx.fillRect(c.x - 110, baseY - 420, 220, 420);
+        ctx.fillRect(-130, -130, 260, 260);
+        ctx.restore();
 
-        // 足元の光溜まり
+        // 足元の光溜まり（矩形は半径の2倍を確保する）
         const glow = ctx.createRadialGradient(c.x, baseY - 6, 8, c.x, baseY - 6, 190);
         glow.addColorStop(0, `rgba(255, 214, 120, ${(0.3 + tw * 0.14).toFixed(3)})`);
         glow.addColorStop(1, 'rgba(255, 214, 120, 0)');
         ctx.fillStyle = glow;
-        ctx.fillRect(c.x - 200, baseY - 200, 400, 260);
+        ctx.fillRect(c.x - 190, baseY - 196, 380, 380);
 
         if (img) {
             ctx.imageSmoothingEnabled = true;
@@ -689,12 +698,13 @@ export class BonusStage {
             const sh = img.naturalHeight - inY * 2;
             // 背後の後光。箱の絵は暗い木と黒い金具なので、暗い壁の前だと輪郭が溶けて
             // 「何か分からない」(実機フィードバック)。まず光の面を敷いて形を起こす。
-            const halo = ctx.createRadialGradient(c.x, c.y, 10, c.x, c.y, w * 0.78);
+            const haloR = w * 0.78;
+            const halo = ctx.createRadialGradient(c.x, cy, 10, c.x, cy, haloR);
             halo.addColorStop(0, `rgba(255, 226, 158, ${(0.34 + tw * 0.1).toFixed(3)})`);
             halo.addColorStop(0.55, 'rgba(255, 206, 120, 0.16)');
             halo.addColorStop(1, 'rgba(255, 206, 120, 0)');
             ctx.fillStyle = halo;
-            ctx.fillRect(c.x - w, c.y - h, w * 2, h * 2);
+            ctx.fillRect(c.x - haloR, cy - haloR, haloR * 2, haloR * 2);
             ctx.drawImage(img, inX, inY, sw, sh, x, y, w, h);
             // 同じ絵を加算で薄く重ね、暗部を持ち上げる（filter 非対応環境でも効く）
             ctx.save();
