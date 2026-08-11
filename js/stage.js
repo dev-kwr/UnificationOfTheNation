@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260811r';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811r';
-import { createEnemy } from './enemy.js?v=screen-safe-20260811r';
-import { createBoss } from './boss.js?v=screen-safe-20260811r';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260811r';
-import { audio } from './audio.js?v=screen-safe-20260811r';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260811r';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260811s';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811s';
+import { createEnemy } from './enemy.js?v=screen-safe-20260811s';
+import { createBoss } from './boss.js?v=screen-safe-20260811s';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260811s';
+import { audio } from './audio.js?v=screen-safe-20260811s';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260811s';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260811r';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260811r';
+} from './stage6Grapple.js?v=screen-safe-20260811s';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260811s';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260811r';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260811s';
 
 // ============================================
 // ステージ背景アセットの単一ソース
@@ -887,7 +887,14 @@ export class Stage {
         const bannerCenter = scrollX + CANVAS_WIDTH * 0.5;
         const playerCenter = player.x + pw * 0.5;
         const mirrored = bannerCenter + (bannerCenter - playerCenter);
-        const minCenter = bannerCenter + BOSS_ENTRANCE_MIN_HALF_GAP_PX;
+        // 【間合いは帯の中心からではなくプレイヤーからも測る】。
+        // プレイヤーが勢い余って帯より前へ出た時、帯の中心基準だけだと鏡像が潰れて
+        // ボスが目の前に立ってしまう(実測: 画面中心+53pxまで踏み込むと間合い147px)。
+        // 会敵で相手を後ろへ動かさない方針にしたぶん、下がるのはボス側の役目。
+        const minCenter = Math.max(
+            bannerCenter + BOSS_ENTRANCE_MIN_HALF_GAP_PX,
+            playerCenter + BOSS_ENTRANCE_MIN_HALF_GAP_PX
+        );
         const maxCenter = scrollX + CANVAS_WIDTH - bw * 0.5 - 24;
         if (maxCenter <= minCenter) return fallback;
         return Math.max(minCenter, Math.min(mirrored, maxCenter)) - bw * 0.5;
