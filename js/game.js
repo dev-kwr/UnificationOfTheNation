@@ -2,15 +2,15 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260811c';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811c';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260811c';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260811c';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260811c';
-import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260811c';
-import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260811c';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260811c';
-import { input } from './input.js?v=screen-safe-20260811c';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260811d';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811d';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260811d';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260811d';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260811d';
+import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260811d';
+import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260811d';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260811d';
+import { input } from './input.js?v=screen-safe-20260811d';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -48,18 +48,18 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=screen-safe-20260811c';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260811c';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260811c';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260811c';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260811c';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260811c';
-import { saveManager } from './save.js?v=screen-safe-20260811c';
-import { shop } from './shop.js?v=screen-safe-20260811c';
-import { audio } from './audio.js?v=screen-safe-20260811c';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260811c';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260811c';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260811c';
+import { Player } from './player.js?v=screen-safe-20260811d';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260811d';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260811d';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260811d';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260811d';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260811d';
+import { saveManager } from './save.js?v=screen-safe-20260811d';
+import { shop } from './shop.js?v=screen-safe-20260811d';
+import { audio } from './audio.js?v=screen-safe-20260811d';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260811d';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260811d';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260811d';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -1164,7 +1164,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260811c').then(module => {
+        import('./weapon.js?v=screen-safe-20260811d').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -5558,8 +5558,10 @@ class Game {
 
         if (input.isActionJustPressed('PAUSE') || input.isActionJustPressed('DEBUG_TOGGLE')) {
             this.pauseReturnArmed = false;
-            this.state = (this.pauseReturnState === GAME_STATE.STAGE_CLEAR)
-                ? GAME_STATE.STAGE_CLEAR
+            // 入った画面へ戻す(セレクトからのポーズはセレクトへ)
+            this.state = (this.pauseReturnState === GAME_STATE.STAGE_CLEAR
+                || this.pauseReturnState === GAME_STATE.STAGE_SELECT)
+                ? this.pauseReturnState
                 : GAME_STATE.PLAYING;
             audio.resumeBgm();
         }
@@ -5902,6 +5904,14 @@ class Game {
     }
 
     updateStageSelect() {
+        // セレクトからタイトルへ戻る導線。ここでポーズを受けないと、
+        // 一度マップへ入るとタイトルへ戻る手段が無くなる(実機フィードバック)。
+        if (input.isActionJustPressed('PAUSE')) {
+            this.pauseReturnState = GAME_STATE.STAGE_SELECT;
+            this.state = GAME_STATE.PAUSED;
+            audio.pauseBgm();
+            return;
+        }
         const order = this.getStageSelectOrder();
         const move = (delta) => {
             const idx = Math.max(0, order.indexOf(this.stageSelectCursor));
@@ -6078,6 +6088,21 @@ class Game {
     retrySideStage(kind) {
         if (kind === 'training') this.startTrainingStage();
         else this.startBonusStage();
+    }
+
+    // セレクト画面の描画。ポーズ中の背景としても使うので関数に切り出してある。
+    renderStageSelectView() {
+        renderStageSelect(this.ctx, {
+            cursor: this.stageSelectCursor,
+            maxSelectable: this.getMaxSelectableStage(),
+            maxCleared: this.maxClearedStage,
+            bonusUnlocked: this.isBonusUnlocked(),
+            trainingUnlocked: this.isTrainingUnlocked(),
+            sideBest: (saveManager.loadGlobal() || {}).sideBest || {},
+            timeMs: Date.now()
+        });
+        // タッチ端末にもタイトルへ戻る導線を出す(キーボードは ESC)
+        this.ui.renderPauseButtonOnly(this.ctx);
     }
 
     // セレクトで行き先を決めた後のステータス画面（STAGE_CLEAR Phase1 を流用）。
@@ -6324,6 +6349,8 @@ class Game {
             case GAME_STATE.PAUSED:
                 if (this.pauseReturnState === GAME_STATE.STAGE_CLEAR) {
                     this.renderStageClearView();
+                } else if (this.pauseReturnState === GAME_STATE.STAGE_SELECT) {
+                    this.renderStageSelectView();
                 } else {
                     this.renderPlaying();
                 }
@@ -6422,15 +6449,7 @@ class Game {
                 break;
 
             case GAME_STATE.STAGE_SELECT:
-                renderStageSelect(this.ctx, {
-                    cursor: this.stageSelectCursor,
-                    maxSelectable: this.getMaxSelectableStage(),
-                    maxCleared: this.maxClearedStage,
-                    bonusUnlocked: this.isBonusUnlocked(),
-                    trainingUnlocked: this.isTrainingUnlocked(),
-                    sideBest: (saveManager.loadGlobal() || {}).sideBest || {},
-                    timeMs: Date.now()
-                });
+                this.renderStageSelectView();
                 break;
 
             case GAME_STATE.GAME_CLEAR:

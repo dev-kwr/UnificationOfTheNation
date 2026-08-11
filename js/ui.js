@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260811c';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260811d';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260811c';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260811d';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260811c';
-import { audio } from './audio.js?v=screen-safe-20260811c';
-import { saveManager } from './save.js?v=screen-safe-20260811c';
+import { input } from './input.js?v=screen-safe-20260811d';
+import { audio } from './audio.js?v=screen-safe-20260811d';
+import { saveManager } from './save.js?v=screen-safe-20260811d';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -227,6 +227,8 @@ const KANJI_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '�
 // 場合は false を返し、呼び出し側のコード描画へ落ちる。
 const KOBAN_IMAGE_SRC = 'images/koban.png';
 let _kobanImg = null;
+// w>h を渡すと横長に描く(絵は縦長なので90度倒す)。小判は横長に置いた姿の方が
+// 一目で小判と分かる ― 縦長のまま小さく描くと金の塊にしか見えない(実機フィードバック)。
 export function drawKobanImage(ctx, cx, cy, w, h) {
     if (typeof Image === 'undefined') return false;
     if (!_kobanImg) {
@@ -236,7 +238,13 @@ export function drawKobanImage(ctx, cx, cy, w, h) {
     if (!(_kobanImg.complete && _kobanImg.naturalWidth)) return false;
     ctx.save();
     ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(_kobanImg, cx - w / 2, cy - h / 2, w, h);
+    ctx.translate(cx, cy);
+    if (w > h) {
+        ctx.rotate(Math.PI / 2);
+        ctx.drawImage(_kobanImg, -h / 2, -w / 2, h, w);
+    } else {
+        ctx.drawImage(_kobanImg, -w / 2, -h / 2, w, h);
+    }
     ctx.restore();
     return true;
 }
@@ -1289,7 +1297,7 @@ export class UI {
     // 小判アイコンの描画
     drawKoban(ctx, x, y, size) {
         // 生成画像があればそれを使う（HUDと蔵で同じ絵にする。共通入口は drawKobanImage）
-        if (drawKobanImage(ctx, x, y, size * 1.5, size * 2.1)) return;
+        if (drawKobanImage(ctx, x, y, size * 2.1, size * 1.5)) return;
         ctx.save();
         ctx.beginPath();
         // 縦長の楕円（小判型）
@@ -1389,6 +1397,19 @@ export class UI {
         this.drawBgmToggleButton(ctx, B.x, B.y, B.r, !!audio.isMuted);
     }
     
+    // ポーズボタンだけを描く。仮想パッドを出さない画面(ステージセレクト)から
+    // タイトルへ戻る導線として使う。判定は input.getTouchActions が
+    // setVirtualPadVisible(true) を前提に同じ getPadLayout を読む。
+    renderPauseButtonOnly(ctx) {
+        if (!this.isTouchOverlayEnabled()) return;
+        setVirtualPadVisible(true);
+        const L = getPadLayout();
+        ctx.save();
+        ctx.setLineDash([]);
+        this.drawActionCircleButton(ctx, L.pause.x, L.pause.y, L.pause.r, 'pause', input.isAction('PAUSE'));
+        ctx.restore();
+    }
+
     renderVirtualPad(ctx, player) {
         // PC（タッチ非対応かつ幅広）は非表示
         if (!this.isTouchOverlayEnabled()) return;
@@ -3101,7 +3122,7 @@ export function renderSideResultScreen(ctx, result) {
         }
         ctx.restore();
         const manual = isTouchOverlayMode() ? 'ボタンに触れて決定' : '←→：選択 | SPACE：決定';
-        drawScreenManualLine(ctx, manual, Math.min(CANVAS_HEIGHT - 16, L.buttonsBottom + 28 * uiS));
+        drawScreenManualLine(ctx, manual, Math.min(CANVAS_HEIGHT - 14, L.buttonsBottom + 46 * uiS));
     }
     ctx.restore();
 }

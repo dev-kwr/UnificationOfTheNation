@@ -20,10 +20,10 @@
 // 画像: images/bonus_kura_*.png（Codex/gpt-image 生成。読めない環境では
 // コード描画にフォールバック）。
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260811c';
-import { audio } from './audio.js?v=screen-safe-20260811c';
-import { getImage } from './imageCache.js?v=screen-safe-20260811c';
-import { drawKobanImage } from './ui.js?v=screen-safe-20260811c';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260811d';
+import { audio } from './audio.js?v=screen-safe-20260811d';
+import { getImage } from './imageCache.js?v=screen-safe-20260811d';
+import { drawKobanImage } from './ui.js?v=screen-safe-20260811d';
 
 // 小判1枚の価値（両）。よろず屋の相場に合わせてここだけで調整する。
 const KOBAN_VALUE = 20;
@@ -48,110 +48,57 @@ function getAsset(index) {
     return (img && img.complete && img.naturalWidth) ? img : null;
 }
 
-// --- 塔の手続き生成 ---------------------------------------------------
-// 固定配置だと数回で覚えてしまい飽きる(実機フィードバック 2026-08-11)ので、
-// 入るたびに組み直す。ジャンプ性能から到達可能性を保証したうえで散らす:
-//   単発ジャンプ = 高さ160px / 水平240px、2段ジャンプ = 高さ282px / 水平384px
-// (GRAVITY=0.8, JUMP_FORCE=-16, DOUBLE_JUMP=-14, SPEED=6 から算出)
-// 縦は単発の範囲に収め(=詰まらない)、横は2段ジャンプの余裕を見て 210px 以内。
-const STEP_MIN = 100, STEP_MAX = 140;   // 段の縦間隔
-const MAX_HGAP = 210;                   // 段と段の水平の隙間(棚の端から端)
-const EDGE_MARGIN = 40;                 // 壁から離す余白
-const FLOORS_MIN = 18, FLOORS_MAX = 22;
-
-const randRange = (a, b) => a + Math.random() * (b - a);
-const randInt = (a, b) => Math.floor(randRange(a, b + 1));
-
-// 高さの進み具合 t(0..1) から棚の広さを選ぶ。上ほど細くなりやすい。
-function pickCrates(t) {
-    const r = Math.random();
-    if (t < 0.25) return r < 0.25 ? 3 : 2;          // 下層は広め(助走を覚える)
-    if (t < 0.6) return r < 0.15 ? 3 : (r < 0.85 ? 2 : 1);
-    return r < 0.45 ? 1 : 2;                         // 上層は細い足場が増える
-}
+// --- 塔の型（5パターンのローテーション） ------------------------------
+// 完全ランダムだと小判が増えすぎ、構成の良し悪しも揺れた(実機フィードバック
+// 2026-08-11)。手で組んだ5つの型から入るたびに1つ選ぶ。どれも
+// 「縦の段差 ≦145 / 横の隙間 ≦215 / 画面内」を満たすよう設計してあり、
+// 変更したら scratch/design_towers.mjs で再検証すること
+// (単発ジャンプ=高さ160px・水平240px、2段=282px・384px から引いた上限)。
+//
+// 各行: [x, dy(laneYからの相対), 木箱の数, 動く棚の設定?]
+const TOWER_PATTERNS = [
+    // ジグザグ: 左右へ大きく振る素直な塔
+    [
+        [150, -115, 3], [620, -230, 2], [1000, -345, 2], [560, -460, 3], [240, -575, 2],
+        [560, -690, 2, { amp: 140, period: 4.2 }], [940, -805, 2], [560, -920, 3], [230, -1035, 2],
+        [560, -1150, 2, { amp: 170, period: 3.6 }], [960, -1265, 2], [470, -1385, 4]
+    ],
+    // 螺旋: 左→右へ一方向に流れ、上で折り返す
+    [
+        [120, -120, 3], [430, -235, 2], [740, -350, 2], [1010, -465, 2], [760, -580, 2],
+        [430, -695, 2, { amp: 150, period: 4.0 }], [130, -810, 3], [430, -925, 2], [760, -1040, 2],
+        [1000, -1155, 2], [700, -1275, 2], [440, -1395, 4]
+    ],
+    // 中央軸: 足場が中央に集まり、細かい踏み替えが続く
+    [
+        [520, -115, 3], [300, -230, 2], [600, -345, 2], [380, -460, 2, { amp: 180, period: 3.8 }],
+        [280, -575, 2], [560, -690, 2], [440, -805, 3], [300, -920, 2], [590, -1035, 2],
+        [400, -1150, 2, { amp: 200, period: 3.2 }], [300, -1265, 2], [440, -1385, 4]
+    ],
+    // 両翼: 左右の壁沿いを大きく渡る
+    [
+        [90, -115, 3], [560, -230, 3], [960, -345, 2], [600, -460, 2], [230, -575, 2],
+        [530, -690, 2, { amp: 190, period: 3.6 }], [930, -805, 2], [600, -920, 2], [230, -1035, 2],
+        [560, -1150, 2], [930, -1265, 2], [560, -1385, 4]
+    ],
+    // 吊り棚づくし: 動く棚が多く、渡りの見極めが要る
+    [
+        [180, -115, 3], [600, -230, 2], [980, -345, 2], [560, -460, 2, { amp: 160, period: 4.4 }],
+        [200, -575, 2], [560, -690, 2, { amp: 180, period: 3.8 }], [930, -805, 2], [600, -920, 2],
+        [230, -1035, 2], [560, -1150, 2, { amp: 200, period: 3.4 }], [950, -1265, 2], [520, -1385, 4]
+    ]
+];
 
 function buildTower(laneY) {
-    const floors = randInt(FLOORS_MIN, FLOORS_MAX);
-    const shelves = [];
-    let y = laneY - randRange(100, 130);
-    let crates = randInt(2, 3);
-    let x = randRange(120, 320);
-    let dir = Math.random() < 0.5 ? 1 : -1;   // 横の流れ。時々反転させて蛇行させる
-    let sinceMove = 99;                        // 動く棚が続かないよう間隔を数える
-
-    for (let i = 0; i < floors; i++) {
-        const t = i / floors;
-        const width = crates * CRATE_SIZE;
-        // 動く吊り棚: 中盤以降、細い棚のときだけ。連続はさせない
-        const canMove = t > 0.28 && crates <= 2 && sinceMove >= 2;
-        const moving = canMove && Math.random() < 0.26;
-        let move = null;
-        if (moving) {
-            // 振幅は左右の壁までの余地に収める(Math.max で下限を張ると余地を
-            // 超えて画面外へ出るので、下限は「足りなければ動かさない」で扱う)
-            const room = Math.min(x - EDGE_MARGIN, (CANVAS_WIDTH - EDGE_MARGIN) - (x + width));
-            const amp = Math.min(120 + t * 130, room);
-            if (amp >= 90) {
-                move = { amp, period: randRange(4.4 - t * 1.6, 5.0 - t * 1.6), phase: Math.random() * Math.PI * 2 };
-            }
-        }
-        sinceMove = move ? 0 : sinceMove + 1;
-        shelves.push({ x, y, crates, width, move });
-
-        if (i === floors - 1) break;
-
-        // --- 次の段 ---
-        const prevX = x, prevW = width;
-        // 動く棚から跳ぶ段は、棚が寄ってくるぶん余裕がある＝少し遠くてよい
-        const reach = MAX_HGAP + (move ? move.amp * 0.5 : 0);
-        y -= randRange(STEP_MIN, STEP_MAX);
-        crates = pickCrates((i + 1) / floors);
-        const nextW = crates * CRATE_SIZE;
-        if (Math.random() < 0.34) dir *= -1;
-        let nx = prevX + dir * randRange(150, 280);
-
-        // 壁に当たるなら折り返す
-        if (nx < EDGE_MARGIN) { nx = EDGE_MARGIN + randRange(0, 90); dir = 1; }
-        if (nx + nextW > CANVAS_WIDTH - EDGE_MARGIN) { nx = CANVAS_WIDTH - EDGE_MARGIN - nextW - randRange(0, 90); dir = -1; }
-        // 到達可能性: 端から端の隙間が reach を超えたら引き寄せる
-        const gapRight = nx - (prevX + prevW);
-        const gapLeft = prevX - (nx + nextW);
-        if (gapRight > reach) nx = prevX + prevW + reach;
-        else if (gapLeft > reach) nx = prevX - nextW - reach;
-        x = Math.max(EDGE_MARGIN, Math.min(CANVAS_WIDTH - EDGE_MARGIN - nextW, nx));
-    }
-
-    // 頂上は千両箱の座。広い棚を画面中央寄りに据える(絵の収まり)。
-    // ただし直前の段から届く範囲でクランプして到達性を守る。
-    const top = shelves[shelves.length - 1];
-    top.crates = 4;
-    top.width = 4 * CRATE_SIZE;
-    top.move = null;
-    const prev = shelves[shelves.length - 2];
-    if (prev) {
-        let want = CANVAS_WIDTH / 2 - top.width / 2 + randRange(-70, 70);
-        const reach = MAX_HGAP + (prev.move ? prev.move.amp * 0.5 : 0);
-        want = Math.min(want, prev.x + prev.width + reach);          // 右へ離れすぎない
-        want = Math.max(want, prev.x - top.width - reach);           // 左へも同様
-        top.x = Math.max(EDGE_MARGIN, Math.min(CANVAS_WIDTH - EDGE_MARGIN - top.width, want));
-    }
-
-    // 動く吊り棚が1つも出ない塔だと手応えが平坦になる。抽選任せにせず、
-    // 中盤以降の細い棚から足りないぶんを昇格させて最低2つは入れる。
-    const MOVING_MIN = 2;
-    let movingCount = shelves.filter((s) => s.move).length;
-    for (let i = shelves.length - 2; i >= 2 && movingCount < MOVING_MIN; i--) {
-        const s = shelves[i];
-        if (s.move || s.crates > 2) continue;
-        if (shelves[i - 1]?.move || shelves[i + 1]?.move) continue;   // 連続させない
-        const room = Math.min(s.x - EDGE_MARGIN, (CANVAS_WIDTH - EDGE_MARGIN) - (s.x + s.width));
-        const amp = Math.min(150, room);
-        if (amp < 90) continue;
-        const t = i / shelves.length;
-        s.move = { amp, period: randRange(4.4 - t * 1.6, 5.0 - t * 1.6), phase: Math.random() * Math.PI * 2 };
-        movingCount++;
-    }
-    return shelves;
+    const rows = TOWER_PATTERNS[Math.floor(Math.random() * TOWER_PATTERNS.length)];
+    return rows.map(([x, dy, crates, move]) => ({
+        x,
+        y: laneY + dy,
+        crates,
+        width: crates * CRATE_SIZE,
+        // 位相だけは毎回ずらす(同じ型でも吊り棚の位置関係が変わる)
+        move: move ? { ...move, phase: Math.random() * Math.PI * 2 } : null
+    }));
 }
 
 // 高さ帯ごとの小判の価値。登るほど実入りが増え、上を目指す動機になる。
@@ -237,19 +184,22 @@ export class BonusStage {
                 phase: (this.kobans.length * 0.7) % (Math.PI * 2)
             });
         };
-        for (let i = 0; i < 7; i++) addKoban(200 + i * 150, laneY - 40);
+        // 地上は5枚だけ(走り出しの合図)。敷き詰めると画面が金だらけになる
+        for (let i = 0; i < 5; i++) addKoban(240 + i * 190, laneY - 40);
         for (let si = 0; si < this.shelves.length; si++) {
             // 頂上の棚は千両箱の座。小判を置くと箱と重なって何があるのか読めない
             // (実機フィードバック 2026-08-11)
             if (si === this.shelves.length - 1) continue;
             const s = this.shelves[si];
-            const n = Math.min(3, s.crates + 1);
+            // 棚あたり1〜2枚。広い棚だけ2枚に増やす
+            const n = s.crates >= 3 ? 2 : 1;
             for (let k = 0; k < n; k++) {
                 addKoban(s.baseX + s.width * ((k + 1) / (n + 1)), s.y - 38, s.move ? si : -1);
             }
         }
-        // 棚間の空中（隣の棚へ跳ぶ弧の頂点あたり）。動く棚が絡む区間は置かない
-        for (let si = 0; si + 1 < this.shelves.length; si++) {
+        // 棚間の空中（隣の棚へ跳ぶ弧の頂点あたり）。動く棚が絡む区間と、
+        // 一段おきに限って置く(全部に置くと数が倍になる)
+        for (let si = 0; si + 1 < this.shelves.length; si += 2) {
             const a = this.shelves[si], b = this.shelves[si + 1];
             if (a.move || b.move) continue;
             addKoban((a.baseX + a.width * 0.5 + b.baseX + b.width * 0.5) * 0.5, Math.min(a.y, b.y) - 66);
@@ -667,13 +617,13 @@ export class BonusStage {
             const y = k.y + bob;
             ctx.save();
             ctx.translate(k.x, y);
-            ctx.rotate(Math.sin(k.phase * 0.5) * 0.12);
-            // 生成画像（HUDのアイコンと同じ絵）。無い環境ではコード描画へ落ちる
-            if (drawKobanImage(ctx, 0, 0, 30, 39)) {
+            // 生成画像（HUDのアイコンと同じ絵）。無い環境ではコード描画へ落ちる。
+            // 左右に揺らすと絵が歪んで見えるので回転はさせない(上下の浮遊だけ)。
+            if (drawKobanImage(ctx, 0, 0, 32, 24)) {
                 const tw0 = (Math.sin(k.phase * 1.7) + 1) * 0.5;
                 ctx.fillStyle = `rgba(255, 244, 200, ${(0.2 + tw0 * 0.3).toFixed(3)})`;
                 ctx.beginPath();
-                ctx.arc(-5, -9, 1.4 + tw0, 0, Math.PI * 2);
+                ctx.arc(-9, -5, 1.4 + tw0, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.restore();
                 continue;
