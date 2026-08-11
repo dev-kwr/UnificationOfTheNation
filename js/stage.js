@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260811q';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811q';
-import { createEnemy } from './enemy.js?v=screen-safe-20260811q';
-import { createBoss } from './boss.js?v=screen-safe-20260811q';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260811q';
-import { audio } from './audio.js?v=screen-safe-20260811q';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260811q';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260811r';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811r';
+import { createEnemy } from './enemy.js?v=screen-safe-20260811r';
+import { createBoss } from './boss.js?v=screen-safe-20260811r';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260811r';
+import { audio } from './audio.js?v=screen-safe-20260811r';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260811r';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260811q';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260811q';
+} from './stage6Grapple.js?v=screen-safe-20260811r';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260811r';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260811q';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260811r';
 
 // ============================================
 // ステージ背景アセットの単一ソース

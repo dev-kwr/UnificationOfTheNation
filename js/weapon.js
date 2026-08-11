@@ -2,10 +2,10 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260811q';
-import { audio } from './audio.js?v=screen-safe-20260811q';
-import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260811q';
-import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260811q';
+import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260811r';
+import { audio } from './audio.js?v=screen-safe-20260811r';
+import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260811r';
+import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260811r';
 
 // 武器ジオメトリは「武器を振る主体(owner/player)のワールド寸法」を基準に組み立てる。
 // 将軍は width/height が素体(40x60)なので getWorldWidth/Height(=素体×SHOGUN_SCALE) を読む。
@@ -1001,17 +1001,25 @@ export class ShurikenProjectile {
             });
         }
 
-        // モーションブラー（残像エフェクト）
+        // モーションブラー（残像）。
+        // 【間隔は必ず手裏剣の直径より狭くする】。以前は 0.5/1.0/1.5 フレーム分
+        // 後ろへ置いていたため、速度20〜24px/フレームでは 10/20/30px 間隔＝
+        // 半径(約11px)より広く離れ、「1回投げたのに手裏剣が3枚並んで飛ぶ」と
+        // 見えていた(実機フィードバック 2026-08-11)。
+        // 形が重なって初めてブレになるので、刻みを詰めて濃度も落とす。
         if (speed > 2 && lifeRatio > 0.1) {
             ctx.save();
-            const blurSteps = 3;
+            const blurSteps = 4;
+            // 1枚ぶんの間隔を半径の 0.4 倍以内に収める(重なりを担保する)
+            const stepPx = Math.min(speed * 0.16, this.radius * 0.4);
+            const dirX = this.vx / speed;
+            const dirY = this.vy / speed;
             for (let i = 1; i <= blurSteps; i++) {
-                const alpha = (1 - (i / blurSteps)) * 0.4 * Math.min(1, lifeRatio * 2);
-                ctx.globalAlpha = alpha;
-                const pastX = this.x - this.vx * (i * 0.5 * this.visualScale);
-                const pastY = this.y - this.vy * (i * 0.5 * this.visualScale);
-                const pastRot = this.rotation - (Math.sign(this.rotationSpeed) * 0.3 * i);
-                drawShurikenShape(ctx, pastX, pastY, this.radius * 0.9, pastRot);
+                ctx.globalAlpha = (1 - i / (blurSteps + 1)) * 0.2 * Math.min(1, lifeRatio * 2);
+                const pastX = this.x - dirX * stepPx * i;
+                const pastY = this.y - dirY * stepPx * i;
+                const pastRot = this.rotation - (Math.sign(this.rotationSpeed) * 0.1 * i);
+                drawShurikenShape(ctx, pastX, pastY, this.radius * 0.96, pastRot);
             }
             ctx.restore();
         }
