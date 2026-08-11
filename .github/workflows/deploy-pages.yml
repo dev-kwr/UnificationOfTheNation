@@ -34,6 +34,8 @@ jobs:
         run: node tools/stamp-assets.mjs
 
       # 配信物を組み立てる。開発用のスクリプト・設計メモは公開しない。
+      # 開発用プレビュー(character_preview/stair_preview)が参照するだけの大きな
+      # 元画像も除外する。HTML だけ除いても画像は配信されてしまうため。
       - name: 配信物を組み立てる
         run: |
           mkdir -p _site
@@ -48,6 +50,8 @@ jobs:
             --exclude '*.md' \
             --exclude 'character_preview.html' \
             --exclude 'stair_preview.html' \
+            --exclude 'images/stairs.png' \
+            --exclude 'icon/icon.png' \
             ./ _site/
           # SPA ではないので 404 は index へ寄せず、素の静的配信のままにする
           ls -la _site

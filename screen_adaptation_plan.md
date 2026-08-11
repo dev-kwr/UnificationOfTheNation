@@ -90,7 +90,7 @@
 - パッド拡大による世界の遮蔽増は透過度調整で補完。
 
 ### 2.7 セーフエリア/PWA
-- index.html の viewport メタへ `viewport-fit=cover` 追加（現状未実装。無いと iPhone 横向きで UA レターボックスが残り env() が全て0）。
+- index.html の viewport メタへ `viewport-fit=cover` 追加（実装済み。index.html:5。無いと iPhone 横向きで UA レターボックスが残り env() が全て0）。
 - `env(safe-area-inset-*)` → CSS カスタムプロパティ → getComputedStyle → ÷fitScale で論理px換算 → 仮想パッド左右アンカー・BGMボタン・HUDパネル・進捗バーへ加算。
 - **HTMLオーバーレイ（#sound-gate 等）にも `padding: max(既存値, env(safe-area-inset-*))` を追加**（起動フロー最初の1画面、露出率100%。欠落検査で発見）。
 - **manifest.json を新規追加**: display:'standalone'、`orientation:'landscape'`、background_color:'#0f0f23'、icons。iOS 向け apple-mobile-web-app-capable / status-bar-style メタも追加。Android A2HS の standalone 化と回転ロックの根本手段（欠落検査 P1）。

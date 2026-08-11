@@ -12,8 +12,8 @@
 import { SCREEN_WIDTH, CANVAS_HEIGHT, STAGES, getUiScale, getFontScale, getScreenSafeArea, isTouchOverlayMode } from './constants.js?v=screen-safe-20260811b';
 import { drawWafuCard, fillTextInkCentered, drawScreenManualLine, formatCount } from './ui.js?v=screen-safe-20260811b';
 
-// ノード定義。kind: main=本編 / bonus=小判蔵(第2階層踏破で解放・実装済み) /
-// training=道場(未実装。データだけ先に持つ)。
+// ノード定義。kind: main=本編 / bonus=小判蔵(第2階層踏破で解放) /
+// training=修行道場(第3階層踏破で解放)。どちらも実装済み。
 // 座標は images/world_map.png(Codex/gpt-image 生成)の絵に合わせて調整済み。
 // ノードは**ランドマークの真上ではなく、その脇の街道の上**に置く
 // （円がランドマークを隠すと絵が見えない、と実機フィードバック）。
