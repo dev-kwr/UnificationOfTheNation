@@ -42,12 +42,15 @@ const TIME_LIMIT_SEC = 60;
 //   高い台 = 大太鼓の櫓            images/dojo_prop_high.png
 // 足元は本編の添景と同じ groundY + LANE_OFFSET(=512)。天面が当たり判定の面。
 // 跳べる高さ: 床512→低い台412 が100px、低い台412→高い台312 が100px(単発160pxの内)。
-// 絵の縦横比は生成後に実測して asset の w を合わせてある(引き伸ばさない)。
+// w は絵の縦横比から出してある(引き伸ばさない)。絵を差し替えたら
+// scratch/fit_dojo_props.py で測り直すこと。
+//   低い台 1024x512 (2.000) → 高さ100px なら w=200
+//   高い台 1024x1008 (1.016) → 高さ200px なら w=203
 const PROP_FOOT_Y = 512;          // 道具の足元(板の間の面)
 const DOJO_PLATFORMS = [
     { x: 250, y: 412, w: 200, asset: 1 },
     { x: 830, y: 412, w: 200, asset: 1 },
-    { x: 545, y: 312, w: 190, asset: 2 }
+    { x: 538, y: 312, w: 203, asset: 2 }
 ];
 // 場に維持する敵の数（無双の密度。倒すそばから補充される）
 const TARGET_ACTIVE = 12;
