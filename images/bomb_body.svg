@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="672" height="672" viewBox="0 0 672 672">
+  <!--
+    火薬玉の本体（鋳鉄球＋口金）。生成png(images/hud_weapons/bomb.png)の質感の再現。
+    座標系: viewBox 672x672。球は正円で中心(336,372)・半径300(下端672にぴったり)。
+    width/height 属性は必須 ― 無いと Chrome が Image 経由の描画で寸法を 300x150 と
+    解釈し、drawImage で歪む。
+    口金は球の頂点の真上・左右中央。導火線と火花は含めない ― 揺れと明滅があるので
+    ゲーム側(drawFirebombFuse)が描く。
+    実測から起こした光(生成png v2): 左上 #706d66 / 中央上 #444040 / 中心 #312b30 / 縁ほぼ黒。
+    鋳肌の粒は feTurbulence。ゲーム内では直径 60〜90px 程度に縮小されるため、
+    baseFrequency は低め(粒を大きめ)にしてある。
+  -->
+  <defs>
+    <radialGradient id="ballBase" cx="46%" cy="42%" r="74%" fx="35%" fy="27%">
+      <stop offset="0" stop-color="#7d7b72"/>
+      <stop offset=".14" stop-color="#565450"/>
+      <stop offset=".36" stop-color="#3b3a37"/>
+      <stop offset=".6" stop-color="#242423"/>
+      <stop offset=".84" stop-color="#111111"/>
+      <stop offset="1" stop-color="#060606"/>
+    </radialGradient>
+    <radialGradient id="ballGlow" cx="35%" cy="26%" r="40%">
+      <stop offset="0" stop-color="#98968c" stop-opacity=".4"/>
+      <stop offset=".5" stop-color="#8a8c84" stop-opacity=".15"/>
+      <stop offset="1" stop-color="#6e7069" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="ballVignette" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#000000" stop-opacity="0"/>
+      <stop offset=".66" stop-color="#000000" stop-opacity="0"/>
+      <stop offset=".88" stop-color="#000000" stop-opacity=".32"/>
+      <stop offset="1" stop-color="#000000" stop-opacity=".6"/>
+    </radialGradient>
+    <!-- 鋳肌: 細かい明るい粒。縮小表示でも残るよう粒は大きめ -->
+    <filter id="grainLight" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.085" numOctaves="3" seed="11" stitchTiles="stitch" result="n"/>
+      <feColorMatrix in="n" type="matrix"
+        values="0 0 0 0 0.72  0 0 0 0 0.73  0 0 0 0 0.68  0 0 0 0.6 -0.22"/>
+      <feComposite operator="in" in2="SourceGraphic"/>
+    </filter>
+    <!-- 鋳肌: 大きい暗いムラ(鋳物の巣) -->
+    <filter id="grainDark" x="-5%" y="-5%" width="110%" height="110%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="3" seed="4" stitchTiles="stitch" result="n"/>
+      <feColorMatrix in="n" type="matrix"
+        values="0 0 0 0 0.02  0 0 0 0 0.02  0 0 0 0 0.02  0 0 0 0.8 -0.3"/>
+      <feComposite operator="in" in2="SourceGraphic"/>
+    </filter>
+    <linearGradient id="collarV" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5c5c55"/>
+      <stop offset=".2" stop-color="#3e3e3a"/>
+      <stop offset=".62" stop-color="#272725"/>
+      <stop offset="1" stop-color="#151514"/>
+    </linearGradient>
+    <linearGradient id="collarH" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#53534d" stop-opacity=".8"/>
+      <stop offset=".3" stop-color="#33332f" stop-opacity=".15"/>
+      <stop offset=".72" stop-color="#1c1c1a" stop-opacity=".3"/>
+      <stop offset="1" stop-color="#101010" stop-opacity=".8"/>
+    </linearGradient>
+    <clipPath id="ballClip"><circle cx="336" cy="372" r="300"/></clipPath>
+    <clipPath id="collarClip"><rect x="272" y="28" width="128" height="76" rx="10"/></clipPath>
+  </defs>
+
+  <!-- ===== 口金（球より奥。真横視点の短い円柱、左右中央） ===== -->
+  <g>
+    <rect x="272" y="28" width="128" height="76" rx="10" fill="url(#collarV)"/>
+    <g clip-path="url(#collarClip)">
+      <rect x="272" y="28" width="128" height="76" fill="url(#collarH)"/>
+      <rect x="272" y="30" width="128" height="5" fill="#7d7d74" opacity=".6"/>
+      <rect x="272" y="52" width="128" height="4" fill="#0c0c0b" opacity=".55"/>
+    </g>
+    <rect x="272" y="28" width="128" height="76" rx="10" fill="none" stroke="#0a0a09" stroke-opacity=".85" stroke-width="6"/>
+  </g>
+
+  <!-- ===== 鋳鉄球（正円） ===== -->
+  <circle cx="336" cy="372" r="300" fill="url(#ballBase)"/>
+  <g clip-path="url(#ballClip)">
+    <circle cx="336" cy="372" r="300" fill="url(#ballGlow)"/>
+    <circle cx="336" cy="372" r="300" filter="url(#grainLight)" opacity=".2"/>
+    <circle cx="336" cy="372" r="300" filter="url(#grainDark)" opacity=".26"/>
+    <!-- 鋳物の傷を数点。ノイズだけだと均質すぎる -->
+    <ellipse cx="242" cy="292" rx="7" ry="3.2" transform="rotate(-24 242 292)" fill="#0c0c0c" opacity=".5"/>
+    <ellipse cx="412" cy="252" rx="5" ry="2.4" transform="rotate(14 412 252)" fill="#0d0d0d" opacity=".45"/>
+    <ellipse cx="304" cy="512" rx="9" ry="3.6" transform="rotate(8 304 512)" fill="#080808" opacity=".55"/>
+    <ellipse cx="214" cy="240" rx="4" ry="4" fill="#9a9c92" opacity=".16"/>
+    <circle cx="336" cy="372" r="300" fill="url(#ballVignette)"/>
+  </g>
+  <circle cx="336" cy="372" r="297" fill="none" stroke="#060607" stroke-opacity=".78" stroke-width="6"/>
+</svg>

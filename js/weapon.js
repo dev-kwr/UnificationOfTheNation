@@ -2,10 +2,10 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260811d';
-import { audio } from './audio.js?v=screen-safe-20260811d';
-import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260811d';
-import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260811d';
+import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260811f';
+import { audio } from './audio.js?v=screen-safe-20260811f';
+import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260811f';
+import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260811f';
 
 // 武器ジオメトリは「武器を振る主体(owner/player)のワールド寸法」を基準に組み立てる。
 // 将軍は width/height が素体(40x60)なので getWorldWidth/Height(=素体×SHOGUN_SCALE) を読む。
@@ -118,69 +118,8 @@ function drawFirebombFuse(ctx, cx, cy, radius, time, seeds, visualScale = 1) {
     ctx.lineWidth = Math.max(0.45, r * 0.035);
     ctx.stroke();
 
-    // 平面視点の口金。HUDと同じく、上端の押さえ・胴・下端の受けを
-    // 重ねて金属部品らしくする。上面の穴や楕円は描かない。
-    const collarW = r * 0.44;
-    const collarH = r * 0.20;
-    const collarX = cx - collarW * 0.5;
-
-    const baseX = collarX - r * 0.03;
-    const baseY = collarY + r * 0.13;
-    const baseW = collarW + r * 0.06;
-    const baseH = r * 0.09;
-    const baseGrad = ctx.createLinearGradient(baseX, baseY, baseX, baseY + baseH);
-    baseGrad.addColorStop(0, '#3b4048');
-    baseGrad.addColorStop(0.48, '#20242a');
-    baseGrad.addColorStop(1, '#0e1115');
-    ctx.fillStyle = baseGrad;
-    ctx.strokeStyle = '#111419';
-    ctx.lineWidth = Math.max(0.65, r * 0.060);
-    ctx.beginPath();
-    ctx.roundRect(baseX, baseY, baseW, baseH, r * 0.030);
-    ctx.fill();
-    ctx.stroke();
-
-    const collarGrad = ctx.createLinearGradient(collarX, collarY, collarX + collarW, collarY + collarH);
-    collarGrad.addColorStop(0, '#858b94');
-    collarGrad.addColorStop(0.28, '#60666f');
-    collarGrad.addColorStop(0.72, '#292d34');
-    collarGrad.addColorStop(1, '#15181d');
-    ctx.fillStyle = collarGrad;
-    ctx.strokeStyle = '#171a1f';
-    ctx.lineWidth = Math.max(0.7, r * 0.075);
-    ctx.beginPath();
-    ctx.roundRect(collarX, collarY, collarW, collarH, r * 0.045);
-    ctx.fill();
-    ctx.stroke();
-
-    const lipX = collarX + r * 0.055;
-    const lipY = collarY - r * 0.018;
-    const lipW = collarW - r * 0.11;
-    const lipH = r * 0.06;
-    const lipGrad = ctx.createLinearGradient(lipX, lipY, lipX + lipW, lipY + lipH);
-    lipGrad.addColorStop(0, '#9ca2aa');
-    lipGrad.addColorStop(0.46, '#5f656d');
-    lipGrad.addColorStop(1, '#272b31');
-    ctx.fillStyle = lipGrad;
-    ctx.strokeStyle = '#1b1f24';
-    ctx.lineWidth = Math.max(0.55, r * 0.047);
-    ctx.beginPath();
-    ctx.roundRect(lipX, lipY, lipW, lipH, r * 0.024);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.strokeStyle = 'rgba(216, 222, 231, 0.32)';
-    ctx.lineWidth = Math.max(0.45, r * 0.038);
-    ctx.beginPath();
-    ctx.moveTo(collarX + r * 0.055, collarY + r * 0.052);
-    ctx.lineTo(collarX + collarW - r * 0.055, collarY + r * 0.052);
-    ctx.stroke();
-    ctx.strokeStyle = 'rgba(7, 9, 12, 0.62)';
-    ctx.lineWidth = Math.max(0.45, r * 0.040);
-    ctx.beginPath();
-    ctx.moveTo(baseX + r * 0.04, baseY + baseH * 0.72);
-    ctx.lineTo(baseX + baseW - r * 0.04, baseY + baseH * 0.72);
-    ctx.stroke();
+    // 口金は本体SVG(images/bomb_body.svg)に含まれる。ここで重ねて描くと
+    // 二重になって見えるため描かない(実機フィードバック 2026-08-11)。
 
     // 導火線先端の不規則な点火閃光と、両端が細い流線型の火花を描く。
     // 丸や縦長の炎を置かず、短い閃光として方向性を出す。
@@ -568,17 +507,16 @@ export class Bomb {
                 });
             }
 
-            // 本体は HUD と同じ画像で描く（コードの球体グラデーションより質感が出る）。
-            // 画像が読めない環境だけ、従来の手描きへ落ちる。
-            const bombImg = getBombImage();
-            if (bombImg) {
-                const dw = this.radius / BOMB_BALL_R;      // 画像の球半径を this.radius に合わせる
-                const dh = dw;
+            // 本体は SVG(bomb_body.svg)。口金までこの絵に含まれる。
+            const bodyImg = getBombBodyImage();
+            if (bodyImg) {
+                const dw = this.radius / BOMB_BALL_R;
+                const dh = dw * BOMB_BODY_ASPECT;
                 const dx = this.x - dw * BOMB_BALL_CX;
                 const dy = this.y - dh * BOMB_BALL_CY;
                 withDropShadow(ctx, { color: 'rgba(0,0,0,0.45)', blur: 3, dx: 1, dy: 2 }, () => {
                     ctx.imageSmoothingEnabled = true;
-                    ctx.drawImage(bombImg, dx, dy, dw, dh);
+                    ctx.drawImage(bodyImg, dx, dy, dw, dh);
                 });
             } else {
                 // 立体的な爆弾本体（球体グラデーション）＋落ち影で浮かせる
@@ -665,18 +603,20 @@ export class Bomb {
     }
 }
 
-// 火薬玉の本体画像。HUDアイコンと同じ絵をゲーム内でも使い、見た目を揃える。
-// 画像内の球は中心(256,292)・半径172(512px基準)なので、その比率で位置を合わせる。
-const BOMB_IMAGE_SRC = 'images/hud_weapons/bomb.png';
-const BOMB_BALL_CX = 256 / 512, BOMB_BALL_CY = 292 / 512, BOMB_BALL_R = 172 / 512;
-let _bombImg = null;
-function getBombImage() {
+// 火薬玉の本体(鋳鉄球＋口金)。生成画像の質感に寄せて手書きした SVG
+// (images/bomb_body.svg)。導火線と火花はコード側(drawFirebombFuse)が描く ―
+// 揺れと明滅があるため。定数は SVG の座標系(viewBox 672x620、球=中心336,385/半径329)。
+const BOMB_BODY_SRC = 'images/bomb_body.svg';
+// viewBox 672x672 / 球は正円で中心(336,372)・半径300
+const BOMB_BALL_CX = 336 / 672, BOMB_BALL_CY = 372 / 672, BOMB_BALL_R = 300 / 672, BOMB_BODY_ASPECT = 1;
+let _bombBodyImg = null;
+function getBombBodyImage() {
     if (typeof Image === 'undefined') return null;
-    if (!_bombImg) {
-        _bombImg = new Image();
-        _bombImg.src = BOMB_IMAGE_SRC;
+    if (!_bombBodyImg) {
+        _bombBodyImg = new Image();
+        _bombBodyImg.src = BOMB_BODY_SRC;
     }
-    return (_bombImg.complete && _bombImg.naturalWidth) ? _bombImg : null;
+    return (_bombBodyImg.complete && _bombBodyImg.naturalWidth) ? _bombBodyImg : null;
 }
 
 // サブ武器ベースクラス

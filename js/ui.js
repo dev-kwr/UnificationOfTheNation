@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260811d';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260811f';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260811d';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260811f';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260811d';
-import { audio } from './audio.js?v=screen-safe-20260811d';
-import { saveManager } from './save.js?v=screen-safe-20260811d';
+import { input } from './input.js?v=screen-safe-20260811f';
+import { audio } from './audio.js?v=screen-safe-20260811f';
+import { saveManager } from './save.js?v=screen-safe-20260811f';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -48,7 +48,7 @@ const BGM_ICON_PATHS = {
 };
 const WEAPON_ICON_PATHS = {
     '手裏剣': './images/hud_weapons/shuriken.png?v=20260718-6',
-    '火薬玉': './images/hud_weapons/bomb.png?v=20260811-1',
+    '火薬玉': './images/hud_weapons/bomb.png?v=20260811-3',
     '大槍': './images/hud_weapons/spear.png?v=20260718-6',
     '二刀流': './images/hud_weapons/dual.png?v=20260718-3',
     '鎖鎌': './images/hud_weapons/kusarigama.png?v=20260719-1',

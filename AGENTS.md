@@ -121,6 +121,10 @@
    - **足場が要る寄り道は `stage.getPlatformColliders()`**(one-way形式 `{x,y,width,height,isDestroyed:false,isOneWayPlatform:true}`)を実装すれば updatePlaying の extraColliders に汎用で乗る。スタックの**最上面だけ**足場にする(中段に乗れると上の箱にめり込む)。
    - **道場の敵は本編と同じ createEnemy 製**。stage 側は「湧かせる・`enemy.update()` が true を返したら除去・`renderEnemies` で描く」だけ。被弾判定・撃破報酬(expGem/小判/ゲージ)は game 側が `getAllEnemies()` 経由で処理するので二重実装しない。固定画面(maxProgress=CANVAS_WIDTH)なら scrollX は自動で0に張り付く。左端クランプは currentStageNumber 依存(Stage5帰りは素通り)のため寄り道側で自前クランプする。
 
+6c. **SVGアセットには `width`/`height` 属性を必ず書く**:
+   - viewBox だけの SVG を `new Image()`→`drawImage` で描くと、Chrome が内在寸法を 300x150 とみなして**絵が歪む**(火薬玉の球が横長の楕円になった)。`width="672" height="672"` のように viewBox と同じ実寸を明示する。
+   - 動きのある部分(導火線の揺れ・火花の明滅)は SVG に焼き込まず、ゲーム側のコードで重ねる。静止画に火を焼き込むと「消えない火花」になる。
+
 7. **ステージ背景アセットの追加は `stage.js` の `STAGE_IMAGE_SOURCES` へ**:
    - この表が「Stage への割り当て」と「先読み・ロード完了判定」の単一ソース。ここを通さずに `new Image()` すると、ステージ開始直後だけ絵が抜けてフラッシングする。
    - 読み込み経路は2系統（`imageCache.js`）。**もう要る**＝`preloadStageImages()`（即時・並列・デコードまで）、**そのうち要る**＝`prefetchStageImages()`（低優先・1枚ずつ・デコードは描画時任せ・データセーバー時は見送り）。
