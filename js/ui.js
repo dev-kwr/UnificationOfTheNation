@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260811b';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260811c';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260811b';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260811c';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260811b';
-import { audio } from './audio.js?v=screen-safe-20260811b';
-import { saveManager } from './save.js?v=screen-safe-20260811b';
+import { input } from './input.js?v=screen-safe-20260811c';
+import { audio } from './audio.js?v=screen-safe-20260811c';
+import { saveManager } from './save.js?v=screen-safe-20260811c';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -48,7 +48,7 @@ const BGM_ICON_PATHS = {
 };
 const WEAPON_ICON_PATHS = {
     '手裏剣': './images/hud_weapons/shuriken.png?v=20260718-6',
-    '火薬玉': './images/hud_weapons/bomb.svg?v=20260719-2',
+    '火薬玉': './images/hud_weapons/bomb.png?v=20260811-1',
     '大槍': './images/hud_weapons/spear.png?v=20260718-6',
     '二刀流': './images/hud_weapons/dual.png?v=20260718-3',
     '鎖鎌': './images/hud_weapons/kusarigama.png?v=20260719-1',
@@ -1133,13 +1133,12 @@ export class UI {
         const fs = getFontScale();
         const uiS = getUiScale();
         const cx = SCREEN_WIDTH / 2;
-        // 縦中心を右上のBGMボタン＝ステージ名と同じ高さに置く。上端の3要素
-        // (左のHUD・中央の刻限・右のステージ名)が一本の視線に乗る。
-        // 独自に safe.top から積むと中央だけ浮いて見えた(実機フィードバック)。
-        const B = getPadLayout().bgm;
+        // 【上辺】を左上HUDパネルに揃える。パネルは safe.top + 24*uiS が上端
+        // (renderHUD の panelY=24 を uiScale ラップ内で描くため)。
+        // 中心合わせだと上辺がどれとも揃わず浮いて見えた(実機フィードバック 2026-08-11)。
         const w = 152 * uiS;
         const h = 54 * uiS;
-        const top = B.y - h / 2;
+        const top = getScreenSafeArea().top + 24 * uiS;
         const urgent = sec <= 10;
         const blink = urgent ? (0.72 + Math.sin(Date.now() * 0.012) * 0.28) : 1;
         const mainColor = urgent
@@ -2940,11 +2939,53 @@ const _levelUpCardAnim = { amt: [], last: 0 };
  * - Canvas には letter-spacing が無いため、字間は文字ごと描画(fillLS)で再現。
  * - SCREEN_WIDTH / CANVAS_HEIGHT は constants.js からの import を利用。
  */
+// 結果発表のレイアウト単一導出。描画(renderSideResultScreen)とタップ判定
+// (game.updateSideResult)が同じ矩形を読む（座標式の複製はヒットずれの元）。
+// 各値は「カード上端からのベースライン位置」。高さは中身から積み上げる
+// （固定値だと記録更新の有無で下に大穴が空く）。
+export function getSideResultLayout(isNewRecord) {
+    const uiS = getUiScale();
+    const cx = SCREEN_WIDTH / 2;
+    const cy = CANVAS_HEIGHT / 2;
+    const PAD = 30 * uiS;                     // 上下の余白は同値にして重心を中央へ
+    const headBase = PAD + 24 * uiS;          // 見出し(28px)のベースライン
+    const subBase = headBase + 27 * uiS;      // 小見出し(13px)
+    const scoreBase = subBase + 66 * uiS;     // スコア(56px)
+    const dividerY = scoreBase + 26 * uiS;    // 区切り線
+    const bestBase = dividerY + 32 * uiS;     // 最高記録 / 更新の報せ
+    const prevBase = bestBase + 21 * uiS;     // 更新時のみ「これまで N」
+    const contentBottom = (isNewRecord ? prevBase : bestBase) + 6 * uiS;
+    const w = 420 * uiS;
+    const h = contentBottom + PAD;
+    const x = cx - w / 2;
+    const y = cy - h / 2;
+
+    // 二択のボタン。もう一度＝主(左)・戻る＝副(右)。カードの直下に並べる。
+    const btnH = 46 * uiS;
+    const btnGap = 14 * uiS;
+    const btnW = (w - btnGap) / 2;
+    const btnY = y + h + 18 * uiS;
+    return {
+        uiS, cx, cy, x, y, w, h,
+        headBase, subBase, scoreBase, dividerY, bestBase, prevBase,
+        buttons: [
+            { id: 'retry', label: 'もう一度', x, y: btnY, w: btnW, h: btnH },
+            { id: 'back', label: '戻る', x: x + btnW + btnGap, y: btnY, w: btnW, h: btnH }
+        ],
+        buttonsBottom: btnY + btnH,
+        hitAt(tx, ty) {
+            for (const b of this.buttons) {
+                if (tx >= b.x && tx <= b.x + b.w && ty >= b.y && ty <= b.y + b.h) return b.id;
+            }
+            return null;
+        }
+    };
+}
+
 /**
  * 寄り道(小判蔵/道場)の結果発表。刻限切れの直後に出る和風カード。
- * result = { kind:'bonus'|'training', score, prevBest, best, isNewRecord, timer }
- * timer(秒)で段階的に出す: カード → スコア → 最高記録/更新の朱印。
- * 決定はどこをタップしても可（game.updateSideResult が処理する）。
+ * result = { kind:'bonus'|'training', score, prevBest, best, isNewRecord, timer, menuIndex }
+ * timer(秒)で段階的に出す: カード → スコア → 最高記録/更新の朱印 → 二択のボタン。
  */
 export function renderSideResultScreen(ctx, result) {
     if (!result) return;
@@ -2963,21 +3004,9 @@ export function renderSideResultScreen(ctx, result) {
     const easeOut = (x) => 1 - Math.pow(1 - Math.max(0, Math.min(1, x)), 3);
     const cardT = easeOut(t / 0.34);
 
-    // 高さは中身から積み上げる（固定値だと記録更新の有無で下に大穴が空く）。
-    // 各値は「カード上端からのベースライン位置」。文字のアセンダぶんは
-    // 各段の間隔に織り込んである。
-    const PAD = 30 * uiS;                     // 上下の余白は同値にして重心を中央へ
-    const headBase = PAD + 24 * uiS;          // 見出し(28px)のベースライン
-    const subBase = headBase + 27 * uiS;      // 小見出し(13px)
-    const scoreBase = subBase + 66 * uiS;     // スコア(56px)
-    const dividerY = scoreBase + 26 * uiS;    // 区切り線
-    const bestBase = dividerY + 32 * uiS;     // 最高記録 / 更新の報せ
-    const prevBase = bestBase + 21 * uiS;     // 更新時のみ「これまで N」
-    const contentBottom = (result.isNewRecord ? prevBase : bestBase) + 6 * uiS;
-    const w = 420 * uiS;
-    const h = contentBottom + PAD;
-    const x = cx - w / 2;
-    const y = cy - h / 2 + (1 - cardT) * 18 * uiS;
+    const L = getSideResultLayout(result.isNewRecord);
+    const { headBase, subBase, scoreBase, dividerY, bestBase, prevBase, w, h, x } = L;
+    const y = L.y + (1 - cardT) * 18 * uiS;   // せり上がる分だけ描画をずらす
 
     ctx.globalAlpha = cardT;
     drawWafuCard(ctx, x, y, w, h, { radius: 14 * uiS, bgAlpha: 0.97 });
@@ -3052,10 +3081,27 @@ export function renderSideResultScreen(ctx, result) {
         ctx.restore();
     }
 
-    // 続行の案内（読ませる間を置いてから）
-    if (t > 0.9) {
-        const manual = isTouchOverlayMode() ? '画面に触れて戻る' : 'SPACE：戻る';
-        drawScreenManualLine(ctx, manual, y + h + 52 * uiS);
+    // 二択のボタン（読ませる間を置いてから）。連戦できることを見せるのが主目的。
+    const btnT = easeOut((t - 0.9) / 0.3);
+    if (btnT > 0) {
+        const selected = result.menuIndex === 1 ? 'back' : 'retry';
+        ctx.save();
+        ctx.globalAlpha = btnT;
+        for (const b of L.buttons) {
+            const isSel = b.id === selected;
+            drawWafuCard(ctx, b.x, b.y + (1 - btnT) * 10 * uiS, b.w, b.h, {
+                radius: 10 * uiS,
+                selected: isSel,
+                pulse: isSel ? (0.5 + Math.sin(Date.now() * 0.005) * 0.5) : 0,
+                bgAlpha: 0.95
+            });
+            ctx.font = `700 ${Math.round(17 * fs)}px "Zen Old Mincho", serif`;
+            ctx.fillStyle = isSel ? '#ffffff' : 'rgba(206, 226, 255, 0.8)';
+            fillTextInkCentered(ctx, b.label, b.x + b.w / 2, b.y + b.h / 2 + (1 - btnT) * 10 * uiS);
+        }
+        ctx.restore();
+        const manual = isTouchOverlayMode() ? 'ボタンに触れて決定' : '←→：選択 | SPACE：決定';
+        drawScreenManualLine(ctx, manual, Math.min(CANVAS_HEIGHT - 16, L.buttonsBottom + 28 * uiS));
     }
     ctx.restore();
 }

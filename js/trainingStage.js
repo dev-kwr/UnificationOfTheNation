@@ -13,9 +13,9 @@
 // 背景: images/training_dojo_bg.png（床まで焼き込んだ一枚絵。固定画面なので
 // パララックス不要。読めない環境では板の間のコード描画にフォールバック）。
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET, ENEMY_TYPES } from './constants.js?v=screen-safe-20260811b';
-import { createEnemy } from './enemy.js?v=screen-safe-20260811b';
-import { getImage } from './imageCache.js?v=screen-safe-20260811b';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET, ENEMY_TYPES } from './constants.js?v=screen-safe-20260811c';
+import { createEnemy } from './enemy.js?v=screen-safe-20260811c';
+import { getImage } from './imageCache.js?v=screen-safe-20260811c';
 
 // 開始前に読み込む画像（game.requestStageStart が本編と同じ暗幕待ちに使う）
 export const TRAINING_STAGE_IMAGES = ['images/training_dojo_bg.png'];

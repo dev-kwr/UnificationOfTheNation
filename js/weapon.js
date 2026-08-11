@@ -2,10 +2,10 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260811b';
-import { audio } from './audio.js?v=screen-safe-20260811b';
-import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260811b';
-import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260811b';
+import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260811c';
+import { audio } from './audio.js?v=screen-safe-20260811c';
+import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260811c';
+import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260811c';
 
 // 武器ジオメトリは「武器を振る主体(owner/player)のワールド寸法」を基準に組み立てる。
 // 将軍は width/height が素体(40x60)なので getWorldWidth/Height(=素体×SHOGUN_SCALE) を読む。
@@ -568,71 +568,85 @@ export class Bomb {
                 });
             }
 
-            // 立体的な爆弾本体（球体グラデーション）＋落ち影で浮かせる
-            const bodyGrad = ctx.createRadialGradient(
-                this.x - this.radius * 0.34, this.y - this.radius * 0.34, this.radius * 0.04,
-                this.x, this.y, this.radius
-            );
-            bodyGrad.addColorStop(0, '#666c75'); // 柔らかな入射光
-            bodyGrad.addColorStop(0.18, '#454a52');
-            bodyGrad.addColorStop(0.50, '#262a2f'); // 基本色
-            bodyGrad.addColorStop(1, '#080a0d'); // 影
-            withDropShadow(ctx, { color: 'rgba(0,0,0,0.45)', blur: 3, dx: 1, dy: 2 }, () => {
-                ctx.fillStyle = bodyGrad;
+            // 本体は HUD と同じ画像で描く（コードの球体グラデーションより質感が出る）。
+            // 画像が読めない環境だけ、従来の手描きへ落ちる。
+            const bombImg = getBombImage();
+            if (bombImg) {
+                const dw = this.radius / BOMB_BALL_R;      // 画像の球半径を this.radius に合わせる
+                const dh = dw;
+                const dx = this.x - dw * BOMB_BALL_CX;
+                const dy = this.y - dh * BOMB_BALL_CY;
+                withDropShadow(ctx, { color: 'rgba(0,0,0,0.45)', blur: 3, dx: 1, dy: 2 }, () => {
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.drawImage(bombImg, dx, dy, dw, dh);
+                });
+            } else {
+                // 立体的な爆弾本体（球体グラデーション）＋落ち影で浮かせる
+                const bodyGrad = ctx.createRadialGradient(
+                    this.x - this.radius * 0.34, this.y - this.radius * 0.34, this.radius * 0.04,
+                    this.x, this.y, this.radius
+                );
+                bodyGrad.addColorStop(0, '#666c75'); // 柔らかな入射光
+                bodyGrad.addColorStop(0.18, '#454a52');
+                bodyGrad.addColorStop(0.50, '#262a2f'); // 基本色
+                bodyGrad.addColorStop(1, '#080a0d'); // 影
+                withDropShadow(ctx, { color: 'rgba(0,0,0,0.45)', blur: 3, dx: 1, dy: 2 }, () => {
+                    ctx.fillStyle = bodyGrad;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+                // 縁の暗いリムで鋳鉄の重量感
+                ctx.strokeStyle = 'rgba(6,8,11,0.7)';
+                ctx.lineWidth = 0.8;
                 ctx.beginPath();
-                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.arc(this.x, this.y, this.radius - 0.4, 0, Math.PI * 2);
+                ctx.stroke();
+                // 左上の球面反射。単色の白い楕円ではなく、HUD画像と同じく
+                // 拡散光→細い主反射→外周リムの順で柔らかく重ねる。
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius - 0.7, 0, Math.PI * 2);
+                ctx.clip();
+
+                const diffuseHighlight = ctx.createRadialGradient(
+                    this.x - this.radius * 0.42,
+                    this.y - this.radius * 0.46,
+                    0,
+                    this.x - this.radius * 0.22,
+                    this.y - this.radius * 0.26,
+                    this.radius * 0.76
+                );
+                diffuseHighlight.addColorStop(0, 'rgba(236,241,248,0.17)');
+                diffuseHighlight.addColorStop(0.30, 'rgba(207,214,224,0.085)');
+                diffuseHighlight.addColorStop(0.68, 'rgba(161,170,183,0.03)');
+                diffuseHighlight.addColorStop(1, 'rgba(130,140,154,0)');
+                ctx.fillStyle = diffuseHighlight;
+                ctx.fillRect(
+                    this.x - this.radius,
+                    this.y - this.radius,
+                    this.radius * 2,
+                    this.radius * 2
+                );
+
+                // 主反射は淡い楕円グラデーションにして、中心も白飛びさせない。
+                ctx.save();
+                ctx.translate(
+                    this.x - this.radius * 0.37,
+                    this.y - this.radius * 0.43
+                );
+                ctx.rotate(-0.58);
+                ctx.scale(this.radius * 0.36, this.radius * 0.10);
+                const specularHighlight = ctx.createRadialGradient(-0.22, -0.12, 0, 0, 0, 1);
+                specularHighlight.addColorStop(0, 'rgba(248,250,253,0.28)');
+                specularHighlight.addColorStop(0.42, 'rgba(230,235,242,0.13)');
+                specularHighlight.addColorStop(1, 'rgba(210,218,229,0)');
+                ctx.fillStyle = specularHighlight;
+                ctx.beginPath();
+                ctx.arc(0, 0, 1, 0, Math.PI * 2);
                 ctx.fill();
-            });
-            // 縁の暗いリムで鋳鉄の重量感
-            ctx.strokeStyle = 'rgba(6,8,11,0.7)';
-            ctx.lineWidth = 0.8;
-            ctx.beginPath();
-            ctx.arc(this.x, this.y, this.radius - 0.4, 0, Math.PI * 2);
-            ctx.stroke();
-            // 左上の球面反射。単色の白い楕円ではなく、HUD画像と同じく
-            // 拡散光→細い主反射→外周リムの順で柔らかく重ねる。
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(this.x, this.y, this.radius - 0.7, 0, Math.PI * 2);
-            ctx.clip();
-
-            const diffuseHighlight = ctx.createRadialGradient(
-                this.x - this.radius * 0.42,
-                this.y - this.radius * 0.46,
-                0,
-                this.x - this.radius * 0.22,
-                this.y - this.radius * 0.26,
-                this.radius * 0.76
-            );
-            diffuseHighlight.addColorStop(0, 'rgba(236,241,248,0.17)');
-            diffuseHighlight.addColorStop(0.30, 'rgba(207,214,224,0.085)');
-            diffuseHighlight.addColorStop(0.68, 'rgba(161,170,183,0.03)');
-            diffuseHighlight.addColorStop(1, 'rgba(130,140,154,0)');
-            ctx.fillStyle = diffuseHighlight;
-            ctx.fillRect(
-                this.x - this.radius,
-                this.y - this.radius,
-                this.radius * 2,
-                this.radius * 2
-            );
-
-            // 主反射は淡い楕円グラデーションにして、中心も白飛びさせない。
-            ctx.save();
-            ctx.translate(
-                this.x - this.radius * 0.37,
-                this.y - this.radius * 0.43
-            );
-            ctx.rotate(-0.58);
-            ctx.scale(this.radius * 0.36, this.radius * 0.10);
-            const specularHighlight = ctx.createRadialGradient(-0.22, -0.12, 0, 0, 0, 1);
-            specularHighlight.addColorStop(0, 'rgba(248,250,253,0.28)');
-            specularHighlight.addColorStop(0.42, 'rgba(230,235,242,0.13)');
-            specularHighlight.addColorStop(1, 'rgba(210,218,229,0)');
-            ctx.fillStyle = specularHighlight;
-            ctx.beginPath();
-            ctx.arc(0, 0, 1, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
+                ctx.restore();
+            }
 
             ctx.restore();
 
@@ -649,6 +663,20 @@ export class Bomb {
             ctx.restore();
         }
     }
+}
+
+// 火薬玉の本体画像。HUDアイコンと同じ絵をゲーム内でも使い、見た目を揃える。
+// 画像内の球は中心(256,292)・半径172(512px基準)なので、その比率で位置を合わせる。
+const BOMB_IMAGE_SRC = 'images/hud_weapons/bomb.png';
+const BOMB_BALL_CX = 256 / 512, BOMB_BALL_CY = 292 / 512, BOMB_BALL_R = 172 / 512;
+let _bombImg = null;
+function getBombImage() {
+    if (typeof Image === 'undefined') return null;
+    if (!_bombImg) {
+        _bombImg = new Image();
+        _bombImg.src = BOMB_IMAGE_SRC;
+    }
+    return (_bombImg.complete && _bombImg.naturalWidth) ? _bombImg : null;
 }
 
 // サブ武器ベースクラス
