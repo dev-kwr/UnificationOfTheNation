@@ -59,23 +59,32 @@
         values="0 0 0 0 0.02  0 0 0 0 0.02  0 0 0 0 0.02  0 0 0 0.8 -0.26"/>
       <feComposite operator="in" in2="SourceGraphic"/>
     </filter>
-    <!-- 口金は png 実測: 明部 rgb(122,120,120) / 影 rgb(60,56,59)。
-         全体は玉より少し明るい程度で、光る板にはしない。 -->
+    <!-- 口金の縦の明度は png 実測のとおり:
+           上端に明るい縁(約155/255)→ すぐ落ちて 約80 → 下へ向かって緩く 約62。
+         【途中に暗い帯は無い】。以前は輪の陰影のつもりで中ほどへ暗い帯を
+         敷いていたが、png に無く「この水平線は何」と差し戻された(2026-08-11)。
+         帯ではなく連続したグラデーションで面を作ること。 -->
     <linearGradient id="collarV" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#6e6c6c"/>
-      <stop offset=".14" stop-color="#7a7877"/>
-      <stop offset=".46" stop-color="#3c3a3c"/>
-      <stop offset=".78" stop-color="#5c5a5b"/>
-      <stop offset="1" stop-color="#232122"/>
+      <stop offset="0" stop-color="#8b8987"/>
+      <stop offset=".07" stop-color="#9a9896"/>
+      <stop offset=".2" stop-color="#565453"/>
+      <stop offset=".58" stop-color="#4e4c4d"/>
+      <stop offset="1" stop-color="#3b393a"/>
     </linearGradient>
+    <!-- 横方向は円筒の回り込み(左右が暗い)。こちらも帯にしない -->
     <linearGradient id="collarH" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#141313" stop-opacity=".8"/>
-      <stop offset=".28" stop-color="#8e8b89" stop-opacity=".2"/>
-      <stop offset=".66" stop-color="#242223" stop-opacity=".38"/>
-      <stop offset="1" stop-color="#0d0c0c" stop-opacity=".85"/>
+      <stop offset="0" stop-color="#141313" stop-opacity=".72"/>
+      <stop offset=".3" stop-color="#8e8b89" stop-opacity=".14"/>
+      <stop offset=".7" stop-color="#242223" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#0d0c0c" stop-opacity=".78"/>
     </linearGradient>
     <clipPath id="ballClip"><circle cx="336" cy="372" r="300"/></clipPath>
-    <clipPath id="collarClip"><rect x="275" y="44" width="122" height="35" rx="7"/></clipPath>
+    <!-- 口金の輪郭。上辺はごく浅いアーチ(中央で約3px持ち上げ)。
+         真っ平だと板を貼ったように見える。真横視点は崩さないので
+         楕円の口(俯瞰)は描かない ― あくまで縁のふくらみだけ。 -->
+    <path id="collarShape"
+          d="M275 79 L275 54 Q275 48 281 47.4 Q336 41 391 47.4 Q397 48 397 54 L397 79 Z"/>
+    <clipPath id="collarClip"><use href="#collarShape"/></clipPath>
     <!-- 口金が玉に落とす影(据わりを出す) -->
     <radialGradient id="collarSeat" cx="50%" cy="50%" r="50%">
       <stop offset="0" stop-color="#000000" stop-opacity=".55"/>
@@ -107,15 +116,13 @@
        導火線の根元はこの輪と玉が隠す(縄は本体SVGより先に描かれる)。 -->
   <ellipse cx="336" cy="80" rx="74" ry="13" fill="url(#collarSeat)"/>
   <g>
-    <rect x="275" y="44" width="122" height="35" rx="7" fill="url(#collarV)"/>
+    <use href="#collarShape" fill="url(#collarV)"/>
     <g clip-path="url(#collarClip)">
-      <rect x="275" y="44" width="122" height="35" fill="url(#collarH)"/>
-      <!-- 上端の縁(輪の口)と、中ほどの締め -->
-      <rect x="275" y="45" width="122" height="4" fill="#9b9795" opacity=".8"/>
-      <rect x="275" y="59" width="122" height="6" fill="#0b0a0a" opacity=".55"/>
-      <!-- 下端の座(玉に当たる面は暗い) -->
-      <rect x="275" y="73" width="122" height="6" fill="#000000" opacity=".4"/>
+      <rect x="275" y="41" width="122" height="38" fill="url(#collarH)"/>
+      <!-- 上端の明るい縁。上辺のアーチに沿わせる(横一文字の帯にしない) -->
+      <path d="M279 47.6 Q336 41.3 393 47.6" fill="none"
+            stroke="#a5a19f" stroke-opacity=".85" stroke-width="3.4" stroke-linecap="round"/>
     </g>
-    <rect x="275" y="44" width="122" height="35" rx="7" fill="none" stroke="#0a0a09" stroke-opacity=".85" stroke-width="4"/>
+    <use href="#collarShape" fill="none" stroke="#0a0a09" stroke-opacity=".85" stroke-width="4"/>
   </g>
 </svg>
