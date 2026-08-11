@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260812c';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260812d';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260812c';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260812d';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260812c';
-import { audio } from './audio.js?v=screen-safe-20260812c';
-import { saveManager } from './save.js?v=screen-safe-20260812c';
+import { input } from './input.js?v=screen-safe-20260812d';
+import { audio } from './audio.js?v=screen-safe-20260812d';
+import { saveManager } from './save.js?v=screen-safe-20260812d';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -3860,16 +3860,14 @@ export function renderIntro(ctx, timer) {
     });
     ctx.shadowBlur = 0;
 
-    if (timer > 1000) {
-        const blink = Math.sin(Date.now() / 170) > 0;
-        if (blink) {
-            ctx.font = 'bold 20px "Zen Old Mincho", serif';
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.82)';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText('Press SPACE or Tap Screen to Skip', SCREEN_WIDTH / 2, CANVAS_HEIGHT - 66);
-        }
-    }
+    // 締めの一行は「突破」「天下統一」と同じ体裁（drawOutcomePrompt：字格・Y・明滅を共有）。
+    drawOutcomePrompt(
+        ctx,
+        'Press SPACE or Tap Screen to Skip',
+        timer,
+        CANVAS_HEIGHT - 48,
+        Math.max(0, Math.min(1, (timer - 1000) / 260))
+    );
 }
 
 // エンディング画面
@@ -3906,16 +3904,14 @@ export function renderEnding(ctx, timer) {
     });
     ctx.shadowBlur = 0;
 
-    if (timer > 1200) {
-        const blink = Math.sin(Date.now() / 170) > 0;
-        if (blink) {
-            ctx.font = 'bold 20px "Zen Old Mincho", serif';
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText('Press SPACE or Tap Screen to Return to Title', SCREEN_WIDTH / 2, CANVAS_HEIGHT - 66);
-        }
-    }
+    // 締めの一行は「突破」「天下統一」と同じ体裁（drawOutcomePrompt：字格・Y・明滅を共有）。
+    drawOutcomePrompt(
+        ctx,
+        'Press SPACE or Tap Screen to Return to Title',
+        timer,
+        CANVAS_HEIGHT - 48,
+        Math.max(0, Math.min(1, (timer - 1200) / 260))
+    );
 }
 
 // ポーズ画面

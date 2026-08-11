@@ -1,16 +1,16 @@
 // Unification of the Nation - 分身クローン mixin
 
-import { PLAYER, LANE_OFFSET } from './constants.js?v=screen-safe-20260812c';
-import { audio } from './audio.js?v=screen-safe-20260812c';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260812c';
-import { ANIM_STATE, COMBO_ATTACKS } from './playerData.js?v=screen-safe-20260812c';
+import { PLAYER, LANE_OFFSET } from './constants.js?v=screen-safe-20260812d';
+import { audio } from './audio.js?v=screen-safe-20260812d';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260812d';
+import { ANIM_STATE, COMBO_ATTACKS } from './playerData.js?v=screen-safe-20260812d';
 import {
     SHOGUN_ACTOR_BASE_WIDTH,
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_SCALE,
     SHOGUN_SPECIAL_CLONE_SPACING_SCALE
-} from './shogunConstants.js?v=screen-safe-20260812c';
-import { getNormalComboStep4RiseScale } from './normalComboMotion.js?v=screen-safe-20260812c';
+} from './shogunConstants.js?v=screen-safe-20260812d';
+import { getNormalComboStep4RiseScale } from './normalComboMotion.js?v=screen-safe-20260812d';
 
 export function applySpecialMixin(PlayerClass) {
 
@@ -1510,6 +1510,41 @@ export function applySpecialMixin(PlayerClass) {
         });
     };
 
+    /**
+     * 分身を並べてよいワールドXの範囲。
+     * 【大屋根アリーナでは屋根の外に分身を出さない】。分身は敵と違って
+     * constrainStage6ArenaActor を通らないため、本体が端に寄っていると
+     * 屋根の無い空中に湧いていた(実機フィードバック 2026-08-12)。
+     * 足場の端を知っているのは stage 側なので、あれば聞き、無ければ制限なし。
+     */
+    PlayerClass.prototype.getSpecialCloneAnchorRange = function() {
+        const stage = window.game && window.game.stage;
+        if (!stage || typeof stage.isStage6Arena !== 'function' || !stage.isStage6Arena()) return null;
+        const half = (typeof this.getWorldWidth === 'function' ? this.getWorldWidth() : this.width) * 0.5;
+        const left = stage.getStage6ArenaPhysicalLeft() + half;
+        const right = stage.getStage6ArenaPhysicalRight() - half;
+        if (right <= left) return null;
+        return { left, right };
+    };
+
+    /**
+     * 隊形をまとめて内側へ寄せる量。一体ずつ端で止めると分身同士が同じ位置に
+     * 重なって一人に見えるので、はみ出した分だけ隊列ごと平行移動する。
+     */
+    PlayerClass.prototype.getSpecialCloneFormationShift = function(centerX, units, spacing, range) {
+        if (!range || !units || units.length === 0) return 0;
+        let minX = Infinity;
+        let maxX = -Infinity;
+        for (const unit of units) {
+            const x = centerX + unit * spacing;
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+        }
+        if (minX < range.left) return Math.min(range.left - minX, range.right - maxX);
+        if (maxX > range.right) return Math.max(range.right - maxX, range.left - minX);
+        return 0;
+    };
+
     PlayerClass.prototype.calculateSpecialCloneAnchors = function(centerX, centerY) {
         const spacing = typeof this.getSpecialCloneSpacing === 'function'
             ? this.getSpecialCloneSpacing()
@@ -1517,21 +1552,39 @@ export function applySpecialMixin(PlayerClass) {
         const resolveY = (x, unit) => {
             return centerY;
         };
-        const anchors = this.specialCloneSlots.map((unit, index) => ({
-            x: centerX + unit * spacing,
-            y: resolveY(centerX + unit * spacing, unit),
-            facingRight: this.facingRight,
-            alpha: this.specialCloneAlive[index] ? 1.0 : 0,
-            index
-        }));
         const displayOrder = this.getSpecialCloneDisplayOrder();
         const aliveIndices = displayOrder.filter((index) => this.specialCloneAlive[index]);
         const activeUnits = this.getSpecialCloneActiveLayout(aliveIndices.length);
 
+        // 実際に見えるのは生存中の並び。それを基準に隊形ごとのずらし量を決める。
+        const range = this.getSpecialCloneAnchorRange();
+        const shift = this.getSpecialCloneFormationShift(
+            centerX,
+            aliveIndices.length > 0 ? activeUnits : this.specialCloneSlots,
+            spacing,
+            range
+        );
+        // 隊形が足場より広い場合の最後の歯止め(通常は平行移動だけで収まる)
+        const placeX = (unit) => {
+            const x = centerX + unit * spacing + shift;
+            return range ? Math.max(range.left, Math.min(range.right, x)) : x;
+        };
+
+        const anchors = this.specialCloneSlots.map((unit, index) => {
+            const x = placeX(unit);
+            return {
+                x,
+                y: resolveY(x, unit),
+                facingRight: this.facingRight,
+                alpha: this.specialCloneAlive[index] ? 1.0 : 0,
+                index
+            };
+        });
+
         for (let i = 0; i < aliveIndices.length; i++) {
             const index = aliveIndices[i];
             const unit = activeUnits[i];
-            const x = centerX + unit * spacing;
+            const x = placeX(unit);
             anchors[index] = {
                 x,
                 y: resolveY(x, unit),
