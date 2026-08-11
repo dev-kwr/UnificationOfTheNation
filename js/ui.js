@@ -3509,9 +3509,12 @@ export function renderLevelUpChoiceScreen(ctx, player, choices, selectedIndex = 
     });
 
     // ===== 操作説明（通常マニュアルと同サイズ・カード直下に配置） =====
-    // タッチ端末は昇段中のパッド操作を受けない(タップ選択のみ)ため文言も分ける
-    const manualText = isTouchOverlayMode() ? '札に触れて決定' : '←→：選択 | SPACE：決定';
-    drawScreenManualLine(ctx, manualText, d(cardTopD + CARD_H + 50 + 24));
+    // タッチ端末には出さない。札が3枚並んでいる画面で「札に触れて決定」は
+    // 見れば分かることを言っているだけだった(実機フィードバック 2026-08-11)。
+    // キーボードは押す先が見えないので残す。
+    if (!isTouchOverlayMode()) {
+        drawScreenManualLine(ctx, '←→：選択 | SPACE：決定', d(cardTopD + CARD_H + 50 + 24));
+    }
 
     ctx.restore();
 }

@@ -11,6 +11,7 @@ import {
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
 } from './playerData.js?v=screen-safe-20260811p';
 import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260811p';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260811p';
 import {
     SHOGUN_SCALE,
     SHOGUN_ACTOR_BASE_HEIGHT,
@@ -6050,7 +6051,7 @@ export function applyRendererMixin(PlayerClass) {
                         ctx.globalAlpha = cloneAlpha * 0.4;
                         if (this.mistCacheCanvas) {
                             const size = this.mistCacheCanvas.width;
-                            ctx.drawImage(this.mistCacheCanvas, pos.x - size / 2, mistCenterY - size / 2);
+                            drawImageGraded(ctx, this.mistCacheCanvas, pos.x - size / 2, mistCenterY - size / 2);
                         } else {
                             ctx.fillStyle = `rgba(180, 214, 246, 1.0)`;
                             ctx.beginPath();
@@ -6450,7 +6451,7 @@ export function applyRendererMixin(PlayerClass) {
                     const scale = (radius * 2) / s;
                     ctx.scale(scale, scale);
                     // ベースの煙
-                    ctx.drawImage(this.mistCacheCanvas, -s/2, -s/2);
+                    drawImageGraded(ctx, this.mistCacheCanvas, -s/2, -s/2);
                     
                     // 追加のコブ
                     ctx.save();
@@ -6458,7 +6459,7 @@ export function applyRendererMixin(PlayerClass) {
                     ctx.translate(0, s/4);
                     ctx.globalAlpha = alpha * 0.7;
                     ctx.scale(0.6, 0.6);
-                    ctx.drawImage(this.mistCacheCanvas, -s/2, -s/2);
+                    drawImageGraded(ctx, this.mistCacheCanvas, -s/2, -s/2);
                     ctx.restore();
                 } else {
                     // フォールバック

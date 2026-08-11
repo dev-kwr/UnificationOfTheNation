@@ -15,6 +15,10 @@ import {
     renderGrappleBehind, renderGrappleFront
 } from './stage6Grapple.js?v=screen-safe-20260811p';
 import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260811p';
+// 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
+// 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
+// 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260811p';
 
 // ============================================
 // ステージ背景アセットの単一ソース
@@ -1849,11 +1853,11 @@ export class Stage {
         if (direction === 1) {
             ctx.translate(anchorScreenX, anchorScreenY);
             ctx.scale(s, s);
-            ctx.drawImage(this.stairImage, -this.stairOriginX, -this.stairOriginY);
+            drawImageGraded(ctx, this.stairImage, -this.stairOriginX, -this.stairOriginY);
         } else {
             ctx.translate(anchorScreenX, anchorScreenY);
             ctx.scale(-s, s);
-            ctx.drawImage(this.stairImage, -this.stairOriginX, -this.stairOriginY);
+            drawImageGraded(ctx, this.stairImage, -this.stairOriginX, -this.stairOriginY);
         }
         ctx.restore();
     }
@@ -1922,11 +1926,11 @@ export class Stage {
         if (!isFlippedDraw) {
             ctx.translate(topScreenX, anchorScreenY);
             ctx.scale(s, s);
-            ctx.drawImage(this.stairImage, -(this.stairOriginX + TOTAL_L), -(this.stairOriginY - TOTAL_H));
+            drawImageGraded(ctx, this.stairImage, -(this.stairOriginX + TOTAL_L), -(this.stairOriginY - TOTAL_H));
         } else {
             ctx.translate(topScreenX, anchorScreenY);
             ctx.scale(-s, s);
-            ctx.drawImage(this.stairImage, -(this.stairOriginX + TOTAL_L), -(this.stairOriginY - TOTAL_H));
+            drawImageGraded(ctx, this.stairImage, -(this.stairOriginX + TOTAL_L), -(this.stairOriginY - TOTAL_H));
         }
         ctx.restore();
     }
@@ -3607,7 +3611,7 @@ export class Stage {
             ctx.translate(x, y);
             ctx.rotate(rot);
             const scale = (size / 12);
-            ctx.drawImage(img, -16 * scale, -16 * scale, 32 * scale, 32 * scale);
+            drawImageGraded(ctx, img, -16 * scale, -16 * scale, 32 * scale, 32 * scale);
             ctx.restore();
         } else {
             ctx.save();
@@ -4054,7 +4058,7 @@ export class Stage {
 
             ctx.save();
             ctx.filter = 'brightness(0.58) saturate(0.58) contrast(0.88)';
-            ctx.drawImage(backMountainImg, backX, backY, backW, backH);
+            drawImageGraded(ctx, backMountainImg, backX, backY, backW, backH);
             ctx.filter = 'none';
             ctx.restore();
         }
@@ -4062,7 +4066,7 @@ export class Stage {
         if (passReady) {
             ctx.save();
             ctx.filter = 'brightness(0.74) saturate(0.66) contrast(0.9)';
-            ctx.drawImage(passImg, passX, passY, passW, passH);
+            drawImageGraded(ctx, passImg, passX, passY, passW, passH);
             ctx.filter = 'none';
             ctx.restore();
         }
@@ -4097,7 +4101,7 @@ export class Stage {
         ctx.save();
         ctx.globalAlpha *= 0.96;
         ctx.filter = 'brightness(0.84) saturate(0.72) contrast(0.94)';
-        ctx.drawImage(exitImg, exitX, exitY, exitW, exitH);
+        drawImageGraded(ctx, exitImg, exitX, exitY, exitW, exitH);
         ctx.filter = 'none';
         ctx.restore();
     }
@@ -4322,7 +4326,7 @@ export class Stage {
             ctx.globalAlpha *= prop.alpha;
             this.drawStage3PropContactShadow(ctx, x + width * 0.5, footY - 2, width);
             ctx.filter = 'brightness(0.66) sepia(0.22) saturate(0.68) contrast(0.86) hue-rotate(-6deg)';
-            ctx.drawImage(image, x, y, width, prop.height);
+            drawImageGraded(ctx, image, x, y, width, prop.height);
             ctx.filter = 'none';
             ctx.restore();
         }
@@ -4381,7 +4385,7 @@ export class Stage {
             ctx.globalAlpha *= item.alpha;
             this.drawStage3PropContactShadow(ctx, drawX + width * 0.5, footY - 2, width);
             ctx.filter = 'brightness(0.62) sepia(0.22) saturate(0.68) contrast(0.88) hue-rotate(-6deg)';
-            ctx.drawImage(image, drawX, footY - height, width, height);
+            drawImageGraded(ctx, image, drawX, footY - height, width, height);
             ctx.filter = 'none';
             ctx.restore();
         }
@@ -4394,7 +4398,7 @@ export class Stage {
         ctx.save();
         ctx.globalAlpha *= alpha;
         ctx.filter = filter;
-        ctx.drawImage(image, x, baseY - height + 3, width, height);
+        drawImageGraded(ctx, image, x, baseY - height + 3, width, height);
         ctx.filter = 'none';
 	    ctx.restore();
 	    return true;
@@ -4419,7 +4423,7 @@ export class Stage {
 
 	    ctx.save();
 	    ctx.filter = 'brightness(0.82) saturate(0.68) contrast(0.94)';
-	    ctx.drawImage(
+	    drawImageGraded(ctx, 
 	        image,
 	        metrics.sourceX,
 	        metrics.sourceY,
@@ -4470,7 +4474,7 @@ export class Stage {
 
         ctx.save();
         ctx.filter = 'brightness(0.75) saturate(0.68) contrast(0.9)';
-        ctx.drawImage(
+        drawImageGraded(ctx, 
             image,
             sourceX,
             sourceY,
@@ -4498,7 +4502,7 @@ export class Stage {
         ctx.save();
         ctx.globalAlpha *= 0.64;
         ctx.filter = 'brightness(0.54) saturate(0.58) contrast(0.84)';
-        ctx.drawImage(image, x, baseY - height + 8, width, height);
+        drawImageGraded(ctx, image, x, baseY - height + 8, width, height);
         ctx.filter = 'none';
         ctx.restore();
         return true;
@@ -4514,7 +4518,7 @@ export class Stage {
         ctx.save();
         ctx.globalAlpha *= alpha;
         ctx.filter = 'brightness(0.78) saturate(0.68) contrast(0.9)';
-        ctx.drawImage(image, x, baseY - height + 4, width, height);
+        drawImageGraded(ctx, image, x, baseY - height + 4, width, height);
         ctx.filter = 'none';
         ctx.restore();
         return true;
@@ -4533,7 +4537,7 @@ export class Stage {
         ctx.save();
         ctx.globalAlpha *= 0.96;
         ctx.filter = 'brightness(0.82) saturate(0.72) contrast(0.92)';
-        ctx.drawImage(approachImage, x, baseY - layout.approachHeight + 3, width, layout.approachHeight);
+        drawImageGraded(ctx, approachImage, x, baseY - layout.approachHeight + 3, width, layout.approachHeight);
         ctx.filter = 'none';
         ctx.restore();
 
@@ -4577,10 +4581,10 @@ export class Stage {
                 ctx.save();
                 ctx.translate(Math.round(x + drawW + 2), y);
                 ctx.scale(-1, 1);
-                ctx.drawImage(image, 0, srcY, image.naturalWidth, srcH, 0, 0, drawW + 2, drawH);
+                drawImageGraded(ctx, image, 0, srcY, image.naturalWidth, srcH, 0, 0, drawW + 2, drawH);
                 ctx.restore();
             } else {
-                ctx.drawImage(image, 0, srcY, image.naturalWidth, srcH, Math.round(x), y, drawW + 2, drawH);
+                drawImageGraded(ctx, image, 0, srcY, image.naturalWidth, srcH, Math.round(x), y, drawW + 2, drawH);
             }
         }
         ctx.filter = 'none';
@@ -4626,10 +4630,10 @@ export class Stage {
                 ctx.save();
                 ctx.translate(x + drawW + 2, y);
                 ctx.scale(-1, 1);
-                ctx.drawImage(image, 0, 0, drawW + 2, drawH);
+                drawImageGraded(ctx, image, 0, 0, drawW + 2, drawH);
                 ctx.restore();
             } else {
-                ctx.drawImage(image, x, y, drawW + 2, drawH);
+                drawImageGraded(ctx, image, x, y, drawW + 2, drawH);
             }
         }
 
@@ -4659,9 +4663,9 @@ export class Stage {
             // 左右端で同じアセットを使う場合の反転
             ctx.translate(x + drawW, y);
             ctx.scale(-1, 1);
-            ctx.drawImage(image, 0, 0, drawW, drawH);
+            drawImageGraded(ctx, image, 0, 0, drawW, drawH);
         } else {
-            ctx.drawImage(image, x, y, drawW, drawH);
+            drawImageGraded(ctx, image, x, y, drawW, drawH);
         }
         ctx.filter = 'none';
         ctx.restore();
@@ -4853,7 +4857,7 @@ export class Stage {
             ctx.save();
             ctx.filter = 'brightness(0.86) saturate(0.76)';
             // 画像全面を枠×512に描く(角1・2の全高壁は2304×1456=枠810×512と同比率)。
-            ctx.drawImage(img, x, 0, frameW, laneY);
+            drawImageGraded(ctx, img, x, 0, frameW, laneY);
             ctx.filter = 'none';
 
             // 接地影: 基部と俯瞰床の継ぎ目を沈める(エンティティの落ち影と同じ考え方)。
@@ -4889,14 +4893,14 @@ export class Stage {
         ctx.save();
         ctx.translate(capLeft + geo.cap.w, geo.cap.originY);
         ctx.scale(-1, 1);
-        ctx.drawImage(cap, 0, 0, geo.cap.w, geo.cap.h);
+        drawImageGraded(ctx, cap, 0, 0, geo.cap.w, geo.cap.h);
         ctx.restore();
         // 棟側は平坦部(棟〜軒)を反復して画面右端まで覆う。妻端は640px幅しかないため。
         const flatSrcW = STAGE6_FINAL_CAP_FLAT_SRC_W;
         const flatW = flatSrcW * geo.cap.scale;
         for (let fx = capLeft + geo.cap.w; fx < CANVAS_WIDTH; fx += flatW) {
             const drawW = Math.min(flatW, CANVAS_WIDTH - fx);
-            ctx.drawImage(
+            drawImageGraded(ctx, 
                 cap,
                 0, 0, flatSrcW * (drawW / flatW), geo.cap.srcH,
                 fx, geo.cap.originY, drawW, geo.cap.h
@@ -5083,10 +5087,10 @@ export class Stage {
                 ctx.save();
                 ctx.translate(x + drawW + 2, y);
                 ctx.scale(-1, 1);
-                ctx.drawImage(image, 0, 0, drawW + 2, drawH);
+                drawImageGraded(ctx, image, 0, 0, drawW + 2, drawH);
                 ctx.restore();
             } else {
-                ctx.drawImage(image, x, y, drawW + 2, drawH);
+                drawImageGraded(ctx, image, x, y, drawW + 2, drawH);
             }
         }
         ctx.filter = 'none';
@@ -5175,7 +5179,7 @@ export class Stage {
 
                         ctx.save();
                         ctx.filter = item.filter;
-                        ctx.drawImage(image, drawX, propBaseY - height + 3, width, height);
+                        drawImageGraded(ctx, image, drawX, propBaseY - height + 3, width, height);
                         ctx.filter = 'none';
                         ctx.restore();
                     }
@@ -5213,7 +5217,7 @@ export class Stage {
                             ctx.save();
                             ctx.globalAlpha *= 0.94 + this.noise1D(seed + 4.6) * 0.06;
                             ctx.filter = item.filter;
-                            ctx.drawImage(image, drawX, detailBaseY - height + 3, width, height);
+                            drawImageGraded(ctx, image, drawX, detailBaseY - height + 3, width, height);
                             ctx.filter = 'none';
                             ctx.restore();
                         }
@@ -5249,7 +5253,7 @@ export class Stage {
                                 ctx.save();
                                 ctx.globalAlpha *= 0.78 + this.noise1D(seed + 4.1) * 0.12;
                                 ctx.filter = 'brightness(0.72) saturate(0.66) contrast(0.86)';
-                                ctx.drawImage(grassImage, drawX, detailBaseY - height + 3, width, height);
+                                drawImageGraded(ctx, grassImage, drawX, detailBaseY - height + 3, width, height);
                                 ctx.filter = 'none';
                                 ctx.restore();
                             }
@@ -5449,10 +5453,10 @@ export class Stage {
                 ctx.save();
                 ctx.translate(x + drawW + 2, y);
                 ctx.scale(-1, 1);
-                ctx.drawImage(image, 0, 0, drawW + 2, drawH);
+                drawImageGraded(ctx, image, 0, 0, drawW + 2, drawH);
                 ctx.restore();
             } else {
-                ctx.drawImage(image, x, y, drawW + 2, drawH);
+                drawImageGraded(ctx, image, x, y, drawW + 2, drawH);
             }
         }
         ctx.filter = 'none';
@@ -5500,7 +5504,7 @@ export class Stage {
 
         for (let tileIndex = firstTile; tileIndex <= lastTile; tileIndex++) {
             const x = Math.round(worldStart + tileIndex * drawW - renderProgress);
-            ctx.drawImage(image, x, y, drawW + 2, drawH);
+            drawImageGraded(ctx, image, x, y, drawW + 2, drawH);
         }
 
         ctx.filter = 'none';
@@ -5717,9 +5721,9 @@ export class Stage {
                 if (flipX) {
                     ctx.translate(x + capW, capY);
                     ctx.scale(-1, 1);
-                    ctx.drawImage(capSource, 0, 0, capW, capH);
+                    drawImageGraded(ctx, capSource, 0, 0, capW, capH);
                 } else {
-                    ctx.drawImage(capSource, x, capY, capW, capH);
+                    drawImageGraded(ctx, capSource, x, capY, capW, capH);
                 }
                 ctx.restore();
             };
@@ -5769,7 +5773,7 @@ export class Stage {
         for (let zoneIndex = 1; zoneIndex < 4; zoneIndex++) {
             const x = Math.round(zoneWidth * zoneIndex + STAGE6_CORNER.WALL_RIGHT_PX - renderProgress - drawW * 0.5);
             if (x + drawW <= 0 || x >= CANVAS_WIDTH) continue;
-            ctx.drawImage(image, x, y, drawW, drawH);
+            drawImageGraded(ctx, image, x, y, drawW, drawH);
         }
 
         ctx.filter = 'none';
@@ -5804,7 +5808,7 @@ export class Stage {
             ctx.globalAlpha *= 0.88;
             ctx.filter = `brightness(${(0.76 - darken * 0.06).toFixed(3)}) saturate(0.74) contrast(0.92)`;
             for (let x = startX; x < CANVAS_WIDTH + drawW; x += drawW) {
-                ctx.drawImage(image, x, y, drawW + 2, drawH);
+                drawImageGraded(ctx, image, x, y, drawW + 2, drawH);
             }
             ctx.filter = 'none';
             ctx.restore();
@@ -5827,7 +5831,7 @@ export class Stage {
         ctx.save();
         ctx.translate(fenceEndX - 12, fenceY + fenceH);
         ctx.rotate(-Math.PI / 2);
-        ctx.drawImage(image, 260, 210, 220, 28, 0, 0, 82, 12);
+        drawImageGraded(ctx, image, 260, 210, 220, 28, 0, 0, 82, 12);
         ctx.restore();
 
         ctx.filter = 'none';
@@ -5921,7 +5925,7 @@ export class Stage {
             const sourceX = stripLeft * sourcePerPixel;
             const sourceW = Math.max(1, stripW * sourcePerPixel + 1);
             ctx.globalAlpha = baseAlpha * this.smoothstep(0, 1, i / (stripCount - 1));
-            ctx.drawImage(
+            drawImageGraded(ctx, 
                 image,
                 sourceX,
                 0,
@@ -5936,7 +5940,7 @@ export class Stage {
 
         const opaqueSourceX = blendW * sourcePerPixel;
         ctx.globalAlpha = baseAlpha;
-        ctx.drawImage(
+        drawImageGraded(ctx, 
             image,
             opaqueSourceX,
             0,
@@ -6046,7 +6050,7 @@ export class Stage {
             ctx.save();
             ctx.filter = 'brightness(0.76) saturate(0.72) contrast(0.94)';
             for (let x = startX; x < CANVAS_WIDTH + drawW; x += drawW) {
-                ctx.drawImage(groundTile, x, horizonY - 18, drawW + 2, drawH);
+                drawImageGraded(ctx, groundTile, x, horizonY - 18, drawW + 2, drawH);
             }
             ctx.filter = 'none';
 
@@ -6356,7 +6360,7 @@ export class Stage {
                         ctx.translate(x, y);
                         ctx.rotate(-0.3 + Math.sin(pMod * 1.5 + seed) * 0.5);
                         ctx.scale(flip, 1);
-                        ctx.drawImage(leaves[i % leaves.length], -size * 0.5, -size * 0.5, size, size);
+                        drawImageGraded(ctx, leaves[i % leaves.length], -size * 0.5, -size * 0.5, size, size);
                         ctx.restore();
                     }
                     ctx.globalAlpha = 1;
@@ -6530,7 +6534,7 @@ export class Stage {
                     const d = 5 + (i % 4) * 1.7;
                     if (glow) {
                         ctx.globalAlpha = twinkle * 0.24 * blend;
-                        ctx.drawImage(glow, x - d * 0.5, y - d * 0.5, d, d);
+                        drawImageGraded(ctx, glow, x - d * 0.5, y - d * 0.5, d, d);
                     }
                 }
                 ctx.globalAlpha = 1;
@@ -6575,7 +6579,7 @@ export class Stage {
                             ctx.translate(x, y);
                             ctx.rotate(rot);
                             ctx.scale(flip, 1);
-                            ctx.drawImage(img, -16 * s, -16 * s, 32 * s, 32 * s);
+                            drawImageGraded(ctx, img, -16 * s, -16 * s, 32 * s, 32 * s);
                             ctx.restore();
                         }
                     }
@@ -6599,7 +6603,7 @@ export class Stage {
                         if (a <= 0.01) continue;
                         const d = 7 + (seed % 7);
                         ctx.globalAlpha = a;
-                        ctx.drawImage(mote, x - d * 0.5, y - d * 0.5, d, d);
+                        drawImageGraded(ctx, mote, x - d * 0.5, y - d * 0.5, d, d);
                     }
                     ctx.globalAlpha = 1;
                 }
@@ -6939,7 +6943,7 @@ export class Stage {
             ctx.save();
             ctx.globalAlpha = 0.96;
             ctx.filter = 'brightness(0.84) saturate(0.78) contrast(0.92)';
-            ctx.drawImage(image, platform.drawX, platform.drawY, platform.drawWidth, platform.drawHeight);
+            drawImageGraded(ctx, image, platform.drawX, platform.drawY, platform.drawWidth, platform.drawHeight);
             ctx.restore();
         }
     }

@@ -6,6 +6,7 @@ import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICUL
 import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811p';
 import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260811p';
 import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260811p';
+import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260811p';
 import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260811p';
 import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260811p';
 import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260811p';
@@ -1253,6 +1254,9 @@ class Game {
         // 次ステージの先読み開始までの猶予。開始直後は現ステージのデコードと
         // 競合するので少し置いてから流す。
         this._nextStagePrefetchMs = NEXT_STAGE_PREFETCH_DELAY_MS;
+        // 前のステージの色調フィルタ焼き上がりを捨てる。1ステージ先までしか
+        // 先読みしない設計(imageCache)の意図に反してメモリが積むため。
+        clearFilteredImageCache();
         // 地面の高さを本来のゲーム位置にリセット
         this.groundY = Math.round(CANVAS_HEIGHT * (2 / 3));
 

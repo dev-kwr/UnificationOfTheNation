@@ -4,6 +4,7 @@
 
 import { OBSTACLE_TYPES, OBSTACLE_SETTINGS, LANE_OFFSET } from './constants.js?v=screen-safe-20260811p';
 import { audio } from './audio.js?v=screen-safe-20260811p';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260811p';
 
 const OBSTACLE_SPRITE_PATHS = {
     spike: 'images/obstacle_spike_bamboo_trap.png',
@@ -78,7 +79,7 @@ function drawObstacleSprite(ctx, image, x, y, width, height, alpha = 1) {
     ctx.globalAlpha *= alpha;
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(image, x, y, width, height);
+    drawImageGraded(ctx, image, x, y, width, height);
     ctx.restore();
 }
 
@@ -89,7 +90,7 @@ function drawObstacleSpriteBottomRotated(ctx, image, centerX, bottomY, width, he
     ctx.imageSmoothingQuality = 'high';
     ctx.translate(centerX, bottomY);
     ctx.rotate(angle);
-    ctx.drawImage(image, -width * 0.5, -height, width, height);
+    drawImageGraded(ctx, image, -width * 0.5, -height, width, height);
     ctx.restore();
 }
 
@@ -100,7 +101,7 @@ function drawObstacleSpriteCenteredRotated(ctx, image, centerX, centerY, width, 
     ctx.imageSmoothingQuality = 'high';
     ctx.translate(centerX, centerY);
     ctx.rotate(angle);
-    ctx.drawImage(image, -width * 0.5, -height * 0.5, width, height);
+    drawImageGraded(ctx, image, -width * 0.5, -height * 0.5, width, height);
     ctx.restore();
 }
 
