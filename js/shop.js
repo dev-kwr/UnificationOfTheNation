@@ -2,10 +2,10 @@
 // Unification of the Nation - ショップ機能
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, getUiScale, getFontScale } from './constants.js?v=screen-safe-20260812d';
-import { input } from './input.js?v=screen-safe-20260812d';
-import { audio } from './audio.js?v=screen-safe-20260812d';
-import { drawScreenManualLine, drawWafuCard, drawWafuHeading, drawWafuDivider, drawNumMixedText, drawBgCover } from './ui.js?v=screen-safe-20260812d';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, getUiScale, getFontScale } from './constants.js?v=screen-safe-20260812e';
+import { input } from './input.js?v=screen-safe-20260812e';
+import { audio } from './audio.js?v=screen-safe-20260812e';
+import { drawScreenManualLine, drawWafuCard, drawWafuHeading, drawWafuDivider, drawNumMixedText, drawBgCover } from './ui.js?v=screen-safe-20260812e';
 
 // 背景画像キャッシュ
 let _shopBgImg = null;
@@ -218,9 +218,10 @@ export class Shop {
             }
         }
         
-        if (input.isActionJustPressed('SUB_WEAPON') || input.isActionJustPressed('PAUSE')) {
+        // 戻るは ESC だけ。X(忍具)は戦闘の手癖で押しやすく、買い物中に
+        // 意図せず店を出てしまうため外した(指定 2026-08-12)。
+        if (input.isActionJustPressed('PAUSE')) {
             this.close();
-            input.consumeAction('SUB_WEAPON');
             input.consumeAction('PAUSE');
         }
 
@@ -468,7 +469,7 @@ export class Shop {
         });
 
         // 操作説明はタイトル画面と同じ見た目・位置に統一
-        drawScreenManualLine(ctx, '↑↓：術選択 | ←→：購入/戻る | SPACE：決定 | X・ESC：戻る');
+        drawScreenManualLine(ctx, '↑↓：術選択 | ←→：購入/戻る | SPACE：決定 | ESC：戻る');
 
         ctx.restore();
     }

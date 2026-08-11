@@ -9,9 +9,9 @@
 // ノード座標は「画像内の比率(u,v)」で持ち、cover 変換で画面座標へ写す。
 // 画像を差し替えても u,v を微調整するだけで済む（map_generation_prompt.md 参照）。
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, STAGES, getUiScale, getFontScale, getScreenSafeArea, isTouchOverlayMode } from './constants.js?v=screen-safe-20260812d';
-import { drawWafuCard, fillTextInkCentered, drawScreenManualLine, formatCount } from './ui.js?v=screen-safe-20260812d';
-import { getSideBest } from './sideStageCommon.js?v=screen-safe-20260812d';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, STAGES, getUiScale, getFontScale, getScreenSafeArea, isTouchOverlayMode } from './constants.js?v=screen-safe-20260812e';
+import { fillTextInkCentered, drawScreenManualLine, formatCount } from './ui.js?v=screen-safe-20260812e';
+import { getSideBest } from './sideStageCommon.js?v=screen-safe-20260812e';
 
 // ノード定義。kind: main=本編 / bonus=小判蔵(第2階層踏破で解放) /
 // training=修行道場(第3階層踏破で解放)。どちらも実装済み。
@@ -243,18 +243,47 @@ export function renderStageSelect(ctx, opts = {}) {
     fillTextInkCentered(ctx, '行き先を選択', SCREEN_WIDTH / 2, L.headerY);
     ctx.restore();
 
-    // 選択カードは【行き先の名前だけ】。「第◯階層」は付けない ― 階層構造では
+    // 選択中の行き先は【名前だけ】。「第◯階層」は付けない ― 階層構造では
     // ないので実態と食い違う(実機フィードバック 2026-08-11)。
-    // 最高記録は枠の中へ並べず、枠の下に小さく添える。
+    // 【札(角丸カード)で囲まない】。下部メニューのボタンと同じ見た目なのに押す対象では
+    // ないので、押せると誤解させる(実機フィードバック 2026-08-12)。銘として、
+    // 明朝を一段大きく置き、左右へ細い罫を伸ばすだけにする。
+    // 最高記録はその下に小さく添える。
     const sel = L.nodes.find(n => n.id === cursor);
     if (sel) {
         const c = L.card;
-        drawWafuCard(ctx, c.x, c.y, c.w, c.h, { radius: 10 * getUiScale(), selected: true, pulse });
+        const cx = c.x + c.w / 2;
+        const midY = c.y + c.h / 2;
         ctx.save();
         ctx.textAlign = 'center';
         ctx.fillStyle = '#ffffff';
-        ctx.font = `700 ${Math.round(c.titleFont)}px "Zen Old Mincho", serif`;
-        fillTextInkCentered(ctx, sel.name, c.x + c.w / 2, c.y + c.h / 2);
+        ctx.font = `700 ${Math.round(c.titleFont * 1.18)}px "Zen Old Mincho", serif`;
+        fillTextInkCentered(ctx, sel.name, cx, midY);
+
+        // 左右の罫。名前の実幅から伸ばすので、字数が変わっても間隔が揃う。
+        const nameHalf = ctx.measureText(sel.name).width / 2;
+        const ruleGap = 16 * getUiScale();
+        const ruleLen = Math.max(0, c.w / 2 - nameHalf - ruleGap);
+        if (ruleLen > 6) {
+            const glow = 0.42 + pulse * 0.24;
+            ctx.lineWidth = 1;
+            let grad = ctx.createLinearGradient(cx - nameHalf - ruleGap - ruleLen, 0, cx - nameHalf - ruleGap, 0);
+            grad.addColorStop(0, 'rgba(190, 214, 255, 0)');
+            grad.addColorStop(1, `rgba(190, 214, 255, ${glow.toFixed(3)})`);
+            ctx.strokeStyle = grad;
+            ctx.beginPath();
+            ctx.moveTo(cx - nameHalf - ruleGap - ruleLen, midY);
+            ctx.lineTo(cx - nameHalf - ruleGap, midY);
+            ctx.stroke();
+            grad = ctx.createLinearGradient(cx + nameHalf + ruleGap, 0, cx + nameHalf + ruleGap + ruleLen, 0);
+            grad.addColorStop(0, `rgba(190, 214, 255, ${glow.toFixed(3)})`);
+            grad.addColorStop(1, 'rgba(190, 214, 255, 0)');
+            ctx.strokeStyle = grad;
+            ctx.beginPath();
+            ctx.moveTo(cx + nameHalf + ruleGap, midY);
+            ctx.lineTo(cx + nameHalf + ruleGap + ruleLen, midY);
+            ctx.stroke();
+        }
 
         // 寄り道は刻限60秒のスコアアタック。記録は難易度別なので、
         // どの難易度のものかを添えて取り違えを防ぐ。

@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260812d';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260812e';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260812d';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260812e';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260812d';
-import { audio } from './audio.js?v=screen-safe-20260812d';
-import { saveManager } from './save.js?v=screen-safe-20260812d';
+import { input } from './input.js?v=screen-safe-20260812e';
+import { audio } from './audio.js?v=screen-safe-20260812e';
+import { saveManager } from './save.js?v=screen-safe-20260812e';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -2698,6 +2698,12 @@ export function drawWafuPips(ctx, x, y, pipW, pipH, gap, level, maxLevel) {
 
 const _statusMenuAnim = { amt: [], last: 0 };
 
+// ステータス画面の選択肢のうち「地図に戻る」の位置。下の3択(忍具/よろず屋/準備完了)の
+// 次で、左右キーの輪に入っている。game.js の同名の定数と必ず同じ値にする
+// （export して共有しないのは、ui.js を無バージョンで読む経路が生まれたときに
+//   「その export だけ無い古いモジュール」で落ちるのを避けるため）。
+const STATUS_MENU_MAP_BACK = 3;
+
 // ステータス画面（ステージクリア）の一様スケール・レイアウトの単一導出。
 // 描画(renderStatusScreen)とタップ判定(game.updateStageClear)は必ずこれを読むこと。
 // s=1 で従来の固定px値と数値同一（ピクセル不変）。
@@ -2931,18 +2937,47 @@ export function renderStatusScreen(ctx, stageNumber, player, weaponUnlocked, opt
 
         // 行き先へ戻る（全体マップから来たときだけ）。選び直しの導線が無いと
         // 「決めたら引き返せない」画面になる(実機フィードバック 2026-08-11)。
+        // 左右キーの輪にも入っている(menuIndex === STATUS_MENU_MAP_BACK で選択中)。
         if (options.canGoBack) {
             const b = L.backButton;
-            drawWafuCard(ctx, b.x, b.y, b.w, b.h, { radius: 9 * s, bgAlpha: 0.72 });
-            ctx.textAlign = 'center';
+            const selected = menuIndex === STATUS_MENU_MAP_BACK;
+            drawWafuCard(ctx, b.x, b.y, b.w, b.h, { radius: 9 * s, bgAlpha: 0.72, selected, pulse });
+            const label = '地図に戻る';
+            const fontPx = 16 * tf;
+            ctx.font = `700 ${fontPx}px "Zen Old Mincho", serif`;
+            // 「<」は文字で描かない。明朝の記号は字形・字幅が環境で揺れて、
+            // ラベルとの間隔が端末ごとに変わる(指定 2026-08-12)。線で引く。
+            const chevW = fontPx * 0.34;
+            const chevGap = fontPx * 0.44;
+            const textW = ctx.measureText(label).width;
+            const groupW = chevW + chevGap + textW;
+            const left = b.x + (b.w - groupW) / 2;
+            const midY = b.y + b.h / 2;
+
+            ctx.save();
+            ctx.strokeStyle = selected ? '#ffffff' : 'rgba(224, 234, 255, 0.9)';
+            ctx.lineWidth = Math.max(1.6, fontPx * 0.115);
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(left + chevW, midY - chevW * 0.92);
+            ctx.lineTo(left, midY);
+            ctx.lineTo(left + chevW, midY + chevW * 0.92);
+            ctx.stroke();
+            ctx.restore();
+
+            ctx.textAlign = 'left';
             ctx.textBaseline = 'middle';
-            ctx.fillStyle = 'rgba(224, 234, 255, 0.9)';
-            ctx.font = `700 ${16 * tf}px "Zen Old Mincho", serif`;
-            fillTextInkCentered(ctx, '◀ 地図に戻る', b.x + b.w / 2, b.y + b.h / 2);
+            ctx.fillStyle = selected ? '#ffffff' : 'rgba(224, 234, 255, 0.9)';
+            ctx.fillText(label, left + chevW + chevGap, midY);
+            ctx.textAlign = 'left';
             ctx.textBaseline = 'alphabetic';
         }
 
-        // 操作説明はタイトル画面と同じ見た目・位置に統一（メニュー底辺と重ならない位置へ）
+        // 操作説明はタイトル画面と同じ見た目・位置に統一（メニュー底辺と重ならない位置へ）。
+        // 【この画面にいる間、文言は変えない】。canGoBack を毎フレーム計算していた頃は
+        // 準備完了を押した瞬間に「ESC：地図に戻る」が消えて行が詰まり、ちらついた
+        // (呼び出し側 game.statusCanGoBack が画面に入った時点で確定させている)。
         drawScreenManualLine(
             ctx,
             options.canGoBack

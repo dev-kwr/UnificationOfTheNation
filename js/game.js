@@ -2,17 +2,17 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260812d';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812d';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260812d';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260812d';
-import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260812d';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260812d';
-import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260812d';
-import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260812d';
-import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260812d';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260812d';
-import { input } from './input.js?v=screen-safe-20260812d';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260812e';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812e';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260812e';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260812e';
+import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260812e';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260812e';
+import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260812e';
+import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260812e';
+import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260812e';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260812e';
+import { input } from './input.js?v=screen-safe-20260812e';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -50,18 +50,18 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=screen-safe-20260812d';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260812d';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260812d';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260812d';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseReturnButton, getPauseMapButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260812d';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260812d';
-import { saveManager } from './save.js?v=screen-safe-20260812d';
-import { shop } from './shop.js?v=screen-safe-20260812d';
-import { audio } from './audio.js?v=screen-safe-20260812d';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260812d';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260812d';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260812d';
+import { Player } from './player.js?v=screen-safe-20260812e';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260812e';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260812e';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260812e';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseReturnButton, getPauseMapButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260812e';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260812e';
+import { saveManager } from './save.js?v=screen-safe-20260812e';
+import { shop } from './shop.js?v=screen-safe-20260812e';
+import { audio } from './audio.js?v=screen-safe-20260812e';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260812e';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260812e';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260812e';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -74,6 +74,12 @@ const CORNER_CLEARANCE_RATIO = 0.38;
 const STAGE_ASSET_WAIT_MAX_MS = 4000;
 // ステージ開始から次ステージの先読みを始めるまでの猶予(ms)。
 const NEXT_STAGE_PREFETCH_DELAY_MS = 5000;
+// 地図⇔ステータスの暗転（片道の秒数。往復でこの2倍）。
+// 長いと待たされる画面切替になるので、切り替わりの角が取れる最小限にする。
+const SCREEN_FADE_SEC = 0.17;
+// ステータス画面の選択肢のうち「地図に戻る」の位置。下の3択(忍具/よろず屋/準備完了)の
+// 次＝左右キーで 準備完了 → 地図に戻る → 忍具 と一周する。描画(ui.js)と共有する。
+const STATUS_MENU_MAP_BACK = 3;
 
 const DAMAGE_NUMBER_DESCENT_FADE_MIN_SPAN = 24;
 const DAMAGE_NUMBER_GROUND_Y_OFFSET = 2;
@@ -202,6 +208,14 @@ class Game {
         this.stageSelectCursor = 1;
         this.pendingStageSelection = null;
         this.maxClearedStage = 0;
+        // 地図⇔ステータスの暗転。背景画像がまるごと入れ替わる切替なので、
+        // 挟まずに差し替えると画面が飛んだように見える(実機フィードバック 2026-08-12)。
+        // phase 0=なし / 1=暗くなる / 2=明るくなる。pending は暗転の底で走らせる処理。
+        this.screenFade = { phase: 0, alpha: 0, pending: null };
+        // ステータス画面が「地図から来たか」。毎フレーム pendingStageSelection を
+        // 見ると、準備完了を押した瞬間に false へ落ちて操作説明の行が一瞬詰まる
+        // (ちらつきの正体)。画面に入った時点で決めて、出るまで変えない。
+        this.statusCanGoBack = false;
         // 小判蔵の補充状態。入ると空になり、本編ステージをどこか踏破すると補充される
         // （無限に小判を稼げるとゲームバランスが壊れる、と実機フィードバック）。
         this.playerDefeatTimer = 0;
@@ -1166,7 +1180,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260812d').then(module => {
+        import('./weapon.js?v=screen-safe-20260812e').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -1608,6 +1622,9 @@ class Game {
             this.updatePendingStageStart();
             return;
         }
+        // 地図⇔ステータスの暗転中は入力を通さない（幕の裏で画面が入れ替わるので、
+        // ここで決定が通ると「見えていない画面のボタン」を押したことになる）。
+        if (this.updateScreenFade()) return;
         switch (this.state) {
             case GAME_STATE.TITLE:
                 this.updateTitle();
@@ -5771,11 +5788,12 @@ class Game {
         // なので、ESC は「一つ前＝マップへ戻る」を意味する。決めたら引き返せない
         // 画面になっていた(実機フィードバック 2026-08-11)。
         // マップから来ていない(クリア演出の流れなど)ときは従来どおりポーズへ。
-        const canGoBackToMap = this.stageClearPhase === 1 && this.pendingStageSelection != null;
+        // 判定は入った時点の statusCanGoBack を読む(毎フレーム再計算するとちらつく)。
+        const canGoBackToMap = this.stageClearPhase === 1 && this.statusCanGoBack;
         if (canGoBackToMap && input.isActionJustPressed('PAUSE')) {
             input.consumeAction('PAUSE');
             audio.playSelect();
-            this.enterStageSelect();
+            this.enterStageSelectWithFade();
             return;
         }
         // ステータス画面中は Q キーでもポーズ可能にする
@@ -5809,7 +5827,7 @@ class Game {
                 audio.playSelect();
                 input.consumeAction('CONFIRM');
                 // ステータス画面へは直行せず、全体マップで行き先を選んでから入る
-                this.enterStageSelect();
+                this.enterStageSelectWithFade();
             }
             return;
         }
@@ -5865,14 +5883,17 @@ class Game {
             return;
         }
 
-        // メニュー操作（左右キー）
+        // メニュー操作（左右キー）。地図から来ているときは「地図に戻る」も輪に入れる
+        // ＝キーボードだけでも戻れる(タップ専用の導線にしない。実機フィードバック 2026-08-12)。
         const menuCount = 3;
+        const cycleCount = canGoBackToMap ? menuCount + 1 : menuCount;
+        this.stageClearMenuIndex = Math.max(0, Math.min(cycleCount - 1, this.stageClearMenuIndex));
         if (input.isActionJustPressed('LEFT')) {
-            this.stageClearMenuIndex = (this.stageClearMenuIndex - 1 + menuCount) % menuCount;
+            this.stageClearMenuIndex = (this.stageClearMenuIndex - 1 + cycleCount) % cycleCount;
             audio.playSelect();
         }
         if (input.isActionJustPressed('RIGHT')) {
-            this.stageClearMenuIndex = (this.stageClearMenuIndex + 1) % menuCount;
+            this.stageClearMenuIndex = (this.stageClearMenuIndex + 1) % cycleCount;
             audio.playSelect();
         }
 
@@ -5893,7 +5914,7 @@ class Game {
                 if (tx >= b.x - slop && tx <= b.x + b.w + slop && ty >= b.y - slop && ty <= b.y + b.h + slop) {
                     input.touchJustPressed = false;
                     audio.playSelect();
-                    this.enterStageSelect();
+                    this.enterStageSelectWithFade();
                     return;
                 }
             }
@@ -6021,12 +6042,49 @@ class Game {
         });
     }
 
+    /**
+     * 地図⇔ステータスの暗転を進める。true を返す間は他の更新も入力も止める。
+     * 暗転の底(alpha=1)で pending を走らせるので、画面の入れ替わりは幕の裏で起きる。
+     */
+    updateScreenFade() {
+        const f = this.screenFade;
+        if (!f || f.phase === 0) return false;
+        const step = this.deltaTime / SCREEN_FADE_SEC;
+        if (f.phase === 1) {
+            f.alpha = Math.min(1, f.alpha + step);
+            if (f.alpha >= 1) {
+                const apply = f.pending;
+                f.pending = null;
+                f.phase = 2;
+                if (apply) apply();
+            }
+        } else {
+            f.alpha = Math.max(0, f.alpha - step);
+            if (f.alpha <= 0) f.phase = 0;
+        }
+        return true;
+    }
+
+    /** 暗転を挟んで画面を切り替える。暗転中に重ねて呼ばれたら無視する。 */
+    startScreenFade(apply) {
+        if (!this.screenFade || this.screenFade.phase !== 0) return;
+        this.screenFade.phase = 1;
+        this.screenFade.alpha = 0;
+        this.screenFade.pending = apply;
+    }
+
     enterStageSelect() {
         this.state = GAME_STATE.STAGE_SELECT;
         // 初期カーソルは「次に進む階層」（=解放の最前線）
         this.stageSelectCursor = this.getMaxSelectableStage();
         this.pendingStageSelection = null;
+        this.statusCanGoBack = false;
         audio.playBgm('menu');
+    }
+
+    /** 地図へ戻る（ステータス画面から）。暗転を挟んで切り替える。 */
+    enterStageSelectWithFade() {
+        this.startScreenFade(() => this.enterStageSelect());
     }
 
     updateStageSelect() {
@@ -6053,7 +6111,7 @@ class Game {
         if (input.isActionJustPressed('CONFIRM')) {
             input.consumeAction('CONFIRM');
             audio.playSelect();
-            this.enterStatusScreenForStage(this.stageSelectCursor);
+            this.enterStatusScreenForStageWithFade(this.stageSelectCursor);
             return;
         }
 
@@ -6067,7 +6125,7 @@ class Game {
                 if (node.id === this.stageSelectCursor) {
                     // 選択中ノードの再タップで決定（誤タップで即出撃しないための2段階）
                     audio.playSelect();
-                    this.enterStatusScreenForStage(node.id);
+                    this.enterStatusScreenForStageWithFade(node.id);
                 } else {
                     this.stageSelectCursor = node.id;
                     audio.playSelect();
@@ -6242,12 +6300,18 @@ class Game {
     // pendingStageSelection は「準備完了」が読む。よろず屋を経由しても保持される。
     enterStatusScreenForStage(stageNumber) {
         this.pendingStageSelection = stageNumber;
+        this.statusCanGoBack = true;
         this.state = GAME_STATE.STAGE_CLEAR;
         this.stageClearPhase = 1;
         this.stageClearMenuIndex = 0;
         this.resetStageClearAutoSubWeaponTimer(true);
         audio.playBgm('menu');
         this.enterStatusPreview();
+    }
+
+    /** 地図で行き先を決めてステータス画面へ。暗転を挟んで切り替える。 */
+    enterStatusScreenForStageWithFade(stageNumber) {
+        this.startScreenFade(() => this.enterStatusScreenForStage(stageNumber));
     }
 
     // 場が終わったら一時強化(奥義の分身・大薙・隠れ身など)を必ず落とす。
@@ -6299,6 +6363,12 @@ class Game {
     }
 
     handleStageClearConfirm() {
+        if (this.stageClearMenuIndex === STATUS_MENU_MAP_BACK) {
+            // 地図に戻る（左右キーの輪に入っている4つ目）
+            audio.playSelect();
+            this.enterStageSelectWithFade();
+            return;
+        }
         if (this.stageClearMenuIndex === 2) {
             // 準備完了 — セレクトで選んだステージへ（未選択時は従来どおり次の階層）
             audio.playGameStart();
@@ -6616,6 +6686,14 @@ class Game {
                 ? 1
                 : Math.min(1.0, 1.0 - (this.stageTransitionTimer / 0.8));
             this.ctx.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+            this.ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
+            this.ctx.restore();
+        }
+
+        // 地図⇔ステータスの暗転。幕の裏で画面が入れ替わるので、BGMボタンも一緒に沈める。
+        if (this.screenFade && this.screenFade.alpha > 0) {
+            this.ctx.save();
+            this.ctx.fillStyle = `rgba(0, 0, 0, ${this.screenFade.alpha.toFixed(3)})`;
             this.ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
             this.ctx.restore();
         }
@@ -7279,8 +7357,10 @@ class Game {
             const statusOptions = {
                 menuIndex: this.stageClearMenuIndex,
                 selectedWeaponName: this.player?.currentSubWeapon?.name || '未装備',
-                // 全体マップで行き先を決めてから来たときだけ「◀ 行き先」を出す
-                canGoBack: this.pendingStageSelection != null
+                // 全体マップで行き先を決めてから来たときだけ「地図に戻る」を出す。
+                // 画面に入った時点で決めた値を使う＝準備完了を押した瞬間に
+                // 操作説明の行が詰まってちらつくのを防ぐ。
+                canGoBack: this.statusCanGoBack
             };
             // 背景 → キャラ → UI の順で固定
             renderStatusScreen(this.ctx, this.currentStageNumber, this.player, this.clearedWeapon, {

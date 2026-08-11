@@ -2,23 +2,32 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812d';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812d';
-import { createEnemy } from './enemy.js?v=screen-safe-20260812d';
-import { createBoss } from './boss.js?v=screen-safe-20260812d';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260812d';
-import { audio } from './audio.js?v=screen-safe-20260812d';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812d';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812e';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812e';
+import { createEnemy } from './enemy.js?v=screen-safe-20260812e';
+import { createBoss } from './boss.js?v=screen-safe-20260812e';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260812e';
+import { audio } from './audio.js?v=screen-safe-20260812e';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812e';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260812d';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812d';
+} from './stage6Grapple.js?v=screen-safe-20260812e';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812e';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812d';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812e';
+
+/**
+ * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
+ * 床帯は 480(地平線)..720(手前) の俯瞰なので、値が小さいほど奥に立つ。
+ * 他ステージの背景物は stage2 の家並み=groundY+2、stage4 の町屋=groundY+12。
+ * Stage3 の道沿いだけプレイヤーの足元レーン(groundY+LANE_OFFSET=512)に立てていて、
+ * 灯籠や道祖神が役者と同じ面に並んで見えた(実機フィードバック 2026-08-12)。
+ */
+const STAGE3_PROP_FOOT_DEPTH = 12;
 
 // ============================================
 // ステージ背景アセットの単一ソース
@@ -4101,9 +4110,9 @@ export class Stage {
         const exitX = peekAnchorX + (CANVAS_WIDTH - exitW + 18 - ANCHOR_STOP);
         if (exitX + exitW < -80 || exitX > CANVAS_WIDTH + 120) return;
         // 画像下部に透明余白が約10.8%あるため、不透明部分の下端で接地させる。
-        // 足元線+2 = 基部が床帯へわずかに食い込み、「置いてある」ではなく「植わっている」。
+        // 足元は道沿いの添景と同じ床帯の奥（プレイヤーのレーンではない）。
         const visibleBottomRatio = 829 / 929;
-        const footY = this.groundY + LANE_OFFSET + 2;
+        const footY = this.groundY + STAGE3_PROP_FOOT_DEPTH + 2;
         const exitY = Math.round(footY - exitH * visibleBottomRatio);
         ctx.save();
         ctx.globalAlpha *= 0.96;
@@ -4249,8 +4258,8 @@ export class Stage {
      * 石仏や灯籠の向こうが透けて幽霊のように見える(実機フィードバック 2026-08-12)。
      * 遠さは描画時の色調フィルタ(brightness/saturate を落とす)が担っているので、
      * alpha は不透明のまま。
-     * 足元は本編共通の groundY + LANE_OFFSET(=512) から y だけ奥へ逃がす
-     * (レーンより数px奥＝プレイヤーと同じ面に立っていないことを示す最小限)。
+     * 足元は STAGE3_PROP_FOOT_DEPTH(=groundY+12) の床帯の奥。y は同じ道沿いでの
+     * 前後の散らしで、数値が大きいほど手前に立つ。
      */
     getStage3RoadsidePropPlan() {
         return [
@@ -4336,7 +4345,7 @@ export class Stage {
             const x = prop.worldX - this.progress;
             if (x + width < -80 || x > CANVAS_WIDTH + 80) continue;
 
-            const footY = this.groundY + LANE_OFFSET + prop.y;
+            const footY = this.groundY + STAGE3_PROP_FOOT_DEPTH + prop.y;
             const y = footY - prop.height;
             ctx.save();
             ctx.globalAlpha *= prop.alpha;
@@ -4397,7 +4406,7 @@ export class Stage {
             if (overlapsOccupied(occupiedLeft, occupiedRight)) continue;
             occupiedRanges.push({ left: occupiedLeft, right: occupiedRight });
 
-            const footY = this.groundY + LANE_OFFSET + 4;
+            const footY = this.groundY + STAGE3_PROP_FOOT_DEPTH + 4;
             ctx.save();
             ctx.globalAlpha *= item.alpha;
             this.drawStage3PropContactShadow(ctx, drawX + width * 0.5, footY - 2, width);
