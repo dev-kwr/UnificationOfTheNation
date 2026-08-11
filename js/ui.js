@@ -48,7 +48,7 @@ const BGM_ICON_PATHS = {
 };
 const WEAPON_ICON_PATHS = {
     '手裏剣': './images/hud_weapons/shuriken.png?v=20260718-6',
-    '火薬玉': './images/hud_weapons/bomb.png?v=20260811-5',
+    '火薬玉': './images/hud_weapons/bomb.png?v=20260811-6',
     '大槍': './images/hud_weapons/spear.png?v=20260718-6',
     '二刀流': './images/hud_weapons/dual.png?v=20260718-3',
     '鎖鎌': './images/hud_weapons/kusarigama.png?v=20260719-1',
