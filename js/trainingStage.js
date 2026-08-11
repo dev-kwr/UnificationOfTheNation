@@ -354,19 +354,82 @@ export class TrainingStage {
         if (img) {
             ctx.imageSmoothingEnabled = true;
             ctx.drawImage(img, p.x, p.y, w, h);
+        } else if (p.asset === 2) {
+            this.drawFallbackDrumTower(ctx, p.x, p.y, w, h);
         } else {
-            // フォールバック: 木箱を積んだだけの簡素なコード描画
-            ctx.fillStyle = '#2a1d10';
-            ctx.fillRect(p.x + 8, p.y + 12, w - 16, h - 12);
-            const top = ctx.createLinearGradient(0, p.y, 0, p.y + 14);
-            top.addColorStop(0, '#6b5130');
-            top.addColorStop(1, '#33240f');
-            ctx.fillStyle = top;
-            ctx.fillRect(p.x, p.y, w, 14);
-            ctx.fillStyle = 'rgba(232, 208, 158, 0.22)';
-            ctx.fillRect(p.x, p.y, w, 3);
+            this.drawFallbackChestStand(ctx, p.x, p.y, w, h);
         }
         ctx.restore();
+    }
+
+    // 絵が読めない時の代わり。長持を3つ並べ、その上に厚い一枚板を渡した低い台。
+    drawFallbackChestStand(ctx, x, y, w, h) {
+        const TOP_H = 14;
+        const bodyY = y + TOP_H;
+        const bodyH = h - TOP_H;
+        const body = ctx.createLinearGradient(0, bodyY, 0, bodyY + bodyH);
+        body.addColorStop(0, '#3a2917');
+        body.addColorStop(1, '#1a1108');
+        ctx.fillStyle = body;
+        ctx.fillRect(x + 6, bodyY, w - 12, bodyH);
+        // 箱の割りと黒鉄の帯金具
+        ctx.strokeStyle = 'rgba(10, 7, 3, 0.8)';
+        ctx.lineWidth = 2;
+        for (let i = 1; i < 3; i++) {
+            const bx = x + 6 + (w - 12) * (i / 3);
+            ctx.beginPath();
+            ctx.moveTo(bx, bodyY + 2);
+            ctx.lineTo(bx, bodyY + bodyH);
+            ctx.stroke();
+        }
+        ctx.fillStyle = 'rgba(14, 12, 10, 0.9)';
+        ctx.fillRect(x + 6, bodyY + bodyH * 0.42, w - 12, 4);
+        this.drawFallbackTopBoard(ctx, x, y, w, TOP_H);
+    }
+
+    // 絵が読めない時の代わり。四本柱の櫓に大太鼓を吊り、天板を渡した高い台。
+    drawFallbackDrumTower(ctx, x, y, w, h) {
+        const TOP_H = 14;
+        const postW = 13;
+        const postTop = y + TOP_H;
+        const postH = h - TOP_H;
+        ctx.fillStyle = '#2c1f11';
+        ctx.fillRect(x + 8, postTop, postW, postH);
+        ctx.fillRect(x + w - 8 - postW, postTop, postW, postH);
+        // 貫(横木)2本
+        ctx.fillStyle = '#241a0e';
+        ctx.fillRect(x + 8, postTop + postH * 0.34, w - 16, 8);
+        ctx.fillRect(x + 8, postTop + postH * 0.78, w - 16, 8);
+        // 大太鼓（真正面＝円）
+        const dr = Math.min(w * 0.29, postH * 0.29);
+        const dcx = x + w * 0.5;
+        const dcy = postTop + postH * 0.5;
+        ctx.beginPath();
+        ctx.arc(dcx, dcy, dr, 0, Math.PI * 2);
+        const skin = ctx.createRadialGradient(dcx - dr * 0.3, dcy - dr * 0.3, dr * 0.1, dcx, dcy, dr);
+        skin.addColorStop(0, '#6d5a3e');
+        skin.addColorStop(1, '#3a2c1a');
+        ctx.fillStyle = skin;
+        ctx.fill();
+        ctx.strokeStyle = '#120d06';
+        ctx.lineWidth = Math.max(3, dr * 0.16);
+        ctx.stroke();
+        this.drawFallbackTopBoard(ctx, x, y, w, TOP_H);
+    }
+
+    // 天板（当たり判定の面）。上面だけ灯りを受ける。
+    drawFallbackTopBoard(ctx, x, y, w, topH) {
+        const top = ctx.createLinearGradient(0, y, 0, y + topH);
+        top.addColorStop(0, '#6b5130');
+        top.addColorStop(0.45, '#46331d');
+        top.addColorStop(1, '#241a0e');
+        ctx.fillStyle = top;
+        ctx.fillRect(x, y, w, topH);
+        ctx.fillStyle = 'rgba(232, 208, 158, 0.24)';
+        ctx.fillRect(x, y, w, 3);
+        ctx.strokeStyle = 'rgba(10, 7, 3, 0.8)';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(x + 0.75, y + 0.75, w - 1.5, topH - 1.5);
     }
 
     renderObstacles() {}
