@@ -20,11 +20,11 @@
 // 画像: images/bonus_kura_*.png（Codex/gpt-image 生成。読めない環境では
 // コード描画にフォールバック）。
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260812e';
-import { audio } from './audio.js?v=screen-safe-20260812e';
-import { getImage } from './imageCache.js?v=screen-safe-20260812e';
-import { drawKobanImage } from './ui.js?v=screen-safe-20260812e';
-import { pushGain, updateGainPops, renderGainPops, tickTimeLimit, clampToLeftEdge } from './sideStageCommon.js?v=screen-safe-20260812e';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260812f';
+import { audio } from './audio.js?v=screen-safe-20260812f';
+import { getImage } from './imageCache.js?v=screen-safe-20260812f';
+import { drawKobanImage } from './ui.js?v=screen-safe-20260812f';
+import { pushGain, updateGainPops, renderGainPops, tickTimeLimit, clampToLeftEdge } from './sideStageCommon.js?v=screen-safe-20260812f';
 
 // 小判1枚の価値（両）。よろず屋の相場に合わせてここだけで調整する。
 const KOBAN_VALUE = 10;
@@ -56,50 +56,64 @@ function getAsset(index) {
 // 変更したら scratch/design_towers.mjs で再検証すること
 // (単発ジャンプ=高さ160px・水平240px、2段=282px・384px から引いた上限)。
 //
-// 各行: [x, dy(laneYからの相対), 木箱の数, 動く棚の設定?]
+// 【段差は共通の刻み表(TOWER_STEPS)から出す】。14段・段差115の一定刻みでは
+// 60秒に対して塔が短く、登りも単調で緩かった(実機フィードバック 2026-08-12)。
+// 19段へ伸ばし、下は112・上は145と登るほど詰めて難度を上げる。
+//
+// 最下段だけは dy = -CRATE_SIZE ＝【木箱の底が足元レーンに接する高さ】。
+// 中途半端な高さだと箱が床の上に浮き、背景の絵へ減り込んで見えた。
+const TOWER_STEPS = [112, 118, 122, 126, 130, 132, 134, 136, 138, 140, 141, 142, 142, 143, 143, 144, 144, 145];
+const TOWER_DY = TOWER_STEPS.reduce((acc, step) => {
+    acc.push(acc[acc.length - 1] - step);
+    return acc;
+}, [-CRATE_SIZE]);
+
+// 各行: [x, 木箱の数, 動く棚の設定?]（高さは TOWER_DY[行番号]）
 const TOWER_PATTERNS = [
     // ジグザグ: 左右へ大きく振る素直な塔
     [
-        [150, -115, 3], [620, -230, 2], [1000, -345, 2], [560, -460, 3], [240, -575, 2],
-        [560, -690, 2, { amp: 140, period: 4.2 }], [940, -805, 2], [560, -920, 3], [230, -1035, 2],
-        [560, -1150, 2, { amp: 170, period: 3.6 }], [960, -1265, 2], [560, -1385, 3], [230, -1500, 2],
-        [500, -1615, 4]
+        [140, 3], [620, 2], [1000, 2], [590, 3], [210, 2],
+        [560, 2, { amp: 140, period: 4.2 }], [940, 2], [560, 3], [200, 2],
+        [560, 2, { amp: 170, period: 3.6 }], [960, 2], [590, 3], [200, 2],
+        [560, 2, { amp: 150, period: 4.0 }], [980, 2], [620, 2], [240, 2],
+        [600, 2, { amp: 160, period: 3.7 }], [500, 4]
     ],
     // 螺旋: 左→右へ一方向に流れ、上で折り返す
     [
-        [120, -120, 3], [430, -235, 2], [740, -350, 2], [1010, -465, 2], [760, -580, 2],
-        [430, -695, 2, { amp: 150, period: 4.0 }], [130, -810, 3], [430, -925, 2], [760, -1040, 2],
-        [1000, -1155, 2], [700, -1275, 2], [400, -1390, 2], [700, -1505, 2, { amp: 150, period: 4.0 }],
-        [420, -1625, 4]
+        [110, 3], [420, 2], [730, 2], [1010, 2], [760, 2],
+        [430, 2, { amp: 150, period: 4.0 }], [110, 3], [430, 2], [750, 2],
+        [1000, 2], [700, 2], [390, 2], [690, 2, { amp: 150, period: 4.0 }],
+        [1000, 2], [690, 2], [380, 2], [110, 2], [400, 2, { amp: 140, period: 4.3 }], [420, 4]
     ],
     // 中央軸: 足場が中央に集まり、細かい踏み替えが続く
     [
-        [520, -115, 3], [300, -230, 2], [600, -345, 2], [380, -460, 2, { amp: 180, period: 3.8 }],
-        [280, -575, 2], [560, -690, 2], [440, -805, 3], [300, -920, 2], [590, -1035, 2],
-        [400, -1150, 2, { amp: 200, period: 3.2 }], [300, -1265, 2], [560, -1380, 2], [320, -1495, 2],
-        [430, -1615, 4]
+        [500, 3], [290, 2], [600, 2], [370, 2, { amp: 180, period: 3.8 }],
+        [270, 2], [560, 2], [430, 3], [290, 2], [590, 2],
+        [390, 2, { amp: 200, period: 3.2 }], [300, 2], [560, 2], [320, 2],
+        [580, 2], [300, 2], [560, 2, { amp: 170, period: 3.5 }], [280, 2], [540, 2], [430, 4]
     ],
     // 両翼: 左右の壁沿いを大きく渡る
     [
-        [90, -115, 3], [560, -230, 3], [960, -345, 2], [600, -460, 2], [230, -575, 2],
-        [530, -690, 2, { amp: 190, period: 3.6 }], [930, -805, 2], [600, -920, 2], [230, -1035, 2],
-        [560, -1150, 2], [930, -1265, 2], [610, -1385, 2], [240, -1500, 2],
-        [540, -1620, 4]
+        [80, 3], [560, 3], [960, 2], [600, 2], [200, 2],
+        [520, 2, { amp: 190, period: 3.6 }], [940, 2], [600, 2], [200, 2],
+        [560, 2], [940, 2], [610, 2], [210, 2],
+        [560, 2, { amp: 180, period: 3.4 }], [980, 2], [620, 2], [220, 2], [560, 2], [540, 4]
     ],
     // 吊り棚づくし: 動く棚が多く、渡りの見極めが要る
     [
-        [180, -115, 3], [600, -230, 2], [980, -345, 2], [560, -460, 2, { amp: 160, period: 4.4 }],
-        [200, -575, 2], [560, -690, 2, { amp: 180, period: 3.8 }], [930, -805, 2], [600, -920, 2],
-        [230, -1035, 2], [560, -1150, 2, { amp: 200, period: 3.4 }], [950, -1265, 2],
-        [600, -1385, 2, { amp: 170, period: 3.9 }], [210, -1500, 2], [500, -1620, 4]
+        [170, 3], [600, 2], [980, 2], [560, 2, { amp: 160, period: 4.4 }],
+        [180, 2], [560, 2, { amp: 180, period: 3.8 }], [930, 2], [600, 2],
+        [210, 2], [560, 2, { amp: 200, period: 3.4 }], [950, 2],
+        [600, 2, { amp: 170, period: 3.9 }], [190, 2], [540, 2, { amp: 190, period: 3.3 }],
+        [940, 2], [590, 2, { amp: 150, period: 4.1 }], [200, 2], [560, 2, { amp: 180, period: 3.6 }], [500, 4]
     ]
 ];
 
 function buildTower(laneY) {
     const rows = TOWER_PATTERNS[Math.floor(Math.random() * TOWER_PATTERNS.length)];
-    return rows.map(([x, dy, crates, move]) => ({
+    return rows.map(([x, crates, move], index) => ({
         x,
-        y: laneY + dy,
+        y: laneY + TOWER_DY[index],
         crates,
         width: crates * CRATE_SIZE,
         // 位相だけは毎回ずらす(同じ型でも吊り棚の位置関係が変わる)
@@ -192,8 +206,29 @@ export class BonusStage {
                 phase: (this.kobans.length * 0.7) % (Math.PI * 2)
             });
         };
-        // 地上は5枚だけ(走り出しの合図)。面に置く=浮かせない(実機フィードバック)
-        for (let i = 0; i < 5; i++) addKoban(240 + i * 190, laneY - 14);
+        // 地上は5枚だけ(走り出しの合図)。面に置く=浮かせない(実機フィードバック)。
+        // 最下段の木箱は床に接しているので、その足元は避けて置く
+        // (等間隔で並べると箱の中に隠れて見えない小判ができる)。
+        const bottomShelf = this.shelves[0];
+        const blocked = { left: bottomShelf.baseX - 24, right: bottomShelf.baseX + bottomShelf.width + 24 };
+        const freeSpans = [
+            { from: 120, to: Math.min(1160, blocked.left) },
+            { from: Math.max(120, blocked.right), to: 1160 }
+        ].filter((span) => span.to - span.from > 60);
+        const totalFree = freeSpans.reduce((sum, span) => sum + (span.to - span.from), 0);
+        let placed = 0;
+        for (const span of freeSpans) {
+            const share = Math.round(5 * (span.to - span.from) / Math.max(1, totalFree));
+            const n = Math.min(share, 5 - placed);
+            for (let i = 0; i < n; i++) {
+                addKoban(span.from + (span.to - span.from) * ((i + 1) / (n + 1)), laneY - 14);
+                placed++;
+            }
+        }
+        for (let i = placed; i < 5 && freeSpans.length > 0; i++) {
+            const span = freeSpans[freeSpans.length - 1];
+            addKoban(span.from + (span.to - span.from) * ((i - placed + 1) / 6), laneY - 14);
+        }
         for (let si = 0; si < this.shelves.length; si++) {
             // 頂上の棚は千両箱の座。小判を置くと箱と重なって何があるのか読めない
             // (実機フィードバック 2026-08-11)

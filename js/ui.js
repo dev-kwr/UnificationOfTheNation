@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260812e';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260812f';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260812e';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260812f';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260812e';
-import { audio } from './audio.js?v=screen-safe-20260812e';
-import { saveManager } from './save.js?v=screen-safe-20260812e';
+import { input } from './input.js?v=screen-safe-20260812f';
+import { audio } from './audio.js?v=screen-safe-20260812f';
+import { saveManager } from './save.js?v=screen-safe-20260812f';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -3022,14 +3022,17 @@ export function getSideResultLayout(isNewRecord) {
     const uiS = getUiScale();
     const cx = SCREEN_WIDTH / 2;
     const cy = CANVAS_HEIGHT / 2;
-    const PAD = 30 * uiS;                     // 上下の余白は同値にして重心を中央へ
-    const headBase = PAD + 24 * uiS;          // 見出し(28px)のベースライン
-    const subBase = headBase + 27 * uiS;      // 小見出し(13px)
+    // 上下の余白は【文字の見た目の端】で揃える。ベースライン基準で同値にすると、
+    // 見出しは背が高く最後の行は低いので上が広く見える(実機フィードバック 2026-08-12)。
+    // 上=見出し(28px)の字面の上端、下=最後の行(16px/13px)の字面の下端。
+    const PAD = 30 * uiS;
+    const headBase = PAD + 23 * uiS;          // 見出し(28px)のベースライン＝字面上端が PAD に乗る
+    const subBase = headBase + 30 * uiS;      // 小見出し(13px)＋難易度の印を組んだ行
     const scoreBase = subBase + 66 * uiS;     // スコア(56px)
     const dividerY = scoreBase + 26 * uiS;    // 区切り線
     const bestBase = dividerY + 32 * uiS;     // 最高記録 / 更新の報せ
     const prevBase = bestBase + 21 * uiS;     // 更新時のみ「これまで N」
-    const contentBottom = (isNewRecord ? prevBase : bestBase) + 6 * uiS;
+    const contentBottom = (isNewRecord ? prevBase : bestBase) + 1 * uiS;
     const w = 420 * uiS;
     const h = contentBottom + PAD;
     const x = cx - w / 2;
@@ -3095,18 +3098,24 @@ export function renderSideResultScreen(ctx, result) {
         ruleLen: 46 * uiS,
         ruleGap: 16 * uiS
     });
-    ctx.textAlign = 'center';
+    // 見出しの下の行＝「難易度の印 ＋ 何の数字か」。
+    // 【印は見出しの行に浮かせない】。カード右上に置いていた頃は、見出しの罫と
+    // 同じ高さに一つだけぶら下がって釣り合いが悪かった(実機フィードバック
+    // 2026-08-12)。印が掛かるのは下の数字なので、その見出し行へ一緒に組んで
+    // 全体を中央寄せする。
     ctx.textBaseline = 'alphabetic';
-    ctx.font = `500 ${Math.round(13 * fs)}px "Zen Old Mincho", serif`;
-    ctx.fillStyle = 'rgba(206, 226, 255, 0.82)';
-    ctx.fillText(isBonus ? '獲得数' : '撃破数', cx, y + subBase);
-
-    // 難易度の印（右上）。最高記録は難易度ごとに分けて持つので、
-    // この結果がどの土俵のものかをカード全体に効かせる位置へ小さく置く。
-    if (result.difficultyName) {
-        const chipR = 14 * uiS;
-        const chipCx = x + w - 30 * uiS - chipR;
-        const chipCy = y + headBase - 8 * uiS;
+    const subLabel = isBonus ? '獲得数' : '撃破数';
+    const subFont = `500 ${Math.round(13 * fs)}px "Zen Old Mincho", serif`;
+    const chipR = 11 * uiS;
+    const chipGap = 9 * uiS;
+    const hasChip = !!result.difficultyName;
+    ctx.font = subFont;
+    const subW = ctx.measureText(subLabel).width;
+    const groupLeft = cx - (hasChip ? chipR * 2 + chipGap + subW : subW) / 2;
+    const subY = y + subBase;
+    if (hasChip) {
+        const chipCx = groupLeft + chipR;
+        const chipCy = subY - 4.5 * uiS;   // 13px 明朝の視覚中心に合わせる
         const color = getDifficultyColor(result.difficultyId);
         ctx.save();
         ctx.beginPath();
@@ -3118,11 +3127,17 @@ export function renderSideResultScreen(ctx, result) {
         ctx.globalAlpha = 0.65;
         ctx.stroke();
         ctx.globalAlpha = 1;
-        ctx.font = `700 ${Math.round(14 * fs)}px "Zen Old Mincho", serif`;
+        ctx.textAlign = 'center';
+        ctx.font = `700 ${Math.round(12 * fs)}px "Zen Old Mincho", serif`;
         ctx.fillStyle = color;
         fillTextInkCentered(ctx, result.difficultyName, chipCx, chipCy);
         ctx.restore();
     }
+    ctx.textAlign = 'left';
+    ctx.font = subFont;
+    ctx.fillStyle = 'rgba(206, 226, 255, 0.82)';
+    ctx.fillText(subLabel, groupLeft + (hasChip ? chipR * 2 + chipGap : 0), subY);
+    ctx.textAlign = 'center';
 
     // 今回のスコア（数字だけ大きく）
     const scoreT = easeOut((t - 0.28) / 0.4);
