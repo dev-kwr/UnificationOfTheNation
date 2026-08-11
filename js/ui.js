@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260811g';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260811i';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260811g';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260811i';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260811g';
-import { audio } from './audio.js?v=screen-safe-20260811g';
-import { saveManager } from './save.js?v=screen-safe-20260811g';
+import { input } from './input.js?v=screen-safe-20260811i';
+import { audio } from './audio.js?v=screen-safe-20260811i';
+import { saveManager } from './save.js?v=screen-safe-20260811i';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -227,7 +227,7 @@ const KANJI_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '�
 // 場合は false を返し、呼び出し側のコード描画へ落ちる。
 const KOBAN_IMAGE_SRC = 'images/koban.png';
 let _kobanImg = null;
-// 小判は立てた姿(縦向き)のまま描く。回転や横倒しは絵が歪んで見えるのでしない
+// 小判は【縦長が標準の向き】。立てた姿のまま描き、回転や横倒しはしない
 // (実機フィードバック 2026-08-11)。
 export function drawKobanImage(ctx, cx, cy, w, h) {
     if (typeof Image === 'undefined') return false;
@@ -1275,7 +1275,7 @@ export class UI {
     // 小判アイコンの描画
     drawKoban(ctx, x, y, size) {
         // 生成画像があればそれを使う（HUDと蔵で同じ絵にする。共通入口は drawKobanImage）
-        if (drawKobanImage(ctx, x, y, size * 1.5, size * 2.0)) return;
+        if (drawKobanImage(ctx, x, y, size * 1.35, size * 2.05)) return;
         ctx.save();
         ctx.beginPath();
         // 縦長の楕円（小判型）
@@ -2026,9 +2026,7 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
     
     // 現在の難易度ボタン（紺カード＋難易度色のアクセント／文字色）
     const pulse = (Math.sin(time * 0.0026) + 1) * 0.5;
-    let diffColor = '#e7c45a'; // Normal（金）
-    if (currentDifficulty && currentDifficulty.id === 'easy') diffColor = '#7fd08a';
-    if (currentDifficulty && currentDifficulty.id === 'hard') diffColor = '#e08a8a';
+    const diffColor = getDifficultyColor(currentDifficulty && currentDifficulty.id);
     const globalData = saveManager.loadGlobal();
     drawRoundedFlatTitleButton(
         ctx,
@@ -2938,6 +2936,13 @@ const _levelUpCardAnim = { amt: [], last: 0 };
  * - Canvas には letter-spacing が無いため、字間は文字ごと描画(fillLS)で再現。
  * - SCREEN_WIDTH / CANVAS_HEIGHT は constants.js からの import を利用。
  */
+// 難易度の色。タイトルの難易度ボタンと寄り道の結果発表の難易度印で共有する。
+export function getDifficultyColor(id) {
+    if (id === 'easy') return '#7fd08a';
+    if (id === 'hard') return '#e08a8a';
+    return '#e7c45a';   // 普（金）
+}
+
 // 結果発表のレイアウト単一導出。描画(renderSideResultScreen)とタップ判定
 // (game.updateSideResult)が同じ矩形を読む（座標式の複製はヒットずれの元）。
 // 各値は「カード上端からのベースライン位置」。高さは中身から積み上げる
@@ -3024,6 +3029,29 @@ export function renderSideResultScreen(ctx, result) {
     ctx.font = `500 ${Math.round(13 * fs)}px "Zen Old Mincho", serif`;
     ctx.fillStyle = 'rgba(206, 226, 255, 0.82)';
     ctx.fillText(isBonus ? '獲得数' : '撃破数', cx, y + subBase);
+
+    // 難易度の印（右上）。最高記録は難易度ごとに分けて持つので、
+    // この結果がどの土俵のものかをカード全体に効かせる位置へ小さく置く。
+    if (result.difficultyName) {
+        const chipR = 14 * uiS;
+        const chipCx = x + w - 30 * uiS - chipR;
+        const chipCy = y + headBase - 8 * uiS;
+        const color = getDifficultyColor(result.difficultyId);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(chipCx, chipCy, chipR, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(10, 16, 34, 0.55)';
+        ctx.fill();
+        ctx.lineWidth = 1.2 * uiS;
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = 0.65;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.font = `700 ${Math.round(14 * fs)}px "Zen Old Mincho", serif`;
+        ctx.fillStyle = color;
+        fillTextInkCentered(ctx, result.difficultyName, chipCx, chipCy);
+        ctx.restore();
+    }
 
     // 今回のスコア（数字だけ大きく）
     const scoreT = easeOut((t - 0.28) / 0.4);

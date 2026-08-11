@@ -2,11 +2,11 @@
 // Unification of the Nation - プレイヤークラス
 // ============================================
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260811g';
-import { input } from './input.js?v=screen-safe-20260811g';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260811i';
+import { input } from './input.js?v=screen-safe-20260811i';
 console.log('[player.js] Imported input instance:', input ? input.instanceId : 'undefined');
-import { audio } from './audio.js?v=screen-safe-20260811g';
-import { game } from './game.js?v=screen-safe-20260811g';
+import { audio } from './audio.js?v=screen-safe-20260811i';
+import { game } from './game.js?v=screen-safe-20260811i';
 import {
     ANIM_STATE, COMBO_ATTACKS, calcExpToNextForLevel,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN, LEVEL_UP_ATK_GAIN,
@@ -14,17 +14,17 @@ import {
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y
-} from './playerData.js?v=screen-safe-20260811g';
+} from './playerData.js?v=screen-safe-20260811i';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
-} from './normalComboMotion.js?v=screen-safe-20260811g';
-import { applyRendererMixin }    from './playerRenderer.js?v=screen-safe-20260811g';
-import { applySlashTrailMixin }  from './playerSlashTrail.js?v=screen-safe-20260811g';
-import { applySpecialMixin }     from './playerSpecial.js?v=screen-safe-20260811g';
-import { applyShogunCombat }    from './shogunCombatHelper.js?v=screen-safe-20260811g';
+} from './normalComboMotion.js?v=screen-safe-20260811i';
+import { applyRendererMixin }    from './playerRenderer.js?v=screen-safe-20260811i';
+import { applySlashTrailMixin }  from './playerSlashTrail.js?v=screen-safe-20260811i';
+import { applySpecialMixin }     from './playerSpecial.js?v=screen-safe-20260811i';
+import { applyShogunCombat }    from './shogunCombatHelper.js?v=screen-safe-20260811i';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
@@ -38,7 +38,7 @@ import {
     SHOGUN_CROUCH_STANCE_DUTY,
     NINJA_CROUCH_STRIDE_AMP,
     SHOGUN_CROUCH_STRIDE_AMP
-} from './shogunConstants.js?v=screen-safe-20260811g';
+} from './shogunConstants.js?v=screen-safe-20260811i';
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 

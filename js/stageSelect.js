@@ -9,8 +9,9 @@
 // ノード座標は「画像内の比率(u,v)」で持ち、cover 変換で画面座標へ写す。
 // 画像を差し替えても u,v を微調整するだけで済む（map_generation_prompt.md 参照）。
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, STAGES, getUiScale, getFontScale, getScreenSafeArea, isTouchOverlayMode } from './constants.js?v=screen-safe-20260811g';
-import { drawWafuCard, fillTextInkCentered, drawScreenManualLine, formatCount } from './ui.js?v=screen-safe-20260811g';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, STAGES, getUiScale, getFontScale, getScreenSafeArea, isTouchOverlayMode } from './constants.js?v=screen-safe-20260811i';
+import { drawWafuCard, fillTextInkCentered, drawScreenManualLine, formatCount } from './ui.js?v=screen-safe-20260811i';
+import { getSideBest } from './sideStageCommon.js?v=screen-safe-20260811i';
 
 // ノード定義。kind: main=本編 / bonus=小判蔵(第2階層踏破で解放) /
 // training=修行道場(第3階層踏破で解放)。どちらも実装済み。
@@ -257,12 +258,15 @@ export function renderStageSelect(ctx, opts = {}) {
         ctx.font = `700 ${Math.round(c.titleFont)}px "Zen Old Mincho", serif`;
         const best = opts.sideBest || {};
         // 寄り道は刻限60秒のスコアアタック。最高記録があれば併記して挑戦を促す。
-        const bonusBest = Math.max(0, Math.floor(best.bonus || 0));
-        const trainingBest = Math.max(0, Math.floor(best.training || 0));
+        // 記録は難易度別なので、どの難易度の記録かを添えて取り違えを防ぐ。
+        const diffId = opts.difficultyId || 'normal';
+        const diffTag = opts.difficultyName ? `（${opts.difficultyName}）` : '';
+        const bonusBest = getSideBest(best, 'bonus', diffId);
+        const trainingBest = getSideBest(best, 'training', diffId);
         const title = sel.kind === 'bonus'
-            ? (bonusBest > 0 ? `小判蔵　最高 ${formatCount(bonusBest)}両` : '小判蔵')
+            ? (bonusBest > 0 ? `小判蔵　最高 ${formatCount(bonusBest)}両${diffTag}` : '小判蔵')
             : sel.kind === 'training'
-            ? (trainingBest > 0 ? `修行道場　最高 ${formatCount(trainingBest)}人` : '修行道場')
+            ? (trainingBest > 0 ? `修行道場　最高 ${formatCount(trainingBest)}人${diffTag}` : '修行道場')
             : `第${sel.id}階層　${sel.name}`;
         fillTextInkCentered(ctx, title, c.x + c.w / 2, c.y + c.h / 2);
         ctx.restore();

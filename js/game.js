@@ -2,15 +2,16 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260811g';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811g';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260811g';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260811g';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260811g';
-import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260811g';
-import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260811g';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260811g';
-import { input } from './input.js?v=screen-safe-20260811g';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260811i';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260811i';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260811i';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260811i';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260811i';
+import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260811i';
+import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260811i';
+import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260811i';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260811i';
+import { input } from './input.js?v=screen-safe-20260811i';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -48,18 +49,18 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=screen-safe-20260811g';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260811g';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260811g';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260811g';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260811g';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260811g';
-import { saveManager } from './save.js?v=screen-safe-20260811g';
-import { shop } from './shop.js?v=screen-safe-20260811g';
-import { audio } from './audio.js?v=screen-safe-20260811g';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260811g';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260811g';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260811g';
+import { Player } from './player.js?v=screen-safe-20260811i';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260811i';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260811i';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260811i';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseReturnButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner } from './ui.js?v=screen-safe-20260811i';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260811i';
+import { saveManager } from './save.js?v=screen-safe-20260811i';
+import { shop } from './shop.js?v=screen-safe-20260811i';
+import { audio } from './audio.js?v=screen-safe-20260811i';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260811i';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260811i';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260811i';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -1164,7 +1165,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260811g').then(module => {
+        import('./weapon.js?v=screen-safe-20260811i').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -6008,19 +6009,20 @@ class Game {
     // 寄り道の刻限切れ → 結果発表。スコア(蔵=獲得両 / 道場=討伐数)と
     // 最高記録の更新判定をここで確定させ、SIDE_RESULT へ移る。
     // 最高記録は saveGlobal(sideBest) に持つ（プレイヤーのセーブとは独立）。
+    // 難易度で敵の体力が0.8〜1.8倍と変わるので、記録は難易度ごとに分けて持つ。
     beginSideResult() {
         const stage = this.stage;
         const kind = (stage && stage.sideKind) || 'bonus';
         const score = (stage && typeof stage.getScore === 'function') ? Math.max(0, Math.floor(stage.getScore())) : 0;
+        const difficultyId = this.difficulty?.id || 'normal';
 
         const globalData = saveManager.loadGlobal() || {};
-        const bests = { ...(globalData.sideBest || {}) };
-        const prevBest = Math.max(0, Math.floor(bests[kind] || 0));
+        const { bests, migrated } = normalizeSideBests(globalData.sideBest);
+        const prevBest = getSideBest(bests, kind, difficultyId);
         const isNewRecord = score > prevBest;
-        if (isNewRecord) {
-            bests[kind] = score;
-            saveManager.saveGlobal({ sideBest: bests });
-        }
+        if (isNewRecord) bests[sideBestKey(kind, difficultyId)] = score;
+        // 旧データの移設だけでも書き戻す（次回また同じ移設をしないため）
+        if (isNewRecord || migrated) saveManager.saveGlobal({ sideBest: bests });
 
         this.sideResult = {
             kind,
@@ -6028,6 +6030,8 @@ class Game {
             prevBest,
             best: Math.max(prevBest, score),
             isNewRecord,
+            difficultyId,
+            difficultyName: this.difficulty?.name || '',
             timer: 0
         };
         // 奥義の分身・忍術の一時強化はここで落とす（次のステータス画面へ持ち越さない）
@@ -6098,7 +6102,9 @@ class Game {
             maxCleared: this.maxClearedStage,
             bonusUnlocked: this.isBonusUnlocked(),
             trainingUnlocked: this.isTrainingUnlocked(),
-            sideBest: (saveManager.loadGlobal() || {}).sideBest || {},
+            sideBest: normalizeSideBests((saveManager.loadGlobal() || {}).sideBest).bests,
+            difficultyId: this.difficulty?.id || 'normal',
+            difficultyName: this.difficulty?.name || '',
             timeMs: Date.now()
         });
         // タッチ端末にもタイトルへ戻る導線を出す(キーボードは ESC)

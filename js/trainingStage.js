@@ -13,9 +13,10 @@
 // 背景: images/training_dojo_bg.png（床まで焼き込んだ一枚絵。固定画面なので
 // パララックス不要。読めない環境では板の間のコード描画にフォールバック）。
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET, ENEMY_TYPES } from './constants.js?v=screen-safe-20260811g';
-import { createEnemy } from './enemy.js?v=screen-safe-20260811g';
-import { getImage } from './imageCache.js?v=screen-safe-20260811g';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET, ENEMY_TYPES } from './constants.js?v=screen-safe-20260811i';
+import { createEnemy } from './enemy.js?v=screen-safe-20260811i';
+import { getImage } from './imageCache.js?v=screen-safe-20260811i';
+import { pushGain, updateGainPops, renderGainPops, tickTimeLimit, clampToLeftEdge } from './sideStageCommon.js?v=screen-safe-20260811i';
 
 // 開始前に読み込む画像（game.requestStageStart が本編と同じ暗幕待ちに使う）
 export const TRAINING_STAGE_IMAGES = ['images/training_dojo_bg.png'];
@@ -26,6 +27,14 @@ const FLOOR_LINE_V = 0.615;
 
 // 刻限（秒）
 const TIME_LIMIT_SEC = 60;
+// 板の間に据えた稽古用の台(一方通行足場)。左右対称に低い台、中央にやや高い台。
+// 囲まれた時の逃げ場と、天井から降る忍者への迎撃点になる。
+// 縦の間隔はジャンプ(単発160px)の範囲。背景絵の壁位置(左右の柱)を避けて置く。
+const DOJO_PLATFORMS = [
+    { x: 150, y: 400, w: 210 },
+    { x: 920, y: 400, w: 210 },
+    { x: 520, y: 310, w: 240 }
+];
 // 場に維持する敵の数（無双の密度。倒すそばから補充される）
 const TARGET_ACTIVE = 12;
 // 補充の間合い（秒）。小さいほど途切れない
@@ -56,6 +65,12 @@ export class TrainingStage {
         this.skyVisTop = 0;
         this.isFloorTransitioning = false;
 
+        // 稽古台。game.updatePlaying の extraColliders が getPlatformColliders() で読む
+        this.platformColliders = DOJO_PLATFORMS.map((p) => ({
+            x: p.x, y: p.y, width: p.w, height: 12,
+            isDestroyed: false, isOneWayPlatform: true
+        }));
+
         this.timeLeft = TIME_LIMIT_SEC;
         this.timeLimit = TIME_LIMIT_SEC;   // HUD の残量バーが総量として読む
         this.killCount = 0;            // 討伐数（結果発表のスコア）
@@ -75,24 +90,15 @@ export class TrainingStage {
     isCleared() { return false; }
     isStage6Grappling() { return false; }
     isTimeUp() { return this._timeUp; }
+    getPlatformColliders() { return this.platformColliders; }
     getScore() { return this.killCount; }
     getHudTimerSec() { return this.timeLeft; }
 
     update(deltaTime, player) {
         if (!player) return;
         this.time += deltaTime;
-        for (let i = this.gainPops.length - 1; i >= 0; i--) {
-            this.gainPops[i].life -= deltaTime;
-            this.gainPops[i].y -= deltaTime * 46;
-            if (this.gainPops[i].life <= 0) this.gainPops.splice(i, 1);
-        }
-
-        // 固定画面の左端。game 側の「戻りなし」左クランプは currentStageNumber
-        // に依存する(=Stage5帰りだと素通りする)ため、道場では自前で閉じる。
-        if (player.x < 0) {
-            player.x = 0;
-            if (player.vx < 0) player.vx = 0;
-        }
+        updateGainPops(this, deltaTime);
+        clampToLeftEdge(player);
 
         // 敵の更新。討伐(hp<=0)は死亡アニメを待たずその場で数える。
         // 除去(update が true)は死亡アニメ完了後 — 報酬は game 側の撃破処理が持つ。
@@ -112,15 +118,10 @@ export class TrainingStage {
         }
         this.enemies = next;
         if (killedThisFrame > 0) {
-            this.pushGain(killedThisFrame, killX / killedThisFrame, killY / killedThisFrame);
+            pushGain(this, killedThisFrame, killX / killedThisFrame, killY / killedThisFrame);
         }
 
-        if (this._timeUp) return;
-        this.timeLeft = Math.max(0, this.timeLeft - deltaTime);
-        if (this.timeLeft <= 0) {
-            this._timeUp = true;
-            return;
-        }
+        if (tickTimeLimit(this, deltaTime)) return;
 
         // 師範代(武将)の投入。場に1体まで＝雑魚の波と混ざって的が絞れる
         const elapsed = TIME_LIMIT_SEC - this.timeLeft;
@@ -154,24 +155,16 @@ export class TrainingStage {
         this.enemies.push(enemy);
     }
 
-    // 獲得の集約。連続で倒している間(GAIN_MERGE_SEC以内)は同じ表示へ足し込み、
-    // 「+1 +1 +1」が重なる代わりに「+3」と育てる(無双の手応え)。
-    pushGain(value, x, y) {
-        const MERGE = 0.35;
-        if (this.lastGain && this.time - this.lastGain.at < MERGE) {
-            this.lastGain.value += value;
-            this.lastGain.at = this.time;
-        } else {
-            this.lastGain = { value, at: this.time };
-        }
-        // 浮き文字も直近のものが近ければ合流させる(同じ場所に重ならない)
-        const near = this.gainPops.find((p) => p.life > 0.55 && Math.hypot(p.x - x, p.y - y) < 90);
-        if (near) {
-            near.value += value;
-            near.life = 0.9;
-        } else {
-            this.gainPops.push({ x, y, value, life: 0.9 });
-        }
+    // 師範代(武将)。プレイヤーから遠い側の袖から、地に足を着けて現れる。
+    spawnMaster(player) {
+        const px = player ? player.x + player.getWorldWidth() * 0.5 : CANVAS_WIDTH * 0.5;
+        const fromLeft = px > CANVAS_WIDTH * 0.5;
+        const x = fromLeft ? -80 : CANVAS_WIDTH + 80;
+        const enemy = createEnemy(ENEMY_TYPES.BUSHO, x, this.groundY, this.groundY);
+        if (!enemy) return;
+        enemy.y = this.groundY + LANE_OFFSET - enemy.height;
+        enemy.facingRight = fromLeft;
+        this.enemies.push(enemy);
     }
 
     // 1体湧かせる。7割は左右から歩き入り、3割は天井裏から忍者が降ってくる。
@@ -248,26 +241,34 @@ export class TrainingStage {
         ctx.restore();
     }
 
-    // 床は背景の一枚絵に焼き込み済み。出口の戸は撤去（刻限制になったため）。
-    // 討伐の手応えを返す浮き文字だけをここで描く。
+    // 床は背景の一枚絵に焼き込み済み。稽古台と、討伐の手応えを返す浮き文字を描く。
     renderGround(ctx) {
-        for (const p of this.gainPops) {
-            const t = Math.max(0, Math.min(1, p.life / 0.9));
-            ctx.save();
-            ctx.globalAlpha = Math.min(1, t * 1.6);
-            ctx.translate(p.x, p.y);
-            ctx.scale(1 + (1 - t) * 0.25, 1 + (1 - t) * 0.25);
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.font = '900 22px "Helvetica Neue", Arial, sans-serif';
-            ctx.lineWidth = 4;
-            ctx.strokeStyle = 'rgba(6, 12, 26, 0.85)';
-            const label = `+${p.value || 1}`;
-            ctx.strokeText(label, 0, 0);
-            ctx.fillStyle = '#dfeaff';
-            ctx.fillText(label, 0, 0);
-            ctx.restore();
+        // 稽古台(木の平台)。道場の板の間に馴染む色で、脚と天板の陰影だけ付ける
+        for (const p of this.platformColliders) {
+            const h = 16;
+            const g = ctx.createLinearGradient(0, p.y, 0, p.y + h);
+            g.addColorStop(0, '#5b4326');
+            g.addColorStop(0.45, '#3d2c18');
+            g.addColorStop(1, '#241a0e');
+            ctx.fillStyle = g;
+            ctx.fillRect(p.x, p.y, p.width, h);
+            // 天板の照り(上面が光を受ける)
+            ctx.fillStyle = 'rgba(226, 200, 150, 0.16)';
+            ctx.fillRect(p.x, p.y, p.width, 3);
+            // 縁の締め
+            ctx.strokeStyle = 'rgba(12, 8, 4, 0.85)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(p.x + 1, p.y + 1, p.width - 2, h - 2);
+            // 脚(左右に2本。床まで伸ばさず短く見せて軽さを出す)
+            ctx.fillStyle = '#2a1e10';
+            ctx.fillRect(p.x + 18, p.y + h, 14, 26);
+            ctx.fillRect(p.x + p.width - 32, p.y + h, 14, 26);
+            // 落ち影
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+            ctx.fillRect(p.x - 4, p.y + h + 26, p.width + 8, 5);
         }
+
+        renderGainPops(ctx, this, { stroke: 'rgba(6, 12, 26, 0.85)', fill: '#dfeaff' });
     }
 
     renderObstacles() {}

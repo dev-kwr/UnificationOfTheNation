@@ -20,10 +20,11 @@
 // 画像: images/bonus_kura_*.png（Codex/gpt-image 生成。読めない環境では
 // コード描画にフォールバック）。
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260811g';
-import { audio } from './audio.js?v=screen-safe-20260811g';
-import { getImage } from './imageCache.js?v=screen-safe-20260811g';
-import { drawKobanImage } from './ui.js?v=screen-safe-20260811g';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260811i';
+import { audio } from './audio.js?v=screen-safe-20260811i';
+import { getImage } from './imageCache.js?v=screen-safe-20260811i';
+import { drawKobanImage } from './ui.js?v=screen-safe-20260811i';
+import { pushGain, updateGainPops, renderGainPops, tickTimeLimit, clampToLeftEdge } from './sideStageCommon.js?v=screen-safe-20260811i';
 
 // 小判1枚の価値（両）。よろず屋の相場に合わせてここだけで調整する。
 const KOBAN_VALUE = 10;
@@ -225,6 +226,7 @@ export class BonusStage {
         // 蔵浚え(すべて拾い切った)後の褒美: タイムアップまで小判が降り続ける。
         // 塔が短く感じる回でも、残り時間が「降る小判を追う時間」になる。
         this.rainKobans = [];
+        this.rainDust = [];
         this._rainMode = false;
         this._rainTimer = 0;
     }
@@ -241,28 +243,19 @@ export class BonusStage {
     // 縦カメラの上限: 頂上の棚に立った時に頭上へ余白が残る高さまで
     getCameraMinVisTop() { return this._topY - 260; }
 
+    // 可視域(ワールドy)。塔は高さ1400px超に対し画面は720px弱なので、
+    // 棚も小判も大半が画面外にある。描画側はこの窓で間引く。
+    getVisibleBand(margin = 120) {
+        const top = this.skyVisTop - margin;
+        return { top, bottom: this.skyVisTop + CANVAS_HEIGHT + margin };
+    }
+
     update(deltaTime, player) {
         if (!player) return;
         this.time += deltaTime;
-        for (let i = this.gainPops.length - 1; i >= 0; i--) {
-            this.gainPops[i].life -= deltaTime;
-            this.gainPops[i].y -= deltaTime * 46;
-            if (this.gainPops[i].life <= 0) this.gainPops.splice(i, 1);
-        }
-
-        // 固定画面の左端。game 側の左クランプは currentStageNumber 依存
-        // (Stage5帰りだと素通り)のため自前で閉じる。右端は共通処理で閉じる。
-        if (player.x < 0) {
-            player.x = 0;
-            if (player.vx < 0) player.vx = 0;
-        }
-
-        if (this._timeUp) return;
-        this.timeLeft = Math.max(0, this.timeLeft - deltaTime);
-        if (this.timeLeft <= 0) {
-            this._timeUp = true;
-            return;
-        }
+        updateGainPops(this, deltaTime);
+        clampToLeftEdge(player);
+        if (tickTimeLimit(this, deltaTime)) return;
 
         // 動く棚(吊り棚)を進める。描画・当たり判定・棚上の小判は同じ x から出す。
         for (let i = 0; i < this.shelves.length; i++) {
@@ -316,45 +309,118 @@ export class BonusStage {
         if (this._rainMode) this.updateRain(deltaTime, player, px, py);
     }
 
-    // 降り注ぐ小判。プレイヤーの周囲の上空から落ち、最初に当たる面(棚か床)に載る。
+    // 降り注ぐ小判。ただ落とすと無機質なので「舞い落ちて弾む」までを演出する:
+    //   ①上空に光の筋(予兆) → ②木の葉のように左右へ揺れながら回転して落ちる
+    //   → ③着地で1回小さく弾む → ④埃が立つ → ⑤面の上で余韻の揺り戻し
+    // 一度に1枚ずつではなく2〜3枚を少しずらして降らせ、「降り注ぐ」量感を出す。
     updateRain(deltaTime, player, px, py) {
         const laneY = this.groundY + LANE_OFFSET;
         this._rainTimer -= deltaTime;
         if (this._rainTimer <= 0) {
-            this._rainTimer = 0.5;
-            const x = Math.max(60, Math.min(CANVAS_WIDTH - 60, px + (Math.random() * 2 - 1) * 420));
-            // 着地面は【プレイヤーと同じ高さ帯】から選ぶ。単純に一番高い棚へ載せると
-            // 塔の上へ行ってしまい、床で待つプレイヤーには取れない(検証で発覚)。
-            const feet = player.y + player.getWorldHeight();
-            let landY = laneY - 14;
-            let best = Infinity;
-            for (const s of this.shelves) {
-                if (x >= s.x - 4 && x <= s.x + s.width + 4 && s.y >= feet - 30 && s.y < best) best = s.y;
-            }
-            if (best < Infinity) landY = best - 14;
-            this.rainKobans.push({
-                x,
-                y: Math.min(py, landY) - 620 - Math.random() * 140,
-                vy: 0,
-                landY,
-                value: KOBAN_VALUE * (1 + Math.floor(Math.random() * 3)),   // 10/20/30
-                taken: false
-            });
+            this._rainTimer = 0.9 + Math.random() * 0.35;
+            const burst = 2 + Math.floor(Math.random() * 2);   // 一度に2〜3枚
+            for (let i = 0; i < burst; i++) this.spawnRainKoban(player, px, py, laneY, i * 0.16);
         }
+
         for (const rk of this.rainKobans) {
             if (rk.taken) continue;
-            if (rk.y < rk.landY) {
-                rk.vy = Math.min(rk.vy + 1500 * deltaTime, 720);
-                rk.y = Math.min(rk.landY, rk.y + rk.vy * deltaTime);
+            rk.age += deltaTime;
+            if (rk.delay > 0) { rk.delay -= deltaTime; continue; }
+
+            if (!rk.landed) {
+                // 空気を含んだ落ち方: 終端速度で頭打ちにし、左右へ揺らす
+                rk.vy = Math.min(rk.vy + 900 * deltaTime, 430);
+                rk.y += rk.vy * deltaTime;
+                rk.swayPhase += deltaTime * rk.swaySpeed;
+                rk.x = rk.baseX + Math.sin(rk.swayPhase) * rk.swayAmp;
+                rk.spin += deltaTime * rk.spinSpeed;
+                if (rk.y >= rk.landY) {
+                    rk.y = rk.landY;
+                    if (rk.bounces > 0) {
+                        // 1回だけ小さく弾む
+                        rk.bounces--;
+                        rk.vy = -rk.vy * 0.32;
+                        rk.y = rk.landY - 1;
+                        this.spawnLandingDust(rk.x, rk.landY);
+                    } else {
+                        rk.landed = true;
+                        rk.vy = 0;
+                        rk.settle = 1;
+                        this.spawnLandingDust(rk.x, rk.landY);
+                    }
+                }
+            } else {
+                // 着地後: 揺り戻しが減衰し、面に落ち着く
+                rk.settle = Math.max(0, rk.settle - deltaTime * 3.2);
+                rk.spin += deltaTime * rk.spinSpeed * rk.settle * 0.5;
             }
+
             if (Math.hypot(px - rk.x, py - rk.y) < 48) {
                 rk.taken = true;
                 this.grantScore(player, rk.value, rk.x, rk.y);
             }
         }
+
+        // 埃の寿命
+        for (let i = this.rainDust.length - 1; i >= 0; i--) {
+            const d = this.rainDust[i];
+            d.life -= deltaTime;
+            d.x += d.vx * deltaTime;
+            d.y += d.vy * deltaTime;
+            d.vy += 120 * deltaTime;
+            if (d.life <= 0) this.rainDust.splice(i, 1);
+        }
+
         // 拾い終えたものは間引く(配列を無限に伸ばさない)
         if (this.rainKobans.length > 90) {
             this.rainKobans = this.rainKobans.filter((rk) => !rk.taken);
+        }
+    }
+
+    spawnRainKoban(player, px, py, laneY, delay) {
+        const x = Math.max(60, Math.min(CANVAS_WIDTH - 60, px + (Math.random() * 2 - 1) * 420));
+        // 着地面は【プレイヤーと同じ高さ帯】から選ぶ。単純に一番高い棚へ載せると
+        // 塔の上へ行ってしまい、床で待つプレイヤーには取れない(検証で発覚)。
+        const feet = player.y + player.getWorldHeight();
+        let landY = laneY - 14;
+        let best = Infinity;
+        for (const s of this.shelves) {
+            if (x >= s.x - 4 && x <= s.x + s.width + 4 && s.y >= feet - 30 && s.y < best) best = s.y;
+        }
+        if (best < Infinity) landY = best - 14;
+        this.rainKobans.push({
+            x,
+            baseX: x,
+            y: Math.min(py, landY) - 560 - Math.random() * 160,
+            vy: 40 + Math.random() * 60,
+            landY,
+            delay,
+            age: 0,
+            swayPhase: Math.random() * Math.PI * 2,
+            swaySpeed: 2.0 + Math.random() * 1.4,
+            swayAmp: 16 + Math.random() * 18,
+            spin: 0,
+            spinSpeed: (Math.random() < 0.5 ? -1 : 1) * (1.4 + Math.random() * 1.2),
+            bounces: 1,
+            landed: false,
+            settle: 0,
+            value: KOBAN_VALUE * (1 + Math.floor(Math.random() * 3)),   // 10/20/30
+            taken: false
+        });
+    }
+
+    // 着地の埃。舞い上がって落ちる小さな粒。
+    spawnLandingDust(x, y) {
+        for (let i = 0; i < 4; i++) {
+            const a = -Math.PI * 0.5 + (Math.random() - 0.5) * 1.9;
+            const sp = 40 + Math.random() * 70;
+            this.rainDust.push({
+                x, y: y + 6,
+                vx: Math.cos(a) * sp,
+                vy: Math.sin(a) * sp * 0.7,
+                life: 0.32 + Math.random() * 0.2,
+                r: 1.4 + Math.random() * 1.8
+            });
         }
     }
 
@@ -365,22 +431,7 @@ export class BonusStage {
         if (typeof player.setMoney === 'function') player.setMoney(player.money + value);
         else player.money = (player.money || 0) + value;
         audio.playMoney();
-        // 連続で拾っている間(0.35秒以内)は同じ表示へ足し込む。
-        // 1枚ずつ「+20」を重ねると数字が被って読めない。
-        const MERGE = 0.35;
-        if (this.lastGain && this.time - this.lastGain.at < MERGE) {
-            this.lastGain.value += value;
-            this.lastGain.at = this.time;
-        } else {
-            this.lastGain = { value, at: this.time };
-        }
-        const near = this.gainPops.find((p) => p.life > 0.55 && Math.hypot(p.x - x, p.y - y) < 90);
-        if (near) {
-            near.value += value;
-            near.life = 0.9;
-        } else {
-            this.gainPops.push({ x, y, value, life: 0.9 });
-        }
+        pushGain(this, value, x, y);
     }
 
     // --- 描画（renderPlaying から呼ばれる。ctx はワールド変換済み） ---
@@ -438,7 +489,9 @@ export class BonusStage {
         }
 
         // 行灯の光溜まり（壁側に描くので背景層。灯体そのものは renderGround で描く）
+        const lampBand = this.getVisibleBand(260);
         for (const l of this.lanterns) {
+            if (l.y < lampBand.top || l.y > lampBand.bottom) continue;
             const flick = 0.9 + Math.sin(this.time * 6 + l.phase) * 0.1;
             const glow = ctx.createRadialGradient(l.x, l.y, 8, l.x, l.y, 230);
             glow.addColorStop(0, `rgba(255, 206, 130, ${(0.28 * flick).toFixed(3)})`);
@@ -459,6 +512,19 @@ export class BonusStage {
             ctx.fillRect(cx - 470, this._topY - 590, 940, 940);
         }
 
+        // 蔵浚え後: 降ってくる小判の上空に淡い光の筋を差す(降り始めの予兆)
+        if (this._rainMode) {
+            for (const rk of this.rainKobans) {
+                if (rk.taken || rk.landed || rk.delay > 0) continue;
+                const fall = Math.max(0, Math.min(1, (rk.landY - rk.y) / 460));
+                const beam = ctx.createLinearGradient(0, rk.y - 300, 0, rk.y + 40);
+                beam.addColorStop(0, 'rgba(255, 226, 150, 0)');
+                beam.addColorStop(1, `rgba(255, 222, 148, ${(0.13 * fall).toFixed(3)})`);
+                ctx.fillStyle = beam;
+                ctx.fillRect(rk.x - 26, rk.y - 300, 52, 340);
+            }
+        }
+
         // 全体をわずかに沈めて手前の小判を立てる
         ctx.fillStyle = 'rgba(6, 5, 3, 0.14)';
         ctx.fillRect(0, visTop - 8, CANVAS_WIDTH, CANVAS_HEIGHT * 4);
@@ -472,34 +538,15 @@ export class BonusStage {
         this.renderShelves(ctx);
         this.renderChest(ctx);
         this.renderKobans(ctx);
-        this.renderGainPops(ctx);
+        renderGainPops(ctx, this, { stroke: 'rgba(24, 14, 2, 0.85)', fill: '#f0d78a', bigFill: '#ffd970' });
         ctx.restore();
-    }
-
-    // 拾った場所から浮き上がる「+n両」。獲得の手応えを画面の中でも返す。
-    renderGainPops(ctx) {
-        for (const p of this.gainPops) {
-            const t = Math.max(0, Math.min(1, p.life / 0.9));
-            const scale = 1 + (1 - t) * 0.25;
-            ctx.save();
-            ctx.globalAlpha = Math.min(1, t * 1.6);
-            ctx.translate(p.x, p.y);
-            ctx.scale(scale, scale);
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.font = '900 22px "Helvetica Neue", Arial, sans-serif';
-            ctx.lineWidth = 4;
-            ctx.strokeStyle = 'rgba(24, 14, 2, 0.85)';
-            ctx.strokeText('+' + p.value, 0, 0);
-            ctx.fillStyle = p.value >= 100 ? '#ffd970' : '#f0d78a';
-            ctx.fillText('+' + p.value, 0, 0);
-            ctx.restore();
-        }
     }
 
     // 行灯の灯体（壁掛けの木枠と障子。光溜まりは renderBackground 側）
     renderLanterns(ctx) {
+        const band = this.getVisibleBand(80);
         for (const l of this.lanterns) {
+            if (l.y < band.top || l.y > band.bottom) continue;
             const flick = 0.9 + Math.sin(this.time * 6 + l.phase) * 0.1;
             const w = 26, h = 34;
             const x = l.x - w / 2, y = l.y - h / 2;
@@ -574,7 +621,9 @@ export class BonusStage {
         const srcInsetTop = img ? img.naturalHeight * 0.055 : 0;
         const srcW = img ? img.naturalWidth - srcInsetX * 2 : 0;
         const srcH = img ? img.naturalHeight - srcInsetTop - img.naturalHeight * 0.02 : 0;
+        const band = this.getVisibleBand(CRATE_SIZE + 40);
         for (const s of this.shelves) {
+            if (s.y + CRATE_SIZE < band.top || s.y > band.bottom) continue;   // 画面外は描かない
             for (let c = 0; c < s.crates; c++) {
                 const bx = s.x + c * CRATE_SIZE;
                 if (img) {
@@ -668,24 +717,61 @@ export class BonusStage {
         const drawOne = (x, y) => {
             ctx.save();
             ctx.translate(x, y);
-            if (!drawKobanImage(ctx, 0, 0, 20, 27)) {
+            if (!drawKobanImage(ctx, 0, 0, 17, 26)) {
                 // フォールバック: シンプルな楕円の小判
                 ctx.fillStyle = '#c9a23c';
                 ctx.beginPath();
-                ctx.ellipse(0, 0, 8, 12, 0, 0, Math.PI * 2);
+                ctx.ellipse(0, 0, 7.5, 12, 0, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.fillStyle = '#e0be5e';
                 ctx.beginPath();
-                ctx.ellipse(0, 0, 5.5, 9, 0, 0, Math.PI * 2);
+                ctx.ellipse(0, 0, 5.5, 9.5, 0, 0, Math.PI * 2);
                 ctx.fill();
             }
             ctx.restore();
         };
+        const band = this.getVisibleBand(60);
         for (const k of this.kobans) {
-            if (!k.taken) drawOne(k.x, k.y);
+            if (k.taken || k.y < band.top || k.y > band.bottom) continue;
+            drawOne(k.x, k.y);
         }
+        // 降る小判: 落下中は回転しながら舞い、着地後は揺り戻しが収まる。
+        // 真下に落ち影を敷いて「どこに着くか」を見せる(空中の物の距離感が出る)。
         for (const rk of this.rainKobans) {
-            if (!rk.taken) drawOne(rk.x, rk.y);
+            if (rk.taken || rk.delay > 0) continue;
+            if (!rk.landed) {
+                const fall = Math.max(0, Math.min(1, (rk.landY - rk.y) / 420));
+                ctx.save();
+                ctx.globalAlpha = 0.28 * (1 - fall);
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.ellipse(rk.baseX, rk.landY + 5, 9 * (1 - fall * 0.5), 3.2 * (1 - fall * 0.5), 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+            ctx.save();
+            ctx.translate(rk.x, rk.y);
+            // 落下中は横回転(縦の潰れ)で「舞う」。着地後は揺り戻しが減衰する
+            const tilt = rk.landed ? Math.sin(rk.spin) * rk.settle * 0.35 : Math.sin(rk.spin);
+            ctx.scale(1, Math.max(0.24, Math.abs(Math.cos(tilt * 1.2))));
+            ctx.rotate(rk.landed ? Math.sin(rk.spin) * rk.settle * 0.12 : Math.sin(rk.spin * 0.6) * 0.16);
+            if (!drawKobanImage(ctx, 0, 0, 17, 26)) {
+                ctx.fillStyle = '#c9a23c';
+                ctx.beginPath();
+                ctx.ellipse(0, 0, 8, 12, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+        // 着地の埃
+        for (const d of this.rainDust) {
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, Math.min(1, d.life * 2.4)) * 0.5;
+            ctx.fillStyle = '#c9bda2';
+            ctx.beginPath();
+            ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
         }
     }
 
