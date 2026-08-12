@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812n';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812n';
-import { createEnemy } from './enemy.js?v=screen-safe-20260812n';
-import { createBoss } from './boss.js?v=screen-safe-20260812n';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260812n';
-import { audio } from './audio.js?v=screen-safe-20260812n';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812n';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812p';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812p';
+import { createEnemy } from './enemy.js?v=screen-safe-20260812p';
+import { createBoss } from './boss.js?v=screen-safe-20260812p';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260812p';
+import { audio } from './audio.js?v=screen-safe-20260812p';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812p';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260812n';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812n';
+} from './stage6Grapple.js?v=screen-safe-20260812p';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812p';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812n';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812p';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -27,7 +27,7 @@ import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812n';
  * Stage3 の道沿いだけプレイヤーの足元レーン(groundY+LANE_OFFSET=512)に立てていて、
  * 灯籠や道祖神が役者と同じ面に並んで見えた(実機フィードバック 2026-08-12)。
  */
-const STAGE3_PROP_FOOT_DEPTH = 12;
+const BG_PROP_FOOT_DEPTH = 12;
 
 // ============================================
 // ステージ背景アセットの単一ソース
@@ -55,6 +55,8 @@ const STAGE_IMAGE_SOURCES = {
             stage2GroundImage: 'images/stage2_ground_kaido_tile.png',
             stage2MountainBackImage: 'images/stage2_mountain_back_wall.png',
             stage2MountainPassImage: 'images/stage2_mountain_pass_wall.png',
+            // 遠景の丘陵。ミラー連結してあるので横に繰り返すと稜線が繋がる。
+            stage2HillImage: 'images/stage2_hills_far.png?v=20260812_hills1',
         },
         groups: {
             stage2PropImages: {
@@ -111,6 +113,8 @@ const STAGE_IMAGE_SOURCES = {
         fields: {
             stage5InteriorWallImage: 'images/stage5_castle_interior_wall.png?v=20260706_bg1',
             stage5GroundImage: 'images/stage5_ground_wood_tile.png',
+            // 階段の材質。形はCanvas製のまま、表面にだけ重ねる。
+            stage5StairWoodImage: 'images/stage5_stair_wood.png?v=20260812_wood1',
         },
     },
     6: {
@@ -1869,8 +1873,41 @@ export class Stage {
     }
 
     /** 階段区間の石段を描画する */
+    /**
+     * 階段の木目。【形と陰影はCanvas製のまま】。
+     * 生成画像で階段そのものを描き起こすと、Canvasの2.5D投影(奥行きを真上へ
+     * 138px押し出す)が再現できずシルエットが変わった(2026-08-12に2回差し戻し)。
+     * 投影を持つのはCanvas側と決め、生成画像は【材質】としてだけ使う。
+     * source-atop なので不透明部＝階段の形にしか乗らず、面ごとの陰影も
+     * 42%だけ木目に置き換わる＝立体の読みは一切変わらない。
+     */
+    ensureStairWoodTexture() {
+        if (this.stageNumber !== 5 || this._stairWoodApplied) return;
+        const wood = this.stage5StairWoodImage;
+        if (!wood?.complete || wood.naturalWidth <= 0) return;
+        const canvas = this.stairImage;
+        if (!canvas || typeof canvas.getContext !== 'function') return;
+        // 板幅が踏面(STEP_RUN=45)とだいたい揃う大きさへ縮めてからタイルにする
+        const tileSize = 256;
+        const scaled = document.createElement('canvas');
+        scaled.width = tileSize;
+        scaled.height = tileSize;
+        scaled.getContext('2d').drawImage(wood, 0, 0, tileSize, tileSize);
+        const c = canvas.getContext('2d');
+        const pattern = c.createPattern(scaled, 'repeat');
+        if (!pattern) return;
+        c.save();
+        c.globalCompositeOperation = 'source-atop';
+        c.globalAlpha = 0.42;
+        c.fillStyle = pattern;
+        c.fillRect(0, 0, canvas.width, canvas.height);
+        c.restore();
+        this._stairWoodApplied = true;
+    }
+
     renderStairZone(ctx, scrollX) {
         if (this.stageNumber !== 5 || !this.stairImage) return;
+        this.ensureStairWoodTexture();
         // ボスフロア（5F）では「天守閣へ続く登れない階段」として右端に背景描画される
 
         const direction = this.floorScrollDirection;
@@ -1911,6 +1948,7 @@ export class Stage {
      */
     renderPreviousStairTop(ctx, scrollX) {
         if (this.stageNumber !== 5 || !this.showPreviousStair || !this.stairImage) return;
+        this.ensureStairWoodTexture();
 
         const prevDir = this.previousStairDirection;
         const visibleWidth = STAGE5_FLOOR.PREVIOUS_STAIR_VISIBLE_WIDTH || 200;
@@ -4087,10 +4125,14 @@ export class Stage {
         // 空の色が飛んで時間帯が壊れ、常時パチつくのが目障りだった。
 
         if (!isCastleInterior && !isBambooForest && !isTenshuStageBg) {
-            // 遠方の山並み・稜線は画像置換対象外として残す。
-            this.renderBackgroundLayer(ctx, currentPalette.far, 0.2, 0.7, 100);
-            this.renderBackgroundLayer(ctx, currentPalette.mid, 0.4, 0.8, 60);
-            this.renderBackgroundLayer(ctx, currentPalette.near, 0.7, 1.0, 20);
+            // 遠景は生成画像が用意されているステージだけ画像へ置き換える。
+            // 【画像を敷いたら Canvas の3層は描かない】。3層は後から重なるので、
+            // 残すと絵の上にのっぺりした丸い丘が乗って画像が見えなくなる。
+            if (!this.renderFarSceneryImageBand(ctx, currentPalette)) {
+                this.renderBackgroundLayer(ctx, currentPalette.far, 0.2, 0.7, 100);
+                this.renderBackgroundLayer(ctx, currentPalette.mid, 0.4, 0.8, 60);
+                this.renderBackgroundLayer(ctx, currentPalette.near, 0.7, 1.0, 20);
+            }
         } else if (isBambooForest) {
             this.renderStage1FixedRoadMountains(ctx);
         }
@@ -4207,7 +4249,7 @@ export class Stage {
         // 画像下部に透明余白が約10.8%あるため、不透明部分の下端で接地させる。
         // 足元は道沿いの添景と同じ床帯の奥（プレイヤーのレーンではない）。
         const visibleBottomRatio = 829 / 929;
-        const footY = this.groundY + STAGE3_PROP_FOOT_DEPTH + 2;
+        const footY = this.groundY + BG_PROP_FOOT_DEPTH + 2;
         const exitY = Math.round(footY - exitH * visibleBottomRatio);
         ctx.save();
         ctx.globalAlpha *= 0.96;
@@ -4326,32 +4368,47 @@ export class Stage {
     }
 
     /**
-     * 遠景の山並み。生成画像(ミラー連結タイル)を1枚の帯で敷く。
-     * 画像が読めていない間だけ、従来のベジエ曲線で描く帯へ落とす。
+     * 遠景の生成画像を持つステージの表。
+     *   image: フィールド名 / drawH: 帯の高さ(px) / parallax / haze: 時刻色を空へ寄せる量
+     * 素材は「尾根が3〜4列重なり、奥ほど淡く手前ほど濃い」を1枚に焼いてある。
+     */
+    getFarSceneryImageSpec() {
+        if (this.stageNumber === 2) {
+            // 街道は低くなだらかな丘。空を広く残す。
+            return { image: this.stage2HillImage, drawH: 235, parallax: 0.18, haze: 0.34 };
+        }
+        if (this.stageNumber === 3) {
+            // 山道は夕陽が稜線に丸ごと呑まれない高さまで。
+            return { image: this.stage3MountainImage, drawH: 300, parallax: 0.14, haze: 0.30 };
+        }
+        return null;
+    }
+
+    /**
+     * 遠景の山並み・丘陵を生成画像(ミラー連結タイル)の1枚帯で敷く。
+     * 置き換えたら true。false のときは呼び出し側が Canvas の3層へ落とす。
      *
-     * 【奥行きは絵の中に入っている】。素材は尾根が3〜4列重なり、奥ほど淡く
-     * 手前ほど濃く描いてある(実測 上部の輝度144 / 下部64)。同じ絵を2枚重ねると
-     * 稜線が二重に読めるので、帯は1枚だけ。
+     * 【奥行きは絵の中に入っている】。同じ絵を2枚重ねると稜線が二重に読めるので、
+     * 帯は1枚だけ。実測で素材は上部(奥)と下部(手前)で80階調ぶんの差がある。
      *
      * 【半透明で遠さを出さない】。alpha を落とすと背後の太陽まで透けていた
      * (実機フィードバック 2026-08-12)。不透明で敷き、時刻の色だけを薄く乗せる。
      * 乗せ量を上げすぎると絵の階調が潰れて単色シルエットに戻るので 0.55 まで。
-     *
-     * 高さは夕陽が稜線に丸ごと呑まれない範囲(最高峰 groundY-300)に収める。
      */
-    renderStage3MountainImageBands(ctx, currentPalette, progress) {
-        const image = this.stage3MountainImage;
+    renderFarSceneryImageBand(ctx, currentPalette, progress = this.progress) {
+        const spec = this.getFarSceneryImageSpec();
+        const image = spec?.image;
         if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
         const aspect = image.naturalWidth / image.naturalHeight;
         const horizonSky = (currentPalette.sky && currentPalette.sky[1]) || currentPalette.far;
-        // 時刻の色。空の地平色へ少し寄せて、山の裾が空へ溶けるようにする。
-        const tone = this.interpolateColor(currentPalette.mid, horizonSky, 0.3);
+        // 時刻の色。空の地平色へ少し寄せて、裾が空へ溶けるようにする。
+        const tone = this.interpolateColor(currentPalette.mid, horizonSky, spec.haze);
         const tinted = this.getStage3MountainTinted(image, tone);
 
-        const drawH = 300;
+        const drawH = spec.drawH;
         const w = Math.round(drawH * aspect);
         if (w <= 0) return false;
-        const scroll = progress * 0.14;
+        const scroll = progress * spec.parallax;
         const offset = ((scroll % w) + w) % w;
         const y = this.groundY - drawH;
         ctx.save();
@@ -4364,7 +4421,9 @@ export class Stage {
     }
 
     renderStage3DistantMountainBands(ctx, currentPalette, progress) {
-        if (this.renderStage3MountainImageBands(ctx, currentPalette, progress)) {
+        // 山そのものは renderFarSceneryImageBand が敷く(Canvas3層の代わり)。
+        // ここは画像が無いときのフォールバックと、共通の霞の帯だけを持つ。
+        if (this.getFarSceneryImageSpec()?.image?.naturalWidth > 0) {
             const imageMist = ctx.createLinearGradient(0, this.groundY - 190, 0, this.groundY - 18);
             imageMist.addColorStop(0, 'rgba(220, 210, 230, 0)');
             imageMist.addColorStop(0.72, 'rgba(196, 182, 210, 0.09)');
@@ -4429,7 +4488,7 @@ export class Stage {
      * 石仏や灯籠の向こうが透けて幽霊のように見える(実機フィードバック 2026-08-12)。
      * 遠さは描画時の色調フィルタ(brightness/saturate を落とす)が担っているので、
      * alpha は不透明のまま。
-     * 足元は STAGE3_PROP_FOOT_DEPTH(=groundY+12) の床帯の奥。y は同じ道沿いでの
+     * 足元は BG_PROP_FOOT_DEPTH(=groundY+12) の床帯の奥。y は同じ道沿いでの
      * 前後の散らしで、数値が大きいほど手前に立つ。
      */
     getStage3RoadsidePropPlan() {
@@ -4461,6 +4520,122 @@ export class Stage {
         return fallbackAspect[type] || 1;
     }
 
+    /** Stage2の道沿いの小物の並び。背景パスと添景パスで同じ表を読む。 */
+    getStage2RoadsideDetailPlan() {
+        return [
+                            { key: 'cleanLowFence', h: 82, xBias: -18, filter: 'brightness(0.76) saturate(0.7) contrast(0.92)' },
+                            { key: 'cleanStrawBundles', h: 88, xBias: 18, filter: 'brightness(0.78) saturate(0.74) contrast(0.92)' },
+                            { key: 'cleanJars', h: 68, xBias: -10, filter: 'brightness(0.76) saturate(0.7) contrast(0.92)' },
+                            null,
+                            { key: 'cleanGrassClump', h: 58, xBias: 18, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
+                            { key: 'cleanWoodSignpost', h: 122, xBias: -18, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
+                            { key: 'cleanLowFence', h: 72, xBias: 24, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
+                            { key: 'cleanStoneWell', h: 132, xBias: -8, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
+                            null,
+                            { key: 'cleanJars', h: 62, xBias: 22, filter: 'brightness(0.74) saturate(0.68) contrast(0.88)' },
+                            { key: 'cleanStrawBundles', h: 78, xBias: -20, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
+                            { key: 'cleanGrassClump', h: 52, xBias: 10, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
+                            { key: 'cleanJizo', h: 96, xBias: -14, filter: 'brightness(0.7) saturate(0.62) contrast(0.86)' }
+                        ];
+    }
+
+    /**
+     * Stage2の【建物以外の】道沿いの添景。地面レイヤーより後に描く。
+     * 背景の switch の中(地面より前)に置いていた頃は、足元を床帯へ下げると
+     * 下が地面に覆われて足を切られるため、地平線(483)に貼り付けるしかなかった。
+     * 床の上に出したので stage3 と同じ足元線(BG_PROP_FOOT_DEPTH=492)に立たせ、
+     * 接地影を敷いて植わって見せる(実機フィードバック 2026-08-12)。
+     *
+     * 家並みの重なり判定に使う houseBounds は背景パス(case 'kaido')が
+     * 同じフレームで先に埋める。描画順が背景→地面→ここなので必ず最新。
+     */
+    renderStage2RoadsideOnGround(ctx) {
+        if (this.stageNumber !== 2) return;
+        const images = this.stage2PropImages;
+        if (!images) return;
+        const isImageReady = (image) => image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
+        const plan = this.getStage2RoadsideDetailPlan();
+        if (!plan.some((item) => item && isImageReady(images[item.key]))) return;
+        const p = this.progress;
+        const houseLimit = (this.maxProgress - CANVAS_WIDTH) - 200;
+        const houseBounds = this._stage2HouseWorldBounds || [];
+        const stage2RoadsideDetailPlan = plan;
+        const detailSpan = 250;
+        const detailStart = Math.floor((p - 520) / detailSpan);
+        const detailEnd = Math.ceil((CANVAS_WIDTH + p + 520) / detailSpan);
+        const detailBaseY = this.groundY + BG_PROP_FOOT_DEPTH;
+        const detailLimit = houseLimit + 80;
+
+        for (let i = detailStart; i <= detailEnd; i++) {
+            const seed = i * 9.71;
+            const item = stage2RoadsideDetailPlan[((i % stage2RoadsideDetailPlan.length) + stage2RoadsideDetailPlan.length) % stage2RoadsideDetailPlan.length];
+            if (!item || this.noise1D(seed + 0.9) < 0.08) continue;
+
+            const worldX = 260 + i * detailSpan + this.noiseSigned(seed + 1.4) * 52;
+            if (worldX > detailLimit) continue;
+
+            const image = this.stage2PropImages?.[item.key];
+            if (!isImageReady(image)) continue;
+
+            const scaleJitter = 0.92 + this.noise1D(seed + 2.6) * 0.16;
+            const height = item.h * scaleJitter;
+            const width = height * (image.naturalWidth / image.naturalHeight);
+            const worldDrawX = worldX + item.xBias + this.noiseSigned(seed + 3.2) * 14;
+            const blocksHouse = houseBounds.some((bounds) => (
+                worldDrawX + width > bounds.left - 44 && worldDrawX < bounds.right + 44
+            ));
+            if (blocksHouse) continue;
+
+            const drawX = worldDrawX - p;
+            if (drawX + width < -140 || drawX > CANVAS_WIDTH + 140) continue;
+
+            ctx.save();
+            ctx.globalAlpha *= 0.94 + this.noise1D(seed + 4.6) * 0.06;
+            this.drawBgPropContactShadow(ctx, drawX + width * 0.5, detailBaseY + 1, width);
+            ctx.filter = item.filter;
+            drawImageGraded(ctx, image, drawX, detailBaseY - height + 3, width, height);
+            ctx.filter = 'none';
+            ctx.restore();
+        }
+
+        const grassImage = this.stage2PropImages?.cleanGrassClump;
+        if (isImageReady(grassImage)) {
+            const grassSpan = 150;
+            const grassStart = Math.floor((p - 420) / grassSpan);
+            const grassEnd = Math.ceil((CANVAS_WIDTH + p + 420) / grassSpan);
+
+            for (let i = grassStart; i <= grassEnd; i++) {
+                const seed = i * 6.43;
+                const groupIndex = Math.floor(i / 3);
+                const slotInGroup = ((i % 3) + 3) % 3;
+                const selectedSlot = Math.floor(this.noise1D(groupIndex * 5.31 + 0.7) * 3);
+                if (slotInGroup !== selectedSlot || this.noise1D(seed + 0.2) < 0.18) continue;
+
+                const worldX = 150 + i * grassSpan + this.noiseSigned(seed + 1.1) * 36;
+                if (worldX > detailLimit) continue;
+
+                const scaleJitter = 0.86 + this.noise1D(seed + 2.3) * 0.34;
+                const height = 36 * scaleJitter;
+                const width = height * (grassImage.naturalWidth / grassImage.naturalHeight);
+                const worldDrawX = worldX + this.noiseSigned(seed + 3.4) * 16;
+                const blocksHouse = houseBounds.some((bounds) => (
+                    worldDrawX + width > bounds.left - 18 && worldDrawX < bounds.right + 18
+                ));
+                if (blocksHouse) continue;
+
+                const drawX = worldDrawX - p;
+                if (drawX + width < -100 || drawX > CANVAS_WIDTH + 100) continue;
+
+                ctx.save();
+                ctx.globalAlpha *= 0.78 + this.noise1D(seed + 4.1) * 0.12;
+                ctx.filter = 'brightness(0.72) saturate(0.66) contrast(0.86)';
+                drawImageGraded(ctx, grassImage, drawX, detailBaseY - height + 3, width, height);
+                ctx.filter = 'none';
+                ctx.restore();
+            }
+        }
+    }
+
     /**
      * 地面の後に描く道沿いの添景。game.js のレイヤー2(地面)の直後から呼ぶ。
      * 影より奥＝床に置いた物として、役者より後ろに立つ。
@@ -4478,7 +4653,7 @@ export class Stage {
      * 「床に植わっている」ように読める。影が無いと、足元が地平線に接していても
      * 手前に広がる床帯のせいで貼り付いた絵に見える(浮きの正体)。
      */
-    drawStage3PropContactShadow(ctx, centerX, footY, width) {
+    drawBgPropContactShadow(ctx, centerX, footY, width) {
         const rx = Math.max(14, width * 0.52);
         const ry = Math.max(4, rx * 0.22);
         const shade = ctx.createRadialGradient(centerX, footY, 0, centerX, footY, rx);
@@ -4516,11 +4691,11 @@ export class Stage {
             const x = prop.worldX - this.progress;
             if (x + width < -80 || x > CANVAS_WIDTH + 80) continue;
 
-            const footY = this.groundY + STAGE3_PROP_FOOT_DEPTH + prop.y;
+            const footY = this.groundY + BG_PROP_FOOT_DEPTH + prop.y;
             const y = footY - prop.height;
             ctx.save();
             ctx.globalAlpha *= prop.alpha;
-            this.drawStage3PropContactShadow(ctx, x + width * 0.5, footY - 2, width);
+            this.drawBgPropContactShadow(ctx, x + width * 0.5, footY - 2, width);
             ctx.filter = 'brightness(0.66) sepia(0.22) saturate(0.68) contrast(0.86) hue-rotate(-6deg)';
             drawImageGraded(ctx, image, x, y, width, prop.height);
             ctx.filter = 'none';
@@ -4577,10 +4752,10 @@ export class Stage {
             if (overlapsOccupied(occupiedLeft, occupiedRight)) continue;
             occupiedRanges.push({ left: occupiedLeft, right: occupiedRight });
 
-            const footY = this.groundY + STAGE3_PROP_FOOT_DEPTH + 4;
+            const footY = this.groundY + BG_PROP_FOOT_DEPTH + 4;
             ctx.save();
             ctx.globalAlpha *= item.alpha;
-            this.drawStage3PropContactShadow(ctx, drawX + width * 0.5, footY - 2, width);
+            this.drawBgPropContactShadow(ctx, drawX + width * 0.5, footY - 2, width);
             ctx.filter = 'brightness(0.62) sepia(0.22) saturate(0.68) contrast(0.88) hue-rotate(-6deg)';
             drawImageGraded(ctx, image, drawX, footY - height, width, height);
             ctx.filter = 'none';
@@ -5373,21 +5548,7 @@ export class Stage {
                     null,
                     { key: 'ruralShed', h: 188, xBias: -4, filter: 'brightness(0.68) saturate(0.6) contrast(0.86)' }
                 ];
-                const stage2RoadsideDetailPlan = [
-                    { key: 'cleanLowFence', h: 82, xBias: -18, filter: 'brightness(0.76) saturate(0.7) contrast(0.92)' },
-                    { key: 'cleanStrawBundles', h: 88, xBias: 18, filter: 'brightness(0.78) saturate(0.74) contrast(0.92)' },
-                    { key: 'cleanJars', h: 68, xBias: -10, filter: 'brightness(0.76) saturate(0.7) contrast(0.92)' },
-                    null,
-                    { key: 'cleanGrassClump', h: 58, xBias: 18, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
-                    { key: 'cleanWoodSignpost', h: 122, xBias: -18, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
-                    { key: 'cleanLowFence', h: 72, xBias: 24, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
-                    { key: 'cleanStoneWell', h: 132, xBias: -8, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
-                    null,
-                    { key: 'cleanJars', h: 62, xBias: 22, filter: 'brightness(0.74) saturate(0.68) contrast(0.88)' },
-                    { key: 'cleanStrawBundles', h: 78, xBias: -20, filter: 'brightness(0.74) saturate(0.68) contrast(0.9)' },
-                    { key: 'cleanGrassClump', h: 52, xBias: 10, filter: 'brightness(0.72) saturate(0.66) contrast(0.88)' },
-                    { key: 'cleanJizo', h: 96, xBias: -14, filter: 'brightness(0.7) saturate(0.62) contrast(0.86)' }
-                ];
+                const stage2RoadsideDetailPlan = this.getStage2RoadsideDetailPlan();
                 const ruralImagesReady = stage2RuralPropPlan.some((item) => item && isImageReady(this.stage2PropImages?.[item.key]));
                 const roadDetailsReady = stage2RoadsideDetailPlan.some((item) => item && isImageReady(this.stage2PropImages?.[item.key]));
 
@@ -5397,6 +5558,7 @@ export class Stage {
                     const propEnd = Math.ceil((CANVAS_WIDTH + p * kPara + 640) / slotSpan);
                     const propBaseY = this.groundY + 2;
                     const stage2HouseWorldBounds = [];
+                    this._stage2HouseWorldBounds = stage2HouseWorldBounds;   // 添景パスが読む
 
                     for (let i = propStart; i <= propEnd; i++) {
                         const seed = i * 8.37;
@@ -5426,81 +5588,9 @@ export class Stage {
                         ctx.restore();
                     }
 
-                    if (roadDetailsReady) {
-                        const detailSpan = 250;
-                        const detailStart = Math.floor((p * kPara - 520) / detailSpan);
-                        const detailEnd = Math.ceil((CANVAS_WIDTH + p * kPara + 520) / detailSpan);
-                        const detailBaseY = this.groundY + 3;
-                        const detailLimit = houseLimit + 80;
-
-                        for (let i = detailStart; i <= detailEnd; i++) {
-                            const seed = i * 9.71;
-                            const item = stage2RoadsideDetailPlan[((i % stage2RoadsideDetailPlan.length) + stage2RoadsideDetailPlan.length) % stage2RoadsideDetailPlan.length];
-                            if (!item || this.noise1D(seed + 0.9) < 0.08) continue;
-
-                            const worldX = 260 + i * detailSpan + this.noiseSigned(seed + 1.4) * 52;
-                            if (worldX > detailLimit) continue;
-
-                            const image = this.stage2PropImages?.[item.key];
-                            if (!isImageReady(image)) continue;
-
-                            const scaleJitter = 0.92 + this.noise1D(seed + 2.6) * 0.16;
-                            const height = item.h * scaleJitter;
-                            const width = height * (image.naturalWidth / image.naturalHeight);
-                            const worldDrawX = worldX + item.xBias + this.noiseSigned(seed + 3.2) * 14;
-                            const blocksHouse = stage2HouseWorldBounds.some((bounds) => (
-                                worldDrawX + width > bounds.left - 44 && worldDrawX < bounds.right + 44
-                            ));
-                            if (blocksHouse) continue;
-
-                            const drawX = worldDrawX - p * kPara;
-                            if (drawX + width < -140 || drawX > CANVAS_WIDTH + 140) continue;
-
-                            ctx.save();
-                            ctx.globalAlpha *= 0.94 + this.noise1D(seed + 4.6) * 0.06;
-                            ctx.filter = item.filter;
-                            drawImageGraded(ctx, image, drawX, detailBaseY - height + 3, width, height);
-                            ctx.filter = 'none';
-                            ctx.restore();
-                        }
-
-                        const grassImage = this.stage2PropImages?.cleanGrassClump;
-                        if (isImageReady(grassImage)) {
-                            const grassSpan = 150;
-                            const grassStart = Math.floor((p * kPara - 420) / grassSpan);
-                            const grassEnd = Math.ceil((CANVAS_WIDTH + p * kPara + 420) / grassSpan);
-
-                            for (let i = grassStart; i <= grassEnd; i++) {
-                                const seed = i * 6.43;
-                                const groupIndex = Math.floor(i / 3);
-                                const slotInGroup = ((i % 3) + 3) % 3;
-                                const selectedSlot = Math.floor(this.noise1D(groupIndex * 5.31 + 0.7) * 3);
-                                if (slotInGroup !== selectedSlot || this.noise1D(seed + 0.2) < 0.18) continue;
-
-                                const worldX = 150 + i * grassSpan + this.noiseSigned(seed + 1.1) * 36;
-                                if (worldX > detailLimit) continue;
-
-                                const scaleJitter = 0.86 + this.noise1D(seed + 2.3) * 0.34;
-                                const height = 36 * scaleJitter;
-                                const width = height * (grassImage.naturalWidth / grassImage.naturalHeight);
-                                const worldDrawX = worldX + this.noiseSigned(seed + 3.4) * 16;
-                                const blocksHouse = stage2HouseWorldBounds.some((bounds) => (
-                                    worldDrawX + width > bounds.left - 18 && worldDrawX < bounds.right + 18
-                                ));
-                                if (blocksHouse) continue;
-
-                                const drawX = worldDrawX - p * kPara;
-                                if (drawX + width < -100 || drawX > CANVAS_WIDTH + 100) continue;
-
-                                ctx.save();
-                                ctx.globalAlpha *= 0.78 + this.noise1D(seed + 4.1) * 0.12;
-                                ctx.filter = 'brightness(0.72) saturate(0.66) contrast(0.86)';
-                                drawImageGraded(ctx, grassImage, drawX, detailBaseY - height + 3, width, height);
-                                ctx.filter = 'none';
-                                ctx.restore();
-                            }
-                        }
-                    }
+                    // 【建物以外の添景はここでは描かない】。地面より前に描くと
+                    // 足元が地面に覆われるため、地平線に貼り付けるしかなくなる。
+                    // 地面の後(renderStage2RoadsideOnGround)で床帯に立たせる。
                     break;
                 }
 

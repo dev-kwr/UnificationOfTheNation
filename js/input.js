@@ -2,8 +2,8 @@
 // Unification of the Nation - 入力管理
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, KEYS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, isVirtualPadVisible, isBgmButtonVisible } from './constants.js?v=screen-safe-20260812n';
-import { audio } from './audio.js?v=screen-safe-20260812n';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, KEYS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, isVirtualPadVisible, isBgmButtonVisible } from './constants.js?v=screen-safe-20260812p';
+import { audio } from './audio.js?v=screen-safe-20260812p';
 
 class InputManager {
     constructor() {

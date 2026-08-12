@@ -2,10 +2,10 @@
 // Unification of the Nation - ショップ機能
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, getUiScale, getFontScale } from './constants.js?v=screen-safe-20260812n';
-import { input } from './input.js?v=screen-safe-20260812n';
-import { audio } from './audio.js?v=screen-safe-20260812n';
-import { drawScreenManualLine, drawWafuCard, drawWafuHeading, drawWafuDivider, drawNumMixedText, drawBgCover } from './ui.js?v=screen-safe-20260812n';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, getUiScale, getFontScale } from './constants.js?v=screen-safe-20260812p';
+import { input } from './input.js?v=screen-safe-20260812p';
+import { audio } from './audio.js?v=screen-safe-20260812p';
+import { drawScreenManualLine, drawWafuCard, drawWafuHeading, drawWafuDivider, drawNumMixedText, drawBgCover } from './ui.js?v=screen-safe-20260812p';
 
 // 背景画像キャッシュ
 let _shopBgImg = null;
