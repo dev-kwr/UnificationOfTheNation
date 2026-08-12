@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812k';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812k';
-import { createEnemy } from './enemy.js?v=screen-safe-20260812k';
-import { createBoss } from './boss.js?v=screen-safe-20260812k';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260812k';
-import { audio } from './audio.js?v=screen-safe-20260812k';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812k';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812m';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812m';
+import { createEnemy } from './enemy.js?v=screen-safe-20260812m';
+import { createBoss } from './boss.js?v=screen-safe-20260812m';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260812m';
+import { audio } from './audio.js?v=screen-safe-20260812m';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812m';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260812k';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812k';
+} from './stage6Grapple.js?v=screen-safe-20260812m';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812m';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812k';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812m';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -235,6 +235,10 @@ const STAGE6_BOSS_INTRO_IDLE_SETTLE_MS = 220;
 // 名乗り帯の中心からボスの中心までの最低距離。対称位置がこれより内側になる場合
 // (プレイヤーが中央付近で足を止めた場合)はここで止めて、間合いを潰さない。
 const BOSS_ENTRANCE_MIN_HALF_GAP_PX = 200;
+// Stage5最終階: 天守閣へ続く階段の登り口から、ボスの足を離しておく量。
+// 斜面の上で止まると足元がめり込む(getStage5ExitStairLift は斜面を返すが、
+// 登場が終わった後のボスは平地の接地で扱われる)。
+const BOSS_ENTRANCE_STAIR_CLEARANCE_PX = 40;
 // Stage5の最終階: 天守閣へ続く階段をボスが降りてくる速さ。通常の登場ダッシュ(900)だと
 // 320pxの段差を0.4秒で滑り落ちるので、踏みしめて降りる速度にする。
 const STAGE5_BOSS_STAIR_DESCENT_SPEED = 300;
@@ -910,8 +914,17 @@ export class Stage {
             bannerCenter + BOSS_ENTRANCE_MIN_HALF_GAP_PX,
             playerCenter + BOSS_ENTRANCE_MIN_HALF_GAP_PX
         );
-        const maxCenter = scrollX + CANVAS_WIDTH - bw * 0.5 - 24;
-        if (maxCenter <= minCenter) return fallback;
+        // 【階段の上では止まらせない】。Stage5の最終階は右端が天守閣へ続く階段で、
+        // ボスはそこを降りてくる。降り切る前で止まると斜面に足がめり込む
+        // (会敵の定位置を左へ寄せた結果、鏡像の着地点が階段まで届いた。
+        //  実機フィードバック 2026-08-12)。平地の側で足を止めさせる。
+        const stairFootX = this.getFinalFloorExitBarrierX();
+        const roomRight = Number.isFinite(stairFootX)
+            ? Math.min(scrollX + CANVAS_WIDTH, stairFootX - BOSS_ENTRANCE_STAIR_CLEARANCE_PX)
+            : scrollX + CANVAS_WIDTH;
+        const maxCenter = roomRight - bw * 0.5 - 24;
+        // 間合いが取れないほど狭いときも、階段に乗らないことだけは守る
+        if (maxCenter <= minCenter) return maxCenter - bw * 0.5;
         return Math.max(minCenter, Math.min(mirrored, maxCenter)) - bw * 0.5;
     }
 
