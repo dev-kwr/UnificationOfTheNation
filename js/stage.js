@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812q';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812q';
-import { createEnemy } from './enemy.js?v=screen-safe-20260812q';
-import { createBoss } from './boss.js?v=screen-safe-20260812q';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260812q';
-import { audio } from './audio.js?v=screen-safe-20260812q';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812q';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812r';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812r';
+import { createEnemy } from './enemy.js?v=screen-safe-20260812r';
+import { createBoss } from './boss.js?v=screen-safe-20260812r';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260812r';
+import { audio } from './audio.js?v=screen-safe-20260812r';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812r';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260812q';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812q';
+} from './stage6Grapple.js?v=screen-safe-20260812r';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812r';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812q';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812r';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -4353,13 +4353,15 @@ export class Stage {
      * 素材は「尾根が3〜4列重なり、奥ほど淡く手前ほど濃い」を1枚に焼いてある。
      */
     getFarSceneryImageSpec() {
+        // 【日輪が稜線に呑まれない高さに抑える】。時刻が読めなくなるうえ、
+        // 空が狭いと横スクロールの抜けが無くなる(実機フィードバック 2026-08-12)。
         if (this.stageNumber === 2) {
             // 街道は低くなだらかな丘。空を広く残す。
-            return { image: this.stage2HillImage, drawH: 235, parallax: 0.18, haze: 0.34 };
+            return { image: this.stage2HillImage, drawH: 198, parallax: 0.18, haze: 0.34 };
         }
         if (this.stageNumber === 3) {
-            // 山道は夕陽が稜線に丸ごと呑まれない高さまで。
-            return { image: this.stage3MountainImage, drawH: 300, parallax: 0.14, haze: 0.30 };
+            // 山道は山なので丘より高いが、日輪の下端より低く収める。
+            return { image: this.stage3MountainImage, drawH: 210, parallax: 0.14, haze: 0.30 };
         }
         return null;
     }
