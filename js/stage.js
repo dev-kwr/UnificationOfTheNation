@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812j';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812j';
-import { createEnemy } from './enemy.js?v=screen-safe-20260812j';
-import { createBoss } from './boss.js?v=screen-safe-20260812j';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260812j';
-import { audio } from './audio.js?v=screen-safe-20260812j';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812j';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812k';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812k';
+import { createEnemy } from './enemy.js?v=screen-safe-20260812k';
+import { createBoss } from './boss.js?v=screen-safe-20260812k';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260812k';
+import { audio } from './audio.js?v=screen-safe-20260812k';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812k';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260812j';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812j';
+} from './stage6Grapple.js?v=screen-safe-20260812k';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812k';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812j';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812k';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -111,9 +111,6 @@ const STAGE_IMAGE_SOURCES = {
         fields: {
             stage5InteriorWallImage: 'images/stage5_castle_interior_wall.png?v=20260706_bg1',
             stage5GroundImage: 'images/stage5_ground_wood_tile.png',
-            // 階段の生成画像（真横の立面・20段・段は横45:縦40）。
-            // 読めていない間は stairRenderer.js のCanvas製へフォールバックする。
-            stage5StairImage: 'images/stage5_stairs.png?v=20260812_stairs1',
         },
     },
     6: {
@@ -442,8 +439,9 @@ export class Stage {
         }
 
         // --- Stage 5 階段画像 ---
-        // まずCanvas製で組み立てておき、生成画像が読めた時点で差し替える
-        // (ensureStairImageFromPng)。開始直後の数フレームで階段が消えないため。
+        // 【Canvas製が正本】。奥行き(DEPTH)を真上へ押し出す2.5D投影で、
+        // 平面の立面図として生成した画像では厚みが再現できずシルエットが変わる
+        // (2026-08-12に生成画像へ差し替えて差し戻し)。
         if (this.stageNumber === 5) {
             const sd = generateStairsCanvas();
             this.stairImage = sd.canvas;
@@ -452,7 +450,6 @@ export class Stage {
             this.stairTotalL = sd.totalL;  // プレビュー画像の論理幅 (=900)
             this.stairTotalH = sd.totalH;  // プレビュー画像の論理高さ (=800)
             this.stairDrawScale = this.stairZoneWidth / sd.totalL; // 描画スケール (360/900=0.4)
-            this._stairPngApplied = false;
         }
 
         // --- ステージ背景画像 ---
@@ -1859,36 +1856,8 @@ export class Stage {
     }
 
     /** 階段区間の石段を描画する */
-    /**
-     * 階段の生成画像が読めたらCanvas製から差し替える。
-     * 【論理寸法(900x800)は変えない】。stairDrawScale も STAGE5_FLOOR.STAIR_HEIGHT も
-     * この寸法から出ているので、絵の縦横比が僅かに違ってもここで正方形の枠へ収める
-     * (実測 1184x1052 = 0.8885 に対し目標 800/900 = 0.8889。差 0.05%)。
-     * 原点は左下＝最下段の足元。renderStairZone はここを接地点に置き、
-     * renderPreviousStairTop は (原点 + totalL, 原点 - totalH) の右上を口に合わせる。
-     */
-    ensureStairImageFromPng() {
-        if (this.stageNumber !== 5 || this._stairPngApplied) return;
-        const png = this.stage5StairImage;
-        if (!png?.complete || png.naturalWidth <= 0 || png.naturalHeight <= 0) return;
-        const L = this.stairTotalL;
-        const H = this.stairTotalH;
-        const canvas = document.createElement('canvas');
-        canvas.width = L;
-        canvas.height = H;
-        const c = canvas.getContext('2d');
-        c.imageSmoothingEnabled = true;
-        c.drawImage(png, 0, 0, L, H);
-        this.stairImage = canvas;
-        this.stairOriginX = 0;
-        this.stairOriginY = H;
-        this._stairPngApplied = true;
-    }
-
     renderStairZone(ctx, scrollX) {
-        if (this.stageNumber !== 5) return;
-        this.ensureStairImageFromPng();
-        if (!this.stairImage) return;
+        if (this.stageNumber !== 5 || !this.stairImage) return;
         // ボスフロア（5F）では「天守閣へ続く登れない階段」として右端に背景描画される
 
         const direction = this.floorScrollDirection;
@@ -1928,9 +1897,7 @@ export class Stage {
      *   → 左登りの階段画像（flip描画）を描画し、その頂上（flip視覚的左端）が worldX=0 になるように配置する。
      */
     renderPreviousStairTop(ctx, scrollX) {
-        if (this.stageNumber !== 5 || !this.showPreviousStair) return;
-        this.ensureStairImageFromPng();
-        if (!this.stairImage) return;
+        if (this.stageNumber !== 5 || !this.showPreviousStair || !this.stairImage) return;
 
         const prevDir = this.previousStairDirection;
         const visibleWidth = STAGE5_FLOOR.PREVIOUS_STAIR_VISIBLE_WIDTH || 200;
@@ -4321,13 +4288,14 @@ export class Stage {
      * 遠景の山を時刻の色へ寄せた版を作る（不透明部だけ塗り替える source-atop）。
      * 生成画像は淡い藤色の単色なので、そのままだと夕暮れ〜逢魔が時の空から浮く。
      * 色は毎フレーム補間で変わるが、実際に見た目が変わるのは数十フレームに一度なので
-     * 直近の1色だけキャッシュすれば焼き直しはほとんど起きない。
+     * 直近の帯ぶんだけキャッシュすれば焼き直しはほとんど起きない。
      */
     getStage3MountainTinted(image, color) {
-        if (!this._stage3MountainTint) this._stage3MountainTint = { key: null, canvas: null };
+        if (!this._stage3MountainTint) this._stage3MountainTint = new Map();
         const cache = this._stage3MountainTint;
         const key = `${color}|${image.naturalWidth}x${image.naturalHeight}`;
-        if (cache.key === key && cache.canvas) return cache.canvas;
+        const hit = cache.get(key);
+        if (hit) return hit;
         const canvas = document.createElement('canvas');
         canvas.width = image.naturalWidth;
         canvas.height = image.naturalHeight;
@@ -4335,32 +4303,50 @@ export class Stage {
         cctx.drawImage(image, 0, 0);
         // 稜線の内側の陰影を少しだけ残す＝完全な単色シルエットにしない
         cctx.globalCompositeOperation = 'source-atop';
-        cctx.globalAlpha = 0.86;
+        cctx.globalAlpha = 0.9;
         cctx.fillStyle = color;
         cctx.fillRect(0, 0, canvas.width, canvas.height);
-        cache.key = key;
-        cache.canvas = canvas;
+        // 山肌の縦の階調。稜線側が明るく、裾へ向かって沈む＝ベタ塗りの図形に見せない。
+        cctx.globalAlpha = 1;
+        const relief = cctx.createLinearGradient(0, 0, 0, canvas.height);
+        relief.addColorStop(0, 'rgba(255, 255, 255, 0.13)');
+        relief.addColorStop(0.42, 'rgba(255, 255, 255, 0.02)');
+        relief.addColorStop(1, 'rgba(12, 10, 18, 0.20)');
+        cctx.fillStyle = relief;
+        cctx.fillRect(0, 0, canvas.width, canvas.height);
+        if (cache.size > 6) cache.clear();   // 時刻の補間で色が動くので上限だけ設ける
+        cache.set(key, canvas);
         return canvas;
     }
 
     /**
      * 遠景の山並み。生成画像(ミラー連結タイル)を2枚のパララックス帯で敷く。
      * 画像が読めていない間だけ、従来のベジエ曲線で描く帯へ落とす。
+     *
+     * 【半透明で遠さを出さない】。alpha を落とすと帯どうしが透けて重なり、
+     * 背後の太陽まで山を透かして見えていた(実機フィードバック 2026-08-12)。
+     * 遠さは【色】で作る ― 空の地平色へ寄せた分だけ遠く見える(空気遠近)。
+     * 帯は不透明なので、手前の帯は奥の帯をきちんと隠す。
+     *
+     * 高さも抑える。夕陽が稜線に丸ごと呑まれると時刻が読めなくなるため、
+     * 従来のベジエ帯の最高峰(groundY-297 / -214)と同じ範囲に収める。
      */
     renderStage3MountainImageBands(ctx, currentPalette, progress) {
         const image = this.stage3MountainImage;
         if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
         const aspect = image.naturalWidth / image.naturalHeight;
+        const horizonSky = (currentPalette.sky && currentPalette.sky[1]) || currentPalette.far;
 
-        const drawBand = (parallax, drawH, color, alpha) => {
-            const tinted = this.getStage3MountainTinted(image, color);
+        const drawBand = (parallax, drawH, color, hazeToSky) => {
+            // 空気遠近: 空の地平色へ hazeToSky ぶん寄せる(1に近いほど遠く霞む)
+            const tone = this.interpolateColor(color, horizonSky, hazeToSky);
+            const tinted = this.getStage3MountainTinted(image, tone);
             const w = Math.round(drawH * aspect);
             if (w <= 0) return;
             const scroll = progress * parallax;
             const offset = ((scroll % w) + w) % w;
             const y = this.groundY - drawH;
             ctx.save();
-            ctx.globalAlpha *= alpha;
             ctx.imageSmoothingEnabled = true;
             for (let x = -offset; x < CANVAS_WIDTH; x += w) {
                 ctx.drawImage(tinted, Math.round(x), y, w + 1, drawH);
@@ -4368,9 +4354,11 @@ export class Stage {
             ctx.restore();
         };
 
-        // 奥は高く淡く、手前は低く濃く。パララックスは従来値(0.12 / 0.22)を保つ。
-        drawBand(0.12, 420, currentPalette.far, 0.5);
-        drawBand(0.22, 300, currentPalette.mid, 0.42);
+        // 奥は高く霞み、手前は低く濃い。パララックスは従来値(0.12 / 0.22)を保つ。
+        // パレットの far と mid は色が近いので、差は【霞ませ量】で作る
+        // (0.72 と 0.10 で実測29階調ぶん離れる。両方0.5前後だと二層が同色に潰れた)。
+        drawBand(0.12, 300, currentPalette.far, 0.72);
+        drawBand(0.22, 215, currentPalette.mid, 0.10);
         return true;
     }
 

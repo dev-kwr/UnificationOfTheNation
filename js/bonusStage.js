@@ -20,11 +20,11 @@
 // 画像: images/bonus_kura_*.png（Codex/gpt-image 生成。読めない環境では
 // コード描画にフォールバック）。
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260812j';
-import { audio } from './audio.js?v=screen-safe-20260812j';
-import { getImage } from './imageCache.js?v=screen-safe-20260812j';
-import { drawKobanImage } from './ui.js?v=screen-safe-20260812j';
-import { pushGain, updateGainPops, renderGainPops, tickTimeLimit, clampToLeftEdge } from './sideStageCommon.js?v=screen-safe-20260812j';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260812k';
+import { audio } from './audio.js?v=screen-safe-20260812k';
+import { getImage } from './imageCache.js?v=screen-safe-20260812k';
+import { drawKobanImage } from './ui.js?v=screen-safe-20260812k';
+import { pushGain, updateGainPops, renderGainPops, tickTimeLimit, clampToLeftEdge } from './sideStageCommon.js?v=screen-safe-20260812k';
 
 // 小判1枚の価値（両）。よろず屋の相場に合わせてここだけで調整する。
 const KOBAN_VALUE = 10;
@@ -62,13 +62,10 @@ function getAsset(index) {
 //
 // 最下段だけは dy = -CRATE_SIZE ＝【木箱の底が足元レーンに接する高さ】。
 // 中途半端な高さだと箱が床の上に浮き、背景の絵へ減り込んで見えた。
+// 刻みは「普」の値。難易度で stepScale が掛かる(buildTower)。
 const TOWER_STEPS = [112, 118, 122, 126, 130, 132, 134, 136, 138, 140, 141, 142, 142, 143, 143, 144, 144, 145];
-const TOWER_DY = TOWER_STEPS.reduce((acc, step) => {
-    acc.push(acc[acc.length - 1] - step);
-    return acc;
-}, [-CRATE_SIZE]);
 
-// 各行: [x, 木箱の数, 動く棚の設定?]（高さは TOWER_DY[行番号]）
+// 各行: [x, 木箱の数, 動く棚の設定?]（高さは TOWER_STEPS を積んだ行番号ぶん）
 const TOWER_PATTERNS = [
     // ジグザグ: 左右へ大きく振る素直な塔
     [
@@ -109,16 +106,52 @@ const TOWER_PATTERNS = [
     ]
 ];
 
-function buildTower(laneY) {
+// --- 難易度 ---------------------------------------------------------
+// 蔵には敵も障害物も居ないので、difficulty の damageMult / hpMult は一切効かない
+// (適用先は enemy.js と boss.js だけ)。易/普/難で中身が完全に同じなのに記録だけ
+// 3つに分かれていたので、蔵に効く軸をここで持つ。
+//
+//   stepScale  段差の刻み。上限145(単発ジャンプ160から引いた到達保証)を超えない範囲で
+//   ampScale   吊り棚の振れ幅。画面内(0..CANVAS_WIDTH)へクランプする
+//   periodScale 吊り棚の周期。小さいほど速い
+//   valueScale 小判1枚の価値。難いほど1枚が高い＝上を目指す価値が出る
+//
+// 段差は普で既に上限へ張り付いているので、難は段差ではなく【吊り棚】で上げる。
+const BONUS_DIFFICULTY = {
+    easy:   { stepScale: 0.86, ampScale: 0.70, periodScale: 1.22, valueScale: 0.8 },
+    normal: { stepScale: 1.00, ampScale: 1.00, periodScale: 1.00, valueScale: 1.0 },
+    hard:   { stepScale: 1.00, ampScale: 1.28, periodScale: 0.80, valueScale: 1.4 },
+};
+const TOWER_STEP_MAX = 145;
+
+export function getBonusDifficultyTuning(difficultyId) {
+    return BONUS_DIFFICULTY[difficultyId] || BONUS_DIFFICULTY.normal;
+}
+
+function buildTower(laneY, tuning) {
     const rows = TOWER_PATTERNS[Math.floor(Math.random() * TOWER_PATTERNS.length)];
-    return rows.map(([x, crates, move], index) => ({
-        x,
-        y: laneY + TOWER_DY[index],
-        crates,
-        width: crates * CRATE_SIZE,
-        // 位相だけは毎回ずらす(同じ型でも吊り棚の位置関係が変わる)
-        move: move ? { ...move, phase: Math.random() * Math.PI * 2 } : null
-    }));
+    // 段差は刻み表から積み直す(易だけ緩む。普/難は据え置き＝上限に張り付いている)
+    const dy = [-CRATE_SIZE];
+    for (const step of TOWER_STEPS) {
+        const scaled = Math.min(TOWER_STEP_MAX, Math.round(step * tuning.stepScale));
+        dy.push(dy[dy.length - 1] - scaled);
+    }
+    return rows.map(([x, crates, move], index) => {
+        const width = crates * CRATE_SIZE;
+        let scaledMove = null;
+        if (move) {
+            // 振れ幅は画面内に収まる範囲でだけ広げる(左右どちらかがはみ出す型がある)
+            const room = Math.min(x, CANVAS_WIDTH - (x + width));
+            const amp = Math.max(0, Math.min(Math.round(move.amp * tuning.ampScale), room));
+            scaledMove = {
+                amp,
+                period: move.period * tuning.periodScale,
+                // 位相だけは毎回ずらす(同じ型でも吊り棚の位置関係が変わる)
+                phase: Math.random() * Math.PI * 2
+            };
+        }
+        return { x, y: laneY + dy[index], crates, width, move: scaledMove };
+    });
 }
 
 // 高さ帯ごとの小判の価値。登るほど実入りが増え、上を目指す動機になる。
@@ -130,7 +163,12 @@ const HEIGHT_TIERS = [
 ];
 
 export class BonusStage {
-    constructor() {
+    constructor(difficultyId = 'normal') {
+        // 難易度は【塔の組み方と小判の価値】に効く。敵が居ないので
+        // damageMult / hpMult は蔵には一切届かない。
+        this.difficultyId = difficultyId;
+        const tuning = getBonusDifficultyTuning(difficultyId);
+        this.difficultyTuning = tuning;
         this.stageNumber = 0;          // 本編の stage 番号分岐(===3/5/6 等)をすべて回避する値
         this.name = '小判蔵';          // HUD右上のステージ名がこれを読む
         this.sideKind = 'bonus';       // 結果発表(beginSideResult)のスコア種別
@@ -158,7 +196,7 @@ export class BonusStage {
         // 棚（描画用）と一方通行コライダー（上面のみ）。
         // 動く棚は毎フレーム x を書き換え、同じ値をコライダーにも書き戻す
         // (描画と判定を一つの値から出す。別々に計算するとすり抜ける)。
-        this.shelves = buildTower(laneY).map((s) => ({
+        this.shelves = buildTower(laneY, tuning).map((s) => ({
             baseX: s.x,
             x: s.x,
             y: s.y,
@@ -194,7 +232,8 @@ export class BonusStage {
         const valueAt = (y) => {
             const ratio = (laneY - y) / towerH;
             const tier = HEIGHT_TIERS.find((t) => ratio > t.above) || HEIGHT_TIERS[HEIGHT_TIERS.length - 1];
-            return KOBAN_VALUE * tier.mult;
+            // 難易度で1枚の値打ちが変わる（難いほど高い＝上を目指す価値）
+            return Math.max(1, Math.round(KOBAN_VALUE * tier.mult * tuning.valueScale));
         };
         const addKoban = (x, y, shelfIndex = -1) => {
             this.kobans.push({
@@ -342,7 +381,8 @@ export class BonusStage {
             this.chest.phase += deltaTime * 3;
             if (this.touchesAny(pickers, this.chest.x, this.chest.y, 74)) {
                 this.chest.taken = true;
-                this.grantScore(player, CHEST_VALUE, this.chest.x, this.chest.y);
+                const chestValue = Math.max(1, Math.round(CHEST_VALUE * this.difficultyTuning.valueScale));
+                this.grantScore(player, chestValue, this.chest.x, this.chest.y);
             }
         }
 
@@ -471,7 +511,7 @@ export class BonusStage {
             bounces: 1,
             landed: false,
             settle: 0,
-            value: KOBAN_VALUE * (1 + Math.floor(Math.random() * 3)),   // 10/20/30
+            value: Math.max(1, Math.round(KOBAN_VALUE * (1 + Math.floor(Math.random() * 3)) * this.difficultyTuning.valueScale)),   // 普で 10/20/30
             taken: false
         });
     }
