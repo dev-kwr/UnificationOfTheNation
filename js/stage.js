@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812h';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812h';
-import { createEnemy } from './enemy.js?v=screen-safe-20260812h';
-import { createBoss } from './boss.js?v=screen-safe-20260812h';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260812h';
-import { audio } from './audio.js?v=screen-safe-20260812h';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812h';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812i';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812i';
+import { createEnemy } from './enemy.js?v=screen-safe-20260812i';
+import { createBoss } from './boss.js?v=screen-safe-20260812i';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260812i';
+import { audio } from './audio.js?v=screen-safe-20260812i';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812i';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260812h';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812h';
+} from './stage6Grapple.js?v=screen-safe-20260812i';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812i';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812h';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812i';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -111,6 +111,9 @@ const STAGE_IMAGE_SOURCES = {
         fields: {
             stage5InteriorWallImage: 'images/stage5_castle_interior_wall.png?v=20260706_bg1',
             stage5GroundImage: 'images/stage5_ground_wood_tile.png',
+            // 階段の生成画像（真横の立面・20段・段は横45:縦40）。
+            // 読めていない間は stairRenderer.js のCanvas製へフォールバックする。
+            stage5StairImage: 'images/stage5_stairs.png?v=20260812_stairs1',
         },
     },
     6: {
@@ -439,6 +442,8 @@ export class Stage {
         }
 
         // --- Stage 5 階段画像 ---
+        // まずCanvas製で組み立てておき、生成画像が読めた時点で差し替える
+        // (ensureStairImageFromPng)。開始直後の数フレームで階段が消えないため。
         if (this.stageNumber === 5) {
             const sd = generateStairsCanvas();
             this.stairImage = sd.canvas;
@@ -447,6 +452,7 @@ export class Stage {
             this.stairTotalL = sd.totalL;  // プレビュー画像の論理幅 (=900)
             this.stairTotalH = sd.totalH;  // プレビュー画像の論理高さ (=800)
             this.stairDrawScale = this.stairZoneWidth / sd.totalL; // 描画スケール (360/900=0.4)
+            this._stairPngApplied = false;
         }
 
         // --- ステージ背景画像 ---
@@ -1853,8 +1859,36 @@ export class Stage {
     }
 
     /** 階段区間の石段を描画する */
+    /**
+     * 階段の生成画像が読めたらCanvas製から差し替える。
+     * 【論理寸法(900x800)は変えない】。stairDrawScale も STAGE5_FLOOR.STAIR_HEIGHT も
+     * この寸法から出ているので、絵の縦横比が僅かに違ってもここで正方形の枠へ収める
+     * (実測 1184x1052 = 0.8885 に対し目標 800/900 = 0.8889。差 0.05%)。
+     * 原点は左下＝最下段の足元。renderStairZone はここを接地点に置き、
+     * renderPreviousStairTop は (原点 + totalL, 原点 - totalH) の右上を口に合わせる。
+     */
+    ensureStairImageFromPng() {
+        if (this.stageNumber !== 5 || this._stairPngApplied) return;
+        const png = this.stage5StairImage;
+        if (!png?.complete || png.naturalWidth <= 0 || png.naturalHeight <= 0) return;
+        const L = this.stairTotalL;
+        const H = this.stairTotalH;
+        const canvas = document.createElement('canvas');
+        canvas.width = L;
+        canvas.height = H;
+        const c = canvas.getContext('2d');
+        c.imageSmoothingEnabled = true;
+        c.drawImage(png, 0, 0, L, H);
+        this.stairImage = canvas;
+        this.stairOriginX = 0;
+        this.stairOriginY = H;
+        this._stairPngApplied = true;
+    }
+
     renderStairZone(ctx, scrollX) {
-        if (this.stageNumber !== 5 || !this.stairImage) return;
+        if (this.stageNumber !== 5) return;
+        this.ensureStairImageFromPng();
+        if (!this.stairImage) return;
         // ボスフロア（5F）では「天守閣へ続く登れない階段」として右端に背景描画される
 
         const direction = this.floorScrollDirection;
@@ -1894,7 +1928,9 @@ export class Stage {
      *   → 左登りの階段画像（flip描画）を描画し、その頂上（flip視覚的左端）が worldX=0 になるように配置する。
      */
     renderPreviousStairTop(ctx, scrollX) {
-        if (this.stageNumber !== 5 || !this.showPreviousStair || !this.stairImage) return;
+        if (this.stageNumber !== 5 || !this.showPreviousStair) return;
+        this.ensureStairImageFromPng();
+        if (!this.stairImage) return;
 
         const prevDir = this.previousStairDirection;
         const visibleWidth = STAGE5_FLOOR.PREVIOUS_STAIR_VISIBLE_WIDTH || 200;
