@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812m';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812m';
-import { createEnemy } from './enemy.js?v=screen-safe-20260812m';
-import { createBoss } from './boss.js?v=screen-safe-20260812m';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260812m';
-import { audio } from './audio.js?v=screen-safe-20260812m';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812m';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812n';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812n';
+import { createEnemy } from './enemy.js?v=screen-safe-20260812n';
+import { createBoss } from './boss.js?v=screen-safe-20260812n';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260812n';
+import { audio } from './audio.js?v=screen-safe-20260812n';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812n';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260812m';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812m';
+} from './stage6Grapple.js?v=screen-safe-20260812n';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812n';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812m';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812n';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -78,7 +78,7 @@ const STAGE_IMAGE_SOURCES = {
             stage3GroundImage: 'images/stage3_ground_mountain_tile.png',
             // 遠景の山並み。1枚をミラー連結してあるので横に繰り返すと稜線が繋がる
             // (右端は自身の鏡像と接し、巻き戻り点は左端同士)。
-            stage3MountainImage: 'images/stage3_mountains_far.png?v=20260812_far1',
+            stage3MountainImage: 'images/stage3_mountains_far.png?v=20260812_far2',
         },
         groups: {
             stage3PropImages: {
@@ -4314,18 +4314,11 @@ export class Stage {
         canvas.height = image.naturalHeight;
         const cctx = canvas.getContext('2d');
         cctx.drawImage(image, 0, 0);
-        // 稜線の内側の陰影を少しだけ残す＝完全な単色シルエットにしない
+        // 【素材の階調を残す】。乗せ量を上げると尾根の重なりが潰れて単色シルエットに
+        // 戻るので、色相が時刻へ寄る最小限(0.55)に留める。
         cctx.globalCompositeOperation = 'source-atop';
-        cctx.globalAlpha = 0.9;
+        cctx.globalAlpha = 0.55;
         cctx.fillStyle = color;
-        cctx.fillRect(0, 0, canvas.width, canvas.height);
-        // 山肌の縦の階調。稜線側が明るく、裾へ向かって沈む＝ベタ塗りの図形に見せない。
-        cctx.globalAlpha = 1;
-        const relief = cctx.createLinearGradient(0, 0, 0, canvas.height);
-        relief.addColorStop(0, 'rgba(255, 255, 255, 0.13)');
-        relief.addColorStop(0.42, 'rgba(255, 255, 255, 0.02)');
-        relief.addColorStop(1, 'rgba(12, 10, 18, 0.20)');
-        cctx.fillStyle = relief;
         cctx.fillRect(0, 0, canvas.width, canvas.height);
         if (cache.size > 6) cache.clear();   // 時刻の補間で色が動くので上限だけ設ける
         cache.set(key, canvas);
@@ -4333,45 +4326,40 @@ export class Stage {
     }
 
     /**
-     * 遠景の山並み。生成画像(ミラー連結タイル)を2枚のパララックス帯で敷く。
+     * 遠景の山並み。生成画像(ミラー連結タイル)を1枚の帯で敷く。
      * 画像が読めていない間だけ、従来のベジエ曲線で描く帯へ落とす。
      *
-     * 【半透明で遠さを出さない】。alpha を落とすと帯どうしが透けて重なり、
-     * 背後の太陽まで山を透かして見えていた(実機フィードバック 2026-08-12)。
-     * 遠さは【色】で作る ― 空の地平色へ寄せた分だけ遠く見える(空気遠近)。
-     * 帯は不透明なので、手前の帯は奥の帯をきちんと隠す。
+     * 【奥行きは絵の中に入っている】。素材は尾根が3〜4列重なり、奥ほど淡く
+     * 手前ほど濃く描いてある(実測 上部の輝度144 / 下部64)。同じ絵を2枚重ねると
+     * 稜線が二重に読めるので、帯は1枚だけ。
      *
-     * 高さも抑える。夕陽が稜線に丸ごと呑まれると時刻が読めなくなるため、
-     * 従来のベジエ帯の最高峰(groundY-297 / -214)と同じ範囲に収める。
+     * 【半透明で遠さを出さない】。alpha を落とすと背後の太陽まで透けていた
+     * (実機フィードバック 2026-08-12)。不透明で敷き、時刻の色だけを薄く乗せる。
+     * 乗せ量を上げすぎると絵の階調が潰れて単色シルエットに戻るので 0.55 まで。
+     *
+     * 高さは夕陽が稜線に丸ごと呑まれない範囲(最高峰 groundY-300)に収める。
      */
     renderStage3MountainImageBands(ctx, currentPalette, progress) {
         const image = this.stage3MountainImage;
         if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
         const aspect = image.naturalWidth / image.naturalHeight;
         const horizonSky = (currentPalette.sky && currentPalette.sky[1]) || currentPalette.far;
+        // 時刻の色。空の地平色へ少し寄せて、山の裾が空へ溶けるようにする。
+        const tone = this.interpolateColor(currentPalette.mid, horizonSky, 0.3);
+        const tinted = this.getStage3MountainTinted(image, tone);
 
-        const drawBand = (parallax, drawH, color, hazeToSky) => {
-            // 空気遠近: 空の地平色へ hazeToSky ぶん寄せる(1に近いほど遠く霞む)
-            const tone = this.interpolateColor(color, horizonSky, hazeToSky);
-            const tinted = this.getStage3MountainTinted(image, tone);
-            const w = Math.round(drawH * aspect);
-            if (w <= 0) return;
-            const scroll = progress * parallax;
-            const offset = ((scroll % w) + w) % w;
-            const y = this.groundY - drawH;
-            ctx.save();
-            ctx.imageSmoothingEnabled = true;
-            for (let x = -offset; x < CANVAS_WIDTH; x += w) {
-                ctx.drawImage(tinted, Math.round(x), y, w + 1, drawH);
-            }
-            ctx.restore();
-        };
-
-        // 奥は高く霞み、手前は低く濃い。パララックスは従来値(0.12 / 0.22)を保つ。
-        // パレットの far と mid は色が近いので、差は【霞ませ量】で作る
-        // (0.72 と 0.10 で実測29階調ぶん離れる。両方0.5前後だと二層が同色に潰れた)。
-        drawBand(0.12, 300, currentPalette.far, 0.72);
-        drawBand(0.22, 215, currentPalette.mid, 0.10);
+        const drawH = 300;
+        const w = Math.round(drawH * aspect);
+        if (w <= 0) return false;
+        const scroll = progress * 0.14;
+        const offset = ((scroll % w) + w) % w;
+        const y = this.groundY - drawH;
+        ctx.save();
+        ctx.imageSmoothingEnabled = true;
+        for (let x = -offset; x < CANVAS_WIDTH; x += w) {
+            ctx.drawImage(tinted, Math.round(x), y, w + 1, drawH);
+        }
+        ctx.restore();
         return true;
     }
 

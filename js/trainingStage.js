@@ -15,10 +15,10 @@
 // 遠近の付いた床を焼き込んだ絵をそのまま敷くと他ステージと奥行きの文法が食い違う。
 // 固定画面なのでパララックス不要。読めない環境ではコード描画にフォールバック。
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET, ENEMY_TYPES } from './constants.js?v=screen-safe-20260812m';
-import { createEnemy } from './enemy.js?v=screen-safe-20260812m';
-import { getImage } from './imageCache.js?v=screen-safe-20260812m';
-import { pushGain, updateGainPops, renderGainPops, tickTimeLimit, clampToLeftEdge } from './sideStageCommon.js?v=screen-safe-20260812m';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET, ENEMY_TYPES } from './constants.js?v=screen-safe-20260812n';
+import { createEnemy } from './enemy.js?v=screen-safe-20260812n';
+import { getImage } from './imageCache.js?v=screen-safe-20260812n';
+import { pushGain, updateGainPops, renderGainPops, tickTimeLimit, clampToLeftEdge } from './sideStageCommon.js?v=screen-safe-20260812n';
 
 // 開始前に読み込む画像（game.requestStageStart が本編と同じ暗幕待ちに使う）
 export const TRAINING_STAGE_IMAGES = [
