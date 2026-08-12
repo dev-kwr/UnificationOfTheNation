@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812g';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812g';
-import { createEnemy } from './enemy.js?v=screen-safe-20260812g';
-import { createBoss } from './boss.js?v=screen-safe-20260812g';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260812g';
-import { audio } from './audio.js?v=screen-safe-20260812g';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812g';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812h';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812h';
+import { createEnemy } from './enemy.js?v=screen-safe-20260812h';
+import { createBoss } from './boss.js?v=screen-safe-20260812h';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260812h';
+import { audio } from './audio.js?v=screen-safe-20260812h';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812h';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260812g';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812g';
+} from './stage6Grapple.js?v=screen-safe-20260812h';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812h';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812g';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812h';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -76,6 +76,9 @@ const STAGE_IMAGE_SOURCES = {
         fields: {
             stage3ExitImage: 'images/stage3_mountain_exit.png',
             stage3GroundImage: 'images/stage3_ground_mountain_tile.png',
+            // 遠景の山並み。1枚をミラー連結してあるので横に繰り返すと稜線が繋がる
+            // (右端は自身の鏡像と接し、巻き戻り点は左端同士)。
+            stage3MountainImage: 'images/stage3_mountains_far.png?v=20260812_far1',
         },
         groups: {
             stage3PropImages: {
@@ -4278,7 +4281,74 @@ export class Stage {
         ctx.restore();
     }
 
+    /**
+     * 遠景の山を時刻の色へ寄せた版を作る（不透明部だけ塗り替える source-atop）。
+     * 生成画像は淡い藤色の単色なので、そのままだと夕暮れ〜逢魔が時の空から浮く。
+     * 色は毎フレーム補間で変わるが、実際に見た目が変わるのは数十フレームに一度なので
+     * 直近の1色だけキャッシュすれば焼き直しはほとんど起きない。
+     */
+    getStage3MountainTinted(image, color) {
+        if (!this._stage3MountainTint) this._stage3MountainTint = { key: null, canvas: null };
+        const cache = this._stage3MountainTint;
+        const key = `${color}|${image.naturalWidth}x${image.naturalHeight}`;
+        if (cache.key === key && cache.canvas) return cache.canvas;
+        const canvas = document.createElement('canvas');
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const cctx = canvas.getContext('2d');
+        cctx.drawImage(image, 0, 0);
+        // 稜線の内側の陰影を少しだけ残す＝完全な単色シルエットにしない
+        cctx.globalCompositeOperation = 'source-atop';
+        cctx.globalAlpha = 0.86;
+        cctx.fillStyle = color;
+        cctx.fillRect(0, 0, canvas.width, canvas.height);
+        cache.key = key;
+        cache.canvas = canvas;
+        return canvas;
+    }
+
+    /**
+     * 遠景の山並み。生成画像(ミラー連結タイル)を2枚のパララックス帯で敷く。
+     * 画像が読めていない間だけ、従来のベジエ曲線で描く帯へ落とす。
+     */
+    renderStage3MountainImageBands(ctx, currentPalette, progress) {
+        const image = this.stage3MountainImage;
+        if (!image?.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) return false;
+        const aspect = image.naturalWidth / image.naturalHeight;
+
+        const drawBand = (parallax, drawH, color, alpha) => {
+            const tinted = this.getStage3MountainTinted(image, color);
+            const w = Math.round(drawH * aspect);
+            if (w <= 0) return;
+            const scroll = progress * parallax;
+            const offset = ((scroll % w) + w) % w;
+            const y = this.groundY - drawH;
+            ctx.save();
+            ctx.globalAlpha *= alpha;
+            ctx.imageSmoothingEnabled = true;
+            for (let x = -offset; x < CANVAS_WIDTH; x += w) {
+                ctx.drawImage(tinted, Math.round(x), y, w + 1, drawH);
+            }
+            ctx.restore();
+        };
+
+        // 奥は高く淡く、手前は低く濃く。パララックスは従来値(0.12 / 0.22)を保つ。
+        drawBand(0.12, 420, currentPalette.far, 0.5);
+        drawBand(0.22, 300, currentPalette.mid, 0.42);
+        return true;
+    }
+
     renderStage3DistantMountainBands(ctx, currentPalette, progress) {
+        if (this.renderStage3MountainImageBands(ctx, currentPalette, progress)) {
+            const imageMist = ctx.createLinearGradient(0, this.groundY - 190, 0, this.groundY - 18);
+            imageMist.addColorStop(0, 'rgba(220, 210, 230, 0)');
+            imageMist.addColorStop(0.72, 'rgba(196, 182, 210, 0.09)');
+            imageMist.addColorStop(1, 'rgba(196, 182, 210, 0)');
+            ctx.fillStyle = imageMist;
+            ctx.fillRect(0, this.groundY - 190, CANVAS_WIDTH, 180);
+            return;
+        }
+
         const drawMountainBand = (parallax, spanBase, peakBase, color, alpha) => {
             const scroll = progress * parallax;
             const offset = ((scroll % spanBase) + spanBase) % spanBase;
@@ -4968,15 +5038,55 @@ export class Stage {
             ctx.filter = 'none';
 
             // 接地影: 基部と俯瞰床の継ぎ目を沈める(エンティティの落ち影と同じ考え方)。
-            const shadowH = 26;
-            const grad = ctx.createLinearGradient(0, laneY, 0, laneY + shadowH);
-            grad.addColorStop(0, 'rgba(0, 0, 0, 0.42)');
-            grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-            ctx.fillStyle = grad;
-            ctx.fillRect(x, laneY, frameW, shadowH);
+            const shade = this.getStage6WallContactShadow(frameW);
+            ctx.drawImage(shade.canvas, x - shade.bleed, laneY - shade.above);
             ctx.restore();
 
         }
+    }
+
+    /**
+     * 角の壁の接地影。
+     * 【枠幅ちょうどの矩形で塗らない】。上端が硬い一直線、左右も切り落としになるので、
+     * 床の上に黒い水平線が引かれたように見えていた(実機フィードバック 2026-08-12)。
+     *   - 縦: 壁の絵の裏(above)から始めて、床に出る所では既に減衰の途中にする＝硬い上端が無い
+     *   - 横: 壁の外へ bleed だけはみ出させ、両端を α で落とす＝切り口が出ない
+     * 形は壁ごとに不変なのでオフスクリーンに一度だけ焼き、毎フレームは1回の drawImage。
+     */
+    getStage6WallContactShadow(frameW) {
+        if (!this._stage6WallShadowCache) this._stage6WallShadowCache = new Map();
+        const key = Math.round(frameW);
+        const cached = this._stage6WallShadowCache.get(key);
+        if (cached) return cached;
+
+        const bleed = 64;    // 壁の外へはみ出す量(ここで横に減衰させる)
+        const above = 10;    // 壁の絵に隠れる分だけ上から始める
+        const height = 34;
+        const canvas = document.createElement('canvas');
+        canvas.width = key + bleed * 2;
+        canvas.height = height;
+        const c = canvas.getContext('2d');
+
+        const vertical = c.createLinearGradient(0, 0, 0, height);
+        vertical.addColorStop(0, 'rgba(0, 0, 0, 0.36)');
+        vertical.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        c.fillStyle = vertical;
+        c.fillRect(0, 0, canvas.width, height);
+
+        // 横の減衰は destination-in で α を掛ける(縦の減衰を保ったまま端だけ消える)
+        c.globalCompositeOperation = 'destination-in';
+        const edge = bleed / canvas.width;
+        const horizontal = c.createLinearGradient(0, 0, canvas.width, 0);
+        horizontal.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        horizontal.addColorStop(edge, 'rgba(0, 0, 0, 1)');
+        horizontal.addColorStop(1 - edge, 'rgba(0, 0, 0, 1)');
+        horizontal.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        c.fillStyle = horizontal;
+        c.fillRect(0, 0, canvas.width, height);
+
+        const entry = { canvas, bleed, above };
+        this._stage6WallShadowCache.set(key, entry);
+        return entry;
     }
 
     /**
