@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812p';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812p';
-import { createEnemy } from './enemy.js?v=screen-safe-20260812p';
-import { createBoss } from './boss.js?v=screen-safe-20260812p';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260812p';
-import { audio } from './audio.js?v=screen-safe-20260812p';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812p';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812q';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812q';
+import { createEnemy } from './enemy.js?v=screen-safe-20260812q';
+import { createBoss } from './boss.js?v=screen-safe-20260812q';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260812q';
+import { audio } from './audio.js?v=screen-safe-20260812q';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812q';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260812p';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812p';
+} from './stage6Grapple.js?v=screen-safe-20260812q';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812q';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812p';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812q';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -115,6 +115,8 @@ const STAGE_IMAGE_SOURCES = {
             stage5GroundImage: 'images/stage5_ground_wood_tile.png',
             // 階段の材質。形はCanvas製のまま、表面にだけ重ねる。
             stage5StairWoodImage: 'images/stage5_stair_wood.png?v=20260812_wood1',
+            // 最終階(ボス部屋)の右端。外周へ出る通用口(夜景つき)。
+            stage5BossExitImage: 'images/stage5_boss_exit.png?v=20260812_exit1',
         },
     },
     6: {
@@ -239,13 +241,10 @@ const STAGE6_BOSS_INTRO_IDLE_SETTLE_MS = 220;
 // 名乗り帯の中心からボスの中心までの最低距離。対称位置がこれより内側になる場合
 // (プレイヤーが中央付近で足を止めた場合)はここで止めて、間合いを潰さない。
 const BOSS_ENTRANCE_MIN_HALF_GAP_PX = 200;
-// Stage5最終階: 天守閣へ続く階段の登り口から、ボスの足を離しておく量。
-// 斜面の上で止まると足元がめり込む(getStage5ExitStairLift は斜面を返すが、
-// 登場が終わった後のボスは平地の接地で扱われる)。
+// 部屋の右端に立ち入れない構造物がある場合に、ボスの足を離しておく量。
+// 現在どのステージも該当しない(Stage5の出口階段を廃したため)が、
+// getBossSymmetricEntranceTargetX が上限を引くときの余裕として残す。
 const BOSS_ENTRANCE_STAIR_CLEARANCE_PX = 40;
-// Stage5の最終階: 天守閣へ続く階段をボスが降りてくる速さ。通常の登場ダッシュ(900)だと
-// 320pxの段差を0.4秒で滑り落ちるので、踏みしめて降りる速度にする。
-const STAGE5_BOSS_STAIR_DESCENT_SPEED = 300;
 // Stage4の城門脇のかがり火。背景アートに焼き込まれているため、城郭下部の描画基準
 // (getStage4CastleWorldX)からのワールドオフセットで位置を持つ(実測で合わせた値)。
 // (炎の暖色画素の重心を実測: 画面x=718 と 1136、progress=10720 / castleWorldX=10620)
@@ -686,45 +685,10 @@ export class Stage {
     }
 
     /**
-     * 最終階(ボス部屋)の右端にある天守閣へ続く階段の、あるワールドxでの持ち上げ量(0..stairHeightPx)。
-     * この階段は通常【背景専用】で、getStairGroundY は最終階では平地を返す(プレイヤーは
-     * getFinalFloorExitBarrierX で進入を止めている)。ボスの登場だけはこの段を降りてくるので、
-     * ここで斜面を与える。
+     * 最終階(ボス部屋)か。ここには階段が無く、右端の壁に【外周へ出る通用口】が
+     * 開いている(背景アセット)。天守閣へ続く階段とボスの階段降り演出は廃止した
+     * (指定 2026-08-12)。床は平地一枚なので、会敵の構図も他ステージと同じ左右対称。
      */
-    getStage5ExitStairLift(worldX) {
-        if (!this.isFinalFloorExitStair()) return 0;
-        const dir = this.floorScrollDirection;
-        const physStart = this._getStairPhysicalStart(dir);
-        const w = Math.max(1, this.stairZoneWidth);
-        const t = dir === 1 ? (worldX - physStart) / w : (physStart - worldX) / w;
-        return this.clamp01(t) * this.stairHeightPx;
-    }
-
-    /** 最終階の階段の頂上に立たせるための座標。ボスの登場開始位置。 */
-    getStage5ExitStairTopPose(boss) {
-        if (!this.isFinalFloorExitStair()) return null;
-        const bw = typeof boss?.getWorldWidth === 'function' ? boss.getWorldWidth() : (boss?.width || 140);
-        const bh = typeof boss?.getWorldHeight === 'function' ? boss.getWorldHeight() : (boss?.height || 180);
-        const dir = this.floorScrollDirection;
-        const topWorldX = dir === 1 ? (this.maxProgress - bw - 8) : 8;
-        const lift = this.getStage5ExitStairLift(topWorldX + bw * 0.5);
-        const groundY = this.baseGroundY - lift;
-        return { x: topWorldX, y: groundY + LANE_OFFSET - bh, groundY };
-    }
-
-    /** 最終階の階段を降りている最中のボスの足元を、斜面に合わせる。 */
-    applyStage5ExitStairDescent(boss) {
-        if (!boss || !this.isFinalFloorExitStair()) return;
-        const bw = typeof boss.getWorldWidth === 'function' ? boss.getWorldWidth() : (boss.width || 140);
-        const bh = typeof boss.getWorldHeight === 'function' ? boss.getWorldHeight() : (boss.height || 180);
-        const lift = this.getStage5ExitStairLift(boss.x + bw * 0.5);
-        boss.groundY = this.baseGroundY - lift;
-        boss.y = boss.groundY + LANE_OFFSET - bh;
-        boss.vy = 0;
-        boss.isGrounded = true;
-    }
-
-    /** 最終階の右端にある、天守閣へ続く背景専用の階段か */
     isFinalFloorExitStair() {
         return this.stageNumber === 5 && this.currentFloor >= this.maxFloor;
     }
@@ -918,10 +882,9 @@ export class Stage {
             bannerCenter + BOSS_ENTRANCE_MIN_HALF_GAP_PX,
             playerCenter + BOSS_ENTRANCE_MIN_HALF_GAP_PX
         );
-        // 【階段の上では止まらせない】。Stage5の最終階は右端が天守閣へ続く階段で、
-        // ボスはそこを降りてくる。降り切る前で止まると斜面に足がめり込む
-        // (会敵の定位置を左へ寄せた結果、鏡像の着地点が階段まで届いた。
-        //  実機フィードバック 2026-08-12)。平地の側で足を止めさせる。
+        // 部屋の右端の上限。getFinalFloorExitBarrierX は現在どのステージでも
+        // Infinity を返す(Stage5の出口階段を廃したため)ので、実質は画面右端。
+        // 立ち入れない構造物を右端に置くステージが出たらここで効かせる。
         const stairFootX = this.getFinalFloorExitBarrierX();
         const roomRight = Number.isFinite(stairFootX)
             ? Math.min(scrollX + CANVAS_WIDTH, stairFootX - BOSS_ENTRANCE_STAIR_CLEARANCE_PX)
@@ -1133,10 +1096,14 @@ export class Stage {
         return false;
     }
 
-    /** 最終階の出口階段へ進入できる限界X */
+    /**
+     * 最終階で進入を止める限界X。
+     * 【もう止めない】。階段を廃して床を平地一枚にしたので、部屋の右端まで
+     * 普通に歩ける。getBossSymmetricEntranceTargetX の階段クリアランスも
+     * これが Infinity を返すことで自動的に無効になる＝会敵は左右対称に戻る。
+     */
     getFinalFloorExitBarrierX() {
-        if (!this.isFinalFloorExitStair()) return Infinity;
-        return this._getStairPhysicalStart(this.floorScrollDirection);
+        return Infinity;
     }
 
     /** プレイヤーが階段区間にいるか判定 */
@@ -1905,8 +1872,37 @@ export class Stage {
         this._stairWoodApplied = true;
     }
 
+    /**
+     * 最終階(ボス部屋)の右端に開く【外周への通用口】。
+     * 天守閣へ続く階段の代わり(指定 2026-08-12)。高欄の向こうに夜空と山が見える。
+     * 足元は他の背景物と同じ床帯の奥(BG_PROP_FOOT_DEPTH)に置き、腰壁が床へ
+     * わずかに入る＝壁に開いた口として床と繋がる。
+     * 立面なので進入の判定は持たない(床は平地一枚のまま)。
+     */
+    renderStage5BossExit(ctx, scrollX) {
+        const img = this.stage5BossExitImage;
+        if (!img?.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) return;
+        const drawH = 430;
+        const drawW = Math.round(drawH * (img.naturalWidth / img.naturalHeight));
+        const footY = this.baseGroundY + BG_PROP_FOOT_DEPTH;
+        const worldX = this.maxProgress - drawW - 60;
+        const x = Math.round(worldX - scrollX);
+        if (x + drawW < -80 || x > CANVAS_WIDTH + 80) return;
+        ctx.save();
+        ctx.filter = 'brightness(0.92) saturate(0.94)';
+        drawImageGraded(ctx, img, x, footY - drawH, drawW, drawH);
+        ctx.filter = 'none';
+        ctx.restore();
+    }
+
     renderStairZone(ctx, scrollX) {
-        if (this.stageNumber !== 5 || !this.stairImage) return;
+        if (this.stageNumber !== 5) return;
+        // 最終階(ボス部屋)には階段が無い。右端の壁に外周への通用口が開く。
+        if (this.isFinalFloorExitStair()) {
+            this.renderStage5BossExit(ctx, scrollX);
+            return;
+        }
+        if (!this.stairImage) return;
         this.ensureStairWoodTexture();
         // ボスフロア（5F）では「天守閣へ続く登れない階段」として右端に背景描画される
 
@@ -2684,9 +2680,6 @@ export class Stage {
                 // まだ目標に届いていない: 高速で左に進む
                 this.boss.x -= moveAmount;
                 this.boss.facingRight = false;
-                // Stage5の最終階は天守閣へ続く階段を【踏みしめて降りてくる】。
-                // 平地に出たら lift=0 になり、そのまま通常の歩き入りに繋がる。
-                this.applyStage5ExitStairDescent(this.boss);
             } else {
                 // 目標到達！ 登場完了
                 this.boss.x = targetX;
@@ -3414,19 +3407,6 @@ export class Stage {
                 this.boss, scrollX, (window.game && window.game.player) || null
             );
         this.boss.entranceSpeed = 900; // 高速ダッシュ登場
-
-        // Stage5の最終階は【天守閣へ続く階段の上に現れて、踏みしめて降りてくる】。
-        // 画面外の右からダッシュで滑り込むより、この階段があることを活かす。
-        const stairTop = this.getStage5ExitStairTopPose(this.boss);
-        if (stairTop) {
-            this.boss.x = stairTop.x;
-            this.boss.y = stairTop.y;
-            this.boss.groundY = stairTop.groundY;
-            this.boss.vx = 0;
-            this.boss.vy = 0;
-            this.boss.isGrounded = true;
-            this.boss.entranceSpeed = STAGE5_BOSS_STAIR_DESCENT_SPEED;
-        }
 
         if (standby && Number.isFinite(perchY)) {
             this.boss.x = perchX;

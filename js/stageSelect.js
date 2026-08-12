@@ -9,9 +9,9 @@
 // ノード座標は「画像内の比率(u,v)」で持ち、cover 変換で画面座標へ写す。
 // 画像を差し替えても u,v を微調整するだけで済む（map_generation_prompt.md 参照）。
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, STAGES, getUiScale, getFontScale, getScreenSafeArea, isTouchOverlayMode } from './constants.js?v=screen-safe-20260812p';
-import { fillTextInkCentered, drawScreenManualLine, formatCount } from './ui.js?v=screen-safe-20260812p';
-import { getSideBest } from './sideStageCommon.js?v=screen-safe-20260812p';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, STAGES, getUiScale, getFontScale, getScreenSafeArea, isTouchOverlayMode } from './constants.js?v=screen-safe-20260812q';
+import { fillTextInkCentered, drawScreenManualLine, formatCount } from './ui.js?v=screen-safe-20260812q';
+import { getSideBest } from './sideStageCommon.js?v=screen-safe-20260812q';
 
 // ノード定義。kind: main=本編 / bonus=小判蔵(第2階層踏破で解放) /
 // training=修行道場(第3階層踏破で解放)。どちらも実装済み。

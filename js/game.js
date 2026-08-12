@@ -2,17 +2,17 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260812p';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812p';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260812p';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260812p';
-import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260812p';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260812p';
-import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260812p';
-import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260812p';
-import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260812p';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260812p';
-import { input } from './input.js?v=screen-safe-20260812p';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260812q';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812q';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260812q';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260812q';
+import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260812q';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260812q';
+import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260812q';
+import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260812q';
+import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260812q';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260812q';
+import { input } from './input.js?v=screen-safe-20260812q';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -50,18 +50,18 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=screen-safe-20260812p';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260812p';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260812p';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260812p';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseReturnButton, getPauseMapButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260812p';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260812p';
-import { saveManager } from './save.js?v=screen-safe-20260812p';
-import { shop } from './shop.js?v=screen-safe-20260812p';
-import { audio } from './audio.js?v=screen-safe-20260812p';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260812p';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260812p';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260812p';
+import { Player } from './player.js?v=screen-safe-20260812q';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260812q';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260812q';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260812q';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseReturnButton, getPauseMapButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260812q';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260812q';
+import { saveManager } from './save.js?v=screen-safe-20260812q';
+import { shop } from './shop.js?v=screen-safe-20260812q';
+import { audio } from './audio.js?v=screen-safe-20260812q';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260812q';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260812q';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260812q';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -1188,7 +1188,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260812p').then(module => {
+        import('./weapon.js?v=screen-safe-20260812q').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -2947,16 +2947,9 @@ class Game {
             const playerGroundProbeX = this.getStage5PlayerGroundProbeX();
             this.player.groundY = this.stage.getStairGroundY(playerGroundProbeX);
 
-            // 五階右端の階段は天守閣へ続く背景専用オブジェクトとして進入を止める。
-            if (this.stage.isFinalFloorExitStair()) {
-                const exitBarrierX = this.stage.getFinalFloorExitBarrierX();
-                const maxPlayerX = exitBarrierX - this.player.getWorldWidth();
-                if (this.player.x > maxPlayerX) {
-                    this.player.x = maxPlayerX;
-                    if (this.player.vx > 0) this.player.vx = 0;
-                }
-            }
-            
+            // 最終階の右端に進入の壁は置かない。階段を廃して床が平地一枚になり、
+            // 出口は壁に開いた背景の通用口になったため(指定 2026-08-12)。
+
             // 敵全員の接地更新（踊り場対応）
             const allEnemies = this.stage.getAllEnemies();
             for (const enemy of allEnemies) {
@@ -2970,15 +2963,7 @@ class Game {
                     ? this.stage.boss.getWorldWidth()
                     : this.stage.boss.width;
                 const bossCenterX = this.stage.boss.x + bossWorldWidth / 2;
-                // 【登場中の階段降りは stage 側が足元を持つ】。最終階の出口階段は
-                // getStairGroundY が平地を返すので、ここで上書きすると階段の上で
-                // 足元が抜けて滑り落ちる。
-                const descendingExitStair = this.stage.boss.isEntering
-                    && typeof this.stage.isFinalFloorExitStair === 'function'
-                    && this.stage.isFinalFloorExitStair();
-                if (!descendingExitStair) {
-                    this.stage.boss.groundY = this.stage.getStairGroundY(bossCenterX);
-                }
+                this.stage.boss.groundY = this.stage.getStairGroundY(bossCenterX);
             }
             
             // 登りきったら次のフロアへ（最終階を除く）
@@ -4250,12 +4235,22 @@ class Game {
             ? Math.hypot(CANVAS_WIDTH, CANVAS_HEIGHT) * 1.2
             : normalMagnetRadius;
         
-        // プレイヤーのジャンプに関わらず、ジェムは固定のレーンを地面として扱う。
+        // プレイヤーのジャンプに関わらず、ジェムは足元のレーンを地面として扱う。
         // stage6最上階は足元ラインが大棟の上(=通常の床帯より96px上)なので、
         // 通常のレーンを使うとジェムだけ屋根の中に沈む。
-        const groundLimit = (this.stage.isStage6Arena && this.stage.isStage6Arena())
+        // 【Stage5の階段では x ごとに床が違う】。一律のレーンだと階段の上に落ちた
+        // ジェムが段の中へ沈み、段を転がり降りて来られなかった
+        // (実機フィードバック 2026-08-12)。プレイヤーと同じ getStairGroundY を引く。
+        const inStage6Arena = !!(this.stage.isStage6Arena && this.stage.isStage6Arena());
+        const flatGroundLimit = inStage6Arena
             ? this.stage.getStage6ArenaGroundY() + LANE_OFFSET
             : this.stage.groundY + LANE_OFFSET;
+        const useStairGround = !inStage6Arena
+            && this.currentStageNumber === 5
+            && typeof this.stage.getStairGroundY === 'function';
+        const groundLimitAt = (x) => (useStairGround
+            ? this.stage.getStairGroundY(x) + LANE_OFFSET
+            : flatGroundLimit);
 
         this.expGems = this.expGems.filter((gem) => {
             gem.lifeMs -= this.deltaTime * 1000;
@@ -4319,6 +4314,8 @@ class Game {
             gem.y += gem.vy;
             gem.sparklePhase += this.deltaTime * 8.2;
 
+            // 床は毎フレーム今いる x で引き直す（階段の上では段の面が床）
+            const groundLimit = groundLimitAt(gem.x);
             if (gem.y > groundLimit - gem.size) {
                 gem.y = groundLimit - gem.size;
                 gem.vy *= -0.2;
