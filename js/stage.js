@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812r';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812r';
-import { createEnemy } from './enemy.js?v=screen-safe-20260812r';
-import { createBoss } from './boss.js?v=screen-safe-20260812r';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260812r';
-import { audio } from './audio.js?v=screen-safe-20260812r';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812r';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812s';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812s';
+import { createEnemy } from './enemy.js?v=screen-safe-20260812s';
+import { createBoss } from './boss.js?v=screen-safe-20260812s';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260812s';
+import { audio } from './audio.js?v=screen-safe-20260812s';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812s';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260812r';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812r';
+} from './stage6Grapple.js?v=screen-safe-20260812s';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812s';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812r';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812s';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -76,7 +76,7 @@ const STAGE_IMAGE_SOURCES = {
     },
     3: {
         fields: {
-            stage3ExitImage: 'images/stage3_mountain_exit.png',
+            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260813_exit2',
             stage3GroundImage: 'images/stage3_ground_mountain_tile.png',
             // 遠景の山並み。1枚をミラー連結してあるので横に繰り返すと稜線が繋がる
             // (右端は自身の鏡像と接し、巻き戻り点は左端同士)。
@@ -4222,16 +4222,24 @@ export class Stage {
         const peekAnchorX = peekBase - p;
         if (peekAnchorX > CANVAS_WIDTH + 600) return;
         const ANCHOR_STOP = peekBase - (this.maxProgress - CANVAS_WIDTH);
-        const exitW = 680;
+        const exitW = 1320;
         const exitH = exitW * (exitImg.naturalHeight / exitImg.naturalWidth);
         const exitX = peekAnchorX + (CANVAS_WIDTH - exitW + 18 - ANCHOR_STOP);
         if (exitX + exitW < -80 || exitX > CANVAS_WIDTH + 120) return;
-        // 画像下部に透明余白が約10.8%あるため、不透明部分の下端で接地させる。
-        // 足元は道沿いの添景と同じ床帯の奥（プレイヤーのレーンではない）。
-        const visibleBottomRatio = 829 / 929;
-        const footY = this.groundY + BG_PROP_FOOT_DEPTH + 2;
-        const exitY = Math.round(footY - exitH * visibleBottomRatio);
+        // 【接地の基準は絵の中の地平線】。この絵は下の方に自前の石畳まで描いてあり、
+        // 不透明部の一番下で合わせると岩の裾が床帯より上に来て浮いた
+        // (実機フィードバック 2026-08-12)。町の足元＝地面が始まる高さ
+        // (実測 y=657 / h=909)を、他の背景物と同じ足元線に置く。
+        const EXIT_HORIZON_RATIO = 657 / 909;
+        const footY = this.groundY + BG_PROP_FOOT_DEPTH;
+        const exitY = Math.round(footY - exitH * EXIT_HORIZON_RATIO);
         ctx.save();
+        // 【絵が持っている石畳は描かない】。ゲームの路面と質感も遠近も揃わず、
+        // 絵の左端で路面が縦に切れて見える。足元線の少し下で切って、
+        // 岩の裾と枯れ草だけを床帯へ出す＝下はゲームの道がそのまま続く。
+        ctx.beginPath();
+        ctx.rect(0, -400, CANVAS_WIDTH, footY + 26 + 400);
+        ctx.clip();
         ctx.globalAlpha *= 0.96;
         ctx.filter = 'brightness(0.84) saturate(0.72) contrast(0.94)';
         drawImageGraded(ctx, exitImg, exitX, exitY, exitW, exitH);
