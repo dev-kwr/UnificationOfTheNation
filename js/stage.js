@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260813b';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260813b';
-import { createEnemy } from './enemy.js?v=screen-safe-20260813b';
-import { createBoss } from './boss.js?v=screen-safe-20260813b';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260813b';
-import { audio } from './audio.js?v=screen-safe-20260813b';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260813b';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260813c';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260813c';
+import { createEnemy } from './enemy.js?v=screen-safe-20260813c';
+import { createBoss } from './boss.js?v=screen-safe-20260813c';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260813c';
+import { audio } from './audio.js?v=screen-safe-20260813c';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260813c';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260813b';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260813b';
+} from './stage6Grapple.js?v=screen-safe-20260813c';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260813c';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260813b';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260813c';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -76,7 +76,7 @@ const STAGE_IMAGE_SOURCES = {
     },
     3: {
         fields: {
-            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260813_exit3',
+            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260813_exit4',
             stage3GroundImage: 'images/stage3_ground_mountain_tile.png',
             // 遠景の山並み。1枚をミラー連結してあるので横に繰り返すと稜線が繋がる
             // (右端は自身の鏡像と接し、巻き戻り点は左端同士)。
@@ -118,8 +118,13 @@ const STAGE_IMAGE_SOURCES = {
             stage5StairImage: 'images/stage5_stairs.png?v=20260813_stairs3',
             // 階段の材質。生成画像が読めないときのCanvas製の表面に重ねる。
             stage5StairWoodImage: 'images/stage5_stair_wood.png?v=20260812_wood1',
-            // 最終階(ボス部屋)の右端。外周へ出る通用口(夜景つき)。
-            stage5BossExitImage: 'images/stage5_boss_exit.png?v=20260813_exit2',
+            // 最終階(ボス部屋)の右端。外周へ出る通用口(木部だけ。外の景色は口の中が
+            // 抜けていて、下の連山と月をゲーム側で流し込む)。
+            stage5BossExitImage: 'images/stage5_boss_exit.png?v=20260813_exit4',
+            // 【stage6と同じ連山アセットを意図的に共有する】。通用口の向こうは
+            // 天守の外＝stage6の一場面そのものでなければならない(指定 2026-08-13)。
+            // 似せた別画像を持つと片方だけ更新されて食い違うので、同じ物を読む。
+            stage6PanoramaMountainsFarImage: 'images/stage6_panorama_mountains_far.png?v=20260727_mountains3',
         },
     },
     6: {
@@ -274,6 +279,13 @@ const STAGE6_ROOF_ENTRY_DEPTH = 150;   // 棟の下へ隠す深さ(全身が隠�
 const STAGE6_ROOF_ENTRY_VY = -21.5;    // 跳び上がりの初速(GRAVITY=0.8で約289px上がる)
                                        // = 棟の線を139px越え、頂点で0.9秒ほど滞空する。
                                        // 低いと「せり上がり」に見えるので、大きく浮かせる
+
+// Stage6 の開幕の空と月。Stage5 ボス部屋の通用口から見える外の景色は
+// 「stage6が始まる場所そのもの」なので、両方がこの定数を読む(指定 2026-08-13)。
+// 空色は STAGE_PALETTES[6].start.sky、月は renderCelestialBodies の sn===6 と同値。
+const STAGE6_SKY_TOP = '#0b1016';
+const STAGE6_SKY_BOTTOM = '#040608';
+const STAGE6_MOON_RADIUS = 140;
 
 // --- Stage6 パノラマの帯高さ(index = cornersClimbed = 階層) ---
 // 遠い連山は城の高さが数階変わっても視角がほぼ変わらない。同じ山を全区画で
@@ -1937,6 +1949,12 @@ export class Stage {
      * よって絵の下辺＝敷居の下端であり、それを他の背景物と同じ足元線
      * (BG_PROP_FOOT_DEPTH)へ置けば、口と床が段差なしで繋がる。
      * 立面なので進入の判定は持たない(床は平地一枚のまま)。
+     *
+     * 【口の向こうの景色はstage6と同じでなければならない】(指定 2026-08-13)。
+     * ここは天守の外＝stage6が始まる場所そのもの。似せた別の夜景をアセットへ
+     * 焼き込むと必ず食い違うので、絵には木部だけを描かせ、口の中は抜いてある。
+     * 空の色・月・連山は renderStage5BossExitView が stage6 と同じ値と同じ
+     * アセットで描く。
      */
     renderStage5BossExit(ctx, scrollX) {
         const img = this.stage5BossExitImage;
@@ -1946,14 +1964,159 @@ export class Stage {
         const footY = this.baseGroundY + BG_PROP_FOOT_DEPTH;
         const worldX = this.maxProgress - drawW - 60;
         const x = Math.round(worldX - scrollX);
+        const y = footY - drawH;
         if (x + drawW < -80 || x > CANVAS_WIDTH + 80) return;
+
+        // 先に外の景色を口の中へ流し込み、その上から木部を重ねる。
+        const ap = this.getStage5BossExitAperture();
+        if (ap) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(x + ap.x * drawW, y + ap.y * drawH, ap.w * drawW, ap.h * drawH);
+            ctx.clip();
+            this.renderStage5BossExitView(ctx, x + ap.x * drawW, y + ap.y * drawH, ap.w * drawW, ap.h * drawH);
+            ctx.restore();
+        }
+
         ctx.save();
         // 素の生成色は広間の古材より灰色に寄っていて、壁に貼った別物に見える。
-        // 暖色へ寄せて真壁の柱と同じ木の色にする(口の中の夜空は青のまま残る量)。
+        // 暖色へ寄せて真壁の柱と同じ木の色にする。
         ctx.filter = 'brightness(0.90) saturate(1.32) sepia(0.22)';
-        drawImageGraded(ctx, img, x, footY - drawH, drawW, drawH);
+        drawImageGraded(ctx, img, x, y, drawW, drawH);
         ctx.filter = 'none';
         ctx.restore();
+    }
+
+    /**
+     * 通用口の【抜けている部分】を絵から自動で割り出す。
+     * 外周(画像の縁)と繋がった透明はクロマキーで抜いた外側、繋がっていない透明が
+     * 口の中(高欄の隙間を含む)。座標を手で書くとアセットを描き直すたびにずれるので、
+     * αを塗り分けて求め、描画サイズに対する比率で持つ。
+     */
+    getStage5BossExitAperture() {
+        if (this._bossExitAperture !== undefined) return this._bossExitAperture;
+        const img = this.stage5BossExitImage;
+        if (!img?.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) return null;
+        const w = img.naturalWidth;
+        const h = img.naturalHeight;
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const c = canvas.getContext('2d', { willReadFrequently: true });
+        if (!c) return null;
+        c.drawImage(img, 0, 0);
+        const data = c.getImageData(0, 0, w, h).data;
+        const OPAQUE = 24;
+        const outside = new Uint8Array(w * h);
+        const stack = [];
+        const push = (px, py) => {
+            const i = py * w + px;
+            if (outside[i] || data[i * 4 + 3] > OPAQUE) return;
+            outside[i] = 1;
+            stack.push(i);
+        };
+        for (let px = 0; px < w; px++) { push(px, 0); push(px, h - 1); }
+        for (let py = 0; py < h; py++) { push(0, py); push(w - 1, py); }
+        while (stack.length) {
+            const i = stack.pop();
+            const px = i % w;
+            const py = (i - px) / w;
+            if (px > 0) push(px - 1, py);
+            if (px < w - 1) push(px + 1, py);
+            if (py > 0) push(px, py - 1);
+            if (py < h - 1) push(px, py + 1);
+        }
+        let x0 = w, x1 = -1, y0 = h, y1 = -1;
+        for (let py = 0; py < h; py++) {
+            for (let px = 0; px < w; px++) {
+                const i = py * w + px;
+                if (outside[i] || data[i * 4 + 3] > OPAQUE) continue;
+                if (px < x0) x0 = px;
+                if (px > x1) x1 = px;
+                if (py < y0) y0 = py;
+                if (py > y1) y1 = py;
+            }
+        }
+        this._bossExitAperture = (x1 >= x0 && y1 >= y0)
+            ? { x: x0 / w, y: y0 / h, w: (x1 - x0 + 1) / w, h: (y1 - y0 + 1) / h }
+            : null;
+        return this._bossExitAperture;
+    }
+
+    /**
+     * 通用口の中に見える外の景色。stage6の開幕と【同じ物】で組む:
+     *   夜空 = STAGE6_SKY_TOP/BOTTOM (stage6のパレット start と同じ定数)
+     *   月   = stage6と同じ芯の色・同じグローの倍率(4.8)
+     *   連山 = stage6PanoramaMountainsFarImage を同じ srcTopFrac・同じ filter で
+     *
+     * 口(高さ約256)はstage6の画面(720)より小さいので、月と山を別々に詰めると
+     * 位置関係が崩れて「別の夜」になる。stage6の一場面を【丸ごと同じ比率で縮小して】
+     * 流し込む。月の大きさと、月から稜線までの間の取り方が保たれる。
+     */
+    renderStage5BossExitView(ctx, x, y, w, h) {
+        const sky = ctx.createLinearGradient(0, y, 0, y + h);
+        sky.addColorStop(0, STAGE6_SKY_TOP);
+        sky.addColorStop(1, STAGE6_SKY_BOTTOM);
+        ctx.fillStyle = sky;
+        ctx.fillRect(x, y, w, h);
+
+        // stage6開幕の画面上の実寸。月は南中(theta=PI/2)なので
+        //   中心y = groundY*0.95 - groundY*0.6 = groundY*0.35
+        // 連山の下端は renderStage6Panorama の bottom = groundY + 24。
+        const refMoonCy = this.baseGroundY * 0.35;
+        const refMtnBottom = this.baseGroundY + 24;
+        const refTop = refMoonCy - STAGE6_MOON_RADIUS;
+        // 口(約324x256=1.27)はstage6の見せ場(1280x474=2.70)より縦長なので、
+        // 高さだけで合わせると横に狭い分だけ月が枠一杯になる
+        // (実測: 月の直径が口の幅の46%になり「窓に白い円が詰まった」絵になった)。
+        // 月の直径が口の幅の1/3に収まる倍率で頭打ちにする。月と稜線の【比】も
+        // 【間の取り方】もこの倍率のまま保たれるので、同じ夜のまま縮むだけ。
+        const k = Math.min(
+            h / Math.max(1, refMtnBottom - refTop),
+            w / (STAGE6_MOON_RADIUS * 2 * 3.0)
+        );
+
+        const r = STAGE6_MOON_RADIUS * k;
+        const cx = x + w * 0.5;
+        const cy = y + h - (refMtnBottom - refMoonCy) * k;
+        // グローの倍率だけは stage6 の 4.8 を使えない。あちらは 1280x720 の中に
+        // 半径672の暈を置くので外側に暗い夜空が残るが、口(約320x256)では暈が
+        // 開口を覆い尽くして一面の白い靄になる(実測: 開口の全画素がグロー内)。
+        // 「大きな月 + 暈 + その外の暗い夜空」という読みを保つため、暈の外周が
+        // 開口の中で終わる倍率にする。月の大きさ・色・稜線との間隔は stage6 のまま。
+        const glowR = r * 2.3;
+        const peak = r / glowR;
+        const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, glowR);
+        glow.addColorStop(0, 'rgba(240, 248, 255, 0.15)');
+        glow.addColorStop(peak, 'rgba(240, 248, 255, 0.75)');
+        glow.addColorStop(Math.min(peak + (1 - peak) * 0.45, 0.98), 'rgba(240, 248, 255, 0.18)');
+        glow.addColorStop(1, 'rgba(240, 248, 255, 0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
+        ctx.fill();
+        const core = ctx.createLinearGradient(0, cy - r, 0, cy + r);
+        core.addColorStop(0, '#f8f9fa');
+        core.addColorStop(1, '#ced4da');
+        ctx.fillStyle = core;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 連山。stage6と同じ絵・同じ切り出し・同じフィルタ・同じ横倍率。
+        const mtn = this.stage6PanoramaMountainsFarImage;
+        if (mtn?.complete && mtn.naturalWidth > 0 && mtn.naturalHeight > 0) {
+            const srcY = Math.round(mtn.naturalHeight * STAGE6_MTN_SRC_TOP);
+            const srcH = mtn.naturalHeight - srcY;
+            const mH = Math.max(1, Math.round(STAGE6_MTN_H * k));
+            const mW = Math.ceil(mH * (mtn.naturalWidth / srcH) * 2.8);
+            ctx.save();
+            ctx.filter = 'brightness(0.70) saturate(0.50) contrast(0.91)';
+            drawImageGraded(ctx, mtn, 0, srcY, mtn.naturalWidth, srcH,
+                Math.round(x + w * 0.5 - mW * 0.5), Math.round(y + h - mH), mW, mH);
+            ctx.filter = 'none';
+            ctx.restore();
+        }
     }
 
     renderStairZone(ctx, scrollX) {
@@ -2387,7 +2550,9 @@ export class Stage {
                 elements: 'castle'
             },
             6: { // 天守閣（深夜から最終日の出）
-                start: { sky: ['#0b1016', '#040608'], far: '#06060B', mid: '#0B0A11', near: '#11101A' },
+                // start.sky は Stage5 の通用口から見える外の景色と共有する。
+                // 別々に持つと片方だけ直して食い違うので定数から取る。
+                start: { sky: [STAGE6_SKY_TOP, STAGE6_SKY_BOTTOM], far: '#06060B', mid: '#0B0A11', near: '#11101A' },
                 mid:   { sky: ['#07142a', '#030d1c'], far: '#080d16', mid: '#0e1520', near: '#141e2e' },
                 end:   { sky: ['#f39c12', '#e74c3c'], far: '#5b2c1f', mid: '#7d3c2a', near: '#a14d36' },
                 elements: 'tenshu'
@@ -4334,18 +4499,23 @@ export class Stage {
         return true;
     }
 
-    // Stage3のラストオブジェクト(峠の切り通し stage3_mountain_exit.png)。
+    // Stage3のラストオブジェクト(峠 stage3_mountain_exit.png)。
     // 【地面レイヤーの後に描く】(renderStage3RoadsideOnGround 経由)。
     // 旧 renderNextStagePeek は背景パス(地面より前)にあり、基部を足元線まで
     // 下げると下が地面に覆われるため地平線(480)接地しか選べず、床帯(480..512)の
     // 上で浮いて見えていた。投影文法: 構造物基部は478..512(床帯へ食い込ませて植える)。
     //
     // 【絵の作りの前提】(2026-08-13 に描き直し)
-    // 左右の石塚はどちらも【画像の中で地面に着いて終わる独立した山形】で、
-    // 画像の左右端は透明。横スクロールで流れ込んでも縦の裁ち切り線が出ない。
-    // 旧アセットは左端の列が849px ぶん不透明な裁ち切りで、画面を縦の切り口が
-    // 横切っていた(実機フィードバック)。地面線より下は枯れ草と小石だけで、
-    // 自前の石畳は持たない＝ゲームの道がそのまま下に続く。
+    // ・素材は【遠景の山と同じ】。山道には岩の露頭も巨石も一度も出てこない
+    //   (添景は地蔵・道祖神・道標・石灯籠・古い木の柵と枯れ草だけ)。
+    //   写実の岩を積んだ絵にすると、ここだけ材質も画風も変わって唐突に見える
+    //   (実機フィードバック 2026-08-13)。遠景と同じ面で構成した山を一段手前へ
+    //   降ろし、道の両側から迫らせる＝峠として閉じる。
+    // ・左右の稜線はどちらも【画像の中で地面に着いて終わる独立した山形】で、
+    //   画像の左右端は透明。横スクロールで流れ込んでも縦の裁ち切り線が出ない。
+    //   (生成物は端で切り落とすので scratch/taper_foot.py で裾を作ってある)
+    // ・地面線より下は枯れ草と小石だけで、自前の道は持たない
+    //   ＝ゲームの路面がそのまま下に続く。
     renderStage3ExitOnGround(ctx) {
         const exitImg = this.stage3ExitImage;
         if (!(exitImg && exitImg.complete && exitImg.naturalWidth > 0)) return;
@@ -4356,11 +4526,13 @@ export class Stage {
         const peekBase = this.maxProgress - 150; // ボス部屋右端寄りに（手前の添景と分離・見切れ防止）
         const peekAnchorX = peekBase - p;
         const ANCHOR_STOP = peekBase - (this.maxProgress - CANVAS_WIDTH);
-        // 【縦は画面に収める】。塚の頂が画面の上辺で切れると「岩の壁」に見える。
-        // 足元線(492)から上へ EXIT_HORIZON_RATIO ぶんが塚の高さなので、
-        // 頂が y=EXIT_TOP_MARGIN_PX に来る大きさを幅へ逆算する。
-        const EXIT_TOP_MARGIN_PX = 46;
-        const EXIT_HORIZON_RATIO = 586 / 625; // 実測: 岩の裾が地面に着く行 / 画像の高さ
+        // 【縦は画面に収める】。頂が画面の上辺で切れると「壁」に見える。
+        // 足元線(492)から上へ EXIT_HORIZON_RATIO ぶんが山の高さなので、
+        // 絵の上辺が y=EXIT_TOP_MARGIN_PX に来る大きさを幅へ逆算する。
+        // 遠景の帯(y270あたりが最高峰)より一段だけ高い位置に頂が来る値にしてある。
+        // ここを詰めすぎると「同じ山が一段手前に来た」ではなく壁になる。
+        const EXIT_TOP_MARGIN_PX = 150;
+        const EXIT_HORIZON_RATIO = 415 / 432; // 実測: 山の裾が地面に着く行 / 画像の高さ
         const footY = this.groundY + BG_PROP_FOOT_DEPTH;
         const exitH = Math.round((footY - EXIT_TOP_MARGIN_PX) / EXIT_HORIZON_RATIO);
         const exitW = Math.round(exitH * (exitImg.naturalWidth / exitImg.naturalHeight));
@@ -7308,7 +7480,7 @@ export class Stage {
             }
         } else if (sn === 6) {
             // ステージ6: 月(中央〜沈む) -> 仄暗い朝 -> 太陽(日の出〜固定)
-            const moonRadius = 140; // 3倍
+            const moonRadius = STAGE6_MOON_RADIUS; // 3倍
             const sunRadius = 135;  // 3倍 (140だと少し大きすぎるかもしれないので微調整)
 
             // 天体は山の稜線より下へ描かない。パノラマは天体より後に描かれるが、

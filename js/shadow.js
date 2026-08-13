@@ -18,7 +18,7 @@
 // compositeOp       : 合成モード（'source-over' or 'multiply'）
 // ================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from './constants.js?v=screen-safe-20260813b';
+import { CANVAS_WIDTH, CANVAS_HEIGHT } from './constants.js?v=screen-safe-20260813c';
 
 export class ShadowRenderer {
     constructor(config = {}) {
