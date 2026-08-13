@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260812s';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260812s';
-import { createEnemy } from './enemy.js?v=screen-safe-20260812s';
-import { createBoss } from './boss.js?v=screen-safe-20260812s';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260812s';
-import { audio } from './audio.js?v=screen-safe-20260812s';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260812s';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260813a';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260813a';
+import { createEnemy } from './enemy.js?v=screen-safe-20260813a';
+import { createBoss } from './boss.js?v=screen-safe-20260813a';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260813a';
+import { audio } from './audio.js?v=screen-safe-20260813a';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260813a';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260812s';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260812s';
+} from './stage6Grapple.js?v=screen-safe-20260813a';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260813a';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260812s';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260813a';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -113,7 +113,10 @@ const STAGE_IMAGE_SOURCES = {
         fields: {
             stage5InteriorWallImage: 'images/stage5_castle_interior_wall.png?v=20260706_bg1',
             stage5GroundImage: 'images/stage5_ground_wood_tile.png',
-            // 階段の材質。形はCanvas製のまま、表面にだけ重ねる。
+            // 階段の絵。Canvas製の投影(奥行きを真上へ押し出す2.5D)に合わせて
+            // 描かせたもの。段の線の傾きだけ縦へ補正して重ねる(ensureStairImageFromPng)。
+            stage5StairImage: 'images/stage5_stairs.png?v=20260813_stairs3',
+            // 階段の材質。生成画像が読めないときのCanvas製の表面に重ねる。
             stage5StairWoodImage: 'images/stage5_stair_wood.png?v=20260812_wood1',
             // 最終階(ボス部屋)の右端。外周へ出る通用口(夜景つき)。
             stage5BossExitImage: 'images/stage5_boss_exit.png?v=20260812_exit1',
@@ -241,6 +244,11 @@ const STAGE6_BOSS_INTRO_IDLE_SETTLE_MS = 220;
 // 名乗り帯の中心からボスの中心までの最低距離。対称位置がこれより内側になる場合
 // (プレイヤーが中央付近で足を止めた場合)はここで止めて、間合いを潰さない。
 const BOSS_ENTRANCE_MIN_HALF_GAP_PX = 200;
+// Stage5の階段の論理寸法。stairRenderer.js の STEPS*STEP_RUN / STEPS*STEP_RISE と、
+// 側桁が段の線より下へ出る量。生成画像をここへ重ねる(ensureStairImageFromPng)。
+const STAIR_LOGICAL_RUN = 900;
+const STAIR_LOGICAL_RISE = 800;
+const STAIR_STRINGER_BELOW = 33;
 // 部屋の右端に立ち入れない構造物がある場合に、ボスの足を離しておく量。
 // 現在どのステージも該当しない(Stage5の出口階段を廃したため)が、
 // getBossSymmetricEntranceTargetX が上限を引くときの余裕として残す。
@@ -1841,6 +1849,49 @@ export class Stage {
 
     /** 階段区間の石段を描画する */
     /**
+     * 階段の生成画像を、Canvas製と【同じ座標系】へ焼き直して差し替える。
+     *
+     * Canvasの投影は「奥行き(230)を真上へ0.6倍で押し出す」2.5Dで、
+     *   1段 = 幅45 / 蹴上げ40 / 踏板の面が真上へ138
+     *   帯の縦の厚み 211 = 段の線の上へ178 + 下へ33
+     *   段の線の傾き 40:45 = 0.889
+     * になる。生成画像はこの作り(上の縁がギザギザ・下の縁が直線の一定厚みの帯)を
+     * 満たしているが、【下の縁の傾きだけ 0.699 と緩い】(実測)。
+     * 傾きは getStairGroundY の斜面と一致していないといけない(足元がずれる)ので、
+     * 縦だけ 1.185 倍して段の線を Canvas と重ねる。横は 0.932 倍。
+     *
+     * 焼き先は Canvas製と同じ 1080x1118・原点(50,1068)。stairOriginX/Y も
+     * totalL/H も drawScale も変えないので、下流の座標計算は一切動かない。
+     */
+    ensureStairImageFromPng() {
+        if (this.stageNumber !== 5 || this._stairPngApplied) return;
+        const png = this.stage5StairImage;
+        if (!png?.complete || png.naturalWidth <= 0 || png.naturalHeight <= 0) return;
+        const base = this.stairImage;
+        if (!base || typeof base.getContext !== 'function') return;
+        // 生成画像(967x869)の下端の直線の両端。左(0,868) と 右(966,193) を実測。
+        const SRC_LEFT_X = 0, SRC_LEFT_Y = 868;
+        const SRC_RUN = 966, SRC_RISE = 675;
+        const sx = STAIR_LOGICAL_RUN / SRC_RUN;
+        const sy = STAIR_LOGICAL_RISE / SRC_RISE;
+        const canvas = document.createElement('canvas');
+        canvas.width = base.width;
+        canvas.height = base.height;
+        const c = canvas.getContext('2d');
+        c.imageSmoothingEnabled = true;
+        // Canvas製の下端の左端 = 原点(50,1068) の 33 下
+        c.drawImage(
+            png,
+            this.stairOriginX - SRC_LEFT_X * sx,
+            (this.stairOriginY + STAIR_STRINGER_BELOW) - SRC_LEFT_Y * sy,
+            png.naturalWidth * sx,
+            png.naturalHeight * sy
+        );
+        this.stairImage = canvas;
+        this._stairPngApplied = true;
+    }
+
+    /**
      * 階段の木目。【形と陰影はCanvas製のまま】。
      * 生成画像で階段そのものを描き起こすと、Canvasの2.5D投影(奥行きを真上へ
      * 138px押し出す)が再現できずシルエットが変わった(2026-08-12に2回差し戻し)。
@@ -1850,6 +1901,7 @@ export class Stage {
      */
     ensureStairWoodTexture() {
         if (this.stageNumber !== 5 || this._stairWoodApplied) return;
+        if (this._stairPngApplied) return;   // 生成画像は既に木で描かれている
         const wood = this.stage5StairWoodImage;
         if (!wood?.complete || wood.naturalWidth <= 0) return;
         const canvas = this.stairImage;
@@ -1897,6 +1949,7 @@ export class Stage {
 
     renderStairZone(ctx, scrollX) {
         if (this.stageNumber !== 5) return;
+        this.ensureStairImageFromPng();
         // 最終階(ボス部屋)には階段が無い。右端の壁に外周への通用口が開く。
         if (this.isFinalFloorExitStair()) {
             this.renderStage5BossExit(ctx, scrollX);
@@ -1944,6 +1997,7 @@ export class Stage {
      */
     renderPreviousStairTop(ctx, scrollX) {
         if (this.stageNumber !== 5 || !this.showPreviousStair || !this.stairImage) return;
+        this.ensureStairImageFromPng();
         this.ensureStairWoodTexture();
 
         const prevDir = this.previousStairDirection;
@@ -2002,6 +2056,71 @@ export class Stage {
 
         // 階段を描いた後にもう一度だけ灯りを重ねる（踏板の先が光を拾う）
         this.drawStairwellLightOverlay(ctx, clipScreenX, visibleWidth, prevDir);
+        // 最後に框(かまち)。床の切り口を納めて、穴を床の一部として見せる
+        this.drawStairwellFrame(ctx, clipScreenX, visibleWidth, prevDir);
+    }
+
+    /**
+     * 降り口の【框(かまち)】。床に開いた口の縁を納める化粧材。
+     * 【床がスパッと切れた感じにしない】。板の切り口をそのまま見せると、
+     * 床に矩形を貼り付けただけに見えて階段と床が繋がらない
+     * (実機フィードバック 2026-08-13)。実際の床開口と同じ順序で三層に描く:
+     *   床側に框の板 → 縁で光を拾う稜線 → 口の内側へ落ちる板の木口
+     * 手前(下)へ向かって框が太くなるのは、床帯が俯瞰だから。
+     */
+    drawStairwellFrame(ctx, x, width, prevDir) {
+        const top = this.baseGroundY;
+        const bottom = CANVAS_HEIGHT;
+        const height = bottom - top;
+        // 床がある側。prevDir=1 なら口は右端＝床は左、-1 なら口は左端＝床は右。
+        const floorOnRight = prevDir !== 1;
+        const edgeX = floorOnRight ? x + width : x;
+        const inward = floorOnRight ? -1 : 1;   // 口の内側へ向かう向き
+        const outward = -inward;                // 床の側へ向かう向き
+
+        ctx.save();
+
+        // 1) 奥(上)の縁。口の向こう側の框。床帯の一番奥なので細い。
+        const farH = 12;
+        const farGrad = ctx.createLinearGradient(0, top, 0, top + farH);
+        farGrad.addColorStop(0, 'rgba(96, 74, 52, 0.95)');
+        farGrad.addColorStop(0.45, 'rgba(62, 46, 32, 0.95)');
+        farGrad.addColorStop(1, 'rgba(14, 10, 7, 0.9)');
+        ctx.fillStyle = farGrad;
+        ctx.fillRect(x, top, width, farH);
+
+        // 2) 床側の框。手前ほど太い(俯瞰の床帯なので下へ行くほど広がる)。
+        const nearW = 30, farW = 14;
+        ctx.beginPath();
+        ctx.moveTo(edgeX + outward * farW, top);
+        ctx.lineTo(edgeX, top);
+        ctx.lineTo(edgeX, bottom);
+        ctx.lineTo(edgeX + outward * nearW, bottom);
+        ctx.closePath();
+        const sideGrad = ctx.createLinearGradient(edgeX + outward * nearW, 0, edgeX, 0);
+        sideGrad.addColorStop(0, 'rgba(80, 61, 43, 0.0)');
+        sideGrad.addColorStop(0.35, 'rgba(84, 64, 45, 0.45)');
+        sideGrad.addColorStop(1, 'rgba(104, 80, 55, 0.62)');
+        ctx.fillStyle = sideGrad;
+        ctx.fill();
+
+        // 3) 縁の稜線。框の角が灯りを拾う一本線。ここが「床の続き」の合図。
+        ctx.beginPath();
+        ctx.moveTo(edgeX, top);
+        ctx.lineTo(edgeX, bottom);
+        ctx.strokeStyle = 'rgba(214, 182, 134, 0.34)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // 4) 口の内側へ落ちる板の木口。框の厚みぶんだけ暗く落とす。
+        const lipW = 16;
+        const lipGrad = ctx.createLinearGradient(edgeX, 0, edgeX + inward * lipW, 0);
+        lipGrad.addColorStop(0, 'rgba(10, 7, 5, 0.85)');
+        lipGrad.addColorStop(1, 'rgba(10, 7, 5, 0)');
+        ctx.fillStyle = lipGrad;
+        ctx.fillRect(Math.min(edgeX, edgeX + inward * lipW), top, lipW, height);
+
+        ctx.restore();
     }
 
     /**
