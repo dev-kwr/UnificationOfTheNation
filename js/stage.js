@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260813a';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260813a';
-import { createEnemy } from './enemy.js?v=screen-safe-20260813a';
-import { createBoss } from './boss.js?v=screen-safe-20260813a';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260813a';
-import { audio } from './audio.js?v=screen-safe-20260813a';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260813a';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260813b';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260813b';
+import { createEnemy } from './enemy.js?v=screen-safe-20260813b';
+import { createBoss } from './boss.js?v=screen-safe-20260813b';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260813b';
+import { audio } from './audio.js?v=screen-safe-20260813b';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260813b';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260813a';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260813a';
+} from './stage6Grapple.js?v=screen-safe-20260813b';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260813b';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260813a';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260813b';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -76,7 +76,7 @@ const STAGE_IMAGE_SOURCES = {
     },
     3: {
         fields: {
-            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260813_exit2',
+            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260813_exit3',
             stage3GroundImage: 'images/stage3_ground_mountain_tile.png',
             // 遠景の山並み。1枚をミラー連結してあるので横に繰り返すと稜線が繋がる
             // (右端は自身の鏡像と接し、巻き戻り点は左端同士)。
@@ -119,7 +119,7 @@ const STAGE_IMAGE_SOURCES = {
             // 階段の材質。生成画像が読めないときのCanvas製の表面に重ねる。
             stage5StairWoodImage: 'images/stage5_stair_wood.png?v=20260812_wood1',
             // 最終階(ボス部屋)の右端。外周へ出る通用口(夜景つき)。
-            stage5BossExitImage: 'images/stage5_boss_exit.png?v=20260812_exit1',
+            stage5BossExitImage: 'images/stage5_boss_exit.png?v=20260813_exit2',
         },
     },
     6: {
@@ -1925,10 +1925,17 @@ export class Stage {
     }
 
     /**
-     * 最終階(ボス部屋)の右端に開く【外周への通用口】。
+     * 最終階(ボス部屋)の右端に開く【入側縁への掃き出し口】。
      * 天守閣へ続く階段の代わり(指定 2026-08-12)。高欄の向こうに夜空と山が見える。
-     * 足元は他の背景物と同じ床帯の奥(BG_PROP_FOOT_DEPTH)に置き、腰壁が床へ
-     * わずかに入る＝壁に開いた口として床と繋がる。
+     *
+     * 【古建築として正しい納まり】(実機フィードバック 2026-08-13)。
+     * 旧アセットは壁から手前へ飛び出した箱で、口の下に腰板を張った台座があり、
+     * 縁が床より一段【高い】絵になっていた。これは日本の城の造りにない。
+     * 実際は口は壁と同一面に開き、左右は柱、上は鴨居と長押(釘隠し付き)、
+     * 下は【敷居】＝床とほぼ同じ高さの低い横木で、人はこれをまたいで越える。
+     * 縁の板は室内の床と同じ高さで、その外端に高欄(地覆・束・平桁・架木)が立つ。
+     * よって絵の下辺＝敷居の下端であり、それを他の背景物と同じ足元線
+     * (BG_PROP_FOOT_DEPTH)へ置けば、口と床が段差なしで繋がる。
      * 立面なので進入の判定は持たない(床は平地一枚のまま)。
      */
     renderStage5BossExit(ctx, scrollX) {
@@ -1941,7 +1948,9 @@ export class Stage {
         const x = Math.round(worldX - scrollX);
         if (x + drawW < -80 || x > CANVAS_WIDTH + 80) return;
         ctx.save();
-        ctx.filter = 'brightness(0.92) saturate(0.94)';
+        // 素の生成色は広間の古材より灰色に寄っていて、壁に貼った別物に見える。
+        // 暖色へ寄せて真壁の柱と同じ木の色にする(口の中の夜空は青のまま残る量)。
+        ctx.filter = 'brightness(0.90) saturate(1.32) sepia(0.22)';
         drawImageGraded(ctx, img, x, footY - drawH, drawW, drawH);
         ctx.filter = 'none';
         ctx.restore();
@@ -4325,11 +4334,18 @@ export class Stage {
         return true;
     }
 
-    // Stage3のラストオブジェクト(石塚の門+眺望 stage3_mountain_exit.png)。
+    // Stage3のラストオブジェクト(峠の切り通し stage3_mountain_exit.png)。
     // 【地面レイヤーの後に描く】(renderStage3RoadsideOnGround 経由)。
     // 旧 renderNextStagePeek は背景パス(地面より前)にあり、基部を足元線まで
     // 下げると下が地面に覆われるため地平線(480)接地しか選べず、床帯(480..512)の
     // 上で浮いて見えていた。投影文法: 構造物基部は478..512(床帯へ食い込ませて植える)。
+    //
+    // 【絵の作りの前提】(2026-08-13 に描き直し)
+    // 左右の石塚はどちらも【画像の中で地面に着いて終わる独立した山形】で、
+    // 画像の左右端は透明。横スクロールで流れ込んでも縦の裁ち切り線が出ない。
+    // 旧アセットは左端の列が849px ぶん不透明な裁ち切りで、画面を縦の切り口が
+    // 横切っていた(実機フィードバック)。地面線より下は枯れ草と小石だけで、
+    // 自前の石畳は持たない＝ゲームの道がそのまま下に続く。
     renderStage3ExitOnGround(ctx) {
         const exitImg = this.stage3ExitImage;
         if (!(exitImg && exitImg.complete && exitImg.naturalWidth > 0)) return;
@@ -4339,26 +4355,26 @@ export class Stage {
         // 接近中はボス部屋左端基準で右から流入する。
         const peekBase = this.maxProgress - 150; // ボス部屋右端寄りに（手前の添景と分離・見切れ防止）
         const peekAnchorX = peekBase - p;
-        if (peekAnchorX > CANVAS_WIDTH + 600) return;
         const ANCHOR_STOP = peekBase - (this.maxProgress - CANVAS_WIDTH);
-        const exitW = 1320;
-        const exitH = exitW * (exitImg.naturalHeight / exitImg.naturalWidth);
-        const exitX = peekAnchorX + (CANVAS_WIDTH - exitW + 18 - ANCHOR_STOP);
-        if (exitX + exitW < -80 || exitX > CANVAS_WIDTH + 120) return;
-        // 【接地の基準は絵の中の地平線】。この絵は下の方に自前の石畳まで描いてあり、
-        // 不透明部の一番下で合わせると岩の裾が床帯より上に来て浮いた
-        // (実機フィードバック 2026-08-12)。町の足元＝地面が始まる高さ
-        // (実測 y=657 / h=909)を、他の背景物と同じ足元線に置く。
-        const EXIT_HORIZON_RATIO = 657 / 909;
+        // 【縦は画面に収める】。塚の頂が画面の上辺で切れると「岩の壁」に見える。
+        // 足元線(492)から上へ EXIT_HORIZON_RATIO ぶんが塚の高さなので、
+        // 頂が y=EXIT_TOP_MARGIN_PX に来る大きさを幅へ逆算する。
+        const EXIT_TOP_MARGIN_PX = 46;
+        const EXIT_HORIZON_RATIO = 586 / 625; // 実測: 岩の裾が地面に着く行 / 画像の高さ
         const footY = this.groundY + BG_PROP_FOOT_DEPTH;
+        const exitH = Math.round((footY - EXIT_TOP_MARGIN_PX) / EXIT_HORIZON_RATIO);
+        const exitW = Math.round(exitH * (exitImg.naturalWidth / exitImg.naturalHeight));
+        // カメラ停止時に絵の右端が画面の右端に来る＝道の突き当たりが画面の端で閉じる。
+        const exitX = peekAnchorX + (CANVAS_WIDTH - exitW - ANCHOR_STOP);
+        // 【カリングは描画位置(exitX)だけで判定する】。
+        // 旧 renderNextStagePeek の名残で peekAnchorX(＝描画位置より1152px右)を
+        // 見ていたため、絵が画面内の x=728 でいきなり湧いていた
+        // (実測: p=9969 で不可視 → p=9970 で左端 x=728 に出現。実機フィードバック 2026-08-13)。
+        if (exitX + exitW < -80 || exitX > CANVAS_WIDTH + 120) return;
+        // 【接地の基準は絵の中の地平線】。不透明部の一番下(枯れ草の先)で合わせると
+        // 岩の裾が床帯より上に来て浮く(実機フィードバック 2026-08-12)。
         const exitY = Math.round(footY - exitH * EXIT_HORIZON_RATIO);
         ctx.save();
-        // 【絵が持っている石畳は描かない】。ゲームの路面と質感も遠近も揃わず、
-        // 絵の左端で路面が縦に切れて見える。足元線の少し下で切って、
-        // 岩の裾と枯れ草だけを床帯へ出す＝下はゲームの道がそのまま続く。
-        ctx.beginPath();
-        ctx.rect(0, -400, CANVAS_WIDTH, footY + 26 + 400);
-        ctx.clip();
         ctx.globalAlpha *= 0.96;
         ctx.filter = 'brightness(0.84) saturate(0.72) contrast(0.94)';
         drawImageGraded(ctx, exitImg, exitX, exitY, exitW, exitH);
