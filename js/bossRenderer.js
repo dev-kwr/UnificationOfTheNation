@@ -90,7 +90,7 @@ function limbN(c,ax,ay,hx,hy,frac,bend,mode,w1,w2,col,hi,pass='fill'){
 
 /* 二刀の刀身はプレイヤーと同一形状。katanaShape.js は依存ゼロなので循環しない
    (playerRenderer.js を直接 import すると game.js の TDZ でクラッシュする)。 */
-import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260814d';
+import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260815a';
 /* 刀身長はプレイヤー実数値のまま渡し、拡大は描画側の ctx.scale だけで行う(二重拡大防止)。
    倍率は素体リグの SC(=1.8) ではなく【描画上の身長比】を使う:
      プレイヤーの描画身長 = height(72) - headRadius*0.1(=1.68) = 70.32
@@ -704,9 +704,14 @@ export function renderBossModel(c,B,motion,t,st){
   /* 実機(character_preview・防具非表示)の行プロファイル実測(全高比):
      頭直径0.362(半径0.181・頭頂=全高の頂点) / 肩幅0.133 / 胴0.126 /
      脚の分岐0.672 / 足の左右幅0.089 / 脚幅 前0.065・奥0.038 */
-  const headR=H*0.187;                  // 描画高(≒H×1.035)で頭直径0.362になる値
+  /* 頭身は意匠ごとに変える。既定(0.187)はフロアボスで合意した 2.67頭身。
+     雑魚はプレイヤー(忍者)に合わせるため 0.2392(=2.09頭身)を design で指定する。
+       忍者: 頭半径 = height×(28/60)×0.5 = 16.8 / 描画全高 70.32 → 頭直径33.6 = 全高の0.478
+     腰も同様。忍者は hipY = 足元 - 頭半径×1.43 なので、頭比×1.43 を腰比に使う。 */
+  const headR=H*(Number.isFinite(B.headRatio)?B.headRatio:0.187);
+  const hipRatio=Number.isFinite(B.hipRatio)?B.hipRatio:0.417;
   const cx=(pose?pose.shift:0);
-  const hipY=-H*0.417+crouch+bobRun+bobIdle*0.35;
+  const hipY=-H*hipRatio+crouch+bobRun+bobIdle*0.35;
   const hipX=cx+0.2;
   const headYBase=-(H-headR)+bobRun*0.7+bobIdle;    // 実測: 頭中心=上から0.183H
   const headY=headYBase+crouch*0.55+(pose?pose.headDip||0:0);
@@ -1311,22 +1316,22 @@ export const BOSS_DESIGNS = {
    ============================================================ */
 export const MOB_DESIGNS = {
   ashigaru: { id:'ashigaru', build:'ashigaru', helm:'kasa', crest:null,
-    idleSpread:0.95, idleCrouch:2,
+    idleSpread:0.95, idleCrouch:2, headRatio:0.2392, hipRatio:0.342,
     pal:{ aA:'#4c5360', aB:'#2e343e', edge:'#9c8a5e', sh:'#5a6270',
           robe:'#2c313b', robeS:'#1b1f26', helm:'#6d4f2e', helmD:'#31210f',
           crest:'#c9a862', acc:'#7a6a3c', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a' } },
   samurai:  { id:'samurai', build:'kengo', helm:'kabuto', crest:null,
-    idleSpread:1.0, idleCrouch:2,
+    idleSpread:1.0, idleCrouch:2, headRatio:0.2392, hipRatio:0.342,
     pal:{ aA:'#46505f', aB:'#2f3641', edge:'#c2a95e', sh:'#596273',
           robe:'#262b34', robeS:'#171b21', helm:'#333a46', helmD:'#171a21',
           crest:'#e8dcae', acc:'#8a5f9a', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a' } },
   ninja:    { id:'ninja', build:'shinobi', helm:'hood', crest:null,
-    idleSpread:0.9, idleCrouch:4,
+    idleSpread:0.9, idleCrouch:4, headRatio:0.2392, hipRatio:0.342,
     pal:{ aA:'#2b303a', aB:'#191d24', edge:'#6a74a0', sh:'#343b47',
           robe:'#1f232b', robeS:'#14171d', helm:'#2c313d', helmD:'#0e1015',
           crest:'#8d9fcc', acc:'#6f5ba2', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a' } },
   busho:    { id:'busho', build:'busho', helm:'kabuto', crest:'kuwagata', cape:true,
-    idleSpread:1.05, idleCrouch:2,
+    idleSpread:1.05, idleCrouch:2, headRatio:0.2392, hipRatio:0.342,
     pal:{ aA:'#4a4550', aB:'#2b272f', edge:'#c9a95a', sh:'#5c5763',
           robe:'#2f1b22', robeS:'#1d1116', helm:'#33303a', helmD:'#141317',
           crest:'#dcb45c', acc:'#a5384c', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a',
