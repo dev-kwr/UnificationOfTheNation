@@ -2,14 +2,14 @@
 // Unification of the Nation - 敵クラス
 // ============================================
 
-import { ENEMY_TYPES, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js?v=screen-safe-20260814a';
+import { ENEMY_TYPES, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js?v=screen-safe-20260814b';
 /* 雑魚・中ボスもフロアボスと同じ素体リグで描く(bodyHeight で縮小するだけ)。
    旧 renderUnifiedEnemyModel は当面デッドコードとして残す。 */
 import {
     MOB_DESIGNS, renderBossActor,
     mobSpear, mobKatana, mobShinobiBlade, mobNaginata
 } from './bossRenderer.js?v=mob-rig-20260807q';
-import { audio } from './audio.js?v=screen-safe-20260814a';
+import { audio } from './audio.js?v=screen-safe-20260814b';
 
 const ENEMY_HEADBAND_BASE = '#4f2f72';
 const ENEMY_HEADBAND_HIGHLIGHT = '#7e58a6';
