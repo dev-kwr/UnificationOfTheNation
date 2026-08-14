@@ -90,7 +90,7 @@ function limbN(c,ax,ay,hx,hy,frac,bend,mode,w1,w2,col,hi,pass='fill'){
 
 /* 二刀の刀身はプレイヤーと同一形状。katanaShape.js は依存ゼロなので循環しない
    (playerRenderer.js を直接 import すると game.js の TDZ でクラッシュする)。 */
-import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260815b';
+import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260815c';
 /* 刀身長はプレイヤー実数値のまま渡し、拡大は描画側の ctx.scale だけで行う(二重拡大防止)。
    倍率は素体リグの SC(=1.8) ではなく【描画上の身長比】を使う:
      プレイヤーの描画身長 = height(72) - headRadius*0.1(=1.68) = 70.32
@@ -276,36 +276,94 @@ function drawHead(c,B,P,hx,hy,r,t,motion){
     /* 結び目(後頭部) */
     c.fillStyle=shade(P.helm,-14);
     c.beginPath(); c.ellipse(hx-r*0.86,hy+r*0.08,r*0.17,r*0.13,-0.3,0,TAU); c.fill();
+  } else if(B.helm==='hachimaki'){
+    /* 鉢巻の忍(雑魚) — 頭巾の暗殺者と混同しないよう、素頭に鉢巻+垂れ帯。
+       帯の角度・クリップはプレイヤーの drawHeadbandBand と同じ流儀。
+       色だけプレイヤー(水色)と変える。 */
+    /* 垂れ帯(頭より奥) — 真横へ棒のように伸ばすと硬く見える。
+       根元から【後ろ下がり】に垂らし、先端ほど大きく波打たせて布らしくする。 */
+    const ph=t*TAU/1.35+(motion==='run'?t*TAU/0.5:0);
+    const amp=(motion==='run'?1.0:0.42);
+    [[1.62,0.26,0,0.0],[1.24,0.19,1,0.7]].forEach(([len,wd,i,ofs])=>{
+      const rx=hx-r*0.78, ry=hy-r*0.16;
+      const w1=Math.sin(ph+ofs)*r*0.20*amp;          // 中ほどの振れ
+      const w2=Math.sin(ph+ofs+1.1)*r*0.34*amp;      // 先端の振れ(大きい)
+      const droop=r*(0.92+i*0.26);                   // 後ろ下がりの垂れ(布らしく大きく落とす)
+      const mx=rx-r*len*0.44, my=ry+droop*0.55+w1;
+      const ex=rx-r*len,      ey=ry+droop+w2;
+      const tw=r*wd;
+      c.fillStyle=i?shade(P.crest,-30):P.crest;
+      c.beginPath();
+      c.moveTo(rx, ry-tw*0.5);
+      c.quadraticCurveTo(mx, my-tw*0.34, ex, ey-tw*0.12);   // 上辺
+      c.lineTo(ex, ey+tw*0.12);                              // 先端(細く絞る)
+      c.quadraticCurveTo(mx, my+tw*0.46, rx, ry+tw*0.5);     // 下辺
+      c.closePath(); c.fill();
+    });
+    // 素頭
+    c.fillStyle='#161210'; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
+    const hs2=c.createLinearGradient(hx,hy-r,hx,hy+r);
+    hs2.addColorStop(0,'rgba(255,255,255,0.07)'); hs2.addColorStop(0.55,'rgba(0,0,0,0)');
+    hs2.addColorStop(1,'rgba(0,0,0,0.2)');
+    c.fillStyle=hs2; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
+    // 鉢巻(頭円でクリップして帯が頭からはみ出さないようにする)
+    c.save();
+    c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.clip();
+    const bw=r*0.30, br=r*0.95+bw*0.34;
+    const ba=Math.PI*0.92, bb=-Math.PI*0.18;
+    c.strokeStyle=P.crest; c.lineWidth=bw; c.lineCap='butt'; c.lineJoin='round';
+    c.beginPath();
+    c.moveTo(hx+Math.cos(ba)*br, hy+r*0.03+Math.sin(ba)*br);
+    c.quadraticCurveTo(hx+r*0.02, hy+r*0.03-r*0.30,
+                       hx+Math.cos(bb)*br, hy+r*0.03+Math.sin(bb)*br);
+    c.stroke();
+    c.restore();
   } else if(B.helm==='kasa'){
-    /* 陣笠(雑魚の足軽) — 兜ではなく塗笠。鉢の代わりに円錐の笠を被せ、
-       顎紐で留める。前立は無い。安価な装備であることを【形】で示す。 */
+    /* 陣笠(雑魚の足軽) — 兜ではなく塗笠。
+       ・水平にかぶると被り物を載せただけに見えるので【前上がり・後ろ下がり】に傾ける
+         (顔が見え、首の後ろが隠れる実際のかぶり方)
+       ・顎紐は3/4面なので手前側だけ。笠の縁から顎まで短く落とし、顔は横切らせない */
     c.fillStyle='#161210'; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
     const hs=c.createLinearGradient(hx,hy-r,hx,hy+r);
     hs.addColorStop(0,'rgba(255,255,255,0.06)'); hs.addColorStop(1,'rgba(0,0,0,0.22)');
     c.fillStyle=hs; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
-    // 顎紐
-    c.strokeStyle=hexA(P.edge,0.6); c.lineWidth=Math.max(1,r*0.07);
-    c.beginPath(); c.moveTo(hx-r*0.62,hy-r*0.10);
-    c.quadraticCurveTo(hx,hy+r*0.72,hx+r*0.66,hy-r*0.06); c.stroke();
-    // 笠(円錐を横から見た三角+反った縁)
-    const kg=c.createLinearGradient(hx,hy-r*1.5,hx,hy-r*0.1);
-    kg.addColorStop(0,shade(P.helm,26)); kg.addColorStop(1,P.helmD);
+
+    /* 顎紐 — 見えるのは【手前側】の1本だけ。
+       このリグの2.5Dは「奥の肩・腕が進行方向(+x)へ出る」= 手前側は -x なので、
+       紐も -x 側に描く(+x に描くと進行方向に対して裏返って見える)。 */
+    c.lineCap='round';
+    c.strokeStyle=hexA(P.edge,0.42); c.lineWidth=Math.max(0.7,r*0.042);
+    c.beginPath();
+    c.moveTo(hx-r*0.66,hy-r*0.06);
+    c.quadraticCurveTo(hx-r*0.64,hy+r*0.36, hx-r*0.34,hy+r*0.74);
+    c.stroke();
+    c.fillStyle=hexA(P.edge,0.42);
+    c.beginPath(); c.arc(hx-r*0.32,hy+r*0.76,r*0.055,0,TAU); c.fill();
+
+    /* 笠。前縁(+x)を上げ、後縁(-x)を下げる。頂点も後ろへ寄せて傾きを作る */
+    const BX=-r*1.34, BY= r*0.10;      // 後縁(下がる)
+    const FX= r*1.42, FY=-r*0.46;      // 前縁(上がる)
+    const AX=-r*0.12, AY=-r*1.44;      // 頂点(やや後ろ)
+    const kg=c.createLinearGradient(hx+AX,hy+AY,hx+BX,hy+BY);
+    kg.addColorStop(0,shade(P.helm,30)); kg.addColorStop(1,P.helmD);
     c.fillStyle=kg;
     c.beginPath();
-    c.moveTo(hx-r*1.42,hy-r*0.18);
-    c.quadraticCurveTo(hx-r*0.70,hy-r*0.44, hx+r*0.06,hy-r*1.44);   // 左斜面
-    c.quadraticCurveTo(hx+r*0.62,hy-r*0.50, hx+r*1.46,hy-r*0.12);   // 右斜面
-    c.quadraticCurveTo(hx,hy+r*0.14, hx-r*1.42,hy-r*0.18);          // 反った縁
+    c.moveTo(hx+BX,hy+BY);
+    c.quadraticCurveTo(hx-r*0.78,hy-r*0.30, hx+AX,hy+AY);      // 後ろ斜面
+    c.quadraticCurveTo(hx+r*0.66,hy-r*0.94, hx+FX,hy+FY);      // 前斜面
+    c.quadraticCurveTo(hx+r*0.10,hy+r*0.02, hx+BX,hy+BY);      // 縁の下側(反り)
     c.closePath(); c.fill();
-    c.strokeStyle='rgba(0,0,0,0.30)'; c.lineWidth=1;
-    c.beginPath(); c.moveTo(hx+r*0.06,hy-r*1.40);
-    c.quadraticCurveTo(hx+r*0.02,hy-r*0.62,hx-r*0.24,hy-r*0.06); c.stroke();
-    c.strokeStyle=hexA(P.edge,0.55); c.lineWidth=1.1;
-    c.beginPath(); c.moveTo(hx-r*1.42,hy-r*0.18);
-    c.quadraticCurveTo(hx,hy+r*0.14, hx+r*1.46,hy-r*0.12); c.stroke();
-    // 天辺の小さな座金
+    // 稜線
+    c.strokeStyle='rgba(0,0,0,0.28)'; c.lineWidth=1;
+    c.beginPath(); c.moveTo(hx+AX,hy+AY);
+    c.quadraticCurveTo(hx-r*0.06,hy-r*0.66, hx-r*0.20,hy-r*0.10); c.stroke();
+    // 縁金(下側の反りに沿う)
+    c.strokeStyle=hexA(P.edge,0.5); c.lineWidth=1.1;
+    c.beginPath(); c.moveTo(hx+BX,hy+BY);
+    c.quadraticCurveTo(hx+r*0.10,hy+r*0.02, hx+FX,hy+FY); c.stroke();
+    // 天辺の座金
     c.fillStyle=hexA(P.crest,0.9);
-    c.beginPath(); c.arc(hx+r*0.06,hy-r*1.40,r*0.10,0,TAU); c.fill();
+    c.beginPath(); c.arc(hx+AX,hy+AY,r*0.10,0,TAU); c.fill();
   } else {
     // 素頭(シルエット。輪郭はパス1で描画済み)
     c.fillStyle='#161210'; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
@@ -346,9 +404,49 @@ function drawHead(c,B,P,hx,hy,r,t,motion){
     c.lineTo(hx+r*0.94,hy-r*0.02);
     c.quadraticCurveTo(hx,hy-r*0.14,hx-r*0.86,hy+r*0.04);
     c.closePath(); c.fill();
-    // 鉢の縁金
-    c.strokeStyle=hexA(P.edge,0.85); c.lineWidth=1.4;
+    /* 鉢の縁金。鉢の【天】をぐるりと縁取ると現代のヘルメットに見えるので、
+       前立を持たない兜(雑魚の侍)では弱める。前立のあるボスは従来どおり。 */
+    c.strokeStyle=hexA(P.edge,B.crest?0.85:0.28); c.lineWidth=B.crest?1.4:1.0;
     c.beginPath(); c.arc(hx,hy-r*0.06,r*1.03,Math.PI*1.03,Math.PI*1.97); c.stroke();
+    /* 前立を持たない兜(雑魚の侍)は、丸い鉢だけだと現代のヘルメットに見える。
+       兜と分かる要素 ——【天辺の座金】と【吹返(しころ前端の反り上がり)】—— を足す。
+       前立のあるフロアボスは silhouette がすでに和物なので触らない。 */
+    if(!B.crest){
+      // 吹返(手前側=-x に大きく、奥側=+x は小さく。3/4面の見え方)
+      [[-1,1.0],[1,0.45]].forEach(([sgn,sc])=>{
+        c.fillStyle=sgn<0?shade(P.helm,10):shade(P.helm,-14);
+        c.beginPath();
+        c.moveTo(hx+sgn*r*0.62, hy+r*0.06);
+        c.quadraticCurveTo(hx+sgn*r*(0.96+0.10*sc), hy+r*0.02,
+                           hx+sgn*r*(1.02+0.12*sc), hy-r*(0.24+0.10*sc));
+        c.quadraticCurveTo(hx+sgn*r*(0.86+0.06*sc), hy-r*0.06,
+                           hx+sgn*r*0.66, hy+r*0.18);
+        c.closePath(); c.fill();
+        c.strokeStyle=hexA(P.edge,0.55); c.lineWidth=0.9;
+        c.beginPath();
+        c.moveTo(hx+sgn*r*0.64, hy+r*0.08);
+        c.quadraticCurveTo(hx+sgn*r*(0.96+0.10*sc), hy+r*0.00,
+                           hx+sgn*r*(1.02+0.12*sc), hy-r*(0.24+0.10*sc));
+        c.stroke();
+      });
+      // 天辺の座金(八幡座)
+      c.fillStyle=hexA(P.edge,0.8);
+      c.beginPath(); c.arc(hx-r*0.02,hy-r*1.02,r*0.13,0,TAU); c.fill();
+      c.fillStyle='rgba(10,12,16,0.85)';
+      c.beginPath(); c.arc(hx-r*0.02,hy-r*1.02,r*0.055,0,TAU); c.fill();
+      /* 眉庇を張り出させて縁を金で締める。兜の「額の庇」がヘルメットとの分かれ目 */
+      c.fillStyle=shade(P.helmD,-6);
+      c.beginPath();
+      c.moveTo(hx-r*1.02,hy-r*0.16);
+      c.quadraticCurveTo(hx+r*0.02,hy-r*0.40, hx+r*1.14,hy-r*0.24);
+      c.lineTo(hx+r*1.00,hy+r*0.06);
+      c.quadraticCurveTo(hx+r*0.02,hy-r*0.14, hx-r*0.92,hy+r*0.08);
+      c.closePath(); c.fill();
+      c.strokeStyle=hexA(P.edge,0.75); c.lineWidth=1.2;
+      c.beginPath();
+      c.moveTo(hx-r*1.02,hy-r*0.16);
+      c.quadraticCurveTo(hx+r*0.02,hy-r*0.40, hx+r*1.14,hy-r*0.24); c.stroke();
+    }
     // 前立
     drawCrest(c,B,P,hx,hy,r,t);
   }
@@ -853,7 +951,8 @@ export function renderBossModel(c,B,motion,t,st){
 
   /* --- パス2: 塗り(z順に重ねる。胴が奥腕の付け根を覆う) --- */
   drawLegs('fill');
-  if(!CAST) legJoints.forEach(j=>drawSuneate(c,P,j.kx,j.ky,j.fx,j.fy));   // 脛当
+  // 脛当。雑魚は素足(B.suneate:false)——足元まで具足を付けると格が上がって見える
+  if(!CAST && B.suneate!==false) legJoints.forEach(j=>drawSuneate(c,P,j.kx,j.ky,j.fx,j.fy));
   drawTorso('fill');
 
   /* ---- 下衣(流派で形を変える: 草摺の枚数/布の腰巻き) ---- */
@@ -872,8 +971,9 @@ export function renderBossModel(c,B,motion,t,st){
     c.beginPath(); c.moveTo(hipX-2.5,skirtTop+8.5);
     c.quadraticCurveTo(hipX-3+cordLag*0.3,skirtTop+13,hipX-2.5+cordLag*0.8,skirtTop+17); c.stroke();
   } else {
-    const plateN=build==='ashigaru'?3:(build==='kengo'?2:4);
-    const plateLen=build==='ashigaru'?10:13;
+    /* 雑魚(B.simple)は板の枚数と丈を落として簡素にする */
+    const plateN=B.simple?2:(build==='ashigaru'?3:(build==='kengo'?2:4));
+    const plateLen=B.simple?8:(build==='ashigaru'?10:13);
     for(let i=0;i<plateN;i++){
       const u=plateN===1?0.5:i/(plateN-1);
       // 剣豪は左右の腰にだけ板を残し、中央は着流しを見せる
@@ -886,8 +986,10 @@ export function renderBossModel(c,B,motion,t,st){
       c.fillStyle=g;
       c.beginPath(); c.moveTo(px-3.4,skirtTop); c.lineTo(px+3.4,skirtTop);
       c.lineTo(px+2.9+sk*0.4,skirtTop+plateLen); c.lineTo(px-2.9+sk*0.4,skirtTop+plateLen); c.closePath(); c.fill();
-      c.strokeStyle=hexA(P.edge,0.5); c.lineWidth=1;
-      c.beginPath(); c.moveTo(px-2.7+sk*0.4,skirtTop+plateLen-2); c.lineTo(px+2.7+sk*0.4,skirtTop+plateLen-2); c.stroke();
+      if(!B.simple){
+        c.strokeStyle=hexA(P.edge,0.5); c.lineWidth=1;
+        c.beginPath(); c.moveTo(px-2.7+sk*0.4,skirtTop+plateLen-2); c.lineTo(px+2.7+sk*0.4,skirtTop+plateLen-2); c.stroke();
+      }
     }
   }
 
@@ -920,7 +1022,13 @@ export function renderBossModel(c,B,motion,t,st){
     c.lineTo(hipX+dW-3,dBot);
     c.quadraticCurveTo(hipX,dBot+2.5,hipX-dW+3.5,dBot-0.5);
     c.closePath(); c.fill();
-    if(build==='ashigaru'){
+    if(B.simple){
+      /* 雑魚の胴は【板一枚】。鋲・縅・負い紐・小物は付けない。
+         作り込むほど格が上がって見えるので、雑魚は最小限に留める。 */
+      c.strokeStyle=hexA(P.aA,0.30); c.lineWidth=1.1;
+      const y1=lerp(dTop+3,dBot-3,0.5), xo=lerp(chestX,hipX,0.5);
+      c.beginPath(); c.moveTo(xo-dW+4,y1); c.lineTo(xo+dW-3,y1); c.stroke();
+    } else if(build==='ashigaru'){
       // 桶側胴: 縦の鋲留め継ぎ目+火薬袋の負い紐
       c.strokeStyle=hexA(P.aA,0.55); c.lineWidth=1.3;
       [-0.55,0,0.55].forEach(k=>{
@@ -947,15 +1055,15 @@ export function renderBossModel(c,B,motion,t,st){
         c.beginPath(); c.moveTo(chestX+dW*0.55,dTop+2.2); c.lineTo(chestX-dW*0.5,dTop+7.6); c.stroke();
       }
     }
-    // 前縁のリムライト+縁金
-    c.strokeStyle=hexA(P.edge,0.9); c.lineWidth=1.4;
+    // 前縁のリムライト+縁金(雑魚は金の縁金を省いて簡素に)
+    c.strokeStyle=hexA(P.edge,B.simple?0.28:0.9); c.lineWidth=B.simple?1.0:1.4;
     c.beginPath(); c.moveTo(chestX+dW,dTop+1.2); c.lineTo(hipX+dW-3,dBot); c.stroke();
     c.strokeStyle='rgba(233,223,198,0.15)'; c.lineWidth=1;
     c.beginPath(); c.moveTo(chestX+dW-2.2,dTop+2.6); c.lineTo(hipX+dW-5.2,dBot-1.8); c.stroke();
   }
   // 帯(暗殺者の差し色は暗く沈める)
   c.fillStyle=P.robeS; c.fillRect(hipX-dW+2,dBot-3.2,dW*2-4.2,4.0);
-  c.fillStyle=build==='shinobi'?hexA('#8a2a2a',0.35):hexA(P.acc,0.55);
+  c.fillStyle=build==='shinobi'?hexA('#8a2a2a',0.35):hexA(P.acc,B.simple?0.22:0.55);
   c.fillRect(hipX-1.2,dBot-3.2,3.2,3.8);
 
   /* ---- 奥袖 ---- */
@@ -973,7 +1081,7 @@ export function renderBossModel(c,B,motion,t,st){
   /* ---- レイヤー順(物理的な前後):
          奥腕 → 胴・装具 → 頭 → 【忍具】 → 手前腕 → 手前袖 → 手前の掌
          忍具は「奥腕より手前・手前腕より奥」。握る手と腕が最前面に来る。 ---- */
-  if(!CAST){ if(!wf.backIsFarHand && wf.back) wf.back(rig,hands); wf.front(rig,hands); }
+  if(!CAST){ if(!wf.backIsFarHand && wf.back) wf.back(rig,hands); if(wf.front) wf.front(rig,hands); }
   const afr=drawFrontArm('top');   // 輪郭+塗りを最前面で(輪郭が他部品に覆われないように)
   if(!CAST) drawKote(c,P,afr.ex,afr.ey,afr.wx,afr.wy);                    // 籠手(手前腕)
   if(!CAST && SODE_S[build]>0)
@@ -1316,22 +1424,23 @@ export const BOSS_DESIGNS = {
    ============================================================ */
 export const MOB_DESIGNS = {
   ashigaru: { id:'ashigaru', build:'ashigaru', helm:'kasa', crest:null,
-    idleSpread:0.95, idleCrouch:2, headRatio:0.2392, hipRatio:0.342,
+    idleSpread:0.95, idleCrouch:2, headRatio:0.2392, hipRatio:0.342, suneate:false, simple:true,
     pal:{ aA:'#4c5360', aB:'#2e343e', edge:'#9c8a5e', sh:'#5a6270',
           robe:'#2c313b', robeS:'#1b1f26', helm:'#6d4f2e', helmD:'#31210f',
           crest:'#c9a862', acc:'#7a6a3c', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a' } },
   samurai:  { id:'samurai', build:'kengo', helm:'kabuto', crest:null,
-    idleSpread:1.0, idleCrouch:2, headRatio:0.2392, hipRatio:0.342,
+    idleSpread:1.0, idleCrouch:2, headRatio:0.2392, hipRatio:0.342, suneate:false, simple:true,
     pal:{ aA:'#46505f', aB:'#2f3641', edge:'#c2a95e', sh:'#596273',
           robe:'#262b34', robeS:'#171b21', helm:'#333a46', helmD:'#171a21',
           crest:'#e8dcae', acc:'#8a5f9a', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a' } },
-  ninja:    { id:'ninja', build:'shinobi', helm:'hood', crest:null,
-    idleSpread:0.9, idleCrouch:4, headRatio:0.2392, hipRatio:0.342,
+  ninja:    { id:'ninja', build:'shinobi', helm:'hachimaki', crest:null,
+    idleSpread:0.9, idleCrouch:4, headRatio:0.2392, hipRatio:0.342, suneate:false, simple:true,
     pal:{ aA:'#2b303a', aB:'#191d24', edge:'#6a74a0', sh:'#343b47',
           robe:'#1f232b', robeS:'#14171d', helm:'#2c313d', helmD:'#0e1015',
           crest:'#8d9fcc', acc:'#6f5ba2', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a' } },
+  /* 中ボスの頭身は雑魚(2.09)とフロアボス(2.67)の中間 2.35。headRatio=0.5/2.35 */
   busho:    { id:'busho', build:'busho', helm:'kabuto', crest:'kuwagata', cape:true,
-    idleSpread:1.05, idleCrouch:2, headRatio:0.2392, hipRatio:0.342,
+    idleSpread:1.05, idleCrouch:2, headRatio:0.213, hipRatio:0.380,
     pal:{ aA:'#4a4550', aB:'#2b272f', edge:'#c9a95a', sh:'#5c5763',
           robe:'#2f1b22', robeS:'#1d1116', helm:'#33303a', helmD:'#141317',
           crest:'#dcb45c', acc:'#a5384c', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a',
@@ -1392,15 +1501,51 @@ function drawMobKatana(c, hand, angRaw, mode, len){
   c.restore();
 }
 
-/** 忍の小太刀。打刀より短く、走りでは低く構える */
-export const mobShinobiBlade = {
-  hands(r){ return katanaHands(r, 17); },
-  front(r, h){ drawShortKatana(r.c, h.front, h.a, 'handle'); },
-  frontTop(r, h){ drawShortKatana(r.c, h.front, h.a, 'blade'); }
+/** 忍の手裏剣。近接武器は持たない(実装は EnemyProjectile を投げるだけ)。
+    投擲の腕振りはプレイヤーの 'throw' 実装をそのまま使う:
+      armAngle = -0.8π + pow(progress,0.55)*0.8π  (上後方 -144° → 前方 0°) */
+export const mobShuriken = {
+  hands(r){
+    const { shF, motion, runPh, sway, atk } = r;
+    if (motion === 'attack') {
+      const u = cl01(atk);
+      const LEN = 19 * SC * 0.72;
+      const BACK = -Math.PI * 0.8;
+      let ang;
+      if (u < 0.16)      ang = 0;
+      else if (u < 0.60) ang = lerp(0, BACK, ezIO(seg(u, 0.16, 0.60)));
+      else               ang = BACK + Math.pow(seg(u, 0.60, 1.0), 0.55) * Math.PI * 0.8;
+      const cock = (u < 0.60) ? ezIO(seg(u, 0.16, 0.60)) : 1 - Math.pow(seg(u, 0.60, 1.0), 0.55);
+      return { front: { x: shF.x + Math.cos(ang) * LEN, y: shF.y + 2 + Math.sin(ang) * LEN },
+               back:  { x: shF.x + 14 - cock * 5, y: shF.y + 12 + cock * 3 },
+               u, ang };
+    }
+    const s = motion === 'run' ? Math.sin(runPh * TAU) * 3 : sway * 0.5;
+    return { front: { x: shF.x + 1 - s, y: shF.y + 15 + s * 0.4 },
+             back:  { x: shF.x + 13 + s * 0.6, y: shF.y + 12 }, u: 0 };
+  },
+  front(){},
+  /* 手裏剣は投げ放つまで手にある。掌より前に出す(握って見せる) */
+  frontTop(r, h){
+    // 手裏剣は【攻撃中だけ】手にある。待機・走りは手ぶら
+    if (r.motion !== 'attack' || h.u > 0.86) return;
+    drawHeldShuriken(r.c, h.front.x, h.front.y, r.mt);
+  }
 };
-function drawShortKatana(c, hand, angRaw, mode){
-  c.save(); c.translate(hand.x, hand.y); c.scale(KATANA_SC * 0.74, KATANA_SC * 0.74);
-  drawKatanaShape(c, 0, 0, angRaw === undefined ? -1.15 : angRaw, 1, 56, 0.28, mode || 'all');
+function drawHeldShuriken(c, x, y, mt){
+  c.save(); c.translate(x, y); c.rotate((mt || 0) * 0.004);
+  const g = c.createRadialGradient(0, 0, 0, 0, 0, 7);
+  g.addColorStop(0, '#dfe8f4'); g.addColorStop(0.32, '#a7b5c8');
+  g.addColorStop(0.72, '#59677b'); g.addColorStop(1, '#242a34');
+  c.fillStyle = g; c.strokeStyle = '#c8d5e6'; c.lineWidth = 0.6;
+  for (let i = 0; i < 4; i++) {
+    c.rotate(Math.PI / 2);
+    c.beginPath();
+    c.moveTo(0, -7.7); c.lineTo(2.45, -1.75); c.lineTo(0, 3.15); c.lineTo(-2.45, -1.75);
+    c.closePath(); c.fill(); c.stroke();
+  }
+  c.fillStyle = '#111';
+  c.beginPath(); c.arc(0, 0, 1.75, 0, TAU); c.fill();
   c.restore();
 }
 

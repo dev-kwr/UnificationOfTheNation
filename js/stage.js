@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815b';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815b';
-import { createEnemy } from './enemy.js?v=screen-safe-20260815b';
-import { createBoss } from './boss.js?v=screen-safe-20260815b';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260815b';
-import { audio } from './audio.js?v=screen-safe-20260815b';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815b';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815c';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815c';
+import { createEnemy } from './enemy.js?v=screen-safe-20260815c';
+import { createBoss } from './boss.js?v=screen-safe-20260815c';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260815c';
+import { audio } from './audio.js?v=screen-safe-20260815c';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815c';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260815b';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815b';
+} from './stage6Grapple.js?v=screen-safe-20260815c';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815c';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815b';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815c';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -76,7 +76,7 @@ const STAGE_IMAGE_SOURCES = {
     },
     3: {
         fields: {
-            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260815_exit6',
+            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260815_exit10',
             stage3GroundImage: 'images/stage3_ground_mountain_tile.png',
             // 遠景の山並み。1枚をミラー連結してあるので横に繰り返すと稜線が繋がる
             // (右端は自身の鏡像と接し、巻き戻り点は左端同士)。
@@ -2392,79 +2392,66 @@ export class Stage {
     }
 
     /**
-     * 降り口の中の階段を【俯瞰で】描く。
+     * 降り口の中の階段を【床帯の投影の規則のまま】描く。
      *
-     * 階段はx方向に降りるので、踏板は奥行き方向へ伸びる板＝真上から見ると
-     * 【縦長の短冊】が横に並ぶ。ここまでは登る階段の絵と同じ見え方になるが、
-     * あの絵には【側桁が斜めの帯として】入っている。上から覗いた穴に斜めの桁は
-     * 存在しないので、そこだけが「横から見た絵」を主張して投影が壊れる。
-     * だから桁は描かず、踏板だけを並べる。
-     *
-     * 奥(深い側)へ行くほど:
-     *   ・一段ぶんの見かけの幅が縮む(下の段ほど上の段に隠れる)
-     *   ・暗くなる(下階の灯りだけが残る)
-     * この二つで深さを出す。
+     * 床帯の規則は「床より低い面は、低いぶんだけ画面の下へ沈む」。
+     * この規則で階段を描くと、踏板は踏面(run)幅の縦帯で、
+     * 【一段降りるごとに帯の上端が蹴上げ(rise)ぶん下がる】。
+     * この上端の連なり＝下りの雁行が「降りている」ことの全てで、
+     * 前回のように全部の帯の上端を框の高さに揃えると、段差の情報が消えて
+     * ただの板壁になる(実機フィードバック 2026-08-15)。
+     * 蹴込みの縦面はこの投影では真横から見る線(幅0)なので面では描かず、
+     * 隣り合う帯の上端差を繋ぐ縦の継ぎ目だけを入れる。
+     * 段の寸法は登りの階段と同一(踏面45・蹴上げ40 を drawScale で縮小)。
      */
     drawStairwellTreads(ctx, x, width, prevDir) {
-        const top = this.baseGroundY + 11;   // 奥の框の内側から
+        const s = this.stairDrawScale;
+        const run = (STAIR_LOGICAL_RUN / 20) * s;    // 一段の踏面 = 18px
+        const rise = (STAIR_LOGICAL_RISE / 20) * s;  // 一段の沈み = 16px
+        const holeTop = this.baseGroundY;
+        const treadTop = holeTop + 11;               // 奥の框の内側
         const bottom = CANVAS_HEIGHT;
-        // prevDir=1 なら口は右端で階段は右へ下る。-1 なら左端で左へ下る。
-        const deepOnLeft = prevDir !== 1;
-        const sign = deepOnLeft ? -1 : 1;
-        const edge = deepOnLeft ? x + width : x;   // 床に接する側＝いちばん浅い段
+        const sign = prevDir === 1 ? 1 : -1;         // 下る向き(床の反対側へ)
+        const edge = prevDir === 1 ? x : x + width;  // 床に接する側＝最上段
 
         ctx.save();
         ctx.beginPath();
-        ctx.rect(x, top, width, bottom - top);
+        ctx.rect(x, holeTop, width, bottom - holeTop);
         ctx.clip();
 
-        let cur = edge;
-        let stepW = 27;
-        for (let i = 0; i < 16; i++) {
-            if (Math.abs(cur - edge) >= width) break;
-            const t = Math.min(1, Math.abs(cur - edge) / width);
-            // 【床帯の投影には「下がる」を描く手段が無い】。同じ明るさで並べると
-            // 段ではなく板張りの壁に見える。見えるのは手前の数段だけにして、
-            // その先は闇へ落とす＝穴の深さで段だと読ませる。
-            const lit = Math.pow(Math.max(0, 1 - t / 0.58), 1.45);
-            const x0 = Math.min(cur, cur + sign * stepW);
-            const w = Math.abs(stepW);
+        // 階段室の奥の壁。踏板の上端より上に残る部分が、段と段の間の陰になる。
+        const wallGrad = ctx.createLinearGradient(0, holeTop, 0, holeTop + 140);
+        wallGrad.addColorStop(0, 'rgb(26, 19, 14)');
+        wallGrad.addColorStop(1, 'rgb(7, 5, 4)');
+        ctx.fillStyle = wallGrad;
+        ctx.fillRect(x, holeTop, width, bottom - holeTop);
 
-            // 踏板の面。手前(下)ほど部屋の灯りを受け、奥(上)は沈む。
-            const face = ctx.createLinearGradient(0, top, 0, bottom);
-            face.addColorStop(0, `rgba(${Math.round(40 + 66 * lit)}, ${Math.round(29 + 48 * lit)}, ${Math.round(20 + 32 * lit)}, 1)`);
-            face.addColorStop(0.55, `rgba(${Math.round(52 + 92 * lit)}, ${Math.round(38 + 68 * lit)}, ${Math.round(26 + 46 * lit)}, 1)`);
-            face.addColorStop(1, `rgba(${Math.round(30 + 58 * lit)}, ${Math.round(22 + 42 * lit)}, ${Math.round(15 + 28 * lit)}, 1)`);
+        const steps = Math.ceil(width / run) + 1;
+        for (let k = 0; k < steps; k++) {
+            const bx = edge + sign * k * run;          // この段の床側の端
+            const x0 = Math.min(bx, bx + sign * run);
+            const topEdge = treadTop + (k + 1) * rise; // 一段ごとに rise 沈む
+            if (topEdge >= bottom) break;
+            // 部屋の灯りは口の縁から差す。手前の数段が受け、深い段は闇へ。
+            const lit = Math.pow(Math.max(0, 1 - k / 8), 1.5);
+
+            const face = ctx.createLinearGradient(0, topEdge, 0, topEdge + 180);
+            face.addColorStop(0, `rgb(${Math.round(30 + 98 * lit)}, ${Math.round(22 + 72 * lit)}, ${Math.round(15 + 47 * lit)})`);
+            face.addColorStop(1, `rgb(${Math.round(9 + 25 * lit)}, ${Math.round(7 + 18 * lit)}, ${Math.round(5 + 12 * lit)})`);
             ctx.fillStyle = face;
-            ctx.fillRect(x0, top, w, bottom - top);
+            ctx.fillRect(x0, topEdge, run + 0.6, bottom - topEdge);
 
-            // 段鼻(浅い側の縁)が光を拾う一本線
-            ctx.strokeStyle = `rgba(230, 196, 148, ${(0.42 * lit).toFixed(3)})`;
-            ctx.lineWidth = 1.4;
-            ctx.beginPath();
-            const noseX = cur + (sign > 0 ? 0.7 : -0.7);
-            ctx.moveTo(noseX, top);
-            ctx.lineTo(noseX, bottom);
-            ctx.stroke();
+            // 段鼻。踏板の上端(=一段の縁)が灯りを拾う【横の】線。
+            if (lit > 0.02) {
+                ctx.fillStyle = `rgba(232, 192, 140, ${(0.5 * lit).toFixed(3)})`;
+                ctx.fillRect(x0, topEdge, run + 0.6, 1.6);
+            }
 
-            // 一段下がる落ち込みの影(深い側の縁)
-            const dropX = cur + sign * stepW;
-            const drop = ctx.createLinearGradient(dropX, 0, dropX - sign * 7, 0);
-            drop.addColorStop(0, 'rgba(6, 4, 3, 0.62)');
-            drop.addColorStop(1, 'rgba(6, 4, 3, 0)');
-            ctx.fillStyle = drop;
-            ctx.fillRect(Math.min(dropX, dropX - sign * 7), top, 7, bottom - top);
-
-            cur = dropX;
-            stepW *= 0.87;   // 下の段ほど上の段に隠れて狭く見える
+            // 隣の段との継ぎ目。上端差(rise)を繋ぐ縦線で雁行の角を立てる。
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            const seamX = sign > 0 ? bx : bx - 1.3;
+            ctx.fillRect(seamX, topEdge - rise, 1.3, rise + 1.6);
         }
-
-        // 奥(上)は床の厚みの陰。口の中が四角い板の並びに見えないよう沈める。
-        const far = ctx.createLinearGradient(0, top, 0, top + 46);
-        far.addColorStop(0, 'rgba(0, 0, 0, 0.55)');
-        far.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        ctx.fillStyle = far;
-        ctx.fillRect(x, top, width, 46);
         ctx.restore();
     }
 
@@ -4972,17 +4959,29 @@ export class Stage {
             // 尽きた先が素の空だけになると地平まで抜けて空虚になるので、
             // 先に【遠い平地の霞】を低く敷いておく。山より下にしか出ないので、
             // 山が残っている範囲では山に隠れて見えない。
-            // 地平のきわは【ほぼ不透明】にする。薄いままだと、城下町の丘の裾と
-            // 地面の間に空の色が細く残って「丘が浮いた赤い帯」になる。
-            // 色は空へ寄せない。夕焼けの空色をそのまま敷くと真っ赤な帯になり、
-            // 霞んだ紫の丘と繋がらない。遠い平地は【霞んだ灰紫】。
+            // 尽きた先の地平は【合成のグラデーションで埋めない】。単色の帯は
+            // 山の切れ目にだけ露出したとき必ず「輪郭の硬い一枚板」になる
+            // (明るい色なら褐色の箱、暗い色なら黒い水たまり。両方やって両方駄目だった。
+            //  実機フィードバック 2026-08-15)。
+            // 代わりに【同じ山アセットを34pxへ潰した「遠い低地」の帯】で埋める。
+            // 同じ絵・同じ色調・同じパララックスなので、山との切り替わりが
+            // 色でも動きでも割れない。上に薄い大気(plainTone α<=0.42)だけ重ねる。
+            // 上端が透過ピークの疎らな部分だと町の裾が空に浮くので、
+            // 画像の【不透明な中腹から下だけ】を潰す。上端の横一線は
+            // 全画面幅に及ぶので「箱の縁」ではなく地平の稜線として読める。
+            const lowH = 50;
+            const lowSrcY = Math.round(tinted.height * 0.62);
+            const lowSrcH = tinted.height - lowSrcY;
+            for (let x = -offset; x < CANVAS_WIDTH; x += w) {
+                ctx.drawImage(tinted, 0, lowSrcY, tinted.width, lowSrcH,
+                    Math.round(x), this.groundY - lowH, w + 1, lowH);
+            }
             const plainTone = this.interpolateColor(currentPalette.near, '#6a5a78', 0.55);
-            const plainTop = this.groundY - 88;
+            const plainTop = this.groundY - 150;
             const plain = ctx.createLinearGradient(0, plainTop, 0, this.groundY);
             plain.addColorStop(0, rgba(plainTone, 0));
-            plain.addColorStop(0.4, rgba(plainTone, 0.42));
-            plain.addColorStop(0.75, rgba(plainTone, 0.86));
-            plain.addColorStop(1, rgba(plainTone, 0.97));
+            plain.addColorStop(0.5, rgba(plainTone, 0.2));
+            plain.addColorStop(1, rgba(plainTone, 0.42));
             ctx.fillStyle = plain;
             ctx.fillRect(0, plainTop, CANVAS_WIDTH, this.groundY - plainTop);
 
