@@ -90,7 +90,7 @@ function limbN(c,ax,ay,hx,hy,frac,bend,mode,w1,w2,col,hi,pass='fill'){
 
 /* 二刀の刀身はプレイヤーと同一形状。katanaShape.js は依存ゼロなので循環しない
    (playerRenderer.js を直接 import すると game.js の TDZ でクラッシュする)。 */
-import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260813c';
+import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260814a';
 /* 刀身長はプレイヤー実数値のまま渡し、拡大は描画側の ctx.scale だけで行う(二重拡大防止)。
    倍率は素体リグの SC(=1.8) ではなく【描画上の身長比】を使う:
      プレイヤーの描画身長 = height(72) - headRadius*0.1(=1.68) = 70.32
@@ -276,6 +276,36 @@ function drawHead(c,B,P,hx,hy,r,t,motion){
     /* 結び目(後頭部) */
     c.fillStyle=shade(P.helm,-14);
     c.beginPath(); c.ellipse(hx-r*0.86,hy+r*0.08,r*0.17,r*0.13,-0.3,0,TAU); c.fill();
+  } else if(B.helm==='kasa'){
+    /* 陣笠(雑魚の足軽) — 兜ではなく塗笠。鉢の代わりに円錐の笠を被せ、
+       顎紐で留める。前立は無い。安価な装備であることを【形】で示す。 */
+    c.fillStyle='#161210'; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
+    const hs=c.createLinearGradient(hx,hy-r,hx,hy+r);
+    hs.addColorStop(0,'rgba(255,255,255,0.06)'); hs.addColorStop(1,'rgba(0,0,0,0.22)');
+    c.fillStyle=hs; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
+    // 顎紐
+    c.strokeStyle=hexA(P.edge,0.6); c.lineWidth=Math.max(1,r*0.07);
+    c.beginPath(); c.moveTo(hx-r*0.62,hy-r*0.10);
+    c.quadraticCurveTo(hx,hy+r*0.72,hx+r*0.66,hy-r*0.06); c.stroke();
+    // 笠(円錐を横から見た三角+反った縁)
+    const kg=c.createLinearGradient(hx,hy-r*1.5,hx,hy-r*0.1);
+    kg.addColorStop(0,shade(P.helm,26)); kg.addColorStop(1,P.helmD);
+    c.fillStyle=kg;
+    c.beginPath();
+    c.moveTo(hx-r*1.42,hy-r*0.18);
+    c.quadraticCurveTo(hx-r*0.70,hy-r*0.44, hx+r*0.06,hy-r*1.44);   // 左斜面
+    c.quadraticCurveTo(hx+r*0.62,hy-r*0.50, hx+r*1.46,hy-r*0.12);   // 右斜面
+    c.quadraticCurveTo(hx,hy+r*0.14, hx-r*1.42,hy-r*0.18);          // 反った縁
+    c.closePath(); c.fill();
+    c.strokeStyle='rgba(0,0,0,0.30)'; c.lineWidth=1;
+    c.beginPath(); c.moveTo(hx+r*0.06,hy-r*1.40);
+    c.quadraticCurveTo(hx+r*0.02,hy-r*0.62,hx-r*0.24,hy-r*0.06); c.stroke();
+    c.strokeStyle=hexA(P.edge,0.55); c.lineWidth=1.1;
+    c.beginPath(); c.moveTo(hx-r*1.42,hy-r*0.18);
+    c.quadraticCurveTo(hx,hy+r*0.14, hx+r*1.46,hy-r*0.12); c.stroke();
+    // 天辺の小さな座金
+    c.fillStyle=hexA(P.crest,0.9);
+    c.beginPath(); c.arc(hx+r*0.06,hy-r*1.40,r*0.10,0,TAU); c.fill();
   } else {
     // 素頭(シルエット。輪郭はパス1で描画済み)
     c.fillStyle='#161210'; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
@@ -544,6 +574,31 @@ const CHOREO={
   },
   /* 大太刀 = playerRenderer の odachiPhase 移植(跳躍して突き上げ→宙返り→急降下→着刀)。
      phase は weaponReplica.getPose().phase をそのまま受け取る。素体は ×1.8。 */
+  /* ---- 雑魚・中ボスの体幹。ボスほど大振りにせず、素直な溜め→振り抜き ---- */
+  ashigaru(p){            // 槍の突き
+    const w=seg(p,0.04,0.30), d=ezOut(seg(p,0.30,0.58)), rc=ezIO(seg(p,0.70,1));
+    return { lean:-w*0.10+d*0.26-rc*0.14,
+      crouch:w*3-d*1.5, shift:-w*5+d*16-rc*10, headDip:d*1.4,
+      feet:[[-16-w*4+d*6,0],[11+d*15,0]], capeBell:0 };
+  },
+  samurai(p){             // 打刀の袈裟斬り
+    const up=ezIO(seg(p,0.04,0.34)), cut=ezIn(seg(p,0.38,0.56)), rc=ezIO(seg(p,0.70,1));
+    return { lean:-up*0.24+cut*0.44-rc*0.20,
+      crouch:-up*2+cut*9-rc*5, shift:-up*5+cut*14-rc*8, headDip:cut*2.4,
+      feet:[[-15-up*4+cut*4,0],[12+cut*13,0]], capeBell:0 };
+  },
+  ninja(p){               // 小太刀の速い一閃
+    const up=ezIO(seg(p,0.02,0.22)), cut=ezIn(seg(p,0.24,0.40)), rc=ezIO(seg(p,0.56,1));
+    return { lean:-up*0.20+cut*0.50-rc*0.26,
+      crouch:-up*1.5+cut*7-rc*4, shift:-up*4+cut*17-rc*11, headDip:cut*2.0,
+      feet:[[-14-up*5+cut*6,0],[11+cut*16,0]], capeBell:0 };
+  },
+  busho(p){               // 薙刀の振り下ろし(中ボス)
+    const up=ezIO(seg(p,0.04,0.36)), cut=ezIn(seg(p,0.40,0.58)), rc=ezIO(seg(p,0.72,1));
+    return { lean:-up*0.26+cut*0.48-rc*0.22,
+      crouch:-up*2.5+cut*11-rc*6, shift:-up*6+cut*16-rc*9, headDip:cut*2.6,
+      feet:[[-17-up*4+cut*5,0],[13+cut*14,0]], capeBell:up*0.9-cut*0.4 };
+  },
   odachi(p, phase, mt){
     /* 脚は playerRenderer:2499-2541(odachiPhase 別の専用脚)を数値ごと移植する。
        ・縦の落差はプレイヤーが airLegSpanScale = 脚長/23.8 を掛けている。
@@ -637,7 +692,7 @@ export function renderBossModel(c,B,motion,t,st){
 
   /* ---- 体幹の姿勢 ---- */
   let pose=null;
-  if(inAtk){ pose=(CHOREO[B.id]||CHOREO.busho)(atk, (st&&st.phase)||null, mt); }
+  if(inAtk){ pose=(CHOREO[B.id]||CHOREO.samurai)(atk, (st&&st.phase)||null, mt); }
 
   const bobRun=motion==='run'?-Math.abs(Math.sin(runPh*TAU))*3.0+1.4:0;
   const bobIdle=motion==='idle'?breath*1.0:0;
@@ -1246,6 +1301,144 @@ export const BOSS_DESIGNS = {
           capeA:'#5c0f14', capeB:'#1c0406' } }
 };
 
+/* ============================================================
+   雑魚敵・中ボスの意匠。素体リグはボスと同一(renderBossActor の bodyHeight で縮小)。
+   ボスとの差は【装具の形と量】で付ける —— 色替えでの差別化はしない。
+     足軽: 陣笠 / 胴丸だけ / 袖なし
+     侍  : 兜(小さな半月前立) / 二段の縅
+     忍  : 頭巾 / 鎧なし
+     武将: 兜(大三日月) / 陣羽織 —— 中ボス。ボスの武将より装飾を落とす
+   ============================================================ */
+export const MOB_DESIGNS = {
+  ashigaru: { id:'ashigaru', build:'ashigaru', helm:'kasa', crest:null,
+    idleSpread:0.95, idleCrouch:2,
+    pal:{ aA:'#4c5360', aB:'#2e343e', edge:'#9c8a5e', sh:'#5a6270',
+          robe:'#2c313b', robeS:'#1b1f26', helm:'#6d4f2e', helmD:'#31210f',
+          crest:'#c9a862', acc:'#7a6a3c', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a' } },
+  samurai:  { id:'samurai', build:'kengo', helm:'kabuto', crest:null,
+    idleSpread:1.0, idleCrouch:2,
+    pal:{ aA:'#46505f', aB:'#2f3641', edge:'#c2a95e', sh:'#596273',
+          robe:'#262b34', robeS:'#171b21', helm:'#333a46', helmD:'#171a21',
+          crest:'#e8dcae', acc:'#8a5f9a', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a' } },
+  ninja:    { id:'ninja', build:'shinobi', helm:'hood', crest:null,
+    idleSpread:0.9, idleCrouch:4,
+    pal:{ aA:'#2b303a', aB:'#191d24', edge:'#6a74a0', sh:'#343b47',
+          robe:'#1f232b', robeS:'#14171d', helm:'#2c313d', helmD:'#0e1015',
+          crest:'#8d9fcc', acc:'#6f5ba2', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a' } },
+  busho:    { id:'busho', build:'busho', helm:'kabuto', crest:'kuwagata', cape:true,
+    idleSpread:1.05, idleCrouch:2,
+    pal:{ aA:'#4a4550', aB:'#2b272f', edge:'#c9a95a', sh:'#5c5763',
+          robe:'#2f1b22', robeS:'#1d1116', helm:'#33303a', helmD:'#141317',
+          crest:'#dcb45c', acc:'#a5384c', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a',
+          capeA:'#7a2436', capeB:'#22090f' } }
+};
+
+/* ---- 雑魚の得物アダプタ。ボスと同じ「hands / front / frontTop」契約。
+       雑魚は weaponReplica を持たないので、進行度(atk)から素体側で振る。 ---- */
+
+/** 足軽の槍。両手で構え、攻撃で前へ突き出す */
+export const mobSpear = {
+  hands(r){
+    const { shF, motion, runPh, sway, atk } = r;
+    const s = motion === 'run' ? Math.sin(runPh * TAU) * 2.2 : sway * 0.4;
+    let push = 0, lift = 0;
+    if (motion === 'attack') {
+      const w = Math.max(0, 1 - cl01(atk) / 0.34);            // 引き
+      const d = Math.sin(cl01(Math.max(0, (atk - 0.22)) / 0.56) * Math.PI * 0.5);
+      push = -w * 9 + d * 13; lift = -d * 2;
+    }
+    const fy = shF.y + 17 + s + lift;
+    return { front: { x: shF.x + 1 + push,  y: fy + 2 },
+             back:  { x: shF.x + 26 + push, y: fy - 1 } };
+  },
+  front(r, h){
+    const c = r.c, f = h.front, b = h.back;
+    const ang = Math.atan2(b.y - f.y, b.x - f.x);
+    c.save(); c.translate(f.x, f.y); c.rotate(ang); c.scale(52 / 28, 1.3);
+    realSpear(c, 59, 15.6);
+    c.restore();
+  }
+};
+
+/** 侍/中ボスの打刀。プレイヤーと同じ刀身。柄→掌→刃の順で握らせる */
+function katanaHands(r, reach){
+  const { shF, motion, runPh, sway, atk } = r;
+  if (motion === 'attack') {
+    const p = cl01(atk);
+    // 振りかぶり(-2.1) → 袈裟に振り下ろす(+0.55) → 残心
+    const up = ezIO(seg(p, 0.04, 0.34)), cut = ezIn(seg(p, 0.38, 0.56)), rc = ezIO(seg(p, 0.70, 1));
+    const a = lerp(-1.35, -2.10, up) + cut * 2.60 - rc * 1.10;
+    return { front: { x: shF.x + 2 + Math.cos(a) * reach, y: shF.y + 6 + Math.sin(a) * reach },
+             back:  { x: shF.x + 13 - up * 3, y: shF.y + 15 + cut * 3 }, a };
+  }
+  const s = motion === 'run' ? Math.sin(runPh * TAU) * 2.4 : sway * 0.5;
+  return { front: { x: shF.x + 2 - s, y: shF.y + 15 + s * 0.4 },
+           back:  { x: shF.x + 15 + s * 0.6, y: shF.y + 12 }, a: -1.15 + sway * 0.02 };
+}
+export const mobKatana = {
+  hands(r){ return katanaHands(r, 19); },
+  front(r, h){ drawMobKatana(r.c, h.front, h.a, 'handle', 70); },
+  frontTop(r, h){ drawMobKatana(r.c, h.front, h.a, 'blade', 70); }
+};
+/* 雑魚の刀。形はプレイヤーと同一(katanaShape)だが、刃渡りはボスより短くして格を下げる */
+function drawMobKatana(c, hand, angRaw, mode, len){
+  c.save(); c.translate(hand.x, hand.y); c.scale(KATANA_SC * 0.9, KATANA_SC * 0.9);
+  drawKatanaShape(c, 0, 0, angRaw === undefined ? -1.15 : angRaw, 1, len || 70, 0.28, mode || 'all');
+  c.restore();
+}
+
+/** 忍の小太刀。打刀より短く、走りでは低く構える */
+export const mobShinobiBlade = {
+  hands(r){ return katanaHands(r, 17); },
+  front(r, h){ drawShortKatana(r.c, h.front, h.a, 'handle'); },
+  frontTop(r, h){ drawShortKatana(r.c, h.front, h.a, 'blade'); }
+};
+function drawShortKatana(c, hand, angRaw, mode){
+  c.save(); c.translate(hand.x, hand.y); c.scale(KATANA_SC * 0.74, KATANA_SC * 0.74);
+  drawKatanaShape(c, 0, 0, angRaw === undefined ? -1.15 : angRaw, 1, 56, 0.28, mode || 'all');
+  c.restore();
+}
+
+/** 中ボス武将の薙刀。長柄の先に反りのある刃 */
+export const mobNaginata = {
+  hands(r){
+    const { shF, motion, runPh, sway, atk } = r;
+    if (motion === 'attack') {
+      const p = cl01(atk);
+      const up = ezIO(seg(p, 0.04, 0.36)), cut = ezIn(seg(p, 0.40, 0.58)), rc = ezIO(seg(p, 0.72, 1));
+      const a = lerp(-0.45, -1.85, up) + cut * 2.30 - rc * 0.95;
+      const gx = shF.x + 6 + Math.cos(a) * 12, gy = shF.y + 8 + Math.sin(a) * 12;
+      return { front: { x: gx, y: gy },
+               back:  { x: gx + Math.cos(a) * 20, y: gy + Math.sin(a) * 20 }, a };
+    }
+    const s = motion === 'run' ? Math.sin(runPh * TAU) * 2.0 : sway * 0.4;
+    const a = -0.34;
+    const gx = shF.x + 3, gy = shF.y + 16 + s;
+    return { front: { x: gx, y: gy },
+             back:  { x: gx + Math.cos(a) * 22, y: gy + Math.sin(a) * 22 }, a };
+  },
+  front(r, h){
+    const c = r.c, f = h.front, b = h.back;
+    const ang = Math.atan2(b.y - f.y, b.x - f.x);
+    c.save(); c.translate(f.x, f.y); c.rotate(ang);
+    // 柄(石突から前へ)
+    const sg = c.createLinearGradient(-26, 0, 74, 0);
+    sg.addColorStop(0, '#2f170b'); sg.addColorStop(0.45, '#6b4224'); sg.addColorStop(1, '#3a1f0f');
+    c.strokeStyle = sg; c.lineWidth = 5.0; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(-26, 0); c.lineTo(74, 0); c.stroke();
+    c.strokeStyle = 'rgba(242,208,156,0.34)'; c.lineWidth = 0.9;
+    c.beginPath(); c.moveTo(-24, -1.1); c.lineTo(68, -1.0); c.stroke();
+    // 石突と鎺
+    c.fillStyle = '#8d95a2'; c.fillRect(-27, -2.6, 4, 5.2);
+    c.fillStyle = '#c9a545'; c.fillRect(70, -3.0, 6, 6.0);
+    // 刃(反りのある薙刀身)
+    c.save(); c.translate(76, 0); c.scale(1.12, 1.12);
+    drawKatanaShape(c, 0, 0, 0, 1, 62, 0, 'blade');
+    c.restore();
+    c.restore();
+  }
+};
+
 /* ボスの状態から描画モーションを決める(判定には一切関与しない) */
 function resolveMotion(boss){
   if (boss.isAttacking) return 'attack';
@@ -1272,8 +1465,14 @@ export function renderBossActor(ctx, boss, design, weapon, opts){
   /* enemy.render の 2.5D 斜行は撤去済み。奥行きはこのリグが自前で作る。
      weaponReplica は world 座標で描くので、局所系へ入る前の変換を控えておく。 */
   const worldTf = (typeof ctx.getTransform === 'function') ? ctx.getTransform() : null;
+  /* 雑魚・中ボスは背丈が違うだけで作りは同じ。定数(SC/LIMB_W/ARM_REACH…)を
+     背丈ごとに作り直すのではなく、108px のリグをそのまま縮小して描く。
+     こうすると比率が必ずボスと一致し、既存5体の描画は 1 倍で完全に不変。 */
+  const k = (opts && Number.isFinite(opts.bodyHeight) && opts.bodyHeight > 0)
+    ? opts.bodyHeight / BOSS_H : 1;
   ctx.translate(cx, footY);
   if (dir < 0) ctx.scale(-1, 1);      // 左向きは反転して「進行方向=+x」の局所系で描く
+  if (k !== 1) ctx.scale(k, k);
   renderBossModel(ctx, design, resolveMotion(boss), t, {
     weapon: weapon || EMPTY_WEAPON,
     attackProgress: opts && opts.attackProgress,
@@ -1284,8 +1483,9 @@ export function renderBossActor(ctx, boss, design, weapon, opts){
       if (!worldTf || typeof ctx.setTransform !== 'function') { fn(); return; }
       ctx.save(); ctx.setTransform(worldTf); fn(); ctx.restore();
     },
-    // weaponReplica のアンカー(world 座標)を素体の局所系へ変換する
-    toLocal(px, py){ return { x: (px - cx) * dir, y: py - footY }; },
+    // weaponReplica のアンカー(world 座標)を素体の局所系へ変換する(縮小ぶんも戻す)
+    toLocal(px, py){ return { x: (px - cx) * dir / k, y: (py - footY) / k }; },
+    bodyScale: k,
     dir
   });
   ctx.restore();

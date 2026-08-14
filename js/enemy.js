@@ -2,8 +2,14 @@
 // Unification of the Nation - 敵クラス
 // ============================================
 
-import { ENEMY_TYPES, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js?v=screen-safe-20260813c';
-import { audio } from './audio.js?v=screen-safe-20260813c';
+import { ENEMY_TYPES, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js?v=screen-safe-20260814a';
+/* 雑魚・中ボスもフロアボスと同じ素体リグで描く(bodyHeight で縮小するだけ)。
+   旧 renderUnifiedEnemyModel は当面デッドコードとして残す。 */
+import {
+    MOB_DESIGNS, renderBossActor,
+    mobSpear, mobKatana, mobShinobiBlade, mobNaginata
+} from './bossRenderer.js?v=mob-rig-20260807q';
+import { audio } from './audio.js?v=screen-safe-20260814a';
 
 const ENEMY_HEADBAND_BASE = '#4f2f72';
 const ENEMY_HEADBAND_HIGHLIGHT = '#7e58a6';
@@ -2914,31 +2920,10 @@ export class Ashigaru extends Enemy {
     }
     
     renderBody(ctx) {
-        this.renderUnifiedEnemyModel(ctx, {
-            weaponMode: 'spear',
-            headStyle: 'kasa',
-            crest: false,
-            simpleOutfit: true,
-            shoulderPads: false,
-            noFrontArmor: true,
-            armorRows: 2,
-            armScale: 1.04,
-            torsoLeanScale: 1.02,
-            attackDurationMs: 300,
-            palette: {
-                legBack: '#121212',
-                legFront: '#1a1a1a',
-                robe: '#2e3440',
-                robeShade: '#20252f',
-                torsoCore: '#151515',
-                armorA: '#3a414f',
-                armorB: '#2a303a',
-                armorEdge: '#ac9155',
-                shoulder: '#4a5262',
-                helmTop: '#6e4d30',
-                helmBottom: '#24170f',
-                crest: '#d1ab66'
-            }
+        renderBossActor(ctx, this, MOB_DESIGNS.ashigaru, mobSpear, {
+            bodyHeight: this.height,
+            attackProgress: this.isAttacking
+                ? this.getUnifiedAttackProgress(300, null) : undefined
         });
         return;
         const dir = this.facingRight ? 1 : -1;
@@ -3170,37 +3155,10 @@ export class Samurai extends Enemy {
     }
     
     renderBody(ctx) {
-        this.renderUnifiedEnemyModel(ctx, {
-            weaponMode: 'katana',
-            headStyle: 'kabuto',
-            simpleOutfit: true,
-            shoulderPads: false,
-            noFrontArmor: true,
-            crestVariant: 'crescent',
-            crestLengthScale: 1.06,
-            crestArcHeightScale: 1.14,
-            crestTipRiseScale: 0.96,
-            crestForwardOffsetScale: 0.98,
-            crestRootLiftScale: 1.0,
-            armorRows: 3,
-            armScale: 1.08,
-            torsoLeanScale: 1.06,
-            attackDurationMs: 250,
-            weaponScale: 1.04,
-            palette: {
-                legBack: '#111',
-                legFront: '#1a1a1a',
-                robe: '#262b34',
-                robeShade: '#1b2028',
-                torsoCore: '#141519',
-                armorA: '#465062',
-                armorB: '#303744',
-                armorEdge: '#c8a857',
-                shoulder: '#556074',
-                helmTop: '#2c313c',
-                helmBottom: '#171a20',
-                crest: '#ccb068'
-            }
+        renderBossActor(ctx, this, MOB_DESIGNS.samurai, mobKatana, {
+            bodyHeight: this.height,
+            attackProgress: this.isAttacking
+                ? this.getUnifiedAttackProgress(250, null) : undefined
         });
         return;
         const dir = this.facingRight ? 1 : -1;
@@ -3670,48 +3628,10 @@ export class Busho extends Enemy {
     }
     
     renderBody(ctx) {
-        this.renderUnifiedEnemyModel(ctx, {
-            weaponMode: 'naginata',
-            headStyle: 'kabuto',
-            shoulderPads: false,
-            noFrontArmor: true,
-            backCape: true,
-            crestVariant: 'mikazuki',
-            crestLengthScale: 1.15,
-            crestArcHeightScale: 0.9,
-            crestTipRiseScale: 0.52,
-            crestForwardOffsetScale: 1.2,
-            crestRootLiftScale: 1.05,
-            armorRows: 4,
-            headRatio: 0.185,
-            armScale: 1.14,
-            torsoLeanScale: 1.12,
-            attackDurationMs: this.getAttackPatternDuration(),
-            attackProgressResolver: () => this.getAttackProgress(),
-            weaponScale: 1.1,
-            heavyGripScale: 1.1,         // naginata モードなので適宜
-            preventGroundPenetration: true,
-            slashPivotXOffset: 0,        // 体の中心寄りから振る
-            slashPivotYOffset: -this.height * 0.12, // より高い位置から振り下ろす
-            slashWidthScale: 1.35,
-            slashRadiusScale: 2.15,      // 刃先まで届くよう大幅に拡大
-            palette: {
-                legBack: '#141414',
-                legFront: '#1b1b1b',
-                robe: '#2f1b22',
-                robeShade: '#231319',
-                torsoCore: '#161616',
-                armorA: '#505867',
-                armorB: '#3a404b',
-                armorEdge: '#cfaa57',
-                shoulder: '#626b7d',
-                capeTop: '#8e3348',
-                capeMid: '#421b27',
-                capeBottom: '#17080f',
-                helmTop: '#2d313a',
-                helmBottom: '#181a20',
-                crest: '#e0b35a'
-            }
+        renderBossActor(ctx, this, MOB_DESIGNS.busho, mobNaginata, {
+            bodyHeight: this.height,
+            attackProgress: this.isAttacking
+                ? this.getUnifiedAttackProgress(this.getAttackPatternDuration(), null) : undefined
         });
         return;
         const dir = this.facingRight ? 1 : -1;
@@ -4059,33 +3979,10 @@ export class Ninja extends Enemy {
     }
 
     renderBody(ctx) {
-        this.renderUnifiedEnemyModel(ctx, {
-            weaponMode: 'ninja',
-            headStyle: 'ninja',
-            crest: false,
-            simpleOutfit: true,
-            shoulderPads: false,
-            noFrontArmor: true,
-            armorRows: 2,
-            armScale: 1.06,
-            torsoLeanScale: 1.04,
-            attackDurationMs: 400,
-            weaponScale: 0.94,
-            palette: {
-                legBack: '#121212',
-                legFront: '#1a1a1a',
-                robe: '#1f232b',
-                robeShade: '#161a20',
-                torsoCore: '#121315',
-                armorA: '#313741',
-                armorB: '#232830',
-                armorEdge: '#6e77a0',
-                shoulder: '#3f4654',
-                helmTop: '#2a2e37',
-                helmBottom: '#171a20',
-                crest: '#8d9fcc',
-                accent: '#7e58a6'
-            }
+        renderBossActor(ctx, this, MOB_DESIGNS.ninja, mobShinobiBlade, {
+            bodyHeight: this.height,
+            attackProgress: this.isAttacking
+                ? this.getUnifiedAttackProgress(400, null) : undefined
         });
         return;
         const dir = this.facingRight ? 1 : -1;

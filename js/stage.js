@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260813c';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260813c';
-import { createEnemy } from './enemy.js?v=screen-safe-20260813c';
-import { createBoss } from './boss.js?v=screen-safe-20260813c';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260813c';
-import { audio } from './audio.js?v=screen-safe-20260813c';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260813c';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260814a';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260814a';
+import { createEnemy } from './enemy.js?v=screen-safe-20260814a';
+import { createBoss } from './boss.js?v=screen-safe-20260814a';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260814a';
+import { audio } from './audio.js?v=screen-safe-20260814a';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260814a';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260813c';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260813c';
+} from './stage6Grapple.js?v=screen-safe-20260814a';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260814a';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260813c';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260814a';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -76,7 +76,7 @@ const STAGE_IMAGE_SOURCES = {
     },
     3: {
         fields: {
-            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260813_exit4',
+            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260814_exit5',
             stage3GroundImage: 'images/stage3_ground_mountain_tile.png',
             // 遠景の山並み。1枚をミラー連結してあるので横に繰り返すと稜線が繋がる
             // (右端は自身の鏡像と接し、巻き戻り点は左端同士)。
@@ -4509,11 +4509,19 @@ export class Stage {
     // ・素材は【遠景の山と同じ】。山道には岩の露頭も巨石も一度も出てこない
     //   (添景は地蔵・道祖神・道標・石灯籠・古い木の柵と枯れ草だけ)。
     //   写実の岩を積んだ絵にすると、ここだけ材質も画風も変わって唐突に見える
-    //   (実機フィードバック 2026-08-13)。遠景と同じ面で構成した山を一段手前へ
-    //   降ろし、道の両側から迫らせる＝峠として閉じる。
-    // ・左右の稜線はどちらも【画像の中で地面に着いて終わる独立した山形】で、
-    //   画像の左右端は透明。横スクロールで流れ込んでも縦の裁ち切り線が出ない。
-    //   (生成物は端で切り落とすので scratch/taper_foot.py で裾を作ってある)
+    //   (実機フィードバック 2026-08-13)。遠景と同じ面で構成する。
+    // ・【全体マップ(images/world_map.png)の地理に合わせる】。城と城下町は
+    //   山の中ではなく、平地に独立して立つ【丘】の上にある。尖った峰を左右に
+    //   同じ距離で立てて町を挟むと、城下町が山岳地帯の中にあることになる
+    //   (実機フィードバック 2026-08-14)。
+    //   左右は独立した峰ではなく【道が抜ける山裾】。左右で高さも肩の位置も変え、
+    //   中央は広く開ける。城下町は自分の丘の上へ載せ、裾に靄を一本通し、
+    //   彩度を落として霞ませる＝峠を越えて遠くの平地を望む絵にする。
+    // ・左右の裾はどちらも【画像の中で地面に着いて終わる】。画像の左右端は透明で、
+    //   横スクロールで流れ込んでも縦の裁ち切り線が出ない。
+    //   生成物は指示しても端で切り落とすうえ斜面が立ちすぎるので、
+    //   scratch/taper_foot.py で仕上げる(横へ1.42倍伸ばして寝かせ、
+    //   端から曲線で削って裾を作る)。実測 左斜面 54.5度 → 34.1度。
     // ・地面線より下は枯れ草と小石だけで、自前の道は持たない
     //   ＝ゲームの路面がそのまま下に続く。
     renderStage3ExitOnGround(ctx) {
@@ -4531,8 +4539,8 @@ export class Stage {
         // 絵の上辺が y=EXIT_TOP_MARGIN_PX に来る大きさを幅へ逆算する。
         // 遠景の帯(y270あたりが最高峰)より一段だけ高い位置に頂が来る値にしてある。
         // ここを詰めすぎると「同じ山が一段手前に来た」ではなく壁になる。
-        const EXIT_TOP_MARGIN_PX = 150;
-        const EXIT_HORIZON_RATIO = 415 / 432; // 実測: 山の裾が地面に着く行 / 画像の高さ
+        const EXIT_TOP_MARGIN_PX = 200;
+        const EXIT_HORIZON_RATIO = 406 / 443; // 実測: 山の裾が地面に着く行 / 画像の高さ
         const footY = this.groundY + BG_PROP_FOOT_DEPTH;
         const exitH = Math.round((footY - EXIT_TOP_MARGIN_PX) / EXIT_HORIZON_RATIO);
         const exitW = Math.round(exitH * (exitImg.naturalWidth / exitImg.naturalHeight));
