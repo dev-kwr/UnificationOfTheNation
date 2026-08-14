@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815c';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815c';
-import { createEnemy } from './enemy.js?v=screen-safe-20260815c';
-import { createBoss } from './boss.js?v=screen-safe-20260815c';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260815c';
-import { audio } from './audio.js?v=screen-safe-20260815c';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815c';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815d';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815d';
+import { createEnemy } from './enemy.js?v=screen-safe-20260815d';
+import { createBoss } from './boss.js?v=screen-safe-20260815d';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260815d';
+import { audio } from './audio.js?v=screen-safe-20260815d';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815d';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260815c';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815c';
+} from './stage6Grapple.js?v=screen-safe-20260815d';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815d';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815c';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815d';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -2367,92 +2367,48 @@ export class Stage {
         // 穴（階段室）。降り口の深さと下階の灯りで見せる
         this.drawStairwellVoid(ctx, clipScreenX, visibleWidth, prevDir);
 
+        // 【降り口の中身は、登る階段とまったく同じ絵】(指定 2026-08-15)。
+        // 独自の描き直し(俯瞰の雁行)は登りの絵と別物になって捨てた。
+        // 同じアセット・同じ縮尺・同じ照明で、下りの向きに置くだけにする。
+        //
+        // 以前この絵をそのまま置いたときに「パースがめちゃくちゃ」になった原因は
+        // 絵ではなく置き方で、最上段を床線から60px下(旧アンカー512+40)に置いたため、
+        // 框との間に側桁の無地の面だけが大きく露出していた。
+        // 【最上段の段鼻を框のすぐ下】に合わせれば、口から覗くのは段だけになる。
         ctx.save();
         ctx.beginPath();
-        ctx.rect(clipScreenX - 60, this.baseGroundY - 150, visibleWidth + 120, CANVAS_HEIGHT - this.baseGroundY + 150);
+        ctx.rect(clipScreenX, this.baseGroundY, visibleWidth, CANVAS_HEIGHT - this.baseGroundY);
         ctx.clip();
 
-        // 頂上のアンカー: 階段最上段の先端をゲーム世界の接地ラインに合わせる
-        // 階段画像の頂上は originX + TOTAL_L, originY - TOTAL_H
-        // オフセットを追加して、壁へのめり込みを防ぎつつ先のフロアと接続させる
-        const stairYOffset = 40;
-        const anchorScreenY = this.baseGroundY + LANE_OFFSET + stairYOffset;
+        const topAnchorY = this.baseGroundY + 16; // 奥の框(12px)のすぐ下
+        ctx.translate(topScreenX, topAnchorY);
+        ctx.scale(isFlippedDraw ? -s : s, s);
+        drawImageGraded(ctx, this.stairImage, -(this.stairOriginX + TOTAL_L), -(this.stairOriginY - TOTAL_H));
+        ctx.restore();
 
-        // 【登る階段の絵を流用しない】。あの絵は奥行きを真上へ押し出す2.5Dで、
-        // 横から見る前提。床の穴を上から覗く絵に貼ると、側桁が斜めの帯として
-        // 走ってしまい「上から見ているのか横から見ているのか分からない」になる
-        // (実機フィードバック 2026-08-14)。俯瞰として描き直す。
-        this.drawStairwellTreads(ctx, clipScreenX, visibleWidth, prevDir);
+        // 深さの減光。下る方向へ沿って闇に沈める(絵はいじらず上から乗算)。
+        // 登りの階段と同じ絵であることが最初の数段で分かれば十分で、
+        // 深い段まで明るいと穴ではなく壁に見える。
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(clipScreenX, this.baseGroundY, visibleWidth, CANVAS_HEIGHT - this.baseGroundY);
+        ctx.clip();
+        const SLOPE = (this.stairTotalH / this.stairTotalL) || 0.889;
+        const farX = topScreenX + (isFlippedDraw ? 1 : -1) * visibleWidth;
+        const sink = ctx.createLinearGradient(
+            topScreenX, topAnchorY,
+            farX, topAnchorY + visibleWidth * SLOPE);
+        sink.addColorStop(0, 'rgba(5, 3, 2, 0)');
+        sink.addColorStop(0.45, 'rgba(5, 3, 2, 0.34)');
+        sink.addColorStop(1, 'rgba(5, 3, 2, 0.88)');
+        ctx.fillStyle = sink;
+        ctx.fillRect(clipScreenX, this.baseGroundY, visibleWidth, CANVAS_HEIGHT - this.baseGroundY);
         ctx.restore();
 
         // 階段を描いた後にもう一度だけ灯りを重ねる（踏板の先が光を拾う）
         this.drawStairwellLightOverlay(ctx, clipScreenX, visibleWidth, prevDir);
         // 最後に框(かまち)。床の切り口を納めて、穴を床の一部として見せる
         this.drawStairwellFrame(ctx, clipScreenX, visibleWidth, prevDir);
-    }
-
-    /**
-     * 降り口の中の階段を【床帯の投影の規則のまま】描く。
-     *
-     * 床帯の規則は「床より低い面は、低いぶんだけ画面の下へ沈む」。
-     * この規則で階段を描くと、踏板は踏面(run)幅の縦帯で、
-     * 【一段降りるごとに帯の上端が蹴上げ(rise)ぶん下がる】。
-     * この上端の連なり＝下りの雁行が「降りている」ことの全てで、
-     * 前回のように全部の帯の上端を框の高さに揃えると、段差の情報が消えて
-     * ただの板壁になる(実機フィードバック 2026-08-15)。
-     * 蹴込みの縦面はこの投影では真横から見る線(幅0)なので面では描かず、
-     * 隣り合う帯の上端差を繋ぐ縦の継ぎ目だけを入れる。
-     * 段の寸法は登りの階段と同一(踏面45・蹴上げ40 を drawScale で縮小)。
-     */
-    drawStairwellTreads(ctx, x, width, prevDir) {
-        const s = this.stairDrawScale;
-        const run = (STAIR_LOGICAL_RUN / 20) * s;    // 一段の踏面 = 18px
-        const rise = (STAIR_LOGICAL_RISE / 20) * s;  // 一段の沈み = 16px
-        const holeTop = this.baseGroundY;
-        const treadTop = holeTop + 11;               // 奥の框の内側
-        const bottom = CANVAS_HEIGHT;
-        const sign = prevDir === 1 ? 1 : -1;         // 下る向き(床の反対側へ)
-        const edge = prevDir === 1 ? x : x + width;  // 床に接する側＝最上段
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(x, holeTop, width, bottom - holeTop);
-        ctx.clip();
-
-        // 階段室の奥の壁。踏板の上端より上に残る部分が、段と段の間の陰になる。
-        const wallGrad = ctx.createLinearGradient(0, holeTop, 0, holeTop + 140);
-        wallGrad.addColorStop(0, 'rgb(26, 19, 14)');
-        wallGrad.addColorStop(1, 'rgb(7, 5, 4)');
-        ctx.fillStyle = wallGrad;
-        ctx.fillRect(x, holeTop, width, bottom - holeTop);
-
-        const steps = Math.ceil(width / run) + 1;
-        for (let k = 0; k < steps; k++) {
-            const bx = edge + sign * k * run;          // この段の床側の端
-            const x0 = Math.min(bx, bx + sign * run);
-            const topEdge = treadTop + (k + 1) * rise; // 一段ごとに rise 沈む
-            if (topEdge >= bottom) break;
-            // 部屋の灯りは口の縁から差す。手前の数段が受け、深い段は闇へ。
-            const lit = Math.pow(Math.max(0, 1 - k / 8), 1.5);
-
-            const face = ctx.createLinearGradient(0, topEdge, 0, topEdge + 180);
-            face.addColorStop(0, `rgb(${Math.round(30 + 98 * lit)}, ${Math.round(22 + 72 * lit)}, ${Math.round(15 + 47 * lit)})`);
-            face.addColorStop(1, `rgb(${Math.round(9 + 25 * lit)}, ${Math.round(7 + 18 * lit)}, ${Math.round(5 + 12 * lit)})`);
-            ctx.fillStyle = face;
-            ctx.fillRect(x0, topEdge, run + 0.6, bottom - topEdge);
-
-            // 段鼻。踏板の上端(=一段の縁)が灯りを拾う【横の】線。
-            if (lit > 0.02) {
-                ctx.fillStyle = `rgba(232, 192, 140, ${(0.5 * lit).toFixed(3)})`;
-                ctx.fillRect(x0, topEdge, run + 0.6, 1.6);
-            }
-
-            // 隣の段との継ぎ目。上端差(rise)を繋ぐ縦線で雁行の角を立てる。
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-            const seamX = sign > 0 ? bx : bx - 1.3;
-            ctx.fillRect(seamX, topEdge - rise, 1.3, rise + 1.6);
-        }
-        ctx.restore();
     }
 
     /**

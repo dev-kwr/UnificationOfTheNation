@@ -61,7 +61,12 @@ const EMPTY_WEAPON = {
   front(){}
 };
 
-const BODY={ core:'#1a1a1a', front:'#1a1a1a', back:'#121212', mitt:'#242424',
+/* 素体色は【プレイヤーと完全に同一の #1a1a1a 一色】。
+   以前は奥腕 #121212・掌 #242424・頭 #161210 と部位ごとに変えており、
+   プレイヤー(全身フラットな #1a1a1a)と並ぶと淡くまばらに見えた(ユーザー指摘)。
+   奥行きはシルエット輪郭(OUT)とレイヤー順で作り、色では作らない。
+   OUT/OUTW も playerRenderer の silhouetteOutline と同値。 */
+const BODY={ core:'#1a1a1a', front:'#1a1a1a', back:'#1a1a1a', mitt:'#1a1a1a',
              OUT:'rgba(168,196,230,0.29)', OUTW:1.2 };
 /* 流派別の袖(肩板)スケール。防具の「形」を変える(色替えで差別化しない) */
 const SODE_S={ ashigaru:0.78, taisho:1.3, kengo:0.95, shinobi:0, busho:1.06 };
@@ -90,7 +95,7 @@ function limbN(c,ax,ay,hx,hy,frac,bend,mode,w1,w2,col,hi,pass='fill'){
 
 /* 二刀の刀身はプレイヤーと同一形状。katanaShape.js は依存ゼロなので循環しない
    (playerRenderer.js を直接 import すると game.js の TDZ でクラッシュする)。 */
-import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260815c';
+import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260815d';
 /* 刀身長はプレイヤー実数値のまま渡し、拡大は描画側の ctx.scale だけで行う(二重拡大防止)。
    倍率は素体リグの SC(=1.8) ではなく【描画上の身長比】を使う:
      プレイヤーの描画身長 = height(72) - headRadius*0.1(=1.68) = 70.32
@@ -280,17 +285,22 @@ function drawHead(c,B,P,hx,hy,r,t,motion){
     /* 鉢巻の忍(雑魚) — 頭巾の暗殺者と混同しないよう、素頭に鉢巻+垂れ帯。
        帯の角度・クリップはプレイヤーの drawHeadbandBand と同じ流儀。
        色だけプレイヤー(水色)と変える。 */
+    /* 鉢巻の帯の幾何。垂れ帯の付け根を【結び目(帯の後端)】へ一致させるため先に出す。
+       以前は付け根が帯より上にあり、帯と繋がっていない位置から生えていた。 */
+    const bw=r*0.30, br=r*0.95+bw*0.34;
+    const ba=Math.PI*0.92, bb=-Math.PI*0.18;
+    const knotX=hx+Math.cos(ba)*br, knotY=hy+r*0.03+Math.sin(ba)*br;
     /* 垂れ帯(頭より奥) — 真横へ棒のように伸ばすと硬く見える。
-       根元から【後ろ下がり】に垂らし、先端ほど大きく波打たせて布らしくする。 */
+       結び目から【後ろ下がり】に深く垂らし、先端ほど大きく波打たせて布らしくする。 */
     const ph=t*TAU/1.35+(motion==='run'?t*TAU/0.5:0);
     const amp=(motion==='run'?1.0:0.42);
     [[1.62,0.26,0,0.0],[1.24,0.19,1,0.7]].forEach(([len,wd,i,ofs])=>{
-      const rx=hx-r*0.78, ry=hy-r*0.16;
+      const rx=knotX+r*0.06, ry=knotY+r*(0.05+i*0.11);   // 付け根 = 結び目
       const w1=Math.sin(ph+ofs)*r*0.20*amp;          // 中ほどの振れ
       const w2=Math.sin(ph+ofs+1.1)*r*0.34*amp;      // 先端の振れ(大きい)
-      const droop=r*(0.92+i*0.26);                   // 後ろ下がりの垂れ(布らしく大きく落とす)
-      const mx=rx-r*len*0.44, my=ry+droop*0.55+w1;
-      const ex=rx-r*len,      ey=ry+droop+w2;
+      const droop=r*(1.46+i*0.34);                   // 後ろ下がりの垂れ(深く落とす)
+      const mx=rx-r*len*0.40, my=ry+droop*0.52+w1;
+      const ex=rx-r*len*0.86, ey=ry+droop+w2;
       const tw=r*wd;
       c.fillStyle=i?shade(P.crest,-30):P.crest;
       c.beginPath();
@@ -301,16 +311,10 @@ function drawHead(c,B,P,hx,hy,r,t,motion){
       c.closePath(); c.fill();
     });
     // 素頭
-    c.fillStyle='#161210'; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
-    const hs2=c.createLinearGradient(hx,hy-r,hx,hy+r);
-    hs2.addColorStop(0,'rgba(255,255,255,0.07)'); hs2.addColorStop(0.55,'rgba(0,0,0,0)');
-    hs2.addColorStop(1,'rgba(0,0,0,0.2)');
-    c.fillStyle=hs2; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
+    c.fillStyle=BODY.core; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
     // 鉢巻(頭円でクリップして帯が頭からはみ出さないようにする)
     c.save();
     c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.clip();
-    const bw=r*0.30, br=r*0.95+bw*0.34;
-    const ba=Math.PI*0.92, bb=-Math.PI*0.18;
     c.strokeStyle=P.crest; c.lineWidth=bw; c.lineCap='butt'; c.lineJoin='round';
     c.beginPath();
     c.moveTo(hx+Math.cos(ba)*br, hy+r*0.03+Math.sin(ba)*br);
@@ -318,15 +322,56 @@ function drawHead(c,B,P,hx,hy,r,t,motion){
                        hx+Math.cos(bb)*br, hy+r*0.03+Math.sin(bb)*br);
     c.stroke();
     c.restore();
+  } else if(B.helm==='mage'){
+    /* 侍(雑魚) — 兜をやめて軽装に。素頭+髷+額の鉢金。
+       丸い鉢は前立が無いとどうしても現代のヘルメットに見えるので、
+       頭そのもので「侍」と読ませる。頭装備は
+       足軽=陣笠 / 忍=鉢巻 / 侍=髷 / 中ボス以上=兜 で完全に分ける。 */
+    const sw3=Math.sin(t*TAU/2.6)*0.05+(motion==='run'?Math.sin(t*TAU/0.6)*0.10:0);
+    /* 髷(頭頂の後ろ寄りから後ろへ跳ねる束)。頭より奥に描いて輪郭を割らない */
+    c.save(); c.translate(hx-r*0.16,hy-r*0.80); c.rotate(-0.30+sw3);
+    const mgPath=()=>{ c.beginPath();
+      c.moveTo(0,-r*0.15);
+      c.quadraticCurveTo(-r*0.52,-r*0.22,-r*0.86,-r*0.06);
+      c.quadraticCurveTo(-r*0.96, 0,      -r*0.86, r*0.07);
+      c.quadraticCurveTo(-r*0.52, r*0.20,  0,      r*0.14);
+      c.closePath(); };
+    /* 髷は頭と同じ黒なので、素体と同じシルエット輪郭を付けないと読めない */
+    c.strokeStyle=BODY.OUT; c.lineWidth=BODY.OUTW; c.lineJoin='round';
+    mgPath(); c.stroke();
+    const mg2=c.createLinearGradient(0,-r*0.16,0,r*0.16);
+    mg2.addColorStop(0,'#2a2622'); mg2.addColorStop(1,'#0f0d0b');
+    c.fillStyle=mg2; mgPath(); c.fill();
+    // 元結(根本を縛る紐)
+    c.strokeStyle='rgba(210,200,180,0.34)'; c.lineWidth=Math.max(0.8,r*0.05);
+    c.beginPath(); c.moveTo(-r*0.16,-r*0.15); c.lineTo(-r*0.16,r*0.14); c.stroke();
+    c.restore();
+    // 素頭
+    c.fillStyle=BODY.core; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
+    /* 額の鉢金(軽装の額当)。頭円でクリップして帯が頭からはみ出さないようにする */
+    c.save();
+    c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.clip();
+    const hw=r*0.20, hr=r*0.95+hw*0.34;
+    const ha=Math.PI*0.90, hb=-Math.PI*0.14;
+    c.strokeStyle=shade(P.robeS,8); c.lineWidth=hw; c.lineCap='butt';
+    c.beginPath();
+    c.moveTo(hx+Math.cos(ha)*hr, hy+r*0.03+Math.sin(ha)*hr);
+    c.quadraticCurveTo(hx+r*0.02, hy+r*0.03-r*0.34,
+                       hx+Math.cos(hb)*hr, hy+r*0.03+Math.sin(hb)*hr);
+    c.stroke();
+    // 額の小さな金具
+    c.fillStyle=hexA(P.edge,0.7);
+    c.beginPath();
+    c.moveTo(hx+r*0.30,hy-r*0.60); c.lineTo(hx+r*0.62,hy-r*0.50);
+    c.lineTo(hx+r*0.58,hy-r*0.30); c.lineTo(hx+r*0.28,hy-r*0.40);
+    c.closePath(); c.fill();
+    c.restore();
   } else if(B.helm==='kasa'){
     /* 陣笠(雑魚の足軽) — 兜ではなく塗笠。
        ・水平にかぶると被り物を載せただけに見えるので【前上がり・後ろ下がり】に傾ける
          (顔が見え、首の後ろが隠れる実際のかぶり方)
        ・顎紐は3/4面なので手前側だけ。笠の縁から顎まで短く落とし、顔は横切らせない */
-    c.fillStyle='#161210'; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
-    const hs=c.createLinearGradient(hx,hy-r,hx,hy+r);
-    hs.addColorStop(0,'rgba(255,255,255,0.06)'); hs.addColorStop(1,'rgba(0,0,0,0.22)');
-    c.fillStyle=hs; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
+    c.fillStyle=BODY.core; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
 
     /* 顎紐 — 見えるのは【手前側】の1本だけ。
        このリグの2.5Dは「奥の肩・腕が進行方向(+x)へ出る」= 手前側は -x なので、
@@ -366,10 +411,7 @@ function drawHead(c,B,P,hx,hy,r,t,motion){
     c.beginPath(); c.arc(hx+AX,hy+AY,r*0.10,0,TAU); c.fill();
   } else {
     // 素頭(シルエット。輪郭はパス1で描画済み)
-    c.fillStyle='#161210'; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
-    const hs=c.createLinearGradient(hx,hy-r,hx,hy+r);
-    hs.addColorStop(0,'rgba(255,255,255,0.07)'); hs.addColorStop(0.55,'rgba(0,0,0,0)'); hs.addColorStop(1,'rgba(0,0,0,0.2)');
-    c.fillStyle=hs; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
+    c.fillStyle=BODY.core; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
     // 面頬(顎の面・輪郭を割らない小ぶり)
     c.fillStyle='rgba(0,0,0,0.42)';
     c.beginPath(); c.moveTo(hx+r*0.1,hy+r*0.34);
@@ -1389,28 +1431,28 @@ export const BOSS_DESIGNS = {
   kayaku: { id:'kayaku', build:'ashigaru', helm:'kabuto', crest:'disc',
     pal:{ aA:'#8a5326', aB:'#4d2c12', edge:'#e6b578', sh:'#9c6231',
           robe:'#5a3a1e', robeS:'#33200e', helm:'#6b3f1c', helmD:'#2c1a0b',
-          crest:'#ff9a3c', acc:'#e2622a', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a' } },
+          crest:'#ff9a3c', acc:'#e2622a', legF:'#1a1a1a', legB:'#1a1a1a', core:'#1a1a1a' } },
   // 弐之陣 大槍の武者 — 藍鉄 / 大袖+胸紐 / 鍬形剣立
   yari: { id:'yari', build:'taisho', helm:'kabuto', crest:'kuwagata',
     pal:{ aA:'#2f4a7a', aB:'#1a2b48', edge:'#d3dcec', sh:'#3d5d92',
           robe:'#22334f', robeS:'#141d2e', helm:'#243a5e', helmD:'#101827',
-          crest:'#eaf0fa', acc:'#5b86c9', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a' } },
+          crest:'#eaf0fa', acc:'#5b86c9', legF:'#1a1a1a', legB:'#1a1a1a', core:'#1a1a1a' } },
   // 参之陣 二刀流の剣豪 — 白銀鼠 / 軽装 / 半月剣・開き構え
   nito: { id:'nito', build:'kengo', helm:'kabuto', crest:'gessou', openStance:true,
     pal:{ aA:'#8e93a3', aB:'#5a5f6d', edge:'#eceef6', sh:'#a3a8b8',
           robe:'#484b57', robeS:'#2b2e36', helm:'#787d8c', helmD:'#3a3d46',
-          crest:'#f2f4fc', acc:'#9a7fd0', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a' } },
+          crest:'#f2f4fc', acc:'#9a7fd0', legF:'#1a1a1a', legB:'#1a1a1a', core:'#1a1a1a' } },
   // 肆之陣 鎖鎌の暗殺者 — 濡羽 / 鎧なし / 覆面
   kusa: { id:'kusa', build:'shinobi', helm:'hood', crest:null,
     idleSpread:0.9, idleCrouch:5,
     pal:{ aA:'#2a2f38', aB:'#171b22', edge:'#68758c', sh:'#333a46',
           robe:'#20242c', robeS:'#111419', helm:'#2b3140', helmD:'#0c0f14',
-          crest:'#4d5666', acc:'#8a2a2a', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a' } },
+          crest:'#4d5666', acc:'#8a2a2a', legF:'#1a1a1a', legB:'#1a1a1a', core:'#1a1a1a' } },
   // 伍之陣 大太刀の武将 — 漆黒+黄金 / 陣羽織 / 大三日月
   odachi: { id:'odachi', build:'busho', helm:'kabuto', crest:'mikazuki', cape:true,
     pal:{ aA:'#2c2c2c', aB:'#141414', edge:'#e2bd4a', sh:'#3c3c3c',
           robe:'#2b1f1f', robeS:'#1a1212', helm:'#1c1c1c', helmD:'#080808',
-          crest:'#ffcf3a', acc:'#c8452c', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a',
+          crest:'#ffcf3a', acc:'#c8452c', legF:'#1a1a1a', legB:'#1a1a1a', core:'#1a1a1a',
           capeA:'#5c0f14', capeB:'#1c0406' } }
 };
 
@@ -1427,23 +1469,23 @@ export const MOB_DESIGNS = {
     idleSpread:0.95, idleCrouch:2, headRatio:0.2392, hipRatio:0.342, suneate:false, simple:true,
     pal:{ aA:'#4c5360', aB:'#2e343e', edge:'#9c8a5e', sh:'#5a6270',
           robe:'#2c313b', robeS:'#1b1f26', helm:'#6d4f2e', helmD:'#31210f',
-          crest:'#c9a862', acc:'#7a6a3c', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a' } },
-  samurai:  { id:'samurai', build:'kengo', helm:'kabuto', crest:null,
+          crest:'#c9a862', acc:'#7a6a3c', legF:'#1a1a1a', legB:'#1a1a1a', core:'#1a1a1a' } },
+  samurai:  { id:'samurai', build:'kengo', helm:'mage', crest:null,
     idleSpread:1.0, idleCrouch:2, headRatio:0.2392, hipRatio:0.342, suneate:false, simple:true,
     pal:{ aA:'#46505f', aB:'#2f3641', edge:'#c2a95e', sh:'#596273',
           robe:'#262b34', robeS:'#171b21', helm:'#333a46', helmD:'#171a21',
-          crest:'#e8dcae', acc:'#8a5f9a', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a' } },
+          crest:'#e8dcae', acc:'#8a5f9a', legF:'#1a1a1a', legB:'#1a1a1a', core:'#1a1a1a' } },
   ninja:    { id:'ninja', build:'shinobi', helm:'hachimaki', crest:null,
     idleSpread:0.9, idleCrouch:4, headRatio:0.2392, hipRatio:0.342, suneate:false, simple:true,
     pal:{ aA:'#2b303a', aB:'#191d24', edge:'#6a74a0', sh:'#343b47',
           robe:'#1f232b', robeS:'#14171d', helm:'#2c313d', helmD:'#0e1015',
-          crest:'#8d9fcc', acc:'#6f5ba2', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a' } },
+          crest:'#8d9fcc', acc:'#6f5ba2', legF:'#1a1a1a', legB:'#1a1a1a', core:'#1a1a1a' } },
   /* 中ボスの頭身は雑魚(2.09)とフロアボス(2.67)の中間 2.35。headRatio=0.5/2.35 */
   busho:    { id:'busho', build:'busho', helm:'kabuto', crest:'kuwagata', cape:true,
     idleSpread:1.05, idleCrouch:2, headRatio:0.213, hipRatio:0.380,
     pal:{ aA:'#4a4550', aB:'#2b272f', edge:'#c9a95a', sh:'#5c5763',
           robe:'#2f1b22', robeS:'#1d1116', helm:'#33303a', helmD:'#141317',
-          crest:'#dcb45c', acc:'#a5384c', legF:'#1a1a1a', legB:'#121212', core:'#1a1a1a',
+          crest:'#dcb45c', acc:'#a5384c', legF:'#1a1a1a', legB:'#1a1a1a', core:'#1a1a1a',
           capeA:'#7a2436', capeB:'#22090f' } }
 };
 
