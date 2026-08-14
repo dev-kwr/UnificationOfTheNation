@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815a';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815a';
-import { createEnemy } from './enemy.js?v=screen-safe-20260815a';
-import { createBoss } from './boss.js?v=screen-safe-20260815a';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260815a';
-import { audio } from './audio.js?v=screen-safe-20260815a';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815a';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815b';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815b';
+import { createEnemy } from './enemy.js?v=screen-safe-20260815b';
+import { createBoss } from './boss.js?v=screen-safe-20260815b';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260815b';
+import { audio } from './audio.js?v=screen-safe-20260815b';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815b';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260815a';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815a';
+} from './stage6Grapple.js?v=screen-safe-20260815b';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815b';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815a';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815b';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -76,7 +76,7 @@ const STAGE_IMAGE_SOURCES = {
     },
     3: {
         fields: {
-            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260814_exit5',
+            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260815_exit6',
             stage3GroundImage: 'images/stage3_ground_mountain_tile.png',
             // 遠景の山並み。1枚をミラー連結してあるので横に繰り返すと稜線が繋がる
             // (右端は自身の鏡像と接し、巻き戻り点は左端同士)。
@@ -4782,8 +4782,8 @@ export class Stage {
         // 絵の上辺が y=EXIT_TOP_MARGIN_PX に来る大きさを幅へ逆算する。
         // 遠景の帯(y270あたりが最高峰)より一段だけ高い位置に頂が来る値にしてある。
         // ここを詰めすぎると「同じ山が一段手前に来た」ではなく壁になる。
-        const EXIT_TOP_MARGIN_PX = 200;
-        const EXIT_HORIZON_RATIO = 406 / 443; // 実測: 山の裾が地面に着く行 / 画像の高さ
+        const EXIT_TOP_MARGIN_PX = 146;
+        const EXIT_HORIZON_RATIO = 480 / 516; // 実測: 山の裾が地面に着く行 / 画像の高さ
         const footY = this.groundY + BG_PROP_FOOT_DEPTH;
         const exitH = Math.round((footY - EXIT_TOP_MARGIN_PX) / EXIT_HORIZON_RATIO);
         const exitW = Math.round(exitH * (exitImg.naturalWidth / exitImg.naturalHeight));
@@ -4972,12 +4972,17 @@ export class Stage {
             // 尽きた先が素の空だけになると地平まで抜けて空虚になるので、
             // 先に【遠い平地の霞】を低く敷いておく。山より下にしか出ないので、
             // 山が残っている範囲では山に隠れて見えない。
-            const plainTone = this.interpolateColor(currentPalette.mid, horizonSky, 0.74);
-            const plainTop = this.groundY - 62;
+            // 地平のきわは【ほぼ不透明】にする。薄いままだと、城下町の丘の裾と
+            // 地面の間に空の色が細く残って「丘が浮いた赤い帯」になる。
+            // 色は空へ寄せない。夕焼けの空色をそのまま敷くと真っ赤な帯になり、
+            // 霞んだ紫の丘と繋がらない。遠い平地は【霞んだ灰紫】。
+            const plainTone = this.interpolateColor(currentPalette.near, '#6a5a78', 0.55);
+            const plainTop = this.groundY - 88;
             const plain = ctx.createLinearGradient(0, plainTop, 0, this.groundY);
             plain.addColorStop(0, rgba(plainTone, 0));
-            plain.addColorStop(0.45, rgba(plainTone, 0.5));
-            plain.addColorStop(1, rgba(plainTone, 0.86));
+            plain.addColorStop(0.4, rgba(plainTone, 0.42));
+            plain.addColorStop(0.75, rgba(plainTone, 0.86));
+            plain.addColorStop(1, rgba(plainTone, 0.97));
             ctx.fillStyle = plain;
             ctx.fillRect(0, plainTop, CANVAS_WIDTH, this.groundY - plainTop);
 
