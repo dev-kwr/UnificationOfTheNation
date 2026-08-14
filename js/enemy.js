@@ -2,14 +2,22 @@
 // Unification of the Nation - 敵クラス
 // ============================================
 
-import { ENEMY_TYPES, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js?v=screen-safe-20260814b';
+import { ENEMY_TYPES, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js?v=screen-safe-20260814c';
 /* 雑魚・中ボスもフロアボスと同じ素体リグで描く(bodyHeight で縮小するだけ)。
    旧 renderUnifiedEnemyModel は当面デッドコードとして残す。 */
 import {
     MOB_DESIGNS, renderBossActor,
     mobSpear, mobKatana, mobShinobiBlade, mobNaginata
-} from './bossRenderer.js?v=mob-rig-20260807q';
-import { audio } from './audio.js?v=screen-safe-20260814b';
+} from './bossRenderer.js?v=mob-size-20260807s';
+
+/* 雑魚の素体は【忍者(プレイヤー)と同じ大きさ】で描く。
+   実測(細い黒=刀の柄を除外して頭頂を検出): プレイヤーの描画全高は箱と同じ 72px、
+   頭幅30(頭比 0.417)。ボスリグの頭比 0.374 とほぼ一致するので比率の破綻は無い。
+   当たり判定の height をそのまま描画高にすると足軽/忍(66)だけ一回り小さく見えるため、
+   雑魚3種は 72 に揃える(当たり判定は変更しない)。
+   中ボスの武将は格を出すため自分の箱(90)のまま。 */
+const PLAYER_BODY_H = 72;
+import { audio } from './audio.js?v=screen-safe-20260814c';
 
 const ENEMY_HEADBAND_BASE = '#4f2f72';
 const ENEMY_HEADBAND_HIGHLIGHT = '#7e58a6';
@@ -2921,7 +2929,7 @@ export class Ashigaru extends Enemy {
     
     renderBody(ctx) {
         renderBossActor(ctx, this, MOB_DESIGNS.ashigaru, mobSpear, {
-            bodyHeight: this.height,
+            bodyHeight: PLAYER_BODY_H,
             attackProgress: this.isAttacking
                 ? this.getUnifiedAttackProgress(300, null) : undefined
         });
@@ -3156,7 +3164,7 @@ export class Samurai extends Enemy {
     
     renderBody(ctx) {
         renderBossActor(ctx, this, MOB_DESIGNS.samurai, mobKatana, {
-            bodyHeight: this.height,
+            bodyHeight: PLAYER_BODY_H,
             attackProgress: this.isAttacking
                 ? this.getUnifiedAttackProgress(250, null) : undefined
         });
@@ -3980,7 +3988,7 @@ export class Ninja extends Enemy {
 
     renderBody(ctx) {
         renderBossActor(ctx, this, MOB_DESIGNS.ninja, mobShinobiBlade, {
-            bodyHeight: this.height,
+            bodyHeight: PLAYER_BODY_H,
             attackProgress: this.isAttacking
                 ? this.getUnifiedAttackProgress(400, null) : undefined
         });

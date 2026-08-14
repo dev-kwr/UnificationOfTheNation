@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260814b';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260814b';
-import { createEnemy } from './enemy.js?v=screen-safe-20260814b';
-import { createBoss } from './boss.js?v=screen-safe-20260814b';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260814b';
-import { audio } from './audio.js?v=screen-safe-20260814b';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260814b';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260814c';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260814c';
+import { createEnemy } from './enemy.js?v=screen-safe-20260814c';
+import { createBoss } from './boss.js?v=screen-safe-20260814c';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260814c';
+import { audio } from './audio.js?v=screen-safe-20260814c';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260814c';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260814b';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260814b';
+} from './stage6Grapple.js?v=screen-safe-20260814c';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260814c';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260814b';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260814c';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -4768,13 +4768,77 @@ export class Stage {
         const scroll = progress * spec.parallax;
         const offset = ((scroll % w) + w) % w;
         const y = this.groundY - drawH;
+
+        // Stage3の山脈は【峠の手前で尽きる】。ここを敷き詰めたままにすると、
+        // ラストで見せる城下町の【後ろにも稜線が残り、結局「山の中の城」になる】
+        // (実機フィードバック 2026-08-14)。全体マップでは城は平地の丘の上にある。
+        const rangeEndX = this.getStage3FarRangeEndX(progress, spec.parallax);
+        const rgba = (rgb, alpha) => rgb.replace('rgb(', 'rgba(').replace(')', `, ${alpha})`);
+
         ctx.save();
         ctx.imageSmoothingEnabled = true;
+        if (rangeEndX !== null) {
+            // 尽きた先が素の空だけになると地平まで抜けて空虚になるので、
+            // 先に【遠い平地の霞】を低く敷いておく。山より下にしか出ないので、
+            // 山が残っている範囲では山に隠れて見えない。
+            const plainTone = this.interpolateColor(currentPalette.mid, horizonSky, 0.74);
+            const plainTop = this.groundY - 62;
+            const plain = ctx.createLinearGradient(0, plainTop, 0, this.groundY);
+            plain.addColorStop(0, rgba(plainTone, 0));
+            plain.addColorStop(0.45, rgba(plainTone, 0.5));
+            plain.addColorStop(1, rgba(plainTone, 0.86));
+            ctx.fillStyle = plain;
+            ctx.fillRect(0, plainTop, CANVAS_WIDTH, this.groundY - plainTop);
+
+            if (rangeEndX <= 0) {
+                ctx.restore();
+                return true;
+            }
+            // 山脈の終わりは【最後の尾根が地平へまっすぐ下りる】形で閉じる。
+            // 垂直に切ると壁の断面になり、曲線で膨らませると巨大な丘に見えた。
+            // 24度ほどの直線が一番「山脈が尽きた」に読める。
+            const RAMP = 460;
+            ctx.beginPath();
+            ctx.moveTo(-2, y - 2);
+            ctx.lineTo(Math.max(-2, rangeEndX - RAMP), y - 2);
+            ctx.lineTo(rangeEndX, this.groundY);
+            ctx.lineTo(-2, this.groundY);
+            ctx.closePath();
+            ctx.clip();
+        }
         for (let x = -offset; x < CANVAS_WIDTH; x += w) {
             ctx.drawImage(tinted, Math.round(x), y, w + 1, drawH);
         }
+        if (rangeEndX !== null) {
+            // 切った縁が線として見えないよう、終わりぎわを空の地平色へ溶かす。
+            // クリップの内側で塗るので、尽きた先の空には掛からない。
+            const FADE = 360;
+            const skyRgb = this.interpolateColor(horizonSky, horizonSky, 0);
+            const fade = ctx.createLinearGradient(rangeEndX - FADE, 0, rangeEndX, 0);
+            fade.addColorStop(0, rgba(skyRgb, 0));
+            fade.addColorStop(0.55, rgba(skyRgb, 0.34));
+            fade.addColorStop(1, rgba(skyRgb, 0.9));
+            ctx.fillStyle = fade;
+            ctx.fillRect(rangeEndX - FADE, y - 2, FADE, this.groundY - y + 2);
+        }
         ctx.restore();
         return true;
+    }
+
+    /**
+     * Stage3の遠景の山脈が尽きる画面x。右がここより先には山を描かない。
+     * 峠のラストオブジェクト(城下町の丘)と同じ場所で尽きるよう、
+     * 【カメラ停止時に城下町の丘の左】へ来る位置から逆算する。
+     * 尽きる場所も山と同じ距離にあるので、遠景と同じパララックスで動かす
+     * (手前と同じ速さで動かすと、稜線だけが取り残されて滑る)。
+     */
+    getStage3FarRangeEndX(progress, parallax) {
+        if (this.stageNumber !== 3) return null;
+        if (!this.stage3ExitImage?.complete || this.stage3ExitImage.naturalWidth <= 0) return null;
+        // カメラ停止時の目標画面x。ラストの絵の谷(実測 frac 0.4456)のすぐ手前。
+        const STOP_SCREEN_X = 470;
+        const bandX = STOP_SCREEN_X + (this.maxProgress - CANVAS_WIDTH) * parallax;
+        return bandX - progress * parallax;
     }
 
     renderStage3DistantMountainBands(ctx, currentPalette, progress) {
