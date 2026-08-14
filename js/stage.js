@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260814c';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260814c';
-import { createEnemy } from './enemy.js?v=screen-safe-20260814c';
-import { createBoss } from './boss.js?v=screen-safe-20260814c';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260814c';
-import { audio } from './audio.js?v=screen-safe-20260814c';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260814c';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260814d';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260814d';
+import { createEnemy } from './enemy.js?v=screen-safe-20260814d';
+import { createBoss } from './boss.js?v=screen-safe-20260814d';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260814d';
+import { audio } from './audio.js?v=screen-safe-20260814d';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260814d';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260814c';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260814c';
+} from './stage6Grapple.js?v=screen-safe-20260814d';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260814d';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260814c';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260814d';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -2194,6 +2194,10 @@ export class Stage {
         const anchorScreenX = startScreenX;
         const anchorScreenY = this.baseGroundY + LANE_OFFSET + stairYOffset;
 
+        // 側桁の下端(＝床に着く高さ)。画像の段の線は原点を通り、その 33px 下が側桁の底。
+        const footBottomY = anchorScreenY + STAIR_STRINGER_BELOW * s;
+        this.drawStairFootTrim(ctx, anchorScreenX, footBottomY, direction);
+
         ctx.save();
         if (direction === 1) {
             ctx.translate(anchorScreenX, anchorScreenY);
@@ -2204,6 +2208,113 @@ export class Stage {
             ctx.scale(-s, s);
             drawImageGraded(ctx, this.stairImage, -this.stairOriginX, -this.stairOriginY);
         }
+        ctx.restore();
+
+        this.drawStairFootFade(ctx, anchorScreenX, footBottomY, direction);
+        this.drawStairFootPlanted(ctx, anchorScreenX, footBottomY, direction, scrollX);
+    }
+
+    /**
+     * 階段の足元へ【床の板を重ねて】、階段が床へ入り込んでいる絵にする。
+     * 他の背景物が BG_PROP_FOOT_DEPTH ぶん床帯へ食い込ませて植わって見えるのと同じ手。
+     * 階段だけは絵が床帯の中まで伸びていて、側桁の切り口が床の【上に】乗っていた。
+     * 足元の一区画だけ床を描き直すので、外側は元の床と同じ絵＝継ぎ目が出ない。
+     */
+    drawStairFootPlanted(ctx, footX, footY, dir, renderProgress) {
+        if (this.stageNumber !== 5) return;
+        const sign = dir === 1 ? 1 : -1;
+        const DEPTH = 15;   // 床に飲ませる深さ
+        const back = footX - sign * 46;
+        const front = footX + sign * 130;
+        const left = Math.min(back, front);
+        const width = Math.abs(front - back);
+        const top = footY - DEPTH;
+        if (left > CANVAS_WIDTH || left + width < 0) return;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(left, top, width, CANVAS_HEIGHT - top);
+        ctx.clip();
+        this.renderGroundCastle(ctx, renderProgress, this.getGroundDarken());
+        ctx.restore();
+    }
+
+    /**
+     * 階段の端の【切り口】を影に沈める。
+     * 絵は一定厚みの帯なので、いちばん下は帯を縦に切った84pxの平らな面になる。
+     * 木口が正面を向いているように見えて、床の上で切れている印象の元だった。
+     * 段そのものは触らず、端の数十pxだけ暗く落として陰に消す。
+     */
+    drawStairFootFade(ctx, footX, footY, dir) {
+        const sign = dir === 1 ? 1 : -1;
+        // 矩形のグラデーションで落とすと、外側に縦の境目が出て「四角い影」になる。
+        // 切り口を包む楕円で落とす。
+        const cx = footX + sign * 8;
+        const cy = footY - 42;
+        const rx = 44;
+        const ry = 64;
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, rx);
+        grad.addColorStop(0, 'rgba(9, 6, 4, 0.62)');
+        grad.addColorStop(0.5, 'rgba(9, 6, 4, 0.3)');
+        grad.addColorStop(1, 'rgba(9, 6, 4, 0)');
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(1, ry / rx);
+        ctx.translate(-cx, -cy);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, rx, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    /**
+     * 階段の足元を床へ据える。
+     * 階段の絵は一定の厚みの帯なので、側桁の端が【床の上でただ切れて】いて、
+     * 影が一つも無かった。だから床に立てかけた板に見えていた
+     * (実機フィードバック 2026-08-14)。木を足すのではなく影で据える
+     * ―― 沓摺の板を描いてみたら、樹脂の棒が転がっているようにしか見えなかった。
+     *
+     * 二つ描く。どちらも階段の【下】に敷く。
+     *   1) 床の接地影 … 足元をいちばん濃く、進行方向へ長く伸ばす楕円
+     *   2) 壁への落ち影 … 側桁と平行に、勾配に沿ってずらした帯
+     */
+    drawStairFootTrim(ctx, footX, footY, dir) {
+        const sign = dir === 1 ? 1 : -1;
+        const slope = STAIR_LOGICAL_RISE / STAIR_LOGICAL_RUN; // 段の線の傾き(0.889)
+
+        ctx.save();
+        // 2) 壁への落ち影。側桁の下面から少し下へずらした平行四辺形。
+        //    足元が濃く、登るほど薄れる(光は下の階から差している)。
+        const RUN = 420;
+        const wallShade = ctx.createLinearGradient(footX, footY, footX + sign * RUN, footY - RUN * slope);
+        wallShade.addColorStop(0, 'rgba(9, 6, 4, 0.46)');
+        wallShade.addColorStop(0.55, 'rgba(9, 6, 4, 0.16)');
+        wallShade.addColorStop(1, 'rgba(9, 6, 4, 0)');
+        ctx.fillStyle = wallShade;
+        ctx.beginPath();
+        ctx.moveTo(footX - sign * 16, footY + 4);
+        ctx.lineTo(footX + sign * RUN, footY + 4 - RUN * slope);
+        ctx.lineTo(footX + sign * RUN, footY + 30 - RUN * slope);
+        ctx.lineTo(footX - sign * 16, footY + 30);
+        ctx.closePath();
+        ctx.fill();
+
+        // 1) 床の接地影
+        const cx = footX + sign * 30;
+        const cy = footY - 1;
+        const rx = 118;
+        const ry = 23;
+        const shade = ctx.createRadialGradient(cx, cy, 0, cx, cy, rx);
+        shade.addColorStop(0, 'rgba(8, 5, 4, 0.62)');
+        shade.addColorStop(0.42, 'rgba(8, 5, 4, 0.3)');
+        shade.addColorStop(1, 'rgba(8, 5, 4, 0)');
+        ctx.translate(cx, cy);
+        ctx.scale(1, ry / rx);
+        ctx.translate(-cx, -cy);
+        ctx.fillStyle = shade;
+        ctx.beginPath();
+        ctx.arc(cx, cy, rx, 0, Math.PI * 2);
+        ctx.fill();
         ctx.restore();
     }
 
@@ -2321,10 +2432,11 @@ export class Stage {
         ctx.lineTo(edgeX, bottom);
         ctx.lineTo(edgeX + outward * nearW, bottom);
         ctx.closePath();
+        // 場内で一番明るい灰色の帯になっていたので落とす(実機フィードバック 2026-08-14)。
         const sideGrad = ctx.createLinearGradient(edgeX + outward * nearW, 0, edgeX, 0);
         sideGrad.addColorStop(0, 'rgba(80, 61, 43, 0.0)');
-        sideGrad.addColorStop(0.35, 'rgba(84, 64, 45, 0.45)');
-        sideGrad.addColorStop(1, 'rgba(104, 80, 55, 0.62)');
+        sideGrad.addColorStop(0.35, 'rgba(78, 59, 41, 0.3)');
+        sideGrad.addColorStop(1, 'rgba(92, 70, 48, 0.44)');
         ctx.fillStyle = sideGrad;
         ctx.fill();
 
@@ -2332,8 +2444,8 @@ export class Stage {
         ctx.beginPath();
         ctx.moveTo(edgeX, top);
         ctx.lineTo(edgeX, bottom);
-        ctx.strokeStyle = 'rgba(214, 182, 134, 0.34)';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(206, 172, 124, 0.22)';
+        ctx.lineWidth = 1.6;
         ctx.stroke();
 
         // 4) 口の内側へ落ちる板の木口。框の厚みぶんだけ暗く落とす。
@@ -6111,12 +6223,17 @@ export class Stage {
         }
     }
     
+    /** 地面の暗さ。床を部分的に描き直す側(階段の足元)も同じ値を使う。 */
+    getGroundDarken() {
+        const p = Math.max(0, Math.min(1, this.progress / this.maxProgress));
+        const globalProgress = (this.stageNumber - 1 + p) / STAGES.length;
+        return Math.pow(globalProgress, 1.5) * 0.75;
+    }
+
     renderGround(ctx) {
         const renderProgress = this.progress;
-        const p = Math.max(0, Math.min(1, this.progress / this.maxProgress));
         // グローバルな進行度に基づく環境光の強さ（暗さ）を計算し、地面の色に反映
-        const globalProgress = (this.stageNumber - 1 + p) / STAGES.length;
-        const darken = Math.pow(globalProgress, 1.5) * 0.75;
+        const darken = this.getGroundDarken();
 
         // 竹垣は固定背景として先に描き、地面が根元を自然に覆う。
         if (this.stageNumber === 1) {
