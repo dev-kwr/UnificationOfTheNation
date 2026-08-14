@@ -20,11 +20,11 @@
 // 画像: images/bonus_kura_*.png（Codex/gpt-image 生成。読めない環境では
 // コード描画にフォールバック）。
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260815d';
-import { audio } from './audio.js?v=screen-safe-20260815d';
-import { getImage } from './imageCache.js?v=screen-safe-20260815d';
-import { drawKobanImage } from './ui.js?v=screen-safe-20260815d';
-import { pushGain, updateGainPops, renderGainPops, tickTimeLimit, clampToLeftEdge } from './sideStageCommon.js?v=screen-safe-20260815d';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, LANE_OFFSET } from './constants.js?v=screen-safe-20260815e';
+import { audio } from './audio.js?v=screen-safe-20260815e';
+import { getImage } from './imageCache.js?v=screen-safe-20260815e';
+import { drawKobanImage } from './ui.js?v=screen-safe-20260815e';
+import { pushGain, updateGainPops, renderGainPops, tickTimeLimit, clampToLeftEdge } from './sideStageCommon.js?v=screen-safe-20260815e';
 
 // 小判1枚の価値（両）。よろず屋の相場に合わせてここだけで調整する。
 const KOBAN_VALUE = 10;

@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815d';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815d';
-import { createEnemy } from './enemy.js?v=screen-safe-20260815d';
-import { createBoss } from './boss.js?v=screen-safe-20260815d';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260815d';
-import { audio } from './audio.js?v=screen-safe-20260815d';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815d';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815e';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815e';
+import { createEnemy } from './enemy.js?v=screen-safe-20260815e';
+import { createBoss } from './boss.js?v=screen-safe-20260815e';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260815e';
+import { audio } from './audio.js?v=screen-safe-20260815e';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815e';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260815d';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815d';
+} from './stage6Grapple.js?v=screen-safe-20260815e';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815e';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815d';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815e';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -76,7 +76,7 @@ const STAGE_IMAGE_SOURCES = {
     },
     3: {
         fields: {
-            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260815_exit10',
+            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260815_exit11',
             stage3GroundImage: 'images/stage3_ground_mountain_tile.png',
             // 遠景の山並み。1枚をミラー連結してあるので横に繰り返すと稜線が繋がる
             // (右端は自身の鏡像と接し、巻き戻り点は左端同士)。
@@ -4691,25 +4691,16 @@ export class Stage {
     // 下げると下が地面に覆われるため地平線(480)接地しか選べず、床帯(480..512)の
     // 上で浮いて見えていた。投影文法: 構造物基部は478..512(床帯へ食い込ませて植える)。
     //
-    // 【絵の作りの前提】(2026-08-13 に描き直し)
-    // ・素材は【遠景の山と同じ】。山道には岩の露頭も巨石も一度も出てこない
-    //   (添景は地蔵・道祖神・道標・石灯籠・古い木の柵と枯れ草だけ)。
-    //   写実の岩を積んだ絵にすると、ここだけ材質も画風も変わって唐突に見える
-    //   (実機フィードバック 2026-08-13)。遠景と同じ面で構成する。
-    // ・【全体マップ(images/world_map.png)の地理に合わせる】。城と城下町は
-    //   山の中ではなく、平地に独立して立つ【丘】の上にある。尖った峰を左右に
-    //   同じ距離で立てて町を挟むと、城下町が山岳地帯の中にあることになる
-    //   (実機フィードバック 2026-08-14)。
-    //   左右は独立した峰ではなく【道が抜ける山裾】。左右で高さも肩の位置も変え、
-    //   中央は広く開ける。城下町は自分の丘の上へ載せ、裾に靄を一本通し、
-    //   彩度を落として霞ませる＝峠を越えて遠くの平地を望む絵にする。
-    // ・左右の裾はどちらも【画像の中で地面に着いて終わる】。画像の左右端は透明で、
-    //   横スクロールで流れ込んでも縦の裁ち切り線が出ない。
-    //   生成物は指示しても端で切り落とすうえ斜面が立ちすぎるので、
-    //   scratch/taper_foot.py で仕上げる(横へ1.42倍伸ばして寝かせ、
-    //   端から曲線で削って裾を作る)。実測 左斜面 54.5度 → 34.1度。
-    // ・地面線より下は枯れ草と小石だけで、自前の道は持たない
-    //   ＝ゲームの路面がそのまま下に続く。
+    // 【絵の作りの前提】(2026-08-15 に全面作り直し)
+    // ピース(山二つ+町)を別々に生成して後処理で繋ぐ方式を全部やめ、
+    // 【最後の一画面を丸ごと一枚の絵】として生成した。後処理は dekey(クロマキー抜き)
+    // のみで、taper も伸長も裾の切除も無い。
+    // 一枚の中身(左から): 平地の草 → 山脈の最後の一山(x160-700, ゆるい峰) →
+    // 開けた平地と柵 → 城下町の丘(裾の靄まで絵の中で描いてある) → 平地の草。
+    // ・絵の左端(x=0-160相当)は平地の草だけ。画面へ最初に流れ込む部分に
+    //   山を置かない=裁ち切りが原理的に出ない(実測: 左端の不透明は高さ7px)。
+    // ・地面線は実測 y=230/234。全ての裾と草が同じ線に着地する。
+    // ・城下町は山に挟まれず、開けた平地の先の丘の上(全体マップの地理どおり)。
     renderStage3ExitOnGround(ctx) {
         const exitImg = this.stage3ExitImage;
         if (!(exitImg && exitImg.complete && exitImg.naturalWidth > 0)) return;
@@ -4725,8 +4716,8 @@ export class Stage {
         // 絵の上辺が y=EXIT_TOP_MARGIN_PX に来る大きさを幅へ逆算する。
         // 遠景の帯(y270あたりが最高峰)より一段だけ高い位置に頂が来る値にしてある。
         // ここを詰めすぎると「同じ山が一段手前に来た」ではなく壁になる。
-        const EXIT_TOP_MARGIN_PX = 146;
-        const EXIT_HORIZON_RATIO = 480 / 516; // 実測: 山の裾が地面に着く行 / 画像の高さ
+        const EXIT_TOP_MARGIN_PX = 178;
+        const EXIT_HORIZON_RATIO = 230 / 234; // 実測: 地面線の行 / 画像の高さ
         const footY = this.groundY + BG_PROP_FOOT_DEPTH;
         const exitH = Math.round((footY - EXIT_TOP_MARGIN_PX) / EXIT_HORIZON_RATIO);
         const exitW = Math.round(exitH * (exitImg.naturalWidth / exitImg.naturalHeight));
@@ -4915,23 +4906,11 @@ export class Stage {
             // 尽きた先が素の空だけになると地平まで抜けて空虚になるので、
             // 先に【遠い平地の霞】を低く敷いておく。山より下にしか出ないので、
             // 山が残っている範囲では山に隠れて見えない。
-            // 尽きた先の地平は【合成のグラデーションで埋めない】。単色の帯は
-            // 山の切れ目にだけ露出したとき必ず「輪郭の硬い一枚板」になる
-            // (明るい色なら褐色の箱、暗い色なら黒い水たまり。両方やって両方駄目だった。
-            //  実機フィードバック 2026-08-15)。
-            // 代わりに【同じ山アセットを34pxへ潰した「遠い低地」の帯】で埋める。
-            // 同じ絵・同じ色調・同じパララックスなので、山との切り替わりが
-            // 色でも動きでも割れない。上に薄い大気(plainTone α<=0.42)だけ重ねる。
-            // 上端が透過ピークの疎らな部分だと町の裾が空に浮くので、
-            // 画像の【不透明な中腹から下だけ】を潰す。上端の横一線は
-            // 全画面幅に及ぶので「箱の縁」ではなく地平の稜線として読める。
-            const lowH = 50;
-            const lowSrcY = Math.round(tinted.height * 0.62);
-            const lowSrcH = tinted.height - lowSrcY;
-            for (let x = -offset; x < CANVAS_WIDTH; x += w) {
-                ctx.drawImage(tinted, 0, lowSrcY, tinted.width, lowSrcH,
-                    Math.round(x), this.groundY - lowH, w + 1, lowH);
-            }
+            // 尽きた先の地平に合成の帯や潰した低地を敷く試みは全部やめた
+            // (単色帯は明暗どちらでも「輪郭の硬い一枚板」になり、潰した低地は
+            //  二重の地平になる。実機フィードバック 2026-08-15)。
+            // 平地の地平はラストの一枚絵(stage3ExitImage)が自分で描く。
+            // ここは薄い大気のベールだけを残す。
             const plainTone = this.interpolateColor(currentPalette.near, '#6a5a78', 0.55);
             const plainTop = this.groundY - 150;
             const plain = ctx.createLinearGradient(0, plainTop, 0, this.groundY);
