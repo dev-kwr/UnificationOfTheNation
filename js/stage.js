@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815n';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815n';
-import { createEnemy } from './enemy.js?v=screen-safe-20260815n';
-import { createBoss } from './boss.js?v=screen-safe-20260815n';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260815n';
-import { audio } from './audio.js?v=screen-safe-20260815n';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815n';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815o';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815o';
+import { createEnemy } from './enemy.js?v=screen-safe-20260815o';
+import { createBoss } from './boss.js?v=screen-safe-20260815o';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260815o';
+import { audio } from './audio.js?v=screen-safe-20260815o';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815o';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260815n';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815n';
+} from './stage6Grapple.js?v=screen-safe-20260815o';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815o';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815n';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815o';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -1828,7 +1828,10 @@ export class Stage {
         if (alpha <= 0.001) return;
         ctx.save();
         ctx.fillStyle = `rgba(0, 0, 0, ${Math.min(1, alpha)})`;
-        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        // 【SCREEN_WIDTHで塗る】。CANVAS_WIDTH(1280)だとワイド画面の右端に
+        // 幕が届かず、右上のBGMボタン付近だけ暗転しない帯が残る
+        // (実機フィードバック 2026-08-15)。
+        ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
         ctx.restore();
     }
 
