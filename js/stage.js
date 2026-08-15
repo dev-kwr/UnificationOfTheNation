@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815e';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815e';
-import { createEnemy } from './enemy.js?v=screen-safe-20260815e';
-import { createBoss } from './boss.js?v=screen-safe-20260815e';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260815e';
-import { audio } from './audio.js?v=screen-safe-20260815e';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815e';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815f';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815f';
+import { createEnemy } from './enemy.js?v=screen-safe-20260815f';
+import { createBoss } from './boss.js?v=screen-safe-20260815f';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260815f';
+import { audio } from './audio.js?v=screen-safe-20260815f';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815f';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260815e';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815e';
+} from './stage6Grapple.js?v=screen-safe-20260815f';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815f';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815e';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815f';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -76,7 +76,7 @@ const STAGE_IMAGE_SOURCES = {
     },
     3: {
         fields: {
-            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260815_exit11',
+            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260815_exit12',
             stage3GroundImage: 'images/stage3_ground_mountain_tile.png',
             // 遠景の山並み。1枚をミラー連結してあるので横に繰り返すと稜線が繋がる
             // (右端は自身の鏡像と接し、巻き戻り点は左端同士)。
@@ -4695,10 +4695,14 @@ export class Stage {
     // ピース(山二つ+町)を別々に生成して後処理で繋ぐ方式を全部やめ、
     // 【最後の一画面を丸ごと一枚の絵】として生成した。後処理は dekey(クロマキー抜き)
     // のみで、taper も伸長も裾の切除も無い。
-    // 一枚の中身(左から): 平地の草 → 山脈の最後の一山(x160-700, ゆるい峰) →
-    // 開けた平地と柵 → 城下町の丘(裾の靄まで絵の中で描いてある) → 平地の草。
-    // ・絵の左端(x=0-160相当)は平地の草だけ。画面へ最初に流れ込む部分に
-    //   山を置かない=裁ち切りが原理的に出ない(実測: 左端の不透明は高さ7px)。
+    // 一枚の中身(左から): 平地の草と柵 → 開けた平地 → 城下町の丘
+    // (裾の靄まで絵の中で描いてある) → 平地の草。
+    // ・生成時に入っていた【近景の巨大な山】は削除した(x<790を切除)。
+    //   「山脈がここで終わる」は遠景バンドの尽き際(getStage3FarRangeEndX)が
+    //   既に表現しており、近景の巨大な塊は不要で圧迫だった(実機フィードバック 2026-08-15)。
+    // ・生成色の桃紫はパレット外なので、紫(HLS hue→0.765へ35%残し・彩度52%)へ
+    //   補正済み。窓の灯りと枯れ草の暖色は残してある。
+    // ・絵の左端は平地の草だけ(裁ち切りが原理的に出ない)。
     // ・地面線は実測 y=230/234。全ての裾と草が同じ線に着地する。
     // ・城下町は山に挟まれず、開けた平地の先の丘の上(全体マップの地理どおり)。
     renderStage3ExitOnGround(ctx) {

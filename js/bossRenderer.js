@@ -95,7 +95,7 @@ function limbN(c,ax,ay,hx,hy,frac,bend,mode,w1,w2,col,hi,pass='fill'){
 
 /* 二刀の刀身はプレイヤーと同一形状。katanaShape.js は依存ゼロなので循環しない
    (playerRenderer.js を直接 import すると game.js の TDZ でクラッシュする)。 */
-import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260815e';
+import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260815f';
 /* 刀身長はプレイヤー実数値のまま渡し、拡大は描画側の ctx.scale だけで行う(二重拡大防止)。
    倍率は素体リグの SC(=1.8) ではなく【描画上の身長比】を使う:
      プレイヤーの描画身長 = height(72) - headRadius*0.1(=1.68) = 70.32
@@ -844,7 +844,8 @@ export function renderBossModel(c,B,motion,t,st){
   /* 実機(character_preview・防具非表示)の行プロファイル実測(全高比):
      頭直径0.362(半径0.181・頭頂=全高の頂点) / 肩幅0.133 / 胴0.126 /
      脚の分岐0.672 / 足の左右幅0.089 / 脚幅 前0.065・奥0.038 */
-  /* 頭身は意匠ごとに変える。既定(0.187)はフロアボスで合意した 2.67頭身。
+  /* 頭身は意匠ごとに変える。既定 0.187 は 2.67頭身。
+     フロアボスは design で 0.20(=2.50頭身)を明示している(少しだけ頭を大きく)。
      雑魚はプレイヤー(忍者)に合わせるため 0.2392(=2.09頭身)を design で指定する。
        忍者: 頭半径 = height×(28/60)×0.5 = 16.8 / 描画全高 70.32 → 頭直径33.6 = 全高の0.478
      腰も同様。忍者は hipY = 足元 - 頭半径×1.43 なので、頭比×1.43 を腰比に使う。 */
@@ -1428,28 +1429,28 @@ function realBomb(c,x,y,r,timeMs){
    ============================================================ */
 export const BOSS_DESIGNS = {
   // 壱之陣 火薬玉の足軽頭 — 錆銅 / 桶側胴 / 火焔前立
-  kayaku: { id:'kayaku', build:'ashigaru', helm:'kabuto', crest:'disc',
+  kayaku: { id:'kayaku', headRatio:0.20, build:'ashigaru', helm:'kabuto', crest:'disc',
     pal:{ aA:'#8a5326', aB:'#4d2c12', edge:'#e6b578', sh:'#9c6231',
           robe:'#5a3a1e', robeS:'#33200e', helm:'#6b3f1c', helmD:'#2c1a0b',
           crest:'#ff9a3c', acc:'#e2622a', legF:'#1a1a1a', legB:'#1a1a1a', core:'#1a1a1a' } },
   // 弐之陣 大槍の武者 — 藍鉄 / 大袖+胸紐 / 鍬形剣立
-  yari: { id:'yari', build:'taisho', helm:'kabuto', crest:'kuwagata',
+  yari: { id:'yari', headRatio:0.20, build:'taisho', helm:'kabuto', crest:'kuwagata',
     pal:{ aA:'#2f4a7a', aB:'#1a2b48', edge:'#d3dcec', sh:'#3d5d92',
           robe:'#22334f', robeS:'#141d2e', helm:'#243a5e', helmD:'#101827',
           crest:'#eaf0fa', acc:'#5b86c9', legF:'#1a1a1a', legB:'#1a1a1a', core:'#1a1a1a' } },
   // 参之陣 二刀流の剣豪 — 白銀鼠 / 軽装 / 半月剣・開き構え
-  nito: { id:'nito', build:'kengo', helm:'kabuto', crest:'gessou', openStance:true,
+  nito: { id:'nito', headRatio:0.20, build:'kengo', helm:'kabuto', crest:'gessou', openStance:true,
     pal:{ aA:'#8e93a3', aB:'#5a5f6d', edge:'#eceef6', sh:'#a3a8b8',
           robe:'#484b57', robeS:'#2b2e36', helm:'#787d8c', helmD:'#3a3d46',
           crest:'#f2f4fc', acc:'#9a7fd0', legF:'#1a1a1a', legB:'#1a1a1a', core:'#1a1a1a' } },
   // 肆之陣 鎖鎌の暗殺者 — 濡羽 / 鎧なし / 覆面
-  kusa: { id:'kusa', build:'shinobi', helm:'hood', crest:null,
+  kusa: { id:'kusa', headRatio:0.20, build:'shinobi', helm:'hood', crest:null,
     idleSpread:0.9, idleCrouch:5,
     pal:{ aA:'#2a2f38', aB:'#171b22', edge:'#68758c', sh:'#333a46',
           robe:'#20242c', robeS:'#111419', helm:'#2b3140', helmD:'#0c0f14',
           crest:'#4d5666', acc:'#8a2a2a', legF:'#1a1a1a', legB:'#1a1a1a', core:'#1a1a1a' } },
   // 伍之陣 大太刀の武将 — 漆黒+黄金 / 陣羽織 / 大三日月
-  odachi: { id:'odachi', build:'busho', helm:'kabuto', crest:'mikazuki', cape:true,
+  odachi: { id:'odachi', headRatio:0.20, build:'busho', helm:'kabuto', crest:'mikazuki', cape:true,
     pal:{ aA:'#2c2c2c', aB:'#141414', edge:'#e2bd4a', sh:'#3c3c3c',
           robe:'#2b1f1f', robeS:'#1a1212', helm:'#1c1c1c', helmD:'#080808',
           crest:'#ffcf3a', acc:'#c8452c', legF:'#1a1a1a', legB:'#1a1a1a', core:'#1a1a1a',
@@ -1567,29 +1568,10 @@ export const mobShuriken = {
              back:  { x: shF.x + 13 + s * 0.6, y: shF.y + 12 }, u: 0 };
   },
   front(){},
-  /* 手裏剣は投げ放つまで手にある。掌より前に出す(握って見せる) */
-  frontTop(r, h){
-    // 手裏剣は【攻撃中だけ】手にある。待機・走りは手ぶら
-    if (r.motion !== 'attack' || h.u > 0.86) return;
-    drawHeldShuriken(r.c, h.front.x, h.front.y, r.mt);
-  }
+  /* 手裏剣は手に持たない。Ninja.attack() は攻撃開始と【同時に】
+     EnemyProjectile を飛ばすので、手に描くと同じ手裏剣が2つ存在して見える。
+     投擲は腕の振り(hands)だけで見せる。 */
 };
-function drawHeldShuriken(c, x, y, mt){
-  c.save(); c.translate(x, y); c.rotate((mt || 0) * 0.004);
-  const g = c.createRadialGradient(0, 0, 0, 0, 0, 7);
-  g.addColorStop(0, '#dfe8f4'); g.addColorStop(0.32, '#a7b5c8');
-  g.addColorStop(0.72, '#59677b'); g.addColorStop(1, '#242a34');
-  c.fillStyle = g; c.strokeStyle = '#c8d5e6'; c.lineWidth = 0.6;
-  for (let i = 0; i < 4; i++) {
-    c.rotate(Math.PI / 2);
-    c.beginPath();
-    c.moveTo(0, -7.7); c.lineTo(2.45, -1.75); c.lineTo(0, 3.15); c.lineTo(-2.45, -1.75);
-    c.closePath(); c.fill(); c.stroke();
-  }
-  c.fillStyle = '#111';
-  c.beginPath(); c.arc(0, 0, 1.75, 0, TAU); c.fill();
-  c.restore();
-}
 
 /** 中ボス武将の薙刀。長柄の先に反りのある刃 */
 export const mobNaginata = {
