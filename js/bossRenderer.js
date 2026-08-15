@@ -95,7 +95,7 @@ function limbN(c,ax,ay,hx,hy,frac,bend,mode,w1,w2,col,hi,pass='fill'){
 
 /* 二刀の刀身はプレイヤーと同一形状。katanaShape.js は依存ゼロなので循環しない
    (playerRenderer.js を直接 import すると game.js の TDZ でクラッシュする)。 */
-import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260815g';
+import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260815h';
 /* 刀身長はプレイヤー実数値のまま渡し、拡大は描画側の ctx.scale だけで行う(二重拡大防止)。
    倍率は素体リグの SC(=1.8) ではなく【描画上の身長比】を使う:
      プレイヤーの描画身長 = height(72) - headRadius*0.1(=1.68) = 70.32
@@ -1982,7 +1982,12 @@ export function odachiStance(rig, anchor){
   const { shF, sway, motion } = rig;
   if (anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)) {
     const f = rig.toLocal(anchor.x, anchor.y);
-    const rot = (anchor.rotation || 0) * rig.dir;   // 反転時は回転も鏡像
+    /* 左向きは局所系が ctx.scale(-1,1) で【x だけ】反転している。
+       world の向き (cosθ, sinθ) は局所では (-cosθ, sinθ) = 角度 π-θ になる。
+       以前は θ*dir(= -θ)としており、これは【y 反転】なので
+       刺さり(θ=+π/2 = 下向き)が上向きに化け、握り直しのスライドが刃側へ動いて
+       「柄ではなく刃を掴んでぶら下がれない」絵になっていた(ユーザー指摘)。 */
+    const rot = rig.dir < 0 ? Math.PI - (anchor.rotation || 0) : (anchor.rotation || 0);
     /* 腕が届かない位相(急降下・着刀)では、腕をクランプして柄から手を離すのではなく
        【柄の上を後ろへ握り直す】。実体の柄は back=-14 / front=+16、巨躯は ×2 なので
        柄尻方向へ最大 28 までスライドできる。 */
@@ -2031,33 +2036,6 @@ export function drawCarriedKusarigama(rig, hands, t, heading, layer){
   if (layer !== 'under') realSickle(c, kx, ky, kro, 'blade');
 }
 
-/** 携行中の大槍(待機・走り)。実体の待機グリップは膝の高さで持てて見えないため素体側で構える */
-export function drawCarriedSpear(rig, hands){
-  const c = rig.c;
-  /* 手前手が柄尻寄り・奥手が穂先寄り(2.5D: 奥手が進行方向側)。
-     柄は「手前手→奥手」の向きに通す。 */
-  const f = hands.front, b = hands.back;
-  const ang = Math.atan2(b.y - f.y, b.x - f.x);
-  /* 実体(Spear.render)を実測した寸法に合わせる:
-       手前手から切先まで 161 / 石突は手前手の 29 後ろ / 穂先の長さ 52。
-     realSpear の穂先は28なので 52/28=1.857 倍に拡大し、shaftEnd=59・buttLen=15.6 で
-     (59+28)*1.857≒161、15.6*1.857≒29 を作る。ここがズレると待機→攻撃の瞬間に槍が伸び縮みする。
-     縦は等倍だと穂先が太る(実体の穂先は細身)ので 1.3 に留める。 */
-  const K = 52 / 28;
-  c.save(); c.translate(f.x, f.y); c.rotate(ang); c.scale(K, 1.3);
-  realSpear(c, 59, 15.6);
-  c.restore();
-}
-/* 旧 drawCarriedOdachi は廃止。待機中も実体 Odachi.render が 'ready' ポーズで描く
-   (forceSubWeaponRender=true)。独自寸法(半幅4.4 = 実体10.5の42%)が
-   「関係ないグラフィック」の正体だった。 */
-/** 大槍の携行構え(腰の高さで両手に持たせる) */
-export function spearCarryStance(rig){
-  const { shF, motion, runPh, sway } = rig;
-  const s = motion === 'run' ? Math.sin(runPh * TAU) * 2.2 : sway * 0.4;
-  /* 攻撃時の握り高さ(腰=足元から約45%)に合わせて携行する。ここがズレると
-     攻撃開始の瞬間に槍が跳ねる。手前手=柄尻寄り / 奥手=穂先寄り。 */
-  const fy = shF.y + 17 + s;
-  return { front: { x: shF.x + 1,  y: fy + 2 },
-           back:  { x: shF.x + 26, y: fy - 1 } };
-}
+/* 大槍の携行描画/携行構えは廃止。待機中も実体 Spear.render が描くため
+   (forceSubWeaponRender=true)、素体側に別グラフィックを持たない。 */
+

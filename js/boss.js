@@ -2,17 +2,17 @@
 // Unification of the Nation - ボスクラス
 // ============================================
 
-import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260815g';
-import { Enemy } from './enemy.js?v=screen-safe-20260815g';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260815g';
-import { audio } from './audio.js?v=screen-safe-20260815g';
-import { Player } from './player.js?v=screen-safe-20260815g';
+import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260815h';
+import { Enemy } from './enemy.js?v=screen-safe-20260815h';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260815h';
+import { audio } from './audio.js?v=screen-safe-20260815h';
+import { Player } from './player.js?v=screen-safe-20260815h';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
-} from './normalComboMotion.js?v=screen-safe-20260815g';
+} from './normalComboMotion.js?v=screen-safe-20260815h';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
@@ -21,7 +21,7 @@ import {
     SHOGUN_HEAD_SCALE,
     SHOGUN_HIP_LIFT_PX,
     SHOGUN_SCALE
-} from './shogunConstants.js?v=screen-safe-20260815g';
+} from './shogunConstants.js?v=screen-safe-20260815h';
 import {
     BOSS_DESIGNS,
     renderBossActor,
@@ -33,7 +33,7 @@ import {
     kusarigamaStance,
     drawCarriedKusarigama,
     odachiStance
-} from './bossRenderer.js?v=screen-safe-20260815g';
+} from './bossRenderer.js?v=screen-safe-20260815h';
 
 // weaponReplica の攻撃進行度(0..1)。体の所作を実体のタイムラインへ同期させる。
 function replicaProgress(replica) {
@@ -561,6 +561,10 @@ export class KayakudamaTaisho extends Boss {
         this.attackPatterns = ['throw'];
         this.throwTimer = 0;
         this.throwCount = 0;
+        /* 手に持つ玉は【実体 Firebomb.renderHeld】で描く(素体側に別グラフィックを
+           持つと待機と投擲で違う玉になる)。このボスは攻撃で実体を使わず g.bombs へ
+           直接積む作りなので、描画専用のインスタンスを1つ持つ。判定には一切関与しない。 */
+        this._bombArt = createSubWeapon('火薬玉');
     }
 
     startAttack() {
@@ -794,9 +798,21 @@ export class KayakudamaTaisho extends Boss {
         const holding = attacking && remaining > 0 && u >= 0.25;   // 溜めに入ってから離すまで
         renderBossActor(ctx, this, BOSS_DESIGNS.kayaku, {
             hands: (rig) => bombStance(rig),
+            /* 玉は【実体 Firebomb.renderHeld】で描く。素体側に別グラフィックを持つと
+               待機と投擲で違う玉になる(大槍と同じ問題)。手の位置だけ渡す。 */
             front: (rig, h) => {
-                if (!attacking) { drawCarriedBomb(rig, h.front, rig.mt); return; }
-                if (holding) drawCarriedBomb(rig, h.front, rig.mt);
+                if (attacking && !holding) return;
+                const art = this._bombArt;
+                if (art && typeof art.renderHeld === 'function') {
+                    // 投げる玉と同じ強化段で描く(tier3 で一回り大きくなる)
+                    if (art.enhanceTier !== this.getSubWeaponEnhanceTier()
+                        && typeof art.applyEnhanceTier === 'function') {
+                        art.applyEnhanceTier(this.getSubWeaponEnhanceTier());
+                    }
+                    art.renderHeld(rig.c, h.front.x + 2, h.front.y - 8, 1);
+                } else {
+                    drawCarriedBomb(rig, h.front, rig.mt);
+                }
             }
         }, { attackProgress: u });
     }

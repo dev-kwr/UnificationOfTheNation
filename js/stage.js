@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815g';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815g';
-import { createEnemy } from './enemy.js?v=screen-safe-20260815g';
-import { createBoss } from './boss.js?v=screen-safe-20260815g';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260815g';
-import { audio } from './audio.js?v=screen-safe-20260815g';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815g';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815h';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815h';
+import { createEnemy } from './enemy.js?v=screen-safe-20260815h';
+import { createBoss } from './boss.js?v=screen-safe-20260815h';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260815h';
+import { audio } from './audio.js?v=screen-safe-20260815h';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815h';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260815g';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815g';
+} from './stage6Grapple.js?v=screen-safe-20260815h';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815h';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815g';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815h';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -76,7 +76,7 @@ const STAGE_IMAGE_SOURCES = {
     },
     3: {
         fields: {
-            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260815_exit12',
+            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260815_exit13',
             stage3GroundImage: 'images/stage3_ground_mountain_tile.png',
             // 遠景の山並み。1枚をミラー連結してあるので横に繰り返すと稜線が繋がる
             // (右端は自身の鏡像と接し、巻き戻り点は左端同士)。
@@ -4694,16 +4694,14 @@ export class Stage {
     // ピース(山二つ+町)を別々に生成して後処理で繋ぐ方式を全部やめ、
     // 【最後の一画面を丸ごと一枚の絵】として生成した。後処理は dekey(クロマキー抜き)
     // のみで、taper も伸長も裾の切除も無い。
-    // 一枚の中身(左から): 平地の草と柵 → 開けた平地 → 城下町の丘
-    // (裾の靄まで絵の中で描いてある) → 平地の草。
-    // ・生成時に入っていた【近景の巨大な山】は削除した(x<790を切除)。
-    //   「山脈がここで終わる」は遠景バンドの尽き際(getStage3FarRangeEndX)が
-    //   既に表現しており、近景の巨大な塊は不要で圧迫だった(実機フィードバック 2026-08-15)。
-    // ・生成色の桃紫はパレット外なので、紫(HLS hue→0.765へ35%残し・彩度52%)へ
-    //   補正済み。窓の灯りと枯れ草の暖色は残してある。
-    // ・絵の左端は平地の草だけ(裁ち切りが原理的に出ない)。
-    // ・地面線は実測 y=230/234。全ての裾と草が同じ線に着地する。
-    // ・城下町は山に挟まれず、開けた平地の先の丘の上(全体マップの地理どおり)。
+    // 一枚の中身(左から): 平地の草と柵 → 【低い町並みが横へ連なる城下町】
+    // (中央やや右に小さな丘+石垣+天守。裾の靄まで絵の中) → 平地の草と柵。
+    // ・前アセットは町家を円錐の丘に積み上げた「家のピラミッド」で、
+    //   山にしか見えなかった(実機フィードバック 2026-08-15)。町家は平地に低く
+    //   広がり、丘は天守の台座だけ、という実際の城下町の形で生成し直した。
+    // ・絵の左右端は草だけ(裁ち切りが原理的に出ない)。
+    // ・地面線は実測 y=286/293。全ての足元と草が同じ線に着地する。
+    // ・後処理は dekey と緑かぶり抑制(g<=max(r,b)+4)のみ。
     renderStage3ExitOnGround(ctx) {
         const exitImg = this.stage3ExitImage;
         if (!(exitImg && exitImg.complete && exitImg.naturalWidth > 0)) return;
@@ -4719,8 +4717,11 @@ export class Stage {
         // 絵の上辺が y=EXIT_TOP_MARGIN_PX に来る大きさを幅へ逆算する。
         // 遠景の帯(y270あたりが最高峰)より一段だけ高い位置に頂が来る値にしてある。
         // ここを詰めすぎると「同じ山が一段手前に来た」ではなく壁になる。
-        const EXIT_TOP_MARGIN_PX = 178;
-        const EXIT_HORIZON_RATIO = 230 / 234; // 実測: 地面線の行 / 画像の高さ
+        // 遠景として置く: 天守の頂が画面 y≈290(高さ202px)、町家の屋根は約68px。
+        // 前アセットは天守の頂が高さ380px相当まで来て「家で覆われた山」に
+        // 見えていた(実機フィードバック 2026-08-15)。
+        const EXIT_TOP_MARGIN_PX = 286;
+        const EXIT_HORIZON_RATIO = 286 / 293; // 実測: 地面線の行 / 画像の高さ
         const footY = this.groundY + BG_PROP_FOOT_DEPTH;
         const exitH = Math.round((footY - EXIT_TOP_MARGIN_PX) / EXIT_HORIZON_RATIO);
         const exitW = Math.round(exitH * (exitImg.naturalWidth / exitImg.naturalHeight));
