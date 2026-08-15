@@ -12,7 +12,7 @@
 //     いるので、局所座標のまま貯めると歩いた時に過去の点まで一緒に動く。
 //   ・単発の閃光/突き線 → その場で描くだけなので局所系でよい(k 倍も自動)。
 
-import { drawCometRibbon } from './weaponFx.js?v=screen-safe-20260815k';
+import { drawCometRibbon } from './weaponFx.js?v=screen-safe-20260815n';
 
 function state(ent) {
     if (!ent) return null;
@@ -89,6 +89,26 @@ export function drawThrustStreak(ctx, tipX, tipY, ang, len, half, alpha, color) 
     ctx.quadraticCurveTo(mx - nx, my - ny, bx, by);
     ctx.closePath();
     ctx.fillStyle = g; ctx.fill();
+    ctx.restore();
+}
+
+/** 突き波。穂先の【前方】へ開く三日月を広げながら薄める。
+    突きは切先の移動量が小さく(局所22px)、尾も柄に重なって消えるので、
+    「速さ」は得物に重ならない前方の波でしか読ませられない。 */
+export function drawThrustWave(ctx, x, y, ang, radius, half, thick, alpha, color) {
+    if (!(alpha > 0.01) || !(radius > 1)) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    // 中央が最も濃く、両端へ抜ける三日月(3本の弧を太さと濃さを変えて重ねる)
+    for (let i = 0; i < 3; i++) {
+        const f = 1 - i * 0.34;
+        ctx.strokeStyle = `rgba(${color},${alpha * f * 0.6})`;
+        ctx.lineWidth = thick * (1 - i * 0.28);
+        ctx.beginPath();
+        ctx.arc(x, y, radius * (1 + i * 0.13), ang - half * f, ang + half * f);
+        ctx.stroke();
+    }
     ctx.restore();
 }
 

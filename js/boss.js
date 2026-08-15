@@ -2,18 +2,18 @@
 // Unification of the Nation - ボスクラス
 // ============================================
 
-import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260815k';
-import { Enemy } from './enemy.js?v=screen-safe-20260815k';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260815k';
-import { audio } from './audio.js?v=screen-safe-20260815k';
-import { Player } from './player.js?v=screen-safe-20260815k';
-import { applySlashTrailMixin } from './playerSlashTrail.js?v=screen-safe-20260815k';
+import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260815n';
+import { Enemy } from './enemy.js?v=screen-safe-20260815n';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260815n';
+import { audio } from './audio.js?v=screen-safe-20260815n';
+import { Player } from './player.js?v=screen-safe-20260815n';
+import { applySlashTrailMixin } from './playerSlashTrail.js?v=screen-safe-20260815n';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
-} from './normalComboMotion.js?v=screen-safe-20260815k';
+} from './normalComboMotion.js?v=screen-safe-20260815n';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
@@ -22,7 +22,7 @@ import {
     SHOGUN_HEAD_SCALE,
     SHOGUN_HIP_LIFT_PX,
     SHOGUN_SCALE
-} from './shogunConstants.js?v=screen-safe-20260815k';
+} from './shogunConstants.js?v=screen-safe-20260815n';
 import {
     BOSS_DESIGNS,
     renderBossActor,
@@ -34,7 +34,7 @@ import {
     kusarigamaStance,
     drawCarriedKusarigama,
     odachiStance
-} from './bossRenderer.js?v=screen-safe-20260815k';
+} from './bossRenderer.js?v=screen-safe-20260815n';
 
 // weaponReplica の攻撃進行度(0..1)。体の所作を実体のタイムラインへ同期させる。
 function replicaProgress(replica) {
@@ -209,8 +209,19 @@ class Boss extends Enemy {
         // 攻めっ気(0=待ち / 1=詰め)。得物の性格ごとにボス側で宣言する
         const agg = Number.isFinite(this.aggression) ? this.aggression : 0.5;
 
+        /* 保ちたい間合い。0 なら従来どおり「とにかく詰める」。
+           遠距離技を持つボスが【撃てる距離に留まる】ために使う(0以外を返すと
+           近すぎれば下がり、遠すぎれば寄る、という往復になる)。 */
+        this._aiAbsX = absX;
+        const standoff = (typeof this.getDesiredStandoff === 'function')
+            ? (this.getDesiredStandoff(absX) || 0) : 0;
+
         let desiredVX = 0;
-        if (absX > this.attackRange * 1.05) {
+        if (standoff > 0) {
+            const err = absX - standoff;
+            if (err > standoff * 0.14) desiredVX = this.speed * (0.92 + agg * 0.20) * dirToPlayer;
+            else if (err < -standoff * 0.14) desiredVX = -this.speed * 0.88 * dirToPlayer;
+        } else if (absX > this.attackRange * 1.05) {
             desiredVX = this.speed * (1.06 + agg * 0.22) * dirToPlayer;
         } else if (absX > this.attackRange * 0.55) {
             desiredVX = this.speed * (0.80 + agg * 0.26) * dirToPlayer;
@@ -232,12 +243,18 @@ class Boss extends Enemy {
             return;
         }
 
-        if (this.attackCooldown <= 0 && absX <= this.attackRange + 104) {
+        const engageRange = (typeof this.getEngageRange === 'function')
+            ? this.getEngageRange(absX) : (this.attackRange + 104);
+        if (this.attackCooldown <= 0 && absX <= engageRange) {
             // プレイヤーの隙(攻撃硬直・忍具モーション中)は迷わず差し込む
             const punish = !!(player.isAttacking || (player.subWeaponTimer || 0) > 0);
             // 近すぎ/遠すぎは一度間合いを直す
-            const tooClose = absX < this.attackRange * 0.42;
-            const tooFar   = absX > this.attackRange * 0.96;
+            /* 保ちたい間合いがあるボスは、その間合いの前後で判定する
+               (attackRange 基準のままだと、狙って離れているのに毎回「遠すぎ」で
+                仕切り直してしまい、撃つ前に詰め直す往復になる) */
+            const spaceRef = standoff > 0 ? standoff : this.attackRange;
+            const tooClose = standoff > 0 ? absX < spaceRef * 0.52 : absX < spaceRef * 0.42;
+            const tooFar   = standoff > 0 ? absX > spaceRef * 1.55 : absX > spaceRef * 0.96;
             const maxStreak = 2 + Math.round(agg * 2);   // 攻めっ気ぶん連撃を許す
 
             if (!punish && this.spacingCooldownMs <= 0 &&
@@ -888,6 +905,15 @@ export class YariTaisho extends Boss {
 /* 剣筋アンカー用の刃渡り(world px)。drawDualKatana は KATANA_SC 倍で
    bladeLength=80 を描くので、手から切先は (80-5) × 1.536 ≒ 115。 */
 const DUAL_TIP = 115;
+/* 奥刀の切先が頭より上へ抜けているか(描画レイヤーの判定のみ。当たり判定とは無関係) */
+function dualBackBladeRaised(rig, h) {
+    const blend = (h.blend === undefined) ? 0.28 : h.blend;
+    const adj = h.a2 + (-Math.PI / 2 - h.a2) * blend;
+    const tipY = h.back.y + Math.sin(adj) * DUAL_TIP;
+    const headTop = rig.headY - (rig.headR || 20);
+    return tipY < headTop || h.back.y < headTop;
+}
+
 export class NitoryuKengo extends Boss {
     init() {
         super.init();
@@ -901,6 +927,17 @@ export class NitoryuKengo extends Boss {
         this.attackRange = 120;
         this.attackPatterns = ['main', 'combined'];
         this.dualAttackCycle = 0;
+        /* --- 間合いで戦い方を変える ---
+           press = 詰めて二刀コンボ(Z) / zone = 離れて飛翔斬撃(X)。
+           旧実装は距離を見ずに「コンボ→X→コンボ→X」を機械的に繰り返すだけで、
+           どの間合いでも同じ絵になっていた(ユーザー指摘 2026-08-15)。 */
+        this.dualStance = 'press';
+        this.dualStanceTimerMs = 0;
+        this.dualXStreak = 0;                 // 飛翔斬撃の連発数
+        this.dualZoneGraceMs = 0;             // zone へ移った直後の「離れ切る」猶予
+        this.dualMeleeReach = 138;            // ここまでなら Z が届く(attackRange×1.15)
+        this.dualZoneStandoff = 264;          // zone で保ちたい間合い(attackRange×2.2)
+        this.dualZoneFireRange = 430;         // 飛翔斬撃を撃ってよい最大距離(弾の飛距離 約480)
         this.setupWeaponReplica('二刀流');
         /* 剣筋。NitoryuKengo は Enemy 派生で applySlashTrailMixin を受けていないため
            コンボの剣筋が構造的に出せなかった(ユーザー指摘)。ミックスインを当て、
@@ -909,32 +946,104 @@ export class NitoryuKengo extends Boss {
         this.dualBladeBackTrailPoints = [];
         this.dualBladeFrontTrailPoints = [];
         this.currentSubWeapon = this.weaponReplica;   // 剣筋側が段/進行度を読む
+        /* 飛翔斬撃(X)の大きさ。scaleMultiplier を持たないので既定は等倍になり、
+           108px のボスに対して弾だけプレイヤー基準(72px相当)で小さく浮いていた。
+           倍率は刀と同じ【描画上の身長比】= 108 / 70.32 ≒ 1.536。
+           判定(half=42×sizeScale)も同じ倍率で広がる。 */
+        this.dualProjectileSizeScale = 108 / 70.32;
     }
     
+    /* zone のときだけ間合いを保つ。press は従来どおり詰める(0を返す) */
+    getDesiredStandoff() {
+        return this.dualStance === 'zone' ? this.dualZoneStandoff : 0;
+    }
+    /* 飛翔斬撃は弾なので、近接の交戦距離より遠くから撃たせる */
+    getEngageRange() {
+        /* press でも、離れている相手には歩いて詰める前に飛翔斬撃を撃つ。
+           近接の交戦距離(224)で止めると「離れれば安全」になってしまう。 */
+        return this.dualStance === 'zone'
+            ? this.dualZoneFireRange
+            : Math.max(this.attackRange + 104, 320);
+    }
+
+    /* 撃った/斬った直後に次の構えを決める。ここで「寄る・離れる」の波を作る。 */
+    pickDualStance(type, absX, finishedCombo) {
+        const desperate = this.hp <= this.maxHp * 0.35;   // 終盤は張り付いて手数で押す
+        if (type === 'combined') {
+            // X を2連発したら必ず詰める(溜めの間だけが続いて手持ち無沙汰に見える)
+            if (this.dualXStreak >= 2 || desperate) return 'press';
+            return (absX <= this.dualMeleeReach || Math.random() < 0.58) ? 'press' : 'zone';
+        }
+        // 連撃を出し切ったら一度離れて撃つ。張り付き続けると単調になる
+        if (finishedCombo && !desperate && Math.random() < 0.55) return 'zone';
+        return 'press';
+    }
+
     startAttack() {
         const toolTier = this.getSubWeaponEnhanceTier();
         const w = this.weaponReplica;
-        /* プレイヤーと同じ出し方にする:
-             Z連撃(main) は mainComboLinkTimer が生きている間チェーンして段が進み、
-             最終段まで出し切ったら X(飛翔斬撃 = combined)を1回挟んでリンクを切る。
-           旧: dualAttackCycle % 4 の固定4拍で、段は tier に縛られて 2段で頭打ちだった。 */
+        /* Z連撃(main) は mainComboLinkTimer が生きている間チェーンして段が進む。
+           プレイヤーと同じ出し方。 */
         const maxSteps = w && Array.isArray(w.comboDamages) ? Math.max(1, w.comboDamages.length) : 2;
         const linked = !!(w && (w.mainComboLinkTimer || 0) > 0);
         const step = w ? (w.comboIndex === 0 ? maxSteps : w.comboIndex) : 0;
         const finished = linked && step >= maxSteps;
-        // 飛翔斬撃の直後は必ず連撃へ戻す(combined が2連発すると溜めだけの間が続く)
-        const justX = this._lastDualType === 'combined';
-        const type = (!justX && (finished || (!linked && this.dualAttackCycle % 2 === 1)))
-            ? 'combined' : 'main';
+
+        /* --- 技は【間合い】で決める ---
+             Z が届かない距離(dualMeleeReach 超)は必ず飛翔斬撃。空振りを振らない。
+             届く距離では連撃を主軸にし、連撃を出し切った時だけ締めに X を混ぜる。 */
+        const absX = Number.isFinite(this._aiAbsX) ? this._aiAbsX : this.attackRange;
+        const inMelee = absX <= this.dualMeleeReach;
+        let type;
+        if (!inMelee) {
+            type = 'combined';
+        } else if (linked && !finished) {
+            type = 'main';                                   // 連撃の途中は振り切る
+        } else if (finished) {
+            /* 連撃を出し切った締めの X。ただし密着(attackRange の 2/3 未満)では
+               撃たずに斬り続ける —— 近い間合いはコンボの領分にする。 */
+            type = (this.dualXStreak === 0 && absX >= this.attackRange * 0.66
+                    && Math.random() < 0.32) ? 'combined' : 'main';
+        } else {
+            type = 'main';
+        }
+        // X の連発は2回まで。3発目は必ず斬りに行く
+        if (type === 'combined' && this.dualXStreak >= 2 && inMelee) type = 'main';
+
+        this.dualXStreak = (type === 'combined') ? this.dualXStreak + 1 : 0;
         this._lastDualType = type;
         if (type === 'combined') this.dualAttackCycle++;
         this.currentPattern = type;
+
+        const nextStance = this.pickDualStance(type, absX, finished);
+        if (nextStance !== this.dualStance) {
+            this.dualStance = nextStance;
+            this.dualStanceTimerMs = nextStance === 'zone'
+                ? 1600 + Math.random() * 1100      // 離れて撃つ時間は短く区切る
+                : 2200 + Math.random() * 1400;
+            /* zone へ移る瞬間は後ろへ跳んで距離を作る(歩いて下がると
+               「間合いの外をうろつく」だけに見える)。
+               vx を直接入れても、攻撃中の updateAI が |vx| < speed*1.8 を 0 へ寄せて
+               打ち消してしまうので、攻撃中でも効く回避スロットに乗せる。 */
+            if (nextStance === 'zone') {
+                this.evasionDir = this.facingRight ? -1 : 1;
+                this.evasionTimerMs = Math.max(this.evasionTimerMs, 330);
+                this.evasionCooldownMs = Math.max(this.evasionCooldownMs, 560);
+                this.evasionJumped = true;              // 跳び上がりはさせない(撃つ姿勢を保つ)
+                /* 離れ切る前に「近すぎる」判定で press へ戻されないよう猶予を持たせる。
+                   これが無いと zone は生成された次のフレームに必ず取り消される。 */
+                this.dualZoneGraceMs = 620;
+            }
+        }
 
         if (this.startWeaponReplicaAttack(type)) {
             if (type === 'combined') {
                 // モーション長(activeCombinedDuration)より短いと二重発動する
                 const dur = (w && w.activeCombinedDuration) || 470;
-                this.attackCooldown = Math.max(dur, 260 - toolTier * 30);
+                /* 離れて撃ち続けるときは一拍置く。連射すると弾幕になって
+                   「近づけば斬られる/離れれば撃たれる」の駆け引きが消える。 */
+                this.attackCooldown = Math.max(dur, 260 - toolTier * 30)
+                    + (this.dualStance === 'zone' ? 240 : 0);
                 this.subWeaponAction = null; this.subWeaponTimer = 0;   // Z の剣筋は止める
             } else {
                 // 次の段へリンクさせるため、猶予(mainDuration + 170ms)内に収める
@@ -964,6 +1073,24 @@ export class NitoryuKengo extends Boss {
         // 剣筋バッファは前フレームのアンカーを使って進める(プレイヤーと同順)
         if (typeof this.updateDualBladeSlashTrails === 'function') {
             this.updateDualBladeSlashTrails(deltaTime * 1000);
+        }
+        // 構えには寿命を持たせる。遠距離戦だけで固まると結局それが単調になる
+        if (this.dualStanceTimerMs > 0) {
+            this.dualStanceTimerMs = Math.max(0, this.dualStanceTimerMs - deltaTime * 1000);
+            if (this.dualStanceTimerMs === 0 && this.dualStance === 'zone') this.dualStance = 'press';
+        }
+        if (this.dualZoneGraceMs > 0) {
+            this.dualZoneGraceMs = Math.max(0, this.dualZoneGraceMs - deltaTime * 1000);
+        }
+        // 踏み込まれたら間合い戦は成立しない。斬りへ切り替える(離れ切る猶予の後)
+        if (this.dualStance === 'zone' && this.dualZoneGraceMs <= 0 && player) {
+            const pw = (typeof player.getWorldWidth === 'function') ? player.getWorldWidth() : player.width;
+            const d = Math.abs((player.x + pw / 2) - (this.x + this.width / 2));
+            if (d <= this.dualMeleeReach * 0.85) {
+                this.dualStance = 'press';
+                this.dualStanceTimerMs = 0;
+                this.dualXStreak = 0;
+            }
         }
         return removed;
     }
@@ -999,8 +1126,16 @@ export class NitoryuKengo extends Boss {
         renderBossActor(ctx, this, BOSS_DESIGNS.nito, {
             backIsFarHand: true,
             hands: (rig) => dualBladeStance(rig, st),
-            // 奥刀は奥腕と同じ最背面
-            back: (rig, h) => drawDualKatana(rig, h.back, h.a2, 'all', h.blend),
+            /* 奥刀は本来「奥腕と同じ最背面」だが、頭上へ振り上げた刃まで頭の裏に
+               回すと真っ黒な頭の円に刃が飲まれ、左右から生えて見える(=頭に
+               突き刺さって見える)。切先が頭より上にある間だけ刃を頭の【前】へ出す。 */
+            back: (rig, h) => {
+                drawDualKatana(rig, h.back, h.a2, 'handle', h.blend);
+                if (!dualBackBladeRaised(rig, h)) drawDualKatana(rig, h.back, h.a2, 'blade', h.blend);
+            },
+            backTop: (rig, h) => {
+                if (dualBackBladeRaised(rig, h)) drawDualKatana(rig, h.back, h.a2, 'blade', h.blend);
+            },
             // 柄は【手前腕の上・掌の下】(frontGrip)、刃は掌の上(frontTop)。
             // playerRenderer の 腕 → 柄 → 手 → 刃 と同じ順。
             frontGrip: (rig, h) => drawDualKatana(rig, h.front, h.a1, 'handle', h.blend),
@@ -1019,7 +1154,9 @@ export class NitoryuKengo extends Boss {
                    playerRenderer が dualBladeTrailAnchors を作るのと同じ形。
                    切先 = 手 + 極座標(uprightBlend 補正後の角度)×刃渡り。 */
                 const dir = rig.dir;
-                const toWorld = (lx, ly) => ({ x: cxWorld + lx * dir, y: footYWorld + ly });
+                /* 素体は接地合わせで GROUND_LIFT ぶん持ち上がっているので、
+                   自前の式ではなくリグの逆写像を使う(自前だと剣筋が数px下へずれる)。 */
+                const toWorld = (lx, ly) => rig.toWorld(lx, ly);
                 const tip = (hand, angRaw) => {
                     const adj = angRaw + (-Math.PI / 2 - angRaw) * (h.blend === undefined ? 0.28 : h.blend);
                     return toWorld(hand.x + Math.cos(adj) * DUAL_TIP,
@@ -1171,6 +1308,12 @@ export class OdachiBusho extends Boss {
         this.odachiReadyAngle = -1.02;
         this.odachiReadyHandXRatio = 0.30;
         this.odachiReadyHandYRatio = 0.34;
+        /* 刺さり(planted)の柄位置。既定値は【当たり判定の幅/高さ】基準なので、
+           判定が素体より一回り大きいこのボス(84×120 に対し素体は 108 のリグ)では
+           柄が腕リーチ(38.9)の外に立ち、手が柄から 22px 離れていた。
+           実測に合わせて前方 0.35→0.17、ぶら下がり 0.125→0.27 へ。 */
+        this.odachiPlantedHandXRatio = 0.24;
+        this.odachiPlantedHangRatio = 0.34;
         this.forceSubWeaponRender = true;
     }
     

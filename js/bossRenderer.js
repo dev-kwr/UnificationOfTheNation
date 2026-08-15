@@ -95,12 +95,12 @@ function limbN(c,ax,ay,hx,hy,frac,bend,mode,w1,w2,col,hi,pass='fill'){
 
 /* 二刀の刀身はプレイヤーと同一形状。katanaShape.js は依存ゼロなので循環しない
    (playerRenderer.js を直接 import すると game.js の TDZ でクラッシュする)。 */
-import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260815k';
+import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260815n';
 /* 雑魚/中ボスの攻撃エフェクト。描画専用で判定には触れない */
 import {
   stepMobFx, onceThisAttack, feedTrail, drawTrail,
-  drawThrustStreak, drawFlash, drawBurstLines, mobGroundDust
-} from './mobFx.js?v=screen-safe-20260815k';
+  drawThrustStreak, drawThrustWave, drawFlash, drawBurstLines, mobGroundDust
+} from './mobFx.js?v=screen-safe-20260815n';
 /* 刀身長はプレイヤー実数値のまま渡し、拡大は描画側の ctx.scale だけで行う(二重拡大防止)。
    倍率は素体リグの SC(=1.8) ではなく【描画上の身長比】を使う:
      プレイヤーの描画身長 = height(72) - headRadius*0.1(=1.68) = 70.32
@@ -935,7 +935,7 @@ export function renderBossModel(c,B,motion,t,st){
 
   /* ---- 奥腕(プレイヤー実装×1.5の腕。武器モジュールが手位置を決める) ---- */
   const wf=(st&&st.weapon)||EMPTY_WEAPON;
-  const rig={c,B,P,cx,hipX,hipY,chestX,chestY,shF,shB,shAF,shAB,headX,headY,t,mt,motion,runPh,atk,pose,breath,sway,feet,
+  const rig={c,B,P,cx,hipX,hipY,chestX,chestY,shF,shB,shAF,shAB,headX,headY,headR,t,mt,motion,runPh,atk,pose,breath,sway,feet,
              world:(st&&st.world)||((fn)=>fn()),
              toLocal:(st&&st.toLocal)||((x,y)=>({x,y})),
              toWorld:(st&&st.toWorld)||((x,y)=>({x,y})),
@@ -1144,6 +1144,10 @@ export function renderBossModel(c,B,motion,t,st){
   /* ---- レイヤー順(物理的な前後):
          奥腕 → 胴・装具 → 頭 → 【忍具】 → 手前腕 → 手前袖 → 手前の掌
          忍具は「奥腕より手前・手前腕より奥」。握る手と腕が最前面に来る。 ---- */
+  /* 奥手の得物のうち【頭より前に出したい部分】。奥刀は本来 頭の裏だが、
+     頭上へ振り上げた刃まで裏に回すと、真っ黒な頭の円に刃が飲まれて左右から
+     生えたように見える=「突き刺さって見える」(ユーザー指摘 2026-08-15)。 */
+  if(!CAST && wf.backTop) wf.backTop(rig,hands);
   if(!CAST){ if(!wf.backIsFarHand && wf.back) wf.back(rig,hands); if(wf.front) wf.front(rig,hands); }
   const afr=drawFrontArm('top');   // 輪郭+塗りを最前面で(輪郭が他部品に覆われないように)
   if(!CAST) drawKote(c,P,afr.ex,afr.ey,afr.wx,afr.wy);                    // 籠手(手前腕)
@@ -1530,6 +1534,9 @@ function mobBladeTrail(r, key, tipLocalX, tipLocalY, active, o){
     const w = r.toWorld(tipLocalX, tipLocalY);
     feedTrail(owner, key, w.x, w.y, { maxAge:o.maxAge, minDist:o.minDist||2.0, cap:o.cap||26 });
   }
+  /* 貯まっていないフレームは world 変換の往復ごと省く(常時4〜5体ぶん走るため) */
+  const b = owner._mobFx && owner._mobFx.trails[key];
+  if (!b || b.pts.length < 3) return;
   r.world(() => drawTrail(r.c, owner, key, {
     headHalf:o.headHalf,
     baseColor:o.base||MOB_FX.base, edgeColor:o.edge||MOB_FX.edge,
@@ -1566,15 +1573,14 @@ export const mobSpear = {
     const ext = cl01((p - 0.22) / 0.56);
     const sp = Math.sin(ext * Math.PI);            // 中盤が最速
     if (sp <= 0.03) return;
-    /* 尾は穂先より少し【後ろ】から始める。穂先に重ねると刃が光って見えて
-       「速い」ではなく「光る槍」になる。細く長い一本にして速度に読ませる。 */
-    const tx = f.x + Math.cos(ang) * (SPEAR_TIP - 5), ty = f.y + Math.sin(ang) * (SPEAR_TIP - 5);
-    drawThrustStreak(c, tx, ty, ang, 34 + 80 * sp, 1.5 + 1.5 * sp, 0.42 * sp, MOB_FX.base);
-    if (ext > 0.80) {
-      const k = 1 - cl01((ext - 0.80) / 0.20);
-      const px = f.x + Math.cos(ang) * SPEAR_TIP, py = f.y + Math.sin(ang) * SPEAR_TIP;
-      drawFlash(c, px, py, 7.5, 0.42 * k, MOB_FX.edge);
-      drawBurstLines(c, px, py, ang, 3, 15, 0.34 * k, MOB_FX.edge, 0.42);
+    /* 穂先の【前方】へ抜ける突き波。柄に重ねた尾は木部と同化して見えないので、
+       得物に重ならない前方だけで速さを見せる(穂先自体は光らせない)。 */
+    const px = f.x + Math.cos(ang) * SPEAR_TIP, py = f.y + Math.sin(ang) * SPEAR_TIP;
+    drawThrustWave(c, px, py, ang, 7 + 26 * ext, 0.62, 2.6, 0.52 * sp, MOB_FX.base);
+    if (ext > 0.74) {
+      const kk = 1 - cl01((ext - 0.74) / 0.26);
+      drawFlash(c, px, py, 8, 0.34 * kk, MOB_FX.edge);
+      drawBurstLines(c, px, py, ang, 3, 16, 0.30 * kk, MOB_FX.edge, 0.45);
     }
     /* 踏み込みの土煙は前足の着地(突き切り)で一度だけ */
     if (onceThisAttack(r.owner, 'yariStep', ext > 0.72) && r.owner) {
@@ -2112,8 +2118,15 @@ export function odachiStance(rig, anchor){
     let gx = f.x, gy = f.y;
     const over = Math.hypot(gx - sh.x, gy - sh.y) - ARM_REACH;
     if (over > 0) {
+      /* スライドの向きは【肩に近づく側】を選ぶ。柄尻方向へ固定していると、
+         刺さり(刃が下向き)では柄尻が上=肩から遠ざかる側なので、
+         握り直すほど手が柄から離れていた。 */
       const slide = Math.min(over, 28);
-      gx -= Math.cos(rot) * slide; gy -= Math.sin(rot) * slide;
+      const cx0 = Math.cos(rot) * slide, cy0 = Math.sin(rot) * slide;
+      const dBack = Math.hypot(gx - cx0 - sh.x, gy - cy0 - sh.y);
+      const dFwd  = Math.hypot(gx + cx0 - sh.x, gy + cy0 - sh.y);
+      const s = (dFwd < dBack) ? 1 : -1;
+      gx += s * cx0; gy += s * cy0;
     }
     return { front: { x: gx, y: gy },
              back:  { x: gx - Math.cos(rot) * 13, y: gy - Math.sin(rot) * 13 }, ang: rot };

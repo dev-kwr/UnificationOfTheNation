@@ -2,10 +2,10 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260815k';
-import { audio } from './audio.js?v=screen-safe-20260815k';
-import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260815k';
-import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260815k';
+import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260815n';
+import { audio } from './audio.js?v=screen-safe-20260815n';
+import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260815n';
+import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260815n';
 
 // 武器ジオメトリは「武器を振る主体(owner/player)のワールド寸法」を基準に組み立てる。
 // 将軍は width/height が素体(40x60)なので getWorldWidth/Height(=素体×SHOGUN_SCALE) を読む。
@@ -2380,9 +2380,15 @@ export class DualBlades extends SubWeapon {
                 life: 700 + this.enhanceTier * 90,
                 maxLife: 700 + this.enhanceTier * 90,
                 direction: this.attackDirection,
-                // 将軍などscaleMultiplier > 1のキャラはプロジェクタイルもスケールアップする
-                sizeScale: (player && Number.isFinite(player.scaleMultiplier) && player.scaleMultiplier > 0
-                    ? player.scaleMultiplier : 1) * (this.enhanceTier >= 3 ? 1.14 : 1.0),
+                /* 将軍などscaleMultiplier > 1のキャラはプロジェクタイルもスケールアップする。
+                   scaleMultiplier を持たない(=素体リグで直接描かれる)フロアボスは
+                   dualProjectileSizeScale で身長比を渡す。等倍のままだと
+                   108px のボスに対して弾だけプレイヤー基準で小さく浮く。
+                   判定(getHitboxes の half=42×sizeScale)も一緒に大きくなる=見た目と一致。 */
+                sizeScale: (player && Number.isFinite(player.dualProjectileSizeScale) && player.dualProjectileSizeScale > 0
+                    ? player.dualProjectileSizeScale
+                    : (player && Number.isFinite(player.scaleMultiplier) && player.scaleMultiplier > 0
+                        ? player.scaleMultiplier : 1)) * (this.enhanceTier >= 3 ? 1.14 : 1.0),
                 _owner: player // 発射時に座標を取得するために保持
             };
             // 効果音は発射のタイミングに合わせて鳴らすため、ここでは鳴らさない
@@ -3960,7 +3966,14 @@ export class Odachi extends SubWeapon {
                 // 大太刀のhandXはボディの視覚中心(centerX)を基準にする。
                 // frozenCenterX(=scale pivot)はoriginalW/2基準でdrawW/2と4pxずれるため
                 // スケール後に左右非対称(8.8px差)を生む。
-                const handX = centerX + direction * (ownerWorldWidth(player) * 0.35);
+                /* 前方オフセットは【当たり判定の幅】基準。フロアボスは判定幅が
+                   素体の見た目よりずっと広い(武将 84px)ので、0.35 のままだと
+                   刺さり刀が素体の腕リーチ(38.9)の外に立ち、手が柄から離れる
+                   ——「左右どちらの向きでも柄を握れていない」(ユーザー指摘 2026-08-15)。
+                   オーナー側で比率を上書きできるようにする(ready と同じ流儀)。 */
+                const plantedXR = Number.isFinite(player.odachiPlantedHandXRatio)
+                    ? player.odachiPlantedHandXRatio : 0.35;
+                const handX = centerX + direction * (ownerWorldWidth(player) * plantedXR);
                 // 身長比率に基づいて手の高さを計算 (プレイヤー 60px に対し 7.5px = 0.125)
                 const handY = player.y + ownerWorldHeight(player) * 0.125;
                 
@@ -4180,7 +4193,11 @@ export class Odachi extends SubWeapon {
         if (!player) return null;
         const bladeEnd = this.getBladeMetrics().bladeEnd;
         const maxTipY = player.groundY + LANE_OFFSET;
-        const handHeightRatio = 0.125;
+        /* ぶら下がり高度。柄の位置は「切先を地面に着ける」条件で決まってしまうので、
+           オーナーの腕が柄へ届くかどうかはこの比率だけで決まる。
+           素体のリーチが身長比で決まる相手(フロアボス)は上書きする。 */
+        const handHeightRatio = Number.isFinite(player.odachiPlantedHangRatio)
+            ? player.odachiPlantedHangRatio : 0.125;
         const scale = this.getOwnerVisualScale(player);
         const scaledBladeEnd = bladeEnd * scale;
         // 手の高さぶんの引き下げは【等倍のオーナーだけ】正しい。
@@ -4997,8 +5014,13 @@ export class Odachi extends SubWeapon {
             }
         }
 
-        // 着地インパクト
-        if (!this.suppressGroundEffectsRender && this.impactFlashTimer > 0) {
+        /* 着地インパクト。
+           impactX は use() で null に戻され、getImpactXForPose が pose 無しで
+           呼ばれると null のまま返る(4109行)。impactFlashTimer だけ立った状態で
+           ここへ来ると createRadialGradient が非有限値で例外を投げ、
+           そのフレームのボス描画が丸ごと落ちる(参之陣の大太刀で実測)。 */
+        if (!this.suppressGroundEffectsRender && this.impactFlashTimer > 0
+            && Number.isFinite(this.impactX) && Number.isFinite(this.impactY)) {
             const scaleMultiplier = (player && player.scaleMultiplier) ? player.scaleMultiplier : 1.0;
             const alpha = Math.max(0, this.impactFlashTimer / 170);
             const ix = this.impactX, iy = this.impactY;
