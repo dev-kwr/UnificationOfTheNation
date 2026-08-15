@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815f';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815f';
-import { createEnemy } from './enemy.js?v=screen-safe-20260815f';
-import { createBoss } from './boss.js?v=screen-safe-20260815f';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260815f';
-import { audio } from './audio.js?v=screen-safe-20260815f';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815f';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815g';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815g';
+import { createEnemy } from './enemy.js?v=screen-safe-20260815g';
+import { createBoss } from './boss.js?v=screen-safe-20260815g';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260815g';
+import { audio } from './audio.js?v=screen-safe-20260815g';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815g';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260815f';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815f';
+} from './stage6Grapple.js?v=screen-safe-20260815g';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815g';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815f';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815g';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -2440,14 +2440,13 @@ export class Stage {
         ctx.fillStyle = farGrad;
         ctx.fillRect(x, top, width, farH);
 
-        // 2) 床側の框。手前ほど太い(俯瞰の床帯なので下へ行くほど広がる)。
-        const nearW = 30, farW = 14;
+        // 2) 床側の框。【一定幅の縦板】。以前は「俯瞰だから手前ほど太い」と
+        // 台形(14→30)にしていたが、この床帯の板の継ぎ目は収束しないので、
+        // 框の斜めの縁だけがパースを主張して浮いていた(実機フィードバック 2026-08-15)。
+        const kamachiW = 14;
         ctx.beginPath();
-        ctx.moveTo(edgeX + outward * farW, top);
-        ctx.lineTo(edgeX, top);
-        ctx.lineTo(edgeX, bottom);
-        ctx.lineTo(edgeX + outward * nearW, bottom);
-        ctx.closePath();
+        ctx.rect(Math.min(edgeX, edgeX + outward * kamachiW), top,
+            kamachiW, bottom - top);
         // 【半透明の色を床に塗るのはやめる】。物ではないので、木にも段差にも
         // 見えず「床が色褪せている」としか読めなかった(実機フィードバック 2026-08-14)。
         // 一様な面 + 両側の継ぎ目、という【物の描き方】にする。
@@ -2456,8 +2455,8 @@ export class Stage {
 
         // 3) 框の外側の継ぎ目(床板との合わせ目)。ここで別の材だと分かる。
         ctx.beginPath();
-        ctx.moveTo(edgeX + outward * farW, top);
-        ctx.lineTo(edgeX + outward * nearW, bottom);
+        ctx.moveTo(edgeX + outward * kamachiW, top);
+        ctx.lineTo(edgeX + outward * kamachiW, bottom);
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.34)';
         ctx.lineWidth = 1.2;
         ctx.stroke();

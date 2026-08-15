@@ -2,17 +2,17 @@
 // Unification of the Nation - ボスクラス
 // ============================================
 
-import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260815f';
-import { Enemy } from './enemy.js?v=screen-safe-20260815f';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260815f';
-import { audio } from './audio.js?v=screen-safe-20260815f';
-import { Player } from './player.js?v=screen-safe-20260815f';
+import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260815g';
+import { Enemy } from './enemy.js?v=screen-safe-20260815g';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260815g';
+import { audio } from './audio.js?v=screen-safe-20260815g';
+import { Player } from './player.js?v=screen-safe-20260815g';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
-} from './normalComboMotion.js?v=screen-safe-20260815f';
+} from './normalComboMotion.js?v=screen-safe-20260815g';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
@@ -21,7 +21,7 @@ import {
     SHOGUN_HEAD_SCALE,
     SHOGUN_HIP_LIFT_PX,
     SHOGUN_SCALE
-} from './shogunConstants.js?v=screen-safe-20260815f';
+} from './shogunConstants.js?v=screen-safe-20260815g';
 import {
     BOSS_DESIGNS,
     renderBossActor,
@@ -30,12 +30,10 @@ import {
     bombStance,
     drawCarriedBomb,
     spearStance,
-    spearCarryStance,
-    drawCarriedSpear,
     kusarigamaStance,
     drawCarriedKusarigama,
     odachiStance
-} from './bossRenderer.js?v=screen-safe-20260815f';
+} from './bossRenderer.js?v=screen-safe-20260815g';
 
 // weaponReplica の攻撃進行度(0..1)。体の所作を実体のタイムラインへ同期させる。
 function replicaProgress(replica) {
@@ -850,15 +848,17 @@ export class YariTaisho extends Boss {
     renderBody(ctx) {
         // 素体・具足は bossRenderer。槍そのものは本編の Spear 実体が world 座標で描き、
         // 両手は実体の握り(getGripAnchors)へ追従させる。
+        /* 槍は【待機中も攻撃中も】本編の Spear 実体が world 座標で描き、
+           両手は実体の握り(getGripAnchors)へ追従させる。
+           forceSubWeaponRender=true なので待機中も render() が通る。
+           以前は待機だけ素体側の drawCarriedSpear(realSpear の移植)で描いており、
+           攻撃時と別のグラフィック・別の握り位置になっていた(ユーザー指摘)。 */
         const spear = this.weaponReplica;
         const grips = (spear && typeof spear.getGripAnchors === 'function')
             ? spear.getGripAnchors(this) : null;
-        const attacking = !!(spear && spear.isAttacking);
         renderBossActor(ctx, this, BOSS_DESIGNS.yari, {
-            hands: (rig) => (attacking ? spearStance(rig, grips) : spearCarryStance(rig)),
+            hands: (rig) => spearStance(rig, grips),
             front: (rig, h) => {
-                // 待機・走りは実体のグリップが膝の高さで「持てていない」ため素体側で構える
-                if (!attacking) { drawCarriedSpear(rig, h); return; }
                 rig.world(() => {
                     if (spear && typeof spear.render === 'function') spear.render(ctx, this);
                 });

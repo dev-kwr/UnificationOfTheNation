@@ -95,7 +95,7 @@ function limbN(c,ax,ay,hx,hy,frac,bend,mode,w1,w2,col,hi,pass='fill'){
 
 /* 二刀の刀身はプレイヤーと同一形状。katanaShape.js は依存ゼロなので循環しない
    (playerRenderer.js を直接 import すると game.js の TDZ でクラッシュする)。 */
-import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260815f';
+import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260815g';
 /* 刀身長はプレイヤー実数値のまま渡し、拡大は描画側の ctx.scale だけで行う(二重拡大防止)。
    倍率は素体リグの SC(=1.8) ではなく【描画上の身長比】を使う:
      プレイヤーの描画身長 = height(72) - headRadius*0.1(=1.68) = 70.32
@@ -680,23 +680,24 @@ const CHOREO={
      肩 +(2.8+lunge*5.6-windup*1.1) / 腰 +(0.9+...) / 頭 +(1.2+lunge*2.8)、
      頭 -drive*2.0・腰 -drive*1.7、後足で蹴り両足が浮く。素体は ×1.8、脚は ×1.89。 */
   yari(p){
+    /* 大槍の突き。playerRenderer の isSpearThrustPose は【横っ飛び】で両足とも
+       宙に浮く振り付けだが、108px のボスでそのまま使うと槍を掴んだまま滞空して
+       見える(ユーザー指摘)。そこで「後ろ足は接地したまま腰を落として踏み込む」
+       突きに組み替える。前足だけが踏み出しの途中で浮き、突き切りで着地する。
+         A  = 素体倍率(横方向) / LS = 脚長倍率(45/23.8)
+         腰を落とさずに後ろ足を後方へ置くと脚長(45)を超えて突っ張るので、
+         lunge に合わせて crouch を深くして脚長内に収める。 */
     const A=1.8, LS=1.89;
-    const windup=Math.max(0,1-(p/0.34));
-    const lunge=Math.sin(cl01((p-0.16)/0.62)*Math.PI*0.5);
+    const windup=Math.max(0,1-(p/0.34));                      // 引き
+    const lunge=Math.sin(cl01((p-0.16)/0.62)*Math.PI*0.5);    // 踏み込み(0→1)
+    const step=Math.sin(cl01((p-0.10)/0.58)*Math.PI);         // 前足の踏み出し(0→1→0)
     const drive=Math.sin(p*Math.PI);
-    const hipUp=-(0.24+lunge*0.48)*LS;
-    const HIP=45;                       // 素体の腰高(=脚長)
-    return {
-      lean:0,
-      leanPx:(2.8+lunge*5.6-windup*1.1)*A,
-      crouch:-drive*1.7*A+hipUp,
-      shift:(0.9+lunge*2.2-windup*0.5)*A,
-      headDip:-drive*2.0*A,
-      // 後足=斜め後方へ長く蹴る / 前足=畳んで前へ。どちらも地面から浮く
-      feet:[[-(14.1+lunge*3.1)*LS, -(HIP-(12.9-lunge*4.6)*LS)],
-            [ (0.22+lunge*0.1)*LS, -(HIP-(16.2+lunge*0.3)*LS)]],
-      capeBell:0
-    };
+    return { lean:0, leanPx:(2.6+lunge*5.2-windup*1.1)*A,
+      crouch:(2.0+lunge*5.0)*A,                               // 腰を落として踏ん張る
+      shift:(0.9+lunge*2.2-windup*0.5)*A, headDip:drive*1.0*A,
+      feet:[[-(8.0+lunge*5.0)*LS, 0],                          // 後ろ足=接地したまま後方へ
+            [ (3.0+lunge*6.0)*LS, -step*6.0*LS]],              // 前足=踏み出して着地
+      capeBell:0 };
   },
   nito(p){
     const w=seg(p,0.04,0.24), s1=seg(p,0.26,0.44), s2=seg(p,0.52,0.70), rc=seg(p,0.78,1);
