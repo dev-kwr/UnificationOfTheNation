@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815o';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815o';
-import { createEnemy } from './enemy.js?v=screen-safe-20260815o';
-import { createBoss } from './boss.js?v=screen-safe-20260815o';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260815o';
-import { audio } from './audio.js?v=screen-safe-20260815o';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815o';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815p';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815p';
+import { createEnemy } from './enemy.js?v=screen-safe-20260815p';
+import { createBoss } from './boss.js?v=screen-safe-20260815p';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260815p';
+import { audio } from './audio.js?v=screen-safe-20260815p';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815p';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260815o';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815o';
+} from './stage6Grapple.js?v=screen-safe-20260815p';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815p';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815o';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815p';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -76,7 +76,7 @@ const STAGE_IMAGE_SOURCES = {
     },
     3: {
         fields: {
-            stage3TownFarImage: 'images/stage3_town_far.png?v=20260815_far2',
+            stage3TownFarImage: 'images/stage3_town_far.png?v=20260815_far3',
             stage3RangeTailImage: 'images/stage3_range_tail.png?v=20260815_tail2',
             stage3GroundImage: 'images/stage3_ground_mountain_tile.png',
             // 遠景の山並み。1枚をミラー連結してあるので横に繰り返すと稜線が繋がる
@@ -4891,9 +4891,12 @@ export class Stage {
             // (実機フィードバック 2026-08-15)。
             const town = this.stage3TownFarImage;
             if (town?.complete && town.naturalWidth > 0 && town.naturalHeight > 0) {
-                const townTinted = this.getStage3MountainTinted(town, tone);
-                const T_H = 140;
-                const T_GROUND = 286 / 293; // 実測: 地面線の行 / 画像の高さ
+                // 町は山ほど時刻の色へ寄せない(暗い夕闇を焼き込んだアセットなので、
+                // 山と同じ0.30の霞だと橙寄りに浮く。0.12で軽く馴染ませるだけ)。
+                const townTone = this.interpolateColor(currentPalette.mid, horizonSky, 0.12);
+                const townTinted = this.getStage3MountainTinted(town, townTone);
+                const T_H = 138;                 // 天守の頂が高さ約132px(=134相当を維持)
+                const T_GROUND = 253 / 255; // 実測: 地面線の行 / 画像の高さ
                 const tW = Math.round(T_H * (town.naturalWidth / town.naturalHeight));
                 // 停止時に画面 x=520 へ来るよう、遠景の座標系(=同じparallax)で置く
                 const townAnchor = 520 + (this.maxProgress - CANVAS_WIDTH) * spec.parallax;
