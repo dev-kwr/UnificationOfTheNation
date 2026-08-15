@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815i';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815i';
-import { createEnemy } from './enemy.js?v=screen-safe-20260815i';
-import { createBoss } from './boss.js?v=screen-safe-20260815i';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260815i';
-import { audio } from './audio.js?v=screen-safe-20260815i';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815i';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815j';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815j';
+import { createEnemy } from './enemy.js?v=screen-safe-20260815j';
+import { createBoss } from './boss.js?v=screen-safe-20260815j';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260815j';
+import { audio } from './audio.js?v=screen-safe-20260815j';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815j';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260815i';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815i';
+} from './stage6Grapple.js?v=screen-safe-20260815j';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815j';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815i';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815j';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -76,7 +76,7 @@ const STAGE_IMAGE_SOURCES = {
     },
     3: {
         fields: {
-            stage3ExitImage: 'images/stage3_mountain_exit.png?v=20260815_exit13',
+            stage3TownFarImage: 'images/stage3_town_far.png?v=20260815_far1',
             stage3GroundImage: 'images/stage3_ground_mountain_tile.png',
             // 遠景の山並み。1枚をミラー連結してあるので横に繰り返すと稜線が繋がる
             // (右端は自身の鏡像と接し、巻き戻り点は左端同士)。
@@ -4608,7 +4608,6 @@ export class Stage {
         // ボス部屋の右側に次ステージへの「出入口」を描く件:
         // ※ Stage1（竹林）は管理林縁から街道へ接続する専用終端を使うため、汎用peekは使わない。
         // ※ Stage2（街道）は山道入口をステージ内の通常背景として描画する。
-        // ※ Stage3（山道）のラストオブジェクトは renderStage3ExitOnGround へ移設。
         //    背景(地面より前)で描くと基部を足元線(512)まで下げられず(下が地面に覆われる)、
         //    地平線(480)に貼り付いて床帯から浮いて見えていた。
         // ※ Stage4（城下町）は城郭(renderStage4CastleLower)が出口を兼ねる。
@@ -4685,66 +4684,6 @@ export class Stage {
         }
         return true;
     }
-
-    // Stage3のラストオブジェクト(峠 stage3_mountain_exit.png)。
-    // 【地面レイヤーの後に描く】(renderStage3RoadsideOnGround 経由)。
-    // 旧 renderNextStagePeek は背景パス(地面より前)にあり、基部を足元線まで
-    // 下げると下が地面に覆われるため地平線(480)接地しか選べず、床帯(480..512)の
-    // 上で浮いて見えていた。投影文法: 構造物基部は478..512(床帯へ食い込ませて植える)。
-    //
-    // 【絵の作りの前提】(2026-08-15 に全面作り直し)
-    // ピース(山二つ+町)を別々に生成して後処理で繋ぐ方式を全部やめ、
-    // 【最後の一画面を丸ごと一枚の絵】として生成した。後処理は dekey(クロマキー抜き)
-    // のみで、taper も伸長も裾の切除も無い。
-    // 一枚の中身(左から): 平地の草と柵 → 【低い町並みが横へ連なる城下町】
-    // (中央やや右に小さな丘+石垣+天守。裾の靄まで絵の中) → 平地の草と柵。
-    // ・前アセットは町家を円錐の丘に積み上げた「家のピラミッド」で、
-    //   山にしか見えなかった(実機フィードバック 2026-08-15)。町家は平地に低く
-    //   広がり、丘は天守の台座だけ、という実際の城下町の形で生成し直した。
-    // ・絵の左右端は草だけ(裁ち切りが原理的に出ない)。
-    // ・地面線は実測 y=286/293。全ての足元と草が同じ線に着地する。
-    // ・後処理は dekey と緑かぶり抑制(g<=max(r,b)+4)のみ。
-    renderStage3ExitOnGround(ctx) {
-        const exitImg = this.stage3ExitImage;
-        if (!(exitImg && exitImg.complete && exitImg.naturalWidth > 0)) return;
-        const p = this.progress;
-        // ラストオブジェクトは地面と同じパララックス(1.0)でワールド配置にする(stage4の城と同じ作法)。
-        // peekWX(xFixed) はカメラ停止時(p=maxProgress-CANVAS_WIDTH)に xFixed を返し、
-        // 接近中はボス部屋左端基準で右から流入する。
-        const peekBase = this.maxProgress - 150; // ボス部屋右端寄りに（手前の添景と分離・見切れ防止）
-        const peekAnchorX = peekBase - p;
-        const ANCHOR_STOP = peekBase - (this.maxProgress - CANVAS_WIDTH);
-        // 【縦は画面に収める】。頂が画面の上辺で切れると「壁」に見える。
-        // 足元線(492)から上へ EXIT_HORIZON_RATIO ぶんが山の高さなので、
-        // 絵の上辺が y=EXIT_TOP_MARGIN_PX に来る大きさを幅へ逆算する。
-        // 遠景の帯(y270あたりが最高峰)より一段だけ高い位置に頂が来る値にしてある。
-        // ここを詰めすぎると「同じ山が一段手前に来た」ではなく壁になる。
-        // 遠景として置く: 天守の頂が画面 y≈290(高さ202px)、町家の屋根は約68px。
-        // 前アセットは天守の頂が高さ380px相当まで来て「家で覆われた山」に
-        // 見えていた(実機フィードバック 2026-08-15)。
-        const EXIT_TOP_MARGIN_PX = 286;
-        const EXIT_HORIZON_RATIO = 286 / 293; // 実測: 地面線の行 / 画像の高さ
-        const footY = this.groundY + BG_PROP_FOOT_DEPTH;
-        const exitH = Math.round((footY - EXIT_TOP_MARGIN_PX) / EXIT_HORIZON_RATIO);
-        const exitW = Math.round(exitH * (exitImg.naturalWidth / exitImg.naturalHeight));
-        // カメラ停止時に絵の右端が画面の右端に来る＝道の突き当たりが画面の端で閉じる。
-        const exitX = peekAnchorX + (CANVAS_WIDTH - exitW - ANCHOR_STOP);
-        // 【カリングは描画位置(exitX)だけで判定する】。
-        // 旧 renderNextStagePeek の名残で peekAnchorX(＝描画位置より1152px右)を
-        // 見ていたため、絵が画面内の x=728 でいきなり湧いていた
-        // (実測: p=9969 で不可視 → p=9970 で左端 x=728 に出現。実機フィードバック 2026-08-13)。
-        if (exitX + exitW < -80 || exitX > CANVAS_WIDTH + 120) return;
-        // 【接地の基準は絵の中の地平線】。不透明部の一番下(枯れ草の先)で合わせると
-        // 岩の裾が床帯より上に来て浮く(実機フィードバック 2026-08-12)。
-        const exitY = Math.round(footY - exitH * EXIT_HORIZON_RATIO);
-        ctx.save();
-        ctx.globalAlpha *= 0.96;
-        ctx.filter = 'brightness(0.84) saturate(0.72) contrast(0.94)';
-        drawImageGraded(ctx, exitImg, exitX, exitY, exitW, exitH);
-        ctx.filter = 'none';
-        ctx.restore();
-    }
-
 
     renderStage1FixedRoadMountains(ctx) {
         const cameraX = Math.floor(this.progress);
@@ -4915,8 +4854,7 @@ export class Stage {
             // 尽きた先の地平に合成の帯や潰した低地を敷く試みは全部やめた
             // (単色帯は明暗どちらでも「輪郭の硬い一枚板」になり、潰した低地は
             //  二重の地平になる。実機フィードバック 2026-08-15)。
-            // 平地の地平はラストの一枚絵(stage3ExitImage)が自分で描く。
-            // ここは薄い大気のベールだけを残す。
+            // ここは薄い大気のベールと、尽きた先の遠景の町だけを持つ。
             const plainTone = this.interpolateColor(currentPalette.near, '#6a5a78', 0.55);
             const plainTop = this.groundY - 150;
             const plain = ctx.createLinearGradient(0, plainTop, 0, this.groundY);
@@ -4925,6 +4863,25 @@ export class Stage {
             plain.addColorStop(1, rgba(plainTone, 0.42));
             ctx.fillStyle = plain;
             ctx.fillRect(0, plainTop, CANVAS_WIDTH, this.groundY - plainTop);
+
+            // 山脈の尽きた先、遥か遠くの城下町。【遠景レイヤーそのもの】として、
+            // 山と同じパララックス・同じ色調(tinted)で描く。道と同じレイヤーに
+            // 置くと山の隣に等距離で立ち「山岳地帯の中の町」に見える
+            // (実機フィードバック 2026-08-15)。
+            const town = this.stage3TownFarImage;
+            if (town?.complete && town.naturalWidth > 0 && town.naturalHeight > 0) {
+                const townTinted = this.getStage3MountainTinted(town, tone);
+                const T_H = 140;
+                const T_GROUND = 286 / 293; // 実測: 地面線の行 / 画像の高さ
+                const tW = Math.round(T_H * (town.naturalWidth / town.naturalHeight));
+                // 停止時に画面 x=520 へ来るよう、遠景の座標系(=同じparallax)で置く
+                const townAnchor = 520 + (this.maxProgress - CANVAS_WIDTH) * spec.parallax;
+                const tx = Math.round(townAnchor - progress * spec.parallax);
+                const ty = Math.round(this.groundY - T_H * T_GROUND);
+                if (tx < CANVAS_WIDTH && tx + tW > 0) {
+                    ctx.drawImage(townTinted, tx, ty, tW, T_H);
+                }
+            }
 
             if (rangeEndX <= 0) {
                 ctx.restore();
@@ -4970,9 +4927,10 @@ export class Stage {
      */
     getStage3FarRangeEndX(progress, parallax) {
         if (this.stageNumber !== 3) return null;
-        if (!this.stage3ExitImage?.complete || this.stage3ExitImage.naturalWidth <= 0) return null;
-        // カメラ停止時の目標画面x。ラストの絵の谷(実測 frac 0.4456)のすぐ手前。
-        const STOP_SCREEN_X = 470;
+        if (!this.stage3TownFarImage?.complete || this.stage3TownFarImage.naturalWidth <= 0) return null;
+        // カメラ停止時の目標画面x。停止画面では山脈はほぼ画面外＝
+        // 「山岳地帯を抜けた」状態にする(実機フィードバック 2026-08-15)。
+        const STOP_SCREEN_X = 40;
         const bandX = STOP_SCREEN_X + (this.maxProgress - CANVAS_WIDTH) * parallax;
         return bandX - progress * parallax;
     }
@@ -5200,7 +5158,6 @@ export class Stage {
     renderStage3RoadsideOnGround(ctx) {
         if (this.stageNumber !== 3) return;
         // ラストオブジェクト(石塚の門)が一番奥、道沿いの添景はその手前。
-        this.renderStage3ExitOnGround(ctx);
         this.renderStage3RoadsideProps(ctx);
         this.renderStage3RoadsideClusters(ctx);
     }

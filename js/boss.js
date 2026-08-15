@@ -2,18 +2,18 @@
 // Unification of the Nation - ボスクラス
 // ============================================
 
-import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260815i';
-import { Enemy } from './enemy.js?v=screen-safe-20260815i';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260815i';
-import { audio } from './audio.js?v=screen-safe-20260815i';
-import { Player } from './player.js?v=screen-safe-20260815i';
-import { applySlashTrailMixin } from './playerSlashTrail.js?v=screen-safe-20260815i';
+import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260815j';
+import { Enemy } from './enemy.js?v=screen-safe-20260815j';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260815j';
+import { audio } from './audio.js?v=screen-safe-20260815j';
+import { Player } from './player.js?v=screen-safe-20260815j';
+import { applySlashTrailMixin } from './playerSlashTrail.js?v=screen-safe-20260815j';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
-} from './normalComboMotion.js?v=screen-safe-20260815i';
+} from './normalComboMotion.js?v=screen-safe-20260815j';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
@@ -22,7 +22,7 @@ import {
     SHOGUN_HEAD_SCALE,
     SHOGUN_HIP_LIFT_PX,
     SHOGUN_SCALE
-} from './shogunConstants.js?v=screen-safe-20260815i';
+} from './shogunConstants.js?v=screen-safe-20260815j';
 import {
     BOSS_DESIGNS,
     renderBossActor,
@@ -34,7 +34,7 @@ import {
     kusarigamaStance,
     drawCarriedKusarigama,
     odachiStance
-} from './bossRenderer.js?v=screen-safe-20260815i';
+} from './bossRenderer.js?v=screen-safe-20260815j';
 
 // weaponReplica の攻撃進行度(0..1)。体の所作を実体のタイムラインへ同期させる。
 function replicaProgress(replica) {
@@ -935,10 +935,15 @@ export class NitoryuKengo extends Boss {
                 // モーション長(activeCombinedDuration)より短いと二重発動する
                 const dur = (w && w.activeCombinedDuration) || 470;
                 this.attackCooldown = Math.max(dur, 260 - toolTier * 30);
+                this.subWeaponAction = null; this.subWeaponTimer = 0;   // Z の剣筋は止める
             } else {
                 // 次の段へリンクさせるため、猶予(mainDuration + 170ms)内に収める
                 this.attackCooldown = Math.max(65, 110 - toolTier * 15);
                 this.attackStreak = 0;      // 連撃は「1手」として数える(AIの仕切り直しで途切れさせない)
+                /* 剣筋パイプラインは subWeaponAction/subWeaponTimer で発火する
+                   (playerSlashTrail:6741)。Boss.update が Timer を減らす。 */
+                this.subWeaponAction = '二刀_Z';
+                this.subWeaponTimer = (w && w.mainDuration) || 204;
             }
             return;
         }
@@ -1037,7 +1042,19 @@ export class NitoryuKengo extends Boss {
     }
 }
 
-/* 剣筋パイプラインをボスへ移植(描画専用)。Player と同じメソッド群が生える */
+/* 剣筋パイプラインをボスへ移植(描画専用)。Player と同じメソッド群が生える。
+   ミックスインは大薙(X攻撃ブースト)まわりの Player 専用メソッドを呼ぶので、
+   ボスには「効果なし」の既定値を返すスタブを先に生やしておく。 */
+Object.assign(NitoryuKengo.prototype, {
+    // Player 側が持つ寸法アクセサ。ボスは箱そのまま
+    getWorldWidth(){ return this.width; },
+    getWorldHeight(){ return this.height; },
+    getXAttackTrailWidthScale(){ return 1; },
+    getXAttackRangeEffectScale(){ return 1; },
+    getXAttackHitboxScale(){ return 1; },
+    isXAttackBoostActive(){ return false; },
+    isXAttackActionActive(){ return false; }
+});
 applySlashTrailMixin(NitoryuKengo);
 
 // ステージ4ボス: 鎖鎌使いの暗殺者
