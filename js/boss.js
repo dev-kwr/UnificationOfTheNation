@@ -2,17 +2,18 @@
 // Unification of the Nation - ボスクラス
 // ============================================
 
-import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260815h';
-import { Enemy } from './enemy.js?v=screen-safe-20260815h';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260815h';
-import { audio } from './audio.js?v=screen-safe-20260815h';
-import { Player } from './player.js?v=screen-safe-20260815h';
+import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260815i';
+import { Enemy } from './enemy.js?v=screen-safe-20260815i';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260815i';
+import { audio } from './audio.js?v=screen-safe-20260815i';
+import { Player } from './player.js?v=screen-safe-20260815i';
+import { applySlashTrailMixin } from './playerSlashTrail.js?v=screen-safe-20260815i';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
-} from './normalComboMotion.js?v=screen-safe-20260815h';
+} from './normalComboMotion.js?v=screen-safe-20260815i';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
@@ -21,7 +22,7 @@ import {
     SHOGUN_HEAD_SCALE,
     SHOGUN_HIP_LIFT_PX,
     SHOGUN_SCALE
-} from './shogunConstants.js?v=screen-safe-20260815h';
+} from './shogunConstants.js?v=screen-safe-20260815i';
 import {
     BOSS_DESIGNS,
     renderBossActor,
@@ -33,7 +34,7 @@ import {
     kusarigamaStance,
     drawCarriedKusarigama,
     odachiStance
-} from './bossRenderer.js?v=screen-safe-20260815h';
+} from './bossRenderer.js?v=screen-safe-20260815i';
 
 // weaponReplica の攻撃進行度(0..1)。体の所作を実体のタイムラインへ同期させる。
 function replicaProgress(replica) {
@@ -884,6 +885,9 @@ export class YariTaisho extends Boss {
 }
 
 // ステージ3ボス: 二刀流の剣豪
+/* 剣筋アンカー用の刃渡り(world px)。drawDualKatana は KATANA_SC 倍で
+   bladeLength=80 を描くので、手から切先は (80-5) × 1.536 ≒ 115。 */
+const DUAL_TIP = 115;
 export class NitoryuKengo extends Boss {
     init() {
         super.init();
@@ -898,6 +902,13 @@ export class NitoryuKengo extends Boss {
         this.attackPatterns = ['main', 'combined'];
         this.dualAttackCycle = 0;
         this.setupWeaponReplica('二刀流');
+        /* 剣筋。NitoryuKengo は Enemy 派生で applySlashTrailMixin を受けていないため
+           コンボの剣筋が構造的に出せなかった(ユーザー指摘)。ミックスインを当て、
+           playerRenderer が作るのと同じ dualBladeTrailAnchors を素体側から供給して
+           同じパイプラインへ流す。描画専用=判定不変。 */
+        this.dualBladeBackTrailPoints = [];
+        this.dualBladeFrontTrailPoints = [];
+        this.currentSubWeapon = this.weaponReplica;   // 剣筋側が段/進行度を読む
     }
     
     startAttack() {
@@ -943,6 +954,15 @@ export class NitoryuKengo extends Boss {
         if (!this.isAttacking && Math.abs(this.vx) < 0.35) this.vx = 0;
     }
 
+    update(deltaTime, player, obstacles = []) {
+        const removed = super.update(deltaTime, player, obstacles);
+        // 剣筋バッファは前フレームのアンカーを使って進める(プレイヤーと同順)
+        if (typeof this.updateDualBladeSlashTrails === 'function') {
+            this.updateDualBladeSlashTrails(deltaTime * 1000);
+        }
+        return removed;
+    }
+
     getAttackHitbox() {
         return this.getWeaponReplicaHitbox();
     }
@@ -969,14 +989,17 @@ export class NitoryuKengo extends Boss {
             st = { mode: 'main', pose };
         }
 
+        const cxWorld = this.x + this.width * 0.5;
+        const footYWorld = this.y + this.height;
         renderBossActor(ctx, this, BOSS_DESIGNS.nito, {
             backIsFarHand: true,
             hands: (rig) => dualBladeStance(rig, st),
             // 奥刀は奥腕と同じ最背面
             back: (rig, h) => drawDualKatana(rig, h.back, h.a2, 'all', h.blend),
-            // 手前刀の柄は手前腕の後(=手首が柄の背後に隠れる)。プレイヤーと同じ分割。
+            // 柄は【手前腕の上・掌の下】(frontGrip)、刃は掌の上(frontTop)。
+            // playerRenderer の 腕 → 柄 → 手 → 刃 と同じ順。
+            frontGrip: (rig, h) => drawDualKatana(rig, h.front, h.a1, 'handle', h.blend),
             front: (rig, h) => {
-                drawDualKatana(rig, h.front, h.a1, 'handle', h.blend);
                 // 飛翔斬撃の弾は world 座標。攻撃終了後も life が残るので常に描く
                 rig.world(() => {
                     if (!replica) return;
@@ -985,10 +1008,37 @@ export class NitoryuKengo extends Boss {
                 });
             },
             // 刃は掌より前(プレイヤーの 'handle'→手→'blade' と同じ順)
-            frontTop: (rig, h) => drawDualKatana(rig, h.front, h.a1, 'blade', h.blend)
+            frontTop: (rig, h) => {
+                drawDualKatana(rig, h.front, h.a1, 'blade', h.blend);
+                /* 剣筋アンカー(world 座標)を毎フレーム更新する。
+                   playerRenderer が dualBladeTrailAnchors を作るのと同じ形。
+                   切先 = 手 + 極座標(uprightBlend 補正後の角度)×刃渡り。 */
+                const dir = rig.dir;
+                const toWorld = (lx, ly) => ({ x: cxWorld + lx * dir, y: footYWorld + ly });
+                const tip = (hand, angRaw) => {
+                    const adj = angRaw + (-Math.PI / 2 - angRaw) * (h.blend === undefined ? 0.28 : h.blend);
+                    return toWorld(hand.x + Math.cos(adj) * DUAL_TIP,
+                                   hand.y + Math.sin(adj) * DUAL_TIP);
+                };
+                const bw = toWorld(h.back.x, h.back.y), fw = toWorld(h.front.x, h.front.y);
+                const bt = tip(h.back, h.a2), ft = tip(h.front, h.a1);
+                this.dualBladeTrailAnchors = {
+                    direction: dir,
+                    back:  { handX: bw.x, handY: bw.y, tipX: bt.x, tipY: bt.y, angle: h.a2 },
+                    front: { handX: fw.x, handY: fw.y, tipX: ft.x, tipY: ft.y, angle: h.a1 }
+                };
+            }
         }, { attackProgress: progress });
+
+        // 剣筋は world 座標で素体の上に重ねる
+        if (typeof this.renderDualBladeSlashTrails === 'function') {
+            this.renderDualBladeSlashTrails(ctx, { isAttacking: attacking && !isCombined });
+        }
     }
 }
+
+/* 剣筋パイプラインをボスへ移植(描画専用)。Player と同じメソッド群が生える */
+applySlashTrailMixin(NitoryuKengo);
 
 // ステージ4ボス: 鎖鎌使いの暗殺者
 export class KusarigamaAssassin extends Boss {

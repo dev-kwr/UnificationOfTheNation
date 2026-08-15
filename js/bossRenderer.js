@@ -95,7 +95,7 @@ function limbN(c,ax,ay,hx,hy,frac,bend,mode,w1,w2,col,hi,pass='fill'){
 
 /* 二刀の刀身はプレイヤーと同一形状。katanaShape.js は依存ゼロなので循環しない
    (playerRenderer.js を直接 import すると game.js の TDZ でクラッシュする)。 */
-import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260815h';
+import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260815i';
 /* 刀身長はプレイヤー実数値のまま渡し、拡大は描画側の ctx.scale だけで行う(二重拡大防止)。
    倍率は素体リグの SC(=1.8) ではなく【描画上の身長比】を使う:
      プレイヤーの描画身長 = height(72) - headRadius*0.1(=1.68) = 70.32
@@ -981,10 +981,12 @@ export function renderBossModel(c,B,motion,t,st){
   const abk=drawBackArm('own');
   if(!CAST){
     drawKote(c,{...P,aA:shade(P.aA,-16),aB:shade(P.aB,-16),edge:P.edge},abk.ex,abk.ey,abk.wx,abk.wy);
-    // 奥手が握る得物(二刀の奥刀など)は奥腕と同じ最背面レイヤーに置く
-    if(wf.backIsFarHand && wf.back) wf.back(rig,hands);
   }
   drawPalm(c,hB.x,hB.y,false,abk.wx,abk.wy);
+  /* 奥手が握る得物(二刀の奥刀など)は【奥腕・奥掌の上】。
+     playerRenderer は 腕 → 手 → 刀 の順で描く。掌より下に置くと
+     柄が腕に潜って「刀が体を貫いている」ように見える。 */
+  if(!CAST && wf.backIsFarHand && wf.back) wf.back(rig,hands);
 
   /* --- パス1: 輪郭(胴・脚のシルエット外周のみ。手前腕は最前面で描く) --- */
   drawLegs('ol'); drawTorso('ol');
@@ -1130,7 +1132,10 @@ export function renderBossModel(c,B,motion,t,st){
   if(!CAST) drawKote(c,P,afr.ex,afr.ey,afr.wx,afr.wy);                    // 籠手(手前腕)
   if(!CAST && SODE_S[build]>0)
     drawSode(c,P,shAF.x+0.5,shAF.y-2,0.18+(hands.front.y<chestY-10?-0.4:0),1.06*SODE_S[build]);
-  /* 掌の丸は腕の先端に重ねて最前面(柄を握って見える) */
+  /* 手前手が握る柄は【腕の上・掌の下】。playerRenderer と同じ
+     「腕 → 柄 → 手 → 刃」の順。腕より下に描くと柄が腕に隠れて刀が浮く。 */
+  if(!CAST && wf.frontGrip) wf.frontGrip(rig,hands);
+  /* 掌の丸は柄に重ねて最前面(柄を握って見える) */
   drawPalm(c,hF.x,hF.y,true,afr.wx,afr.wy);
   /* 掌より【前】に出す得物(playerRenderer の 'behind'→手→'front' の最後の1段)。
      鎖鎌の鎌ヘッドや二刀の刃がここに来る。 */

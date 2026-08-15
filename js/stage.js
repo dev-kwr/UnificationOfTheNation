@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815h';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815h';
-import { createEnemy } from './enemy.js?v=screen-safe-20260815h';
-import { createBoss } from './boss.js?v=screen-safe-20260815h';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260815h';
-import { audio } from './audio.js?v=screen-safe-20260815h';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815h';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815i';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815i';
+import { createEnemy } from './enemy.js?v=screen-safe-20260815i';
+import { createBoss } from './boss.js?v=screen-safe-20260815i';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260815i';
+import { audio } from './audio.js?v=screen-safe-20260815i';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815i';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260815h';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815h';
+} from './stage6Grapple.js?v=screen-safe-20260815i';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815i';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815h';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815i';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -2371,16 +2371,18 @@ export class Stage {
         // 独自の描き直し(俯瞰の雁行)は登りの絵と別物になって捨てた。
         // 同じアセット・同じ縮尺・同じ照明で、下りの向きに置くだけにする。
         //
-        // 以前この絵をそのまま置いたときに「パースがめちゃくちゃ」になった原因は
-        // 絵ではなく置き方で、最上段を床線から60px下(旧アンカー512+40)に置いたため、
-        // 框との間に側桁の無地の面だけが大きく露出していた。
-        // 【最上段の段鼻を框のすぐ下】に合わせれば、口から覗くのは段だけになる。
+        // 【アンカーは登り階段と同一(baseGroundY + LANE_OFFSET + 40)】。
+        // この穴の斜面は getStairGroundY が【歩ける判定】を持っていて、
+        // 勾配は登りと同じ(stairH/stairZoneWidth=0.889)。登り側は
+        // 「絵の段の線 = 足元の40px下」で判定と揃えてあるので、降り側も
+        // 同じ式でないと、穴へ歩き込んだとき足が段から56px沈む
+        // (框直下+16pxに置いた回の実機フィードバック 2026-08-15)。
         ctx.save();
         ctx.beginPath();
         ctx.rect(clipScreenX, this.baseGroundY, visibleWidth, CANVAS_HEIGHT - this.baseGroundY);
         ctx.clip();
 
-        const topAnchorY = this.baseGroundY + 16; // 奥の框(12px)のすぐ下
+        const topAnchorY = this.baseGroundY + LANE_OFFSET + 40; // 判定と同じ式(=552)
         ctx.translate(topScreenX, topAnchorY);
         ctx.scale(isFlippedDraw ? -s : s, s);
         drawImageGraded(ctx, this.stairImage, -(this.stairOriginX + TOTAL_L), -(this.stairOriginY - TOTAL_H));
