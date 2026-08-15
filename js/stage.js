@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815j';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815j';
-import { createEnemy } from './enemy.js?v=screen-safe-20260815j';
-import { createBoss } from './boss.js?v=screen-safe-20260815j';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260815j';
-import { audio } from './audio.js?v=screen-safe-20260815j';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815j';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260815k';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260815k';
+import { createEnemy } from './enemy.js?v=screen-safe-20260815k';
+import { createBoss } from './boss.js?v=screen-safe-20260815k';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260815k';
+import { audio } from './audio.js?v=screen-safe-20260815k';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260815k';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260815j';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815j';
+} from './stage6Grapple.js?v=screen-safe-20260815k';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260815k';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815j';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815k';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -3584,6 +3584,14 @@ export class Stage {
         if (this.bossSpawned && !this.bossDefeated) return false;
 
         const recycleDistance = 320;
+        // 【置き去りの向きは進行方向で決まる】。左進行フロア(stage5の偶数階)では
+        // 追い抜いた敵はカメラの【右】へ溜まる。左だけを見ていると誰も回収されず、
+        // 同時数の上限が埋まって以後まったく湧かないフロアになる
+        // (実機フィードバック 2026-08-15: 2・4階層目で走り続けると敵が出ない)。
+        if (this.stageNumber === 5 && this.floorScrollDirection === -1) {
+            const rightBound = this.progress + CANVAS_WIDTH + recycleDistance;
+            return enemy.x > rightBound;
+        }
         const leftBound = this.progress - recycleDistance;
         return (enemy.x + enemy.width) < leftBound;
     }
@@ -3618,13 +3626,22 @@ export class Stage {
     }
 
     spawnRecycledEnemyAhead(type) {
-        const spawnX = this.progress + CANVAS_WIDTH + 80 + Math.random() * 180;
+        // 前方=進行方向の先。左進行フロアではカメラの左へ出す。
+        const leftward = this.stageNumber === 5 && this.floorScrollDirection === -1;
+        const spawnX = leftward
+            ? this.progress - 80 - Math.random() * 180
+            : this.progress + CANVAS_WIDTH + 80 + Math.random() * 180;
+        // 階段・降り口・世界外への再配置はしない(その敵は次のフレーム以降に回す)
+        if (this.stageNumber === 5
+            && (this.isInStairZone(spawnX) || spawnX < 0 || spawnX > this.maxProgress - 100)) {
+            return null;
+        }
         const recycled = this.createGroundedEnemy(type || ENEMY_TYPES.ASHIGARU, spawnX);
         if (!recycled) return null;
         if ((type || ENEMY_TYPES.ASHIGARU) === ENEMY_TYPES.NINJA && Math.random() < 0.55) {
             this.placeEnemyOnStage4Roof(recycled, spawnX);
         }
-        recycled.facingRight = false;
+        recycled.facingRight = leftward;
         return recycled;
     }
     

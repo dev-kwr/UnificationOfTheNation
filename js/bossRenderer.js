@@ -95,7 +95,12 @@ function limbN(c,ax,ay,hx,hy,frac,bend,mode,w1,w2,col,hi,pass='fill'){
 
 /* 二刀の刀身はプレイヤーと同一形状。katanaShape.js は依存ゼロなので循環しない
    (playerRenderer.js を直接 import すると game.js の TDZ でクラッシュする)。 */
-import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260815j';
+import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260815k';
+/* 雑魚/中ボスの攻撃エフェクト。描画専用で判定には触れない */
+import {
+  stepMobFx, onceThisAttack, feedTrail, drawTrail,
+  drawThrustStreak, drawFlash, drawBurstLines, mobGroundDust
+} from './mobFx.js?v=screen-safe-20260815k';
 /* 刀身長はプレイヤー実数値のまま渡し、拡大は描画側の ctx.scale だけで行う(二重拡大防止)。
    倍率は素体リグの SC(=1.8) ではなく【描画上の身長比】を使う:
      プレイヤーの描画身長 = height(72) - headRadius*0.1(=1.68) = 70.32
@@ -129,6 +134,16 @@ const SC=108/60;
 const LIMB_W=4.8*(108/60);            // 8.64 — 全四肢共通
 const LIMB_F=LIMB_W, LIMB_B=LIMB_W;
 const TORSO_W=0.125*108;              // 13.5
+/* 接地の基準をプレイヤーに合わせるための持ち上げ量(局所px。world では ×k)。
+   playerRenderer は脚の終端(足首)を箱底より足の丸ぶん上に置き、【つま先の下端】が
+   箱底に接する。このリグは足首を箱底に置いていたため、つま先が丸の半径ぶん沈み、
+   同じ地面(groundY+LANE_OFFSET)に立たせても素体だけ 2.2px 下にはみ出していた
+   —— プレイヤーが少し上に見える、というユーザー指摘(2026-08-15)の原因。
+   実測: 箱底からのはみ出し プレイヤー 0.63px / 雑魚 2.88px / 中ボス 3.63px。
+   足の丸 = 中心 0.22×SC + 半径 1.9×SC ぶん上げると残差 0.2px 以下に収まる。
+   ※ world 座標で描く得物(weaponReplica)は持ち上げないので、
+     toLocal 側でこのぶんを足し戻して手の位置を得物に合わせる。 */
+const GROUND_LIFT=(0.22+1.9)*SC;      // 3.816
 /* 腕(playerRenderer drawArm 実装): 肘=行程54%+最大2.5の微屈曲・
    手首1.35手前で止め・手=半径4.5の円・リーチ上限16.5 —— すべて ×SC */
 /* 腕は【上腕・前腕とも長さ固定】の2骨IK。手が近いときは肘が曲がるだけで、
@@ -922,7 +937,9 @@ export function renderBossModel(c,B,motion,t,st){
   const wf=(st&&st.weapon)||EMPTY_WEAPON;
   const rig={c,B,P,cx,hipX,hipY,chestX,chestY,shF,shB,shAF,shAB,headX,headY,t,mt,motion,runPh,atk,pose,breath,sway,feet,
              world:(st&&st.world)||((fn)=>fn()),
-             toLocal:(st&&st.toLocal)||((x,y)=>({x,y})), dir:(st&&st.dir)||1};
+             toLocal:(st&&st.toLocal)||((x,y)=>({x,y})),
+             toWorld:(st&&st.toWorld)||((x,y)=>({x,y})),
+             owner:(st&&st.owner)||null, dir:(st&&st.dir)||1};
   const hands=wf.hands(rig);
   /* 腕のリーチ上限で手位置を先にクランプし、腕と得物を同一点に揃える
      (クランプ前の座標で武器を描くと手と柄が離れる) */
@@ -1499,6 +1516,28 @@ export const MOB_DESIGNS = {
 /* ---- 雑魚の得物アダプタ。ボスと同じ「hands / front / frontTop」契約。
        雑魚は weaponReplica を持たないので、進行度(atk)から素体側で振る。 ---- */
 
+/* 雑魚の攻撃エフェクト共通値。プレイヤー/フロアボスより一段淡く・細く・短く。
+   (画面に4〜5体並ぶので同じ濃さだと誰の斬撃か読めなくなる) */
+const MOB_FX = {
+  base:'174,204,236', edge:'232,244,255',
+  headAlpha:0.24, coreAlpha:0.46
+};
+/* 刃を振る得物(刀・薙刀)の共通剣筋。切先を world で貯めて彗星リボンにする。
+   剣筋は【刃より奥】に置く(刃の上に重ねると刀身が光に埋まる)。 */
+function mobBladeTrail(r, key, tipLocalX, tipLocalY, active, o){
+  const owner = r.owner; if (!owner) return;
+  if (active){
+    const w = r.toWorld(tipLocalX, tipLocalY);
+    feedTrail(owner, key, w.x, w.y, { maxAge:o.maxAge, minDist:o.minDist||2.0, cap:o.cap||26 });
+  }
+  r.world(() => drawTrail(r.c, owner, key, {
+    headHalf:o.headHalf,
+    baseColor:o.base||MOB_FX.base, edgeColor:o.edge||MOB_FX.edge,
+    headAlpha:o.headAlpha!=null?o.headAlpha:MOB_FX.headAlpha,
+    coreAlpha:o.coreAlpha!=null?o.coreAlpha:MOB_FX.coreAlpha
+  }));
+}
+
 /** 足軽の槍。両手で構え、攻撃で前へ突き出す */
 export const mobSpear = {
   hands(r){
@@ -1520,8 +1559,34 @@ export const mobSpear = {
     c.save(); c.translate(f.x, f.y); c.rotate(ang); c.scale(52 / 28, 1.3);
     realSpear(c, 59, 15.6);
     c.restore();
+    /* 突きのエフェクト。切先が直線を往復するだけなので彗星リボンは潰れる。
+       伸び速度から「後方へ引く一本の尾」を作り、突き切りで穂先を光らせる。 */
+    if (r.motion !== 'attack') return;
+    const p = cl01(r.atk);
+    const ext = cl01((p - 0.22) / 0.56);
+    const sp = Math.sin(ext * Math.PI);            // 中盤が最速
+    if (sp <= 0.03) return;
+    /* 尾は穂先より少し【後ろ】から始める。穂先に重ねると刃が光って見えて
+       「速い」ではなく「光る槍」になる。細く長い一本にして速度に読ませる。 */
+    const tx = f.x + Math.cos(ang) * (SPEAR_TIP - 5), ty = f.y + Math.sin(ang) * (SPEAR_TIP - 5);
+    drawThrustStreak(c, tx, ty, ang, 34 + 80 * sp, 1.5 + 1.5 * sp, 0.42 * sp, MOB_FX.base);
+    if (ext > 0.80) {
+      const k = 1 - cl01((ext - 0.80) / 0.20);
+      const px = f.x + Math.cos(ang) * SPEAR_TIP, py = f.y + Math.sin(ang) * SPEAR_TIP;
+      drawFlash(c, px, py, 7.5, 0.42 * k, MOB_FX.edge);
+      drawBurstLines(c, px, py, ang, 3, 15, 0.34 * k, MOB_FX.edge, 0.42);
+    }
+    /* 踏み込みの土煙は前足の着地(突き切り)で一度だけ */
+    if (onceThisAttack(r.owner, 'yariStep', ext > 0.72) && r.owner) {
+      const o = r.owner;
+      mobGroundDust(o, o.x + o.width * 0.5 + (o.facingRight ? 8 : -8), o.y + o.height, {
+        count: 4, intensity: 0.5, spread: 0.8, speed: 0.9, rise: 0.35, size: 7
+      });
+    }
   }
 };
+/* 穂先までの距離(局所px)。realSpear(59,15.6) の tip=59+28 に x スケール 52/28 が掛かる */
+const SPEAR_TIP = (59 + 28) * (52 / 28);
 
 /** 侍/中ボスの打刀。プレイヤーと同じ刀身。柄→掌→刃の順で握らせる */
 function katanaHands(r, reach){
@@ -1541,7 +1606,18 @@ function katanaHands(r, reach){
 export const mobKatana = {
   hands(r){ return katanaHands(r, 19); },
   front(r, h){ drawMobKatana(r.c, h.front, h.a, 'handle', 70); },
-  frontTop(r, h){ drawMobKatana(r.c, h.front, h.a, 'blade', 70); }
+  frontTop(r, h){
+    /* 切先 = 手 + (cos,sin)×刃渡り。角度は drawKatanaShape と同じ
+       uprightBlend(0.28)補正【後】の値、長さは同関数の visualBladeLength(=len-5)。 */
+    const adj = h.a + (-Math.PI / 2 - h.a) * 0.28;
+    const reach = (70 - 5) * KATANA_SC * 0.9;
+    const p = cl01(r.atk);
+    mobBladeTrail(r, 'katana',
+      h.front.x + Math.cos(adj) * reach, h.front.y + Math.sin(adj) * reach,
+      r.motion === 'attack' && p > 0.30 && p < 0.88,
+      { headHalf: 4.2, maxAge: 115 });
+    drawMobKatana(r.c, h.front, h.a, 'blade', 70);
+  }
 };
 /* 雑魚の刀。形はプレイヤーと同一(katanaShape)だが、刃渡りはボスより短くして格を下げる */
 function drawMobKatana(c, hand, angRaw, mode, len){
@@ -1576,7 +1652,20 @@ export const mobShuriken = {
   front(){},
   /* 手裏剣は手に持たない。Ninja.attack() は攻撃開始と【同時に】
      EnemyProjectile を飛ばすので、手に描くと同じ手裏剣が2つ存在して見える。
-     投擲は腕の振り(hands)だけで見せる。 */
+     投擲は腕の振り(hands)+ 手元の離れの閃光だけで見せる。 */
+  frontTop(r, h){
+    if (r.motion !== 'attack' || !(h.u > 0.58)) return;
+    /* 離れ(u=0.60 で腕が前へ返り始める)。手元が光り、進行方向へ短い線が数本走る。
+       手裏剣そのものは EnemyProjectile 側が描くのでここでは足さない。 */
+    const rel = cl01((h.u - 0.58) / 0.30);
+    const fade = Math.sin(rel * Math.PI);
+    if (fade <= 0.02) return;
+    const c = r.c;
+    /* 手元の閃光 + 進行方向(+x)へ抜ける短い線。手裏剣そのものは飛び道具側が描く */
+    drawFlash(c, h.front.x, h.front.y, 11, 0.46 * fade, '196,226,255');
+    drawBurstLines(c, h.front.x, h.front.y, 0, 4, 22, 0.40 * fade, '224,242,255', 0.34);
+    drawThrustStreak(c, h.front.x + 21, h.front.y, 0, 20, 1.5, 0.34 * fade, '186,220,255');
+  }
 };
 
 /** 中ボス武将の薙刀。長柄の先に反りのある刃 */
@@ -1600,6 +1689,20 @@ export const mobNaginata = {
   front(r, h){
     const c = r.c, f = h.front, b = h.back;
     const ang = Math.atan2(b.y - f.y, b.x - f.x);
+    /* 剣筋は柄・刃より【奥】。中ボスなので雑魚より一段だけ太く長く残す */
+    {
+      const p = cl01(r.atk);
+      mobBladeTrail(r, 'naginata',
+        f.x + Math.cos(ang) * NAGINATA_TIP, f.y + Math.sin(ang) * NAGINATA_TIP,
+        r.motion === 'attack' && p > 0.32 && p < 0.90,
+        { headHalf: 5.8, maxAge: 145, headAlpha: 0.29, coreAlpha: 0.52, minDist: 2.4, cap: 30 });
+      if (onceThisAttack(r.owner, 'naginataCut', r.motion === 'attack' && p > 0.56) && r.owner) {
+        const o = r.owner;
+        mobGroundDust(o, o.x + o.width * 0.5 + (o.facingRight ? 14 : -14), o.y + o.height, {
+          count: 6, intensity: 0.65, spread: 0.9, speed: 1.15, rise: 0.45, size: 9
+        });
+      }
+    }
     c.save(); c.translate(f.x, f.y); c.rotate(ang);
     // 柄(石突から前へ)
     const sg = c.createLinearGradient(-26, 0, 74, 0);
@@ -1618,6 +1721,8 @@ export const mobNaginata = {
     c.restore();
   }
 };
+/* 薙刀の切先までの距離(局所px)。柄の先 76 + 刃 (62-5)×1.12 */
+const NAGINATA_TIP = 76 + (62 - 5) * 1.12;
 
 /* ボスの状態から描画モーションを決める(判定には一切関与しない) */
 function resolveMotion(boss){
@@ -1653,6 +1758,8 @@ export function renderBossActor(ctx, boss, design, weapon, opts){
   ctx.translate(cx, footY);
   if (dir < 0) ctx.scale(-1, 1);      // 左向きは反転して「進行方向=+x」の局所系で描く
   if (k !== 1) ctx.scale(k, k);
+  ctx.translate(0, -GROUND_LIFT);     // つま先の下端を箱底に合わせる(プレイヤーと同基準)
+  stepMobFx(boss);                    // 剣筋の経年は実体ごとに毎フレーム1回だけ
   renderBossModel(ctx, design, resolveMotion(boss), t, {
     weapon: weapon || EMPTY_WEAPON,
     attackProgress: opts && opts.attackProgress,
@@ -1663,8 +1770,13 @@ export function renderBossActor(ctx, boss, design, weapon, opts){
       if (!worldTf || typeof ctx.setTransform !== 'function') { fn(); return; }
       ctx.save(); ctx.setTransform(worldTf); fn(); ctx.restore();
     },
-    // weaponReplica のアンカー(world 座標)を素体の局所系へ変換する(縮小ぶんも戻す)
-    toLocal(px, py){ return { x: (px - cx) * dir / k, y: (py - footY) / k }; },
+    /* weaponReplica のアンカー(world 座標)を素体の局所系へ変換する(縮小ぶんも戻す)。
+       GROUND_LIFT を足すのは、素体だけ持ち上がっても【得物は world のまま】なので、
+       手が得物のアンカーに載り続けるようにするため(足さないと手と柄が離れる)。 */
+    toLocal(px, py){ return { x: (px - cx) * dir / k, y: (py - footY) / k + GROUND_LIFT }; },
+    // 局所座標 → world(剣筋の履歴を world で貯めるのに使う。toLocal の厳密な逆写像)
+    toWorld(lx, ly){ return { x: cx + lx * dir * k, y: footY + (ly - GROUND_LIFT) * k }; },
+    owner: boss,
     bodyScale: k,
     dir
   });
