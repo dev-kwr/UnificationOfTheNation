@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817q';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817q';
-import { createEnemy } from './enemy.js?v=screen-safe-20260817q';
-import { createBoss } from './boss.js?v=screen-safe-20260817q';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260817q';
-import { audio } from './audio.js?v=screen-safe-20260817q';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817q';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817r';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817r';
+import { createEnemy } from './enemy.js?v=screen-safe-20260817r';
+import { createBoss } from './boss.js?v=screen-safe-20260817r';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260817r';
+import { audio } from './audio.js?v=screen-safe-20260817r';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817r';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260817q';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817q';
+} from './stage6Grapple.js?v=screen-safe-20260817r';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817r';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817q';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817r';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -37,19 +37,39 @@ const BG_PROP_FOOT_DEPTH = 12;
 // 84px ≒ 台座込みで人の腰ほど＝路傍の石仏の実寸。
 const STAGE3_DOSOJIN_HEIGHT = 84;
 
-// Stage3 の足元が「山道の岩場」から「開けた土の道」へ変わる位置(maxProgress比)。
-// 遠景では山脈が尽きて城下町が見えているのに、走る道だけ岩場のままだと
-// 山の中と地続きに見える(実機フィードバック 2026-08-16)。
-// START から BLEND ぶんかけて入れ替わり、以降は完全に平地の道。
-const STAGE3_PLAIN_GROUND_START = 0.72;
-const STAGE3_PLAIN_GROUND_BLEND = 0.05;
+// ──────────────────────────────────────────────────────────────
+// Stage3 の終盤(峠を抜けて城下町の前に立つまで)の組み立て
+// ──────────────────────────────────────────────────────────────
+// 【ボス部屋のフレームを基準に決める】。世界は maxProgress=12000、
+// ボス部屋の framing は 10720(= maxProgress - CANVAS_WIDTH)。
+//
+// 順番: 山脈が尽きる → 城下町が見えてくる → 鳥居をくぐる(足元が土の道へ) →
+//       ボス部屋。鳥居はボス部屋の画面の中に入れて、門の先で対峙する絵にする
+//       (指定 2026-08-17)。
+const STAGE3_BOSS_ROOM_LEFT = 12000 - 1280;      // 10720
+
+// 峠の出口の石鳥居。ボス部屋の画面x=80 に立つ位置に据える。
+// (幅198pxなので 10800..10998。プレイヤーの定位置 10989 のすぐ左)
+const STAGE3_PASS_TORII_WORLD_X = STAGE3_BOSS_ROOM_LEFT + 80;
+
+// 足元が「山道の岩場」から「開けた土の道」へ変わる帯。
+// 鳥居の手前から始めて【鳥居の足元で入れ替わり終わる】。くぐった先はもう里。
+const STAGE3_PLAIN_GROUND_START = (STAGE3_PASS_TORII_WORLD_X - 260) / 12000;   // ≒0.878
+const STAGE3_PLAIN_GROUND_BLEND = 260 / 12000;                                 // ≒0.022
+
+// 城下町の層の速さ。遠い山並み(0.14)より手前にあるので少し速い。
+// 停止時の位置は据え置きなので、上げるほど「出てくるのが遅く」なる。
+// 0.14(山と同じ)=progress 4500(38%)で早すぎ、0.30=7800(65%)だと今度は
+// 山が尽きた後の荒野が長すぎた。0.19 は progress≒6100(51%)で、
+// 山の終端が画面中ほどへ来るのとほぼ同時に町の裾が右端から現れる。
+const STAGE3_TOWN_PARALLAX = 0.19;
+
+// カメラ停止時に山脈の終端が来る画面x(大きいほど山が長く残る)。
+// 300 = 鳥居(画面80..278)の後ろに山の末端が低く残り、その右から町が始まる。
+const STAGE3_RANGE_END_STOP_SCREEN_X = 300;
 
 // 道中の山場(中ボス)を出す進行度。半ばを少し過ぎたあたり。
 const MID_BOSS_PROGRESS_RATIO = 0.55;
-
-// 峠の出口の石鳥居を据えるワールドx。足元が入れ替わる帯の【入口側】に置き、
-// くぐった直後から道が開けるようにする(Stage3の maxProgress=12000)。
-const STAGE3_PASS_TORII_WORLD_X = Math.round(12000 * STAGE3_PLAIN_GROUND_START) - 60;
 
 // 鳥居の前に大岩を出さない幅。鳥居は幅約198pxなので、その手前に岩が
 // 立たない余地(柱に岩が被らない)を含めて空ける。
@@ -5148,11 +5168,14 @@ export class Stage {
                 const T_H = 131;                 // 天守の頂が高さ約130px
                 const T_GROUND = 304 / 308; // 実測: 地面線の行 / 画像の高さ
                 const tW = Math.round(T_H * (town.naturalWidth / town.naturalHeight));
-                // 停止時に町の左端が画面 x=410 へ来るよう、遠景の座標系
-                // (=同じparallax)で置く。帯の実寸は856pxなので右端は1266、
-                // 停止画面の中で町が裁ち切れずに完結する。
-                const townAnchor = 410 + (this.maxProgress - CANVAS_WIDTH) * spec.parallax;
-                const tx = Math.round(townAnchor - progress * spec.parallax);
+                // 【町は山より手前の層】。山と同じ 0.14 で流すと、遠すぎて
+                // ステージの4割の地点(progress 4500)から画面に入り、以後ずっと
+                // そこに在るだけになる(実機フィードバック 2026-08-17「早すぎる」)。
+                // 実際、平野の町は遥かな山並みより手前にあるので、少し速い層で
+                // 流すのが正しい。停止時の位置(画面x=410)は変えないので、
+                // 終わりの絵はそのまま・出てくるのが遅くなるだけ。
+                const townAnchor = 410 + (this.maxProgress - CANVAS_WIDTH) * STAGE3_TOWN_PARALLAX;
+                const tx = Math.round(townAnchor - progress * STAGE3_TOWN_PARALLAX);
                 const ty = Math.round(this.groundY - T_H * T_GROUND);
                 if (tx < CANVAS_WIDTH && tx + tW > 0) {
                     ctx.drawImage(townTinted, tx, ty, tW, T_H);
@@ -5247,9 +5270,12 @@ export class Stage {
     getStage3FarRangeEndX(progress, parallax) {
         if (this.stageNumber !== 3) return null;
         if (!this.stage3TownFarImage?.complete || this.stage3TownFarImage.naturalWidth <= 0) return null;
-        // カメラ停止時の目標画面x。停止画面では山脈はほぼ画面外＝
-        // 「山岳地帯を抜けた」状態にする(実機フィードバック 2026-08-15)。
-        const STOP_SCREEN_X = 40;
+        // カメラ停止時に山脈の終端が来る画面x。
+        // 【ギリギリまで山を残す】。40(=ほぼ画面外)だと山が尽きてから町が出るまで
+        // 何もない荒野が長く続いた(実機フィードバック 2026-08-17)。
+        // 300 にすると、鳥居の後ろに「今抜けてきた山の末端」が低く残り、
+        // その右隣(画面410)から城下町が始まる＝山から里へ地続きに繋がる。
+        const STOP_SCREEN_X = STAGE3_RANGE_END_STOP_SCREEN_X;
         const bandX = STOP_SCREEN_X + (this.maxProgress - CANVAS_WIDTH) * parallax;
         return bandX - progress * parallax;
     }
