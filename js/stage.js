@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817u';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817u';
-import { createEnemy } from './enemy.js?v=screen-safe-20260817u';
-import { createBoss } from './boss.js?v=screen-safe-20260817u';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260817u';
-import { audio } from './audio.js?v=screen-safe-20260817u';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817u';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817v';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817v';
+import { createEnemy } from './enemy.js?v=screen-safe-20260817v';
+import { createBoss } from './boss.js?v=screen-safe-20260817v';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260817v';
+import { audio } from './audio.js?v=screen-safe-20260817v';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817v';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260817u';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817u';
+} from './stage6Grapple.js?v=screen-safe-20260817v';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817v';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817u';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817v';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -7610,29 +7610,14 @@ export class Stage {
                 ctx.fillRect(W - pw, 0, pw, H);
             }
 
-            // 決戦の舞台枠。画面端の小さな隅飾りだけで場を締める。
-            // 旧中央水平線はボスHPバー上部の菱形と一体に見える一方で役割がなく、
-            // HUDを散らかしていたため描画しない。
-            const accents = [
-                [135, 194, 151], [205, 167, 111], [177, 196, 222],
-                [218, 139, 91], [205, 178, 128], [229, 176, 194]
-            ];
-            const ac = accents[Math.max(0, Math.min(5, this.stageNumber - 1))];
-            const frameA = 0.30 * b;
-            const marginX = Math.max(28, W * 0.055);
-            const topY = Math.max(26, H * 0.052);
-
-            ctx.strokeStyle = `rgba(${ac[0]}, ${ac[1]}, ${ac[2]}, ${(frameA * 0.76).toFixed(3)})`;
-            ctx.lineWidth = 1.2;
-            const cornerLen = Math.min(38, W * 0.035);
-            for (const side of [-1, 1]) {
-                const xx = side < 0 ? marginX : W - marginX;
-                ctx.beginPath();
-                ctx.moveTo(xx, topY + 18);
-                ctx.lineTo(xx, topY);
-                ctx.lineTo(xx + side * cornerLen, topY);
-                ctx.stroke();
-            }
+            // 【舞台枠は描かない】。旧中央水平線はボスHPバー上部の菱形と一体に
+            // 見える一方で役割がなく、HUDを散らかしていたため既に外してある。
+            // 上端の隅飾り(縦18px+横38pxのL字)も同じ理由で外した:
+            // 右は marginX=W*0.055 → x≒1210 で、右揃えのステージ名(「山道」の
+            // 右端 x=1207)の真横に縦線が立ち、横線(y≒37)はスピーカーボタン
+            // (1228..1251 × 28..51)の裏を通る。枠に見えず、線が一本迷い込んだ
+            // ようにしか読めない(実機フィードバック 2026-08-17)。
+            // 場を締めるのは黒(遠景沈み・ビネット・左右の柱)と間だけにする。
 
             // 着地の瞬間だけ視野を締める。常時暗くしない。
             if (this.bossEntranceFlash > 0.004) {

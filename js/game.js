@@ -2,17 +2,17 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260817u';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817u';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260817u';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260817u';
-import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260817u';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260817u';
-import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260817u';
-import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260817u';
-import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260817u';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260817u';
-import { input } from './input.js?v=screen-safe-20260817u';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260817v';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817v';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260817v';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260817v';
+import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260817v';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260817v';
+import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260817v';
+import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260817v';
+import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260817v';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260817v';
+import { input } from './input.js?v=screen-safe-20260817v';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -50,18 +50,18 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=screen-safe-20260817u';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260817u';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260817u';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260817u';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseReturnButton, getPauseMapButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260817u';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260817u';
-import { saveManager } from './save.js?v=screen-safe-20260817u';
-import { shop } from './shop.js?v=screen-safe-20260817u';
-import { audio } from './audio.js?v=screen-safe-20260817u';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260817u';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260817u';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260817u';
+import { Player } from './player.js?v=screen-safe-20260817v';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260817v';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260817v';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260817v';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseReturnButton, getPauseMapButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260817v';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260817v';
+import { saveManager } from './save.js?v=screen-safe-20260817v';
+import { shop } from './shop.js?v=screen-safe-20260817v';
+import { audio } from './audio.js?v=screen-safe-20260817v';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260817v';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260817v';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260817v';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -90,6 +90,11 @@ const BOSS_ROOM_PAN_MIN_SPEED = 140;
 const STAGE3_HANDOVER_CATCHUP_SPEED = 1200;
 // 終盤(峠を抜けて道が開ける区間)で自動スクロールを何倍まで速めるか。
 const STAGE3_APPROACH_SPEED_MULT = 2.2;
+// デバッグ(?at=finale)でボス部屋の何画面手前から始めるか。
+// Stage3 だと 3.6 画面手前 ≒ progress 7400 で、ちょうど城下町が画面へ入り
+// 始める場所。そこから「町のフレームイン → 山が沈む → 加速 → 鳥居 →
+// 足元が土の道へ → ボス部屋」の全部が続けて見られる。
+const DEBUG_FINALE_SCREENS = 3.6;
 // ステータス画面の選択肢のうち「地図に戻る」の位置。下の3択(忍具/よろず屋/準備完了)の
 // 次＝左右キーで 準備完了 → 地図に戻る → 忍具 と一周する。描画(ui.js)と共有する。
 const STATUS_MENU_MAP_BACK = 3;
@@ -251,6 +256,7 @@ class Game {
         this.stage6DuelLeadVel = 0;                               // 同 速度(臨界減衰)
         this.debugBossRoomStart = false; // デバッグ用：ボス部屋から開始するフラグ
         this.debugStage6Corner3Start = false; // デバッグ用：三層目ラスト(鎖鎌の手前)から開始
+        this.debugFinaleStart = false; // デバッグ用：終盤(ボス部屋の手前)から開始
         this.debugKeyRepeatTimer = 0;
         this.stageClearPhase = 0; // 0: 演出(Announce), 1: 詳細ステータス
         this.stageClearAutoSubWeaponIntervalMs = 3000;
@@ -829,6 +835,8 @@ class Game {
      * デバッグ開始地点のURL指定。
      *   ?stage=6&at=corner3  … 三層目ラスト(鎖鎌の手前)から
      *   ?stage=6&at=boss     … ボス部屋(=最上層へ遷移した直後)から
+     *   ?stage=3&at=finale   … 終盤(ボス部屋の手前 DEBUG_FINALE_SCREENS 画面)から
+     *   ?stage=3&at=finale&screens=2  … 手前を何画面ぶんにするか(0.5〜8)
      * タイトルのデバッグメニューと同じ効果。URLの方が速いとき用。
      */
     getDebugStartPointFromUrl() {
@@ -837,9 +845,23 @@ class Game {
             const raw = (params.get('at') || '').toLowerCase();
             if (raw === 'corner3' || raw === 'grapple' || params.get('corner3') === '1') return 'corner3';
             if (raw === 'boss' || params.get('boss') === '1') return 'boss';
+            if (raw === 'finale' || raw === 'end' || raw === 'last' || params.get('finale') === '1') return 'finale';
             return null;
         } catch {
             return null;
+        }
+    }
+
+    /** ?screens= の読み取り(?at=finale で「ボス部屋の何画面手前から」)。既定は定数。 */
+    getDebugFinaleScreensFromUrl() {
+        try {
+            const raw = new URLSearchParams(window.location.search).get('screens');
+            if (raw === null) return DEBUG_FINALE_SCREENS;
+            const n = Number.parseFloat(raw);
+            if (!Number.isFinite(n)) return DEBUG_FINALE_SCREENS;
+            return Math.max(0.5, Math.min(8, n));
+        } catch {
+            return DEBUG_FINALE_SCREENS;
         }
     }
 
@@ -1190,7 +1212,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260817u').then(module => {
+        import('./weapon.js?v=screen-safe-20260817v').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -1377,6 +1399,37 @@ class Game {
                 this.scrollX = Math.max(0, this.player.x - CANVAS_WIDTH / 2);
                 this.stage.progress = this.scrollX;
                 this.stage.lastProgress = this.scrollX;
+            }
+        }
+
+        // ─── デバッグ：終盤(ボス部屋の手前)からスタート ───────────────
+        // ボス部屋そのものではなく【そこへ至る道】を見るための開始地点。
+        // Stage3 なら「城下町のフレームイン → 山が地平へ沈む → 加速 →
+        // 峠の鳥居 → 足元が土の道へ → ボス部屋 → 会敵」が続けて確認できる。
+        // 道中の山場(中ボス)と雑魚は、終盤の絵の検証を邪魔するので省く。
+        if (this.debugFinaleStart) {
+            this.debugFinaleStart = false;
+            const bossRoomLeft = Math.max(0, this.stage.maxProgress - CANVAS_WIDTH);
+            const back = CANVAS_WIDTH * this.getDebugFinaleScreensFromUrl();
+            const camX = Math.max(0, bossRoomLeft - back);
+            this.scrollX = camX;
+            this.stage.progress = camX;
+            this.stage.lastProgress = camX;
+            this.stage.midBossSpawned = true; // 中ボスはスキップ
+            this.stage.enemies = [];          // 雑魚敵をクリア(湧きは進行に沿って再開する)
+            this.ensurePlayerDimsReady();
+            // Stage3 は自動スクロールでカメラが先へ進むので、プレイヤーは
+            // 少し左に置く(本番の「追いかける」間合いと同じ)。他は画面中央。
+            const screenRatio = this.currentStageNumber === 3 ? 0.38 : 0.5;
+            this.player.x = camX + CANVAS_WIDTH * screenRatio;
+            this.player.groundY = this.stage.groundY;
+            this.player.y = this.stage.groundY + LANE_OFFSET - this.player.getWorldHeight();
+            this.player.vx = 0;
+            this.player.vy = 0;
+            this.player.isGrounded = true;
+            this.player.facingRight = true;
+            if (typeof this.player.resetVisualTrails === 'function') {
+                this.player.resetVisualTrails();
             }
         }
 
@@ -2048,9 +2101,20 @@ class Game {
         this.debugBossRoomStart = !!(this.titleDebugApplyOnStart && this.titleDebugConfig.bossRoom)
             || this.debugStartPoint === 'boss';
         this.debugStage6Corner3Start = this.debugStartPoint === 'corner3';
+        this.debugFinaleStart = this.debugStartPoint === 'finale';
         // 三層目ラストはStage6専用なので、URL指定だけの場合もステージを6に寄せる
         if (this.debugStage6Corner3Start && this.currentStageNumber !== 6) this.currentStageNumber = 6;
         if (this.debugStage6Corner3Start) this.debugBossRoomStart = false; // 開始地点は排他
+        if (this.debugFinaleStart) { this.debugBossRoomStart = false; this.debugStage6Corner3Start = false; }
+        // Stage5(階層)・Stage6(層)は横一本の世界ではないので「手前○画面」が
+        // 意味を持たない。それぞれの既存の開始地点へ振り替える。
+        if (this.debugFinaleStart && this.currentStageNumber === 6) {
+            this.debugFinaleStart = false;
+            this.debugStage6Corner3Start = true;
+        } else if (this.debugFinaleStart && this.currentStageNumber === 5) {
+            this.debugFinaleStart = false;
+            this.debugBossRoomStart = true;
+        }
         this.player = new Player(100, this.groundY - PLAYER.HEIGHT, this.groundY);
         // クリア済みの場合、選択キャラタイプを反映（titleDebugApplyOnStartに関わらず）
         if (saveManager.loadGlobal().isGameCleared && this.titleDebugConfig.characterType === 'shogun') {
