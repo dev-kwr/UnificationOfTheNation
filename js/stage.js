@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260816k';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260816k';
-import { createEnemy } from './enemy.js?v=screen-safe-20260816k';
-import { createBoss } from './boss.js?v=screen-safe-20260816k';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260816k';
-import { audio } from './audio.js?v=screen-safe-20260816k';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260816k';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260816p';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260816p';
+import { createEnemy } from './enemy.js?v=screen-safe-20260816p';
+import { createBoss } from './boss.js?v=screen-safe-20260816p';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260816p';
+import { audio } from './audio.js?v=screen-safe-20260816p';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260816p';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260816k';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260816k';
+} from './stage6Grapple.js?v=screen-safe-20260816p';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260816p';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260816k';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260816p';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -84,7 +84,6 @@ const STAGE_IMAGE_SOURCES = {
     3: {
         fields: {
             stage3TownFarImage: 'images/stage3_town_far.png?v=20260816_far5',
-            stage3RangeTailImage: 'images/stage3_range_tail.png?v=20260815_tail2',
             stage3GroundImage: 'images/stage3_ground_mountain_tile.png',
             // 山を抜けた先の開けた土の道。stage2の街道タイルを流用する
             // (平野の道の質感。同一URLなのでキャッシュはstage2と共有される)。
@@ -4921,53 +4920,61 @@ export class Stage {
 
         }
 
-        // 【山脈の終端は幾何学の切断ではなく「尾」の絵で閉じる】。
-        // 以前のクサビ(直線で地平へ落とす+空色フェード)は合成の切り口が
-        // どうしても残った(実機フィードバック 2026-08-15「もっと自然に抜けたい」)。
-        // stage3_range_tail.png は同じ画風で「高い尾根→低い丘陵→平地へ沈む」を
-        // 描いた一枚で、左辺は全высさの山(タイルと重ねて継ぎ目を覆う)。
-        // 同じ tint・同じパララックスなので、山並みがそのまま丘陵へ解けていく。
-        const tail = this.stage3RangeTailImage;
-        const tailReady = !!(tail?.complete && tail.naturalWidth > 0 && tail.naturalHeight > 0);
-        // 尾の右端(沈み切る位置) = rangeEndX。タイルは尾の左端+60まで描き、
-        // 残りは尾の不透明部が覆う。
-        // 【尾の左110pxは焼き込まれた半透明ランプなので使わない】。半透明の山が
-        // 空と混ざると「稜線が薄く欠けた」帯になる(実機フィードバック 2026-08-16)。
-        // 不透明な範囲(src x≧110)だけを切り出し、タイルはその左端で切る。
-        // 継ぎ目に来るタイルの列は【スクロールしても変わらない】
-        //   継ぎ目の位相 = (bandX - tailW) mod w   ※tailXもタイルも同じparallax
-        // ので、そこのタイルの稜線(画面y≈276)に尾の左端の稜線が一致する倍率を
-        // 実測で決め打ちできる。タイル側は継ぎ目へ向かって上がり、尾はそこから
-        // 下がるので、継ぎ目は「山の頂」として読める。
-        const TAIL_SRC_X = 110;
-        const T_SCALE = 0.573;
-        const tailSrcW = tailReady ? tail.naturalWidth - TAIL_SRC_X : 0;
-        const tailW = tailReady ? Math.round(tailSrcW * T_SCALE) : 0;
-        const tailH = tailReady ? Math.round(tail.naturalHeight * T_SCALE) : 0;
-        const tailX = rangeEndX !== null ? Math.round(rangeEndX - tailW) : null;
-
-        if (rangeEndX !== null && tailReady) {
-            if (tailX + tailW > 0) {
-                ctx.save();
-                ctx.beginPath();
-                // 尾の左端で切る(1pxだけ重ね、不透明な尾が上から覆う)
-                ctx.rect(-2, -400, Math.max(0, tailX + 3), CANVAS_HEIGHT + 800);
-                ctx.clip();
-                for (let x = -offset; x < CANVAS_WIDTH; x += w) {
-                    ctx.drawImage(tinted, Math.round(x), y, w + 1, drawH);
-                }
-                ctx.restore();
-                const tailTinted = this.getStage3MountainTinted(tail, tone);
-                const ty = Math.round(this.groundY - tailH * (384 / 385));
-                ctx.drawImage(tailTinted,
-                    TAIL_SRC_X, 0, tailSrcW, tail.naturalHeight,
-                    tailX, ty, tailW, tailH);
-            }
-            // 尾ごと画面左へ抜けたら、山は何も描かない(平地と町だけ)
-        } else if (rangeEndX === null || rangeEndX > 0) {
+        // 【山脈の終端は「平地へ沈む」で閉じる。別の絵を継がない】。
+        // 終端用のアセットを横に継ぐやり方は2回とも失敗した。継ぎ目を不透明で
+        // 突き合わせれば縦の切り口が出る(2026-08-16)、αでぼかせば半透明の山が
+        // 空と混ざって稜線が欠ける(2026-08-15)。どちらも「継ぎ目がある」ことが
+        // 原因なので、絵は【1枚のまま】にして、世界に固定した傾きで帯ごと
+        // 下げ、地平の下へ沈めて消す。位置の跳びも半透明も無く継ぎ目が存在しない。
+        const drawTiles = () => {
             for (let x = -offset; x < CANVAS_WIDTH; x += w) {
                 ctx.drawImage(tinted, Math.round(x), y, w + 1, drawH);
             }
+        };
+
+        if (rangeEndX === null) {
+            drawTiles();
+        } else if (rangeEndX > 0) {
+            // rangeEndX で沈み切る。手前 SINK_LEN の間で滑らかに下げる。
+            const SINK_LEN = 700;
+            const SINK_DEPTH = drawH + 20;  // 最高峰(帯の上端)が地平の下へ入る量
+            const SEG = 5;                  // 折れ線でsmoothstepを近似する区間数
+            const sinkStart = rangeEndX - SINK_LEN;
+            const depthAt = (sx) =>
+                SINK_DEPTH * this.smoothstep(0, 1, (sx - sinkStart) / SINK_LEN);
+
+            // 1) 沈む手前: そのまま敷く
+            if (sinkStart > 0) {
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(-2, -400, sinkStart + 2, CANVAS_HEIGHT + 800);
+                ctx.clip();
+                drawTiles();
+                ctx.restore();
+            }
+
+            // 2) 沈む区間: 区間ごとに縦シアーで下げる。区間の境目では下げ量が
+            //    一致する(depthAtを同じ端点で評価する)ので絵は連続し、
+            //    変わるのは傾きだけ＝稜線が折れるだけで切れ目にならない。
+            const bounds = [];
+            for (let i = 0; i <= SEG; i++) {
+                bounds.push(Math.round(sinkStart + SINK_LEN * (i / SEG)));
+            }
+            for (let i = 0; i < SEG; i++) {
+                const x0 = bounds[i], x1 = bounds[i + 1];
+                if (x1 <= 0 || x0 >= CANVAS_WIDTH || x1 <= x0) continue;
+                const d0 = depthAt(x0), d1 = depthAt(x1);
+                const slope = (d1 - d0) / (x1 - x0);
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(x0, -400, x1 - x0, CANVAS_HEIGHT + 800);
+                ctx.clip();
+                // y' = y + slope*(x - x0) + d0
+                ctx.transform(1, slope, 0, 1, 0, d0 - slope * x0);
+                drawTiles();
+                ctx.restore();
+            }
+            // rangeEndX より右には何も描かない(そこでは帯ごと地平の下)
         }
         ctx.restore();
         return true;
