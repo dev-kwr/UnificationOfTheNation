@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260816h';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260816h';
-import { createEnemy } from './enemy.js?v=screen-safe-20260816h';
-import { createBoss } from './boss.js?v=screen-safe-20260816h';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260816h';
-import { audio } from './audio.js?v=screen-safe-20260816h';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260816h';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260816k';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260816k';
+import { createEnemy } from './enemy.js?v=screen-safe-20260816k';
+import { createBoss } from './boss.js?v=screen-safe-20260816k';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260816k';
+import { audio } from './audio.js?v=screen-safe-20260816k';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260816k';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260816h';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260816h';
+} from './stage6Grapple.js?v=screen-safe-20260816k';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260816k';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260816h';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260816k';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -4931,8 +4931,18 @@ export class Stage {
         const tailReady = !!(tail?.complete && tail.naturalWidth > 0 && tail.naturalHeight > 0);
         // 尾の右端(沈み切る位置) = rangeEndX。タイルは尾の左端+60まで描き、
         // 残りは尾の不透明部が覆う。
-        const T_SCALE = 230 / 384;   // 左辺の稜(384行)が帯(210px)を覆う高さ
-        const tailW = tailReady ? Math.round(tail.naturalWidth * T_SCALE) : 0;
+        // 【尾の左110pxは焼き込まれた半透明ランプなので使わない】。半透明の山が
+        // 空と混ざると「稜線が薄く欠けた」帯になる(実機フィードバック 2026-08-16)。
+        // 不透明な範囲(src x≧110)だけを切り出し、タイルはその左端で切る。
+        // 継ぎ目に来るタイルの列は【スクロールしても変わらない】
+        //   継ぎ目の位相 = (bandX - tailW) mod w   ※tailXもタイルも同じparallax
+        // ので、そこのタイルの稜線(画面y≈276)に尾の左端の稜線が一致する倍率を
+        // 実測で決め打ちできる。タイル側は継ぎ目へ向かって上がり、尾はそこから
+        // 下がるので、継ぎ目は「山の頂」として読める。
+        const TAIL_SRC_X = 110;
+        const T_SCALE = 0.573;
+        const tailSrcW = tailReady ? tail.naturalWidth - TAIL_SRC_X : 0;
+        const tailW = tailReady ? Math.round(tailSrcW * T_SCALE) : 0;
         const tailH = tailReady ? Math.round(tail.naturalHeight * T_SCALE) : 0;
         const tailX = rangeEndX !== null ? Math.round(rangeEndX - tailW) : null;
 
@@ -4940,7 +4950,8 @@ export class Stage {
             if (tailX + tailW > 0) {
                 ctx.save();
                 ctx.beginPath();
-                ctx.rect(-2, -400, Math.max(0, tailX + 60 + 2), CANVAS_HEIGHT + 800);
+                // 尾の左端で切る(1pxだけ重ね、不透明な尾が上から覆う)
+                ctx.rect(-2, -400, Math.max(0, tailX + 3), CANVAS_HEIGHT + 800);
                 ctx.clip();
                 for (let x = -offset; x < CANVAS_WIDTH; x += w) {
                     ctx.drawImage(tinted, Math.round(x), y, w + 1, drawH);
@@ -4948,7 +4959,9 @@ export class Stage {
                 ctx.restore();
                 const tailTinted = this.getStage3MountainTinted(tail, tone);
                 const ty = Math.round(this.groundY - tailH * (384 / 385));
-                ctx.drawImage(tailTinted, tailX, ty, tailW, tailH);
+                ctx.drawImage(tailTinted,
+                    TAIL_SRC_X, 0, tailSrcW, tail.naturalHeight,
+                    tailX, ty, tailW, tailH);
             }
             // 尾ごと画面左へ抜けたら、山は何も描かない(平地と町だけ)
         } else if (rangeEndX === null || rangeEndX > 0) {
