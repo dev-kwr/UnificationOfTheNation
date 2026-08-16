@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817g';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817g';
-import { createEnemy } from './enemy.js?v=screen-safe-20260817g';
-import { createBoss } from './boss.js?v=screen-safe-20260817g';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260817g';
-import { audio } from './audio.js?v=screen-safe-20260817g';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817g';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817h';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817h';
+import { createEnemy } from './enemy.js?v=screen-safe-20260817h';
+import { createBoss } from './boss.js?v=screen-safe-20260817h';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260817h';
+import { audio } from './audio.js?v=screen-safe-20260817h';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817h';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260817g';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817g';
+} from './stage6Grapple.js?v=screen-safe-20260817h';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817h';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817g';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817h';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -229,6 +229,9 @@ const OBSTACLE_CHANCE_BOOST = 0.8;
 // Stage1地面タイルの描画幅1206pxに合わせ、worldX=9648で位相0から接続する。
 const STAGE1_GROUND_TRANSITION_LENGTH = 2352;
 const STAGE1_BAMBOO_TREE_LINE_OFFSET = 1020;
+// 竹林を抜けた先の丘を、樹列よりどれだけ手前(竹の裏)から敷き始めるか。
+// 端を竹に隠させて「背景が突然切り替わる」縦線を作らないための重なり。
+const STAGE1_HILLS_BEHIND_BAMBOO = 900;
 const STAGE1_FENCE_END_OFFSET = 12;
 const STAGE1_BOSS_SUN_HOUR = 8.25;
 
@@ -3341,14 +3344,27 @@ export class Stage {
         // 置き去りになった敵は前方に再登場させ、走り抜け時の敵枯渇を防ぐ
         const nextEnemies = [];
         for (const enemy of this.enemies) {
-            if (introHush && enemy && enemy.isAlive && !enemy.isDying && !enemy.bossName) {
+            // 【名乗りの間は横に動かさない】。update の前に vx=0 を入れても、
+            // update の中の追跡AIが毎フレーム上書きするので歩き続けていた
+            // (実機フィードバック 2026-08-17)。update は通したまま(落下や
+            // 死亡演出は進めたい)、横位置だけ前後で固定して足を止める。
+            const hushThis = introHush && enemy && enemy.isAlive && !enemy.isDying && !enemy.bossName;
+            let hushX = 0;
+            if (hushThis) {
                 enemy.isAttacking = false;
                 enemy.attackTimer = 0;
                 enemy.attackCooldown = Math.max(enemy.attackCooldown || 0, 400);
-                if (enemy.isGrounded) enemy.vx = 0;
+                enemy.vx = 0;
+                hushX = enemy.x;
             }
             this.updateStage4EnemyRoofMovement(enemy, player, obstacles, deltaTime);
             const shouldRemove = enemy.update(deltaTime, player, obstacles);
+            if (hushThis && !shouldRemove) {
+                enemy.x = hushX;
+                enemy.vx = 0;
+                enemy.isAttacking = false;
+                enemy.attackTimer = 0;
+            }
             if (shouldRemove) continue;
             this.constrainStage6ArenaActor(enemy);
 
@@ -3837,14 +3853,13 @@ export class Stage {
     }
     
     /**
-     * 中ボスの格。そのステージに【居てもおかしくない一番上の型】を使う。
-     * Stage1(竹林)に鎧武将が単騎で立つのは早すぎるので、侍を厚くした個体にする。
+     * 中ボスの格は【全ステージ鎧武将】。
+     * Stage1 だけ侍にしていたが、道中の侍と見分けが付かず「中ボスが出ない」まま
+     * だった(実機フィードバック 2026-08-17)。単騎で立つ鎧武将は一目で山場と
+     * 分かるので、そこは揃える(HPは1.38倍・避けて走り抜けることもできる)。
      */
     getMidBossType() {
-        const w = this.enemyWeights;
-        if (w.busho > 0) return ENEMY_TYPES.BUSHO;
-        if (w.ninja > 0) return ENEMY_TYPES.NINJA;
-        return ENEMY_TYPES.SAMURAI;
+        return ENEMY_TYPES.BUSHO;
     }
 
     spawnMidBoss() {
@@ -4834,8 +4849,14 @@ export class Stage {
 
     renderStage1FixedRoadMountains(ctx, currentPalette = null) {
         const cameraX = Math.floor(this.progress);
-        const startX = this.getStage1BambooTreeLineX() - cameraX;
-        if (startX >= CANVAS_WIDTH) return false;
+        const treeLineX = this.getStage1BambooTreeLineX() - cameraX;
+        if (treeLineX >= CANVAS_WIDTH) return false;
+
+        // 【切り出しの縦線を作らない】。樹列でぴたりと切ると、竹の切れ目から上の
+        // 空に丘のまっすぐな左端が出て「背景が突然切り替わる」ように見えた
+        // (実機フィードバック 2026-08-17)。竹の裏側まで敷き延ばし、
+        // 端は不透明な竹に隠させる。竹は後から上に描かれる。
+        const startX = Math.max(0, treeLineX - STAGE1_HILLS_BEHIND_BAMBOO);
 
         ctx.save();
         ctx.beginPath();
