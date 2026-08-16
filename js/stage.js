@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817r';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817r';
-import { createEnemy } from './enemy.js?v=screen-safe-20260817r';
-import { createBoss } from './boss.js?v=screen-safe-20260817r';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260817r';
-import { audio } from './audio.js?v=screen-safe-20260817r';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817r';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817t';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817t';
+import { createEnemy } from './enemy.js?v=screen-safe-20260817t';
+import { createBoss } from './boss.js?v=screen-safe-20260817t';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260817t';
+import { audio } from './audio.js?v=screen-safe-20260817t';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817t';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260817r';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817r';
+} from './stage6Grapple.js?v=screen-safe-20260817t';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817t';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817r';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817t';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -53,20 +53,23 @@ const STAGE3_BOSS_ROOM_LEFT = 12000 - 1280;      // 10720
 const STAGE3_PASS_TORII_WORLD_X = STAGE3_BOSS_ROOM_LEFT + 80;
 
 // 足元が「山道の岩場」から「開けた土の道」へ変わる帯。
-// 鳥居の手前から始めて【鳥居の足元で入れ替わり終わる】。くぐった先はもう里。
-const STAGE3_PLAIN_GROUND_START = (STAGE3_PASS_TORII_WORLD_X - 260) / 12000;   // ≒0.878
+// 【鳥居をくぐった先で変わる】。門が境で、その先から里の道になる(指定 2026-08-17)。
+// 変わり目はボス部屋の中(画面x 320..580)に来るので、ボス部屋では
+// 岩場と土の道の両方が見える(Stage1の竹林の縁と同じ作り)。
+const STAGE3_PLAIN_GROUND_START = (STAGE3_PASS_TORII_WORLD_X + 240) / 12000;   // 11040 ≒0.920
 const STAGE3_PLAIN_GROUND_BLEND = 260 / 12000;                                 // ≒0.022
 
 // 城下町の層の速さ。遠い山並み(0.14)より手前にあるので少し速い。
 // 停止時の位置は据え置きなので、上げるほど「出てくるのが遅く」なる。
-// 0.14(山と同じ)=progress 4500(38%)で早すぎ、0.30=7800(65%)だと今度は
-// 山が尽きた後の荒野が長すぎた。0.19 は progress≒6100(51%)で、
-// 山の終端が画面中ほどへ来るのとほぼ同時に町の裾が右端から現れる。
-const STAGE3_TOWN_PARALLAX = 0.19;
+// 0.14(山と同じ)=progress 4500(38%)で早すぎ、0.19 でも 6100(51%)でまだ早い
+// (実機フィードバック 2026-08-17)。0.26 で progress≒7400(61%)。
+// 山を延命した(下の STOP_SCREEN_X)ので、遅らせても荒野は空かない。
+const STAGE3_TOWN_PARALLAX = 0.26;
 
 // カメラ停止時に山脈の終端が来る画面x(大きいほど山が長く残る)。
-// 300 = 鳥居(画面80..278)の後ろに山の末端が低く残り、その右から町が始まる。
-const STAGE3_RANGE_END_STOP_SCREEN_X = 300;
+// 380 = 鳥居(画面80..278)の後ろに山の末端が残り、その右(画面410)から
+// 城下町が始まる。山と町がほぼ接するので、間に荒野が空かない。
+const STAGE3_RANGE_END_STOP_SCREEN_X = 380;
 
 // 道中の山場(中ボス)を出す進行度。半ばを少し過ぎたあたり。
 const MID_BOSS_PROGRESS_RATIO = 0.55;
