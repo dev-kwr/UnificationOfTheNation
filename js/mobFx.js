@@ -12,7 +12,7 @@
 //     いるので、局所座標のまま貯めると歩いた時に過去の点まで一緒に動く。
 //   ・単発の閃光/突き線 → その場で描くだけなので局所系でよい(k 倍も自動)。
 
-import { drawCometRibbon } from './weaponFx.js?v=screen-safe-20260815q';
+import { drawCometRibbon } from './weaponFx.js?v=screen-safe-20260817m';
 
 function state(ent) {
     if (!ent) return null;
@@ -152,4 +152,36 @@ export function mobGroundDust(ent, cx, cy, opts) {
     const g = (typeof window !== 'undefined') ? window.game : null;
     if (!g || typeof g.spawnGroundDust !== 'function') return;
     g.spawnGroundDust(cx, cy, opts || {});
+}
+
+/* ============================================================
+   布(鉢巻の垂れ帯)の物理チェーンを、演出のワープ・牽引で運ぶ
+   ------------------------------------------------------------
+   チェーン本体は根元が大きく跳んだ時だけ形ごと連れて行く保険を持つが、
+   鉤縄の引き上げのように【少しずつ】動く演出では毎フレームの跳びが小さく
+   保険が効かない。しかも演出中は update が止まって motionTime が進まないため
+   dt=0 で積分もされず、根元だけが移動して帯が伸び切る
+   (実機フィードバック 2026-08-17: stage6の3階層目→大屋根)。
+   本体の座標を直接動かす演出は、必ずここも同じ差分で呼ぶ。
+   ============================================================ */
+export function translateRibbonChains(ent, dx, dy) {
+    if (!ent || !Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    if (Math.abs(dx) < 0.0001 && Math.abs(dy) < 0.0001) return;
+    const chains = ent._mobFx?.chains;
+    if (!chains) return;
+    for (const key of Object.keys(chains)) {
+        const nodes = chains[key]?.nodes;
+        if (!Array.isArray(nodes)) continue;
+        for (const n of nodes) {
+            if (!Number.isFinite(n?.x) || !Number.isFinite(n?.y)) continue;
+            n.x += dx;
+            n.y += dy;
+        }
+    }
+}
+
+/** 転移などで形ごと作り直す。次の更新で根元から初期化される。 */
+export function resetRibbonChains(ent) {
+    const st = ent?._mobFx;
+    if (st) st.chains = {};
 }

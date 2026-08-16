@@ -2,11 +2,11 @@
 // Unification of the Nation - プレイヤークラス
 // ============================================
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260815q';
-import { input } from './input.js?v=screen-safe-20260815q';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260817m';
+import { input } from './input.js?v=screen-safe-20260817m';
 console.log('[player.js] Imported input instance:', input ? input.instanceId : 'undefined');
-import { audio } from './audio.js?v=screen-safe-20260815q';
-import { game } from './game.js?v=screen-safe-20260815q';
+import { audio } from './audio.js?v=screen-safe-20260817m';
+import { game } from './game.js?v=screen-safe-20260817m';
 import {
     ANIM_STATE, COMBO_ATTACKS, calcExpToNextForLevel,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN, LEVEL_UP_ATK_GAIN,
@@ -14,17 +14,18 @@ import {
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y
-} from './playerData.js?v=screen-safe-20260815q';
+} from './playerData.js?v=screen-safe-20260817m';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
-} from './normalComboMotion.js?v=screen-safe-20260815q';
-import { applyRendererMixin }    from './playerRenderer.js?v=screen-safe-20260815q';
-import { applySlashTrailMixin }  from './playerSlashTrail.js?v=screen-safe-20260815q';
-import { applySpecialMixin }     from './playerSpecial.js?v=screen-safe-20260815q';
-import { applyShogunCombat }    from './shogunCombatHelper.js?v=screen-safe-20260815q';
+} from './normalComboMotion.js?v=screen-safe-20260817m';
+import { translateRibbonChains, resetRibbonChains } from './mobFx.js?v=screen-safe-20260817m';
+import { applyRendererMixin }    from './playerRenderer.js?v=screen-safe-20260817m';
+import { applySlashTrailMixin }  from './playerSlashTrail.js?v=screen-safe-20260817m';
+import { applySpecialMixin }     from './playerSpecial.js?v=screen-safe-20260817m';
+import { applyShogunCombat }    from './shogunCombatHelper.js?v=screen-safe-20260817m';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
@@ -38,7 +39,7 @@ import {
     SHOGUN_CROUCH_STANCE_DUTY,
     NINJA_CROUCH_STRIDE_AMP,
     SHOGUN_CROUCH_STRIDE_AMP
-} from './shogunConstants.js?v=screen-safe-20260815q';
+} from './shogunConstants.js?v=screen-safe-20260817m';
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
@@ -521,6 +522,9 @@ export class Player {
                 });
             }
         }
+        // 鉢巻の【2本目】など、mobFx の共有チェーンで持つ布も一緒に作り直す。
+        // 残すと転移後も旧位置に残って伸び切る。
+        resetRibbonChains(this);
     }
 
     /**
@@ -540,6 +544,9 @@ export class Player {
                 node.y += dy;
             }
         }
+        // mobFx の共有チェーン(鉢巻の2本目など)も同じだけ運ぶ。演出中は
+        // motionTime が進まず積分されないので、ここで運ばないと伸び切る。
+        translateRibbonChains(this, dx, dy);
     }
 
     updateAccessoryNodes(scarfNodes, hairNodes, targetX, targetY, speedX, isMoving, deltaTime, options = null) {
