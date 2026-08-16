@@ -2,17 +2,17 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260817t';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817t';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260817t';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260817t';
-import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260817t';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260817t';
-import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260817t';
-import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260817t';
-import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260817t';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260817t';
-import { input } from './input.js?v=screen-safe-20260817t';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260817u';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817u';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260817u';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260817u';
+import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260817u';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260817u';
+import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260817u';
+import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260817u';
+import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260817u';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260817u';
+import { input } from './input.js?v=screen-safe-20260817u';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -50,18 +50,18 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=screen-safe-20260817t';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260817t';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260817t';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260817t';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseReturnButton, getPauseMapButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260817t';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260817t';
-import { saveManager } from './save.js?v=screen-safe-20260817t';
-import { shop } from './shop.js?v=screen-safe-20260817t';
-import { audio } from './audio.js?v=screen-safe-20260817t';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260817t';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260817t';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260817t';
+import { Player } from './player.js?v=screen-safe-20260817u';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260817u';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260817u';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260817u';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseReturnButton, getPauseMapButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260817u';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260817u';
+import { saveManager } from './save.js?v=screen-safe-20260817u';
+import { shop } from './shop.js?v=screen-safe-20260817u';
+import { audio } from './audio.js?v=screen-safe-20260817u';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260817u';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260817u';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260817u';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -88,9 +88,6 @@ const BOSS_ROOM_PAN_MIN_SPEED = 140;
 // 「プレイヤーを画面中央へ」にすると一気に寄る(実測で598px飛んだ)。
 // 走り(360px/s)より十分速く、かつ一瞬で飛ばない値。
 const STAGE3_HANDOVER_CATCHUP_SPEED = 1200;
-// Stage3 の自動スクロールを切る位置。ボス部屋の framing から何画面ぶん手前か。
-// 大きいほど早く自力歩きへ移り、会敵までの徒歩が長くなる。
-const STAGE3_HANDOVER_SCREENS = 1.35;
 // 終盤(峠を抜けて道が開ける区間)で自動スクロールを何倍まで速めるか。
 const STAGE3_APPROACH_SPEED_MULT = 2.2;
 // ステータス画面の選択肢のうち「地図に戻る」の位置。下の3択(忍具/よろず屋/準備完了)の
@@ -1193,7 +1190,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260817t').then(module => {
+        import('./weapon.js?v=screen-safe-20260817u').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -2346,7 +2343,7 @@ class Game {
         const s = this.stage;
         if (!s || !Number.isFinite(s.maxProgress)) return 1;
         const from = s.maxProgress - CANVAS_WIDTH * 2.6;
-        const to = s.maxProgress - CANVAS_WIDTH * STAGE3_HANDOVER_SCREENS;
+        const to = s.maxProgress - CANVAS_WIDTH;   // ボス部屋の画角
         if (!(to > from)) return 1;
         const t = Math.max(0, Math.min(1, (this.scrollX - from) / (to - from)));
         const ease = t * t * (3 - 2 * t);
@@ -2354,16 +2351,13 @@ class Game {
     }
 
     isStage3AutoScrollActive() {
+        // 【会敵まで止めない】。かつては「カメラが定位置より手前で止まり、残りを
+        // プレイヤーが歩く」形だったので、その手前で追従へ渡していた。今は
+        // 歩いてよい上限がボス部屋の画角そのもの(getBossRoomWalkLimitX)になり、
+        // 間合いはプレイヤーの跳び退がりが作るので、途中で止める必要がない
+        // (2026-08-17 の会敵刷新に合わせて撤去)。
         const s = this.stage;
-        if (this.currentStageNumber !== 3 || !s || s.bossSpawned) return false;
-        if (!Number.isFinite(s.maxProgress)) return true;
-        // ボス部屋の framing は maxProgress - CANVAS_WIDTH。その手前で渡す。
-        // 【1画面手前(×2)では早すぎた】。自動スクロールが終わってから会敵まで
-        // 1500px以上を自力で歩くことになり、間延びする
-        // (実機フィードバック 2026-08-17)。ボス部屋の 1.35 画面手前まで
-        // 押し出してから渡すと、歩かされる区間が無くなる。
-        const handoverX = Math.max(0, s.maxProgress - CANVAS_WIDTH * STAGE3_HANDOVER_SCREENS);
-        return this.scrollX < handoverX;
+        return this.currentStageNumber === 3 && !!s && !s.bossSpawned;
     }
 
     /**
@@ -2956,6 +2950,7 @@ class Game {
         // --- スクロール処理 ---
         const stage3AutoScrollActive = this.isStage3AutoScrollActive();
         const screenCenter = CANVAS_WIDTH / 2;
+        const cameraBeforeScroll = this.scrollX;
 
         if (stage3AutoScrollActive) {
             this.scrollX += this.stage3AutoScrollSpeed * this.getStage3ApproachSpeedMult() * this.deltaTime;
@@ -2998,7 +2993,7 @@ class Game {
             // 会敵〜登場演出の間だけ先行量を足し、プレイヤーを左寄りに置いて間合いを見せる。
             this.scrollX = this.player.x + this.player.getWorldWidth() * 0.5 - screenCenter
                 + this.getStage6CameraLead();
-        } else if (this.currentStageNumber === 3 && this.stage && !this.stage.bossSpawned) {
+        } else if (this.currentStageNumber === 3 && this.stage) {
             // Stage3 の受け渡し区間: 自動スクロールを切った直後は、プレイヤーが
             // 画面右端に張り付いたままなので、いきなり中央へ寄せるとカメラが飛ぶ。
             // 追いつく速さに上限を掛けて詰める(追いついた後は追従と同じ動き)。
@@ -3012,6 +3007,19 @@ class Game {
 
         // 定位置で止まったぶんの残りをカメラだけで詰める（ボス部屋の framing）
         if (this.isBossNameStandHoldActive()) this.updateBossRoomCameraPan();
+
+        // 【Stage3のカメラは速さに上限を掛ける】。自動スクロール中はプレイヤーが
+        // 画面右端に張り付くので、他ステージのように「歩いた分だけカメラが付いて
+        // くる」状態にならない。そのままだとボス部屋の寄せが差分いっぱいに走り、
+        // 会敵の直前だけカメラが一気に流れる(実測 76px/frame)。
+        // 上限を掛けると、飛ぶのではなく寄る絵になる(600pxで約0.5秒)。
+        if (this.currentStageNumber === 3 && this.stage && !this.stage.bossDefeated) {
+            const dt = Math.max(0, Math.min(1 / 30, this.deltaTime));
+            const maxStep = STAGE3_HANDOVER_CATCHUP_SPEED * dt;
+            if (this.scrollX - cameraBeforeScroll > maxStep) {
+                this.scrollX = cameraBeforeScroll + maxStep;
+            }
+        }
 
         // スクロール制限
         // maxProgress は世界の全幅。カメラが映せる右端は maxProgress - CANVAS_WIDTH
