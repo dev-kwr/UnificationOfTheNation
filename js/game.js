@@ -2,17 +2,17 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260817k';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817k';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260817k';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260817k';
-import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260817k';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260817k';
-import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260817k';
-import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260817k';
-import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260817k';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260817k';
-import { input } from './input.js?v=screen-safe-20260817k';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260817p';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817p';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260817p';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260817p';
+import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260817p';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260817p';
+import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260817p';
+import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260817p';
+import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260817p';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260817p';
+import { input } from './input.js?v=screen-safe-20260817p';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -50,18 +50,18 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=screen-safe-20260817k';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260817k';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260817k';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260817k';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseReturnButton, getPauseMapButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260817k';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260817k';
-import { saveManager } from './save.js?v=screen-safe-20260817k';
-import { shop } from './shop.js?v=screen-safe-20260817k';
-import { audio } from './audio.js?v=screen-safe-20260817k';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260817k';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260817k';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260817k';
+import { Player } from './player.js?v=screen-safe-20260817p';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260817p';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260817p';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260817p';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseReturnButton, getPauseMapButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260817p';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260817p';
+import { saveManager } from './save.js?v=screen-safe-20260817p';
+import { shop } from './shop.js?v=screen-safe-20260817p';
+import { audio } from './audio.js?v=screen-safe-20260817p';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260817p';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260817p';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260817p';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -1188,7 +1188,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260817k').then(module => {
+        import('./weapon.js?v=screen-safe-20260817p').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -2543,6 +2543,11 @@ class Game {
         if (typeof this.player.translateVisualTrails === 'function') {
             this.player.translateVisualTrails(this.player.x - prevX, this.player.y - prevY);
         }
+        // 運ぶだけでは形が凍るので、布の物理も1ステップ進める(跳び上がり・
+        // 落下に遅れて垂れる形になる)。
+        if (typeof this.player.updateVisualClothDuringCinematic === 'function') {
+            this.player.updateVisualClothDuringCinematic(this.deltaTime);
+        }
         if (t >= 1) {
             this.finishStage6ArenaEntryArc();
             return false;
@@ -2797,6 +2802,11 @@ class Game {
             this.player.x - prevX,
             this.player.y - prevY
         );
+        // 運ぶだけでは走っていた時の「真横なびき」のまま上がってしまうので、
+        // 布の物理も1ステップ進める(上昇に遅れて下へ垂れる形になる)。
+        if (typeof this.player.updateVisualClothDuringCinematic === 'function') {
+            this.player.updateVisualClothDuringCinematic(this.deltaTime);
+        }
         // 鉤を投げた瞬間に解いた分身の煙も、ここで老化させて登攀中に消え切らせる。
         // (player.update が走らないため、放置すると煙が凍ったまま引き上げられる)
         if (typeof this.player.updateSpecialSmoke === 'function') {

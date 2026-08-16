@@ -2,11 +2,11 @@
 // Unification of the Nation - プレイヤークラス
 // ============================================
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260817m';
-import { input } from './input.js?v=screen-safe-20260817m';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260817p';
+import { input } from './input.js?v=screen-safe-20260817p';
 console.log('[player.js] Imported input instance:', input ? input.instanceId : 'undefined');
-import { audio } from './audio.js?v=screen-safe-20260817m';
-import { game } from './game.js?v=screen-safe-20260817m';
+import { audio } from './audio.js?v=screen-safe-20260817p';
+import { game } from './game.js?v=screen-safe-20260817p';
 import {
     ANIM_STATE, COMBO_ATTACKS, calcExpToNextForLevel,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN, LEVEL_UP_ATK_GAIN,
@@ -14,18 +14,18 @@ import {
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y
-} from './playerData.js?v=screen-safe-20260817m';
+} from './playerData.js?v=screen-safe-20260817p';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
-} from './normalComboMotion.js?v=screen-safe-20260817m';
-import { translateRibbonChains, resetRibbonChains } from './mobFx.js?v=screen-safe-20260817m';
-import { applyRendererMixin }    from './playerRenderer.js?v=screen-safe-20260817m';
-import { applySlashTrailMixin }  from './playerSlashTrail.js?v=screen-safe-20260817m';
-import { applySpecialMixin }     from './playerSpecial.js?v=screen-safe-20260817m';
-import { applyShogunCombat }    from './shogunCombatHelper.js?v=screen-safe-20260817m';
+} from './normalComboMotion.js?v=screen-safe-20260817p';
+import { translateRibbonChains, resetRibbonChains } from './mobFx.js?v=screen-safe-20260817p';
+import { applyRendererMixin }    from './playerRenderer.js?v=screen-safe-20260817p';
+import { applySlashTrailMixin }  from './playerSlashTrail.js?v=screen-safe-20260817p';
+import { applySpecialMixin }     from './playerSpecial.js?v=screen-safe-20260817p';
+import { applyShogunCombat }    from './shogunCombatHelper.js?v=screen-safe-20260817p';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
@@ -39,7 +39,7 @@ import {
     SHOGUN_CROUCH_STANCE_DUTY,
     NINJA_CROUCH_STRIDE_AMP,
     SHOGUN_CROUCH_STRIDE_AMP
-} from './shogunConstants.js?v=screen-safe-20260817m';
+} from './shogunConstants.js?v=screen-safe-20260817p';
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
@@ -525,6 +525,24 @@ export class Player {
         // 鉢巻の【2本目】など、mobFx の共有チェーンで持つ布も一緒に作り直す。
         // 残すと転移後も旧位置に残って伸び切る。
         resetRibbonChains(this);
+    }
+
+    /**
+     * 演出(鉤縄の引き上げ・大屋根への飛び乗り)の最中に、布だけ物理を進める。
+     *
+     * これらは player.update を止めているので、そのままでは
+     *   ・鉢巻1本目/ポニテ … updateAnimation が回らず形が凍る
+     *   ・鉢巻2本目(mobFxの共有チェーン) … motionTime が進まず dt=0 で凍る
+     * となり、上へ飛んでいるのに走っていた時の「真横なびき」で運ばれる
+     * (実機フィードバック 2026-08-17)。時計を進めて物理を1ステップ回すと、
+     * 根元が上へ動くぶん節が遅れて下へ垂れる＝上昇に見合った形になる。
+     */
+    updateVisualClothDuringCinematic(deltaTime) {
+        const dt = Math.max(0, Math.min(0.033, deltaTime || 0));
+        if (!(dt > 0)) return;
+        // motionTime は演出中も進める(2本目のチェーンの dt はここから取られる)
+        this.motionTime = (this.motionTime || 0) + dt * 1000;
+        this.updateAccessoryCloth(dt, true);
     }
 
     /**
@@ -2659,6 +2677,20 @@ export class Player {
         this.legAngle = legMotion.legAngle;
 
         // --- 鉢巻・ポニーテールの更新処理 ---
+        this.updateAccessoryCloth(deltaTime, legTransitionLocked);
+    }
+
+    /**
+     * 鉢巻・ポニーテールの布だけを1ステップ進める。
+     *
+     * 【演出中(鉤縄の引き上げ・大屋根への飛び乗り)からも呼ぶ】。
+     * それらは player.update を止めて座標だけ動かすので、以前は形を保ったまま
+     * 平行移動していた。伸び切りはしないが、上へ飛んでいるのに走っていた時の
+     * 形(真横なびき)のまま運ばれて物理的におかしい
+     * (実機フィードバック 2026-08-17)。ここを直接呼べば、根元が上へ動くぶん
+     * 節が遅れて下へ垂れる＝上昇に見合った形になる。
+     */
+    updateAccessoryCloth(deltaTime, legTransitionLocked = false) {
         // ガード＆初期化
         if (!this.scarfNodes || this.scarfNodes.length === 0 || !this.hairNodes || this.hairNodes.length === 0) {
             this.resetVisualTrails();
