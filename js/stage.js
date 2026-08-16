@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817b';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817b';
-import { createEnemy } from './enemy.js?v=screen-safe-20260817b';
-import { createBoss } from './boss.js?v=screen-safe-20260817b';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260817b';
-import { audio } from './audio.js?v=screen-safe-20260817b';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817b';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817d';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817d';
+import { createEnemy } from './enemy.js?v=screen-safe-20260817d';
+import { createBoss } from './boss.js?v=screen-safe-20260817d';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260817d';
+import { audio } from './audio.js?v=screen-safe-20260817d';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817d';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260817b';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817b';
+} from './stage6Grapple.js?v=screen-safe-20260817d';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817d';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817b';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817d';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -47,6 +47,10 @@ const STAGE3_PLAIN_GROUND_BLEND = 0.05;
 // 峠の出口の石鳥居を据えるワールドx。足元が入れ替わる帯の【入口側】に置き、
 // くぐった直後から道が開けるようにする(Stage3の maxProgress=12000)。
 const STAGE3_PASS_TORII_WORLD_X = Math.round(12000 * STAGE3_PLAIN_GROUND_START) - 60;
+
+// 鳥居の前に大岩を出さない幅。鳥居は幅約198pxなので、その手前に岩が
+// 立たない余地(柱に岩が被らない)を含めて空ける。
+const STAGE3_PASS_TORII_ROCK_CLEAR = 260;
 
 // ============================================
 // ステージ背景アセットの単一ソース
@@ -3830,6 +3834,15 @@ export class Stage {
         // Stage 6: 大屋根の上(四巡目)に竹槍・岩は据え付けられない
         if (this.stageNumber === 6 && x + 440 >= this.maxProgress * 0.75) {
             return;
+        }
+
+        // Stage 3: 【峠の鳥居から先に大岩を出さない】。鳥居をくぐった時点で
+        // 山岳地帯は抜けていて、足元も土の道に変わっている。そこに落石の岩が
+        // 転がっているのは土地が違う(実機フィードバック 2026-08-16)。
+        // 鳥居そのものに岩が被るのも防ぐため、手前も鳥居の幅ぶん空ける。
+        if (this.stageNumber === 3) {
+            const toriiLeft = STAGE3_PASS_TORII_WORLD_X - STAGE3_PASS_TORII_ROCK_CLEAR;
+            if (x + 440 > toriiLeft) return;
         }
 
         // ボス部屋(最終1画面)には竹槍・大岩などの障害物を置かない。
