@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260816t';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260816t';
-import { createEnemy } from './enemy.js?v=screen-safe-20260816t';
-import { createBoss } from './boss.js?v=screen-safe-20260816t';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260816t';
-import { audio } from './audio.js?v=screen-safe-20260816t';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260816t';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260816u';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260816u';
+import { createEnemy } from './enemy.js?v=screen-safe-20260816u';
+import { createBoss } from './boss.js?v=screen-safe-20260816u';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260816u';
+import { audio } from './audio.js?v=screen-safe-20260816u';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260816u';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260816t';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260816t';
+} from './stage6Grapple.js?v=screen-safe-20260816u';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260816u';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260816t';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260816u';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -4949,11 +4949,20 @@ export class Stage {
             const depthAt = (sx) =>
                 SINK_DEPTH * this.smoothstep(0, 1, (sx - sinkStart) / SINK_LEN);
 
-            // 1) 沈む手前: そのまま敷く
-            if (sinkStart > 0) {
+            // 区間の境目は【整数の画面x】で持つ。小数のままクリップすると
+            // 端がアンチエイリアスされ、隣の区間との間に半画素の隙間ができて
+            // 空の色が縦線として抜ける(実機フィードバック 2026-08-16)。
+            const bounds = [];
+            for (let i = 0; i <= SEG; i++) {
+                bounds.push(Math.round(sinkStart + SINK_LEN * (i / SEG)));
+            }
+
+            // 1) 沈む手前: そのまま敷く。右端は区間側と同じ整数で、さらに
+            //    1px重ねる(重なる側は下げ量0なので絵は完全に一致する)。
+            if (bounds[0] > 0) {
                 ctx.save();
                 ctx.beginPath();
-                ctx.rect(-2, -400, sinkStart + 2, CANVAS_HEIGHT + 800);
+                ctx.rect(-2, -400, bounds[0] + 3, CANVAS_HEIGHT + 800);
                 ctx.clip();
                 drawTiles();
                 ctx.restore();
@@ -4962,10 +4971,6 @@ export class Stage {
             // 2) 沈む区間: 区間ごとに縦シアーで下げる。区間の境目では下げ量が
             //    一致する(depthAtを同じ端点で評価する)ので絵は連続し、
             //    変わるのは傾きだけ＝稜線が折れるだけで切れ目にならない。
-            const bounds = [];
-            for (let i = 0; i <= SEG; i++) {
-                bounds.push(Math.round(sinkStart + SINK_LEN * (i / SEG)));
-            }
             for (let i = 0; i < SEG; i++) {
                 const x0 = bounds[i], x1 = bounds[i + 1];
                 if (x1 <= 0 || x0 >= CANVAS_WIDTH || x1 <= x0) continue;
