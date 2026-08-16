@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260816g';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260816g';
-import { createEnemy } from './enemy.js?v=screen-safe-20260816g';
-import { createBoss } from './boss.js?v=screen-safe-20260816g';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260816g';
-import { audio } from './audio.js?v=screen-safe-20260816g';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260816g';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260816h';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260816h';
+import { createEnemy } from './enemy.js?v=screen-safe-20260816h';
+import { createBoss } from './boss.js?v=screen-safe-20260816h';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260816h';
+import { audio } from './audio.js?v=screen-safe-20260816h';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260816h';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260816g';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260816g';
+} from './stage6Grapple.js?v=screen-safe-20260816h';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260816h';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260816g';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260816h';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -28,6 +28,13 @@ import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260816g';
  * 灯籠や道祖神が役者と同じ面に並んで見えた(実機フィードバック 2026-08-12)。
  */
 const BG_PROP_FOOT_DEPTH = 12;
+
+// Stage3 の足元が「山道の岩場」から「開けた土の道」へ変わる位置(maxProgress比)。
+// 遠景では山脈が尽きて城下町が見えているのに、走る道だけ岩場のままだと
+// 山の中と地続きに見える(実機フィードバック 2026-08-16)。
+// START から BLEND ぶんかけて入れ替わり、以降は完全に平地の道。
+const STAGE3_PLAIN_GROUND_START = 0.72;
+const STAGE3_PLAIN_GROUND_BLEND = 0.05;
 
 // ============================================
 // ステージ背景アセットの単一ソース
@@ -79,6 +86,9 @@ const STAGE_IMAGE_SOURCES = {
             stage3TownFarImage: 'images/stage3_town_far.png?v=20260816_far5',
             stage3RangeTailImage: 'images/stage3_range_tail.png?v=20260815_tail2',
             stage3GroundImage: 'images/stage3_ground_mountain_tile.png',
+            // 山を抜けた先の開けた土の道。stage2の街道タイルを流用する
+            // (平野の道の質感。同一URLなのでキャッシュはstage2と共有される)。
+            stage3PlainGroundImage: 'images/stage2_ground_kaido_tile.png',
             // 遠景の山並み。1枚をミラー連結してあるので横に繰り返すと稜線が繋がる
             // (右端は自身の鏡像と接し、巻き戻り点は左端同士)。
             stage3MountainImage: 'images/stage3_mountains_far.png?v=20260812_far2',
@@ -6891,6 +6901,14 @@ export class Stage {
             extraHeight: 38,
             yOffset: -18
         })) {
+            // 【山岳地帯を抜けた感を足元でも】。遠景は山脈が尽きて平地の町に
+            // なるのに、走る道が岩場のタイルのままだと「山の中の道」が地続きに
+            // 見える(実機フィードバック 2026-08-16)。ワールド座標に固定した
+            // 境界で、岩場の上へ開けた土の道(stage2の街道タイル)をクロス
+            // フェードして重ねる。境界は世界に固定なので、走ると足元が
+            // 岩場→土の道へ変わっていき「抜けた」が体感できる。描画専用。
+            this.renderStage3PlainGroundFade(ctx, horizonY, bottomY, groundH, renderProgress);
+
             // 地平ぎわの照り返しは終盤に向けて引かせる。明るい照り返しが残ったまま
             // 暗い町を地平に置くと「明るい地面に暗い切り抜き」＝蜃気楼に見える
             // (実機フィードバック 2026-08-15)。
@@ -6930,6 +6948,66 @@ export class Stage {
         // 画像未読込時はベースグラデーションだけで待ち、旧Canvas路面へは戻さない。
 
         // 地平線の硬い境界線は出さず、夕焼けの照り返しと地面グラデーションでなじませる。
+    }
+
+    // 山道の岩場タイルの上に、開けた土の道(街道タイル)をワールド固定の境界で
+    // 重ねる。境界より先(城下町側)は完全に土の道、手前は帯の中で
+    // smoothstep のαを刻んでなじませる ― stage1の竹林→街道と同じ作法
+    // (renderStage1GroundToKaido)。境界はワールドに固定なので、走ると
+    // 足元が岩場から土の道へ変わっていき「山を抜けた」が体感できる。
+    // フェード帯が画面から抜けたら完全領域の1回だけ、峠の大半ではゼロ回。
+    renderStage3PlainGroundFade(ctx, horizonY, bottomY, groundH, renderProgress) {
+        const plain = this.stage3PlainGroundImage;
+        if (!plain?.complete || plain.naturalWidth <= 0 || plain.naturalHeight <= 0) return;
+
+        // 城下町が遠景に見え始めて少し走った先で道が開ける。
+        // 停止画面(maxProgress - CANVAS_WIDTH)より十分手前で遷移が終わる。
+        const fadeStart = this.maxProgress * STAGE3_PLAIN_GROUND_START;
+        const blendW = this.maxProgress * STAGE3_PLAIN_GROUND_BLEND;
+        const sx0 = fadeStart - renderProgress; // 画面座標での帯の左端
+        const sx1 = sx0 + blendW;               // ここから右は完全に土の道
+        if (sx0 >= CANVAS_WIDTH) return;        // まだ山の中
+
+        // 岩場より沈めた土の道(夕闇の平地)。同じ画像への同じフィルタなので
+        // drawImageGraded のキャッシュが効き、フィルタ適用は1回で済む。
+        const tileOptions = {
+            filter: 'brightness(0.52) saturate(0.62) contrast(1.05)',
+            extraHeight: 38,
+            yOffset: -18
+        };
+
+        // 完全領域(境界の先)
+        if (sx1 < CANVAS_WIDTH) {
+            const left = Math.max(0, sx1);
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(left, horizonY, CANVAS_WIDTH - left, groundH);
+            ctx.clip();
+            this.renderGroundImageTile(ctx, plain, horizonY, bottomY, renderProgress, tileOptions);
+            ctx.restore();
+        }
+
+        // フェード帯。画面に掛かっている短冊だけ描く(1枚あたりタイル1〜2枚)。
+        if (sx1 <= 0 || sx0 >= CANVAS_WIDTH) return;
+        const strips = 24;
+        const stripW = blendW / strips;
+        const baseAlpha = ctx.globalAlpha;
+        for (let i = 0; i < strips; i++) {
+            const bx0 = sx0 + stripW * i;
+            const bx1 = bx0 + stripW;
+            if (bx1 <= 0 || bx0 >= CANVAS_WIDTH) continue;
+            const left = Math.max(0, bx0);
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(left, horizonY, Math.min(CANVAS_WIDTH, bx1) - left, groundH);
+            ctx.clip();
+            this.renderGroundImageTile(ctx, plain, horizonY, bottomY, renderProgress, {
+                ...tileOptions,
+                alpha: this.smoothstep(0, 1, (i + 0.5) / strips)
+            });
+            ctx.restore();
+        }
+        ctx.globalAlpha = baseAlpha;
     }
 
     renderGroundTown(ctx, renderProgress, darken) {
