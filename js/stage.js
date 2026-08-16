@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260816u';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260816u';
-import { createEnemy } from './enemy.js?v=screen-safe-20260816u';
-import { createBoss } from './boss.js?v=screen-safe-20260816u';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260816u';
-import { audio } from './audio.js?v=screen-safe-20260816u';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260816u';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260816v';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260816v';
+import { createEnemy } from './enemy.js?v=screen-safe-20260816v';
+import { createBoss } from './boss.js?v=screen-safe-20260816v';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260816v';
+import { audio } from './audio.js?v=screen-safe-20260816v';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260816v';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260816u';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260816u';
+} from './stage6Grapple.js?v=screen-safe-20260816v';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260816v';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260816u';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260816v';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -41,6 +41,10 @@ const STAGE3_JIZO_HEIGHT = 80;
 // START から BLEND ぶんかけて入れ替わり、以降は完全に平地の道。
 const STAGE3_PLAIN_GROUND_START = 0.72;
 const STAGE3_PLAIN_GROUND_BLEND = 0.05;
+
+// 峠の出口の石鳥居を据えるワールドx。足元が入れ替わる帯の【入口側】に置き、
+// くぐった直後から道が開けるようにする(Stage3の maxProgress=12000)。
+const STAGE3_PASS_TORII_WORLD_X = Math.round(12000 * STAGE3_PLAIN_GROUND_START) - 60;
 
 // ============================================
 // ステージ背景アセットの単一ソース
@@ -105,6 +109,9 @@ const STAGE_IMAGE_SOURCES = {
                 woodFence: 'images/stage3_prop_weathered_wood_fence.png?v=20260706_front1',
                 stoneLantern: 'images/stage3_prop_stone_lantern.png?v=20260706_front1',
                 jizoLarge: 'images/stage3_prop_jizo_large.png?v=20260706_front1',
+                // 峠の出口に立つ石の鳥居(足元に小さな祠)。山道の終わりを告げる
+                // 一基だけの目印なので、反復側の表には入れない。
+                passTorii: 'images/stage3_prop_pass_torii.png?v=20260816_torii1',
                 mountainSign: 'images/stage3_prop_mountain_sign.png?v=20260706_front1',
             },
         },
@@ -5088,6 +5095,10 @@ export class Stage {
             { type: 'mountainSign', worldX: 5700, height: 126, y: 4, alpha: 1 },
             { type: 'jizoLarge', worldX: 6550, height: STAGE3_JIZO_HEIGHT, y: 4, alpha: 1 },
             { type: 'woodFence', worldX: 7350, height: 82, y: 4, alpha: 1 },
+            // 【山道の終わりを告げる一基】。足元が岩場から土の道へ変わる
+            // ちょうどその場所(STAGE3_PLAIN_GROUND_START の帯の中)に据える。
+            // 走ると鳥居をくぐった直後に道が開ける。
+            { type: 'passTorii', worldX: STAGE3_PASS_TORII_WORLD_X, height: 186, y: 4, alpha: 1 },
             { type: 'stoneLantern', worldX: 9860, height: 96, y: 3, alpha: 1 }
         ];
     }
@@ -5101,6 +5112,7 @@ export class Stage {
             dosojin: 628 / 760,
             jizoLarge: 276 / 760,
             mountainSign: 393 / 760,
+            passTorii: 682 / 640,
             signpost: 429 / 760,
             stoneLantern: 348 / 760,
             woodFence: 760 / 418
