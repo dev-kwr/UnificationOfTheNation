@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817f';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817f';
-import { createEnemy } from './enemy.js?v=screen-safe-20260817f';
-import { createBoss } from './boss.js?v=screen-safe-20260817f';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260817f';
-import { audio } from './audio.js?v=screen-safe-20260817f';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817f';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817g';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817g';
+import { createEnemy } from './enemy.js?v=screen-safe-20260817g';
+import { createBoss } from './boss.js?v=screen-safe-20260817g';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260817g';
+import { audio } from './audio.js?v=screen-safe-20260817g';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817g';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260817f';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817f';
+} from './stage6Grapple.js?v=screen-safe-20260817g';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817g';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817f';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817g';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -43,6 +43,9 @@ const STAGE3_DOSOJIN_HEIGHT = 84;
 // START から BLEND ぶんかけて入れ替わり、以降は完全に平地の道。
 const STAGE3_PLAIN_GROUND_START = 0.72;
 const STAGE3_PLAIN_GROUND_BLEND = 0.05;
+
+// 道中の山場(中ボス)を出す進行度。半ばを少し過ぎたあたり。
+const MID_BOSS_PROGRESS_RATIO = 0.55;
 
 // 峠の出口の石鳥居を据えるワールドx。足元が入れ替わる帯の【入口側】に置き、
 // くぐった直後から道が開けるようにする(Stage3の maxProgress=12000)。
@@ -70,6 +73,9 @@ const STAGE_IMAGE_SOURCES = {
             stage1BambooMidLayerImage: 'images/stage1_bamboo_mid_layer_v2.png?v=20260712_opaque1',
             stage1BambooFrontLayerImage: 'images/stage1_bamboo_front_layer.png?v=20260712_opaque1',
             stage1BambooRootScreenImage: 'images/stage1_bamboo_root_screen.png?v=20260707_root1',
+            // 竹林を抜けた先(=ボス部屋)に見える丘陵。次のステージ(街道)と同じ絵を
+            // 使う。同一URLなのでキャッシュも stage2 と共有される。
+            stage2HillImage: 'images/stage2_hills_far.png?v=20260812_hills1',
             stage1GroundToKaidoImage: 'images/stage1_ground_to_kaido.png?v=20260710_edge4',
         },
     },
@@ -427,7 +433,10 @@ export class Stage {
         this.bossSpawned = false;
         this.bossDefeated = false;
         this._bossDeathMobsCleared = false;
-        this.midBossSpawned = true; // 中ボスは出現させない
+        // 道中の山場(中ボス)。ここを true 固定にしていたので誰も出てこず、
+        // 走り抜けると最初の顔ぶれが続くだけだった(実機フィードバック 2026-08-17)。
+        // 出す判定は updateMidBossSpawn。寄り道ステージは対象外。
+        this.midBossSpawned = false;
         // 撃破の余韻。ボスの死亡演出(deathDuration=1250ms)が終わった【後】から数える。
         // ここを長くすると「ボスが消えて雑魚もいない画面で自機が棒立ち」の空白になる。
         // 死亡演出の1.25秒がすでに十分な間なので、余韻は場が晴れる時間ぶんだけ取る
@@ -2871,6 +2880,9 @@ export class Stage {
             this.spawnInterval = baseInterval + Math.random() * this.balanceProfile.spawnJitter;
         }
         
+        // 道中の山場(中ボス)。一度だけ。
+        this.updateMidBossSpawn();
+
         // Stage6最上階: 将軍は開戦前から大屋根の右端に立っている(スクロールでフレームイン)。
         // 生成は最上階に入った最初のフレーム=まだ画面右外なので、湧く瞬間は映らない。
         if (this.isStage6Arena() && !this.bossSpawned) {
@@ -3656,6 +3668,53 @@ export class Stage {
         return true;
     }
 
+    /**
+     * これから湧かせる敵の型を1つ抽選する。
+     *
+     * 【進むほど上位の型が混じる】。ステージ固有の重みは固定値なので、
+     * そのまま使うと最後まで同じ顔ぶれになる。足軽の重みの一部を、
+     * そのステージが持っている上位の型へ進行度で移す(上位が0のステージでは
+     * 侍へ寄る＝足軽ばかりにならない)。
+     *
+     * 【湧き直し(リサイクル)もここを通す】。追い抜いた敵を同じ型のまま前へ
+     * 置き直していたので、倒さずに走り続けると最初の顔ぶれが延々ループし、
+     * 枠が埋まって新しい型が湧けなかった(実機フィードバック 2026-08-17)。
+     */
+    rollEnemyType({ bossActive = false } = {}) {
+        const w = this.enemyWeights;
+        const t = Math.max(0, Math.min(1, this.progress / Math.max(1, this.maxProgress)));
+        const upperBase = w.samurai + w.busho + w.ninja;
+        const moved = upperBase > 0 ? w.ashigaru * 0.4 * t : 0;
+        const weights = {
+            ashigaru: w.ashigaru - moved,
+            samurai: w.samurai + moved * (w.samurai / upperBase || 0),
+            busho: w.busho + moved * (w.busho / upperBase || 0),
+            ninja: w.ninja + moved * (w.ninja / upperBase || 0)
+        };
+        const total = weights.ashigaru + weights.samurai + weights.busho + weights.ninja;
+        let roll = Math.random() * (total > 0 ? total : 100);
+        if ((roll -= weights.ashigaru) < 0) return ENEMY_TYPES.ASHIGARU;
+        if ((roll -= weights.samurai) < 0) return ENEMY_TYPES.SAMURAI;
+        if ((roll -= weights.ninja) < 0) return ENEMY_TYPES.NINJA;
+        // ボス戦中は鎧武将を出さない(格が競合する)。忍者へ差し替え。
+        return bossActive ? ENEMY_TYPES.NINJA : ENEMY_TYPES.BUSHO;
+    }
+
+    /**
+     * これから湧かせる位置がボス部屋(最後の1画面)に入ってしまうか。
+     * 【会敵の時点でボスの脇に雑魚を置かない】。プレイヤーに付いてきた敵は
+     * そのままでよいが、最初からボス側に立っている雑魚は名乗りのノイズになる
+     * (実機フィードバック 2026-08-17)。開戦後の増援は従来どおり。
+     */
+    isBeforeBossRoomEncounter(x) {
+        if (this.sideKind || this.bossSpawned) return false;
+        if (!Number.isFinite(this.maxProgress)) return false;
+        if (this.isStage6Arena && this.isStage6Arena()) return false; // 大屋根は専用処理
+        if (this.stageNumber === 5 && this.currentFloor < this.maxFloor) return false;
+        const bossRoomLeft = Math.max(0, this.maxProgress - CANVAS_WIDTH);
+        return x > bossRoomLeft;
+    }
+
     spawnRecycledEnemyAhead(type) {
         // 前方=進行方向の先。左進行フロアではカメラの左へ出す。
         const leftward = this.stageNumber === 5 && this.floorScrollDirection === -1;
@@ -3667,9 +3726,13 @@ export class Stage {
             && (this.isInStairZone(spawnX) || spawnX < 0 || spawnX > this.maxProgress - 100)) {
             return null;
         }
-        const recycled = this.createGroundedEnemy(type || ENEMY_TYPES.ASHIGARU, spawnX);
+        // ボス部屋には置き直さない(会敵時にボスの脇へ並ばせない)
+        if (this.isBeforeBossRoomEncounter(spawnX)) return null;
+        // 型は現在の進行度で引き直す。同じ顔ぶれのループを断つ。
+        const recycledType = this.rollEnemyType({ bossActive: this.bossSpawned && !this.bossDefeated });
+        const recycled = this.createGroundedEnemy(recycledType, spawnX);
         if (!recycled) return null;
-        if ((type || ENEMY_TYPES.ASHIGARU) === ENEMY_TYPES.NINJA && Math.random() < 0.55) {
+        if (recycledType === ENEMY_TYPES.NINJA && Math.random() < 0.55) {
             this.placeEnemyOnStage4Roof(recycled, spawnX);
         }
         recycled.facingRight = leftward;
@@ -3697,22 +3760,9 @@ export class Stage {
         const spawnCount = Math.min(count, availableSlots);
         
         for (let i = 0; i < spawnCount; i++) {
-            // 出現確率に基づいて敵タイプを選択
-            const roll = Math.random() * 100;
-            let type = ENEMY_TYPES.ASHIGARU;
-            let cumulative = 0;
-            
-            if (roll < (cumulative += this.enemyWeights.ashigaru)) {
-                type = ENEMY_TYPES.ASHIGARU;
-            } else if (roll < (cumulative += this.enemyWeights.samurai)) {
-                type = ENEMY_TYPES.SAMURAI;
-            } else if (roll < (cumulative += this.enemyWeights.ninja)) {
-                type = ENEMY_TYPES.NINJA;
-            } else {
-                // ボス戦中はBUSHOの代わりにNINJAを出す
-                type = bossActive ? ENEMY_TYPES.NINJA : ENEMY_TYPES.BUSHO;
-            }
-            
+            // 出現確率に基づいて敵タイプを選択(進行度で上位の型が混じる)
+            let type = this.rollEnemyType({ bossActive });
+
             // 画面外（右側）から出現
             const variance = i * 40; 
             
@@ -3761,6 +3811,11 @@ export class Stage {
                 continue;
             }
 
+            // 会敵前にボス部屋の中へは湧かせない(ボスの脇に雑魚を並べない)
+            if (this.isBeforeBossRoomEncounter(x)) {
+                continue;
+            }
+
             // Stage 6: 大屋根の上(四巡目)に鎧武将は登ってこない。忍者に差し替え
             if (this.stageNumber === 6 && x >= this.maxProgress * 0.75 && type === ENEMY_TYPES.BUSHO) {
                 type = ENEMY_TYPES.NINJA;
@@ -3781,13 +3836,48 @@ export class Stage {
         }
     }
     
+    /**
+     * 中ボスの格。そのステージに【居てもおかしくない一番上の型】を使う。
+     * Stage1(竹林)に鎧武将が単騎で立つのは早すぎるので、侍を厚くした個体にする。
+     */
+    getMidBossType() {
+        const w = this.enemyWeights;
+        if (w.busho > 0) return ENEMY_TYPES.BUSHO;
+        if (w.ninja > 0) return ENEMY_TYPES.NINJA;
+        return ENEMY_TYPES.SAMURAI;
+    }
+
     spawnMidBoss() {
         const x = this.progress + CANVAS_WIDTH + 50;
-        const midBoss = this.createGroundedEnemy(ENEMY_TYPES.BUSHO, x);
+        const midBoss = this.createGroundedEnemy(this.getMidBossType(), x);
         if (!midBoss) return;
         midBoss.hp = Math.round(midBoss.hp * 1.38);
         midBoss.maxHp = Math.round(midBoss.maxHp * 1.38);
+        midBoss.isMidBoss = true;
         this.enemies.push(midBoss);
+    }
+
+    /**
+     * 道中の山場として中ボス(鎧武将・HP1.38倍)を一度だけ出す。
+     * 【これまで spawnMidBoss は定義だけで誰も呼んでいなかった】ので、
+     * 走り抜けても山場が来ず、最初の顔ぶれが続くだけだった
+     * (実機フィードバック 2026-08-17)。
+     * 出す場所は道半ば(55%)。ボス部屋・階段・大屋根は避ける。
+     */
+    updateMidBossSpawn() {
+        if (this.midBossSpawned || this.sideKind) return;
+        if (this.bossSpawned) return;
+        if (this.isStage6Arena && this.isStage6Arena()) return;
+        if (!Number.isFinite(this.maxProgress) || this.maxProgress <= 0) return;
+        if (this.progress < this.maxProgress * MID_BOSS_PROGRESS_RATIO) return;
+
+        const x = this.progress + CANVAS_WIDTH + 50;
+        if (this.isBeforeBossRoomEncounter(x)) return;
+        if (this.stageNumber === 5 && (this.isInStairZone(x) || x > this.maxProgress - 100)) return;
+        if (this.isInStage6CornerBand(x)) return;
+
+        this.spawnMidBoss();
+        this.midBossSpawned = true;
     }
 
     spawnObstacle() {
@@ -4651,7 +4741,7 @@ export class Stage {
                 this.renderBackgroundLayer(ctx, currentPalette.near, 0.7, 1.0, 20);
             }
         } else if (isBambooForest) {
-            this.renderStage1FixedRoadMountains(ctx);
+            this.renderStage1FixedRoadMountains(ctx, currentPalette);
         }
         
         // ステージ固有の背景要素
@@ -4742,7 +4832,7 @@ export class Stage {
         return true;
     }
 
-    renderStage1FixedRoadMountains(ctx) {
+    renderStage1FixedRoadMountains(ctx, currentPalette = null) {
         const cameraX = Math.floor(this.progress);
         const startX = this.getStage1BambooTreeLineX() - cameraX;
         if (startX >= CANVAS_WIDTH) return false;
@@ -4753,6 +4843,34 @@ export class Stage {
         ctx.clip();
         ctx.translate(startX, 0);
 
+        // 【竹林の先は次のステージ(街道)の丘陵】。Canvasの3層で描いた丘は
+        // のっぺりした渓谷に見えていたので、stage2 と同じ生成画像に置き換える
+        // (実機フィードバック 2026-08-17)。色は街道の序盤へ寄せる。
+        const hills = this.stage2HillImage;
+        if (hills?.complete && hills.naturalWidth > 0 && hills.naturalHeight > 0) {
+            const drawH = 198;                 // stage2 の遠景帯と同じ高さ
+            const w = Math.round(drawH * (hills.naturalWidth / hills.naturalHeight));
+            if (w > 0) {
+                // 色は stage2 と同じ式で【今の空】へ寄せる。素の絵のままだと
+                // 昼の青緑が夕闇の空から浮く。
+                const horizonSky = (currentPalette?.sky && currentPalette.sky[1]) || currentPalette?.far || '#8398a8';
+                const tone = currentPalette
+                    ? this.interpolateColor(currentPalette.mid, horizonSky, 0.34)
+                    : '#6f8496';
+                const tinted = this.getStage3MountainTinted(hills, tone);
+                const y = this.groundY - drawH;
+                const scroll = this.progress * 0.18;   // stage2 と同じパララックス
+                const offset = ((scroll % w) + w) % w;
+                const width = CANVAS_WIDTH - startX;
+                for (let x = -offset; x < width; x += w) {
+                    ctx.drawImage(tinted, Math.round(x), y, w + 1, drawH);
+                }
+                ctx.restore();
+                return true;
+            }
+        }
+
+        // 画像が来るまでの間だけ、従来のCanvas3層で待つ
         const stage2Start = { far: '#607182', mid: '#728595', near: '#8398a8' };
         const fixedStage2Options = { progress: 0, noiseStageNumber: 2 };
         this.renderBackgroundLayer(ctx, stage2Start.far, 0.2, 0.7, 100, fixedStage2Options);
