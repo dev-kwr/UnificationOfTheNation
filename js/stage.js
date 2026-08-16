@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817k';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817k';
-import { createEnemy } from './enemy.js?v=screen-safe-20260817k';
-import { createBoss } from './boss.js?v=screen-safe-20260817k';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260817k';
-import { audio } from './audio.js?v=screen-safe-20260817k';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817k';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817n';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817n';
+import { createEnemy } from './enemy.js?v=screen-safe-20260817n';
+import { createBoss } from './boss.js?v=screen-safe-20260817n';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260817n';
+import { audio } from './audio.js?v=screen-safe-20260817n';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817n';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260817k';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817k';
+} from './stage6Grapple.js?v=screen-safe-20260817n';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817n';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817k';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817n';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -54,6 +54,10 @@ const STAGE3_PASS_TORII_WORLD_X = Math.round(12000 * STAGE3_PLAIN_GROUND_START) 
 // 鳥居の前に大岩を出さない幅。鳥居は幅約198pxなので、その手前に岩が
 // 立たない余地(柱に岩が被らない)を含めて空ける。
 const STAGE3_PASS_TORII_ROCK_CLEAR = 260;
+
+// 道端の添景を、ボス部屋のフレームからどれだけ手前で終えるか。
+// 反復側の「場面」は2つ一組で最大約300px幅なので、それを丸ごと外に出す。
+const STAGE3_PROP_BOSS_ROOM_CLEAR = 320;
 
 // ============================================
 // ステージ背景アセットの単一ソース
@@ -5573,7 +5577,12 @@ export class Stage {
         const scroll = this.progress;
         const start = Math.floor((scroll - 900) / span);
         const end = Math.ceil((scroll + CANVAS_WIDTH + 900) / span);
-        const finalClearWorldX = Math.max(0, this.maxProgress - CANVAS_WIDTH + 360);
+        // 【ボス部屋のフレームより左で終える】。以前は +360 でボス部屋の中まで
+        // 許していたので、石仏や灯籠が画面左端に半分だけ覗いていた
+        // (実機フィードバック 2026-08-17)。組の幅ぶん(最大約300px)も引いて、
+        // ボス部屋の絵には道端の小物を一切入れない。
+        const finalClearWorldX = Math.max(0,
+            this.maxProgress - CANVAS_WIDTH - STAGE3_PROP_BOSS_ROOM_CLEAR);
         // 【同じ絵は近くに二つ置かない】。定点の地蔵のすぐ横に反復側の地蔵が
         // 立って「同じ石仏が並ぶ」絵になっていた(実機フィードバック 2026-08-16)。
         // 同種どうしはこの距離まで離す。
