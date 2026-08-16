@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817v';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817v';
-import { createEnemy } from './enemy.js?v=screen-safe-20260817v';
-import { createBoss } from './boss.js?v=screen-safe-20260817v';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260817v';
-import { audio } from './audio.js?v=screen-safe-20260817v';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817v';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817w';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817w';
+import { createEnemy } from './enemy.js?v=screen-safe-20260817w';
+import { createBoss } from './boss.js?v=screen-safe-20260817w';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260817w';
+import { audio } from './audio.js?v=screen-safe-20260817w';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817w';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260817v';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817v';
+} from './stage6Grapple.js?v=screen-safe-20260817w';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817w';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817v';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817w';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -514,6 +514,9 @@ export class Stage {
             height: 0,
             isGrounded: false
         };
+        // ボスの湧きを「プレイヤーの到着」で門番するワールドX(game.js が毎フレーム渡す)。
+        // 自動スクロールのステージだけ有限値になる。null なら門番なし(従来どおり)。
+        this.bossSpawnGateX = null;
         this.bambooFallingLeaves = [];
         this.bambooLeafSpawnTimer = 0;
         // 場(遠景の沈み込み・足元スポット・星の退場)が開くまでの尺。ボスが湧いた瞬間から。
@@ -2936,6 +2939,13 @@ export class Stage {
         if (this.stageNumber === 5) {
             // Stage 5 の場合は最終フロアのみ
             canSpawnBoss = canSpawnBoss && (this.currentFloor >= this.maxFloor);
+        }
+
+        // 到着の門番。自動スクロールでカメラだけ先に着くステージ(Stage3)で、
+        // game.js が「歩行上限のワールドX」を渡してくる。プレイヤーがそこに
+        // 立つまで湧かせない = 他ステージとまったく同じ会敵の姿勢から始める。
+        if (Number.isFinite(this.bossSpawnGateX)) {
+            canSpawnBoss = canSpawnBoss && (this.playerProbe.x >= this.bossSpawnGateX - 1);
         }
 
         if (canSpawnBoss && !this.bossSpawned) {
