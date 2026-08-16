@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817j';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817j';
-import { createEnemy } from './enemy.js?v=screen-safe-20260817j';
-import { createBoss } from './boss.js?v=screen-safe-20260817j';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260817j';
-import { audio } from './audio.js?v=screen-safe-20260817j';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817j';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817k';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817k';
+import { createEnemy } from './enemy.js?v=screen-safe-20260817k';
+import { createBoss } from './boss.js?v=screen-safe-20260817k';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260817k';
+import { audio } from './audio.js?v=screen-safe-20260817k';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817k';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260817j';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817j';
+} from './stage6Grapple.js?v=screen-safe-20260817k';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817k';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817j';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817k';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -229,13 +229,12 @@ const OBSTACLE_CHANCE_BOOST = 0.8;
 // Stage1地面タイルの描画幅1206pxに合わせ、worldX=9648で位相0から接続する。
 const STAGE1_GROUND_TRANSITION_LENGTH = 2352;
 const STAGE1_BAMBOO_TREE_LINE_OFFSET = 1020;
-// 竹林の先に見える丘陵(街道の遠景)の【立ち上がり】。
-// 帯を切り出すのではなく、左端を地平の下に沈めておいて持ち上げる。
-// ANCHOR は遠景(パララックス0.18)の座標系での立ち上がり開始位置で、
-//   立ち上がり開始の画面x = ANCHOR - progress*0.18
-// 1400/520 は「ボス部屋(progress 10720)で画面全体が満ちる」ように選んだ値。
-const STAGE1_HILLS_RISE_ANCHOR = 1400;
-const STAGE1_HILLS_RISE_PX = 520;
+// 竹林の先に見える丘陵(街道の遠景)。【終盤に置いた固定背景】で、
+// スクロールとともに画面右からフレームインする(ワールド配置・パララックス1.0)。
+// 竹林との重なりは樹列の手前 OVERLAP だけに抑える。
+// 左端は地平の下に沈めておき RISE かけて持ち上げるので、切り口が出ない。
+const STAGE1_HILLS_OVERLAP_BAMBOO = 200;
+const STAGE1_HILLS_RISE_PX = 480;
 const STAGE1_FENCE_END_OFFSET = 12;
 const STAGE1_BOSS_SUN_HOUR = 8.25;
 
@@ -4859,10 +4858,13 @@ export class Stage {
      * 「背景が突然切り替わる」ように見えた。竹の裏へ隠しても、切り口が
      * 通り過ぎるときに結局「急に出てくる」(実機フィードバック 2026-08-17)。
      *
-     * そこで帯そのものに形を持たせる: 左端は地平の下に沈めておき、
-     * STAGE1_HILLS_RISE_PX かけて持ち上げる。左から順に低い丘が顔を出し、
-     * 進むほど高くなって竹林を抜けたところで満ちる。切り口が存在しないので
-     * どこで見ても「そういう地形」に見える。手法は Stage3 の山脈の終端
+     * 【終盤に置いた固定背景として、スクロールでフレームインさせる】。
+     * パララックスで薄く現れる出し方より、ワールドに据えた背景が画面右から
+     * 入ってくる方が「そこに在る地形」として読める(指定 2026-08-17)。
+     * 竹林との重なりは樹列の手前 STAGE1_HILLS_OVERLAP_BAMBOO だけ。
+     *
+     * 左端は地平の下に沈めておき STAGE1_HILLS_RISE_PX かけて持ち上げるので、
+     * 入ってくる時も切り口(縦の端)が出ない。手法は Stage3 の山脈の終端
      * (地平へ沈めて消す)と同じで、向きが逆なだけ。
      */
     renderStage1FixedRoadMountains(ctx, currentPalette = null) {
@@ -4875,11 +4877,9 @@ export class Stage {
         const w = Math.round(drawH * (hills.naturalWidth / hills.naturalHeight));
         if (w <= 0) return this.renderStage1FixedRoadMountainsFallback(ctx);
 
-        const parallax = 0.18;                 // stage2 の遠景と同じ
-        const scroll = this.progress * parallax;
-        // 帯の左端(=丘が地平から立ち上がり始める所)。遠景と同じ速さで動くので、
-        // 「立ち上がりの場所」も景色として一緒に流れる。
-        const riseStart = STAGE1_HILLS_RISE_ANCHOR - scroll;
+        // ワールドに据える(パララックス1.0)。ラストオブジェクトの作法と同じ。
+        const riseStartWorld = this.getStage1BambooTreeLineX() - STAGE1_HILLS_OVERLAP_BAMBOO;
+        const riseStart = riseStartWorld - this.progress;
         const riseEnd = riseStart + STAGE1_HILLS_RISE_PX;
         if (riseStart >= CANVAS_WIDTH) return false;   // まだ画面に入っていない
 
@@ -4890,9 +4890,9 @@ export class Stage {
             : '#6f8496';
         const tinted = this.getStage3MountainTinted(hills, tone);
         const y = this.groundY - drawH;
-        const offset = ((scroll % w) + w) % w;
+        // タイルは背景の左端から右へ。ワールドに固定なので絵が滑らない。
         const drawTiles = () => {
-            for (let x = -offset; x < CANVAS_WIDTH; x += w) {
+            for (let x = riseStart; x < CANVAS_WIDTH; x += w) {
                 ctx.drawImage(tinted, this.snapToDevicePixel(ctx, x), y, w + 1, drawH);
             }
         };
