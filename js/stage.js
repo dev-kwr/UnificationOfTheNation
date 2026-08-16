@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260816v';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260816v';
-import { createEnemy } from './enemy.js?v=screen-safe-20260816v';
-import { createBoss } from './boss.js?v=screen-safe-20260816v';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260816v';
-import { audio } from './audio.js?v=screen-safe-20260816v';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260816v';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817b';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817b';
+import { createEnemy } from './enemy.js?v=screen-safe-20260817b';
+import { createBoss } from './boss.js?v=screen-safe-20260817b';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260817b';
+import { audio } from './audio.js?v=screen-safe-20260817b';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817b';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260816v';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260816v';
+} from './stage6Grapple.js?v=screen-safe-20260817b';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817b';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260816v';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817b';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -29,11 +29,13 @@ import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260816v';
  */
 const BG_PROP_FOOT_DEPTH = 12;
 
-// 【Stage3の地蔵は1サイズだけ】。同じ石仏が大小で道端に並ぶと、置き物を
-// 使い回しているのが見えてしまう(実機フィードバック 2026-08-16)。定点の
-// 添景も反復側も同じ高さで置き、反復側のゆらぎ(±8%)も掛けない。
-// 80px ≒ 台座込みで人の腰より少し上＝路傍の地蔵の実寸。
-const STAGE3_JIZO_HEIGHT = 80;
+// 【Stage3の石仏は双体道祖神の一種類だけ・1サイズだけ】。
+// 大小2種類が道端に並ぶと置き物を使い回しているのが見えてしまい、しかも
+// 赤い前掛けの地蔵は stage2 の道端にも立っていて重複していた
+// (実機フィードバック 2026-08-16)。stage3 は双体道祖神に一本化し、
+// 定点の添景も反復側も同じ高さで置く(反復側のゆらぎ±8%も掛けない)。
+// 84px ≒ 台座込みで人の腰ほど＝路傍の石仏の実寸。
+const STAGE3_DOSOJIN_HEIGHT = 84;
 
 // Stage3 の足元が「山道の岩場」から「開けた土の道」へ変わる位置(maxProgress比)。
 // 遠景では山脈が尽きて城下町が見えているのに、走る道だけ岩場のままだと
@@ -108,7 +110,6 @@ const STAGE_IMAGE_SOURCES = {
                 signpost: 'images/stage3_prop_signpost.png?v=20260706_front1',
                 woodFence: 'images/stage3_prop_weathered_wood_fence.png?v=20260706_front1',
                 stoneLantern: 'images/stage3_prop_stone_lantern.png?v=20260706_front1',
-                jizoLarge: 'images/stage3_prop_jizo_large.png?v=20260706_front1',
                 // 峠の出口に立つ石の鳥居(足元に小さな祠)。山道の終わりを告げる
                 // 一基だけの目印なので、反復側の表には入れない。
                 passTorii: 'images/stage3_prop_pass_torii.png?v=20260816_torii1',
@@ -4939,9 +4940,21 @@ export class Stage {
         // 空と混ざって稜線が欠ける(2026-08-15)。どちらも「継ぎ目がある」ことが
         // 原因なので、絵は【1枚のまま】にして、世界に固定した傾きで帯ごと
         // 下げ、地平の下へ沈めて消す。位置の跳びも半透明も無く継ぎ目が存在しない。
+        // 【画面xを実機のデバイス画素の境界へ吸着させる】。論理座標(1280基準)で
+        // 整数に丸めても、実機は 0.44 倍などの端数スケールで描くので、境目が
+        // デバイス画素の【途中】に落ちる。すると隣り合う二つの塗りが両方とも
+        // 半端な被覆になり、合成しても 1 に届かず、背景の空が細い縦線として
+        // 抜ける(実機フィードバック 2026-08-16。実測で境目 dev431.49 に一致)。
+        // 【注意】シアー(ctx.transform)は行列の a と e を変えないので、
+        // 基準の a/e で吸着させれば区間の中でもそのまま使える。
+        const baseTf = ctx.getTransform ? ctx.getTransform() : null;
+        const devA = baseTf && Math.abs(baseTf.a) > 1e-6 ? baseTf.a : 1;
+        const devE = baseTf ? baseTf.e : 0;
+        const snapX = (lx) => (Math.round(devA * lx + devE) - devE) / devA;
+
         const drawTiles = () => {
             for (let x = -offset; x < CANVAS_WIDTH; x += w) {
-                ctx.drawImage(tinted, Math.round(x), y, w + 1, drawH);
+                ctx.drawImage(tinted, snapX(x), y, w + 1, drawH);
             }
         };
 
@@ -4956,12 +4969,11 @@ export class Stage {
             const depthAt = (sx) =>
                 SINK_DEPTH * this.smoothstep(0, 1, (sx - sinkStart) / SINK_LEN);
 
-            // 区間の境目は【整数の画面x】で持つ。小数のままクリップすると
-            // 端がアンチエイリアスされ、隣の区間との間に半画素の隙間ができて
-            // 空の色が縦線として抜ける(実機フィードバック 2026-08-16)。
+            // 区間の境目はデバイス画素の境界へ吸着させる(snapX)。隣り合う
+            // 区間が同じ値を使うので、画素を割らずにぴたりと接する。
             const bounds = [];
             for (let i = 0; i <= SEG; i++) {
-                bounds.push(Math.round(sinkStart + SINK_LEN * (i / SEG)));
+                bounds.push(snapX(sinkStart + SINK_LEN * (i / SEG)));
             }
 
             // 1) 沈む手前: そのまま敷く。右端は区間側と同じ整数で、さらに
@@ -5087,19 +5099,32 @@ export class Stage {
      * 前後の散らしで、数値が大きいほど手前に立つ。
      */
     getStage3RoadsidePropPlan() {
+        // 【単品を等間隔に撒かない】。同じ距離で1つずつ置くと、道の風景ではなく
+        // 置き物を並べたように見える(実機フィードバック 2026-08-16)。
+        // 2〜3個で意味のある「場面」を作り、場面と場面の間はしっかり空ける。
         return [
+            // 登り口: 崖側の柵、その先に道を照らす灯籠
             { type: 'woodFence', worldX: 980,  height: 92,  y: 3, alpha: 1 },
-            { type: 'stoneLantern', worldX: 1480, height: 110, y: 2, alpha: 1 },
+            { type: 'stoneLantern', worldX: 1180, height: 106, y: 2, alpha: 1 },
+            // 道の分かれ: 道標と、谷側を守る柵
             { type: 'signpost', worldX: 2660, height: 112, y: 4, alpha: 1 },
-            { type: 'dosojin', worldX: 4210, height: 70,  y: 4, alpha: 1 },
-            { type: 'mountainSign', worldX: 5700, height: 126, y: 4, alpha: 1 },
-            { type: 'jizoLarge', worldX: 6550, height: STAGE3_JIZO_HEIGHT, y: 4, alpha: 1 },
-            { type: 'woodFence', worldX: 7350, height: 82, y: 4, alpha: 1 },
+            { type: 'woodFence', worldX: 2830, height: 84, y: 3, alpha: 1 },
+            // 峠の祠: 双体道祖神に灯籠が寄り添う小さな祈りの場
+            { type: 'dosojin', worldX: 4210, height: STAGE3_DOSOJIN_HEIGHT, y: 4, alpha: 1 },
+            { type: 'stoneLantern', worldX: 4360, height: 92, y: 3, alpha: 1 },
+            // 峠の頂: 山の道標だけを単独で立て、ここが頂だと分かる間を取る
+            // (clearance = 反復側の場面をこの距離まで寄せない)
+            { type: 'mountainSign', worldX: 5700, height: 126, y: 4, alpha: 1, clearance: 460 },
+            // 下り: 石仏と柵
+            { type: 'dosojin', worldX: 7350, height: STAGE3_DOSOJIN_HEIGHT, y: 4, alpha: 1 },
+            { type: 'woodFence', worldX: 7500, height: 82, y: 3, alpha: 1 },
             // 【山道の終わりを告げる一基】。足元が岩場から土の道へ変わる
             // ちょうどその場所(STAGE3_PLAIN_GROUND_START の帯の中)に据える。
-            // 走ると鳥居をくぐった直後に道が開ける。
-            { type: 'passTorii', worldX: STAGE3_PASS_TORII_WORLD_X, height: 186, y: 4, alpha: 1 },
-            { type: 'stoneLantern', worldX: 9860, height: 96, y: 3, alpha: 1 }
+            // 走ると鳥居をくぐった直後に道が開ける。前後は空けて主役にする。
+            { type: 'passTorii', worldX: STAGE3_PASS_TORII_WORLD_X, height: 186, y: 4, alpha: 1, clearance: 560 },
+            // 里の入口: 灯籠と柵
+            { type: 'stoneLantern', worldX: 9860, height: 96, y: 3, alpha: 1 },
+            { type: 'woodFence', worldX: 10030, height: 80, y: 3, alpha: 1 }
         ];
     }
 
@@ -5110,7 +5135,6 @@ export class Stage {
         }
         const fallbackAspect = {
             dosojin: 628 / 760,
-            jizoLarge: 276 / 760,
             mountainSign: 393 / 760,
             passTorii: 682 / 640,
             signpost: 429 / 760,
@@ -5306,21 +5330,26 @@ export class Stage {
         const images = this.stage3PropImages;
         if (!images) return;
 
+        // 【単品を等間隔に撒かない】。同じ距離で1つずつ現れると、道の風景ではなく
+        // 置き物を撒いたように見える(実機フィードバック 2026-08-16)。
+        // 2つ一組の「場面」で置き、組と組の間は空ける(nullの枠がその間)。
         // alpha は不透明。遠さは色調フィルタで出す(半透明にすると空が透けて幽霊になる)
         const plan = [
-            { type: 'woodFence', h: 68, alpha: 1, xBias: -34 },
+            // 崖側に柵が続く
+            [{ type: 'woodFence', h: 68, dx: -34 }, { type: 'woodFence', h: 62, dx: 118 }],
             null,
-            { type: 'woodFence', h: 72, alpha: 1, xBias: 28 },
-            // 地蔵だけは高さを固定する(fixedSize)。定点の地蔵と同じ大きさで揃える
-            { type: 'jizoLarge', h: STAGE3_JIZO_HEIGHT, alpha: 1, xBias: -18, fixedSize: true },
+            // 道端の祈り。石仏は高さ固定(定点の道祖神と揃える)
+            [{ type: 'dosojin', h: STAGE3_DOSOJIN_HEIGHT, dx: -18, fixedSize: true },
+             { type: 'stoneLantern', h: 82, dx: 116 }],
             null,
-            { type: 'stoneLantern', h: 88, alpha: 1, xBias: 18 },
+            // 灯籠のそばに短い柵
+            [{ type: 'stoneLantern', h: 88, dx: 18 }, { type: 'woodFence', h: 64, dx: 150 }],
             null
         ];
-        const span = 620;
+        const span = 760;
         const scroll = this.progress;
-        const start = Math.floor((scroll - 760) / span);
-        const end = Math.ceil((scroll + CANVAS_WIDTH + 760) / span);
+        const start = Math.floor((scroll - 900) / span);
+        const end = Math.ceil((scroll + CANVAS_WIDTH + 900) / span);
         const finalClearWorldX = Math.max(0, this.maxProgress - CANVAS_WIDTH + 360);
         // 【同じ絵は近くに二つ置かない】。定点の地蔵のすぐ横に反復側の地蔵が
         // 立って「同じ石仏が並ぶ」絵になっていた(実機フィードバック 2026-08-16)。
@@ -5330,7 +5359,10 @@ export class Stage {
             .map((prop) => {
                 const width = prop.height * this.getStage3PropAspect(prop.type);
                 const x = prop.worldX - scroll;
-                return { left: x - 58, right: x + width + 58, type: prop.type };
+                // clearance を持つ定点(峠の道標・出口の鳥居)は、単独で立たせたい
+                // 目印なので前後を広く空ける
+                const pad = prop.clearance ?? 58;
+                return { left: x - pad, right: x + width + pad, type: prop.type };
             })
             .filter((range) => range.right >= -220 - SAME_TYPE_GAP && range.left <= CANVAS_WIDTH + 220 + SAME_TYPE_GAP);
         const overlapsOccupied = (left, right, type) => occupiedRanges.some((range) => {
@@ -5340,35 +5372,44 @@ export class Stage {
 
         for (let i = start; i <= end; i++) {
             const seed = i * 7.91;
-            const item = plan[((i % plan.length) + plan.length) % plan.length];
-            if (!item || this.noise1D(seed + 0.4) < 0.2) continue;
+            const group = plan[((i % plan.length) + plan.length) % plan.length];
+            if (!group || this.noise1D(seed + 0.4) < 0.18) continue;
 
-            const worldX = i * span + this.noiseSigned(seed + 1.6) * 74;
+            const worldX = i * span + this.noiseSigned(seed + 1.6) * 90;
             if (worldX > finalClearWorldX) continue;
-
             const x = worldX - scroll;
-            const image = images[item.type];
-            if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) continue;
 
-            const height = item.fixedSize
-                ? item.h
-                : item.h * (0.92 + this.noise1D(seed + 3.4) * 0.16);
-            const width = height * (image.naturalWidth / image.naturalHeight);
-            const drawX = x + item.xBias;
-            if (drawX + width < -120 || drawX > CANVAS_WIDTH + 120) continue;
-            const occupiedLeft = drawX - 46;
-            const occupiedRight = drawX + width + 46;
-            if (overlapsOccupied(occupiedLeft, occupiedRight, item.type)) continue;
-            occupiedRanges.push({ left: occupiedLeft, right: occupiedRight, type: item.type });
+            // 【組は丸ごと置くか、丸ごと見送るか】。片方だけ置くと組の意味が
+            // 消えて単品を撒いたのと同じになる。まず組全体の寸法を出す。
+            const placed = [];
+            for (const item of group) {
+                const image = images[item.type];
+                if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) continue;
+                const height = item.fixedSize
+                    ? item.h
+                    : item.h * (0.92 + this.noise1D(seed + 3.4 + item.dx) * 0.16);
+                const width = height * (image.naturalWidth / image.naturalHeight);
+                placed.push({ item, image, height, width, drawX: x + item.dx });
+            }
+            if (placed.length < group.length) continue;
+
+            const groupLeft = Math.min(...placed.map((p) => p.drawX)) - 46;
+            const groupRight = Math.max(...placed.map((p) => p.drawX + p.width)) + 46;
+            if (groupRight < -120 || groupLeft > CANVAS_WIDTH + 120) continue;
+            if (placed.some((p) => overlapsOccupied(groupLeft, groupRight, p.item.type))) continue;
+            for (const p of placed) {
+                occupiedRanges.push({ left: groupLeft, right: groupRight, type: p.item.type });
+            }
 
             const footY = this.groundY + BG_PROP_FOOT_DEPTH + 4;
-            ctx.save();
-            ctx.globalAlpha *= item.alpha;
-            this.drawBgPropContactShadow(ctx, drawX + width * 0.5, footY - 2, width);
-            ctx.filter = 'brightness(0.62) sepia(0.22) saturate(0.68) contrast(0.88) hue-rotate(-6deg)';
-            drawImageGraded(ctx, image, drawX, footY - height, width, height);
-            ctx.filter = 'none';
-            ctx.restore();
+            for (const p of placed) {
+                ctx.save();
+                this.drawBgPropContactShadow(ctx, p.drawX + p.width * 0.5, footY - 2, p.width);
+                ctx.filter = 'brightness(0.62) sepia(0.22) saturate(0.68) contrast(0.88) hue-rotate(-6deg)';
+                drawImageGraded(ctx, p.image, p.drawX, footY - p.height, p.width, p.height);
+                ctx.filter = 'none';
+                ctx.restore();
+            }
         }
     }
 
