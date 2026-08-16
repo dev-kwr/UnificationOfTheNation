@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817h';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817h';
-import { createEnemy } from './enemy.js?v=screen-safe-20260817h';
-import { createBoss } from './boss.js?v=screen-safe-20260817h';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260817h';
-import { audio } from './audio.js?v=screen-safe-20260817h';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817h';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817j';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817j';
+import { createEnemy } from './enemy.js?v=screen-safe-20260817j';
+import { createBoss } from './boss.js?v=screen-safe-20260817j';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260817j';
+import { audio } from './audio.js?v=screen-safe-20260817j';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817j';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260817h';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817h';
+} from './stage6Grapple.js?v=screen-safe-20260817j';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817j';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817h';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817j';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -229,9 +229,13 @@ const OBSTACLE_CHANCE_BOOST = 0.8;
 // Stage1地面タイルの描画幅1206pxに合わせ、worldX=9648で位相0から接続する。
 const STAGE1_GROUND_TRANSITION_LENGTH = 2352;
 const STAGE1_BAMBOO_TREE_LINE_OFFSET = 1020;
-// 竹林を抜けた先の丘を、樹列よりどれだけ手前(竹の裏)から敷き始めるか。
-// 端を竹に隠させて「背景が突然切り替わる」縦線を作らないための重なり。
-const STAGE1_HILLS_BEHIND_BAMBOO = 900;
+// 竹林の先に見える丘陵(街道の遠景)の【立ち上がり】。
+// 帯を切り出すのではなく、左端を地平の下に沈めておいて持ち上げる。
+// ANCHOR は遠景(パララックス0.18)の座標系での立ち上がり開始位置で、
+//   立ち上がり開始の画面x = ANCHOR - progress*0.18
+// 1400/520 は「ボス部屋(progress 10720)で画面全体が満ちる」ように選んだ値。
+const STAGE1_HILLS_RISE_ANCHOR = 1400;
+const STAGE1_HILLS_RISE_PX = 520;
 const STAGE1_FENCE_END_OFFSET = 12;
 const STAGE1_BOSS_SUN_HOUR = 8.25;
 
@@ -4847,16 +4851,99 @@ export class Stage {
         return true;
     }
 
+    /**
+     * 竹林の先に見える丘陵(=次のステージ・街道の遠景)。
+     *
+     * 【切り出さない。地平から立ち上がる形にする】。
+     * 樹列でぴたりと切ると、竹の切れ目から丘のまっすぐな左端が空に出て
+     * 「背景が突然切り替わる」ように見えた。竹の裏へ隠しても、切り口が
+     * 通り過ぎるときに結局「急に出てくる」(実機フィードバック 2026-08-17)。
+     *
+     * そこで帯そのものに形を持たせる: 左端は地平の下に沈めておき、
+     * STAGE1_HILLS_RISE_PX かけて持ち上げる。左から順に低い丘が顔を出し、
+     * 進むほど高くなって竹林を抜けたところで満ちる。切り口が存在しないので
+     * どこで見ても「そういう地形」に見える。手法は Stage3 の山脈の終端
+     * (地平へ沈めて消す)と同じで、向きが逆なだけ。
+     */
     renderStage1FixedRoadMountains(ctx, currentPalette = null) {
-        const cameraX = Math.floor(this.progress);
-        const treeLineX = this.getStage1BambooTreeLineX() - cameraX;
-        if (treeLineX >= CANVAS_WIDTH) return false;
+        const hills = this.stage2HillImage;
+        if (!hills?.complete || hills.naturalWidth <= 0 || hills.naturalHeight <= 0) {
+            return this.renderStage1FixedRoadMountainsFallback(ctx);
+        }
 
-        // 【切り出しの縦線を作らない】。樹列でぴたりと切ると、竹の切れ目から上の
-        // 空に丘のまっすぐな左端が出て「背景が突然切り替わる」ように見えた
-        // (実機フィードバック 2026-08-17)。竹の裏側まで敷き延ばし、
-        // 端は不透明な竹に隠させる。竹は後から上に描かれる。
-        const startX = Math.max(0, treeLineX - STAGE1_HILLS_BEHIND_BAMBOO);
+        const drawH = 198;                     // stage2 の遠景帯と同じ高さ
+        const w = Math.round(drawH * (hills.naturalWidth / hills.naturalHeight));
+        if (w <= 0) return this.renderStage1FixedRoadMountainsFallback(ctx);
+
+        const parallax = 0.18;                 // stage2 の遠景と同じ
+        const scroll = this.progress * parallax;
+        // 帯の左端(=丘が地平から立ち上がり始める所)。遠景と同じ速さで動くので、
+        // 「立ち上がりの場所」も景色として一緒に流れる。
+        const riseStart = STAGE1_HILLS_RISE_ANCHOR - scroll;
+        const riseEnd = riseStart + STAGE1_HILLS_RISE_PX;
+        if (riseStart >= CANVAS_WIDTH) return false;   // まだ画面に入っていない
+
+        // 色は stage2 と同じ式で【今の空】へ寄せる(素の絵のままだと昼の青緑が浮く)
+        const horizonSky = (currentPalette?.sky && currentPalette.sky[1]) || currentPalette?.far || '#8398a8';
+        const tone = currentPalette
+            ? this.interpolateColor(currentPalette.mid, horizonSky, 0.34)
+            : '#6f8496';
+        const tinted = this.getStage3MountainTinted(hills, tone);
+        const y = this.groundY - drawH;
+        const offset = ((scroll % w) + w) % w;
+        const drawTiles = () => {
+            for (let x = -offset; x < CANVAS_WIDTH; x += w) {
+                ctx.drawImage(tinted, this.snapToDevicePixel(ctx, x), y, w + 1, drawH);
+            }
+        };
+
+        const SINK = drawH + 24;               // 沈めきる量(帯の上端が地平の下)
+        const depthAt = (sx) => SINK * (1 - this.smoothstep(0, 1, (sx - riseStart) / STAGE1_HILLS_RISE_PX));
+
+        ctx.save();
+
+        // 1) 立ち上がりきった先: そのまま敷く
+        if (riseEnd < CANVAS_WIDTH) {
+            ctx.save();
+            ctx.beginPath();
+            const left = this.snapToDevicePixel(ctx, Math.max(0, riseEnd));
+            ctx.rect(left, -400, CANVAS_WIDTH - left + 2, CANVAS_HEIGHT + 800);
+            ctx.clip();
+            drawTiles();
+            ctx.restore();
+        }
+
+        // 2) 立ち上がり区間: 区間ごとに縦シアーで持ち上げる。
+        //    境目は下げ量が一致するので絵は連続し、変わるのは傾きだけ。
+        const SEG = 5;
+        const bounds = [];
+        for (let i = 0; i <= SEG; i++) {
+            bounds.push(this.snapToDevicePixel(ctx, riseStart + STAGE1_HILLS_RISE_PX * (i / SEG)));
+        }
+        for (let i = 0; i < SEG; i++) {
+            const x0 = bounds[i], x1 = bounds[i + 1];
+            if (x1 <= 0 || x0 >= CANVAS_WIDTH || x1 <= x0) continue;
+            const d0 = depthAt(x0), d1 = depthAt(x1);
+            const slope = (d1 - d0) / (x1 - x0);
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(x0, -400, x1 - x0, CANVAS_HEIGHT + 800);
+            ctx.clip();
+            ctx.transform(1, slope, 0, 1, 0, d0 - slope * x0);
+            drawTiles();
+            ctx.restore();
+        }
+        // riseStart より左には何も描かない(そこでは帯ごと地平の下)
+
+        ctx.restore();
+        return true;
+    }
+
+    /** 丘の画像が来るまでの繋ぎ(従来のCanvas3層)。 */
+    renderStage1FixedRoadMountainsFallback(ctx) {
+        const cameraX = Math.floor(this.progress);
+        const startX = this.getStage1BambooTreeLineX() - cameraX;
+        if (startX >= CANVAS_WIDTH) return false;
 
         ctx.save();
         ctx.beginPath();
@@ -4864,34 +4951,6 @@ export class Stage {
         ctx.clip();
         ctx.translate(startX, 0);
 
-        // 【竹林の先は次のステージ(街道)の丘陵】。Canvasの3層で描いた丘は
-        // のっぺりした渓谷に見えていたので、stage2 と同じ生成画像に置き換える
-        // (実機フィードバック 2026-08-17)。色は街道の序盤へ寄せる。
-        const hills = this.stage2HillImage;
-        if (hills?.complete && hills.naturalWidth > 0 && hills.naturalHeight > 0) {
-            const drawH = 198;                 // stage2 の遠景帯と同じ高さ
-            const w = Math.round(drawH * (hills.naturalWidth / hills.naturalHeight));
-            if (w > 0) {
-                // 色は stage2 と同じ式で【今の空】へ寄せる。素の絵のままだと
-                // 昼の青緑が夕闇の空から浮く。
-                const horizonSky = (currentPalette?.sky && currentPalette.sky[1]) || currentPalette?.far || '#8398a8';
-                const tone = currentPalette
-                    ? this.interpolateColor(currentPalette.mid, horizonSky, 0.34)
-                    : '#6f8496';
-                const tinted = this.getStage3MountainTinted(hills, tone);
-                const y = this.groundY - drawH;
-                const scroll = this.progress * 0.18;   // stage2 と同じパララックス
-                const offset = ((scroll % w) + w) % w;
-                const width = CANVAS_WIDTH - startX;
-                for (let x = -offset; x < width; x += w) {
-                    ctx.drawImage(tinted, Math.round(x), y, w + 1, drawH);
-                }
-                ctx.restore();
-                return true;
-            }
-        }
-
-        // 画像が来るまでの間だけ、従来のCanvas3層で待つ
         const stage2Start = { far: '#607182', mid: '#728595', near: '#8398a8' };
         const fixedStage2Options = { progress: 0, noiseStageNumber: 2 };
         this.renderBackgroundLayer(ctx, stage2Start.far, 0.2, 0.7, 100, fixedStage2Options);
@@ -4900,6 +4959,18 @@ export class Stage {
 
         ctx.restore();
         return true;
+    }
+
+    /**
+     * 画面(論理)x を実機のデバイス画素の境界へ吸着させる。
+     * 端数スケールの実機では、論理の整数がデバイス画素の途中に落ち、
+     * 隣り合う塗りの間に半画素の隙間(=背景が透ける縦線)ができる。
+     */
+    snapToDevicePixel(ctx, lx) {
+        const tf = ctx.getTransform ? ctx.getTransform() : null;
+        const a = tf && Math.abs(tf.a) > 1e-6 ? tf.a : 1;
+        const e = tf ? tf.e : 0;
+        return (Math.round(a * lx + e) - e) / a;
     }
 
     renderBackgroundLayer(ctx, color, parallax, alpha, yOffsetBase = 50, options = {}) {
