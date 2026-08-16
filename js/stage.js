@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260816p';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260816p';
-import { createEnemy } from './enemy.js?v=screen-safe-20260816p';
-import { createBoss } from './boss.js?v=screen-safe-20260816p';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260816p';
-import { audio } from './audio.js?v=screen-safe-20260816p';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260816p';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260816t';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260816t';
+import { createEnemy } from './enemy.js?v=screen-safe-20260816t';
+import { createBoss } from './boss.js?v=screen-safe-20260816t';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260816t';
+import { audio } from './audio.js?v=screen-safe-20260816t';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260816t';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260816p';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260816p';
+} from './stage6Grapple.js?v=screen-safe-20260816t';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260816t';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260816p';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260816t';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -28,6 +28,12 @@ import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260816p';
  * 灯籠や道祖神が役者と同じ面に並んで見えた(実機フィードバック 2026-08-12)。
  */
 const BG_PROP_FOOT_DEPTH = 12;
+
+// 【Stage3の地蔵は1サイズだけ】。同じ石仏が大小で道端に並ぶと、置き物を
+// 使い回しているのが見えてしまう(実機フィードバック 2026-08-16)。定点の
+// 添景も反復側も同じ高さで置き、反復側のゆらぎ(±8%)も掛けない。
+// 80px ≒ 台座込みで人の腰より少し上＝路傍の地蔵の実寸。
+const STAGE3_JIZO_HEIGHT = 80;
 
 // Stage3 の足元が「山道の岩場」から「開けた土の道」へ変わる位置(maxProgress比)。
 // 遠景では山脈が尽きて城下町が見えているのに、走る道だけ岩場のままだと
@@ -5075,7 +5081,7 @@ export class Stage {
             { type: 'signpost', worldX: 2660, height: 112, y: 4, alpha: 1 },
             { type: 'dosojin', worldX: 4210, height: 70,  y: 4, alpha: 1 },
             { type: 'mountainSign', worldX: 5700, height: 126, y: 4, alpha: 1 },
-            { type: 'jizoLarge', worldX: 6550, height: 94, y: 4, alpha: 1 },
+            { type: 'jizoLarge', worldX: 6550, height: STAGE3_JIZO_HEIGHT, y: 4, alpha: 1 },
             { type: 'woodFence', worldX: 7350, height: 82, y: 4, alpha: 1 },
             { type: 'stoneLantern', worldX: 9860, height: 96, y: 3, alpha: 1 }
         ];
@@ -5288,7 +5294,8 @@ export class Stage {
             { type: 'woodFence', h: 68, alpha: 1, xBias: -34 },
             null,
             { type: 'woodFence', h: 72, alpha: 1, xBias: 28 },
-            { type: 'jizoLarge', h: 76, alpha: 1, xBias: -18 },
+            // 地蔵だけは高さを固定する(fixedSize)。定点の地蔵と同じ大きさで揃える
+            { type: 'jizoLarge', h: STAGE3_JIZO_HEIGHT, alpha: 1, xBias: -18, fixedSize: true },
             null,
             { type: 'stoneLantern', h: 88, alpha: 1, xBias: 18 },
             null
@@ -5298,14 +5305,21 @@ export class Stage {
         const start = Math.floor((scroll - 760) / span);
         const end = Math.ceil((scroll + CANVAS_WIDTH + 760) / span);
         const finalClearWorldX = Math.max(0, this.maxProgress - CANVAS_WIDTH + 360);
+        // 【同じ絵は近くに二つ置かない】。定点の地蔵のすぐ横に反復側の地蔵が
+        // 立って「同じ石仏が並ぶ」絵になっていた(実機フィードバック 2026-08-16)。
+        // 同種どうしはこの距離まで離す。
+        const SAME_TYPE_GAP = 420;
         const occupiedRanges = this.getStage3RoadsidePropPlan()
             .map((prop) => {
                 const width = prop.height * this.getStage3PropAspect(prop.type);
                 const x = prop.worldX - scroll;
-                return { left: x - 58, right: x + width + 58 };
+                return { left: x - 58, right: x + width + 58, type: prop.type };
             })
-            .filter((range) => range.right >= -220 && range.left <= CANVAS_WIDTH + 220);
-        const overlapsOccupied = (left, right) => occupiedRanges.some((range) => left < range.right && right > range.left);
+            .filter((range) => range.right >= -220 - SAME_TYPE_GAP && range.left <= CANVAS_WIDTH + 220 + SAME_TYPE_GAP);
+        const overlapsOccupied = (left, right, type) => occupiedRanges.some((range) => {
+            const gap = range.type === type ? SAME_TYPE_GAP : 0;
+            return left - gap < range.right && right + gap > range.left;
+        });
 
         for (let i = start; i <= end; i++) {
             const seed = i * 7.91;
@@ -5319,14 +5333,16 @@ export class Stage {
             const image = images[item.type];
             if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) continue;
 
-            const height = item.h * (0.92 + this.noise1D(seed + 3.4) * 0.16);
+            const height = item.fixedSize
+                ? item.h
+                : item.h * (0.92 + this.noise1D(seed + 3.4) * 0.16);
             const width = height * (image.naturalWidth / image.naturalHeight);
             const drawX = x + item.xBias;
             if (drawX + width < -120 || drawX > CANVAS_WIDTH + 120) continue;
             const occupiedLeft = drawX - 46;
             const occupiedRight = drawX + width + 46;
-            if (overlapsOccupied(occupiedLeft, occupiedRight)) continue;
-            occupiedRanges.push({ left: occupiedLeft, right: occupiedRight });
+            if (overlapsOccupied(occupiedLeft, occupiedRight, item.type)) continue;
+            occupiedRanges.push({ left: occupiedLeft, right: occupiedRight, type: item.type });
 
             const footY = this.groundY + BG_PROP_FOOT_DEPTH + 4;
             ctx.save();
