@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260818c';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260818c';
-import { createEnemy } from './enemy.js?v=screen-safe-20260818c';
-import { createBoss } from './boss.js?v=screen-safe-20260818c';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260818c';
-import { audio } from './audio.js?v=screen-safe-20260818c';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260818c';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260818d';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260818d';
+import { createEnemy } from './enemy.js?v=screen-safe-20260818d';
+import { createBoss } from './boss.js?v=screen-safe-20260818d';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260818d';
+import { audio } from './audio.js?v=screen-safe-20260818d';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260818d';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260818c';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260818c';
+} from './stage6Grapple.js?v=screen-safe-20260818d';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260818d';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260818c';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260818d';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -48,15 +48,21 @@ const STAGE3_DOSOJIN_HEIGHT = 84;
 // ボス部屋の framing は 10720(= maxProgress - CANVAS_WIDTH)。
 //
 // 順番: 山脈が尽きる → 城下町が見えてくる → 足元が土の道へ変わる → ボス部屋。
-// 【変わり目に記念碑を置かない】。鳥居・関所の門・一里塚を順に試したが、
-// 鳥居はマップの小判蔵と紛らわしく、門は「くぐらないのに立っている」のが不自然、
-// 一里塚は「唐突」と、どれも据え物として浮いた(実機フィードバック 2026-08-17〜18)。
-// 山が地平へ沈み、城下町が現れ、足元が岩場から土の道へ変わる —— この3つで
-// 「山を抜けた」は既に語れている。四つ目の説明を足さない。
+// 境目には【昔の関所の崩れた石垣】を置く。低く横に伸びた名残なので、
+// 「ここが境だった」と分かる一方で、くぐる形も入口も持たない。
+//
+// 【立った据え物を置いてはいけない】(実機フィードバック 2026-08-17〜18)。
+//   鳥居     … マップの小判蔵ノードと同じ形で、どちらの入口か紛らわしい
+//   関所の門 … 添景は道の脇(レーンの12px奥)に立つので手前を通り過ぎるだけ。
+//              くぐらないのに立っているのが不自然。しかも名乗りの定位置が右柱の位置
+//   一里塚   … 「唐突」。平坦な土の道と平面的な遠景の中で、そこだけ
+//              濃い緑の描き込みが縦に立って浮いた
+// 置いてよいのは【低い・小さい・横に伸びる・彩度の低い石】まで。道中の
+// 道標・石灯籠・道祖神と同じ密度に収める。
 const STAGE3_BOSS_ROOM_LEFT = 12000 - 1280;      // 10720
 
-// 山道と里の境目のワールドX。ここに物を置くのではなく、【足元が変わる場所】と
-// 【大岩を出すのをやめる場所】をこの1点から導く。
+// 山道と里の境目のワールドX。崩れた石垣を据える位置であり、
+// 【足元が変わる場所】と【大岩を出すのをやめる場所】もこの1点から導く。
 const STAGE3_LANDMARK_WORLD_X = STAGE3_BOSS_ROOM_LEFT + 20;
 
 // 足元が「山道の岩場」から「開けた土の道」へ変わる帯。
@@ -154,6 +160,9 @@ const STAGE_IMAGE_SOURCES = {
                 signpost: 'images/stage3_prop_signpost.png?v=20260706_front1',
                 woodFence: 'images/stage3_prop_weathered_wood_fence.png?v=20260706_front1',
                 stoneLantern: 'images/stage3_prop_stone_lantern.png?v=20260706_front1',
+                // 山道と里の境目の、昔の関所の崩れた石垣。一箇所だけの名残なので
+                // 反復側の表には入れない。
+                ruinedWall: 'images/stage3_prop_ruined_wall.png?v=20260818_wall1',
                 mountainSign: 'images/stage3_prop_mountain_sign.png?v=20260706_front1',
             },
         },
@@ -5504,6 +5513,10 @@ export class Stage {
             // 下り: 石仏と柵
             { type: 'dosojin', worldX: 7350, height: STAGE3_DOSOJIN_HEIGHT, y: 4, alpha: 1 },
             { type: 'woodFence', worldX: 7500, height: 82, y: 3, alpha: 1 },
+            // 【山道と里の境目】。昔の関所の崩れた石垣が、低く横に残っている。
+            // 左が高く右へ崩れていく形なので、走り抜けると「壁が尽きて道が開ける」。
+            // 前後は空けて単独で立たせる(clearance)。
+            { type: 'ruinedWall', worldX: STAGE3_LANDMARK_WORLD_X, height: 76, y: 3, alpha: 1, clearance: 560 },
             // 里の入口: 灯籠と柵
             { type: 'stoneLantern', worldX: 9860, height: 96, y: 3, alpha: 1 },
             { type: 'woodFence', worldX: 10030, height: 80, y: 3, alpha: 1 }
@@ -5518,6 +5531,7 @@ export class Stage {
         const fallbackAspect = {
             dosojin: 628 / 760,
             mountainSign: 393 / 760,
+            ruinedWall: 1209 / 378,
             signpost: 429 / 760,
             stoneLantern: 348 / 760,
             woodFence: 760 / 418

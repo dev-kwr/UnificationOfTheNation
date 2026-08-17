@@ -1,9 +1,9 @@
-import { PLAYER, LANE_OFFSET } from './constants.js?v=screen-safe-20260818c';
+import { PLAYER, LANE_OFFSET } from './constants.js?v=screen-safe-20260818d';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
     SHOGUN_SCALE
-} from './shogunConstants.js?v=screen-safe-20260818c';
+} from './shogunConstants.js?v=screen-safe-20260818d';
 
 /**
  * 将軍を Player ネイティブ（characterType='shogun'）として初期化する薄いセットアップ。

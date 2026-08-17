@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260818c';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260818d';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260818c';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260818d';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260818c';
-import { audio } from './audio.js?v=screen-safe-20260818c';
-import { saveManager } from './save.js?v=screen-safe-20260818c';
+import { input } from './input.js?v=screen-safe-20260818d';
+import { audio } from './audio.js?v=screen-safe-20260818d';
+import { saveManager } from './save.js?v=screen-safe-20260818d';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -2112,13 +2112,19 @@ export function getTitleDebugLayout(entriesCount) {
     // 操作説明はパネル最下部に中央揃えで置く（タイトルの操作説明と同じサイズ感
     // = 12*fontScale。ヘッダに大きめ・左寄せで出していたのを実機で差し戻された）。
     const manualFont = 12 * getFontScale();
+    // タップモードは操作説明(と罫線)を出さない。左半分/右半分で増減という
+    // 説明が要らない程度に自明で、縦が詰まるスマホでは行に回した方が良い
+    // （ユーザー判断 2026-08-18）。PCはキー表記に意味があるので残す。
+    const showManual = !isTouchOverlayMode();
     // 下部の余白は「実寸css」で積む。以前は footerH = manualFont*2 の中に
     // 罫線と説明文を詰めていて、罫線が最終行の真下に貼り付き、説明文の下も
     // 6css程度しか無くてキツキツだった（実機フィードバック 2026-08-17）。
     const dividerGapTop = px(14);   // 最終行と罫線の間
     const dividerGapBottom = px(11); // 罫線と説明文の間
-    const padBottom = px(13);        // 説明文とパネル下端の間
-    const footerH = dividerGapTop + dividerGapBottom + manualFont + padBottom;
+    const padBottom = px(13);        // 説明文(無いときは最終行)とパネル下端の間
+    const footerH = showManual
+        ? dividerGapTop + dividerGapBottom + manualFont + padBottom
+        : padBottom;
     const listH = Math.max(px(40), availH - padTop - footerH);
     const colGap = px(10);
     const fontMax = px(DEBUG_FONT_MAX_CSS);
@@ -2154,6 +2160,8 @@ export function getTitleDebugLayout(entriesCount) {
         rowH, fontPx, cols, rowsPerCol, colW, colGap,
         listStartY: panelY + padTop + rowH * 0.5,
         manualFont,
+        // 操作説明と罫線を描くか（false のとき下2つは使わない＝footerHに席が無い）
+        showManual,
         // 区切り線は最終行の帯の下端から dividerGapTop 空けた位置。
         footerTopY: panelY + panelH - footerH + dividerGapTop,
         // 説明文はパネル下端から padBottom を残して置く。
@@ -2179,15 +2187,31 @@ export function getTitleDebugLayout(entriesCount) {
     };
 }
 
-export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
+/**
+ * t は開閉の遷移量 0..1（0=完全に閉じている / 1=開き切り）。game.js が deltaTime で進める。
+ * 暗幕もパネルも同じ t で薄まるので、閉じ際に幕だけ残らない。動きはパネル中心を軸に
+ * ごく浅く拡げるだけ ―― 位置が大きく動くと、判定(getTitleDebugLayout)と見た目が
+ * 遷移中だけズレて「見えている行と違う行が変わる」ため。
+ */
+export function renderTitleDebugWindow(ctx, entries = [], cursor = 0, t = 1) {
     if (!Array.isArray(entries) || entries.length === 0) return;
+    const e = t >= 1 ? 1 : t <= 0 ? 0 : 1 - Math.pow(1 - t, 3);   // ease-out
+    if (e <= 0.001) return;
     const L = getTitleDebugLayout(entries.length);
     const { panelX, panelY, panelW, panelH, rowH, fontPx } = L;
     const clampedCursor = Math.max(0, Math.min(entries.length - 1, cursor));
 
     ctx.save();
+    ctx.globalAlpha = e;
+    // 暗幕は【等倍のまま】敷く。パネルと一緒に縮めると画面端に幕の無い帯が出る。
     ctx.fillStyle = 'rgba(2, 6, 18, 0.88)';
     ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
+    if (e < 1) {
+        const scale = 0.985 + 0.015 * e;
+        ctx.translate(panelX + panelW / 2, panelY + panelH / 2);
+        ctx.scale(scale, scale);
+        ctx.translate(-(panelX + panelW / 2), -(panelY + panelH / 2));
+    }
 
     const bg = ctx.createLinearGradient(panelX, panelY, panelX, panelY + panelH);
     bg.addColorStop(0, 'rgba(24, 38, 84, 0.96)');
@@ -2229,20 +2253,24 @@ export function renderTitleDebugWindow(ctx, entries = [], cursor = 0) {
     }
 
     // 操作説明（パネル最下部・中央揃え）。タイトルの操作説明と同じサイズ感(12*fontScale)。
-    // タップ端末はキー表記が意味を持たないので出し分ける。
-    const manualText = isTouchOverlayMode()
-        ? 'タップ：左半分で戻す／右半分で進める | 枠外タップ：閉じる'
-        : '↑↓：項目 | ←→：変更 | SPACE：決定 | ESC：閉じる';
-    ctx.strokeStyle = 'rgba(212, 228, 255, 0.15)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(panelX + rowH * 0.75, L.footerTopY);
-    ctx.lineTo(panelX + panelW - rowH * 0.75, L.footerTopY);
-    ctx.stroke();
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-    ctx.font = `${Math.round(L.manualFont)}px "Zen Old Mincho", serif`;
-    fillTextInkCentered(ctx, manualText, panelX + panelW / 2, L.manualCenterY);
+    // タップモードでは出さない（レイアウト側の showManual と対。footerH に席が無い）。
+    if (L.showManual) {
+        ctx.strokeStyle = 'rgba(212, 228, 255, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(panelX + rowH * 0.75, L.footerTopY);
+        ctx.lineTo(panelX + panelW - rowH * 0.75, L.footerTopY);
+        ctx.stroke();
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.font = `${Math.round(L.manualFont)}px "Zen Old Mincho", serif`;
+        fillTextInkCentered(
+            ctx,
+            '↑↓：項目 | ←→：変更 | SPACE：決定 | ESC：閉じる',
+            panelX + panelW / 2,
+            L.manualCenterY
+        );
+    }
 
     ctx.restore();
 }
