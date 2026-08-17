@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260818d';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260818e';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260818d';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260818e';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260818d';
-import { audio } from './audio.js?v=screen-safe-20260818d';
-import { saveManager } from './save.js?v=screen-safe-20260818d';
+import { input } from './input.js?v=screen-safe-20260818e';
+import { audio } from './audio.js?v=screen-safe-20260818e';
+import { saveManager } from './save.js?v=screen-safe-20260818e';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -727,15 +727,27 @@ export function getUpdateModalLayout() {
     };
 }
 
-export function renderUpdateModal(ctx, timeMs = 0) {
+// t は登場の遷移量 0..1。検知は非同期に完了する＝ユーザーの操作と無関係な
+// タイミングで出るので、即座に全画面が暗転すると一番唐突に見える(2026-08-18)。
+export function renderUpdateModal(ctx, timeMs = 0, t = 1) {
     const L = getUpdateModalLayout();
     const c = L.card, b = L.button;
     const pulse = 0.5 + Math.sin(timeMs * 0.004) * 0.5;
+    const e = t >= 1 ? 1 : t <= 0 ? 0 : 1 - Math.pow(1 - t, 3);
+    if (e <= 0.001) return;
 
     ctx.save();
-    // 背面を落として「これを片付けないと進めない」ことを見せる
+    ctx.globalAlpha = e;
+    // 背面を落として「これを片付けないと進めない」ことを見せる。
+    // 幕は等倍のまま敷く（カードと一緒に縮めると画面端に幕の無い帯が出る）。
     ctx.fillStyle = 'rgba(2, 6, 18, 0.78)';
     ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
+    if (e < 1) {
+        const scale = 0.985 + 0.015 * e;
+        ctx.translate(c.x + c.w / 2, c.y + c.h / 2);
+        ctx.scale(scale, scale);
+        ctx.translate(-(c.x + c.w / 2), -(c.y + c.h / 2));
+    }
 
     drawWafuCard(ctx, c.x, c.y, c.w, c.h, { radius: 14, selected: false, pulse: 0, bgAlpha: 0.96 });
 
@@ -1911,7 +1923,7 @@ function getTitleInkTexture() {
 }
 
 // タイトル画面描画
-export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, hasSave = false) {
+export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, hasSave = false, updateModalT = 1) {
     const time = Date.now();
     const t = time * 0.001;
 
@@ -2080,7 +2092,8 @@ export function renderTitleScreen(ctx, currentDifficulty, titleMenuIndex = 0, ha
 
     // 新しいバージョンが配信されていれば中央モーダルで更新を促す（最後に描いて最前面）。
     // PWA はリロード手段が無く、PCでも古いまま遊ばれるのを避けたいので全デバイスで出す。
-    if (isUpdateAvailable()) renderUpdateModal(ctx, time);
+    // 更新モーダルは登場の遷移量を game.js から受ける（閉じ切るまで描く）
+    if (isUpdateAvailable() || updateModalT > 0.001) renderUpdateModal(ctx, time, updateModalT);
 }
 
 // デバッグウィンドウの幾何の単一導出。描画(renderTitleDebugWindow)と
@@ -4069,10 +4082,13 @@ const PAUSE_BUTTON_LABELS = { resume: 'ゲーム再開', map: '地図に戻る',
  * 色・ラベル・膨らみを t で繋ぐ ＝ 押した瞬間にラベルが差し替わらず、
  * 「確認に切り替わった」ことが動きで読める。
  */
-function drawPauseButton(ctx, btn, label, armedLabel, t = 0) {
+function drawPauseButton(ctx, btn, label, armedLabel, t = 0, openE = 1) {
     const e = t <= 0 ? 0 : t >= 1 ? 1 : 1 - Math.pow(1 - t, 3);   // ease-out
-    // 遷移の山でだけ少し膨らませる（両端では等倍に戻る＝解除側でも同じ動き）
-    const pop = 1 + 0.05 * Math.sin(Math.PI * Math.max(0, Math.min(1, t)));
+    // 遷移の山でだけ少し膨らませる（両端では等倍に戻る＝解除側でも同じ動き）。
+    // 開閉の遷移(openE)は各ボタン【自身の中心】を軸に縮める ―― 中心が動かないので
+    // 遷移中に押しても判定(getPauseButtons)とズレない。
+    const pop = (1 + 0.05 * Math.sin(Math.PI * Math.max(0, Math.min(1, t))))
+        * (0.96 + 0.04 * openE);
     const w = btn.w * pop;
     const h = btn.h * pop;
     const x = btn.x - w / 2;
@@ -4108,25 +4124,32 @@ function drawPauseButton(ctx, btn, label, armedLabel, t = 0) {
         ctx.font = `${Math.max(11, Math.round(baseFont * innerW / widest))}px "Zen Old Mincho", serif`;
     }
     const slide = h * 0.55;
+    // 呼び出し側の α(開閉の遷移)に乗せる ―― 代入で上書きすると閉じ際に字だけ残る
+    const baseAlpha = ctx.globalAlpha;
     if (e < 1) {
-        ctx.globalAlpha = 1 - e;
+        ctx.globalAlpha = baseAlpha * (1 - e);
         fillTextInkCentered(ctx, label, btn.x, btn.y - slide * e);
     }
     if (e > 0 && armedLabel) {
-        ctx.globalAlpha = e;
+        ctx.globalAlpha = baseAlpha * e;
         fillTextInkCentered(ctx, armedLabel, btn.x, btn.y + slide * (1 - e));
     }
     ctx.restore();
 }
 
 /**
- * options: { canGoMap, anim }
- *   anim … id ごとの「もう一度〜」への遷移量 0..1（game.js が deltaTime で進める）。
- *          確認状態そのものではなく遷移量を渡すので、押した瞬間の絵は必ず0から始まる。
+ * options: { canGoMap, anim, openT }
+ *   anim  … id ごとの「もう一度〜」への遷移量 0..1（game.js が deltaTime で進める）。
+ *           確認状態そのものではなく遷移量を渡すので、押した瞬間の絵は必ず0から始まる。
+ *   openT … ポーズ自体の開閉の遷移量 0..1。閉じても 0 になるまで呼び続けること。
  */
 export function renderPauseScreen(ctx, options = {}) {
     if (!ctx) return;
+    const openT = options.openT === undefined ? 1 : options.openT;
+    const openE = openT >= 1 ? 1 : openT <= 0 ? 0 : 1 - Math.pow(1 - openT, 3);
+    if (openE <= 0.001) return;
     ctx.save();
+    ctx.globalAlpha = openE;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     // ラベル（PCはクリック表記。確認は「もう一度〜」で通常と長さを揃える）
@@ -4140,7 +4163,8 @@ export function renderPauseScreen(ctx, options = {}) {
             btn,
             PAUSE_BUTTON_LABELS[btn.id],
             armable ? `もう一度${actionWord}` : null,
-            armable ? (anim[btn.id] || 0) : 0
+            armable ? (anim[btn.id] || 0) : 0,
+            openE
         );
     });
     ctx.restore();

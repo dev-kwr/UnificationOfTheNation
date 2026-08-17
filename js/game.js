@@ -2,17 +2,17 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GRAVITY, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260818d';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260818d';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260818d';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260818d';
-import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260818d';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260818d';
-import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260818d';
-import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260818d';
-import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260818d';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260818d';
-import { input } from './input.js?v=screen-safe-20260818d';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GRAVITY, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260818e';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260818e';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260818e';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260818e';
+import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260818e';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260818e';
+import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260818e';
+import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260818e';
+import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260818e';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260818e';
+import { input } from './input.js?v=screen-safe-20260818e';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -61,18 +61,18 @@ const STAGE6_BACKSTEP_VX_MAX = 15;      // 追従補正で出しうる水平速�
    判断してしまう。跳び先はこのぶん先読みして決める。
    連撃の踏み込み量を変えたらここも測り直す(実測手順は memory 参照)。 */
 const STAGE6_ENTRANCE_ADVANCE_PX = 259;
-import { Player } from './player.js?v=screen-safe-20260818d';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260818d';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260818d';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260818d';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseButtons, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260818d';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260818d';
-import { saveManager } from './save.js?v=screen-safe-20260818d';
-import { shop } from './shop.js?v=screen-safe-20260818d';
-import { audio } from './audio.js?v=screen-safe-20260818d';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260818d';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260818d';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260818d';
+import { Player } from './player.js?v=screen-safe-20260818e';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260818e';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260818e';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260818e';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseButtons, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260818e';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260818e';
+import { saveManager } from './save.js?v=screen-safe-20260818e';
+import { shop } from './shop.js?v=screen-safe-20260818e';
+import { audio } from './audio.js?v=screen-safe-20260818e';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260818e';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260818e';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260818e';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -93,6 +93,8 @@ const SCREEN_FADE_SEC = 0.17;
 const PAUSE_ARMED_ANIM_SEC = 0.16;
 // デバッグメニューの開閉の遷移時間(秒)。開く/閉じるで同値。
 const TITLE_DEBUG_ANIM_SEC = 0.14;
+// ポーズUI(下端のボタン列)の開閉の遷移時間(秒)。ESC連打の妨げにならない短さ。
+const PAUSE_OPEN_ANIM_SEC = 0.12;
 // ボス部屋の名乗りの定位置。プレイヤーの右端と名乗り帯の左端の間合い(可視ワールドpx)。
 const BOSS_NAME_STAND_GAP_PX = 28;
 // 定位置で足を止めた後、カメラだけでボス部屋の framing まで詰める寄り(ω と最低速度)。
@@ -147,6 +149,12 @@ class Game {
         this.pauseArmedTimer = 0;
         // 「もう一度〜」への切り替わりを動きで見せるための遷移量(0..1)
         this.pauseArmedAnim = { map: 0, title: 0 };
+        // ポーズ自体の開閉の遷移量(0..1)。解除後も 0 になるまで描き続ける
+        this.pauseAnim = 0;
+        // ポーズ中に「地図に戻る」を出していたか。閉じ際の描画でも同じ顔ぶれを使う
+        // （解除で canPauseReturnToMap が false に落ちるため、latch しないと
+        //   フェードアウト中にボタンが1つ消えて残りが横に飛ぶ）。
+        this.pauseCanGoMap = false;
         this.lastTime = 0;
         this.deltaTime = 0;
         this.useFixedTimestep = USE_FIXED_TIMESTEP;
@@ -261,6 +269,7 @@ class Game {
         this.playerDefeatDuration = 1800;
         this.titleDebugOpen = false;
         this.titleDebugAnim = 0;        // 開閉の遷移量(0..1)。閉じ切るまで描き続けるために保持する
+        this.updateModalAnim = 0;       // 更新モーダルの登場の遷移量(0..1)
         this.titleDebugCursor = 0;
         this.titleDebugApplyOnStart = false;
         this.titleDebugConfig = this.createTitleDebugConfig();
@@ -1239,7 +1248,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260818d').then(module => {
+        import('./weapon.js?v=screen-safe-20260818e').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -1792,6 +1801,9 @@ class Game {
         // 地図⇔ステータスの暗転中は入力を通さない（幕の裏で画面が入れ替わるので、
         // ここで決定が通ると「見えていない画面のボタン」を押したことになる）。
         if (this.updateScreenFade()) return;
+        // ポーズUIの開閉の遷移量。updatePaused では【解除後に呼ばれない】ので、
+        // 状態に依らずここで進める（ここが唯一の書き手）。
+        this.advancePauseAnim();
         switch (this.state) {
             case GAME_STATE.TITLE:
                 this.updateTitle();
@@ -1858,6 +1870,14 @@ class Game {
         // デバッグメニューの開閉の遷移量。閉じた後も 0 になるまで描かせる
         // （ここが唯一の書き手。開いている間の分岐より前で進める）。
         this.advanceTitleDebugAnim();
+        // 更新モーダルの登場。検知は非同期に立つので、フラグを遷移量へ変換する。
+        {
+            const step = this.deltaTime / TITLE_DEBUG_ANIM_SEC;
+            const target = isUpdateAvailable() ? 1 : 0;
+            this.updateModalAnim = this.updateModalAnim < target
+                ? Math.min(target, this.updateModalAnim + step)
+                : Math.max(target, this.updateModalAnim - step);
+        }
         this.titleSaveCheckTimerMs -= this.deltaTime * 1000;
         if (this.titleSaveCheckTimerMs <= 0) {
             this.hasSave = saveManager.hasSave();
@@ -6155,7 +6175,7 @@ class Game {
         if (input.touchJustPressed) {
             const tx = input.lastTouchX;
             const ty = input.lastTouchY;
-            const hit = getPauseButtons({ canGoMap: this.canPauseReturnToMap() }).find(
+            const hit = getPauseButtons({ canGoMap: this.pauseCanGoMap }).find(
                 (b) => Math.abs(tx - b.x) <= b.w / 2 && Math.abs(ty - b.y) <= b.h / 2
             );
             if (hit) {
@@ -6185,6 +6205,18 @@ class Game {
         if (input.isActionJustPressed('PAUSE') || input.isActionJustPressed('DEBUG_TOGGLE')) {
             this.resumeFromPause();
         }
+    }
+
+    /** ポーズUIの開閉の遷移量を進める。開く/閉じるで同じ速さ。 */
+    advancePauseAnim() {
+        const step = this.deltaTime / PAUSE_OPEN_ANIM_SEC;
+        const paused = this.state === GAME_STATE.PAUSED;
+        const target = paused ? 1 : 0;
+        this.pauseAnim = this.pauseAnim < target
+            ? Math.min(target, this.pauseAnim + step)
+            : Math.max(target, this.pauseAnim - step);
+        // ボタンの顔ぶれはポーズ中に決めて閉じ切るまで固定する
+        if (paused) this.pauseCanGoMap = this.canPauseReturnToMap();
     }
 
     /** ポーズ解除。入った画面へ戻す(セレクトからのポーズはセレクトへ)。 */
@@ -6271,10 +6303,16 @@ class Game {
         
         if (!shop.isOpen) {
             if (this.returnToStageClearAfterShop) {
-                this.returnToStageClearAfterShop = false;
-                this.state = GAME_STATE.STAGE_CLEAR;
-                if (this.player) this.player.previewMode = true;
-                this.resetStageClearAutoSubWeaponTimer(true);
+                // 幕間へ戻るのも暗転で切る。shop.render は isOpen で早期returnするので、
+                // 幕が降りている間だけ開いた扱いに戻して絵を残し、底で本当に閉じる。
+                shop.isOpen = true;
+                this.startScreenFade(() => {
+                    shop.close();
+                    this.returnToStageClearAfterShop = false;
+                    this.state = GAME_STATE.STAGE_CLEAR;
+                    if (this.player) this.player.previewMode = true;
+                    this.resetStageClearAutoSubWeaponTimer(true);
+                });
                 return;
             }
             this.currentStageNumber++;
@@ -6944,13 +6982,16 @@ class Game {
             // 忍具切り替え
             this.cycleStageClearWeapon(1);
         } else if (this.stageClearMenuIndex === 1) {
-            // よろず屋
+            // よろず屋。独立画面へ丸ごと差し替わるので暗転を挟む
+            // （幕の裏で入れ替える＝地図⇔ステータスと同じ作法）。
             audio.playSelect();
-            if (this.player) this.player.previewMode = false;
-            shop.open();
-            this.returnToStageClearAfterShop = true;
-            this.state = GAME_STATE.SHOP;
-            audio.playBgm('menu');
+            this.startScreenFade(() => {
+                if (this.player) this.player.previewMode = false;
+                shop.open();
+                this.returnToStageClearAfterShop = true;
+                this.state = GAME_STATE.SHOP;
+                audio.playBgm('menu');
+            });
         }
     }
 
@@ -7083,7 +7124,7 @@ class Game {
 
         switch (this.state) {
             case GAME_STATE.TITLE:
-                renderTitleScreen(this.ctx, this.difficulty, this.titleMenuIndex, this.hasSave);
+                renderTitleScreen(this.ctx, this.difficulty, this.titleMenuIndex, this.hasSave, this.updateModalAnim);
                 // 閉じた瞬間に消さず、遷移量が 0 になるまで描き続ける
                 if (this.titleDebugOpen || this.titleDebugAnim > 0.001) {
                     const entries = this.getTitleDebugEntries().map((entry) => ({
@@ -7112,8 +7153,9 @@ class Game {
                    上に重ねると押せるのに見えないボタンになる(ユーザー指摘 2026-08-17)。 */
                 this.renderCinemaBars();
                 renderPauseScreen(this.ctx, {
-                    canGoMap: this.canPauseReturnToMap(),
-                    anim: this.pauseArmedAnim
+                    canGoMap: this.pauseCanGoMap,
+                    anim: this.pauseArmedAnim,
+                    openT: this.pauseAnim
                 });
                 break;
 
@@ -7226,7 +7268,17 @@ class Game {
                 renderIntro(this.ctx, this.introTimer);
                 break;
         }
-        
+
+        // ポーズを解いた後の余韻。解除した瞬間に消さず、遷移量が 0 になるまで
+        // 再開後の画面の上でボタンを薄れさせる（顔ぶれは pauseCanGoMap で固定）。
+        if (this.state !== GAME_STATE.PAUSED && this.pauseAnim > 0.001) {
+            renderPauseScreen(this.ctx, {
+                canGoMap: this.pauseCanGoMap,
+                anim: this.pauseArmedAnim,
+                openT: this.pauseAnim
+            });
+        }
+
         this.ctx.restore();
 
         // タッチ向けBGMトグルは全画面共通で表示。ただしデバッグウィンドウは画面上端

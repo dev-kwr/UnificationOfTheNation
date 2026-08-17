@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260818d';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260818d';
-import { createEnemy } from './enemy.js?v=screen-safe-20260818d';
-import { createBoss } from './boss.js?v=screen-safe-20260818d';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260818d';
-import { audio } from './audio.js?v=screen-safe-20260818d';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260818d';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260818e';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260818e';
+import { createEnemy } from './enemy.js?v=screen-safe-20260818e';
+import { createBoss } from './boss.js?v=screen-safe-20260818e';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260818e';
+import { audio } from './audio.js?v=screen-safe-20260818e';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260818e';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260818d';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260818d';
+} from './stage6Grapple.js?v=screen-safe-20260818e';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260818e';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260818d';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260818e';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -3412,12 +3412,14 @@ export class Stage {
             // 死亡演出は進めたい)、横位置だけ前後で固定して足を止める。
             const hushThis = introHush && enemy && enemy.isAlive && !enemy.isDying && !enemy.bossName;
             let hushX = 0;
+            let hushMotion = 0;
             if (hushThis) {
                 enemy.isAttacking = false;
                 enemy.attackTimer = 0;
                 enemy.attackCooldown = Math.max(enemy.attackCooldown || 0, 400);
                 enemy.vx = 0;
                 hushX = enemy.x;
+                hushMotion = enemy.motionTime || 0;
             }
             this.updateStage4EnemyRoofMovement(enemy, player, obstacles, deltaTime);
             const shouldRemove = enemy.update(deltaTime, player, obstacles);
@@ -3426,6 +3428,12 @@ export class Stage {
                 enemy.vx = 0;
                 enemy.isAttacking = false;
                 enemy.attackTimer = 0;
+                // 【歩きの位相も止める】。横位置だけ戻しても motionTime が進み続けるので
+                // 足と体だけが動いて「その場で足踏みしている」絵になる
+                // (実測: 名乗りの間に motionTime が 763→2563 まで進んでいた。
+                //  雑魚も中ボスも x は完全に止まっているのに動いて見えたのはこれ。
+                //  実機フィードバック 2026-08-18)。ポーズを現在の姿で凍らせる。
+                enemy.motionTime = hushMotion;
             }
             if (shouldRemove) continue;
             this.constrainStage6ArenaActor(enemy);
@@ -5513,10 +5521,19 @@ export class Stage {
             // 下り: 石仏と柵
             { type: 'dosojin', worldX: 7350, height: STAGE3_DOSOJIN_HEIGHT, y: 4, alpha: 1 },
             { type: 'woodFence', worldX: 7500, height: 82, y: 3, alpha: 1 },
-            // 【山道と里の境目】。昔の関所の崩れた石垣が、低く横に残っている。
-            // 左が高く右へ崩れていく形なので、走り抜けると「壁が尽きて道が開ける」。
-            // 前後は空けて単独で立たせる(clearance)。
+            // 【山道と里の境目】。昔の関所の跡を「場面」として組む。
+            // 石垣を一つ置いただけでは何てことのない石の山にしか見えなかったので
+            // (実機フィードバック 2026-08-18)、峠の祠(道祖神＋灯籠)と同じ作りで
+            // 3つ一組にする。読ませたいのは物ではなく【人の手が途切れた跡】。
+            //   石垣 … 左が高く右へ崩れる。走り抜けると壁が尽きて道が開ける
+            //   道標 … 石垣の高い方の【前に】重ねて立てる。横に寝た石だけだと
+            //          何てことのない石の山に見えたので、縦の線を1本足して絵にする
+            // 【ボス部屋の左は269pxしか空いていない】(プレイヤーの定位置が画面x=269)。
+            // ここに収まらない物を足すと、名乗りでも戦闘でも役者の後ろに重なる。
+            // 灯籠を崩れの先(画面288)に置く案は、まさにそこで重なったのでやめた。
+            // 前後は空けて、この一組だけを見せる(clearance)。
             { type: 'ruinedWall', worldX: STAGE3_LANDMARK_WORLD_X, height: 76, y: 3, alpha: 1, clearance: 560 },
+            { type: 'signpost', worldX: STAGE3_LANDMARK_WORLD_X + 12, height: 104, y: 4, alpha: 1 },
             // 里の入口: 灯籠と柵
             { type: 'stoneLantern', worldX: 9860, height: 96, y: 3, alpha: 1 },
             { type: 'woodFence', worldX: 10030, height: 80, y: 3, alpha: 1 }
