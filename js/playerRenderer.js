@@ -1,17 +1,17 @@
 // Unification of the Nation - 描画系 mixin
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260815q';
-import { audio } from './audio.js?v=screen-safe-20260815q';
-import { game } from './game.js?v=screen-safe-20260815q';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260817y';
+import { audio } from './audio.js?v=screen-safe-20260817y';
+import { game } from './game.js?v=screen-safe-20260817y';
 import {
     ANIM_STATE, COMBO_ATTACKS, PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
-} from './playerData.js?v=screen-safe-20260815q';
-import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260815q';
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260815q';
+} from './playerData.js?v=screen-safe-20260817y';
+import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260817y';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817y';
 import {
     SHOGUN_SCALE,
     SHOGUN_ACTOR_BASE_HEIGHT,
@@ -37,7 +37,7 @@ import {
     NINJA_CROUCH_LIFT_AMP,
     SHOGUN_CROUCH_LIFT_AMP,
     SHOGUN_RUN_STRIDE_CENTER_BIAS
-} from './shogunConstants.js?v=screen-safe-20260815q';
+} from './shogunConstants.js?v=screen-safe-20260817y';
 
 export function applyRendererMixin(PlayerClass) {
     applyShogunRendererMixin(PlayerClass);
@@ -3663,6 +3663,12 @@ export function applyRendererMixin(PlayerClass) {
             const throwTargetX = throwShoulderX + Math.cos(armAngle) * armLength * dir;
             const throwTargetY = throwShoulderY + Math.sin(armAngle) * armLength;
             const throwHand = clampArmReach(throwShoulderX, throwShoulderY, throwTargetX, throwTargetY, standardRightReach);
+            // 投げ手の位置を公開する。振りかぶっている間の玉はここに乗せて描く
+            // (weapon.js の Bomb が読む)。腕の式をあちらへ写経すると必ず食い違うので、
+            // 鎖鎌の grappleHandAnchor と同じく【描いた実座標】を渡す。
+            // 絶対座標ではなく「プレイヤー左上からの相対」で持つ ＝ 走りながら投げても
+            // 玉が1フレーム遅れて手から離れない。
+            this.throwHandAnchor = { dx: throwHand.x - this.x, dy: throwHand.y - this.y };
             if (drawFrontLayer) {
                 drawProgressiveThrowArm(
                     throwShoulderX,

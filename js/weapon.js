@@ -2,10 +2,10 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260815q';
-import { audio } from './audio.js?v=screen-safe-20260815q';
-import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260815q';
-import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260815q';
+import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260817y';
+import { audio } from './audio.js?v=screen-safe-20260817y';
+import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260817y';
+import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260817y';
 
 // 武器ジオメトリは「武器を振る主体(owner/player)のワールド寸法」を基準に組み立てる。
 // 将軍は width/height が素体(40x60)なので getWorldWidth/Height(=素体×SHOGUN_SCALE) を読む。
@@ -348,12 +348,28 @@ export class Bomb {
         this.isDestroyed = false;
         this.id = Math.random().toString(36).substr(2, 9); // 一意なID
         this.trailPoints = []; // 飛翔中の火の粉トレイル（点数capで軽量）
+        // 【手を離れるまでの溜め】。投擲モーションは振りかぶりから始まるので、
+        // 押した瞬間に飛ばすと「腕は後ろ、玉は前」で玉だけが宙から現れる
+        // (実測: 生成時点で玉は体の中、progress=0＝手はまだ肩の後ろ)。
+        // holdMs の間は手の位置に乗せ、腕が前へ振り切った所で放す。
+        this.holdOwner = null;
+        this.holdMs = 0;
         // 導火線火花のシード（毎フレーム Math.random だと先端がチラつくため一度だけ固定）
         this._fuseSeed = Array.from({ length: 7 }, () => ({
             ox: (Math.random() - 0.5) * 6,
             oy: (Math.random() - 0.5) * 6,
             ph: Math.random() * Math.PI * 2
         }));
+    }
+
+    /** 投げ手に乗っている間の位置。腕を描いた実座標(相対)をそのまま使う。 */
+    syncToThrowHand() {
+        const o = this.holdOwner;
+        const a = o && o.throwHandAnchor;
+        if (!a) return false;
+        this.x = o.x + a.dx + (this.holdOffsetX || 0);
+        this.y = o.y + a.dy + (this.holdOffsetY || 0);
+        return true;
     }
 
     update(deltaTime, groundY, enemies = []) {
@@ -364,7 +380,16 @@ export class Bomb {
             }
             return;
         }
-        
+
+        // 手の中にある間は飛ばさない・当たらない。放す瞬間の位置は手の位置そのもの。
+        if (this.holdMs > 0) {
+            this.holdMs -= deltaTime * 1000;
+            this.syncToThrowHand();
+            if (this.holdMs > 0) return;
+            this.holdMs = 0;
+            this.holdOwner = null;
+        }
+
         // 物理演算
         this.vy += GRAVITY * 0.5;
         this.x += this.vx;
@@ -442,6 +467,10 @@ export class Bomb {
     }
     
     render(ctx) {
+        // 手に乗っている間は【描く直前に】手へ合わせる。プレイヤーはこの弾より先に
+        // 描かれる(火薬玉はキャラクターより前面)ので、投げた最初の1フレームから
+        // 手と一致する。update 側の同期だけだと1フレーム前の手を使うことになる。
+        if (this.holdMs > 0) this.syncToThrowHand();
         if (this.isExploding) {
             // 多層爆炎: 煙(下層) → 熱波 → コア炎(揺らぎ星形) → 開幕フラッシュ/衝撃波 → 飛散火花(放物線)
             const progress = this.explosionTimer / this.explosionDuration;
@@ -1313,6 +1342,19 @@ export class Firebomb extends SubWeapon {
         return this.trackedBombs.length < this.maxOnScreen;
     }
 
+    /**
+     * 玉が手を離れるまでの時間(ms)。投擲モーション(130ms)のどこで放すか。
+     * 腕は armAngle = -0.8π → 0 を easedProgress=progress^0.55 で振る。
+     * 手が肩の上を越えて前へ出る -0.25π が放し時で、そこが progress≒0.51。
+     * ここより早いと腕が後ろのまま玉が飛び、遅いと腕が伸び切ってから離れる。
+     */
+    static getReleaseDelayMs(player) {
+        const total = (player && typeof player.getSubWeaponActionDurationMs === 'function')
+            ? player.getSubWeaponActionDurationMs('throw')
+            : 130;
+        return Math.max(0, total * 0.51);
+    }
+
     renderHeld(ctx, handX, handY, scale = 1.0) {
         const r = (this.enhanceTier >= 3 ? 12 : 9.4) * scale;
         const color = '#3d444d'; // 金属感のある暗いグレー
@@ -1363,12 +1405,20 @@ export class Firebomb extends SubWeapon {
         if (!g) return;
 
         const direction = player.facingRight ? 1 : -1;
-        let vx = direction * 8;
+        /* 【走り/ダッシュの勢いを乗せる】。乗せないと自分の足のほうが速く、
+           投げた玉が体から出ないまま足元で爆ぜる(実測: ダッシュ 8.7px/frame >
+           玉 8px/frame。玉は生成直後から体の前縁の内側に居続け、着弾は体の中心から
+           14px・爆風半径104＝全身が煙の中。ユーザー指摘「ダッシュ投げすると
+           全部自分に当たる」2026-08-17)。
+           後ろ向きに動いている分は引かない ── 引くと「下がりながら投げると
+           足元に落ちる」が別の形で復活するため、前向きの成分だけを足す。 */
+        const carry = (player.vx || 0) * direction > 0 ? player.vx : 0;
+        let vx = direction * 8 + carry;
         let vy = -8;
         let bombY = player.y + 10;
 
         if (player.isCrouching) {
-            vx = direction * 8.5;
+            vx = direction * 8.5 + carry;
             vy = -6.2;
             bombY = player.y + ownerWorldHeight(player) - 30;
         }
@@ -1392,6 +1442,11 @@ export class Firebomb extends SubWeapon {
         bomb.explosionRadius = sizeUp ? Math.round(this.range * 1.16) : this.range;
         bomb.explosionDuration = sizeUp ? 380 : 300;
         this._assignThrowTransformPivot(bomb, player, player.x + ownerWorldWidth(player) / 2, player.y);
+        // 腕が前へ振り切るまで手に乗せておく(振りかぶり中に玉だけ飛ばさない)。
+        const holdMs = Firebomb.getReleaseDelayMs(player);
+        bomb.holdOwner = player;
+        bomb.holdMs = holdMs;
+        bomb.syncToThrowHand();
         g.bombs.push(bomb);
         this.trackedBombs.push(bomb);
 
@@ -1415,6 +1470,13 @@ export class Firebomb extends SubWeapon {
                     cloneBomb.explosionRadius = bomb.explosionRadius;
                     cloneBomb.explosionDuration = bomb.explosionDuration;
                     this._assignThrowTransformPivot(cloneBomb, player, cloneBaseX, cloneBaseY);
+                    // 分身も同じ間だけ手に乗せる(本体だけ遅れると投擲が揃わない)。
+                    // 分身の手は描かれないので、本体の手をオフセットして代用する。
+                    cloneBomb.holdOwner = player;
+                    cloneBomb.holdMs = holdMs;
+                    cloneBomb.holdOffsetX = clone.dx;
+                    cloneBomb.holdOffsetY = clone.dy;
+                    cloneBomb.syncToThrowHand();
                     g.bombs.push(cloneBomb);
                 }
             }
