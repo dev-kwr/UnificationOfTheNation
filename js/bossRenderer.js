@@ -29,6 +29,16 @@ function shade(hex, amt){
   const b = clamp((n & 255) + amt, 0, 255);
   return `rgb(${r},${g},${b})`;
 }
+/* 割合で暗くする。プレイヤー側の shadeAccent と同じ規則
+   (shade は定数減算なので、同じ色でも暗くなり方が食い違う)。 */
+function shadeMul(hex, k){
+  const n = parseInt(hex.slice(1), 16);
+  const f = 1 + k;
+  const r = clamp(Math.round(((n >> 16) & 255) * f), 0, 255);
+  const g = clamp(Math.round(((n >> 8) & 255) * f), 0, 255);
+  const b = clamp(Math.round((n & 255) * f), 0, 255);
+  return `rgb(${r},${g},${b})`;
+}
 function hexA(hex, a){
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
@@ -95,12 +105,14 @@ function limbN(c,ax,ay,hx,hy,frac,bend,mode,w1,w2,col,hi,pass='fill'){
 
 /* 二刀の刀身はプレイヤーと同一形状。katanaShape.js は依存ゼロなので循環しない
    (playerRenderer.js を直接 import すると game.js の TDZ でクラッシュする)。 */
-import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260818b';
+import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260818c';
+import { drawClothRibbon } from './clothRibbon.js?v=screen-safe-20260818c';
+import { scaleHeadbandTailSpec, HEADBAND_TAIL_SPEC } from './clothChain.js?v=screen-safe-20260818c';
 /* 雑魚/中ボスの攻撃エフェクト。描画専用で判定には触れない */
 import {
-  stepMobFx, onceThisAttack, feedTrail, drawTrail,
+  stepMobFx, onceThisAttack, feedTrail, drawTrail, updateRibbonChain,
   drawThrustStreak, drawThrustWave, drawFlash, drawBurstLines, mobGroundDust
-} from './mobFx.js?v=screen-safe-20260818b';
+} from './mobFx.js?v=screen-safe-20260818c';
 /* 刀身長はプレイヤー実数値のまま渡し、拡大は描画側の ctx.scale だけで行う(二重拡大防止)。
    倍率は素体リグの SC(=1.8) ではなく【描画上の身長比】を使う:
      プレイヤーの描画身長 = height(72) - headRadius*0.1(=1.68) = 70.32
@@ -250,24 +262,67 @@ function drawSode(c,P,x,y,rot,scale){ // 袖(肩板)
 }
 
 /* 頭部 — 現行と同じ head 半径(≒棒人間の大きな頭)に兜/頭巾を被せる */
-function drawHead(c,B,P,hx,hy,r,t,motion){
+/* 物理チェーンの節点列を布のリボンとして塗る。
+   playerRenderer.renderHeadbandTail と同じ流儀 —— 2回の平滑化で節のギザつきを消し、
+   進行方向の法線へ幅を振り、先端へ向けて絞る。 */
+/* 幅の規則はプレイヤー(playerRenderer.renderHeadbandTail)に合わせて
+   【根元から先端まで一定】が既定。taper を渡した時だけ絞る。 */
+/* 布の帯の塗りは clothRibbon.js の一本道に集約した(プレイヤーの鉢巻と共有)。
+   ここは呼び出しの体裁を保つだけの薄い包み。点が3未満の呼び出しは
+   従来どおり描かない(覆面の帯など短い曲線を弾いていた挙動を変えない)。 */
+function drawBandRibbon(c, pts, halfWidth, color, taper){
+  drawClothRibbon(c, pts, halfWidth, color, { taper: taper || 0, minPoints: 3 });
+}
+
+function drawHead(c,B,P,hx,hy,r,t,motion,rig){
   if(B.helm==='hood'){
     /* 覆面の読ませ方: 「目」ではなく【布と顔の境界】で見せる。
        ・頭巾(やや明るい布)が頭の上・後ろ・顎を包む
        ・前面に暗い顔の開口が三日月状に残る → 覆面だと一目で分かる
        ・余った帯は忍者の鉢巻と同じく後ろへ垂らす */
-    const wav=Math.sin(t*TAU/1.9)*1.8+(motion==='run'?2.4:0);
-    /* 垂れ帯(奥) */
-    [[0.86,1.72,0.20],[0.62,1.30,0.15]].forEach(([ox,len,wd],i)=>{
-      const rx=hx-r*ox, ry=hy+r*0.10;
-      c.fillStyle=i?shade(P.helm,-12):shade(P.helm,0);
-      c.beginPath();
-      c.moveTo(rx-r*wd, ry);
-      c.quadraticCurveTo(rx-r*wd-wav*0.10*(i+1), ry+r*len*0.6, rx-r*(wd*0.6)-wav*0.16*(i+1), ry+r*len);
-      c.lineTo(rx+r*(wd*0.7)-wav*0.16*(i+1), ry+r*len*0.97);
-      c.quadraticCurveTo(rx+r*wd*0.9, ry+r*len*0.55, rx+r*wd, ry);
-      c.closePath(); c.fill();
-    });
+    /* 【垂れ帯は忍の鉢巻と同じ物理チェーン】(2026-08-17)。
+       元はサインで揺らした固定カーブで、走っても止まっても同じ形に振れていた。
+       他の布(プレイヤー/雑魚の鉢巻)が全部 clothChain の物理なので、
+       ここだけ揺れ方が別種に見える。長さと根元は従来のまま、形だけ物理に差し替える。
+       ・rig が無い環境(素の呼び出し)では従来の固定カーブに落とす
+       ・奥(短い方)を先に描く。暗い方が上に乗ると前後が逆に見える
+       ・色は割合で落とす(shadeMul)。定数減算の shade は元色で暗くなり方が食い違う */
+    const hoodSim = !!(rig && rig.owner && typeof rig.toWorld === 'function'
+                            && typeof rig.toLocal === 'function');
+    const HOOD_BANDS = [[0.86, 1.72, 0.20], [0.62, 1.30, 0.15]];
+    if (hoodSim) {
+      const bs = Math.max(0.2, rig.bodyScale || 1);
+      HOOD_BANDS.map((b, i) => [b, i]).reverse().forEach(([[ox, len, wd], i]) => {
+        // 従来の描画長(局所 r*len)を保つように節長を決める
+        const targetLocal = r * len;
+        const base = (HEADBAND_TAIL_SPEC.near.count - 1) * HEADBAND_TAIL_SPEC.near.seg;
+        const spec = scaleHeadbandTailSpec((targetLocal * bs) / base);
+        const tail = i ? spec.far : spec.near;
+        const rx = hx - r * ox, ry = hy + r * 0.10;
+        const w = rig.toWorld(rx, ry);
+        const nodes = updateRibbonChain(rig.owner, 'hood' + i, w.x, w.y, {
+          count: tail.count, seg: tail.seg, dir: rig.dir,
+          speedX: rig.owner.vx || 0, speedNorm: Math.max(1, rig.owner.speed || 1),
+          time: (rig.owner.motionTime || 0) + tail.phaseMs,
+          gravityMul: tail.gravityMul, windMul: tail.windMul
+        });
+        if (!nodes) return;
+        const pts = nodes.map(n => rig.toLocal(n.x, n.y));
+        drawBandRibbon(c, pts, r * wd * 0.5, i ? shadeMul(P.helm, spec.farShade) : P.helm);
+      });
+    } else {
+      const wav=Math.sin(t*TAU/1.9)*1.8+(motion==='run'?2.4:0);
+      HOOD_BANDS.forEach(([ox,len,wd],i)=>{
+        const rx=hx-r*ox, ry=hy+r*0.10;
+        c.fillStyle=i?shade(P.helm,-12):shade(P.helm,0);
+        c.beginPath();
+        c.moveTo(rx-r*wd, ry);
+        c.quadraticCurveTo(rx-r*wd-wav*0.10*(i+1), ry+r*len*0.6, rx-r*(wd*0.6)-wav*0.16*(i+1), ry+r*len);
+        c.lineTo(rx+r*(wd*0.7)-wav*0.16*(i+1), ry+r*len*0.97);
+        c.quadraticCurveTo(rx+r*wd*0.9, ry+r*len*0.55, rx+r*wd, ry);
+        c.closePath(); c.fill();
+      });
+    }
     /* 頭巾の布(頭全体を覆う) */
     const hg=c.createLinearGradient(hx,hy-r,hx-r*0.3,hy+r);
     hg.addColorStop(0,shade(P.helm,26)); hg.addColorStop(0.55,shade(P.helm,6)); hg.addColorStop(1,P.helmD);
@@ -307,24 +362,61 @@ function drawHead(c,B,P,hx,hy,r,t,motion){
     const knotX=hx+Math.cos(ba)*br, knotY=hy+r*0.03+Math.sin(ba)*br;
     /* 垂れ帯(頭より奥) — 真横へ棒のように伸ばすと硬く見える。
        結び目から【後ろ下がり】に深く垂らし、先端ほど大きく波打たせて布らしくする。 */
-    const ph=t*TAU/1.35+(motion==='run'?t*TAU/0.5:0);
-    const amp=(motion==='run'?1.0:0.42);
-    [[1.62,0.26,0,0.0],[1.24,0.19,1,0.7]].forEach(([len,wd,i,ofs])=>{
-      const rx=knotX+r*0.06, ry=knotY+r*(0.05+i*0.11);   // 付け根 = 結び目
-      const w1=Math.sin(ph+ofs)*r*0.20*amp;          // 中ほどの振れ
-      const w2=Math.sin(ph+ofs+1.1)*r*0.34*amp;      // 先端の振れ(大きい)
-      const droop=r*(1.46+i*0.34);                   // 後ろ下がりの垂れ(深く落とす)
-      const mx=rx-r*len*0.40, my=ry+droop*0.52+w1;
-      const ex=rx-r*len*0.86, ey=ry+droop+w2;
-      const tw=r*wd;
-      c.fillStyle=i?shade(P.crest,-30):P.crest;
-      c.beginPath();
-      c.moveTo(rx, ry-tw*0.5);
-      c.quadraticCurveTo(mx, my-tw*0.34, ex, ey-tw*0.12);   // 上辺
-      c.lineTo(ex, ey+tw*0.12);                              // 先端(細く絞る)
-      c.quadraticCurveTo(mx, my+tw*0.46, rx, ry+tw*0.5);     // 下辺
-      c.closePath(); c.fill();
-    });
+    /* 垂れ帯は【プレイヤーと同じ物理チェーン】で振る(mobFx.updateRibbonChain)。
+       サインで揺らした固定カーブだと、並んだときに物理を無視した動きに見える。
+       ノードは world 座標なので、描く直前に局所系へ写像する。
+       rig(=owner/toWorld/toLocal)が無い環境では従来の固定カーブへ落とす。 */
+    const canSim = !!(rig && rig.owner && typeof rig.toWorld === 'function'
+                            && typeof rig.toLocal === 'function');
+    if (canSim) {
+      const k = Math.max(0.2, rig.bodyScale || 1);
+      /* 【仕様はプレイヤーの鉢巻と共有】。clothChain.js の HEADBAND_TAIL_SPEC を
+         そのまま 0.5 倍したものが雑魚の帯 —— 節数は同じで、節長・根元の段差だけ
+         半分にして格の差を出す。幅・重力倍率・風倍率・色の落としは同値。
+         数値をここに書き写さないこと(片方だけ直して食い違う事故が実際に起きた)。
+         【縦の配置ごと 0.5 倍】が要点: 長さだけ半分にして段差をプレイヤーのまま
+         5.2 にすると、下へずれた奥の帯の先端が手前より下に出て
+         「奥のほうが長い」絵になる(実測 43.3 対 46.0)。 */
+      const SPEC = scaleHeadbandTailSpec(0.5);
+      const HALF_W = SPEC.halfWidth / k;       // 局所系へ(world 幅はプレイヤーと同値)
+      const ROOT_GAP = SPEC.rootGap / k;
+      /* 【奥(i=1)を先に描く】。手前を先に描くと暗い奥の帯が上に乗って
+         前後が逆に見える(ユーザー指摘 2026-08-16)。
+         プレイヤー側も奥の帯を本体の塗りより前に描いて同じ順にしてある。 */
+      [[SPEC.far, 1], [SPEC.near, 0]].forEach(([tail, i]) => {
+        const rx = knotX + r * 0.06, ry = knotY + r * 0.05 + i * ROOT_GAP;
+        const w = rig.toWorld(rx, ry);
+        const nodes = updateRibbonChain(rig.owner, 'band' + i, w.x, w.y, {
+          count: tail.count, seg: tail.seg, dir: rig.dir,
+          speedX: rig.owner.vx || 0, speedNorm: Math.max(1, rig.owner.speed || 1),
+          time: (rig.owner.motionTime || 0) + tail.phaseMs,
+          gravityMul: tail.gravityMul,
+          windMul: tail.windMul
+        });
+        if (!nodes) return;
+        const pts = nodes.map(n => rig.toLocal(n.x, n.y));
+        drawBandRibbon(c, pts, HALF_W, i ? shadeMul(P.crest, SPEC.farShade) : P.crest);
+      });
+    } else {
+      const ph=t*TAU/1.35+(motion==='run'?t*TAU/0.5:0);
+      const amp=(motion==='run'?1.0:0.42);
+      [[1.62,0.26,0,0.0],[1.24,0.19,1,0.7]].forEach(([len,wd,i,ofs])=>{
+        const rx=knotX+r*0.06, ry=knotY+r*(0.05+i*0.11);   // 付け根 = 結び目
+        const w1=Math.sin(ph+ofs)*r*0.20*amp;
+        const w2=Math.sin(ph+ofs+1.1)*r*0.34*amp;
+        const droop=r*(1.46+i*0.34);
+        const mx=rx-r*len*0.40, my=ry+droop*0.52+w1;
+        const ex=rx-r*len*0.86, ey=ry+droop+w2;
+        const tw=r*wd;
+        c.fillStyle=i?shade(P.crest,-30):P.crest;
+        c.beginPath();
+        c.moveTo(rx, ry-tw*0.5);
+        c.quadraticCurveTo(mx, my-tw*0.34, ex, ey-tw*0.12);
+        c.lineTo(ex, ey+tw*0.12);
+        c.quadraticCurveTo(mx, my+tw*0.46, rx, ry+tw*0.5);
+        c.closePath(); c.fill();
+      });
+    }
     // 素頭
     c.fillStyle=BODY.core; c.beginPath(); c.arc(hx,hy+r*0.03,r*0.95,0,TAU); c.fill();
     // 鉢巻(頭円でクリップして帯が頭からはみ出さないようにする)
@@ -707,11 +799,17 @@ const CHOREO={
     const lunge=Math.sin(cl01((p-0.16)/0.62)*Math.PI*0.5);    // 踏み込み(0→1)
     const step=Math.sin(cl01((p-0.10)/0.58)*Math.PI);         // 前足の踏み出し(0→1→0)
     const drive=Math.sin(p*Math.PI);
+    /* 【横っ飛び感を戻す】(ユーザー要望 2026-08-16)。
+       全接地の踏み込みは滞空に見えない代わりに「歩いて突いた」だけになる。
+       突き切りの山だけ後ろ足も地面を離し、前足の抜きも深くする。
+       浮く区間は p=0.26〜0.62 の短い山に限り、突き終わりには必ず両足が戻る
+       —— これが「掴んだまま滞空」に見えるかどうかの境目。 */
+    const hop=Math.sin(cl01((p-0.26)/0.36)*Math.PI);          // 蹴り抜けの山(短い)
     return { lean:0, leanPx:(2.6+lunge*5.2-windup*1.1)*A,
-      crouch:(2.0+lunge*5.0)*A,                               // 腰を落として踏ん張る
+      crouch:(2.0+lunge*5.0+hop*2.4)*A,                       // 浮く瞬間は膝を畳む
       shift:(0.9+lunge*2.2-windup*0.5)*A, headDip:drive*1.0*A,
-      feet:[[-(8.0+lunge*5.0)*LS, 0],                          // 後ろ足=接地したまま後方へ
-            [ (3.0+lunge*6.0)*LS, -step*6.0*LS]],              // 前足=踏み出して着地
+      feet:[[-(8.0+lunge*5.0)*LS, -hop*3.6*LS],                // 後ろ足=蹴った瞬間だけ離陸
+            [ (3.0+lunge*6.0)*LS, -step*9.4*LS]],              // 前足=深く抜いて着地
       capeBell:0 };
   },
   nito(p){
@@ -939,6 +1037,9 @@ export function renderBossModel(c,B,motion,t,st){
              world:(st&&st.world)||((fn)=>fn()),
              toLocal:(st&&st.toLocal)||((x,y)=>({x,y})),
              toWorld:(st&&st.toWorld)||((x,y)=>({x,y})),
+             /* 素体の縮小率。world 基準の寸法(帯の幅など)を局所系へ渡すときに要る。
+                入れ忘れると k=1 扱いになり、雑魚だけ 0.65 倍に細く・短くなる。 */
+             bodyScale:(st&&st.bodyScale)||1,
              owner:(st&&st.owner)||null, dir:(st&&st.dir)||1};
   const hands=wf.hands(rig);
   /* 腕のリーチ上限で手位置を先にクランプし、腕と得物を同一点に揃える
@@ -1138,7 +1239,7 @@ export function renderBossModel(c,B,motion,t,st){
     c.fillStyle=BODY.core;
     c.beginPath(); c.arc(headX,headY+headR*0.03,headR*0.95,0,TAU); c.fill();
   } else {
-    drawHead(c,B,P,headX,headY,headR,t,motion);
+    drawHead(c,B,P,headX,headY,headR,t,motion,rig);
   }
 
   /* ---- レイヤー順(物理的な前後):

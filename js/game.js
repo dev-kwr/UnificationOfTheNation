@@ -2,17 +2,17 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260818b';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260818b';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260818b';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260818b';
-import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260818b';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260818b';
-import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260818b';
-import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260818b';
-import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260818b';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260818b';
-import { input } from './input.js?v=screen-safe-20260818b';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GRAVITY, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260818c';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260818c';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260818c';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260818c';
+import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260818c';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260818c';
+import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260818c';
+import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260818c';
+import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260818c';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260818c';
+import { input } from './input.js?v=screen-safe-20260818c';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -50,18 +50,29 @@ const STAGE6_DUEL_LEAD_OUT_MS = 1400;   // 開戦後に通常追従へ戻す
 // ボスが足を止めてから名乗りまでの実測483msで残差1.5pxまで収束する。
 const STAGE6_DUEL_LEAD_OMEGA = 12;
 const STAGE6_DUEL_LEAD_MAX_PX = 460;    // 先行量の上限(異常な間合いでカメラが飛ばない保険)
-import { Player } from './player.js?v=screen-safe-20260818b';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260818b';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260818b';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260818b';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseReturnButton, getPauseMapButton, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260818b';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260818b';
-import { saveManager } from './save.js?v=screen-safe-20260818b';
-import { shop } from './shop.js?v=screen-safe-20260818b';
-import { audio } from './audio.js?v=screen-safe-20260818b';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260818b';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260818b';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260818b';
+// 最上層の会敵で【プレイヤーが跳び退がって】間合いを作るときの跳び方。
+const STAGE6_BACKSTEP_VY = -10.5;       // 跳び退がりの初速(滞空≒26フレーム)
+const STAGE6_BACKSTEP_MIN_PX = 24;      // これ未満の詰まりなら跳ばない
+const STAGE6_BACKSTEP_MAX_PX = 340;     // 保険(異常な間合いで吹っ飛ばない)
+const STAGE6_BACKSTEP_COMBO_STEP = 3;   // 将軍の降下連撃の何段目で跳ぶか
+const STAGE6_BACKSTEP_VX_MAX = 15;      // 追従補正で出しうる水平速度の上限
+/* 3段目から降下連撃が振り切れるまでに将軍が【まだ踏み込んでくる】量(実測259px)。
+   3段目で跳ぶ時点の間合いは 711px あり、そのまま測ると「もう充分開いている」と
+   判断してしまう。跳び先はこのぶん先読みして決める。
+   連撃の踏み込み量を変えたらここも測り直す(実測手順は memory 参照)。 */
+const STAGE6_ENTRANCE_ADVANCE_PX = 259;
+import { Player } from './player.js?v=screen-safe-20260818c';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260818c';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260818c';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260818c';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseButtons, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260818c';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260818c';
+import { saveManager } from './save.js?v=screen-safe-20260818c';
+import { shop } from './shop.js?v=screen-safe-20260818c';
+import { audio } from './audio.js?v=screen-safe-20260818c';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260818c';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260818c';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260818c';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -77,6 +88,9 @@ const NEXT_STAGE_PREFETCH_DELAY_MS = 5000;
 // 地図⇔ステータスの暗転（片道の秒数。往復でこの2倍）。
 // 長いと待たされる画面切替になるので、切り替わりの角が取れる最小限にする。
 const SCREEN_FADE_SEC = 0.17;
+// ポーズのボタンが「もう一度〜」へ切り替わるときの遷移時間(秒)。
+// 押した手応えとして読める最小限＝暗転(SCREEN_FADE_SEC)と同程度に揃える。
+const PAUSE_ARMED_ANIM_SEC = 0.16;
 // ボス部屋の名乗りの定位置。プレイヤーの右端と名乗り帯の左端の間合い(可視ワールドpx)。
 const BOSS_NAME_STAND_GAP_PX = 28;
 // 定位置で足を止めた後、カメラだけでボス部屋の framing まで詰める寄り(ω と最低速度)。
@@ -127,8 +141,10 @@ class Game {
         this.ctx = null;
         this.state = GAME_STATE.TITLE;
         this.pauseReturnState = GAME_STATE.PLAYING;
-        this.pauseReturnArmed = false;      // ポーズの「タイトルに戻る」2タップ確認状態
-        this.pauseReturnArmedTimer = 0;
+        this.pauseArmedId = null;           // ポーズの2タップ確認中のボタン('map'|'title')
+        this.pauseArmedTimer = 0;
+        // 「もう一度〜」への切り替わりを動きで見せるための遷移量(0..1)
+        this.pauseArmedAnim = { map: 0, title: 0 };
         this.lastTime = 0;
         this.deltaTime = 0;
         this.useFixedTimestep = USE_FIXED_TIMESTEP;
@@ -252,6 +268,9 @@ class Game {
         this.stage6ArenaApproach = null;
         this.stage6CameraLeadT = 0;   // 決戦構図のカメラ先行(0..1)
         this.stage6DuelLeadPx = STAGE6_DUEL_CAMERA_LEAD_PX;       // 先行量の現在値(px)
+        this.duelBackstepDone = false;                     // 会敵の間合い取り(1回だけ)
+        this.duelBackstepFrames = 0;                       // 跳び退がりの残り滞空フレーム
+        this.duelBackstepBossX0 = null;                            // 踏み切り時の将軍X(先読みの基準)
         this.stage6DuelLeadTargetPx = STAGE6_DUEL_CAMERA_LEAD_PX; // 同 目標値
         this.stage6DuelLeadVel = 0;                               // 同 速度(臨界減衰)
         this.debugBossRoomStart = false; // デバッグ用：ボス部屋から開始するフラグ
@@ -269,6 +288,11 @@ class Game {
         this.bossDefeatHitStopMs = 0;
         this.bossDefeatSlowMs = 0;
         this.bossDefeatClosingMs = 0;
+        /* 映画枠(上下の黒帯)の開き具合 0..1。
+           「撃破の一瞬だけ山なりに出す」のをやめ、【プレイヤーが操作できない間】
+           —— ボスの登場〜名乗りと撃破の余韻 —— だけ開いたままにする。
+           操作が返ってきたら閉じる。 */
+        this.cinemaBarT = 0;
         this.levelUpAlpha = 0;
         this.levelUpTransitionDir = 0;
         this.stageTransitionTimer = 0;
@@ -1212,7 +1236,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260818b').then(module => {
+        import('./weapon.js?v=screen-safe-20260818c').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -1344,9 +1368,9 @@ class Game {
 
         // ステージ初期化
         this.stage = new Stage(this.currentStageNumber);
-        // 前の場の掛け金を落とす(この経路は initStage を通らない)
+        // 前の場の会敵の掛け金を落とす(この経路は initStage を通らない)
         this.resetStageEncounterLatches();
-        
+
         this.bombs = [];
         this.shockwaves = []; // 必殺衝撃波
         this.effects = [];
@@ -1441,11 +1465,8 @@ class Game {
             
             // カメラをボス戦の固定位置（右端から画面1枚分引いた場所）に即セット
             this.scrollX = Math.max(0, this.stage.maxProgress - CANVAS_WIDTH);
-            // progress は毎フレーム scrollX と同期される値。maxProgress を入れると
-            // 最初の1フレームだけ背景と添景が画面1枚ぶん右へずれて描かれる
-            // (峠の門が画面外へカリングされて消える)。最初から実運用値を入れる。
-            this.stage.progress = this.scrollX;
-            this.stage.lastProgress = this.scrollX;
+            this.stage.progress = this.stage.maxProgress;
+            this.stage.lastProgress = this.stage.maxProgress;
             this.stage.midBossSpawned = true; // 中ボスをスキップ
             this.stage.enemies = [];          // 雑魚敵をクリア
             this.stage.obstacles = [];        // 障害物をクリア
@@ -1580,6 +1601,10 @@ class Game {
             updateDeltaTime = rawDeltaTime;
         }
 
+        // 映画枠は【実時間】で開閉する。ヒットストップ中は updateDeltaTime が 0 に
+        // なるので、更新側の deltaTime で駆動すると撃破の瞬間に帯が出ない。
+        this.updateCinemaBars(rawDeltaTime);
+
         // 画面揺れ減衰
         if (!this.screenShakeEnabled) {
             this.shakeIntensity = 0;
@@ -1632,6 +1657,81 @@ class Game {
         
         // 次フレーム
         requestAnimationFrame((t) => this.loop(t));
+    }
+
+    /* 映画枠。【プレイヤーが操作できない間だけ】開く ——
+         ・ボスの登場〜名乗り(introControlLockTimer で全入力が封じられている窓)
+         ・ボス撃破のヒットストップ〜スロー〜余韻
+       開閉はイーズで、開いている間は高さを保つ。撃破の一瞬だけ山なりに出して
+       いた頃は「一瞬ちらつく帯」にしか見えなかった(ユーザー指摘 2026-08-17)。 */
+    updateCinemaBars(rawDeltaTime) {
+        const dtMs = Math.min(64, Math.max(0, rawDeltaTime * 1000));
+        const introLocked = !!(this.player && (this.player.introControlLockTimer || 0) > 0);
+        const defeatLocked = this.bossDefeatHitStopMs > 0
+            || this.bossDefeatSlowMs > 0
+            || this.bossDefeatClosingMs > 0;
+        const target = (introLocked || defeatLocked) ? 1 : 0;
+        // 開くのは速く(180ms)・閉じるのはゆっくり(320ms)。幕は静かに引く
+        const step = dtMs / (target > this.cinemaBarT ? 180 : 320);
+        if (target > this.cinemaBarT) this.cinemaBarT = Math.min(target, this.cinemaBarT + step);
+        else this.cinemaBarT = Math.max(target, this.cinemaBarT - step);
+        if (this.bossDefeatClosingMs > 0) {
+            this.bossDefeatClosingMs = Math.max(0, this.bossDefeatClosingMs - dtMs);
+        }
+    }
+
+    /* 映画枠の描画。呼び出し位置は2箇所 —— 通常は HUD の後、ポーズ中はポーズUIの前。
+       画面揺れの translate の内側から呼ばれても端がずれないよう、変換を組み直す。 */
+    renderCinemaBars() {
+        if (!(this.cinemaBarT > 0.004)) return;
+        {
+            const amt = this.cinemaBarT * this.cinemaBarT * (3 - 2 * this.cinemaBarT);  // smoothstep
+            const band = CANVAS_HEIGHT * 0.16 * amt;
+            if (band > 0.5) {
+                this.ctx.save();
+                this.ctx.setTransform(
+                    this.canvas.width / SCREEN_WIDTH,
+                    0,
+                    0,
+                    this.canvas.height / CANVAS_HEIGHT,
+                    0,
+                    0
+                );
+                /* 【縁を立てた実帯】。以前は縁が透明へ抜けるグラデーションで、
+                   夜のステージやボス部屋のように元から暗い場では帯の存在自体が
+                   読めなかった。映画枠は「画がそこで切れている」ことが伝わって
+                   初めて効くので、内側の縁をはっきり立てる。 */
+                this.ctx.fillStyle = '#000000';
+                this.ctx.fillRect(0, 0, SCREEN_WIDTH, band);
+                this.ctx.fillRect(0, CANVAS_HEIGHT - band, SCREEN_WIDTH, band);
+
+                // 縁のすぐ内側に短い落ち込みを敷いて、切り口を硬くしすぎない
+                const feather = Math.min(10, band * 0.22);
+                if (feather > 0.5) {
+                    const tg = this.ctx.createLinearGradient(0, band, 0, band + feather);
+                    tg.addColorStop(0, 'rgba(0, 0, 0, 0.55)');
+                    tg.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                    this.ctx.fillStyle = tg;
+                    this.ctx.fillRect(0, band, SCREEN_WIDTH, feather);
+                    const bg = this.ctx.createLinearGradient(0, CANVAS_HEIGHT - band - feather, 0, CANVAS_HEIGHT - band);
+                    bg.addColorStop(0, 'rgba(0, 0, 0, 0)');
+                    bg.addColorStop(1, 'rgba(0, 0, 0, 0.55)');
+                    this.ctx.fillStyle = bg;
+                    this.ctx.fillRect(0, CANVAS_HEIGHT - band - feather, SCREEN_WIDTH, feather);
+                }
+
+                // 金の細線は帯の内側の縁へ。全幅に通して「枠」であることを示す
+                this.ctx.strokeStyle = `rgba(224, 190, 119, ${(0.42 * amt).toFixed(3)})`;
+                this.ctx.lineWidth = 1;
+                this.ctx.beginPath();
+                this.ctx.moveTo(0, band + 0.5);
+                this.ctx.lineTo(SCREEN_WIDTH, band + 0.5);
+                this.ctx.moveTo(0, CANVAS_HEIGHT - band - 0.5);
+                this.ctx.lineTo(SCREEN_WIDTH, CANVAS_HEIGHT - band - 0.5);
+                this.ctx.stroke();
+                this.ctx.restore();
+            }
+        }
     }
 
     runFrameUpdates(updateDeltaTime) {
@@ -2174,17 +2274,22 @@ class Game {
     }
     
     /**
-     * 【場が変わったらボス部屋の掛け金を落とす】。
-     * bossRoomPanArmed は「1ステージにつき1回だけ」の latch なので、持ち越すと
-     * 次の場の開始直後からカメラがボス部屋まで寄り、0.9秒で会敵してしまう
-     * (実測: scrollX 0 → 10720 を55フレーム。ユーザー指摘「クリア後にマップから
-     * 準備完了するといきなりボスから」2026-08-17)。
+     * 【場が変わったら会敵の latch を全部落とす】。
+     * どれも「1ステージにつき1回だけ」の掛け金なので、持ち越すと次の場が壊れる:
+     *  ・bossRoomPanArmed … 前の場のボス部屋で立った掛け金。残っていると次の場の
+     *    開始直後からカメラがボス部屋まで寄り、0.9秒で会敵してしまう
+     *    (実測: scrollX 0 → 10720 を55フレーム。ユーザー指摘「クリア後にマップから
+     *    準備完了するといきなりボスから」2026-08-17)。
+     *  ・duelBackstepDone … 跳び退がりは1回だけ。残っていると2つ目以降の場で
+     *    間合いを取らず、名乗りの構図が崩れる。
      * initStage(新規開始) と startStage(次の場へ) の両方から呼ぶ。startStage は
      * initStage を通らずに new Stage する経路なので、片方だけだと必ず取り残す。
-     * 会敵まわりの latch を足すときは、ここへ並べること。
      */
     resetStageEncounterLatches() {
         this.bossRoomPanArmed = false;
+        this.duelBackstepDone = false;
+        this.duelBackstepFrames = 0;
+        this.duelBackstepBossX0 = null;
     }
 
     initStage(stageNum) {
@@ -2199,9 +2304,9 @@ class Game {
         this.stage6ArenaApproach = null;
         this.stage6CameraLeadT = 0;
         this.stage6DuelLeadPx = STAGE6_DUEL_CAMERA_LEAD_PX;
+        this.resetStageEncounterLatches();
         this.stage6DuelLeadTargetPx = STAGE6_DUEL_CAMERA_LEAD_PX;
         this.stage6DuelLeadVel = 0;
-        this.resetStageEncounterLatches();
         this.stage = new Stage(stageNum);
         
         if (this.player) {
@@ -2405,23 +2510,11 @@ class Game {
     }
 
     /**
-     * Stage3 の自動横スクロールが効いている窓か。
-     *
-     * 【ボス部屋の1画面手前で切り、他ステージと同じ流れへ渡す】。
-     * 会敵まで自動スクロールを走らせると、カメラがプレイヤーと無関係な位置に
-     * 居るまま名乗りに入るので、
-     *   - 名乗り時のプレイヤーの画面位置が他ステージと揃わない
-     *   - bossSpawned で追従へ切り替わる瞬間にカメラが大きく飛ぶ
-     * (実機フィードバック 2026-08-17)。渡したあとは他ステージと同じ
-     * 「プレイヤー追従 → 定位置の壁(holdPlayerAtBossNameStand) →
-     *  残りはカメラ寄せ(updateBossRoomCameraPan)」で会敵する。
-     */
-    /**
      * Stage3 の終盤だけ自動スクロールを速める倍率。
      *
-     * 自動スクロールをボス部屋の近くまで延ばすと(会敵前に歩かせないため)、
-     * その手前でプレイヤーが画面右端に張り付いている時間が伸びて間延びする。
-     * 峠を抜けて道が開けるあたりから素直に脚を速める。
+     * 峠を抜けて道が開けるあたりから素直に脚を速める。プレイヤーは自動スクロール
+     * より速く走れないので、終盤を等速のままにすると画面右端に張り付いたまま
+     * 間延びする(実機フィードバック 2026-08-17)。
      */
     getStage3ApproachSpeedMult() {
         const s = this.stage;
@@ -2434,12 +2527,16 @@ class Game {
         return 1 + (STAGE3_APPROACH_SPEED_MULT - 1) * ease;
     }
 
+    /**
+     * Stage3 の自動横スクロールが効いている窓か。
+     *
+     * 【会敵まで止めない】。かつては「カメラが定位置より手前で止まり、残りを
+     * プレイヤーが歩く」形だったので、その手前で追従へ渡していた。今は
+     * 歩いてよい上限がボス部屋の画角そのもの(getBossRoomWalkLimitX)になり、
+     * 間合いはプレイヤーの跳び退がりが作るので、途中で止める必要がない
+     * (2026-08-17 の会敵刷新に合わせて撤去)。
+     */
     isStage3AutoScrollActive() {
-        // 【会敵まで止めない】。かつては「カメラが定位置より手前で止まり、残りを
-        // プレイヤーが歩く」形だったので、その手前で追従へ渡していた。今は
-        // 歩いてよい上限がボス部屋の画角そのもの(getBossRoomWalkLimitX)になり、
-        // 間合いはプレイヤーの跳び退がりが作るので、途中で止める必要がない
-        // (2026-08-17 の会敵刷新に合わせて撤去)。
         const s = this.stage;
         return this.currentStageNumber === 3 && !!s && !s.bossSpawned;
     }
@@ -2485,21 +2582,38 @@ class Game {
     }
 
     /**
-     * 【プレイヤーは定位置より前へ進めない】。
-     * 以前は会敵の瞬間に前進の勢いだけを殺していたが、カメラがプレイヤーを
-     * 画面中央に置いて追う以上、開戦時点のプレイヤーは必ず画面中央＝名乗り帯の
-     * 真下に来る。そこから左の構図へ持っていくにはプレイヤーを動かすしかなく、
-     * 「無理やり左へずらされる」感触が残っていた(実機フィードバック 2026-08-12)。
+     * 【歩いてよい上限】。ここに立つと通常追従(player.x > scrollX + 画面半分 で追う)が
+     * ちょうどボス部屋の画角(scrollX = maxProgress - CANVAS_WIDTH)を出す。
      *
-     * 定位置に見えない壁を置き、そこから先はカメラだけで詰める(updateBossRoomCameraPan)。
-     * プレイヤーは自分で歩いて止まるだけなので、押し戻される動きが一切出ない。
-     * ボスの登場目標Xは帯の中心に対するプレイヤーの鏡像(getBossSymmetricEntranceTargetX)
-     * なので、定位置が決まれば左右対称の構図もそのまま決まる。
+     * 以前はここではなく【名乗りの定位置】に壁を置いていた。定位置は画角より
+     * 371px 手前なので、足りないぶんをカメラのパンで詰めることになり、
+     *   ・プレイヤーは走行速度のまま見えない壁に当たり続ける(実測 6px/frame × 30)
+     *   ・その 0.5 秒、立っているプレイヤーの下を世界が 325px 滑る
+     * という絵になっていた(ユーザー指摘 2026-08-17)。
+     * 壁を画角の位置まで送り、間合いは【プレイヤー自身の跳び退がり】で作る
+     * (updateBossDuelSpacing)。
+     */
+    getBossRoomWalkLimitX() {
+        const s = this.stage;
+        if (!s || !this.player || !Number.isFinite(s.maxProgress)) return Infinity;
+        // Stage5の左進行フロアは幾何が反転する。ボスは右進行の最終フロアでしか
+        // 湧かないので通らないが、通ってしまった時は従来の定位置で止める。
+        if (this.currentStageNumber === 5 && s.floorScrollDirection === -1) {
+            return this.getBossNameStandLimitX();
+        }
+        const stopScrollX = Math.max(0, s.maxProgress - CANVAS_WIDTH);
+        return stopScrollX + CANVAS_WIDTH * 0.5;
+    }
+
+    /**
+     * 【プレイヤーはボス部屋の画角より前へ進めない】。
+     * 壁で止めるのは「部屋の外へ出さない」ためだけで、間合い作りには使わない。
+     * 会敵の間合いは updateBossDuelSpacing の跳び退がりが作る。
      */
     holdPlayerAtBossNameStand() {
         const p = this.player;
         if (!p) return;
-        const limit = this.getBossNameStandLimitX();
+        const limit = this.getBossRoomWalkLimitX();
         if (Number.isFinite(limit) && p.x > limit) {
             p.x = limit;
             if (p.vx > 0) p.vx = 0;
@@ -2525,7 +2639,7 @@ class Game {
         const stopScrollX = Math.max(0, s.maxProgress - CANVAS_WIDTH);
         if (this.scrollX >= stopScrollX) return;
         if (!this.bossRoomPanArmed) {
-            const limit = this.getBossNameStandLimitX();
+            const limit = this.getBossRoomWalkLimitX();
             if (!Number.isFinite(limit) || this.player.x < limit - 1) return;
             this.bossRoomPanArmed = true;
         }
@@ -2567,6 +2681,110 @@ class Game {
         const dx = this.stage6DuelLeadPx - this.stage6DuelLeadTargetPx;
         this.stage6DuelLeadVel += (-2 * w * this.stage6DuelLeadVel - w * w * dx) * dt;
         this.stage6DuelLeadPx += this.stage6DuelLeadVel * dt;
+    }
+
+    /**
+     * 【会敵の間合い取り】。プレイヤーが自分で跳び退がって間合いを作る。
+     *
+     * 構図の狙いは全ステージ共通 ——「名乗り帯を挟んで左右対称・スパン694px」。
+     * 位置の作り方だけが2通りある:
+     *  ・Stage1〜5: ボス部屋の画角までは自分で歩く。ボスがフレームインしてくるのに
+     *    合わせて名乗りの定位置(getBossNameStandLimitX)まで跳び退がる。
+     *    以前は定位置に壁を置き、足りない画角をカメラのパンで詰めていたので、
+     *    走行速度のまま壁に当たり続ける0.5秒と、その間の325pxのカメラ滑りが出ていた。
+     *  ・Stage6: 将軍が金鯱から連撃で降ってくる。踏み切りは【3段目】——
+     *    振り切ってから動くと「待ってから下がった」ように見え、刃の途中で抜けると
+     *    【避けて間合いを切った】に読める。
+     *
+     * どちらも空中は handleInput が vx を殺さない(操作ロック中は接地時のみ vx=0)ので、
+     * 滞空フレームで必要量を割れば着地位置がそのまま間合いになる。
+     * 跳んでいる間も毎フレーム着地点を解き直すので、相手が詰めてきてもズレない。
+     */
+    updateBossDuelSpacing() {
+        const s = this.stage;
+        const p = this.player;
+        if (!s || !p || !s.boss) return;
+        if (!s.bossIntroPhase) { this.duelBackstepFrames = 0; return; }
+        const arena = !!(typeof s.isStage6Arena === 'function' && s.isStage6Arena());
+        if (!arena && !this.isBossNameStandHoldActive()) return;
+
+        const b = s.boss;
+        const pw = p.getWorldWidth();
+        const bw = typeof b.getWorldWidth === 'function' ? b.getWorldWidth() : b.width;
+
+        /* 着地の目標X。
+           Stage1〜5 は名乗りの定位置(帯の左端 - 余白 - 体幅)そのもの。
+           Stage6 は屋根の上で定位置を持てないので、相手との差で出す
+           (帯中心基準で書くとカメラの対称寄せと目標が追いかけ合う)。 */
+        const solveTargetX = () => {
+            if (!arena) {
+                const stand = this.getBossNameStandLimitX();
+                return Number.isFinite(stand) ? stand : p.x;
+            }
+            const banner = getBossNameBannerBox();
+            const bannerLeftWorld = banner.x * (CANVAS_WIDTH / Math.max(1, SCREEN_WIDTH));
+            const halfSpan = CANVAS_WIDTH * 0.5 - bannerLeftWorld + BOSS_NAME_STAND_GAP_PX + pw * 0.5;
+            /* 将軍が【これから踏み込んでくる残り】を差し引く。既に詰めたぶんは
+               実測(bossX0 - 現在x)で引くので、連撃の出方がぶれても着地は狙いへ寄る。 */
+            const advanceDone = Number.isFinite(this.duelBackstepBossX0)
+                ? Math.max(0, this.duelBackstepBossX0 - b.x) : 0;
+            const advanceLeft = Number.isFinite(this.duelBackstepBossX0)
+                ? Math.max(0, STAGE6_ENTRANCE_ADVANCE_PX - advanceDone) : 0;
+            return (b.x + bw * 0.5) - advanceLeft - halfSpan * 2 - pw * 0.5;
+        };
+
+        // --- 跳んでいる間: 着地点を解き直す ---
+        if (this.duelBackstepFrames > 0) {
+            this.duelBackstepFrames -= 1;
+            if (p.isGrounded) {
+                this.duelBackstepFrames = 0;
+            } else {
+                const remain = Math.max(1, this.duelBackstepFrames);
+                const vx = (solveTargetX() - p.x) / remain;
+                p.vx = Math.max(-STAGE6_BACKSTEP_VX_MAX, Math.min(0, vx));
+                p.facingRight = true;   // 相手を見たまま下がる
+            }
+            return;
+        }
+        if (this.duelBackstepDone) return;
+
+        // --- 踏み切り ---
+        let aimX;
+        if (arena) {
+            /* 降下連撃の3段目。3段目の時点では間合いが 711px あって「もう充分」に
+               見えるが、将軍はそこから STAGE6_ENTRANCE_ADVANCE_PX ぶん詰めてくる。 */
+            const comboStep = (b.currentAttack && b.currentAttack.comboStep) || 0;
+            const inEntranceCombo = (b.entranceComboMax || 0) > 0;
+            const stepReached = inEntranceCombo && comboStep >= STAGE6_BACKSTEP_COMBO_STEP;
+            // 連撃が出ない場合の保険として、振り切って接地した所でも跳ぶ
+            const flurryOver = !s.bossEntranceDrop && !inEntranceCombo
+                && !b.isAttacking && b.isGrounded;
+            if (!stepReached && !flurryOver) return;
+            if (!p.isGrounded) return;
+            this.duelBackstepBossX0 = b.x;
+            const banner = getBossNameBannerBox();
+            const bannerLeftWorld = banner.x * (CANVAS_WIDTH / Math.max(1, SCREEN_WIDTH));
+            const halfSpan = CANVAS_WIDTH * 0.5 - bannerLeftWorld + BOSS_NAME_STAND_GAP_PX + pw * 0.5;
+            aimX = (b.x + bw * 0.5) - (stepReached ? STAGE6_ENTRANCE_ADVANCE_PX : 0)
+                - halfSpan * 2 - pw * 0.5;
+        } else {
+            // ボスがフレームインしてくるのに合わせて退がる
+            if (!b.isEntering) return;
+            if (!p.isGrounded) return;
+            aimX = solveTargetX();
+        }
+
+        const need = Math.min(STAGE6_BACKSTEP_MAX_PX, (p.x - aimX));
+        this.duelBackstepDone = true;
+        if (!(need > STAGE6_BACKSTEP_MIN_PX)) return;
+
+        const airFrames = Math.max(1, Math.round((2 * Math.abs(STAGE6_BACKSTEP_VY)) / GRAVITY));
+        p.isGrounded = false;
+        p.vy = STAGE6_BACKSTEP_VY;
+        p.vx = -need / airFrames;
+        p.jumpCount = Math.max(1, p.jumpCount || 0);
+        p.facingRight = true;
+        this.duelBackstepFrames = airFrames;
     }
 
     /** 会敵歩行の更新。player.update より前に呼び、入力を代行する。 */
@@ -3000,6 +3218,7 @@ class Game {
             : activeObstacles;
         // 最上層の会敵歩行(自動操作)。入力を読む前に代行キーを押す。
         this.updateStage6ArenaApproach();
+        this.updateBossDuelSpacing();
         this.updateStage6CameraLead();
         // 【ボスの登場〜名乗りの間はプレイヤーも足を止める】。攻撃は attackInputLockTimer が
         // 封じているが移動は素通しで、対称に組んだ会敵の構図が名乗りの間に崩れていた。
@@ -3078,9 +3297,10 @@ class Game {
             this.scrollX = this.player.x + this.player.getWorldWidth() * 0.5 - screenCenter
                 + this.getStage6CameraLead();
         } else if (this.currentStageNumber === 3 && this.stage) {
-            // Stage3 の受け渡し区間: 自動スクロールを切った直後は、プレイヤーが
-            // 画面右端に張り付いたままなので、いきなり中央へ寄せるとカメラが飛ぶ。
-            // 追いつく速さに上限を掛けて詰める(追いついた後は追従と同じ動き)。
+            // Stage3 で自動スクロールが切れた直後(=会敵の瞬間)。プレイヤーは
+            // 画面右端に張り付いたままなので、いきなり中央へ寄せるとカメラが飛ぶ
+            // (実測 598px)。追いつく速さに上限を掛けて詰める。
+            // 追いついた後は通常の追従と同じ動きになる。
             const target = Math.max(this.scrollX, this.player.x - screenCenter);
             const dt = Math.max(0, Math.min(1 / 30, this.deltaTime));
             this.scrollX = Math.min(target, this.scrollX + STAGE3_HANDOVER_CATCHUP_SPEED * dt);
@@ -3215,13 +3435,13 @@ class Game {
 
         // 【Stage3だけ】ボスの湧きをプレイヤーの到着で門番する。
         // 他ステージのカメラはプレイヤー追従なので、カメラがボス部屋の画角へ届いた
-        // 時点でプレイヤーは必ず定位置の壁まで歩いている。Stage3は自動スクロールなので
+        // 時点でプレイヤーは必ず歩行上限に立っている。Stage3は自動スクロールなので
         // カメラだけ先に着いてしまい、歩かずに運ばれると画面左端に貼り付いたまま
-        // 会敵して、名乗りの構図がそのまま崩れる
+        // 会敵する。跳び退がりは「後ろへ下がる」ものなので、既に定位置より左に
+        // いると発火せず(need<24)、名乗りの構図がそのまま崩れる
         // (実測: 左端で会敵するとスパン963px・左右差269px。歩いて着けば694px/差0)。
-        // 基準は holdPlayerAtBossNameStand が実際に止める壁と同じものを読む。
         this.stage.bossSpawnGateX = (this.currentStageNumber === 3)
-            ? this.getBossNameStandLimitX() : null;
+            ? this.getBossRoomWalkLimitX() : null;
 
         // ステージ更新
         this.stage.update(this.deltaTime, this.player);
@@ -4009,17 +4229,19 @@ class Game {
             }
         }
 
-        // 【名乗りまではボスの刃も体も通らない】。登場の5連コンボは演出であって
-        // 攻撃ではないので、被弾判定からボスだけを外す(ボス側の無敵と対称)。
-        // 寸止めクランプ(stage.js)で刃は届かない位置に止めてあるが、
-        // プレイヤーは登場中も歩けるので自分から踏み込める。その保険。
+        /* 【名乗りまでは誰の刃も体も通らない】。
+           登場の5連コンボは演出であって攻撃ではないのでボスを外していたが、
+           この窓はプレイヤーの操作を全部封じている(introControlLockTimer)ので、
+           雑魚に殴られるのも一方的になる。実際、名乗りの最中に雑魚が
+           分身を叩いて消していた(ユーザー指摘 2026-08-17)。
+           反撃できない間は【全員の攻撃と接触】を通さない。 */
         const bossIntroNoContact = !!(this.stage
             && typeof this.stage.isBossIntroBeforeCall === 'function'
             && this.stage.isBossIntroBeforeCall());
 
         // 敵攻撃 vs プレイヤー
         for (const enemy of activeEnemies) {
-            if (bossIntroNoContact && this.isBossEnemy(enemy)) continue;
+            if (bossIntroNoContact) continue;
             if (checkEnemyAttackHit(enemy, this.player)) {
                 if (this.handlePlayerDamage(enemy.damage, enemy.x + enemy.width / 2, {
                     knockbackX: 4.2,
@@ -4052,7 +4274,7 @@ class Game {
         
         // 敵との接触ダメージ
         for (const enemy of activeEnemies) {
-            if (bossIntroNoContact && this.isBossEnemy(enemy)) continue;
+            if (bossIntroNoContact) continue;
             if (checkPlayerEnemyCollision(this.player, enemy)) {
                 const contactDamage = this.isBossEnemy(enemy)
                     ? Math.max(1, Math.round((enemy.damage || 2) * 0.35))
@@ -4170,11 +4392,14 @@ class Game {
                 const atkBox = this.player.getAttackHitbox();
                 const boxes = Array.isArray(atkBox) ? atkBox : (atkBox ? [atkBox] : []);
                 if (boxes.some(box => this.rectIntersects(box, obs))) {
-                    if (obs.takeDamage(1)) {
+                    // 【大薙は大岩を一撃で砕く】。あの光刃が同じ岩に三度引っかかるのは絵に合わない。
+                    const shattering = this.isOonagiShatterActive();
+                    if (shattering ? obs.shatter() : obs.takeDamage(1)) {
                         this.spawnRockBreakEffect(
                             obs,
                             this.player.x + this.player.getWorldWidth() * 0.68,
-                            this.player.y + this.player.getWorldHeight() * 0.46
+                            this.player.y + this.player.getWorldHeight() * 0.46,
+                            shattering
                         );
                     }
                 }
@@ -4725,6 +4950,18 @@ class Game {
         }
     }
 
+    /**
+     * 大薙(X攻撃ブースト)が効いているか。効いている間、刀で触れた大岩は一撃で砕ける。
+     * 本体と分身の両方がここを見る(大薙は本体の強化で、分身はその写しのため)。
+     */
+    isOonagiShatterActive() {
+        return !!(
+            this.player &&
+            typeof this.player.isXAttackBoostActive === 'function' &&
+            this.player.isXAttackBoostActive()
+        );
+    }
+
     updateSpecialCloneAutoCombat(activeEnemies = []) {
         if (!this.player || !this.player.isSpecialCloneCombatActive || !this.player.isSpecialCloneCombatActive()) return;
         if (!this.player.specialCloneAutoAiEnabled) return;
@@ -4743,13 +4980,17 @@ class Game {
         if (!cloneOffsets.length) return;
         const attackMultiplier = this.getPlayerAttackMultiplier();
         const baseDamage = Math.max(10, Math.round((12 + 2) * attackMultiplier));
-        const subWeapon = this.player.currentSubWeapon || null;
-        const weaponName = subWeapon ? subWeapon.name : '奥義';
+        // 【Lv3の自立分身は本体の装備と連動しない】。何を担いでいても分身は打刀の通常コンボで戦うので、
+        // 判定側も忍具を見ない(以前は二刀流装備中だけ二刀のヒットボックスに切り替えていた)。
+        const subWeapon = null;
+        const weaponName = '奥義';
         const damageRockTarget = (rock, damage, impactX, impactY) => {
             if (!rock || rock.isDestroyed || rock.type !== OBSTACLE_TYPES.ROCK) return false;
             const rockDamage = Math.max(1, Math.round((damage || 1) * 0.35));
-            if (rock.takeDamage(rockDamage)) {
-                this.spawnRockBreakEffect(rock, impactX, impactY);
+            // 大薙は本体の強化なので、その写しである分身の刃も同じく一撃で砕く
+            const shattering = this.isOonagiShatterActive();
+            if (shattering ? rock.shatter() : rock.takeDamage(rockDamage)) {
+                this.spawnRockBreakEffect(rock, impactX, impactY, shattering);
             }
             return true;
         };
@@ -5416,7 +5657,7 @@ class Game {
         return Math.max(0, Math.round(gain * sourceScale * damageFactor));
     }
 
-    spawnRockBreakEffect(rock, impactX = null, impactY = null) {
+    spawnRockBreakEffect(rock, impactX = null, impactY = null, shattered = false) {
         if (!rock) return;
         const cx = rock.x + rock.width * 0.5;
         const cy = rock.y + rock.height * 0.58;
@@ -5424,7 +5665,9 @@ class Game {
         const sourceY = Number.isFinite(impactY) ? impactY : cy;
         const launchBase = Math.atan2(cy - sourceY, cx - sourceX);
         const palette = getRockVisualPalette(rock.variant);
-        const rockScale = Math.max(0.78, Math.min(1.45, (rock.width + rock.height) / 145));
+        // 大薙の一撃で砕いたときだけ、削り切ったときより一回り大きく散らす
+        const burst = shattered ? 1.45 : 1;
+        const rockScale = Math.max(0.78, Math.min(1.45, (rock.width + rock.height) / 145)) * (shattered ? 1.15 : 1);
 
         this.hitEffects.push({
             kind: 'ring',
@@ -5434,11 +5677,11 @@ class Game {
             vy: 0,
             life: 190,
             maxLife: 190,
-            radius: 11,
+            radius: 11 * burst,
             color: palette.ring
         });
 
-        const dustCount = 9;
+        const dustCount = Math.round(9 * burst);
         const dustPalette = [palette.dust, palette.mid, palette.dark];
         for (let i = 0; i < dustCount; i++) {
             const dir = launchBase + this.noiseOffset(i) * 0.75;
@@ -5458,7 +5701,7 @@ class Game {
             });
         }
 
-        const shardCount = 18;
+        const shardCount = Math.round(18 * burst);
         const shardPalette = palette.shards || [palette.mid, palette.dark, palette.light];
         for (let i = 0; i < shardCount; i++) {
             const dirJitter = (Math.random() - 0.5) * 0.9;
@@ -5865,40 +6108,45 @@ class Game {
     }
     
     updatePaused() {
-        // 「タイトルに戻る」の2タップ確認の自動解除
-        if (this.pauseReturnArmed) {
-            this.pauseReturnArmedTimer -= this.deltaTime * 1000;
-            if (this.pauseReturnArmedTimer <= 0) this.pauseReturnArmed = false;
+        // 「もう一度〜」の2タップ確認の自動解除
+        if (this.pauseArmedId) {
+            this.pauseArmedTimer -= this.deltaTime * 1000;
+            if (this.pauseArmedTimer <= 0) this.pauseArmedId = null;
+        }
+        // 確認への切り替わりを見せる遷移量。押した/離れた側どちらも同じ速さで繋ぐ。
+        const animStep = this.deltaTime / PAUSE_ARMED_ANIM_SEC;
+        for (const id of Object.keys(this.pauseArmedAnim)) {
+            const target = this.pauseArmedId === id ? 1 : 0;
+            const cur = this.pauseArmedAnim[id];
+            this.pauseArmedAnim[id] = cur < target
+                ? Math.min(target, cur + animStep)
+                : Math.max(target, cur - animStep);
         }
 
-        // 画面下端中央の「タイトルに戻る」ボタン（キャプチャを邪魔しない控えめ配置・2タップ確認）
+        // 画面下端のボタン列（キャプチャを邪魔しない控えめ配置・戻る系は2タップ確認）
         if (input.touchJustPressed) {
             const tx = input.lastTouchX;
             const ty = input.lastTouchY;
-            // 「地図に戻る」。行き先を選び直せるようにする(確認は要らない=中断ではない)
-            if (this.canPauseReturnToMap()) {
-                const mapBtn = getPauseMapButton();
-                if (Math.abs(tx - mapBtn.x) <= mapBtn.w / 2 && Math.abs(ty - mapBtn.y) <= mapBtn.h / 2) {
-                    input.touchJustPressed = false;
-                    this.pauseReturnArmed = false;
-                    if (typeof audio.playSelect === 'function') audio.playSelect();
-                    this.returnToMapFromPause();
-                    return;
-                }
-            }
-            const btn = getPauseReturnButton();
-            if (Math.abs(tx - btn.x) <= btn.w / 2 && Math.abs(ty - btn.y) <= btn.h / 2) {
-                if (this.pauseReturnArmed) {
-                    this.returnToTitle();
+            const hit = getPauseButtons({ canGoMap: this.canPauseReturnToMap() }).find(
+                (b) => Math.abs(tx - b.x) <= b.w / 2 && Math.abs(ty - b.y) <= b.h / 2
+            );
+            if (hit) {
+                input.touchJustPressed = false;
+                if (typeof audio.playSelect === 'function') audio.playSelect();
+                if (hit.id === 'resume') {
+                    this.resumeFromPause();
+                } else if (this.pauseArmedId === hit.id) {
+                    // 2回目＝確定。どちらも暗転を挟んで切り替える。
+                    if (hit.id === 'map') this.startScreenFade(() => this.returnToMapFromPause());
+                    else this.startScreenFade(() => this.returnToTitle());
                 } else {
-                    this.pauseReturnArmed = true;
-                    this.pauseReturnArmedTimer = 2500;
-                    if (typeof audio.playSelect === 'function') audio.playSelect();
+                    this.pauseArmedId = hit.id;
+                    this.pauseArmedTimer = 2500;
                 }
                 return;
             }
             // ボタン外をタップしたら確認を解除
-            this.pauseReturnArmed = false;
+            this.pauseArmedId = null;
         }
 
         // ポーズ中でも武器切替は許可
@@ -5907,14 +6155,18 @@ class Game {
         }
 
         if (input.isActionJustPressed('PAUSE') || input.isActionJustPressed('DEBUG_TOGGLE')) {
-            this.pauseReturnArmed = false;
-            // 入った画面へ戻す(セレクトからのポーズはセレクトへ)
-            this.state = (this.pauseReturnState === GAME_STATE.STAGE_CLEAR
-                || this.pauseReturnState === GAME_STATE.STAGE_SELECT)
-                ? this.pauseReturnState
-                : GAME_STATE.PLAYING;
-            audio.resumeBgm();
+            this.resumeFromPause();
         }
+    }
+
+    /** ポーズ解除。入った画面へ戻す(セレクトからのポーズはセレクトへ)。 */
+    resumeFromPause() {
+        this.clearPauseArmed();
+        this.state = (this.pauseReturnState === GAME_STATE.STAGE_CLEAR
+            || this.pauseReturnState === GAME_STATE.STAGE_SELECT)
+            ? this.pauseReturnState
+            : GAME_STATE.PLAYING;
+        audio.resumeBgm();
     }
 
     /**
@@ -5943,19 +6195,26 @@ class Game {
     }
 
     /**
-     * ポーズから地図へ戻る。中断ではなく「行き先を選び直す」なので確認は挟まない。
-     * 進捗(maxClearedStage)は既にセーブ済みで、そのステージは最初からやり直しになる。
+     * ポーズから地図へ戻る。そのステージは最初からやり直しになるので、
+     * 押し間違いで戦線を失わないよう「もう一度〜」の確認を挟む(呼び出し側)。
+     * 進捗(maxClearedStage)は既にセーブ済み。
      */
     returnToMapFromPause() {
-        this.pauseReturnArmed = false;
+        this.clearPauseArmed();
         this.pauseReturnState = GAME_STATE.PLAYING;
         this.clearRunTimeBuffs();
         this.enterStageSelect();
     }
 
+    /** ポーズの確認状態と、その切り替わりアニメを畳む。 */
+    clearPauseArmed() {
+        this.pauseArmedId = null;
+        for (const id of Object.keys(this.pauseArmedAnim)) this.pauseArmedAnim[id] = 0;
+    }
+
     // ポーズから タイトルへ戻る（中断）。セーブは保持し、タイトルで「続きから」可能にする。
     returnToTitle() {
-        this.pauseReturnArmed = false;
+        this.clearPauseArmed();
         this.pauseReturnState = GAME_STATE.PLAYING;
         this.state = GAME_STATE.TITLE;
         this.titleMenuIndex = 0;
@@ -6812,7 +7071,14 @@ class Game {
                 } else {
                     this.renderPlaying();
                 }
-                renderPauseScreen(this.ctx, this.pauseReturnArmed, { canGoMap: this.canPauseReturnToMap() });
+                /* ポーズでも映画枠は開いたまま。ただし【ポーズUIの下】に敷く ——
+                   ポーズのボタンは下部の攻撃ボタンと同じ高さ＝下の帯の中にあるので、
+                   上に重ねると押せるのに見えないボタンになる(ユーザー指摘 2026-08-17)。 */
+                this.renderCinemaBars();
+                renderPauseScreen(this.ctx, {
+                    canGoMap: this.canPauseReturnToMap(),
+                    anim: this.pauseArmedAnim
+                });
                 break;
 
             case GAME_STATE.DEFEAT:
@@ -6930,7 +7196,13 @@ class Game {
         // タッチ向けBGMトグルは全画面共通で表示。ただしデバッグウィンドウは画面上端
         // まで使うので、重なって項目が読めなくなる間だけ引っ込める（判定も止める）。
         const showBgmButton = !(this.state === GAME_STATE.TITLE && this.titleDebugOpen);
-        setBgmButtonVisible(showBgmButton);
+        // 映画枠(この下で描く帯)が上端を覆い切っている間は、絵が消えているのに
+        // 判定だけ残る状態になるので判定も止める。帯は 0.55 で天板を越える。
+        // ポーズ中は帯より【上】に描かれる(帯はポーズUIの下に敷いている)ので、
+        // 隠れているのは通常時だけ。見えているのに押せない状態を作らない。
+        const bgmUnderCinemaBar = this.state !== GAME_STATE.PAUSED
+            && (this.cinemaBarT || 0) > 0.55;
+        setBgmButtonVisible(showBgmButton && !bgmUnderCinemaBar);
         if (showBgmButton) this.ui.renderGlobalTouchButtons(this.ctx);
         
         // Stage5/6 のフロア/角遷移の暗転。他の幕と同じくBGMボタンより後ろ
@@ -6992,40 +7264,9 @@ class Game {
             this.flashAlpha = Math.max(0, this.flashAlpha - this.deltaTime * 3.0); // フェードアウト速度
         }
 
-        // ボス撃破のクロージング。画面を塞ぐ幕ではなく細い映画枠に留め、
-        // 撃破地点と次の「突破」が同じ場で連続して見えるようにする。
-        if (this.bossDefeatClosingMs > 0) {
-            const total = BOSS_STAGING.DEFEAT_CLOSING_MS;
-            const t = 1 - this.bossDefeatClosingMs / total; // 0→1
-            // 前半で寄り、後半で引く（山なり）
-            const amt = t < 0.5 ? (t / 0.5) : (1 - (t - 0.5) / 0.5);
-            const band = CANVAS_HEIGHT * 0.16 * amt;
-            if (band > 0.5) {
-                this.ctx.save();
-                const top = this.ctx.createLinearGradient(0, 0, 0, band);
-                top.addColorStop(0, 'rgba(0, 0, 0, 0.92)');
-                top.addColorStop(1, 'rgba(0, 0, 0, 0)');
-                this.ctx.fillStyle = top;
-                this.ctx.fillRect(0, 0, SCREEN_WIDTH, band);
-
-                const bot = this.ctx.createLinearGradient(0, CANVAS_HEIGHT - band, 0, CANVAS_HEIGHT);
-                bot.addColorStop(0, 'rgba(0, 0, 0, 0)');
-                bot.addColorStop(1, 'rgba(0, 0, 0, 0.92)');
-                this.ctx.fillStyle = bot;
-                this.ctx.fillRect(0, CANVAS_HEIGHT - band, SCREEN_WIDTH, band);
-
-                this.ctx.strokeStyle = `rgba(224, 190, 119, ${(0.34 * amt).toFixed(3)})`;
-                this.ctx.lineWidth = 1;
-                this.ctx.beginPath();
-                this.ctx.moveTo(SCREEN_WIDTH * 0.18, band);
-                this.ctx.lineTo(SCREEN_WIDTH * 0.82, band);
-                this.ctx.moveTo(SCREEN_WIDTH * 0.18, CANVAS_HEIGHT - band);
-                this.ctx.lineTo(SCREEN_WIDTH * 0.82, CANVAS_HEIGHT - band);
-                this.ctx.stroke();
-                this.ctx.restore();
-            }
-            this.bossDefeatClosingMs = Math.max(0, this.bossDefeatClosingMs - this.deltaTime * 1000);
-        }
+        // 映画枠(上下の黒帯)。開閉の駆動は loop() の updateCinemaBars（実時間）。
+        // ポーズ中は上の switch 内で【ポーズUIの下】に敷き済みなので、ここでは描かない。
+        if (this.state !== GAME_STATE.PAUSED) this.renderCinemaBars();
 
         // プレイヤー被弾の赤ビネット（画面端ほど濃く・中央は薄く視界を妨げない）。
         // gradient 1枚塗りのみ・点灯は被弾後 ~0.25s だけなので軽量。
@@ -7546,9 +7787,23 @@ class Game {
             }
 
             this.renderBossNameBannerIfNeeded(ctx);
-            this.ui.renderHUD(ctx, this.player, this.stage);
-            if (!this.isOverlayGuidanceVisible()) {
-                this.ui.renderControls(ctx);
+            /* 映画枠が開いている間はHUDと操作ガイドを引く。
+               帯に半分だけ隠れた体力ゲージは「見切れたUI」にしか見えず、
+               演出ではなく不具合に見える。名乗りの間は名乗りだけを見せる。
+               ボスHPゲージ(上の renderBossUI)は登場演出の主役なので残す。 */
+            /* 帯が天板(体力ゲージのある上端90px前後)を通り過ぎてから戻す。
+               単純な 1-t だと、帯がまだ被っている途中でゲージが薄く出てきて
+               「見切れたUI」に見える。0.60→0.25 の間だけで出し入れする。 */
+            const cineT = Math.max(0, Math.min(1, this.cinemaBarT || 0));
+            const cineFade = Math.max(0, Math.min(1, (0.60 - cineT) / 0.35));
+            if (cineFade > 0.01) {
+                ctx.save();
+                if (cineFade < 1) ctx.globalAlpha *= cineFade;
+                this.ui.renderHUD(ctx, this.player, this.stage);
+                if (!this.isOverlayGuidanceVisible()) {
+                    this.ui.renderControls(ctx);
+                }
+                ctx.restore();
             }
 
             if (this.currentStageNumber === 5 && this.stage.stageNumber === 5) {

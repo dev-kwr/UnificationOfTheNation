@@ -2,9 +2,9 @@
 // Unification of the Nation - 障害物クラス
 // ============================================
 
-import { OBSTACLE_TYPES, OBSTACLE_SETTINGS, LANE_OFFSET } from './constants.js?v=screen-safe-20260818b';
-import { audio } from './audio.js?v=screen-safe-20260818b';
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260818b';
+import { OBSTACLE_TYPES, OBSTACLE_SETTINGS, LANE_OFFSET } from './constants.js?v=screen-safe-20260818c';
+import { audio } from './audio.js?v=screen-safe-20260818c';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260818c';
 
 const OBSTACLE_SPRITE_PATHS = {
     spike: 'images/obstacle_spike_bamboo_trap.png',
@@ -149,6 +149,19 @@ export class Obstacle {
         return false;
     }
     
+    /**
+     * 一撃で砕く。大薙(X攻撃ブースト)のような「巨大な光刃」で斬ったときに使う。
+     * takeDamage の hitTimer(連打の無効時間)も残りHPも見ずに落とす — 光刃が岩に
+     * 三度も引っかかる絵にしないため。
+     */
+    shatter() {
+        if (this.isDestroyed) return false;
+        this.hp = 0;
+        this.hitTimer = 0;
+        this.kill();
+        return true;
+    }
+
     kill() {
         this.isDestroyed = true;
         audio.playExplosion();

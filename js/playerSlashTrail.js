@@ -1,17 +1,17 @@
 // Unification of the Nation - 斬撃トレイル mixin
 
-import { PLAYER, GRAVITY, FRICTION, LANE_OFFSET } from './constants.js?v=screen-safe-20260818b';
-import { COMBO_ATTACKS, NORMAL_COMBO_STEP3_LAUNCH_VY, NORMAL_COMBO_STEP3_LUNGE_HSCALE_COEF, SHOGUN_STEP3_MOTION_SCALE } from './playerData.js?v=screen-safe-20260818b';
+import { PLAYER, GRAVITY, FRICTION, LANE_OFFSET } from './constants.js?v=screen-safe-20260818c';
+import { COMBO_ATTACKS, NORMAL_COMBO_STEP3_LAUNCH_VY, NORMAL_COMBO_STEP3_LUNGE_HSCALE_COEF, SHOGUN_STEP3_MOTION_SCALE } from './playerData.js?v=screen-safe-20260818c';
 import {
     SHOGUN_ACTOR_BASE_WIDTH,
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ARM_REACH_SCALE
-} from './shogunConstants.js?v=screen-safe-20260818b';
+} from './shogunConstants.js?v=screen-safe-20260818c';
 import {
     freezeNormalComboFinisherTrailCurve,
     getNormalComboStep4RiseScale,
     getNormalComboStep5DownwardControl
-} from './normalComboMotion.js?v=screen-safe-20260818b';
+} from './normalComboMotion.js?v=screen-safe-20260818c';
 
 const COMBO_STEP5_END_TRIM_FACTOR = 0.9;
 const getComboStep5EndTrimFactor = (physicalScale = 1) => {
@@ -4937,6 +4937,40 @@ export function applySlashTrailMixin(PlayerClass) {
                 ctx.restore();
             }
         };
+        // 【大薙の拡大軸は「今この剣筋を描いている実体」の姿勢から取る】。
+        // 分身の剣筋なのに本体の x/currentAttack で柄(armEnd)と刃長を求めると、軸が本体側に寄り
+        // 巨刀の切先から剣筋が外れる(実機フィードバック 2026-08-16)。attackState は分身の
+        // ワールド箱と分身の攻撃プロファイルを持っているので、あるならそちらを正本にする。
+        const resolveOonagiPoseSource = () => {
+            const st = renderOptions.attackState;
+            const fallbackW = (typeof this.getWorldWidth === 'function') ? this.getWorldWidth() : undefined;
+            const fallbackH = (typeof this.getWorldHeight === 'function') ? this.getWorldHeight() : undefined;
+            if (st && Number.isFinite(st.x) && Number.isFinite(st.y)) {
+                return {
+                    x: st.x,
+                    y: st.y,
+                    width: Number.isFinite(st.width) ? st.width : fallbackW,
+                    height: Number.isFinite(st.height) ? st.height : fallbackH,
+                    facingRight: st.facingRight !== undefined ? st.facingRight : this.facingRight,
+                    isCrouching: st.isCrouching !== undefined ? st.isCrouching : this.isCrouching,
+                    currentAttack: st.currentAttack || this.currentAttack,
+                    attackTimer: Number.isFinite(st.attackTimer) ? st.attackTimer : this.attackTimer
+                };
+            }
+            return {
+                x: this.x,
+                y: this.y,
+                width: fallbackW,
+                height: fallbackH,
+                facingRight: this.facingRight,
+                isCrouching: this.isCrouching,
+                currentAttack: this.currentAttack,
+                attackTimer: this.attackTimer
+            };
+        };
+        // 刃長キャッシュは本体と分身で別に持つ。混ぜると互いのポーズ無効期間に相手の値が入り、
+        // コンボの合間に帯が平行移動でジャンプする。
+        const oonagiBladeLenCacheKey = renderOptions.attackState ? '_oonagiBladeLenCacheClone' : '_oonagiBladeLenCache';
         const drawOonagiRangeEffect = (pts, comboStep = 0, projectFn = null, options = {}) => {
             // 大薙の範囲エフェクト自身のストロークは常に描く（通常剣筋抑止フラグを下ろす）
             _oonagiSuppressStroke = false;
@@ -4977,22 +5011,16 @@ export function applySlashTrailMixin(PlayerClass) {
                 // pose常に有効)で得た L をキャッシュし、pose無効時はキャッシュを使う=常に同一値。
                 let bladeLen = null;
                 try {
-                    const poseL = this.getComboSwordPoseState({
-                        x: this.x, y: this.y,
-                        width: (typeof this.getWorldWidth === 'function') ? this.getWorldWidth() : undefined,
-                        height: (typeof this.getWorldHeight === 'function') ? this.getWorldHeight() : undefined,
-                        facingRight: this.facingRight, isCrouching: this.isCrouching,
-                        currentAttack: this.currentAttack, attackTimer: this.attackTimer
-                    });
+                    const poseL = this.getComboSwordPoseState(resolveOonagiPoseSource());
                     if (poseL && Number.isFinite(poseL.armEndX) && Number.isFinite(poseL.tipX)) {
                         bladeLen = Math.hypot(poseL.tipX - poseL.armEndX, poseL.tipY - poseL.armEndY);
                     }
                 } catch (e) { bladeLen = null; }
                 if (Number.isFinite(bladeLen) && bladeLen >= 8) {
-                    this._oonagiBladeLenCache = bladeLen;
+                    this[oonagiBladeLenCacheKey] = bladeLen;
                 } else {
-                    bladeLen = Number.isFinite(this._oonagiBladeLenCache)
-                        ? this._oonagiBladeLenCache
+                    bladeLen = Number.isFinite(this[oonagiBladeLenCacheKey])
+                        ? this[oonagiBladeLenCacheKey]
                         : 58 * Math.max(1, physicalScale);
                 }
                 const ext = (OONAGI_BLADE_LENGTH_SCALE - 1) * bladeLen; // ≈0.8L: 巨刀が実刃より前へ出る量
@@ -5039,15 +5067,10 @@ export function applySlashTrailMixin(PlayerClass) {
                 } else if ((typeof this.isXAttackBoostActive === 'function' && this.isXAttackBoostActive())
                     && typeof this.getComboSwordPoseState === 'function') {
                     // ライブ(弧系): 現在の柄(armEnd)を投影して軸に
+                    // (分身なら分身の柄。本体の柄を使うと剣筋が本体側へ寄って巨刀から外れる)
                     let pose = null;
                     try {
-                        pose = this.getComboSwordPoseState({
-                            x: this.x, y: this.y,
-                            width: (typeof this.getWorldWidth === 'function') ? this.getWorldWidth() : undefined,
-                            height: (typeof this.getWorldHeight === 'function') ? this.getWorldHeight() : undefined,
-                            facingRight: this.facingRight, isCrouching: this.isCrouching,
-                            currentAttack: this.currentAttack, attackTimer: this.attackTimer
-                        });
+                        pose = this.getComboSwordPoseState(resolveOonagiPoseSource());
                     } catch (e) { pose = null; }
                     if (pose && Number.isFinite(pose.armEndX) && Number.isFinite(pose.armEndY)) {
                         const pre = { x: pose.armEndX, y: pose.armEndY, age: 0, life: 1 };

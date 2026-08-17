@@ -2,13 +2,14 @@
 // Unification of the Nation - 敵クラス
 // ============================================
 
-import { ENEMY_TYPES, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js?v=screen-safe-20260818b';
+import { ENEMY_TYPES, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js?v=screen-safe-20260818c';
+import { resolveAiFacing } from './aiFacing.js?v=screen-safe-20260818c';
 /* 雑魚・中ボスもフロアボスと同じ素体リグで描く(bodyHeight で縮小するだけ)。
    旧 renderUnifiedEnemyModel は当面デッドコードとして残す。 */
 import {
     MOB_DESIGNS, renderBossActor,
     mobSpear, mobKatana, mobShuriken, mobNaginata
-} from './bossRenderer.js?v=screen-safe-20260818b';
+} from './bossRenderer.js?v=screen-safe-20260818c';
 
 /* 雑魚の素体は【忍者(プレイヤー)と同じ大きさ】で描く。
    実測(細い黒=刀の柄を除外して頭頂を検出): プレイヤーの描画全高は箱と同じ 72px、
@@ -17,7 +18,7 @@ import {
    雑魚3種は 72 に揃える(当たり判定は変更しない)。
    中ボスの武将は格を出すため自分の箱(90)のまま。 */
 const PLAYER_BODY_H = 70.32;   // 忍者の描画全高 = height(72) - 頭半径(16.8)*0.1
-import { audio } from './audio.js?v=screen-safe-20260818b';
+import { audio } from './audio.js?v=screen-safe-20260818c';
 
 const ENEMY_HEADBAND_BASE = '#4f2f72';
 const ENEMY_HEADBAND_HIGHLIGHT = '#7e58a6';
@@ -215,10 +216,18 @@ export class Enemy {
         this.applyPhysics(obstacles);
         this.applyPullStopConstraint(player, deltaTime * 1000);
 
-        // 2.5Dで進行方向を向けるため、攻撃中以外は移動方向に向きを合わせる
-        // ダメージを受けている間は向きを固定
-        if (!this.isAttacking && Math.abs(this.vx) > 0.18 && this.hitTimer <= 0) {
-            this.facingRight = this.vx > 0;
+        /* 2.5Dで進行方向を向けるため、攻撃中以外は移動方向に向きを合わせる
+           (ダメージを受けている間は向きを固定)。
+
+           【自分で向きを決めるAIはここを通さない】。ボスのように
+           「相手を向いたまま下がる」実装は、AI が毎フレーム相手の方を向け直し、
+           ここが移動方向(＝相手と逆)へ書き戻すので、二人の書き手が毎フレーム
+           争って左右にピクピク反転する(実測: 240ms ごとに1フレームだけ裏返る
+           ＝ resolveAiFacing のクールダウンの周期。ユーザー指摘 2026-08-17)。
+           ヒステリシスは反転の【速さ】を抑えるだけで、矛盾そのものは消せない。 */
+        if (this.faceMovementDirection !== false
+            && !this.isAttacking && Math.abs(this.vx) > 0.18 && this.hitTimer <= 0) {
+            this.facingRight = resolveAiFacing(this, this.vx > 0, deltaTime * 1000, Infinity);
         }
         
         // 飛び道具更新
@@ -2268,7 +2277,7 @@ export class Enemy {
         if (this.stage4ForcedMoveTimer > 0) {
             desiredVX = this.stage4ForcedMoveVx || 0;
             if (Math.abs(desiredVX) > 0.08 && this.hitTimer <= 0) {
-                this.facingRight = desiredVX > 0;
+                this.facingRight = resolveAiFacing(this, desiredVX > 0, deltaTime * 1000, Infinity);
             }
             this.state = 'chase';
             this.applyDesiredVx(desiredVX, 0.36);
@@ -2278,7 +2287,7 @@ export class Enemy {
         // 攻撃中または攻撃クールダウン中は移動しない
         if (this.isAttacking || this.attackCooldown > 0) {
             desiredVX = 0;
-            if (this.hitTimer <= 0) this.facingRight = playerDirection > 0;
+            if (this.hitTimer <= 0) this.facingRight = resolveAiFacing(this, playerDirection > 0, deltaTime * 1000, horizontalDistance);
             this.applyDesiredVx(desiredVX, 0.4);
             return;
         }
@@ -2288,7 +2297,7 @@ export class Enemy {
                 // 待機中でもプレイヤーの方へじわりと進む（速度を向上 0.32 -> 0.5）
                 desiredVX = this.speed * 0.5 * playerDirection;
                 if (this.hitTimer <= 0 && !this.isAttacking) {
-                    this.facingRight = playerDirection > 0;
+                    this.facingRight = resolveAiFacing(this, playerDirection > 0, deltaTime * 1000, horizontalDistance);
                 }
                 
                 // 画面内にプレイヤーがいれば強制的に chase 状態へ（索敵範囲を実質無視）
@@ -2326,7 +2335,7 @@ export class Enemy {
                 break;
                 
             case 'chase':
-                if (this.hitTimer <= 0) this.facingRight = playerDirection > 0;
+                if (this.hitTimer <= 0) this.facingRight = resolveAiFacing(this, playerDirection > 0, deltaTime * 1000, horizontalDistance);
                 
                 // 攻撃範囲内に入ったら停止して攻撃準備
                 const inAttackRangeLoose = this.isPlayerInAttackRange(player, 1.18);
@@ -2349,7 +2358,7 @@ export class Enemy {
                 
             case 'attack':
                 desiredVX = 0;
-                if (this.hitTimer <= 0) this.facingRight = playerDirection > 0;
+                if (this.hitTimer <= 0) this.facingRight = resolveAiFacing(this, playerDirection > 0, deltaTime * 1000, horizontalDistance);
                 
                 // 予備動作（少し溜め）後に攻撃
                 if (this.stateTimer > this.attackWindupMs && canStartAttack && this.isPlayerInAttackRange(player, 1.12)) {
@@ -2560,6 +2569,12 @@ export class Enemy {
             }
         }
         
+        // 【まだ埋まっているとき】の受け皿。上の補正は「外から入ってきた」1フレーム
+        // しか捕まえられないので、湧いた位置に岩があった / 岩が後から降ってきた
+        // 場合はどの分岐にも当たらず、岩の中を歩き続ける
+        // (ユーザー指摘 2026-08-17: 敵が大岩にめり込んで登場する)。
+        this.resolveObstacleEmbed(obstacles);
+
         // 地面判定
         if (this.y + this.height >= this.groundY + LANE_OFFSET) {
             this.y = this.groundY + LANE_OFFSET - this.height;
@@ -2568,6 +2583,52 @@ export class Enemy {
         }
         
         // 画面端制限は削除（ワールド座標で自由に動く）
+    }
+
+    /**
+     * 埋まっている岩の【塊】の外へ一度で出す。
+     *
+     * 1個ずつ押し出すと、岩が並んでいる所で
+     * 「Aの右へ出す → Bが左へ押し戻す」を毎フレーム繰り返して
+     * 結局埋まったまま落ち着く(実測: 2564へ出した直後に2540へ戻されていた)。
+     * 重なり合う岩を横に連結して、その塊の近い側の縁まで運ぶ。
+     * すり抜け床(isOneWayPlatform)は対象外 —— 乗る/くぐるは上の補正の担当。
+     */
+    resolveObstacleEmbed(obstacles) {
+        if (!obstacles || obstacles.length === 0) return;
+        const solid = obstacles.filter((o) => o && !o.isOneWayPlatform);
+        if (solid.length === 0) return;
+        const hits = solid.filter((o) => this.intersects(o));
+        if (hits.length === 0) return;
+
+        let left = Math.min(...hits.map((o) => o.x));
+        let right = Math.max(...hits.map((o) => o.x + o.width));
+        // 塊を横へ広げる(縦に重なる岩だけを繋ぐ)
+        for (let pass = 0; pass < 4; pass++) {
+            let nl = left;
+            let nr = right;
+            for (const o of solid) {
+                const verticalOverlap = this.y < o.y + o.height && this.y + this.height > o.y;
+                if (!verticalOverlap) continue;
+                if (o.x <= right + 1 && o.x + o.width >= left - 1) {
+                    nl = Math.min(nl, o.x);
+                    nr = Math.max(nr, o.x + o.width);
+                }
+            }
+            if (nl === left && nr === right) break;
+            left = nl;
+            right = nr;
+        }
+
+        const outLeft = (this.x + this.width) - left;   // 左へ抜ける距離
+        const outRight = right - this.x;                // 右へ抜ける距離
+        if (outLeft <= outRight) {
+            this.x = left - this.width;
+            if (this.vx > 0) this.vx = 0;
+        } else {
+            this.x = right;
+            if (this.vx < 0) this.vx = 0;
+        }
     }
 
     intersects(rect) {
@@ -3381,6 +3442,10 @@ export class Busho extends Enemy {
         this.moveType = 'normal'; // normal, dash, retreat
         this.moveTimer = 0;
         this.hasImpacted = false;
+        /* 向きは updateAI が【相手基準】で決める。moveType='retreat' は
+           相手を向いたまま後ろへ下がるので、Enemy.update の
+           「移動方向を向く」既定を残すと二人の書き手が争って痙攣する。 */
+        this.faceMovementDirection = false;
     }
 
     updateAI(deltaTime, player) {
@@ -3400,7 +3465,7 @@ export class Busho extends Enemy {
         let desiredVX = this.vx;
         
         if (!this.isAttacking) {
-            this.facingRight = directionToPlayer > 0;
+            this.facingRight = resolveAiFacing(this, directionToPlayer > 0, deltaTime * 1000, dist);
             
             // 攻撃の意思決定
             const attackInterval = this.isEnraged ? 500 : 860;
@@ -3949,7 +4014,7 @@ export class Ninja extends Enemy {
             // 近すぎると離れて距離を取る（忍者の立ち回り）
             const desiredVX = -this.speed * playerDirection;
             this.applyDesiredVx(desiredVX, 0.42);
-            this.facingRight = playerDirection > 0;
+            this.facingRight = resolveAiFacing(this, playerDirection > 0, deltaTime * 1000, Math.abs(player.x - this.x));
             this.tryJump(0.045, -25, 430);
         } else {
             super.updateAI(deltaTime, player);

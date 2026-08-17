@@ -2,10 +2,10 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260818b';
-import { audio } from './audio.js?v=screen-safe-20260818b';
-import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260818b';
-import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260818b';
+import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260818c';
+import { audio } from './audio.js?v=screen-safe-20260818c';
+import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260818c';
+import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260818c';
 
 // 武器ジオメトリは「武器を振る主体(owner/player)のワールド寸法」を基準に組み立てる。
 // 将軍は width/height が素体(40x60)なので getWorldWidth/Height(=素体×SHOGUN_SCALE) を読む。
@@ -332,6 +332,122 @@ function drawFirebombFuseFlame(ctx, path, time, seeds, visualScale = 1) {
 }
 
 // 爆弾クラス
+
+/* ============================================================
+   火薬玉の【玉そのもの】の描画(共有)
+   ------------------------------------------------------------
+   手に持っている玉・プレイヤーが投げた玉・ボスが投げた玉 の3箇所で
+   別々の絵を描いていたため、投げる前と後で別物に見えていた
+   (ユーザー指摘 2026-08-16)。ここに一本化する。
+   描き順は【縄 → 本体SVG(無ければ球グラデ) → 火】。
+   @param {object} [o] { seeds, time, visualScale, flame }
+   ============================================================ */
+export function makeFirebombFuseSeed() {
+    return Array.from({ length: 7 }, () => ({
+        ox: (Math.random() - 0.5) * 6,
+        oy: (Math.random() - 0.5) * 6,
+        ph: Math.random() * Math.PI * 2
+    }));
+}
+
+let _sharedFuseSeed = null;
+export function drawFirebombBall(ctx, x, y, radius, o) {
+    const opt = o || {};
+    const seeds = opt.seeds || (_sharedFuseSeed || (_sharedFuseSeed = makeFirebombFuseSeed()));
+    const time = Number.isFinite(opt.time) ? opt.time : performance.now();
+    const visualScale = Number.isFinite(opt.visualScale) ? opt.visualScale : 1;
+    ctx.save();
+    // 導火線の縄は本体より先。SVGの口金が根元を隠し、口から生えて見える。
+    const fusePath = computeFusePath(
+        x, y, Math.max(1, radius), time, seeds
+    );
+    drawFirebombFuseCord(ctx, fusePath, radius);
+
+    // 本体は SVG(bomb_body.svg)。口金までこの絵に含まれる。
+    const bodyImg = getBombBodyImage();
+    if (bodyImg) {
+        const dw = radius / BOMB_BALL_R;
+        const dh = dw * BOMB_BODY_ASPECT;
+        const dx = x - dw * BOMB_BALL_CX;
+        const dy = y - dh * BOMB_BALL_CY;
+        withDropShadow(ctx, { color: 'rgba(0,0,0,0.45)', blur: 3, dx: 1, dy: 2 }, () => {
+            ctx.imageSmoothingEnabled = true;
+            ctx.drawImage(bodyImg, dx, dy, dw, dh);
+        });
+    } else {
+        // 立体的な爆弾本体（球体グラデーション）＋落ち影で浮かせる
+        const bodyGrad = ctx.createRadialGradient(
+            x - radius * 0.34, y - radius * 0.34, radius * 0.04,
+            x, y, radius
+        );
+        bodyGrad.addColorStop(0, '#666c75'); // 柔らかな入射光
+        bodyGrad.addColorStop(0.18, '#454a52');
+        bodyGrad.addColorStop(0.50, '#262a2f'); // 基本色
+        bodyGrad.addColorStop(1, '#080a0d'); // 影
+        withDropShadow(ctx, { color: 'rgba(0,0,0,0.45)', blur: 3, dx: 1, dy: 2 }, () => {
+            ctx.fillStyle = bodyGrad;
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        // 縁の暗いリムで鋳鉄の重量感
+        ctx.strokeStyle = 'rgba(6,8,11,0.7)';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.arc(x, y, radius - 0.4, 0, Math.PI * 2);
+        ctx.stroke();
+        // 左上の球面反射。単色の白い楕円ではなく、HUD画像と同じく
+        // 拡散光→細い主反射→外周リムの順で柔らかく重ねる。
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(x, y, radius - 0.7, 0, Math.PI * 2);
+        ctx.clip();
+
+        const diffuseHighlight = ctx.createRadialGradient(
+            x - radius * 0.42,
+            y - radius * 0.46,
+            0,
+            x - radius * 0.22,
+            y - radius * 0.26,
+            radius * 0.76
+        );
+        diffuseHighlight.addColorStop(0, 'rgba(236,241,248,0.17)');
+        diffuseHighlight.addColorStop(0.30, 'rgba(207,214,224,0.085)');
+        diffuseHighlight.addColorStop(0.68, 'rgba(161,170,183,0.03)');
+        diffuseHighlight.addColorStop(1, 'rgba(130,140,154,0)');
+        ctx.fillStyle = diffuseHighlight;
+        ctx.fillRect(
+            x - radius,
+            y - radius,
+            radius * 2,
+            radius * 2
+        );
+
+        // 主反射は淡い楕円グラデーションにして、中心も白飛びさせない。
+        ctx.save();
+        ctx.translate(
+            x - radius * 0.37,
+            y - radius * 0.43
+        );
+        ctx.rotate(-0.58);
+        ctx.scale(radius * 0.36, radius * 0.10);
+        const specularHighlight = ctx.createRadialGradient(-0.22, -0.12, 0, 0, 0, 1);
+        specularHighlight.addColorStop(0, 'rgba(248,250,253,0.28)');
+        specularHighlight.addColorStop(0.42, 'rgba(230,235,242,0.13)');
+        specularHighlight.addColorStop(1, 'rgba(210,218,229,0)');
+        ctx.fillStyle = specularHighlight;
+        ctx.beginPath();
+        ctx.arc(0, 0, 1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        ctx.restore();   // クリップ(球面ハイライト)を閉じる
+    }
+
+    // 先端の火と火花は本体より後（球に隠さない）
+    if (opt.flame !== false) drawFirebombFuseFlame(ctx, fusePath, time, seeds, visualScale);
+    ctx.restore();
+}
+
 export class Bomb {
     constructor(x, y, velocityX, velocityY) {
         this.x = x;
@@ -578,95 +694,13 @@ export class Bomb {
                 });
             }
 
-            // 導火線の縄は本体より先。SVGの口金が根元を隠し、口から生えて見える。
-            const fusePath = computeFusePath(
-                this.x, this.y, Math.max(1, this.radius), performance.now(), this._fuseSeed
-            );
-            drawFirebombFuseCord(ctx, fusePath, this.radius);
-
-            // 本体は SVG(bomb_body.svg)。口金までこの絵に含まれる。
-            const bodyImg = getBombBodyImage();
-            if (bodyImg) {
-                const dw = this.radius / BOMB_BALL_R;
-                const dh = dw * BOMB_BODY_ASPECT;
-                const dx = this.x - dw * BOMB_BALL_CX;
-                const dy = this.y - dh * BOMB_BALL_CY;
-                withDropShadow(ctx, { color: 'rgba(0,0,0,0.45)', blur: 3, dx: 1, dy: 2 }, () => {
-                    ctx.imageSmoothingEnabled = true;
-                    ctx.drawImage(bodyImg, dx, dy, dw, dh);
-                });
-            } else {
-                // 立体的な爆弾本体（球体グラデーション）＋落ち影で浮かせる
-                const bodyGrad = ctx.createRadialGradient(
-                    this.x - this.radius * 0.34, this.y - this.radius * 0.34, this.radius * 0.04,
-                    this.x, this.y, this.radius
-                );
-                bodyGrad.addColorStop(0, '#666c75'); // 柔らかな入射光
-                bodyGrad.addColorStop(0.18, '#454a52');
-                bodyGrad.addColorStop(0.50, '#262a2f'); // 基本色
-                bodyGrad.addColorStop(1, '#080a0d'); // 影
-                withDropShadow(ctx, { color: 'rgba(0,0,0,0.45)', blur: 3, dx: 1, dy: 2 }, () => {
-                    ctx.fillStyle = bodyGrad;
-                    ctx.beginPath();
-                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-                    ctx.fill();
-                });
-                // 縁の暗いリムで鋳鉄の重量感
-                ctx.strokeStyle = 'rgba(6,8,11,0.7)';
-                ctx.lineWidth = 0.8;
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.radius - 0.4, 0, Math.PI * 2);
-                ctx.stroke();
-                // 左上の球面反射。単色の白い楕円ではなく、HUD画像と同じく
-                // 拡散光→細い主反射→外周リムの順で柔らかく重ねる。
-                ctx.save();
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.radius - 0.7, 0, Math.PI * 2);
-                ctx.clip();
-
-                const diffuseHighlight = ctx.createRadialGradient(
-                    this.x - this.radius * 0.42,
-                    this.y - this.radius * 0.46,
-                    0,
-                    this.x - this.radius * 0.22,
-                    this.y - this.radius * 0.26,
-                    this.radius * 0.76
-                );
-                diffuseHighlight.addColorStop(0, 'rgba(236,241,248,0.17)');
-                diffuseHighlight.addColorStop(0.30, 'rgba(207,214,224,0.085)');
-                diffuseHighlight.addColorStop(0.68, 'rgba(161,170,183,0.03)');
-                diffuseHighlight.addColorStop(1, 'rgba(130,140,154,0)');
-                ctx.fillStyle = diffuseHighlight;
-                ctx.fillRect(
-                    this.x - this.radius,
-                    this.y - this.radius,
-                    this.radius * 2,
-                    this.radius * 2
-                );
-
-                // 主反射は淡い楕円グラデーションにして、中心も白飛びさせない。
-                ctx.save();
-                ctx.translate(
-                    this.x - this.radius * 0.37,
-                    this.y - this.radius * 0.43
-                );
-                ctx.rotate(-0.58);
-                ctx.scale(this.radius * 0.36, this.radius * 0.10);
-                const specularHighlight = ctx.createRadialGradient(-0.22, -0.12, 0, 0, 0, 1);
-                specularHighlight.addColorStop(0, 'rgba(248,250,253,0.28)');
-                specularHighlight.addColorStop(0.42, 'rgba(230,235,242,0.13)');
-                specularHighlight.addColorStop(1, 'rgba(210,218,229,0)');
-                ctx.fillStyle = specularHighlight;
-                ctx.beginPath();
-                ctx.arc(0, 0, 1, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.restore();
-            }
-
-            ctx.restore();
-
-            // 先端の火と火花は本体より後（球に隠さない）
-            drawFirebombFuseFlame(ctx, fusePath, performance.now(), this._fuseSeed, this.visualScale);
+            // 玉そのものは共有の drawFirebombBall(縄 → 本体SVG → 火)で描く。
+            // 手持ち・敵の投擲も同じ関数を使い、投げる前と後で絵が変わらないようにする。
+            drawFirebombBall(ctx, this.x, this.y, this.radius, {
+                seeds: this._fuseSeed,
+                time: performance.now(),
+                visualScale: this.visualScale
+            });
 
             ctx.restore();
         }
@@ -1357,38 +1391,15 @@ export class Firebomb extends SubWeapon {
 
     renderHeld(ctx, handX, handY, scale = 1.0) {
         const r = (this.enhanceTier >= 3 ? 12 : 9.4) * scale;
-        const color = '#3d444d'; // 金属感のある暗いグレー
-        
-        ctx.save();
-        ctx.translate(handX, handY);
-        
-        // 導火線
-        ctx.strokeStyle = '#5c5248';
-        ctx.lineWidth = 1.8 * scale;
-        ctx.beginPath();
-        ctx.moveTo(0, -r * 0.8);
-        ctx.quadraticCurveTo(r * 0.4, -r * 1.5, r * 1.1, -r * 0.7);
-        ctx.stroke();
-
-        // 本体（少しザラついた質感）
-        const grad = ctx.createRadialGradient(-r*0.2, -r*0.3, r*0.1, 0, 0, r);
-        grad.addColorStop(0, '#5a6370');
-        grad.addColorStop(0.6, color);
-        grad.addColorStop(1, '#1a1d21');
-        
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(0, 0, r, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // 表面の反射
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-        ctx.lineWidth = 1.2 * scale;
-        ctx.beginPath();
-        ctx.arc(0, 0, r * 0.8, -Math.PI * 0.7, -Math.PI * 0.4);
-        ctx.stroke();
-
-        ctx.restore();
+        /* 手に持つ玉も【投げた玉と同じ絵】。以前はここだけ独自の球グラデ＋
+           細い導火線を描いていたので、投げた瞬間に別物の玉に変わって見えた
+           (ユーザー指摘 2026-08-16)。 */
+        if (!this._heldFuseSeed) this._heldFuseSeed = makeFirebombFuseSeed();
+        drawFirebombBall(ctx, handX, handY, r, {
+            seeds: this._heldFuseSeed,
+            time: performance.now(),
+            visualScale: scale
+        });
     }
 
     render(ctx, handX, handY, scale) {
@@ -1406,15 +1417,13 @@ export class Firebomb extends SubWeapon {
 
         const direction = player.facingRight ? 1 : -1;
         /* 【玉が自分より遅いときだけ、足の速さに合わせる】。
-           素の初速 8px/frame は走り(6px/frame)より速いので、走投げは何も足さない。
+           素の初速8px/frameは、走り(6px/frame)より速いので走投げは何もしなくてよい。
            ダッシュ(8.7px/frame)だけが玉より速く、玉が体から出ないまま足元で爆ぜる
            (実測: 玉は生成直後から体の前縁の内側に居続け、着弾は体の中心から14px・
-           爆風半径104＝全身が煙の中。ユーザー指摘「ダッシュ投げすると全部自分に
-           当たる」2026-08-17)。
-           【足の速さをそのまま足してはいけない】。走っているだけで初速が 8→14px/frame
-           になり、放物線が倍近く伸びて目の前の敵に当たらなくなる
-           (ユーザー指摘 2026-08-17。射程の実測 356px → 644px)。
-           足が玉より速いときだけ、追い越されない差を足す。 */
+           爆風半径104＝全身が煙の中。ユーザー指摘 2026-08-17)。
+           【速さをそのまま足してはいけない】。走っているだけで射程が8→14px/frameに
+           なり、放物線が倍近く伸びて目の前の敵に当たらなくなる(ユーザー指摘 2026-08-17)。
+           足が玉より速いときだけ、追い越されない差(LEAD)を足す。 */
         const BASE_THROW_VX = 8;
         const THROW_LEAD_OVER_FEET = 3;   // 爆風半径のぶん前へ出るのに要る差
         const footSpeed = Math.max(0, (player.vx || 0) * direction);

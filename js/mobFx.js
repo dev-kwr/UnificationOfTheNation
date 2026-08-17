@@ -12,7 +12,9 @@
 //     いるので、局所座標のまま貯めると歩いた時に過去の点まで一緒に動く。
 //   ・単発の閃光/突き線 → その場で描くだけなので局所系でよい(k 倍も自動)。
 
-import { drawCometRibbon } from './weaponFx.js?v=screen-safe-20260818b';
+import { CLOTH_CHAIN, HEADBAND_TAIL_SPEC, stepClothSwing, stepClothNode } from './clothChain.js?v=screen-safe-20260818c';
+
+import { drawCometRibbon } from './weaponFx.js?v=screen-safe-20260818c';
 
 function state(ent) {
     if (!ent) return null;
@@ -26,7 +28,10 @@ export function stepMobFx(ent) {
     const st = state(ent); if (!st) return 16.7;
     const mt = ent.motionTime || 0;
     let dt = (st.last == null) ? 16.7 : mt - st.last;
-    if (!(dt > 0) || dt > 120) dt = 16.7;      // 初回 / ポーズ明け / 巻き戻しの保険
+    /* 差分 0 は【時間が進んでいない】という正しい状態(ポーズ中・同一フレームの
+       2回目描画)。16.7 に読み替えると布や剣筋がポーズ中も動き続ける
+       (ユーザー指摘 2026-08-16)。保険を掛けるのは負値と異常に大きい値だけ。 */
+    if (dt < 0 || dt > 120) dt = 16.7;
     st.last = mt;
     st.dt = dt;
     for (const key in st.trails) {
@@ -155,15 +160,27 @@ export function mobGroundDust(ent, cx, cy, opts) {
 }
 
 /* ============================================================
-   布(鉢巻の垂れ帯)の物理チェーンを、演出のワープ・牽引で運ぶ
+   布(鉢巻の垂れ帯)の物理チェーン
    ------------------------------------------------------------
-   チェーン本体は根元が大きく跳んだ時だけ形ごと連れて行く保険を持つが、
-   鉤縄の引き上げのように【少しずつ】動く演出では毎フレームの跳びが小さく
-   保険が効かない。しかも演出中は update が止まって motionTime が進まないため
-   dt=0 で積分もされず、根元だけが移動して帯が伸び切る
-   (実機フィードバック 2026-08-17: stage6の3階層目→大屋根)。
-   本体の座標を直接動かす演出は、必ずここも同じ差分で呼ぶ。
+   プレイヤー忍者の帯は player.js の updateAccessoryNodes による
+   9ノードの物理チェーン(重力・移動の風・撓み・振り戻しのバネ・距離拘束)。
+   雑魚の忍だけ「サインで揺らした固定カーブ」だったので、並ぶと
+   物理を無視した動きに見えていた(ユーザー指摘 2026-08-15)。
+   同じ式をそのまま移植する。数値は player.js の実装値。
+
+   ノードは【world 座標】で持つ。素体の局所系は実体に貼り付いているので、
+   局所座標のまま積分すると歩いた瞬間に帯ごと平行移動して慣性が消える。
    ============================================================ */
+/**
+ * 実体を演出でワープ・牽引させたとき、布のチェーンを【形を保ったまま】運ぶ。
+ *
+ * updateRibbonChain には「根元が seg*9 以上跳んだら連れて行く」保険があるが、
+ * 鉤縄の引き上げのように【少しずつ】動く演出では毎フレームの跳びが小さく、
+ * 保険が効かない。しかも演出中は player.update が止まって motionTime が
+ * 進まないため dt=0 で積分もされず、根元だけが上がって帯が伸び切る
+ * (実機フィードバック 2026-08-17: stage6の3階層目→大屋根)。
+ * 本体の座標を直接動かす演出は、必ずここも同じ差分で呼ぶ。
+ */
 export function translateRibbonChains(ent, dx, dy) {
     if (!ent || !Number.isFinite(dx) || !Number.isFinite(dy)) return;
     if (Math.abs(dx) < 0.0001 && Math.abs(dy) < 0.0001) return;
@@ -184,4 +201,100 @@ export function translateRibbonChains(ent, dx, dy) {
 export function resetRibbonChains(ent) {
     const st = ent?._mobFx;
     if (st) st.chains = {};
+}
+
+export function updateRibbonChain(ent, key, rootX, rootY, opts) {
+    const o = opts || {};
+    const st = state(ent);
+    if (!st) return null;
+    const chains = st.chains || (st.chains = {});
+    /* readOnly: 既存のチェーンを【一切書き換えずに】読むだけ。
+       同じチェーンを複数の描画(本体と分身)から更新すると、呼ぶたびに
+       根元(nodes[0])が上書きされ、フレーム内で最後に呼んだ側の位置が残る。
+       分身は向きや位置が本体と違うので、本体の帯が分身の動きに引きずられて
+       勝手に揺れる(ユーザー指摘 2026-08-16)。更新するのは持ち主だけにする。 */
+    if (o.readOnly) {
+        const exist = chains[key];
+        return (exist && exist.nodes.length) ? exist.nodes : null;
+    }
+    // 既定は鉢巻の【手前の帯】の仕様(clothChain.js が単一の出どころ)
+    const count = Math.max(3, o.count || HEADBAND_TAIL_SPEC.near.count);
+    const seg = o.seg || HEADBAND_TAIL_SPEC.near.seg;
+    const dir = o.dir || 1;
+    const speedX = Number.isFinite(o.speedX) ? o.speedX : (ent.vx || 0);
+    const speedNorm = Math.max(1, o.speedNorm || ent.speed || 1);
+    const time = Number.isFinite(o.time) ? o.time : (ent.motionTime || 0);
+
+    let ch = chains[key];
+    if (!ch || ch.nodes.length !== count) {
+        ch = chains[key] = { nodes: [], swingVel: 0, swingOff: 0, prevSpeed: speedX };
+        for (let i = 0; i < count; i++) {
+            ch.nodes.push({ x: rootX - dir * i * seg * 0.7, y: rootY + i * seg * 0.5 });
+        }
+    }
+    const nodes = ch.nodes;
+
+    // 実体が瞬間移動したとき(リサイクル/ステージ遷移)は形を保ったまま連れて行く
+    const jump = Math.hypot(rootX - nodes[0].x, rootY - nodes[0].y);
+    if (jump > seg * 9) {
+        const dx = rootX - nodes[0].x, dy = rootY - nodes[0].y;
+        for (const n of nodes) { n.x += dx; n.y += dy; }
+    }
+
+    /* dt はふつう stepMobFx が入れる motionTime 差分。
+       プレイヤー(鉢巻の2本目)のように stepMobFx を通らない実体は
+       opts.dtMs で明示的に渡す。 */
+    /* 同じ結び目から2本垂らすと、力が同じぶん形も揃って【1本にしか見えない】。
+       重さ(gravityMul)と受ける風(windMul)を変えて角度を割る。
+       実際の鉢巻も2本の帯の長さ・幅が違い、垂れ方が揃わない。 */
+    const gravityMul = Number.isFinite(o.gravityMul) ? o.gravityMul : 1;
+    const windMul = Number.isFinite(o.windMul) ? o.windMul : 1;
+    /* `st.dt || 16.7` は【dt=0 が falsy で 16.7 に化ける】。
+       ポーズ中は差分0が正しい値なので、0 を潰さない書き方にする。 */
+    const dtMs = Number.isFinite(o.dtMs) ? o.dtMs
+        : (Number.isFinite(st.dt) ? st.dt : 16.7);
+    const dt = Math.min(dtMs / 1000, 0.033);
+    /* 時間が進んでいないフレーム(ポーズ中・同一フレームの2回目描画)は
+       根元を合わせるだけで【状態を一切変えずに】返す。
+       距離拘束は dt を掛けない補正なので、ここで抜けないとポーズ中も
+       鎖が縮み続けて帯だけ動いて見える(ユーザー指摘 2026-08-16)。 */
+    if (!(dt > 0)) {
+        nodes[0].x = rootX;
+        nodes[0].y = rootY;
+        return nodes;
+    }
+
+    const subSteps = 2;
+    const subDelta = dt / subSteps;
+    const moveBlend = Math.max(0, Math.min(1, Math.abs(speedX) / speedNorm));
+
+    // 減速時に前方慣性を足し、バネで戻してオーバーシュートを作る
+    // (式と数値は clothChain.js。プレイヤーの手前の帯と共有)
+    stepClothSwing(ch, speedX, dir, dt);
+
+    nodes[0].x = rootX;
+    nodes[0].y = rootY;
+
+    const denom = Math.max(1, count - 1);
+    for (let s = 0; s < subSteps; s++) {
+        for (let i = 1; i < count; i++) {
+            const node = nodes[i];
+            const prev = nodes[i - 1];
+            // 風・揺らぎ・重力・振り子・追従・距離拘束は clothChain.js の一本道
+            stepClothNode(node, prev, {
+                i,
+                tipBlend: i / denom,
+                moveBlend,
+                time,
+                speedX,
+                subDelta,
+                swingVel: ch.swingVel,
+                swingOff: ch.swingOff,
+                seg,
+                gravityMul,
+                windMul
+            });
+        }
+    }
+    return nodes;
 }

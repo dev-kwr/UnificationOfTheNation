@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260818b';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260818c';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260818b';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260818c';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260818b';
-import { audio } from './audio.js?v=screen-safe-20260818b';
-import { saveManager } from './save.js?v=screen-safe-20260818b';
+import { input } from './input.js?v=screen-safe-20260818c';
+import { audio } from './audio.js?v=screen-safe-20260818c';
+import { saveManager } from './save.js?v=screen-safe-20260818c';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -2112,7 +2112,13 @@ export function getTitleDebugLayout(entriesCount) {
     // 操作説明はパネル最下部に中央揃えで置く（タイトルの操作説明と同じサイズ感
     // = 12*fontScale。ヘッダに大きめ・左寄せで出していたのを実機で差し戻された）。
     const manualFont = 12 * getFontScale();
-    const footerH = manualFont * 2.0;
+    // 下部の余白は「実寸css」で積む。以前は footerH = manualFont*2 の中に
+    // 罫線と説明文を詰めていて、罫線が最終行の真下に貼り付き、説明文の下も
+    // 6css程度しか無くてキツキツだった（実機フィードバック 2026-08-17）。
+    const dividerGapTop = px(14);   // 最終行と罫線の間
+    const dividerGapBottom = px(11); // 罫線と説明文の間
+    const padBottom = px(13);        // 説明文とパネル下端の間
+    const footerH = dividerGapTop + dividerGapBottom + manualFont + padBottom;
     const listH = Math.max(px(40), availH - padTop - footerH);
     const colGap = px(10);
     const fontMax = px(DEBUG_FONT_MAX_CSS);
@@ -2148,8 +2154,10 @@ export function getTitleDebugLayout(entriesCount) {
         rowH, fontPx, cols, rowsPerCol, colW, colGap,
         listStartY: panelY + padTop + rowH * 0.5,
         manualFont,
-        footerTopY: panelY + panelH - footerH,           // 区切り線
-        manualCenterY: panelY + panelH - footerH * 0.5,  // 説明文の中心
+        // 区切り線は最終行の帯の下端から dividerGapTop 空けた位置。
+        footerTopY: panelY + panelH - footerH + dividerGapTop,
+        // 説明文はパネル下端から padBottom を残して置く。
+        manualCenterY: panelY + panelH - padBottom - manualFont * 0.5,
         // 行インデックス ⇄ 座標の相互変換（描画とタップ判定で必ず共有する）
         cellOf(index) {
             const col = Math.floor(index / rowsPerCol);
@@ -3965,61 +3973,148 @@ export function renderEnding(ctx, timer) {
 }
 
 // ポーズ画面
-// ポーズ中の「タイトルに戻る」ボタン。ポーズはキャプチャ(スクショ)用途のため、
-// 画面中央のキャプチャ対象を邪魔しないよう画面下端中央に控えめに配置する。
+// ポーズ中のボタン群。ポーズはキャプチャ(スクショ)用途のため、画面中央の
+// キャプチャ対象を邪魔しないよう画面下端へ控えめに配置する。
+// 並びは PC とタッチで別物にする ―― 下端に空いている形が違う。
+//   PC   … 仮想パッドを描かないので下端の帯が丸ごと空く＝【横一列】。字も大きく取れる。
+//   タッチ … 左右をスティックと操作ボタンが埋めていて中央の空きは縦にしか無い＝【縦積み】。
+//           一度こちらも横並びにしたが差し戻した(2026-08-17)。窮屈に見えた真因は
+//           ?v= 分裂で constants.js が多重評価され uiScale が反映されていなかったことで、
+//           拡大が直れば従来の縦積み・従来の字送りで足りる。
 // 描画と当たり判定で同じ座標を使うため、この単一の関数を双方が参照する。
-export function getPauseReturnButton() {
+// 順番は共通で ゲーム再開 → 地図に戻る → タイトルに戻る（中断が最後＝下/右端）。
+//   ゲーム再開 … PC だけ。タッチはパッドのポーズボタンが再開を兼ねる。
+//   地図に戻る … 本編ステージのときだけ(options.canGoMap)。
+//   タイトルに戻る … 常に。
+export function getPauseButtons(options = {}) {
     // 画面最下端だとセーフエリア等でタップできないため、下部の操作ボタン(攻撃)の
-    // 中心Yに合わせて押せる帯に置く。x は中央（操作ボタンは左右端なので中央は空き）。
-    // uiScale 追従のため攻撃ボタンと同じ getPadLayout を参照する。
+    // 中心Yに合わせて押せる帯に置く。uiScale 追従のため同じ getPadLayout を参照する。
     const L = getPadLayout();
+    const touch = isTouchOverlayMode();
+    const ids = [];
+    if (!touch) ids.push('resume');
+    if (options.canGoMap) ids.push('map');
+    ids.push('title');
+
+    const h = 40 * L.s;
     // 幅はラベルの実寸(fontScale)にも追従させる。幾何スケールだけだと
     // スマホで文字が枠からはみ出す。
-    return { x: SCREEN_WIDTH / 2, y: L.attack.y, w: 200 * Math.max(L.s, getFontScale()), h: 40 * L.s };
+    const wanted = 200 * Math.max(L.s, getFontScale());
+
+    if (touch) {
+        // 縦積み。最後(タイトルに戻る)が攻撃ボタンと同じ高さで、残りはその上へ。
+        // x は中央（操作ボタンは左右端なので中央は空き）。
+        const gap = 14 * L.s;
+        const last = ids.length - 1;
+        return ids.map((id, i) => ({
+            id,
+            x: SCREEN_WIDTH / 2,
+            y: L.attack.y - (last - i) * (h + gap),
+            w: wanted,
+            h
+        }));
+    }
+
+    // 横一列。画面幅に入り切らないときだけ詰める（狭いウィンドウの保険）。
+    const gap = 16 * L.s;
+    const left = 40 * L.s;
+    const right = SCREEN_WIDTH - 40 * L.s;
+    const avail = Math.max(160 * L.s, right - left);
+    const w = Math.min(wanted, (avail - gap * (ids.length - 1)) / ids.length);
+    const total = w * ids.length + gap * (ids.length - 1);
+    const startX = Math.max(left, Math.min(SCREEN_WIDTH / 2 - total / 2, right - total));
+    return ids.map((id, i) => ({
+        id,
+        x: startX + w / 2 + i * (w + gap),
+        y: L.attack.y,
+        w,
+        h
+    }));
 }
 
-// ポーズの「地図に戻る」。タイトルに戻るの【上】へ積む。
-// 中央の空きは縦にしか余裕が無い(左右は操作ボタン)ので横並びにはしない。
-// canGoMap が false のときは呼び出し側で描かない/判定しない。
-export function getPauseMapButton() {
-    const base = getPauseReturnButton();
-    const L = getPadLayout();
-    return { x: base.x, y: base.y - base.h - 14 * L.s, w: base.w, h: base.h };
-}
+// 「ゲーム再開」は戻り先(ステージ/地図/幕間)によらず同じ言葉で通す。
+// ポーズを解いて元の画面へ戻る、という意味は共通で、言い分けても得が無い。
+const PAUSE_BUTTON_LABELS = { resume: 'ゲーム再開', map: '地図に戻る', title: 'タイトルに戻る' };
 
-function drawPauseButton(ctx, btn, label, armed) {
-    const x = btn.x - btn.w / 2;
-    const y = btn.y - btn.h / 2;
+/**
+ * ポーズのボタン1つ。t は確認状態(もう一度〜)への遷移量 0..1。
+ * 色・ラベル・膨らみを t で繋ぐ ＝ 押した瞬間にラベルが差し替わらず、
+ * 「確認に切り替わった」ことが動きで読める。
+ */
+function drawPauseButton(ctx, btn, label, armedLabel, t = 0) {
+    const e = t <= 0 ? 0 : t >= 1 ? 1 : 1 - Math.pow(1 - t, 3);   // ease-out
+    // 遷移の山でだけ少し膨らませる（両端では等倍に戻る＝解除側でも同じ動き）
+    const pop = 1 + 0.05 * Math.sin(Math.PI * Math.max(0, Math.min(1, t)));
+    const w = btn.w * pop;
+    const h = btn.h * pop;
+    const x = btn.x - w / 2;
+    const y = btn.y - h / 2;
+
+    ctx.save();
     ctx.beginPath();
-    if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, btn.w, btn.h, 8);
-    else ctx.rect(x, y, btn.w, btn.h);
-    ctx.fillStyle = armed ? 'rgba(140, 38, 38, 0.82)' : 'rgba(16, 22, 40, 0.62)';
+    if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, 8 * pop);
+    else ctx.rect(x, y, w, h);
+    const mix = (a, b) => a + (b - a) * e;
+    ctx.fillStyle = `rgba(${Math.round(mix(16, 140))}, ${Math.round(mix(22, 38))}, ${Math.round(mix(40, 38))}, ${mix(0.62, 0.82).toFixed(3)})`;
     ctx.fill();
     ctx.lineWidth = 1.5;
-    ctx.strokeStyle = armed ? 'rgba(255, 196, 196, 0.9)' : 'rgba(220, 200, 150, 0.7)';
+    ctx.strokeStyle = `rgba(${Math.round(mix(220, 255))}, ${Math.round(mix(200, 196))}, ${Math.round(mix(150, 196))}, ${mix(0.7, 0.9).toFixed(3)})`;
     ctx.stroke();
+
+    // ラベルは枠内でクロスフェード（通常は上へ抜け、確認は下から入る）
+    ctx.clip();
     ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    ctx.font = `${Math.round(16 * getFontScale())}px "Zen Old Mincho", serif`;
-    fillTextInkCentered(ctx, label, btn.x, btn.y);
+    // 字はPCだけ大きく取る（下端の帯が丸ごと空いていて余裕がある）。
+    // タッチは従来の 16 のまま ―― パッドに挟まれた縦積みなので、
+    // 大きくすると枠を太らせるしかなく、中央の絵を余計に隠す。
+    const baseFont = (isTouchOverlayMode() ? 16 : 20) * getFontScale();
+    ctx.font = `${Math.round(baseFont)}px "Zen Old Mincho", serif`;
+    // 枠に入り切らない時だけ縮める（狭いウィンドウで幅が詰まったとき、
+    // 下の clip でラベルが切れるのを防ぐ）。通常/確認の両ラベルで同じ寸法を
+    // 使うので、切り替わりで字の大きさが跳ねない。
+    const widest = Math.max(
+        ...[label, armedLabel].filter(Boolean).map((t) => ctx.measureText(t).width)
+    );
+    const innerW = btn.w - 22 * (btn.h / 40);
+    if (widest > innerW && widest > 0) {
+        ctx.font = `${Math.max(11, Math.round(baseFont * innerW / widest))}px "Zen Old Mincho", serif`;
+    }
+    const slide = h * 0.55;
+    if (e < 1) {
+        ctx.globalAlpha = 1 - e;
+        fillTextInkCentered(ctx, label, btn.x, btn.y - slide * e);
+    }
+    if (e > 0 && armedLabel) {
+        ctx.globalAlpha = e;
+        fillTextInkCentered(ctx, armedLabel, btn.x, btn.y + slide * (1 - e));
+    }
+    ctx.restore();
 }
 
-export function renderPauseScreen(ctx, armed = false, options = {}) {
+/**
+ * options: { canGoMap, anim }
+ *   anim … id ごとの「もう一度〜」への遷移量 0..1（game.js が deltaTime で進める）。
+ *          確認状態そのものではなく遷移量を渡すので、押した瞬間の絵は必ず0から始まる。
+ */
+export function renderPauseScreen(ctx, options = {}) {
     if (!ctx) return;
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     // ラベル（PCはクリック表記。確認は「もう一度〜」で通常と長さを揃える）
     const actionWord = isTouchOverlayMode() ? 'タップ' : 'クリック';
-    // 地図へ戻れるのは本編のステージだけ(寄り道やタイトル経由では出さない)
-    if (options.canGoMap) {
-        drawPauseButton(ctx, getPauseMapButton(), '地図に戻る', false);
-    }
-    drawPauseButton(
-        ctx,
-        getPauseReturnButton(),
-        armed ? `もう一度${actionWord}` : 'タイトルに戻る',
-        armed
-    );
+    const anim = options.anim || {};
+    getPauseButtons(options).forEach((btn) => {
+        // 再開は取り消しの効く操作なので確認を挟まない
+        const armable = btn.id !== 'resume';
+        drawPauseButton(
+            ctx,
+            btn,
+            PAUSE_BUTTON_LABELS[btn.id],
+            armable ? `もう一度${actionWord}` : null,
+            armable ? (anim[btn.id] || 0) : 0
+        );
+    });
     ctx.restore();
 }
 

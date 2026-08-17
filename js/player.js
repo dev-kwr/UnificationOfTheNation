@@ -2,11 +2,11 @@
 // Unification of the Nation - プレイヤークラス
 // ============================================
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260818b';
-import { input } from './input.js?v=screen-safe-20260818b';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260818c';
+import { input } from './input.js?v=screen-safe-20260818c';
 console.log('[player.js] Imported input instance:', input ? input.instanceId : 'undefined');
-import { audio } from './audio.js?v=screen-safe-20260818b';
-import { game } from './game.js?v=screen-safe-20260818b';
+import { audio } from './audio.js?v=screen-safe-20260818c';
+import { game } from './game.js?v=screen-safe-20260818c';
 import {
     ANIM_STATE, COMBO_ATTACKS, calcExpToNextForLevel,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN, LEVEL_UP_ATK_GAIN,
@@ -14,18 +14,20 @@ import {
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y
-} from './playerData.js?v=screen-safe-20260818b';
+} from './playerData.js?v=screen-safe-20260818c';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
-} from './normalComboMotion.js?v=screen-safe-20260818b';
-import { translateRibbonChains, resetRibbonChains } from './mobFx.js?v=screen-safe-20260818b';
-import { applyRendererMixin }    from './playerRenderer.js?v=screen-safe-20260818b';
-import { applySlashTrailMixin }  from './playerSlashTrail.js?v=screen-safe-20260818b';
-import { applySpecialMixin }     from './playerSpecial.js?v=screen-safe-20260818b';
-import { applyShogunCombat }    from './shogunCombatHelper.js?v=screen-safe-20260818b';
+} from './normalComboMotion.js?v=screen-safe-20260818c';
+import { translateRibbonChains, resetRibbonChains } from './mobFx.js?v=screen-safe-20260818c';
+import { CLOTH_CHAIN, HEADBAND_TAIL_SPEC, stepClothSwing, stepClothNode } from './clothChain.js?v=screen-safe-20260818c';
+import { applyRendererMixin }    from './playerRenderer.js?v=screen-safe-20260818c';
+import { applySlashTrailMixin }  from './playerSlashTrail.js?v=screen-safe-20260818c';
+import { applySpecialMixin }     from './playerSpecial.js?v=screen-safe-20260818c';
+import { applyShogunCombat }    from './shogunCombatHelper.js?v=screen-safe-20260818c';
+import { applyDualComboMotion } from './dualComboMotion.js?v=screen-safe-20260818c';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
@@ -39,7 +41,7 @@ import {
     SHOGUN_CROUCH_STANCE_DUTY,
     NINJA_CROUCH_STRIDE_AMP,
     SHOGUN_CROUCH_STRIDE_AMP
-} from './shogunConstants.js?v=screen-safe-20260818b';
+} from './shogunConstants.js?v=screen-safe-20260818c';
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
@@ -522,8 +524,8 @@ export class Player {
                 });
             }
         }
-        // 鉢巻の【2本目】など、mobFx の共有チェーンで持つ布も一緒に作り直す。
-        // 残すと転移後も旧位置に残って伸び切る。
+        // 鉢巻の【2本目】は playerRenderer が mobFx の共有チェーンで持っている。
+        // ここで一緒に作り直さないと、転移後も旧位置に残って伸び切る。
         resetRibbonChains(this);
     }
 
@@ -562,7 +564,7 @@ export class Player {
                 node.y += dy;
             }
         }
-        // mobFx の共有チェーン(鉢巻の2本目など)も同じだけ運ぶ。演出中は
+        // 鉢巻の2本目(mobFxの共有チェーン)も同じだけ運ぶ。演出中は
         // motionTime が進まず積分されないので、ここで運ばないと伸び切る。
         translateRibbonChains(this, dx, dy);
     }
@@ -581,29 +583,19 @@ export class Player {
         const subDelta = dt / subSteps;
         const speedNormBase = Math.max(1, this.speed || 1);
         const moveBlend = Math.max(0, Math.min(1, Math.abs(speedX) / speedNormBase));
-        const prevScarfSpeedX = Number.isFinite(scarfNodes._prevSpeedX) ? scarfNodes._prevSpeedX : speedX;
-        const prevSpeedAbs = Math.abs(prevScarfSpeedX);
-        const currentSpeedAbs = Math.abs(speedX);
-        const rawDecelAmount = Math.max(0, prevSpeedAbs - currentSpeedAbs);
-        const decelAmount = prevSpeedAbs > 0.22 ? rawDecelAmount : 0;
-        const decelDir = Math.abs(prevScarfSpeedX) > 0.05
-            ? Math.sign(prevScarfSpeedX)
-            : (Math.abs(speedX) > 0.05 ? Math.sign(speedX) : dir);
-        let scarfSwingVelX = Number.isFinite(scarfNodes._swingVelX) ? scarfNodes._swingVelX : 0;
-        let scarfSwingOffsetX = Number.isFinite(scarfNodes._swingOffsetX) ? scarfNodes._swingOffsetX : 0;
-        // 減速時に前方慣性を加え、バネで中心へ戻してオーバーシュートを作る
-        scarfSwingVelX += decelDir * decelAmount * 0.86;
-        const swingSpring = 0.09;
-        scarfSwingVelX += (-scarfSwingOffsetX * swingSpring) * dt * 60;
-        const nearStill = currentSpeedAbs < 0.1 && prevSpeedAbs < 0.26;
-        const scarfSwingDamping = nearStill ? Math.pow(0.89, dt * 60) : Math.pow(0.95, dt * 60);
-        scarfSwingVelX *= scarfSwingDamping;
-        scarfSwingVelX = Math.max(-4.8, Math.min(4.8, scarfSwingVelX));
-        scarfSwingOffsetX += scarfSwingVelX * dt * 60;
-        scarfSwingOffsetX = Math.max(-5.2, Math.min(5.2, scarfSwingOffsetX));
-        scarfNodes._prevSpeedX = speedX;
-        scarfNodes._swingVelX = scarfSwingVelX;
-        scarfNodes._swingOffsetX = scarfSwingOffsetX;
+        /* 減速時に前方慣性を加え、バネで中心へ戻してオーバーシュートを作る。
+           式と数値は clothChain.js（鉢巻2本目・雑魚の帯と共有）。 */
+        const swingState = {
+            prevSpeed: scarfNodes._prevSpeedX,
+            swingVel: scarfNodes._swingVelX,
+            swingOff: scarfNodes._swingOffsetX
+        };
+        const swing = stepClothSwing(swingState, speedX, dir, dt);
+        const scarfSwingVelX = swing.vel;
+        const scarfSwingOffsetX = swing.off;
+        scarfNodes._prevSpeedX = swingState.prevSpeed;
+        scarfNodes._swingVelX = swingState.swingVel;
+        scarfNodes._swingOffsetX = swingState.swingOff;
 
         scarfNodes[0].x = targetX;
         scarfNodes[0].y = targetY;
@@ -620,46 +612,20 @@ export class Player {
             for (let i = 1; i < scarfNodes.length; i++) {
                 const node = scarfNodes[i];
                 const prev = scarfNodes[i - 1];
-                const tipBlend = i / scarfDenom;
-                const settleBlend = 1 - moveBlend;
-                const effectiveSpeed = 0.003 + moveBlend * (0.03 - 0.003) + tipBlend * 0.0012;
-                const flutterIntensity = 0.18 + moveBlend * 4.0 + Math.min(0.55, Math.abs(scarfSwingVelX) * 0.18);
-                const tipFlutterScale = 1 + tipBlend * 0.3;
-                const flutterH = Math.sin(time * effectiveSpeed + i * 1.2) * flutterIntensity * tipFlutterScale;
-                const flutterV = Math.cos(time * (effectiveSpeed * 0.86) + i * 1.0) * (flutterIntensity * (0.92 + tipBlend * 0.18));
-                const windDecay = Math.pow(0.8, i);
-                const wind = Math.abs(speedX) > 0.1
-                    ? (speedX > 0 ? -1 : 1) * (Math.abs(speedX) * 5 + 2) * windDecay
-                    : 0;
-                const gravityPull = 2.15 + settleBlend * 0.7;
-                const pendulumPush = (scarfSwingOffsetX * 0.72 + scarfSwingVelX * 0.48) * (0.34 + tipBlend * 0.55) * (0.52 + settleBlend * 0.68);
-
-            // Y-DOWNなので重力はプラス方向へ
-            node.x += (wind + flutterH + pendulumPush) * subDelta * 9.2;
-            node.y += (gravityPull + flutterV) * subDelta * 14.5;
-            const settleLerp = (0.015 + settleBlend * 0.03) * (1 - tipBlend * 0.16) * subDelta * 60;
-            node.x += (prev.x - node.x) * settleLerp;
-
-            // 安全策：座標が異常値（Infinity/NaN）になったらリセット
-            if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) {
-                node.x = prev.x;
-                node.y = prev.y;
+                /* 風・揺らぎ・重力・振り子・追従・距離拘束は clothChain.js の
+                   一本道（鉢巻2本目・雑魚の帯と同じ式）。 */
+                stepClothNode(node, prev, {
+                    i,
+                    tipBlend: i / scarfDenom,
+                    moveBlend,
+                    time,
+                    speedX,
+                    subDelta,
+                    swingVel: scarfSwingVelX,
+                    swingOff: scarfSwingOffsetX,
+                    seg: HEADBAND_TAIL_SPEC.near.seg
+                });
             }
-
-            const dx = node.x - prev.x;
-            const dy = node.y - prev.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            const targetDist = 5.0;
-            if (dist > 0) {
-                const tension = Math.max(0.4, (0.62 - moveBlend * 0.03) * (1 - tipBlend * 0.14));
-                let correction = (dist - targetDist) * tension;
-                const maxDist = targetDist * (1.35 + tipBlend * 0.06);
-                if (dist - correction > maxDist) correction = dist - maxDist;
-                const angle = Math.atan2(dy, dx);
-                node.x -= Math.cos(angle) * correction;
-                node.y -= Math.sin(angle) * correction;
-            }
-        }
 
         for (let i = 1; i < hairNodes.length; i++) {
             const node = hairNodes[i];
@@ -1717,9 +1683,6 @@ export class Player {
         const pose = this.currentSubWeapon.getMainSwingPose();
         const step = pose.comboIndex || 0;
         const p = Math.max(0, Math.min(1, pose.progress || 0));
-        const direction = this.facingRight ? 1 : -1;
-        const lerpRate = Math.max(0.08, Math.min(0.42, deltaTime * 13));
-        const blend = (current, target) => current + (target - current) * lerpRate;
         // 将軍などスケール>1のキャラは縦運動(上昇・落下・リフト上限)を体格比でスケールし、
         // 忍者と相対的に同じ高さまで浮く・落ちるようにする（横移動は射程側で別途スケール済み）。
         // 速度の等倍スケールは慣性上昇(高さ∝v²)で身長比を超過するため、
@@ -1728,96 +1691,14 @@ export class Player {
             ? this.scaleMultiplier : 1;
         const vScale = 1 + (rawScale - 1) * 0.56;
 
-        if (step === 1) {
-            // 1撃目: 踏み込んで一閃 — 前方に体重移動
-            const targetVx = direction * this.speed * (0.14 + Math.sin(p * Math.PI) * 0.28);
-            this.vx = blend(this.vx, targetVx);
-            if (!this.isGrounded) {
-                this.vy = blend(this.vy, (p < 0.5 ? -0.2 : 0.8) * vScale);
-            }
-        } else if (step === 2) {
-            // 2撃目: 最小限の引きから即座に前方へ打ち込む
-            let targetVx;
-            if (p < 0.08) {
-                targetVx = -direction * this.speed * (0.12 + p * 0.2);
-            } else if (p < 0.48) {
-                targetVx = direction * this.speed * (0.24 + (p - 0.08) * 1.8);
-            } else {
-                targetVx = direction * this.speed * (0.96 - (p - 0.48) * 1.6);
-            }
-            this.vx = blend(this.vx, targetVx);
-            if (!this.isGrounded) {
-                this.vy = blend(this.vy, (p < 0.42 ? -1.0 : 2.6) * vScale);
-            }
-        } else if (step === 3) {
-            // 3撃目: X字交差で前方に押し出す
-            let targetVx;
-            if (p < 0.06) {
-                targetVx = -direction * this.speed * (0.18 - p * 0.3);
-            } else if (p < 0.28) {
-                targetVx = direction * this.speed * (0.22 + (p - 0.06) * 2.8);
-            } else if (p < 0.76) {
-                targetVx = direction * this.speed * (0.84 + (p - 0.28) * 1.6);
-            } else {
-                targetVx = direction * this.speed * (1.60 - (p - 0.76) * 3.2);
-            }
-            this.vx = blend(this.vx, targetVx);
-            if (this.isGrounded) {
-                this.vy = 0;
-            } else {
-                this.vy = Math.max(this.vy, 1.8 * vScale);
-            }
-        } else if (step === 4) {
-            // 4撃目: 3撃目の前進からそのまま切り上げへ接続
-            let targetVx;
-            if (p < 0.68) {
-                const t = p / 0.68;
-                targetVx = direction * this.speed * (0.72 + t * 0.2);
-                this.vy = this.vy * 0.42 + (-15.2 + t * 6.2) * vScale * 0.58;
-            } else {
-                const t = (p - 0.68) / 0.32;
-                targetVx = direction * this.speed * (0.92 - t * 0.58);
-                this.vy = this.vy * 0.56 + (-3.8 + t * 3.6) * vScale * 0.44;
-                if (p > 0.82) {
-                    this.vy = Math.min(this.vy, 0.65 * vScale);
-                }
-            }
-            this.vx = blend(this.vx, targetVx);
-            this.isGrounded = false;
-            // 天穿で浮いている間は、コンボが途切れても着地まで新規コンボを開始させない
-            this._dualStep4AirLock = true;
-        } else {
-            // 五段: 海老反りクロスから叩きつけ着地
-            if (p < 0.24) {
-                const t = p / 0.24;
-                this.vx = blend(this.vx, direction * this.speed * 0.2);
-                // 4段目ラスト高度を維持してから振り下ろす
-                this.vy = Math.min(this.vy, (-2.4 + t * 1.0) * vScale);
-            } else if (p < 0.78) {
-                const dive = (p - 0.24) / 0.54;
-                this.vx = blend(this.vx, direction * this.speed * (0.36 + dive * 0.46));
-                this.vy = Math.max(this.vy, (9.0 + dive * 20.6) * vScale);
-            } else {
-                const t = (p - 0.78) / 0.22;
-                this.vx = blend(this.vx, direction * this.speed * (0.8 - t * 0.56));
-                this.vy = Math.max(this.vy, (20.4 - t * 4.4) * vScale);
-            }
-            if (this.isGrounded && p > 0.58) {
-                this.vx *= 0.5;
-            }
-        }
-
-        // 二刀コンボ中に上空へ登り続けないよう上昇量を制限（体格スケール比例）
-        const dualRiseCap = (step === 4 ? -17.2 : -15.4) * vScale;
-        this.vy = Math.max(this.vy, dualRiseCap);
-        const liftFromGround = this.groundY - this.getWorldFootY();
-        const dualLiftLimit = (step === 4 ? 174 : 154) * vScale;
-        if (liftFromGround > dualLiftLimit && this.vy < -0.4) {
-            this.vy *= 0.52;
-        }
-        if (step === 0 && p > 0.84 && !this.isGrounded) {
-            this.vy = Math.max(this.vy, 22.2 * vScale);
-        }
+        /* 段別の体移動は dualComboMotion.js に切り出して二刀流ボスと共有する。
+           数値は 1:1。ここで直接書くとボス側と食い違う。 */
+        applyDualComboMotion(this, step, p, {
+            deltaTime,
+            vScale,
+            footY: this.getWorldFootY(),
+            groundY: this.groundY
+        });
     }
 
 
@@ -2179,6 +2060,13 @@ export class Player {
             this.isGrounded = false;
         }
 
+        /* 【まだ岩に埋まっているとき】の受け皿。上の壁判定は vx の符号で
+           押し出す向きを決めるので、ノックバックで一気に押し込まれた場合や
+           vx が 0 になった状態では、どの分岐にも当たらず埋まったままになる
+           (ユーザー指摘 2026-08-17: ノックバックでプレイヤーが大岩にめり込む)。
+           乗る/くぐるの解決が済んだ後に、それでも重なっていたら横へ逃がす。 */
+        this.resolveObstacleEmbed(effectiveColliders);
+
         // 接地中の『立ち面ワールドY(足元)』を保持。屋根/岩などプラットフォーム上では this.groundY(ステージ地面)
         // ではなくこの面で着地すべき(step5叩きつけ剣筋の着地シミュ等が使う)。空中(hop)中は直近接地面を維持。
         if (this.isGrounded) {
@@ -2223,6 +2111,52 @@ export class Player {
         // 右端制限は削除（ワールド座標で無限に進めるようにする。ステージ端制限はGame側で管理）
     }
     
+    /**
+     * 埋まっている岩の【塊】の外へ横に逃がす。
+     *
+     * 1個ずつ押し出すと、岩が並んでいる所で
+     * 「Aの右へ出す → Bが左へ押し戻す」を繰り返して埋まったまま落ち着く
+     * (敵側で実測。[[enemy-obstacle-embed-fix]] と同じ処置)。
+     * 縦に重なる岩を横へ連結し、その塊の近い側の縁まで一度で運ぶ。
+     * 上に乗っている/くぐっている場合はここへ来ない(重なりが無い)。
+     */
+    resolveObstacleEmbed(colliders) {
+        if (!colliders || colliders.length === 0) return;
+        const solid = colliders.filter((w) => w && this.isSolidCollider(w) && !w.isOneWayPlatform);
+        if (solid.length === 0) return;
+        const hits = solid.filter((w) => this.intersects(w));
+        if (hits.length === 0) return;
+
+        const width = this.getWorldWidth();
+        let left = Math.min(...hits.map((w) => w.x));
+        let right = Math.max(...hits.map((w) => w.x + w.width));
+        for (let pass = 0; pass < 4; pass++) {
+            let nl = left;
+            let nr = right;
+            for (const w of solid) {
+                const verticalOverlap = this.y < w.y + w.height && this.y + this.getWorldHeight() > w.y;
+                if (!verticalOverlap) continue;
+                if (w.x <= right + 1 && w.x + w.width >= left - 1) {
+                    nl = Math.min(nl, w.x);
+                    nr = Math.max(nr, w.x + w.width);
+                }
+            }
+            if (nl === left && nr === right) break;
+            left = nl;
+            right = nr;
+        }
+
+        const outLeft = (this.x + width) - left;
+        const outRight = right - this.x;
+        if (outLeft <= outRight) {
+            this.x = left - width;
+            if (this.vx > 0) this.vx = 0;
+        } else {
+            this.x = right;
+            if (this.vx < 0) this.vx = 0;
+        }
+    }
+
     intersects(rect) {
         return this.x < rect.x + rect.width &&
                this.x + this.getWorldWidth() > rect.x &&

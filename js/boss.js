@@ -2,18 +2,19 @@
 // Unification of the Nation - ボスクラス
 // ============================================
 
-import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260818b';
-import { Enemy } from './enemy.js?v=screen-safe-20260818b';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260818b';
-import { audio } from './audio.js?v=screen-safe-20260818b';
-import { Player } from './player.js?v=screen-safe-20260818b';
-import { applySlashTrailMixin } from './playerSlashTrail.js?v=screen-safe-20260818b';
+import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260818c';
+import { Enemy } from './enemy.js?v=screen-safe-20260818c';
+import { createSubWeapon, drawFirebombBall, makeFirebombFuseSeed } from './weapon.js?v=screen-safe-20260818c';
+import { audio } from './audio.js?v=screen-safe-20260818c';
+import { applyDualComboMotion } from './dualComboMotion.js?v=screen-safe-20260818c';
+import { Player } from './player.js?v=screen-safe-20260818c';
+import { applySlashTrailMixin } from './playerSlashTrail.js?v=screen-safe-20260818c';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
-} from './normalComboMotion.js?v=screen-safe-20260818b';
+} from './normalComboMotion.js?v=screen-safe-20260818c';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
@@ -22,7 +23,7 @@ import {
     SHOGUN_HEAD_SCALE,
     SHOGUN_HIP_LIFT_PX,
     SHOGUN_SCALE
-} from './shogunConstants.js?v=screen-safe-20260818b';
+} from './shogunConstants.js?v=screen-safe-20260818c';
 import {
     BOSS_DESIGNS,
     renderBossActor,
@@ -34,7 +35,7 @@ import {
     kusarigamaStance,
     drawCarriedKusarigama,
     odachiStance
-} from './bossRenderer.js?v=screen-safe-20260818b';
+} from './bossRenderer.js?v=screen-safe-20260818c';
 
 // weaponReplica の攻撃進行度(0..1)。体の所作を実体のタイムラインへ同期させる。
 function replicaProgress(replica) {
@@ -83,12 +84,17 @@ class Boss extends Enemy {
         this.feintDir = Math.random() < 0.5 ? -1 : 1;
         // --- 立ち回り(連打をやめて「読み合い」に見せるための状態) ---
         this.attackStreak = 0;        // 仕切り直しを挟まずに続けた攻撃回数
+        this.attackLungeMs = 0;       // 技が自前で速度を作っている残り時間(AIの減速を止める)
         this.poiseTimerMs = 0;        // 様子見(攻撃を控えて間合いを計る)
         this.poiseKind = 'watch';     // 'watch'(その場で見る) / 'space'(下がる)
         this.spacingCooldownMs = 0;   // 仕切り直しの再発火待ち
 
         // ボスは右側から現れるため、初期方向をプレイヤー側（左）にする
         this.facingRight = false;
+        /* 向きは updateAI が【相手基準】で決める。Enemy.update の
+           「移動方向を向く」既定を切らないと、間合いを取って下がる場面で
+           相手向き(AI)と進行方向(既定)が毎フレーム殴り合って痙攣する。 */
+        this.faceMovementDirection = false;
     }
 
     applyDifficultyScaling() {
@@ -121,6 +127,7 @@ class Boss extends Enemy {
             this.feintTimerMs = 180 + Math.random() * 260;
         }
         if (this.poiseTimerMs > 0) this.poiseTimerMs = Math.max(0, this.poiseTimerMs - deltaMs);
+        if (this.attackLungeMs > 0) this.attackLungeMs = Math.max(0, this.attackLungeMs - deltaMs);
         if (this.spacingCooldownMs > 0) this.spacingCooldownMs = Math.max(0, this.spacingCooldownMs - deltaMs);
         // 忍具モーションの残時間。Player.update と違いボスは誰も減らしていなかったため、
         // 大槍の getThrustState が playerPoseActive のまま progress=0 に張り付き、
@@ -163,6 +170,12 @@ class Boss extends Enemy {
         const absX = Math.abs(diffX);
         const dirToPlayer = diffX >= 0 ? 1 : -1;
 
+        /* 観測値は【攻撃中も】最新に保つ。以前は移動計算の直前(攻撃中は
+           early return で通らない位置)で代入していたため、踏み込み中に
+           距離を見ようとすると1手前の値しか無かった。 */
+        this._aiAbsX = absX;
+        this._aiDirToPlayer = dirToPlayer;
+
         if (!this.isAttacking && this.hitTimer <= 0 && absX > 16) {
             this.facingRight = dirToPlayer > 0;
         }
@@ -200,7 +213,11 @@ class Boss extends Enemy {
             if (typeof this.attackFacingRight === 'boolean') {
                 this.facingRight = this.attackFacingRight;
             }
-            if (Math.abs(this.vx) < this.speed * 1.8) {
+            /* 技が自前で速度を作っている間は AI の減速を掛けない。
+               掛けると、プレイヤーから移植した段別の踏み込み(speed×0.32〜0.92 =
+               最大でも 3.9 で speed*1.8 の 7.65 未満)が毎フレーム 0 へ寄せられ、
+               コンボが【その場で振っているだけ】になる。 */
+            if (!(this.attackLungeMs > 0) && Math.abs(this.vx) < this.speed * 1.8) {
                 this.applyDesiredVx(0, 0.34);
             }
             return;
@@ -212,7 +229,6 @@ class Boss extends Enemy {
         /* 保ちたい間合い。0 なら従来どおり「とにかく詰める」。
            遠距離技を持つボスが【撃てる距離に留まる】ために使う(0以外を返すと
            近すぎれば下がり、遠すぎれば寄る、という往復になる)。 */
-        this._aiAbsX = absX;
         const standoff = (typeof this.getDesiredStandoff === 'function')
             ? (this.getDesiredStandoff(absX) || 0) : 0;
 
@@ -272,6 +288,31 @@ class Boss extends Enemy {
                 // 一手見送って様子を見る(即座に撃ち返さない)
                 this.poiseKind = 'watch';
                 this.poiseTimerMs = 170 + Math.random() * 260;
+                return;
+            }
+            /* 得物が仕事をしない間合い(長柄の懐、投擲役の密着)では振らない。
+               空振りを見せるより、置き直してから出したほうが強く見える。 */
+            if (typeof this.canAttackAt === 'function' && !this.canAttackAt(absX)) {
+                this.poiseKind = 'space';
+                this.poiseTimerMs = 190 + Math.random() * 240;
+                this.attackStreak = 0;
+                return;
+            }
+            /* 溜め(見切りの間)。重い得物は振る前に一拍置くと、
+               読んで避けられる=駆け引きになる。0 を返せば従来どおり即座に振る。 */
+            const tellMs = (typeof this.getPreAttackTellMs === 'function')
+                ? (this.getPreAttackTellMs(absX) || 0) : 0;
+            if (tellMs > 0 && !this._tellArmed) {
+                this._tellArmed = true;
+                this.poiseKind = 'watch';
+                this.poiseTimerMs = tellMs;
+                return;
+            }
+            this._tellArmed = false;
+            /* 溜め切ったあとに【出すかどうか】をボス側で決めさせる。
+               false を返したらフェイント —— 溜めだけ見せて技は出さない。
+               重量級は「出るはずの一撃が出ない」ぶんだけ読み合いになる。 */
+            if (typeof this.onTellResolved === 'function' && this.onTellResolved(absX) === false) {
                 return;
             }
             this.attackStreak = punish ? this.attackStreak : this.attackStreak + 1;
@@ -579,10 +620,55 @@ export class KayakudamaTaisho extends Boss {
         this.attackPatterns = ['throw'];
         this.throwTimer = 0;
         this.throwCount = 0;
+        /* --- 投擲役の間合い ---
+           近接手段を持たないので、密着されたら「投げずに退がる」のが正解。
+           玉が落ちる距離(bombStandoff)を保ち、そこから狙って投げる。 */
+        this.bombStandoff = 285;
+        this.bombMinRange = 145;
+        this.bombVolley = 0;          // 山なり/速球を交互に振る
+        this.pinnedMs = 0;            // 密着され続けた時間
+        this.escapeCooldownMs = 0;
         /* 手に持つ玉は【実体 Firebomb.renderHeld】で描く(素体側に別グラフィックを
            持つと待機と投擲で違う玉になる)。このボスは攻撃で実体を使わず g.bombs へ
            直接積む作りなので、描画専用のインスタンスを1つ持つ。判定には一切関与しない。 */
         this._bombArt = createSubWeapon('火薬玉');
+    }
+
+    /* 常に投げられる間合いを保つ(近ければ退がり、遠ければ寄る) */
+    getDesiredStandoff() { return this.bombStandoff; }
+    getEngageRange() { return 420; }
+    /* 密着では投げない。爆風は自分も巻き込む間合いなので置き直す */
+    canAttackAt(absX) { return absX >= this.bombMinRange; }
+
+    update(deltaTime, player, obstacles = []) {
+        const dt = deltaTime * 1000;
+        if (this.escapeCooldownMs > 0) this.escapeCooldownMs = Math.max(0, this.escapeCooldownMs - dt);
+        /* 張り付かれたら投げられないまま何もできない(実測: 密着され続けると
+           40秒で攻撃0回)。詰められた時間を測り、一定を超えたら
+           【後方へ跳んで離脱し、跳びながら1発落とす】。投擲役の逃げ手。 */
+        if (player && !this.isAttacking && this.isAlive) {
+            const pw = (typeof player.getWorldWidth === 'function') ? player.getWorldWidth() : player.width;
+            const d = Math.abs((player.x + pw / 2) - (this.x + this.width / 2));
+            if (d < this.bombMinRange) this.pinnedMs += dt; else this.pinnedMs = 0;
+            if (this.pinnedMs > 420 && this.escapeCooldownMs <= 0 && this.isGrounded) {
+                const toP = (player.x + pw / 2) >= (this.x + this.width / 2) ? 1 : -1;
+                const away = -toP;
+                this.evasionDir = away;
+                this.evasionTimerMs = 420;
+                this.evasionCooldownMs = 520;
+                this.evasionJumped = true;
+                this.vy = -14.5;
+                this.isGrounded = false;
+                this.escapeCooldownMs = 2600 + Math.random() * 1200;
+                this.pinnedMs = 0;
+                /* 落とす玉は【プレイヤー側へ】。throwBomb は自分の向きへしか
+                   投げないので、投げる瞬間だけ振り向かせる(退がる向きとは逆) */
+                this.facingRight = toP > 0;
+                this.throwBomb();
+                audio.playDash();
+            }
+        }
+        return super.update(deltaTime, player, obstacles);
     }
 
     startAttack() {
@@ -630,8 +716,29 @@ export class KayakudamaTaisho extends Boss {
         const direction = this.facingRight ? 1 : -1;
         const startX = this.x + this.width / 2 + direction * 20;
         const startY = this.y + 15;
-        const vx = direction * (6 + toolTier * 0.75);
-        const vy = -7 - toolTier * 0.35;
+        /* --- 狙って投げる ---
+           従来は vx 固定だったので玉は【常に同じ距離】に落ちた。
+           プレイヤーは一歩ずれて立つだけで安全になり、投擲役として機能していない。
+           落下までのフレーム数を実際の更新式(vy += 0.45 / y += vy)で解き、
+           プレイヤーの足元へ落ちる vx を逆算する。
+           山なり(滞空長い)と速球(早く着く)を交互に投げて読みを崩す。 */
+        const lob = (this.bombVolley++ % 2) === 0;
+        const vy = (lob ? -9.4 : -5.6) - toolTier * 0.35;
+        const bombR = (toolTier >= 3) ? 14 : 11;
+        const dropY = this.groundY - bombR - startY;   // 玉は groundY - radius で炸裂する
+        let frames = 0, py = 0, vyy = vy;
+        while (py < dropY && frames < 240) { vyy += 0.45; py += vyy; frames++; }
+        frames = Math.max(8, frames);
+        /* 狙いは【足元ぴったり】にしない。3発を前後に散らして挟み込む。
+           完全に正確だと棒立ちに必中で理不尽、外しっぱなしだと無害。 */
+        const jitter = ((this.bombVolley % 3) - 1) * 48 + (Math.random() - 0.5) * 36;
+        const target = (window.game && window.game.player
+            ? window.game.player.x + window.game.player.getWorldWidth() / 2
+            : startX + direction * 260) + jitter;
+        const need = (target - startX) / frames;
+        const vxMax = 9.5 + toolTier * 0.9;
+        const vx = Math.max(-vxMax, Math.min(vxMax,
+            (Math.sign(need) === direction || need === 0) ? need : direction * 2.2));
         
         // プレイヤーのFirebomb仕様と同期 (js/weapon.js)
         const sizeUp = toolTier >= 3;
@@ -753,39 +860,15 @@ export class KayakudamaTaisho extends Boss {
                             }
                         }
                     } else {
-                        const grad = ctx.createRadialGradient(
-                            this.x - this.radius * 0.3, 
-                            this.y - this.radius * 0.3, 
-                            this.radius * 0.1, 
-                            this.x, 
-                            this.y, 
-                            this.radius
-                        );
-                        grad.addColorStop(0, '#666');
-                        grad.addColorStop(0.4, '#2d2d2d');
-                        grad.addColorStop(1, '#111');
-                        
-                        ctx.fillStyle = grad;
-                        ctx.beginPath();
-                        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-                        ctx.fill();
-                        
-                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
-                        ctx.lineWidth = 1.5;
-                        ctx.beginPath();
-                        ctx.arc(this.x, this.y, this.radius - 1, Math.PI * 1.1, Math.PI * 1.8);
-                        ctx.stroke();
-                        // 導火線
-                        ctx.strokeStyle = '#b07a38';
-                        ctx.lineWidth = 1.5;
-                        ctx.beginPath();
-                        ctx.moveTo(this.x, this.y - this.radius);
-                        ctx.lineTo(this.x + 4, this.y - this.radius - 6);
-                        ctx.stroke();
-                        ctx.fillStyle = '#ffb347';
-                        ctx.beginPath();
-                        ctx.arc(this.x + 4, this.y - this.radius - 7, 2, 0, Math.PI * 2);
-                        ctx.fill();
+                        /* 玉そのものは【プレイヤーの火薬玉と同じ絵】。
+                           ここに独自の球グラデを持っていたので、ボスが手に持つ玉
+                           (Firebomb.renderHeld)と投げた玉が別物になっていた
+                           (ユーザー指摘 2026-08-16)。 */
+                        if (!this._fuseSeed) this._fuseSeed = makeFirebombFuseSeed();
+                        drawFirebombBall(ctx, this.x, this.y, this.radius, {
+                            seeds: this._fuseSeed,
+                            time: performance.now()
+                        });
                     }
                     ctx.restore();
                 },
@@ -827,7 +910,13 @@ export class KayakudamaTaisho extends Boss {
                         && typeof art.applyEnhanceTier === 'function') {
                         art.applyEnhanceTier(this.getSubWeaponEnhanceTier());
                     }
-                    art.renderHeld(rig.c, h.front.x + 2, h.front.y - 8, 1);
+                    /* 大きさも投げる玉に合わせる。renderHeld の基準半径(9.4/12)は
+                       プレイヤーの手の大きさ向けで、throwBomb が積む玉(11/14)より小さい。
+                       絵を共通化しても寸法が違うと「持ち替えた」ように見える。 */
+                    const tier = this.getSubWeaponEnhanceTier();
+                    const heldBaseR = (tier >= 3) ? 12 : 9.4;
+                    const thrownR = (tier >= 3) ? 14 : 11;
+                    art.renderHeld(rig.c, h.front.x + 2, h.front.y - 8, thrownR / heldBaseR);
                 } else {
                     drawCarriedBomb(rig, h.front, rig.mt);
                 }
@@ -852,17 +941,63 @@ export class YariTaisho extends Boss {
         this.spearGripLift = Math.round(this.height * 0.45);   // 49
         // 長柄は「差し込んで突く」のが持ち味。様子見を減らして間合いを詰めさせる
         this.aggression = 0.82;
+        /* --- 長柄の間合い ---
+           穂先が届く距離に置き続けるのが強い。懐(spearMinRange 内)は槍が仕事を
+           しないので、突かずに引いて置き直す。突きは「小突き(速い)」と
+           「踏み込み(遠くから一気に)」の二種を距離で撃ち分ける。 */
+        this.spearTipRange = 152;
+        this.spearMinRange = 74;
+        this._yariChain = false;        // 二段突きの予約(Lv2以上)
         this.setupWeaponReplica('大槍');
         this.forceSubWeaponRender = true;
     }
     
+    getDesiredStandoff() { return this._yariChain ? 0 : this.spearTipRange; }
+    /* 飛び込み突きは遠間から出す技。忍具Lvが上がるほど遠くから踏み切る
+       (Lv0 は穂先の間合いでの小突き中心、Lv3 は画面端から突っ込んでくる)。 */
+    getEngageRange() {
+        return 218 + this.getSubWeaponEnhanceTier() * 42;    // 218 → 344
+    }
+    canAttackAt(absX) { return absX >= this.spearMinRange; }
+
     startAttack() {
         this.currentPattern = 'thrust';
         const toolTier = this.getSubWeaponEnhanceTier();
-        this.attackCooldown = Math.max(140, 272 - toolTier * 28);
+        const absX = Number.isFinite(this._aiAbsX) ? this._aiAbsX : this.attackRange;
+        /* 遠め = 踏み込みの大突き(深く入る/隙も大きい)
+           近め = 小突き(踏み込み浅く手数が出る)。同じ突きでも二拍に分かれて見える。
+           --- 忍具Lv(=蓄積ダメージ)で配分そのものを変える ---
+             Lv0: 小突き主体で様子を見る      Lv1: 大突きが増える
+             Lv2: 大突きのあと二段目を繋ぐ    Lv3: 遠間から連発してくる */
+        const chained = !!this._yariChain;
+        this._yariChain = false;
+        const heavyGate = 118 - toolTier * 16;               // Lv3 は 70 から大突きを選ぶ
+        const heavyChance = 0.42 + toolTier * 0.15;          // 0.42 → 0.87
+        let heavy = !chained && absX > heavyGate && Math.random() < heavyChance;
+        /* 小突きは【踏み込まない】ので、穂先の届く範囲(実測リーチ192)を超えたら
+           空を切る。届かない距離で小突きを選んだら大突きへ振り替える
+           —— Lv0 で 49手中11手が空振りになっていた。 */
+        if (!heavy && !chained && absX > 186) heavy = true;
+        this.spearHeavy = heavy;
+        // Lv2 以上は大突きのあとに小突きを繋いで押し込む(二段突き)
+        if (heavy && toolTier >= 2 && Math.random() < 0.30 + toolTier * 0.16) {
+            this._yariChain = true;
+        }
+        this.attackCooldown = chained
+            ? Math.max(90, 150 - toolTier * 18)
+            : heavy
+                ? Math.max(250, 390 - toolTier * 30)
+                : Math.max(115, 205 - toolTier * 22);
         if (this.startWeaponReplicaAttack()) {
             const dir = this.facingRight ? 1 : -1;
-            this.vx = dir * (14.8 + toolTier * 1.2);
+            /* 小突きは【踏み込まない】。長柄は立ったまま突くのが持ち味で、
+               毎回押し込むと自分から懐へ入って背後まで突き抜けてしまう。
+               踏み込むのは大突きだけ。量は空いている距離から出す。 */
+            const gap = Math.max(0, absX - this.spearTipRange + 26);
+            /* 飛び込みの上限も Lv で伸ばす。遠間から踏み切れるようにしないと、
+               交戦距離だけ伸ばしても「歩いて近づいてから跳ぶ」ままになる。 */
+            const cap = 15.2 + toolTier * 2.9;               // 15.2 → 23.9
+            this.vx = dir * (heavy ? Math.min(cap, 5.2 + gap * 0.175) : 0);
             return;
         }
         this.isAttacking = true;
@@ -871,8 +1006,32 @@ export class YariTaisho extends Boss {
     }
     
     updateAttack(deltaTime) {
+        const wasAttacking = this.isAttacking;
+        /* 相手を【突き抜けない】。詰まったら踏み込みを殺す。
+           抜けてしまうと向きが反転し、引き足も逆向きになって
+           プレイヤーの周りで前後に往復し続ける(実測 背後取り38回)。 */
+        if (this.isAttacking && Number.isFinite(this._aiAbsX) && this._aiAbsX < 86) {
+            const d = this.facingRight ? 1 : -1;
+            if (Math.sign(this.vx) === d) this.vx *= 0.26;
+        }
         this.updateWeaponReplicaAttack(deltaTime);
-        if (!this.isAttacking && Math.abs(this.vx) < 0.35) this.vx = 0;
+        if (!this.isAttacking) {
+            /* 【突いて引く】。長柄は差し込んだら戻して間合いを作り直す。
+               これが無いと、突き終わりに立ち止まったまま次を突いてしまい、
+               自分から懐(小突きしか出ない距離)に沈み込んでいく
+               —— 実測で 99 手中 98 手が小突きになっていた。
+               引きは攻撃より先に評価される回避スロットへ乗せる(攻撃中の
+               applyDesiredVx(0) に打ち消されないため)。 */
+            if (wasAttacking && !this._yariChain) {
+                // 二段突きを繋ぐ時は引かない(引くと二段目が届かない)
+                const dir = this.facingRight ? 1 : -1;
+                this.evasionDir = -dir;
+                this.evasionTimerMs = this.spearHeavy ? 265 : 170;
+                this.evasionCooldownMs = 0;
+                this.evasionJumped = true;      // 引き足で跳ばせない
+            }
+            if (Math.abs(this.vx) < 0.35) this.vx = 0;
+        }
     }
     
     getAttackHitbox() {
@@ -905,6 +1064,18 @@ export class YariTaisho extends Boss {
 /* 剣筋アンカー用の刃渡り(world px)。drawDualKatana は KATANA_SC 倍で
    bladeLength=80 を描くので、手から切先は (80-5) × 1.536 ≒ 115。 */
 const DUAL_TIP = 115;
+/* 二刀コンボの縦運動の倍率。
+   基準は【忍者と将軍の間のどこに立つか】——「自分の身長の何倍跳ぶか」ではない。
+   身長そのまま(108/70.32=1.536)を掛けると 238px 上がり、将軍(≒232px)より高く跳ぶ。
+
+     忍者   world身長  72 / scaleMultiplier 1.0 / vScale 1.00 → 実測 149px
+     将軍   world身長 120 / scaleMultiplier 2.0 / vScale 1.56 → ≒232px
+     二刀ボス world身長 108 —— 忍者と将軍の 75% の位置
+
+   なので scaleMultiplier 相当を 1 + 0.75 = 1.75 と置き、
+   プレイヤーが将軍に使うのと【同じ式】 1 + (scale-1)*0.56 を通す。 */
+const DUAL_BODY_T = (108 - 72) / (120 - 72);        // 0.75 (忍者→将軍の位置)
+const DUAL_V_SCALE = 1 + ((1 + DUAL_BODY_T * (2 - 1)) - 1) * 0.56;   // ≒1.42
 /* 奥刀の切先が頭より上へ抜けているか(描画レイヤーの判定のみ。当たり判定とは無関係) */
 function dualBackBladeRaised(rig, h) {
     const blend = (h.blend === undefined) ? 0.28 : h.blend;
@@ -953,6 +1124,64 @@ export class NitoryuKengo extends Boss {
         this.dualProjectileSizeScale = 108 / 70.32;
     }
     
+    /* 4段目の切り上げは【一撃のインパルスではなく、振っている間ずっと上へ引く
+       持続加速】。初速だけでは上昇量がプレイヤーの 1/4 にしかならない
+       (実測: プレイヤー 149px = 身長の2.07倍 / 初速のみのボス 37px = 0.34倍)。
+       player.js と同じ dualComboMotion を毎フレーム回す。 */
+    updateDualComboMotion(deltaTime) {
+        const w = this.weaponReplica;
+        if (!w || w.name !== '二刀流') return;
+        if (this.subWeaponAction !== '二刀_Z' || !(this.subWeaponTimer > 0)) return;
+        if (typeof w.getMainSwingPose !== 'function') return;
+        const pose = w.getMainSwingPose();
+        if (!pose) return;
+        applyDualComboMotion(this, pose.comboIndex || 0,
+            Math.max(0, Math.min(1, pose.progress || 0)), {
+                deltaTime,
+                vScale: DUAL_V_SCALE,
+                footY: this.y + this.height,
+                groundY: this.groundY
+            });
+        // 体移動を AI の減速から守る
+        this.attackLungeMs = Math.max(this.attackLungeMs, 60);
+    }
+
+    /* 二刀Zの段別の踏み込み・跳び。player.js:1403-1441 からの移植で、
+       段ごとの vx/vy はプレイヤーと同じ数値をそのまま使う。
+       ボスは素体が高い(108 : プレイヤー描画 70.32)ので、縦初速だけ
+       プレイヤーが将軍に使うのと同じ縮小係数(0.56)で身長比に合わせる。
+       これが無いと段が進んでもボスだけ地面に張り付いたままになる(ユーザー指摘)。 */
+    applyDualComboStepMotion(w) {
+        const step = (w && w.comboIndex) || 0;      // 1..4 = 各段 / 0 = 5段目
+        const dir = this.facingRight ? 1 : -1;
+        const wasGrounded = this.isGrounded;
+        const vScale = DUAL_V_SCALE;
+        if (step === 1) {
+            this.vx = dir * this.speed * 0.32;
+            if (wasGrounded) { this.vy = 0; this.isGrounded = true; }
+        } else if (step === 2) {
+            this.vx = dir * this.speed * 0.48;
+            if (wasGrounded) { this.vy = 0; this.isGrounded = true; }
+            else this.vy = Math.min(this.vy, -0.4 * vScale);
+        } else if (step === 3) {
+            // 3段目: 交差薙ぎ — 深い踏み込みと軽いホップ
+            this.vx = dir * this.speed * 0.88;
+            if (wasGrounded) { this.vy = -0.6 * vScale; this.isGrounded = false; }
+        } else if (step === 4) {
+            // 4段目: 並行切り上げで大きく上昇
+            this.vx = dir * this.speed * 0.92;
+            if (wasGrounded) { this.vy = -6.2 * vScale; this.isGrounded = false; }
+            else this.vy = Math.min(this.vy, -5.1 * vScale);
+        } else {
+            // 5段目: 叩きつけ(軽く浮いてから落ちる)
+            this.vx = dir * this.speed * 0.22;
+            this.vy = Math.min(this.vy, -1.8 * vScale);
+            this.isGrounded = false;
+        }
+        // AI の減速からこの速度を守る(mainDuration ぶん)
+        this.attackLungeMs = Math.max(this.attackLungeMs, (w && w.mainDuration) || 204);
+    }
+
     /* zone のときだけ間合いを保つ。press は従来どおり詰める(0を返す) */
     getDesiredStandoff() {
         return this.dualStance === 'zone' ? this.dualZoneStandoff : 0;
@@ -1053,6 +1282,7 @@ export class NitoryuKengo extends Boss {
                    (playerSlashTrail:6741)。Boss.update が Timer を減らす。 */
                 this.subWeaponAction = '二刀_Z';
                 this.subWeaponTimer = (w && w.mainDuration) || 204;
+                this.applyDualComboStepMotion(w);
             }
             return;
         }
@@ -1069,6 +1299,7 @@ export class NitoryuKengo extends Boss {
     }
 
     update(deltaTime, player, obstacles = []) {
+        this.updateDualComboMotion(deltaTime);
         const removed = super.update(deltaTime, player, obstacles);
         // 剣筋バッファは前フレームのアンカーを使って進める(プレイヤーと同順)
         if (typeof this.updateDualBladeSlashTrails === 'function') {
@@ -1214,14 +1445,56 @@ export class KusarigamaAssassin extends Boss {
            108px のボスでは肩が頭の高さに来てしまい、腕のリーチ(38.9)を超えて
            鎖が手から離れて見えていた。dx/ratio は bossRenderer の shF の実測値。 */
         this.kusaShoulder = { dx: 8.7, ratio: 0.374 };
+        /* --- 暗殺者の間合い ---
+           鎖の届く距離に浮いて、当てたら必ず離脱する(一撃離脱)。
+           ときどきプレイヤーを飛び越えて背後を取り、正面の読みを崩す。 */
+        this.kusaHold = 172;
+        this.kusaMinRange = 88;
+        this.crossoverCooldownMs = 0;
         this.setupWeaponReplica('鎖鎌');
     }
-    
+
+    getDesiredStandoff() { return this.kusaHold; }
+    getEngageRange() { return 288; }
+    canAttackAt(absX) { return absX >= this.kusaMinRange; }
+
+    update(deltaTime, player, obstacles = []) {
+        if (this.crossoverCooldownMs > 0) {
+            this.crossoverCooldownMs = Math.max(0, this.crossoverCooldownMs - deltaTime * 1000);
+        }
+        return super.update(deltaTime, player, obstacles);
+    }
+
     startAttack() {
         this.currentPattern = 'kusa';
         const toolTier = this.getSubWeaponEnhanceTier();
         this.attackCooldown = Math.max(190, 368 - toolTier * 30);
-        if (this.startWeaponReplicaAttack()) return;
+        const absX = Number.isFinite(this._aiAbsX) ? this._aiAbsX : this.attackRange;
+        const toPlayer = this._aiDirToPlayer || (this.facingRight ? 1 : -1);
+        const started = this.startWeaponReplicaAttack();
+
+        /* 一撃離脱。振った直後に必ず間合いを切る。
+           vx 直接指定は攻撃中の updateAI に打ち消されるので回避スロットに乗せる。 */
+        if (this.crossoverCooldownMs <= 0 && this.isGrounded
+            && absX < 235 && Math.random() < 0.32) {
+            // 攪乱の跳び越え: プレイヤーの頭上を越えて背後へ回る
+            this.evasionDir = toPlayer;
+            this.evasionTimerMs = 380;
+            this.vy = -17.2;
+            this.isGrounded = false;
+            this.evasionJumped = true;
+            this.crossoverCooldownMs = 3200 + Math.random() * 1800;
+        } else if (Math.random() < 0.58) {
+            /* 毎回下がると間合いが開きっぱなしで詰め直せない(実測:
+               平均間合 252 まで離れて跳び越えの条件にも入らなくなった)。
+               離脱は半々にして、残りは踏み込んだまま次を狙う。 */
+            this.evasionDir = -toPlayer;
+            this.evasionTimerMs = Math.max(this.evasionTimerMs, 200);
+            this.evasionJumped = true;
+            this.evasionCooldownMs = Math.max(this.evasionCooldownMs, 380);
+        }
+
+        if (started) return;
         this.isAttacking = true;
         this.attackTimer = 500;
         audio.playDash();
@@ -1314,33 +1587,98 @@ export class OdachiBusho extends Boss {
            実測に合わせて前方 0.35→0.17、ぶら下がり 0.125→0.27 へ。 */
         this.odachiPlantedHandXRatio = 0.24;
         this.odachiPlantedHangRatio = 0.34;
+        this.odachiHold = 172;          // 構え直す間合い(ここから跳びかかる)
+        this._odachiChain = false;      // 追撃(二段跳び)の予約
+        this._odachiFeints = 0;
         this.forceSubWeaponRender = true;
     }
     
+    /* 大太刀は跳び上がって落とす一撃。踏み込む距離が要るので密着では振らない */
+    canAttackAt(absX) { return absX >= 66; }
+    getEngageRange() { return 300; }
+    /* 張り付いて振り続けるのではなく、一度離れた位置から跳びかかる。
+       重量級は「間合いの外にいる時間」があるほど一撃が重く見える。
+       ただし追撃(二段跳び)を予約している間は離れない —— そこは畳みかける。 */
+    getDesiredStandoff() { return this._odachiChain ? 0 : this.odachiHold; }
+    /* 重い得物は振る前に一拍置く。読める溜めがあるほうが駆け引きになる
+       (HPが減るほど短くなり、終盤は畳みかけてくる)。
+       溜めの間は【前へ摺り足】で寄る。その場で揺れるだけだと圧が出ない。 */
+    getPreAttackTellMs() {
+        const late = this.hp <= this.maxHp * 0.4;
+        if (Number.isFinite(this._aiDirToPlayer)) this.feintDir = this._aiDirToPlayer;
+        return (late ? 130 : 250) + Math.random() * (late ? 90 : 170);
+    }
+
+    /* 溜めの結末。技が1種類しかない得物なので、
+       「出す / 出さない(フェイント)」の択と、そのあとの「追撃 / 引き」で緩急を作る。
+       ・序盤(HP高い)= 慎重。フェイントが多く、出したら引く。
+       ・終盤(HP低い)= 畳みかける。フェイントは減り、追撃(二段跳び)が増える。 */
+    onTellResolved(absX) {
+        const hpRatio = this.maxHp > 0 ? this.hp / this.maxHp : 1;
+        // 追撃の途中はフェイントしない(繋ぎが途切れて間延びする)
+        if (this._odachiChain) return true;
+        const feintChance = 0.30 * Math.max(0.25, hpRatio) + (absX > 220 ? 0.08 : 0);
+        if (Math.random() >= feintChance) return true;
+        /* フェイント: 踏み込みだけ見せて下がる。溜めと同じ所作から入るので、
+           プレイヤーは出るものと思って回避を切らされる。 */
+        const dir = this._aiDirToPlayer || (this.facingRight ? 1 : -1);
+        this.vx = dir * this.speed * 1.15;
+        this.attackLungeMs = 150;
+        this.evasionDir = -dir;
+        this.evasionTimerMs = 260;
+        this.evasionCooldownMs = 0;
+        this.evasionJumped = true;
+        this.attackCooldown = Math.max(this.attackCooldown, 260 + Math.random() * 220);
+        this.attackStreak = 0;
+        this._odachiFeints = (this._odachiFeints || 0) + 1;
+        return false;
+    }
+
     startAttack() {
         const toolTier = this.getSubWeaponEnhanceTier();
-        this.attackCooldown = Math.max(240, 420 - toolTier * 24);
-
-        let useSpecial = false;
-        if (this.targetPlayer && this.weaponReplica) {
-            const dist = Math.abs((this.targetPlayer.x + this.targetPlayer.width/2) - (this.x + this.width/2));
-            if (dist > 40 && dist < 160 && Math.random() < 0.25) {
-                useSpecial = true;
-            }
+        const hpRatio = this.maxHp > 0 ? this.hp / this.maxHp : 1;
+        /* 旧 useSpecial は startWeaponReplicaAttack と【完全に同じ処理】を書いた
+           重複分岐で、クールダウンが 400ms 長いだけだった(=技の種類は増えていない)。
+           ここを「追撃(二段跳び)」に置き換える。同じ跳びでも
+           単発+引き / 二連続 の二拍になれば、1種類の技でも緩急が出る。 */
+        const chaining = !!this._odachiChain;
+        this._odachiChain = false;
+        if (chaining) {
+            this.currentPattern = 'odachi_chase';
+            this.attackCooldown = Math.max(200, 300 - toolTier * 20);
+        } else {
+            this.currentPattern = 'odachi';
+            this.attackCooldown = Math.max(240, 420 - toolTier * 24);
+            // 終盤ほど二段跳びが出る(HP25%以下で約半分)
+            this._odachiChain = Math.random() < (0.52 - Math.max(0, hpRatio - 0.25) * 0.42);
         }
 
-        if (useSpecial) {
-            this.currentPattern = 'odachi_special';
-            this.applyWeaponReplicaEnhancement();
-            this.weaponReplica.use(this);
-            this.isAttacking = true;
-            this.attackTimer = this.weaponReplica.attackTimer || this.weaponReplica.totalDuration || 0;
-            this.attackCooldown += 400; 
-            return;
+        const started = this.startWeaponReplicaAttack();
+        /* 刺さり(planted)の長さを技ごとに変える。刀を地面に残してぶら下がる間が
+           このボス唯一の【確定反撃の窓】なので、ここが毎回同じだと戦いが単調になる。
+           追撃は短く(圧をかけ続ける)、単発は長め(大きな隙を見せる)。
+           モーション自体は変えていない —— 見せる長さだけを変える。 */
+        const w = this.weaponReplica;
+        if (w && Number.isFinite(w.basePlantedDuration)) {
+            const tierScale = 1 + this.getSubWeaponEnhanceTier() * 0.12;
+            const shape = chaining ? 0.62 : (0.95 + Math.random() * 0.55);
+            w.plantedDuration = Math.round(w.basePlantedDuration * tierScale * shape);
         }
-
-        this.currentPattern = 'odachi';
-        if (this.startWeaponReplicaAttack()) return;
+        /* 跳びかかりの踏み込み。大太刀は落下位置がほぼ自分の足元(実体側が
+           着地位置を安定させるため owner.vx を毎フレーム 0.86 倍に落とす)なので、
+           踏み込みで詰められるのは数十px。それでも【落ちる頃の相手の位置】へ
+           寄せておくと、走って逃げる相手に置きにいける。 */
+        const dir = this.facingRight ? 1 : -1;
+        const p = this.targetPlayer || (typeof window !== 'undefined' && window.game ? window.game.player : null);
+        let aim = Number.isFinite(this._aiAbsX) ? this._aiAbsX : 0;
+        if (p) {
+            const pw = (typeof p.getWorldWidth === 'function') ? p.getWorldWidth() : p.width;
+            const lead = (p.vx || 0) * 14;      // 跳んでいる間に相手が進むぶん
+            aim = Math.abs((p.x + pw * 0.5 + lead) - (this.x + this.width * 0.5));
+        }
+        const gap = Math.max(0, aim - 88);
+        this.vx = dir * Math.min(13.8, 6.1 + gap * 0.115);
+        if (started) return;
         this.isAttacking = true;
         this.attackTimer = 680;
         audio.playSlash(4);
@@ -1351,8 +1689,26 @@ export class OdachiBusho extends Boss {
     }
 
     updateAttack(deltaTime) {
+        const wasAttacking = this.isAttacking;
+        // 跳びかかりも相手を通り過ぎない(踏み込みが残ると背後へ抜ける)
+        if (this.isAttacking && Number.isFinite(this._aiAbsX) && this._aiAbsX < 92) {
+            const d = this.facingRight ? 1 : -1;
+            if (Math.sign(this.vx) === d) this.vx *= 0.3;
+        }
         this.updateWeaponReplicaAttack(deltaTime);
-        if (!this.isAttacking && Math.abs(this.vx) < 0.35) this.vx = 0;
+        if (!this.isAttacking) {
+            /* 一撃を振り切ったら間合いを切って構え直す。重量級は
+               「撃ったあとの隙」が読めるほうが戦って気持ちがいい。 */
+            if (wasAttacking && !this._odachiChain) {
+                // 追撃を予約している時は引かない(引くと二段目が届かない)
+                const dir = this.facingRight ? 1 : -1;
+                this.evasionDir = -dir;
+                this.evasionTimerMs = 340;
+                this.evasionCooldownMs = 0;
+                this.evasionJumped = true;
+            }
+            if (Math.abs(this.vx) < 0.35) this.vx = 0;
+        }
     }
     
     renderBody(ctx) {

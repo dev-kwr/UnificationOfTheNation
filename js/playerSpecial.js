@@ -1,16 +1,41 @@
 // Unification of the Nation - 分身クローン mixin
 
-import { PLAYER, LANE_OFFSET } from './constants.js?v=screen-safe-20260818b';
-import { audio } from './audio.js?v=screen-safe-20260818b';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260818b';
-import { ANIM_STATE, COMBO_ATTACKS } from './playerData.js?v=screen-safe-20260818b';
+import { PLAYER, LANE_OFFSET } from './constants.js?v=screen-safe-20260818c';
+import { audio } from './audio.js?v=screen-safe-20260818c';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260818c';
+import { ANIM_STATE, COMBO_ATTACKS } from './playerData.js?v=screen-safe-20260818c';
 import {
     SHOGUN_ACTOR_BASE_WIDTH,
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_SCALE,
     SHOGUN_SPECIAL_CLONE_SPACING_SCALE
-} from './shogunConstants.js?v=screen-safe-20260818b';
-import { getNormalComboStep4RiseScale } from './normalComboMotion.js?v=screen-safe-20260818b';
+} from './shogunConstants.js?v=screen-safe-20260818c';
+import { getNormalComboStep4RiseScale } from './normalComboMotion.js?v=screen-safe-20260818c';
+import { resolveAiFacing } from './aiFacing.js?v=screen-safe-20260818c';
+
+// Lv3 分身が「段」を移るときの寸法。的が別の段にいるなら段ごと追う。
+const CLONE_TIER_GAP_PX = 40;         // これ以上ずれていたら別の段とみなす
+const CLONE_DROP_THROUGH_MS = 900;    // 屋根をすり抜け続ける上限(着地で即解除)
+const CLONE_GRAVITY_PER_FRAME = 0.6;  // 分身の簡易物理の重力
+// 一跳びの到達高さは本体と同じ 160px(PLAYER.JUMP_FORCE -16 / GRAVITY 0.8)に揃える。
+// 地面から瓦屋根(214px上)へは届かないので、樽や木箱を踏んで登ることになる。
+const CLONE_MAX_RISE_PX = 160;
+const CLONE_CLIMB_JUMP_VY = Math.sqrt(2 * CLONE_GRAVITY_PER_FRAME * CLONE_MAX_RISE_PX);
+const CLONE_CLIMB_MARGIN_PX = 14;      // 踏み切りの余裕(縁で足を掛け損ねない)
+const CLONE_CLIMB_SEARCH_PX = 480;     // 踏み台を探す水平範囲
+const CLONE_CLIMB_STEP_TIMEOUT_MS = 1500; // 一段に手間取ったら選び直す
+const CLONE_CLIMB_LEASH_PX = 520;      // 登攀中だけ緩める本体からの離脱許容
+const CLONE_ROCK_BLOCK_MS = 220;       // 岩に押し返され続けたら斬りにかかる
+const CLONE_ROCK_SEEK_PX = 460;        // 的がいないとき岩を崩しに向かう距離
+const CLONE_ROCK_STRIKE_RANGE_PX = 76; // 岩に振りかかる間合い
+const CLONE_ROCK_KEEP_PX = 380;        // 崩しかけの岩を持ち続ける距離(選び直しの往復防止)
+// 綱を解いた分身が的を持ち直す距離の比。境界ちょうどで持ち直すと往復して震える。
+const CLONE_LEASH_REACQUIRE_RATIO = 0.72;
+// 1フレームでこれ以上滑っているなら「走っている」とみなし、進行方向へ体を向ける。
+// 的へ走り寄る時は進行方向=的の方向なので向きは変わらない。効くのは的や持ち場から
+// 引き離される向きに走らされている時だけ。
+const CLONE_RUN_FACING_SPEED_PX = 6.5;
+const CLONE_RUN_FACING_COOLDOWN_MS = 180;
 
 export function applySpecialMixin(PlayerClass) {
 
@@ -45,6 +70,12 @@ export function applySpecialMixin(PlayerClass) {
             prevX: a.x,
             lastAnchorX: a.x,
             lastAnchorY: a.y,
+            climbStep: null,
+            climbStepTimer: 0,
+            dropThroughPlatformTimer: 0,
+            dropThroughUntilFootY: null,
+            blockingRock: null,
+            rockBlockTimer: 0,
             groundY: this.getSpecialCloneFootY(a.y) - LANE_OFFSET
         }));
         this.specialCloneScarfNodes = this.specialCloneSlots.map(() => null);
@@ -339,42 +370,8 @@ export function applySpecialMixin(PlayerClass) {
             if (Array.isArray(this.specialCloneMirroredTrailProfiles)) {
                 this.specialCloneMirroredTrailProfiles[index] = null;
             }
-            // Lv3 自立分身の二刀コンボ時間も「本体のアクティブ忍具」から取得し、本体と位相を揃える。
-            // 忍者も将軍も自身の currentSubWeapon（二刀流）を getActiveSubWeaponInstance で取得。
-            const bodyActiveSubWeapon = this.getActiveSubWeaponInstance();
-            if (
-                this.specialCloneAutoAiEnabled &&
-                bodyActiveSubWeapon &&
-                bodyActiveSubWeapon.name === '二刀流' &&
-                typeof bodyActiveSubWeapon.getMainDurationByStep === 'function'
-            ) {
-                const prevStep = this.specialCloneComboSteps[index] || 0;
-                const maxSteps = (bodyActiveSubWeapon.comboDamages || []).length || 5;
-                // 5連コンボ完了後は飛翔斬撃（combined）を発動
-                if (prevStep >= maxSteps) {
-                    const combinedDuration = Math.max(170, Math.round(
-                        bodyActiveSubWeapon.combinedDuration || 560
-                    ));
-                    this.specialCloneComboSteps[index] = 0;
-                    this.specialCloneCurrentAttacks[index] = null;
-                    this.specialCloneAttackTimers[index] = combinedDuration;
-                    this.specialCloneSubWeaponTimers[index] = combinedDuration;
-                    this.specialCloneSubWeaponActions[index] = '二刀_合体';
-                    this.specialCloneComboResetTimers[index] = combinedDuration + 210 + 60;
-                    this.activateCloneSubWeaponInstance(index, 'combined');
-                    return;
-                }
-                const nextComboIndex = prevStep + 1;
-                const dualDuration = Math.max(1, bodyActiveSubWeapon.getMainDurationByStep(nextComboIndex - 1));
-                this.specialCloneComboSteps[index] = nextComboIndex;
-                this.specialCloneCurrentAttacks[index] = null;
-                this.specialCloneAttackTimers[index] = dualDuration;
-                this.specialCloneSubWeaponTimers[index] = dualDuration;
-                this.specialCloneSubWeaponActions[index] = '二刀_Z';
-                this.specialCloneComboResetTimers[index] = dualDuration + 210 + 60;
-                this.activateCloneSubWeaponInstance(index, 'main');
-                return;
-            }
+            // 【Lv3の自立分身は本体の装備と連動しない】。常に打刀の通常コンボだけで戦う。
+            // (以前はここで本体の二刀流を写して二刀コンボを振らせていた)
             let nextStep = (this.specialCloneComboSteps[index] || 0) + 1;
             if (nextStep > COMBO_ATTACKS.length) nextStep = 1;
             const clonePos = this.specialClonePositions[index] || null;
@@ -1004,20 +1001,46 @@ export function applySpecialMixin(PlayerClass) {
 
             let target = this.specialCloneTargets[i];
 
-            if (stagingLocked) {
+            // 【綱の境界で往復させない】。持ち場から離れすぎた分身は的を手放すが、
+            // 手放した瞬間に持ち場へ戻り始めて綱の内側に入り、次のフレームでまた的を取る
+            // ——これを毎フレーム繰り返すと分身が左右にぶるぶる震える
+            // (実機フィードバック 2026-08-17)。一度手放したら、はっきり内側へ戻るまで
+            // 持ち直さない。綱の判定は的を取り直す【前】に済ませる。
+            // 登攀中だけ綱を伸ばす。踏み台まで回り込む間に的を手放していては屋根へ上がれない。
+            const anchorLeash = pos.climbStep ? CLONE_CLIMB_LEASH_PX : 300;
+            const anchorDist = Math.abs(anchor.x - pos.x);
+            if (pos.leashReleased && anchorDist <= anchorLeash * CLONE_LEASH_REACQUIRE_RATIO) {
+                pos.leashReleased = false;
+            }
+
+            if (stagingLocked || pos.leashReleased) {
                 // 既に追っていた的も即座に手放して持ち場へ戻す
                 target = null;
                 this.specialCloneTargets[i] = null;
             } else if (!target || !target.isAlive || target.isDying) {
                 target = this.findNearestEnemy(pos.x, pos.y, enemies, 500);
+                // 【綱の外の的は最初から追わない】。追ってから引き戻されるのを繰り返すと、
+                // 分身が持ち場と的の間を往復し続ける。取れる的だけを取る。
+                if (target) {
+                    const targetCenterX = target.x + target.width / 2;
+                    if (Math.abs(targetCenterX - anchor.x) > anchorLeash * CLONE_LEASH_REACQUIRE_RATIO) {
+                        target = null;
+                    }
+                }
                 this.specialCloneTargets[i] = target;
             }
 
-            const anchorDist = Math.abs(anchor.x - pos.x);
-            if (target && anchorDist > 300) {
+            if (target && anchorDist > anchorLeash) {
                 target = null;
                 this.specialCloneTargets[i] = null;
+                pos.leashReleased = true;
             }
+
+            // 【斬る的がいないなら岩を崩しに行く】。手空きの分身をアンカーに立たせておくより、
+            // 道を塞いでいる大岩を退けさせる。的が現れたらそちらが優先。
+            const rockTarget = (!target && !stagingLocked)
+                ? this.findSpecialCloneRockTarget(pos, anchor)
+                : null;
 
             const cloneSubWeaponInst = this.specialCloneSubWeaponInstances
                 ? this.specialCloneSubWeaponInstances[i]
@@ -1043,20 +1066,51 @@ export function applySpecialMixin(PlayerClass) {
                 const targetX = target.x + target.width / 2;
                 const dx = targetX - pos.x;
                 const distX = Math.abs(dx);
-                if (distX > attackRange * 1.5) {
-                    const speed = (this.speed || 5) * 1.55;
-                    pos.x += Math.sign(dx) * speed * deltaTime * 60;
-                    pos.facingRight = dx > 0;
-                } else {
-                    pos.facingRight = dx > 0;
-                    const canAttack = this.specialCloneAttackTimers[i] <= 0
-                        && this.specialCloneSubWeaponTimers[i] <= 0;
-                    if (canAttack) {
-                        this.triggerCloneAttack(i);
+                // 【段が違う的は段ごと追う】。x だけ合わせて振っても刃は届かない。
+                // 跳んでいる最中の的は段が定まらないので、今の段のまま扱う。
+                const cloneFootY = this.getSpecialCloneFootY(pos.y);
+                const targetFootY = target.y + target.height;
+                const tierGap = cloneFootY - targetFootY; // 正: 的が上の段
+                const sameTier = (target.isGrounded === false) || Math.abs(tierGap) <= CLONE_TIER_GAP_PX;
+                // 上の段へは足場を踏んで登る(下の段へは updateSpecialCloneDropThrough が降ろす)
+                const climbing = !sameTier && tierGap > 0
+                    && this.updateSpecialCloneClimb(pos, targetFootY, deltaTime, deltaMs);
+
+                if (!climbing) {
+                    // 登る必要が消えたら段取りも捨てる(綱の長さが伸びたままにならないように)
+                    pos.climbStep = null;
+                    pos.climbStepTimer = 0;
+                    if (distX > attackRange * 1.5) {
+                        const speed = (this.speed || 5) * 1.55;
+                        pos.x += Math.sign(dx) * speed * deltaTime * 60;
+                        pos.facingRight = resolveAiFacing(pos, dx > 0, deltaMs, distX);
+                    } else {
+                        pos.facingRight = resolveAiFacing(pos, dx > 0, deltaMs, distX);
+                        const canAttack = sameTier
+                            && this.specialCloneAttackTimers[i] <= 0
+                            && this.specialCloneSubWeaponTimers[i] <= 0;
+                        if (canAttack) {
+                            this.triggerCloneAttack(i);
+                        }
                     }
                 }
                 this.specialCloneReturnToAnchor[i] = false;
+            } else if (rockTarget) {
+                pos.climbStep = null;
+                pos.climbStepTimer = 0;
+                const rockCenterX = rockTarget.x + (rockTarget.width || 0) * 0.5;
+                const dx = rockCenterX - pos.x;
+                pos.facingRight = resolveAiFacing(pos, dx > 0, deltaMs, Math.abs(dx));
+                if (Math.abs(dx) > CLONE_ROCK_STRIKE_RANGE_PX) {
+                    const speed = (this.speed || PLAYER.SPEED || 5) * 1.55;
+                    pos.x += Math.sign(dx) * Math.min(Math.abs(dx), speed * deltaTime * 60);
+                } else if (!cloneAttackBusy && !cloneSubWeaponBusy) {
+                    this.triggerCloneAttack(i);
+                }
+                this.specialCloneReturnToAnchor[i] = false;
             } else {
+                pos.climbStep = null;
+                pos.climbStepTimer = 0;
                 if (bodyNormalComboMotionActive) {
                     if (!cloneAttackBusy && !cloneSubWeaponBusy) {
                         // 待機中のLv3分身だけ、本体通常コンボで動いたアンカー差分に同期させる。
@@ -1072,7 +1126,7 @@ export function applySpecialMixin(PlayerClass) {
                             pos.x += anchorDeltaX;
                         }
                         if (Math.abs(anchor.x - pos.x) <= 6) {
-                            pos.facingRight = this.facingRight;
+                            pos.facingRight = resolveAiFacing(pos, this.facingRight, deltaMs, Infinity);
                         }
                     }
                     this.specialCloneReturnToAnchor[i] = false;
@@ -1089,11 +1143,11 @@ export function applySpecialMixin(PlayerClass) {
                         const step = Math.sign(dx) * Math.min(absDx, returnSpeed * dtScale);
                         pos.x += step;
                         if (absDx > 6) {
-                            pos.facingRight = dx > 0;
+                            pos.facingRight = resolveAiFacing(pos, dx > 0, deltaMs, absDx);
                         }
                     } else {
                         pos.x = anchor.x;
-                        pos.facingRight = this.facingRight;
+                        pos.facingRight = resolveAiFacing(pos, this.facingRight, deltaMs, Infinity);
                     }
                     this.specialCloneReturnToAnchor[i] = true;
                 }
@@ -1190,7 +1244,10 @@ export function applySpecialMixin(PlayerClass) {
             if (!pos.cloneVy) pos.cloneVy = 0;
 
             let shouldJump = false;
-            if (stageHazards.length > 0) {
+            // 岩を斬りにかかっている間は跳ばない。跳んで越えられる岩なら押し返され続けないので、
+            // ここが立つのは本当に道を塞がれているときだけ。
+            const rockBreaking = (pos.rockBlockTimer || 0) >= CLONE_ROCK_BLOCK_MS;
+            if (!rockBreaking && stageHazards.length > 0) {
                 const frameDx = pos.x - frameStartX;
                 const moveDir = Math.abs(frameDx) > 0.5 ? Math.sign(frameDx) : (pos.facingRight ? 1 : -1);
 
@@ -1229,6 +1286,9 @@ export function applySpecialMixin(PlayerClass) {
                 pos.cloneVy = -12;
             }
 
+            // 屋根(one-way)に取り残されていないかを毎フレーム点検し、必要なら降下を始める
+            this.updateSpecialCloneDropThrough(pos, target, deltaMs);
+
             const footOffset = this._getCloneFootOffset();
             const currentFootY = this.getSpecialCloneFootY(pos.y);
             const currentSupportY = this.getSpecialCloneLandingAnchorY(pos, currentFootY - 2, currentFootY + 2);
@@ -1240,7 +1300,7 @@ export function applySpecialMixin(PlayerClass) {
             if (pos.jumping) {
                 const beforeY = pos.y;
                 const beforeFootY = this.getSpecialCloneFootY(beforeY);
-                pos.cloneVy += 0.6;
+                pos.cloneVy += CLONE_GRAVITY_PER_FRAME;
                 const nextY = pos.y + pos.cloneVy * deltaTime * 60;
                 const nextFootY = nextY + footOffset;
                 const landingY = this.getSpecialCloneLandingAnchorY(pos, beforeFootY, nextFootY);
@@ -1248,6 +1308,8 @@ export function applySpecialMixin(PlayerClass) {
                     pos.y = landingY;
                     pos.jumping = false;
                     pos.cloneVy = 0;
+                    pos.dropThroughPlatformTimer = 0;
+                    pos.dropThroughUntilFootY = null;
                 } else {
                     pos.y = nextY;
                 }
@@ -1258,6 +1320,8 @@ export function applySpecialMixin(PlayerClass) {
             pos.groundY = this.getSpecialCloneFootY(pos.y) - LANE_OFFSET;
 
             this.constrainSpecialClonePosition(pos);
+            // 押し返された岩が続いているなら、跳ぶのをやめて斬り崩す
+            this.updateSpecialCloneRockBreak(pos, i, deltaMs);
 
             if (Math.abs(pos.y - prevY) > 40) {
                 this.initCloneAccessoryNodes(i);
@@ -1266,6 +1330,26 @@ export function applySpecialMixin(PlayerClass) {
 
             const frameDeltaX = pos.x - frameStartX;
             pos.renderVx = frameDeltaX / Math.max(0.016, deltaTime * 60);
+
+            // 【走っている向きに体を向ける】。本体がダッシュすると隊列ごと引かれて分身も
+            // 高速で滑るが、的の側を向いたままだと「後ろ向きのまま進行方向へダッシュする」
+            // 絵になる(実機フィードバック 2026-08-16)。
+            // ここは的への向き直りより後に、独立したクールダウンで判定する。的向きと
+            // 同じ resolveAiFacing の綱を共有すると、先に的側が綱を張って走行向きが弾かれる。
+            // 刀を振っている最中は振り抜きの向きを守るので触らない。
+            pos._runFacingTimer = Math.max(0, (pos._runFacingTimer || 0) - deltaMs);
+            if (!cloneAttackBusy && !cloneSubWeaponBusy) {
+                const runStepPx = Math.abs(frameDeltaX) / Math.max(0.0001, deltaTime * 60);
+                const runRight = frameDeltaX > 0;
+                if (runStepPx >= CLONE_RUN_FACING_SPEED_PX && pos.facingRight !== runRight) {
+                    if ((pos._runFacingTimer || 0) <= 0) {
+                        pos.facingRight = runRight;
+                        pos._runFacingTimer = CLONE_RUN_FACING_COOLDOWN_MS;
+                        // 直後に的側へ引き戻されないよう、共通の綱も張り直す
+                        pos._facingFlipTimer = CLONE_RUN_FACING_COOLDOWN_MS;
+                    }
+                }
+            }
 
             // 分身独自のlegPhase/legAngleを毎フレーム更新（本体/分身で共通式）
             const cloneLegMotion = this.updateLegLocomotion({
@@ -1367,8 +1451,87 @@ export function applySpecialMixin(PlayerClass) {
                 } else {
                     pos.x += overlapRight;
                 }
+                // 押し返した岩を覚えておく。これが続く=道を塞がれている(updateSpecialCloneRockBreak)
+                pos.blockingRock = obs;
             }
         }
+    };
+
+    /**
+     * 手空きの分身が崩しに行く岩。隊列(アンカー)から離れすぎない範囲の最寄りを選ぶ。
+     * 段が違う岩は刃が届かないので対象外(屋根の上から地面の岩は斬れない)。
+     */
+    PlayerClass.prototype.findSpecialCloneRockTarget = function(pos, anchor) {
+        const stage = (window.game && window.game.stage) ? window.game.stage : null;
+        const obstacles = (stage && Array.isArray(stage.obstacles)) ? stage.obstacles : [];
+        if (obstacles.length === 0) {
+            if (pos) pos.rockTarget = null;
+            return null;
+        }
+
+        const footY = this.getSpecialCloneFootY(pos.y);
+        const anchorX = (anchor && Number.isFinite(anchor.x)) ? anchor.x : pos.x;
+
+        // 崩しかけの岩は少し離れても持ち続ける。選定の境界で毎フレーム切り替わると、
+        // 向かう先が入れ替わって分身が左右に震える。
+        const held = pos ? pos.rockTarget : null;
+        if (held && !held.isDestroyed) {
+            const heldCenterX = held.x + (held.width || 0) * 0.5;
+            const heldFootY = (held.y !== undefined) ? held.y + (held.height || 0) : footY;
+            if (
+                Math.abs(heldFootY - footY) <= CLONE_TIER_GAP_PX &&
+                Math.abs(heldCenterX - anchorX) <= CLONE_ROCK_KEEP_PX
+            ) {
+                return held;
+            }
+        }
+
+        let best = null;
+        let bestDist = CLONE_ROCK_SEEK_PX;
+        for (const obs of obstacles) {
+            if (!obs || obs.isDestroyed || obs.type !== 'rock' || obs.x === undefined) continue;
+
+            const centerX = obs.x + (obs.width || 0) * 0.5;
+            const obsFootY = (obs.y !== undefined) ? obs.y + (obs.height || 0) : footY;
+            if (Math.abs(obsFootY - footY) > CLONE_TIER_GAP_PX) continue;
+            if (Math.abs(centerX - anchorX) > 300) continue;   // 持ち場を離れすぎない
+
+            const dist = Math.abs(centerX - pos.x);
+            if (dist < bestDist) {
+                bestDist = dist;
+                best = obs;
+            }
+        }
+        if (pos) pos.rockTarget = best;
+        return best;
+    };
+
+    /**
+     * 【進路を塞ぐ大岩は斬って通す】。分身は岩を跳び越えられるので、普段は従来どおり跳ぶ。
+     * それでも押し返され続けるなら道が本当に塞がっているということなので、刀に切り替える。
+     * 岩へのダメージ自体は game.updateSpecialCloneAutoCombat が持っている(近接の自動判定)。
+     * ここは「跳ぶのをやめて岩に向き直り、抜刀する」意思だけを与える。
+     */
+    PlayerClass.prototype.updateSpecialCloneRockBreak = function(pos, index, deltaMs) {
+        if (!pos) return false;
+
+        const rock = pos.blockingRock;
+        pos.blockingRock = null;
+        if (!rock || rock.isDestroyed) {
+            pos.rockBlockTimer = 0;
+            return false;
+        }
+
+        pos.rockBlockTimer = (pos.rockBlockTimer || 0) + deltaMs;
+        if (pos.rockBlockTimer < CLONE_ROCK_BLOCK_MS) return false;
+
+        pos.facingRight = resolveAiFacing(pos, (rock.x + (rock.width || 0) * 0.5) > pos.x, deltaMs, Math.abs(rock.x + (rock.width || 0) * 0.5 - pos.x));
+        const busy = (this.specialCloneAttackTimers[index] || 0) > 0
+            || (this.specialCloneSubWeaponTimers[index] || 0) > 0;
+        if (!busy) {
+            this.triggerCloneAttack(index);
+        }
+        return true;
     };
 
     PlayerClass.prototype.findNearestEnemy = function(x, y, enemies, maxDist) {
@@ -1410,40 +1573,168 @@ export function applySpecialMixin(PlayerClass) {
         return this.getSpecialCloneGroundYAtX(worldX) + LANE_OFFSET - this._getCloneFootOffset();
     };
 
+    /**
+     * 今フレームの足元区間 [previousFootY, nextFootY] で分身が乗れる one-way 足場。
+     * 「今どの段に立っているか(降りる判断)」と「どこへ着地するか」が同じ面を見るよう、
+     * 面の探索はここ一箇所に集約する。
+     */
+    PlayerClass.prototype.getSpecialCloneSupportPlatform = function(pos, previousFootY, nextFootY) {
+        const stage = (window.game && window.game.stage) ? window.game.stage : null;
+        if (
+            !stage ||
+            stage.stageNumber !== 4 ||
+            typeof stage.getStage4RoofColliders !== 'function' ||
+            !Number.isFinite(previousFootY) ||
+            !Number.isFinite(nextFootY)
+        ) {
+            return null;
+        }
+
+        const worldX = pos && Number.isFinite(pos.x) ? pos.x : this.getWorldCenterX();
+        const cloneHalfW = Math.max(16, (typeof this.getWorldWidth === 'function' ? this.getWorldWidth() : this.width) * 0.36);
+        const topY = Math.min(previousFootY, nextFootY) - 6;
+        const bottomY = Math.max(previousFootY, nextFootY) + 6;
+        // 降下中にすり抜けるのは「戻りたい段より上の屋根」だけ。下の段は普通に踏む。
+        const dropFloorY = (pos && (pos.dropThroughPlatformTimer || 0) > 0 && Number.isFinite(pos.dropThroughUntilFootY))
+            ? pos.dropThroughUntilFootY
+            : null;
+
+        const supports = stage.getStage4RoofColliders(worldX - cloneHalfW - 12, worldX + cloneHalfW + 12)
+            .filter((platform) => (
+                platform &&
+                !platform.isDestroyed &&
+                platform.isOneWayPlatform &&
+                worldX + cloneHalfW > platform.x + 4 &&
+                worldX - cloneHalfW < platform.x + platform.width - 4 &&
+                platform.y >= topY &&
+                platform.y <= bottomY &&
+                !(dropFloorY !== null && platform.y < dropFloorY - 8)
+            ))
+            .sort((a, b) => a.y - b.y);
+        return supports.length > 0 ? supports[0] : null;
+    };
+
     PlayerClass.prototype.getSpecialCloneLandingAnchorY = function(pos, previousFootY, nextFootY) {
         const footOffset = this._getCloneFootOffset();
         const worldX = pos && Number.isFinite(pos.x) ? pos.x : this.getWorldCenterX();
         const groundFootY = this.getSpecialCloneGroundYAtX(worldX) + LANE_OFFSET;
-        let landingFootY = groundFootY;
+        const support = this.getSpecialCloneSupportPlatform(pos, previousFootY, nextFootY);
 
+        return (support ? support.y : groundFootY) - footOffset;
+    };
+
+    /**
+     * 上の段の的へ登るための「次の一段」。分身の一跳びは本体と同じ 160px までなので、
+     * 地面(512)から瓦屋根(298)へは直接届かない。樽・木箱・荷車といった登攀プロップを
+     * 一段ずつ選び、目標の段へ近づける経路にする。
+     */
+    PlayerClass.prototype.findSpecialCloneClimbStep = function(pos, footY, desiredFootY) {
         const stage = (window.game && window.game.stage) ? window.game.stage : null;
-        if (
-            stage &&
-            stage.stageNumber === 4 &&
-            typeof stage.getStage4RoofColliders === 'function' &&
-            Number.isFinite(previousFootY) &&
-            Number.isFinite(nextFootY)
-        ) {
-            const cloneHalfW = Math.max(16, (typeof this.getWorldWidth === 'function' ? this.getWorldWidth() : this.width) * 0.36);
-            const topY = Math.min(previousFootY, nextFootY) - 6;
-            const bottomY = Math.max(previousFootY, nextFootY) + 6;
-            const supports = stage.getStage4RoofColliders(worldX - cloneHalfW - 12, worldX + cloneHalfW + 12)
-                .filter((platform) => (
-                    platform &&
-                    !platform.isDestroyed &&
-                    platform.isOneWayPlatform &&
-                    worldX + cloneHalfW > platform.x + 4 &&
-                    worldX - cloneHalfW < platform.x + platform.width - 4 &&
-                    platform.y >= topY &&
-                    platform.y <= bottomY
-                ))
-                .sort((a, b) => a.y - b.y);
-            if (supports.length > 0) {
-                landingFootY = supports[0].y;
+        if (!stage || stage.stageNumber !== 4 || typeof stage.getStage4RoofColliders !== 'function') return null;
+
+        const candidates = stage
+            .getStage4RoofColliders(pos.x - CLONE_CLIMB_SEARCH_PX, pos.x + CLONE_CLIMB_SEARCH_PX)
+            .filter((platform) => (
+                platform &&
+                !platform.isDestroyed &&
+                platform.isOneWayPlatform &&
+                platform.width >= 40 &&
+                platform.y < footY - CLONE_TIER_GAP_PX * 0.5 &&   // 今より上の段
+                footY - platform.y <= CLONE_MAX_RISE_PX &&        // 一跳びで届く
+                platform.y >= desiredFootY - CLONE_TIER_GAP_PX    // 的の段より上へは行かない
+            ));
+        if (candidates.length === 0) return null;
+
+        // 的の段に一番近い(高い)段を優先し、同じ高さなら踏み切りやすい近い方。
+        let best = null;
+        for (const platform of candidates) {
+            if (!best) {
+                best = platform;
+                continue;
+            }
+            if (platform.y < best.y - 4) {
+                best = platform;
+            } else if (Math.abs(platform.y - best.y) <= 4) {
+                const d = Math.abs(platform.x + platform.width * 0.5 - pos.x);
+                const bestD = Math.abs(best.x + best.width * 0.5 - pos.x);
+                if (d < bestD) best = platform;
             }
         }
+        return best;
+    };
 
-        return landingFootY - footOffset;
+    /**
+     * 上の段の的へ足場を踏んで登る。true を返した間は x の主導権をこちらが持つ
+     * (的の真下へ走るより、踏み台の上に乗ることを優先する)。
+     */
+    PlayerClass.prototype.updateSpecialCloneClimb = function(pos, desiredFootY, deltaTime, deltaMs) {
+        if (!pos) return false;
+
+        const footY = this.getSpecialCloneFootY(pos.y);
+        if (pos.climbStep) {
+            pos.climbStepTimer = Math.max(0, (pos.climbStepTimer || 0) - deltaMs);
+            // その段に乗れた/手間取ったら選び直す
+            if (footY <= pos.climbStep.y + 4 || pos.climbStepTimer <= 0) {
+                pos.climbStep = null;
+            }
+        }
+        // 段の選定は接地中だけ。空中で選び直すと、まだ乗っていない段を足場に数えてしまう。
+        if (!pos.climbStep && !pos.jumping) {
+            pos.climbStep = this.findSpecialCloneClimbStep(pos, footY, desiredFootY);
+            pos.climbStepTimer = pos.climbStep ? CLONE_CLIMB_STEP_TIMEOUT_MS : 0;
+        }
+
+        const step = pos.climbStep;
+        if (!step) return false;
+
+        // 踏み切り点(足場の中心)へ寄せる。跳んでいる間も寄せて縁で足を掛け損ねないようにする。
+        const stepCenterX = step.x + step.width * 0.5;
+        const dx = stepCenterX - pos.x;
+        if (Math.abs(dx) > 3) {
+            const speed = (this.speed || PLAYER.SPEED || 5) * 1.55;
+            pos.x += Math.sign(dx) * Math.min(Math.abs(dx), speed * deltaTime * 60);
+            pos.facingRight = resolveAiFacing(pos, dx > 0, deltaMs, Math.abs(dx));
+        }
+
+        if (!pos.jumping && pos.x > step.x + 6 && pos.x < step.x + step.width - 6) {
+            const rise = Math.max(0, footY - step.y) + CLONE_CLIMB_MARGIN_PX;
+            pos.jumping = true;
+            pos.cloneVy = -Math.min(Math.sqrt(2 * CLONE_GRAVITY_PER_FRAME * rise), CLONE_CLIMB_JUMP_VY);
+        }
+        return true;
+    };
+
+    /**
+     * 【屋根に取り残された分身は自分から降りる】。分身AIは pos.x をアンカー(本体の左右)へ
+     * 寄せるだけで高さの意思を持たないため、城下町の瓦屋根(one-way)へ上がったまま本体が
+     * 地面へ戻ると、屋根が途切れるまで上を歩き続けて地上の敵を空振りしていた
+     * (実機フィードバック 2026-08-16)。本体や的が下の段にいるなら屋根をすり抜けて降りる。
+     * 逆に的が同じ段にいる間はその場で戦わせる。
+     */
+    PlayerClass.prototype.updateSpecialCloneDropThrough = function(pos, target, deltaMs) {
+        if (!pos) return;
+
+        if ((pos.dropThroughPlatformTimer || 0) > 0) {
+            pos.dropThroughPlatformTimer = Math.max(0, pos.dropThroughPlatformTimer - deltaMs);
+            if (pos.dropThroughPlatformTimer <= 0) pos.dropThroughUntilFootY = null;
+        }
+        if (pos.jumping) return;
+
+        const footY = this.getSpecialCloneFootY(pos.y);
+        // 地面に立っているなら降りる先はない。屋根に乗っているときだけ考える。
+        if (!this.getSpecialCloneSupportPlatform(pos, footY - 2, footY + 2)) return;
+
+        // 的の段へ降りる。的がいない/跳んでいる最中なら本体の段へ戻る。
+        const targetSettled = target && target.isAlive && !target.isDying && target.isGrounded !== false;
+        const desiredFootY = targetSettled ? (target.y + target.height) : this.getFootY();
+        if (!Number.isFinite(desiredFootY) || desiredFootY <= footY + CLONE_TIER_GAP_PX) return;
+
+        pos.dropThroughPlatformTimer = CLONE_DROP_THROUGH_MS;
+        pos.dropThroughUntilFootY = desiredFootY;
+        pos.climbStep = null;
+        pos.climbStepTimer = 0;
+        pos.jumping = true;
+        pos.cloneVy = Math.max(pos.cloneVy || 0, 0.8);
     };
 
     PlayerClass.prototype.getSpecialCloneSpacing = function() {
@@ -1745,6 +2036,9 @@ export function applySpecialMixin(PlayerClass) {
                 x: a.x, y: a.y, facingRight: this.facingRight, prevX: a.x,
                 lastAnchorX: a.x, lastAnchorY: a.y,
                 cloneVy: 0, jumping: false, legPhase: 0, legAngle: 0,
+                climbStep: null, climbStepTimer: 0,
+                dropThroughPlatformTimer: 0, dropThroughUntilFootY: null,
+                blockingRock: null, rockBlockTimer: 0,
                 groundY: this.getSpecialCloneFootY(a.y) - LANE_OFFSET
             }));
             // アクセサリノードの初期化

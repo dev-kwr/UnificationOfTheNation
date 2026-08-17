@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260818b';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260818b';
-import { createEnemy } from './enemy.js?v=screen-safe-20260818b';
-import { createBoss } from './boss.js?v=screen-safe-20260818b';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260818b';
-import { audio } from './audio.js?v=screen-safe-20260818b';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260818b';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260818c';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260818c';
+import { createEnemy } from './enemy.js?v=screen-safe-20260818c';
+import { createBoss } from './boss.js?v=screen-safe-20260818c';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260818c';
+import { audio } from './audio.js?v=screen-safe-20260818c';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260818c';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260818b';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260818b';
+} from './stage6Grapple.js?v=screen-safe-20260818c';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260818c';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260818b';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260818c';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -27,6 +27,10 @@ import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260818b';
  * Stage3 の道沿いだけプレイヤーの足元レーン(groundY+LANE_OFFSET=512)に立てていて、
  * 灯籠や道祖神が役者と同じ面に並んで見えた(実機フィードバック 2026-08-12)。
  */
+/* 体が通れる最小の隙間(px)。これ未満の隙間は作らない ——
+   岩と岩の細い谷は、入った敵が左右とも壁になって動けなくなる罠になる
+   (ユーザー指摘 2026-08-17)。雑魚の最大幅(鎧武将60)＋余裕。 */
+const STAGE_MIN_PASSABLE_GAP_PX = 96;
 const BG_PROP_FOOT_DEPTH = 12;
 
 // 【Stage3の石仏は双体道祖神の一種類だけ・1サイズだけ】。
@@ -43,21 +47,23 @@ const STAGE3_DOSOJIN_HEIGHT = 84;
 // 【ボス部屋のフレームを基準に決める】。世界は maxProgress=12000、
 // ボス部屋の framing は 10720(= maxProgress - CANVAS_WIDTH)。
 //
-// 順番: 山脈が尽きる → 城下町が見えてくる → 関所の門をくぐる(足元が土の道へ) →
-//       ボス部屋。門はボス部屋の画面の中に入れて、門の先で対峙する絵にする
-//       (指定 2026-08-17)。
+// 順番: 山脈が尽きる → 城下町が見えてくる → 足元が土の道へ変わる → ボス部屋。
+// 【変わり目に記念碑を置かない】。鳥居・関所の門・一里塚を順に試したが、
+// 鳥居はマップの小判蔵と紛らわしく、門は「くぐらないのに立っている」のが不自然、
+// 一里塚は「唐突」と、どれも据え物として浮いた(実機フィードバック 2026-08-17〜18)。
+// 山が地平へ沈み、城下町が現れ、足元が岩場から土の道へ変わる —— この3つで
+// 「山を抜けた」は既に語れている。四つ目の説明を足さない。
 const STAGE3_BOSS_ROOM_LEFT = 12000 - 1280;      // 10720
 
-// 峠の出口の関所の木戸(冠木門)。ボス部屋の画面x=80 に立つ位置に据える。
-// 【ここは鳥居にしない】。マップの小判蔵ノードが同じ形なので紛らわしい(指定 2026-08-17)。
-// (幅198pxなので 10800..10998。プレイヤーの定位置 10989 のすぐ左)
-const STAGE3_PASS_GATE_WORLD_X = STAGE3_BOSS_ROOM_LEFT + 80;
+// 山道と里の境目のワールドX。ここに物を置くのではなく、【足元が変わる場所】と
+// 【大岩を出すのをやめる場所】をこの1点から導く。
+const STAGE3_LANDMARK_WORLD_X = STAGE3_BOSS_ROOM_LEFT + 20;
 
 // 足元が「山道の岩場」から「開けた土の道」へ変わる帯。
-// 【門をくぐった先で変わる】。門が境で、その先から里の道になる(指定 2026-08-17)。
-// 変わり目はボス部屋の中(画面x 320..580)に来るので、ボス部屋では
+// 変わり目はボス部屋の中(画面x 260..520)に来るので、ボス部屋では
 // 岩場と土の道の両方が見える(Stage1の竹林の縁と同じ作り)。
-const STAGE3_PLAIN_GROUND_START = (STAGE3_PASS_GATE_WORLD_X + 240) / 12000;   // 11040 ≒0.920
+// 山を抜けたことは、この足元の変化と山の沈みだけで語る。
+const STAGE3_PLAIN_GROUND_START = (STAGE3_LANDMARK_WORLD_X + 240) / 12000;   // 11040 ≒0.920
 const STAGE3_PLAIN_GROUND_BLEND = 260 / 12000;                                 // ≒0.022
 
 // 城下町の層の速さ。遠い山並み(0.14)より手前にあるので少し速い。
@@ -75,9 +81,9 @@ const STAGE3_RANGE_END_STOP_SCREEN_X = 380;
 // 道中の山場(中ボス)を出す進行度。半ばを少し過ぎたあたり。
 const MID_BOSS_PROGRESS_RATIO = 0.55;
 
-// 門の前に大岩を出さない幅。門は幅約206pxなので、その手前に岩が
-// 立たない余地(柱に岩が被らない)を含めて空ける。
-const STAGE3_PASS_GATE_ROCK_CLEAR = 260;
+// 境目の手前で大岩を出すのをやめる幅。足元が変わる場所のすぐ手前に
+// 落石が転がっていると、土地が切り替わったことが読めなくなる。
+const STAGE3_LANDMARK_ROCK_CLEAR = 260;
 
 // 道端の添景を、ボス部屋のフレームからどれだけ手前で終えるか。
 // 反復側の「場面」は2つ一組で最大約300px幅なので、それを丸ごと外に出す。
@@ -148,9 +154,6 @@ const STAGE_IMAGE_SOURCES = {
                 signpost: 'images/stage3_prop_signpost.png?v=20260706_front1',
                 woodFence: 'images/stage3_prop_weathered_wood_fence.png?v=20260706_front1',
                 stoneLantern: 'images/stage3_prop_stone_lantern.png?v=20260706_front1',
-                // 峠の出口に構える関所の木戸(足元に番小屋)。山道の終わりを告げる
-                // 一基だけの目印なので、反復側の表には入れない。
-                barrierGate: 'images/stage3_prop_barrier_gate.png?v=20260817_gate1',
                 mountainSign: 'images/stage3_prop_mountain_sign.png?v=20260706_front1',
             },
         },
@@ -970,7 +973,16 @@ export class Stage {
         if (!player) return fallback;
         const pw = typeof player.getWorldWidth === 'function' ? player.getWorldWidth() : (player.width || 48);
         const bannerCenter = scrollX + CANVAS_WIDTH * 0.5;
-        const playerCenter = player.x + pw * 0.5;
+        /* 【鏡像の基準はプレイヤーの「名乗りの定位置」】。
+           会敵はプレイヤーが跳び退がって間合いを作る形になったので、
+           湧いた瞬間の生の位置(まだ跳ぶ前＝画面中央付近)を基準にすると
+           鏡像が潰れてボスが目の前に立つ。着地点が分かっているならそれを使う。 */
+        const g = (typeof window !== 'undefined') ? window.game : null;
+        const standX = (g && typeof g.getBossNameStandLimitX === 'function')
+            ? g.getBossNameStandLimitX() : Infinity;
+        const playerCenter = Number.isFinite(standX)
+            ? standX + pw * 0.5
+            : player.x + pw * 0.5;
         const mirrored = bannerCenter + (bannerCenter - playerCenter);
         // 【間合いは帯の中心からではなくプレイヤーからも測る】。
         // プレイヤーが勢い余って帯より前へ出た時、帯の中心基準だけだと鏡像が潰れて
@@ -3696,6 +3708,66 @@ export class Stage {
         return (enemy.x + enemy.width) < leftBound;
     }
 
+    /**
+     * 【障害物に埋まった位置には湧かせない】。
+     * 湧く位置は画面外の固定オフセット(progress ± CANVAS_WIDTH+100)なので、
+     * ちょうどそこに大岩が立っていると、岩にめり込んだ敵がスクロールで現れる
+     * (ユーザー指摘 2026-08-17)。当たり判定は「外から入ってきた1フレーム」しか
+     * 見ていないので、埋まったまま湧くと岩の中を歩き続けてしまう。
+     *
+     * 【岩なら上に乗せる】(指定 2026-08-17)。横へ逃がすより素直だし、
+     * 湧く位置もずらさずに済む —— 岩の上で待ち構えている絵になる。
+     * 竹槍は乗る物ではないので、その時だけプレイヤーから遠い側へ逃がす
+     * (画面内へ寄せると出現が早まって不意打ちになる)。
+     * どうしても空きが無ければその湧きは捨てる。
+     *
+     * @param {object} enemy 位置を決める敵(x/y を書き換える)
+     * @param {number} awayDir +1=右へ逃がす(右湧き) / -1=左へ逃がす(左湧き)
+     * @returns {boolean} 置けたか(false ならこの湧きは捨てる)
+     */
+    placeSpawnedEnemyClear(enemy, awayDir) {
+        if (!enemy) return false;
+        const obstacles = (this.obstacles || []).filter((o) => o && !o.isDestroyed);
+        if (obstacles.length === 0) return true;
+        const w = enemy.width;
+        const h = enemy.height;
+        const hitAt = (x, y) => obstacles.find((o) =>
+            x < o.x + o.width && x + w > o.x
+            && y < o.y + o.height && y + h > o.y);
+
+        const first = hitAt(enemy.x, enemy.y);
+        if (!first) return true;
+
+        // 岩は足場になる。天面へ乗せる(はみ出さないよう縁から6px内側へ寄せる)
+        if (first.type === OBSTACLE_TYPES.ROCK && !first.isOneWayPlatform
+            && first.width >= w + 12) {
+            const topX = Math.max(first.x + 6, Math.min(enemy.x, first.x + first.width - w - 6));
+            const topY = first.y - h;
+            if (!hitAt(topX, topY)) {
+                enemy.x = topX;
+                enemy.y = topY;
+                enemy.vy = 0;
+                enemy.isGrounded = true;
+                return true;
+            }
+        }
+
+        // 乗れないもの(竹槍など)は横へ逃がす
+        const groundTop = this.groundY + LANE_OFFSET - h;
+        const margin = 12;
+        let cur = enemy.x;
+        for (let tries = 0; tries < 8; tries++) {
+            const hit = hitAt(cur, groundTop);
+            if (!hit) {
+                enemy.x = cur;
+                enemy.y = groundTop;
+                return true;
+            }
+            cur = awayDir >= 0 ? hit.x + hit.width + margin : hit.x - w - margin;
+        }
+        return false;
+    }
+
     createGroundedEnemy(type, x) {
         const enemy = createEnemy(type, x, this.groundY, this.groundY);
         if (!enemy) return null;
@@ -3880,6 +3952,8 @@ export class Stage {
             
             const enemy = this.createGroundedEnemy(type, x);
             if (!enemy) continue;
+            // 岩に埋まる位置なら岩の上へ乗せる(竹槍等は横へ逃がす/駄目なら湧かせない)
+            if (!this.placeSpawnedEnemyClear(enemy, comeFromLeft ? -1 : 1)) continue;
             this.constrainStage6ArenaActor(enemy, true);
             if (this.isStage6Arena()) {
                 // 大棟の上は「湧く」場所がないので、屋根の裏から跳び上がって乗る
@@ -3907,6 +3981,8 @@ export class Stage {
         const x = this.progress + CANVAS_WIDTH + 50;
         const midBoss = this.createGroundedEnemy(this.getMidBossType(), x);
         if (!midBoss) return;
+        // 中ボスも岩の中には立たせない(単騎で立つぶん埋まりが目立つ)
+        if (!this.placeSpawnedEnemyClear(midBoss, 1)) return;
         midBoss.hp = Math.round(midBoss.hp * 1.38);
         midBoss.maxHp = Math.round(midBoss.maxHp * 1.38);
         midBoss.isMidBoss = true;
@@ -3982,13 +4058,13 @@ export class Stage {
             return;
         }
 
-        // Stage 3: 【峠の門から先に大岩を出さない】。門をくぐった時点で
-        // 山岳地帯は抜けていて、足元も土の道に変わっている。そこに落石の岩が
+        // Stage 3: 【山道と里の境目から先に大岩を出さない】。そこから先は
+        // 山岳地帯を抜けていて、足元も土の道に変わっている。そこに落石の岩が
         // 転がっているのは土地が違う(実機フィードバック 2026-08-16)。
-        // 門そのものに岩が被るのも防ぐため、手前も門の幅ぶん空ける。
+        // 境目の手前も、切り替わりが読めるように空ける。
         if (this.stageNumber === 3) {
-            const gateLeft = STAGE3_PASS_GATE_WORLD_X - STAGE3_PASS_GATE_ROCK_CLEAR;
-            if (x + 440 > gateLeft) return;
+            const landmarkLeft = STAGE3_LANDMARK_WORLD_X - STAGE3_LANDMARK_ROCK_CLEAR;
+            if (x + 440 > landmarkLeft) return;
         }
 
         // ボス部屋(最終1画面)には竹槍・大岩などの障害物を置かない。
@@ -4017,13 +4093,16 @@ export class Stage {
             // 岩塊の連なり。単一引き伸ばしではなく複数シルエットで道を塞ぐ。
             const chainCount = rockChainCount;
             let cursorX = x;
+            const chain = [];
             for (let i = 0; i < chainCount; i++) {
                 const rock = createObstacle(OBSTACLE_TYPES.ROCK, cursorX + (Math.random() * 18 - 9), this.groundY, {
                     stageNumber: this.stageNumber
                 });
+                chain.push(rock);
                 this.obstacles.push(rock);
                 cursorX += rock.width * (0.44 + Math.random() * 0.3);
             }
+            this.closeImpassableGaps(chain);
             return;
         }
 
@@ -4031,6 +4110,46 @@ export class Stage {
             stageNumber: this.stageNumber
         });
         this.obstacles.push(obstacle);
+        this.closeImpassableGaps([obstacle]);
+    }
+
+    /**
+     * 【通り抜けられない幅の隙間を作らない】。
+     *
+     * 岩の連なりは重なって並ぶが、連なり同士や単体との間に
+     * 体より狭い隙間が空くことがある。そこへ入り込んだ敵は左右とも壁になって
+     * 動けなくなり、後続もそこへ溜まる(ユーザー指摘 2026-08-17: 大岩の細い隙間に
+     * 大量に挟まって動けない)。プレイヤーも同じ穴に落ちれば嵌まる。
+     *
+     * 隙間は【塞ぐ】か【通れる幅まで開ける】かのどちらかにする。
+     * 近い方へ寄せるので、見た目の変化は最小で済む。
+     * @param {object[]} added 今置いたばかりの障害物
+     */
+    closeImpassableGaps(added) {
+        if (!Array.isArray(added) || added.length === 0) return;
+        const MIN_PASS = STAGE_MIN_PASSABLE_GAP_PX;
+        const movable = new Set(added);
+        /* 【常に塞ぐ(左へ寄せる)】。広げる向きにも動かすと、寄せた岩が
+           右隣を追い越して別の隙間を作り、1回のパスでは収束しない
+           (実測: 46ペア中2つが 6px / 11px で残った)。
+           寄せた結果その右に新しい隙間が空いても、次のパスで右の岩が寄ってくる。
+           既にある岩は動かさない —— 見えている景色を後から動かさないため。 */
+        for (let pass = 0; pass < 8; pass++) {
+            const list = this.obstacles
+                .filter((o) => o && !o.isDestroyed)
+                .sort((a, b) => a.x - b.x);
+            let changed = false;
+            for (let i = 1; i < list.length; i++) {
+                const prev = list[i - 1];
+                const cur = list[i];
+                if (!movable.has(cur)) continue;
+                const gap = cur.x - (prev.x + prev.width);
+                if (gap <= 0 || gap >= MIN_PASS) continue;
+                cur.x -= gap;   // 隙間を塞ぐ
+                changed = true;
+            }
+            if (!changed) break;
+        }
     }
 
     updateObstacles(deltaTime) {
@@ -5385,10 +5504,6 @@ export class Stage {
             // 下り: 石仏と柵
             { type: 'dosojin', worldX: 7350, height: STAGE3_DOSOJIN_HEIGHT, y: 4, alpha: 1 },
             { type: 'woodFence', worldX: 7500, height: 82, y: 3, alpha: 1 },
-            // 【山道の終わりを告げる一基】。足元が岩場から土の道へ変わる
-            // ちょうどその場所(STAGE3_PLAIN_GROUND_START の帯の中)に据える。
-            // 走ると門をくぐった直後に道が開ける。前後は空けて主役にする。
-            { type: 'barrierGate', worldX: STAGE3_PASS_GATE_WORLD_X, height: 186, y: 4, alpha: 1, clearance: 560 },
             // 里の入口: 灯籠と柵
             { type: 'stoneLantern', worldX: 9860, height: 96, y: 3, alpha: 1 },
             { type: 'woodFence', worldX: 10030, height: 80, y: 3, alpha: 1 }
@@ -5403,7 +5518,6 @@ export class Stage {
         const fallbackAspect = {
             dosojin: 628 / 760,
             mountainSign: 393 / 760,
-            barrierGate: 1194 / 1080,
             signpost: 429 / 760,
             stoneLantern: 348 / 760,
             woodFence: 760 / 418

@@ -1,17 +1,20 @@
 // Unification of the Nation - 描画系 mixin
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260818b';
-import { audio } from './audio.js?v=screen-safe-20260818b';
-import { game } from './game.js?v=screen-safe-20260818b';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260818c';
+import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260818c';
+import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260818c';
+import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260818c';
+import { audio } from './audio.js?v=screen-safe-20260818c';
+import { game } from './game.js?v=screen-safe-20260818c';
 import {
     ANIM_STATE, COMBO_ATTACKS, PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
-} from './playerData.js?v=screen-safe-20260818b';
-import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260818b';
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260818b';
+} from './playerData.js?v=screen-safe-20260818c';
+import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260818c';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260818c';
 import {
     SHOGUN_SCALE,
     SHOGUN_ACTOR_BASE_HEIGHT,
@@ -37,7 +40,7 @@ import {
     NINJA_CROUCH_LIFT_AMP,
     SHOGUN_CROUCH_LIFT_AMP,
     SHOGUN_RUN_STRIDE_CENTER_BIAS
-} from './shogunConstants.js?v=screen-safe-20260818b';
+} from './shogunConstants.js?v=screen-safe-20260818c';
 
 export function applyRendererMixin(PlayerClass) {
     applyShogunRendererMixin(PlayerClass);
@@ -745,93 +748,107 @@ export function applyRendererMixin(PlayerClass) {
         ctx.fill();
     };
 
+    /* 鉢巻の垂れ帯。【結び目からは2本垂れる】——手前(明るい)と奥(暗い)。
+       塗りは2本とも clothRibbon.drawClothRibbon の一本道に通す。
+       以前は手前と奥で同じ式(平滑化 → 法線オフセット → 塗り)を別々に写経していて、
+       片方だけ直して食い違う事故が実際に起きた(奥だけ先端が絞られて細く尖った/
+       幅の既定が食い違った)。違いは【下の TAIL_SPECS の表だけ】に閉じる。
+
+       ノードを作る物理だけは2本で出どころが違う:
+        ・手前 = player.js の updateAccessoryNodes(scarfNodes)。
+          分身・将軍スケール・translateVisualTrails と結びついているので動かさない。
+        ・奥   = 共有の updateRibbonChain(雑魚の鉢巻と同じ実装)。
+       表の getNodes がその差を吸収する。 */
+    const HEADBAND_TAIL_SHORTEN = 0.9;
+
     PlayerClass.prototype.renderHeadbandTail = function(ctx, tailRootX, tailRootY, dir, alpha, accentColor, time, options = {}) {
-        const scarfNodes = Array.isArray(options.scarfNodes) ? options.scarfNodes : this.scarfNodes;
+        /* 分身の帯は【本体の形をコピー】する —— 剣筋と同じ方針。
+           分身に独自の物理を回すと本体と重なり方が食い違う(ユーザー指摘 2026-08-16)。
+           ミラー分身(Lv1-2)は言うまでもなく、自律分身(Lv3)も速度が本体と違う
+           (実測 renderVx 9.3 / 4.4 対 本体 5.2)ぶん風の受け方が変わり、
+           走行中の2本の重なりが本体と揃わない。帯は装飾なので本体に合わせる。
+           向きが逆の分身だけ、根元を軸に左右反転してコピーする。 */
+        const { isCloneCopy, copyFlip } = resolveClothClone(this, options);
+        const scarfNodes = isCloneCopy
+            ? this.scarfNodes
+            : (Array.isArray(options.scarfNodes) ? options.scarfNodes : this.scarfNodes);
         if (!scarfNodes || scarfNodes.length <= 1 || alpha <= 0) return;
 
-        const tailShorten = 0.9;
-        const rootNodeX = scarfNodes[0].x;
-        const rootNodeY = scarfNodes[0].y;
-
-        const mapNode = (node) => ({
-            x: tailRootX + (node.x - rootNodeX) * tailShorten,
-            y: tailRootY + (node.y - rootNodeY) * tailShorten
-        });
-        const tailNodes = scarfNodes.map(mapNode);
-        if (tailNodes.length > 2) {
-            // 描画専用の平滑化。物理ノードは保持して輪郭だけギザつきを抑える
-            const smoothPasses = 2;
-            for (let pass = 0; pass < smoothPasses; pass++) {
-                const src = tailNodes.map((p) => ({ x: p.x, y: p.y }));
-                for (let i = 1; i < tailNodes.length - 1; i++) {
-                    const prev = src[i - 1];
-                    const cur = src[i];
-                    const next = src[i + 1];
-                    const curWeight = (i <= 2) ? 0.56 : 0.60;
-                    const sideWeight = (1 - curWeight) * 0.5;
-                    tailNodes[i].x = prev.x * sideWeight + cur.x * curWeight + next.x * sideWeight;
-                    tailNodes[i].y = prev.y * sideWeight + cur.y * curWeight + next.y * sideWeight;
-                }
-            }
-        }
-        const ribbonHalfWidth = 2.0;
-        const leftEdge = [];
-        const rightEdge = [];
-        let prevNx = 0;
-        let prevNy = 1;
-
-        for (let i = 0; i < tailNodes.length; i++) {
-            const prevNode = tailNodes[Math.max(0, i - 1)];
-            const nextNode = tailNodes[Math.min(tailNodes.length - 1, i + 1)];
-            const dx = nextNode.x - prevNode.x;
-            const dy = nextNode.y - prevNode.y;
-            const len = Math.hypot(dx, dy) || 1;
-            let nx = -dy / len;
-            let ny = dx / len;
-            if (i > 0 && nx * prevNx + ny * prevNy < 0) {
-                nx = -nx;
-                ny = -ny;
-            }
-            if (i > 0) {
-                nx = nx * 0.38 + prevNx * 0.62;
-                ny = ny * 0.38 + prevNy * 0.62;
-                const nLen = Math.hypot(nx, ny) || 1;
-                nx /= nLen;
-                ny /= nLen;
-            }
-            prevNx = nx;
-            prevNy = ny;
-
-            const waveSpeed = 0.0052;
-            const wavePhase = i * 0.55;
-            const wave = Math.sin(time * waveSpeed + wavePhase);
-            const tiltAmp = 0.55;
+        /* たなびきの揺れ。中心線を横へずらすだけの描画専用の味付けで、
+           手前の1本にだけ掛ける(2本に同じ位相で掛けると重なって1本に見える)。 */
+        const waveTilt = (i) => {
             const rootDamp = i === 0 ? 0 : (i === 1 ? 0.5 : 1.0);
-            const tiltX = wave * tiltAmp * rootDamp;
-            const centerX = tailNodes[i].x + tiltX;
-            const centerY = tailNodes[i].y;
-            const half = ribbonHalfWidth;
+            return Math.sin(time * 0.0052 + i * 0.55) * 0.55 * rootDamp;
+        };
 
-            leftEdge.push({ x: centerX - nx * half, y: centerY - ny * half });
-            rightEdge.push({ x: centerX + nx * half, y: centerY + ny * half });
-        }
+        /* 奥の2本目のチェーンを進める(または分身なら読むだけ)。 */
+        const farNodes = () => {
+            if (options.renderHeadbandTail2 === false) return null;
+            const root = scarfNodes[0];
+            if (!root || !Number.isFinite(root.x)) return null;
+            /* 分身も本体と同じチェーンを読む(=本体と同じ形)。根元も本体の
+               scarfNodes[0] なので、本体と分身のどちらが先に描かれても同じ値で
+               更新され順番に依存しない(同一フレームの2回目は dt=0 で二重に進まない)。
+               【チェーンを進めるのは本体の描画だけ】—— 分身から更新すると
+               根元が分身側の向き(dir)で上書きされ、本体の帯が分身の動きで揺れる。 */
+            const key = 'hbTail2_main';
+            const prevT = this._hbTail2Time || {};
+            const now = this.motionTime || 0;
+            const dtMs = Number.isFinite(prevT[key]) ? Math.max(0, now - prevT[key]) : 16.7;
+            if (isCloneCopy) return updateRibbonChain(this, key, 0, 0, { readOnly: true });
+            prevT[key] = now;
+            this._hbTail2Time = prevT;
+            /* 2本目は【重く・風を受けにくい】。同じ力で振ると形が揃って
+               1本にしか見えない(実際そうなった)。角度差で分ける。
+               数値は clothChain.js の HEADBAND_TAIL_SPEC.far(雑魚と共有)。 */
+            const far = HEADBAND_TAIL_SPEC.far;
+            return updateRibbonChain(this, key, root.x - dir * 3.0, root.y + 6.2, {
+                count: far.count, seg: far.seg, dir,
+                speedX: this.vx || 0,
+                speedNorm: Math.max(1, this.speed || 1),
+                time: now + far.phaseMs,
+                gravityMul: far.gravityMul,
+                windMul: far.windMul,
+                dtMs
+            });
+        };
 
-        ctx.fillStyle = accentColor;
-        ctx.beginPath();
-        ctx.moveTo(leftEdge[0].x, leftEdge[0].y);
-        for (let i = 1; i < leftEdge.length; i++) {
-            ctx.lineTo(leftEdge[i].x, leftEdge[i].y);
-        }
-        for (let i = rightEdge.length - 1; i >= 0; i--) {
-            ctx.lineTo(rightEdge[i].x, rightEdge[i].y);
-        }
-        ctx.closePath();
-        ctx.fill();
+        /* 【奥 → 手前の順に描く】。手前を先に描くと暗い奥の帯が上に乗って
+           前後が逆に見える(ユーザー指摘 2026-08-16)。雑魚側も同じ順。
+           幅は2本とも一定(絞りなし)。奥だけ絞ると同じ布に見えない。 */
+        const TAIL_SPECS = [
+            {
+                getNodes: farNodes,
+                /* 奥の一本は色を【割合で】落とす。同色のままだと手前に隠れて
+                   「1本のまま」に見える(雑魚の忍も同じ -28%)。 */
+                color: shadeRibbonColor(accentColor, HEADBAND_TAIL_SPEC.farShade),
+                drawOffsetY: HEADBAND_TAIL_SPEC.rootGap,
+                tiltX: null,
+                rootPatch: false
+            },
+            {
+                getNodes: () => scarfNodes,
+                color: accentColor,
+                drawOffsetY: 0,
+                tiltX: waveTilt,
+                // 手前だけ根元に丸を重ねて、頭との接点の切れ目を埋める
+                rootPatch: { x: tailRootX, y: tailRootY + 0.05 }
+            }
+        ];
 
-        // 接点の切れ目対策: 根元に小さな埋めパッチを重ねる
-        ctx.beginPath();
-        ctx.arc(tailRootX, tailRootY + 0.05, ribbonHalfWidth * 0.95, 0, Math.PI * 2);
-        ctx.fill();
+        for (const spec of TAIL_SPECS) {
+            const nodes = spec.getNodes();
+            if (!nodes || nodes.length < 2) continue;
+            const pts = copyClothNodesToRoot(nodes, tailRootX, tailRootY, {
+                flip: copyFlip,
+                shorten: HEADBAND_TAIL_SHORTEN,
+                offsetY: spec.drawOffsetY
+            });
+            drawClothRibbon(ctx, pts, HEADBAND_TAIL_SPEC.halfWidth, spec.color, {
+                tiltX: spec.tiltX,
+                rootPatch: spec.rootPatch
+            });
+        }
     };
 
     PlayerClass.prototype.renderSpecialReadyGlow = function(ctx, options = {}) {
@@ -1112,7 +1129,7 @@ export function applyRendererMixin(PlayerClass) {
             : alpha;
         const forceSubWeaponRender = options.forceSubWeaponRender || (this.currentSubWeapon && this.currentSubWeapon.name === '二刀流');
         const renderSubWeaponVisuals = renderSubWeaponVisualsInput;
-        const accessoryHairNodes = Array.isArray(options.hairNodes) ? options.hairNodes : this.hairNodes;
+        let accessoryHairNodes = Array.isArray(options.hairNodes) ? options.hairNodes : this.hairNodes;
         const accessoryScarfNodes = Array.isArray(options.scarfNodes) ? options.scarfNodes : this.scarfNodes;
         
         // 描画用の基準サイズ（常に標準プレイヤーサイズ 48x72）
@@ -2777,6 +2794,18 @@ export function applyRendererMixin(PlayerClass) {
         const hairBaseY = accessoryRoots.hairRootY;
         if (useLiveAccessories) {
             this.syncAccessoryRootNodes(accessoryScarfNodes, accessoryHairNodes, accessoryRoots);
+        }
+        /* 【分身のポニテも本体の形をコピーする】。鉢巻の帯と同じ方針
+           (指定 2026-08-17)。分身固有のチェーンは風の受け方が本体と違うので、
+           並んで走ると髪の流れだけ揃わない。根元は分身の頭、形は本体。
+           向きが逆の分身は根元を軸に左右反転(copyFlip)。 */
+        {
+            const clone = resolveClothClone(this, options);
+            if (clone.isCloneCopy && Array.isArray(this.hairNodes) && this.hairNodes.length > 1) {
+                accessoryHairNodes = copyClothNodesToRoot(
+                    this.hairNodes, hairBaseX, hairBaseY, { flip: clone.copyFlip }
+                );
+            }
         }
         const sampleHairNode = (index) => {
             if (!accessoryHairNodes || accessoryHairNodes.length === 0) return { x: hairBaseX, y: hairBaseY };
