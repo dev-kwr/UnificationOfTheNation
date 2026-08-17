@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260817z';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260817z';
-import { createEnemy } from './enemy.js?v=screen-safe-20260817z';
-import { createBoss } from './boss.js?v=screen-safe-20260817z';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260817z';
-import { audio } from './audio.js?v=screen-safe-20260817z';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260817z';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260818a';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260818a';
+import { createEnemy } from './enemy.js?v=screen-safe-20260818a';
+import { createBoss } from './boss.js?v=screen-safe-20260818a';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260818a';
+import { audio } from './audio.js?v=screen-safe-20260818a';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260818a';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260817z';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260817z';
+} from './stage6Grapple.js?v=screen-safe-20260818a';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260818a';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260817z';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260818a';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -43,20 +43,21 @@ const STAGE3_DOSOJIN_HEIGHT = 84;
 // 【ボス部屋のフレームを基準に決める】。世界は maxProgress=12000、
 // ボス部屋の framing は 10720(= maxProgress - CANVAS_WIDTH)。
 //
-// 順番: 山脈が尽きる → 城下町が見えてくる → 鳥居をくぐる(足元が土の道へ) →
-//       ボス部屋。鳥居はボス部屋の画面の中に入れて、門の先で対峙する絵にする
+// 順番: 山脈が尽きる → 城下町が見えてくる → 関所の門をくぐる(足元が土の道へ) →
+//       ボス部屋。門はボス部屋の画面の中に入れて、門の先で対峙する絵にする
 //       (指定 2026-08-17)。
 const STAGE3_BOSS_ROOM_LEFT = 12000 - 1280;      // 10720
 
-// 峠の出口の石鳥居。ボス部屋の画面x=80 に立つ位置に据える。
+// 峠の出口の関所の木戸(冠木門)。ボス部屋の画面x=80 に立つ位置に据える。
+// 【ここは鳥居にしない】。マップの小判蔵ノードが同じ形なので紛らわしい(指定 2026-08-17)。
 // (幅198pxなので 10800..10998。プレイヤーの定位置 10989 のすぐ左)
-const STAGE3_PASS_TORII_WORLD_X = STAGE3_BOSS_ROOM_LEFT + 80;
+const STAGE3_PASS_GATE_WORLD_X = STAGE3_BOSS_ROOM_LEFT + 80;
 
 // 足元が「山道の岩場」から「開けた土の道」へ変わる帯。
-// 【鳥居をくぐった先で変わる】。門が境で、その先から里の道になる(指定 2026-08-17)。
+// 【門をくぐった先で変わる】。門が境で、その先から里の道になる(指定 2026-08-17)。
 // 変わり目はボス部屋の中(画面x 320..580)に来るので、ボス部屋では
 // 岩場と土の道の両方が見える(Stage1の竹林の縁と同じ作り)。
-const STAGE3_PLAIN_GROUND_START = (STAGE3_PASS_TORII_WORLD_X + 240) / 12000;   // 11040 ≒0.920
+const STAGE3_PLAIN_GROUND_START = (STAGE3_PASS_GATE_WORLD_X + 240) / 12000;   // 11040 ≒0.920
 const STAGE3_PLAIN_GROUND_BLEND = 260 / 12000;                                 // ≒0.022
 
 // 城下町の層の速さ。遠い山並み(0.14)より手前にあるので少し速い。
@@ -67,16 +68,16 @@ const STAGE3_PLAIN_GROUND_BLEND = 260 / 12000;                                 /
 const STAGE3_TOWN_PARALLAX = 0.26;
 
 // カメラ停止時に山脈の終端が来る画面x(大きいほど山が長く残る)。
-// 380 = 鳥居(画面80..278)の後ろに山の末端が残り、その右(画面410)から
+// 380 = 門(画面80..286)の後ろに山の末端が残り、その右(画面410)から
 // 城下町が始まる。山と町がほぼ接するので、間に荒野が空かない。
 const STAGE3_RANGE_END_STOP_SCREEN_X = 380;
 
 // 道中の山場(中ボス)を出す進行度。半ばを少し過ぎたあたり。
 const MID_BOSS_PROGRESS_RATIO = 0.55;
 
-// 鳥居の前に大岩を出さない幅。鳥居は幅約198pxなので、その手前に岩が
+// 門の前に大岩を出さない幅。門は幅約206pxなので、その手前に岩が
 // 立たない余地(柱に岩が被らない)を含めて空ける。
-const STAGE3_PASS_TORII_ROCK_CLEAR = 260;
+const STAGE3_PASS_GATE_ROCK_CLEAR = 260;
 
 // 道端の添景を、ボス部屋のフレームからどれだけ手前で終えるか。
 // 反復側の「場面」は2つ一組で最大約300px幅なので、それを丸ごと外に出す。
@@ -147,9 +148,9 @@ const STAGE_IMAGE_SOURCES = {
                 signpost: 'images/stage3_prop_signpost.png?v=20260706_front1',
                 woodFence: 'images/stage3_prop_weathered_wood_fence.png?v=20260706_front1',
                 stoneLantern: 'images/stage3_prop_stone_lantern.png?v=20260706_front1',
-                // 峠の出口に立つ石の鳥居(足元に小さな祠)。山道の終わりを告げる
+                // 峠の出口に構える関所の木戸(足元に番小屋)。山道の終わりを告げる
                 // 一基だけの目印なので、反復側の表には入れない。
-                passTorii: 'images/stage3_prop_pass_torii.png?v=20260816_torii1',
+                barrierGate: 'images/stage3_prop_barrier_gate.png?v=20260817_gate1',
                 mountainSign: 'images/stage3_prop_mountain_sign.png?v=20260706_front1',
             },
         },
@@ -3981,13 +3982,13 @@ export class Stage {
             return;
         }
 
-        // Stage 3: 【峠の鳥居から先に大岩を出さない】。鳥居をくぐった時点で
+        // Stage 3: 【峠の門から先に大岩を出さない】。門をくぐった時点で
         // 山岳地帯は抜けていて、足元も土の道に変わっている。そこに落石の岩が
         // 転がっているのは土地が違う(実機フィードバック 2026-08-16)。
-        // 鳥居そのものに岩が被るのも防ぐため、手前も鳥居の幅ぶん空ける。
+        // 門そのものに岩が被るのも防ぐため、手前も門の幅ぶん空ける。
         if (this.stageNumber === 3) {
-            const toriiLeft = STAGE3_PASS_TORII_WORLD_X - STAGE3_PASS_TORII_ROCK_CLEAR;
-            if (x + 440 > toriiLeft) return;
+            const gateLeft = STAGE3_PASS_GATE_WORLD_X - STAGE3_PASS_GATE_ROCK_CLEAR;
+            if (x + 440 > gateLeft) return;
         }
 
         // ボス部屋(最終1画面)には竹槍・大岩などの障害物を置かない。
@@ -5286,7 +5287,7 @@ export class Stage {
         // カメラ停止時に山脈の終端が来る画面x。
         // 【ギリギリまで山を残す】。40(=ほぼ画面外)だと山が尽きてから町が出るまで
         // 何もない荒野が長く続いた(実機フィードバック 2026-08-17)。
-        // 300 にすると、鳥居の後ろに「今抜けてきた山の末端」が低く残り、
+        // 300 にすると、門の後ろに「今抜けてきた山の末端」が低く残り、
         // その右隣(画面410)から城下町が始まる＝山から里へ地続きに繋がる。
         const STOP_SCREEN_X = STAGE3_RANGE_END_STOP_SCREEN_X;
         const bandX = STOP_SCREEN_X + (this.maxProgress - CANVAS_WIDTH) * parallax;
@@ -5386,8 +5387,8 @@ export class Stage {
             { type: 'woodFence', worldX: 7500, height: 82, y: 3, alpha: 1 },
             // 【山道の終わりを告げる一基】。足元が岩場から土の道へ変わる
             // ちょうどその場所(STAGE3_PLAIN_GROUND_START の帯の中)に据える。
-            // 走ると鳥居をくぐった直後に道が開ける。前後は空けて主役にする。
-            { type: 'passTorii', worldX: STAGE3_PASS_TORII_WORLD_X, height: 186, y: 4, alpha: 1, clearance: 560 },
+            // 走ると門をくぐった直後に道が開ける。前後は空けて主役にする。
+            { type: 'barrierGate', worldX: STAGE3_PASS_GATE_WORLD_X, height: 186, y: 4, alpha: 1, clearance: 560 },
             // 里の入口: 灯籠と柵
             { type: 'stoneLantern', worldX: 9860, height: 96, y: 3, alpha: 1 },
             { type: 'woodFence', worldX: 10030, height: 80, y: 3, alpha: 1 }
@@ -5402,7 +5403,7 @@ export class Stage {
         const fallbackAspect = {
             dosojin: 628 / 760,
             mountainSign: 393 / 760,
-            passTorii: 682 / 640,
+            barrierGate: 1194 / 1080,
             signpost: 429 / 760,
             stoneLantern: 348 / 760,
             woodFence: 760 / 418
@@ -5630,7 +5631,7 @@ export class Stage {
             .map((prop) => {
                 const width = prop.height * this.getStage3PropAspect(prop.type);
                 const x = prop.worldX - scroll;
-                // clearance を持つ定点(峠の道標・出口の鳥居)は、単独で立たせたい
+                // clearance を持つ定点(峠の道標・出口の門)は、単独で立たせたい
                 // 目印なので前後を広く空ける
                 const pad = prop.clearance ?? 58;
                 return { left: x - pad, right: x + width + pad, type: prop.type };

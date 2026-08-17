@@ -2,10 +2,10 @@
 // Unification of the Nation - メインエントリーポイント
 // ============================================
 
-import { game } from './game.js?v=screen-safe-20260817z';
-import { preloadCinematicBgImages } from './ui.js?v=screen-safe-20260817z';
-import { getDeviceProfile } from './constants.js?v=screen-safe-20260817z';
-import { startUpdateWatch } from './appUpdate.js?v=screen-safe-20260817z';
+import { game } from './game.js?v=screen-safe-20260818a';
+import { preloadCinematicBgImages } from './ui.js?v=screen-safe-20260818a';
+import { getDeviceProfile } from './constants.js?v=screen-safe-20260818a';
+import { startUpdateWatch } from './appUpdate.js?v=screen-safe-20260818a';
 
 // ============================================
 // 音の設定ゲート
