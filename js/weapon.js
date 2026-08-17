@@ -2,10 +2,10 @@
 // Unification of the Nation - 武器クラス
 // ============================================
 
-import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260818a';
-import { audio } from './audio.js?v=screen-safe-20260818a';
-import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260818a';
-import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260818a';
+import { GRAVITY, CANVAS_WIDTH, LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260818b';
+import { audio } from './audio.js?v=screen-safe-20260818b';
+import { SHOGUN_SCALE } from './shogunConstants.js?v=screen-safe-20260818b';
+import { withDropShadow, drawSparks, drawBlastFlash, makeParticles, smoothstep01, pushTrailPoint, drawCometRibbon } from './weaponFx.js?v=screen-safe-20260818b';
 
 // 武器ジオメトリは「武器を振る主体(owner/player)のワールド寸法」を基準に組み立てる。
 // 将軍は width/height が素体(40x60)なので getWorldWidth/Height(=素体×SHOGUN_SCALE) を読む。
@@ -1405,20 +1405,28 @@ export class Firebomb extends SubWeapon {
         if (!g) return;
 
         const direction = player.facingRight ? 1 : -1;
-        /* 【走り/ダッシュの勢いを乗せる】。乗せないと自分の足のほうが速く、
-           投げた玉が体から出ないまま足元で爆ぜる(実測: ダッシュ 8.7px/frame >
-           玉 8px/frame。玉は生成直後から体の前縁の内側に居続け、着弾は体の中心から
-           14px・爆風半径104＝全身が煙の中。ユーザー指摘「ダッシュ投げすると
-           全部自分に当たる」2026-08-17)。
-           後ろ向きに動いている分は引かない ── 引くと「下がりながら投げると
-           足元に落ちる」が別の形で復活するため、前向きの成分だけを足す。 */
-        const carry = (player.vx || 0) * direction > 0 ? player.vx : 0;
-        let vx = direction * 8 + carry;
+        /* 【玉が自分より遅いときだけ、足の速さに合わせる】。
+           素の初速 8px/frame は走り(6px/frame)より速いので、走投げは何も足さない。
+           ダッシュ(8.7px/frame)だけが玉より速く、玉が体から出ないまま足元で爆ぜる
+           (実測: 玉は生成直後から体の前縁の内側に居続け、着弾は体の中心から14px・
+           爆風半径104＝全身が煙の中。ユーザー指摘「ダッシュ投げすると全部自分に
+           当たる」2026-08-17)。
+           【足の速さをそのまま足してはいけない】。走っているだけで初速が 8→14px/frame
+           になり、放物線が倍近く伸びて目の前の敵に当たらなくなる
+           (ユーザー指摘 2026-08-17。射程の実測 356px → 644px)。
+           足が玉より速いときだけ、追い越されない差を足す。 */
+        const BASE_THROW_VX = 8;
+        const THROW_LEAD_OVER_FEET = 3;   // 爆風半径のぶん前へ出るのに要る差
+        const footSpeed = Math.max(0, (player.vx || 0) * direction);
+        const throwSpeed = footSpeed >= BASE_THROW_VX
+            ? footSpeed + THROW_LEAD_OVER_FEET
+            : BASE_THROW_VX;
+        let vx = direction * throwSpeed;
         let vy = -8;
         let bombY = player.y + 10;
 
         if (player.isCrouching) {
-            vx = direction * 8.5 + carry;
+            vx = direction * Math.max(8.5, throwSpeed);
             vy = -6.2;
             bombY = player.y + ownerWorldHeight(player) - 30;
         }

@@ -2,18 +2,18 @@
 // Unification of the Nation - ボスクラス
 // ============================================
 
-import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260818a';
-import { Enemy } from './enemy.js?v=screen-safe-20260818a';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260818a';
-import { audio } from './audio.js?v=screen-safe-20260818a';
-import { Player } from './player.js?v=screen-safe-20260818a';
-import { applySlashTrailMixin } from './playerSlashTrail.js?v=screen-safe-20260818a';
+import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260818b';
+import { Enemy } from './enemy.js?v=screen-safe-20260818b';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260818b';
+import { audio } from './audio.js?v=screen-safe-20260818b';
+import { Player } from './player.js?v=screen-safe-20260818b';
+import { applySlashTrailMixin } from './playerSlashTrail.js?v=screen-safe-20260818b';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
-} from './normalComboMotion.js?v=screen-safe-20260818a';
+} from './normalComboMotion.js?v=screen-safe-20260818b';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
@@ -22,7 +22,7 @@ import {
     SHOGUN_HEAD_SCALE,
     SHOGUN_HIP_LIFT_PX,
     SHOGUN_SCALE
-} from './shogunConstants.js?v=screen-safe-20260818a';
+} from './shogunConstants.js?v=screen-safe-20260818b';
 import {
     BOSS_DESIGNS,
     renderBossActor,
@@ -34,7 +34,7 @@ import {
     kusarigamaStance,
     drawCarriedKusarigama,
     odachiStance
-} from './bossRenderer.js?v=screen-safe-20260818a';
+} from './bossRenderer.js?v=screen-safe-20260818b';
 
 // weaponReplica の攻撃進行度(0..1)。体の所作を実体のタイムラインへ同期させる。
 function replicaProgress(replica) {
