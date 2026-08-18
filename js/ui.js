@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260818f';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260819a';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260818f';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260819a';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260818f';
-import { audio } from './audio.js?v=screen-safe-20260818f';
-import { saveManager } from './save.js?v=screen-safe-20260818f';
+import { input } from './input.js?v=screen-safe-20260819a';
+import { audio } from './audio.js?v=screen-safe-20260819a';
+import { saveManager } from './save.js?v=screen-safe-20260819a';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';

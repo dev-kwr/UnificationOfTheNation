@@ -1,20 +1,20 @@
 // Unification of the Nation - 描画系 mixin
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260818f';
-import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260818f';
-import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260818f';
-import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260818f';
-import { audio } from './audio.js?v=screen-safe-20260818f';
-import { game } from './game.js?v=screen-safe-20260818f';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260819a';
+import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260819a';
+import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260819a';
+import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260819a';
+import { audio } from './audio.js?v=screen-safe-20260819a';
+import { game } from './game.js?v=screen-safe-20260819a';
 import {
     ANIM_STATE, COMBO_ATTACKS, PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
-} from './playerData.js?v=screen-safe-20260818f';
-import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260818f';
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260818f';
+} from './playerData.js?v=screen-safe-20260819a';
+import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260819a';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260819a';
 import {
     SHOGUN_SCALE,
     SHOGUN_ACTOR_BASE_HEIGHT,
@@ -40,7 +40,7 @@ import {
     NINJA_CROUCH_LIFT_AMP,
     SHOGUN_CROUCH_LIFT_AMP,
     SHOGUN_RUN_STRIDE_CENTER_BIAS
-} from './shogunConstants.js?v=screen-safe-20260818f';
+} from './shogunConstants.js?v=screen-safe-20260819a';
 
 export function applyRendererMixin(PlayerClass) {
     applyShogunRendererMixin(PlayerClass);
@@ -851,12 +851,44 @@ export function applyRendererMixin(PlayerClass) {
         }
     };
 
+    /**
+     * 奥義ゲージが満ちている間の発光。
+     *
+     * 【満ちた瞬間に光を出さない】。以前は gauge>=max になったフレームから
+     * いきなり全開で、しかも脈動の位相が実時計(Date.now()%2000)だったので、
+     * タイミング次第で「一番明るい所からポッと点く」ことがあった
+     * (ユーザー指摘「突然光るのでもっと発動のアニメーションがほしい」2026-08-19)。
+     * 満ちた時刻を起点に、
+     *   1. 外から力が集まる収束リング(0.42秒)
+     *   2. 集まり切った瞬間の芯の閃光(0.5秒で減衰)
+     *   3. 以降は定常の脈動 —— 位相は起点から始まるので必ず暗い所から立ち上がる
+     * の三段で見せる。派手にはせず、素の発光の強さは従来と同じに収める。
+     *
+     * 時刻はプレイヤー自身に持つ(update ではなくここで latch する)。
+     * update は将軍だと combatController へ委譲されて基底を通らないので、
+     * そちらに置くと将軍でだけ再生されない。描画専用の値なのでここで足りる。
+     */
     PlayerClass.prototype.renderSpecialReadyGlow = function(ctx, options = {}) {
         if (options.skipGlow === true) return;
-        if (this.specialGauge < this.maxSpecialGauge || this.isDefeated) return;
+        if (this.specialGauge < this.maxSpecialGauge || this.isDefeated) {
+            this._specialReadyAtMs = 0;   // 次に満ちた時は頭から再生する
+            return;
+        }
+        const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        if (!this._specialReadyAtMs) this._specialReadyAtMs = now;
+        const t = Math.max(0, (now - this._specialReadyAtMs) / 1000);
 
-        const glowProgress = (Date.now() % 2000) / 2000;
-        const glowAlpha = (Math.sin(glowProgress * Math.PI * 2) + 1) / 2;
+        const INTRO_SEC = 0.42;      // 力が外から集まり切るまで
+        const FLASH_SEC = 0.35;      // 集まり切った【後】の芯の減衰
+        const PULSE_SEC = 2.0;       // 定常の脈動の周期(従来と同じ)
+        const ease = (v) => v * v * (3 - 2 * v);
+        const clamp01 = (v) => v < 0 ? 0 : (v > 1 ? 1 : v);
+
+        // 素の発光は収束と一緒に育ち、集まり切った少し後に満ちる。
+        const fadeIn = ease(clamp01(t / (INTRO_SEC + 0.15)));
+        // 定常の脈動。位相は【集まり切った時刻】から始めるので谷から立ち上がる。
+        const pulse = (1 - Math.cos((Math.max(0, t - INTRO_SEC) / PULSE_SEC) * Math.PI * 2)) / 2;
+
         const worldW = typeof this.getWorldWidth === 'function' ? this.getWorldWidth() : this.width;
         const worldH = typeof this.getWorldHeight === 'function' ? this.getWorldHeight() : this.height;
         const centerX = this.x + worldW / 2;
@@ -865,9 +897,39 @@ export function applyRendererMixin(PlayerClass) {
 
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
+
+        // 1. 収束リング。外(2.3倍)から素の半径まで縮む。
+        // 濃さは sin で 0→1→0 ―― 【t=0で0】なので何も無い所から力が湧いて見え、
+        // 集まり切る頃には消えて、次の芯の閃光へ受け渡す。
+        const introT = clamp01(t / INTRO_SEC);
+        if (introT < 1) {
+            const k = ease(introT);
+            const rOuter = radius * (2.3 - 1.3 * k);
+            const rInner = rOuter * 0.62;
+            const ringA = Math.sin(Math.PI * introT) * 0.45;
+            if (ringA > 0.004) {
+                const ring = ctx.createRadialGradient(centerX, centerY, rInner, centerX, centerY, rOuter);
+                ring.addColorStop(0, 'rgba(255, 214, 96, 0)');
+                ring.addColorStop(0.55, `rgba(255, 228, 130, ${ringA.toFixed(3)})`);
+                ring.addColorStop(1, 'rgba(255, 210, 80, 0)');
+                ctx.fillStyle = ring;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, rOuter, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // 2. 集まり切った【瞬間】の芯。ピークは t=INTRO_SEC で、そこから減衰して
+        // 素の発光へ着地する。ここを t=0 に置くと、結局「満ちた瞬間にいきなり
+        // 一番明るい」になって元の不満に戻る(実測で踏んだ: t=0 で芯が+60)。
+        const flashT = clamp01((t - INTRO_SEC) / FLASH_SEC);
+        const core = (t >= INTRO_SEC && flashT < 1) ? Math.pow(1 - flashT, 2) * 0.45 : 0;
+
+        // 3. 定常の発光(強さは従来と同じ。立ち上がりだけ fadeIn を掛ける)
+        const glowAlpha = pulse;
         const grad = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
-        grad.addColorStop(0, `rgba(255, 230, 100, ${0.4 + glowAlpha * 0.3})`);
-        grad.addColorStop(0.5, `rgba(255, 210, 80, ${0.1 + glowAlpha * 0.15})`);
+        grad.addColorStop(0, `rgba(255, 230, 100, ${((0.4 + glowAlpha * 0.3) * fadeIn + core).toFixed(3)})`);
+        grad.addColorStop(0.5, `rgba(255, 210, 80, ${((0.1 + glowAlpha * 0.15) * fadeIn + core * 0.35).toFixed(3)})`);
         grad.addColorStop(1, 'rgba(255, 210, 80, 0)');
 
         ctx.fillStyle = grad;

@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260818f';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260818f';
-import { createEnemy } from './enemy.js?v=screen-safe-20260818f';
-import { createBoss } from './boss.js?v=screen-safe-20260818f';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260818f';
-import { audio } from './audio.js?v=screen-safe-20260818f';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260818f';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260819a';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260819a';
+import { createEnemy } from './enemy.js?v=screen-safe-20260819a';
+import { createBoss } from './boss.js?v=screen-safe-20260819a';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260819a';
+import { audio } from './audio.js?v=screen-safe-20260819a';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260819a';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260818f';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260818f';
+} from './stage6Grapple.js?v=screen-safe-20260819a';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260819a';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260818f';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260819a';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -5522,8 +5522,14 @@ export class Stage {
             // ここに収まらない物を足すと、名乗りでも戦闘でも役者の後ろに重なる。
             // 灯籠を崩れの先(画面288)に置く案は、まさにそこで重なったのでやめた。
             // 前後は空けて、この一組だけを見せる(clearance)。
-            { type: 'ruinedWall', worldX: STAGE3_LANDMARK_WORLD_X, height: 76, y: 3, alpha: 1, clearance: 560 },
-            { type: 'signpost', worldX: STAGE3_LANDMARK_WORLD_X + 12, height: 104, y: 4, alpha: 1 },
+            // 高さ76ではプレイヤー(72)と並んで「ただの石の山」に見えたので、
+            // 高い方が人の背丈を明らかに越える120まで上げた(実機フィードバック 2026-08-19)。
+            // 幅は3.2倍のアスペクトで384になり、崩れた裾が画面x=404まで伸びる。
+            // 裾は足首の高さの散乱石なので、プレイヤーの定位置(269)に掛かっても隠さない。
+            { type: 'ruinedWall', worldX: STAGE3_LANDMARK_WORLD_X, height: 120, y: 3, alpha: 1, clearance: 560 },
+            // 道標は石垣の【崩れかけた中腹】に立てる。高い方(左端)に重ねると
+            // 石垣に埋もれてしまうので、壁が低くなった所で空を背に立たせる。
+            { type: 'signpost', worldX: STAGE3_LANDMARK_WORLD_X + 130, height: 116, y: 4, alpha: 1 },
             // 里の入口: 灯籠と柵
             { type: 'stoneLantern', worldX: 9860, height: 96, y: 3, alpha: 1 },
             { type: 'woodFence', worldX: 10030, height: 80, y: 3, alpha: 1 }
