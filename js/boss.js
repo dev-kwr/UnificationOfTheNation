@@ -2,19 +2,19 @@
 // Unification of the Nation - ボスクラス
 // ============================================
 
-import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260818e';
-import { Enemy } from './enemy.js?v=screen-safe-20260818e';
-import { createSubWeapon, drawFirebombBall, makeFirebombFuseSeed } from './weapon.js?v=screen-safe-20260818e';
-import { audio } from './audio.js?v=screen-safe-20260818e';
-import { applyDualComboMotion } from './dualComboMotion.js?v=screen-safe-20260818e';
-import { Player } from './player.js?v=screen-safe-20260818e';
-import { applySlashTrailMixin } from './playerSlashTrail.js?v=screen-safe-20260818e';
+import { CANVAS_WIDTH, LANE_OFFSET, PLAYER, GRAVITY, GAME_STATE } from './constants.js?v=screen-safe-20260818f';
+import { Enemy } from './enemy.js?v=screen-safe-20260818f';
+import { createSubWeapon, drawFirebombBall, makeFirebombFuseSeed } from './weapon.js?v=screen-safe-20260818f';
+import { audio } from './audio.js?v=screen-safe-20260818f';
+import { applyDualComboMotion } from './dualComboMotion.js?v=screen-safe-20260818f';
+import { Player } from './player.js?v=screen-safe-20260818f';
+import { applySlashTrailMixin } from './playerSlashTrail.js?v=screen-safe-20260818f';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
-} from './normalComboMotion.js?v=screen-safe-20260818e';
+} from './normalComboMotion.js?v=screen-safe-20260818f';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
@@ -23,7 +23,7 @@ import {
     SHOGUN_HEAD_SCALE,
     SHOGUN_HIP_LIFT_PX,
     SHOGUN_SCALE
-} from './shogunConstants.js?v=screen-safe-20260818e';
+} from './shogunConstants.js?v=screen-safe-20260818f';
 import {
     BOSS_DESIGNS,
     renderBossActor,
@@ -35,7 +35,7 @@ import {
     kusarigamaStance,
     drawCarriedKusarigama,
     odachiStance
-} from './bossRenderer.js?v=screen-safe-20260818e';
+} from './bossRenderer.js?v=screen-safe-20260818f';
 
 // weaponReplica の攻撃進行度(0..1)。体の所作を実体のタイムラインへ同期させる。
 function replicaProgress(replica) {

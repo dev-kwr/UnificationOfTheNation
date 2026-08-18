@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260818e';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260818e';
-import { createEnemy } from './enemy.js?v=screen-safe-20260818e';
-import { createBoss } from './boss.js?v=screen-safe-20260818e';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260818e';
-import { audio } from './audio.js?v=screen-safe-20260818e';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260818e';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260818f';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260818f';
+import { createEnemy } from './enemy.js?v=screen-safe-20260818f';
+import { createBoss } from './boss.js?v=screen-safe-20260818f';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260818f';
+import { audio } from './audio.js?v=screen-safe-20260818f';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260818f';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260818e';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260818e';
+} from './stage6Grapple.js?v=screen-safe-20260818f';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260818f';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260818e';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260818f';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -527,9 +527,6 @@ export class Stage {
             height: 0,
             isGrounded: false
         };
-        // ボスの湧きを「プレイヤーの到着」で門番するワールドX(game.js が毎フレーム渡す)。
-        // 自動スクロールのステージだけ有限値になる。null なら門番なし(従来どおり)。
-        this.bossSpawnGateX = null;
         this.bambooFallingLeaves = [];
         this.bambooLeafSpawnTimer = 0;
         // 場(遠景の沈み込み・足元スポット・星の退場)が開くまでの尺。ボスが湧いた瞬間から。
@@ -2961,13 +2958,6 @@ export class Stage {
         if (this.stageNumber === 5) {
             // Stage 5 の場合は最終フロアのみ
             canSpawnBoss = canSpawnBoss && (this.currentFloor >= this.maxFloor);
-        }
-
-        // 到着の門番。自動スクロールでカメラだけ先に着くステージ(Stage3)で、
-        // game.js が「歩行上限のワールドX」を渡してくる。プレイヤーがそこに
-        // 立つまで湧かせない = 他ステージとまったく同じ会敵の姿勢から始める。
-        if (Number.isFinite(this.bossSpawnGateX)) {
-            canSpawnBoss = canSpawnBoss && (this.playerProbe.x >= this.bossSpawnGateX - 1);
         }
 
         if (canSpawnBoss && !this.bossSpawned) {
@@ -7374,6 +7364,7 @@ export class Stage {
 
         if (this.renderGroundImageTile(ctx, this.stage2GroundImage, horizonY, bottomY, renderProgress, {
             filter: 'brightness(0.86) saturate(0.82) contrast(0.92)',
+            mirrorRepeat: true,   // 同じ画像なので Stage3 と同じく継ぎ目が出る
             extraHeight: 34,
             yOffset: -16
         })) {
@@ -7409,6 +7400,14 @@ export class Stage {
 
         if (this.renderGroundImageTile(ctx, this.stage3GroundImage, horizonY, bottomY, renderProgress, {
             filter: 'brightness(0.78) saturate(0.76) contrast(0.92)',
+            // 【一つ置きに反転して敷く】。この地面画像は左右の端が繋がっていないので
+            // (実測: 右端と左端の差の平均26〜29に対し、画像内の隣接列の差は11〜14。
+            //  倍の食い違い)、そのまま並べると繰り返しの周期ごとに【縦線】が出る
+            //  (実測: 土の道は556px周期、ボス部屋では画面x=400に列平均で10.6の段差。
+            //   地面の他の場所の最大は2.6程度なので、そこだけ突出していた。
+            //   ユーザー指摘「地面の切り替わりの接続部に縦線が見える」2026-08-18)。
+            // 反転して敷くと、継ぎ目では必ず同じ列同士が向き合うので段差が消える。
+            mirrorRepeat: true,
             extraHeight: 38,
             yOffset: -18
         })) {
@@ -7483,13 +7482,25 @@ export class Stage {
         // drawImageGraded のキャッシュが効き、フィルタ適用は1回で済む。
         const tileOptions = {
             filter: 'brightness(0.52) saturate(0.62) contrast(1.05)',
+            // 岩場と同じく一つ置きに反転して敷く(繰り返しの継ぎ目の縦線を消す)。
+            // 【下地の岩場と同じ設定にすること】。片方だけ反転すると、
+            // クロスフェードの帯で二枚の継ぎ目の位置が食い違って別の線が出る。
+            mirrorRepeat: true,
             extraHeight: 38,
             yOffset: -18
         };
 
+        /* 【短冊の境目はデバイス画素へ吸着させる】。
+           clip の矩形が論理座標の端数で切れると、実機の端数スケール(0.36〜0.44倍)では
+           境目のデバイス画素が両側から部分被覆になり、そこだけ二重に描かれたり
+           逆に下地の岩場が透けたりして【縦線】が出る(遠景の山で踏んだのと同じ罠。
+           ユーザー指摘 2026-08-18)。吸着すると隣の短冊と過不足なく突き合う。 */
+        const snap = (lx) => this.snapToDevicePixel(ctx, lx);
+
         // 完全領域(境界の先)
-        if (sx1 < CANVAS_WIDTH) {
-            const left = Math.max(0, sx1);
+        const sx1Snapped = snap(sx1);
+        if (sx1Snapped < CANVAS_WIDTH) {
+            const left = Math.max(0, sx1Snapped);
             ctx.save();
             ctx.beginPath();
             ctx.rect(left, horizonY, CANVAS_WIDTH - left, groundH);
@@ -7503,14 +7514,19 @@ export class Stage {
         const strips = 24;
         const stripW = blendW / strips;
         const baseAlpha = ctx.globalAlpha;
+        // 右端は完全領域の左端と同じ値を使う(別々に丸めると1画素ずれて隙間になる)
+        let edge = snap(sx0);
         for (let i = 0; i < strips; i++) {
-            const bx0 = sx0 + stripW * i;
-            const bx1 = bx0 + stripW;
-            if (bx1 <= 0 || bx0 >= CANVAS_WIDTH) continue;
+            const bx0 = edge;
+            const bx1 = (i === strips - 1) ? sx1Snapped : snap(sx0 + stripW * (i + 1));
+            edge = bx1;
+            if (bx1 <= 0 || bx0 >= CANVAS_WIDTH || bx1 <= bx0) continue;
             const left = Math.max(0, bx0);
+            const right = Math.min(CANVAS_WIDTH, bx1);
+            if (right <= left) continue;
             ctx.save();
             ctx.beginPath();
-            ctx.rect(left, horizonY, Math.min(CANVAS_WIDTH, bx1) - left, groundH);
+            ctx.rect(left, horizonY, right - left, groundH);
             ctx.clip();
             this.renderGroundImageTile(ctx, plain, horizonY, bottomY, renderProgress, {
                 ...tileOptions,

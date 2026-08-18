@@ -2,17 +2,17 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GRAVITY, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260818e';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260818e';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260818e';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260818e';
-import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260818e';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260818e';
-import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260818e';
-import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260818e';
-import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260818e';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260818e';
-import { input } from './input.js?v=screen-safe-20260818e';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GRAVITY, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260818f';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260818f';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260818f';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260818f';
+import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260818f';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260818f';
+import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260818f';
+import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260818f';
+import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260818f';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260818f';
+import { input } from './input.js?v=screen-safe-20260818f';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -56,23 +56,31 @@ const STAGE6_BACKSTEP_MIN_PX = 24;      // これ未満の詰まりなら跳ば�
 const STAGE6_BACKSTEP_MAX_PX = 340;     // 保険(異常な間合いで吹っ飛ばない)
 const STAGE6_BACKSTEP_COMBO_STEP = 3;   // 将軍の降下連撃の何段目で跳ぶか
 const STAGE6_BACKSTEP_VX_MAX = 15;      // 追従補正で出しうる水平速度の上限
+// 会敵の駆け寄りで代行キーを離す位置(名乗りの定位置の手前・可視ワールドpx)。
+// 離した後の1歩(走り6px/frame)ぶんは行き過ぎるので、行き過ぎたぶんだけ定位置へ
+// 収める。8px手前で離すと惰性が足りず264で止まった(定位置269に対して5px手前)ので、
+// 2px手前まで走らせて、越えたぶんを詰める形にした。
+const BOSS_DUEL_APPROACH_STOP_PX = 2;
+// 駆け寄りを離した後、行き過ぎを収めてよい上限(走り1歩=6pxぶんの余裕)。
+// これを超える差は「元から右にいた」ので跳び退がりに任せる。
+const BOSS_DUEL_APPROACH_SETTLE_PX = 12;
 /* 3段目から降下連撃が振り切れるまでに将軍が【まだ踏み込んでくる】量(実測259px)。
    3段目で跳ぶ時点の間合いは 711px あり、そのまま測ると「もう充分開いている」と
    判断してしまう。跳び先はこのぶん先読みして決める。
    連撃の踏み込み量を変えたらここも測り直す(実測手順は memory 参照)。 */
 const STAGE6_ENTRANCE_ADVANCE_PX = 259;
-import { Player } from './player.js?v=screen-safe-20260818e';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260818e';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260818e';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260818e';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseButtons, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260818e';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260818e';
-import { saveManager } from './save.js?v=screen-safe-20260818e';
-import { shop } from './shop.js?v=screen-safe-20260818e';
-import { audio } from './audio.js?v=screen-safe-20260818e';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260818e';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260818e';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260818e';
+import { Player } from './player.js?v=screen-safe-20260818f';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260818f';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260818f';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260818f';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseButtons, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260818f';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260818f';
+import { saveManager } from './save.js?v=screen-safe-20260818f';
+import { shop } from './shop.js?v=screen-safe-20260818f';
+import { audio } from './audio.js?v=screen-safe-20260818f';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260818f';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260818f';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260818f';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -282,6 +290,7 @@ class Game {
         this.stage6DuelLeadPx = STAGE6_DUEL_CAMERA_LEAD_PX;       // 先行量の現在値(px)
         this.duelBackstepDone = false;                     // 会敵の間合い取り(1回だけ)
         this.duelBackstepFrames = 0;                       // 跳び退がりの残り滞空フレーム
+        this.duelApproachActive = false;                   // 会敵の駆け寄りで代行キーを押しているか
         this.duelBackstepBossX0 = null;                            // 踏み切り時の将軍X(先読みの基準)
         this.stage6DuelLeadTargetPx = STAGE6_DUEL_CAMERA_LEAD_PX; // 同 目標値
         this.stage6DuelLeadVel = 0;                               // 同 速度(臨界減衰)
@@ -1248,7 +1257,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260818e').then(module => {
+        import('./weapon.js?v=screen-safe-20260818f').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -2748,6 +2757,63 @@ class Game {
      * 滞空フレームで必要量を割れば着地位置がそのまま間合いになる。
      * 跳んでいる間も毎フレーム着地点を解き直すので、相手が詰めてきてもズレない。
      */
+    /**
+     * 【会敵の間合い取り・その1: 足りない分は駆け寄る】。
+     *
+     * 跳び退がり(updateBossDuelSpacing)は「後ろへ下がる」動作なので、会敵の瞬間に
+     * プレイヤーが定位置より【左】にいると発火しない。Stage3は自動スクロールで
+     * カメラだけ先にボス部屋へ着くので、歩かずに運ばれると画面左端に貼り付いたまま
+     * 会敵していた(実測: そのままだとスパン963px・左右差269px)。
+     *
+     * 以前はボスの湧きをプレイヤーの到着で門番して回避していたが、
+     * 「自動スクロールのままボスへ突入したい。どこにいても名乗りの定位置へ
+     * 移動する演出にしたい」というユーザー指定(2026-08-18)で作り直した。
+     *
+     * 【押し戻さない】。位置を代入して寄せるのは3回差し戻された作法なので、
+     * Stage6の会敵歩行と同じく【代行キーで走らせる】。本人が走って間合いへ入る。
+     */
+    updateBossDuelApproach() {
+        const s = this.stage;
+        const p = this.player;
+        const release = () => {
+            if (this.duelApproachActive) {
+                input.releaseAction('RIGHT', 'bossDuelApproach');
+                this.duelApproachActive = false;
+            }
+        };
+        if (!s || !p || p.hp <= 0) { release(); return; }
+        // Stage6の最上層は専用の会敵歩行があるので対象外
+        if (this.currentStageNumber === 6) { release(); return; }
+        if (!s.bossIntroPhase || !this.isBossNameStandHoldActive()) { release(); return; }
+        // 跳び退がりの滞空中は放物線を邪魔しない
+        if (this.duelBackstepFrames > 0) { release(); return; }
+
+        const stand = this.getBossNameStandLimitX();
+        if (!Number.isFinite(stand)) { release(); return; }
+
+        if (p.x < stand - BOSS_DUEL_APPROACH_STOP_PX) {
+            this.duelApproachActive = true;
+            input.pressAction('RIGHT', 'bossDuelApproach');
+            p.facingRight = true;
+            // 駆け寄っている間は抜刀させない(対峙までが一続きの演出)
+            p.attackInputLockTimer = Math.max(p.attackInputLockTimer || 0, 90);
+        } else if (this.duelApproachActive) {
+            /* 走り切った直後の1歩ぶんだけ収める。
+               【この収めを「定位置より右にいる人」全員へ掛けてはいけない】。
+               定位置の右から会敵した場合(普通に歩いて着いた場合)まで拾ってしまい、
+               画面x=640 から 269 へ瞬間移動する ―― 3回差し戻された押し戻しそのもの
+               になる(実測で踏んだ)。そこは跳び退がりの担当。 */
+            release();
+            const over = p.x - stand;
+            if (over > 0 && over <= BOSS_DUEL_APPROACH_SETTLE_PX && p.isGrounded) {
+                p.x = stand;
+                if (p.vx > 0) p.vx = 0;
+            }
+        } else {
+            release();
+        }
+    }
+
     updateBossDuelSpacing() {
         const s = this.stage;
         const p = this.player;
@@ -3266,6 +3332,7 @@ class Game {
             : activeObstacles;
         // 最上層の会敵歩行(自動操作)。入力を読む前に代行キーを押す。
         this.updateStage6ArenaApproach();
+        this.updateBossDuelApproach();
         this.updateBossDuelSpacing();
         this.updateStage6CameraLead();
         // 【ボスの登場〜名乗りの間はプレイヤーも足を止める】。攻撃は attackInputLockTimer が
@@ -3274,9 +3341,14 @@ class Game {
         // Stage6の会敵歩行(自動操作)は bossSpawned と同時に歩きを止める設計
         // (updateStage6ArenaApproach の shouldWalk=!bossSpawned)なので、この窓と重ならない。
         // 毎フレーム上書き式なのでフェーズを抜けた瞬間に自然解除される(入力の押し直しも不要)。
+        // 【駆け寄っている間だけは掛けない】。この窓のロックは handleInput を丸ごと
+        // 止めるので、updateBossDuelApproach が押した代行キーまで殺してしまう
+        // (実測: 代行キーは押せているのにプレイヤーが1pxも動かず、画面左端のまま
+        //  会敵していた)。抜刀は駆け寄り側が attackInputLockTimer で封じている。
         const introPlayerLock = !!(this.stage
             && typeof this.stage.isBossIntroBeforeCall === 'function'
-            && this.stage.isBossIntroBeforeCall());
+            && this.stage.isBossIntroBeforeCall())
+            && !this.duelApproachActive;
         if (introPlayerLock && this.player) {
             this.player.introControlLockTimer = Math.max(this.player.introControlLockTimer || 0, 90);
         }
@@ -3480,16 +3552,6 @@ class Game {
                 this.stage.startCornerTransition();
             }
         }
-
-        // 【Stage3だけ】ボスの湧きをプレイヤーの到着で門番する。
-        // 他ステージのカメラはプレイヤー追従なので、カメラがボス部屋の画角へ届いた
-        // 時点でプレイヤーは必ず歩行上限に立っている。Stage3は自動スクロールなので
-        // カメラだけ先に着いてしまい、歩かずに運ばれると画面左端に貼り付いたまま
-        // 会敵する。跳び退がりは「後ろへ下がる」ものなので、既に定位置より左に
-        // いると発火せず(need<24)、名乗りの構図がそのまま崩れる
-        // (実測: 左端で会敵するとスパン963px・左右差269px。歩いて着けば694px/差0)。
-        this.stage.bossSpawnGateX = (this.currentStageNumber === 3)
-            ? this.getBossRoomWalkLimitX() : null;
 
         // ステージ更新
         this.stage.update(this.deltaTime, this.player);
