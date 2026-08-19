@@ -1,20 +1,20 @@
 // Unification of the Nation - 描画系 mixin
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260819c';
-import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260819c';
-import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260819c';
-import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260819c';
-import { audio } from './audio.js?v=screen-safe-20260819c';
-import { game } from './game.js?v=screen-safe-20260819c';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260819d';
+import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260819d';
+import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260819d';
+import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260819d';
+import { audio } from './audio.js?v=screen-safe-20260819d';
+import { game } from './game.js?v=screen-safe-20260819d';
 import {
     ANIM_STATE, COMBO_ATTACKS, PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
-} from './playerData.js?v=screen-safe-20260819c';
-import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260819c';
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260819c';
+} from './playerData.js?v=screen-safe-20260819d';
+import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260819d';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260819d';
 import {
     SHOGUN_SCALE,
     SHOGUN_ACTOR_BASE_HEIGHT,
@@ -40,7 +40,7 @@ import {
     NINJA_CROUCH_LIFT_AMP,
     SHOGUN_CROUCH_LIFT_AMP,
     SHOGUN_RUN_STRIDE_CENTER_BIAS
-} from './shogunConstants.js?v=screen-safe-20260819c';
+} from './shogunConstants.js?v=screen-safe-20260819d';
 
 export function applyRendererMixin(PlayerClass) {
     applyShogunRendererMixin(PlayerClass);
@@ -868,6 +868,57 @@ export function applyRendererMixin(PlayerClass) {
      * update は将軍だと combatController へ委譲されて基底を通らないので、
      * そちらに置くと将軍でだけ再生されない。描画専用の値なのでここで足りる。
      */
+    /**
+     * 奥義MAXのオーラを【体の形】で出すための下ごしらえ。
+     * プレイヤーを小さなキャンバスへ一度だけ描き、source-in で単色に潰して
+     * シルエットを作る。丸いグラデーションを重ねるより体の輪郭に沿うので、
+     * 「円が描いてある」ようには見えない(ユーザー提案 2026-08-19)。
+     *
+     * 【重い作りにしない】。本体の描画は1回だけ増やし、あとは出来た小さな
+     * キャンバスを数回貼るだけにする。blur フィルタは使わない ――
+     * 毎フレームの ctx.filter は低スペック端末の処理落ちの主因だった。
+     * 外側へ広がる感じは、中心から少しずつ拡大して薄く重ねることで出す。
+     */
+    PlayerClass.prototype._buildSpecialAuraSilhouette = function(ctx, options) {
+        const worldW = typeof this.getWorldWidth === 'function' ? this.getWorldWidth() : this.width;
+        const worldH = typeof this.getWorldHeight === 'function' ? this.getWorldHeight() : this.height;
+        // 刀と布がはみ出すので、体の周りに広めの余白を取る
+        const padX = worldW * 1.6;
+        const padY = worldH * 0.7;
+        const x0 = this.x - padX;
+        const y0 = this.y - padY;
+        const w = worldW + padX * 2;
+        const h = worldH + padY * 2;
+
+        const tf = ctx.getTransform ? ctx.getTransform() : null;
+        const sx = tf && Math.abs(tf.a) > 1e-6 ? Math.abs(tf.a) : 1;
+        const sy = tf && Math.abs(tf.d) > 1e-6 ? Math.abs(tf.d) : 1;
+        const cw = Math.max(1, Math.ceil(w * sx));
+        const ch = Math.max(1, Math.ceil(h * sy));
+        if (cw > 900 || ch > 900) return null;   // 想定外に大きい時は諦める(将軍の巨躯など)
+
+        let buf = this._auraBuf;
+        if (!buf) buf = this._auraBuf = document.createElement('canvas');
+        if (buf.width !== cw || buf.height !== ch) { buf.width = cw; buf.height = ch; }
+        const b = buf.getContext('2d');
+        b.setTransform(1, 0, 0, 1, 0, 0);
+        b.clearRect(0, 0, cw, ch);
+        b.setTransform(sx, 0, 0, sy, -x0 * sx, -y0 * sy);
+        try {
+            // skipGlow で自分自身を呼ばない(再帰防止)
+            this.render(b, { ...options, skipGlow: true, skipSpecialRender: true });
+        } catch {
+            return null;
+        }
+        // 形だけ残して単色へ潰す
+        b.setTransform(1, 0, 0, 1, 0, 0);
+        b.globalCompositeOperation = 'source-in';
+        b.fillStyle = 'rgb(255, 226, 130)';
+        b.fillRect(0, 0, cw, ch);
+        b.globalCompositeOperation = 'source-over';
+        return { buf, x0, y0, w, h, cw, ch };
+    };
+
     PlayerClass.prototype.renderSpecialReadyGlow = function(ctx, options = {}) {
         if (options.skipGlow === true) return;
         if (this.specialGauge < this.maxSpecialGauge || this.isDefeated) {
@@ -934,23 +985,55 @@ export function applyRendererMixin(PlayerClass) {
         // 2.0秒と3.1秒(互いに割り切れない)を重ねると、ゆらぎに周期の癖が出ない
         // (星の瞬きで使っているのと同じ手)。
         const glowAlpha = pulse;
-        // 縁の呼吸は【別の輪を描かず、このグラデーションの止め位置を動かして】出す。
-        // 細い線を1本引く実装にしたら「はっきりした円が描いてある」ように見えた
-        // (ユーザー指摘 2026-08-19)。光は輪郭を持たないので、中間の止めを
-        // 内外に動かして光の広がりごと膨らませる。描画命令は増えない。
-        const rimPulse = 1 - glowAlpha;                 // 本体とは逆位相
-        const midStop = 0.40 + rimPulse * 0.18;         // 0.40〜0.58 を行き来する
-        const rimA = (0.05 + rimPulse * 0.07) * fadeIn; // 外周のほのかな残り
-        const grad = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
-        grad.addColorStop(0, `rgba(255, 230, 100, ${((0.4 + glowAlpha * 0.3) * fadeIn + core).toFixed(3)})`);
-        grad.addColorStop(midStop, `rgba(255, 210, 80, ${((0.1 + glowAlpha * 0.15) * fadeIn + core * 0.35).toFixed(3)})`);
-        grad.addColorStop(0.86, `rgba(255, 216, 96, ${rimA.toFixed(3)})`);
-        grad.addColorStop(1, 'rgba(255, 210, 80, 0)');
+        /* 3a. 【体の形のオーラ】。丸いグラデーションを主役にすると、どう調整しても
+           「円が描いてある」ように見えた(ユーザー指摘 2026-08-19)。
+           シルエットを作って中心から少しずつ拡大しながら薄く重ね、輪郭に沿った
+           にじみにする。貼るのは3枚だけ。 */
+        /* 【落ちている端末ではやらない】。シルエットは本体の描画を1回増やすので、
+           一番効くのが実測で +0.74ms(60fpsの予算16.7msの4%)。普段は許せる量だが、
+           既にフレーム落ちを検知して解像度を落とした端末では素直に諦めて、
+           下の地明かりだけにする(game._dprDowngraded は低スペック検知が立てる
+           セッション内不可逆のフラグ)。 */
+        const lowSpec = !!(game && game._dprDowngraded);
+        const sil = lowSpec ? null : this._buildSpecialAuraSilhouette(ctx, options);
+        if (sil) {
+            const cxm = sil.x0 + sil.w / 2;
+            const cym = sil.y0 + sil.h / 2;
+            const spread = 1 + glowAlpha * 0.5;   // 明滅で広がりも呼吸する
+            // 拡大率は【余白ごと】掛かるので、体の縁がどれだけ外へ出るかは
+            // 中心からの距離×(k-1) になる。体の縁は中心から約40pxなので、
+            // 0.05/0.12/0.22 でおよそ 2/5/9px のにじみ。
+            const layers = [
+                { k: 1.00 + 0.050 * spread, a: (0.38 + glowAlpha * 0.22) * fadeIn + core * 0.9 },
+                { k: 1.00 + 0.120 * spread, a: (0.20 + glowAlpha * 0.15) * fadeIn + core * 0.6 },
+                { k: 1.00 + 0.220 * spread, a: (0.10 + glowAlpha * 0.08) * fadeIn + core * 0.35 }
+            ];
+            for (const L of layers) {
+                if (L.a <= 0.004) continue;
+                const dw = sil.w * L.k, dh = sil.h * L.k;
+                ctx.globalAlpha = Math.min(1, L.a);
+                ctx.drawImage(sil.buf, 0, 0, sil.cw, sil.ch,
+                    cxm - dw / 2, cym - dh / 2, dw, dh);
+            }
+            ctx.globalAlpha = 1;
+        }
 
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-        ctx.fill();
+        /* 3b. 地明かり。体の周りをほんのり持ち上げるだけの薄い放射。
+           シルエットが主役なので、以前の半分以下まで落とす。 */
+        // シルエットを出せなかったときは、以前の円形と同じ強さまで戻して主役にする。
+        const ambBase = sil ? 0.12 : 0.34;
+        const ambSwing = sil ? 0.10 : 0.26;
+        const ambA = (ambBase + glowAlpha * ambSwing) * fadeIn + core * (sil ? 0.35 : 0.9);
+        if (ambA > 0.004) {
+            const grad = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius * 1.15);
+            grad.addColorStop(0, `rgba(255, 226, 120, ${ambA.toFixed(3)})`);
+            grad.addColorStop(0.55, `rgba(255, 210, 80, ${(ambA * 0.42).toFixed(3)})`);
+            grad.addColorStop(1, 'rgba(255, 210, 80, 0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius * 1.15, 0, Math.PI * 2);
+            ctx.fill();
+        }
 
         /* 4. 待機の上乗せ。【グラデーションは増やさない】——放射グラデの生成が
            この演出で一番重いので、追加分は小さな塗りだけで作る(火の粉6個)。
