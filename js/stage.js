@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260819b';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260819b';
-import { createEnemy } from './enemy.js?v=screen-safe-20260819b';
-import { createBoss } from './boss.js?v=screen-safe-20260819b';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260819b';
-import { audio } from './audio.js?v=screen-safe-20260819b';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260819b';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260819c';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260819c';
+import { createEnemy } from './enemy.js?v=screen-safe-20260819c';
+import { createBoss } from './boss.js?v=screen-safe-20260819c';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260819c';
+import { audio } from './audio.js?v=screen-safe-20260819c';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260819c';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260819b';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260819b';
+} from './stage6Grapple.js?v=screen-safe-20260819c';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260819c';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260819b';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260819c';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -5522,14 +5522,14 @@ export class Stage {
             // ここに収まらない物を足すと、名乗りでも戦闘でも役者の後ろに重なる。
             // 灯籠を崩れの先(画面288)に置く案は、まさにそこで重なったのでやめた。
             // 前後は空けて、この一組だけを見せる(clearance)。
-            // 高さ76ではプレイヤー(72)と並んで「ただの石の山」に見えたので、
-            // 高い方が人の背丈を明らかに越える120まで上げた(実機フィードバック 2026-08-19)。
-            // 幅は3.2倍のアスペクトで384になり、崩れた裾が画面x=404まで伸びる。
-            // 裾は足首の高さの散乱石なので、プレイヤーの定位置(269)に掛かっても隠さない。
-            { type: 'ruinedWall', worldX: STAGE3_LANDMARK_WORLD_X, height: 120, y: 3, alpha: 1, clearance: 560 },
+            // 76→120→160と上げた。120でも「まだ小さい」ので、人(72)の2.2倍まで
+            // 引き上げた(実機フィードバック 2026-08-19)。幅は3.2倍のアスペクトで512、
+            // 崩れた裾は画面x=532まで伸びる。裾は足首の高さの散乱石なので、
+            // プレイヤーの定位置(269)に掛かっても役者を隠さない。
+            { type: 'ruinedWall', worldX: STAGE3_LANDMARK_WORLD_X, height: 160, y: 3, alpha: 1, clearance: 560 },
             // 道標は石垣の【崩れかけた中腹】に立てる。高い方(左端)に重ねると
             // 石垣に埋もれてしまうので、壁が低くなった所で空を背に立たせる。
-            { type: 'signpost', worldX: STAGE3_LANDMARK_WORLD_X + 130, height: 116, y: 4, alpha: 1 },
+            { type: 'signpost', worldX: STAGE3_LANDMARK_WORLD_X + 178, height: 150, y: 4, alpha: 1 },
             // 里の入口: 灯籠と柵
             { type: 'stoneLantern', worldX: 9860, height: 96, y: 3, alpha: 1 },
             { type: 'woodFence', worldX: 10030, height: 80, y: 3, alpha: 1 }
@@ -6847,16 +6847,34 @@ export class Stage {
         ctx.clip();
         ctx.globalAlpha *= options.alpha ?? 1;
         if (options.filter) ctx.filter = options.filter;
+        /* 【半透明で敷くときはタイルを重ねない】。
+           通常は隣のタイルと2px重ねて、端数スケールでの髪の毛のような隙間を防いでいる。
+           ところが alpha<1 で敷くと、その2pxだけ二重に乗って濃くなり【縦線】になる
+           (地面のクロスフェード帯で発生。実測: 帯の中のタイル継ぎ目で18.8の段差。
+            同じ継ぎ目でも不透明な帯の外では検出されない。ユーザー指摘
+            「地面のつなぎ目の縦線が消えていない」2026-08-19)。
+           重ねない代わりに、タイルの左端をデバイス画素へ吸着させて隙間を防ぐ。 */
+        const semi = (options.alpha ?? 1) < 1;
         let tileIndex = firstTileIndex;
+        // 半透明のときは【隣のタイルの左端】を自分の右端にする。
+        // 幅を drawW 固定にすると端数が積もって隙間(暗い線)になり、
+        // +2 して重ねると二重に乗って濃い線になる ―― どちらも縦線として見える
+        // (実測: 重ねると +18.8、隙間だと -13.7)。境目を1つの値で共有すれば
+        // 過不足なく接する。1タイルあたりの幅の揺れは1px未満で絵には出ない。
+        let edge = semi ? this.snapToDevicePixel(ctx, startX) : startX;
         for (let x = startX; x < CANVAS_WIDTH + drawW; x += drawW, tileIndex++) {
+            const tx = semi ? edge : x;
+            const nextEdge = semi ? this.snapToDevicePixel(ctx, x + drawW) : 0;
+            const tw = semi ? Math.max(1, nextEdge - edge) : drawW + 2;
+            if (semi) edge = nextEdge;
             if (options.mirrorRepeat && Math.abs(tileIndex) % 2 !== 0) {
                 ctx.save();
-                ctx.translate(x + drawW + 2, y);
+                ctx.translate(tx + tw, y);
                 ctx.scale(-1, 1);
-                drawImageGraded(ctx, image, 0, 0, drawW + 2, drawH);
+                drawImageGraded(ctx, image, 0, 0, tw, drawH);
                 ctx.restore();
             } else {
-                drawImageGraded(ctx, image, x, y, drawW + 2, drawH);
+                drawImageGraded(ctx, image, tx, y, tw, drawH);
             }
         }
         ctx.filter = 'none';
@@ -7496,51 +7514,58 @@ export class Stage {
             yOffset: -18
         };
 
-        /* 【短冊の境目はデバイス画素へ吸着させる】。
-           clip の矩形が論理座標の端数で切れると、実機の端数スケール(0.36〜0.44倍)では
-           境目のデバイス画素が両側から部分被覆になり、そこだけ二重に描かれたり
-           逆に下地の岩場が透けたりして【縦線】が出る(遠景の山で踏んだのと同じ罠。
-           ユーザー指摘 2026-08-18)。吸着すると隣の短冊と過不足なく突き合う。 */
-        const snap = (lx) => this.snapToDevicePixel(ctx, lx);
+        /* 【短冊を並べて濃さを変える方式はやめた】。
+           帯を24枚の短冊に切って各々 alpha を変えて敷いていたが、半透明で敷くと
+           ・隣と2px重ねれば二重に乗って明るい線(実測 +18.8)
+           ・重ねるのをやめれば端数が積もって暗い線(実測 -13.7)
+           となり、どちらにしても縦線が残った(帯の左端から常に同じ距離に出る。
+           ユーザー指摘 2026-08-18〜19)。
+           一度きり不透明で敷いてから、左端だけを destination-out のグラデーションで
+           削り取る。継ぎ目という概念が無くなるので原理的に線が出ない。
+           作業用キャンバスは使い回す(毎フレームの確保を避ける)。 */
+        const left = Math.max(0, Math.floor(sx0));
+        const right = CANVAS_WIDTH;
+        if (right <= left) return;
 
-        // 完全領域(境界の先)
-        const sx1Snapped = snap(sx1);
-        if (sx1Snapped < CANVAS_WIDTH) {
-            const left = Math.max(0, sx1Snapped);
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect(left, horizonY, CANVAS_WIDTH - left, groundH);
-            ctx.clip();
-            this.renderGroundImageTile(ctx, plain, horizonY, bottomY, renderProgress, tileOptions);
-            ctx.restore();
-        }
+        const tf = ctx.getTransform ? ctx.getTransform() : null;
+        const scaleX = tf && Math.abs(tf.a) > 1e-6 ? Math.abs(tf.a) : 1;
+        const scaleY = tf && Math.abs(tf.d) > 1e-6 ? Math.abs(tf.d) : 1;
+        const bandTop = horizonY;
+        const bandH = Math.max(1, bottomY - bandTop);
+        const cw = Math.ceil((right - left) * scaleX);
+        const ch = Math.ceil(bandH * scaleY);
 
-        // フェード帯。画面に掛かっている短冊だけ描く(1枚あたりタイル1〜2枚)。
-        if (sx1 <= 0 || sx0 >= CANVAS_WIDTH) return;
-        const strips = 24;
-        const stripW = blendW / strips;
-        const baseAlpha = ctx.globalAlpha;
-        // 右端は完全領域の左端と同じ値を使う(別々に丸めると1画素ずれて隙間になる)
-        let edge = snap(sx0);
-        for (let i = 0; i < strips; i++) {
-            const bx0 = edge;
-            const bx1 = (i === strips - 1) ? sx1Snapped : snap(sx0 + stripW * (i + 1));
-            edge = bx1;
-            if (bx1 <= 0 || bx0 >= CANVAS_WIDTH || bx1 <= bx0) continue;
-            const left = Math.max(0, bx0);
-            const right = Math.min(CANVAS_WIDTH, bx1);
-            if (right <= left) continue;
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect(left, horizonY, right - left, groundH);
-            ctx.clip();
-            this.renderGroundImageTile(ctx, plain, horizonY, bottomY, renderProgress, {
-                ...tileOptions,
-                alpha: this.smoothstep(0, 1, (i + 0.5) / strips)
-            });
-            ctx.restore();
+        let buf = this._plainFadeBuf;
+        if (!buf) buf = this._plainFadeBuf = document.createElement('canvas');
+        if (buf.width !== cw || buf.height !== ch) { buf.width = cw; buf.height = ch; }
+        const bctx = buf.getContext('2d');
+        bctx.setTransform(1, 0, 0, 1, 0, 0);
+        bctx.clearRect(0, 0, cw, ch);
+        // 画面と同じ拡大率で、帯の左端が原点に来るように置く
+        bctx.setTransform(scaleX, 0, 0, scaleY, -left * scaleX, -bandTop * scaleY);
+        this.renderGroundImageTile(bctx, plain, horizonY, bottomY, renderProgress, tileOptions);
+
+        // 左端だけを削る。sx1 から先は削らないので完全な土の道になる。
+        bctx.setTransform(1, 0, 0, 1, 0, 0);
+        bctx.globalCompositeOperation = 'destination-out';
+        const gx0 = (sx0 - left) * scaleX;
+        const gx1 = (sx1 - left) * scaleX;
+        if (gx1 > gx0) {
+            const mask = bctx.createLinearGradient(gx0, 0, gx1, 0);
+            mask.addColorStop(0, 'rgba(0,0,0,1)');
+            mask.addColorStop(0.5, 'rgba(0,0,0,0.5)');
+            mask.addColorStop(1, 'rgba(0,0,0,0)');
+            bctx.fillStyle = mask;
+            bctx.fillRect(0, 0, Math.ceil(gx1) + 1, ch);
         }
-        ctx.globalAlpha = baseAlpha;
+        // 帯より左は土の道を出さない
+        if (gx0 > 0) { bctx.fillStyle = 'rgba(0,0,0,1)'; bctx.fillRect(0, 0, Math.ceil(gx0), ch); }
+        bctx.globalCompositeOperation = 'source-over';
+
+        ctx.save();
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(buf, 0, 0, cw, ch, left, bandTop, right - left, bandH);
+        ctx.restore();
     }
 
     renderGroundTown(ctx, renderProgress, darken) {

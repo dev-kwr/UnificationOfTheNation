@@ -1,20 +1,20 @@
 // Unification of the Nation - 描画系 mixin
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260819b';
-import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260819b';
-import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260819b';
-import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260819b';
-import { audio } from './audio.js?v=screen-safe-20260819b';
-import { game } from './game.js?v=screen-safe-20260819b';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260819c';
+import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260819c';
+import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260819c';
+import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260819c';
+import { audio } from './audio.js?v=screen-safe-20260819c';
+import { game } from './game.js?v=screen-safe-20260819c';
 import {
     ANIM_STATE, COMBO_ATTACKS, PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
-} from './playerData.js?v=screen-safe-20260819b';
-import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260819b';
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260819b';
+} from './playerData.js?v=screen-safe-20260819c';
+import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260819c';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260819c';
 import {
     SHOGUN_SCALE,
     SHOGUN_ACTOR_BASE_HEIGHT,
@@ -40,7 +40,7 @@ import {
     NINJA_CROUCH_LIFT_AMP,
     SHOGUN_CROUCH_LIFT_AMP,
     SHOGUN_RUN_STRIDE_CENTER_BIAS
-} from './shogunConstants.js?v=screen-safe-20260819b';
+} from './shogunConstants.js?v=screen-safe-20260819c';
 
 export function applyRendererMixin(PlayerClass) {
     applyShogunRendererMixin(PlayerClass);
@@ -934,9 +934,17 @@ export function applyRendererMixin(PlayerClass) {
         // 2.0秒と3.1秒(互いに割り切れない)を重ねると、ゆらぎに周期の癖が出ない
         // (星の瞬きで使っているのと同じ手)。
         const glowAlpha = pulse;
+        // 縁の呼吸は【別の輪を描かず、このグラデーションの止め位置を動かして】出す。
+        // 細い線を1本引く実装にしたら「はっきりした円が描いてある」ように見えた
+        // (ユーザー指摘 2026-08-19)。光は輪郭を持たないので、中間の止めを
+        // 内外に動かして光の広がりごと膨らませる。描画命令は増えない。
+        const rimPulse = 1 - glowAlpha;                 // 本体とは逆位相
+        const midStop = 0.40 + rimPulse * 0.18;         // 0.40〜0.58 を行き来する
+        const rimA = (0.05 + rimPulse * 0.07) * fadeIn; // 外周のほのかな残り
         const grad = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
         grad.addColorStop(0, `rgba(255, 230, 100, ${((0.4 + glowAlpha * 0.3) * fadeIn + core).toFixed(3)})`);
-        grad.addColorStop(0.5, `rgba(255, 210, 80, ${((0.1 + glowAlpha * 0.15) * fadeIn + core * 0.35).toFixed(3)})`);
+        grad.addColorStop(midStop, `rgba(255, 210, 80, ${((0.1 + glowAlpha * 0.15) * fadeIn + core * 0.35).toFixed(3)})`);
+        grad.addColorStop(0.86, `rgba(255, 216, 96, ${rimA.toFixed(3)})`);
         grad.addColorStop(1, 'rgba(255, 210, 80, 0)');
 
         ctx.fillStyle = grad;
@@ -945,25 +953,13 @@ export function applyRendererMixin(PlayerClass) {
         ctx.fill();
 
         /* 4. 待機の上乗せ。【グラデーションは増やさない】——放射グラデの生成が
-           この演出で一番重いので、追加分は線と小さな塗りだけで作る
-           (追加の描画命令は輪1本＋火の粉6個の計7回。低スペック端末の
-           処理落ちの主因だった色調フィルタのような重さは持たない)。
+           この演出で一番重いので、追加分は小さな塗りだけで作る(火の粉6個)。
+           縁の呼吸は上のグラデーションの止め位置に持たせてあるので、
+           ここで輪を描く必要はない。
            収束が終わってから 0.3 秒かけて乗せる(発動の三段を邪魔しない)。 */
         const idleT = ease(clamp01((t - INTRO_SEC) / 0.3));
         if (idleT > 0.01) {
-            // 4a. 輪。素の発光の縁をなぞる細い光。本体の明滅とは【逆位相】にして、
-            //     光が中心と縁を行き来しているように見せる。
-            const ringPulse = 1 - glowAlpha;
-            const ringA = (0.10 + ringPulse * 0.16) * idleT;
-            if (ringA > 0.004) {
-                ctx.strokeStyle = `rgba(255, 236, 160, ${ringA.toFixed(3)})`;
-                ctx.lineWidth = 1.4 + ringPulse * 1.0;
-                ctx.beginPath();
-                ctx.arc(centerX, centerY, radius * (0.88 + glowAlpha * 0.06), 0, Math.PI * 2);
-                ctx.stroke();
-            }
-
-            // 4b. 火の粉。乱数を使わず添字から位置を出す(毎フレーム Math.random だと
+            // 4a. 火の粉。乱数を使わず添字から位置を出す(毎フレーム Math.random だと
             //     瞬間移動してチラつく。忍具のシード火花と同じ考え)。
             //     黄金角でばらすので6個でも並んで見えない。
             const MOTES = 6;
