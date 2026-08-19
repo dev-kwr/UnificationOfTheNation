@@ -1,20 +1,20 @@
 // Unification of the Nation - 描画系 mixin
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260820a';
-import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260820a';
-import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260820a';
-import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260820a';
-import { audio } from './audio.js?v=screen-safe-20260820a';
-import { game } from './game.js?v=screen-safe-20260820a';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260820b';
+import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260820b';
+import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260820b';
+import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260820b';
+import { audio } from './audio.js?v=screen-safe-20260820b';
+import { game } from './game.js?v=screen-safe-20260820b';
 import {
     ANIM_STATE, COMBO_ATTACKS, PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
-} from './playerData.js?v=screen-safe-20260820a';
-import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260820a';
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260820a';
+} from './playerData.js?v=screen-safe-20260820b';
+import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260820b';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260820b';
 import {
     SHOGUN_SCALE,
     SHOGUN_ACTOR_BASE_HEIGHT,
@@ -40,7 +40,7 @@ import {
     NINJA_CROUCH_LIFT_AMP,
     SHOGUN_CROUCH_LIFT_AMP,
     SHOGUN_RUN_STRIDE_CENTER_BIAS
-} from './shogunConstants.js?v=screen-safe-20260820a';
+} from './shogunConstants.js?v=screen-safe-20260820b';
 
 export function applyRendererMixin(PlayerClass) {
     applyShogunRendererMixin(PlayerClass);
@@ -508,10 +508,8 @@ export function applyRendererMixin(PlayerClass) {
     };
 
     PlayerClass.prototype.renderPonytail = function(ctx, headCenterX, headY, headRadius, hairBaseX, hairBaseY, facingRight, alpha, options = {}) {
-        // 【素体だけのシルエットを焼いている間は描かない】。
-        // 奥義MAXのオーラは体の輪郭に沿わせたいので、刀・鉢巻の垂れ帯・ポニテ・
-        // 忍具は光らせない(ユーザー指摘 2026-08-19)。
-        if (this._auraSilhouettePass) return;
+        // ポニテは【素体の一部】なので奥義MAXのオーラに含める(ユーザー指摘 2026-08-20)。
+        // 光らせないのは刀・鉢巻の垂れ帯・忍具＝身に着けている物だけ。
         const hairNodes = Array.isArray(options.hairNodes) ? options.hairNodes : this.hairNodes;
         if (!hairNodes || hairNodes.length <= 1 || alpha <= 0) return;
 
@@ -893,7 +891,8 @@ export function applyRendererMixin(PlayerClass) {
      */
     // 奥義MAXのオーラが体の外へにじむ幅(可視ワールドpx)。
     // 一番外の輪がここまで出る。バッファの余白もこの値から決める。
-    const SPECIAL_AURA_SPREAD_PX = 9;
+    // 幅9pxは太すぎ・激しすぎた(ユーザー指摘 2026-08-20)。輪郭に添う細い縁にする。
+    const SPECIAL_AURA_SPREAD_PX = 5;
 
     PlayerClass.prototype._buildSpecialAuraSilhouette = function(ctx, options) {
         const worldW = typeof this.getWorldWidth === 'function' ? this.getWorldWidth() : this.width;
@@ -913,14 +912,35 @@ export function applyRendererMixin(PlayerClass) {
             ? this.height * 0.62 * Math.max(0, modelScale - 1)
             : 0;
         const padTop = padY + drawnTopLift;
-        const x0 = this.x - padX;
-        const y0 = this.y - padTop;
-        const w = worldW + padX * 2;
-        const h = worldH + padTop + padY;
+        let x0 = this.x - padX;
+        let y0 = this.y - padTop;
+        let x1 = this.x + worldW + padX;
+        let y1 = this.y + worldH + padY;
+        /* 【ポニテは物理チェーンなので箱の外へ大きく振れる】。素体の一部として
+           光らせる以上、固定の余白では走り出しや落下で毛先が切れる
+           (実測: 走行中に左右の余白が 0px まで潰れた)。節はワールド座標なので
+           そのまま包む。毛先の太さぶんを足してから、にじみの幅を確保する。 */
+        const hairNodes = Array.isArray(options && options.hairNodes) ? options.hairNodes : this.hairNodes;
+        if (Array.isArray(hairNodes) && hairNodes.length > 1) {
+            const HAIR_MARGIN = SPECIAL_AURA_SPREAD_PX + 6;
+            for (const n of hairNodes) {
+                if (!n) continue;
+                if (n.x - HAIR_MARGIN < x0) x0 = n.x - HAIR_MARGIN;
+                if (n.x + HAIR_MARGIN > x1) x1 = n.x + HAIR_MARGIN;
+                if (n.y - HAIR_MARGIN < y0) y0 = n.y - HAIR_MARGIN;
+                if (n.y + HAIR_MARGIN > y1) y1 = n.y + HAIR_MARGIN;
+            }
+        }
+        const w = x1 - x0;
+        const h = y1 - y0;
 
+        /* 【シルエットは半分の解像度で焼く】。使い道は「輪郭のまわりのにじみ」だけで、
+           細部は本体の絵が上から隠す。この一枚を作るのに本体をもう一度描いているので、
+           ここの塗り面積がこの演出の一番重い所だった。半分にすると面積は1/4になる。 */
+        const BUF_SCALE = 0.5;
         const tf = ctx.getTransform ? ctx.getTransform() : null;
-        const sx = tf && Math.abs(tf.a) > 1e-6 ? Math.abs(tf.a) : 1;
-        const sy = tf && Math.abs(tf.d) > 1e-6 ? Math.abs(tf.d) : 1;
+        const sx = (tf && Math.abs(tf.a) > 1e-6 ? Math.abs(tf.a) : 1) * BUF_SCALE;
+        const sy = (tf && Math.abs(tf.d) > 1e-6 ? Math.abs(tf.d) : 1) * BUF_SCALE;
         const cw = Math.max(1, Math.ceil(w * sx));
         const ch = Math.max(1, Math.ceil(h * sy));
         if (cw > 900 || ch > 900) return null;   // 想定外に大きい時は諦める(将軍の巨躯など)
@@ -949,7 +969,40 @@ export function applyRendererMixin(PlayerClass) {
         b.fillStyle = 'rgb(255, 226, 130)';
         b.fillRect(0, 0, cw, ch);
         b.globalCompositeOperation = 'source-over';
-        return { buf, x0, y0, w, h, cw, ch };
+        return { buf, x0, y0, w, h, cw, ch, sx, sy };
+    };
+
+    /* 【八方ずらしはバッファの中で終わらせる】。画面へ直接16枚重ねると、
+       貼る面積が「等倍の絵×16」になる。半分の解像度のバッファ内で重ねてから
+       【1枚だけ】画面へ貼れば、塗る面積は 1/4×16 + 1 で済む。
+       低スペック端末のフォールバックを外す(端末で絵を変えない)ための地ならし。 */
+    PlayerClass.prototype._bakeAuraRings = function(sil, rings) {
+        let glow = this._auraGlowBuf;
+        if (!glow) glow = this._auraGlowBuf = document.createElement('canvas');
+        if (glow.width !== sil.cw || glow.height !== sil.ch) { glow.width = sil.cw; glow.height = sil.ch; }
+        const gctx = glow.getContext('2d');
+        gctx.setTransform(1, 0, 0, 1, 0, 0);
+        gctx.clearRect(0, 0, sil.cw, sil.ch);
+        /* 【重ねるのは 'lighter' ではなく普通の重ね】。'lighter' は色まで足すので、
+           8枚重なる芯が (255,226,130)×8 で白へ飛び、金色の縁のはずが白い光になる。
+           source-over なら色はそのままで不透明度だけ 1 へ近づく。 */
+        gctx.globalCompositeOperation = 'source-over';
+        const DIRS = 8;
+        let drew = false;
+        for (const ring of rings) {
+            if (ring.a <= 0.004) continue;
+            gctx.globalAlpha = Math.min(1, ring.a);
+            // ずらし幅はワールドpx。バッファは sx 倍で焼いてあるので合わせて換算する。
+            const rx = ring.r * sil.sx;
+            const ry = ring.r * sil.sy;
+            for (let i = 0; i < DIRS; i++) {
+                const th = (i / DIRS) * Math.PI * 2;
+                gctx.drawImage(sil.buf, Math.cos(th) * rx, Math.sin(th) * ry);
+                drew = true;
+            }
+        }
+        gctx.globalAlpha = 1;
+        return drew ? glow : null;
     };
 
     PlayerClass.prototype.renderSpecialReadyGlow = function(ctx, options = {}) {
@@ -1022,44 +1075,46 @@ export function applyRendererMixin(PlayerClass) {
            「円が描いてある」ように見えた(ユーザー指摘 2026-08-19)。
            シルエットを作って中心から少しずつ拡大しながら薄く重ね、輪郭に沿った
            にじみにする。貼るのは3枚だけ。 */
-        /* 【落ちている端末ではやらない】。シルエットは本体の描画を1回増やすので、
-           一番効くのが実測で +0.74ms(60fpsの予算16.7msの4%)。普段は許せる量だが、
-           既にフレーム落ちを検知して解像度を落とした端末では素直に諦めて、
-           下の地明かりだけにする(game._dprDowngraded は低スペック検知が立てる
-           セッション内不可逆のフラグ)。 */
-        const lowSpec = !!(game && game._dprDowngraded);
-        const sil = lowSpec ? null : this._buildSpecialAuraSilhouette(ctx, options);
+        /* 【低スペック端末でも同じ絵を出す】。以前は game._dprDowngraded が立つと
+           シルエットを諦めて地明かりだけにしていたが、端末によって演出が変わるのを
+           やめたい(ユーザー指示 2026-08-20)。代わりに演出そのものを軽くした:
+           にじみ幅 9→5px、輪 3→2、八方ずらしは半解像度バッファの中で済ませて
+           画面へは1枚だけ、地明かりは発動の瞬間だけ。
+           解像度を落とした端末では ctx の変換も小さくなるので、貼る面積も一緒に減る。 */
+        const sil = this._buildSpecialAuraSilhouette(ctx, options);
         if (sil) {
             /* 【幅を一定にする】。拡大して重ねると、外へ出る量が中心からの距離に
                比例するので、頭や足先だけ厚く胴が薄い ―― 輪郭に対してまばらに見えた
                (ユーザー指摘 2026-08-19)。同じ絵を【決まった画素数】だけずらして
-               八方へ置けば、どこも同じ厚みになる。 */
-            const breathe = 0.75 + glowAlpha * 0.45;          // 明滅で厚みも呼吸する
+               八方へ置けば、どこも同じ厚みになる。
+               濃さは 'lighter' で8枚ぶん積み上がるので、1枚あたりは薄く置く。 */
+            /* 【形と濃さを分ける】。バッファには「内は詰まって外へ薄れる」形だけを
+               焼き、明るさは画面へ貼るときの globalAlpha 一本で決める。
+               輪ごとに濃さを持たせると 'lighter' で8枚ぶん積み上がって芯が
+               振り切れ、どう下げても「激しすぎる」になった(実測: 明るさの増分が
+               最大243で背景が飛ぶ)。 */
+            const breathe = 0.85 + glowAlpha * 0.25;          // 明滅で厚みも呼吸する(振れ幅は控えめ)
             const rings = [
-                { r: SPECIAL_AURA_SPREAD_PX * 0.34 * breathe, a: (0.30 + glowAlpha * 0.16) * fadeIn + core * 0.7 },
-                { r: SPECIAL_AURA_SPREAD_PX * 0.68 * breathe, a: (0.16 + glowAlpha * 0.11) * fadeIn + core * 0.45 },
-                { r: SPECIAL_AURA_SPREAD_PX * 1.00 * breathe, a: (0.08 + glowAlpha * 0.06) * fadeIn + core * 0.25 }
+                { r: SPECIAL_AURA_SPREAD_PX * 0.45 * breathe, a: 0.30 },
+                { r: SPECIAL_AURA_SPREAD_PX * 1.00 * breathe, a: 0.14 }
             ];
-            const DIRS = 8;
-            for (const ring of rings) {
-                if (ring.a <= 0.004) continue;
-                ctx.globalAlpha = Math.min(1, ring.a);
-                for (let i = 0; i < DIRS; i++) {
-                    const th = (i / DIRS) * Math.PI * 2;
-                    ctx.drawImage(sil.buf, 0, 0, sil.cw, sil.ch,
-                        sil.x0 + Math.cos(th) * ring.r, sil.y0 + Math.sin(th) * ring.r,
-                        sil.w, sil.h);
-                }
+            const glow = this._bakeAuraRings(sil, rings);
+            if (glow) {
+                ctx.globalAlpha = Math.min(1, (0.30 + glowAlpha * 0.14) * fadeIn + core * 0.55);
+                ctx.drawImage(glow, 0, 0, sil.cw, sil.ch, sil.x0, sil.y0, sil.w, sil.h);
+                ctx.globalAlpha = 1;
             }
-            ctx.globalAlpha = 1;
         }
 
-        /* 3b. 地明かり。体の周りをほんのり持ち上げるだけの薄い放射。
-           シルエットが主役なので、以前の半分以下まで落とす。 */
-        // シルエットを出せなかったときは、以前の円形と同じ強さまで戻して主役にする。
-        const ambBase = sil ? 0.12 : 0.34;
-        const ambSwing = sil ? 0.10 : 0.26;
-        const ambA = (ambBase + glowAlpha * ambSwing) * fadeIn + core * (sil ? 0.35 : 0.9);
+        /* 3b. 地明かり。【発動の瞬間だけ】体のまわりを持ち上げる。
+           待機中も出し続けると、細くした縁のまわりに丸い光の輪が居座って
+           「激しすぎる」に戻る。放射グラデの生成は毎フレームだと安くないので、
+           待機中に止まるのは負荷の面でも効く。収束と芯の減衰が終わったら消す。
+           シルエットを出せなかったときだけは、これが主役なので出し続ける。 */
+        const ambPhase = sil ? Math.max(core / 0.45, 1 - clamp01(t / (INTRO_SEC + FLASH_SEC))) : 1;
+        const ambBase = sil ? 0.14 : 0.34;
+        const ambSwing = sil ? 0.06 : 0.26;
+        const ambA = ((ambBase + glowAlpha * ambSwing) * fadeIn + core * (sil ? 0.5 : 0.9)) * ambPhase;
         if (ambA > 0.004) {
             const grad = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius * 1.15);
             grad.addColorStop(0, `rgba(255, 226, 120, ${ambA.toFixed(3)})`);
