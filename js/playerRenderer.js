@@ -1,20 +1,20 @@
 // Unification of the Nation - 描画系 mixin
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260819d';
-import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260819d';
-import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260819d';
-import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260819d';
-import { audio } from './audio.js?v=screen-safe-20260819d';
-import { game } from './game.js?v=screen-safe-20260819d';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260819e';
+import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260819e';
+import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260819e';
+import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260819e';
+import { audio } from './audio.js?v=screen-safe-20260819e';
+import { game } from './game.js?v=screen-safe-20260819e';
 import {
     ANIM_STATE, COMBO_ATTACKS, PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
-} from './playerData.js?v=screen-safe-20260819d';
-import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260819d';
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260819d';
+} from './playerData.js?v=screen-safe-20260819e';
+import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260819e';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260819e';
 import {
     SHOGUN_SCALE,
     SHOGUN_ACTOR_BASE_HEIGHT,
@@ -40,7 +40,7 @@ import {
     NINJA_CROUCH_LIFT_AMP,
     SHOGUN_CROUCH_LIFT_AMP,
     SHOGUN_RUN_STRIDE_CENTER_BIAS
-} from './shogunConstants.js?v=screen-safe-20260819d';
+} from './shogunConstants.js?v=screen-safe-20260819e';
 
 export function applyRendererMixin(PlayerClass) {
     applyShogunRendererMixin(PlayerClass);
@@ -98,6 +98,10 @@ export function applyRendererMixin(PlayerClass) {
         scaleY = 1,
         uprightTarget = -Math.PI / 2
     ) {
+        // 【素体だけのシルエットを焼いている間は描かない】。
+        // 奥義MAXのオーラは体の輪郭に沿わせたいので、刀・鉢巻の垂れ帯・ポニテ・
+        // 忍具は光らせない(ユーザー指摘 2026-08-19)。
+        if (this._auraSilhouettePass) return;
         ctx.save();
         // 武器は本体の透明度（Ghost Veil等）の影響を受けず、常に不透明で描画する
         ctx.globalAlpha = 1.0;
@@ -504,6 +508,10 @@ export function applyRendererMixin(PlayerClass) {
     };
 
     PlayerClass.prototype.renderPonytail = function(ctx, headCenterX, headY, headRadius, hairBaseX, hairBaseY, facingRight, alpha, options = {}) {
+        // 【素体だけのシルエットを焼いている間は描かない】。
+        // 奥義MAXのオーラは体の輪郭に沿わせたいので、刀・鉢巻の垂れ帯・ポニテ・
+        // 忍具は光らせない(ユーザー指摘 2026-08-19)。
+        if (this._auraSilhouettePass) return;
         const hairNodes = Array.isArray(options.hairNodes) ? options.hairNodes : this.hairNodes;
         if (!hairNodes || hairNodes.length <= 1 || alpha <= 0) return;
 
@@ -762,6 +770,10 @@ export function applyRendererMixin(PlayerClass) {
     const HEADBAND_TAIL_SHORTEN = 0.9;
 
     PlayerClass.prototype.renderHeadbandTail = function(ctx, tailRootX, tailRootY, dir, alpha, accentColor, time, options = {}) {
+        // 【素体だけのシルエットを焼いている間は描かない】。
+        // 奥義MAXのオーラは体の輪郭に沿わせたいので、刀・鉢巻の垂れ帯・ポニテ・
+        // 忍具は光らせない(ユーザー指摘 2026-08-19)。
+        if (this._auraSilhouettePass) return;
         /* 分身の帯は【本体の形をコピー】する —— 剣筋と同じ方針。
            分身に独自の物理を回すと本体と重なり方が食い違う(ユーザー指摘 2026-08-16)。
            ミラー分身(Lv1-2)は言うまでもなく、自律分身(Lv3)も速度が本体と違う
@@ -879,12 +891,18 @@ export function applyRendererMixin(PlayerClass) {
      * 毎フレームの ctx.filter は低スペック端末の処理落ちの主因だった。
      * 外側へ広がる感じは、中心から少しずつ拡大して薄く重ねることで出す。
      */
+    // 奥義MAXのオーラが体の外へにじむ幅(可視ワールドpx)。
+    // 一番外の輪がここまで出る。バッファの余白もこの値から決める。
+    const SPECIAL_AURA_SPREAD_PX = 9;
+
     PlayerClass.prototype._buildSpecialAuraSilhouette = function(ctx, options) {
         const worldW = typeof this.getWorldWidth === 'function' ? this.getWorldWidth() : this.width;
         const worldH = typeof this.getWorldHeight === 'function' ? this.getWorldHeight() : this.height;
-        // 刀と布がはみ出すので、体の周りに広めの余白を取る
-        const padX = worldW * 1.6;
-        const padY = worldH * 0.7;
+        // 素体だけなので余白は「にじみの幅＋手足の振り」ぶんで足りる。
+        // 刀まで焼いていた頃(横1.6倍)に比べてバッファは1/8以下になり、
+        // 貼る回数を増やしても以前より軽い。
+        const padX = SPECIAL_AURA_SPREAD_PX + worldW * 0.35;
+        const padY = SPECIAL_AURA_SPREAD_PX + worldH * 0.10;
         const x0 = this.x - padX;
         const y0 = this.y - padY;
         const w = worldW + padX * 2;
@@ -905,10 +923,15 @@ export function applyRendererMixin(PlayerClass) {
         b.clearRect(0, 0, cw, ch);
         b.setTransform(sx, 0, 0, sy, -x0 * sx, -y0 * sy);
         try {
-            // skipGlow で自分自身を呼ばない(再帰防止)
+            // skipGlow で自分自身を呼ばない(再帰防止)。
+            // _auraSilhouettePass は刀・鉢巻の垂れ帯・ポニテ・忍具の描画を落とす
+            // (素体の輪郭だけを光らせたい)。
+            this._auraSilhouettePass = true;
             this.render(b, { ...options, skipGlow: true, skipSpecialRender: true });
         } catch {
             return null;
+        } finally {
+            this._auraSilhouettePass = false;
         }
         // 形だけ残して単色へ潰す
         b.setTransform(1, 0, 0, 1, 0, 0);
@@ -997,23 +1020,26 @@ export function applyRendererMixin(PlayerClass) {
         const lowSpec = !!(game && game._dprDowngraded);
         const sil = lowSpec ? null : this._buildSpecialAuraSilhouette(ctx, options);
         if (sil) {
-            const cxm = sil.x0 + sil.w / 2;
-            const cym = sil.y0 + sil.h / 2;
-            const spread = 1 + glowAlpha * 0.5;   // 明滅で広がりも呼吸する
-            // 拡大率は【余白ごと】掛かるので、体の縁がどれだけ外へ出るかは
-            // 中心からの距離×(k-1) になる。体の縁は中心から約40pxなので、
-            // 0.05/0.12/0.22 でおよそ 2/5/9px のにじみ。
-            const layers = [
-                { k: 1.00 + 0.050 * spread, a: (0.38 + glowAlpha * 0.22) * fadeIn + core * 0.9 },
-                { k: 1.00 + 0.120 * spread, a: (0.20 + glowAlpha * 0.15) * fadeIn + core * 0.6 },
-                { k: 1.00 + 0.220 * spread, a: (0.10 + glowAlpha * 0.08) * fadeIn + core * 0.35 }
+            /* 【幅を一定にする】。拡大して重ねると、外へ出る量が中心からの距離に
+               比例するので、頭や足先だけ厚く胴が薄い ―― 輪郭に対してまばらに見えた
+               (ユーザー指摘 2026-08-19)。同じ絵を【決まった画素数】だけずらして
+               八方へ置けば、どこも同じ厚みになる。 */
+            const breathe = 0.75 + glowAlpha * 0.45;          // 明滅で厚みも呼吸する
+            const rings = [
+                { r: SPECIAL_AURA_SPREAD_PX * 0.34 * breathe, a: (0.30 + glowAlpha * 0.16) * fadeIn + core * 0.7 },
+                { r: SPECIAL_AURA_SPREAD_PX * 0.68 * breathe, a: (0.16 + glowAlpha * 0.11) * fadeIn + core * 0.45 },
+                { r: SPECIAL_AURA_SPREAD_PX * 1.00 * breathe, a: (0.08 + glowAlpha * 0.06) * fadeIn + core * 0.25 }
             ];
-            for (const L of layers) {
-                if (L.a <= 0.004) continue;
-                const dw = sil.w * L.k, dh = sil.h * L.k;
-                ctx.globalAlpha = Math.min(1, L.a);
-                ctx.drawImage(sil.buf, 0, 0, sil.cw, sil.ch,
-                    cxm - dw / 2, cym - dh / 2, dw, dh);
+            const DIRS = 8;
+            for (const ring of rings) {
+                if (ring.a <= 0.004) continue;
+                ctx.globalAlpha = Math.min(1, ring.a);
+                for (let i = 0; i < DIRS; i++) {
+                    const th = (i / DIRS) * Math.PI * 2;
+                    ctx.drawImage(sil.buf, 0, 0, sil.cw, sil.ch,
+                        sil.x0 + Math.cos(th) * ring.r, sil.y0 + Math.sin(th) * ring.r,
+                        sil.w, sil.h);
+                }
             }
             ctx.globalAlpha = 1;
         }
@@ -3472,6 +3498,10 @@ export function applyRendererMixin(PlayerClass) {
 }
 
     PlayerClass.prototype.renderSubWeaponArm = function(ctx, centerX, pivotY, facingRight, renderWeaponVisuals, alpha, options) {
+        // 【素体だけのシルエットを焼いている間は描かない】。
+        // 奥義MAXのオーラは体の輪郭に沿わせたいので、刀・鉢巻の垂れ帯・ポニテ・
+        // 忍具は光らせない(ユーザー指摘 2026-08-19)。
+        if (this._auraSilhouettePass) return;
         renderWeaponVisuals = renderWeaponVisuals !== false;
         alpha = Number.isFinite(alpha) ? alpha : 1.0;
         options = options || {};

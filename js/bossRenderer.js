@@ -105,14 +105,14 @@ function limbN(c,ax,ay,hx,hy,frac,bend,mode,w1,w2,col,hi,pass='fill'){
 
 /* 二刀の刀身はプレイヤーと同一形状。katanaShape.js は依存ゼロなので循環しない
    (playerRenderer.js を直接 import すると game.js の TDZ でクラッシュする)。 */
-import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260819d';
-import { drawClothRibbon } from './clothRibbon.js?v=screen-safe-20260819d';
-import { scaleHeadbandTailSpec, HEADBAND_TAIL_SPEC } from './clothChain.js?v=screen-safe-20260819d';
+import { drawKatanaShape } from './katanaShape.js?v=screen-safe-20260819e';
+import { drawClothRibbon } from './clothRibbon.js?v=screen-safe-20260819e';
+import { scaleHeadbandTailSpec, HEADBAND_TAIL_SPEC } from './clothChain.js?v=screen-safe-20260819e';
 /* 雑魚/中ボスの攻撃エフェクト。描画専用で判定には触れない */
 import {
   stepMobFx, onceThisAttack, feedTrail, drawTrail, updateRibbonChain,
   drawThrustStreak, drawThrustWave, drawFlash, drawBurstLines, mobGroundDust
-} from './mobFx.js?v=screen-safe-20260819d';
+} from './mobFx.js?v=screen-safe-20260819e';
 /* 刀身長はプレイヤー実数値のまま渡し、拡大は描画側の ctx.scale だけで行う(二重拡大防止)。
    倍率は素体リグの SC(=1.8) ではなく【描画上の身長比】を使う:
      プレイヤーの描画身長 = height(72) - headRadius*0.1(=1.68) = 70.32
