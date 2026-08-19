@@ -130,6 +130,10 @@ export function applyShogunRendererMixin(PlayerClass) {
         const domeTopY = helmBaseY - domeH;
 
         const drawHorn = (isFar) => {
+            /* 【奥義MAXのオーラには角を含めない】。角は兜の鉢より遥かに高く伸びるので、
+               シルエットに入れると光る形が角の分だけ上へ跳ね、兜の輪郭が読めなくなる。
+               ユーザー指示(2026-08-20)で「角はオーラ不要」。 */
+            if (this._auraSilhouettePass) return;
             const cGold = isFar ? '#a08832' : '#dcb854';
             const hp = (typeof window !== 'undefined' && window.hornParams) || {
                 farBaseX: -0.03, farBaseY: 0.18, farAngle: 7.00, farTipX: 0.20, farFront: 0.40, farBack: -0.14, farLength: 2.60, farRoot: 2.00,

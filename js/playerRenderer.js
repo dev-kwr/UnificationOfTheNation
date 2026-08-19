@@ -1,20 +1,20 @@
 // Unification of the Nation - 描画系 mixin
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260819e';
-import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260819e';
-import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260819e';
-import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260819e';
-import { audio } from './audio.js?v=screen-safe-20260819e';
-import { game } from './game.js?v=screen-safe-20260819e';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260820a';
+import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260820a';
+import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260820a';
+import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260820a';
+import { audio } from './audio.js?v=screen-safe-20260820a';
+import { game } from './game.js?v=screen-safe-20260820a';
 import {
     ANIM_STATE, COMBO_ATTACKS, PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
-} from './playerData.js?v=screen-safe-20260819e';
-import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260819e';
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260819e';
+} from './playerData.js?v=screen-safe-20260820a';
+import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260820a';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260820a';
 import {
     SHOGUN_SCALE,
     SHOGUN_ACTOR_BASE_HEIGHT,
@@ -40,7 +40,7 @@ import {
     NINJA_CROUCH_LIFT_AMP,
     SHOGUN_CROUCH_LIFT_AMP,
     SHOGUN_RUN_STRIDE_CENTER_BIAS
-} from './shogunConstants.js?v=screen-safe-20260819e';
+} from './shogunConstants.js?v=screen-safe-20260820a';
 
 export function applyRendererMixin(PlayerClass) {
     applyShogunRendererMixin(PlayerClass);
@@ -903,10 +903,20 @@ export function applyRendererMixin(PlayerClass) {
         // 貼る回数を増やしても以前より軽い。
         const padX = SPECIAL_AURA_SPREAD_PX + worldW * 0.35;
         const padY = SPECIAL_AURA_SPREAD_PX + worldH * 0.10;
+        /* 【絵の上端まで覆う】。将軍は素体フレーム(48x72)を scaleMultiplier 倍して
+           描くので、絵の上端はワールド箱の上端より上へ出る
+           (ピボットが素体高さの0.62なので (scale-1)×height×0.62 = 37.2px)。
+           ここを見込まずに箱基準で切ると、バッファが兜の上半分を落として
+           「頭の上だけオーラが無い」になる(ユーザー指摘 2026-08-20)。 */
+        const modelScale = Number.isFinite(this.scaleMultiplier) ? this.scaleMultiplier : 1;
+        const drawnTopLift = this.characterType === 'shogun'
+            ? this.height * 0.62 * Math.max(0, modelScale - 1)
+            : 0;
+        const padTop = padY + drawnTopLift;
         const x0 = this.x - padX;
-        const y0 = this.y - padY;
+        const y0 = this.y - padTop;
         const w = worldW + padX * 2;
-        const h = worldH + padY * 2;
+        const h = worldH + padTop + padY;
 
         const tf = ctx.getTransform ? ctx.getTransform() : null;
         const sx = tf && Math.abs(tf.a) > 1e-6 ? Math.abs(tf.a) : 1;

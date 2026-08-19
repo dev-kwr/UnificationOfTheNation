@@ -2,14 +2,14 @@
 // Unification of the Nation - 敵クラス
 // ============================================
 
-import { ENEMY_TYPES, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js?v=screen-safe-20260819e';
-import { resolveAiFacing } from './aiFacing.js?v=screen-safe-20260819e';
+import { ENEMY_TYPES, GRAVITY, CANVAS_WIDTH, LANE_OFFSET } from './constants.js?v=screen-safe-20260820a';
+import { resolveAiFacing } from './aiFacing.js?v=screen-safe-20260820a';
 /* 雑魚・中ボスもフロアボスと同じ素体リグで描く(bodyHeight で縮小するだけ)。
    旧 renderUnifiedEnemyModel は当面デッドコードとして残す。 */
 import {
     MOB_DESIGNS, renderBossActor,
     mobSpear, mobKatana, mobShuriken, mobNaginata
-} from './bossRenderer.js?v=screen-safe-20260819e';
+} from './bossRenderer.js?v=screen-safe-20260820a';
 
 /* 雑魚の素体は【忍者(プレイヤー)と同じ大きさ】で描く。
    実測(細い黒=刀の柄を除外して頭頂を検出): プレイヤーの描画全高は箱と同じ 72px、
@@ -18,7 +18,7 @@ import {
    雑魚3種は 72 に揃える(当たり判定は変更しない)。
    中ボスの武将は格を出すため自分の箱(90)のまま。 */
 const PLAYER_BODY_H = 70.32;   // 忍者の描画全高 = height(72) - 頭半径(16.8)*0.1
-import { audio } from './audio.js?v=screen-safe-20260819e';
+import { audio } from './audio.js?v=screen-safe-20260820a';
 
 const ENEMY_HEADBAND_BASE = '#4f2f72';
 const ENEMY_HEADBAND_HIGHLIGHT = '#7e58a6';

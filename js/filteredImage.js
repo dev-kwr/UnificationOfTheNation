@@ -146,7 +146,17 @@ export function drawImageGraded(ctx, img, ...args) {
     }
     if (!sw || !sh) { ctx.drawImage(img, ...args); return; }
 
-    const entry = getGraded(img, filter, Math.abs(dw / sw), Math.abs(dh / sh));
+    /* 【キャンバスの拡大率まで含めて焼く】。dw/sw は"論理px"での倍率で、
+       実際の画素数は ctx の変換(devicePixelRatio ぶんの拡大)を通したあとの値になる。
+       論理pxだけで焼くと、2倍の画面では常に半分の解像度で焼いたものを
+       2倍に引き伸ばして貼ることになり、生成画像の細部が眠くなる。
+       元画像より細かくは焼けないので natW/sw で頭打ちにする。 */
+    const tf = ctx.getTransform ? ctx.getTransform() : null;
+    const tsx = tf && Math.abs(tf.a) > 1e-6 ? Math.abs(tf.a) : 1;
+    const tsy = tf && Math.abs(tf.d) > 1e-6 ? Math.abs(tf.d) : 1;
+    const bakeSX = Math.min(Math.abs(dw / sw) * tsx, natW / sw);
+    const bakeSY = Math.min(Math.abs(dh / sh) * tsy, natH / sh);
+    const entry = getGraded(img, filter, bakeSX, bakeSY);
     if (!entry) {
         ctx.drawImage(img, ...args);   // 焼かなかったときは従来どおり(遅いが正しい)
         return;
