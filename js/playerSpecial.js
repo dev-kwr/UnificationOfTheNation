@@ -1,17 +1,17 @@
 // Unification of the Nation - 分身クローン mixin
 
-import { PLAYER, LANE_OFFSET } from './constants.js?v=screen-safe-20260819a';
-import { audio } from './audio.js?v=screen-safe-20260819a';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260819a';
-import { ANIM_STATE, COMBO_ATTACKS } from './playerData.js?v=screen-safe-20260819a';
+import { PLAYER, LANE_OFFSET } from './constants.js?v=screen-safe-20260819b';
+import { audio } from './audio.js?v=screen-safe-20260819b';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260819b';
+import { ANIM_STATE, COMBO_ATTACKS } from './playerData.js?v=screen-safe-20260819b';
 import {
     SHOGUN_ACTOR_BASE_WIDTH,
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_SCALE,
     SHOGUN_SPECIAL_CLONE_SPACING_SCALE
-} from './shogunConstants.js?v=screen-safe-20260819a';
-import { getNormalComboStep4RiseScale } from './normalComboMotion.js?v=screen-safe-20260819a';
-import { resolveAiFacing } from './aiFacing.js?v=screen-safe-20260819a';
+} from './shogunConstants.js?v=screen-safe-20260819b';
+import { getNormalComboStep4RiseScale } from './normalComboMotion.js?v=screen-safe-20260819b';
+import { resolveAiFacing } from './aiFacing.js?v=screen-safe-20260819b';
 
 // Lv3 分身が「段」を移るときの寸法。的が別の段にいるなら段ごと追う。
 const CLONE_TIER_GAP_PX = 40;         // これ以上ずれていたら別の段とみなす

@@ -1,20 +1,20 @@
 // Unification of the Nation - 描画系 mixin
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260819a';
-import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260819a';
-import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260819a';
-import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260819a';
-import { audio } from './audio.js?v=screen-safe-20260819a';
-import { game } from './game.js?v=screen-safe-20260819a';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260819b';
+import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260819b';
+import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260819b';
+import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260819b';
+import { audio } from './audio.js?v=screen-safe-20260819b';
+import { game } from './game.js?v=screen-safe-20260819b';
 import {
     ANIM_STATE, COMBO_ATTACKS, PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
-} from './playerData.js?v=screen-safe-20260819a';
-import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260819a';
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260819a';
+} from './playerData.js?v=screen-safe-20260819b';
+import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260819b';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260819b';
 import {
     SHOGUN_SCALE,
     SHOGUN_ACTOR_BASE_HEIGHT,
@@ -40,7 +40,7 @@ import {
     NINJA_CROUCH_LIFT_AMP,
     SHOGUN_CROUCH_LIFT_AMP,
     SHOGUN_RUN_STRIDE_CENTER_BIAS
-} from './shogunConstants.js?v=screen-safe-20260819a';
+} from './shogunConstants.js?v=screen-safe-20260819b';
 
 export function applyRendererMixin(PlayerClass) {
     applyShogunRendererMixin(PlayerClass);
@@ -881,13 +881,17 @@ export function applyRendererMixin(PlayerClass) {
         const INTRO_SEC = 0.42;      // 力が外から集まり切るまで
         const FLASH_SEC = 0.35;      // 集まり切った【後】の芯の減衰
         const PULSE_SEC = 2.0;       // 定常の脈動の周期(従来と同じ)
+        const PULSE_SEC2 = 3.1;      // 重ねるもう一周期(2.0と割り切れない値にする)
         const ease = (v) => v * v * (3 - 2 * v);
         const clamp01 = (v) => v < 0 ? 0 : (v > 1 ? 1 : v);
 
         // 素の発光は収束と一緒に育ち、集まり切った少し後に満ちる。
         const fadeIn = ease(clamp01(t / (INTRO_SEC + 0.15)));
         // 定常の脈動。位相は【集まり切った時刻】から始めるので谷から立ち上がる。
-        const pulse = (1 - Math.cos((Math.max(0, t - INTRO_SEC) / PULSE_SEC) * Math.PI * 2)) / 2;
+        // 2.0秒と3.1秒を 0.62:0.38 で重ねる(割り切れない比なのでうねりが反復しない)。
+        const pt = Math.max(0, t - INTRO_SEC);
+        const pulse = 0.62 * ((1 - Math.cos((pt / PULSE_SEC) * Math.PI * 2)) / 2)
+                    + 0.38 * ((1 - Math.cos((pt / PULSE_SEC2) * Math.PI * 2)) / 2);
 
         const worldW = typeof this.getWorldWidth === 'function' ? this.getWorldWidth() : this.width;
         const worldH = typeof this.getWorldHeight === 'function' ? this.getWorldHeight() : this.height;
@@ -925,7 +929,10 @@ export function applyRendererMixin(PlayerClass) {
         const flashT = clamp01((t - INTRO_SEC) / FLASH_SEC);
         const core = (t >= INTRO_SEC && flashT < 1) ? Math.pow(1 - flashT, 2) * 0.45 : 0;
 
-        // 3. 定常の発光(強さは従来と同じ。立ち上がりだけ fadeIn を掛ける)
+        // 3. 定常の発光。強さの幅は従来と同じだが、明滅を【2周波の重ね】にする。
+        // 単一の sin だとメトロノームのように一定で、待機が長いほど機械的に見える。
+        // 2.0秒と3.1秒(互いに割り切れない)を重ねると、ゆらぎに周期の癖が出ない
+        // (星の瞬きで使っているのと同じ手)。
         const glowAlpha = pulse;
         const grad = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
         grad.addColorStop(0, `rgba(255, 230, 100, ${((0.4 + glowAlpha * 0.3) * fadeIn + core).toFixed(3)})`);
@@ -936,6 +943,49 @@ export function applyRendererMixin(PlayerClass) {
         ctx.beginPath();
         ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
         ctx.fill();
+
+        /* 4. 待機の上乗せ。【グラデーションは増やさない】——放射グラデの生成が
+           この演出で一番重いので、追加分は線と小さな塗りだけで作る
+           (追加の描画命令は輪1本＋火の粉6個の計7回。低スペック端末の
+           処理落ちの主因だった色調フィルタのような重さは持たない)。
+           収束が終わってから 0.3 秒かけて乗せる(発動の三段を邪魔しない)。 */
+        const idleT = ease(clamp01((t - INTRO_SEC) / 0.3));
+        if (idleT > 0.01) {
+            // 4a. 輪。素の発光の縁をなぞる細い光。本体の明滅とは【逆位相】にして、
+            //     光が中心と縁を行き来しているように見せる。
+            const ringPulse = 1 - glowAlpha;
+            const ringA = (0.10 + ringPulse * 0.16) * idleT;
+            if (ringA > 0.004) {
+                ctx.strokeStyle = `rgba(255, 236, 160, ${ringA.toFixed(3)})`;
+                ctx.lineWidth = 1.4 + ringPulse * 1.0;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius * (0.88 + glowAlpha * 0.06), 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            // 4b. 火の粉。乱数を使わず添字から位置を出す(毎フレーム Math.random だと
+            //     瞬間移動してチラつく。忍具のシード火花と同じ考え)。
+            //     黄金角でばらすので6個でも並んで見えない。
+            const MOTES = 6;
+            for (let i = 0; i < MOTES; i++) {
+                const seed = i * 2.39996;                       // 黄金角
+                const orbit = 0.58 + 0.30 * ((i * 7) % 5) / 4;  // 中心からの距離の割合
+                const speed = 0.40 + 0.16 * ((i * 3) % 4) / 3;  // 上るのの速さ
+                const life = (t * speed + i / MOTES) % 1;       // 0→1 で一巡
+                const ang = seed + t * (0.5 + 0.12 * (i % 3));
+                const mx = centerX + Math.cos(ang) * radius * orbit;
+                // 下から湧いて上へ抜ける
+                const my = centerY + radius * (0.55 - life * 1.25) + Math.sin(ang * 1.7) * radius * 0.10;
+                // 出入りで消える(端で唐突に現れない)
+                const mA = Math.sin(Math.PI * life) * 0.55 * idleT;
+                if (mA <= 0.01) continue;
+                const mR = (1.1 + 1.0 * Math.sin(Math.PI * life)) * (worldW / 48);
+                ctx.fillStyle = `rgba(255, 226, 140, ${mA.toFixed(3)})`;
+                ctx.beginPath();
+                ctx.arc(mx, my, mR, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
         ctx.restore();
     };
 
