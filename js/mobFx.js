@@ -12,9 +12,9 @@
 //     いるので、局所座標のまま貯めると歩いた時に過去の点まで一緒に動く。
 //   ・単発の閃光/突き線 → その場で描くだけなので局所系でよい(k 倍も自動)。
 
-import { CLOTH_CHAIN, HEADBAND_TAIL_SPEC, stepClothSwing, stepClothNode } from './clothChain.js?v=screen-safe-20260820b';
+import { CLOTH_CHAIN, HEADBAND_TAIL_SPEC, stepClothSwing, stepClothNode } from './clothChain.js?v=screen-safe-20260820c';
 
-import { drawCometRibbon } from './weaponFx.js?v=screen-safe-20260820b';
+import { drawCometRibbon } from './weaponFx.js?v=screen-safe-20260820c';
 
 function state(ent) {
     if (!ent) return null;

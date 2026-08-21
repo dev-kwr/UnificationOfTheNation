@@ -1,20 +1,20 @@
 // Unification of the Nation - 描画系 mixin
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260820b';
-import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260820b';
-import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260820b';
-import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260820b';
-import { audio } from './audio.js?v=screen-safe-20260820b';
-import { game } from './game.js?v=screen-safe-20260820b';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260820c';
+import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260820c';
+import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260820c';
+import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260820c';
+import { audio } from './audio.js?v=screen-safe-20260820c';
+import { game } from './game.js?v=screen-safe-20260820c';
 import {
     ANIM_STATE, COMBO_ATTACKS, PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
-} from './playerData.js?v=screen-safe-20260820b';
-import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260820b';
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260820b';
+} from './playerData.js?v=screen-safe-20260820c';
+import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260820c';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260820c';
 import {
     SHOGUN_SCALE,
     SHOGUN_ACTOR_BASE_HEIGHT,
@@ -40,7 +40,7 @@ import {
     NINJA_CROUCH_LIFT_AMP,
     SHOGUN_CROUCH_LIFT_AMP,
     SHOGUN_RUN_STRIDE_CENTER_BIAS
-} from './shogunConstants.js?v=screen-safe-20260820b';
+} from './shogunConstants.js?v=screen-safe-20260820c';
 
 export function applyRendererMixin(PlayerClass) {
     applyShogunRendererMixin(PlayerClass);
@@ -1011,6 +1011,16 @@ export function applyRendererMixin(PlayerClass) {
             this._specialReadyAtMs = 0;   // 次に満ちた時は頭から再生する
             return;
         }
+        /* 【隠れ身の術中は光らせない】。隠れ身は本体を alpha 0 で描いて鉢巻だけ
+           不透明に残す作りなので、シルエットを焼くと鉢巻しか入らず
+           「鉢巻の上下だけが金色に光る」謎の絵になっていた(ユーザー指摘 2026-08-20)。
+           姿を隠している間に輪郭が光るのも筋が通らないので演出ごと止める。
+           _specialReadyAtMs は残すので、術が切れたら脈動の続きから戻る
+           (収束の三段をやり直さない)。 */
+        const veiled = options.ghostVeilActive !== undefined
+            ? options.ghostVeilActive
+            : (typeof this.isGhostVeilActive === 'function' ? this.isGhostVeilActive() : false);
+        if (veiled) return;
         const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
         if (!this._specialReadyAtMs) this._specialReadyAtMs = now;
         const t = Math.max(0, (now - this._specialReadyAtMs) / 1000);
