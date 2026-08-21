@@ -2,17 +2,17 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GRAVITY, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260821a';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260821a';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260821a';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260821a';
-import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260821a';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260821a';
-import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260821a';
-import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260821a';
-import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260821a';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260821a';
-import { input } from './input.js?v=screen-safe-20260821a';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GRAVITY, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260821b';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260821b';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260821b';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260821b';
+import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260821b';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260821b';
+import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260821b';
+import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260821b';
+import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260821b';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260821b';
+import { input } from './input.js?v=screen-safe-20260821b';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -69,18 +69,18 @@ const BOSS_DUEL_APPROACH_SETTLE_PX = 12;
    判断してしまう。跳び先はこのぶん先読みして決める。
    連撃の踏み込み量を変えたらここも測り直す(実測手順は memory 参照)。 */
 const STAGE6_ENTRANCE_ADVANCE_PX = 259;
-import { Player } from './player.js?v=screen-safe-20260821a';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260821a';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260821a';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260821a';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseButtons, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260821a';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260821a';
-import { saveManager } from './save.js?v=screen-safe-20260821a';
-import { shop } from './shop.js?v=screen-safe-20260821a';
-import { audio } from './audio.js?v=screen-safe-20260821a';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260821a';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260821a';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260821a';
+import { Player } from './player.js?v=screen-safe-20260821b';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260821b';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260821b';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260821b';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseButtons, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260821b';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260821b';
+import { saveManager } from './save.js?v=screen-safe-20260821b';
+import { shop } from './shop.js?v=screen-safe-20260821b';
+import { audio } from './audio.js?v=screen-safe-20260821b';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260821b';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260821b';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260821b';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -289,6 +289,7 @@ class Game {
         this.stage6CameraLeadT = 0;   // 決戦構図のカメラ先行(0..1)
         this.stage6DuelLeadPx = STAGE6_DUEL_CAMERA_LEAD_PX;       // 先行量の現在値(px)
         this.duelBackstepDone = false;                     // 会敵の間合い取り(1回だけ)
+        this.duelBackstepArmed = false;                    // ボスがフレームインを始めた(踏み切り待ち)
         this.duelBackstepFrames = 0;                       // 跳び退がりの残り滞空フレーム
         this.duelApproachActive = false;                   // 会敵の駆け寄りで代行キーを押しているか
         this.duelBackstepBossX0 = null;                            // 踏み切り時の将軍X(先読みの基準)
@@ -1257,7 +1258,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260821a').then(module => {
+        import('./weapon.js?v=screen-safe-20260821b').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -2339,12 +2340,15 @@ class Game {
      *    準備完了するといきなりボスから」2026-08-17)。
      *  ・duelBackstepDone … 跳び退がりは1回だけ。残っていると2つ目以降の場で
      *    間合いを取らず、名乗りの構図が崩れる。
+     *  ・duelBackstepArmed … フレームインで立つ踏み切り待ちの掛け金。残っていると
+     *    次の場でボスのフレームインを待たずに跳ぶ。
      * initStage(新規開始) と startStage(次の場へ) の両方から呼ぶ。startStage は
      * initStage を通らずに new Stage する経路なので、片方だけだと必ず取り残す。
      */
     resetStageEncounterLatches() {
         this.bossRoomPanArmed = false;
         this.duelBackstepDone = false;
+        this.duelBackstepArmed = false;
         this.duelBackstepFrames = 0;
         this.duelBackstepBossX0 = null;
     }
@@ -2882,8 +2886,16 @@ class Game {
             aimX = (b.x + bw * 0.5) - (stepReached ? STAGE6_ENTRANCE_ADVANCE_PX : 0)
                 - halfSpan * 2 - pw * 0.5;
         } else {
-            // ボスがフレームインしてくるのに合わせて退がる
-            if (!b.isEntering) return;
+            /* ボスがフレームインしてくるのに合わせて退がる。
+               【フレームインの窓だけで待たない】。isEntering は実測27コマ(≒0.45秒)しか
+               立たないので、その間ずっと空中だと跳び退がりが一度も撃たれず、
+               プレイヤーは歩行上限(画面x=640)に立ったまま名乗りを迎えていた
+               (ユーザー指摘 2026-08-21「バックステップしないのですが」。
+                実測: ボス出現の9コマ前に跳ぶと踏み切りが一度も発火しない)。
+               フレームインで掛け金を立て、【名乗りの間に接地した最初のコマ】で撃つ。
+               接地していれば従来どおりフレームインと同時なので、絵は変わらない。 */
+            if (b.isEntering) this.duelBackstepArmed = true;
+            if (!this.duelBackstepArmed) return;
             if (!p.isGrounded) return;
             aimX = solveTargetX();
         }
