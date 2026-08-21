@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260820c';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260820c';
-import { createEnemy } from './enemy.js?v=screen-safe-20260820c';
-import { createBoss } from './boss.js?v=screen-safe-20260820c';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260820c';
-import { audio } from './audio.js?v=screen-safe-20260820c';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260820c';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260821a';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260821a';
+import { createEnemy } from './enemy.js?v=screen-safe-20260821a';
+import { createBoss } from './boss.js?v=screen-safe-20260821a';
+import { createObstacle } from './obstacle.js?v=screen-safe-20260821a';
+import { audio } from './audio.js?v=screen-safe-20260821a';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260821a';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260820c';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260820c';
+} from './stage6Grapple.js?v=screen-safe-20260821a';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260821a';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260820c';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260821a';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -40,6 +40,12 @@ const BG_PROP_FOOT_DEPTH = 12;
 // 定点の添景も反復側も同じ高さで置く(反復側のゆらぎ±8%も掛けない)。
 // 84px ≒ 台座込みで人の腰ほど＝路傍の石仏の実寸。
 const STAGE3_DOSOJIN_HEIGHT = 84;
+
+// 柵は【道沿いで背を揃える】。同じ道の柵なのに 92/84/82/80、反復側は 68/62 と
+// 高さを散らしていたので、数本が同時に見える所で「大きさの違う柵が乱立している」
+// 絵になった(実機フィードバック 2026-08-20)。柵は人が作った物なので、
+// 一本の道に沿う限り段は同じにする(反復側のゆらぎ±8%も掛けない)。
+const STAGE3_FENCE_HEIGHT = 80;
 
 // ──────────────────────────────────────────────────────────────
 // Stage3 の終盤(峠を抜けて城下町の前に立つまで)の組み立て
@@ -5497,11 +5503,11 @@ export class Stage {
         // 2〜3個で意味のある「場面」を作り、場面と場面の間はしっかり空ける。
         return [
             // 登り口: 崖側の柵、その先に道を照らす灯籠
-            { type: 'woodFence', worldX: 980,  height: 92,  y: 3, alpha: 1 },
+            { type: 'woodFence', worldX: 980,  height: STAGE3_FENCE_HEIGHT, y: 3, alpha: 1 },
             { type: 'stoneLantern', worldX: 1180, height: 106, y: 2, alpha: 1 },
             // 道の分かれ: 道標と、谷側を守る柵
             { type: 'signpost', worldX: 2660, height: 112, y: 4, alpha: 1 },
-            { type: 'woodFence', worldX: 2830, height: 84, y: 3, alpha: 1 },
+            { type: 'woodFence', worldX: 2830, height: STAGE3_FENCE_HEIGHT, y: 3, alpha: 1 },
             // 峠の祠: 双体道祖神に灯籠が寄り添う小さな祈りの場
             { type: 'dosojin', worldX: 4210, height: STAGE3_DOSOJIN_HEIGHT, y: 4, alpha: 1 },
             { type: 'stoneLantern', worldX: 4360, height: 92, y: 3, alpha: 1 },
@@ -5510,7 +5516,7 @@ export class Stage {
             { type: 'mountainSign', worldX: 5700, height: 126, y: 4, alpha: 1, clearance: 460 },
             // 下り: 石仏と柵
             { type: 'dosojin', worldX: 7350, height: STAGE3_DOSOJIN_HEIGHT, y: 4, alpha: 1 },
-            { type: 'woodFence', worldX: 7500, height: 82, y: 3, alpha: 1 },
+            { type: 'woodFence', worldX: 7500, height: STAGE3_FENCE_HEIGHT, y: 3, alpha: 1 },
             // 【山道と里の境目】。昔の関所の跡を「場面」として組む。
             // 石垣を一つ置いただけでは何てことのない石の山にしか見えなかったので
             // (実機フィードバック 2026-08-18)、峠の祠(道祖神＋灯籠)と同じ作りで
@@ -5532,7 +5538,7 @@ export class Stage {
             { type: 'signpost', worldX: STAGE3_LANDMARK_WORLD_X + 178, height: 150, y: 4, alpha: 1 },
             // 里の入口: 灯籠と柵
             { type: 'stoneLantern', worldX: 9860, height: 96, y: 3, alpha: 1 },
-            { type: 'woodFence', worldX: 10030, height: 80, y: 3, alpha: 1 }
+            { type: 'woodFence', worldX: 10030, height: STAGE3_FENCE_HEIGHT, y: 3, alpha: 1, clearance: 820 }
         ];
     }
 
@@ -5743,15 +5749,18 @@ export class Stage {
         // 2つ一組の「場面」で置き、組と組の間は空ける(nullの枠がその間)。
         // alpha は不透明。遠さは色調フィルタで出す(半透明にすると空が透けて幽霊になる)
         const plan = [
-            // 崖側に柵が続く
-            [{ type: 'woodFence', h: 68, dx: -34 }, { type: 'woodFence', h: 62, dx: 118 }],
+            // 崖側に柵が続く。柵は道沿いで背を揃える(STAGE3_FENCE_HEIGHT)ので
+            // ここも fixedSize。2枚目は1枚目の右端に継いで一本の柵として読ませる。
+            [{ type: 'woodFence', h: STAGE3_FENCE_HEIGHT, dx: -34, fixedSize: true },
+             { type: 'woodFence', h: STAGE3_FENCE_HEIGHT, dxAfterPrev: -2, fixedSize: true }],
             null,
             // 道端の祈り。石仏は高さ固定(定点の道祖神と揃える)
             [{ type: 'dosojin', h: STAGE3_DOSOJIN_HEIGHT, dx: -18, fixedSize: true },
              { type: 'stoneLantern', h: 82, dx: 116 }],
             null,
             // 灯籠のそばに短い柵
-            [{ type: 'stoneLantern', h: 88, dx: 18 }, { type: 'woodFence', h: 64, dx: 150 }],
+            [{ type: 'stoneLantern', h: 88, dx: 18 },
+             { type: 'woodFence', h: STAGE3_FENCE_HEIGHT, dx: 150, fixedSize: true }],
             null
         ];
         const span = 760;
@@ -5795,6 +5804,7 @@ export class Stage {
             // 【組は丸ごと置くか、丸ごと見送るか】。片方だけ置くと組の意味が
             // 消えて単品を撒いたのと同じになる。まず組全体の寸法を出す。
             const placed = [];
+            let prevRight = null;
             for (const item of group) {
                 const image = images[item.type];
                 if (!image || !image.complete || image.naturalWidth <= 0 || image.naturalHeight <= 0) continue;
@@ -5802,7 +5812,12 @@ export class Stage {
                     ? item.h
                     : item.h * (0.92 + this.noise1D(seed + 3.4 + item.dx) * 0.16);
                 const width = height * (image.naturalWidth / image.naturalHeight);
-                placed.push({ item, image, height, width, drawX: x + item.dx });
+                // dxAfterPrev は「前の物の右端から」の位置。柵の2枚目をここで継ぐ
+                const drawX = (Number.isFinite(item.dxAfterPrev) && prevRight !== null)
+                    ? prevRight + item.dxAfterPrev
+                    : x + item.dx;
+                placed.push({ item, image, height, width, drawX });
+                prevRight = drawX + width;
             }
             if (placed.length < group.length) continue;
 

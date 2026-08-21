@@ -2,9 +2,9 @@
 // Unification of the Nation - 障害物クラス
 // ============================================
 
-import { OBSTACLE_TYPES, OBSTACLE_SETTINGS, LANE_OFFSET } from './constants.js?v=screen-safe-20260820c';
-import { audio } from './audio.js?v=screen-safe-20260820c';
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260820c';
+import { OBSTACLE_TYPES, OBSTACLE_SETTINGS, LANE_OFFSET } from './constants.js?v=screen-safe-20260821a';
+import { audio } from './audio.js?v=screen-safe-20260821a';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260821a';
 
 const OBSTACLE_SPRITE_PATHS = {
     spike: 'images/obstacle_spike_bamboo_trap.png',

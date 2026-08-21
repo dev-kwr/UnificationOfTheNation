@@ -98,13 +98,17 @@ export function applyShogunRendererMixin(PlayerClass) {
     // 頭部
     PlayerClass.prototype._drawShogunHead = function(ctx, p) {
         const { headCenterX, headY, headRadius, silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor, outlineExpand } = p;
-        if (silhouetteOutlineEnabled) {
-            ctx.strokeStyle = silhouetteOutlineColor;
-            ctx.lineWidth = outlineExpand;
-            ctx.beginPath(); ctx.arc(headCenterX, headY, headRadius, 0, Math.PI * 2); ctx.stroke();
+        // 隠れ身(alpha 0)では素体も兜も描かず、角だけを兜オーバーレイに任せる
+        const bodyVisible = !(p.alpha <= 0);
+        if (bodyVisible) {
+            if (silhouetteOutlineEnabled) {
+                ctx.strokeStyle = silhouetteOutlineColor;
+                ctx.lineWidth = outlineExpand;
+                ctx.beginPath(); ctx.arc(headCenterX, headY, headRadius, 0, Math.PI * 2); ctx.stroke();
+            }
+            ctx.fillStyle = silhouetteColor;
+            ctx.beginPath(); ctx.arc(headCenterX, headY, headRadius, 0, Math.PI * 2); ctx.fill();
         }
-        ctx.fillStyle = silhouetteColor;
-        ctx.beginPath(); ctx.arc(headCenterX, headY, headRadius, 0, Math.PI * 2); ctx.fill();
 
         this._drawShogunHelmetOverlay(ctx, p);
     };
@@ -112,6 +116,9 @@ export function applyShogunRendererMixin(PlayerClass) {
     // 兜オーバーレイ
     PlayerClass.prototype._drawShogunHelmetOverlay = function(ctx, p) {
         const { headCenterX, headY, headRadius, dir, headSpinAngle } = p;
+        // 隠れ身では鉢・しころは出さない。角だけを渡された不透明度で描く
+        const bodyVisible = !(p.alpha <= 0);
+        const hornAlpha = Number.isFinite(p.hornAlpha) ? p.hornAlpha : null;
         const hr = headRadius;
         ctx.save();
         ctx.translate(headCenterX, headY);
@@ -134,6 +141,7 @@ export function applyShogunRendererMixin(PlayerClass) {
                シルエットに入れると光る形が角の分だけ上へ跳ね、兜の輪郭が読めなくなる。
                ユーザー指示(2026-08-20)で「角はオーラ不要」。 */
             if (this._auraSilhouettePass) return;
+            if (hornAlpha !== null) { ctx.save(); ctx.globalAlpha = hornAlpha; }
             const cGold = isFar ? '#a08832' : '#dcb854';
             const hp = (typeof window !== 'undefined' && window.hornParams) || {
                 farBaseX: -0.03, farBaseY: 0.18, farAngle: 7.00, farTipX: 0.20, farFront: 0.40, farBack: -0.14, farLength: 2.60, farRoot: 2.00,
@@ -163,9 +171,11 @@ export function applyShogunRendererMixin(PlayerClass) {
                 ctx.quadraticCurveTo(0, hw * hp.nearRoot, 0 + hw, 0 - hw * 0.5);
             }
             ctx.closePath(); ctx.fill(); ctx.restore();
+            if (hornAlpha !== null) ctx.restore();
         };
 
         drawHorn(true);
+        if (!bodyVisible) { drawHorn(false); ctx.restore(); return; }
 
         const shkSteps = 5, shkStepH = hr * 0.32, shkSpreadBack = hr * 0.15, shkSpreadFwd = hr * 0.02, shkFwdBase = hr * 0.25, shkBackBase = -hr * 1.15, shkStartY = helmBaseY - hr * 0.40;
         for (let s = shkSteps - 1; s >= 0; s--) {

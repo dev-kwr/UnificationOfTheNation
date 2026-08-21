@@ -1,20 +1,20 @@
 // Unification of the Nation - 描画系 mixin
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260820c';
-import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260820c';
-import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260820c';
-import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260820c';
-import { audio } from './audio.js?v=screen-safe-20260820c';
-import { game } from './game.js?v=screen-safe-20260820c';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260821a';
+import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260821a';
+import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260821a';
+import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260821a';
+import { audio } from './audio.js?v=screen-safe-20260821a';
+import { game } from './game.js?v=screen-safe-20260821a';
 import {
     ANIM_STATE, COMBO_ATTACKS, PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
-} from './playerData.js?v=screen-safe-20260820c';
-import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260820c';
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260820c';
+} from './playerData.js?v=screen-safe-20260821a';
+import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260821a';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260821a';
 import {
     SHOGUN_SCALE,
     SHOGUN_ACTOR_BASE_HEIGHT,
@@ -40,7 +40,7 @@ import {
     NINJA_CROUCH_LIFT_AMP,
     SHOGUN_CROUCH_LIFT_AMP,
     SHOGUN_RUN_STRIDE_CENTER_BIAS
-} from './shogunConstants.js?v=screen-safe-20260820c';
+} from './shogunConstants.js?v=screen-safe-20260821a';
 
 export function applyRendererMixin(PlayerClass) {
     applyShogunRendererMixin(PlayerClass);
@@ -1360,7 +1360,12 @@ export function applyRendererMixin(PlayerClass) {
             const filterBefore = ctx.filter;
             if (bodyHitFilter) ctx.filter = bodyHitFilter;
             const bodyRecoiled = this.applyHurtRecoilTransform(ctx);
-            this.renderModel(ctx, actorRenderX, actorRenderY, this.facingRight, ghostAlpha, true, {});
+            /* 【隠れ身では角だけ残す】。忍者の鉢巻と同じ役目。ここで読む
+               ctx.globalAlpha は呼び出し側(ステージの暗転など)の不透明度なので、
+               それを上限にして角を描く(1.0 固定にすると暗転中に角だけ残る)。 */
+            const hornAlpha = ghostAlpha > 0 ? undefined : ctx.globalAlpha;
+            this.renderModel(ctx, actorRenderX, actorRenderY, this.facingRight, ghostAlpha, true,
+                hornAlpha === undefined ? {} : { hornAlpha });
             if (bodyRecoiled) ctx.restore();
             if (bodyHitFilter) ctx.filter = filterBefore;
         } finally {
@@ -3115,7 +3120,14 @@ export function applyRendererMixin(PlayerClass) {
             };
         };
         const drawHeadSilhouetteWithOutline = () => {
-            if (alpha <= 0) return;
+            /* 【隠れ身でも角だけは通す】。忍者は鉢巻を不透明で残して居場所が分かるが、
+               将軍は alpha 0 でここを丸ごと止めていたので刀しか残らなかった
+               (ユーザー指摘 2026-08-20)。角の不透明度が渡っているときだけ、
+               alpha 0 でもフックを呼ぶ(素体を描かず角だけ描くのはフック側の責任)。 */
+            const hornOnly = alpha <= 0
+                && typeof options.drawHeadOverride === 'function'
+                && Number.isFinite(options.hornAlpha) && options.hornAlpha > 0;
+            if (alpha <= 0 && !hornOnly) return;
             if (options.hideBodyParts) return;
             // 将軍等のパーツ差し替えフック
             if (typeof options.drawHeadOverride === 'function') {
@@ -3124,6 +3136,7 @@ export function applyRendererMixin(PlayerClass) {
                     torsoShoulderX, bodyTopY,
                     silhouetteColor, silhouetteOutlineEnabled, silhouetteOutlineColor,
                     outlineExpand, alpha,
+                    hornAlpha: options.hornAlpha,
                     // 宙返り(step4)等の頭回転。将軍の兜/角もこれで本体と一緒に回す。
                     headSpinAngle
                 });
