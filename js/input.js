@@ -2,8 +2,8 @@
 // Unification of the Nation - 入力管理
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, KEYS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, isVirtualPadVisible, isBgmButtonVisible } from './constants.js?v=screen-safe-20260919a';
-import { audio } from './audio.js?v=screen-safe-20260919a';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, KEYS, VIRTUAL_PAD, getDeviceProfile, getPadLayout, isVirtualPadVisible, isBgmButtonVisible } from './constants.js?v=screen-safe-20260919b';
+import { audio } from './audio.js?v=screen-safe-20260919b';
 
 class InputManager {
     constructor() {
@@ -81,8 +81,16 @@ class InputManager {
                 : 0.93,
             releaseThreshold: Number.isFinite(VIRTUAL_PAD.STICK_DASH_RELEASE_THRESHOLD)
                 ? VIRTUAL_PAD.STICK_DASH_RELEASE_THRESHOLD
-                : 0.82
+                : 0.82,
+            minHorizontal: Number.isFinite(VIRTUAL_PAD.STICK_DASH_MIN_HORIZONTAL)
+                ? VIRTUAL_PAD.STICK_DASH_MIN_HORIZONTAL
+                : 0.50,
+            releaseHorizontal: Number.isFinite(VIRTUAL_PAD.STICK_DASH_RELEASE_HORIZONTAL)
+                ? VIRTUAL_PAD.STICK_DASH_RELEASE_HORIZONTAL
+                : 0.42
         };
+        // 上へ倒してジャンプを押している最中か（入りと切れで閾値が違うので状態で持つ）
+        this.stickUpLatched = false;
         this.lastKeyTimes = { LEFT: 0, RIGHT: 0 };
         this.doubleTapDash = {
             active: false,
@@ -520,7 +528,7 @@ class InputManager {
         this.virtualStick.ny = ny;
 
         const actions = this.getStickActionsFromNormalized(nx, ny);
-        if (this.updateStickDashState(nx)) {
+        if (this.updateStickDashState(nx, ny)) {
             actions.push('DASH');
         }
         return actions;
@@ -534,25 +542,38 @@ class InputManager {
             if (nx <= -pad.STICK_HORIZONTAL_THRESHOLD) actions.push('LEFT');
             if (nx >= pad.STICK_HORIZONTAL_THRESHOLD) actions.push('RIGHT');
         }
-        if (Math.abs(ny) >= pad.STICK_DEADZONE) {
-            if (ny <= pad.STICK_UP_THRESHOLD) actions.push('JUMP');
-            if (ny >= pad.STICK_DOWN_THRESHOLD) actions.push('DOWN');
+        // 上(ジャンプ)は入りと切れで閾値を分ける。入りは浅く、切れはさらに浅くして、
+        // 倒し直しが指先の小さな上下で済むようにする。
+        if (this.stickUpLatched) {
+            if (ny > pad.STICK_UP_RELEASE_THRESHOLD) this.stickUpLatched = false;
+        } else if (ny <= pad.STICK_UP_THRESHOLD) {
+            this.stickUpLatched = true;
         }
+        if (this.stickUpLatched) actions.push('JUMP');
+        if (ny >= Math.max(pad.STICK_DEADZONE, pad.STICK_DOWN_THRESHOLD)) actions.push('DOWN');
         return actions;
     }
 
-    updateStickDashState(normalizedX) {
-        const absX = Math.abs(normalizedX);
-        const pushThreshold = this.stickDash.engageThreshold;
-        const resetThreshold = this.stickDash.releaseThreshold;
+    // スティックを上へ倒したままか。着地したらそのまま跳ぶ判定に使う
+    // （跳ぶたびに指を戻して倒し直す必要をなくす）。
+    isStickJumpHeld() {
+        return !!(this.virtualStick.active && this.stickUpLatched);
+    }
 
-        if (absX >= pushThreshold) {
-            this.stickDash.strongLatched = true;
-            this.stickDash.lastFlickDir = normalizedX >= 0 ? 1 : -1;
-        } else if (absX <= resetThreshold) {
-            this.stickDash.strongLatched = false;
+    // 掛け金は【倒し量】で見る。水平成分だけで見ていたため、斜め上へ倒した瞬間に
+    // |nx| が 0.71 まで落ちて掛け金が外れ、走りながら跳ぶと必ず失速していた。
+    updateStickDashState(normalizedX, normalizedY = 0) {
+        const absX = Math.abs(normalizedX);
+        const tilt = Math.hypot(normalizedX, normalizedY);
+        const d = this.stickDash;
+
+        if (tilt >= d.engageThreshold && absX >= d.minHorizontal) {
+            d.strongLatched = true;
+            d.lastFlickDir = normalizedX >= 0 ? 1 : -1;
+        } else if (tilt <= d.releaseThreshold || absX < d.releaseHorizontal) {
+            d.strongLatched = false;
         }
-        return this.stickDash.strongLatched;
+        return d.strongLatched;
     }
 
     applyTouchBinding(touchId, nextActions) {
@@ -589,11 +610,13 @@ class InputManager {
         if (this.virtualStick.touchId === touchId) {
             this.resetVirtualStick();
             this.stickDash.strongLatched = false;
+            this.stickUpLatched = false;
         }
     }
 
     resetVirtualStick() {
         const center = this.getStickCenter();
+        this.stickUpLatched = false;
         this.virtualStick.active = false;
         this.virtualStick.touchId = null;
         this.virtualStick.baseX = center.x;
@@ -624,7 +647,8 @@ class InputManager {
 
     isTouchDashActive() {
         if (!this.virtualStick.active) return false;
-        return Math.abs(this.virtualStick.nx) >= this.stickDash.engageThreshold;
+        // 掛け金と同じ見方をする（水平成分だけで測ると斜め上で食い違う）。
+        return this.stickDash.strongLatched;
     }
     
     checkRectHit(touchX, touchY, cx, cy, halfSize) {

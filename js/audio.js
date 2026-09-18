@@ -366,7 +366,7 @@ class AudioManager {
     playJump() {
         this.init();
         // 立ち上がり（startTime）を 0.1秒飛ばし、速度を 1.8倍にしてキレを出す
-        this.playFileSfx('se/jump.mp3', 0.4, 1.8, 0.04);
+        this.playFileSfx('se/jump.mp3', 0.3, 1.8, 0.04);
     }
     playDash() {
         this.init();

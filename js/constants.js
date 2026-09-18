@@ -2,7 +2,7 @@
 // Unification of the Nation - 定数定義
 // ============================================
 
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260919a';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260919b';
 
 // キャンバスサイズ
 // CANVAS_WIDTH = 可視ワールド幅（ゲームプレイ窓）。世界ロジック(カメラ/クランプ/
@@ -207,7 +207,15 @@ export const VIRTUAL_PAD = {
     STICK_HORIZONTAL_THRESHOLD: 0.28,
     STICK_DASH_ENGAGE_THRESHOLD: 0.93,
     STICK_DASH_RELEASE_THRESHOLD: 0.82,
-    STICK_UP_THRESHOLD: -0.44,
+    // ダッシュの掛け金は【倒し量】で見る。水平成分だけで見ると、斜め上へ倒した
+    // 瞬間に |nx| が 0.71 まで落ちて掛け金が外れ、走りながら跳ぶと必ず失速した。
+    // 倒し切っていれば維持し、水平成分がこれを下回ったときだけ外す。
+    STICK_DASH_MIN_HORIZONTAL: 0.50,
+    STICK_DASH_RELEASE_HORIZONTAL: 0.42,
+    // 上(ジャンプ)は入りと切れで別の閾値を持つ。同じ値だと境目で指が揺れるだけで
+    // 押し直しになり、倒し直しの往復も深くなる(実機フィードバック 2026-09-19)。
+    STICK_UP_THRESHOLD: -0.36,
+    STICK_UP_RELEASE_THRESHOLD: -0.16,
     STICK_DOWN_THRESHOLD: 0.38,
     // スティック中心からの相対配置（左下）。この相対関係は崩さない
     // ＝左端を揃えるときはポーズだけでなくスティックごと動かす

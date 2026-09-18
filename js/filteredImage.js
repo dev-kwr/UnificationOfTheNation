@@ -36,6 +36,47 @@ const cache = new Map();      // key -> { canvas, bytes, used, scaleX, scaleY }
 const scaleCount = new Map(); // 画像×フィルタ -> 見た倍率の数
 let totalBytes = 0;
 let tick = 0;
+// 最後に見たキャンバスの拡大率(段階に丸めたもの)。表示領域が変わったかの判定に使う。
+let lastCanvasScale = 0;
+
+/* 【焼く倍率は段階に丸める】。表示領域はわずかな事でも変わる ―― iOS Safari は
+   スクロールで URL バー/ツールバーが出入りするたびに高さが変わる。生の倍率を
+   そのまま鍵にすると、変わるたびに同じ絵を別倍率で焼き直して焼き上がりが積み増し、
+   MAX_SCALES_PER_IMAGE を超えた絵は【毎フレーム filter 経路】へ落ちる
+   ＝この最適化を入れる前(1フレーム13ms)より遅くなる。
+   実測(2026-09-19・stage1): 画面幅を6回変えるとキャッシュ 21.6MB→39.1MB、
+   背景9枚が遅い経路へ落ちた。
+   丸めは常に上へ(必要より細かく焼く側へ倒す。粗く焼くと絵が眠くなる)。 */
+const SCALE_STEPS_PER_OCTAVE = 6;   // 1段 ≒ 12%
+function quantizeScale(s) {
+    if (!(s > 0) || !Number.isFinite(s)) return s;
+    const e = Math.ceil(Math.log2(s) * SCALE_STEPS_PER_OCTAVE) / SCALE_STEPS_PER_OCTAVE;
+    return Math.pow(2, e);
+}
+
+// キャンバスの拡大率が段ごと変わったら、前の拡大率で焼いたぶんはもう使わない。
+// 捨てないとメモリが積むだけでなく、倍率の種類(MAX_SCALES_PER_IMAGE)を食い潰す。
+function noteCanvasScale(scale) {
+    const q = quantizeScale(scale);
+    if (lastCanvasScale && q !== lastCanvasScale) clearFilteredImageCache();
+    lastCanvasScale = q;
+}
+
+/* 倍率の種類を使い切ったときは、既に焼いてあるうち一番近いものを貼る。
+   filter 経路へ落とすと最適化前より遅くなるので、多少解像度が食い違っても
+   焼き上がりを使い回す方がよい(貼る寸法は変わらないので構図はずれない)。 */
+function findNearestBaked(base, scaleX) {
+    const prefix = base + '@';
+    let best = null;
+    let bestDiff = Infinity;
+    for (const [k, v] of cache) {
+        if (!k.startsWith(prefix)) continue;
+        const d = Math.abs(Math.log2(v.scaleX / scaleX));
+        if (d < bestDiff) { bestDiff = d; best = v; }
+    }
+    if (best) best.used = ++tick;
+    return best;
+}
 
 // 【キャッシュしてよいのは src を持つ画像だけ】。
 // 生成したキャンバス(stage5の階段など)は src を持たず、中身も後から描き替わりうる。
@@ -82,9 +123,9 @@ function getGraded(img, filter, scaleX, scaleY) {
     const hit = cache.get(key);
     if (hit) { hit.used = ++tick; return hit; }
 
-    // 拡縮が動いている層は焼かない
+    // 拡縮が動いている層は焼かない（既に焼いたものがあればそれを使い回す）
     const seen = scaleCount.get(base) || 0;
-    if (seen >= MAX_SCALES_PER_IMAGE) return null;
+    if (seen >= MAX_SCALES_PER_IMAGE) return findNearestBaked(base, scaleX);
 
     const cw = Math.max(1, Math.round(natW * scaleX));
     const ch = Math.max(1, Math.round(natH * scaleY));
@@ -154,8 +195,9 @@ export function drawImageGraded(ctx, img, ...args) {
     const tf = ctx.getTransform ? ctx.getTransform() : null;
     const tsx = tf && Math.abs(tf.a) > 1e-6 ? Math.abs(tf.a) : 1;
     const tsy = tf && Math.abs(tf.d) > 1e-6 ? Math.abs(tf.d) : 1;
-    const bakeSX = Math.min(Math.abs(dw / sw) * tsx, natW / sw);
-    const bakeSY = Math.min(Math.abs(dh / sh) * tsy, natH / sh);
+    noteCanvasScale(Math.max(tsx, tsy));
+    const bakeSX = Math.min(quantizeScale(Math.abs(dw / sw) * tsx), natW / sw);
+    const bakeSY = Math.min(quantizeScale(Math.abs(dh / sh) * tsy), natH / sh);
     const entry = getGraded(img, filter, bakeSX, bakeSY);
     if (!entry) {
         ctx.drawImage(img, ...args);   // 焼かなかったときは従来どおり(遅いが正しい)
@@ -178,6 +220,11 @@ export function clearFilteredImageCache() {
     cache.clear();
     scaleCount.clear();
     totalBytes = 0;
+}
+
+// 計測・デバッグ用（いま焼いている拡大率の段）
+export function getBakeScaleStep() {
+    return lastCanvasScale;
 }
 
 // 計測・デバッグ用
