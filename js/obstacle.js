@@ -2,9 +2,10 @@
 // Unification of the Nation - 障害物クラス
 // ============================================
 
-import { OBSTACLE_TYPES, OBSTACLE_SETTINGS, LANE_OFFSET } from './constants.js?v=screen-safe-20260821b';
-import { audio } from './audio.js?v=screen-safe-20260821b';
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260821b';
+import { OBSTACLE_TYPES, OBSTACLE_SETTINGS, LANE_OFFSET } from './constants.js?v=screen-safe-20260919a';
+import { audio } from './audio.js?v=screen-safe-20260919a';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260919a';
+import { getImage } from './imageCache.js?v=screen-safe-20260919a';
 
 const OBSTACLE_SPRITE_PATHS = {
     spike: 'images/obstacle_spike_bamboo_trap.png',
@@ -14,7 +15,11 @@ const OBSTACLE_SPRITE_PATHS = {
     rockTall: 'images/obstacle_rock_tall.png',
     rockJagged: 'images/obstacle_rock_jagged.png'
 };
-const obstacleSpriteCache = {};
+// 障害物の絵も【ステージ開始前に読み終える】対象に含める。ここが独自キャッシュの
+// ままだと、岩や罠だけは最初に画面へ入った瞬間に読み始める＝進みながら絵が
+// 差し替わる。src をキーにした共通キャッシュ(imageCache)へ寄せ、一覧は
+// stage.js の先読み表から参照させる。
+export const OBSTACLE_SPRITE_SOURCES = Object.values(OBSTACLE_SPRITE_PATHS);
 
 const ROCK_VISUAL_PALETTES = {
     slab: {
@@ -57,17 +62,9 @@ export function getRockVisualPalette(variant = 'slab') {
 }
 
 function loadObstacleSprite(key) {
-    if (typeof Image === 'undefined') return null;
-    if (!OBSTACLE_SPRITE_PATHS[key]) return null;
-    if (!obstacleSpriteCache[key]) {
-        const image = new Image();
-        image.decoding = 'async';
-        image.loading = 'eager';
-        image.src = OBSTACLE_SPRITE_PATHS[key];
-        image.decode?.().catch(() => {});
-        obstacleSpriteCache[key] = image;
-    }
-    return obstacleSpriteCache[key];
+    const src = OBSTACLE_SPRITE_PATHS[key];
+    if (!src) return null;
+    return getImage(src);
 }
 
 function isSpriteReady(image) {

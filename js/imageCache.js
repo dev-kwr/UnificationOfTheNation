@@ -115,6 +115,17 @@ export function areImagesSettled(srcList) {
     return true;
 }
 
+// 一覧のうち何枚が決着したか。開始待ちが長引いたときの進捗表示に使う。
+// 未生成の src は「まだ読み始めていない」＝未決着として数える。
+export function getImagesProgress(srcList) {
+    if (!Array.isArray(srcList) || srcList.length === 0) return { loaded: 0, total: 0 };
+    let loaded = 0;
+    for (const src of srcList) {
+        if (isImageSettled(_cache.get(src))) loaded++;
+    }
+    return { loaded, total: srcList.length };
+}
+
 // 通信量を節約したい環境か（データセーバー設定・低速回線）。
 // 「そのうち要る」ぶんの先読みだけを止める。実際に要るぶんの読み込みは止めない。
 export function shouldSkipPrefetch() {

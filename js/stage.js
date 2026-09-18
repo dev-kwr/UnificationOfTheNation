@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260821b';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260821b';
-import { createEnemy } from './enemy.js?v=screen-safe-20260821b';
-import { createBoss } from './boss.js?v=screen-safe-20260821b';
-import { createObstacle } from './obstacle.js?v=screen-safe-20260821b';
-import { audio } from './audio.js?v=screen-safe-20260821b';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260821b';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260919a';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260919a';
+import { createEnemy } from './enemy.js?v=screen-safe-20260919a';
+import { createBoss } from './boss.js?v=screen-safe-20260919a';
+import { createObstacle, OBSTACLE_SPRITE_SOURCES } from './obstacle.js?v=screen-safe-20260919a';
+import { audio } from './audio.js?v=screen-safe-20260919a';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260919a';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260821b';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260821b';
+} from './stage6Grapple.js?v=screen-safe-20260919a';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, getImagesProgress, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260919a';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260821b';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260919a';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -243,14 +243,20 @@ const STAGE_IMAGE_SOURCES = {
     },
 };
 
+// どのステージでも要る共通アセット。背景と同じタイミングで読み終えていないと、
+// 障害物だけが「画面に入った瞬間に読み始める」＝進みながら絵が差し替わる。
+// 全部で1.4MB程度なので、ステージごとに出し分けず常に待つ側へ入れる。
+const COMMON_STAGE_IMAGE_SOURCES = [...OBSTACLE_SPRITE_SOURCES];
+
 // ステージ番号に属する画像URLを平坦な配列で返す（先読み・完了判定用）。
 export function getStageImageSources(stageNumber) {
     const spec = STAGE_IMAGE_SOURCES[stageNumber];
-    if (!spec) return [];
+    if (!spec) return [...COMMON_STAGE_IMAGE_SOURCES];
     return [
         ...Object.values(spec.fields || {}),
         ...Object.values(spec.groups || {}).flatMap((group) => Object.values(group)),
         ...Object.values(spec.lists || {}).flat(),
+        ...COMMON_STAGE_IMAGE_SOURCES,
     ];
 }
 
@@ -269,6 +275,11 @@ export function prefetchStageImages(stageNumber) {
 // 先読みが決着したか（成功・失敗を問わない）。開始待ちの終了条件。
 export function areStageImagesSettled(stageNumber) {
     return areImagesSettled(getStageImageSources(stageNumber));
+}
+
+// 開始待ちの進捗（何枚中何枚が決着したか）。待ちが長引いたときの表示用。
+export function getStageImagesProgress(stageNumber) {
+    return getImagesProgress(getStageImageSources(stageNumber));
 }
 
 const OBSTACLE_CHANCE_BOOST = 0.8;

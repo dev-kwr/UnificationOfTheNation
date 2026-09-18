@@ -17,6 +17,10 @@ class AudioManager {
         this.bgmRetryRegistered = false;
         this.bgmRetryHandler = null;
         this.bgmPausedByGame = false;
+        // 画面が隠れて(バックグラウンド)止めたぶん。ゲーム側のポーズとは別に持つ。
+        // 一緒にすると、ポーズ中にホームへ戻って帰ってきたときに勝手に鳴り出す。
+        this.bgmPausedByHidden = false;
+        this.visibilityHandlingReady = false;
         this.activeBgmAudios = new Set();
         
         // 初期ボリューム
@@ -71,6 +75,62 @@ class AudioManager {
         });
 
         this.restoreMuteState();
+        this.setupPageVisibilityHandling();
+    }
+
+    // ============================================
+    // バックグラウンドへ回ったらBGMを止める
+    // ============================================
+    // HTMLAudioElement は画面が隠れても再生を続ける。ホーム画面に置いたPWA
+    // (standalone)では、ブラウザのタブのように閉じることも、コントロールセンターから
+    // 止めることもできない＝利用者の側に止める手段が無い(実機フィードバック 2026-09-19)。
+    // 隠れたら自分で止め、戻ったら元の状態へ復帰させる。
+    setupPageVisibilityHandling() {
+        if (typeof document === 'undefined' || typeof window === 'undefined') return;
+        if (this.visibilityHandlingReady) return;
+        this.visibilityHandlingReady = true;
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') this.handleAppHidden();
+            else this.handleAppVisible();
+        });
+        // iOS ではアプリ切替で pagehide だけが来ることがある(凍結・破棄の前触れ)。
+        window.addEventListener('pagehide', () => this.handleAppHidden());
+        window.addEventListener('pageshow', () => this.handleAppVisible());
+    }
+
+    handleAppHidden() {
+        if (this.bgmPausedByHidden) return;
+        this.bgmPausedByHidden = true;
+        // フェードは requestAnimationFrame で進むので、隠れている間は止まったままになる。
+        // フェード途中の(=消える予定の)BGMはここで畳み、現行BGMだけを一時停止で残す。
+        for (const audioElement of [...this.activeBgmAudios]) {
+            if (audioElement._isFadingOut) {
+                this.forceStopAudio(audioElement);
+            } else {
+                try { audioElement.pause(); } catch { /* 非致命 */ }
+            }
+        }
+        if (this.bgmAudio && !this.bgmAudio.paused) {
+            try { this.bgmAudio.pause(); } catch { /* 非致命 */ }
+        }
+        if (this.audioContext && this.audioContext.state === 'running') {
+            // suspend/resume は Promise を返さない実装(旧webkit)もあるので受けてから握る
+            try { this.audioContext.suspend?.()?.catch?.(() => {}); } catch { /* 非致命 */ }
+        }
+    }
+
+    handleAppVisible() {
+        if (!this.bgmPausedByHidden) return;
+        this.bgmPausedByHidden = false;
+        if (this.audioContext && this.audioContext.state === 'suspended') {
+            try { this.audioContext.resume?.()?.catch?.(() => {}); } catch { /* 非致命 */ }
+        }
+        // ゲーム側がポーズで止めていた／音を切っている場合は、止めたままにする。
+        if (this.bgmPausedByGame || this.isMuted) return;
+        if (this.bgmAudio && this.bgmAudio.paused && !this.bgmAudio._isFadingOut) {
+            // 復帰直後は自動再生が弾かれることがあるので、次のタップで拾えるようにする。
+            this.tryPlayCurrentBgm(true);
+        }
     }
 
     restoreMuteState() {
@@ -103,7 +163,8 @@ class AudioManager {
             this.bgmAudio.paused &&
             !this.isMuted &&
             !this.bgmAudio._isFadingOut &&
-            !this.bgmPausedByGame
+            !this.bgmPausedByGame &&
+            !this.bgmPausedByHidden
         ) {
             this.tryPlayCurrentBgm(true);
         }

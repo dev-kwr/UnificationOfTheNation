@@ -2,17 +2,17 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GRAVITY, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode } from './constants.js?v=screen-safe-20260821b';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260821b';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260821b';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260821b';
-import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260821b';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260821b';
-import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260821b';
-import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260821b';
-import { preloadImages, areImagesSettled } from './imageCache.js?v=screen-safe-20260821b';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260821b';
-import { input } from './input.js?v=screen-safe-20260821b';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GRAVITY, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode, getFontScale } from './constants.js?v=screen-safe-20260919a';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260919a';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260919a';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260919a';
+import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260919a';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260919a';
+import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260919a';
+import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260919a';
+import { preloadImages, areImagesSettled, getImagesProgress } from './imageCache.js?v=screen-safe-20260919a';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260919a';
+import { input } from './input.js?v=screen-safe-20260919a';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -69,18 +69,18 @@ const BOSS_DUEL_APPROACH_SETTLE_PX = 12;
    判断してしまう。跳び先はこのぶん先読みして決める。
    連撃の踏み込み量を変えたらここも測り直す(実測手順は memory 参照)。 */
 const STAGE6_ENTRANCE_ADVANCE_PX = 259;
-import { Player } from './player.js?v=screen-safe-20260821b';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260821b';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled } from './stage.js?v=screen-safe-20260821b';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260821b';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseButtons, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260821b';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260821b';
-import { saveManager } from './save.js?v=screen-safe-20260821b';
-import { shop } from './shop.js?v=screen-safe-20260821b';
-import { audio } from './audio.js?v=screen-safe-20260821b';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260821b';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260821b';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260821b';
+import { Player } from './player.js?v=screen-safe-20260919a';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260919a';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled, getStageImagesProgress } from './stage.js?v=screen-safe-20260919a';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260919a';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseButtons, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260919a';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260919a';
+import { saveManager } from './save.js?v=screen-safe-20260919a';
+import { shop } from './shop.js?v=screen-safe-20260919a';
+import { audio } from './audio.js?v=screen-safe-20260919a';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260919a';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260919a';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260919a';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -90,7 +90,15 @@ const CORNER_CLEARANCE_RATIO = 0.38;
 
 // 背景アセットのロード待ちの上限(ms)。これを超えたら揃っていなくても開始する
 // （回線不良や404で永久に暗転したままにならないための打ち切り）。
-const STAGE_ASSET_WAIT_MAX_MS = 4000;
+// 【4秒では足りない】。1ステージの背景は10MB前後あり、携帯回線では10秒を超える
+// ことが珍しくない。4秒で打ち切ると「開始はしたが絵は進みながら出てくる」に
+// なる(実機フィードバック 2026-09-19)。打ち切りは事故のための最後の逃げ道と
+// 割り切り、通常は必ず揃うまで待つ。待たせる間は下の表示で進捗を見せる。
+const STAGE_ASSET_WAIT_MAX_MS = 45000;
+// 待ちの表示を出し始めるまでの猶予(ms)と、出るまでのフェード(ms)。
+// 一瞬で終わる待ちに文字を出すと暗転がちらつくので、長引いたときだけ出す。
+const STAGE_ASSET_HINT_DELAY_MS = 900;
+const STAGE_ASSET_HINT_FADE_MS = 320;
 // ステージ開始から次ステージの先読みを始めるまでの猶予(ms)。
 const NEXT_STAGE_PREFETCH_DELAY_MS = 5000;
 // 地図⇔ステータスの暗転（片道の秒数。往復でこの2倍）。
@@ -1258,7 +1266,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260821b').then(module => {
+        import('./weapon.js?v=screen-safe-20260919a').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -2368,6 +2376,9 @@ class Game {
         this.resetStageEncounterLatches();
         this.stage6DuelLeadTargetPx = STAGE6_DUEL_CAMERA_LEAD_PX;
         this.stage6DuelLeadVel = 0;
+        // 背景と共通アセットの読み込みをここで始める。新規開始は口上(INTRO)を挟むので、
+        // その数秒をまるごとロードに使える（開始要求時の待ちがそのぶん短くなる）。
+        preloadStageImages(stageNum);
         this.stage = new Stage(stageNum);
         
         if (this.player) {
@@ -6665,6 +6676,7 @@ class Game {
         pending.waitMs += this.deltaTime * 1000;
         if (pending.side) {
             const images = pending.side === 'training' ? TRAINING_STAGE_IMAGES : BONUS_STAGE_IMAGES;
+            pending.progress = getImagesProgress(images);
             if (areImagesSettled(images) || pending.waitMs >= STAGE_ASSET_WAIT_MAX_MS) {
                 this.pendingStageStart = null;
                 if (pending.side === 'training') this.startTrainingStage();
@@ -6672,10 +6684,49 @@ class Game {
             }
             return;
         }
+        pending.progress = getStageImagesProgress(pending.stageNumber);
         if (areStageImagesSettled(pending.stageNumber) || pending.waitMs >= STAGE_ASSET_WAIT_MAX_MS) {
             this.pendingStageStart = null;
             this.startStage();
         }
+    }
+
+    // 背景アセット待ちの表示。暗幕の上に、いちばん静かな形で「止まっていない」
+    // ことだけを伝える。短い待ちには出さない（暗転がわずかに伸びるだけのほうが
+    // 場が乱れない）ので、長引いたときだけ薄く浮かせる。
+    renderStageAssetWait() {
+        const pending = this.pendingStageStart;
+        if (!pending) return;
+        const elapsed = pending.waitMs - STAGE_ASSET_HINT_DELAY_MS;
+        if (elapsed <= 0) return;
+        const alpha = Math.min(1, elapsed / STAGE_ASSET_HINT_FADE_MS);
+        const progress = pending.progress;
+        const total = progress?.total || 0;
+        const ratio = total > 0 ? Math.min(1, progress.loaded / total) : 0;
+
+        const ctx = this.ctx;
+        const fs = getFontScale();
+        const cx = SCREEN_WIDTH / 2;
+        const barW = Math.round(260 * fs);
+        const barH = Math.max(2, Math.round(2 * fs));
+        const barY = Math.round(CANVAS_HEIGHT * 0.62);
+        const textY = barY - Math.round(18 * fs);
+
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillStyle = 'rgba(214, 203, 178, 0.82)';
+        ctx.font = `500 ${Math.round(17 * fs)}px "Zen Old Mincho", serif`;
+        ctx.fillText('読込中', cx, textY);
+        // 下地(読めていない分)と、読めた分。線1本だけに留めて場を汚さない。
+        ctx.fillStyle = 'rgba(214, 203, 178, 0.18)';
+        ctx.fillRect(cx - barW / 2, barY, barW, barH);
+        if (ratio > 0) {
+            ctx.fillStyle = 'rgba(201, 185, 143, 0.85)';
+            ctx.fillRect(cx - barW / 2, barY, Math.round(barW * ratio), barH);
+        }
+        ctx.restore();
     }
 
     // ---- ステージセレクト（全体マップ）----
@@ -7405,6 +7456,7 @@ class Game {
             this.ctx.fillStyle = '#000000';
             this.ctx.fillRect(0, 0, SCREEN_WIDTH, CANVAS_HEIGHT);
             this.ctx.restore();
+            this.renderStageAssetWait();
         }
 
         // 画面遷移フェード（簡易実装）
