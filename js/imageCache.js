@@ -115,6 +115,34 @@ export function areImagesSettled(srcList) {
     return true;
 }
 
+/* 【もう使わない絵は捨てる】。セッション中ずっと抱えていたので、場を進むほど
+   デコード済みのビットマップが積み上がった(PNGで77MB・デコード後248MB。
+   第三階層まで進めば半分近くを抱える)。iOS はタブが使えるメモリが厳しく、
+   積むほど GPU 側のテクスチャの出し入れが増える＝進むほど重くなる
+   (実機フィードバック 2026-09-19: fps 71→57・遅いフレーム 8%→39%。
+   このとき JS 側は upd 0.97ms / drw 1.14ms で、詰まっているのは描画命令の
+   発行ではなかった)。
+   keepList に無い src は、キャッシュから外したうえで src も外して
+   デコード済みデータの解放を促す。次に要求されれば読み直す。 */
+export function releaseImagesExcept(keepList) {
+    const keep = new Set(Array.isArray(keepList) ? keepList : []);
+    let released = 0;
+    for (const [src, image] of [..._cache]) {
+        if (keep.has(src)) continue;
+        _cache.delete(src);
+        // 読み込み中のものまで止めると次に要るとき困るので、済んだものだけ手放す
+        if (image && image.complete) {
+            try { image.removeAttribute('src'); } catch { /* 非致命 */ }
+        }
+        released++;
+    }
+    // 行列に残っている「そのうち要る」ぶんも、対象外なら流さない
+    for (let i = _prefetchQueue.length - 1; i >= 0; i--) {
+        if (!keep.has(_prefetchQueue[i])) _prefetchQueue.splice(i, 1);
+    }
+    return released;
+}
+
 // 一覧のうち何枚が決着したか。開始待ちが長引いたときの進捗表示に使う。
 // 未生成の src は「まだ読み始めていない」＝未決着として数える。
 export function getImagesProgress(srcList) {
@@ -128,6 +156,11 @@ export function getImagesProgress(srcList) {
 
 // 通信量を節約したい環境か（データセーバー設定・低速回線）。
 // 「そのうち要る」ぶんの先読みだけを止める。実際に要るぶんの読み込みは止めない。
+// 計測・デバッグ用（いま抱えている枚数）
+export function getImageCacheSize() {
+    return _cache.size;
+}
+
 export function shouldSkipPrefetch() {
     if (typeof navigator === 'undefined') return false;
     const c = navigator.connection;

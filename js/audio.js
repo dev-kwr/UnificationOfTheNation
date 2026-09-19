@@ -29,6 +29,14 @@ class AudioManager {
         
         this.initialized = false;
         
+        /* 【SEは鳴らすたびに要素を増やさない】。プールの Audio を cloneNode して
+           鳴らしていたため、鳴らした数だけ要素とデコーダが積み上がった。iOS は
+           同時に扱える音声の数が限られ、積むほど鳴り出しが遅れていく
+           (実機フィードバック 2026-09-19「効果音がどんどん遅延していく」)。
+           一度デコードした音を使い回し、鳴らすときは軽い BufferSource を作る。 */
+        this.sfxBuffers = new Map();        // ファイルパス -> AudioBuffer
+        this.sfxBufferPending = new Map();  // デコード中のもの(二重取得を防ぐ)
+
         // 効果音重複防止用（クールダウン管理）
         this.lastPlayTimes = {}; // 'filename': timestamp
         this.defaultCooldownMs = 40; // 同一ファイルの基本クールダウン
@@ -197,6 +205,10 @@ class AudioManager {
                     
                     this.initialized = true;
                     console.log('Audio system initialized (Multi-stage)');
+
+                    // 先に要る音はここでデコードを始める(初回の一発目から軽い経路に乗る)
+                    ['se/cursor.mp3', 'se/gamestart.mp3', 'se/death.mp3', 'se/coin.mp3']
+                        .forEach((f) => this.ensureSfxBuffer(f));
                     
                     // 3段階目: 残りの SE ロード開始 (さらに遅延)
                     setTimeout(() => this.loadRemainingSfx(), 500);
@@ -240,6 +252,7 @@ class AudioManager {
                 audio.preload = 'auto';
                 this.sfxPool[key] = audio;
             }
+            this.ensureSfxBuffer(remaining[key]);   // Web Audio 側にも取り込む
             index++;
             setTimeout(loadNext, 200);
         };
@@ -247,6 +260,52 @@ class AudioManager {
         loadNext();
     }
     
+    // 音を一度だけ取り込んでデコードしておく（以後は使い回す）
+    ensureSfxBuffer(filePath) {
+        if (!filePath || !this.audioContext) return null;
+        if (this.sfxBuffers.has(filePath)) return this.sfxBuffers.get(filePath);
+        if (this.sfxBufferPending.has(filePath)) return null;
+        const ctx = this.audioContext;
+        const p = fetch(filePath)
+            .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
+            .then((buf) => ctx.decodeAudioData(buf))
+            .then((decoded) => {
+                this.sfxBuffers.set(filePath, decoded);
+                this.sfxBufferPending.delete(filePath);
+            })
+            .catch(() => {
+                // 取れない/デコードできない音は従来の経路へ落とす（鳴らない事故を作らない）
+                this.sfxBufferPending.delete(filePath);
+            });
+        this.sfxBufferPending.set(filePath, p);
+        return null;
+    }
+
+    /* デコード済みの音を鳴らす。鳴らせたら true。
+       音量は従来の HTMLAudio 経路(sfxVolume × 指定)と同じになるよう destination へ
+       直に繋ぐ。ミュートは呼び出し元(playFileSfx)で弾いている。 */
+    playBufferSfx(filePath, volume, playbackRate, startTime) {
+        const ctx = this.audioContext;
+        const buffer = this.sfxBuffers.get(filePath);
+        if (!ctx || !buffer || ctx.state === 'closed') return false;
+        try {
+            const src = ctx.createBufferSource();
+            src.buffer = buffer;
+            if (Number.isFinite(playbackRate) && playbackRate > 0) src.playbackRate.value = playbackRate;
+            const gain = ctx.createGain();
+            gain.gain.value = Math.max(0, volume);
+            src.connect(gain);
+            gain.connect(ctx.destination);
+            const offset = Math.max(0, Math.min(buffer.duration - 0.01, startTime || 0));
+            src.start(0, offset);
+            // 鳴り終わったら切り離す(ノードを残さない)
+            src.onended = () => { try { src.disconnect(); gain.disconnect(); } catch { /* 非致命 */ } };
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     // ノイズ生成 (SE用)
     createNoise(duration = 0.1) {
         if (!this.audioContext) return null;
@@ -274,6 +333,11 @@ class AudioManager {
             }
             this.lastPlayTimes[fileName] = now;
         }
+
+        // 鳴らせるならデコード済みの音で鳴らす(要素を増やさない)
+        if (this.playBufferSfx(filePath, this.sfxVolume * volume, playbackRate, startTime)) return;
+        // まだ取り込めていない音は、ここで取り込みを始めて今回だけ従来の経路で鳴らす
+        this.ensureSfxBuffer(filePath);
 
         // プリロード済みプールにあるか確認
         let sfx;

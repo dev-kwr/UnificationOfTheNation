@@ -2,17 +2,17 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GRAVITY, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode, getFontScale } from './constants.js?v=screen-safe-20260919c';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260919c';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260919c';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260919c';
-import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260919c';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260919c';
-import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260919c';
-import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260919c';
-import { preloadImages, areImagesSettled, getImagesProgress } from './imageCache.js?v=screen-safe-20260919c';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260919c';
-import { input } from './input.js?v=screen-safe-20260919c';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GRAVITY, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode, getFontScale } from './constants.js?v=screen-safe-20260919d';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260919d';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260919d';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260919d';
+import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260919d';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260919d';
+import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260919d';
+import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260919d';
+import { preloadImages, areImagesSettled, getImagesProgress } from './imageCache.js?v=screen-safe-20260919d';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260919d';
+import { input } from './input.js?v=screen-safe-20260919d';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -69,18 +69,18 @@ const BOSS_DUEL_APPROACH_SETTLE_PX = 12;
    判断してしまう。跳び先はこのぶん先読みして決める。
    連撃の踏み込み量を変えたらここも測り直す(実測手順は memory 参照)。 */
 const STAGE6_ENTRANCE_ADVANCE_PX = 259;
-import { Player } from './player.js?v=screen-safe-20260919c';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260919c';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled, getStageImagesProgress } from './stage.js?v=screen-safe-20260919c';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260919c';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseButtons, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260919c';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260919c';
-import { saveManager } from './save.js?v=screen-safe-20260919c';
-import { shop } from './shop.js?v=screen-safe-20260919c';
-import { audio } from './audio.js?v=screen-safe-20260919c';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260919c';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260919c';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260919c';
+import { Player } from './player.js?v=screen-safe-20260919d';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260919d';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled, getStageImagesProgress, releaseStageImagesExcept } from './stage.js?v=screen-safe-20260919d';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260919d';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseButtons, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260919d';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260919d';
+import { saveManager } from './save.js?v=screen-safe-20260919d';
+import { shop } from './shop.js?v=screen-safe-20260919d';
+import { audio } from './audio.js?v=screen-safe-20260919d';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260919d';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260919d';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260919d';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -1283,7 +1283,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260919c').then(module => {
+        import('./weapon.js?v=screen-safe-20260919d').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -1361,9 +1361,20 @@ class Game {
                 }
             }
 
-            this.state = GAME_STATE.PLAYING;
-            audio.playBgm('stage', this.currentStageNumber, 0);
-            this.startTransition();
+            /* 【ここも背景が揃うまで待つ】。「続きから」だけが requestStageStart を
+               通らず即 PLAYING にしていたため、初回アクセスで続きからを選ぶと
+               絵の無いまま始まっていた(実機フィードバック 2026-09-19)。
+               読み込みは直前の initStage が始めている。 */
+            const beginPlay = () => {
+                this.state = GAME_STATE.PLAYING;
+                audio.playBgm('stage', this.currentStageNumber, 0);
+                this.startTransition();
+            };
+            if (areStageImagesSettled(this.currentStageNumber)) {
+                beginPlay();
+            } else {
+                this.pendingStageStart = { stageNumber: this.currentStageNumber, waitMs: 0, onReady: beginPlay };
+            }
         });
     }
     
@@ -1375,6 +1386,10 @@ class Game {
         // 前のステージの色調フィルタ焼き上がりを捨てる。1ステージ先までしか
         // 先読みしない設計(imageCache)の意図に反してメモリが積むため。
         clearFilteredImageCache();
+        /* 【絵の本体も手放す】。焼き上がりだけ捨てても、元のデコード済み
+           ビットマップはセッション中ずっと残っていた。進むほど積み上がり、
+           iOS では進むほど重くなる(実機 2026-09-19)。いま居る場と次の場だけ残す。 */
+        releaseStageImagesExcept([this.currentStageNumber, this.currentStageNumber + 1]);
         // 地面の高さを本来のゲーム位置にリセット
         this.groundY = Math.round(CANVAS_HEIGHT * (2 / 3));
 
@@ -6743,8 +6758,10 @@ class Game {
         }
         pending.progress = getStageImagesProgress(pending.stageNumber);
         if (areStageImagesSettled(pending.stageNumber) || pending.waitMs >= STAGE_ASSET_WAIT_MAX_MS) {
+            const onReady = pending.onReady;   // 「続きから」は startStage を通らない
             this.pendingStageStart = null;
-            this.startStage();
+            if (onReady) onReady();
+            else this.startStage();
         }
     }
 

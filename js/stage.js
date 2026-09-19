@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260919c';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260919c';
-import { createEnemy } from './enemy.js?v=screen-safe-20260919c';
-import { createBoss } from './boss.js?v=screen-safe-20260919c';
-import { createObstacle, OBSTACLE_SPRITE_SOURCES } from './obstacle.js?v=screen-safe-20260919c';
-import { audio } from './audio.js?v=screen-safe-20260919c';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260919c';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260919d';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260919d';
+import { createEnemy } from './enemy.js?v=screen-safe-20260919d';
+import { createBoss } from './boss.js?v=screen-safe-20260919d';
+import { createObstacle, OBSTACLE_SPRITE_SOURCES } from './obstacle.js?v=screen-safe-20260919d';
+import { audio } from './audio.js?v=screen-safe-20260919d';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260919d';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260919c';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, getImagesProgress, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260919c';
+} from './stage6Grapple.js?v=screen-safe-20260919d';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, getImagesProgress, releaseImagesExcept, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260919d';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260919c';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260919d';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -303,6 +303,14 @@ export function areStageImagesSettled(stageNumber) {
 // 開始待ちの進捗（何枚中何枚が決着したか）。待ちが長引いたときの表示用。
 export function getStageImagesProgress(stageNumber) {
     return getImagesProgress(getStageImageSources(stageNumber));
+}
+
+/* いま要る場（と、その次）以外の絵を手放す。場が変わるたびに呼ぶ。
+   抱えたままだと進むほどメモリが積み、iOS では進むほど重くなる。 */
+export function releaseStageImagesExcept(stageNumbers) {
+    const keep = [];
+    for (const n of stageNumbers) keep.push(...getStageImageSources(n));
+    return releaseImagesExcept(keep);
 }
 
 const OBSTACLE_CHANCE_BOOST = 0.8;
