@@ -2,17 +2,17 @@
 // Unification of the Nation - ゲームコア
 // ============================================
 
-import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GRAVITY, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode, getFontScale } from './constants.js?v=screen-safe-20260919b';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260919b';
-import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260919b';
-import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260919b';
-import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260919b';
-import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260919b';
-import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260919b';
-import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260919b';
-import { preloadImages, areImagesSettled, getImagesProgress } from './imageCache.js?v=screen-safe-20260919b';
-import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260919b';
-import { input } from './input.js?v=screen-safe-20260919b';
+import { CANVAS_WIDTH, SCREEN_WIDTH, CANVAS_HEIGHT, GRAVITY, GAME_STATE, STAGES, DIFFICULTY, OBSTACLE_TYPES, PLAYER, STAGE_DEFAULT_WEAPON, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER, UI_SIZE_ANCHOR, getDeviceProfile, setUiScaleFromFitScale, setCornerInsets, setNotchInsetX, setVirtualPadVisible, setBgmButtonVisible, isTouchOverlayMode, getFontScale } from './constants.js?v=screen-safe-20260919c';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260919c';
+import { isUpdateAvailable, applyUpdate, checkForUpdate } from './appUpdate.js?v=screen-safe-20260919c';
+import { getStageSelectLayout, renderStageSelect, STAGE_SELECT_ORDER } from './stageSelect.js?v=screen-safe-20260919c';
+import { clearFilteredImageCache, getFilteredImageCacheStats } from './filteredImage.js?v=screen-safe-20260919c';
+import { BonusStage, BONUS_STAGE_IMAGES } from './bonusStage.js?v=screen-safe-20260919c';
+import { TrainingStage, TRAINING_STAGE_IMAGES } from './trainingStage.js?v=screen-safe-20260919c';
+import { sideBestKey, normalizeSideBests, getSideBest } from './sideStageCommon.js?v=screen-safe-20260919c';
+import { preloadImages, areImagesSettled, getImagesProgress } from './imageCache.js?v=screen-safe-20260919c';
+import { readPhysicalScreen, computeScreenWidth } from './screenGeometry.js?v=screen-safe-20260919c';
+import { input } from './input.js?v=screen-safe-20260919c';
 
 // 最上層の会敵歩行の速度倍率。決戦前の一歩を重くするため通常より遅く歩かせる。
 const STAGE6_APPROACH_SPEED_SCALE = 0.46;   // 会敵歩行の速さ(通常歩行に対する比)
@@ -69,18 +69,18 @@ const BOSS_DUEL_APPROACH_SETTLE_PX = 12;
    判断してしまう。跳び先はこのぶん先読みして決める。
    連撃の踏み込み量を変えたらここも測り直す(実測手順は memory 参照)。 */
 const STAGE6_ENTRANCE_ADVANCE_PX = 259;
-import { Player } from './player.js?v=screen-safe-20260919b';
-import { createSubWeapon } from './weapon.js?v=screen-safe-20260919b';
-import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled, getStageImagesProgress } from './stage.js?v=screen-safe-20260919b';
-import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260919b';
-import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseButtons, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260919b';
-import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260919b';
-import { saveManager } from './save.js?v=screen-safe-20260919b';
-import { shop } from './shop.js?v=screen-safe-20260919b';
-import { audio } from './audio.js?v=screen-safe-20260919b';
-import { ShadowRenderer } from './shadow.js?v=screen-safe-20260919b';
-import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260919b';
-import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260919b';
+import { Player } from './player.js?v=screen-safe-20260919c';
+import { createSubWeapon } from './weapon.js?v=screen-safe-20260919c';
+import { Stage, preloadStageImages, prefetchStageImages, areStageImagesSettled, getStageImagesProgress } from './stage.js?v=screen-safe-20260919c';
+import { GRAPPLE_PHASE } from './stage6Grapple.js?v=screen-safe-20260919c';
+import { UI, renderTitleScreen, renderTitleDebugWindow, renderGameOverScreen, renderStatusScreen, renderStageClearAnnouncement, renderLevelUpChoiceScreen, getLevelUpChoiceLayout, renderSideResultScreen, getSideResultLayout, renderPauseScreen, getPauseButtons, renderGameClearScreen, renderIntro, renderEnding, getTitleScreenLayout, getStatusScreenLayout, getTitleDebugLayout, getUpdateModalLayout, renderBossNameBanner, getBossNameBannerBox } from './ui.js?v=screen-safe-20260919c';
+import { CollisionManager, checkPlayerEnemyCollision, checkEnemyAttackHit } from './collision.js?v=screen-safe-20260919c';
+import { saveManager } from './save.js?v=screen-safe-20260919c';
+import { shop } from './shop.js?v=screen-safe-20260919c';
+import { audio } from './audio.js?v=screen-safe-20260919c';
+import { ShadowRenderer } from './shadow.js?v=screen-safe-20260919c';
+import { applyShogunCombat } from './shogunCombatHelper.js?v=screen-safe-20260919c';
+import { getRockVisualPalette } from './obstacle.js?v=screen-safe-20260919c';
 
 // 端末ディスプレイの角丸推定（updateCornerInsets が使う）。
 // R ≒ 画面短辺 × 11%。退避量はコーナー円の幾何最小 0.293R に円形ボタンぶんの
@@ -328,6 +328,7 @@ class Game {
         this.stageTransitionTimer = 0;
         this.stageTransitionPhase = 0; // 0: None, 1: FadeOut, 2: Wait, 3: FadeIn
         // 背景アセットのロード待ち（{ stageNumber, waitMs } / 待ちなしは null）
+        this.perfOverlay = this.getPerfOverlayFromUrl();
         this.pendingStageStart = null;
         // 次ステージ先読みの開始までの残り時間(ms)。0 以下で発火済み/未予約。
         this._nextStagePrefetchMs = 0;
@@ -348,7 +349,12 @@ class Game {
     
     init(canvas) {
         this.canvas = canvas;
-        this.ctx = canvas.getContext('2d');
+        /* 【不透明なキャンバスとして取る】。毎フレーム全面を塗り潰しているので
+           透明な画素は一枚も残らない。既定(alpha:true)のままだと、ブラウザは
+           画面へ合成するたびに透明度を見に行く。iOS Safari は画素数が多いぶん
+           ここが効く(dpr 1.5 で 1920x1080 相当)。CSS側の背景も #000 なので
+           見た目は変わらない。 */
+        this.ctx = canvas.getContext('2d', { alpha: false });
 
         // レスポンシブ描画設定
         canvas.style.objectFit = 'contain';
@@ -906,6 +912,17 @@ class Game {
         }
     }
 
+    /** ?perf=1 の読み取り。実機での処理時間を画面に出すかどうか。 */
+    getPerfOverlayFromUrl() {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const raw = (params.get('perf') || '').toLowerCase();
+            return raw === '1' || raw === 'on' || raw === 'true';
+        } catch {
+            return false;
+        }
+    }
+
     /** ?screens= の読み取り(?at=finale で「ボス部屋の何画面手前から」)。既定は定数。 */
     getDebugFinaleScreensFromUrl() {
         try {
@@ -1266,7 +1283,7 @@ class Game {
         shop.reset();
 
         // 武器作成関数をインポート
-        import('./weapon.js?v=screen-safe-20260919b').then(module => {
+        import('./weapon.js?v=screen-safe-20260919c').then(module => {
             // 基本ステータス復元
             this.currentStageNumber = saveData.progress.currentStage;
             // セレクト画面の解放判定。旧セーブ(フィールド無し)は「保存された次のステージ
@@ -1585,6 +1602,43 @@ class Game {
         if (this.stage6ArenaEntryArc) this.transitionTimer = 0;
     }
     
+    /* ?perf=1 で処理時間を画面に出す。実機(特に iOS Safari)で何に時間を
+       使っているかは、手元の計測では分からない。指数移動平均で均して出す
+       ＝一瞬の跳ねではなく「常にどのくらいか」を読む。 */
+    notePerfSample(rawDeltaTime, updateMs, renderMs) {
+        const a = 0.06;   // 均し係数(1秒弱で追従)
+        const fps = rawDeltaTime > 0 ? 1 / rawDeltaTime : 0;
+        this.perfFps = this.perfFps ? this.perfFps + (fps - this.perfFps) * a : fps;
+        this.perfUpdateMs = this.perfUpdateMs ? this.perfUpdateMs + (updateMs - this.perfUpdateMs) * a : updateMs;
+        this.perfRenderMs = this.perfRenderMs ? this.perfRenderMs + (renderMs - this.perfRenderMs) * a : renderMs;
+        // 落ちたフレーム(1/45秒より遅い)の割合も見る。均しだけだと詰まりが隠れる。
+        const slow = rawDeltaTime > 1 / 45 ? 1 : 0;
+        this.perfSlowRatio = this.perfSlowRatio === undefined ? slow : this.perfSlowRatio + (slow - this.perfSlowRatio) * a;
+    }
+
+    renderPerfOverlay() {
+        if (!this.perfOverlay) return;
+        const ctx = this.ctx;
+        const lines = [
+            `fps ${(this.perfFps || 0).toFixed(1)}  遅 ${Math.round((this.perfSlowRatio || 0) * 100)}%`,
+            `upd ${(this.perfUpdateMs || 0).toFixed(2)}ms  drw ${(this.perfRenderMs || 0).toFixed(2)}ms`,
+            `dpr ${(this.canvas.width / Math.max(1, this.canvas.clientWidth)).toFixed(2)}${this._dprDowngraded ? ' (下げ済)' : ''}`,
+        ];
+        ctx.save();
+        ctx.font = '600 13px monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        const w = 186;
+        const h = lines.length * 16 + 10;
+        const x = SCREEN_WIDTH - w - 12;
+        const y = CANVAS_HEIGHT - h - 12;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.62)';
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = '#9fe6a0';
+        lines.forEach((t, i) => ctx.fillText(t, x + 8, y + 5 + i * 16));
+        ctx.restore();
+    }
+
     // メインループ
     loop(currentTime) {
         // デルタタイム計算（秒単位）
@@ -1670,11 +1724,14 @@ class Game {
         this.didRunUpdateThisFrame = false;
         try {
             // 更新
+            const perfT0 = this.perfOverlay ? performance.now() : 0;
             this.runFrameUpdates(updateDeltaTime);
             
             // 描画
             this.ensureViewportSync();
+            const perfT1 = this.perfOverlay ? performance.now() : 0;
             this.render();
+            if (this.perfOverlay) this.notePerfSample(rawDeltaTime, perfT1 - perfT0, performance.now() - perfT1);
         } catch (err) {
             console.error('Game loop error:', err);
         } finally {
@@ -7501,6 +7558,9 @@ class Game {
             this.playerHurtFlashAlpha -= this.deltaTime * 3.4; // フェードアウト速度
             if (this.playerHurtFlashAlpha < 0) this.playerHurtFlashAlpha = 0;
         }
+
+        // 計測の表示は最前面(?perf=1 のときだけ)
+        this.renderPerfOverlay();
     }
     
     // シーン遷移開始（フェードイン用）。render 側で deltaTime*2 で引くので

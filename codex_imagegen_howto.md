@@ -17,7 +17,7 @@ MCP でも API 直叩きでもない。**シェル越しの CLI 呼び出しが�
    │  Bash で実行
    ▼
 codex exec  ──────────► 組み込み image_gen ツール ──────► OpenAI 画像モデル
-(OpenAI Codex CLI)      (imagegen スキル)                (既定 gpt-image-2)
+(OpenAI Codex CLI)      (imagegen スキル)                (既定＝その時点の最上位版)
    │                                                          │
    │                            ~/.codex/generated_images/<セッションid>/exec-*.png
    │                                                          │
@@ -122,10 +122,19 @@ cp ~/.codex/generated_images/<セッションid>/exec-*.png out/NAME.png
 
 ### 4-1. サイズの選び方
 
-既定モデル `gpt-image-2` は `auto` か任意の `WIDTHxHEIGHT` を受け付ける。
+モデルは指定しない。組み込み `image_gen` も CLI も、**その時点で Codex が
+最上位に置いているモデル**を既定で使う。バージョンを追いかけて書き換える必要は
+無いし、古い名前を書き残す方が事故になる。いま何が既定かは次で分かる。
+
+```bash
+grep -n 'DEFAULT_MODEL' ~/.codex/skills/.system/imagegen/scripts/image_gen.py
+```
+
+既定モデルは `auto` か任意の `WIDTHxHEIGHT` を受け付ける。
 **用途の縦横比に合わせて選ぶ**のが基本。
 
-制約:
+制約(下はいずれも既定モデルのもの。モデルが上がったら
+`scripts/image_gen.py` の検証ロジックが正本):
 
 - 最長辺 `<= 3840px`
 - 両辺が `16px` の倍数
@@ -241,7 +250,9 @@ cp ~/.codex/generated_images/<id>/exec-*.png out/NAME.png
 
 ## 付録: 透過が必要な場合
 
-既定の `gpt-image-2` は `background=transparent` に非対応。
+既定モデルは `background=transparent` に非対応(Codex 側が「透過は旧モデルへ
+降格しないと出せない」と扱う)。降格は勝手にやらない約束になっているので、
+透過が要るときはこちらで抜く。
 透過が要る場合は **単色背景で生成してローカルで抜く**。
 
 プロンプトで「被写体の外は全部純緑 `#00ff00`」と指定して生成し、色相で抜く。

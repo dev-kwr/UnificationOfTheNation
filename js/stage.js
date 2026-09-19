@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260919b';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260919b';
-import { createEnemy } from './enemy.js?v=screen-safe-20260919b';
-import { createBoss } from './boss.js?v=screen-safe-20260919b';
-import { createObstacle, OBSTACLE_SPRITE_SOURCES } from './obstacle.js?v=screen-safe-20260919b';
-import { audio } from './audio.js?v=screen-safe-20260919b';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260919b';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260919c';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260919c';
+import { createEnemy } from './enemy.js?v=screen-safe-20260919c';
+import { createBoss } from './boss.js?v=screen-safe-20260919c';
+import { createObstacle, OBSTACLE_SPRITE_SOURCES } from './obstacle.js?v=screen-safe-20260919c';
+import { audio } from './audio.js?v=screen-safe-20260919c';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260919c';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260919b';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, getImagesProgress, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260919b';
+} from './stage6Grapple.js?v=screen-safe-20260919c';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, getImagesProgress, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260919c';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260919b';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260919c';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。
@@ -247,6 +247,29 @@ const STAGE_IMAGE_SOURCES = {
 // 障害物だけが「画面に入った瞬間に読み始める」＝進みながら絵が差し替わる。
 // 全部で1.4MB程度なので、ステージごとに出し分けず常に待つ側へ入れる。
 const COMMON_STAGE_IMAGE_SOURCES = [...OBSTACLE_SPRITE_SOURCES];
+
+// 星のにじみは1枚だけ焼いて使い回す。星ごとに放射グラデーションを作ると
+// 1フレームで20〜25個になり、グラデーションの生成が高くつく環境(iOS Safari)では
+// そこだけで効いてくる。中心が白・外へ透ける円は寸法を変えて貼れば足りるので、
+// 焼くのは一度でよい。
+let _starGlowSprite = null;
+function getStarGlowSprite() {
+    if (_starGlowSprite !== null) return _starGlowSprite;
+    if (typeof document === 'undefined') { _starGlowSprite = false; return false; }
+    const S = 64;
+    const c = document.createElement('canvas');
+    c.width = S; c.height = S;
+    const cx = c.getContext('2d');
+    if (!cx) { _starGlowSprite = false; return false; }
+    const half = S / 2;
+    const gr = cx.createRadialGradient(half, half, 0, half, half, half);
+    gr.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    gr.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    cx.fillStyle = gr;
+    cx.fillRect(0, 0, S, S);
+    _starGlowSprite = c;
+    return c;
+}
 
 // ステージ番号に属する画像URLを平坦な配列で返す（先読み・完了判定用）。
 export function getStageImageSources(stageNumber) {
@@ -8212,13 +8235,23 @@ export class Stage {
                 const glowRadius = this.stageNumber === 1
                     ? (2.2 + twinkle * 2.8)
                     : (2.8 + twinkle * 4.2);
-                const glow = ctx.createRadialGradient(x, y, 0, x, y, glowRadius);
-                glow.addColorStop(0, `rgba(255, 255, 255, ${alpha * (this.stageNumber === 1 ? 0.46 : 0.42)})`);
-                glow.addColorStop(1, 'rgba(255, 255, 255, 0)');
-                ctx.fillStyle = glow;
-                ctx.beginPath();
-                ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
-                ctx.fill();
+                const glowAlpha = alpha * (this.stageNumber === 1 ? 0.46 : 0.42);
+                const sprite = getStarGlowSprite();
+                if (sprite) {
+                    // 濃さは貼るときの globalAlpha で出す(焼いた絵は中心が不透明)
+                    const prevAlpha = ctx.globalAlpha;
+                    ctx.globalAlpha = prevAlpha * glowAlpha;
+                    ctx.drawImage(sprite, x - glowRadius, y - glowRadius, glowRadius * 2, glowRadius * 2);
+                    ctx.globalAlpha = prevAlpha;
+                } else {
+                    const glow = ctx.createRadialGradient(x, y, 0, x, y, glowRadius);
+                    glow.addColorStop(0, `rgba(255, 255, 255, ${glowAlpha})`);
+                    glow.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                    ctx.fillStyle = glow;
+                    ctx.beginPath();
+                    ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
             }
 
             // Stage 3 の夕暮れ星はやや薄い青白、他は白

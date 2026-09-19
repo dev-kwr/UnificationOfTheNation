@@ -2,11 +2,11 @@
 // Unification of the Nation - プレイヤークラス
 // ============================================
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260919b';
-import { input } from './input.js?v=screen-safe-20260919b';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260919c';
+import { input } from './input.js?v=screen-safe-20260919c';
 console.log('[player.js] Imported input instance:', input ? input.instanceId : 'undefined');
-import { audio } from './audio.js?v=screen-safe-20260919b';
-import { game } from './game.js?v=screen-safe-20260919b';
+import { audio } from './audio.js?v=screen-safe-20260919c';
+import { game } from './game.js?v=screen-safe-20260919c';
 import {
     ANIM_STATE, COMBO_ATTACKS, calcExpToNextForLevel,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN, LEVEL_UP_ATK_GAIN,
@@ -14,20 +14,20 @@ import {
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y
-} from './playerData.js?v=screen-safe-20260919b';
+} from './playerData.js?v=screen-safe-20260919c';
 import {
     applyNormalComboActiveMotion,
     applyNormalComboStartMotion,
     freezeNormalComboFinisherTrailCurve,
     prepareNormalComboFinisherProfile
-} from './normalComboMotion.js?v=screen-safe-20260919b';
-import { translateRibbonChains, resetRibbonChains } from './mobFx.js?v=screen-safe-20260919b';
-import { CLOTH_CHAIN, HEADBAND_TAIL_SPEC, stepClothSwing, stepClothNode } from './clothChain.js?v=screen-safe-20260919b';
-import { applyRendererMixin }    from './playerRenderer.js?v=screen-safe-20260919b';
-import { applySlashTrailMixin }  from './playerSlashTrail.js?v=screen-safe-20260919b';
-import { applySpecialMixin }     from './playerSpecial.js?v=screen-safe-20260919b';
-import { applyShogunCombat }    from './shogunCombatHelper.js?v=screen-safe-20260919b';
-import { applyDualComboMotion } from './dualComboMotion.js?v=screen-safe-20260919b';
+} from './normalComboMotion.js?v=screen-safe-20260919c';
+import { translateRibbonChains, resetRibbonChains } from './mobFx.js?v=screen-safe-20260919c';
+import { CLOTH_CHAIN, HEADBAND_TAIL_SPEC, stepClothSwing, stepClothNode } from './clothChain.js?v=screen-safe-20260919c';
+import { applyRendererMixin }    from './playerRenderer.js?v=screen-safe-20260919c';
+import { applySlashTrailMixin }  from './playerSlashTrail.js?v=screen-safe-20260919c';
+import { applySpecialMixin }     from './playerSpecial.js?v=screen-safe-20260919c';
+import { applyShogunCombat }    from './shogunCombatHelper.js?v=screen-safe-20260919c';
+import { applyDualComboMotion } from './dualComboMotion.js?v=screen-safe-20260919c';
 import {
     SHOGUN_ACTOR_BASE_HEIGHT,
     SHOGUN_ACTOR_BASE_WIDTH,
@@ -41,7 +41,7 @@ import {
     SHOGUN_CROUCH_STANCE_DUTY,
     NINJA_CROUCH_STRIDE_AMP,
     SHOGUN_CROUCH_STRIDE_AMP
-} from './shogunConstants.js?v=screen-safe-20260919b';
+} from './shogunConstants.js?v=screen-safe-20260919c';
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
