@@ -1,5 +1,5 @@
-import { LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260920d';
-import { NORMAL_COMBO_STEP3_LAUNCH_VY, NORMAL_COMBO_STEP3_LUNGE_HSCALE_COEF } from './playerData.js?v=screen-safe-20260920d';
+import { LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260920e';
+import { NORMAL_COMBO_STEP3_LAUNCH_VY, NORMAL_COMBO_STEP3_LUNGE_HSCALE_COEF } from './playerData.js?v=screen-safe-20260920e';
 
 const clamp01 = (value) => Math.max(0, Math.min(1, value));
 
@@ -39,9 +39,16 @@ export function prepareNormalComboFinisherProfile(attackProfile) {
    走り込んだぶんだけ残し、モーションが終わる頃に収まる速さで落とす。
    歩きから出す一撃目は従来どおり【その場で返す】。 */
 const STEP1_RUSH_KEEP = 0.55;       // 走り込みから始めるとき、開始時に残す割合
-const STEP1_RUSH_DECAY = 0.72;      // 勢いが残っている間の減衰(通常は 0.62)
+/* 一撃目のモーション(11フレーム)を走り抜けられる減衰にする。0.72 だと8フレームで
+   尽きて末尾に3フレームの静止が残り、二の太刀でまた加速する＝一度止まって見えた。 */
+const STEP1_RUSH_DECAY = 0.78;      // 勢いが残っている間の減衰(通常は 0.62)
 const STEP1_RUSH_MIN_RATIO = 1.05;  // 「走っている」とみなす速さ(通常移動に対する比)
-const STEP1_RUSH_TAIL_RATIO = 0.22; // これより細くなったら従来の減衰へ渡す
+/* 【走り込みは二の太刀まで持ち越す】。一撃目のモーションは11フレーム続くのに
+   勢いは8フレームで尽きるため、そのままでは二の太刀が止まった状態から始まり、
+   「走りながら斬り続ける」にならない。走り込んだ速さを覚えておき、二の太刀の
+   踏み込みへ上乗せして使い切る。三の太刀は元々大きく突進するので持ち越さない
+   (足すと敵を追い越す)。 */
+const STEP2_RUSH_CARRY = 0.35;      // 覚えておいた走り込みのうち、二の太刀へ渡す割合
 
 function isRushing(actor, speed) {
     return !!actor.isDashing || Math.abs(actor.vx) > speed * STEP1_RUSH_MIN_RATIO;
@@ -62,7 +69,10 @@ export function applyNormalComboStartMotion(actor, attackProfile, options = {}) 
 
     if (step === 1) {
         const groundedAtStart = actor.isGrounded;
-        actor.vx *= isRushing(actor, speed) ? STEP1_RUSH_KEEP : 0.12;
+        const rushing = isRushing(actor, speed);
+        // 落とす前の速さを覚える(二の太刀へ渡す。走っていなければ 0 で上書き)
+        actor._comboRushEntrySpeed = rushing ? Math.abs(actor.vx) : 0;
+        actor.vx *= rushing ? STEP1_RUSH_KEEP : 0.12;
         if (Math.abs(actor.vx) < 0.2) actor.vx = 0;
         if (groundedAtStart) {
             actor.vy = 0;
@@ -74,7 +84,10 @@ export function applyNormalComboStartMotion(actor, attackProfile, options = {}) 
     }
 
     if (step === 2) {
-        actor.vx = actor.vx * 0.16 + direction * impulse * 0.9;
+        // 一撃目へ入る前の走り込みを、ここで踏み込みへ上乗せして使い切る
+        const carry = direction * (actor._comboRushEntrySpeed || 0) * STEP2_RUSH_CARRY;
+        actor._comboRushEntrySpeed = 0;
+        actor.vx = actor.vx * 0.16 + direction * impulse * 0.9 + carry;
         if (actor.isGrounded) {
             actor.vy = 0;
             actor.isGrounded = true;
@@ -130,9 +143,10 @@ export function applyNormalComboActiveMotion(actor, activeAttack, attackTimer, o
 
     if (step === 1 && attackTimer > 0) {
         const direction = actor.facingRight ? 1 : -1;
-        // 走り込みが残っている間は緩やかに、細くなったら従来どおり素早く収める
-        const speedRef = Number.isFinite(options.speed) ? options.speed : (actor.speed || 6);
-        actor.vx *= Math.abs(actor.vx) > speedRef * STEP1_RUSH_TAIL_RATIO ? STEP1_RUSH_DECAY : 0.62;
+        /* 走り込みから入った一撃目だけ緩やかに収める。速さで切り替えると、細くなった
+           ところで減衰が変わって末尾に静止が残るので、この一撃の間は一貫させる
+           (走り込みの記憶は二の太刀で使い切るので、それが残っている間＝一撃目)。 */
+        actor.vx *= (actor._comboRushEntrySpeed || 0) > 0 ? STEP1_RUSH_DECAY : 0.62;
         if (actor.vx * direction < 0) actor.vx = 0;
         if (Math.abs(actor.vx) < 0.18) actor.vx = 0;
         if (actor.isGrounded) {
