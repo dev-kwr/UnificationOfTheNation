@@ -63,7 +63,8 @@ class AudioManager {
             // 他は遅延ロード
             deflect: null, landing: null, ooyari: null, shuriken: null, katana: null,
             combined: null, exp: null, change: null, levelup: null, skillup: null,
-            item: null, jump: null, dash: null, knockdown: null, damage: null, special: null
+            item: null, jump: null, dash: null, knockdown: null, damage: null, special: null,
+            max: null
         };
 
         // 必須 SE の初期ロード
@@ -223,7 +224,8 @@ class AudioManager {
             dash: 'se/dash.mp3',
             knockdown: 'se/knockdown.mp3',
             damage: 'se/damage.mp3',
-            special: 'se/special.mp3'
+            special: 'se/special.mp3',
+            max: 'se/max.mp3'
         };
 
         const keys = Object.keys(remaining);
@@ -331,8 +333,9 @@ class AudioManager {
 
     playSpecialReady() {
         this.init();
-        this.playSfx(523.25, 'sine', 0.1, 0.1, 1.0);
-        setTimeout(() => this.playSfx(1046.50, 'sine', 0.2, 0.2, 1.5), 100);
+        // 奥義が満ちた合図。以前は合成音を2つ重ねていた(ポヨンと鳴った)。
+        // 音量は控えめに、立ち上がりはプール直再生＋先頭無音を飛ばして速くする。
+        this.playFileSfx('se/max.mp3', 0.45, 1.0, 0.03, true);
     }
 
     playItemPurchase() {
@@ -439,15 +442,11 @@ class AudioManager {
     playPlayerDeath() {
         this.init();
         if (this.isMuted) return;
-        
-        // knockdown.mp3 をやまびこ状に再生 (0ms, 250ms, 500ms...)
-        const volumes = [1.0, 0.4, 0.15, 0.05];
-        volumes.forEach((v, i) => {
-            setTimeout(() => {
-                // 回を追うごとに少しずつピッチを下げる
-                this.playFileSfx('se/knockdown.mp3', v * 0.8, 1.0 - i * 0.05, 0.04);
-            }, i * 250);
-        });
+
+        // 「カーン」の一撃だけ。以前は250msおきにピッチを下げながら4回重ねて
+        // やまびこにしていたが、音程が下がっていくのが不評だった
+        // (実機フィードバック 2026-09-19)。
+        this.playFileSfx('se/knockdown.mp3', 0.8, 1.0, 0.04);
     }
 
     playBossDeath() {
