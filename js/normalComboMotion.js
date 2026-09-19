@@ -1,5 +1,5 @@
-import { LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260920b';
-import { NORMAL_COMBO_STEP3_LAUNCH_VY, NORMAL_COMBO_STEP3_LUNGE_HSCALE_COEF } from './playerData.js?v=screen-safe-20260920b';
+import { LANE_OFFSET, PLAYER } from './constants.js?v=screen-safe-20260920c';
+import { NORMAL_COMBO_STEP3_LAUNCH_VY, NORMAL_COMBO_STEP3_LUNGE_HSCALE_COEF } from './playerData.js?v=screen-safe-20260920c';
 
 const clamp01 = (value) => Math.max(0, Math.min(1, value));
 
@@ -32,6 +32,21 @@ export function prepareNormalComboFinisherProfile(attackProfile) {
     attackProfile.range = Math.max(attackProfile.range || 0, 128);
 }
 
+/* 【駆けている時の一撃目は勢いを残す】。開始で 0.12 倍まで落とし、さらに毎フレーム
+   0.62 倍にしていたため、走りながら出すと4フレームで止まり、以後モーションが終わる
+   まで7フレーム静止していた(実測: vx 8.7 → 1.04 → 0、前進はわずか1.3px)。
+   足が地面に貼り付いたように見える(実機フィードバック 2026-09-20)。
+   走り込んだぶんだけ残し、モーションが終わる頃に収まる速さで落とす。
+   歩きから出す一撃目は従来どおり【その場で返す】。 */
+const STEP1_RUSH_KEEP = 0.55;       // 走り込みから始めるとき、開始時に残す割合
+const STEP1_RUSH_DECAY = 0.72;      // 勢いが残っている間の減衰(通常は 0.62)
+const STEP1_RUSH_MIN_RATIO = 1.05;  // 「走っている」とみなす速さ(通常移動に対する比)
+const STEP1_RUSH_TAIL_RATIO = 0.22; // これより細くなったら従来の減衰へ渡す
+
+function isRushing(actor, speed) {
+    return !!actor.isDashing || Math.abs(actor.vx) > speed * STEP1_RUSH_MIN_RATIO;
+}
+
 export function applyNormalComboStartMotion(actor, attackProfile, options = {}) {
     if (!actor || !attackProfile) return false;
     const step = attackProfile.comboStep || 0;
@@ -47,7 +62,7 @@ export function applyNormalComboStartMotion(actor, attackProfile, options = {}) 
 
     if (step === 1) {
         const groundedAtStart = actor.isGrounded;
-        actor.vx *= 0.12;
+        actor.vx *= isRushing(actor, speed) ? STEP1_RUSH_KEEP : 0.12;
         if (Math.abs(actor.vx) < 0.2) actor.vx = 0;
         if (groundedAtStart) {
             actor.vy = 0;
@@ -115,7 +130,9 @@ export function applyNormalComboActiveMotion(actor, activeAttack, attackTimer, o
 
     if (step === 1 && attackTimer > 0) {
         const direction = actor.facingRight ? 1 : -1;
-        actor.vx *= 0.62;
+        // 走り込みが残っている間は緩やかに、細くなったら従来どおり素早く収める
+        const speedRef = Number.isFinite(options.speed) ? options.speed : (actor.speed || 6);
+        actor.vx *= Math.abs(actor.vx) > speedRef * STEP1_RUSH_TAIL_RATIO ? STEP1_RUSH_DECAY : 0.62;
         if (actor.vx * direction < 0) actor.vx = 0;
         if (Math.abs(actor.vx) < 0.18) actor.vx = 0;
         if (actor.isGrounded) {
