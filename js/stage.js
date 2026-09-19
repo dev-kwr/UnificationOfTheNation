@@ -2,23 +2,23 @@
 // Unification of the Nation - ステージ管理
 // ============================================
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260920c';
-import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260920c';
-import { createEnemy } from './enemy.js?v=screen-safe-20260920c';
-import { createBoss } from './boss.js?v=screen-safe-20260920c';
-import { createObstacle, OBSTACLE_SPRITE_SOURCES } from './obstacle.js?v=screen-safe-20260920c';
-import { audio } from './audio.js?v=screen-safe-20260920c';
-import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260920c';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SCREEN_WIDTH, STAGES, ENEMY_TYPES, OBSTACLE_TYPES, LANE_OFFSET, STAGE5_FLOOR, STAGE6_CORNER } from './constants.js?v=screen-safe-20260920d';
+import { BOSS_STAGING } from './bossStaging.js?v=screen-safe-20260920d';
+import { createEnemy } from './enemy.js?v=screen-safe-20260920d';
+import { createBoss } from './boss.js?v=screen-safe-20260920d';
+import { createObstacle, OBSTACLE_SPRITE_SOURCES } from './obstacle.js?v=screen-safe-20260920d';
+import { audio } from './audio.js?v=screen-safe-20260920d';
+import { generateStairsCanvas } from './stairRenderer.js?v=screen-safe-20260920d';
 import {
     GRAPPLE_PHASE, createGrappleState, isGrappleActive, grappleProgress,
     startGrapple, updateGrapple, updateGrappleVisual, grapplePullEase, grapplePullPosition,
     renderGrappleBehind, renderGrappleFront
-} from './stage6Grapple.js?v=screen-safe-20260920c';
-import { getImage, preloadImages, prefetchImages, areImagesSettled, getImagesProgress, releaseImagesExcept, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260920c';
+} from './stage6Grapple.js?v=screen-safe-20260920d';
+import { getImage, preloadImages, prefetchImages, areImagesSettled, getImagesProgress, releaseImagesExcept, shouldSkipPrefetch } from './imageCache.js?v=screen-safe-20260920d';
 // 画像描画は drawImageGraded を通す。ctx.filter が none のときは素通しで、
 // 掛かっているときだけフィルタ済みキャッシュを貼る(毎フレームの色調フィルタが
 // 低スペック端末での処理落ちの主因だった。詳細は filteredImage.js)。
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260920c';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260920d';
 
 /**
  * 背景の添景を床帯のどこに植えるか（groundY からの奥行き）。

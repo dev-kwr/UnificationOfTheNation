@@ -52,6 +52,33 @@ function reloadImage(image) {
     image.__uonRetrying = false;
 }
 
+/* 【要求を待たずに自分で読み直す】。Stage は生成時に Image を掴んで以後はその
+   フィールドを使うので、「要求されたら読み直す」仕掛けでは届かない ―― 一度落ちた
+   絵はその場が終わるまで欠けたままになり、単色の代替描画が出続ける
+   (実機フィードバック 2026-09-20: 第五階層の壁と床が読み込まれず単色のまま)。
+   掴まれている Image そのものの src を張り直すので、成功すれば描画側も直る。 */
+let _failedSweepTimer = null;
+function scheduleFailedSweep() {
+    if (_failedSweepTimer || typeof setTimeout !== 'function') return;
+    _failedSweepTimer = setTimeout(() => {
+        _failedSweepTimer = null;
+        let retried = 0;
+        let pending = 0;
+        for (const image of _cache.values()) {
+            if (!image.__uonFailed) continue;
+            if ((image.__uonLateRetries || 0) >= IMAGE_LATE_RETRY_MAX) continue;
+            image.__uonLateRetries = (image.__uonLateRetries || 0) + 1;
+            image.__uonFailed = false;
+            image.__uonTries = 0;
+            reloadImage(image);
+            retried++;
+            pending++;
+        }
+        if (pending > 0) scheduleFailedSweep();
+        if (retried > 0) console.warn(`[image] ${retried}枚を読み直しています`);
+    }, IMAGE_LATE_RETRY_INTERVAL_MS);
+}
+
 // 落ちたまま残っている絵を、間を置いて読み直す（真っ黒のまま固定されるのを防ぐ）
 function retryFailedImage(image) {
     if (!image.__uonSrc) return;
@@ -87,7 +114,10 @@ function createImage(src, { decode, priority }) {
             setTimeout(() => reloadImage(image), IMAGE_RETRY_DELAY_MS * image.__uonTries);
             return;
         }
+        // どの絵が落ちたかを残す(代替描画は「それらしく」見えるので気づきにくい)
         image.__uonFailed = true;
+        console.warn('[image] 読み込みに失敗:', src);
+        scheduleFailedSweep();
     });
     image.src = src;
     if (decode) requestDecode(image);
