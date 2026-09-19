@@ -22,6 +22,12 @@ class AudioManager {
         this.bgmPausedByHidden = false;
         this.visibilityHandlingReady = false;
         this.activeBgmAudios = new Set();
+        /* 【BGMの要素は曲ごとに1つだけ持つ】。鳴らすたびに new Audio していたため、
+           切り替えのたびに要素が増えた。iOS は同時に扱える音声の数が限られるので、
+           新しい方を作った瞬間に古い方が止められる＝ブツッと切れ、しかも新しい方は
+           読み直しになるので鳴り出すまで無音が続く
+           (実機フィードバック 2026-09-19「BGMがバツっと切れて地図のBGM開始まで無音」)。 */
+        this.bgmPool = new Map();
         
         // 初期ボリューム
         this.masterVolume = 0.6;
@@ -632,22 +638,38 @@ class AudioManager {
 
         // --- クロスフェードロジック ---
         const oldBgm = this.bgmAudio;
-        if (oldBgm) {
-            this.fadeOutBgm(oldBgm, fadeDuration);
-        }
-
-        // 新規BGM再生
-        const newBgm = new Audio(filePath);
-        newBgm.preload = 'auto';
-        newBgm.playsInline = true;
+        const newBgm = this.getBgmElement(filePath);
+        // 前に落としかけたまま行列に残っている場合があるので、掛け金を解いてから使う
+        newBgm._isFadingOut = false;
         newBgm.loop = true;
         newBgm.volume = 0; // フェードインのため 0 から開始
         newBgm.muted = !!this.isMuted;
-        
+        try { newBgm.currentTime = 0; } catch { /* 読み込み前は失敗する。非致命 */ }
+
+        /* 【差し替えてから前の曲を落とす】。落とすのが先だと、フェード0の呼び出しで
+           forceStopAudio が同期的に走り「今の曲＝落とした曲」と見て currentBgmType を
+           消してしまう(同じ曲かどうかの判定が以後効かなくなる)。 */
         this.bgmAudio = newBgm;
         this.activeBgmAudios.add(newBgm);
+        // 同じ曲を鳴らし直すときは要素が同じになる。自分を自分でフェードアウトしない。
+        if (oldBgm && oldBgm !== newBgm) {
+            this.fadeOutBgm(oldBgm, fadeDuration);
+        }
         this.tryPlayCurrentBgm(true);
         this.fadeInBgm(newBgm, fadeInDuration);
+    }
+
+    // 曲ごとの要素を返す(無ければ作る)。読み込みは一度きりで済む。
+    getBgmElement(filePath) {
+        let el = this.bgmPool.get(filePath);
+        if (!el) {
+            el = new Audio(filePath);
+            el.preload = 'auto';
+            el.playsInline = true;
+            el.loop = true;
+            this.bgmPool.set(filePath, el);
+        }
+        return el;
     }
 
     fadeOutBgm(audioElement, duration) {
@@ -671,6 +693,12 @@ class AudioManager {
         const startTime = Date.now();
         
         const fade = () => {
+            /* 落としている最中に鳴らし直されたら、落とすのをやめる。曲ごとに1つの
+               要素を使い回すので、同じ要素が返ってくることがある。鳴らし直す側
+               (playBgm)が掛け金を解くので、ここはそれを見るだけでよい
+               ――「今の曲か」で見ると、今の曲を落とす fadeOutBgm(500) の
+               単独呼び出しまで無効になる。 */
+            if (!audioElement._isFadingOut) return;
             const now = Date.now();
             const elapsed = now - startTime;
             const progress = Math.min(1, elapsed / durationMs);
@@ -696,8 +724,8 @@ class AudioManager {
             this.activeBgmAudios.delete(audioElement);
             audioElement.pause();
             audioElement.currentTime = 0;
-            audioElement.src = '';
-            audioElement.load(); // リソース解放の強制
+            /* 【src は外さない】。曲ごとに1つの要素を使い回しているので、外すと次に
+               鳴らすとき読み直しになり、iOS では鳴り出すまで無音が続く。 */
             audioElement._isFadingOut = false;
             
             if (this.bgmAudio === audioElement) {
