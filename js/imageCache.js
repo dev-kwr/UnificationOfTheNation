@@ -27,8 +27,42 @@ export function isImageReady(image) {
 }
 
 // ロードが決着したか（成功・失敗を問わない）。待ちループの終了条件はこちら。
+// 読み直しの最中は「まだ決着していない」。src を差し替える一瞬だけ complete が
+// 立つので、ここで弾かないと絵の無いまま場が始まる。
 function isImageSettled(image) {
-    return !!(image && (image.complete || image.__uonFailed));
+    if (!image || image.__uonRetrying) return false;
+    return !!(image.complete || image.__uonFailed);
+}
+
+/* 【落ちた絵は読み直す】。回線やメモリの都合で大きな絵は読み込みに落ちることが
+   あり、一度の失敗で「決着」にすると音だけ鳴って画面が真っ黒の場が始まる
+   (実機フィードバック 2026-09-20)。落ち続ける絵(404など)で待ちが伸びないよう
+   回数に上限を置く。 */
+const IMAGE_RETRY_MAX = 2;          // 読み込み中の即時リトライ
+const IMAGE_RETRY_DELAY_MS = 400;
+const IMAGE_LATE_RETRY_MAX = 3;     // 場が始まった後の読み直し
+const IMAGE_LATE_RETRY_INTERVAL_MS = 3000;
+
+function reloadImage(image) {
+    image.__uonRetrying = true;
+    try {
+        image.removeAttribute('src');
+        image.src = image.__uonSrc;
+    } catch { /* 非致命 */ }
+    image.__uonRetrying = false;
+}
+
+// 落ちたまま残っている絵を、間を置いて読み直す（真っ黒のまま固定されるのを防ぐ）
+function retryFailedImage(image) {
+    if (!image.__uonSrc) return;
+    if ((image.__uonLateRetries || 0) >= IMAGE_LATE_RETRY_MAX) return;
+    const now = Date.now();
+    if (image.__uonNextRetryAt && now < image.__uonNextRetryAt) return;
+    image.__uonNextRetryAt = now + IMAGE_LATE_RETRY_INTERVAL_MS;
+    image.__uonLateRetries = (image.__uonLateRetries || 0) + 1;
+    image.__uonFailed = false;
+    image.__uonTries = 0;
+    reloadImage(image);
 }
 
 // 先にデコードまで済ませると初回描画のデコード待ちで1フレーム落ちない。
@@ -43,8 +77,18 @@ function requestDecode(image) {
 function createImage(src, { decode, priority }) {
     const image = new Image();
     image.decoding = 'async';
+    image.__uonSrc = src;
+    image.__uonTries = 0;
     if (priority && 'fetchPriority' in image) image.fetchPriority = priority;
-    image.addEventListener('error', () => { image.__uonFailed = true; }, { once: true });
+    image.addEventListener('error', () => {
+        if (image.__uonTries < IMAGE_RETRY_MAX) {
+            image.__uonTries++;
+            image.__uonRetrying = true;   // 読み直しが始まるまで「決着」にしない
+            setTimeout(() => reloadImage(image), IMAGE_RETRY_DELAY_MS * image.__uonTries);
+            return;
+        }
+        image.__uonFailed = true;
+    });
     image.src = src;
     if (decode) requestDecode(image);
     return image;
@@ -59,6 +103,8 @@ export function getImage(src) {
         image = createImage(src, { decode: true, priority: 'high' });
         _cache.set(src, image);
     } else {
+        // 落ちたまま残っている絵は、要求されたときに読み直しを試す
+        if (image.__uonFailed) retryFailedImage(image);
         requestDecode(image);
     }
     return image;

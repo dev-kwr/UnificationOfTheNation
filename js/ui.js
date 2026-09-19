@@ -2,9 +2,9 @@
 // Unification of the Nation - UIクラス
 // ============================================
 
-import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260920a';
+import { SCREEN_WIDTH, CANVAS_HEIGHT, COLORS, VIRTUAL_PAD, HUD_PANEL_X, getDeviceProfile, getPadLayout, getUiScale, getFontScale, getFitScale, getScreenSafeArea, getUiLeftEdge, getFullHeightSideInset, isTouchOverlayMode, setVirtualPadVisible } from './constants.js?v=screen-safe-20260920b';
 
-import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260920a';
+import { isUpdateAvailable } from './appUpdate.js?v=screen-safe-20260920b';
 
 // 左上HUDの文字だけ、実寸アンカー(getFontScale)からさらに落とす係数。
 // 実測 16.0css-px は情報量の割に大きいという実機フィードバック(2026-08-09)。
@@ -22,9 +22,9 @@ const UPDATE_MODAL_TITLE = '新しいバージョンがあります';
 const UPDATE_MODAL_BODY = '最新の状態に更新してください';
 const UPDATE_MODAL_BUTTON_TOUCH = 'タップして更新';
 const UPDATE_MODAL_BUTTON_KEY = 'クリックまたはSPACEで更新';
-import { input } from './input.js?v=screen-safe-20260920a';
-import { audio } from './audio.js?v=screen-safe-20260920a';
-import { saveManager } from './save.js?v=screen-safe-20260920a';
+import { input } from './input.js?v=screen-safe-20260920b';
+import { audio } from './audio.js?v=screen-safe-20260920b';
+import { saveManager } from './save.js?v=screen-safe-20260920b';
 
 const CONTROL_MANUAL_TEXT = '←→：移動 | ↓：しゃがみ | ↑・SPACE：ジャンプ | Z：攻撃 | X：忍具 | C：切り替え | S：奥義 | SHIFT：ダッシュ | ESC：ポーズ';
 const TITLE_MANUAL_TEXT = '↑↓：選択 | ←→：難易度 | SPACE：決定';
@@ -4082,7 +4082,7 @@ const PAUSE_BUTTON_LABELS = { resume: 'ゲーム再開', map: '地図に戻る',
  * 色・ラベル・膨らみを t で繋ぐ ＝ 押した瞬間にラベルが差し替わらず、
  * 「確認に切り替わった」ことが動きで読める。
  */
-function drawPauseButton(ctx, btn, label, armedLabel, t = 0, openE = 1) {
+function drawPauseButton(ctx, btn, label, armedLabel, t = 0, openE = 1, focused = false) {
     const e = t <= 0 ? 0 : t >= 1 ? 1 : 1 - Math.pow(1 - t, 3);   // ease-out
     // 遷移の山でだけ少し膨らませる（両端では等倍に戻る＝解除側でも同じ動き）。
     // 開閉の遷移(openE)は各ボタン【自身の中心】を軸に縮める ―― 中心が動かないので
@@ -4101,8 +4101,11 @@ function drawPauseButton(ctx, btn, label, armedLabel, t = 0, openE = 1) {
     const mix = (a, b) => a + (b - a) * e;
     ctx.fillStyle = `rgba(${Math.round(mix(16, 140))}, ${Math.round(mix(22, 38))}, ${Math.round(mix(40, 38))}, ${mix(0.62, 0.82).toFixed(3)})`;
     ctx.fill();
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = `rgba(${Math.round(mix(220, 255))}, ${Math.round(mix(200, 196))}, ${Math.round(mix(150, 196))}, ${mix(0.7, 0.9).toFixed(3)})`;
+    // キーボードで選んでいる枠は線を太く明るくする（どれが選択中か分かるように）
+    ctx.lineWidth = focused ? 2.6 : 1.5;
+    ctx.strokeStyle = focused
+        ? 'rgba(255, 228, 168, 0.98)'
+        : `rgba(${Math.round(mix(220, 255))}, ${Math.round(mix(200, 196))}, ${Math.round(mix(150, 196))}, ${mix(0.7, 0.9).toFixed(3)})`;
     ctx.stroke();
 
     // ラベルは枠内でクロスフェード（通常は上へ抜け、確認は下から入る）
@@ -4164,7 +4167,8 @@ export function renderPauseScreen(ctx, options = {}) {
             PAUSE_BUTTON_LABELS[btn.id],
             armable ? `もう一度${actionWord}` : null,
             armable ? (anim[btn.id] || 0) : 0,
-            openE
+            openE,
+            options.focusId === btn.id
         );
     });
     ctx.restore();
