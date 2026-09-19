@@ -127,13 +127,13 @@ export function areImagesSettled(srcList) {
 export function releaseImagesExcept(keepList) {
     const keep = new Set(Array.isArray(keepList) ? keepList : []);
     let released = 0;
-    for (const [src, image] of [..._cache]) {
+    for (const src of [..._cache.keys()]) {
         if (keep.has(src)) continue;
+        /* 【参照を外すだけにする】。src まで外すと、同じ Image を掴んでいる側
+           (描画の途中・読み込み待ちの判定)が naturalWidth=0 の絵を見ることになる。
+           表から外せば次の要求で新しく読み直され、古い方は参照が切れた時点で
+           ブラウザが回収する。 */
         _cache.delete(src);
-        // 読み込み中のものまで止めると次に要るとき困るので、済んだものだけ手放す
-        if (image && image.complete) {
-            try { image.removeAttribute('src'); } catch { /* 非致命 */ }
-        }
         released++;
     }
     // 行列に残っている「そのうち要る」ぶんも、対象外なら流さない

@@ -399,7 +399,7 @@ class AudioManager {
         this.init();
         // 奥義が満ちた合図。以前は合成音を2つ重ねていた(ポヨンと鳴った)。
         // 音量は控えめに、立ち上がりはプール直再生＋先頭無音を飛ばして速くする。
-        this.playFileSfx('se/max.mp3', 0.45, 1.0, 0.03, true);
+        this.playFileSfx('se/max.mp3', 0.62, 1.0, 0.03, true);
     }
 
     playItemPurchase() {

@@ -1,20 +1,20 @@
 // Unification of the Nation - 描画系 mixin
 
-import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260919d';
-import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260919d';
-import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260919d';
-import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260919d';
-import { audio } from './audio.js?v=screen-safe-20260919d';
-import { game } from './game.js?v=screen-safe-20260919d';
+import { PLAYER, GRAVITY, FRICTION, COLORS, LANE_OFFSET } from './constants.js?v=screen-safe-20260919e';
+import { updateRibbonChain } from './mobFx.js?v=screen-safe-20260919e';
+import { drawClothRibbon, shadeRibbonColor } from './clothRibbon.js?v=screen-safe-20260919e';
+import { HEADBAND_TAIL_SPEC, resolveClothClone, copyClothNodesToRoot } from './clothChain.js?v=screen-safe-20260919e';
+import { audio } from './audio.js?v=screen-safe-20260919e';
+import { game } from './game.js?v=screen-safe-20260919e';
 import {
     ANIM_STATE, COMBO_ATTACKS, PLAYER_HEADBAND_LINE_WIDTH, PLAYER_SPECIAL_HEADBAND_LINE_WIDTH,
     PLAYER_PONYTAIL_CONNECT_LIFT_Y, PLAYER_PONYTAIL_ROOT_ANGLE_RIGHT,
     PLAYER_PONYTAIL_ROOT_ANGLE_LEFT, PLAYER_PONYTAIL_ROOT_SHIFT_X,
     PLAYER_PONYTAIL_NODE_ROOT_OFFSET_X, PLAYER_PONYTAIL_NODE_ROOT_OFFSET_Y,
     BASE_EXP_TO_NEXT, TEMP_NINJUTSU_MAX_STACK_MS, LEVEL_UP_MAX_HP_GAIN
-} from './playerData.js?v=screen-safe-20260919d';
-import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260919d';
-import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260919d';
+} from './playerData.js?v=screen-safe-20260919e';
+import { applyShogunRendererMixin } from './shogunRendererHelper.js?v=screen-safe-20260919e';
+import { drawImageGraded } from './filteredImage.js?v=screen-safe-20260919e';
 import {
     SHOGUN_SCALE,
     SHOGUN_ACTOR_BASE_HEIGHT,
@@ -40,7 +40,7 @@ import {
     NINJA_CROUCH_LIFT_AMP,
     SHOGUN_CROUCH_LIFT_AMP,
     SHOGUN_RUN_STRIDE_CENTER_BIAS
-} from './shogunConstants.js?v=screen-safe-20260919d';
+} from './shogunConstants.js?v=screen-safe-20260919e';
 
 export function applyRendererMixin(PlayerClass) {
     applyShogunRendererMixin(PlayerClass);
